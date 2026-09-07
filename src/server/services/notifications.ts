@@ -39,6 +39,7 @@ export const NOTIFICATION_TYPES = {
   SHOP_GST_REJECTED: "shop.gst_rejected",
   SHOP_PAN_VERIFIED: "shop.pan_verified",
   SHOP_PAN_REJECTED: "shop.pan_rejected",
+  STOCK_LOW: "inventory.stock_low",
 } as const;
 
 export type NotificationType =

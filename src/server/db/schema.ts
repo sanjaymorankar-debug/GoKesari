@@ -275,6 +275,45 @@ export const productApprovalStatusEnum = pgEnum("product_approval_status", [
   "REJECTED",
 ]);
 
+/* ------------------------------------------- product master (marketplace
+ * Product Master / Inventory brief). A kirana genuinely sells both packaged
+ * FMCG (branded, GTIN-carrying, printed MRP) and loose goods (rice by the
+ * kilo, vegetables) that have none of those. `kind` is what makes the
+ * difference explicit rather than leaving every identity field
+ * mysteriously null: LOOSE legitimately has no GTIN, brand or MRP, so the
+ * service layer only demands an MRP for PACKAGED. */
+export const productKindEnum = pgEnum("product_kind", ["PACKAGED", "LOOSE"]);
+
+/** Where a master MRP came from. Provenance matters because §13 forbids a shop owner silently overwriting a verified value. */
+export const mrpSourceEnum = pgEnum("mrp_source", [
+  "GS1",
+  "BRAND",
+  "ADMIN",
+  "IMPORT",
+  "API",
+  "SELLER_SUBMITTED",
+]);
+
+export const mrpVerificationStatusEnum = pgEnum("mrp_verification_status", [
+  "UNVERIFIED",
+  "PENDING_VERIFICATION",
+  "VERIFIED",
+  "DISPUTED",
+]);
+
+/** Raised against a shop_product when stock crosses its own configured threshold. */
+export const stockAlertTypeEnum = pgEnum("stock_alert_type", [
+  "LOW_STOCK",
+  "OUT_OF_STOCK",
+  "REORDER",
+]);
+
+export const stockAlertStatusEnum = pgEnum("stock_alert_status", [
+  "OPEN",
+  "ACKNOWLEDGED",
+  "RESOLVED",
+]);
+
 /**
  * Voucher lifecycle (§21). EXPIRED and BUDGET_EXHAUSTED are computed states —
  * nothing ever writes them directly except the redemption engine flipping
@@ -773,6 +812,32 @@ export const deliveryPartners = pgTable(
 
 /* ---------------------------------------------------- catalogue (master) */
 
+/**
+ * Manufacturer brand ("Amul", "Britannia"). Optional on a product: loose
+ * goods and generic staples have no brand, and forcing one would mean
+ * inventing fake brands for half a kirana's catalogue.
+ */
+export const brands = pgTable(
+  "brands",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    description: text("description"),
+    logoUrl: text("logo_url"),
+    isActive: boolean("is_active").notNull().default(true),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("brands_slug_unique").on(t.slug), index("brands_name_idx").on(t.name)],
+);
+
 export const productCategories = pgTable(
   "product_categories",
   {
@@ -792,6 +857,33 @@ export const productCategories = pgTable(
   (t) => [
     uniqueIndex("product_categories_slug_unique").on(t.slug),
     index("product_categories_dept_idx").on(t.department),
+  ],
+);
+
+/**
+ * Second level of the category tree (Dairy → Milk, Curd, Paneer). Replaces
+ * the freeform `products.subCategory` text column, which stays in place
+ * untouched so nothing reading it breaks; new code should use this FK.
+ */
+export const productSubcategories = pgTable(
+  "product_subcategories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    categoryId: uuid("category_id")
+      .notNull()
+      .references(() => productCategories.id, { onDelete: "restrict" }),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    isActive: boolean("is_active").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("product_subcategories_slug_unique").on(t.slug),
+    index("product_subcategories_category_idx").on(t.categoryId),
   ],
 );
 
@@ -822,9 +914,55 @@ export const products = pgTable(
     description: text("description"),
     /** Structured spec sheet (bullet points), distinct from prose description. */
     specifications: text("specifications"),
-    /** Freeform, optional — the schema has no subcategory table to join to. */
+    /** @deprecated Legacy freeform text. Prefer `subcategoryId`; kept so existing rows/readers are untouched. */
     subCategory: text("sub_category"),
+    subcategoryId: uuid("subcategory_id").references(() => productSubcategories.id),
+    brandId: uuid("brand_id").references(() => brands.id),
     imageUrl: text("image_url"),
+
+    /* ------------------------------------------- product identity (Product
+     * Master brief §3). PACKAGED goods carry a GTIN and a printed MRP;
+     * LOOSE goods (rice by the kilo) carry neither, which is why every
+     * field here is nullable and `kind` records which case applies. */
+    kind: productKindEnum("kind").notNull().default("PACKAGED"),
+    /**
+     * Canonical GTIN, digits only. EAN-13 and UPC-A *are* GTINs, so they
+     * normalize into this one column rather than getting near-duplicate
+     * `ean`/`upc` columns that would inevitably drift apart. Unique when
+     * present — see the partial index below.
+     */
+    gtin: text("gtin"),
+    /** Shop-local or legacy barcode that is NOT a GTIN. Deliberately not unique. */
+    barcode: text("barcode"),
+    /** Distinguishes otherwise-identical products (§11's duplicate key). Covers flavour/colour/size. */
+    variant: text("variant"),
+
+    /* ------------------------------------------------------ MRP (§12, §13).
+     * Owned by the master, never by a shop: `shop_products` holds the
+     * selling price. Nullable because LOOSE goods have no printed MRP —
+     * the service layer requires one for PACKAGED products instead of a
+     * NOT NULL constraint that would make loose goods unrepresentable. */
+    mrpPaise: bigint("mrp_paise", { mode: "number" }),
+    mrpSource: mrpSourceEnum("mrp_source"),
+    mrpEffectiveFrom: date("mrp_effective_from"),
+    mrpVerificationStatus: mrpVerificationStatusEnum("mrp_verification_status")
+      .notNull()
+      .default("UNVERIFIED"),
+    mrpUpdatedAt: timestamp("mrp_updated_at", { withTimezone: true }),
+
+    /* ---------------------------------------------------- tax (§3, GST-ready).
+     * Rate in basis points (18% → 1800), matching this schema's integer-only
+     * money/quantity discipline — no floats anywhere near tax maths. */
+    hsnCode: text("hsn_code"),
+    gstRateBp: integer("gst_rate_bp"),
+
+    /* ------------------------------------------- manufacturer & packaging */
+    manufacturerName: text("manufacturer_name"),
+    manufacturerAddress: text("manufacturer_address"),
+    countryOfOrigin: text("country_of_origin"),
+    /** Printed net quantity, e.g. 500 with `netQuantityUnit` = "g". Distinct from unitSizeMilli, which drives subscription maths. */
+    netQuantity: integer("net_quantity"),
+    netQuantityUnit: text("net_quantity_unit"),
     /** Display unit: L, ml, kg, g, piece, pack. */
     unit: text("unit").notNull(),
     /** Size of one sellable unit in milli-units (1 L → 1000). */
@@ -857,7 +995,66 @@ export const products = pgTable(
     uniqueIndex("products_code_unique").on(t.code),
     index("products_category_idx").on(t.categoryId),
     index("products_approval_status_idx").on(t.approvalStatus),
+    // Partial unique: one master row per GTIN (§11's primary duplicate key),
+    // while any number of LOOSE/generic products legitimately have none.
+    uniqueIndex("products_gtin_unique")
+      .on(t.gtin)
+      .where(sql`${t.gtin} IS NOT NULL`),
+    index("products_barcode_idx").on(t.barcode),
+    index("products_brand_idx").on(t.brandId),
+    index("products_subcategory_idx").on(t.subcategoryId),
+    index("products_name_idx").on(t.name),
+    check(
+      "products_mrp_non_negative",
+      sql`${t.mrpPaise} IS NULL OR ${t.mrpPaise} >= 0`,
+    ),
+    check(
+      "products_gst_rate_sane",
+      sql`${t.gstRateBp} IS NULL OR (${t.gstRateBp} >= 0 AND ${t.gstRateBp} <= 10000)`,
+    ),
   ],
+);
+
+/**
+ * Immutable MRP trail (§12). Separate from product_price_history, which
+ * tracks a *shop's* selling price — this one tracks the master MRP and is
+ * never deleted, so a disputed price can always be traced to its source.
+ */
+export const productMrpHistory = pgTable(
+  "product_mrp_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    previousMrpPaise: bigint("previous_mrp_paise", { mode: "number" }),
+    newMrpPaise: bigint("new_mrp_paise", { mode: "number" }).notNull(),
+    source: mrpSourceEnum("source").notNull(),
+    effectiveFrom: date("effective_from"),
+    reason: text("reason"),
+    changedBy: uuid("changed_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("product_mrp_history_product_idx").on(t.productId)],
+);
+
+/** Additional product images. `products.imageUrl` stays as the primary/legacy image. */
+export const productImages = pgTable(
+  "product_images",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    url: text("url").notNull(),
+    sortOrder: integer("sort_order").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [index("product_images_product_idx").on(t.productId)],
 );
 
 /**
@@ -887,6 +1084,17 @@ export const shopProducts = pgTable(
     trackInventory: boolean("track_inventory").notNull().default(true),
     onlineStock: integer("online_stock").notNull().default(0),
     offlineStock: integer("offline_stock").notNull().default(0),
+
+    /* ------------------------------------------ per-shop stock thresholds
+     * (Product Master / Inventory brief §15–§18). Deliberately per-shop,
+     * never global: a shop selling 200 packets of milk a day and one
+     * selling 5 need completely different "low" marks. 0 disables the
+     * alert entirely for shops that don't want to be nagged. */
+    lowStockThreshold: integer("low_stock_threshold").notNull().default(0),
+    reorderLevel: integer("reorder_level"),
+    reorderQuantity: integer("reorder_quantity"),
+    minimumOrderQuantity: integer("minimum_order_quantity").notNull().default(1),
+    maximumOrderQuantity: integer("maximum_order_quantity"),
     isActive: boolean("is_active").notNull().default(true),
     /** Temporary availability toggle (e.g. sold out today) distinct from isActive. */
     isAvailable: boolean("is_available").notNull().default(true),
@@ -920,6 +1128,53 @@ export const shopProducts = pgTable(
       "shop_products_stock_non_negative",
       sql`${t.onlineStock} >= 0 AND ${t.offlineStock} >= 0`,
     ),
+    check(
+      "shop_products_thresholds_non_negative",
+      sql`${t.lowStockThreshold} >= 0
+          AND (${t.reorderLevel} IS NULL OR ${t.reorderLevel} >= 0)
+          AND (${t.reorderQuantity} IS NULL OR ${t.reorderQuantity} > 0)
+          AND ${t.minimumOrderQuantity} > 0
+          AND (${t.maximumOrderQuantity} IS NULL OR ${t.maximumOrderQuantity} >= ${t.minimumOrderQuantity})`,
+    ),
+    // §22's dashboard filters and the alert sweep both scan by stock level.
+    index("shop_products_stock_idx").on(t.onlineStock),
+  ],
+);
+
+/**
+ * Raised when a shop's stock crosses that shop's own configured threshold
+ * (§16–§18). Rows are kept after resolution rather than deleted, so a shop
+ * can see how often a line actually runs dry.
+ */
+export const stockAlerts = pgTable(
+  "stock_alerts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopProductId: uuid("shop_product_id")
+      .notNull()
+      .references(() => shopProducts.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    alertType: stockAlertTypeEnum("alert_type").notNull(),
+    status: stockAlertStatusEnum("status").notNull().default("OPEN"),
+    stockAtAlert: integer("stock_at_alert").notNull(),
+    thresholdAtAlert: integer("threshold_at_alert").notNull(),
+    acknowledgedBy: uuid("acknowledged_by").references(() => users.id),
+    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+  },
+  (t) => [
+    index("stock_alerts_shop_status_idx").on(t.shopId, t.status),
+    index("stock_alerts_shop_product_idx").on(t.shopProductId),
+    // At most one OPEN alert of a given type per shop-product, so a stock
+    // change that stays below the threshold doesn't pile up duplicates.
+    uniqueIndex("stock_alerts_open_unique")
+      .on(t.shopProductId, t.alertType)
+      .where(sql`${t.status} = 'OPEN'`),
   ],
 );
 
@@ -2200,6 +2455,16 @@ export type PanStatus = (typeof panStatusEnum.enumValues)[number];
 export type IdentityVerificationSource = (typeof identityVerificationSourceEnum.enumValues)[number];
 export type ProductCategory = typeof productCategories.$inferSelect;
 export type Product = typeof products.$inferSelect;
+export type Brand = typeof brands.$inferSelect;
+export type ProductSubcategory = typeof productSubcategories.$inferSelect;
+export type ProductMrpHistoryRow = typeof productMrpHistory.$inferSelect;
+export type ProductImage = typeof productImages.$inferSelect;
+export type StockAlert = typeof stockAlerts.$inferSelect;
+export type ProductKind = (typeof productKindEnum.enumValues)[number];
+export type MrpSource = (typeof mrpSourceEnum.enumValues)[number];
+export type MrpVerificationStatus = (typeof mrpVerificationStatusEnum.enumValues)[number];
+export type StockAlertType = (typeof stockAlertTypeEnum.enumValues)[number];
+export type StockAlertStatus = (typeof stockAlertStatusEnum.enumValues)[number];
 export type ShopProduct = typeof shopProducts.$inferSelect;
 export type Order = typeof orders.$inferSelect;
 export type OrderItem = typeof orderItems.$inferSelect;

@@ -44,8 +44,9 @@ export async function resetDatabase(): Promise<void> {
       wallet_transactions, wallets, payments,
       order_status_history, order_items, orders,
       cart_items, carts,
-      inventory_movements, product_price_history, shop_products,
-      products, product_categories,
+      stock_alerts, inventory_movements, product_price_history, shop_products,
+      product_images, product_mrp_history, products,
+      product_subcategories, product_categories, brands,
       shop_classification_history, shops,
       addresses,
       sessions, accounts, users

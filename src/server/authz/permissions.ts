@@ -152,6 +152,18 @@ export const PERMISSIONS = {
   SHOP_GST_PAN_VERIFY: "shop-gst-pan:verify",
   /** Decrypt and view a shop's full PAN number. ADMIN only — every use is audited. */
   SHOP_PAN_REVEAL: "shop-pan:reveal",
+
+  /* ------------------------------- product master & inventory thresholds */
+  /** Create and edit brands. Shared across every shop, so never shop-owner-editable. */
+  BRAND_MANAGE: "brand:manage",
+  /** Edit master identity: GTIN, HSN, manufacturer, pack size, subcategory. */
+  PRODUCT_IDENTITY_MANAGE: "product-identity:manage",
+  /** Write the master MRP directly (§13). Deliberately absent from SHOP_OWNER. */
+  PRODUCT_MRP_MANAGE: "product-mrp:manage",
+  /** Flag a master MRP as wrong — raises a verification request, never overwrites. */
+  PRODUCT_MRP_DISPUTE: "product-mrp:dispute",
+  /** Set low-stock threshold, reorder level and order limits on own shop's lines. */
+  INVENTORY_THRESHOLD_MANAGE_OWN: "inventory-threshold:manage:own",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -194,6 +206,9 @@ const SHOP_OWNER_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.PAYMENT_VIEW_OWN,
   PERMISSIONS.DELIVERY_ORDER_ASSIGN_SHOP,
   PERMISSIONS.SHOP_GST_PAN_MANAGE_OWN,
+  PERMISSIONS.INVENTORY_THRESHOLD_MANAGE_OWN,
+  // A shop owner may dispute a master MRP but never write it (§13).
+  PERMISSIONS.PRODUCT_MRP_DISPUTE,
   // Deliberately absent: SHOP_SET_CLASSIFICATION, CATEGORY_MANAGE,
   // SHOP_UPDATE_ANY, SYSTEM_CONFIG, REGISTRATION_FEE_MANAGE,
   // SHOP_REGISTRATION_MANAGE, PAYMENT_RECORD, REFERRAL_MANAGE, PRODUCT_APPROVE
@@ -241,6 +256,9 @@ const OPERATOR_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.DELIVERY_PARTNER_MANAGE,
   PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY,
   PERMISSIONS.SHOP_GST_PAN_VERIFY,
+  PERMISSIONS.BRAND_MANAGE,
+  PERMISSIONS.PRODUCT_IDENTITY_MANAGE,
+  PERMISSIONS.PRODUCT_MRP_MANAGE,
   // Deliberately absent (§43 "not unrestricted system access"):
   // USER_SET_ROLE, USER_SUSPEND, WALLET_ADJUST, SYSTEM_CONFIG,
   // AUDIT_LOG_VIEW, REPORT_VIEW_ALL, WALLET_VIEW_ANY.
@@ -373,4 +391,11 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.SHOP_GST_PAN_MANAGE_OWN]: "Submit own shop's GSTIN and PAN for verification",
   [PERMISSIONS.SHOP_GST_PAN_VERIFY]: "Confirm or reject a shop's submitted GSTIN or PAN",
   [PERMISSIONS.SHOP_PAN_REVEAL]: "Decrypt and view a shop's full PAN number",
+  [PERMISSIONS.BRAND_MANAGE]: "Create and edit product brands",
+  [PERMISSIONS.PRODUCT_IDENTITY_MANAGE]:
+    "Edit master product identity — GTIN, HSN, manufacturer, pack size",
+  [PERMISSIONS.PRODUCT_MRP_MANAGE]: "Set the master MRP for a product",
+  [PERMISSIONS.PRODUCT_MRP_DISPUTE]: "Flag a master MRP as incorrect for verification",
+  [PERMISSIONS.INVENTORY_THRESHOLD_MANAGE_OWN]:
+    "Set low-stock threshold and reorder levels for own shop's products",
 };

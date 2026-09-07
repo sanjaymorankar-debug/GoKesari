@@ -33,6 +33,7 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { evaluateStockAlerts } from "./inventory-alerts";
 
 /* ------------------------------------------------------------ categories */
 
@@ -1104,6 +1105,10 @@ export async function consumeOnlineStock(
     reason,
     orderId: orderId ?? null,
   });
+
+  // Inside the caller's transaction, so an alert can never outlive a
+  // rolled-back order.
+  await evaluateStockAlerts(shopProductId, client);
 }
 
 export async function restockOnline(
@@ -1141,6 +1146,10 @@ export async function restockOnline(
       reason,
       createdBy: actorId,
     });
+
+    // Resolves any open LOW_STOCK/OUT_OF_STOCK alert and flips the line back
+    // to available — §17's replenishment path, with nothing to re-enter.
+    await evaluateStockAlerts(shopProductId, tx);
     return updated;
   });
 }

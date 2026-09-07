@@ -86,6 +86,15 @@ export const AUDIT_ACTIONS = {
   /* --------------------------------------------- seller/food compliance */
   SHOP_COMPLIANCE_UPDATED: "shop.compliance_updated",
 
+  /* ------------------------------- product master & inventory thresholds */
+  BRAND_CREATED: "brand.created",
+  BRAND_UPDATED: "brand.updated",
+  PRODUCT_MRP_CHANGED: "product.mrp_changed",
+  /** A shop owner disputing the master MRP — the claim lives here, never in products.mrp_paise. */
+  PRODUCT_MRP_CORRECTION_SUBMITTED: "product.mrp_correction_submitted",
+  PRODUCT_IDENTITY_UPDATED: "product.identity_updated",
+  STOCK_THRESHOLD_CHANGED: "shop_product.stock_threshold_changed",
+
   /* --------------------------------------------- GST/PAN verification */
   SHOP_GST_SUBMITTED: "shop.gst_submitted",
   SHOP_GST_VERIFIED: "shop.gst_verified",
