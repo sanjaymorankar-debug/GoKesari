@@ -27,31 +27,62 @@ import type { VehicleTypeKey } from "@/lib/vehicle-types";
 let counter = 0;
 const uniq = () => `${Date.now().toString(36)}-${(counter += 1)}`;
 
-/** Wipes all business data between tests. Order is handled by CASCADE. */
+/** Postgres deadlock_detected / lock_not_available — both are worth a retry. */
+const RETRYABLE_LOCK_ERRORS = new Set(["40P01", "55P03"]);
+
+function pgErrorCode(error: unknown): string | undefined {
+  const e = error as { code?: unknown; cause?: { code?: unknown } };
+  const code = e?.cause?.code ?? e?.code;
+  return typeof code === "string" ? code : undefined;
+}
+
+/**
+ * Wipes all business data between tests. Order is handled by CASCADE.
+ *
+ * Retried on deadlock: TRUNCATE takes an AccessExclusiveLock on every table
+ * listed, which deadlocks against a connection from the previous test that is
+ * still winding down while holding row locks. Postgres resolves it by killing
+ * one side — usually this one — so a retry succeeds. Without the retry the
+ * suite fails intermittently during cleanup rather than on anything a test
+ * actually asserts, which masks real regressions.
+ */
 export async function resetDatabase(): Promise<void> {
-  await db.execute(sql`
-    TRUNCATE TABLE
-      grievances, user_consents,
-      delivery_partner_earnings, delivery_earnings_config, delivery_orders,
-      maps_api_call_log, delivery_partners,
-      audit_logs, notifications,
-      price_update_requests, price_update_batches,
-      excel_upload_items, excel_uploads,
-      shop_payments, referral_redemptions, referral_codes,
-      registration_fee_history, registration_fees,
-      voucher_redemptions, voucher_upload_items, voucher_uploads, vouchers,
-      subscription_orders, subscription_daily_overrides, subscriptions,
-      wallet_transactions, wallets, payments,
-      order_status_history, order_items, orders,
-      cart_items, carts,
-      stock_alerts, inventory_movements, product_price_history, shop_products,
-      product_images, product_mrp_history, products,
-      product_subcategories, product_categories, brands,
-      shop_classification_history, shops,
-      addresses,
-      sessions, accounts, users
-    RESTART IDENTITY CASCADE
-  `);
+  const maxAttempts = 5;
+
+  for (let attempt = 1; ; attempt += 1) {
+    try {
+      await db.execute(sql`
+        TRUNCATE TABLE
+          grievances, user_consents,
+          delivery_partner_earnings, delivery_earnings_config, delivery_orders,
+          maps_api_call_log, delivery_partners,
+          audit_logs, notifications,
+          price_update_requests, price_update_batches,
+          excel_upload_items, excel_uploads,
+          shop_payments, referral_redemptions, referral_codes,
+          registration_fee_history, registration_fees,
+          voucher_redemptions, voucher_upload_items, voucher_uploads, vouchers,
+          subscription_orders, subscription_daily_overrides, subscriptions,
+          wallet_transactions, wallets, payments,
+          order_status_history, order_items, orders,
+          cart_items, carts,
+          stock_alerts, inventory_movements, product_price_history, shop_products,
+          product_images, product_mrp_history, products,
+          product_subcategories, product_categories, brands,
+          shop_classification_history, shops,
+          addresses,
+          sessions, accounts, users
+        RESTART IDENTITY CASCADE
+      `);
+      return;
+    } catch (error) {
+      const code = pgErrorCode(error);
+      if (!code || !RETRYABLE_LOCK_ERRORS.has(code) || attempt >= maxAttempts) {
+        throw error;
+      }
+      await new Promise((resolve) => setTimeout(resolve, attempt * 150));
+    }
+  }
 }
 
 export async function createUser(
