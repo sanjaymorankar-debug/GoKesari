@@ -9,11 +9,13 @@ import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Several tests here chain many sequential round-trips (checkout, two status
-// transitions, an assignment scan) against a remote Neon instance — the
-// default 30s budget is comfortably enough locally but not over that
-// network latency, matching the same accommodation other heavy suites in
-// this repo need.
-vi.setConfig({ testTimeout: 60_000, hookTimeout: 60_000 });
+// transitions, an assignment scan) against a remote Neon instance, and the
+// heaviest builds *two* ready orders before it can assert anything — roughly
+// double the network cost of anything else in the suite. This has to stay
+// above the global budget in vitest.config.ts, not below it: when the global
+// went to 90s this override was still pinned at 60s and silently capped the
+// file, which is what failed here.
+vi.setConfig({ testTimeout: 150_000, hookTimeout: 90_000 });
 
 import { db } from "@/server/db";
 import { deliveryEarningsConfig, orders, type Order } from "@/server/db/schema";
