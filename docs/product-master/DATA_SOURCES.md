@@ -111,7 +111,24 @@ Files: [`examples/partner-feed.sample.csv`](./examples/partner-feed.sample.csv),
 | `gstRate`, `hsnCode`, `cess` | Tax: `18%`, `0.18` and `18` are all 18 %; HSN must be 4/6/8 digits |
 | `categories`, `images`, `keywords` | Lists — one cell, values separated by `|` (`--list-separator` to change) |
 | `offer.price`, `offer.mrp`, `offer.sellerId`, `offer.sellerName`, `offer.sellerLocation`, `offer.sellerRating`, `offer.currency`, `offer.stock`, `offer.deliveryInformation`, `offer.url`, `offer.collectedAt`, `offer.taxInclusive` | The seller's offer. Prices like `Rs. 1,299.00` are understood; `offer.stock` text ("in stock", "only 3 left", "sold out") is normalised |
-| `attribute.<key>` | A category-specific fact, keyed by the attribute registry (`ram_gb`, `net_weight_g`, `ingredients`, …; 81 are defined, with type, unit and group). A key the registry does not know is **registered automatically** in group `OTHER`, with a type inferred from its value — so a misspelt key creates a new attribute instead of failing. Review `pmd.attribute_definition` after onboarding a feed |
+| `attribute.<key>` | A category-specific fact, keyed by the attribute registry (`ram_gb`, `net_weight_g`, `ingredients`, …; 84 are defined, with type, unit and group). A key the registry does not know is **registered automatically** in group `OTHER`, with a type inferred from its value — so a misspelt key creates a new attribute instead of failing. Review `pmd.attribute_definition` after onboarding a feed |
+
+**What a mapping value can be.** Besides a plain column name:
+
+| Form | Example | Meaning |
+|---|---|---|
+| `=constant` | `"brand": "=Sunrise Dairy"` | The same text on every row - for a fact the file never repeats (one brand per catalogue) |
+| `{template}` | `"quantityText": "{Net Content} {UoM\|unece}"` | Cells joined into text. `\|unece` turns a UN/ECE unit code (`GRM`, `KGM`, `MLT`, `LTR`, `H87`, `CMT`, ...) into `g`, `kg`, `ml`, `l`, `pcs`, `cm`. A template whose cells are all empty is missing, not `" "` |
+
+A mapping key the platform does not know (`"gtn"`) is an **error**, with the closest valid key suggested - a typo must not silently import nothing.
+
+**Excel files.** `--file catalogue.xlsx` is read by streaming (memory stays flat for large catalogues); `--sheet <name|number>` picks the sheet (default: the first *visible* one) and `--header-row <n>` says where the headings are when a title block sits above them. Blank padding rows are ignored; dates, formulas, rich text and hyperlinks become plain text. Legacy `.xls` is not supported - ask the supplier for `.xlsx` or `.csv`. If the streaming reader cannot cope with a file's internal layout it falls back to reading the workbook in memory (slower, heavier, still correct).
+
+**Numeric barcodes.** Excel stores a barcode column as numbers and drops leading zeros. A 10-11 digit value that becomes a valid 12-digit UPC-A when zero-padded is restored (the original stays in the stored raw record); anything shorter is left alone rather than guessed. `--no-restore-zeros` turns it off.
+
+**Registry `feed` settings.** A registry entry may carry `feed: { format, sheet, headerRow, delimiter, listSeparator, categoryMap, restoreGtinZeros, fullSnapshot }` so a supplier's file is read the same way every time; command-line flags override it.
+
+**Checking before an agreement is final.** `--check` reads a file and writes nothing, so it works for a source that is still `BLOCKED_NEEDS_AGREEMENT` or `PLANNED` - that is how a mapping is prepared while the paperwork is signed. A real load needs an `ACTIVE`, enabled source. The check reports how many rows would load and the coverage of GTIN, brand, category, price, **MRP, GST, HSN and manufacturer** - the fields open data could not supply.
 
 **Category map** — the feed's exact category text → a standard category code. Codes are the slug paths in the [taxonomy](./DATA_DICTIONARY.md#8-category_master) (`GET /api/product-master/categories` lists them). The tool refuses a map that names a code that does not exist.
 
@@ -151,6 +168,8 @@ Rules for adapters:
 |---|---|---|
 | Open Food Facts, Open Beauty Facts, Open Products Facts, Open Pet Food Facts | The projects' official **bulk data dumps** (their robots.txt allows `/data/`; the live `/api` is disallowed for generic crawlers, so it is never used) | ODbL 1.0 (database), DbCL 1.0 (contents); images CC BY-SA, linked only |
 | Open Prices | The project's public REST API (empty robots.txt), polite client | ODbL / DbCL |
-| Mapped CSV feed (`partner_feed`, `manual_import`) | A file you obtained lawfully | Yours to state in the registry entry |
+| Mapped CSV / Excel feed (`partner_feed`, `manual_import`, `gs1_india`, `brand_manufacturer_feeds`) | A file you obtained lawfully | Yours to state in the registry entry |
+
+The two chosen as the first non-food sources - **GS1 India** and **manufacturer catalogues** - have connectors ready and are covered in [GS1_AND_MANUFACTURERS.md](./GS1_AND_MANUFACTURERS.md).
 
 Everything else in the [register](./SOURCE_REGISTER.md) is blocked or planned, with its route.

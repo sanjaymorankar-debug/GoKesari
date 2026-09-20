@@ -158,10 +158,11 @@ Every source named in the brief, with its status and the lawful basis on which i
 
 - **Kind / access:** BRAND_MANUFACTURER / MANUFACTURER_FEED
 - **Trust:** reliability 95, specification precedence 10 (lower wins a conflict)
-- **Legal basis / route:** Catalogue files or APIs supplied by the brand under agreement, or public product-information pages where the brand's terms and robots.txt permit. Highest-precedence source for technical specifications.
+- **Legal basis / route:** Catalogue files (Excel or CSV) or APIs supplied by the brand under agreement or written permission, or public product-information pages where the brand's terms and robots.txt permit. Highest-precedence source for technical specifications, tax and MRP.
 - **robots.txt:** Not fetched. No automated access to this site is performed until an agreed route is in place.
 - **Frequency:** weekly
-- **Notes:** Register one source per brand once a feed or written permission exists.
+- **Parser:** `tabular_feed`
+- **Notes:** Template entry. Register ONE source per brand (copy this, key it mfr_<brand>, set the brand's own mapping and category map, ACTIVE only once the agreement or written permission exists). See docs/product-master/GS1_AND_MANUFACTURERS.md.
 
 ### `distributor_catalogues` - Authorised distributors
 
@@ -211,11 +212,12 @@ Every source named in the brief, with its status and the lawful basis on which i
 
 - **Kind / access:** GS1 / LICENSED_FEED
 - **Trust:** reliability 95, specification precedence 12 (lower wins a conflict)
-- **Legal basis / route:** GS1 product-data and verification services require GS1 membership or a data licence (confirm the current service names and terms with GS1 India). GTIN prefixes are public; product records are not scraped.
+- **Legal basis / route:** GS1 product-data and verification services require GS1 membership or a data licence (confirm the current service names, delivery options and redistribution terms with GS1 India). GTIN prefixes are public; product records are not scraped. The connector reads a file or export delivered under that licence.
 - **robots.txt:** Not fetched. No automated access to this site is performed until an agreed route is in place.
 - **Credentials:** environment variable `PMD_SRC_GS1_INDIA_CREDENTIALS` (the secret is never stored)
 - **Frequency:** weekly
-- **Notes:** Authoritative for brand-owner and pack data. Enabling this is the single most valuable next source.
+- **Parser:** `tabular_feed`
+- **Notes:** Authoritative for brand owner, product description and net content. Connector built (mapping below is a template to align with the real export); it stays BLOCKED until the licence exists - then set ACTIVE here and enable the source. See docs/product-master/GS1_AND_MANUFACTURERS.md.
 
 ### `gem_catalogue` - Government e-Marketplace (GeM) catalogue
 

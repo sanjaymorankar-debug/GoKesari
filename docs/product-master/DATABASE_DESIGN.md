@@ -48,7 +48,7 @@ erDiagram
 | | `product_identifier` | one per identifier | GTIN, ISBN, MPN, model, SKU, source code, internal barcode; original form kept; check-digit result stored |
 | | `product_family` | one per product line | Groups pack sizes / variants **without merging them** |
 | | `product_image` | one per image URL | Referenced, never copied; licence note |
-| **Facts** | `attribute_definition` | one per attribute | 81 registered keys: type, unit, group, authority (spec vs marketplace) |
+| **Facts** | `attribute_definition` | one per attribute | 84 registered keys: type, unit, group, authority (spec vs marketplace) |
 | | `product_specification` | product × attribute × **source** | EAV; exactly one `is_preferred` per attribute per product |
 | | `product_attribute_conflict` | one per disagreement | Both values and sources, status, resolution rule |
 | **Reference** | `brand`, `brand_alias` | brands and every spelling | `brand_key` is the normalised identity |

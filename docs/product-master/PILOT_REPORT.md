@@ -240,7 +240,7 @@ So 8 of 15 are covered, 5 barely, 2 not at all. No lawful open source exists for
 
 In order. The first four are prerequisites for step 9; the rest can run in parallel.
 
-1. **Decide the first lawful non-food source** (a partner/affiliate feed, distributor list or manufacturer catalogue; GS1 India for barcodes and brand owners) and onboard it with the feed tool. This is the single biggest lever on coverage, tax data and MRP.
+1. **First lawful non-food sources: GS1 India and manufacturer catalogues (chosen).** Connectors are built and tested (Excel and CSV, mapping templates, GPC → category map); what remains is the **agreement / permission and a real sample file** for each — see [GS1_AND_MANUFACTURERS.md](./GS1_AND_MANUFACTURERS.md). This is the single biggest lever on coverage, tax data and MRP.
 2. **Rework or co-locate the loader.** Cut statements per record, pipeline where independent, add the bulk initial-load path, and **measure parallel workers** — then re-run the benchmark against a staging database in the same region.
 3. **Apply `0015` to a hosted staging branch** and run `npm run pmd:test` there.
 4. **Staff the review queue** and decide the target queue rate; tune thresholds with evidence from step 1's data.

@@ -64,6 +64,10 @@ export const ATTRIBUTE_DEFINITIONS: readonly AttributeDefinition[] = [
   A("bis_certification", "BIS certification", "COMPLIANCE", "TEXT"),
   A("packaging", "Packaging", "GENERAL", "TEXT"),
   A("labels", "Labels / certifications", "GENERAL", "TEXT"),
+  // GS1 identity and classification: who owns the GTIN, and where GS1 files the product (GPC).
+  A("brand_owner_gln", "Brand owner GLN", "GENERAL", "TEXT", { trackConflicts: false }),
+  A("gpc_brick_code", "GS1 GPC brick code", "GENERAL", "TEXT"),
+  A("gpc_brick_name", "GS1 GPC brick name", "GENERAL", "TEXT", { trackConflicts: false }),
 
   /* ---------------------------------------------------------------- food */
   A("fssai_number", "FSSAI licence number", "FOOD", "TEXT", { description: "14-digit FSSAI licence / registration number" }),

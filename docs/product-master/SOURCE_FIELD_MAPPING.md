@@ -75,9 +75,47 @@ One adapter (`sources/adapters/open-facts.ts`) serves all four: same schema, sam
 
 **Trust:** reliability 55, precedence 60. A later observation from the same store is **price history**, never a duplicate product; an *older* observation than the current one only back-fills history and never rolls the current price back. The same barcode at a different store is a different seller on the same master.
 
-## Mapped CSV feed (`partner_feed`, `manual_import`)
+## Mapped CSV / Excel feed (`partner_feed`, `manual_import`)
 
 Described by a mapping file rather than code — see [DATA_SOURCES.md](./DATA_SOURCES.md#a-csv-feed-by-configuration) and the [worked example](./examples/partner-feed.mapping.json). In short, `{ "<staged field>": "<feed column>" }`, with `offer.<field>` for the offer and `attribute.<key>` for category-specific facts.
+
+## GS1 India (template - align the column names to the real export)
+
+`sources/registry.ts` → `GS1_MAPPING`. GS1 product data follows the GS1 data model (GDSN attributes). The **right-hand names are a template** for a typical export; the first job on receiving a real file is `npm run pmd:import-feed -- --check --source gs1_india --file <export>` and editing the mapping until it reads cleanly. The connector is built and tested (`tests/integration/pmd-supplier-feeds.test.ts`); it stays `BLOCKED_NEEDS_AGREEMENT` until the licence exists.
+
+| GS1 column (template) | Staged field | Notes |
+|---|---|---|
+| `GTIN` | `sourceProductId`, `gtin` | Verified check digit; leading zeros restored if Excel dropped them |
+| `Product Description` | `name` | Outranks crowd-typed names (GS1 precedence 12, open data 60) |
+| `Brand Name` | `brand` | |
+| `Brand Owner Name` | `manufacturer`, `offer.sellerName` | The brand owner is the manufacturer; the MRP offer is filed under it |
+| `Net Content` + `Net Content UoM` | `quantityText` | `{Net Content} {Net Content UoM\|unece}` → `500 g`, `1 l` |
+| `Gross Weight` + UoM, `Length` × `Width` × `Height` + UoM | `grossWeightText`, `dimensionsText` | Same template form |
+| `GPC Brick Code` | `categories` | Mapped to a standard category through the source's `categoryMap` (**you supply the GPC-code → category table**); unmapped stays NULL |
+| `GPC Brick Code`, `GPC Brick Name`, `Brand Owner GLN` | attributes `gpc_brick_code`, `gpc_brick_name`, `brand_owner_gln` | Kept as traceable specifications |
+| `Country of Origin` | `countryOfOrigin` | |
+| `GST Rate`, `HSN Code` | `gstRate`, `hsnCode` | Fills the tax fields no open source carries |
+| `MRP` | `offer.mrp` | An offer with no selling price; the catalogue bridge treats a GS1 MRP as *pending verification* |
+| `Image URL` | `images` | Linked, not copied |
+
+## Manufacturer catalogues (template - one source per brand)
+
+`registry.ts` → `MANUFACTURER_CATALOGUE_MAPPING`, on the template entry `brand_manufacturer_feeds` (copy it per brand). Typical Excel headings; adjust per file.
+
+| Catalogue column (template) | Staged field |
+|---|---|
+| `Item Code` | `sourceProductId` |
+| `Barcode (EAN)` | `gtin` (numeric cells handled; UPC-A zeros restored) |
+| `Product Name`, `Description` | `name`, `description` |
+| `Brand`, `Marketed By` | `brand`, `manufacturer` (or `"brand": "=Sunrise Dairy"` when the sheet never repeats it) |
+| `Pack Size` | `quantityText` |
+| `Category` | `categories` → the brand's `categoryMap` |
+| `GST %`, `HSN`, `Country of Origin` | `gstRate`, `hsnCode`, `countryOfOrigin` |
+| `MRP` | `offer.mrp` (seller = the brand) |
+| `Ingredients`, `Shelf Life` | attributes `ingredients`, `shelf_life` |
+| `Image URL` | `images` (linked; get written permission for image use) |
+
+**Trust:** manufacturer reliability 95, specification precedence **10** - the highest of any source, so its name, tax and specifications win over marketplace and open data (the losers are kept and any disagreement is recorded).
 
 ## Sources that are registered but not yet collectable
 

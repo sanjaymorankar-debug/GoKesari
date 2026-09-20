@@ -6,13 +6,19 @@
  * when this platform was designed - the tests prove the platform refuses the
  * paths those files disallow and reaches the official bulk dumps they allow.
  */
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
 import { describe, expect, it } from "vitest";
 
-import { createCsvFeedAdapter, mapFeedRow } from "@/server/pmd/sources/adapters/csv-feed";
+import ExcelJS from "exceljs";
+import JSZip from "jszip";
+
+import { gs1CheckDigit } from "@/server/pmd/normalize/identifiers";
+import { createCsvFeedAdapter, createTabularFeedAdapter, mapFeedRow, restoreGtin, validateFeedMapping } from "@/server/pmd/sources/adapters/csv-feed";
+import { GS1_MAPPING, MANUFACTURER_CATALOGUE_MAPPING } from "@/server/pmd/sources/registry";
+import { parseXlsxWithHeader, XlsxReadError } from "@/server/pmd/sources/xlsx";
 import { ParseError } from "@/server/pmd/sources/adapter";
 import { getSourceDefinition } from "@/server/pmd/sources/registry";
 import { DelimitedParseError, parseDelimited, parseDelimitedWithHeader } from "@/server/pmd/sources/delimited";
@@ -400,5 +406,160 @@ describe("mapped CSV feed adapter", () => {
     const a = createCsvFeedAdapter({ definition: def, input: { rows: [] }, mapping: MAPPING });
     expect(a).toMatchObject({ collectionMethod: "LICENSED_FEED_CSV", createsProducts: true, supportsFullSnapshot: false });
     expect(createCsvFeedAdapter({ definition: def, input: { rows: [] }, mapping: MAPPING, fullSnapshot: true }).supportsFullSnapshot).toBe(true);
+  });
+});
+
+describe("feed mapping: constants, templates, unit codes, typos, lost zeros", () => {
+  it("a value can be a =constant or a {template}; |unece turns GS1 unit codes into symbols", () => {
+    const staged = mapFeedRow(
+      { SKU: "1", Title: "Tea", "Net Content": "500", UoM: "GRM", Vol: "", VolUoM: "" },
+      { sourceProductId: "SKU", name: "Title", brand: "=Acme Tea Co", quantityText: "{Net Content} {UoM|unece}", netWeightText: "{Vol} {VolUoM|unece}" },
+    );
+    expect(staged).toMatchObject({ brand: "Acme Tea Co", quantityText: "500 g", netWeightText: null });
+    const other = mapFeedRow({ SKU: "1", N: "2", U: "ZZZ" }, { sourceProductId: "SKU", quantityText: "{N} {U|unece}" });
+    expect(other.quantityText).toBe("2 ZZZ"); // an unknown code passes through rather than vanishing
+  });
+
+  it("restores the leading zero Excel strips from a UPC-A, and nothing riskier", () => {
+    const upc = "01234567890" + gs1CheckDigit("01234567890");
+    const stripped = upc.replace(/^0+/, "");
+    expect(stripped).toHaveLength(11);
+    expect(restoreGtin(stripped)).toBe(upc);
+    expect(restoreGtin(upc)).toBe(upc); // already whole
+    expect(restoreGtin(stripped.slice(0, -1) + ((Number(stripped.slice(-1)) + 1) % 10))).toBe(stripped.slice(0, -1) + ((Number(stripped.slice(-1)) + 1) % 10)); // wrong check digit: left alone
+    expect(restoreGtin("1234567")).toBe("1234567"); // could be a truncated GTIN-8 or an internal number: never guessed
+    expect(restoreGtin("ABC12345678")).toBe("ABC12345678");
+  });
+
+  it("rejects a mapping key the platform does not know, with the closest valid key", () => {
+    const unknown = validateFeedMapping({ sourceProductId: "SKU", gtn: "EAN", "offer.prise": "P", "attribute.ram_gb": "R", name: "T" });
+    expect(unknown).toEqual([{ key: "gtn", suggestion: "gtin" }, { key: "offer.prise", suggestion: "offer.price" }]);
+    const def = getSourceDefinition("partner_feed")!;
+    expect(() => createTabularFeedAdapter({ definition: def, input: { rows: [] }, mapping: { sourceProductId: "SKU", gtn: "EAN" } })).toThrow(/"gtn" \(did you mean "gtin"\?\)/);
+  });
+
+  it("the shipped GS1 and manufacturer templates are valid mappings", () => {
+    expect(validateFeedMapping(GS1_MAPPING)).toEqual([]);
+    expect(validateFeedMapping(MANUFACTURER_CATALOGUE_MAPPING)).toEqual([]);
+  });
+});
+
+describe("streaming .xlsx reader", () => {
+  const withWorkbook = async <T,>(build: (wb: ExcelJS.Workbook) => void, fn: (path: string) => Promise<T>): Promise<T> => {
+    const dir = mkdtempSync(join(tmpdir(), "pmd-xlsx-"));
+    const path = join(dir, "catalogue.xlsx");
+    const wb = new ExcelJS.Workbook();
+    build(wb);
+    await wb.xlsx.writeFile(path);
+    try {
+      return await fn(path);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  };
+  const collect = async (path: string, opts?: Parameters<typeof parseXlsxWithHeader>[1]) => {
+    const out = [];
+    for await (const r of parseXlsxWithHeader(path, opts)) out.push(r);
+    return out;
+  };
+  const collectMode = async (path: string, mode: "stream" | "memory") => {
+    const out = [];
+    for await (const r of parseXlsxWithHeader(path, {}, mode)) out.push(r);
+    return out;
+  };
+
+  it("finds the heading row, converts every cell type to text, skips blank rows, reports sheet row numbers", async () => {
+    await withWorkbook(
+      (wb) => {
+        const ws = wb.addWorksheet("Catalogue");
+        ws.addRow(["Acme Foods - price list"]);
+        ws.addRow([]);
+        ws.addRow(["Item", "EAN", "Name", "Launched", "Total", "Note", "Link", "", "Gone"]);
+        ws.addRow(["A-1", 8901234000014, "Basmati Rice", new Date(Date.UTC(2026, 8, 1)), { formula: "1+1", result: 2 }, { richText: [{ text: "Long " }, { text: "grain" }] }, { text: "site", hyperlink: "https://x.test" }, "ignored", { error: "#N/A" }]);
+        ws.addRow([]);
+        ws.addRow(["A-2", 12345678905, "Poha", null, null, null, null, null, null]);
+      },
+      async (path) => {
+        const rows = await collect(path, { headerRow: 3 });
+        expect(rows.map((r) => r.rowNumber)).toEqual([4, 6]);
+        expect(rows[0].row).toEqual({ Item: "A-1", EAN: "8901234000014", Name: "Basmati Rice", Launched: "2026-09-01", Total: "2", Note: "Long grain", Link: "site", Gone: "" });
+        expect(rows[1].row.EAN).toBe("12345678905");
+      },
+    );
+  });
+
+  it("streams a file whose workbook part comes first (as Excel writes it); ExcelJS-written files fall back to memory", async () => {
+    await withWorkbook(
+      (wb) => {
+        const ws = wb.addWorksheet("Catalogue");
+        ws.addRow(["Item", "Name"]);
+        for (let i = 1; i <= 50; i++) ws.addRow([`I-${i}`, `Product ${i}`]);
+      },
+      async (path) => {
+        // ExcelJS's own output puts the sheets before workbook.xml, which its streaming reader cannot handle...
+        await expect(collectMode(path, "stream")).rejects.toThrow(TypeError);
+        expect(await collectMode(path, "memory")).toHaveLength(50);
+        expect(await collect(path)).toHaveLength(50); // ...so the default path falls back and still loads it
+
+        // Excel and LibreOffice write workbook.xml first. Re-zip in that order and the stream path works.
+        const zip = await JSZip.loadAsync(readFileSync(path));
+        const first = ["[Content_Types].xml", "_rels/.rels", "xl/workbook.xml", "xl/_rels/workbook.xml.rels", "xl/sharedStrings.xml", "xl/styles.xml"];
+        const ordered = new JSZip();
+        for (const name of [...first, ...Object.keys(zip.files).filter((n) => !first.includes(n))]) {
+          const f = zip.file(name);
+          if (f) ordered.file(name, await f.async("nodebuffer"));
+        }
+        writeFileSync(path, await ordered.generateAsync({ type: "nodebuffer" }));
+        const streamed = await collectMode(path, "stream");
+        expect(streamed).toHaveLength(50);
+        expect(streamed[49].row).toEqual({ Item: "I-50", Name: "Product 50" });
+      },
+    );
+  });
+
+  it("chooses a sheet by name or position, and skips a hidden first sheet by default", async () => {
+    await withWorkbook(
+      (wb) => {
+        const hidden = wb.addWorksheet("Internal");
+        hidden.state = "hidden";
+        hidden.addRow(["X"]);
+        hidden.addRow(["secret"]);
+        const a = wb.addWorksheet("Front");
+        a.addRow(["Item"]);
+        a.addRow(["front-1"]);
+        const b = wb.addWorksheet("Back");
+        b.addRow(["Item"]);
+        b.addRow(["back-1"]);
+      },
+      async (path) => {
+        expect((await collect(path))[0].row.Item).toBe("front-1");
+        expect((await collect(path, { sheet: "back" }))[0].row.Item).toBe("back-1");
+        expect((await collect(path, { sheet: 3 }))[0].row.Item).toBe("back-1");
+        await expect(collect(path, { sheet: "Nope" })).rejects.toThrow(/Sheets in the file: Internal \(hidden\), Front, Back/);
+        await expect(collect(path, { headerRow: 9 })).rejects.toBeInstanceOf(XlsxReadError);
+      },
+    );
+  });
+
+  it("feeds the same mapping as a CSV: a numeric GTIN that lost its zero comes out whole", async () => {
+    const def = getSourceDefinition("partner_feed")!;
+    const upc = "01234567890" + gs1CheckDigit("01234567890");
+    await withWorkbook(
+      (wb) => {
+        const ws = wb.addWorksheet("Sheet1");
+        ws.addRow(["SKU", "EAN", "Title", "MRP"]);
+        ws.addRow(["P-1", Number(upc), "Acme Poha 500 g", 45]);
+        ws.addRow(["", 1, "No id", 1]);
+      },
+      async (path) => {
+        const adapter = createTabularFeedAdapter({ definition: def, input: { path }, mapping: { sourceProductId: "SKU", gtin: "EAN", name: "Title", "offer.mrp": "MRP" } });
+        expect(adapter.collectionMethod).toBe("LICENSED_FEED_XLSX");
+        const records: { sourceProductId: string; payload: Record<string, unknown> }[] = [];
+        for await (const r of adapter.extract({ log: () => {} })) records.push(r);
+        expect(records.map((r) => r.sourceProductId)).toEqual(["P-1", "row-3"]);
+        expect(adapter.parse(records[0])).toMatchObject({ gtin: upc, name: "Acme Poha 500 g", offer: { mrp: "45" } });
+        expect(() => adapter.parse(records[1])).toThrow(/source-id column/);
+      },
+    );
   });
 });

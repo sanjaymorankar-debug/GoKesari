@@ -32,6 +32,22 @@ export type AccessMethod =
 export type SourceStatus = "ACTIVE" | "PLANNED" | "BLOCKED_NEEDS_AGREEMENT" | "BLOCKED_TECHNICAL" | "DISABLED";
 
 /** Static description of a source: one row of pmd.source, plus how to run it. */
+/** How a supplier's file is read. Everything here can also be overridden on the command line. */
+export interface FeedSettings {
+  format?: "csv" | "xlsx";
+  delimiter?: string;
+  listSeparator?: string;
+  /** xlsx: sheet name or 1-based position; default the first visible sheet. */
+  sheet?: string | number;
+  /** xlsx: 1-based heading row; default 1. */
+  headerRow?: number;
+  /** The supplier's category text (or GPC brick code) -> standard category code. */
+  categoryMap?: Record<string, string>;
+  restoreGtinZeros?: boolean;
+  /** The file lists everything the supplier sells (only then may a run conclude "no longer listed"). */
+  fullSnapshot?: boolean;
+}
+
 export interface SourceDefinition {
   key: string;
   name: string;
@@ -53,6 +69,8 @@ export interface SourceDefinition {
   rateLimitPerMin?: number;
   parserKey?: string;
   fieldMapping?: Record<string, string>;
+  /** File-feed settings (format, sheet, delimiter, category map). Read by the feed importer; code-owned, not stored. */
+  feed?: FeedSettings;
   retryMax?: number;
   notes?: string;
 }

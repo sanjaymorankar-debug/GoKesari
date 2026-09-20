@@ -28,6 +28,10 @@ Specifies the behaviour of the Product Master Data Platform: the `pmd` PostgreSQ
 | FR-SRC-07 | An adapter declared `createsProducts: false` shall price or enrich known products only and shall reject, not create, an unmatched record | `integration/pmd-pipeline` |
 | FR-SRC-08 | Adapters shall remove personal data (contributor identities, proof references) before anything is stored or logged — in the staged payload **and** in the excerpt kept with an error | `integration/pmd-privacy` |
 | FR-SRC-09 | Reference data (sources, taxonomy, attributes, shipped mappings) shall be synced to the database only when its definitions differ from what the database last received; a sync shall not consume identity values; a steward's "disabled" source shall survive it | `integration/pmd-pipeline` (reference data) |
+| FR-SRC-10 | A supplier catalogue in Excel (`.xlsx`) shall be readable by streaming, with sheet and heading-row selection, blank rows ignored, and dates/formulas/rich text/hyperlinks converted to text; it shall fall back to an in-memory read only when the streaming reader cannot handle the file layout | `unit/pmd-sources` |
+| FR-SRC-11 | A feed mapping value shall be a column, a `=constant` or a `{template}` (with UN/ECE unit codes translated); a mapping key the platform does not know shall be rejected with the closest valid key | `unit/pmd-sources` |
+| FR-SRC-12 | Leading zeros Excel strips from a numeric UPC-A shall be restored only when unambiguous (10-11 digits with a valid check digit once padded); shorter codes shall never be guessed | `unit/pmd-sources`, `integration/pmd-supplier-feeds` |
+| FR-SRC-13 | GS1 and manufacturer data shall outrank marketplace and open data for name, tax and specifications, and arrive with brand owner, HSN, GST and MRP intact; the real `gs1_india` entry shall stay blocked until an agreement exists | `integration/pmd-supplier-feeds` |
 
 ### 3.2 Compliance of collection
 

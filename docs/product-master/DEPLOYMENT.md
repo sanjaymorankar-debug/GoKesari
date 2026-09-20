@@ -62,7 +62,7 @@ Then install the reference data (source register, taxonomy, attribute registry, 
 PMD_ALLOW_REMOTE=1 PMD_DATABASE_URL='postgresql://…' npm run pmd:seed
 ```
 
-Expect: `synced` and then `sources 41 (7 enabled, 26 blocked)  categories 410  attributes 81  category mappings 1045`. Running it again prints `current` — the database is only touched when the definitions in code differ from what it last received (a stored fingerprint), which is also why every ingestion run can call it at its start for the price of two statements. `--force` re-syncs regardless, e.g. after you repair a reference table by hand.
+Expect: `synced` and then `sources 41 (7 enabled, 26 blocked)  categories 410  attributes 84  category mappings 1045`. Running it again prints `current` — the database is only touched when the definitions in code differ from what it last received (a stored fingerprint), which is also why every ingestion run can call it at its start for the price of two statements. `--force` re-syncs regardless, e.g. after you repair a reference table by hand.
 
 > **Not verified against Neon.** The pilot ran on a local PostgreSQL 16. `pg_trgm` is a supported Neon extension and the migration uses only standard features, but no `pmd` object has been created in any hosted database. Apply it to a branch first, run `npm run pmd:test` against that branch (`TEST_DATABASE_URL`), and only then to production.
 

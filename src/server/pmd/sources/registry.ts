@@ -68,6 +68,51 @@ const marketplaceSources: SourceDefinition[] = MARKETPLACES.map((m) => ({
   notes: `Categories: ${m.categories}. Marketplace data is preferred for availability, seller, price, rating and reviews; manufacturer data for technical specifications.`,
 }));
 
+/**
+ * GS1-style product data (GDSN attribute names as they usually appear in an export). The COLUMN NAMES
+ * on the right are a starting point: align them with the file GS1 India actually delivers.
+ */
+export const GS1_MAPPING: Record<string, string> = {
+  sourceProductId: "GTIN",
+  gtin: "GTIN",
+  name: "Product Description",
+  brand: "Brand Name",
+  manufacturer: "Brand Owner Name",
+  quantityText: "{Net Content} {Net Content UoM|unece}",
+  grossWeightText: "{Gross Weight} {Gross Weight UoM|unece}",
+  dimensionsText: "{Length} x {Width} x {Height} {Dimension UoM|unece}",
+  categories: "GPC Brick Code",
+  countryOfOrigin: "Country of Origin",
+  gstRate: "GST Rate",
+  hsnCode: "HSN Code",
+  images: "Image URL",
+  "offer.mrp": "MRP",
+  "offer.sellerName": "Brand Owner Name",
+  "attribute.brand_owner_gln": "Brand Owner GLN",
+  "attribute.gpc_brick_code": "GPC Brick Code",
+  "attribute.gpc_brick_name": "GPC Brick Name",
+};
+
+/** A typical manufacturer catalogue workbook. Copy and adjust per brand. */
+export const MANUFACTURER_CATALOGUE_MAPPING: Record<string, string> = {
+  sourceProductId: "Item Code",
+  gtin: "Barcode (EAN)",
+  name: "Product Name",
+  brand: "Brand",
+  manufacturer: "Marketed By",
+  description: "Description",
+  quantityText: "Pack Size",
+  categories: "Category",
+  gstRate: "GST %",
+  hsnCode: "HSN",
+  countryOfOrigin: "Country of Origin",
+  images: "Image URL",
+  "offer.mrp": "MRP",
+  "offer.sellerName": "Brand",
+  "attribute.ingredients": "Ingredients",
+  "attribute.shelf_life": "Shelf Life",
+};
+
 const otherSources: SourceDefinition[] = [
   {
     key: "manual_import",
@@ -114,10 +159,13 @@ const otherSources: SourceDefinition[] = [
     accessMethod: "MANUFACTURER_FEED",
     status: "PLANNED",
     reliability: 95,
-    legalBasis: "Catalogue files or APIs supplied by the brand under agreement, or public product-information pages where the brand's terms and robots.txt permit. Highest-precedence source for technical specifications.",
+    legalBasis: "Catalogue files (Excel or CSV) or APIs supplied by the brand under agreement or written permission, or public product-information pages where the brand's terms and robots.txt permit. Highest-precedence source for technical specifications, tax and MRP.",
     robotsPolicy: NOT_FETCHED,
     collectionFrequency: "weekly",
-    notes: "Register one source per brand once a feed or written permission exists.",
+    parserKey: "tabular_feed",
+    fieldMapping: MANUFACTURER_CATALOGUE_MAPPING,
+    feed: { format: "xlsx", restoreGtinZeros: true },
+    notes: "Template entry. Register ONE source per brand (copy this, key it mfr_<brand>, set the brand's own mapping and category map, ACTIVE only once the agreement or written permission exists). See docs/product-master/GS1_AND_MANUFACTURERS.md.",
   },
   {
     key: "distributor_catalogues",
@@ -136,11 +184,14 @@ const otherSources: SourceDefinition[] = [
     accessMethod: "LICENSED_FEED",
     status: "BLOCKED_NEEDS_AGREEMENT",
     reliability: 95,
-    legalBasis: "GS1 product-data and verification services require GS1 membership or a data licence (confirm the current service names and terms with GS1 India). GTIN prefixes are public; product records are not scraped.",
+    legalBasis: "GS1 product-data and verification services require GS1 membership or a data licence (confirm the current service names, delivery options and redistribution terms with GS1 India). GTIN prefixes are public; product records are not scraped. The connector reads a file or export delivered under that licence.",
     robotsPolicy: NOT_FETCHED,
     authEnvVar: "PMD_SRC_GS1_INDIA_CREDENTIALS",
     collectionFrequency: "weekly",
-    notes: "Authoritative for brand-owner and pack data. Enabling this is the single most valuable next source.",
+    parserKey: "tabular_feed",
+    fieldMapping: GS1_MAPPING,
+    feed: { restoreGtinZeros: true, categoryMap: {} },
+    notes: "Authoritative for brand owner, product description and net content. Connector built (mapping below is a template to align with the real export); it stays BLOCKED until the licence exists - then set ACTIVE here and enable the source. See docs/product-master/GS1_AND_MANUFACTURERS.md.",
   },
   {
     key: "fssai_foscos",

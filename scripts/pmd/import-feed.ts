@@ -17,9 +17,12 @@
  * legal basis is written down and reviewed.
  *
  * --mapping       JSON: platform field -> feed column, e.g. {"sourceProductId":"SKU","name":"Title"}.
- *                 Falls back to the registry entry's fieldMapping.
- * --category-map  JSON: exact feed category text -> standard category code
+ *                 Falls back to the registry entry's fieldMapping (GS1 India and the manufacturer
+ *                 template carry one). A value may be a column, =constant, or a {template}.
+ * --category-map  JSON: exact feed category text (or GS1 GPC brick code) -> standard category code
  *                 (e.g. {"Smartphones":"electronics/mobiles/smartphones"}). Unmapped stays NULL.
+ *                 Merged over the registry entry's feed.categoryMap.
+ * --file          .csv / .tsv / .txt (see --delimiter) or .xlsx (streamed; --sheet, --header-row).
  */
 import { readFileSync } from "node:fs";
 
@@ -30,12 +33,12 @@ import { standardCodeMapper } from "@/server/pmd/services/ingest-api";
 import { ParseError } from "@/server/pmd/sources/adapter";
 import { createCsvFeedAdapter, type FeedMapping } from "@/server/pmd/sources/adapters/csv-feed";
 import { getSourceDefinition } from "@/server/pmd/sources/registry";
-import { getCategoryByCode } from "@/server/pmd/taxonomy/categories";
+import { getCategoryByCode, UNCATEGORISED_CODE } from "@/server/pmd/taxonomy/categories";
 import { chainMappers, createCategoryMapper } from "@/server/pmd/taxonomy/mapper";
 import { arg, connect, describeTarget, flag, pmdDatabaseUrl } from "./lib";
 
 const MODES: RunMode[] = ["IMPORT", "INCREMENTAL", "INITIAL_FULL"];
-const FEED_PARSERS = new Set(["csv_feed", "json_rows"]);
+const FEED_PARSERS = new Set(["csv_feed", "tabular_feed", "json_rows"]);
 
 function readJson<T>(path: string, what: string): T {
   try {
@@ -57,10 +60,13 @@ async function main() {
 
   const def = getSourceDefinition(sourceKey);
   if (!def) fail(`"${sourceKey}" is not in the source registry. Add an entry (with its legal basis) to sources/registry.ts first.`);
-  if (def.status !== "ACTIVE") fail(`"${sourceKey}" is ${def.status}: ${def.legalBasis}`);
+  // --check reads a file and writes nothing, so it may inspect a source that is not yet enabled - that is how
+  // a mapping is prepared while the agreement is still being signed. A real load needs an ACTIVE source.
+  if (!check && def.status !== "ACTIVE") fail(`"${sourceKey}" is ${def.status}: ${def.legalBasis}`);
   if (!def.parserKey || !FEED_PARSERS.has(def.parserKey)) fail(`"${sourceKey}" is not a file-feed source (parser "${def.parserKey ?? "none"}").`);
 
   const mapping = arg("mapping") ? readJson<FeedMapping>(arg("mapping")!, "mapping file") : def.fieldMapping;
+  const feed = def.feed ?? {};
   if (!mapping?.sourceProductId) fail("the mapping must name the sourceProductId column (--mapping <file.json>).");
 
   const mode = (arg("mode") ?? "IMPORT") as RunMode;
@@ -68,8 +74,9 @@ async function main() {
   const limit = arg("limit") ? Number(arg("limit")) : undefined;
 
   let categoryMapper = standardCodeMapper();
-  if (arg("category-map")) {
-    const map = readJson<Record<string, string>>(arg("category-map")!, "category map");
+  const categoryMap = { ...(feed.categoryMap ?? {}), ...(arg("category-map") ? readJson<Record<string, string>>(arg("category-map")!, "category map") : {}) };
+  if (Object.keys(categoryMap).length) {
+    const map = categoryMap;
     const unknown = Object.values(map).filter((code) => !getCategoryByCode(code));
     if (unknown.length) fail(`category map names unknown standard categories: ${[...new Set(unknown)].join(", ")}`);
     categoryMapper = chainMappers(createCategoryMapper({ tags: map, keywords: [] }), categoryMapper);
@@ -79,9 +86,12 @@ async function main() {
     definition: def,
     input: { path: file },
     mapping,
-    delimiter: arg("delimiter"),
-    listSeparator: arg("list-separator"),
-    fullSnapshot: flag("full-snapshot"),
+    delimiter: arg("delimiter") ?? feed.delimiter,
+    listSeparator: arg("list-separator") ?? feed.listSeparator,
+    fullSnapshot: flag("full-snapshot") || feed.fullSnapshot,
+    sheet: arg("sheet") ? (/^\d+$/.test(arg("sheet")!) ? Number(arg("sheet")) : arg("sheet")) : feed.sheet,
+    headerRow: arg("header-row") ? Number(arg("header-row")) : feed.headerRow,
+    restoreGtinZeros: flag("no-restore-zeros") ? false : feed.restoreGtinZeros,
     categoryMapper,
   });
 
@@ -121,6 +131,10 @@ async function checkFeed(adapter: ReturnType<typeof createCsvFeedAdapter>, limit
   let withBrand = 0;
   let withCategory = 0;
   let withPrice = 0;
+  let withMrp = 0;
+  let withGst = 0;
+  let withHsn = 0;
+  let withMaker = 0;
 
   for await (const raw of adapter.extract({ limit, log: (m) => logs.push(m) })) {
     read++;
@@ -130,8 +144,12 @@ async function checkFeed(adapter: ReturnType<typeof createCsvFeedAdapter>, limit
       if (!blocking) loadable++;
       if (n.gtin?.usableForMatching) withGtin++;
       if (n.brand) withBrand++;
-      if (n.categoryCode) withCategory++;
+      if (n.categoryCode && n.categoryCode !== UNCATEGORISED_CODE) withCategory++;
       if (n.offer?.priceMinor != null) withPrice++;
+      if (n.offer?.mrpMinor != null) withMrp++;
+      if (n.gstRateBp != null) withGst++;
+      if (n.hsnCode) withHsn++;
+      if (n.manufacturer) withMaker++;
       for (const i of n.issues) {
         const key = `${i.severity} ${i.code}`;
         issues.set(key, (issues.get(key) ?? 0) + 1);
@@ -151,6 +169,10 @@ async function checkFeed(adapter: ReturnType<typeof createCsvFeedAdapter>, limit
   console.log(`  brand                ${withBrand} (${pct(withBrand)})`);
   console.log(`  standard category    ${withCategory} (${pct(withCategory)})   <- unmapped categories stay NULL; extend --category-map`);
   console.log(`  price                ${withPrice} (${pct(withPrice)})`);
+  console.log(`  MRP                  ${withMrp} (${pct(withMrp)})   <- the gaps open data could not fill:`);
+  console.log(`  GST rate             ${withGst} (${pct(withGst)})`);
+  console.log(`  HSN code             ${withHsn} (${pct(withHsn)})`);
+  console.log(`  manufacturer         ${withMaker} (${pct(withMaker)})`);
   if (parseErrors.size) console.log(`parse errors           ${[...parseErrors].map(([k, v]) => `${k}=${v}`).join("  ")}`);
   if (issues.size) console.log(`normalisation issues   ${[...issues].map(([k, v]) => `${k}=${v}`).join("  ")}`);
   for (const l of logs) console.log(`note: ${l}`);

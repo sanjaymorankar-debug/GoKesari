@@ -11,6 +11,7 @@ A platform — not a product list — that assembles, from **lawful sources**, o
 | Deciding what happens next | [Pilot report](./PILOT_REPORT.md) → *Verdict* and *Recommended before scale-up* |
 | A steward / operator | [User guide](./USER_GUIDE.md) |
 | Adding a data source | [Data-source guide](./DATA_SOURCES.md), [source register](./SOURCE_REGISTER.md) |
+| Onboarding **GS1 India** or a **manufacturer catalogue** | [GS1_AND_MANUFACTURERS.md](./GS1_AND_MANUFACTURERS.md) |
 | An engineer | [SAD](./SAD.md) → [ETL](./ETL_PIPELINE.md) · [Deduplication](./DEDUPLICATION.md) · [Database design](./DATABASE_DESIGN.md) |
 | Deploying it | [Deployment guide](./DEPLOYMENT.md) |
 | Calling the API | [API guide](./API.md), [openapi.yaml](./openapi.yaml) |
