@@ -14,6 +14,7 @@ A platform — not a product list — that assembles, from **lawful sources**, o
 | Onboarding **GS1 India** or a **manufacturer catalogue** | [GS1_AND_MANUFACTURERS.md](./GS1_AND_MANUFACTURERS.md) |
 | An engineer | [SAD](./SAD.md) → [ETL](./ETL_PIPELINE.md) · [Deduplication](./DEDUPLICATION.md) · [Database design](./DATABASE_DESIGN.md) |
 | Deploying it | [Deployment guide](./DEPLOYMENT.md) |
+| Publishing products to a shop catalogue | [Publish to shop](./PUBLISH_TO_SHOP.md) |
 | Calling the API | [API guide](./API.md), [openapi.yaml](./openapi.yaml) |
 | Checking requirements | [BRD](./BRD.md) · [PRD](./PRD.md) · [SRS](./SRS.md) |
 

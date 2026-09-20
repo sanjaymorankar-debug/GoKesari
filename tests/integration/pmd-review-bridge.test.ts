@@ -176,6 +176,20 @@ describe("catalogue bridge: master product -> GoKesari catalogue -> shops", () =
     expect(audit).toEqual([{ action: "pmd.product_promoted", actor_id: admin.id }]);
   });
 
+  const shots = ["https://images.example.org/milk-front.jpg", "https://images.example.org/milk-back.jpg"];
+  const promotedImages = async (images: boolean) => {
+    const { admin, masterId } = await setup({ images: shots });
+    const res = await promoteToCatalogue(sql, masterId, { userId: admin.id, role: "ADMIN" }, { images });
+    const [p] = await sql<{ image_url: string | null }[]>`SELECT image_url FROM public.products WHERE id = ${res.catalogueProductId}`;
+    return [p.image_url, await count(sql, "public.product_images", `product_id = '${res.catalogueProductId}'`)];
+  };
+  it("links the source's image URLs to the catalogue product by default", async () => {
+    expect(await promotedImages(true)).toEqual([shots[0], 1]);
+  });
+  it("links no images when asked not to", async () => {
+    expect(await promotedImages(false)).toEqual([null, 0]);
+  });
+
   it("marketplace seller pricing never becomes GoKesari's MRP", async () => {
     const { admin, masterId } = await setup({ offer: { sellerName: "Random Seller", price: 60, mrp: 90, stock: "in stock" } }, "MARKETPLACE");
     const res = await promoteToCatalogue(sql, masterId, { userId: admin.id, role: "ADMIN" });
