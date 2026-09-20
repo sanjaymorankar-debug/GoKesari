@@ -38,10 +38,12 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
   OPERATOR: [
     { href: "/admin", label: "Operator Console" },
     { href: "/admin/shops", label: "Shop Product Management" },
+    { href: "/admin/product-master", label: "Product Master" },
   ],
   ADMIN: [
     { href: "/admin", label: "Admin Console" },
     { href: "/admin/shops", label: "Shop Product Management" },
+    { href: "/admin/product-master", label: "Product Master" },
   ],
   DELIVERY_PARTNER: [{ href: "/delivery-partner", label: "Delivery Partner" }],
 };
