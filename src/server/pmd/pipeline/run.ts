@@ -171,7 +171,12 @@ export async function runIngestion(sql: Sql, adapter: SourceAdapter, opts: RunOp
   }
 
   await flush();
-  await sql`SELECT pmd.refresh_dashboard()`;
+  try {
+    await sql`SELECT pmd.refresh_dashboard()`;
+  } catch (e) {
+    // The dashboard is a display snapshot rebuilt after every run: failing to refresh it must never fail a run whose work is done.
+    log(`dashboard snapshot not refreshed: ${(e as Error).message}`);
+  }
 
   const status: RunSummary["status"] = failure ? "FAILED" : counters.errorCount > 0 ? "PARTIAL" : "SUCCEEDED";
   await sql`
