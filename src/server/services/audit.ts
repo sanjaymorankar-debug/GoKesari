@@ -118,6 +118,12 @@ export const AUDIT_ACTIONS = {
   DELIVERY_ORDER_DELIVERED: "delivery_order.delivered",
   DELIVERY_ORDER_CANCELLED: "delivery_order.cancelled",
   DELIVERY_EARNINGS_CONFIG_CHANGED: "delivery_earnings_config.changed",
+
+  /* ------------------------------------ product master data platform */
+  PMD_PRODUCT_PROMOTED: "pmd.product_promoted",
+  PMD_PRODUCT_ADOPTED: "pmd.product_adopted",
+  PMD_MATCH_DECIDED: "pmd.match_decided",
+  PMD_PRODUCTS_IMPORTED: "pmd.products_imported",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

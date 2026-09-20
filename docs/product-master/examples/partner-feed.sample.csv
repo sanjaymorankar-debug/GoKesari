@@ -1,0 +1,14 @@
+SKU,Title,Brand,EAN,Pack,Category,Sale Price,MRP,Seller,Stock,Image URL,GST,HSN,RAM (GB),Storage (GB),Colour
+AF-1001,Acme Farms Basmati Rice 1 kg,Acme Farms,8901234000014,1 kg,Rice,189,210,Acme Retail,In stock,https://example.com/img/af-1001.jpg,5%,1006,,,
+AF-1002,Acme Farms Basmati Rice 5 kg,Acme Farms,8901234000021,5 kg,Rice,899,990,Acme Retail,In stock,https://example.com/img/af-1002.jpg,5%,1006,,,
+AF-1003,ACME FARMS Basmati Rice 1kg,Acme Farms Pvt Ltd,8901234000014,1000 g,Rice,185,210,Metro Mart,Only 3 left,,5%,1006,,,
+SD-2001,Sunrise Toned Milk 500 ml,Sunrise Dairy,8901235000037,500 ml,Toned Milk,27,28,Metro Mart,In stock,,0%,0401,,,
+SD-2002,Sunrise Toned Milk 500 ml (Pack of 6),Sunrise Dairy,8901235000044,6 x 500 ml,Toned Milk,156,168,Metro Mart,In stock,,0%,0401,,,
+SD-2003,Sunrise Cow Ghee 500 ml,Sunrise Dairy,8901235000075,500 ml,Ghee,400,350,Metro Mart,In stock,,12%,0405,,,
+ZN-3001,Zenith Z5 5G Smartphone 8GB 128GB Midnight Black,Zenith,8901236000050,,Smartphones,17999,19999,Gadget Hub,In stock,https://example.com/img/zn-3001.jpg,18%,8517,8,128,Midnight Black
+ZN-3002,Zenith Z5 5G Smartphone 8GB 128GB Ocean Blue,Zenith,8901236000067,,Smartphones,17999,19999,Gadget Hub,Out of stock,,18%,8517,8,128,Ocean Blue
+XX-9001,,Acme Farms,,,Rice,100,120,Metro Mart,In stock,,,,,,
+XX-9002,Loading...,,,,,,,,,,,,,,
+XX-9003,Acme Farms Mustard Oil 1 L,Acme Farms,8901235000089,1 L,Edible Oils,210,230,Acme Retail,In stock,,5%,1514,,,
+,Row with no SKU at all,Acme Farms,,,,,,,,,,,,,
+BROKEN-1,Truncated row,Acme Farms

@@ -1,0 +1,18 @@
+{
+  "sourceProductId": "SKU",
+  "name": "Title",
+  "brand": "Brand",
+  "gtin": "EAN",
+  "quantityText": "Pack",
+  "categories": "Category",
+  "gstRate": "GST",
+  "hsnCode": "HSN",
+  "color": "Colour",
+  "images": "Image URL",
+  "offer.price": "Sale Price",
+  "offer.mrp": "MRP",
+  "offer.sellerName": "Seller",
+  "offer.stock": "Stock",
+  "attribute.ram_gb": "RAM (GB)",
+  "attribute.storage_gb": "Storage (GB)"
+}
