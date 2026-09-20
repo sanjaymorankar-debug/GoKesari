@@ -14,7 +14,17 @@
     "test": "vitest run",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "pmd:seed": "tsx scripts/pmd/seed.ts",
+    "pmd:fetch-sample": "tsx scripts/pmd/fetch-sample.ts",
+    "pmd:fetch-prices": "tsx scripts/pmd/fetch-prices.ts",
+    "pmd:pilot": "tsx scripts/pmd/pilot.ts",
+    "pmd:checks": "tsx scripts/pmd/checks.ts",
+    "pmd:export": "tsx scripts/pmd/export.ts",
+    "pmd:import-feed": "tsx scripts/pmd/import-feed.ts",
+    "pmd:docs": "tsx scripts/pmd/gen-docs.ts",
+    "pmd:bench": "tsx scripts/pmd/bench.ts",
+    "pmd:test": "vitest run pmd-"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.3",
