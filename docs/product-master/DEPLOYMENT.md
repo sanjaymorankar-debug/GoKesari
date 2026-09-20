@@ -93,7 +93,7 @@ PMD_DATABASE_URL=… npm run pmd:export
 
 (`VAR=value command` is bash syntax; in PowerShell set `$env:PMD_DATABASE_URL = '…'` first.)
 
-**Where to run it.** The loader commits one transaction per record (so a bad record never poisons its neighbours) and issues about **39 SQL statements per new record** (measured), about 14 for an unchanged one and 22 for a price change. On a local database that is ~60 new records/s; over a network the round trips dominate — at 20 ms per round trip, 39 statements is ~0.8 s, so roughly one new record per second per connection. **Run large loads from a machine in the same region as the database**, not from a laptop. See [the pilot report](./PILOT_REPORT.md#throughput-and-what-it-means-for-10-million) before planning any large load.
+**Where to run it.** The loader handles unchanged and brand-new records in batches (~35 statements per new record before, ~1 per unchanged record now) and the rest one transaction per record. On a local database with 1M masters that is ~190 new and ~7,300 unchanged records/s; price changes and possible duplicates still cost ~20-100 statements each, so latency matters for them. Use `--workers` (with a connection pool of workers + 1). **Run large loads from a machine in the same region as the database**, not from a laptop. See [the pilot report](./PILOT_REPORT.md#throughput-and-what-it-means-for-10-million) before planning any large load.
 
 ## Scheduling
 

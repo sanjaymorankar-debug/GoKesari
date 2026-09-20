@@ -8,7 +8,7 @@
 |---|---|
 | **Works, on real data** | Collection from five permitted open-data sources → normalisation → matching → master → offers and price history → quality scoring → Excel export, end to end, with all eleven integrity invariants holding |
 | **Proven at scale (reads)** | Every hot query stays index-backed and fast at **1,000,000** masters (identifier lookup 0.1 ms, candidate retrieval 8 ms, search ~20 ms, paging 2 ms at any depth) |
-| **Not proven / not ready** | **The write path at scale.** The loader manages ~60 new records/s on a local database and is round-trip-bound over a network — a 10-million-product load is not practical until it is reworked or co-located |
+| **Partly proven** | **The write path at scale.** After the loader rework: ~190 new records/s and ~7,300 unchanged/s at 1M masters on a laptop (was ~45 and ~250); price-change updates are still per record. See the throughput section |
 | **Limited by data, not by software** | Only food, beauty and household items have real data. Mobiles, computers, apparel, automotive and tools need licensed / partner / manufacturer feeds. GST, HSN and MRP are absent from every open-data record |
 | **Recommendation** | Go on to a **controlled next step** — one licensed feed for a non-food category, plus the loader work below — **not** to large-scale ingestion yet. Details in *Recommended before scale-up* |
 
@@ -152,21 +152,23 @@ Table 289 MB + indexes 487 MB (a floor for real data; see the [database design](
 
 ### Throughput, and what it means for 10 million
 
-The real pipeline, with the 1M master present (3,000 records each):
+Measured on the same laptop, 1,000,000 masters present, 3,000 records per run, `npm run pmd:bench-loader`. "Reference" is the per-record loader (`--loader record`, one transaction per record); "bulk" is the loader rework (default): unchanged records and records with no candidate master anywhere are handled per batch of 500, everything else goes to the reference loader unchanged.
 
-| Run | Rate | SQL statements per record |
-|---|---:|---:|
-| New records (match + create + offer + history) | **62 /s** | 39 |
-| Same records again (unchanged shortcut) | 340 /s | 14 |
-| Price change on all (history rows) | 144 /s | 22 |
-| One dry-run match, worst case (no brand → trigram on the whole master) | 119 ms | – |
+| Run | Reference (before) | Bulk (now) | SQL statements / record |
+|---|---:|---:|---:|
+| New records (match + create + offer + history) | 40-46 /s | **191 /s** | 106 → 35 |
+| Same records again (unchanged) | 250 /s | **7,300 /s** | 14 → 1 |
+| Price change on all | 163 /s | 181 /s (still per record) | 20 |
+| New records, 10 ms injected round trip, 1 worker | ~1 /s per connection | 140 /s | – |
+| New records, 10 ms round trip, 4 / 8 workers | – | 157 / 198 /s | – |
 
-Statement counts were measured from the server log. The benchmark was run before the reference-sync fix in §8; that fix removes a *fixed* cost per run (~1,600 statements, ≈0.3 s locally) and does not change the per-record figures. Reading it:
+Reading it:
 
-* **Single worker, local database:** 10 M new records ≈ **45 hours**; a 10 M daily re-scan of unchanged records ≈ 8 hours. Parallel workers should help (advisory locks are per brand) but **parallel scaling was not measured**.
-* **Over a network it is worse.** 39 sequential round trips at, say, 20 ms each is ≈ 0.8 s per new record — about **one record per second per connection**. Run from a laptop against a hosted database, a 10 M load would take months. Workers must sit next to the database (sub-millisecond round trips) or the loader must change.
-* **Why:** each record is its own transaction with a per-brand lock — chosen deliberately so one bad record can never poison another and two workers can never mint one GTIN twice. Correct, but chatty.
-* **Cheap fixes identified, none implemented yet:** fold the per-attribute "preferred" updates (2 statements per specification) into one; combine the lock and the similarity-threshold setting into one round trip; pipeline independent statements inside a transaction; and — for the initial load — a **bulk path**: `COPY` into an unlogged staging table, set-based exact-GTIN matching and insertion, and only the residue through the per-record matcher.
+* **What changed:** a batch costs ~a dozen statements instead of ~35 per record; the dashboard refresh is one pass over the master (it was 6-15 s per run at 1M); the last-seen index is gone (it forced every re-sighting to rewrite 16 indexes); the brand-scoped fuzzy retrieval uses a composite `(brand_id, name gin_trgm_ops)` index.
+* **Equivalence is tested, not assumed:** differential tests load the same data through both loaders and compare a canonical dump of every table (`tests/integration/pmd-loader.test.ts`). Anything that could be a duplicate of another record is *deferred* to the reference loader, so matching decisions are unchanged.
+* **The bulk path only applies where the fuzzy check finds no candidate.** The benchmark uses varied product names; a feed whose names are all near-identical within one brand is deferred in full and runs at reference speed.
+* **What is left:** the remaining time at 1M is the candidate check (~2.4 ms/record), status/quality recomputation, and the price-change path (20 statements per record, not batched yet). 10 M new records at ~190/s is roughly 15 hours single-worker locally; over a network use workers, and measure on the target host - the 8-worker figure above is with a 10 ms round trip on one laptop, not a production setup.
+* Numbers depend on the hardware and on this synthetic data; they are for comparison between loaders, not a forecast.
 
 ## 8. Tests
 
