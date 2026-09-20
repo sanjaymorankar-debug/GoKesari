@@ -20,6 +20,8 @@ interface Candidate {
   department: string;
   data_quality_score: number;
   has_image: boolean;
+  /** An existing catalogue product has this GTIN (any written form): promotion links to it instead of creating one. */
+  would_adopt: boolean;
 }
 
 async function main() {
@@ -34,7 +36,10 @@ async function main() {
 
   const candidates = await sql<Candidate[]>`
     SELECT m.master_product_id, m.product_name, b.brand_name, c.gokesari_department AS department, m.data_quality_score::float8 AS data_quality_score,
-           EXISTS (SELECT 1 FROM pmd.product_image i WHERE i.product_id = m.product_id) AS has_image
+           EXISTS (SELECT 1 FROM pmd.product_image i WHERE i.product_id = m.product_id) AS has_image,
+           m.gtin IS NOT NULL AND EXISTS (
+             SELECT 1 FROM public.products p WHERE p.deleted_at IS NULL AND p.gtin IS NOT NULL AND p.gtin IN (
+               m.gtin, CASE WHEN m.gtin LIKE '0%' THEN substr(m.gtin, 2) END, CASE WHEN m.gtin LIKE '00%' THEN substr(m.gtin, 3) END)) AS would_adopt
     FROM pmd.product_master m
     JOIN pmd.category c ON c.category_id = m.category_id
     LEFT JOIN pmd.brand b ON b.brand_id = m.brand_id
@@ -49,6 +54,8 @@ async function main() {
   console.log(`eligible ${candidates.length} products (quality >= ${minQuality}${departments.length ? `, departments ${departments.join("/")}` : ""}), images ${images ? "linked" : "NOT linked"}`);
   for (const [d, n] of [...byDept].sort((a, b) => b[1] - a[1])) console.log(`  ${d.padEnd(24)} ${n}`);
   console.log(`  with an image: ${candidates.filter((c) => c.has_image).length}`);
+  const adopting = candidates.filter((c) => c.would_adopt).length;
+  console.log(`  would ADOPT an existing catalogue product (same GTIN, nothing created or changed there): ${adopting}; would CREATE: ${candidates.length - adopting}`);
   // The bridge needs a marketplace category in the same department; without one it refuses the product.
   const stocked = new Set((await sql<{ department: string }[]>`SELECT DISTINCT department::text AS department FROM public.product_categories WHERE deleted_at IS NULL`).map((r) => r.department));
   const missing = [...byDept].filter(([d]) => !stocked.has(d));
