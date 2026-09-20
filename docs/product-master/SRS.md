@@ -130,7 +130,7 @@ Specifies the behaviour of the Product Master Data Platform: the `pmd` PostgreSQ
 | NFR-PERF-03 | Keyword / fuzzy search over 1M | < 100 ms | **20 ms / 16 ms** |
 | NFR-PERF-04 | List page cost independent of depth | constant | **2.3 ms at page 1, 2.2 ms at page 900,000** |
 | NFR-PERF-05 | Every hot query uses an index | no sequential scans | **All four EXPLAINed plans index-backed** |
-| NFR-PERF-06 | Loader throughput | Sufficient for a 10M initial load in days | **Not yet.** ~62 new records/s on a local DB with 1M present (~45 h single-worker for 10M); ~39 SQL statements per new record makes it latency-bound over a network. Options in the [pilot report](./PILOT_REPORT.md) |
+| NFR-PERF-06 | Loader throughput | Sufficient for a 10M initial load in days | **Partly.** ~190 new records/s on a local DB with 1M present (~15 h single-worker for 10M), ~7,300/s unchanged; price-change path not yet batched. Measurements in the [pilot report](./PILOT_REPORT.md) |
 | NFR-SCL-01 | Design shall scale to 10M products | index-backed access, partitioned history | Designed; **measured to 1M reads only** |
 | NFR-SEC-01 | Least privilege: four permissions; shops and customers have no access | — | Verified (`integration/pmd-api`) |
 | NFR-SEC-02 | CLI tools shall not write to an application database by accident | explicit target, local-only by default | `PMD_DATABASE_URL` required; non-local refused without `PMD_ALLOW_REMOTE=1`; `.env` not loaded |

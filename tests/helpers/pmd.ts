@@ -70,12 +70,12 @@ export async function registerTestSource(
 export async function ingest(
   key: string,
   rows: StagedProduct[],
-  opts: { kind?: "BRAND_MANUFACTURER" | "MARKETPLACE" | "OPEN_DATA"; fullSnapshot?: boolean; mode?: RunOptions["mode"]; adapterOverride?: Partial<SourceAdapter> } = {},
+  opts: { kind?: "BRAND_MANUFACTURER" | "MARKETPLACE" | "OPEN_DATA"; fullSnapshot?: boolean; mode?: RunOptions["mode"]; adapterOverride?: Partial<SourceAdapter>; loader?: RunOptions["loader"]; workers?: number } = {},
   sql: Sql = pmdSql(),
 ): Promise<RunSummary> {
   const def = await registerTestSource(key, opts.kind ?? "MARKETPLACE", sql);
   const adapter = { ...createRowsAdapter({ definition: def, rows, fullSnapshot: opts.fullSnapshot }), ...opts.adapterOverride } as SourceAdapter;
-  return runIngestion(sql, adapter, { mode: opts.mode ?? "INCREMENTAL", batchSize: 50 });
+  return runIngestion(sql, adapter, { mode: opts.mode ?? "INCREMENTAL", batchSize: 50, loader: opts.loader, workers: opts.workers });
 }
 
 /* ---------------------------------------------------------------- fixtures */

@@ -24,6 +24,7 @@
     "pmd:import-feed": "tsx scripts/pmd/import-feed.ts",
     "pmd:docs": "tsx scripts/pmd/gen-docs.ts",
     "pmd:bench": "tsx scripts/pmd/bench.ts",
+    "pmd:bench-loader": "tsx scripts/pmd/bench-loader.ts",
     "pmd:test": "vitest run pmd-"
   },
   "dependencies": {

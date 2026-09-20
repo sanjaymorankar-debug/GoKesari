@@ -33,11 +33,11 @@ export function isPriceOutlier(previousMinor: number | null, nextMinor: number |
   return ratio >= PRICE_OUTLIER_RATIO || ratio <= 1 / PRICE_OUTLIER_RATIO;
 }
 
-const dateOnly = (d: Date) => d.toISOString().slice(0, 10);
+export const dateOnly = (d: Date) => d.toISOString().slice(0, 10);
 
 type Reason = "FIRST_SEEN" | "PRICE_CHANGED" | "MRP_CHANGED" | "STOCK_CHANGED" | "PRICE_AND_STOCK_CHANGED";
 
-function discountOf(o: NormalizedOffer): { minor: number | null; pct: number | null } {
+export function discountOf(o: NormalizedOffer): { minor: number | null; pct: number | null } {
   if (o.priceMinor != null && o.mrpMinor != null && o.mrpMinor > 0 && o.mrpMinor >= o.priceMinor) {
     const minor = o.mrpMinor - o.priceMinor;
     return { minor, pct: Math.round((10000 * minor) / o.mrpMinor) / 100 };

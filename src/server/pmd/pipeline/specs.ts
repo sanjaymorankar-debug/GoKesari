@@ -62,7 +62,7 @@ export interface SpecOutcome {
 }
 
 /** Auto-registers attribute keys a source sends that the registry does not know yet. */
-async function ensureDefinitions(sql: Queryable, attrs: NormalizedAttribute[]): Promise<void> {
+export async function ensureDefinitions(sql: Queryable, attrs: NormalizedAttribute[]): Promise<void> {
   for (const a of attrs) {
     if (getAttributeDefinition(a.key)) continue;
     const type = a.valueNum != null ? "NUMBER" : a.valueBool != null ? "BOOLEAN" : "TEXT";

@@ -18,7 +18,7 @@
 import { createHash } from "node:crypto";
 
 import type { PmdConfig } from "../config";
-import type { Sql, TransactionSql } from "../db";
+import type { Queryable, Sql, TransactionSql } from "../db";
 import { matchNormalized } from "../match/engine";
 import { toEan13, toUpcA } from "../normalize/identifiers";
 import { normalizeText } from "../normalize/text";
@@ -91,13 +91,29 @@ export function contentHash(payload: unknown): string {
 
 /* --------------------------------------------------------- brand / maker */
 
-const compactOriginal = (s: string) => normalizeText(s).replace(/ /g, "");
+export const compactOriginal = (s: string) => normalizeText(s).replace(/ /g, "");
 
-async function resolveBrand(tx: TransactionSql, ctx: LoadContext, e: NamedEntity | null): Promise<number | null> {
+/**
+ * Ids found or created while a record's transaction is still open. They join the run-wide cache only after it
+ * COMMITS: a rolled-back transaction takes the brand row it created with it, and a cache entry that outlived it
+ * would point every later record of that brand at a brand id that does not exist.
+ */
+export interface PendingCaches {
+  brands: Map<string, number>;
+  manufacturers: Map<string, number>;
+}
+export const newPendingCaches = (): PendingCaches => ({ brands: new Map(), manufacturers: new Map() });
+
+export function commitPendingCaches(ctx: LoadContext, p: PendingCaches): void {
+  p.brands.forEach((v, k) => ctx.brandCache.set(k, v));
+  p.manufacturers.forEach((v, k) => ctx.manufacturerCache.set(k, v));
+}
+
+async function resolveBrand(tx: Queryable, ctx: LoadContext, e: NamedEntity | null, pending?: PendingCaches): Promise<number | null> {
   if (!e) return null;
   // Cached per SPELLING: "Amul" and "AMUL India" share a brand but each spelling must still be recorded as an alias.
   const alias = compactOriginal(e.original);
-  const hit = ctx.brandCache.get(alias);
+  const hit = ctx.brandCache.get(alias) ?? pending?.brands.get(alias);
   if (hit != null) return hit;
 
   let [row] = await tx<{ brand_id: number }[]>`SELECT brand_id FROM pmd.brand WHERE brand_key = ${e.key}`;
@@ -111,14 +127,14 @@ async function resolveBrand(tx: TransactionSql, ctx: LoadContext, e: NamedEntity
   await tx`
     INSERT INTO pmd.brand_alias (alias_key, brand_id, alias_original, source_id)
     VALUES (${alias}, ${row.brand_id}, ${e.original}, ${ctx.sourceId}) ON CONFLICT (alias_key) DO NOTHING`;
-  ctx.brandCache.set(alias, row.brand_id);
+  (pending ? pending.brands : ctx.brandCache).set(alias, row.brand_id);
   return row.brand_id;
 }
 
-async function resolveManufacturer(tx: TransactionSql, ctx: LoadContext, e: NamedEntity | null): Promise<number | null> {
+async function resolveManufacturer(tx: Queryable, ctx: LoadContext, e: NamedEntity | null, pending?: PendingCaches): Promise<number | null> {
   if (!e) return null;
   const alias = compactOriginal(e.original);
-  const hit = ctx.manufacturerCache.get(alias);
+  const hit = ctx.manufacturerCache.get(alias) ?? pending?.manufacturers.get(alias);
   if (hit != null) return hit;
 
   let [row] = await tx<{ manufacturer_id: number }[]>`SELECT manufacturer_id FROM pmd.manufacturer WHERE manufacturer_key = ${e.key}`;
@@ -131,7 +147,7 @@ async function resolveManufacturer(tx: TransactionSql, ctx: LoadContext, e: Name
   await tx`
     INSERT INTO pmd.manufacturer_alias (alias_key, manufacturer_id, alias_original, source_id)
     VALUES (${alias}, ${row.manufacturer_id}, ${e.original}, ${ctx.sourceId}) ON CONFLICT (alias_key) DO NOTHING`;
-  ctx.manufacturerCache.set(alias, row.manufacturer_id);
+  (pending ? pending.manufacturers : ctx.manufacturerCache).set(alias, row.manufacturer_id);
   return row.manufacturer_id;
 }
 
@@ -156,8 +172,10 @@ async function logChanges(tx: TransactionSql, ctx: LoadContext, productId: numbe
   }
 }
 
-async function upsertIdentifiers(tx: TransactionSql, ctx: LoadContext, productId: number, n: NormalizedProduct, brandId: number | null): Promise<void> {
-  type Ident = { type: string; value: string; original: string; format?: string; primary?: boolean; check?: boolean; scope?: number | null };
+export type Ident = { type: string; value: string; original: string; format?: string; primary?: boolean; check?: boolean; scope?: number | null };
+
+/** The identifiers a master carries, from one normalised record. Pure. */
+export function identifierList(n: NormalizedProduct, brandId: number | null): Ident[] {
   const list: Ident[] = [];
 
   if (n.gtin) {
@@ -174,8 +192,11 @@ async function upsertIdentifiers(tx: TransactionSql, ctx: LoadContext, productId
   if (n.model) list.push({ type: "MODEL", value: n.model.key, original: n.model.original, scope: brandId });
   if (n.sku) list.push({ type: "SKU", value: n.sku.toUpperCase(), original: n.sku, scope: brandId });
   if (n.productCode) list.push({ type: "PRODUCT_CODE", value: n.productCode.toUpperCase(), original: n.productCode, scope: brandId });
+  return list;
+}
 
-  for (const i of list) {
+async function upsertIdentifiers(tx: TransactionSql, ctx: LoadContext, productId: number, n: NormalizedProduct, brandId: number | null): Promise<void> {
+  for (const i of identifierList(n, brandId)) {
     await tx`
       INSERT INTO pmd.product_identifier (product_id, id_type, id_value, id_value_original, id_format, scope_brand_id, is_primary, check_digit_valid, source_id)
       VALUES (${productId}, ${i.type}, ${i.value}, ${i.original}, ${i.format ?? null}, ${i.scope ?? null}, ${i.primary ?? false}, ${i.check ?? null}, ${ctx.sourceId})
@@ -290,7 +311,7 @@ interface MasterFull {
   [column: string]: unknown;
 }
 
-function packColumns(n: NormalizedProduct) {
+export function packColumns(n: NormalizedProduct) {
   const q = n.quantity;
   return {
     net_quantity_value: q?.unitValue ?? null,
@@ -301,13 +322,13 @@ function packColumns(n: NormalizedProduct) {
   };
 }
 
-async function createMaster(
-  tx: TransactionSql,
-  ctx: LoadContext,
+/** The row inserted for a brand-new master. Pure: the per-record and the batch loader both use it. */
+export function buildMasterRow(
+  ctx: Pick<LoadContext, "sourceId" | "runId">,
   n: NormalizedProduct,
   ids: { brandId: number | null; manufacturerId: number | null; categoryId: number | null },
   matchConfidence: number,
-): Promise<number> {
+): Record<string, unknown> {
   const g = n.gtin?.usableForMatching ? n.gtin.gtin14 : null;
   const fieldSources: Record<string, number> = { product_name: ctx.sourceId };
   if (ids.categoryId != null) fieldSources.category_id = ctx.sourceId;
@@ -332,7 +353,7 @@ async function createMaster(
     short_description: n.shortDescription,
     long_description: n.description,
     variant_name: n.variant,
-    key_features: tx.json([]),
+    key_features: [],
     search_keywords: n.keywords,
     net_weight_g: n.netWeightG,
     gross_weight_g: n.grossWeightG,
@@ -350,8 +371,20 @@ async function createMaster(
     cess_bp: n.cessBp,
     match_confidence: matchConfidence,
     created_run_id: ctx.runId,
-    field_sources: tx.json(fieldSources),
+    field_sources: fieldSources,
   };
+  return row;
+}
+
+async function createMaster(
+  tx: TransactionSql,
+  ctx: LoadContext,
+  n: NormalizedProduct,
+  ids: { brandId: number | null; manufacturerId: number | null; categoryId: number | null },
+  matchConfidence: number,
+): Promise<number> {
+  const built = buildMasterRow(ctx, n, ids, matchConfidence);
+  const row = { ...built, key_features: tx.json(built.key_features as never), field_sources: tx.json(built.field_sources as never) };
   const [m] = await tx<{ product_id: number }[]>`INSERT INTO pmd.product_master ${tx(row as never, ...(Object.keys(row) as never[]))} RETURNING product_id`;
   await logChanges(tx, ctx, m.product_id, "product_master", [{ field: "created", oldValue: null, newValue: { name: n.name, brand: n.brand?.display ?? null } }]);
   return m.product_id;
@@ -508,7 +541,10 @@ export async function loadRecord(ctx: LoadContext, input: LoadInput): Promise<Re
   let raceRetries = 0;
   for (let attempt = 0; ; attempt++) {
     try {
-      return await ctx.sql.begin((tx) => loadInTransaction(tx, ctx, input));
+      const pending = newPendingCaches();
+      const outcome = await ctx.sql.begin((tx) => loadInTransaction(tx, ctx, input, pending));
+      commitPendingCaches(ctx, pending);
+      return outcome;
     } catch (e) {
       if (isTransient(e) && attempt < maxRetries) {
         await sleep(200 * 2 ** attempt);
@@ -521,12 +557,11 @@ export async function loadRecord(ctx: LoadContext, input: LoadInput): Promise<Re
   }
 }
 
-async function loadInTransaction(tx: TransactionSql, ctx: LoadContext, input: LoadInput): Promise<RecordOutcome> {
+async function loadInTransaction(tx: TransactionSql, ctx: LoadContext, input: LoadInput, pending: PendingCaches): Promise<RecordOutcome> {
   const { raw, staged, normalized: n } = input;
   const cfg = ctx.cfg;
   const hash = contentHash(raw.payload);
   const sourceId = ctx.sourceId;
-  const today = new Date();
 
   // Serialise per brand so two workers cannot both decide "no such product" for the same brand.
   const lockKey = n.brand?.key ? `b:${n.brand.key}` : n.gtin?.usableForMatching ? `g:${n.gtin.gtin14}` : `n:${n.coreName.slice(0, 40)}`;
@@ -556,8 +591,8 @@ async function loadInTransaction(tx: TransactionSql, ctx: LoadContext, input: Lo
   ctx.counters.recordsStaged++;
 
   /* ----- resolve brand / manufacturer / category -------------------------- */
-  const brandId = await resolveBrand(tx, ctx, n.brand);
-  const manufacturerId = await resolveManufacturer(tx, ctx, n.manufacturer);
+  const brandId = await resolveBrand(tx, ctx, n.brand, pending);
+  const manufacturerId = await resolveManufacturer(tx, ctx, n.manufacturer, pending);
   const categoryId = n.categoryCode && n.categoryCode !== UNCATEGORISED_CODE ? (ctx.ref.categoryIdByCode.get(n.categoryCode) ?? null) : null;
   const ids = { brandId, manufacturerId, categoryId };
 
@@ -647,7 +682,7 @@ async function loadInTransaction(tx: TransactionSql, ctx: LoadContext, input: Lo
   if (outcome !== "CREATED") {
     changed = await updateMaster(tx, ctx, productId, n, ids, match.score, specPatch);
   } else {
-    await tx`UPDATE pmd.product_master SET last_seen_at = ${today} WHERE product_id = ${productId}`;
+    // (last_seen_at already defaults to now() on insert: a second UPDATE here rewrote the row and all its indexes for nothing)
     await ensureFamily(tx, productId, brandId, n, categoryId);
   }
   await upsertImages(tx, ctx, productId, n.images);

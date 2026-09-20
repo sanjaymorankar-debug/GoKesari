@@ -59,7 +59,7 @@ Issues become `import_error` rows (`ERROR` = not loaded, `WARNING` = loaded but 
 
 ## 7. Load
 
-One transaction per record, advisory-locked per brand.
+By default the loader works on batches (`--loader batch`): unchanged records are recognised and brand-new records (no candidate master anywhere, no relation to an earlier record of the batch) are inserted with multi-row statements in one transaction. Everything else - possible duplicates, price changes, changed content - goes through the reference loader: one transaction per record, advisory-locked per brand. A failed bulk transaction falls back to the reference loader record by record. `--loader record` forces the reference behaviour; `--workers N` runs N workers, records routed by brand so related records stay ordered on one worker.
 
 | Situation | Result |
 |---|---|

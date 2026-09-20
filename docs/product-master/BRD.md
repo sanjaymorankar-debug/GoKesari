@@ -75,7 +75,7 @@ Priority: **M**ust, **S**hould, **C**ould. Status as of the pilot.
 | BR-11 | REST API for products, offers, price history, brands, categories, manufacturers, import, match, validate and data quality | M | Delivered |
 | BR-12 | Data-quality and collection dashboard | M | Delivered |
 | BR-13 | Governance: audit of human actions, version history, merge history, role-based access | M | Delivered |
-| BR-14 | Support ~10 million products and daily incremental updates | M | **Partly proven** — queries measured at 1M; loader throughput needs work before 10M ([pilot report](./PILOT_REPORT.md)) |
+| BR-14 | Support ~10 million products and daily incremental updates | M | **Partly proven** — queries measured at 1M; loader reworked (~4x new, ~30x unchanged); price-change path still to batch ([pilot report](./PILOT_REPORT.md)) |
 | BR-15 | A proof-of-concept across ~15 categories with 100–1,000 products per source before any large collection | M | **Partly met** — 8 of 15 categories populated in depth from open data; 5 barely; 2 (Automotive, Tools) not at all, because no lawful open source covers them |
 | BR-16 | A product browser/editor and promotion button in the admin console | S | Not built — API only |
 | BR-17 | Scheduled collection and alerting | S | Not built — CLI, run by a person or an external scheduler |

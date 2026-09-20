@@ -1,6 +1,6 @@
 # Database design
 
-PostgreSQL 16, schema **`pmd`**, created by `drizzle/0015_product_master_platform.sql`. **27 tables** (one range-partitioned into 109 partitions), **2 views**, **4 functions** (one is the `updated_at` trigger), 3 explicit sequences plus the identity sequences, 84 indexes (not counting the per-partition copies of the price-history indexes), one extension (`pg_trgm`). Nothing in the existing `public` schema was altered; the only coupling is `pmd.catalogue_link` (foreign keys to `public.products` and `public.users`).
+PostgreSQL 16, schema **`pmd`**, created by `drizzle/0015_product_master_platform.sql`. **27 tables** (one range-partitioned into 109 partitions), **2 views**, **4 functions** (one is the `updated_at` trigger), 3 explicit sequences plus the identity sequences, 83 indexes (not counting the per-partition copies of the price-history indexes), two extensions (`pg_trgm`, `btree_gin`). Nothing in the existing `public` schema was altered; the only coupling is `pmd.catalogue_link` (foreign keys to `public.products` and `public.users`).
 
 The full field-by-field description of what leaves the database is in the [data dictionary](./DATA_DICTIONARY.md). This page explains the structure and the reasons for it.
 
@@ -88,7 +88,7 @@ erDiagram
 | Exact identifier match | `product_master_gtin_uq` — unique, partial (`gtin IS NOT NULL AND record_status = 'ACTIVE'`); `product_identifier_global_uq (id_type, id_value) WHERE id_type IN ('GTIN','ISBN')` — a GTIN or ISBN belongs to exactly one product |
 | MPN / model within a brand | `(brand_id, mpn)` and `(brand_id, model_number)`, both partial on NOT NULL |
 | Pack-size siblings | `(brand_id, normalized_name)` btree |
-| Fuzzy candidate retrieval | GIN `gin_trgm_ops` on `normalized_name` (brand-scoped) and on `search_text` (brand-less) |
+| Fuzzy candidate retrieval | composite GIN `(brand_id, normalized_name gin_trgm_ops)` (brand-scoped) and on `search_text` (brand-less) |
 | Keyword search | GIN on `to_tsvector('simple', search_text)` |
 | Keyset listing | primary key order; partial indexes on status and quality for ACTIVE rows; brand+category, category, family, manufacturer |
 | One preferred value | `product_specification_preferred_uq (product_id, attribute_key) WHERE is_preferred` |
