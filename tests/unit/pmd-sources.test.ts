@@ -10,7 +10,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 
 import ExcelJS from "exceljs";
 import JSZip from "jszip";
@@ -488,7 +488,7 @@ describe("streaming .xlsx reader", () => {
     );
   });
 
-  it("streams a file whose workbook part comes first (as Excel writes it); ExcelJS-written files fall back to memory", async () => {
+  it("falls back to reading in memory when ExcelJS's streaming reader fails on the file's layout", async () => {
     await withWorkbook(
       (wb) => {
         const ws = wb.addWorksheet("Catalogue");
@@ -496,12 +496,30 @@ describe("streaming .xlsx reader", () => {
         for (let i = 1; i <= 50; i++) ws.addRow([`I-${i}`, `Product ${i}`]);
       },
       async (path) => {
-        // ExcelJS's own output puts the sheets before workbook.xml, which its streaming reader cannot handle...
-        await expect(collectMode(path, "stream")).rejects.toThrow(TypeError);
+        // Whether ExcelJS's stream reader copes with its OWN output depends on the runtime (it fails on Windows and not on
+        // Linux), so the failure it produces on a sheets-before-workbook layout is simulated instead of relied on.
+        const spy = vi.spyOn(ExcelJS.stream.xlsx, "WorkbookReader").mockImplementation(function () {
+          throw new TypeError("Cannot read properties of undefined (reading 'sheets')");
+        } as never);
+        try {
+          await expect(collectMode(path, "stream")).rejects.toThrow(TypeError);
+          expect(await collect(path)).toHaveLength(50); // the default path falls back and still loads every row
+        } finally {
+          spy.mockRestore();
+        }
         expect(await collectMode(path, "memory")).toHaveLength(50);
-        expect(await collect(path)).toHaveLength(50); // ...so the default path falls back and still loads it
+      },
+    );
+  });
 
-        // Excel and LibreOffice write workbook.xml first. Re-zip in that order and the stream path works.
+  it("streams a file whose workbook part comes first, as Excel and LibreOffice write it", async () => {
+    await withWorkbook(
+      (wb) => {
+        const ws = wb.addWorksheet("Catalogue");
+        ws.addRow(["Item", "Name"]);
+        for (let i = 1; i <= 50; i++) ws.addRow([`I-${i}`, `Product ${i}`]);
+      },
+      async (path) => {
         const zip = await JSZip.loadAsync(readFileSync(path));
         const first = ["[Content_Types].xml", "_rels/.rels", "xl/workbook.xml", "xl/_rels/workbook.xml.rels", "xl/sharedStrings.xml", "xl/styles.xml"];
         const ordered = new JSZip();
