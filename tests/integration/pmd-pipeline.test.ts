@@ -125,7 +125,7 @@ describe("collection -> normalisation -> master creation", () => {
 
     // Amul / AMUL India -> ONE brand, both spellings preserved.
     expect(await count(sql, "pmd.brand")).toBe(1);
-    const aliases = await sql<{ alias_original: string }[]>`SELECT alias_original FROM pmd.brand_alias ORDER BY alias_original`;
+    const aliases = await sql<{ alias_original: string }[]>`SELECT alias_original FROM pmd.brand_alias ORDER BY alias_original COLLATE "C"`;
     expect(aliases.map((a) => a.alias_original)).toEqual(["AMUL India", "Amul"]);
 
     const [m] = await sql<{ gst_rate_bp: number; hsn_code: string; net_quantity_value: number; net_quantity_unit: string; pack_size: string; ean: string }[]>`
@@ -586,6 +586,26 @@ describe("governance: history, versions, integrity", () => {
 });
 
 describe("work queue", () => {
+  it("runs finishing together rebuild the dashboard snapshot one after another, not on top of each other", async () => {
+    await ingest("test_market_a", [product({ sourceProductId: "D1", name: "Dashboard Probe", brand: "Acme" })]);
+    // Hold the first refresh's transaction open while a second one starts - the exact interleaving that used to hit the
+    // snapshot's primary key (the second DELETE saw the old rows, the first had already re-inserted them).
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const first = sql.begin(async (tx) => {
+      await tx`SELECT pmd.refresh_dashboard()`;
+      await gate;
+    });
+    await new Promise((r) => setTimeout(r, 150));
+    const second = sql`SELECT pmd.refresh_dashboard()`.execute(); // postgres.js queries are lazy: start it now, while the first is still open
+    await new Promise((r) => setTimeout(r, 300)); // the second now waits on the lock (previously it ran into the primary key)
+    release();
+    await Promise.all([first, second]);
+    const [row] = await sql<{ n: number; value: number }[]>`SELECT count(*)::int AS n, max(value) AS value FROM pmd.dashboard_metric WHERE metric = 'total_products'`;
+    expect(row.n).toBe(1);
+    expect(Number(row.value)).toBe(1);
+  });
+
   it("concurrent workers never claim the same job (SKIP LOCKED)", async () => {
     for (let i = 0; i < 12; i++) await sql`INSERT INTO pmd.job (job_type, payload) VALUES ('ingest_batch', ${sql.json({ i } as never)})`;
     const claims = await Promise.all(Array.from({ length: 8 }, (_, w) => sql<{ job_id: number }[]>`SELECT job_id FROM pmd.claim_job(ARRAY['ingest_batch'], ${"worker-" + w})`));

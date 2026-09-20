@@ -825,6 +825,9 @@ CREATE TABLE pmd.reference_state (
 CREATE FUNCTION pmd.refresh_dashboard(p_window interval DEFAULT interval '7 days') RETURNS void
 LANGUAGE plpgsql AS $$
 BEGIN
+  -- Two runs finishing together must not both rebuild the snapshot at once (the second INSERT would hit the
+  -- primary key): take a transaction-scoped lock so they queue, and the later one simply rebuilds it again.
+  PERFORM pg_advisory_xact_lock(hashtextextended('pmd.refresh_dashboard', 0));
   DELETE FROM pmd.dashboard_metric;
 
   INSERT INTO pmd.dashboard_metric (metric, dimension, value)

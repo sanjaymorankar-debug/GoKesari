@@ -46,7 +46,7 @@ describe("partner CSV feed, onboarded by mapping", () => {
     expect(run.status).toBe("PARTIAL");
 
     const errors = await sql<{ source_record_id: string; error_code: string }[]>`
-      SELECT source_record_id, error_code FROM pmd.import_error WHERE severity = 'ERROR' ORDER BY source_record_id`;
+      SELECT source_record_id, error_code FROM pmd.import_error WHERE severity = 'ERROR' ORDER BY source_record_id COLLATE "C"`;
     expect(errors).toEqual([
       { source_record_id: "XX-9001", error_code: "NAME_MISSING" },
       { source_record_id: "XX-9002", error_code: "NAME_MISSING" },
