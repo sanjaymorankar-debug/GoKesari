@@ -29,18 +29,17 @@ Write `<target>` for the site's **direct** (non-pooled) Postgres URL. Do not com
 1. **Deploy the code.** Merging to `staging` deploys test; merging to `main` deploys live. The app does not migrate itself.
 2. **Apply migration 0015** (creates the `pmd` schema; the rest of the database is untouched):
    `DATABASE_URL=<target> npm run db:migrate`. Do **not** run `pmd:seed` - the copy in step 3 brings the reference data.
-3. **Copy the pilot data** from the local pilot database (`gokesari_pmd`). `price_history` must be restored last, because
-   pg_dump orders partitioned tables before the tables they reference:
+3. **Copy the pilot data** from the local pilot database (`gokesari_pmd`) into the migrated, still-empty target. On Windows:
 
-   ```bash
-   PGB="/c/Program Files/PostgreSQL/16/bin"
-   "$PGB/pg_dump.exe" -h 127.0.0.1 -p 54329 -U pmd_admin -Fc -a -n pmd -f pilot-pmd.dump gokesari_pmd
-   "$PGB/pg_restore.exe" -l pilot-pmd.dump > toc.txt
-   { grep -v "TABLE DATA pmd price_history" toc.txt; grep "TABLE DATA pmd price_history" toc.txt; } > toc-ordered.txt
-   "$PGB/pg_restore.exe" -d "<target>" -a --single-transaction -L toc-ordered.txt pilot-pmd.dump
+   ```powershell
+   .\scripts\pmd\copy-pilot-data.ps1 -Target "<target>"
    ```
 
-   The dump is under 1 MB. It restored without superuser options, as a hosted database requires.
+   It refuses a target with no `pmd` schema or with any data in it, restores in one transaction (all or nothing), and
+   compares row counts with the source afterwards. Underneath it is `pg_dump -Fc -a -n pmd` and `pg_restore -a
+   --single-transaction`; `price_history` has to be restored last because pg_dump orders partitioned tables before the tables
+   they reference (`pg_restore -l`, move the `TABLE DATA pmd price_history` lines to the end, `pg_restore -L`). No superuser
+   option is used, so it works on a hosted database. The dump is under 1 MB.
 4. **Dry run** (writes nothing) and read it - counts by department, and a warning for any department that has no
    marketplace category on the target:
 
