@@ -1,0 +1,5 @@
+GTIN,Product Description,Brand Name,Brand Owner Name,Net Content,Net Content UoM,Gross Weight,Gross Weight UoM,Length,Width,Height,Dimension UoM,GPC Brick Code,GPC Brick Name,Country of Origin,GST Rate,HSN Code,Image URL,MRP,Brand Owner GLN
+8901500000014,Acme Farms Basmati Rice 1 kg,Acme Farms,Acme Foods Pvt Ltd,1,KGM,1.05,KGM,20,12,6,CMT,GPC-DEMO-RICE,Rice,India,5%,1006,https://example.com/rice1.jpg,210,8901500000008
+8901500000021,Acme Farms Basmati Rice 5 kg,Acme Farms,Acme Foods Pvt Ltd,5,KGM,5.2,KGM,38,24,10,CMT,GPC-DEMO-RICE,Rice,India,5%,1006,,990,8901500000008
+8901500000038,Acme Farms Cow Ghee 500 ml,Acme Farms,Acme Foods Pvt Ltd,500,MLT,0.62,KGM,9,9,14,CMT,GPC-DEMO-GHEE,Ghee,India,12%,0405,,350,8901500000008
+8901500000045,Acme Farms Poha 500 g,Acme Farms,Acme Foods Pvt Ltd,500,GRM,,,,,,,GPC-DEMO-OTHER,Flattened rice,India,5%,1904,,45,8901500000008

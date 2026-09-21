@@ -164,6 +164,16 @@ export const PERMISSIONS = {
   PRODUCT_MRP_DISPUTE: "product-mrp:dispute",
   /** Set low-stock threshold, reorder level and order limits on own shop's lines. */
   INVENTORY_THRESHOLD_MANAGE_OWN: "inventory-threshold:manage:own",
+
+  /* -------------------- product master data platform (pmd schema) */
+  /** Browse and search the universal product master, offers, price history and data quality. Staff only. */
+  PMD_VIEW: "pmd:view",
+  /** Resolve the possible-duplicate review queue and merge products. */
+  PMD_REVIEW: "pmd:review",
+  /** Promote a master product into the live marketplace catalogue (public.products). */
+  PMD_PROMOTE: "pmd:promote",
+  /** Bulk-import product records into the master. ADMIN only - it writes to the master. */
+  PMD_IMPORT: "pmd:import",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -259,6 +269,11 @@ const OPERATOR_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.BRAND_MANAGE,
   PERMISSIONS.PRODUCT_IDENTITY_MANAGE,
   PERMISSIONS.PRODUCT_MRP_MANAGE,
+  // Product master platform: operators curate the master and feed the catalogue,
+  // but only an admin may bulk-import into it (PMD_IMPORT).
+  PERMISSIONS.PMD_VIEW,
+  PERMISSIONS.PMD_REVIEW,
+  PERMISSIONS.PMD_PROMOTE,
   // Deliberately absent (§43 "not unrestricted system access"):
   // USER_SET_ROLE, USER_SUSPEND, WALLET_ADJUST, SYSTEM_CONFIG,
   // AUDIT_LOG_VIEW, REPORT_VIEW_ALL, WALLET_VIEW_ANY.
@@ -398,4 +413,8 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.PRODUCT_MRP_DISPUTE]: "Flag a master MRP as incorrect for verification",
   [PERMISSIONS.INVENTORY_THRESHOLD_MANAGE_OWN]:
     "Set low-stock threshold and reorder levels for own shop's products",
+  [PERMISSIONS.PMD_VIEW]: "Browse the universal product master and its data quality",
+  [PERMISSIONS.PMD_REVIEW]: "Resolve possible-duplicate review items and merge products",
+  [PERMISSIONS.PMD_PROMOTE]: "Promote a master product into the marketplace catalogue",
+  [PERMISSIONS.PMD_IMPORT]: "Bulk-import product records into the master",
 };

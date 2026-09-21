@@ -1,0 +1,818 @@
+openapi: 3.0.3
+info:
+  title: Gokesari Product Master API
+  version: 0.1.0
+  description: |
+    Read and steward the Gokesari Universal Product Master, and feed it.
+
+    - Routes live under `/api/product-master` (the brief's bare `/products` is already the marketplace catalogue's path).
+    - Every route is server-rendered per request and requires a signed-in user with the permission named on the operation.
+    - Money is always integer minor units (paise) with a `currency`; a missing value is `null`, never `0`.
+    - Lists are keyset-paginated: pass the `nextCursor` of one page as `cursor` of the next.
+    - Errors use the application's envelope: `{ "error": { "code", "message", "details"? } }`.
+servers:
+  - url: /api/product-master
+security:
+  - sessionCookie: []
+tags:
+  - name: Products
+  - name: Ingestion
+  - name: Reference
+  - name: Quality
+  - name: Review
+
+paths:
+  /products:
+    get:
+      tags: [Products]
+      summary: List products
+      description: Filtered, keyset-paginated list of ACTIVE master products. Requires `pmd:view`.
+      parameters:
+        - { name: brand, in: query, schema: { type: string, pattern: '^GKS-BRND-\d{9}$' } }
+        - { name: manufacturer, in: query, schema: { type: string, pattern: '^GKS-MFR-\d{9}$' } }
+        - name: category
+          in: query
+          description: Standard category code (slug path, e.g. `dairy/milk`). Includes everything beneath it.
+          schema: { type: string, maxLength: 200 }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/ProductStatus' } }
+        - { name: minQuality, in: query, schema: { type: number, minimum: 0, maximum: 100 } }
+        - { name: hasGtin, in: query, schema: { type: boolean } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: cursor, in: query, schema: { type: string, pattern: '^\d+$' } }
+      responses:
+        '200':
+          description: One page of products
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [items, nextCursor]
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/ProductSummary' } }
+                  nextCursor: { type: string, nullable: true }
+        '401': { $ref: '#/components/responses/Error' }
+        '403': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+
+  /products/search:
+    get:
+      tags: [Products]
+      summary: Search products
+      description: |
+        Identifier lookups first (GTIN/EAN/UPC/ISBN, MPN, model, SKU), then keyword search over brand + name + variant + model
+        (all terms must appear; the last term matches as a prefix), then fuzzy trigram search to forgive typos.
+        Requires `pmd:view`.
+      parameters:
+        - { name: q, in: query, required: true, schema: { type: string, minLength: 1, maxLength: 200 } }
+        - { name: brand, in: query, schema: { type: string } }
+        - { name: category, in: query, schema: { type: string } }
+        - { name: manufacturer, in: query, schema: { type: string } }
+        - { name: status, in: query, schema: { $ref: '#/components/schemas/ProductStatus' } }
+        - { name: minQuality, in: query, schema: { type: number, minimum: 0, maximum: 100 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 100, default: 25 } }
+      responses:
+        '200':
+          description: Ranked hits
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [query, items]
+                properties:
+                  query: { type: string }
+                  items: { type: array, items: { $ref: '#/components/schemas/SearchHit' } }
+        '422': { $ref: '#/components/responses/Error' }
+
+  /products/{id}:
+    get:
+      tags: [Products]
+      summary: One product with full provenance
+      description: Identifiers, every source's specifications (with the preferred one marked), sources, images, conflicts, quality components, offer summary and catalogue link. Requires `pmd:view`.
+      parameters: [{ $ref: '#/components/parameters/MasterId' }]
+      responses:
+        '200':
+          description: The product
+          content: { application/json: { schema: { $ref: '#/components/schemas/ProductDetail' } } }
+        '404': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+
+  /products/{id}/offers:
+    get:
+      tags: [Products]
+      summary: Every seller's offer for a product
+      description: Sorted by price. Prices belong to offers, never to the product. Requires `pmd:view`.
+      parameters:
+        - $ref: '#/components/parameters/MasterId'
+        - { name: current, in: query, description: 'Only offers still listed by their source', schema: { type: boolean } }
+      responses:
+        '200':
+          description: Offers
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [masterProductId, count, offers]
+                properties:
+                  masterProductId: { type: string }
+                  count: { type: integer }
+                  offers: { type: array, items: { $ref: '#/components/schemas/Offer' } }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /products/{id}/price-history:
+    get:
+      tags: [Products]
+      summary: Append-only price observations
+      description: One point on first sighting and on every change of price, MRP or stock. Requires `pmd:view`.
+      parameters:
+        - $ref: '#/components/parameters/MasterId'
+        - { name: from, in: query, schema: { type: string, format: date } }
+        - { name: to, in: query, schema: { type: string, format: date } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 5000, default: 1000 } }
+      responses:
+        '200':
+          description: Points and their summary
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [masterProductId, summary, points]
+                properties:
+                  masterProductId: { type: string }
+                  summary:
+                    type: object
+                    properties:
+                      observations: { type: integer }
+                      lowestMinor: { type: integer, nullable: true }
+                      highestMinor: { type: integer, nullable: true }
+                      averageMinor: { type: integer, nullable: true }
+                  points: { type: array, items: { $ref: '#/components/schemas/PricePoint' } }
+        '404': { $ref: '#/components/responses/Error' }
+
+  /products/{id}/promote:
+    post:
+      tags: [Products]
+      summary: Put a master product into the marketplace catalogue
+      description: |
+        Makes the product selectable by shops (PRODUCT_MASTER -> GOKESARI_PRODUCT_CATALOG). Adopts an existing catalogue product with
+        the same GTIN in any written form instead of duplicating it. Marketplace prices never cross; an MRP is copied only from a
+        manufacturer / GS1 / government source and lands as PENDING_VERIFICATION. Audited in the same transaction. Requires `pmd:promote`.
+      parameters: [{ $ref: '#/components/parameters/MasterId' }]
+      requestBody:
+        content:
+          application/json:
+            schema:
+              type: object
+              additionalProperties: false
+              properties:
+                minQuality: { type: number, minimum: 0, maximum: 100, description: 'Default 40' }
+                note: { type: string, maxLength: 500, nullable: true }
+      responses:
+        '201':
+          description: A new catalogue product was created
+          content: { application/json: { schema: { $ref: '#/components/schemas/PromotionResult' } } }
+        '200':
+          description: An existing catalogue product was adopted
+          content: { application/json: { schema: { $ref: '#/components/schemas/PromotionResult' } } }
+        '404': { $ref: '#/components/responses/Error' }
+        '409':
+          description: Already promoted, catalogue code taken, or no operational category for the department
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+        '422':
+          description: Not eligible (not ACTIVE, quality below the minimum, no standard category)
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+  /products/import:
+    post:
+      tags: [Ingestion]
+      summary: Import staged products through the normal pipeline
+      description: |
+        Up to 1,000 records per call, through source `manual_import`: normalise, match, validate, load. Bad rows are reported in
+        IMPORT_ERRORS, never fatal. Larger loads use a source adapter or `npm run pmd:import-feed`. Requires `pmd:import` (administrators).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [rows]
+              additionalProperties: false
+              properties:
+                rows: { type: array, minItems: 1, maxItems: 1000, items: { $ref: '#/components/schemas/StagedProduct' } }
+      responses:
+        '201':
+          description: Run summary
+          content: { application/json: { schema: { $ref: '#/components/schemas/RunSummary' } } }
+        '403': { $ref: '#/components/responses/Error' }
+        '422': { $ref: '#/components/responses/Error' }
+
+  /products/match:
+    post:
+      tags: [Ingestion]
+      summary: Dry-run the matcher
+      description: What would the platform do with this record? Candidates, scores, the rule, hard conflicts and the decision. Writes nothing. Requires `pmd:view`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [product]
+              additionalProperties: false
+              properties: { product: { $ref: '#/components/schemas/StagedProduct' } }
+      responses:
+        '200':
+          description: The decision
+          content: { application/json: { schema: { $ref: '#/components/schemas/MatchPreview' } } }
+        '422': { $ref: '#/components/responses/Error' }
+
+  /products/validate:
+    post:
+      tags: [Ingestion]
+      summary: Validate and normalise a record
+      description: Pure validation - nothing is looked up or written. Returns the normalised form and every issue. Requires `pmd:view`.
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [product]
+              additionalProperties: false
+              properties: { product: { $ref: '#/components/schemas/StagedProduct' } }
+      responses:
+        '200':
+          description: Validation result
+          content: { application/json: { schema: { $ref: '#/components/schemas/ValidationResult' } } }
+        '422': { $ref: '#/components/responses/Error' }
+
+  /brands:
+    get:
+      tags: [Reference]
+      summary: Normalised brands with every spelling seen
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 200 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: One page of brands
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Brand' } }
+                  nextCursor: { type: string, nullable: true }
+
+  /manufacturers:
+    get:
+      tags: [Reference]
+      summary: Manufacturers / brand owners
+      parameters:
+        - { name: q, in: query, schema: { type: string, maxLength: 200 } }
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 500, default: 100 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: One page of manufacturers
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/Manufacturer' } }
+                  nextCursor: { type: string, nullable: true }
+
+  /categories:
+    get:
+      tags: [Reference]
+      summary: The standard taxonomy with live product counts
+      parameters:
+        - { name: level, in: query, schema: { type: integer, minimum: 1, maximum: 5 } }
+        - { name: parent, in: query, description: 'Category code of the parent', schema: { type: string, maxLength: 200 } }
+      responses:
+        '200':
+          description: Categories
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  count: { type: integer }
+                  categories: { type: array, items: { $ref: '#/components/schemas/Category' } }
+
+  /data-quality:
+    get:
+      tags: [Quality]
+      summary: The quality dashboard as data
+      description: Totals, missing-field counts, conflicts, review load, breakdowns by marketplace / category / brand and the latest runs. Served from a snapshot refreshed after every run.
+      responses:
+        '200':
+          description: The report
+          content: { application/json: { schema: { $ref: '#/components/schemas/DataQualityReport' } } }
+
+  /review:
+    get:
+      tags: [Review]
+      summary: The possible-duplicate queue
+      description: Pairs the matcher would not merge on its own. Requires `pmd:view`.
+      parameters:
+        - { name: limit, in: query, schema: { type: integer, minimum: 1, maximum: 200, default: 50 } }
+        - { name: cursor, in: query, schema: { type: string } }
+      responses:
+        '200':
+          description: One page of review items
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  items: { type: array, items: { $ref: '#/components/schemas/ReviewItem' } }
+                  nextCursor: { type: string, nullable: true }
+
+  /review/{candidateId}:
+    post:
+      tags: [Review]
+      summary: Resolve a review item
+      description: |
+        `CONFIRMED_SAME` merges by pointer (the younger master is retired, nothing is deleted; sources, offers, price history and
+        specifications move to the survivor). `CONFIRMED_DIFFERENT` records that they are distinct. `SAME_FAMILY` groups pack sizes /
+        variants. Audited. Requires `pmd:review`.
+      parameters:
+        - { name: candidateId, in: path, required: true, schema: { type: integer, minimum: 1 } }
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [decision]
+              additionalProperties: false
+              properties:
+                decision: { type: string, enum: [CONFIRMED_SAME, CONFIRMED_DIFFERENT, SAME_FAMILY] }
+                note: { type: string, maxLength: 500, nullable: true }
+      responses:
+        '200':
+          description: Outcome
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  candidateId: { type: integer }
+                  decision: { type: string }
+                  merged:
+                    type: object
+                    nullable: true
+                    properties:
+                      fromProductId: { type: integer }
+                      intoProductId: { type: integer }
+                      sourcesMoved: { type: integer }
+                      offersMoved: { type: integer }
+                      historyRowsMoved: { type: integer }
+                      specsMoved: { type: integer }
+                  linkedHeldRecord: { type: boolean }
+        '404': { $ref: '#/components/responses/Error' }
+        '409':
+          description: Already decided, or the products can no longer be merged
+          content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+components:
+  securitySchemes:
+    sessionCookie:
+      type: apiKey
+      in: cookie
+      name: authjs.session-token
+      description: The signed-in application session. Permissions come from the user's role (see the capability matrix).
+
+  parameters:
+    MasterId:
+      name: id
+      in: path
+      required: true
+      description: MASTER_PRODUCT_ID, never a raw database key.
+      schema: { type: string, pattern: '^GKS-PROD-\d{9}$', example: GKS-PROD-000000001 }
+
+  responses:
+    Error:
+      description: Error
+      content: { application/json: { schema: { $ref: '#/components/schemas/Error' } } }
+
+  schemas:
+    Error:
+      type: object
+      required: [error]
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [UNAUTHENTICATED, FORBIDDEN, NOT_FOUND, VALIDATION_FAILED, CONFLICT, RATE_LIMITED, INTERNAL]
+            message: { type: string }
+            details: { type: object, additionalProperties: true }
+
+    ProductStatus:
+      type: string
+      enum: [ACTIVE, OUT_OF_STOCK, DISCONTINUED, TEMPORARILY_UNAVAILABLE, UNKNOWN]
+      description: Derived from offers. DISCONTINUED is never set by the pipeline - only by a person or a manufacturer statement.
+
+    ProductSummary:
+      type: object
+      properties:
+        masterProductId: { type: string, example: GKS-PROD-000000001 }
+        productName: { type: string }
+        brand: { type: string, nullable: true }
+        manufacturer: { type: string, nullable: true }
+        categoryPath: { type: array, items: { type: string }, nullable: true }
+        gtin: { type: string, nullable: true, description: Canonical GTIN-14 }
+        packSize: { type: string, nullable: true, example: 1000 g }
+        productStatus: { $ref: '#/components/schemas/ProductStatus' }
+        dataQualityScore: { type: number, nullable: true }
+        offerCount: { type: integer }
+        minPriceMinor: { type: integer, nullable: true }
+        currency: { type: string, nullable: true }
+        sourceCount: { type: integer }
+
+    SearchHit:
+      allOf:
+        - $ref: '#/components/schemas/ProductSummary'
+        - type: object
+          properties:
+            matchType: { type: string, enum: [IDENTIFIER, KEYWORD, FUZZY] }
+            score: { type: number, description: 'Ordering only: 100 for an identifier hit, 50 + text-search rank (0-1) for a keyword hit, 0 + trigram similarity (0-1) for a fuzzy hit' }
+
+    ProductDetail:
+      type: object
+      properties:
+        masterProductId: { type: string }
+        productName: { type: string }
+        recordStatus: { type: string, enum: [ACTIVE, MERGED, SUPPRESSED] }
+        productStatus: { $ref: '#/components/schemas/ProductStatus' }
+        statusBasis: { type: string, nullable: true }
+        brand: { type: object, nullable: true, properties: { code: { type: string }, name: { type: string } } }
+        manufacturer: { type: object, nullable: true, properties: { code: { type: string }, name: { type: string } } }
+        category: { type: object, nullable: true, properties: { code: { type: string }, path: { type: array, items: { type: string } } } }
+        family:
+          type: object
+          nullable: true
+          properties:
+            name: { type: string }
+            members:
+              type: array
+              items: { type: object, properties: { masterProductId: { type: string }, productName: { type: string }, packSize: { type: string, nullable: true } } }
+        identifiers:
+          type: array
+          items:
+            type: object
+            properties:
+              type: { type: string, enum: [GTIN, ISBN, MPN, MODEL, PRODUCT_CODE, SKU, SOURCE_CODE, INTERNAL_BARCODE] }
+              value: { type: string }
+              original: { type: string }
+              format: { type: string, nullable: true }
+              primary: { type: boolean }
+              checkDigitValid: { type: boolean, nullable: true }
+        attributes: { type: object, additionalProperties: true, description: 'Master-column attributes that are present (weights, dimensions, colour, GST, HSN, ...)' }
+        specifications:
+          type: array
+          items:
+            type: object
+            properties:
+              key: { type: string }
+              label: { type: string }
+              group: { type: string }
+              value: { nullable: true }
+              unit: { type: string, nullable: true }
+              source: { type: string }
+              preferred: { type: boolean }
+              confidence: { type: number, nullable: true }
+        sources:
+          type: array
+          items:
+            type: object
+            properties:
+              source: { type: string }
+              sourceProductId: { type: string }
+              url: { type: string, nullable: true }
+              method: { type: string }
+              matchStatus: { type: string }
+              matchScore: { type: number, nullable: true }
+              lastSeen: { type: string, format: date }
+        images:
+          type: array
+          items: { type: object, properties: { rank: { type: integer }, url: { type: string }, source: { type: string }, validation: { type: string } } }
+        conflicts:
+          type: array
+          items:
+            type: object
+            properties:
+              attribute: { type: string }
+              value1: { type: string }
+              source1: { type: string }
+              value2: { type: string }
+              source2: { type: string }
+              status: { type: string }
+              resolution: { type: string, nullable: true }
+        quality:
+          type: object
+          properties:
+            score: { type: number, nullable: true }
+            components: { type: object, additionalProperties: true }
+            computedAt: { type: string, format: date-time, nullable: true }
+        offerSummary:
+          type: object
+          properties:
+            offerCount: { type: integer }
+            minPriceMinor: { type: integer, nullable: true }
+            maxPriceMinor: { type: integer, nullable: true }
+            currency: { type: string, nullable: true }
+        catalogue:
+          type: object
+          nullable: true
+          properties: { catalogueProductId: { type: string }, code: { type: string }, promotedAt: { type: string, format: date-time } }
+        pendingReviewItems: { type: integer }
+        firstSeenAt: { type: string, format: date-time }
+        lastSeenAt: { type: string, format: date-time }
+        version: { type: integer }
+
+    Offer:
+      type: object
+      properties:
+        source: { type: string }
+        sourceProductId: { type: string }
+        sellerId: { type: string, nullable: true }
+        sellerName: { type: string, nullable: true }
+        sellerLocation: { type: string, nullable: true }
+        sellerRating: { type: number, nullable: true }
+        priceMinor: { type: integer, nullable: true }
+        mrpMinor: { type: integer, nullable: true }
+        discountMinor: { type: integer, nullable: true }
+        discountPct: { type: number, nullable: true }
+        currency: { type: string, example: INR }
+        taxInclusive: { type: boolean, nullable: true }
+        stockStatus: { type: string, enum: [IN_STOCK, OUT_OF_STOCK, LIMITED, UNKNOWN] }
+        deliveryInformation: { type: string, nullable: true }
+        sourceUrl: { type: string, nullable: true }
+        collectionDate: { type: string, format: date }
+        collectedAt: { type: string, format: date-time }
+        isCurrent: { type: boolean }
+
+    PricePoint:
+      type: object
+      properties:
+        source: { type: string }
+        seller: { type: string, nullable: true }
+        mrpMinor: { type: integer, nullable: true }
+        sellingPriceMinor: { type: integer, nullable: true }
+        discountMinor: { type: integer, nullable: true }
+        currency: { type: string }
+        stockStatus: { type: string }
+        changeReason: { type: string, enum: [FIRST_SEEN, PRICE_CHANGED, MRP_CHANGED, STOCK_CHANGED, PRICE_AND_STOCK_CHANGED] }
+        collectionDate: { type: string, format: date }
+        collectedAt: { type: string, format: date-time }
+
+    StagedOffer:
+      type: object
+      additionalProperties: false
+      properties:
+        sellerId: { type: string, nullable: true }
+        sellerName: { type: string, nullable: true }
+        sellerLocation: { type: string, nullable: true }
+        sellerRating: { oneOf: [{ type: number, minimum: 0, maximum: 5 }, { type: string }], nullable: true }
+        price: { oneOf: [{ type: number, minimum: 0 }, { type: string }], nullable: true, description: 'Rupees, e.g. 189 or "Rs. 1,299.00"' }
+        mrp: { oneOf: [{ type: number, minimum: 0 }, { type: string }], nullable: true }
+        currency: { type: string, nullable: true }
+        stock: { type: string, nullable: true, description: '"in stock", "only 3 left", "sold out" ... normalised to IN_STOCK / LIMITED / OUT_OF_STOCK / UNKNOWN' }
+        deliveryInformation: { type: string, nullable: true }
+        url: { type: string, format: uri, nullable: true }
+        collectedAt: { type: string, nullable: true }
+        taxInclusive: { type: boolean, nullable: true }
+
+    StagedProduct:
+      type: object
+      required: [sourceProductId]
+      additionalProperties: false
+      description: One source record in the platform's vocabulary. Unknown keys are rejected so a mistyped field fails loudly.
+      properties:
+        sourceProductId: { type: string, minLength: 1, maxLength: 200 }
+        sourceUrl: { type: string, format: uri, nullable: true }
+        name: { type: string, maxLength: 500, nullable: true }
+        brand: { type: string, maxLength: 300, nullable: true }
+        manufacturer: { type: string, maxLength: 300, nullable: true }
+        categories: { type: array, maxItems: 20, items: { type: string } }
+        description: { type: string, maxLength: 20000, nullable: true }
+        shortDescription: { type: string, maxLength: 1000, nullable: true }
+        gtin: { type: string, nullable: true, description: 'EAN-8/13, UPC-A, GTIN-14; spaces and hyphens tolerated' }
+        isbn: { type: string, nullable: true }
+        mpn: { type: string, nullable: true }
+        model: { type: string, nullable: true }
+        sku: { type: string, nullable: true }
+        productCode: { type: string, nullable: true }
+        quantityText: { type: string, nullable: true, example: 1 kg }
+        netWeightText: { type: string, nullable: true }
+        grossWeightText: { type: string, nullable: true }
+        dimensionsText: { type: string, nullable: true }
+        color: { type: string, nullable: true }
+        size: { type: string, nullable: true }
+        material: { type: string, nullable: true }
+        shape: { type: string, nullable: true }
+        variant: { type: string, nullable: true }
+        gstRate: { oneOf: [{ type: string }, { type: number }], nullable: true, example: 18% }
+        hsnCode: { oneOf: [{ type: string }, { type: number }], nullable: true }
+        cess: { oneOf: [{ type: string }, { type: number }], nullable: true }
+        countryOfOrigin: { type: string, nullable: true }
+        attributes:
+          type: array
+          maxItems: 200
+          items:
+            type: object
+            required: [key, value]
+            additionalProperties: false
+            properties:
+              key: { type: string, description: 'An attribute key from the registry, e.g. ram_gb' }
+              value: { oneOf: [{ type: string }, { type: number }, { type: boolean }] }
+              unit: { type: string, nullable: true }
+              original: { type: string, nullable: true }
+        images: { type: array, maxItems: 10, items: { type: string, format: uri } }
+        rating: { type: number, minimum: 0, maximum: 5, nullable: true }
+        reviewCount: { type: integer, minimum: 0, nullable: true }
+        availability: { type: string, nullable: true }
+        offer: { $ref: '#/components/schemas/StagedOffer' }
+        keywords: { type: array, maxItems: 50, items: { type: string } }
+        sourceConfidence: { type: number, minimum: 0, maximum: 100, nullable: true }
+
+    RunSummary:
+      type: object
+      properties:
+        runId: { type: integer }
+        sourceKey: { type: string }
+        status: { type: string, enum: [SUCCEEDED, PARTIAL, FAILED] }
+        durationMs: { type: integer }
+        errorSummary: { type: string, nullable: true }
+        counters:
+          type: object
+          properties:
+            recordsRead: { type: integer }
+            recordsStaged: { type: integer }
+            recordsUnchanged: { type: integer }
+            productsCreated: { type: integer }
+            productsLinked: { type: integer }
+            productsUpdated: { type: integer }
+            offersUpserted: { type: integer }
+            priceChanges: { type: integer }
+            reviewQueued: { type: integer }
+            conflictsOpened: { type: integer }
+            errorCount: { type: integer }
+
+    ValidationResult:
+      type: object
+      properties:
+        valid: { type: boolean }
+        wouldBeLoaded: { type: boolean }
+        issues:
+          type: array
+          items:
+            type: object
+            properties:
+              field: { type: string, example: gtin }
+              code: { type: string, example: GTIN_CHECK_DIGIT_INVALID }
+              severity: { type: string, enum: [ERROR, WARNING, INFO], description: 'ERROR = would not be loaded; WARNING = loaded but repaired or suspicious; INFO = a normal fact worth knowing' }
+              message: { type: string }
+              original: { type: string, nullable: true }
+        normalized:
+          type: object
+          description: The record as the platform would store it (core name, GTIN-14, pack label, category code, GST in basis points, ...)
+          additionalProperties: true
+
+    MatchPreview:
+      type: object
+      properties:
+        decision:
+          type: object
+          properties:
+            action: { type: string, enum: [LINK, CREATE, CREATE_AND_QUEUE, HOLD, REJECT] }
+            reason: { type: string, example: L1_GTIN_BRAND }
+            linksTo: { type: string, nullable: true, description: 'MASTER_PRODUCT_ID it would link to, when action is LINK' }
+        thresholds:
+          type: object
+          properties: { autoMerge: { type: number }, possible: { type: number } }
+        normalized: { type: object, additionalProperties: true }
+        subject: { type: object, additionalProperties: true, description: 'The comparable form of the record (core name, brand key, pack, variant facts)' }
+        issues: { type: array, items: { $ref: '#/components/schemas/ValidationResult/properties/issues/items' } }
+        candidates:
+          type: array
+          description: Every candidate the retrieval step found, best first
+          items:
+            type: object
+            properties:
+              masterProductId: { type: string, nullable: true }
+              productName: { type: string, nullable: true }
+              packSize: { type: string, nullable: true }
+              gtin: { type: string, nullable: true }
+              score: { type: number, minimum: 0, maximum: 100 }
+              status: { type: string, enum: [EXACT_MATCH, HIGH_CONFIDENCE, POSSIBLE_MATCH, DIFFERENT_PRODUCT, NEEDS_REVIEW] }
+              relation: { type: string, enum: [SAME_PRODUCT, SAME_FAMILY_DIFFERENT_PACK, SAME_FAMILY_DIFFERENT_VARIANT, SAME_BRAND_DIFFERENT_PRODUCT, UNRELATED] }
+              rule: { type: string }
+              hardConflicts: { type: array, items: { type: string } }
+              notes: { type: array, items: { type: string } }
+              components: { type: object, additionalProperties: true, description: 'Per-component similarity: name, brand, model, pack, variant, category' }
+
+    PromotionResult:
+      type: object
+      properties:
+        masterProductId: { type: string }
+        catalogueProductId: { type: string, format: uuid }
+        catalogueProductCode: { type: string }
+        adopted: { type: boolean, description: 'true when an existing catalogue product with the same GTIN was adopted' }
+        created:
+          type: object
+          properties: { product: { type: boolean }, brand: { type: boolean } }
+
+    Brand:
+      type: object
+      properties:
+        brandId: { type: string, example: GKS-BRND-000000001 }
+        name: { type: string }
+        status: { type: string, enum: [ACTIVE, INACTIVE, UNVERIFIED] }
+        verificationStatus: { type: string, enum: [UNVERIFIED, VERIFIED, DISPUTED] }
+        country: { type: string, nullable: true }
+        manufacturer: { type: string, nullable: true }
+        productCount: { type: integer }
+        aliases: { type: array, items: { type: string } }
+
+    Manufacturer:
+      type: object
+      properties:
+        manufacturerId: { type: string, example: GKS-MFR-000000001 }
+        name: { type: string }
+        legalName: { type: string, nullable: true }
+        country: { type: string, nullable: true }
+        gstin: { type: string, nullable: true }
+        website: { type: string, nullable: true }
+        verificationStatus: { type: string, enum: [UNVERIFIED, VERIFIED, DISPUTED] }
+        brandCount: { type: integer }
+        aliases: { type: array, items: { type: string } }
+
+    Category:
+      type: object
+      properties:
+        standardCategoryId: { type: integer }
+        code: { type: string, example: dairy/milk/toned-milk }
+        level: { type: integer, minimum: 1, maximum: 5 }
+        name: { type: string }
+        path: { type: array, items: { type: string } }
+        department: { type: string, nullable: true }
+        productCount: { type: integer }
+
+    DataQualityReport:
+      type: object
+      properties:
+        computedAt: { type: string, format: date-time, nullable: true }
+        windowDays: { type: integer }
+        totals: { type: object, additionalProperties: { type: number } }
+        byMarketplace: { type: array, items: { type: object, properties: { source: { type: string }, count: { type: integer } } } }
+        byCategory: { type: array, items: { type: object, properties: { category: { type: string }, count: { type: integer } } } }
+        byBrand: { type: array, items: { type: object, properties: { brand: { type: string }, count: { type: integer } } } }
+        recentRuns:
+          type: array
+          items:
+            type: object
+            properties:
+              runId: { type: integer }
+              source: { type: string }
+              mode: { type: string }
+              status: { type: string }
+              startedAt: { type: string, format: date-time }
+              finishedAt: { type: string, format: date-time, nullable: true }
+              recordsRead: { type: integer }
+              productsCreated: { type: integer }
+              productsLinked: { type: integer }
+              errorCount: { type: integer }
+              reviewQueued: { type: integer }
+
+    ReviewItem:
+      type: object
+      properties:
+        candidateId: { type: integer }
+        matchScore: { type: number }
+        matchStatus: { type: string }
+        relation: { type: string }
+        rule: { type: string, nullable: true }
+        hardConflicts: { type: array, items: { type: string } }
+        incoming:
+          type: object
+          properties:
+            source: { type: string }
+            sourceProductId: { type: string }
+            name: { type: string, nullable: true }
+            brand: { type: string, nullable: true }
+            masterProductId: { type: string, nullable: true, description: 'null while the record is held, unlinked' }
+        candidate:
+          type: object
+          description: The existing master the incoming record might be
+          properties:
+            masterProductId: { type: string }
+            name: { type: string }
+            brand: { type: string, nullable: true }
+            packSize: { type: string, nullable: true }
