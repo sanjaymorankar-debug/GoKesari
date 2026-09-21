@@ -2,6 +2,9 @@
  * Product Master Data Platform - review & merge, the catalogue bridge, and the
  * automated data-quality / duplicate checks.
  */
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { failedInvariants, runChecks } from "@/server/pmd/pipeline/checks";
@@ -188,6 +191,55 @@ describe("catalogue bridge: master product -> GoKesari catalogue -> shops", () =
   });
   it("links no images when asked not to", async () => {
     expect(await promotedImages(false)).toEqual([null, 0]);
+  });
+
+  describe("rolling a promotion back (scripts/pmd/rollback-promotion.sql)", () => {
+    // the script carries its own BEGIN/COMMIT, which postgres.js only allows on a connection reserved for it
+    const rollback = async () => {
+      const conn = await sql.reserve();
+      try {
+        await conn.unsafe(readFileSync(join(process.cwd(), "scripts/pmd/rollback-promotion.sql"), "utf8"));
+      } finally {
+        conn.release();
+      }
+    };
+
+    it("deletes what promotion created, but never a catalogue product it merely adopted", async () => {
+      const { admin, masterId } = await setup(); // milk: created by promotion
+      const cat = await createCategory({ department: "COSMETICS_BEAUTY", name: "Personal care" });
+      const existing = await createProduct(cat.id, { name: "Kleenex Tissue", unit: "pack", subscribable: false });
+      await sql`UPDATE public.products SET gtin = '036000291452' WHERE id = ${existing.id}`;
+      await ingest("test_market_a", [product({ sourceProductId: "K1", name: "Kleenex Facial Tissue", brand: "Kleenex", gtin: "0036000291452" })]);
+      const [{ master_product_id: kleenex }] = await sql<{ master_product_id: string }[]>`SELECT master_product_id FROM pmd.product_master WHERE product_name ILIKE 'Kleenex%'`;
+
+      const created = await promoteToCatalogue(sql, masterId, { userId: admin.id, role: "ADMIN" });
+      const adopted = await promoteToCatalogue(sql, kleenex, { userId: admin.id, role: "ADMIN" });
+      expect([created.adopted, adopted.adopted]).toEqual([false, true]);
+      expect(await count(sql, "pmd.catalogue_link")).toBe(2);
+
+      await rollback();
+
+      expect(await count(sql, "public.products", `id = '${created.catalogueProductId}'`)).toBe(0); // created: gone
+      expect(await count(sql, "public.products", `id = '${existing.id}'`)).toBe(1); // adopted: still there
+      expect(await count(sql, "pmd.catalogue_link")).toBe(0);
+      expect(await count(sql, "public.audit_logs", "action LIKE 'pmd.product_%'")).toBe(2); // the record stays
+      // and the product can be promoted again afterwards (its GTIN is free)
+      expect((await promoteToCatalogue(sql, masterId, { userId: admin.id, role: "ADMIN" })).adopted).toBe(false);
+    });
+
+    it("keeps a product a shop already sells, and its link", async () => {
+      const { admin, masterId } = await setup();
+      const res = await promoteToCatalogue(sql, masterId, { userId: admin.id, role: "ADMIN" });
+      const owner = await createUser({ role: "SHOP_OWNER" });
+      const shop = await createShop(owner.id, { name: "Shop A" });
+      await createShopProduct(shop.id, res.catalogueProductId, { onlinePricePaise: 6700, onlineStock: 10 });
+
+      await rollback();
+
+      expect(await count(sql, "public.products", `id = '${res.catalogueProductId}'`)).toBe(1);
+      expect(await count(sql, "pmd.catalogue_link")).toBe(1);
+      expect(await count(sql, "public.shop_products")).toBe(1);
+    });
   });
 
   it("marketplace seller pricing never becomes GoKesari's MRP", async () => {
