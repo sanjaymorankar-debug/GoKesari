@@ -193,6 +193,27 @@ describe("catalogue bridge: master product -> GoKesari catalogue -> shops", () =
     expect(await promotedImages(false)).toEqual([null, 0]);
   });
 
+  it("queues promotions of one brand: a second promotion waits while another holds the brand's lock", async () => {
+    // Without the per-brand lock, two promotions of a NEW brand can both miss it and create it twice (the second under a
+    // "-2" slug). A race like that is too narrow to hit reliably, so the lock is checked directly.
+    const { admin, masterId } = await setup(); // brand "Amul"
+    const holder = await sql.reserve();
+    await holder.unsafe("BEGIN");
+    await holder.unsafe("SELECT pg_advisory_xact_lock(hashtextextended('pmd.catalogue-brand:amul', 0))");
+    let settled = false;
+    const pending = promoteToCatalogue(sql, masterId, { userId: admin.id, role: "ADMIN" }).finally(() => {
+      settled = true;
+    });
+    await new Promise((resolve) => setTimeout(resolve, 700));
+    expect(settled).toBe(false); // still waiting for the brand
+    expect(await count(sql, "public.brands")).toBe(0);
+    await holder.unsafe("COMMIT");
+    holder.release();
+    const res = await pending;
+    expect(res.created.brand).toBe(true);
+    expect(await count(sql, "public.brands")).toBe(1);
+  });
+
   describe("rolling a promotion back (scripts/pmd/rollback-promotion.sql)", () => {
     // the script carries its own BEGIN/COMMIT, which postgres.js only allows on a connection reserved for it
     const rollback = async () => {
