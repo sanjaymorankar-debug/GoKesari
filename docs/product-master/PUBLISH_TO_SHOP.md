@@ -55,6 +55,11 @@ Write `<target>` for the site's **direct** (non-pooled) Postgres URL. Do not com
 
    Re-running is safe: products already promoted are skipped.
 
+   **Against a hosted database add `--concurrency 8`.** One promotion is ~25 round trips, which was ~13 s each from a
+   laptop to Neon (us-east-2), so the sequential default would take hours for the 837; with 12 workers it took about
+   15 minutes. Each product is still its own transaction, and a clash on a brand or slug created by another worker a
+   moment earlier is retried.
+
 ## Undoing it
 
 `psql "<target>" -v ON_ERROR_STOP=1 -f scripts/pmd/rollback-promotion.sql` removes the products promotion created, except
@@ -62,7 +67,10 @@ any a shop has already selected (they are reported and kept). It deletes rows ra
 catalogue's GTIN unique index ignores `deleted_at` and a soft-deleted product would block promoting it again. Audit rows and
 created brands stay. `scripts/pmd/rollback-0015.sql` drops the whole `pmd` schema and is much more destructive - back up first.
 
+## Done on the staging (test.gokesari.com) database, 2026-09-21
+
+Backup (psql `\copy` of every table, because pg_dump 16 cannot dump the server's Postgres 18) -> migration 0015 -> `copy-pilot-data.ps1` -> 837 products promoted at quality 60 or above, **without images**. Afterwards: 1,212 catalogue products (375 existing + 837), 837 links and audit rows, 470 brands with no duplicates, users/shops/shop listings unchanged. The live site was not touched.
+
 ## Not verified
 
-Migration 0015 on a hosted database (it needs `pg_trgm` and `btree_gin`, which Neon offers but this has not been run
-there); the deploy trigger for either site; which pages read `public.products`.
+The deploy trigger for either site (the test site was not serving the Product Master routes when checked); which pages read `public.products`.

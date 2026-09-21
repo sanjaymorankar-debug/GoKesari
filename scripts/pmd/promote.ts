@@ -5,13 +5,17 @@
  * Promoted products are APPROVED at once, so shops can pick them the moment this runs. Read the dry run first.
  *
  *   PMD_DATABASE_URL=<target> [PMD_ALLOW_REMOTE=1] npx tsx scripts/pmd/promote.ts
- *       [--min-quality 60] [--department DAIRY,SUPERMARKET] [--limit 500] [--no-images]
+ *       [--min-quality 60] [--department DAIRY,SUPERMARKET] [--limit 500] [--no-images] [--concurrency 8]
  *       [--actor-email <operator or admin>] [--note "text"] [--apply]
  *
  * --actor-email is required with --apply: the user the audit trail records. It must be an ACTIVE OPERATOR or ADMIN.
+ * --concurrency N promotes N products at once (each is still its own transaction). Over a network each promotion is
+ * ~25 round trips, so the default of 1 is slow against a hosted database. Two products racing to create the same brand
+ * or slug hit a unique-key error, which is simply retried (the second attempt finds the first one's row).
  */
 import { promoteToCatalogue, PromotionError } from "@/server/pmd/services/catalogue-bridge";
-import { arg, connect, describeTarget, flag, pmdDatabaseUrl } from "./lib";
+import { createSql } from "@/server/pmd/db";
+import { arg, describeTarget, flag, pmdDatabaseUrl } from "./lib";
 
 interface Candidate {
   master_product_id: string;
@@ -26,7 +30,8 @@ interface Candidate {
 
 async function main() {
   console.log(`target   ${describeTarget(pmdDatabaseUrl())}`);
-  const sql = connect();
+  const concurrency = Math.min(32, Math.max(1, Math.floor(Number(arg("concurrency", "1")))));
+  const sql = createSql(pmdDatabaseUrl(), { max: concurrency + 1 });
   const apply = flag("apply");
   const minQuality = Number(arg("min-quality", "60"));
   const departments = (arg("department") ?? "").split(",").map((d) => d.trim()).filter(Boolean);
@@ -76,19 +81,31 @@ async function main() {
     SELECT id, role::text AS role FROM public.users WHERE lower(email) = lower(${email}) AND status = 'ACTIVE' AND deleted_at IS NULL AND role IN ('OPERATOR','ADMIN') LIMIT 1`;
   if (!actor) throw new Error("No ACTIVE OPERATOR/ADMIN with that email exists in the target database.");
 
-  const outcome = { promoted: 0, adopted: 0, failed: new Map<string, number>() };
-  for (const [i, c] of candidates.entries()) {
-    try {
-      const r = await promoteToCatalogue(sql, c.master_product_id, { userId: actor.id, role: actor.role }, { minQuality, note, images });
-      if (r.adopted) outcome.adopted++;
-      else outcome.promoted++;
-    } catch (e) {
-      const code = e instanceof PromotionError ? e.code : "ERROR";
-      outcome.failed.set(code, (outcome.failed.get(code) ?? 0) + 1);
-      if (!(e instanceof PromotionError)) console.error(`  ${c.master_product_id}: ${(e as Error).message}`);
+  const outcome = { promoted: 0, adopted: 0, done: 0, failed: new Map<string, number>() };
+  let next = 0;
+  const worker = async () => {
+    for (;;) {
+      const c = candidates[next++];
+      if (!c) return;
+      for (let attempt = 1; ; attempt++) {
+        try {
+          const r = await promoteToCatalogue(sql, c.master_product_id, { userId: actor.id, role: actor.role }, { minQuality, note, images });
+          if (r.adopted) outcome.adopted++;
+          else outcome.promoted++;
+          break;
+        } catch (e) {
+          // 23505 = another worker created the same brand or slug a moment ago; this attempt will find it
+          if ((e as { code?: string }).code === "23505" && attempt < 5) continue;
+          const code = e instanceof PromotionError ? e.code : "ERROR";
+          outcome.failed.set(code, (outcome.failed.get(code) ?? 0) + 1);
+          if (!(e instanceof PromotionError)) console.error(`  ${c.master_product_id}: ${(e as Error).message}`);
+          break;
+        }
+      }
+      if (++outcome.done % 100 === 0) console.log(`  ${outcome.done}/${candidates.length}`);
     }
-    if ((i + 1) % 100 === 0) console.log(`  ${i + 1}/${candidates.length}`);
-  }
+  };
+  await Promise.all(Array.from({ length: concurrency }, worker));
   console.log(`\npromoted ${outcome.promoted}, adopted an existing catalogue row ${outcome.adopted}, refused ${[...outcome.failed.values()].reduce((a, b) => a + b, 0)}`);
   for (const [code, n] of outcome.failed) console.log(`  ${code}: ${n}`);
   await sql.end();
