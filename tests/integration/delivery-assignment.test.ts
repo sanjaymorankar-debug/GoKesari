@@ -27,6 +27,7 @@ import {
   markPickedUp,
   reassignOrder,
   rejectDeliveryOffer,
+  startDelivery,
 } from "@/server/services/delivery-assignment";
 import {
   creditDeliveryEarnings,
@@ -313,15 +314,30 @@ describe("full delivery lifecycle", () => {
 
     const accepted = await acceptDeliveryOffer(offer.id, riderUser.id);
     expect(accepted.status).toBe("ACCEPTED");
+    const [orderAfterAccept] = await db.select().from(orders).where(eq(orders.id, order.id));
+    expect(orderAfterAccept.status).toBe("ASSIGNED");
 
     const actor = { id: riderUser.id, role: "DELIVERY_PARTNER" as const };
-    const pickedUp = await markPickedUp(offer.id, actor);
+    // Slice 4 handover: the shop reads out the pickup code issued on accept.
+    const [afterAccept] = await db.select().from(deliveryOrders).where(eq(deliveryOrders.id, offer.id));
+    expect(afterAccept.pickupCode).toMatch(/^\d{4}$/);
+    await expect(markPickedUp(offer.id, actor, "0000" === afterAccept.pickupCode ? "1111" : "0000")).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+    });
+    const pickedUp = await markPickedUp(offer.id, actor, afterAccept.pickupCode!);
     expect(pickedUp.status).toBe("PICKED_UP");
 
     const [orderAfterPickup] = await db.select().from(orders).where(eq(orders.id, order.id));
-    expect(orderAfterPickup.status).toBe("OUT_FOR_DELIVERY");
+    expect(orderAfterPickup.status).toBe("PICKED_UP");
 
-    const delivered = await markDelivered(offer.id, actor);
+    // Starting the drop issues the customer's OTP and moves the order on.
+    await startDelivery(offer.id, actor);
+    const [orderOutForDelivery] = await db.select().from(orders).where(eq(orders.id, order.id));
+    expect(orderOutForDelivery.status).toBe("OUT_FOR_DELIVERY");
+    const [afterStart] = await db.select().from(deliveryOrders).where(eq(deliveryOrders.id, offer.id));
+    expect(afterStart.deliveryOtp).toMatch(/^\d{4}$/);
+
+    const delivered = await markDelivered(offer.id, actor, afterStart.deliveryOtp!);
     expect(delivered.status).toBe("DELIVERED");
 
     const [orderAfterDelivery] = await db.select().from(orders).where(eq(orders.id, order.id));
@@ -344,9 +360,9 @@ describe("full delivery lifecycle", () => {
   it("rejecting an offer frees it up for reassignment", async () => {
     const { order, ownerId } = await setupReadyOrder();
     // Placed further out so a strictly closer rider (below) is the
-    // unambiguous pick once reassignment runs — rejection alone doesn't
-    // exclude a rider from future offers in Phase 1, so this isolates
-    // "reassignment picks the nearest eligible partner" from that.
+    // unambiguous pick once reassignment runs. Since GA-009 a rider who
+    // rejects is never re-offered the order, and the rejection itself
+    // triggers a re-offer — here nobody else is online yet, so it stays open.
     const riderA = await createUser({ role: "DELIVERY_PARTNER" });
     await createDeliveryPartner(riderA.id, {
       isOnline: true,

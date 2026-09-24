@@ -40,7 +40,7 @@ vi.mock("@/server/auth", () => ({
 import { POST as assignRoute } from "@/app/api/orders/[id]/assign/route";
 import { PATCH as deliveryOrderRoute } from "@/app/api/delivery-orders/[id]/route";
 import { db } from "@/server/db";
-import { orders, type Order } from "@/server/db/schema";
+import { deliveryOrders, orders, type Order } from "@/server/db/schema";
 import { addToCart } from "@/server/services/cart";
 import { assignNearestPartner } from "@/server/services/delivery-assignment";
 import { checkout, updateOrderStatus } from "@/server/services/orders";
@@ -212,21 +212,38 @@ describe("PATCH /api/delivery-orders/[id]", () => {
     });
     expect(accept.status).toBe(200);
     expect(accept.body.status).toBe("ACCEPTED");
+    // The rider never receives the handover codes (Slice 4).
+    expect(accept.body.pickupCode).toBeUndefined();
+    expect(accept.body.needsPickupCode).toBe(true);
+    const afterAccept = await db.query.orders.findFirst({ where: eq(orders.id, order.id) });
+    expect(afterAccept?.status).toBe("ASSIGNED");
+    const code = (await db.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.id, assigned.id) }))!.pickupCode!;
 
     const pickup = await call(deliveryOrderRoute, `/api/delivery-orders/${assigned.id}`, {
       method: "PATCH",
       params: { id: assigned.id },
-      body: { action: "pickup" },
+      body: { action: "pickup", pickupCode: code },
     });
     expect(pickup.status).toBe(200);
     expect(pickup.body.status).toBe("PICKED_UP");
     const afterPickup = await db.query.orders.findFirst({ where: eq(orders.id, order.id) });
-    expect(afterPickup?.status).toBe("OUT_FOR_DELIVERY");
+    expect(afterPickup?.status).toBe("PICKED_UP");
+
+    const start = await call(deliveryOrderRoute, `/api/delivery-orders/${assigned.id}`, {
+      method: "PATCH",
+      params: { id: assigned.id },
+      body: { action: "start" },
+    });
+    expect(start.status).toBe(200);
+    expect(start.body.deliveryOtp).toBeUndefined();
+    const afterStart = await db.query.orders.findFirst({ where: eq(orders.id, order.id) });
+    expect(afterStart?.status).toBe("OUT_FOR_DELIVERY");
+    const otp = (await db.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.id, assigned.id) }))!.deliveryOtp!;
 
     const deliver = await call(deliveryOrderRoute, `/api/delivery-orders/${assigned.id}`, {
       method: "PATCH",
       params: { id: assigned.id },
-      body: { action: "deliver" },
+      body: { action: "deliver", otp },
     });
     expect(deliver.status).toBe(200);
     expect(deliver.body.status).toBe("DELIVERED");

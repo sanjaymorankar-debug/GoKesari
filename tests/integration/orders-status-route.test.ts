@@ -42,12 +42,13 @@ vi.mock("@/server/auth", () => ({
 
 import { PATCH as statusRoute } from "@/app/api/orders/[id]/status/route";
 import { db } from "@/server/db";
-import { deliveryPartnerEarnings, orders, wallets } from "@/server/db/schema";
+import { deliveryOrders, deliveryPartnerEarnings, orders, wallets } from "@/server/db/schema";
 import { addToCart } from "@/server/services/cart";
 import {
   acceptDeliveryOffer,
   assignNearestPartner,
   markPickedUp,
+  startDelivery,
 } from "@/server/services/delivery-assignment";
 import { checkout, updateOrderStatus } from "@/server/services/orders";
 import { call } from "../helpers/http";
@@ -169,7 +170,10 @@ describe("PATCH /api/orders/[id]/status", () => {
       });
       const assigned = await assignNearestPartner(order.id, { id: owner.id, role: "SHOP_OWNER" });
       await acceptDeliveryOffer(assigned.id, partnerUser.id);
-      await markPickedUp(assigned.id, { id: partnerUser.id, role: "DELIVERY_PARTNER" }); // also advances the order to OUT_FOR_DELIVERY
+      const rider = { id: partnerUser.id, role: "DELIVERY_PARTNER" as const };
+      const { pickupCode } = (await db.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.id, assigned.id) }))!;
+      await markPickedUp(assigned.id, rider, pickupCode!);
+      await startDelivery(assigned.id, rider); // advances the order to OUT_FOR_DELIVERY
 
       const balanceBefore = await balanceOf(customer.id); // 500_000 - 8000
 
