@@ -3,6 +3,7 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { ok, parseBody, route } from "@/server/api/handler";
+import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { goOffline, goOnline } from "@/server/services/delivery-partners";
@@ -14,6 +15,8 @@ const schema = z.discriminatedUnion("action", [
 
 export const PATCH = route(async (request: NextRequest) => {
   const user = await requirePermission(PERMISSIONS.DELIVERY_ORDER_MANAGE_OWN);
+  enforceRateLimit(`delivery-status:${user.id}`, RATE_LIMITS.MUTATION);
+
   const body = await parseBody(request, schema);
 
   if (body.action === "online") {

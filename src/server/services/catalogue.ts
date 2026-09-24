@@ -868,12 +868,17 @@ export async function listStorefrontProducts(options: {
   department?: Department;
   categoryId?: string;
   shopId?: string;
+  /** Only these shops — e.g. the ones that deliver to the customer (serviceability.ts). */
+  shopIds?: readonly string[];
+  /** Only this catalogue product — every shop's offer of it (GS-021/022). */
+  productId?: string;
   query?: string;
   subscribableOnly?: boolean;
   onlineOnly?: boolean;
   limit?: number;
   offset?: number;
 }): Promise<StorefrontProduct[]> {
+  if (options.shopIds && options.shopIds.length === 0) return [];
   const conditions = [
     eq(shops.status, "APPROVED"),
     isNull(shops.deletedAt),
@@ -889,6 +894,8 @@ export async function listStorefrontProducts(options: {
     conditions.push(eq(products.categoryId, options.categoryId));
   }
   if (options.shopId) conditions.push(eq(shopProducts.shopId, options.shopId));
+  if (options.shopIds) conditions.push(inArray(shopProducts.shopId, [...options.shopIds]));
+  if (options.productId) conditions.push(eq(shopProducts.productId, options.productId));
   if (options.subscribableOnly) conditions.push(eq(products.subscribable, true));
   if (options.onlineOnly) {
     conditions.push(eq(shopProducts.onlineSaleEnabled, true));
@@ -1111,16 +1118,24 @@ export async function consumeOnlineStock(
   await evaluateStockAlerts(shopProductId, client);
 }
 
+/**
+ * `client` lets a caller compose this into an already-open transaction (e.g.
+ * cancelOrder's restock-on-cancel, DEF-01) instead of opening a nested one —
+ * same optional-client shape as consumeOnlineStock and applyWalletMutation.
+ * Omit it for the original standalone behaviour (a shop owner manually
+ * receiving stock).
+ */
 export async function restockOnline(
   shopProductId: string,
   units: number,
   reason: string,
   actorId: string,
+  client?: DbClient,
 ): Promise<ShopProduct> {
   if (!Number.isInteger(units) || units <= 0) {
     throw validationFailed("Restock quantity must be a positive whole number.");
   }
-  return db.transaction(async (tx) => {
+  const run = async (tx: DbClient): Promise<ShopProduct> => {
     const [current] = await tx
       .select()
       .from(shopProducts)
@@ -1151,7 +1166,8 @@ export async function restockOnline(
     // to available — §17's replenishment path, with nothing to re-enter.
     await evaluateStockAlerts(shopProductId, tx);
     return updated;
-  });
+  };
+  return client ? run(client) : db.transaction(run);
 }
 
 /* ------------------------------------------------------------- helpers */

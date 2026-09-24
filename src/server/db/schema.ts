@@ -33,6 +33,9 @@ export const userRoleEnum = pgEnum("user_role", [
   "OPERATOR",
   "ADMIN",
   "DELIVERY_PARTNER",
+  /** Wave 1 skeleton (GS-002): customer capabilities only until the society
+   * entity and its scoped permissions land (Wave 8, decision D5). */
+  "SOCIETY_ADMIN",
 ]);
 
 export const userStatusEnum = pgEnum("user_status", [
@@ -102,6 +105,19 @@ export const identityVerificationSourceEnum = pgEnum("identity_verification_sour
  */
 export const departmentEnum = pgEnum("department", SHOP_TYPE_KEYS);
 
+/**
+ * Order lifecycle. Mapping to the approved state machine (workbook "State
+ * Machines", decision D8 — extended additively, never renamed):
+ *   DRAFT            = the cart (no order row exists yet)
+ *   PAYMENT_PENDING  = PENDING / WALLET_INSUFFICIENT / PAYMENT_FAILED
+ *   PAID+SHOP_PENDING= CONFIRMED (paid, waiting for the shop to accept)
+ *   ACCEPTED → PREPARING (pick & pack) → READY → ASSIGNED (rider accepted)
+ *   → PICKED_UP → OUT_FOR_DELIVERY → DELIVERED
+ *   exceptions: CANCELLED, FAILED (delivery failed), RETURNED (back at the
+ *   shop), REFUND_PENDING/REFUNDED, DISPUTED.
+ * Transitions live in services/orders.ts ALLOWED_TRANSITIONS; values added
+ * after the first release are appended at the end (Postgres enum order).
+ */
 export const orderStatusEnum = pgEnum("order_status", [
   "PENDING",
   "CONFIRMED",
@@ -114,12 +130,39 @@ export const orderStatusEnum = pgEnum("order_status", [
   "WALLET_INSUFFICIENT",
   "REFUND_PENDING",
   "REFUNDED",
+  "ACCEPTED",
+  "ASSIGNED",
+  "PICKED_UP",
+  "FAILED",
+  "RETURNED",
+  "DISPUTED",
+]);
+
+/**
+ * Per-line fulfilment (Slice 3, GS-035/036): picking, and substitution when
+ * the shop cannot supply a line. SUBSTITUTION_PROPOSED waits for the
+ * customer; REMOVED lines are refunded to the wallet.
+ */
+export const orderItemFulfilmentEnum = pgEnum("order_item_fulfilment", [
+  "PENDING",
+  "PICKED",
+  "SUBSTITUTION_PROPOSED",
+  "SUBSTITUTED",
+  "REMOVED",
 ]);
 
 export const orderSourceEnum = pgEnum("order_source", [
   "DIRECT",
   "SUBSCRIPTION",
 ]);
+
+/**
+ * Who the order is for (Wave 1, RBAC-002 decision): a person buying for
+ * themselves, or an approved shop buying for its business. Kept as separate
+ * flows — B2B needs ORDER_PLACE_B2B and a `buyerShopId`, and is listed apart
+ * from personal orders.
+ */
+export const orderTypeEnum = pgEnum("order_type", ["PERSONAL", "B2B"]);
 
 /* -------------------------------------------------------- delivery windows
  * (delivery-system Part 58 follow-up, Slice C). Fixed set for Phase 1 per
@@ -560,6 +603,13 @@ export const shops = pgTable(
       .notNull()
       .default([]),
     deliveryAvailable: boolean("delivery_available").notNull().default(false),
+    /**
+     * GS-010 delivery zone: straight-line km from the shop's pin within which
+     * it delivers (see services/serviceability.ts). A radius, not a polygon,
+     * on purpose for Phase 1 — it needs no map drawing and matches how the
+     * delivery partner's `operatingRadiusKm` already works.
+     */
+    serviceRadiusKm: integer("service_radius_km").notNull().default(5),
     deliveryFeePaise: bigint("delivery_fee_paise", { mode: "number" })
       .notNull()
       .default(0),
@@ -690,6 +740,10 @@ export const shops = pgTable(
       sql`${t.deliveryFeePaise} >= 0`,
     ),
     check(
+      "shops_service_radius_range",
+      sql`${t.serviceRadiusKm} BETWEEN 1 AND 50`,
+    ),
+    check(
       "shops_registration_amounts_non_negative",
       sql`(${t.registrationFeePaise} IS NULL OR ${t.registrationFeePaise} >= 0)
           AND ${t.amountPaidPaise} >= 0`,
@@ -752,18 +806,38 @@ export const deliveryPartners = pgTable(
     /* --------------------------------------------------- KYC — deliberately
      * minimal and all nullable; a partner can register and be reviewed
      * before supplying bank details, and nothing here is collected that
-     * isn't named in the brief's own field list. */
-    panNumber: text("pan_number"),
+     * isn't named in the brief's own field list.
+     *
+     * SEC-02: the six `*Encrypted` columns are the source of truth
+     * (AES-256-GCM, base64 iv||tag||ciphertext — src/lib/pan-crypto.ts,
+     * src/server/services/delivery-partner-kyc.ts). The same-named plain
+     * columns are LEGACY: no longer written, kept only so rows created
+     * before this change can be backfilled (expand-then-contract — see
+     * DEPLOYMENT.md), then dropped in a later release. Neither set is ever
+     * returned by the service layer. */
     governmentIdType: text("government_id_type"),
+    /** @deprecated legacy plaintext — see the SEC-02 note above. */
+    panNumber: text("pan_number"),
+    /** @deprecated legacy plaintext — see the SEC-02 note above. */
     governmentIdNumber: text("government_id_number"),
+    /** @deprecated legacy plaintext — see the SEC-02 note above. */
     bankAccountHolderName: text("bank_account_holder_name"),
+    /** @deprecated legacy plaintext — see the SEC-02 note above. */
     bankAccountNumber: text("bank_account_number"),
+    /** @deprecated legacy plaintext — see the SEC-02 note above. */
     bankIfsc: text("bank_ifsc"),
+    panNumberEncrypted: text("pan_number_encrypted"),
+    governmentIdNumberEncrypted: text("government_id_number_encrypted"),
+    bankAccountHolderNameEncrypted: text("bank_account_holder_name_encrypted"),
+    bankAccountNumberEncrypted: text("bank_account_number_encrypted"),
+    bankIfscEncrypted: text("bank_ifsc_encrypted"),
+    drivingLicenceNumberEncrypted: text("driving_licence_number_encrypted"),
 
     /* ---------------------------------------------------------- vehicle */
     /** One of VEHICLE_TYPES in src/lib/vehicle-types.ts — app-level list, not a DB enum, so adding a type is a code change, not a migration. */
     vehicleType: text("vehicle_type").notNull(),
     vehicleRegistrationNumber: text("vehicle_registration_number"),
+    /** @deprecated legacy plaintext — see the SEC-02 note in the KYC block above. */
     drivingLicenceNumber: text("driving_licence_number"),
 
     /* -------------------------------------------------- operating area —
@@ -1296,6 +1370,9 @@ export const orders = pgTable(
     } | null>(),
     status: orderStatusEnum("status").notNull().default("PENDING"),
     source: orderSourceEnum("source").notNull().default("DIRECT"),
+    orderType: orderTypeEnum("order_type").notNull().default("PERSONAL"),
+    /** B2B only: the approved shop buying for its business. Null for PERSONAL. */
+    buyerShopId: uuid("buyer_shop_id").references(() => shops.id, { onDelete: "restrict" }),
     subtotalPaise: bigint("subtotal_paise", { mode: "number" }).notNull(),
     deliveryFeePaise: bigint("delivery_fee_paise", { mode: "number" })
       .notNull()
@@ -1313,6 +1390,16 @@ export const orders = pgTable(
     /** The deadline promised for `deliveryWindow`. Never set unless the
      * system determined it was actually achievable at checkout time. */
     promisedByAt: timestamp("promised_by_at", { withTimezone: true }),
+    /** When the shop accepted the order (CONFIRMED → ACCEPTED). */
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    /** When the shop finished packing (→ READY). */
+    packedAt: timestamp("packed_at", { withTimezone: true }),
+    /**
+     * Paise already refunded while the order continued (removed or cheaper
+     * substituted lines). `totalPaise` is reduced by the same amount, so a
+     * later cancellation refunds only what is still held.
+     */
+    refundedPaise: bigint("refunded_paise", { mode: "number" }).notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1326,9 +1413,14 @@ export const orders = pgTable(
     index("orders_shop_idx").on(t.shopId),
     index("orders_status_idx").on(t.status),
     index("orders_created_idx").on(t.createdAt),
+    index("orders_buyer_shop_idx").on(t.buyerShopId),
     check(
       "orders_totals_non_negative",
       sql`${t.subtotalPaise} >= 0 AND ${t.totalPaise} >= 0`,
+    ),
+    check(
+      "orders_buyer_shop_matches_type",
+      sql`(${t.orderType} = 'B2B') = (${t.buyerShopId} IS NOT NULL)`,
     ),
   ],
 );
@@ -1353,6 +1445,20 @@ export const orderItems = pgTable(
     /** Milli-units, so 2.5 L is exactly 2500. */
     quantityMilli: integer("quantity_milli").notNull(),
     lineTotalPaise: bigint("line_total_paise", { mode: "number" }).notNull(),
+    /* ------------------------------------------ fulfilment (Slice 3) —
+     * the original snapshot above is never rewritten; a substitute is
+     * recorded alongside it so the order keeps its history. */
+    fulfilmentStatus: orderItemFulfilmentEnum("fulfilment_status").notNull().default("PENDING"),
+    substituteShopProductId: uuid("substitute_shop_product_id").references(() => shopProducts.id, {
+      onDelete: "restrict",
+    }),
+    substituteNameSnapshot: text("substitute_name_snapshot"),
+    substituteUnitSnapshot: text("substitute_unit_snapshot"),
+    substituteQuantityMilli: integer("substitute_quantity_milli"),
+    /** What the customer pays for the substitute — never more than the original line. */
+    substituteLineTotalPaise: bigint("substitute_line_total_paise", { mode: "number" }),
+    fulfilmentNote: text("fulfilment_note"),
+    fulfilmentUpdatedAt: timestamp("fulfilment_updated_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1397,6 +1503,8 @@ export const deliveryOrderStatusEnum = pgEnum("delivery_order_status", [
   "PICKED_UP",
   "DELIVERED",
   "CANCELLED",
+  /** Rider could not complete the drop (customer unavailable, etc.). */
+  "FAILED",
 ]);
 
 export const deliveryOrders = pgTable(
@@ -1420,6 +1528,20 @@ export const deliveryOrders = pgTable(
     deliveredAt: timestamp("delivered_at", { withTimezone: true }),
     cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
     cancellationReason: text("cancellation_reason"),
+    /* ---------------------------------------- handover (Slice 4, GS-041/043) */
+    /** 4-digit code the shop reads to the rider at pickup; set when the rider accepts. */
+    pickupCode: text("pickup_code"),
+    /** 4-digit code only the customer sees; set when the rider starts the drop. */
+    deliveryOtp: text("delivery_otp"),
+    deliveryOtpAttempts: integer("delivery_otp_attempts").notNull().default(0),
+    outForDeliveryAt: timestamp("out_for_delivery_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+    failureReason: text("failure_reason"),
+    /** How delivery was confirmed: CUSTOMER_OTP, or OPERATOR_OVERRIDE (proof note required). */
+    deliveryConfirmation: text("delivery_confirmation"),
+    proofNote: text("proof_note"),
+    /** Riders who declined or let this order's offer expire — never re-offered it (GA-009 fallback). */
+    rejectedPartnerIds: uuid("rejected_partner_ids").array().notNull().default(sql`'{}'::uuid[]`),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1473,12 +1595,15 @@ export const deliveryPartnerEarnings = pgTable(
     basePaise: bigint("base_paise", { mode: "number" }).notNull(),
     distancePaise: bigint("distance_paise", { mode: "number" }).notNull(),
     totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
+    /** Set when this earning is included in a rider payout batch (GS-064). */
+    payoutId: uuid("payout_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
   (t) => [
     uniqueIndex("delivery_partner_earnings_order_unique").on(t.deliveryOrderId),
+    index("delivery_partner_earnings_payout_idx").on(t.payoutId),
     index("delivery_partner_earnings_partner_idx").on(t.deliveryPartnerId),
   ],
 );
@@ -2380,6 +2505,8 @@ export const userConsents = pgTable(
     consentType: consentTypeEnum("consent_type").notNull(),
     /** The policy version consented to, e.g. "2026-08-21" — matches the policy page's "Last updated" date. */
     version: text("version").notNull(),
+    /** false = a withdrawal (DPDPA §6(4)). Every existing row was a grant. */
+    granted: boolean("granted").notNull().default(true),
     ipAddress: text("ip_address"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -2447,6 +2574,344 @@ export const mapsApiCallLog = pgTable(
 );
 
 /* ------------------------------------------------------------ inference */
+
+
+/* =========================================================== finance (Slice 6)
+ * GS-061/062/063/064/031, WF-010. Built on the existing money records, not a
+ * second payment system: customers pay through the wallet ledger
+ * (wallet_transactions, linked by order_id — the order's payment record),
+ * gateway top-ups live in `payments`, rider accruals in
+ * `delivery_partner_earnings`. Added here, marketplace side only:
+ *  - commission_rates        — % by default / shop type / shop (decision D6)
+ *  - order_financials        — one snapshot per DELIVERED order (GMV, discount,
+ *                              commission, shop payable)
+ *  - financial_adjustments   — refunds after delivery and shop / rider /
+ *                              delivery / marketplace corrections
+ *  - shop_settlements, rider_payouts — weekly batches through PAYOUT_STATUS
+ *  - finance_ledger_entries  — double-entry-style journal of every marketplace
+ *                              money event (credit/debit per shop, rider, platform)
+ *  - reconciliation_records  — persisted reconciliation results + resolution
+ * Money never moves from here: PAID records a bank reference an admin entered
+ * after paying outside the system. Delivery fee is platform revenue; rider
+ * earnings are a platform cost (D6).
+ */
+
+export const commissionScopeEnum = pgEnum("commission_scope", ["DEFAULT", "SHOP_TYPE", "SHOP"]);
+
+export const commissionRates = pgTable(
+  "commission_rates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    scope: commissionScopeEnum("scope").notNull(),
+    /** Set for SHOP_TYPE. */
+    shopType: shopTypeEnum("shop_type"),
+    /** Set for SHOP. */
+    shopId: uuid("shop_id").references(() => shops.id, { onDelete: "restrict" }),
+    /** Basis points: 500 = 5.00%. */
+    rateBp: integer("rate_bp").notNull(),
+    isActive: boolean("is_active").notNull().default(true),
+    note: text("note"),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("commission_rates_lookup_idx").on(t.scope, t.shopType, t.shopId),
+    check("commission_rates_range", sql`${t.rateBp} BETWEEN 0 AND 5000`),
+    check(
+      "commission_rates_scope_target",
+      sql`(${t.scope} = 'DEFAULT' AND ${t.shopType} IS NULL AND ${t.shopId} IS NULL)
+          OR (${t.scope} = 'SHOP_TYPE' AND ${t.shopType} IS NOT NULL AND ${t.shopId} IS NULL)
+          OR (${t.scope} = 'SHOP' AND ${t.shopId} IS NOT NULL)`,
+    ),
+  ],
+);
+
+/**
+ * Lifecycle of a shop settlement or rider payout (Part F):
+ * PENDING (prepared) → ELIGIBLE (approved) → PROCESSING (sent to the bank)
+ * → PAID (reference recorded) | FAILED (bank rejected; can be re-sent).
+ * PAID → REVERSED (returned by the bank; items become payable again).
+ * PENDING/ELIGIBLE → CANCELLED (items released to the next batch).
+ */
+export const payoutStatusEnum = pgEnum("payout_status", [
+  "PENDING",
+  "ELIGIBLE",
+  "PROCESSING",
+  "PAID",
+  "FAILED",
+  "REVERSED",
+  "CANCELLED",
+]);
+
+const payoutLifecycleColumns = () => ({
+  status: payoutStatusEnum("status").notNull().default("PENDING"),
+  /** Bank/UTR reference entered when marked PAID. */
+  paymentReference: text("payment_reference"),
+  /** Why the bank rejected or reversed it. */
+  failureReason: text("failure_reason"),
+  approvedBy: uuid("approved_by").references(() => users.id),
+  approvedAt: timestamp("approved_at", { withTimezone: true }),
+  processingAt: timestamp("processing_at", { withTimezone: true }),
+  paidBy: uuid("paid_by").references(() => users.id),
+  paidAt: timestamp("paid_at", { withTimezone: true }),
+  failedAt: timestamp("failed_at", { withTimezone: true }),
+  reversedAt: timestamp("reversed_at", { withTimezone: true }),
+  createdBy: uuid("created_by").references(() => users.id),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const shopSettlements = pgTable(
+  "shop_settlements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    /** Inclusive start / exclusive end of the settlement week (app-time-zone dates). */
+    periodStart: date("period_start").notNull(),
+    periodEnd: date("period_end").notNull(),
+    orderCount: integer("order_count").notNull(),
+    /** Gross goods value of the settled orders. */
+    goodsPaise: bigint("goods_paise", { mode: "number" }).notNull(),
+    commissionPaise: bigint("commission_paise", { mode: "number" }).notNull(),
+    /** Shop's share of after-delivery refunds (negative). */
+    refundsPaise: bigint("refunds_paise", { mode: "number" }).notNull(),
+    /** Other shop adjustments (± ). */
+    adjustmentsPaise: bigint("adjustments_paise", { mode: "number" }).notNull(),
+    /** goods − commission + refunds + adjustments. */
+    netPayablePaise: bigint("net_payable_paise", { mode: "number" }).notNull(),
+    ...payoutLifecycleColumns(),
+  },
+  (t) => [
+    index("shop_settlements_shop_idx").on(t.shopId),
+    index("shop_settlements_status_idx").on(t.status),
+    check("shop_settlements_period", sql`${t.periodEnd} > ${t.periodStart}`),
+  ],
+);
+
+export const riderPayouts = pgTable(
+  "rider_payouts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deliveryPartnerId: uuid("delivery_partner_id")
+      .notNull()
+      .references(() => deliveryPartners.id, { onDelete: "restrict" }),
+    periodStart: date("period_start").notNull(),
+    periodEnd: date("period_end").notNull(),
+    earningsCount: integer("earnings_count").notNull(),
+    /** Sum of the batched earnings. */
+    grossPaise: bigint("gross_paise", { mode: "number" }).notNull(),
+    /** Rider / delivery adjustments (±). */
+    adjustmentsPaise: bigint("adjustments_paise", { mode: "number" }).notNull(),
+    /** gross + adjustments — what is paid. */
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    ...payoutLifecycleColumns(),
+  },
+  (t) => [
+    index("rider_payouts_partner_idx").on(t.deliveryPartnerId),
+    index("rider_payouts_status_idx").on(t.status),
+  ],
+);
+
+export const orderFinancials = pgTable(
+  "order_financials",
+  {
+    orderId: uuid("order_id")
+      .primaryKey()
+      .references(() => orders.id, { onDelete: "restrict" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    /** The customer's wallet debit that paid for the order (Part A payment link). */
+    paymentTransactionId: uuid("payment_transaction_id"),
+    /** Goods actually sold (order subtotal after removed/substituted lines). */
+    goodsPaise: bigint("goods_paise", { mode: "number" }).notNull(),
+    /** Part of the payment funded by promotional wallet credit — a platform-funded discount. */
+    discountPaise: bigint("discount_paise", { mode: "number" }).notNull().default(0),
+    /** Delivery fee the customer paid — platform revenue (D6). */
+    deliveryFeePaise: bigint("delivery_fee_paise", { mode: "number" }).notNull(),
+    /** GMV of this order: goods + delivery fee as delivered. */
+    gmvPaise: bigint("gmv_paise", { mode: "number" }).notNull(),
+    /** Rate applied, snapshotted — later rate changes never rewrite it. */
+    commissionRateBp: integer("commission_rate_bp").notNull(),
+    commissionRateId: uuid("commission_rate_id").references(() => commissionRates.id),
+    commissionPaise: bigint("commission_paise", { mode: "number" }).notNull(),
+    /** goods − commission; owed to the shop for this order before refunds/adjustments. */
+    shopPayablePaise: bigint("shop_payable_paise", { mode: "number" }).notNull(),
+    deliveredAt: timestamp("delivered_at", { withTimezone: true }).notNull(),
+    settlementId: uuid("settlement_id").references(() => shopSettlements.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("order_financials_shop_idx").on(t.shopId),
+    index("order_financials_settlement_idx").on(t.settlementId),
+    index("order_financials_delivered_idx").on(t.deliveredAt),
+  ],
+);
+
+export const financialPartyEnum = pgEnum("financial_party", ["SHOP", "RIDER", "PLATFORM"]);
+
+export const adjustmentTypeEnum = pgEnum("financial_adjustment_type", [
+  /** Refund to the customer after delivery; the shop bears its share. */
+  "REFUND_SHOP",
+  /** Refund to the customer after delivery; the platform bears it. */
+  "REFUND_PLATFORM",
+  /** Correction to what a shop is owed. */
+  "SHOP_ADJUSTMENT",
+  /** Correction to what a rider is owed (e.g. wrong earning). */
+  "RIDER_ADJUSTMENT",
+  /** Delivery-related correction to a rider (extra distance, waiting time). */
+  "DELIVERY_ADJUSTMENT",
+  /** Platform-only correction (write-off, goodwill credit). */
+  "MARKETPLACE_ADJUSTMENT",
+]);
+
+export const adjustmentStatusEnum = pgEnum("financial_adjustment_status", [
+  /** Waiting for the next settlement/payout batch. */
+  "PENDING",
+  /** Included in a batch. */
+  "SETTLED",
+  /** Platform-only; nothing to pay out. */
+  "RECORDED",
+]);
+
+export const financialAdjustments = pgTable(
+  "financial_adjustments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    type: adjustmentTypeEnum("type").notNull(),
+    party: financialPartyEnum("party").notNull(),
+    status: adjustmentStatusEnum("status").notNull().default("PENDING"),
+    shopId: uuid("shop_id").references(() => shops.id, { onDelete: "restrict" }),
+    deliveryPartnerId: uuid("delivery_partner_id").references(() => deliveryPartners.id, {
+      onDelete: "restrict",
+    }),
+    orderId: uuid("order_id").references(() => orders.id, { onDelete: "restrict" }),
+    /** The wallet ledger row of a customer refund (the refund's payment reference). */
+    walletTransactionId: uuid("wallet_transaction_id"),
+    /** Effect on the party: + owed to it, − recovered from it. */
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    /** What the customer got back (refunds), for reporting and reconciliation. */
+    customerRefundPaise: bigint("customer_refund_paise", { mode: "number" }).notNull().default(0),
+    reason: text("reason").notNull(),
+    settlementId: uuid("settlement_id").references(() => shopSettlements.id),
+    payoutId: uuid("payout_id").references(() => riderPayouts.id),
+    idempotencyKey: text("idempotency_key").notNull(),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("financial_adjustments_idempotency_unique").on(t.idempotencyKey),
+    index("financial_adjustments_shop_idx").on(t.shopId),
+    index("financial_adjustments_partner_idx").on(t.deliveryPartnerId),
+    index("financial_adjustments_order_idx").on(t.orderId),
+    check(
+      "financial_adjustments_party_target",
+      sql`(${t.party} = 'SHOP' AND ${t.shopId} IS NOT NULL)
+          OR (${t.party} = 'RIDER' AND ${t.deliveryPartnerId} IS NOT NULL)
+          OR ${t.party} = 'PLATFORM'`,
+    ),
+  ],
+);
+
+export const ledgerEntryTypeEnum = pgEnum("ledger_entry_type", [
+  "GOODS_SALE",
+  "COMMISSION",
+  "DELIVERY_FEE",
+  "PROMOTIONAL_DISCOUNT",
+  "RIDER_EARNING",
+  "REFUND",
+  "ADJUSTMENT",
+  "SHOP_SETTLEMENT",
+  "RIDER_PAYOUT",
+  "REVERSAL",
+]);
+
+export const ledgerDirectionEnum = pgEnum("ledger_direction", ["CREDIT", "DEBIT"]);
+
+/**
+ * Append-only marketplace journal (Part I). CREDIT = the entity is owed /
+ * earns; DEBIT = it pays / is paid out. One business event posts one or more
+ * entries under the same idempotency prefix. Customer money stays in the
+ * wallet ledger — referenced here, never duplicated.
+ */
+export const financeLedgerEntries = pgTable(
+  "finance_ledger_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id").references(() => orders.id, { onDelete: "restrict" }),
+    entityType: financialPartyEnum("entity_type").notNull(),
+    /** Shop id, delivery partner id, or null for the platform. */
+    entityId: uuid("entity_id"),
+    entryType: ledgerEntryTypeEnum("entry_type").notNull(),
+    direction: ledgerDirectionEnum("direction").notNull(),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    currency: text("currency").notNull().default("INR"),
+    /** The record this entry came from: order_financials, adjustment, settlement, payout, earning. */
+    sourceType: text("source_type").notNull(),
+    sourceId: text("source_id").notNull(),
+    /** Payment/bank reference where one exists. */
+    reference: text("reference"),
+    status: text("status").notNull().default("POSTED"),
+    idempotencyKey: text("idempotency_key").notNull(),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("finance_ledger_idempotency_unique").on(t.idempotencyKey),
+    index("finance_ledger_order_idx").on(t.orderId),
+    index("finance_ledger_entity_idx").on(t.entityType, t.entityId),
+    index("finance_ledger_created_idx").on(t.createdAt),
+    check("finance_ledger_amount_positive", sql`${t.amountPaise} > 0`),
+  ],
+);
+
+export const reconciliationEntityEnum = pgEnum("reconciliation_entity", [
+  "PAYMENT",
+  "ORDER",
+  "SHOP",
+  "RIDER",
+  "SETTLEMENT",
+  "PAYOUT",
+]);
+
+export const reconciliationStatusEnum = pgEnum("reconciliation_status", [
+  "UNMATCHED",
+  "MATCHED",
+  "PARTIAL",
+  "EXCEPTION",
+  "RECONCILED",
+]);
+
+/** Latest reconciliation result per entity (Part H); RECONCILED once a person resolves it. */
+export const reconciliationRecords = pgTable(
+  "reconciliation_records",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    entityType: reconciliationEntityEnum("entity_type").notNull(),
+    entityId: text("entity_id").notNull(),
+    /** Human reference: order number, gateway order id, settlement id. */
+    reference: text("reference").notNull(),
+    checkType: text("check_type").notNull(),
+    expectedPaise: bigint("expected_paise", { mode: "number" }),
+    actualPaise: bigint("actual_paise", { mode: "number" }),
+    status: reconciliationStatusEnum("status").notNull(),
+    detail: text("detail"),
+    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }).notNull().defaultNow(),
+    resolvedBy: uuid("resolved_by").references(() => users.id),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    resolutionNote: text("resolution_note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("reconciliation_entity_check_unique").on(t.entityType, t.entityId, t.checkType),
+    index("reconciliation_status_idx").on(t.status),
+  ],
+);
 
 export type User = typeof users.$inferSelect;
 export type Shop = typeof shops.$inferSelect;
@@ -2520,6 +2985,22 @@ export type ReferralStatus = (typeof referralStatusEnum.enumValues)[number];
 export type ProductApprovalStatus =
   (typeof productApprovalStatusEnum.enumValues)[number];
 export type OrderStatus = (typeof orderStatusEnum.enumValues)[number];
+export type OrderType = (typeof orderTypeEnum.enumValues)[number];
+export type CommissionScope = (typeof commissionScopeEnum.enumValues)[number];
+export type PayoutStatus = (typeof payoutStatusEnum.enumValues)[number];
+export type AdjustmentType = (typeof adjustmentTypeEnum.enumValues)[number];
+export type FinancialParty = (typeof financialPartyEnum.enumValues)[number];
+export type LedgerEntryType = (typeof ledgerEntryTypeEnum.enumValues)[number];
+export type ReconciliationStatus = (typeof reconciliationStatusEnum.enumValues)[number];
+export type ReconciliationEntity = (typeof reconciliationEntityEnum.enumValues)[number];
+export type CommissionRate = typeof commissionRates.$inferSelect;
+export type ShopSettlement = typeof shopSettlements.$inferSelect;
+export type RiderPayout = typeof riderPayouts.$inferSelect;
+export type OrderFinancial = typeof orderFinancials.$inferSelect;
+export type FinancialAdjustment = typeof financialAdjustments.$inferSelect;
+export type FinanceLedgerEntry = typeof financeLedgerEntries.$inferSelect;
+export type ReconciliationRecord = typeof reconciliationRecords.$inferSelect;
+export type OrderItemFulfilment = (typeof orderItemFulfilmentEnum.enumValues)[number];
 export type ShopStatus = (typeof shopStatusEnum.enumValues)[number];
 export type Classification = (typeof classificationEnum.enumValues)[number];
 export type Department = (typeof departmentEnum.enumValues)[number];

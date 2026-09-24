@@ -9,6 +9,7 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { ok, parseBody, route } from "@/server/api/handler";
+import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { previewVoucher } from "@/server/services/vouchers";
@@ -20,6 +21,8 @@ const schema = z.object({
 
 export const POST = route(async (request: NextRequest) => {
   const user = await requirePermission(PERMISSIONS.WALLET_TOPUP_OWN);
+  enforceRateLimit(`voucher-preview:${user.id}`, RATE_LIMITS.VOUCHER_PREVIEW);
+
   const { code, amountPaise } = await parseBody(request, schema);
   return ok(await previewVoucher(code, amountPaise, user.id));
 });

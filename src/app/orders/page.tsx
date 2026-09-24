@@ -10,8 +10,10 @@ import {
   PageHeader,
   StatusBadge,
 } from "@/components/ui";
+import { SubstitutionDecision } from "@/components/substitution-decision";
 import { formatQuantity } from "@/lib/money";
 import { getCurrentUser } from "@/server/authz/guards";
+import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { getDeliveryOrdersForOrders } from "@/server/services/delivery-assignment";
 import { listOrdersForUser } from "@/server/services/orders";
 
@@ -20,6 +22,7 @@ const DELIVERY_STATUS_LABELS: Record<string, string> = {
   ACCEPTED: "Rider assigned",
   PICKED_UP: "Picked up — on the way",
   DELIVERED: "Delivered",
+  FAILED: "Delivery attempt failed",
   REJECTED: "Finding a rider",
   CANCELLED: "Finding a rider",
 };
@@ -30,20 +33,38 @@ export const dynamic = "force-dynamic";
 export default async function OrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ placed?: string }>;
+  searchParams: Promise<{ placed?: string; type?: string }>;
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
 
-  const [orders, params] = await Promise.all([
-    listOrdersForUser(user.id, { limit: 50 }),
-    searchParams,
-  ]);
+  const params = await searchParams;
+  // Personal and business (B2B) orders are separate flows, listed apart.
+  const showBusiness = can(user.role, PERMISSIONS.ORDER_PLACE_B2B);
+  const orderType = showBusiness && params.type === "business" ? "B2B" : "PERSONAL";
+  const orders = await listOrdersForUser(user.id, { limit: 50, orderType });
   const deliveryOrders = await getDeliveryOrdersForOrders(orders.map((o) => o.id));
 
   return (
     <>
       <PageHeader title="My Orders" description="Track everything you've ordered." />
+
+      {showBusiness ? (
+        <nav className="mb-6 flex gap-2" aria-label="Order type">
+          <LinkButton
+            href="/orders"
+            variant={orderType === "PERSONAL" ? "primary" : "secondary"}
+          >
+            Personal orders
+          </LinkButton>
+          <LinkButton
+            href="/orders?type=business"
+            variant={orderType === "B2B" ? "primary" : "secondary"}
+          >
+            Business orders
+          </LinkButton>
+        </nav>
+      ) : null}
 
       {params.placed ? (
         <div className="mb-6">
@@ -69,6 +90,7 @@ export default async function OrdersPage({
                   {order.source === "SUBSCRIPTION" ? (
                     <Badge tone="info">subscription</Badge>
                   ) : null}
+                  {order.orderType === "B2B" ? <Badge tone="info">business</Badge> : null}
                   <span className="text-sm text-ink-500">
                     {order.orderNumber}
                   </span>
@@ -89,15 +111,58 @@ export default async function OrdersPage({
 
               <ul className="mt-3 space-y-1 text-sm text-ink-600">
                 {order.items.map((item) => (
-                  <li key={item.id} className="flex justify-between gap-3">
-                    <span>
-                      {item.productNameSnapshot} ·{" "}
-                      {formatQuantity(item.quantityMilli, item.unitSnapshot)}
-                    </span>
-                    <Money paise={item.lineTotalPaise} />
+                  <li key={item.id}>
+                    <div className="flex justify-between gap-3">
+                      <span className={item.fulfilmentStatus === "REMOVED" ? "line-through" : undefined}>
+                        {item.productNameSnapshot} ·{" "}
+                        {formatQuantity(item.quantityMilli, item.unitSnapshot)}
+                      </span>
+                      <Money paise={item.lineTotalPaise} />
+                    </div>
+                    {item.fulfilmentStatus === "REMOVED" ? (
+                      <p className="text-xs text-ink-500">Unavailable — refunded to your wallet</p>
+                    ) : null}
+                    {item.substituteNameSnapshot &&
+                    (item.fulfilmentStatus === "SUBSTITUTION_PROPOSED" || item.fulfilmentStatus === "SUBSTITUTED") ? (
+                      <p className="text-xs text-ink-500">
+                        {item.fulfilmentStatus === "SUBSTITUTED" ? "Replaced with " : "Shop suggests "}
+                        {item.substituteNameSnapshot}
+                        {item.substituteQuantityMilli && item.substituteUnitSnapshot
+                          ? ` · ${formatQuantity(item.substituteQuantityMilli, item.substituteUnitSnapshot)}`
+                          : ""}
+                        {item.substituteLineTotalPaise != null ? (
+                          <>
+                            {" "}
+                            for <Money paise={item.substituteLineTotalPaise} />
+                          </>
+                        ) : null}
+                      </p>
+                    ) : null}
+                    {item.fulfilmentStatus === "SUBSTITUTION_PROPOSED" ? (
+                      <SubstitutionDecision orderId={order.id} itemId={item.id} />
+                    ) : null}
                   </li>
                 ))}
               </ul>
+
+              {order.refundedPaise > 0 ? (
+                <p className="mt-2 text-xs text-ink-500">
+                  <Money paise={order.refundedPaise} /> refunded to your wallet for unavailable items.
+                </p>
+              ) : null}
+
+              {order.status === "OUT_FOR_DELIVERY" && deliveryOrders.get(order.id)?.deliveryOtp ? (
+                <p
+                  className="mt-3 rounded-lg bg-leaf-50 px-3 py-2 text-sm text-leaf-700"
+                  data-testid="delivery-otp"
+                >
+                  Delivery code:{" "}
+                  <span className="font-mono text-lg font-bold tracking-widest">
+                    {deliveryOrders.get(order.id)!.deliveryOtp}
+                  </span>{" "}
+                  — share it with the rider only when you receive your order.
+                </p>
+              ) : null}
 
               {deliveryOrders.has(order.id) ? (
                 <p className="mt-3 border-t border-cream-100 pt-3 text-sm text-ink-600">

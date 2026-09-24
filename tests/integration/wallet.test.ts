@@ -15,6 +15,7 @@ import {
   applyWalletMutation,
   getOrCreateWallet,
   listTransactions,
+  updateWalletSettings,
 } from "@/server/services/wallet";
 import { createUserWithWallet, resetDatabase } from "../helpers/fixtures";
 
@@ -286,5 +287,24 @@ describe("validation", () => {
 
     const ids = new Set(created.map((w) => w.id));
     expect(ids.size).toBe(1);
+  });
+});
+
+describe("wallet settings (DEF-07)", () => {
+  it("still allows changing the low-balance threshold", async () => {
+    const { user } = await createUserWithWallet({ balancePaise: 0 });
+    const updated = await updateWalletSettings(user.id, { lowBalanceThresholdPaise: 20_000 });
+    expect(updated.lowBalanceThresholdPaise).toBe(20_000);
+  });
+
+  it("rejects enabling auto-recharge — nothing implements it yet, so it must not silently promise to", async () => {
+    const { user } = await createUserWithWallet({ balancePaise: 0 });
+    await expect(
+      updateWalletSettings(user.id, {
+        autoRechargeEnabled: true,
+        autoRechargeTriggerPaise: 10_000,
+        autoRechargeAmountPaise: 50_000,
+      }),
+    ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
   });
 });

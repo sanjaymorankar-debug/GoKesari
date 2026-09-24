@@ -113,6 +113,48 @@
       "when": 1789839463326,
       "tag": "0015_product_master_platform",
       "breakpoints": true
+    },
+    {
+      "idx": 16,
+      "version": "7",
+      "when": 1790197225842,
+      "tag": "0016_delivery_partner_kyc_encryption",
+      "breakpoints": true
+    },
+    {
+      "idx": 17,
+      "version": "7",
+      "when": 1790219800813,
+      "tag": "0017_wave1_access_foundation",
+      "breakpoints": true
+    },
+    {
+      "idx": 18,
+      "version": "7",
+      "when": 1790219964104,
+      "tag": "0018_audit_logs_append_only",
+      "breakpoints": true
+    },
+    {
+      "idx": 19,
+      "version": "7",
+      "when": 1790222446903,
+      "tag": "0019_shop_service_radius",
+      "breakpoints": true
+    },
+    {
+      "idx": 20,
+      "version": "7",
+      "when": 1790240817163,
+      "tag": "0020_fulfilment_and_delivery_handover",
+      "breakpoints": true
+    },
+    {
+      "idx": 21,
+      "version": "7",
+      "when": 1790256693718,
+      "tag": "0021_finance_ledger_settlements",
+      "breakpoints": true
     }
   ]
 }
