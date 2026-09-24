@@ -117,6 +117,22 @@ export const AUDIT_ACTIONS = {
   DELIVERY_ORDER_PICKED_UP: "delivery_order.picked_up",
   DELIVERY_ORDER_DELIVERED: "delivery_order.delivered",
   DELIVERY_ORDER_CANCELLED: "delivery_order.cancelled",
+  DELIVERY_ORDER_OUT_FOR_DELIVERY: "delivery_order.out_for_delivery",
+  DELIVERY_ORDER_FAILED: "delivery_order.failed",
+  DELIVERY_OFFER_EXPIRED: "delivery_order.offer_expired",
+  /** Delivered without the customer OTP — operator-confirmed with a proof note. */
+  DELIVERY_CONFIRMED_BY_OPERATOR: "delivery_order.confirmed_by_operator",
+  ORDER_ITEM_FULFILMENT_CHANGED: "order_item.fulfilment_changed",
+  /* ------------------------------------------------ finance (Slice 6) */
+  COMMISSION_RATE_SET: "finance.commission_rate_set",
+  ORDER_REFUNDED_AFTER_DELIVERY: "finance.order_refunded_after_delivery",
+  FINANCIAL_ADJUSTMENT_RECORDED: "finance.adjustment_recorded",
+  SETTLEMENT_PREPARED: "finance.settlement_prepared",
+  SETTLEMENT_STATUS_CHANGED: "finance.settlement_status_changed",
+  RIDER_PAYOUT_PREPARED: "finance.rider_payout_prepared",
+  RIDER_PAYOUT_STATUS_CHANGED: "finance.rider_payout_status_changed",
+  RECONCILIATION_RUN: "finance.reconciliation_run",
+  RECONCILIATION_RESOLVED: "finance.reconciliation_resolved",
   DELIVERY_EARNINGS_CONFIG_CHANGED: "delivery_earnings_config.changed",
 
   /* ------------------------------------ product master data platform */

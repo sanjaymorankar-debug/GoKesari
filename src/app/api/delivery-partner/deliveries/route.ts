@@ -2,7 +2,11 @@
 import { ok, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
-import { getMyActiveDeliveryOrder, listMyDeliveryHistory } from "@/server/services/delivery-assignment";
+import {
+  getMyActiveDeliveryOrder,
+  listMyDeliveryHistory,
+  toRiderView,
+} from "@/server/services/delivery-assignment";
 
 export const dynamic = "force-dynamic";
 
@@ -12,5 +16,6 @@ export const GET = route(async () => {
     getMyActiveDeliveryOrder(user.id),
     listMyDeliveryHistory(user.id),
   ]);
-  return ok({ active, history });
+  // Never send the pickup code or customer OTP to the rider.
+  return ok({ active: active ? toRiderView(active) : null, history: history.map(toRiderView) });
 });

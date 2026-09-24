@@ -336,14 +336,17 @@ export async function updateWalletSettings(
   ) {
     throw validationFailed("Low balance threshold cannot be negative.");
   }
-  // Auto-recharge requires explicit customer authorisation (§38): both the
-  // trigger and the amount must be supplied when enabling it.
+  // DEF-07 (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): this setting
+  // could previously be enabled and stored, but nothing anywhere ever read
+  // it to trigger a recharge — a caller enabling it would reasonably but
+  // wrongly believe it does something. Real auto-recharge needs a saved
+  // payment method / mandate, which the Cashfree integration doesn't have
+  // yet; block enabling it until that exists, rather than silently promise
+  // behaviour the product doesn't deliver.
   if (settings.autoRechargeEnabled) {
-    if (!settings.autoRechargeTriggerPaise || !settings.autoRechargeAmountPaise) {
-      throw validationFailed(
-        "Auto recharge needs both a trigger balance and a recharge amount.",
-      );
-    }
+    throw validationFailed(
+      "Auto-recharge is not available yet. You can top up your wallet manually any time.",
+    );
   }
 
   const [updated] = await db
@@ -381,6 +384,17 @@ export async function refundOriginalDebit(
     idempotencyKey: string;
     description: string;
     createdBy?: string | null;
+    /**
+     * Refund only this many paise instead of the full original debit — e.g. a
+     * goods-only refund on a self-cancelled dispatched order that keeps the
+     * delivery fee (D10 — see docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md
+     * DEF-08). Must be a positive amount not exceeding the original debit.
+     * The promotional portion restored is the SAME proportion of this amount
+     * as the original debit's own promotional share, so a partial refund can
+     * never restore more promotional credit than was actually spent on the
+     * refunded portion. Omit for the original, unchanged full-refund behaviour.
+     */
+    amountPaise?: number;
   },
   client?: DbClient,
 ): Promise<WalletMutationResult> {
@@ -401,8 +415,20 @@ export async function refundOriginalDebit(
     throw notFound("Original wallet debit for this reference");
   }
 
-  const refundAmountPaise = -original.amountPaise;
-  const promotionalToRestore = -original.promotionalAmountPaise;
+  const fullRefundAmountPaise = -original.amountPaise;
+  const fullPromotionalToRestore = -original.promotionalAmountPaise;
+
+  const refundAmountPaise = input.amountPaise ?? fullRefundAmountPaise;
+  if (!Number.isInteger(refundAmountPaise) || refundAmountPaise <= 0) {
+    throw validationFailed("Refund amount must be a positive whole number of paise.");
+  }
+  if (refundAmountPaise > fullRefundAmountPaise) {
+    throw validationFailed("Refund amount cannot exceed the original debit.");
+  }
+  const promotionalToRestore =
+    refundAmountPaise === fullRefundAmountPaise
+      ? fullPromotionalToRestore
+      : Math.round(fullPromotionalToRestore * (refundAmountPaise / fullRefundAmountPaise));
 
   return applyWalletMutation(
     {

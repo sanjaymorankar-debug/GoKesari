@@ -5,7 +5,7 @@
  * crediting. No batching, no Google Routes call — see delivery-feasibility.ts
  * and delivery-assignment.ts for why.
  */
-import { eq } from "drizzle-orm";
+import { and, eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 // Several tests here chain many sequential round-trips (checkout, two status
@@ -18,7 +18,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.setConfig({ testTimeout: 150_000, hookTimeout: 90_000 });
 
 import { db } from "@/server/db";
-import { deliveryEarningsConfig, orders, type Order } from "@/server/db/schema";
+import { deliveryEarningsConfig, deliveryOrders, orders, type Order } from "@/server/db/schema";
 import {
   acceptDeliveryOffer,
   assignNearestPartner,
@@ -27,6 +27,7 @@ import {
   markPickedUp,
   reassignOrder,
   rejectDeliveryOffer,
+  startDelivery,
 } from "@/server/services/delivery-assignment";
 import {
   creditDeliveryEarnings,
@@ -253,6 +254,41 @@ describe("assignNearestPartner", () => {
       assignNearestPartner(orderB.id, { id: ownerId, role: "SHOP_OWNER" }),
     ).rejects.toMatchObject({ code: "CONFLICT" });
   });
+
+  it("DEF-03: two orders racing for the single available partner never both win it — fired concurrently, not sequentially", async () => {
+    const { order: orderA, ownerId } = await setupReadyOrder();
+    const { order: orderB } = await setupReadyOrder();
+    const riderUser = await createUser({ role: "DELIVERY_PARTNER" });
+    // createDeliveryPartner's own return value is the row that actually
+    // matters here — delivery_partners.id is its own primary key, NOT the
+    // same uuid as riderUser.id, even though the row also stores userId.
+    const rider = await createDeliveryPartner(riderUser.id, {
+      isOnline: true,
+      latitude: SHOP_LAT,
+      longitude: SHOP_LNG,
+      operatingRadiusKm: 20,
+    });
+
+    // Both calls start together — this is what the DEF-03 fix's transaction
+    // + row lock on the partner is actually for. A regression here would
+    // most likely show up as BOTH resolving (double-booking the one rider),
+    // not as a thrown error.
+    const results = await Promise.allSettled([
+      assignNearestPartner(orderA.id, { id: ownerId, role: "SHOP_OWNER" }),
+      assignNearestPartner(orderB.id, { id: ownerId, role: "SHOP_OWNER" }),
+    ]);
+
+    const fulfilled = results.filter((r) => r.status === "fulfilled");
+    const rejected = results.filter((r) => r.status === "rejected");
+    expect(fulfilled).toHaveLength(1); // exactly one order got the rider
+    expect(rejected).toHaveLength(1); // the other correctly found nobody available
+
+    // The rider holds exactly one active assignment afterward, not two.
+    const active = await db.query.deliveryOrders.findMany({
+      where: and(eq(deliveryOrders.deliveryPartnerId, rider.id), eq(deliveryOrders.status, "OFFERED")),
+    });
+    expect(active).toHaveLength(1);
+  });
 });
 
 describe("full delivery lifecycle", () => {
@@ -278,15 +314,30 @@ describe("full delivery lifecycle", () => {
 
     const accepted = await acceptDeliveryOffer(offer.id, riderUser.id);
     expect(accepted.status).toBe("ACCEPTED");
+    const [orderAfterAccept] = await db.select().from(orders).where(eq(orders.id, order.id));
+    expect(orderAfterAccept.status).toBe("ASSIGNED");
 
     const actor = { id: riderUser.id, role: "DELIVERY_PARTNER" as const };
-    const pickedUp = await markPickedUp(offer.id, actor);
+    // Slice 4 handover: the shop reads out the pickup code issued on accept.
+    const [afterAccept] = await db.select().from(deliveryOrders).where(eq(deliveryOrders.id, offer.id));
+    expect(afterAccept.pickupCode).toMatch(/^\d{4}$/);
+    await expect(markPickedUp(offer.id, actor, "0000" === afterAccept.pickupCode ? "1111" : "0000")).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+    });
+    const pickedUp = await markPickedUp(offer.id, actor, afterAccept.pickupCode!);
     expect(pickedUp.status).toBe("PICKED_UP");
 
     const [orderAfterPickup] = await db.select().from(orders).where(eq(orders.id, order.id));
-    expect(orderAfterPickup.status).toBe("OUT_FOR_DELIVERY");
+    expect(orderAfterPickup.status).toBe("PICKED_UP");
 
-    const delivered = await markDelivered(offer.id, actor);
+    // Starting the drop issues the customer's OTP and moves the order on.
+    await startDelivery(offer.id, actor);
+    const [orderOutForDelivery] = await db.select().from(orders).where(eq(orders.id, order.id));
+    expect(orderOutForDelivery.status).toBe("OUT_FOR_DELIVERY");
+    const [afterStart] = await db.select().from(deliveryOrders).where(eq(deliveryOrders.id, offer.id));
+    expect(afterStart.deliveryOtp).toMatch(/^\d{4}$/);
+
+    const delivered = await markDelivered(offer.id, actor, afterStart.deliveryOtp!);
     expect(delivered.status).toBe("DELIVERED");
 
     const [orderAfterDelivery] = await db.select().from(orders).where(eq(orders.id, order.id));
@@ -309,9 +360,9 @@ describe("full delivery lifecycle", () => {
   it("rejecting an offer frees it up for reassignment", async () => {
     const { order, ownerId } = await setupReadyOrder();
     // Placed further out so a strictly closer rider (below) is the
-    // unambiguous pick once reassignment runs — rejection alone doesn't
-    // exclude a rider from future offers in Phase 1, so this isolates
-    // "reassignment picks the nearest eligible partner" from that.
+    // unambiguous pick once reassignment runs. Since GA-009 a rider who
+    // rejects is never re-offered the order, and the rejection itself
+    // triggers a re-offer — here nobody else is online yet, so it stays open.
     const riderA = await createUser({ role: "DELIVERY_PARTNER" });
     await createDeliveryPartner(riderA.id, {
       isOnline: true,

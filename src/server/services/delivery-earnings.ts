@@ -10,7 +10,7 @@
 import { desc, eq } from "drizzle-orm";
 
 import { conflict, isUniqueViolation, notFound, validationFailed } from "@/lib/errors";
-import { db } from "@/server/db";
+import { db, type DbClient } from "@/server/db";
 import {
   deliveryEarningsConfig,
   deliveryOrders,
@@ -20,6 +20,7 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { postRiderEarning } from "./finance";
 
 interface Actor {
   id: string;
@@ -101,19 +102,39 @@ export async function setEarningsConfig(
   });
 }
 
-/** Idempotent on deliveryOrderId — a retried credit (e.g. a re-run failsafe) never pays out twice. */
-export async function creditDeliveryEarnings(deliveryOrderId: string): Promise<DeliveryPartnerEarning> {
-  const existing = await db.query.deliveryPartnerEarnings.findFirst({
+/**
+ * Idempotent on deliveryOrderId — a retried credit (e.g. a re-run failsafe)
+ * never pays out twice. Eligible once a delivery is DELIVERED, or — per D10
+ * (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md DEF-08) — CANCELLED after
+ * the rider had already picked it up: the customer cancelled a dispatched
+ * order, but the rider still did the pickup-and-transit work and is still
+ * paid for it. `client` composes this into a caller's own transaction (e.g.
+ * cancelOrder's DEF-08 fix); omit it for the original standalone behaviour.
+ */
+export async function creditDeliveryEarnings(
+  deliveryOrderId: string,
+  client?: DbClient,
+): Promise<DeliveryPartnerEarning> {
+  const c = client ?? db;
+  const existing = await c.query.deliveryPartnerEarnings.findFirst({
     where: eq(deliveryPartnerEarnings.deliveryOrderId, deliveryOrderId),
   });
   if (existing) return existing;
 
-  const deliveryOrder = await db.query.deliveryOrders.findFirst({
+  const deliveryOrder = await c.query.deliveryOrders.findFirst({
     where: eq(deliveryOrders.id, deliveryOrderId),
   });
   if (!deliveryOrder) throw notFound("Delivery assignment");
-  if (deliveryOrder.status !== "DELIVERED") {
-    throw conflict("Earnings can only be credited once a delivery is marked delivered.");
+  // FAILED (Slice 4): the rider collected the order and attempted the drop,
+  // so the trip is paid like a cancelled-after-pickup one.
+  const eligible =
+    deliveryOrder.status === "DELIVERED" ||
+    deliveryOrder.status === "FAILED" ||
+    (deliveryOrder.status === "CANCELLED" && deliveryOrder.pickedUpAt != null);
+  if (!eligible) {
+    throw conflict(
+      "Earnings can only be credited once a delivery is marked delivered, or cancelled after the rider picked it up.",
+    );
   }
 
   const config = await getActiveEarningsConfig();
@@ -122,7 +143,7 @@ export async function creditDeliveryEarnings(deliveryOrderId: string): Promise<D
   const totalPaise = config.baseFeePaise + distancePaise;
 
   try {
-    const [earning] = await db
+    const [earning] = await c
       .insert(deliveryPartnerEarnings)
       .values({
         deliveryPartnerId: deliveryOrder.deliveryPartnerId,
@@ -132,10 +153,12 @@ export async function creditDeliveryEarnings(deliveryOrderId: string): Promise<D
         totalPaise,
       })
       .returning();
+    // Slice 6: journal the earning (rider credit / platform cost), same transaction.
+    await postRiderEarning(earning, deliveryOrder.orderId, c);
     return earning;
   } catch (error) {
     if (isUniqueViolation(error)) {
-      const row = await db.query.deliveryPartnerEarnings.findFirst({
+      const row = await c.query.deliveryPartnerEarnings.findFirst({
         where: eq(deliveryPartnerEarnings.deliveryOrderId, deliveryOrderId),
       });
       if (row) return row;

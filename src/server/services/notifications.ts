@@ -14,7 +14,17 @@ import { notifications, type Notification } from "@/server/db/schema";
 export const NOTIFICATION_TYPES = {
   SHOP_APPROVED: "shop.approved",
   SHOP_REJECTED: "shop.rejected",
+  /** DEF-02 (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): a shop previously learned about a new order only by refreshing /shop/orders. */
+  SHOP_NEW_ORDER: "shop.new_order",
   ORDER_CONFIRMED: "order.confirmed",
+  ORDER_ACCEPTED: "order.accepted",
+  ORDER_ASSIGNED: "order.assigned",
+  ORDER_DELIVERY_FAILED: "order.delivery_failed",
+  /** Shop proposed a replacement for an unavailable item; customer must decide. */
+  ORDER_SUBSTITUTION_PROPOSED: "order.substitution_proposed",
+  ORDER_ITEM_REMOVED: "order.item_removed",
+  /** To the shop: no rider accepted yet — the system keeps retrying. */
+  DELIVERY_UNASSIGNED: "delivery.unassigned",
   ORDER_READY: "order.ready",
   ORDER_OUT_FOR_DELIVERY: "order.out_for_delivery",
   ORDER_DELIVERED: "order.delivered",
