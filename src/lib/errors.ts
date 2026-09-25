@@ -123,6 +123,12 @@ export function toClientError(error: unknown): {
   }
 
   console.error("[unhandled]", error);
+  // Drizzle's "Failed query" hides the driver's reason (auth, TLS, network).
+  const cause = error instanceof Error ? error.cause : undefined;
+  if (cause instanceof Error) {
+    const code = (cause as { code?: unknown }).code;
+    console.error(`[unhandled] cause: ${cause.name}: ${cause.message}${code ? ` (code ${String(code)})` : ""}`);
+  }
   return {
     status: 500,
     body: {
