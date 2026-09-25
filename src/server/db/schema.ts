@@ -549,6 +549,8 @@ export const addresses = pgTable(
     longitude: text("longitude"),
     landmark: text("landmark"),
     deliveryInstructions: text("delivery_instructions"),
+    /** Set when the address is inside a verified society the user belongs to (GS-005). */
+    societyId: uuid("society_id").references(() => societies.id, { onDelete: "set null" }),
     isDefault: boolean("is_default").notNull().default(false),
     /** Same provenance/verification pattern as shops — see schema.ts's shops table comment. */
     locationVerified: boolean("location_verified").notNull().default(false),
@@ -610,6 +612,9 @@ export const shops = pgTable(
      * delivery partner's `operatingRadiusKm` already works.
      */
     serviceRadiusKm: integer("service_radius_km").notNull().default(5),
+    /** Rating aggregate (GS-059), maintained from visible order_ratings. Average × 100. */
+    ratingAvgX100: integer("rating_avg_x100").notNull().default(0),
+    ratingCount: integer("rating_count").notNull().default(0),
     deliveryFeePaise: bigint("delivery_fee_paise", { mode: "number" })
       .notNull()
       .default(0),
@@ -847,6 +852,9 @@ export const deliveryPartners = pgTable(
     latitude: text("latitude"),
     longitude: text("longitude"),
     operatingRadiusKm: integer("operating_radius_km").notNull().default(5),
+    /** Rating aggregate (GS-060), maintained from visible order_ratings. Average × 100. */
+    ratingAvgX100: integer("rating_avg_x100").notNull().default(0),
+    ratingCount: integer("rating_count").notNull().default(0),
     locationVerified: boolean("location_verified").notNull().default(false),
     locationVerifiedAt: timestamp("location_verified_at", { withTimezone: true }),
     locationSource: text("location_source", {
@@ -1367,10 +1375,15 @@ export const orders = pgTable(
        * (Slice C) needs the customer's coordinates without re-geocoding. */
       latitude?: string | null;
       longitude?: string | null;
+      /** For the rider on an active job (GS-047). */
+      landmark?: string | null;
+      deliveryInstructions?: string | null;
     } | null>(),
     status: orderStatusEnum("status").notNull().default("PENDING"),
     source: orderSourceEnum("source").notNull().default("DIRECT"),
     orderType: orderTypeEnum("order_type").notNull().default("PERSONAL"),
+    /** Society of the delivery address (society rider rules, security, society visibility). */
+    societyId: uuid("society_id").references(() => societies.id, { onDelete: "set null" }),
     /** B2B only: the approved shop buying for its business. Null for PERSONAL. */
     buyerShopId: uuid("buyer_shop_id").references(() => shops.id, { onDelete: "restrict" }),
     subtotalPaise: bigint("subtotal_paise", { mode: "number" }).notNull(),
@@ -1414,6 +1427,7 @@ export const orders = pgTable(
     index("orders_status_idx").on(t.status),
     index("orders_created_idx").on(t.createdAt),
     index("orders_buyer_shop_idx").on(t.buyerShopId),
+    index("orders_society_idx").on(t.societyId),
     check(
       "orders_totals_non_negative",
       sql`${t.subtotalPaise} >= 0 AND ${t.totalPaise} >= 0`,
@@ -2467,6 +2481,8 @@ export const grievances = pgTable(
     submittedByUserId: uuid("submitted_by_user_id").references(() => users.id, {
       onDelete: "set null",
     }),
+    /** The order a customer reported a problem with (GS-056 / WF-007). */
+    orderId: uuid("order_id").references(() => orders.id, { onDelete: "set null" }),
     name: text("name").notNull(),
     email: text("email").notNull(),
     phone: text("phone"),
@@ -2575,6 +2591,191 @@ export const mapsApiCallLog = pgTable(
 
 /* ------------------------------------------------------------ inference */
 
+
+/* ============================================================ society (Phase 2)
+ * GS-005, GS-044..047, GA-001/002. A society is a verified residential
+ * community. Roles are SCOPED to a society through society_members
+ * (ADMIN / OPERATOR / RESIDENT) rather than being global user roles, so a
+ * user can be a resident of one society and an admin of another without
+ * gaining powers anywhere else. The global SOCIETY_ADMIN user role is only a
+ * navigation hint for people who administer at least one society.
+ */
+
+export const societyStatusEnum = pgEnum("society_status", ["APPLIED", "VERIFIED", "REJECTED", "SUSPENDED"]);
+export const societyMemberRoleEnum = pgEnum("society_member_role", ["ADMIN", "OPERATOR", "RESIDENT"]);
+export const societyMemberStatusEnum = pgEnum("society_member_status", ["PENDING", "ACTIVE", "REMOVED"]);
+export const societyLinkStatusEnum = pgEnum("society_link_status", ["ACTIVE", "REVOKED"]);
+
+export const societies = pgTable(
+  "societies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    addressLine1: text("address_line1").notNull(),
+    area: text("area"),
+    city: text("city").notNull(),
+    pincode: text("pincode").notNull(),
+    latitude: text("latitude"),
+    longitude: text("longitude"),
+    /** Addresses within this distance of the society pin are treated as inside it. */
+    boundaryRadiusMeters: integer("boundary_radius_meters").notNull().default(300),
+    status: societyStatusEnum("status").notNull().default("APPLIED"),
+    /** Gate / parking / access notes shown only to the rider on an active job (GS-047). */
+    deliveryInstructions: text("delivery_instructions"),
+    /** Notify society admins/operators when a rider is assigned to a society order (GS-046). */
+    securityNotifyEnabled: boolean("security_notify_enabled").notNull().default(false),
+    /** GA-001: when true and the rider list is non-empty, only listed riders may deliver here. */
+    exclusiveRiders: boolean("exclusive_riders").notNull().default(false),
+    registeredBy: uuid("registered_by").references(() => users.id),
+    verifiedBy: uuid("verified_by").references(() => users.id),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    rejectionReason: text("rejection_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("societies_slug_unique").on(t.slug),
+    index("societies_status_idx").on(t.status),
+    index("societies_pincode_idx").on(t.pincode),
+    check("societies_boundary_range", sql`${t.boundaryRadiusMeters} BETWEEN 50 AND 3000`),
+  ],
+);
+
+export const societyMembers = pgTable(
+  "society_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    societyId: uuid("society_id")
+      .notNull()
+      .references(() => societies.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: societyMemberRoleEnum("role").notNull().default("RESIDENT"),
+    status: societyMemberStatusEnum("status").notNull().default("PENDING"),
+    /** Flat / house / tower label as the resident gave it, e.g. "B-1204". */
+    unitLabel: text("unit_label"),
+    approvedBy: uuid("approved_by").references(() => users.id),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("society_members_unique").on(t.societyId, t.userId),
+    index("society_members_user_idx").on(t.userId),
+  ],
+);
+
+/** GS-045 authorised rider list; `preferred` = GA-002 preferred partner. */
+export const societyRiders = pgTable(
+  "society_riders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    societyId: uuid("society_id")
+      .notNull()
+      .references(() => societies.id, { onDelete: "cascade" }),
+    deliveryPartnerId: uuid("delivery_partner_id")
+      .notNull()
+      .references(() => deliveryPartners.id, { onDelete: "cascade" }),
+    status: societyLinkStatusEnum("status").notNull().default("ACTIVE"),
+    preferred: boolean("preferred").notNull().default(false),
+    addedBy: uuid("added_by").references(() => users.id),
+    revokedBy: uuid("revoked_by").references(() => users.id),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("society_riders_unique").on(t.societyId, t.deliveryPartnerId),
+    index("society_riders_partner_idx").on(t.deliveryPartnerId),
+  ],
+);
+
+/** Shops a society lists for its residents (society-aware discovery). */
+export const societyShops = pgTable(
+  "society_shops",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    societyId: uuid("society_id")
+      .notNull()
+      .references(() => societies.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    status: societyLinkStatusEnum("status").notNull().default("ACTIVE"),
+    addedBy: uuid("added_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("society_shops_unique").on(t.societyId, t.shopId)],
+);
+
+/* ============================================================ ratings (Phase 2)
+ * GS-059 shop rating, GS-060 rider rating. One row per (order, target): a
+ * customer rates the shop and, when a platform rider delivered, the rider —
+ * only after DELIVERED, only their own order, only once. Aggregates live on
+ * shops / delivery_partners and are recomputed from VISIBLE rows.
+ */
+
+export const ratingTargetEnum = pgEnum("rating_target", ["SHOP", "DELIVERY_PARTNER"]);
+export const ratingStatusEnum = pgEnum("rating_status", ["VISIBLE", "HIDDEN"]);
+
+export const orderRatings = pgTable(
+  "order_ratings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    targetType: ratingTargetEnum("target_type").notNull(),
+    customerId: uuid("customer_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    deliveryPartnerId: uuid("delivery_partner_id").references(() => deliveryPartners.id, { onDelete: "cascade" }),
+    score: integer("score").notNull(),
+    comment: text("comment"),
+    status: ratingStatusEnum("status").notNull().default("VISIBLE"),
+    moderatedBy: uuid("moderated_by").references(() => users.id),
+    moderatedAt: timestamp("moderated_at", { withTimezone: true }),
+    moderationReason: text("moderation_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("order_ratings_order_target_unique").on(t.orderId, t.targetType),
+    index("order_ratings_shop_idx").on(t.shopId),
+    index("order_ratings_partner_idx").on(t.deliveryPartnerId),
+    check("order_ratings_score_range", sql`${t.score} BETWEEN 1 AND 5`),
+    check(
+      "order_ratings_target_partner",
+      sql`(${t.targetType} = 'DELIVERY_PARTNER') = (${t.deliveryPartnerId} IS NOT NULL)`,
+    ),
+  ],
+);
+
+/* ================================================ subscription history (Phase 2) */
+
+/** Append-only lifecycle history of a subscription (created, paused, resumed, skipped, cancelled, payment failed). */
+export const subscriptionEvents = pgTable(
+  "subscription_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    subscriptionId: uuid("subscription_id")
+      .notNull()
+      .references(() => subscriptions.id, { onDelete: "cascade" }),
+    action: text("action").notNull(),
+    fromStatus: subscriptionStatusEnum("from_status"),
+    toStatus: subscriptionStatusEnum("to_status"),
+    note: text("note"),
+    actorId: uuid("actor_id").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("subscription_events_subscription_idx").on(t.subscriptionId)],
+);
 
 /* =========================================================== finance (Slice 6)
  * GS-061/062/063/064/031, WF-010. Built on the existing money records, not a
@@ -2986,6 +3187,13 @@ export type ProductApprovalStatus =
   (typeof productApprovalStatusEnum.enumValues)[number];
 export type OrderStatus = (typeof orderStatusEnum.enumValues)[number];
 export type OrderType = (typeof orderTypeEnum.enumValues)[number];
+export type Society = typeof societies.$inferSelect;
+export type SocietyMember = typeof societyMembers.$inferSelect;
+export type SocietyMemberRole = (typeof societyMemberRoleEnum.enumValues)[number];
+export type SocietyStatus = (typeof societyStatusEnum.enumValues)[number];
+export type OrderRating = typeof orderRatings.$inferSelect;
+export type RatingTarget = (typeof ratingTargetEnum.enumValues)[number];
+export type SubscriptionEvent = typeof subscriptionEvents.$inferSelect;
 export type CommissionScope = (typeof commissionScopeEnum.enumValues)[number];
 export type PayoutStatus = (typeof payoutStatusEnum.enumValues)[number];
 export type AdjustmentType = (typeof adjustmentTypeEnum.enumValues)[number];

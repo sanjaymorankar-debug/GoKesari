@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 
+import { RatingBadge } from "@/components/rating-actions";
 import { Badge, EmptyState } from "@/components/ui";
 import { isShopOpenNow } from "@/lib/shop-hours";
 import { shopTypeLabel } from "@/lib/shop-types";
@@ -117,6 +118,7 @@ function ShopCard({ shop }: { shop: GridShop }) {
         </div>
 
         <h3 className="text-base font-semibold text-ink-900">{shop.name}</h3>
+        <RatingBadge avgX100={shop.ratingAvgX100} count={shop.ratingCount} />
         <p className="mt-0.5 text-sm text-ink-500">{shop.ownerName}</p>
         <p className="mt-0.5 text-sm text-ink-500">
           {[shop.area, shop.city].filter(Boolean).join(", ")} · {shop.pincode}

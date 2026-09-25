@@ -133,6 +133,15 @@ export const AUDIT_ACTIONS = {
   RIDER_PAYOUT_STATUS_CHANGED: "finance.rider_payout_status_changed",
   RECONCILIATION_RUN: "finance.reconciliation_run",
   RECONCILIATION_RESOLVED: "finance.reconciliation_resolved",
+  /* ------------------------------------------ society / ratings / subscriptions (Phase 2) */
+  SOCIETY_REGISTERED: "society.registered",
+  SOCIETY_STATUS_CHANGED: "society.status_changed",
+  SOCIETY_UPDATED: "society.updated",
+  SOCIETY_MEMBER_CHANGED: "society.member_changed",
+  SOCIETY_RIDER_CHANGED: "society.rider_changed",
+  SOCIETY_SHOP_CHANGED: "society.shop_changed",
+  RATING_CREATED: "rating.created",
+  RATING_MODERATED: "rating.moderated",
   DELIVERY_EARNINGS_CONFIG_CHANGED: "delivery_earnings_config.changed",
 
   /* ------------------------------------ product master data platform */

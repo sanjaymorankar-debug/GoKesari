@@ -294,3 +294,64 @@ than patched.
 `src/app/admin/finance/exceptions/page.tsx` (new), admin/shop/rider finance
 pages, `finance-actions.tsx`, `ui.tsx` (badge tones), `site-header.tsx`,
 `permissions.ts`, `audit.ts`, schema + regenerated `drizzle/0021_finance_ledger_settlements.sql`.
+
+---
+
+## Phase 2 — Society + Ratings + Subscription expansion + workflow completion (2026-09-25)
+
+Branch `dev/phase2-society` (from `dev/phase1-go-live`). Development only — not tested.
+
+### Status changes
+
+| ID | Previous | New | Implementation |
+|---|---|---|---|
+| GS-044 | YET TO START | COMPLETED | Society registration → operator verification (verify/reject/suspend/reinstate); `societies`, `/society`, `/admin/societies` |
+| GS-005 | YET TO START | COMPLETED | Membership (request → approve), address ↔ society link, `orders.society_id` at checkout and subscription generation |
+| GS-045 | YET TO START | COMPLETED | Authorised rider list by mobile; add / revoke (immediate) / preferred; audited |
+| GS-040 / GA-001 | YET TO START | COMPLETED | Dispatch filters to listed riders when the society is exclusive (non-empty list) |
+| GA-002 | YET TO START | COMPLETED | Listed and preferred riders ranked ahead (`DISPATCH_WEIGHTS`) |
+| GA-007 | YET TO START | COMPLETED | Reliability (30-day completions vs failures/declines, smoothed) in ranking |
+| GA-008 | YET TO START | COMPLETED | Fairness penalty per offer already received today |
+| GS-046 | YET TO START | COMPLETED | Society security notification on rider acceptance (opt-in) |
+| GS-047 | YET TO START | COMPLETED | Society gate notes + customer landmark/instructions on the rider's active job |
+| WF-004 | YET TO START | COMPLETED | Identify society → rider list → filter/priority → security notification |
+| NAV-014 | YET TO START | COMPLETED | Society dashboard `/society/{id}` (rules, residents, riders, shops, deliveries) |
+| RBAC-009 | YET TO START | COMPLETED | Society-scoped roles via membership; `SOCIETY_MANAGE_ANY` for platform staff |
+| GS-002 | IN PROGRESS | COMPLETED | Society roles now functional (scoped), SOCIETY_ADMIN as navigation role |
+| GS-059 | YET TO START | COMPLETED | Shop rating: eligibility, one per order, aggregate, public reviews (anonymous), moderation |
+| GS-060 | YET TO START | COMPLETED | Rider rating: eligibility (platform rider delivered), aggregate, visible to the rider and operations only |
+| GS-026 | IN PROGRESS | COMPLETED | Checkout refuses a shop that does not deliver to the chosen address (radius / PIN / society partner) |
+| GS-056 | IN PROGRESS | COMPLETED | "Report a problem" on an order → grievance linked to the order |
+| WF-007 | IN PROGRESS | IN PROGRESS | Report → refund (finance) path complete; return pickup still open |
+| GS-049 | IN PROGRESS | COMPLETED | Weekly schedules on chosen weekdays (existing) + subscription orders now carry address/society so they flow through dispatch |
+| GS-051 / SM-004 | COMPLETED / IN PROGRESS | COMPLETED / IN PROGRESS | Lifecycle guards (final states locked), history `subscription_events`, resume/cancel notifications |
+| WF-006 | IN PROGRESS | COMPLETED | Subscription orders get the delivery snapshot + society → shop fulfilment → rider dispatch → settlement |
+
+### Fixes found by inspection
+- `/subscriptions/{id}` let any non-CUSTOMER role (shop owners, riders, society admins) view others' subscriptions — now owner or `SUBSCRIPTION_MANAGE_ANY` only.
+- `resumeSubscription` could revive a CANCELLED subscription — now refused.
+- Subscription-generated orders had no delivery address snapshot (riders got no drop address).
+
+### Database — migration `0022_society_ratings_subscription_history.sql` (not applied anywhere)
+New tables: `societies`, `society_members`, `society_riders`, `society_shops`, `order_ratings`, `subscription_events`.
+New columns: `addresses.society_id`, `orders.society_id` (+index), `grievances.order_id`, `shops.rating_avg_x100/rating_count`, `delivery_partners.rating_avg_x100/rating_count`.
+New enums: society status / member role / member status / link status, rating target / status.
+
+### Known gaps
+- Society map pin: set via API (lat/lng) — no map picker on the society form yet (PIN matching works without it).
+- Shop operator (staff) role not introduced — shops remain single-owner (no approved requirement row).
+- Return pickup / replacement (WF-007) and rating comment moderation for rider feedback text in UI.
+
+### Testing handoff (not performed here)
+- Society: register → operator verify/reject/suspend/reinstate; duplicate name+PIN refused; registrant is ADMIN and gets SOCIETY_ADMIN nav role on verification
+- Membership: request (only verified), approve/decline by ADMIN/OPERATOR, role change by ADMIN only, last admin protected, leave/remove clears address links
+- RBAC: residents cannot open `/society/{id}` or call admin APIs; one society's staff cannot act on another; platform operator can
+- Address link only to a verified society the user actively belongs to; order `society_id` set only then
+- Dispatch: exclusive society with listed riders → only listed riders offered; non-exclusive → listed/preferred ranked first; empty list never blocks; reliability/fairness ordering; no rider → shop notified (society wording)
+- Security notification only when enabled; rider sees society gate notes and customer notes on the active job only
+- Society partner shops appear first for residents and are serviceable for them
+- Checkout with an address outside a shop's zone → refused with the shop name; without address unchanged
+- Ratings: only own DELIVERED orders, 30-day window, one per target, rider rating only when a platform rider delivered, aggregates update, moderation hide/restore updates averages, public reviews anonymous, rider sees own average
+- Subscriptions: pause/resume/skip/cancel refused on CANCELLED/COMPLETED; history rows for each action and payment failure; resume/cancel notifications; generated orders carry address snapshot + society and dispatch a rider
+- Report a problem: creates a ticket linked to the order; cannot report on someone else's order
+- Regression: existing checkout (no address), delivery flow, finance snapshot on DELIVERED

@@ -21,6 +21,7 @@ const NAV = [
   { href: "/orders", label: "My Orders" },
   { href: "/subscriptions", label: "My Subscriptions" },
   { href: "/wallet", label: "My Wallet" },
+  { href: "/society", label: "My Society" },
 ];
 
 /**
@@ -41,12 +42,16 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin/shops", label: "Shop Product Management" },
     { href: "/admin/product-master", label: "Product Master" },
     { href: "/admin/finance/exceptions", label: "Finance exceptions" },
+    { href: "/admin/societies", label: "Societies" },
+    { href: "/admin/ratings", label: "Ratings" },
   ],
   ADMIN: [
     { href: "/admin", label: "Admin Console" },
     { href: "/admin/shops", label: "Shop Product Management" },
     { href: "/admin/product-master", label: "Product Master" },
     { href: "/admin/finance", label: "Finance" },
+    { href: "/admin/societies", label: "Societies" },
+    { href: "/admin/ratings", label: "Ratings" },
   ],
   DELIVERY_PARTNER: [{ href: "/delivery-partner", label: "Delivery Partner" }],
 };

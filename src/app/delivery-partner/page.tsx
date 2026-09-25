@@ -1,9 +1,12 @@
+import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { DeliveryPartnerDashboard } from "@/components/delivery-partner-dashboard";
 import { Alert, Card, Money, PageHeader, StatusBadge } from "@/components/ui";
 import { vehicleTypeLabel } from "@/lib/vehicle-types";
 import { getCurrentUser } from "@/server/authz/guards";
+import { db } from "@/server/db";
+import { deliveryPartners } from "@/server/db/schema";
 import { getMyActiveDeliveryDetail } from "@/server/services/delivery-assignment";
 import { getRiderEarningsView, listAdjustments, listRiderPayouts } from "@/server/services/finance";
 import { getPartnerEarningsSummary } from "@/server/services/delivery-earnings";
@@ -32,6 +35,10 @@ export default async function DeliveryPartnerStatusPage() {
 
   const partner = await getMyDeliveryPartnerProfile(user.id);
   if (!partner) redirect("/delivery-partner/apply");
+  const partnerRating = await db.query.deliveryPartners.findFirst({
+    where: eq(deliveryPartners.id, partner.id),
+    columns: { ratingAvgX100: true, ratingCount: true },
+  });
 
   const [activeDelivery, earnings] =
     partner.status === "APPROVED"
@@ -110,6 +117,7 @@ export default async function DeliveryPartnerStatusPage() {
             isOnline={partner.isOnline}
             activeDelivery={activeDelivery}
             earnings={earnings}
+            rating={{ avgX100: partnerRating?.ratingAvgX100 ?? 0, count: partnerRating?.ratingCount ?? 0 }}
           />
           {earningsView ? (
             <Card className="mt-4 p-5" data-testid="rider-earnings">

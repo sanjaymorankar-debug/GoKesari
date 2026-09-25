@@ -54,6 +54,7 @@ export const POST = route(async (request: NextRequest) => {
       longitude: roundCoordinate(body.longitude),
       source: "DEVICE",
       addressId: null,
+      societyId: null,
     };
   } else {
     location = {
@@ -63,6 +64,7 @@ export const POST = route(async (request: NextRequest) => {
       longitude: null,
       source: "PINCODE",
       addressId: null,
+      societyId: null,
     };
   }
 

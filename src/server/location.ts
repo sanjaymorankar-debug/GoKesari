@@ -25,6 +25,7 @@ export function locationFromAddress(address: Address): CustomerLocation {
     longitude: coords ? roundCoordinate(coords.longitude) : null,
     source: "ADDRESS",
     addressId: address.id,
+    societyId: address.societyId ?? null,
   };
 }
 

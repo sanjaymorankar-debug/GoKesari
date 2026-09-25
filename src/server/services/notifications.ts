@@ -25,6 +25,17 @@ export const NOTIFICATION_TYPES = {
   ORDER_ITEM_REMOVED: "order.item_removed",
   /** To the shop: no rider accepted yet — the system keeps retrying. */
   DELIVERY_UNASSIGNED: "delivery.unassigned",
+  /* ---------------------------------------------------- Phase 2 */
+  SOCIETY_VERIFIED: "society.verified",
+  SOCIETY_REJECTED: "society.rejected",
+  SOCIETY_MEMBERSHIP_REQUESTED: "society.membership_requested",
+  SOCIETY_MEMBERSHIP_DECIDED: "society.membership_decided",
+  /** To society admins/operators: a rider is on the way to a society home (GS-046). */
+  SOCIETY_SECURITY_ALERT: "society.security_alert",
+  /** To the customer after delivery: rate the shop and rider. */
+  RATING_REQUESTED: "rating.requested",
+  SUBSCRIPTION_RESUMED: "subscription.resumed",
+  SUBSCRIPTION_CANCELLED: "subscription.cancelled",
   ORDER_READY: "order.ready",
   ORDER_OUT_FOR_DELIVERY: "order.out_for_delivery",
   ORDER_DELIVERED: "order.delivered",
