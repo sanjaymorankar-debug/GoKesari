@@ -41,6 +41,8 @@ export const PERMISSIONS = {
 
   // Orders
   ORDER_PLACE: "order:place",
+  /** Place a B2B order on behalf of an approved shop the user owns. */
+  ORDER_PLACE_B2B: "order:place:b2b",
   ORDER_VIEW_OWN: "order:view:own",
   ORDER_VIEW_SHOP: "order:view:shop",
   ORDER_VIEW_ANY: "order:view:any",
@@ -174,6 +176,39 @@ export const PERMISSIONS = {
   PMD_PROMOTE: "pmd:promote",
   /** Bulk-import product records into the master. ADMIN only - it writes to the master. */
   PMD_IMPORT: "pmd:import",
+
+  /* ----------------------------------------------- finance (Slice 6) */
+  /** Global finance: GMV, commission, settlements, payouts, ledger, full reconciliation. Admin only. */
+  FINANCE_VIEW: "finance:view",
+  /** Commission rates; approve / process / mark settlements and payouts paid; adjustments. Admin only. */
+  FINANCE_MANAGE: "finance:manage",
+  /** Prepare weekly settlement and payout batches. Admin only (the weekly cron also prepares). */
+  FINANCE_PREPARE: "finance:prepare",
+  /**
+   * Operational financial exceptions only (Part K): failed/pending payments,
+   * refunds pending, order/payment mismatches, missing rider earnings,
+   * delivery adjustments — never settlement or payout totals. Operator + admin.
+   */
+  FINANCE_EXCEPTIONS_VIEW: "finance:exceptions:view",
+  /** Refund a delivered order (full or partial) to the customer's wallet. Operator + admin (RBAC-011). */
+  ORDER_REFUND: "order:refund",
+  /** A shop owner's own settlement statements and per-order payable. */
+  SETTLEMENT_VIEW_OWN: "settlement:view:own",
+
+  /* ----------------------------------------------- society & ratings (Phase 2) */
+  /**
+   * Register a society / request membership. Society-scoped powers (approve
+   * residents, rider list, settings, society orders) are NOT global
+   * permissions — they come from an ACTIVE society_members row with role
+   * ADMIN or OPERATOR (see services/societies.ts requireSocietyRole).
+   */
+  SOCIETY_REGISTER: "society:register",
+  /** Verify / reject / suspend societies and act on any society. Operator + admin. */
+  SOCIETY_MANAGE_ANY: "society:manage:any",
+  /** Rate the shop and rider of one's own delivered order. */
+  RATING_CREATE_OWN: "rating:create:own",
+  /** Hide or restore a rating (moderation). Operator + admin. */
+  RATING_MODERATE: "rating:moderate",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -187,6 +222,8 @@ const CUSTOMER_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.WALLET_TOPUP_OWN,
   PERMISSIONS.SUBSCRIPTION_MANAGE_OWN,
   PERMISSIONS.DELIVERY_PARTNER_REGISTER, // any customer may apply to become a delivery partner
+  PERMISSIONS.SOCIETY_REGISTER,
+  PERMISSIONS.RATING_CREATE_OWN,
 ];
 
 /**
@@ -204,6 +241,8 @@ const DELIVERY_PARTNER_PERMISSIONS: readonly Permission[] = [
 const SHOP_OWNER_PERMISSIONS: readonly Permission[] = [
   ...CUSTOMER_PERMISSIONS,
   PERMISSIONS.SHOP_UPDATE_OWN,
+  // Buying for the shop's business is a separate flow from personal orders.
+  PERMISSIONS.ORDER_PLACE_B2B,
   PERMISSIONS.SHOP_PRODUCT_MANAGE_OWN,
   PERMISSIONS.PRODUCT_CREATE_OWN,
   PERMISSIONS.ORDER_VIEW_SHOP,
@@ -219,6 +258,7 @@ const SHOP_OWNER_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.INVENTORY_THRESHOLD_MANAGE_OWN,
   // A shop owner may dispute a master MRP but never write it (§13).
   PERMISSIONS.PRODUCT_MRP_DISPUTE,
+  PERMISSIONS.SETTLEMENT_VIEW_OWN,
   // Deliberately absent: SHOP_SET_CLASSIFICATION, CATEGORY_MANAGE,
   // SHOP_UPDATE_ANY, SYSTEM_CONFIG, REGISTRATION_FEE_MANAGE,
   // SHOP_REGISTRATION_MANAGE, PAYMENT_RECORD, REFERRAL_MANAGE, PRODUCT_APPROVE
@@ -274,6 +314,14 @@ const OPERATOR_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.PMD_VIEW,
   PERMISSIONS.PMD_REVIEW,
   PERMISSIONS.PMD_PROMOTE,
+  // Finance (Part K): operators see and work operational money exceptions
+  // and may refund delivered orders (RBAC-011) — but not global finance,
+  // settlements, payouts or commission, which stay admin-only.
+  PERMISSIONS.FINANCE_EXCEPTIONS_VIEW,
+  PERMISSIONS.ORDER_REFUND,
+  PERMISSIONS.SOCIETY_MANAGE_ANY,
+  PERMISSIONS.RATING_MODERATE,
+  PERMISSIONS.SOCIETY_REGISTER,
   // Deliberately absent (§43 "not unrestricted system access"):
   // USER_SET_ROLE, USER_SUSPEND, WALLET_ADJUST, SYSTEM_CONFIG,
   // AUDIT_LOG_VIEW, REPORT_VIEW_ALL, WALLET_VIEW_ANY.
@@ -288,6 +336,13 @@ const OPERATOR_PERMISSIONS: readonly Permission[] = [
 
 const ADMIN_PERMISSIONS: readonly Permission[] = Object.values(PERMISSIONS);
 
+/**
+ * Wave 1 skeleton (GS-002). A society admin is also a resident who shops, so
+ * they keep customer capabilities; society-scoped powers (whitelisting riders,
+ * society order view) arrive with the society entity in Wave 8 (decision D5).
+ */
+const SOCIETY_ADMIN_PERMISSIONS: readonly Permission[] = [...CUSTOMER_PERMISSIONS];
+
 export const ROLE_PERMISSIONS: Readonly<
   Record<UserRole, readonly Permission[]>
 > = {
@@ -296,6 +351,7 @@ export const ROLE_PERMISSIONS: Readonly<
   OPERATOR: OPERATOR_PERMISSIONS,
   ADMIN: ADMIN_PERMISSIONS,
   DELIVERY_PARTNER: DELIVERY_PARTNER_PERMISSIONS,
+  SOCIETY_ADMIN: SOCIETY_ADMIN_PERMISSIONS,
 };
 
 const PERMISSION_SETS: Readonly<Record<UserRole, ReadonlySet<Permission>>> = {
@@ -304,6 +360,7 @@ const PERMISSION_SETS: Readonly<Record<UserRole, ReadonlySet<Permission>>> = {
   OPERATOR: new Set(OPERATOR_PERMISSIONS),
   ADMIN: new Set(ADMIN_PERMISSIONS),
   DELIVERY_PARTNER: new Set(DELIVERY_PARTNER_PERMISSIONS),
+  SOCIETY_ADMIN: new Set(SOCIETY_ADMIN_PERMISSIONS),
 };
 
 export function can(role: UserRole, permission: Permission): boolean {
@@ -327,6 +384,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   OPERATOR: "Operator",
   ADMIN: "Administrator",
   DELIVERY_PARTNER: "Delivery Partner",
+  SOCIETY_ADMIN: "Society Admin",
 };
 
 export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
@@ -345,7 +403,8 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.PRODUCT_CREATE_ANY]: "Create a new product for any shop",
   [PERMISSIONS.PRODUCT_APPROVE]:
     "Publish or reject a shop-created product in the central catalogue",
-  [PERMISSIONS.ORDER_PLACE]: "Place an order",
+  [PERMISSIONS.ORDER_PLACE]: "Place a personal order",
+  [PERMISSIONS.ORDER_PLACE_B2B]: "Place a business (B2B) order for own approved shop",
   [PERMISSIONS.ORDER_VIEW_OWN]: "View own orders",
   [PERMISSIONS.ORDER_VIEW_SHOP]: "View orders for own shop",
   [PERMISSIONS.ORDER_VIEW_ANY]: "View all orders",
@@ -417,4 +476,14 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.PMD_REVIEW]: "Resolve possible-duplicate review items and merge products",
   [PERMISSIONS.PMD_PROMOTE]: "Promote a master product into the marketplace catalogue",
   [PERMISSIONS.PMD_IMPORT]: "Bulk-import product records into the master",
+  [PERMISSIONS.FINANCE_VIEW]: "View global finance: GMV, commission, settlements, payouts, ledger",
+  [PERMISSIONS.FINANCE_MANAGE]: "Set commission rates; approve and mark settlements and payouts paid",
+  [PERMISSIONS.FINANCE_PREPARE]: "Prepare weekly settlement and payout batches",
+  [PERMISSIONS.FINANCE_EXCEPTIONS_VIEW]: "View and resolve operational financial exceptions",
+  [PERMISSIONS.ORDER_REFUND]: "Refund a delivered order to the customer's wallet",
+  [PERMISSIONS.SETTLEMENT_VIEW_OWN]: "View own shop's settlement statements",
+  [PERMISSIONS.SOCIETY_REGISTER]: "Register a society or ask to join one",
+  [PERMISSIONS.SOCIETY_MANAGE_ANY]: "Verify, reject, suspend and manage any society",
+  [PERMISSIONS.RATING_CREATE_OWN]: "Rate the shop and rider of own delivered orders",
+  [PERMISSIONS.RATING_MODERATE]: "Hide or restore ratings and reviews",
 };

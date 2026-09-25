@@ -54,18 +54,29 @@ export function CartView({
   cart,
   walletBalancePaise,
   addresses,
+  buyerShops = [],
+  deliveryWarnings = {},
+  preferredAddressId = null,
 }: {
   cart: CartSummary;
   walletBalancePaise: number;
   addresses: CheckoutAddress[];
+  /** Approved shops the user may buy for (B2B). Empty = personal orders only. */
+  buyerShops?: { id: string; name: string }[];
+  /** shopId -> reason, for shops that do not deliver to the chosen location. */
+  deliveryWarnings?: Record<string, string>;
+  /** The saved address the customer picked as their location, if any. */
+  preferredAddressId?: string | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [requestId] = useState(() => crypto.randomUUID());
   const [addressId, setAddressId] = useState<string | null>(
-    addresses.find((a) => a.isDefault)?.id ?? addresses[0]?.id ?? null,
+    preferredAddressId ?? addresses.find((a) => a.isDefault)?.id ?? addresses[0]?.id ?? null,
   );
+  // "" = a personal order; otherwise the id of the shop buying for its business.
+  const [buyerShopId, setBuyerShopId] = useState("");
   const [feasibility, setFeasibility] = useState<Record<string, Feasibility>>({});
   const [deliveryWindows, setDeliveryWindows] = useState<Record<string, DeliveryWindowKey>>({});
 
@@ -118,7 +129,12 @@ export function CartView({
     const response = await fetch("/api/checkout", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ requestId, addressId, deliveryWindows }),
+      body: JSON.stringify({
+        requestId,
+        addressId,
+        deliveryWindows,
+        ...(buyerShopId ? { orderType: "B2B", buyerShopId } : { orderType: "PERSONAL" }),
+      }),
     });
     const payload = await response.json().catch(() => null);
     setBusy(false);
@@ -160,6 +176,12 @@ export function CartView({
                 <Money paise={group.totalPaise} />
               </span>
             </div>
+
+            {deliveryWarnings[group.shop.id] ? (
+              <div className="px-4 pt-3" data-testid="delivery-warning">
+                <Alert tone="warning">{deliveryWarnings[group.shop.id]}</Alert>
+              </div>
+            ) : null}
 
             <ul className="divide-y divide-cream-200">
               {group.lines.map((line) => (
@@ -309,6 +331,31 @@ export function CartView({
               </Field>
             )}
           </div>
+
+          {buyerShops.length > 0 ? (
+            <div className="mt-3">
+              <Field label="Ordering for">
+                <select
+                  className={inputClass}
+                  value={buyerShopId}
+                  onChange={(e) => setBuyerShopId(e.target.value)}
+                  data-testid="order-for"
+                >
+                  <option value="">Myself (personal order)</option>
+                  {buyerShops.map((shop) => (
+                    <option key={shop.id} value={shop.id}>
+                      {shop.name} (business order)
+                    </option>
+                  ))}
+                </select>
+              </Field>
+              {buyerShopId ? (
+                <p className="mt-1 text-xs text-ink-500">
+                  Business orders are kept separate from your personal orders.
+                </p>
+              ) : null}
+            </div>
+          ) : null}
 
           {cart.hasUnavailableItems ? (
             <div className="mt-3">

@@ -2,7 +2,9 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 
 import { ProductGrid } from "@/app/page";
+import { RatingBadge } from "@/components/rating-actions";
 import { Badge, Card, ClassificationBadge, EmptyState, PageHeader } from "@/components/ui";
+import { listShopReviews } from "@/server/services/ratings";
 import { shopTypeLabel } from "@/lib/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
 import { listStorefrontProducts } from "@/server/services/catalogue";
@@ -33,7 +35,10 @@ export default async function ShopPage({
   if (!shop) notFound();
 
   const user = await getCurrentUser();
-  const products = await listStorefrontProducts({ shopId: shop.id, limit: 100 });
+  const [products, reviews] = await Promise.all([
+    listStorefrontProducts({ shopId: shop.id, limit: 100 }),
+    listShopReviews(shop.id, 5),
+  ]);
 
   // Products are grouped by category, per §16 — generic across all 44 shop
   // types rather than assuming dairy/bakery.
@@ -63,6 +68,20 @@ export default async function ShopPage({
           </div>
 
           <h1 className="text-2xl font-semibold text-ink-900">{shop.name}</h1>
+          <div className="mt-1">
+            <RatingBadge avgX100={shop.ratingAvgX100} count={shop.ratingCount} />
+          </div>
+          {reviews.length > 0 ? (
+            <ul className="mt-2 space-y-1 text-sm text-ink-600" data-testid="shop-reviews">
+              {reviews.slice(0, 5).map((review) => (
+                <li key={review.id}>
+                  <span className="text-kesari-500">{"★".repeat(review.score)}</span>
+                  {review.comment ? <> &ldquo;{review.comment}&rdquo;</> : null}
+                  <span className="text-xs text-ink-400"> — verified customer</span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
           <p className="mt-1 text-sm text-ink-500">
             Owner / Proprietor: <span className="font-medium text-ink-700">{shop.ownerName}</span>
           </p>

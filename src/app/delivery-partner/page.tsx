@@ -1,10 +1,14 @@
+import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { DeliveryPartnerDashboard } from "@/components/delivery-partner-dashboard";
-import { Alert, Card, PageHeader, StatusBadge } from "@/components/ui";
+import { Alert, Card, Money, PageHeader, StatusBadge } from "@/components/ui";
 import { vehicleTypeLabel } from "@/lib/vehicle-types";
 import { getCurrentUser } from "@/server/authz/guards";
+import { db } from "@/server/db";
+import { deliveryPartners } from "@/server/db/schema";
 import { getMyActiveDeliveryDetail } from "@/server/services/delivery-assignment";
+import { getRiderEarningsView, listAdjustments, listRiderPayouts } from "@/server/services/finance";
 import { getPartnerEarningsSummary } from "@/server/services/delivery-earnings";
 import { getMyDeliveryPartnerProfile } from "@/server/services/delivery-partners";
 
@@ -31,11 +35,24 @@ export default async function DeliveryPartnerStatusPage() {
 
   const partner = await getMyDeliveryPartnerProfile(user.id);
   if (!partner) redirect("/delivery-partner/apply");
+  const partnerRating = await db.query.deliveryPartners.findFirst({
+    where: eq(deliveryPartners.id, partner.id),
+    columns: { ratingAvgX100: true, ratingCount: true },
+  });
 
   const [activeDelivery, earnings] =
     partner.status === "APPROVED"
       ? await Promise.all([getMyActiveDeliveryDetail(user.id), getPartnerEarningsSummary(partner.id)])
       : [null, { todayPaise: 0, totalPaise: 0, deliveryCount: 0 }];
+  // Weekly payouts (GS-064) — what has been batched and paid to the rider's bank.
+  const [payouts, earningsView, adjustments] =
+    partner.status === "APPROVED"
+      ? await Promise.all([
+          listRiderPayouts({ deliveryPartnerId: partner.id, limit: 12 }),
+          getRiderEarningsView(partner.id, 30),
+          listAdjustments({ deliveryPartnerId: partner.id, limit: 20 }),
+        ])
+      : [[], null, []];
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -100,7 +117,80 @@ export default async function DeliveryPartnerStatusPage() {
             isOnline={partner.isOnline}
             activeDelivery={activeDelivery}
             earnings={earnings}
+            rating={{ avgX100: partnerRating?.ratingAvgX100 ?? 0, count: partnerRating?.ratingCount ?? 0 }}
           />
+          {earningsView ? (
+            <Card className="mt-4 p-5" data-testid="rider-earnings">
+              <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-ink-500">Earnings</h2>
+              <p className="mb-3 text-sm text-ink-600">
+                Not yet paid out: <Money paise={earningsView.pendingEarningsPaise + earningsView.pendingAdjustmentsPaise} />
+                {earningsView.pendingAdjustmentsPaise !== 0 ? (
+                  <span className="text-xs text-ink-500">
+                    {" "}
+                    (incl. adjustments <Money paise={earningsView.pendingAdjustmentsPaise} />)
+                  </span>
+                ) : null}
+              </p>
+              {earningsView.earnings.length === 0 ? (
+                <p className="text-sm text-ink-500">No earnings yet.</p>
+              ) : (
+                <ul className="divide-y divide-cream-100 text-sm">
+                  {earningsView.earnings.map((e) => (
+                    <li key={e.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                      <span>
+                        {e.orderNumber}
+                        <span className="text-xs text-ink-500"> · delivery {e.deliveryStatus.toLowerCase()}</span>
+                      </span>
+                      <span className="flex items-center gap-2">
+                        <StatusBadge status={e.status} />
+                        <Money paise={e.totalPaise} />
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {adjustments.length > 0 ? (
+                <>
+                  <p className="mt-4 mb-1 text-xs font-semibold uppercase tracking-wide text-ink-500">Adjustments</p>
+                  <ul className="divide-y divide-cream-100 text-sm">
+                    {adjustments.map(({ adjustment: a, orderNumber }) => (
+                      <li key={a.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                        <span>
+                          {a.reason}
+                          {orderNumber ? <span className="text-xs text-ink-500"> · {orderNumber}</span> : null}
+                        </span>
+                        <span className="flex items-center gap-2">
+                          <StatusBadge status={a.status} />
+                          <Money paise={a.amountPaise} />
+                        </span>
+                      </li>
+                    ))}
+                  </ul>
+                </>
+              ) : null}
+            </Card>
+          ) : null}
+          <Card className="mt-4 p-5" data-testid="rider-payouts">
+            <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-ink-500">Payouts</h2>
+            {payouts.length === 0 ? (
+              <p className="text-sm text-ink-500">Earnings are paid out weekly — nothing batched yet.</p>
+            ) : (
+              <ul className="divide-y divide-cream-100 text-sm">
+                {payouts.map(({ payout }) => (
+                  <li key={payout.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
+                    <span>
+                      Week from {payout.periodStart} · {payout.earningsCount} deliveries
+                      {payout.paymentReference ? ` · ref ${payout.paymentReference}` : ""}
+                    </span>
+                    <span className="flex items-center gap-2">
+                      <StatusBadge status={payout.status} />
+                      <Money paise={payout.amountPaise} />
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
         </div>
       ) : null}
     </div>

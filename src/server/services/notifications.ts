@@ -14,7 +14,28 @@ import { notifications, type Notification } from "@/server/db/schema";
 export const NOTIFICATION_TYPES = {
   SHOP_APPROVED: "shop.approved",
   SHOP_REJECTED: "shop.rejected",
+  /** DEF-02 (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): a shop previously learned about a new order only by refreshing /shop/orders. */
+  SHOP_NEW_ORDER: "shop.new_order",
   ORDER_CONFIRMED: "order.confirmed",
+  ORDER_ACCEPTED: "order.accepted",
+  ORDER_ASSIGNED: "order.assigned",
+  ORDER_DELIVERY_FAILED: "order.delivery_failed",
+  /** Shop proposed a replacement for an unavailable item; customer must decide. */
+  ORDER_SUBSTITUTION_PROPOSED: "order.substitution_proposed",
+  ORDER_ITEM_REMOVED: "order.item_removed",
+  /** To the shop: no rider accepted yet — the system keeps retrying. */
+  DELIVERY_UNASSIGNED: "delivery.unassigned",
+  /* ---------------------------------------------------- Phase 2 */
+  SOCIETY_VERIFIED: "society.verified",
+  SOCIETY_REJECTED: "society.rejected",
+  SOCIETY_MEMBERSHIP_REQUESTED: "society.membership_requested",
+  SOCIETY_MEMBERSHIP_DECIDED: "society.membership_decided",
+  /** To society admins/operators: a rider is on the way to a society home (GS-046). */
+  SOCIETY_SECURITY_ALERT: "society.security_alert",
+  /** To the customer after delivery: rate the shop and rider. */
+  RATING_REQUESTED: "rating.requested",
+  SUBSCRIPTION_RESUMED: "subscription.resumed",
+  SUBSCRIPTION_CANCELLED: "subscription.cancelled",
   ORDER_READY: "order.ready",
   ORDER_OUT_FOR_DELIVERY: "order.out_for_delivery",
   ORDER_DELIVERED: "order.delivered",

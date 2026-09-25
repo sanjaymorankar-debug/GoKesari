@@ -1,7 +1,8 @@
 /**
  * Authentication (requirement §5).
  *
- * Google OAuth via Auth.js with database-backed sessions. Role is resolved from
+ * Google OAuth, plus an emailed one-time link when an SMTP sender is configured
+ * (see auth-email.ts), via Auth.js. Role is resolved from
  * the database on every request and injected into the session — it is never
  * accepted from the client, so a user cannot promote themselves to
  * OPERATOR/ADMIN by tampering with a cookie or request body.
@@ -26,6 +27,7 @@ import {
   wallets,
   type UserRole,
 } from "@/server/db/schema";
+import { emailProvider } from "@/server/auth-email";
 import { recordConsent } from "@/server/services/consents";
 
 declare module "next-auth" {
@@ -73,7 +75,10 @@ const testCredentialsProvider = Credentials({
   },
 });
 
+const magicLink = emailProvider();
+
 const providers = [
+  ...(magicLink ? [magicLink] : []),
   ...(env.AUTH_GOOGLE_ID && env.AUTH_GOOGLE_SECRET
     ? [
         Google({
@@ -104,6 +109,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   pages: {
     signIn: "/signin",
     error: "/signin",
+    verifyRequest: "/signin?check-email=1",
   },
   callbacks: {
     async signIn({ user }) {
@@ -158,7 +164,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   },
   events: {
     /**
-     * A brand-new Google user automatically receives the CUSTOMER role and a
+     * A brand-new user (Google or email link) automatically receives the CUSTOMER role and a
      * wallet (§5). Role assignment here is server-side only.
      */
     async createUser({ user }) {
@@ -175,7 +181,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       await ensureWallet(user.id);
 
       // The sign-in page requires ticking "I agree to Terms & Privacy
-      // Policy" before the Google redirect can be submitted — that checkbox
+      // Policy" before the Google redirect or the email-link request can be submitted — that checkbox
       // is the affirmative action DPDPA §6 requires; this is where it gets
       // recorded so it is demonstrable later (§ "Your rights").
       await recordConsent(user.id, "TERMS_AND_PRIVACY").catch((error) => {

@@ -1,9 +1,11 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { MarketingConsentToggle } from "@/components/marketing-consent-toggle";
 import { Badge, Card, PageHeader } from "@/components/ui";
 import { ROLE_LABELS } from "@/server/authz/permissions";
 import { getCurrentUser } from "@/server/authz/guards";
+import { getMarketingConsentStatus } from "@/server/services/consents";
 import { listNotifications } from "@/server/services/notifications";
 import { signOut } from "@/server/auth";
 
@@ -14,7 +16,10 @@ export default async function ProfilePage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
 
-  const notifications = await listNotifications(user.id, { limit: 20 });
+  const [notifications, marketingConsent] = await Promise.all([
+    listNotifications(user.id, { limit: 20 }),
+    getMarketingConsentStatus(user.id),
+  ]);
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -50,6 +55,16 @@ export default async function ProfilePage() {
             Sign out
           </button>
         </form>
+      </Card>
+
+      <Card className="mb-6 p-6">
+        <h2 className="mb-3 text-base font-semibold text-ink-900">
+          Marketing messages
+        </h2>
+        <MarketingConsentToggle
+          initialGranted={marketingConsent.granted}
+          lastChangedAt={marketingConsent.lastChangedAt}
+        />
       </Card>
 
       <Card className="p-6">

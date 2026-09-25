@@ -163,18 +163,28 @@ export function AvailabilityBadge({
   return <Badge>Unavailable</Badge>;
 }
 
+const SUCCESS_STATUSES = new Set(["DELIVERED", "CONFIRMED", "APPROVED", "PAID", "MATCHED", "RECONCILED", "SETTLED"]);
+const DANGER_STATUSES = new Set([
+  "CANCELLED",
+  "REJECTED",
+  "PAYMENT_FAILED",
+  "WALLET_INSUFFICIENT",
+  "FAILED",
+  "DISPUTED",
+  "REVERSED",
+  "EXCEPTION",
+  "UNMATCHED",
+]);
+const WARNING_STATUSES = new Set(["PENDING", "PENDING_APPROVAL", "RETURNED", "PARTIAL", "PROCESSING", "UNPAID"]);
+
 export function StatusBadge({ status }: { status: string }) {
-  const tone =
-    status === "DELIVERED" || status === "CONFIRMED" || status === "APPROVED"
-      ? "success"
-      : status === "CANCELLED" ||
-          status === "REJECTED" ||
-          status === "PAYMENT_FAILED" ||
-          status === "WALLET_INSUFFICIENT"
-        ? "danger"
-        : status === "PENDING" || status === "PENDING_APPROVAL"
-          ? "warning"
-          : "info";
+  const tone = SUCCESS_STATUSES.has(status)
+    ? "success"
+    : DANGER_STATUSES.has(status)
+      ? "danger"
+      : WARNING_STATUSES.has(status)
+        ? "warning"
+        : "info";
   return <Badge tone={tone}>{status.replace(/_/g, " ").toLowerCase()}</Badge>;
 }
 
