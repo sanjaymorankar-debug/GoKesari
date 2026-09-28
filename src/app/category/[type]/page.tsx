@@ -1,6 +1,6 @@
 import { notFound } from "next/navigation";
 
-import { ProductGrid } from "@/app/page";
+import { ProductGrid } from "@/components/product-grid";
 import { EmptyState, PageHeader } from "@/components/ui";
 import { SHOP_TYPES, type ShopTypeKey } from "@/lib/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";

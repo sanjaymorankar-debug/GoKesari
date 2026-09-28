@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 
-import { ProductGrid } from "@/app/page";
+import { ProductGrid } from "@/components/product-grid";
 import { Badge, Card, ClassificationBadge, EmptyState, PageHeader } from "@/components/ui";
 import { shopTypeLabel } from "@/lib/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
