@@ -17,11 +17,13 @@
  */
 import { and, desc, eq, inArray, like } from "drizzle-orm";
 
-import { conflict, invalidTransition, notFound, validationFailed } from "@/lib/errors";
+import { conflict, forbidden, invalidTransition, notFound, validationFailed } from "@/lib/errors";
+import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { lineTotalPaise, sumPaise } from "@/lib/money";
-import { db } from "@/server/db";
+import { db, type DbClient } from "@/server/db";
 import {
   addresses,
+  deliveryOrders,
   orderItems,
   orderStatusHistory,
   orders,
@@ -32,26 +34,60 @@ import {
   walletTransactions,
   type DeliveryWindow,
   type Order,
+  type OrderItemFulfilment,
   type OrderStatus,
+  type OrderType,
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { clearCartForShop, computeDeliveryFee, getCart } from "./cart";
-import { consumeOnlineStock, loadPurchasableShopProduct } from "./catalogue";
+import { consumeOnlineStock, loadPurchasableShopProduct, restockOnline } from "./catalogue";
+import { creditDeliveryEarnings } from "./delivery-earnings";
 import { DELIVERY_WINDOW_MINUTES, getFeasibleDeliveryWindows } from "./delivery-feasibility";
+import { notifyOpenStockAlerts } from "./inventory-alerts";
+import { recordOrderFinancials } from "./finance";
+import { NOTIFICATION_TYPES, notify, type NotificationType } from "./notifications";
 import { applyWalletMutation, refundOriginalDebit } from "./wallet";
+
+/**
+ * A delivery assignment is still "in play" — offered, accepted, or already
+ * picked up — and needs explicit handling if the order it belongs to gets
+ * cancelled. Deliberately a narrower, order-cancellation-scoped concept from
+ * delivery-assignment.ts's own ACTIVE_ASSIGNMENT_STATUSES (partner
+ * busy-checking) — not imported from there, to avoid a circular import
+ * (delivery-assignment.ts already imports updateOrderStatus from this file).
+ */
+const ACTIVE_DELIVERY_ORDER_STATUSES = ["OFFERED", "ACCEPTED", "PICKED_UP"] as const;
 
 /* ------------------------------------------------------- state machine */
 
+/**
+ * The approved order state machine (see the orderStatusEnum doc comment in
+ * schema.ts for the mapping to DRAFT/PAYMENT_PENDING/PAID/SHOP_PENDING).
+ *
+ * Kept compatible with what already worked:
+ *  - CONFIRMED -> PREPARING stays legal (subscription orders and the older
+ *    one-click "Start preparing" path); ACCEPTED is the explicit step.
+ *  - READY -> OUT_FOR_DELIVERY / DELIVERED stays legal for shops that deliver
+ *    themselves or hand over in store. Once a rider accepts (ASSIGNED), only
+ *    the rider flow (pickup code -> OTP) can move the order on.
+ *  - ASSIGNED -> READY lets a reassignment put the order back in the queue.
+ */
 const ALLOWED_TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
   PENDING: ["CONFIRMED", "CANCELLED", "PAYMENT_FAILED", "WALLET_INSUFFICIENT"],
   WALLET_INSUFFICIENT: ["CONFIRMED", "CANCELLED"],
   PAYMENT_FAILED: ["CONFIRMED", "CANCELLED"],
-  CONFIRMED: ["PREPARING", "CANCELLED", "REFUND_PENDING"],
+  CONFIRMED: ["ACCEPTED", "PREPARING", "CANCELLED", "REFUND_PENDING"],
+  ACCEPTED: ["PREPARING", "CANCELLED", "REFUND_PENDING"],
   PREPARING: ["READY", "CANCELLED", "REFUND_PENDING"],
-  READY: ["OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED", "REFUND_PENDING"],
-  OUT_FOR_DELIVERY: ["DELIVERED", "CANCELLED", "REFUND_PENDING"],
-  DELIVERED: ["REFUND_PENDING"],
+  READY: ["ASSIGNED", "OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED", "REFUND_PENDING"],
+  ASSIGNED: ["READY", "PICKED_UP", "CANCELLED", "REFUND_PENDING"],
+  PICKED_UP: ["OUT_FOR_DELIVERY", "FAILED", "CANCELLED", "REFUND_PENDING"],
+  OUT_FOR_DELIVERY: ["DELIVERED", "FAILED", "CANCELLED", "REFUND_PENDING"],
+  FAILED: ["OUT_FOR_DELIVERY", "RETURNED", "CANCELLED", "REFUND_PENDING"],
+  RETURNED: ["CANCELLED", "REFUND_PENDING"],
+  DELIVERED: ["DISPUTED", "REFUND_PENDING"],
+  DISPUTED: ["DELIVERED", "REFUND_PENDING"],
   CANCELLED: ["REFUND_PENDING"],
   REFUND_PENDING: ["REFUNDED"],
   REFUNDED: [],
@@ -61,22 +97,48 @@ export function canTransition(from: OrderStatus, to: OrderStatus): boolean {
   return ALLOWED_TRANSITIONS[from].includes(to);
 }
 
-/** Statuses at which the customer has already been charged. */
-const PAID_STATUSES: readonly OrderStatus[] = [
-  "CONFIRMED",
-  "PREPARING",
-  "READY",
-  "OUT_FOR_DELIVERY",
-  "DELIVERED",
-];
+/**
+ * Whether the customer has already been charged at each status. A Record,
+ * not a hand-kept array, so adding a status to the enum fails to compile
+ * until it is classified here (the D8 implementation note: a missed entry
+ * made cancelOrder skip the refund of a paid order).
+ */
+const IS_PAID_STATUS: Record<OrderStatus, boolean> = {
+  PENDING: false,
+  WALLET_INSUFFICIENT: false,
+  PAYMENT_FAILED: false,
+  CONFIRMED: true,
+  ACCEPTED: true,
+  PREPARING: true,
+  READY: true,
+  ASSIGNED: true,
+  PICKED_UP: true,
+  OUT_FOR_DELIVERY: true,
+  FAILED: true,
+  RETURNED: true,
+  DELIVERED: true,
+  DISPUTED: true,
+  CANCELLED: false,
+  REFUND_PENDING: false,
+  REFUNDED: false,
+};
+const PAID_STATUSES: readonly OrderStatus[] = (Object.keys(IS_PAID_STATUS) as OrderStatus[]).filter(
+  (status) => IS_PAID_STATUS[status],
+);
 
 export const ORDER_STATUS_LABELS: Record<OrderStatus, string> = {
   PENDING: "Pending",
   CONFIRMED: "Confirmed",
+  ACCEPTED: "Accepted by shop",
   PREPARING: "Preparing",
   READY: "Ready",
+  ASSIGNED: "Rider assigned",
+  PICKED_UP: "Picked up",
   OUT_FOR_DELIVERY: "Out for delivery",
   DELIVERED: "Delivered",
+  FAILED: "Delivery failed",
+  RETURNED: "Returned to shop",
+  DISPUTED: "Disputed",
   CANCELLED: "Cancelled",
   PAYMENT_FAILED: "Payment failed",
   WALLET_INSUFFICIENT: "Awaiting wallet top-up",
@@ -103,6 +165,12 @@ export interface CheckoutInput {
    * promise a window the system can't actually back).
    */
   deliveryWindows?: Record<string, DeliveryWindow>;
+  /** PERSONAL (default) or B2B. B2B also needs `buyerShopId` and `actorRole`. */
+  orderType?: OrderType;
+  /** B2B only: the approved shop, owned by the user, that is buying. */
+  buyerShopId?: string | null;
+  /** The caller's role — B2B is refused unless it holds ORDER_PLACE_B2B. */
+  actorRole?: UserRole;
 }
 
 export interface CheckoutResult {
@@ -123,9 +191,18 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     return { orders: replayed, deduplicated: true };
   }
 
+  const orderType: OrderType = input.orderType ?? "PERSONAL";
+  const buyerShopId = orderType === "B2B" ? await resolveBuyerShop(input) : null;
+  if (orderType === "PERSONAL" && input.buyerShopId) {
+    throw validationFailed("A personal order cannot be placed for a shop.");
+  }
+
   const cart = await getCart(input.userId);
   if (cart.groups.length === 0) {
     throw validationFailed("Your cart is empty.");
+  }
+  if (buyerShopId && cart.groups.some((g) => g.shop.id === buyerShopId)) {
+    throw validationFailed("A shop cannot place a business order with itself.");
   }
 
   const purchasableGroups = cart.groups.filter((g) =>
@@ -169,7 +246,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       ? await resolvePromisedWindow(group.shop.id, requestedWindow)
       : { deliveryWindow: null, promisedByAt: null };
 
-    const order = await db.transaction(async (tx) => {
+    const { order, shopOwnerId } = await db.transaction(async (tx) => {
       const lines: {
         shopProductId: string;
         productName: string;
@@ -225,6 +302,8 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           deliveryAddressSnapshot: addressSnapshot,
           status: "PENDING",
           source: "DIRECT",
+          orderType,
+          buyerShopId,
           subtotalPaise,
           deliveryFeePaise,
           taxPaise,
@@ -296,14 +375,65 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
         tx,
       );
 
+      // DEF-02 (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): a paid order
+      // previously notified nobody. The customer learns it's confirmed; the
+      // shop learns it has a new order to prepare — there was no "new order"
+      // notification type at all before this.
+      await notify(
+        {
+          userId: input.userId,
+          type: NOTIFICATION_TYPES.ORDER_CONFIRMED,
+          title: "Order confirmed",
+          body: `Your order ${orderRow.orderNumber} from ${shopRow.name} is confirmed.`,
+          actionUrl: `/orders`,
+        },
+        tx,
+      );
+      await notify(
+        {
+          userId: shopRow.ownerId,
+          type: NOTIFICATION_TYPES.SHOP_NEW_ORDER,
+          title: "New order",
+          body: `Order ${orderRow.orderNumber} — ${lines.length} item${lines.length === 1 ? "" : "s"}, ₹${(totalPaise / 100).toFixed(2)}.`,
+          actionUrl: "/shop/orders",
+        },
+        tx,
+      );
+
       await clearCartForShop(input.userId, group.shop.id, tx);
-      return confirmed;
+      return { order: confirmed, shopOwnerId: shopRow.ownerId };
     });
 
     created.push(order);
+    // Deliberately AFTER the transaction commits, using bare db — a failed
+    // notification must never roll back a paid order (see
+    // notifyOpenStockAlerts's own doc comment). Safe to call unconditionally:
+    // it dedupes per alert id, so it never re-notifies about one already sent.
+    await notifyOpenStockAlerts(group.shop.id, shopOwnerId);
   }
 
   return { orders: created, deduplicated: anyDeduplicated };
+}
+
+/**
+ * Validates a B2B checkout's buying shop: the caller's role must allow B2B,
+ * and the shop must be theirs (an admin may buy for any shop) and APPROVED.
+ */
+async function resolveBuyerShop(input: CheckoutInput): Promise<string> {
+  if (!input.actorRole || !can(input.actorRole, PERMISSIONS.ORDER_PLACE_B2B)) {
+    throw forbidden("Your account cannot place business orders.");
+  }
+  if (!input.buyerShopId) {
+    throw validationFailed("Choose the shop this business order is for.");
+  }
+  const shop = await db.query.shops.findFirst({ where: eq(shops.id, input.buyerShopId) });
+  if (!shop || (shop.ownerId !== input.userId && input.actorRole !== "ADMIN")) {
+    throw forbidden("You can only place business orders for your own shop.");
+  }
+  if (shop.status !== "APPROVED" || shop.deletedAt) {
+    throw conflict("Only an approved shop can place business orders.");
+  }
+  return shop.id;
 }
 
 /* --------------------------------------------------------- transitions */
@@ -313,8 +443,9 @@ export async function updateOrderStatus(
   newStatus: OrderStatus,
   actor: { id: string; role: UserRole },
   note?: string,
+  client?: DbClient,
 ): Promise<Order> {
-  return db.transaction(async (tx) => {
+  const run = async (tx: DbClient): Promise<Order> => {
     const [order] = await tx
       .select()
       .from(orders)
@@ -335,6 +466,8 @@ export async function updateOrderStatus(
         status: newStatus,
         updatedAt: new Date(),
         ...(newStatus === "CANCELLED" ? { cancellationReason: note ?? null } : {}),
+        ...(newStatus === "ACCEPTED" ? { acceptedAt: new Date() } : {}),
+        ...(newStatus === "READY" ? { packedAt: order.packedAt ?? new Date() } : {}),
       })
       .where(eq(orders.id, orderId))
       .returning();
@@ -346,6 +479,12 @@ export async function updateOrderStatus(
       changedBy: actor.id,
       note: note ?? null,
     });
+
+    // Slice 6: snapshot the order's GMV / commission / shop payable the moment
+    // it is delivered, in the same transaction (idempotent).
+    if (newStatus === "DELIVERED") {
+      await recordOrderFinancials(orderId, tx);
+    }
 
     await recordAudit(
       {
@@ -360,19 +499,74 @@ export async function updateOrderStatus(
       tx,
     );
 
+    // DEF-02 (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): these
+    // notification types were defined but never emitted. Covers both a
+    // direct shop/operator status change and the same transitions arriving
+    // via delivery-assignment.ts's markPickedUp/markDelivered, since both
+    // paths go through this one function.
+    const CUSTOMER_STATUS_NOTIFICATIONS: Partial<Record<OrderStatus, NotificationType>> = {
+      ACCEPTED: NOTIFICATION_TYPES.ORDER_ACCEPTED,
+      READY: NOTIFICATION_TYPES.ORDER_READY,
+      ASSIGNED: NOTIFICATION_TYPES.ORDER_ASSIGNED,
+      FAILED: NOTIFICATION_TYPES.ORDER_DELIVERY_FAILED,
+      OUT_FOR_DELIVERY: NOTIFICATION_TYPES.ORDER_OUT_FOR_DELIVERY,
+      DELIVERED: NOTIFICATION_TYPES.ORDER_DELIVERED,
+    };
+    const notificationType = CUSTOMER_STATUS_NOTIFICATIONS[newStatus];
+    if (notificationType) {
+      await notify(
+        {
+          userId: order.userId,
+          type: notificationType,
+          title: `Order ${ORDER_STATUS_LABELS[newStatus].toLowerCase()}`,
+          body: `Your order ${order.orderNumber} is ${ORDER_STATUS_LABELS[newStatus].toLowerCase()}.`,
+          actionUrl: "/orders",
+        },
+        tx,
+      );
+    }
+
     return updated;
-  });
+  };
+  return client ? run(client) : db.transaction(run);
+}
+
+export interface CancelOrderOptions {
+  /**
+   * True when the actor is the customer cancelling their OWN order through
+   * self-service (as opposed to a shop/operator acting with privilege).
+   * Governs D10, the resolved cancellation policy — see
+   * docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md DEF-08:
+   *
+   *   CONFIRMED            -> self-cancel allowed, full refund
+   *   PREPARING / READY    -> self-cancel BLOCKED (shop/operator only)
+   *   OUT_FOR_DELIVERY     -> self-cancel allowed again, GOODS-ONLY refund
+   *                           (delivery fee kept); rider still paid
+   *
+   * Extension for the statuses added in Slice 3/4 (same reasoning, pending
+   * the user's confirmation): ACCEPTED and ASSIGNED behave like PREPARING /
+   * READY (blocked); PICKED_UP behaves like OUT_FOR_DELIVERY (goods only);
+   * FAILED / RETURNED / DISPUTED are handled by the shop or an operator.
+   *
+   * Shop/operator-initiated cancellation (this option false or omitted) is
+   * unrestricted and always a full refund at every status, exactly as
+   * before this option existed.
+   */
+  selfService?: boolean;
 }
 
 /**
  * Cancels an order and refunds the wallet when it had already been paid.
  * The refund is idempotent on the order id, so a repeated cancel cannot pay out
- * twice (§48).
+ * twice (§48). Also restores the stock checkout() consumed (DEF-01) and, if a
+ * delivery was already in progress, cancels that assignment and settles the
+ * rider's earnings per D10 (DEF-08) — see CancelOrderOptions above.
  */
 export async function cancelOrder(
   orderId: string,
   actor: { id: string; role: UserRole },
   reason: string,
+  options: CancelOrderOptions = {},
 ): Promise<Order> {
   return db.transaction(async (tx) => {
     const [order] = await tx
@@ -386,7 +580,34 @@ export async function cancelOrder(
       throw invalidTransition(ORDER_STATUS_LABELS[order.status], "Cancelled");
     }
 
+    // D10: a customer cancelling their own order is blocked while the shop is
+    // actively assembling it — there is no clean undo for picked/packed work,
+    // so only the shop or an operator may cancel from here. Does not apply to
+    // a shop/operator-privileged cancel, which stays unrestricted.
+    if (
+      options.selfService &&
+      (["ACCEPTED", "PREPARING", "READY", "ASSIGNED"] as OrderStatus[]).includes(order.status)
+    ) {
+      throw conflict(
+        "This order is already being prepared. Please contact the shop to cancel it.",
+      );
+    }
+    if (
+      options.selfService &&
+      (["FAILED", "RETURNED", "DISPUTED"] as OrderStatus[]).includes(order.status)
+    ) {
+      throw conflict("Please contact support about this order.");
+    }
+
     const wasPaid = PAID_STATUSES.includes(order.status) && order.paidAt != null;
+    // D10: self-cancelling a dispatched order refunds the goods only — the
+    // shop and rider have already done the work of picking, packing and
+    // dispatching it, so the delivery fee is kept. Every other case (any
+    // shop/operator cancel, or a self-cancel before dispatch) still refunds
+    // the full total, unchanged from before.
+    const goodsOnlyRefund =
+      Boolean(options.selfService) &&
+      (order.status === "OUT_FOR_DELIVERY" || order.status === "PICKED_UP");
 
     const [updated] = await tx
       .update(orders)
@@ -406,22 +627,134 @@ export async function cancelOrder(
       note: reason,
     });
 
-    if (wasPaid) {
+    // DEF-02: notify the customer their order was cancelled — only when
+    // someone OTHER than themselves did it (a shop/operator cancel), since a
+    // customer doesn't need to be told about their own action.
+    if (actor.id !== order.userId) {
+      await notify(
+        {
+          userId: order.userId,
+          type: NOTIFICATION_TYPES.ORDER_CANCELLED,
+          title: "Order cancelled",
+          body: `Your order ${order.orderNumber} was cancelled: ${reason}`,
+          actionUrl: "/orders",
+        },
+        tx,
+      );
+    }
+
+    // DEF-01: every cancellation restores the stock checkout() consumed —
+    // previously nothing did, so a cancelled order permanently lost the unit.
+    // Restocked regardless of payment status or who cancelled: checkout()
+    // consumes stock unconditionally when the order is created, so its
+    // reversal is unconditional too. quantityMilli / unitSizeMilli recovers
+    // the whole-unit quantity restockOnline expects (it was computed the
+    // other way around at checkout: quantityMilli = quantity * unitSizeMilli).
+    //
+    // Slice 3: a REMOVED line is not restocked (the shop reported it
+    // unavailable, so there is nothing to put back), and a SUBSTITUTED line
+    // restocks the substitute that was actually taken from stock.
+    const items = await tx
+      .select({
+        shopProductId: orderItems.shopProductId,
+        quantityMilli: orderItems.quantityMilli,
+        fulfilmentStatus: orderItems.fulfilmentStatus,
+        substituteShopProductId: orderItems.substituteShopProductId,
+        substituteQuantityMilli: orderItems.substituteQuantityMilli,
+      })
+      .from(orderItems)
+      .where(eq(orderItems.orderId, orderId));
+    const restockLines = items
+      .filter((i) => i.fulfilmentStatus !== "REMOVED")
+      .map((i) =>
+        i.fulfilmentStatus === "SUBSTITUTED" && i.substituteShopProductId && i.substituteQuantityMilli
+          ? { shopProductId: i.substituteShopProductId, quantityMilli: i.substituteQuantityMilli }
+          : { shopProductId: i.shopProductId, quantityMilli: i.quantityMilli },
+      );
+    const unitSizes =
+      restockLines.length > 0
+        ? await tx
+            .select({ id: shopProducts.id, unitSizeMilli: products.unitSizeMilli })
+            .from(shopProducts)
+            .innerJoin(products, eq(shopProducts.productId, products.id))
+            .where(inArray(shopProducts.id, restockLines.map((l) => l.shopProductId)))
+        : [];
+    const unitSizeById = new Map(unitSizes.map((u) => [u.id, u.unitSizeMilli]));
+    const lines = restockLines.map((l) => ({
+      ...l,
+      unitSizeMilli: unitSizeById.get(l.shopProductId) ?? 1000,
+    }));
+    for (const line of lines) {
+      const quantityUnits = Math.round(line.quantityMilli / line.unitSizeMilli);
+      if (quantityUnits > 0) {
+        await restockOnline(
+          line.shopProductId,
+          quantityUnits,
+          `Order ${order.orderNumber} cancelled`,
+          actor.id,
+          tx,
+        );
+      }
+    }
+
+    // DEF-08/DEF-04: an in-progress delivery is explicitly cancelled here —
+    // previously nothing touched delivery_orders on an order cancel, so the
+    // rider's assignment was orphaned (stuck "busy" forever, and their
+    // eventual markDelivered would throw, unpaid). The rider still earns for
+    // a trip they already picked up, per D10 — creditDeliveryEarnings now
+    // allows a CANCELLED-after-pickup assignment as well as a DELIVERED one.
+    const [activeDelivery] = await tx
+      .select()
+      .from(deliveryOrders)
+      .where(
+        and(
+          eq(deliveryOrders.orderId, orderId),
+          inArray(deliveryOrders.status, ACTIVE_DELIVERY_ORDER_STATUSES),
+        ),
+      );
+    if (activeDelivery) {
+      const wasPickedUp = activeDelivery.pickedUpAt != null;
+      await tx
+        .update(deliveryOrders)
+        .set({
+          status: "CANCELLED",
+          cancelledAt: new Date(),
+          cancellationReason: `Order cancelled: ${reason}`,
+          updatedAt: new Date(),
+        })
+        .where(eq(deliveryOrders.id, activeDelivery.id));
+      if (wasPickedUp) {
+        await creditDeliveryEarnings(activeDelivery.id, tx);
+      }
+    }
+
+    // Removed / cheaper-substituted lines were already refunded and deducted
+    // from totalPaise/subtotalPaise, so these always reflect what is still held.
+    const refundAmountPaise = goodsOnlyRefund ? order.subtotalPaise : order.totalPaise;
+    if (wasPaid && refundAmountPaise > 0) {
       // Preserves the original customer-funded / promotional split (§29) —
-      // does not simply credit order.totalPaise as one lump customer-funded
-      // sum, which would silently convert any promotional credit the order
-      // used into real, withdrawable-feeling money.
+      // does not simply credit a lump customer-funded sum, which would
+      // silently convert any promotional credit the order used into real,
+      // withdrawable-feeling money. A goods-only refund restores the same
+      // proportion of the promotional split as the amount being refunded.
       await refundOriginalDebit(
         {
           userId: order.userId,
           referenceType: "orderId",
           referenceId: order.id,
           idempotencyKey: `refund:order:${order.id}`,
-          description: `Refund for cancelled order ${order.orderNumber}`,
+          description: goodsOnlyRefund
+            ? `Goods refund for cancelled order ${order.orderNumber} (delivery fee retained — order was already dispatched)`
+            : `Refund for cancelled order ${order.orderNumber}`,
           createdBy: actor.id,
+          amountPaise: refundAmountPaise,
         },
         tx,
       );
+      // REFUNDED is the closest existing status for a goods-only refund too —
+      // there is no PARTIALLY_REFUNDED state yet (tracked under decision D8
+      // in the roadmap). cancellationReason above already records that the
+      // delivery fee was retained.
       await tx
         .update(orders)
         .set({ status: "REFUNDED", updatedAt: new Date() })
@@ -431,7 +764,7 @@ export async function cancelOrder(
         previousStatus: "CANCELLED",
         newStatus: "REFUNDED",
         changedBy: actor.id,
-        note: "Wallet refunded",
+        note: goodsOnlyRefund ? "Wallet refunded (goods only; delivery fee retained)" : "Wallet refunded",
       });
       return { ...updated, status: "REFUNDED" as OrderStatus };
     }
@@ -445,11 +778,18 @@ export async function cancelOrder(
 export interface OrderDetail extends Order {
   items: {
     id: string;
+    shopProductId: string;
     productNameSnapshot: string;
     unitSnapshot: string;
     unitPricePaise: number;
     quantityMilli: number;
     lineTotalPaise: number;
+    fulfilmentStatus: OrderItemFulfilment;
+    substituteNameSnapshot: string | null;
+    substituteUnitSnapshot: string | null;
+    substituteQuantityMilli: number | null;
+    substituteLineTotalPaise: number | null;
+    fulfilmentNote: string | null;
   }[];
   shopName: string;
   shopSlug: string;
@@ -479,13 +819,17 @@ export async function getOrder(orderId: string): Promise<OrderDetail | undefined
 
 export async function listOrdersForUser(
   userId: string,
-  options: { limit?: number; offset?: number } = {},
+  options: { limit?: number; offset?: number; orderType?: OrderType } = {},
 ): Promise<OrderDetail[]> {
   const rows = await db
     .select({ order: orders, shopName: shops.name, shopSlug: shops.slug })
     .from(orders)
     .innerJoin(shops, eq(orders.shopId, shops.id))
-    .where(eq(orders.userId, userId))
+    .where(
+      options.orderType
+        ? and(eq(orders.userId, userId), eq(orders.orderType, options.orderType))
+        : eq(orders.userId, userId),
+    )
     .orderBy(desc(orders.createdAt))
     .limit(Math.min(options.limit ?? 25, 100))
     .offset(options.offset ?? 0);

@@ -96,6 +96,24 @@ channel's price.
 Same authorization. Any subset of the create fields. Price changes are written
 to `product_price_history` and audit-logged in the same transaction.
 
+### `PATCH /api/shops/{id}`
+Owner (own shop) or `SHOP_UPDATE_ANY`. Any subset of the editable shop fields.
+New: `serviceRadiusKm` (integer 1–50) — the shop's delivery zone in straight-line
+km from its pin (GS-010). Audit-logged with the previous value.
+
+## Location (customer)
+
+### `POST /api/location` · `DELETE /api/location`
+Sets the delivery location used for discovery (GS-004). Body is one of:
+```json
+{ "addressId": "uuid" }                       // own saved address — sign-in required
+{ "latitude": 18.52, "longitude": 73.85 }     // device position, rounded to 4 decimals
+{ "pincode": "411001" }
+```
+Stored in the httpOnly cookie `gk_location` (30 days); nothing is written to the
+database and no Maps API is called. Returns the stored location. `DELETE`
+clears it. Pages then list only shops that deliver there (`?all=1` shows all).
+
 ---
 
 ## Cart
@@ -116,8 +134,12 @@ resulting quantity, not just the delta.
 
 ### `POST /api/checkout`
 ```json
-{ "requestId": "client-generated-stable-id", "addressId": null, "notes": null }
+{ "requestId": "client-generated-stable-id", "addressId": null, "notes": null,
+  "orderType": "PERSONAL", "buyerShopId": null }
 ```
+`orderType: "B2B"` places a business order for `buyerShopId` — needs
+`ORDER_PLACE_B2B` (shop owner/admin), the caller's own approved shop, and no cart
+items from that same shop. Personal orders must not send `buyerShopId`.
 
 Splits the cart into one order per shop, recomputes every price server-side,
 consumes stock and debits the wallet — all atomically per shop.
@@ -135,11 +157,92 @@ Shop staff may advance their own shop's orders; Operator/Admin may advance any.
 A customer may cancel their own order. Cancelling a paid order refunds the
 wallet idempotently. Illegal transitions return `409`.
 
-Lifecycle: `PENDING → CONFIRMED → PREPARING → READY → OUT_FOR_DELIVERY →
-DELIVERED`, with `CANCELLED`, `PAYMENT_FAILED`, `WALLET_INSUFFICIENT`,
-`REFUND_PENDING`, `REFUNDED`.
+Lifecycle: `PENDING → CONFIRMED (paid, shop pending) → ACCEPTED → PREPARING →
+READY → ASSIGNED → PICKED_UP → OUT_FOR_DELIVERY → DELIVERED`, with exceptions
+`CANCELLED`, `FAILED`, `RETURNED`, `DISPUTED`, `PAYMENT_FAILED`,
+`WALLET_INSUFFICIENT`, `REFUND_PENDING`, `REFUNDED`. Accepted targets here:
+`PREPARING`, `READY` (runs the pack check + rider dispatch), `OUT_FOR_DELIVERY` /
+`DELIVERED` (shop's own delivery, only before a rider is assigned), `CANCELLED`,
+`RETURNED` (after a failed delivery), `DISPUTED` (operations only).
+
+### `POST /api/orders/{id}/fulfilment` — shop fulfilment
+Owner of the order's shop, or `ORDER_UPDATE_STATUS_ANY`. Body is one of:
+```json
+{ "action": "accept" }
+{ "action": "reject", "reason": "Closed today" }
+{ "action": "start" }
+{ "action": "pick", "itemId": "uuid" }
+{ "action": "substitute", "itemId": "uuid", "substituteShopProductId": "uuid", "note": "optional" }
+{ "action": "remove", "itemId": "uuid", "reason": "Out of stock" }
+{ "action": "ready" }
+```
+A substitute is charged at the lower of its price and the original line; a
+removed line (or a cheaper substitute's difference) is refunded to the wallet
+at once and deducted from the order total. `ready` fails while a substitution
+awaits the customer. If every line is removed the order is cancelled.
+
+### `PATCH /api/orders/{id}/items/{itemId}/substitution` — customer decision
+`{ "approve": true }` keeps the substitute; `false` removes and refunds the item.
+Only the customer who placed the order.
+
+### `POST /api/orders/{id}/confirm-delivery` — operations override
+`{ "proofNote": "Customer confirmed by phone at 18:40" }`. `DELIVERY_ORDER_MANAGE_ANY`.
+Marks a picked-up delivery DELIVERED without the customer OTP; audited.
+
+### `PATCH /api/delivery-orders/{id}` — rider actions
+```json
+{ "action": "accept" }                       // within 2 minutes of the offer
+{ "action": "reject", "reason": "optional" }  // rider is never offered this order again
+{ "action": "pickup", "pickupCode": "1234" }  // code the shop reads out
+{ "action": "start" }                         // leaves the shop; issues the customer OTP
+{ "action": "deliver", "otp": "5678" }        // customer's code; 5 wrong tries max
+{ "action": "fail", "reason": "Customer not reachable" }
+```
+Responses never contain the pickup code or the OTP (only `needsPickupCode` /
+`needsDeliveryOtp` flags). The shop sees the pickup code on its order list;
+the customer sees the OTP on My Orders while the order is out for delivery.
+
+### `POST /api/cron/delivery-dispatch`
+`Authorization: Bearer $CRON_SECRET`. Run every minute. Expires unanswered
+offers (2 min) and retries a rider for every READY order of a delivering shop
+with nobody working on it. Returns `{ expired, attempted, offered }`.
 
 ---
+
+## Finance (Slice 6)
+
+Commission is a % of goods by shop type with per-shop overrides (D6); the
+delivery fee is platform revenue and rider earnings a platform cost. Each
+order gets an `order_financials` snapshot (GMV, promotional discount,
+commission, shop payable) when it is DELIVERED, and every money event is
+journalled in `finance_ledger_entries`. Settlements and payouts are weekly:
+`PENDING → ELIGIBLE → PROCESSING → PAID | FAILED` (re-send from FAILED),
+`PAID → REVERSED`, `PENDING/ELIGIBLE → CANCELLED`. **Nothing here transfers
+money** — it records what an admin did at the bank.
+
+| Endpoint | Permission | Purpose |
+|---|---|---|
+| `GET/POST /api/finance/commission-rates` | VIEW / MANAGE | List; set `{ scope: DEFAULT\|SHOP_TYPE\|SHOP, shopType?, shopId?, rateBp }` (500 = 5%) |
+| `GET/POST /api/finance/settlements` | VIEW / PREPARE | List; prepare for `{ weekStart? }` (Monday, default last week) |
+| `PATCH /api/finance/settlements/{id}` | MANAGE | `{ action: approve\|process\|pay\|fail\|reverse\|cancel, note? }` — note = UTR reference for pay, reason for fail/reverse |
+| `GET/POST /api/finance/rider-payouts` · `PATCH …/{id}` | VIEW / PREPARE / MANAGE | Same, from unpaid earnings + rider adjustments |
+| `POST /api/finance/refunds` | ORDER_REFUND | `{ orderNumber, amountPaise, reason, chargeTo: SHOP\|PLATFORM, requestId }` — full/partial/item refund of a DELIVERED/DISPUTED order to the wallet |
+| `GET/POST /api/finance/adjustments` | VIEW / MANAGE | `{ type: SHOP_ADJUSTMENT\|RIDER_ADJUSTMENT\|DELIVERY_ADJUSTMENT\|MARKETPLACE_ADJUSTMENT, shopId?, deliveryPartnerId?, orderNumber?, amountPaise (±), reason, requestId }` |
+| `GET /api/finance/summary?from&to` | VIEW | GMV, paid order value, gateway payments, wallet refunds, discounts, commission, delivery-fee revenue, rider cost, platform net |
+| `GET /api/finance/payables` | VIEW | What each shop / rider is owed and not yet batched |
+| `GET /api/finance/ledger?orderId\|entityType&entityId` | VIEW | Journal entries |
+| `GET /api/finance/reconciliation?status=…` | VIEW or EXCEPTIONS | Records + counts (operators: ORDER/PAYMENT/RIDER only) |
+| `POST /api/finance/reconciliation` | MANAGE | `{ from, to }` — run checks, store UNMATCHED/MATCHED/PARTIAL/EXCEPTION |
+| `PATCH /api/finance/reconciliation/{id}` | VIEW or EXCEPTIONS | `{ note }` → RECONCILED (operators: operational records only) |
+| `GET /api/finance/exceptions` | VIEW or EXCEPTIONS | Failed/pending payments, refunds pending, cancellations, delivery adjustments, open reconciliation; admins also failed/reversed batches and overdue settlements |
+| `GET /api/finance/orders/{orderNumber}` | VIEW | Money trace: payment, wallet entries, snapshot, adjustments, journal, settlement, rider earning, reconciliation |
+| `POST /api/cron/finance-weekly` | CRON_SECRET | Prepares last week's settlements + payouts; reconciles the last 35 days |
+
+VIEW = `FINANCE_VIEW`, PREPARE = `FINANCE_PREPARE`, MANAGE = `FINANCE_MANAGE`
+(all admin only). EXCEPTIONS = `FINANCE_EXCEPTIONS_VIEW` (operator + admin).
+`ORDER_REFUND`: operator + admin. Shop owners: `/shop/finance`
+(`SETTLEMENT_VIEW_OWN`); riders: earnings/payouts on `/delivery-partner`;
+customers: their wallet (`/wallet`) and orders.
 
 ## Wallet
 

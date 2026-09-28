@@ -27,6 +27,7 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { encryptKycInput, toPublicPartner, type PublicDeliveryPartner } from "./delivery-partner-kyc";
 import { resolveLocationVerification } from "./geocoding";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 
@@ -84,7 +85,7 @@ function validate(input: RegisterDeliveryPartnerInput): void {
 export async function registerDeliveryPartner(
   userId: string,
   input: RegisterDeliveryPartnerInput,
-): Promise<DeliveryPartner> {
+): Promise<PublicDeliveryPartner> {
   validate(input);
 
   const existing = await db.query.deliveryPartners.findFirst({
@@ -93,6 +94,10 @@ export async function registerDeliveryPartner(
   if (existing) {
     throw conflict("You have already applied to become a delivery partner.");
   }
+
+  // SEC-02: KYC and bank details are stored as ciphertext only. Encrypted up
+  // front so a missing key fails the application before anything is written.
+  const encryptedKyc = encryptKycInput(input);
 
   const { locationVerified, locationVerifiedAt, locationSource } =
     await resolveLocationVerification(input.latitude, input.longitude, "delivery_partner_registration", "delivery_partner");
@@ -106,15 +111,10 @@ export async function registerDeliveryPartner(
       email: input.email?.trim() || null,
       dateOfBirth: input.dateOfBirth || null,
       profilePhotoUrl: input.profilePhotoUrl || null,
-      panNumber: input.panNumber?.trim() || null,
       governmentIdType: input.governmentIdType?.trim() || null,
-      governmentIdNumber: input.governmentIdNumber?.trim() || null,
-      bankAccountHolderName: input.bankAccountHolderName?.trim() || null,
-      bankAccountNumber: input.bankAccountNumber?.trim() || null,
-      bankIfsc: input.bankIfsc?.trim() || null,
+      ...encryptedKyc,
       vehicleType: input.vehicleType,
       vehicleRegistrationNumber: input.vehicleRegistrationNumber?.trim() || null,
-      drivingLicenceNumber: input.drivingLicenceNumber?.trim() || null,
       latitude: input.latitude != null ? String(input.latitude) : null,
       longitude: input.longitude != null ? String(input.longitude) : null,
       operatingRadiusKm: input.operatingRadiusKm ?? 5,
@@ -141,14 +141,14 @@ export async function registerDeliveryPartner(
     newValue: { status: "REGISTERED", vehicleType: partner.vehicleType },
   });
 
-  return partner;
+  return toPublicPartner(partner);
 }
 
-export async function getMyDeliveryPartnerProfile(userId: string): Promise<DeliveryPartner | null> {
+export async function getMyDeliveryPartnerProfile(userId: string): Promise<PublicDeliveryPartner | null> {
   const partner = await db.query.deliveryPartners.findFirst({
     where: and(eq(deliveryPartners.userId, userId), isNull(deliveryPartners.deletedAt)),
   });
-  return partner ?? null;
+  return partner ? toPublicPartner(partner) : null;
 }
 
 export interface DeliveryPartnerFilters {
@@ -158,16 +158,17 @@ export interface DeliveryPartnerFilters {
 
 export async function listDeliveryPartners(
   filters: DeliveryPartnerFilters = {},
-): Promise<DeliveryPartner[]> {
+): Promise<PublicDeliveryPartner[]> {
   const conditions = [isNull(deliveryPartners.deletedAt)];
   if (filters.status) conditions.push(eq(deliveryPartners.status, filters.status));
 
-  return db
+  const rows = await db
     .select()
     .from(deliveryPartners)
     .where(and(...conditions))
     .orderBy(desc(deliveryPartners.createdAt))
     .limit(filters.limit ?? 200);
+  return rows.map(toPublicPartner);
 }
 
 export async function countDeliveryPartnersByStatus(): Promise<Record<string, number>> {
@@ -201,7 +202,7 @@ async function transition(
     reviewNotes: string | null;
     rejectionReason: string | null;
   }>,
-): Promise<DeliveryPartner> {
+): Promise<PublicDeliveryPartner> {
   const current = await loadForTransition(id);
 
   const [updated] = await db
@@ -225,7 +226,7 @@ async function transition(
     newValue: { status: updated.status, reviewNotes: updated.reviewNotes },
   });
 
-  return updated;
+  return toPublicPartner(updated);
 }
 
 /** Marks an application as actively being reviewed (REGISTERED → UNDER_REVIEW). */
@@ -233,7 +234,7 @@ export async function startDeliveryPartnerReview(
   id: string,
   actor: Actor,
   notes?: string | null,
-): Promise<DeliveryPartner> {
+): Promise<PublicDeliveryPartner> {
   return transition(id, actor, { status: "UNDER_REVIEW", reviewNotes: notes ?? null });
 }
 
@@ -242,7 +243,7 @@ export async function approveDeliveryPartner(
   id: string,
   actor: Actor,
   notes?: string | null,
-): Promise<DeliveryPartner> {
+): Promise<PublicDeliveryPartner> {
   const current = await loadForTransition(id);
   const updated = await transition(id, actor, {
     status: "APPROVED",
@@ -264,7 +265,7 @@ export async function rejectDeliveryPartner(
   id: string,
   reason: string,
   actor: Actor,
-): Promise<DeliveryPartner> {
+): Promise<PublicDeliveryPartner> {
   if (!reason.trim()) throw validationFailed("A rejection reason is required.");
   const current = await loadForTransition(id);
   const updated = await transition(id, actor, { status: "REJECTED", rejectionReason: reason.trim() });
@@ -284,7 +285,7 @@ export async function suspendDeliveryPartner(
   id: string,
   reason: string,
   actor: Actor,
-): Promise<DeliveryPartner> {
+): Promise<PublicDeliveryPartner> {
   if (!reason.trim()) throw validationFailed("A suspension reason is required.");
   const current = await loadForTransition(id);
   if (current.status !== "APPROVED") {
@@ -302,7 +303,7 @@ export async function suspendDeliveryPartner(
   return updated;
 }
 
-export async function reactivateDeliveryPartner(id: string, actor: Actor): Promise<DeliveryPartner> {
+export async function reactivateDeliveryPartner(id: string, actor: Actor): Promise<PublicDeliveryPartner> {
   const current = await loadForTransition(id);
   if (current.status !== "SUSPENDED") {
     throw conflict("Only a suspended delivery partner can be reactivated.");
@@ -315,24 +316,24 @@ export async function deactivateDeliveryPartner(
   id: string,
   reason: string,
   actor: Actor,
-): Promise<DeliveryPartner> {
+): Promise<PublicDeliveryPartner> {
   if (!reason.trim()) throw validationFailed("A reason is required.");
   return transition(id, actor, { status: "DEACTIVATED", rejectionReason: reason.trim() });
 }
 
-export async function getDeliveryPartnerById(id: string): Promise<DeliveryPartner> {
+export async function getDeliveryPartnerById(id: string): Promise<PublicDeliveryPartner> {
   const partner = await db.query.deliveryPartners.findFirst({
     where: and(eq(deliveryPartners.id, id), isNull(deliveryPartners.deletedAt)),
   });
   if (!partner) throw notFound("Delivery partner");
-  return partner;
+  return toPublicPartner(partner);
 }
 
 /** Ownership guard for self-service routes ("my profile"). */
 export async function requireOwnDeliveryPartnerProfile(
   userId: string,
   partnerId: string,
-): Promise<DeliveryPartner> {
+): Promise<PublicDeliveryPartner> {
   const partner = await getDeliveryPartnerById(partnerId);
   if (partner.userId !== userId) throw forbidden("This profile does not belong to you.");
   return partner;
@@ -359,7 +360,7 @@ export async function goOnline(
   userId: string,
   latitude: number,
   longitude: number,
-): Promise<DeliveryPartner> {
+): Promise<PublicDeliveryPartner> {
   if (!validCoordinate(latitude, longitude)) {
     throw validationFailed("A valid current location is required to go online.");
   }
@@ -389,10 +390,10 @@ export async function goOnline(
     newValue: { isOnline: true },
   });
 
-  return updated;
+  return toPublicPartner(updated);
 }
 
-export async function goOffline(userId: string): Promise<DeliveryPartner> {
+export async function goOffline(userId: string): Promise<PublicDeliveryPartner> {
   const partner = await getMyDeliveryPartnerProfile(userId);
   if (!partner) throw notFound("Delivery partner profile");
 
@@ -410,7 +411,7 @@ export async function goOffline(userId: string): Promise<DeliveryPartner> {
     newValue: { isOnline: false },
   });
 
-  return updated;
+  return toPublicPartner(updated);
 }
 
 /**

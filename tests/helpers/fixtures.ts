@@ -9,6 +9,7 @@ import { sql } from "drizzle-orm";
 import { db } from "@/server/db";
 import {
   deliveryPartners,
+  orders,
   payments,
   productCategories,
   products,
@@ -19,6 +20,7 @@ import {
   wallets,
   type DeliveryPartnerStatus,
   type Department,
+  type OrderStatus,
   type UserRole,
 } from "@/server/db/schema";
 import type { ShopTypeKey } from "@/lib/shop-types";
@@ -152,6 +154,8 @@ export async function createShop(
     classification?: "KESARI" | "GREEN" | null;
     name?: string;
     deliveryAvailable?: boolean;
+    deliveryFeePaise?: number;
+    freeDeliveryAbovePaise?: number | null;
     registrationFeePaise?: number | null;
     latitude?: number | null;
     longitude?: number | null;
@@ -174,6 +178,8 @@ export async function createShop(
       status: overrides.status ?? "APPROVED",
       classification: overrides.classification ?? "KESARI",
       deliveryAvailable: overrides.deliveryAvailable ?? true,
+      deliveryFeePaise: overrides.deliveryFeePaise ?? 0,
+      freeDeliveryAbovePaise: overrides.freeDeliveryAbovePaise ?? null,
       registrationFeePaise:
         overrides.registrationFeePaise !== undefined
           ? overrides.registrationFeePaise
@@ -184,6 +190,46 @@ export async function createShop(
     })
     .returning();
   return shop;
+}
+
+/**
+ * Inserts an order row directly, bypassing checkout() — for tests that need a
+ * specific status (e.g. WALLET_INSUFFICIENT) that only the subscription
+ * engine normally produces, without exercising that whole engine to get
+ * there. Money fields default to a simple ₹70 order with no delivery fee.
+ */
+export async function createOrder(
+  userId: string,
+  shopId: string,
+  overrides: {
+    status?: OrderStatus;
+    subtotalPaise?: number;
+    deliveryFeePaise?: number;
+    taxPaise?: number;
+    totalPaise?: number;
+    paidAt?: Date | null;
+    source?: "DIRECT" | "SUBSCRIPTION";
+  } = {},
+) {
+  const subtotalPaise = overrides.subtotalPaise ?? 7000;
+  const deliveryFeePaise = overrides.deliveryFeePaise ?? 0;
+  const taxPaise = overrides.taxPaise ?? 0;
+  const [order] = await db
+    .insert(orders)
+    .values({
+      orderNumber: `TEST-${uniq()}`,
+      userId,
+      shopId,
+      status: overrides.status ?? "PENDING",
+      source: overrides.source ?? "DIRECT",
+      subtotalPaise,
+      deliveryFeePaise,
+      taxPaise,
+      totalPaise: overrides.totalPaise ?? subtotalPaise + deliveryFeePaise + taxPaise,
+      paidAt: overrides.paidAt !== undefined ? overrides.paidAt : null,
+    })
+    .returning();
+  return order;
 }
 
 /**

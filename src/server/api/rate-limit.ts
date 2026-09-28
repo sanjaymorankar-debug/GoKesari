@@ -42,6 +42,13 @@ export const RATE_LIMITS = {
   CRON: { limit: 30, windowMs: 60_000 },
   /** Public grievance submission — unauthenticated, so keyed by IP rather than user id. */
   GRIEVANCE: { limit: 5, windowMs: 600_000 },
+  /**
+   * Voucher-code preview (SEC-04, docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md):
+   * codes are short, operator-chosen strings (e.g. "DIWALI25"), not
+   * high-entropy tokens, so this endpoint is a dictionary-guessing surface —
+   * tighter than a general authenticated mutation on purpose.
+   */
+  VOUCHER_PREVIEW: { limit: 10, windowMs: 60_000 },
 } as const satisfies Record<string, RateLimitOptions>;
 
 /**
@@ -72,7 +79,17 @@ export function enforceRateLimit(
   existing.count += 1;
 }
 
-/** Best-effort client identifier for anonymous rate limiting. */
+/**
+ * Best-effort client identifier for anonymous rate limiting.
+ *
+ * NOT VERIFIED IN THIS ENVIRONMENT (SEC-04): trusts the first `X-Forwarded-For`
+ * entry, which is only safe if the deployment's reverse proxy overwrites
+ * rather than appends to that header before the app sees it. Confirm
+ * Hostinger's actual proxy behaviour before relying on this for anything
+ * stronger than best-effort abuse-blunting — if a client can set this header
+ * directly, every anonymous limit below is trivially bypassable by rotating
+ * the value per request.
+ */
 export function clientKey(request: Request, suffix: string): string {
   const forwarded = request.headers.get("x-forwarded-for");
   const ip = forwarded?.split(",")[0]?.trim() ?? "unknown";

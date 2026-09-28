@@ -13,7 +13,10 @@ type ViewMode = "grid" | "list";
 /** Shop grid/list with a view toggle (requirement §15). Classification is
  * deliberately not shown here — the Kesari/Green filter is disabled and the
  * badge removed from cards until that's re-enabled. */
-export function ShopGrid({ shops }: { shops: Shop[] }) {
+/** `distanceKm` is present when discovery ran against a customer location (GS-019). */
+type GridShop = Shop & { distanceKm?: number | null };
+
+export function ShopGrid({ shops }: { shops: GridShop[] }) {
   const [view, setView] = useState<ViewMode>("grid");
 
   if (shops.length === 0) {
@@ -79,7 +82,11 @@ export function ShopGrid({ shops }: { shops: Shop[] }) {
   );
 }
 
-function ShopCard({ shop }: { shop: Shop }) {
+function distanceText(distanceKm: number | null | undefined): string | null {
+  return distanceKm == null ? null : `${distanceKm} km away`;
+}
+
+function ShopCard({ shop }: { shop: GridShop }) {
   const open = isShopOpenNow(shop);
 
   return (
@@ -117,6 +124,7 @@ function ShopCard({ shop }: { shop: Shop }) {
 
         <div className="mt-2 text-xs text-ink-500">
           {shop.deliveryAvailable ? "Home delivery available" : "Pickup only"}
+          {distanceText(shop.distanceKm) ? ` · ${distanceText(shop.distanceKm)}` : null}
         </div>
 
         <Link
@@ -130,7 +138,7 @@ function ShopCard({ shop }: { shop: Shop }) {
   );
 }
 
-function ShopListRow({ shop }: { shop: Shop }) {
+function ShopListRow({ shop }: { shop: GridShop }) {
   const open = isShopOpenNow(shop);
 
   return (
@@ -151,6 +159,7 @@ function ShopListRow({ shop }: { shop: Shop }) {
       </div>
       <p className="shrink-0 text-sm text-ink-500">
         {[shop.area, shop.city].filter(Boolean).join(", ")} · {shop.pincode}
+        {distanceText(shop.distanceKm) ? ` · ${distanceText(shop.distanceKm)}` : null}
       </p>
     </Link>
   );

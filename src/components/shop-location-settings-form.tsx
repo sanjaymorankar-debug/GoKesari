@@ -14,6 +14,7 @@ export interface ShopLocationSettings {
   pickupLatitude: string | null;
   pickupLongitude: string | null;
   pickupInstructions: string | null;
+  serviceRadiusKm: number;
 }
 
 /**
@@ -34,6 +35,7 @@ export function ShopLocationSettingsForm({ settings }: { settings: ShopLocationS
       : null,
   );
   const [pickupInstructions, setPickupInstructions] = useState(settings.pickupInstructions ?? "");
+  const [serviceRadiusKm, setServiceRadiusKm] = useState(String(settings.serviceRadiusKm));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -52,6 +54,7 @@ export function ShopLocationSettingsForm({ settings }: { settings: ShopLocationS
         pickupLatitude: pickupCoordinates ? String(pickupCoordinates.latitude) : null,
         pickupLongitude: pickupCoordinates ? String(pickupCoordinates.longitude) : null,
         pickupInstructions: pickupInstructions || null,
+        serviceRadiusKm: Number(serviceRadiusKm),
       }),
     });
     setBusy(false);
@@ -90,6 +93,25 @@ export function ShopLocationSettingsForm({ settings }: { settings: ShopLocationS
               setMainCoordinates({ latitude: result.latitude, longitude: result.longitude })
             }
           />
+        </div>
+
+        <div className="border-t border-cream-200 pt-4">
+          <Field label="Delivery radius (km)">
+            <input
+              className={inputClass}
+              type="number"
+              min={1}
+              max={50}
+              step={1}
+              value={serviceRadiusKm}
+              onChange={(e) => setServiceRadiusKm(e.target.value)}
+              data-testid="service-radius"
+            />
+          </Field>
+          <p className="mt-1 text-xs text-ink-500">
+            Customers further than this from your shop location will not see you
+            as delivering to them.
+          </p>
         </div>
 
         <div className="border-t border-cream-200 pt-4">

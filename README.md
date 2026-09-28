@@ -55,7 +55,9 @@ Dairy Farm) so the online/offline rule is visible immediately.
 | `CASHFREE_APP_ID` / `CASHFREE_SECRET_KEY` | prod | Payment gateway. Without these the app runs in MOCK payment mode |
 | `CASHFREE_ENV` | no | `sandbox` (default) or `production` |
 | `CRON_SECRET` | yes | Bearer token guarding the daily-order endpoint |
-| `BOOTSTRAP_ADMIN_EMAILS` | first deploy | Comma-separated emails granted ADMIN on first sign-in |
+| `BOOTSTRAP_ADMIN_EMAILS` | first deploy | Comma-separated emails granted ADMIN on first sign-in only — meant to be removed once that's done |
+| `PERMANENT_ADMIN_EMAILS` | recommended | Comma-separated emails re-promoted to ADMIN on *every* session, not just first sign-in — for the accounts that must never be lockable-out even by an accidental or malicious role change. Meant to stay set (unlike `BOOTSTRAP_ADMIN_EMAILS`). No default — set it yourself; there is no hard-coded fallback (see the audit's SEC-03) |
+| `PAN_ENCRYPTION_KEY` | before PAN/KYC are collected | Base64, exactly 32 bytes (`openssl rand -base64 32`). AES-256-GCM key that encrypts shop PANs and delivery-partner KYC/bank details at rest. Without it those values are refused, never stored in plaintext. **Back it up separately from the database — losing or changing it makes every encrypted value unrecoverable** |
 | `SUBSCRIPTION_CUTOFF_HOUR` | no | Delivery cutoff hour, default `20` |
 | `APP_TIMEZONE` | no | IANA zone for delivery dates, default `Asia/Kolkata` |
 

@@ -1,0 +1,2 @@
+ALTER TABLE "shops" ADD COLUMN "service_radius_km" integer DEFAULT 5 NOT NULL;--> statement-breakpoint
+ALTER TABLE "shops" ADD CONSTRAINT "shops_service_radius_range" CHECK ("shops"."service_radius_km" BETWEEN 1 AND 50);

@@ -11,7 +11,8 @@ import { z } from "zod";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
 import { requirePermission } from "@/server/authz/guards";
-import { PERMISSIONS } from "@/server/authz/permissions";
+import { forbidden } from "@/lib/errors";
+import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { checkout } from "@/server/services/orders";
 
 const schema = z.object({
@@ -21,6 +22,9 @@ const schema = z.object({
   notes: z.string().max(500).nullish(),
   /** shopId -> requested window. Re-validated against live feasibility server-side. */
   deliveryWindows: z.record(z.string().uuid(), z.enum(["EXPRESS_30", "STANDARD_60", "SCHEDULED"])).optional(),
+  /** Personal orders and business (B2B) orders are separate flows. */
+  orderType: z.enum(["PERSONAL", "B2B"]).optional(),
+  buyerShopId: z.string().uuid().nullish(),
 });
 
 export const POST = route(async (request: NextRequest) => {
@@ -28,8 +32,14 @@ export const POST = route(async (request: NextRequest) => {
   enforceRateLimit(`checkout:${user.id}`, RATE_LIMITS.CHECKOUT);
 
   const body = await parseBody(request, schema);
+  if (body.orderType === "B2B" && !can(user.role, PERMISSIONS.ORDER_PLACE_B2B)) {
+    throw forbidden("Your account cannot place business orders.");
+  }
   const result = await checkout({
     userId: user.id,
+    actorRole: user.role,
+    orderType: body.orderType,
+    buyerShopId: body.buyerShopId ?? null,
     requestId: body.requestId,
     addressId: body.addressId ?? null,
     notes: body.notes ?? null,
@@ -44,6 +54,8 @@ export const POST = route(async (request: NextRequest) => {
         shopId: o.shopId,
         totalPaise: o.totalPaise,
         status: o.status,
+        orderType: o.orderType,
+        buyerShopId: o.buyerShopId,
         deliveryWindow: o.deliveryWindow,
         promisedByAt: o.promisedByAt,
       })),
