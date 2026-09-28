@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 
-import { ProductGrid } from "@/app/page";
+import { ProductGrid } from "@/components/product-grid";
 import { RatingBadge } from "@/components/rating-actions";
 import { Badge, Card, ClassificationBadge, EmptyState, PageHeader } from "@/components/ui";
 import { listShopReviews } from "@/server/services/ratings";
