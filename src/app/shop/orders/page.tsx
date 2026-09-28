@@ -50,6 +50,8 @@ export default async function ShopOrdersPage() {
             totalPaise: o.totalPaise,
             createdAt: o.createdAt.toISOString(),
             orderType: o.orderType,
+            paymentMethod: o.paymentMethod,
+            cashCollected: o.codCollectedAt != null,
             // Explicit fields only — never pass the customer's delivery OTP to the shop.
             items: o.items.map((i) => ({
               id: i.id,

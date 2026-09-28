@@ -25,6 +25,8 @@ const schema = z.object({
   /** Personal orders and business (B2B) orders are separate flows. */
   orderType: z.enum(["PERSONAL", "B2B"]).optional(),
   buyerShopId: z.string().uuid().nullish(),
+  /** WALLET (default) or COD — cash on delivery, checked against the COD limits (GS-030). */
+  paymentMethod: z.enum(["WALLET", "COD"]).optional(),
 });
 
 export const POST = route(async (request: NextRequest) => {
@@ -44,6 +46,7 @@ export const POST = route(async (request: NextRequest) => {
     addressId: body.addressId ?? null,
     notes: body.notes ?? null,
     deliveryWindows: body.deliveryWindows,
+    paymentMethod: body.paymentMethod,
   });
 
   return ok(
@@ -55,6 +58,7 @@ export const POST = route(async (request: NextRequest) => {
         totalPaise: o.totalPaise,
         status: o.status,
         orderType: o.orderType,
+        paymentMethod: o.paymentMethod,
         buyerShopId: o.buyerShopId,
         deliveryWindow: o.deliveryWindow,
         promisedByAt: o.promisedByAt,

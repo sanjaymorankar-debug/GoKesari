@@ -164,6 +164,13 @@ export const orderSourceEnum = pgEnum("order_source", [
  */
 export const orderTypeEnum = pgEnum("order_type", ["PERSONAL", "B2B"]);
 
+/**
+ * How an order is paid (GS-030). WALLET is charged at checkout; COD is
+ * collected in cash at the door (by the rider, or the shop when it delivers
+ * itself) and only then counts as paid.
+ */
+export const paymentMethodEnum = pgEnum("payment_method", ["WALLET", "COD"]);
+
 /* -------------------------------------------------------- delivery windows
  * (delivery-system Part 58 follow-up, Slice C). Fixed set for Phase 1 per
  * the brief ("initially support 30/60/scheduled") — true admin-defined
@@ -605,6 +612,8 @@ export const shops = pgTable(
       .notNull()
       .default([]),
     deliveryAvailable: boolean("delivery_available").notNull().default(false),
+    /** The shop accepts cash on delivery (GS-030) — opt-in, within the platform's COD limits. */
+    codEnabled: boolean("cod_enabled").notNull().default(false),
     /**
      * GS-010 delivery zone: straight-line km from the shop's pin within which
      * it delivers (see services/serviceability.ts). A radius, not a polygon,
@@ -1382,6 +1391,16 @@ export const orders = pgTable(
     status: orderStatusEnum("status").notNull().default("PENDING"),
     source: orderSourceEnum("source").notNull().default("DIRECT"),
     orderType: orderTypeEnum("order_type").notNull().default("PERSONAL"),
+    paymentMethod: paymentMethodEnum("payment_method").notNull().default("WALLET"),
+    /**
+     * `checkout:<userId>:<requestId>:<shopId>` — the per-shop idempotency key of
+     * the checkout that created the order. Replays of a COD checkout (which has
+     * no wallet debit to find) are recognised through it. Null for older and
+     * subscription orders.
+     */
+    checkoutKey: text("checkout_key"),
+    /** COD: when the cash was collected (the order counts as paid from then). */
+    codCollectedAt: timestamp("cod_collected_at", { withTimezone: true }),
     /** Society of the delivery address (society rider rules, security, society visibility). */
     societyId: uuid("society_id").references(() => societies.id, { onDelete: "set null" }),
     /** B2B only: the approved shop buying for its business. Null for PERSONAL. */
@@ -1428,6 +1447,7 @@ export const orders = pgTable(
     index("orders_created_idx").on(t.createdAt),
     index("orders_buyer_shop_idx").on(t.buyerShopId),
     index("orders_society_idx").on(t.societyId),
+    uniqueIndex("orders_checkout_key_unique").on(t.checkoutKey),
     check(
       "orders_totals_non_negative",
       sql`${t.subtotalPaise} >= 0 AND ${t.totalPaise} >= 0`,
@@ -2969,6 +2989,10 @@ export const adjustmentTypeEnum = pgEnum("financial_adjustment_type", [
   "DELIVERY_ADJUSTMENT",
   /** Platform-only correction (write-off, goodwill credit). */
   "MARKETPLACE_ADJUSTMENT",
+  /** COD cash the rider/shop collected for the platform (−, recovered in the next batch). */
+  "COD_CASH_COLLECTED",
+  /** That cash handed over to the platform (+, cancels the collection). */
+  "COD_CASH_DEPOSITED",
 ]);
 
 export const adjustmentStatusEnum = pgEnum("financial_adjustment_status", [
@@ -3030,6 +3054,8 @@ export const ledgerEntryTypeEnum = pgEnum("ledger_entry_type", [
   "SHOP_SETTLEMENT",
   "RIDER_PAYOUT",
   "REVERSAL",
+  /** Cash on delivery collected / deposited (GS-030). */
+  "COD_CASH",
 ]);
 
 export const ledgerDirectionEnum = pgEnum("ledger_direction", ["CREDIT", "DEBIT"]);
@@ -3111,6 +3137,203 @@ export const reconciliationRecords = pgTable(
   (t) => [
     uniqueIndex("reconciliation_entity_check_unique").on(t.entityType, t.entityId, t.checkType),
     index("reconciliation_status_idx").on(t.status),
+  ],
+);
+
+/* ============================================================ Phase 3 */
+/* Multi-role accounts (GS-003), rider online sessions (KPI-013), customer
+ * segments and shop campaigns (GS-052/053, WF-009, KPI-015), fraud / risk
+ * rules (GS-068). */
+
+export const roleGrantStatusEnum = pgEnum("role_grant_status", ["ACTIVE", "REVOKED"]);
+
+/**
+ * Roles a user holds (GS-003). `users.role` is the ACTIVE role — the one the
+ * session and every permission check use; a user switches between the roles
+ * granted here. CUSTOMER is implicit for everyone. Business approval stays
+ * with each role's own flow (shop approval, rider KYC, society verification).
+ */
+export const userRoleGrants = pgTable(
+  "user_role_grants",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    role: userRoleEnum("role").notNull(),
+    status: roleGrantStatusEnum("status").notNull().default("ACTIVE"),
+    /** SHOP_REGISTRATION, DELIVERY_PARTNER_APPLICATION, SOCIETY, ADMIN, BOOTSTRAP, BACKFILL. */
+    source: text("source").notNull(),
+    grantedBy: uuid("granted_by").references(() => users.id),
+    grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
+    revokedBy: uuid("revoked_by").references(() => users.id),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("user_role_grants_user_role_unique").on(t.userId, t.role),
+    index("user_role_grants_user_idx").on(t.userId),
+  ],
+);
+
+/** One row per online stretch of a rider (KPI-013 utilisation). */
+export const deliveryPartnerSessions = pgTable(
+  "delivery_partner_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deliveryPartnerId: uuid("delivery_partner_id")
+      .notNull()
+      .references(() => deliveryPartners.id, { onDelete: "cascade" }),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    /** Null while online. */
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+  },
+  (t) => [
+    index("delivery_partner_sessions_partner_idx").on(t.deliveryPartnerId),
+    index("delivery_partner_sessions_started_idx").on(t.startedAt),
+  ],
+);
+
+/**
+ * Rules of a customer segment (GS-052). Every rule is optional; all given
+ * rules must hold. Marketing consent is always required and is not a rule.
+ */
+export interface SegmentRules {
+  /** Delivery PIN codes of the customer's orders with the shop. */
+  pincodes?: string[];
+  /** Societies of those orders. */
+  societyIds?: string[];
+  /** At least this many delivered orders with the shop. */
+  minOrders?: number;
+  /** Ordered from the shop within the last N days. */
+  orderedWithinDays?: number;
+  /** Has NOT ordered from the shop in the last N days (lapsed customers). */
+  lapsedForDays?: number;
+  /** Spent at least this much with the shop (delivered orders). */
+  minSpendPaise?: number;
+}
+
+export const customerSegments = pgTable(
+  "customer_segments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    rules: jsonb("rules").$type<SegmentRules>().notNull(),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+  },
+  (t) => [index("customer_segments_shop_idx").on(t.shopId)],
+);
+
+export const campaignStatusEnum = pgEnum("campaign_status", [
+  "DRAFT",
+  "SUBMITTED",
+  "APPROVED",
+  "REJECTED",
+  "SENT",
+  "CANCELLED",
+]);
+
+/**
+ * A shop's promotional message to one of its segments (GS-053, WF-009):
+ * DRAFT → SUBMITTED → APPROVED (operations) → SENT, or REJECTED / CANCELLED.
+ * `maxRecipients` is the campaign's budget; frequency caps protect customers.
+ */
+export const marketingCampaigns = pgTable(
+  "marketing_campaigns",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    segmentId: uuid("segment_id")
+      .notNull()
+      .references(() => customerSegments.id, { onDelete: "restrict" }),
+    title: text("title").notNull(),
+    message: text("message").notNull(),
+    /** Optional offer line shown with the message (e.g. "10% off vegetables this week"). */
+    offerText: text("offer_text"),
+    maxRecipients: integer("max_recipients").notNull(),
+    /** Days after sending during which a recipient's order counts as a conversion. */
+    attributionDays: integer("attribution_days").notNull().default(7),
+    status: campaignStatusEnum("status").notNull().default("DRAFT"),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
+    decidedBy: uuid("decided_by").references(() => users.id),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    rejectionReason: text("rejection_reason"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    sentCount: integer("sent_count").notNull().default(0),
+    /** Matched but skipped by the frequency caps or the budget. */
+    suppressedCount: integer("suppressed_count").notNull().default(0),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("marketing_campaigns_shop_idx").on(t.shopId),
+    index("marketing_campaigns_status_idx").on(t.status),
+    check("marketing_campaigns_max_recipients", sql`${t.maxRecipients} BETWEEN 1 AND 5000`),
+    check("marketing_campaigns_attribution_days", sql`${t.attributionDays} BETWEEN 1 AND 30`),
+  ],
+);
+
+export const campaignRecipients = pgTable(
+  "campaign_recipients",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    campaignId: uuid("campaign_id")
+      .notNull()
+      .references(() => marketingCampaigns.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** The in-app notification's dedupe key — its read_at is the "opened" signal. */
+    notificationKey: text("notification_key").notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("campaign_recipients_unique").on(t.campaignId, t.userId),
+    index("campaign_recipients_user_idx").on(t.userId, t.sentAt),
+  ],
+);
+
+export const riskSubjectEnum = pgEnum("risk_subject", ["USER", "SHOP", "DELIVERY_PARTNER"]);
+export const riskSeverityEnum = pgEnum("risk_severity", ["LOW", "MEDIUM", "HIGH"]);
+export const riskFlagStatusEnum = pgEnum("risk_flag_status", ["OPEN", "DISMISSED", "ACTIONED"]);
+
+/**
+ * A fraud / risk rule hit awaiting review (GS-068). One OPEN flag per
+ * subject and rule; a re-detection updates it. An OPEN HIGH flag on a
+ * customer blocks cash on delivery.
+ */
+export const riskFlags = pgTable(
+  "risk_flags",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    subjectType: riskSubjectEnum("subject_type").notNull(),
+    subjectId: uuid("subject_id").notNull(),
+    ruleCode: text("rule_code").notNull(),
+    severity: riskSeverityEnum("severity").notNull(),
+    status: riskFlagStatusEnum("status").notNull().default("OPEN"),
+    summary: text("summary").notNull(),
+    details: jsonb("details").$type<Record<string, unknown>>(),
+    occurrences: integer("occurrences").notNull().default(1),
+    firstDetectedAt: timestamp("first_detected_at", { withTimezone: true }).notNull().defaultNow(),
+    lastDetectedAt: timestamp("last_detected_at", { withTimezone: true }).notNull().defaultNow(),
+    reviewedBy: uuid("reviewed_by").references(() => users.id),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewNote: text("review_note"),
+  },
+  (t) => [
+    uniqueIndex("risk_flags_open_unique")
+      .on(t.subjectType, t.subjectId, t.ruleCode)
+      .where(sql`${t.status} = 'OPEN'`),
+    index("risk_flags_status_idx").on(t.status, t.severity),
+    index("risk_flags_subject_idx").on(t.subjectType, t.subjectId),
   ],
 );
 
@@ -3212,3 +3435,12 @@ export type OrderItemFulfilment = (typeof orderItemFulfilmentEnum.enumValues)[nu
 export type ShopStatus = (typeof shopStatusEnum.enumValues)[number];
 export type Classification = (typeof classificationEnum.enumValues)[number];
 export type Department = (typeof departmentEnum.enumValues)[number];
+export type PaymentMethod = (typeof paymentMethodEnum.enumValues)[number];
+export type UserRoleGrant = typeof userRoleGrants.$inferSelect;
+export type CustomerSegment = typeof customerSegments.$inferSelect;
+export type MarketingCampaign = typeof marketingCampaigns.$inferSelect;
+export type CampaignStatus = (typeof campaignStatusEnum.enumValues)[number];
+export type RiskFlag = typeof riskFlags.$inferSelect;
+export type RiskSeverity = (typeof riskSeverityEnum.enumValues)[number];
+export type RiskSubject = (typeof riskSubjectEnum.enumValues)[number];
+export type RiskFlagStatus = (typeof riskFlagStatusEnum.enumValues)[number];

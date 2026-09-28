@@ -39,6 +39,7 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { grantRole } from "./roles";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 
 interface Actor {
@@ -108,10 +109,9 @@ async function societyStaffUserIds(societyId: string, client: DbClient = db): Pr
 
 /** Give a plain customer the SOCIETY_ADMIN role once they run a society (navigation hint only). */
 async function promoteToSocietyRole(userId: string, client: DbClient): Promise<void> {
-  await client
-    .update(users)
-    .set({ role: "SOCIETY_ADMIN", updatedAt: new Date() })
-    .where(and(eq(users.id, userId), eq(users.role, "CUSTOMER")));
+  // GS-003: granted even to users who already hold another role (a shop owner
+  // who runs their society switches to it from the header).
+  await grantRole(userId, "SOCIETY_ADMIN", { source: "SOCIETY", activateIfCustomer: true }, client);
 }
 
 /* ======================================================= registration */

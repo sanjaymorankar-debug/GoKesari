@@ -142,6 +142,20 @@ export const AUDIT_ACTIONS = {
   SOCIETY_SHOP_CHANGED: "society.shop_changed",
   RATING_CREATED: "rating.created",
   RATING_MODERATED: "rating.moderated",
+  // Phase 3
+  ROLE_GRANTED: "user.role_granted",
+  ROLE_REVOKED: "user.role_revoked",
+  ROLE_SWITCHED: "user.role_switched",
+  COD_CASH_COLLECTED: "cod.cash_collected",
+  COD_CASH_DEPOSITED: "cod.cash_deposited",
+  SHOP_COD_SETTING_CHANGED: "shop.cod_setting_changed",
+  SEGMENT_SAVED: "marketing.segment_saved",
+  SEGMENT_DELETED: "marketing.segment_deleted",
+  CAMPAIGN_SAVED: "marketing.campaign_saved",
+  CAMPAIGN_STATUS_CHANGED: "marketing.campaign_status_changed",
+  CAMPAIGN_SENT: "marketing.campaign_sent",
+  RISK_RULES_RUN: "risk.rules_run",
+  RISK_FLAG_REVIEWED: "risk.flag_reviewed",
   DELIVERY_EARNINGS_CONFIG_CHANGED: "delivery_earnings_config.changed",
 
   /* ------------------------------------ product master data platform */

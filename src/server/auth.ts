@@ -29,6 +29,7 @@ import {
 } from "@/server/db/schema";
 import { emailProvider } from "@/server/auth-email";
 import { recordConsent } from "@/server/services/consents";
+import { grantRole } from "@/server/services/roles";
 
 declare module "next-auth" {
   interface Session {
@@ -70,6 +71,7 @@ const testCredentialsProvider = Credentials({
       ? "ADMIN"
       : "CUSTOMER";
     const [created] = await db.insert(users).values({ email, role }).returning();
+    if (role === "ADMIN") await grantRole(created.id, "ADMIN", { source: "BOOTSTRAP" });
     await ensureWallet(created.id);
     return { id: created.id, email: created.email, name: created.name };
   },
@@ -151,6 +153,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
           .set({ role: "ADMIN", updatedAt: new Date() })
           .where(eq(users.id, record.id))
           .returning();
+        await grantRole(record.id, "ADMIN", { source: "BOOTSTRAP" });
       }
 
       session.user.id = record.id;
@@ -178,6 +181,7 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         : "CUSTOMER";
 
       await db.update(users).set({ role }).where(eq(users.id, user.id));
+      if (role === "ADMIN") await grantRole(user.id, "ADMIN", { source: "BOOTSTRAP" });
       await ensureWallet(user.id);
 
       // The sign-in page requires ticking "I agree to Terms & Privacy

@@ -57,6 +57,7 @@ export function CartView({
   buyerShops = [],
   deliveryWarnings = {},
   preferredAddressId = null,
+  codUnavailableReason = null,
 }: {
   cart: CartSummary;
   walletBalancePaise: number;
@@ -67,6 +68,8 @@ export function CartView({
   deliveryWarnings?: Record<string, string>;
   /** The saved address the customer picked as their location, if any. */
   preferredAddressId?: string | null;
+  /** GS-030: null when cash on delivery is available for this cart; otherwise why not. */
+  codUnavailableReason?: string | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -79,6 +82,7 @@ export function CartView({
   const [buyerShopId, setBuyerShopId] = useState("");
   const [feasibility, setFeasibility] = useState<Record<string, Feasibility>>({});
   const [deliveryWindows, setDeliveryWindows] = useState<Record<string, DeliveryWindowKey>>({});
+  const [paymentMethod, setPaymentMethod] = useState<"WALLET" | "COD">("WALLET");
 
   const shopIds = cart.groups.map((g) => g.shop.id).join(",");
   useEffect(() => {
@@ -104,7 +108,10 @@ export function CartView({
     };
   }, [shopIds]);
 
-  const affordable = walletBalancePaise >= cart.grandTotalPaise;
+  // Cash on delivery: personal orders to a saved address only.
+  const codPossible = codUnavailableReason == null && !buyerShopId && addressId != null;
+  const payingCod = paymentMethod === "COD" && codPossible;
+  const affordable = payingCod || walletBalancePaise >= cart.grandTotalPaise;
   const shortfall = Math.max(0, cart.grandTotalPaise - walletBalancePaise);
 
   async function updateQuantity(cartItemId: string, quantity: number) {
@@ -133,6 +140,7 @@ export function CartView({
         requestId,
         addressId,
         deliveryWindows,
+        paymentMethod: payingCod ? "COD" : "WALLET",
         ...(buyerShopId ? { orderType: "B2B", buyerShopId } : { orderType: "PERSONAL" }),
       }),
     });
@@ -357,6 +365,38 @@ export function CartView({
             </div>
           ) : null}
 
+          <div className="mt-3" data-testid="payment-method">
+            <Field label="Pay with">
+              <div className="space-y-1 text-sm">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="radio"
+                    name="payment-method"
+                    checked={!payingCod}
+                    onChange={() => setPaymentMethod("WALLET")}
+                  />
+                  Wallet
+                </label>
+                <label className={`flex items-center gap-2 ${codPossible ? "" : "text-ink-400"}`}>
+                  <input
+                    type="radio"
+                    name="payment-method"
+                    disabled={!codPossible}
+                    checked={payingCod}
+                    onChange={() => setPaymentMethod("COD")}
+                  />
+                  Cash on delivery
+                </label>
+                {!codPossible ? (
+                  <p className="text-xs text-ink-500">
+                    {codUnavailableReason ??
+                      (buyerShopId ? "Business orders are paid from the wallet." : "Choose a delivery address for cash on delivery.")}
+                  </p>
+                ) : null}
+              </div>
+            </Field>
+          </div>
+
           {cart.hasUnavailableItems ? (
             <div className="mt-3">
               <Alert tone="warning">
@@ -387,7 +427,7 @@ export function CartView({
                 disabled={busy || cart.grandTotalPaise === 0}
                 onClick={checkout}
               >
-                {busy ? "Placing order…" : "Pay from wallet"}
+                {busy ? "Placing order…" : payingCod ? "Place order — pay cash on delivery" : "Pay from wallet"}
               </Button>
             ) : (
               <LinkButton href="/wallet" className="w-full justify-center">

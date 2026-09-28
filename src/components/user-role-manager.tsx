@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { RevokeRoleButton } from "@/components/growth-actions";
 import { Badge, Card, EmptyState } from "@/components/ui";
 import type { UserRole } from "@/server/db/schema";
 
@@ -20,6 +21,8 @@ export interface ManagedUser {
   email: string;
   role: UserRole;
   status: string;
+  /** GS-003: other roles the user holds and can switch to. */
+  otherRoles?: UserRole[];
 }
 
 /**
@@ -99,6 +102,18 @@ function UserRow({
         </p>
         <p className="truncate text-xs text-ink-500">{user.email}</p>
         {error ? <p className="mt-1 text-xs text-red-600">{error}</p> : null}
+        {user.otherRoles && user.otherRoles.length > 0 ? (
+          <div className="mt-1 flex flex-wrap items-center gap-1 text-xs text-ink-500">
+            Also holds:
+            {user.otherRoles.map((r) =>
+              canSetRole && !isSelf ? (
+                <RevokeRoleButton key={r} userId={user.id} role={r} />
+              ) : (
+                <Badge key={r}>{ROLE_OPTIONS.find((o) => o.value === r)?.label ?? r}</Badge>
+              ),
+            )}
+          </div>
+        ) : null}
       </div>
 
       <div className="flex items-center gap-2">

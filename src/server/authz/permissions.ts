@@ -209,6 +209,16 @@ export const PERMISSIONS = {
   RATING_CREATE_OWN: "rating:create:own",
   /** Hide or restore a rating (moderation). Operator + admin. */
   RATING_MODERATE: "rating:moderate",
+
+  /* ------------------------------------------ growth, COD & risk (Phase 3) */
+  /** Segments and campaigns for one's own shop (GS-052/053). */
+  MARKETING_MANAGE_OWN: "marketing:manage:own",
+  /** Approve / reject shop campaigns before they are sent (WF-009). Operator + admin. */
+  MARKETING_APPROVE: "marketing:approve",
+  /** Record cash-on-delivery deposits from riders and shops (GS-030). Operator + admin. */
+  COD_CASH_MANAGE: "cod-cash:manage",
+  /** Review fraud / risk flags and run the rules (GS-068). Operator + admin. */
+  RISK_REVIEW: "risk:review",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -259,6 +269,7 @@ const SHOP_OWNER_PERMISSIONS: readonly Permission[] = [
   // A shop owner may dispute a master MRP but never write it (§13).
   PERMISSIONS.PRODUCT_MRP_DISPUTE,
   PERMISSIONS.SETTLEMENT_VIEW_OWN,
+  PERMISSIONS.MARKETING_MANAGE_OWN,
   // Deliberately absent: SHOP_SET_CLASSIFICATION, CATEGORY_MANAGE,
   // SHOP_UPDATE_ANY, SYSTEM_CONFIG, REGISTRATION_FEE_MANAGE,
   // SHOP_REGISTRATION_MANAGE, PAYMENT_RECORD, REFERRAL_MANAGE, PRODUCT_APPROVE
@@ -322,6 +333,9 @@ const OPERATOR_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.SOCIETY_MANAGE_ANY,
   PERMISSIONS.RATING_MODERATE,
   PERMISSIONS.SOCIETY_REGISTER,
+  PERMISSIONS.MARKETING_APPROVE,
+  PERMISSIONS.COD_CASH_MANAGE,
+  PERMISSIONS.RISK_REVIEW,
   // Deliberately absent (§43 "not unrestricted system access"):
   // USER_SET_ROLE, USER_SUSPEND, WALLET_ADJUST, SYSTEM_CONFIG,
   // AUDIT_LOG_VIEW, REPORT_VIEW_ALL, WALLET_VIEW_ANY.
@@ -486,4 +500,8 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.SOCIETY_MANAGE_ANY]: "Verify, reject, suspend and manage any society",
   [PERMISSIONS.RATING_CREATE_OWN]: "Rate the shop and rider of own delivered orders",
   [PERMISSIONS.RATING_MODERATE]: "Hide or restore ratings and reviews",
+  [PERMISSIONS.MARKETING_MANAGE_OWN]: "Create customer segments and campaigns for own shop",
+  [PERMISSIONS.MARKETING_APPROVE]: "Approve or reject shop marketing campaigns",
+  [PERMISSIONS.COD_CASH_MANAGE]: "Record cash-on-delivery deposits",
+  [PERMISSIONS.RISK_REVIEW]: "Review fraud and risk flags",
 };

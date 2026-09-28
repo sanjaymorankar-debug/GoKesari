@@ -54,6 +54,7 @@ import {
   searchShopsAdmin,
 } from "@/server/services/shops";
 import { countSubscriptionsByStatus } from "@/server/services/subscriptions";
+import { listRolesForUsers } from "@/server/services/roles";
 import { listUsers } from "@/server/services/users";
 import { getVoucherDashboard, listVouchers } from "@/server/services/vouchers";
 
@@ -124,6 +125,8 @@ export default async function AdminPage() {
       : Promise.resolve([{ total: 0 }]),
     canViewUsers ? listUsers({ limit: 100 }) : Promise.resolve([]),
   ]);
+  // GS-003: extra roles each listed user can switch to.
+  const userRoles = await listRolesForUsers(userList.map((u) => u.id));
 
   const [
     financeShops,
@@ -501,6 +504,7 @@ export default async function AdminPage() {
               email: u.email,
               role: u.role,
               status: u.status,
+              otherRoles: (userRoles.get(u.id) ?? []).filter((r) => r !== u.role),
             }))}
             currentUserId={user.id}
             canSetRole={canSetRole}

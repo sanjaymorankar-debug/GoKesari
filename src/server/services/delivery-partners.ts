@@ -20,13 +20,14 @@ import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { VEHICLE_TYPE_KEYS, type VehicleTypeKey } from "@/lib/vehicle-types";
 import { db } from "@/server/db";
 import {
+  deliveryPartnerSessions,
   deliveryPartners,
-  users,
   type DeliveryPartner,
   type DeliveryPartnerStatus,
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { grantRole } from "./roles";
 import { encryptKycInput, toPublicPartner, type PublicDeliveryPartner } from "./delivery-partner-kyc";
 import { resolveLocationVerification } from "./geocoding";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
@@ -128,10 +129,12 @@ export async function registerDeliveryPartner(
   // A plain customer applying becomes DELIVERY_PARTNER immediately, the same
   // way shop registration promotes to SHOP_OWNER — operators/admins keep
   // their higher role.
-  const [account] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId));
-  if (account?.role === "CUSTOMER") {
-    await db.update(users).set({ role: "DELIVERY_PARTNER" }).where(eq(users.id, userId));
-  }
+  // GS-003: granted alongside any role already held (a shop owner can also deliver).
+  await grantRole(userId, "DELIVERY_PARTNER", {
+    source: "DELIVERY_PARTNER_APPLICATION",
+    grantedBy: userId,
+    activateIfCustomer: true,
+  });
 
   await recordAudit({
     actorId: userId,
@@ -382,6 +385,16 @@ export async function goOnline(
     .where(eq(deliveryPartners.id, partner.id))
     .returning();
 
+  // KPI-013: open an online session unless one is already running.
+  const [openSession] = await db
+    .select({ id: deliveryPartnerSessions.id })
+    .from(deliveryPartnerSessions)
+    .where(and(eq(deliveryPartnerSessions.deliveryPartnerId, partner.id), isNull(deliveryPartnerSessions.endedAt)))
+    .limit(1);
+  if (!openSession) {
+    await db.insert(deliveryPartnerSessions).values({ deliveryPartnerId: partner.id });
+  }
+
   await recordAudit({
     actorId: userId,
     action: AUDIT_ACTIONS.DELIVERY_PARTNER_ONLINE_STATUS_CHANGED,
@@ -402,6 +415,12 @@ export async function goOffline(userId: string): Promise<PublicDeliveryPartner> 
     .set({ isOnline: false, updatedAt: new Date() })
     .where(eq(deliveryPartners.id, partner.id))
     .returning();
+
+  // KPI-013: close the running online session.
+  await db
+    .update(deliveryPartnerSessions)
+    .set({ endedAt: new Date() })
+    .where(and(eq(deliveryPartnerSessions.deliveryPartnerId, partner.id), isNull(deliveryPartnerSessions.endedAt)));
 
   await recordAudit({
     actorId: userId,
