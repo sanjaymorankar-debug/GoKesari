@@ -1,6 +1,6 @@
 import Link from "next/link";
 
-import { ProductGrid } from "@/app/page";
+import { ProductGrid } from "@/components/product-grid";
 import { LocationBar } from "@/components/location-bar";
 import { EmptyState, PageHeader, Section } from "@/components/ui";
 import { ShopGrid } from "@/components/shop-grid";
