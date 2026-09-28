@@ -209,6 +209,49 @@ with nobody working on it. Returns `{ expired, attempted, offered }`.
 
 ---
 
+## Society (Phase 2)
+
+Society roles are scoped per society through membership (`ADMIN` / `OPERATOR`
+/ `RESIDENT`); platform operators/admins (`SOCIETY_MANAGE_ANY`) can act on any
+society. Society staff never see residents' contact details or order contents.
+
+| Endpoint | Who | Purpose |
+|---|---|---|
+| `GET /api/societies?q=` · `POST /api/societies` | signed in / `SOCIETY_REGISTER` | Search verified societies; register one (caller becomes ADMIN, status APPLIED) |
+| `GET /api/societies/mine` | signed in | Own memberships |
+| `GET /api/societies/{id}` · `PATCH` | society ADMIN/OPERATOR (GET), ADMIN (PATCH) | Dashboard; rules: `deliveryInstructions`, `securityNotifyEnabled`, `exclusiveRiders`, `boundaryRadiusMeters`, coordinates |
+| `POST /api/societies/{id}/decision` | `SOCIETY_MANAGE_ANY` | `{ decision: verify\|reject\|suspend\|reinstate, reason? }` |
+| `POST /api/societies/{id}/members` | `SOCIETY_REGISTER` | Ask to join `{ unitLabel? }` (PENDING) |
+| `PATCH /api/societies/members/{memberId}` | society ADMIN/OPERATOR; member (remove = leave) | `{ action: approve\|decline\|role\|remove, role? }` (role: ADMIN only; last admin protected) |
+| `POST /api/societies/{id}/riders` · `PATCH /api/societies/riders/{linkId}` | society ADMIN | Add rider by mobile `{ mobile, preferred }`; `{ revoke?, preferred? }` |
+| `POST /api/societies/{id}/shops` | society ADMIN | `{ shopId, active }` — shops recommended to residents |
+| `PUT /api/addresses/{id}/society` | owner | `{ societyId \| null }` — only a verified society you actively belong to |
+
+Integration: an order to a society-linked address stores `orders.society_id`;
+dispatch applies the society's rider list (exclusive filter / listed and
+preferred first); security staff are notified on rider acceptance when enabled;
+the rider's active job shows the society's gate notes; society partner shops
+count as delivering to residents; checkout refuses shops that do not deliver to
+the chosen address (GS-026).
+
+## Ratings (Phase 2)
+
+| Endpoint | Who | Purpose |
+|---|---|---|
+| `GET /api/orders/{id}/rating` · `POST` | order's customer (`RATING_CREATE_OWN`) | Eligibility; `{ target: SHOP\|DELIVERY_PARTNER, score 1-5, comment? }` — DELIVERED orders only, within 30 days, once per target |
+| `GET /api/shops/{id}/ratings` | public | Average, count, recent visible reviews (no customer identity) |
+| `PATCH /api/ratings/{id}` | `RATING_MODERATE` | `{ hide, reason }` — hidden ratings leave the average |
+
+## Subscriptions & issues (Phase 2)
+
+| Endpoint | Who | Purpose |
+|---|---|---|
+| `GET /api/subscriptions/{id}/history` | owner / `SUBSCRIPTION_MANAGE_ANY` | Lifecycle events (paused, resumed, skipped, cancelled, payment failed) |
+| `POST /api/orders/{id}/issue` | order's customer | `{ category: ORDER\|PRODUCT\|PAYMENT, description }` — grievance linked to the order |
+
+Pause / resume / skip / cancel now refuse CANCELLED or COMPLETED subscriptions
+(resume no longer revives a cancelled one).
+
 ## Finance (Slice 6)
 
 Commission is a % of goods by shop type with per-shop overrides (D6); the

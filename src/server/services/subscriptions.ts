@@ -13,7 +13,7 @@
  * (retry, overlapping cron, manual replay) cannot create a second delivery or a
  * second wallet deduction for the same day.
  */
-import { and, asc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
 
 import {
   addDays,
@@ -27,6 +27,7 @@ import { formatPaise, lineTotalPaise } from "@/lib/money";
 import { getEnv } from "@/lib/env";
 import { db, type DbClient } from "@/server/db";
 import {
+  addresses,
   orderItems,
   orderStatusHistory,
   orders,
@@ -34,6 +35,7 @@ import {
   shopProducts,
   shops,
   subscriptionDailyOverrides,
+  subscriptionEvents,
   subscriptionOrders,
   subscriptions,
   wallets,
@@ -42,6 +44,7 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { resolveAddressSociety } from "./societies";
 import { consumeOnlineStock, isOnlinePurchasable } from "./catalogue";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { generateOrderNumber } from "./orders";
@@ -368,7 +371,16 @@ export async function skipDate(
   date: IsoDate,
   actor: { id: string; role: UserRole },
 ): Promise<SubscriptionDailyOverride> {
+  const current = await loadLiveSubscription(subscriptionId);
   await assertDateIsModifiable(subscriptionId, date);
+  await recordSubscriptionEvent({
+    subscriptionId,
+    action: "SKIPPED",
+    fromStatus: current.status,
+    toStatus: current.status,
+    note: date,
+    actorId: actor.id,
+  });
 
   const [override] = await db
     .insert(subscriptionDailyOverrides)
@@ -423,6 +435,59 @@ export async function clearOverride(
     );
 }
 
+/* ------------------------------------------------ lifecycle guards & history (Phase 2)
+ * Allowed transitions (brief §9):
+ *   ACTIVE ⇄ paused window (pause / resume)     ACTIVE → date skipped → ACTIVE
+ *   ACTIVE / PAYMENT_PENDING → CANCELLED         CANCELLED / COMPLETED → nothing
+ * Every lifecycle action is written to subscription_events (history).
+ */
+
+const FINAL_STATUSES = ["CANCELLED", "COMPLETED"] as const;
+
+async function loadLiveSubscription(subscriptionId: string): Promise<Subscription> {
+  const subscription = await db.query.subscriptions.findFirst({ where: eq(subscriptions.id, subscriptionId) });
+  if (!subscription) throw notFound("Subscription");
+  if ((FINAL_STATUSES as readonly string[]).includes(subscription.status)) {
+    throw conflict(`This subscription is ${subscription.status.toLowerCase()} and can no longer be changed.`);
+  }
+  return subscription;
+}
+
+export async function recordSubscriptionEvent(
+  input: {
+    subscriptionId: string;
+    action: string;
+    fromStatus?: Subscription["status"] | null;
+    toStatus?: Subscription["status"] | null;
+    note?: string | null;
+    actorId?: string | null;
+  },
+  client: DbClient = db,
+): Promise<void> {
+  try {
+    await client.insert(subscriptionEvents).values({
+      subscriptionId: input.subscriptionId,
+      action: input.action,
+      fromStatus: input.fromStatus ?? null,
+      toStatus: input.toStatus ?? null,
+      note: input.note ?? null,
+      actorId: input.actorId ?? null,
+    });
+  } catch (error) {
+    // History must never break the action it records.
+    console.error("[subscriptions] failed to record event", input.action, error);
+  }
+}
+
+export async function listSubscriptionEvents(subscriptionId: string) {
+  return db
+    .select()
+    .from(subscriptionEvents)
+    .where(eq(subscriptionEvents.subscriptionId, subscriptionId))
+    .orderBy(desc(subscriptionEvents.createdAt))
+    .limit(100);
+}
+
 export async function pauseSubscription(
   subscriptionId: string,
   from: IsoDate,
@@ -432,6 +497,7 @@ export async function pauseSubscription(
   if (until < from) {
     throw validationFailed("The pause end date must be on or after the start date.");
   }
+  const current = await loadLiveSubscription(subscriptionId);
   const [updated] = await db
     .update(subscriptions)
     .set({ pauseFrom: from, pauseUntil: until, updatedAt: new Date() })
@@ -448,6 +514,14 @@ export async function pauseSubscription(
     entityId: subscriptionId,
     newValue: { from, until },
   });
+  await recordSubscriptionEvent({
+    subscriptionId,
+    action: "PAUSED",
+    fromStatus: current.status,
+    toStatus: updated.status,
+    note: `${from} to ${until}`,
+    actorId: actor.id,
+  });
   await notify({
     userId: updated.userId,
     type: NOTIFICATION_TYPES.SUBSCRIPTION_PAUSED,
@@ -462,6 +536,8 @@ export async function resumeSubscription(
   subscriptionId: string,
   actor: { id: string; role: UserRole },
 ): Promise<Subscription> {
+  // A cancelled / completed subscription is never revived by "resume".
+  const current = await loadLiveSubscription(subscriptionId);
   const [updated] = await db
     .update(subscriptions)
     .set({
@@ -482,6 +558,22 @@ export async function resumeSubscription(
     entityType: "subscription",
     entityId: subscriptionId,
   });
+  await recordSubscriptionEvent({
+    subscriptionId,
+    action: "RESUMED",
+    fromStatus: current.status,
+    toStatus: updated.status,
+    actorId: actor.id,
+  });
+  await notify({
+    userId: updated.userId,
+    type: NOTIFICATION_TYPES.SUBSCRIPTION_RESUMED,
+    title: "Subscription resumed",
+    body: updated.nextDeliveryDate
+      ? `Deliveries resume on ${updated.nextDeliveryDate}.`
+      : "Your subscription is active again.",
+    actionUrl: `/subscriptions/${subscriptionId}`,
+  });
   return updated;
 }
 
@@ -490,6 +582,7 @@ export async function cancelSubscription(
   reason: string,
   actor: { id: string; role: UserRole },
 ): Promise<Subscription> {
+  const current = await loadLiveSubscription(subscriptionId);
   const [updated] = await db
     .update(subscriptions)
     .set({
@@ -510,6 +603,21 @@ export async function cancelSubscription(
     entityType: "subscription",
     entityId: subscriptionId,
     newValue: { reason },
+  });
+  await recordSubscriptionEvent({
+    subscriptionId,
+    action: "CANCELLED",
+    fromStatus: current.status,
+    toStatus: "CANCELLED",
+    note: reason,
+    actorId: actor.id,
+  });
+  await notify({
+    userId: updated.userId,
+    type: NOTIFICATION_TYPES.SUBSCRIPTION_CANCELLED,
+    title: "Subscription cancelled",
+    body: "No further deliveries will be scheduled or charged.",
+    actionUrl: `/subscriptions/${subscriptionId}`,
   });
   return updated;
 }
@@ -943,6 +1051,14 @@ async function generateOneDelivery(
 
   try {
     await db.transaction(async (tx) => {
+      // Same address snapshot and society link a checkout order gets, so
+      // rider dispatch, society rules and the drop address work unchanged.
+      const address = subscription.addressId
+        ? await tx.query.addresses.findFirst({ where: eq(addresses.id, subscription.addressId) })
+        : null;
+      const orderSocietyId = address
+        ? await resolveAddressSociety(subscription.userId, address.societyId ?? null, tx)
+        : null;
       const [order] = await tx
         .insert(orders)
         .values({
@@ -950,6 +1066,20 @@ async function generateOneDelivery(
           userId: subscription.userId,
           shopId: subscription.shopId,
           addressId: subscription.addressId,
+          deliveryAddressSnapshot: address
+            ? {
+                line1: address.line1,
+                line2: address.line2,
+                area: address.area,
+                city: address.city,
+                pincode: address.pincode,
+                latitude: address.latitude,
+                longitude: address.longitude,
+                landmark: address.landmark,
+                deliveryInstructions: address.deliveryInstructions,
+              }
+            : null,
+          societyId: orderSocietyId,
           status: "PENDING",
           source: "SUBSCRIPTION",
           subtotalPaise: totalPaise,
@@ -1106,6 +1236,16 @@ async function recordWalletFailure(
       .update(subscriptions)
       .set({ status: "PAYMENT_PENDING", updatedAt: new Date() })
       .where(eq(subscriptions.id, subscription.id));
+    await recordSubscriptionEvent(
+      {
+        subscriptionId: subscription.id,
+        action: "PAYMENT_FAILED",
+        fromStatus: subscription.status,
+        toStatus: "PAYMENT_PENDING",
+        note: `Wallet balance too low for ${date}`,
+      },
+      tx,
+    );
   });
 
   await notify({

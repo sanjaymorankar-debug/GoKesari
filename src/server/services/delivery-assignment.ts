@@ -22,7 +22,7 @@ import { and, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { haversineDistanceKm, parseCoordinates } from "@/lib/geo/haversine";
-import { db } from "@/server/db";
+import { db, type DbClient } from "@/server/db";
 import {
   deliveryOrders,
   deliveryPartners,
@@ -36,6 +36,7 @@ import { ACTIVE_ASSIGNMENT_STATUSES, findEligiblePartnersNearShop } from "./deli
 import { creditDeliveryEarnings } from "./delivery-earnings";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { updateOrderStatus } from "./orders";
+import { getSocietyDeliveryNotes, getSocietyDispatchRules, notifySocietySecurity } from "./societies";
 
 interface Actor {
   id: string;
@@ -55,6 +56,66 @@ interface DispatchActor {
 export const OFFER_TTL_SECONDS = 120;
 /** Wrong delivery-OTP attempts before only an operator can confirm the drop. */
 const MAX_OTP_ATTEMPTS = 5;
+
+/**
+ * Candidate ranking (lower score wins). Distance in km is the base; the rest
+ * are small, explainable nudges so tuning later is a config change:
+ *  - GA-002 society-listed / preferred riders move ahead for that society;
+ *  - GA-007 reliability (0..1, completions vs failures/declines, last 30 days);
+ *  - GA-008 fairness: each offer already received today costs a little.
+ * GA-001 exclusivity is a filter, not a weight (see rankCandidates).
+ */
+export const DISPATCH_WEIGHTS = {
+  societyListedKm: 1.5,
+  societyPreferredKm: 1.5,
+  unreliabilityKm: 2,
+  perOfferTodayKm: 0.3,
+} as const;
+
+type Candidate = Awaited<ReturnType<typeof findEligiblePartnersNearShop>>[number];
+
+/** GA-001/002/007/008: filter to a society's riders when exclusive, then score and sort. */
+async function rankCandidates(
+  candidates: Candidate[],
+  rules: Awaited<ReturnType<typeof getSocietyDispatchRules>>,
+  client: DbClient,
+): Promise<Candidate[]> {
+  const pool = rules?.exclusive ? candidates.filter((c) => rules.riders.has(c.partner.id)) : candidates;
+  if (pool.length <= 1) return pool;
+
+  const ids = pool.map((c) => c.partner.id);
+  const stats = await client
+    .select({
+      partnerId: deliveryPartners.id,
+      delivered: sql<number>`(select count(*)::int from ${deliveryOrders} d where d.delivery_partner_id = ${deliveryPartners.id}
+        and d.status = 'DELIVERED' and d.updated_at > now() - interval '30 days')`,
+      failed: sql<number>`(select count(*)::int from ${deliveryOrders} d where d.delivery_partner_id = ${deliveryPartners.id}
+        and d.status = 'FAILED' and d.updated_at > now() - interval '30 days')`,
+      declined: sql<number>`(select count(*)::int from ${deliveryOrders} d where ${deliveryPartners.id} = any(d.rejected_partner_ids)
+        and d.updated_at > now() - interval '30 days')`,
+      offersToday: sql<number>`(select count(*)::int from ${deliveryOrders} d where (d.delivery_partner_id = ${deliveryPartners.id}
+        or ${deliveryPartners.id} = any(d.rejected_partner_ids)) and d.offered_at > date_trunc('day', now()))`,
+    })
+    .from(deliveryPartners)
+    .where(inArray(deliveryPartners.id, ids));
+  const byId = new Map(stats.map((row) => [row.partnerId, row]));
+
+  const score = (c: Candidate) => {
+    const st = byId.get(c.partner.id);
+    // Laplace-smoothed so a new rider starts near 1, not 0.
+    const reliability = st ? (st.delivered + 1) / (st.delivered + st.failed + st.declined + 1) : 1;
+    const listed = rules?.riders.has(c.partner.id) ?? false;
+    const preferred = rules?.riders.get(c.partner.id) ?? false;
+    return (
+      c.distanceToShopKm -
+      (listed ? DISPATCH_WEIGHTS.societyListedKm : 0) -
+      (preferred ? DISPATCH_WEIGHTS.societyPreferredKm : 0) +
+      (1 - Math.min(reliability, 1)) * DISPATCH_WEIGHTS.unreliabilityKm +
+      (st?.offersToday ?? 0) * DISPATCH_WEIGHTS.perOfferTodayKm
+    );
+  };
+  return [...pool].sort((a, b) => score(a) - score(b));
+}
 
 /** 4-digit code; crypto-random so it cannot be predicted from timing. */
 function fourDigitCode(): string {
@@ -108,7 +169,11 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
     // Nearest-first candidate list, re-evaluated fresh inside the
     // transaction (not carried over from an earlier read) so it reflects
     // whatever earlier concurrent assignments have already committed.
-    const candidates = await findEligiblePartnersNearShop(shopCoords, tx);
+    const candidates = await rankCandidates(
+      await findEligiblePartnersNearShop(shopCoords, tx),
+      await getSocietyDispatchRules(order.societyId, tx),
+      tx,
+    );
     // GA-009 fallback: a rider who declined this order, or let the offer
     // expire, is never offered it again.
     const declined = new Set(existing?.rejectedPartnerIds ?? []);
@@ -189,7 +254,11 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
       return deliveryOrder;
     }
 
-    throw conflict("No delivery partner is currently available for this order.");
+    throw conflict(
+      order.societyId
+        ? "No delivery partner allowed by this society is currently available for this order."
+        : "No delivery partner is currently available for this order.",
+    );
   });
 }
 
@@ -260,7 +329,7 @@ export async function acceptDeliveryOffer(deliveryOrderId: string, partnerUserId
   // Slice 4: accepting also moves the order READY → ASSIGNED and issues the
   // pickup code the shop reads out at handover — in one transaction, so a
   // cancelled order can never end up with an accepted rider.
-  return db.transaction(async (tx) => {
+  const accepted = await db.transaction(async (tx) => {
     const [updated] = await tx
       .update(deliveryOrders)
       .set({ status: "ACCEPTED", acceptedAt: new Date(), pickupCode: fourDigitCode(), updatedAt: new Date() })
@@ -295,6 +364,11 @@ export async function acceptDeliveryOffer(deliveryOrderId: string, partnerUserId
     );
     return updated;
   });
+  // GS-046: society security desk hears who is coming (after commit; never blocks the accept).
+  await notifySocietySecurity(row.orderId).catch((error) => {
+    console.error("[delivery] society security notification failed", row.orderId, error);
+  });
+  return accepted;
 }
 
 /** DEF-04 fix — same status-guarded UPDATE as acceptDeliveryOffer, see above. */
@@ -703,6 +777,11 @@ export interface ActiveDeliveryDetail
   shopName: string;
   shopAddress: string;
   customerAddress: string | null;
+  /** Landmark / the customer's own delivery instructions (GS-047). */
+  customerNotes: string | null;
+  /** Society gate / parking / access notes for society deliveries (GS-047). */
+  societyName: string | null;
+  societyInstructions: string | null;
 }
 
 /** Enriched view for the delivery-partner dashboard — pickup/drop details a rider needs, no map integration. */
@@ -715,6 +794,7 @@ export async function getMyActiveDeliveryDetail(userId: string): Promise<ActiveD
       orderNumber: orders.orderNumber,
       orderTotalPaise: orders.totalPaise,
       deliveryAddressSnapshot: orders.deliveryAddressSnapshot,
+      societyId: orders.societyId,
       shopName: shops.name,
       addressLine1: shops.addressLine1,
       addressLine2: shops.addressLine2,
@@ -725,6 +805,8 @@ export async function getMyActiveDeliveryDetail(userId: string): Promise<ActiveD
     .where(eq(orders.id, active.orderId));
   if (!row) return null;
 
+  // Only the rider holding this active job gets the society's gate notes.
+  const society = await getSocietyDeliveryNotes(row.societyId);
   const customerAddress = row.deliveryAddressSnapshot
     ? [row.deliveryAddressSnapshot.line1, row.deliveryAddressSnapshot.area, row.deliveryAddressSnapshot.city]
         .filter(Boolean)
@@ -743,6 +825,12 @@ export async function getMyActiveDeliveryDetail(userId: string): Promise<ActiveD
     shopName: row.shopName,
     shopAddress: [row.addressLine1, row.addressLine2, row.city].filter(Boolean).join(", "),
     customerAddress,
+    customerNotes:
+      [row.deliveryAddressSnapshot?.landmark, row.deliveryAddressSnapshot?.deliveryInstructions]
+        .filter(Boolean)
+        .join(" · ") || null,
+    societyName: society?.name ?? null,
+    societyInstructions: society?.instructions ?? null,
   };
 }
 

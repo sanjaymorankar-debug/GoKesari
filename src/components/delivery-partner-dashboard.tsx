@@ -20,12 +20,22 @@ export interface ActiveDelivery {
   needsDeliveryOtp: boolean;
   /** Set once the rider has left the shop for the customer. */
   outForDeliveryAt: Date | string | null;
+  /** Landmark / customer's delivery instructions. */
+  customerNotes: string | null;
+  /** Society gate / parking notes, for society deliveries. */
+  societyName: string | null;
+  societyInstructions: string | null;
 }
 
 export interface EarningsSummary {
   todayPaise: number;
   totalPaise: number;
   deliveryCount: number;
+}
+
+export interface RiderRating {
+  avgX100: number;
+  count: number;
 }
 
 const STATUS_LABEL: Record<string, string> = {
@@ -66,10 +76,13 @@ export function DeliveryPartnerDashboard({
   isOnline: initialOnline,
   activeDelivery,
   earnings,
+  rating,
 }: {
   isOnline: boolean;
   activeDelivery: ActiveDelivery | null;
   earnings: EarningsSummary;
+  /** The rider's own average (GS-060), shown only to them. */
+  rating?: RiderRating;
 }) {
   const router = useRouter();
   const [isOnline, setIsOnline] = useState(initialOnline);
@@ -190,6 +203,11 @@ export function DeliveryPartnerDashboard({
         <Card className="p-4">
           <p className="text-xs text-ink-500">Deliveries</p>
           <p className="mt-1 text-lg font-bold text-ink-900">{earnings.deliveryCount}</p>
+          {rating && rating.count > 0 ? (
+            <p className="text-xs text-ink-500">
+              {(rating.avgX100 / 100).toFixed(1)}★ from {rating.count}
+            </p>
+          ) : null}
         </Card>
       </div>
 
@@ -207,7 +225,16 @@ export function DeliveryPartnerDashboard({
             <div>
               <p className="font-medium text-ink-700">Drop</p>
               <p className="text-ink-500">{activeDelivery.customerAddress ?? "Address on order details"}</p>
+              {activeDelivery.customerNotes ? <p className="text-ink-500">Note: {activeDelivery.customerNotes}</p> : null}
             </div>
+            {activeDelivery.societyName ? (
+              <div className="rounded-lg bg-cream-100 p-2" data-testid="society-notes">
+                <p className="font-medium text-ink-700">{activeDelivery.societyName}</p>
+                {activeDelivery.societyInstructions ? (
+                  <p className="text-ink-600">{activeDelivery.societyInstructions}</p>
+                ) : null}
+              </div>
+            ) : null}
             {activeDelivery.distanceKm ? (
               <p className="text-ink-500">~{Number(activeDelivery.distanceKm).toFixed(1)} km delivery leg</p>
             ) : null}

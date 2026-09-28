@@ -194,6 +194,21 @@ export const PERMISSIONS = {
   ORDER_REFUND: "order:refund",
   /** A shop owner's own settlement statements and per-order payable. */
   SETTLEMENT_VIEW_OWN: "settlement:view:own",
+
+  /* ----------------------------------------------- society & ratings (Phase 2) */
+  /**
+   * Register a society / request membership. Society-scoped powers (approve
+   * residents, rider list, settings, society orders) are NOT global
+   * permissions — they come from an ACTIVE society_members row with role
+   * ADMIN or OPERATOR (see services/societies.ts requireSocietyRole).
+   */
+  SOCIETY_REGISTER: "society:register",
+  /** Verify / reject / suspend societies and act on any society. Operator + admin. */
+  SOCIETY_MANAGE_ANY: "society:manage:any",
+  /** Rate the shop and rider of one's own delivered order. */
+  RATING_CREATE_OWN: "rating:create:own",
+  /** Hide or restore a rating (moderation). Operator + admin. */
+  RATING_MODERATE: "rating:moderate",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -207,6 +222,8 @@ const CUSTOMER_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.WALLET_TOPUP_OWN,
   PERMISSIONS.SUBSCRIPTION_MANAGE_OWN,
   PERMISSIONS.DELIVERY_PARTNER_REGISTER, // any customer may apply to become a delivery partner
+  PERMISSIONS.SOCIETY_REGISTER,
+  PERMISSIONS.RATING_CREATE_OWN,
 ];
 
 /**
@@ -302,6 +319,9 @@ const OPERATOR_PERMISSIONS: readonly Permission[] = [
   // settlements, payouts or commission, which stay admin-only.
   PERMISSIONS.FINANCE_EXCEPTIONS_VIEW,
   PERMISSIONS.ORDER_REFUND,
+  PERMISSIONS.SOCIETY_MANAGE_ANY,
+  PERMISSIONS.RATING_MODERATE,
+  PERMISSIONS.SOCIETY_REGISTER,
   // Deliberately absent (§43 "not unrestricted system access"):
   // USER_SET_ROLE, USER_SUSPEND, WALLET_ADJUST, SYSTEM_CONFIG,
   // AUDIT_LOG_VIEW, REPORT_VIEW_ALL, WALLET_VIEW_ANY.
@@ -462,4 +482,8 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.FINANCE_EXCEPTIONS_VIEW]: "View and resolve operational financial exceptions",
   [PERMISSIONS.ORDER_REFUND]: "Refund a delivered order to the customer's wallet",
   [PERMISSIONS.SETTLEMENT_VIEW_OWN]: "View own shop's settlement statements",
+  [PERMISSIONS.SOCIETY_REGISTER]: "Register a society or ask to join one",
+  [PERMISSIONS.SOCIETY_MANAGE_ANY]: "Verify, reject, suspend and manage any society",
+  [PERMISSIONS.RATING_CREATE_OWN]: "Rate the shop and rider of own delivered orders",
+  [PERMISSIONS.RATING_MODERATE]: "Hide or restore ratings and reviews",
 };

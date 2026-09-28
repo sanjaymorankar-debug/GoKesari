@@ -46,6 +46,8 @@ import { creditDeliveryEarnings } from "./delivery-earnings";
 import { DELIVERY_WINDOW_MINUTES, getFeasibleDeliveryWindows } from "./delivery-feasibility";
 import { notifyOpenStockAlerts } from "./inventory-alerts";
 import { recordOrderFinancials } from "./finance";
+import { shopServiceability, societyPartnerShopIds } from "./serviceability";
+import { resolveAddressSociety } from "./societies";
 import { NOTIFICATION_TYPES, notify, type NotificationType } from "./notifications";
 import { applyWalletMutation, refundOriginalDebit } from "./wallet";
 
@@ -214,9 +216,44 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     );
   }
 
-  const addressSnapshot = input.addressId
+  const addressWithSociety = input.addressId
     ? await loadAddressSnapshot(input.userId, input.addressId)
     : null;
+  // Society of the delivery address — only while the customer is still an
+  // active member of a verified society (society rider rules, security, visibility).
+  const orderSocietyId = addressWithSociety
+    ? await resolveAddressSociety(input.userId, addressWithSociety.societyId ?? null)
+    : null;
+  const addressSnapshot = addressWithSociety
+    ? (({ societyId: _societyId, ...rest }) => {
+        void _societyId;
+        return rest;
+      })(addressWithSociety)
+    : null;
+
+  // GS-026: never take payment for a delivery the shop cannot make. Checked
+  // per shop against the chosen address (radius, PIN, or society partner
+  // shop). Orders without an address (pickup) are unchanged.
+  if (addressSnapshot) {
+    const partners = await societyPartnerShopIds(orderSocietyId);
+    const location = {
+      label: "checkout",
+      pincode: addressSnapshot.pincode,
+      latitude: addressSnapshot.latitude ? Number(addressSnapshot.latitude) : null,
+      longitude: addressSnapshot.longitude ? Number(addressSnapshot.longitude) : null,
+      source: "ADDRESS" as const,
+      addressId: input.addressId ?? null,
+      societyId: orderSocietyId,
+    };
+    for (const group of purchasableGroups) {
+      const [shopRow] = await db.select().from(shops).where(eq(shops.id, group.shop.id));
+      if (!shopRow?.deliveryAvailable || partners.has(shopRow.id)) continue;
+      const check = shopServiceability(shopRow, location);
+      if (!check.deliversHere) {
+        throw validationFailed(`${shopRow.name} does not deliver to this address. ${check.reason ?? ""}`.trim());
+      }
+    }
+  }
 
   const created: Order[] = [];
   let anyDeduplicated = false;
@@ -304,6 +341,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           source: "DIRECT",
           orderType,
           buyerShopId,
+          societyId: orderSocietyId,
           subtotalPaise,
           deliveryFeePaise,
           taxPaise,
@@ -484,6 +522,20 @@ export async function updateOrderStatus(
     // it is delivered, in the same transaction (idempotent).
     if (newStatus === "DELIVERED") {
       await recordOrderFinancials(orderId, tx);
+    }
+    // Phase 2: invite the customer to rate the shop and rider (GS-059/060).
+    if (newStatus === "DELIVERED") {
+      await notify(
+        {
+          userId: order.userId,
+          type: NOTIFICATION_TYPES.RATING_REQUESTED,
+          title: "How was your order?",
+          body: `Rate order ${order.orderNumber} — your rating helps other customers and the shop.`,
+          actionUrl: "/orders",
+          dedupeKey: `rating-requested:${orderId}`,
+        },
+        tx,
+      );
     }
 
     await recordAudit(
@@ -960,6 +1012,9 @@ async function loadAddressSnapshot(
   pincode: string;
   latitude?: string | null;
   longitude?: string | null;
+  landmark?: string | null;
+  deliveryInstructions?: string | null;
+  societyId?: string | null;
 } | null> {
   const address = await db.query.addresses.findFirst({
     where: and(eq(addresses.id, addressId), eq(addresses.userId, userId)),
@@ -973,6 +1028,9 @@ async function loadAddressSnapshot(
     pincode: address.pincode,
     latitude: address.latitude,
     longitude: address.longitude,
+    landmark: address.landmark,
+    deliveryInstructions: address.deliveryInstructions,
+    societyId: address.societyId,
   };
 }
 
