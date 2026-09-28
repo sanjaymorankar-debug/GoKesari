@@ -1,3 +1,5 @@
+import path from "node:path";
+
 import type { NextConfig } from "next";
 
 /**
@@ -62,6 +64,16 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // Hostinger installs production dependencies only, so `typescript` is absent
+  // when the build starts and Next never reads the "@/*" paths in tsconfig.json.
+  // Declaring the alias here keeps webpack resolving "@/..." either way.
+  webpack(config) {
+    config.resolve.alias = {
+      ...config.resolve.alias,
+      "@": path.join(process.cwd(), "src"),
+    };
+    return config;
+  },
   async headers() {
     return [
       {
