@@ -12,6 +12,7 @@ import { forbidden, notFound, validationFailed } from "@/lib/errors";
 import { db } from "@/server/db";
 import { users, userRoleEnum, type User, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { assignRoleByAdmin } from "./roles";
 
 export interface ListUsersOptions {
   query?: string;
@@ -57,11 +58,17 @@ export async function setUserRole(
 
   if (current.role === role) return current;
 
-  const [updated] = await db
-    .update(users)
-    .set({ role, updatedAt: new Date() })
-    .where(eq(users.id, userId))
-    .returning();
+  // GS-003: the role is granted and made active; a staff demotion also
+  // removes the staff grant so the user cannot switch back to it.
+  const updated = await db.transaction(async (tx) => {
+    await assignRoleByAdmin(userId, role, actor, tx);
+    const [row] = await tx
+      .update(users)
+      .set({ role, updatedAt: new Date() })
+      .where(eq(users.id, userId))
+      .returning();
+    return row;
+  });
 
   await recordAudit({
     actorId: actor.id,

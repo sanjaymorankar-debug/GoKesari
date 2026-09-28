@@ -5,11 +5,14 @@ import { usePathname } from "next/navigation";
 import { useState } from "react";
 import clsx from "clsx";
 
+import { RoleSwitcher } from "@/components/growth-actions";
 import { formatPaiseCompact } from "@/lib/money";
 import type { UserRole } from "@/server/db/schema";
 
 interface Props {
   user: { id: string; name: string | null; email: string; role: UserRole } | null;
+  /** Roles the user holds (GS-003) — a switcher appears when there are several. */
+  roles?: UserRole[];
   cartCount: number;
   balancePaise: number | null;
   unreadCount: number;
@@ -36,6 +39,8 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/shop/orders", label: "Orders" },
     { href: "/shop/prices", label: "Price Updates" },
     { href: "/shop/finance", label: "Finance" },
+    { href: "/shop/marketing", label: "Marketing" },
+    { href: "/shop/analytics", label: "Analytics" },
   ],
   OPERATOR: [
     { href: "/admin", label: "Operator Console" },
@@ -44,6 +49,10 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin/finance/exceptions", label: "Finance exceptions" },
     { href: "/admin/societies", label: "Societies" },
     { href: "/admin/ratings", label: "Ratings" },
+    { href: "/admin/analytics", label: "Analytics" },
+    { href: "/admin/campaigns", label: "Campaigns" },
+    { href: "/admin/risk", label: "Risk" },
+    { href: "/admin/cod", label: "COD cash" },
   ],
   ADMIN: [
     { href: "/admin", label: "Admin Console" },
@@ -52,12 +61,16 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin/finance", label: "Finance" },
     { href: "/admin/societies", label: "Societies" },
     { href: "/admin/ratings", label: "Ratings" },
+    { href: "/admin/analytics", label: "Analytics" },
+    { href: "/admin/campaigns", label: "Campaigns" },
+    { href: "/admin/risk", label: "Risk" },
+    { href: "/admin/cod", label: "COD cash" },
   ],
   DELIVERY_PARTNER: [{ href: "/delivery-partner", label: "Delivery Partner" }],
 };
 
 /** Header per requirement §6, collapsing to a drawer on mobile (§52). */
-export function SiteHeader({ user, cartCount, balancePaise, unreadCount }: Props) {
+export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCount }: Props) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
 
@@ -150,6 +163,7 @@ export function SiteHeader({ user, cartCount, balancePaise, unreadCount }: Props
 
           {user ? (
             <div className="flex items-center gap-2">
+              <RoleSwitcher active={user.role} roles={roles} />
               {dashboardHref ? (
                 <Link
                   href={dashboardHref}

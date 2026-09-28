@@ -53,7 +53,7 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
-import { refundOriginalDebit } from "./wallet";
+import { applyWalletMutation, refundOriginalDebit } from "./wallet";
 
 interface Actor {
   id: string;
@@ -328,18 +328,35 @@ export async function refundDeliveredOrder(input: RefundDeliveredInput, actor: A
       throw validationFailed(`At most ₹${(order.totalPaise / 100).toFixed(2)} can still be refunded on this order.`);
     }
 
-    const refund = await refundOriginalDebit(
-      {
-        userId: order.userId,
-        referenceType: "orderId",
-        referenceId: order.id,
-        idempotencyKey: key,
-        description: `Refund for order ${order.orderNumber}: ${reason}`,
-        createdBy: actor.id,
-        amountPaise: input.amountPaise,
-      },
-      tx,
-    );
+    // A cash-on-delivery order has no wallet debit to reverse: its refund is
+    // a customer-funded wallet credit (GS-030).
+    const refund =
+      order.paymentMethod === "COD"
+        ? await applyWalletMutation(
+            {
+              userId: order.userId,
+              amountPaise: input.amountPaise,
+              type: "REFUND",
+              idempotencyKey: key,
+              description: `Refund for cash order ${order.orderNumber}: ${reason}`,
+              orderId: order.id,
+              createdBy: actor.id,
+              promotionalAmountPaise: 0,
+            },
+            tx,
+          )
+        : await refundOriginalDebit(
+            {
+              userId: order.userId,
+              referenceType: "orderId",
+              referenceId: order.id,
+              idempotencyKey: key,
+              description: `Refund for order ${order.orderNumber}: ${reason}`,
+              createdBy: actor.id,
+              amountPaise: input.amountPaise,
+            },
+            tx,
+          );
 
     const snapshot = await tx.query.orderFinancials.findFirst({ where: eq(orderFinancials.orderId, order.id) });
     const chargeShop = input.chargeTo === "SHOP" && snapshot != null;
@@ -412,7 +429,11 @@ export async function refundDeliveredOrder(input: RefundDeliveredInput, actor: A
   return result.adjustment;
 }
 
-const ADJUSTMENT_PARTY: Record<Exclude<AdjustmentType, "REFUND_SHOP" | "REFUND_PLATFORM">, FinancialParty> = {
+// COD cash adjustments are system-recorded only (cod.ts), never entered by hand.
+const ADJUSTMENT_PARTY: Record<
+  Exclude<AdjustmentType, "REFUND_SHOP" | "REFUND_PLATFORM" | "COD_CASH_COLLECTED" | "COD_CASH_DEPOSITED">,
+  FinancialParty
+> = {
   SHOP_ADJUSTMENT: "SHOP",
   RIDER_ADJUSTMENT: "RIDER",
   DELIVERY_ADJUSTMENT: "RIDER",
@@ -1131,13 +1152,17 @@ export async function runReconciliation(fromDate: string, toDate: string, actor:
       totalPaise: orders.totalPaise,
       walletNet: sql<number>`coalesce((select -sum(${walletTransactions.amountPaise}) from ${walletTransactions}
         where ${walletTransactions.orderId} = ${orders.id} and ${walletTransactions.status} = 'COMPLETED'), 0)::bigint`,
+      // GS-030: cash collected at the door for a COD order.
+      codCash: sql<number>`coalesce((select -sum(${financialAdjustments.amountPaise}) from ${financialAdjustments}
+        where ${financialAdjustments.orderId} = ${orders.id} and ${financialAdjustments.type} = 'COD_CASH_COLLECTED'), 0)::bigint`,
       hasSnapshot: sql<boolean>`exists(select 1 from ${orderFinancials} where ${orderFinancials.orderId} = ${orders.id})`,
     })
     .from(orders)
     .where(inWindow(orders.paidAt));
   for (const o of paidOrders) {
     const expected = o.status === "CANCELLED" || o.status === "REFUNDED" ? 0 : o.totalPaise;
-    const actual = Number(o.walletNet);
+    // Wallet net charge plus COD cash (a COD refund is a wallet credit, so it nets here too).
+    const actual = Number(o.walletNet) + Number(o.codCash);
     results.push({
       entityType: "ORDER",
       entityId: o.id,
@@ -1146,7 +1171,7 @@ export async function runReconciliation(fromDate: string, toDate: string, actor:
       expectedPaise: expected,
       actualPaise: actual,
       status: compare(expected, actual),
-      detail: actual === expected ? null : `Order is ${o.status}; wallet net charge differs from what the order holds.`,
+      detail: actual === expected ? null : `Order is ${o.status}; wallet net charge (plus cash collected) differs from what the order holds.`,
     });
     if (o.status === "DELIVERED") {
       results.push({

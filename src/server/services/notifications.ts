@@ -36,6 +36,11 @@ export const NOTIFICATION_TYPES = {
   RATING_REQUESTED: "rating.requested",
   SUBSCRIPTION_RESUMED: "subscription.resumed",
   SUBSCRIPTION_CANCELLED: "subscription.cancelled",
+  // Phase 3
+  MARKETING_CAMPAIGN: "marketing.campaign",
+  CAMPAIGN_DECIDED: "marketing.campaign_decided",
+  CAMPAIGN_SUBMITTED: "marketing.campaign_submitted",
+  RISK_FLAG_RAISED: "risk.flag_raised",
   ORDER_READY: "order.ready",
   ORDER_OUT_FOR_DELIVERY: "order.out_for_delivery",
   ORDER_DELIVERED: "order.delivered",

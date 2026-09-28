@@ -10,6 +10,8 @@ export interface ActiveDelivery {
   status: string;
   orderNumber: string;
   orderTotalPaise: number;
+  /** Cash on delivery: the amount to collect at the door (null when prepaid). */
+  cashToCollectPaise: number | null;
   shopName: string;
   shopAddress: string;
   customerAddress: string | null;
@@ -91,6 +93,7 @@ export function DeliveryPartnerDashboard({
   const [code, setCode] = useState("");
   const [failReason, setFailReason] = useState("");
   const [showFail, setShowFail] = useState(false);
+  const [cashCollected, setCashCollected] = useState(false);
 
   async function toggleOnline() {
     setError(null);
@@ -145,7 +148,7 @@ export function DeliveryPartnerDashboard({
 
   async function act(
     action: "accept" | "reject" | "pickup" | "start" | "deliver" | "fail",
-    extra: Record<string, string> = {},
+    extra: Record<string, string | boolean> = {},
   ) {
     if (!activeDelivery) return;
     setBusy(true);
@@ -159,6 +162,7 @@ export function DeliveryPartnerDashboard({
       setCode("");
       setFailReason("");
       setShowFail(false);
+      setCashCollected(false);
     }
     setBusy(false);
     if (!response.ok) {
@@ -235,6 +239,11 @@ export function DeliveryPartnerDashboard({
                 ) : null}
               </div>
             ) : null}
+            {activeDelivery.cashToCollectPaise != null ? (
+              <p className="rounded-lg bg-kesari-50 p-2 font-semibold text-kesari-800" data-testid="cash-to-collect">
+                Cash on delivery — collect <Money paise={activeDelivery.cashToCollectPaise} />
+              </p>
+            ) : null}
             {activeDelivery.distanceKm ? (
               <p className="text-ink-500">~{Number(activeDelivery.distanceKm).toFixed(1)} km delivery leg</p>
             ) : null}
@@ -286,10 +295,24 @@ export function DeliveryPartnerDashboard({
                     onChange={setCode}
                   />
                 ) : null}
+                {activeDelivery.cashToCollectPaise != null ? (
+                  <label className="flex items-center gap-2 text-sm text-ink-700">
+                    <input
+                      type="checkbox"
+                      checked={cashCollected}
+                      onChange={(e) => setCashCollected(e.target.checked)}
+                    />
+                    I collected <Money paise={activeDelivery.cashToCollectPaise} /> in cash
+                  </label>
+                ) : null}
                 <Button
                   size="sm"
-                  disabled={busy || (activeDelivery.needsDeliveryOtp && code.length !== 4)}
-                  onClick={() => act("deliver", { otp: code })}
+                  disabled={
+                    busy ||
+                    (activeDelivery.needsDeliveryOtp && code.length !== 4) ||
+                    (activeDelivery.cashToCollectPaise != null && !cashCollected)
+                  }
+                  onClick={() => act("deliver", { otp: code, cashCollected })}
                 >
                   Mark delivered
                 </Button>

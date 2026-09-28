@@ -252,6 +252,65 @@ the chosen address (GS-026).
 Pause / resume / skip / cancel now refuse CANCELLED or COMPLETED subscriptions
 (resume no longer revives a cancelled one).
 
+## Roles (Phase 3 — GS-003)
+
+A user can hold several roles; `users.role` is the active one used by every
+permission check. CUSTOMER is implicit. Shop registration, rider application
+and society administration grant their role alongside any role already held.
+
+| Endpoint | Who | Purpose |
+|---|---|---|
+| `GET /api/me/roles` · `PUT` | signed in | Held roles and the active one; `{ role }` switches to a held role |
+| `GET /api/users/{id}/roles` · `DELETE ?role=` | `USER_SET_ROLE` (admin) | Grants; revoke one (falls back to CUSTOMER if it was active) |
+| `PATCH /api/users/{id}/role` | `USER_SET_ROLE` | Unchanged API — now grants + activates; staff roles (OPERATOR/ADMIN) are exclusive |
+
+## Cash on delivery (Phase 3 — GS-030)
+
+| Endpoint | Who | Purpose |
+|---|---|---|
+| `POST /api/checkout` `{ paymentMethod: "COD" }` | customer | Personal orders to a saved address; shop must opt in; ≤ ₹2,000 per order; ≤ 2 open COD orders; paused after 2 failed COD deliveries in 90 days or an open HIGH risk flag |
+| `GET /api/cod/eligibility` | customer | Whether COD is available and why not |
+| `PATCH /api/shops/{id}` `{ codEnabled }` | shop owner | Opt in / out |
+| `PATCH /api/delivery-orders/{id}` `{ action: "deliver", otp, cashCollected: true }` | rider | Required for COD orders |
+| `POST /api/orders/{id}/confirm-delivery` `{ proofNote, cashCollected: true }` | operations | Required for COD orders |
+| `GET /api/admin/cod` · `POST` | `COD_CASH_MANAGE` | Cash held per rider / shop; record a deposit `{ party, id, amountPaise, reference, requestId }` |
+
+On delivery the order becomes paid and a `COD_CASH_COLLECTED` adjustment (−total)
+is recorded against the collector (rider, or the shop when it delivers itself);
+a deposit adds `COD_CASH_DEPOSITED` (+). Whatever is still held is netted in the
+next weekly payout / settlement. Refunds of COD orders are wallet credits.
+Reconciliation counts collected cash as payment.
+
+## Analytics (Phase 3 — GS-069, KPI-001…015)
+
+| Endpoint | Who | Purpose |
+|---|---|---|
+| `GET /api/analytics/kpis?from=&to=&shopId=` | `REPORT_VIEW_ALL` / `REPORT_VIEW_OPERATIONAL`; shop owner for own `shopId` | KPI set for the window (default last 30 days). Definitions in `src/server/services/analytics.ts` |
+
+## Marketing (Phase 3 — GS-052/053, WF-009, KPI-015)
+
+Shops only ever see counts, never customer identities; only customers with
+marketing consent are messaged.
+
+| Endpoint | Who | Purpose |
+|---|---|---|
+| `GET/POST /api/shops/{id}/marketing/segments` | owner (`MARKETING_MANAGE_OWN`); operations view | List with audience counts; create; `{ preview: true, rules }` previews |
+| `PATCH/DELETE /api/shops/{id}/marketing/segments/{segmentId}` | owner | Edit / delete (not while a live campaign uses it) |
+| `GET/POST /api/shops/{id}/marketing/campaigns` | owner; operations view | List with results; create a draft |
+| `PATCH /api/shops/{id}/marketing/campaigns/{campaignId}` | owner | `{ action: update\|submit\|send\|cancel }` |
+| `GET /api/admin/campaigns?status=` · `POST /api/admin/campaigns/{id}/decision` | `MARKETING_APPROVE` | Review queue; `{ decision: approve\|reject, reason }` |
+
+Limits: 2 campaigns per shop per 7 days; a customer receives at most 1 campaign
+per shop and 3 in total per 7 days; budget = max recipients (1–5,000).
+
+## Risk (Phase 3 — GS-068)
+
+| Endpoint | Who | Purpose |
+|---|---|---|
+| `GET /api/admin/risk?status=` · `POST` | `RISK_REVIEW` | Flags (default OPEN); run the rules now |
+| `PATCH /api/admin/risk/{id}` | `RISK_REVIEW` | `{ decision: DISMISSED\|ACTIONED, note }` |
+| `POST /api/cron/risk-rules` | cron (`CRON_SECRET`) | Hourly rules sweep |
+
 ## Finance (Slice 6)
 
 Commission is a % of goods by shop type with per-shop overrides (D6); the

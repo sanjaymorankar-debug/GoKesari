@@ -465,8 +465,11 @@ export async function markDelivered(
   deliveryOrderId: string,
   actor: Actor,
   otp?: string,
+  /** GS-030: the rider confirms the cash was collected — required for a COD order. */
+  cashCollected?: boolean,
 ): Promise<DeliveryOrder> {
   const row = await loadOwnDeliveryOrder(deliveryOrderId, actor.id); // ownership check
+  await assertCashConfirmed(row.orderId, cashCollected);
 
   // GS-043: the customer's OTP confirms the drop. A delivery picked up
   // before OTPs existed (no code, no start-of-drop time) keeps the old flow.
@@ -619,9 +622,12 @@ export async function confirmDeliveryByOperator(
   orderId: string,
   actor: Actor,
   proofNote: string,
+  /** GS-030: for a COD order, operations confirms the rider collected the cash. */
+  cashCollected?: boolean,
 ): Promise<DeliveryOrder> {
   const note = proofNote.trim();
   if (note.length < 5) throw validationFailed("Record how the delivery was confirmed.");
+  await assertCashConfirmed(orderId, cashCollected);
 
   return db.transaction(async (tx) => {
     const [updated] = await tx
@@ -656,6 +662,17 @@ export async function confirmDeliveryByOperator(
     );
     return updated;
   });
+}
+
+/** A COD order cannot be marked delivered until the cash is confirmed (GS-030). */
+async function assertCashConfirmed(orderId: string, cashCollected: boolean | undefined): Promise<void> {
+  const [order] = await db
+    .select({ paymentMethod: orders.paymentMethod, totalPaise: orders.totalPaise })
+    .from(orders)
+    .where(eq(orders.id, orderId));
+  if (order?.paymentMethod === "COD" && cashCollected !== true) {
+    throw validationFailed(`Collect ₹${(order.totalPaise / 100).toFixed(2)} in cash and confirm it before marking this order delivered.`);
+  }
 }
 
 /**
@@ -774,6 +791,8 @@ export interface ActiveDeliveryDetail
   needsDeliveryOtp: boolean;
   orderNumber: string;
   orderTotalPaise: number;
+  /** GS-030: cash to collect at the door (null when the order is prepaid). */
+  cashToCollectPaise: number | null;
   shopName: string;
   shopAddress: string;
   customerAddress: string | null;
@@ -793,6 +812,7 @@ export async function getMyActiveDeliveryDetail(userId: string): Promise<ActiveD
     .select({
       orderNumber: orders.orderNumber,
       orderTotalPaise: orders.totalPaise,
+      paymentMethod: orders.paymentMethod,
       deliveryAddressSnapshot: orders.deliveryAddressSnapshot,
       societyId: orders.societyId,
       shopName: shops.name,
@@ -822,6 +842,7 @@ export async function getMyActiveDeliveryDetail(userId: string): Promise<ActiveD
     needsDeliveryOtp: deliveryOtp != null,
     orderNumber: row.orderNumber,
     orderTotalPaise: row.orderTotalPaise,
+    cashToCollectPaise: row.paymentMethod === "COD" ? row.orderTotalPaise : null,
     shopName: row.shopName,
     shopAddress: [row.addressLine1, row.addressLine2, row.city].filter(Boolean).join(", "),
     customerAddress,

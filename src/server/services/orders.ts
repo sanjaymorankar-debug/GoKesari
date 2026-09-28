@@ -37,11 +37,13 @@ import {
   type OrderItemFulfilment,
   type OrderStatus,
   type OrderType,
+  type PaymentMethod,
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { clearCartForShop, computeDeliveryFee, getCart } from "./cart";
 import { consumeOnlineStock, loadPurchasableShopProduct, restockOnline } from "./catalogue";
+import { COD_LIMITS, assertCodAllowedForOrder, getCodEligibility, recordCodCollection } from "./cod";
 import { creditDeliveryEarnings } from "./delivery-earnings";
 import { DELIVERY_WINDOW_MINUTES, getFeasibleDeliveryWindows } from "./delivery-feasibility";
 import { notifyOpenStockAlerts } from "./inventory-alerts";
@@ -173,6 +175,8 @@ export interface CheckoutInput {
   buyerShopId?: string | null;
   /** The caller's role — B2B is refused unless it holds ORDER_PLACE_B2B. */
   actorRole?: UserRole;
+  /** WALLET (default) or COD — cash on delivery, within the COD limits (GS-030). */
+  paymentMethod?: PaymentMethod;
 }
 
 export interface CheckoutResult {
@@ -255,6 +259,22 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     }
   }
 
+  // GS-030: cash on delivery — personal orders to a delivery address, for a
+  // customer within the COD limits. Shop opt-in and amount are checked per order.
+  const paymentMethod: PaymentMethod = input.paymentMethod ?? "WALLET";
+  if (paymentMethod === "COD") {
+    if (orderType !== "PERSONAL") throw validationFailed("Business orders are paid from the wallet.");
+    if (!addressSnapshot) throw validationFailed("Choose a delivery address to pay cash on delivery.");
+    const eligibility = await getCodEligibility(input.userId);
+    if (!eligibility.allowed) throw conflict(eligibility.reason ?? "Cash on delivery is not available.");
+    const codOrdersAllowed = COD_LIMITS.maxOpenOrders - eligibility.openOrders;
+    if (purchasableGroups.length > codOrdersAllowed) {
+      throw conflict(
+        `Cash on delivery allows ${codOrdersAllowed} more open order${codOrdersAllowed === 1 ? "" : "s"} — this cart would create ${purchasableGroups.length}. Pay from your wallet instead.`,
+      );
+    }
+  }
+
   const created: Order[] = [];
   let anyDeduplicated = false;
 
@@ -263,7 +283,14 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   for (const group of purchasableGroups) {
     const idempotencyKey = `checkout:${input.userId}:${input.requestId}:${group.shop.id}`;
 
-    // Fast path: this shop's order was already placed under this request id.
+    // Fast path: this shop's order was already placed under this request id
+    // (found by its checkout key; older wallet orders by their debit).
+    const priorOrder = await db.query.orders.findFirst({ where: eq(orders.checkoutKey, idempotencyKey) });
+    if (priorOrder) {
+      created.push(priorOrder);
+      anyDeduplicated = true;
+      continue;
+    }
     const priorTxn = await db.query.walletTransactions.findFirst({
       where: eq(walletTransactions.idempotencyKey, idempotencyKey),
     });
@@ -328,6 +355,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       const deliveryFeePaise = computeDeliveryFee(shopRow, subtotalPaise);
       const taxPaise = 0;
       const totalPaise = subtotalPaise + deliveryFeePaise + taxPaise;
+      if (paymentMethod === "COD") assertCodAllowedForOrder(shopRow, totalPaise);
 
       const [orderRow] = await tx
         .insert(orders)
@@ -341,6 +369,8 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           source: "DIRECT",
           orderType,
           buyerShopId,
+          paymentMethod,
+          checkoutKey: idempotencyKey,
           societyId: orderSocietyId,
           subtotalPaise,
           deliveryFeePaise,
@@ -376,21 +406,24 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
 
       // Charge the wallet. Throws INSUFFICIENT_BALANCE, which rolls the whole
       // transaction back — no order, no stock consumed, no deduction (§23).
-      await applyWalletMutation(
-        {
-          userId: input.userId,
-          amountPaise: totalPaise,
-          type: "PRODUCT_PURCHASE",
-          idempotencyKey,
-          description: `Order ${orderRow.orderNumber} — ${shopRow.name}`,
-          orderId: orderRow.id,
-        },
-        tx,
-      );
+      // A COD order is confirmed unpaid; it is paid when the cash is collected.
+      if (paymentMethod === "WALLET") {
+        await applyWalletMutation(
+          {
+            userId: input.userId,
+            amountPaise: totalPaise,
+            type: "PRODUCT_PURCHASE",
+            idempotencyKey,
+            description: `Order ${orderRow.orderNumber} — ${shopRow.name}`,
+            orderId: orderRow.id,
+          },
+          tx,
+        );
+      }
 
       const [confirmed] = await tx
         .update(orders)
-        .set({ status: "CONFIRMED", paidAt: new Date(), updatedAt: new Date() })
+        .set({ status: "CONFIRMED", paidAt: paymentMethod === "WALLET" ? new Date() : null, updatedAt: new Date() })
         .where(eq(orders.id, orderRow.id))
         .returning();
 
@@ -399,7 +432,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
         previousStatus: "PENDING",
         newStatus: "CONFIRMED",
         changedBy: input.userId,
-        note: "Paid from wallet",
+        note: paymentMethod === "WALLET" ? "Paid from wallet" : "Cash on delivery",
       });
 
       await recordAudit(
@@ -408,7 +441,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           action: AUDIT_ACTIONS.ORDER_PLACED,
           entityType: "order",
           entityId: orderRow.id,
-          newValue: { orderNumber: orderRow.orderNumber, totalPaise },
+          newValue: { orderNumber: orderRow.orderNumber, totalPaise, paymentMethod },
         },
         tx,
       );
@@ -432,7 +465,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           userId: shopRow.ownerId,
           type: NOTIFICATION_TYPES.SHOP_NEW_ORDER,
           title: "New order",
-          body: `Order ${orderRow.orderNumber} — ${lines.length} item${lines.length === 1 ? "" : "s"}, ₹${(totalPaise / 100).toFixed(2)}.`,
+          body: `Order ${orderRow.orderNumber} — ${lines.length} item${lines.length === 1 ? "" : "s"}, ₹${(totalPaise / 100).toFixed(2)}${paymentMethod === "COD" ? " (cash on delivery)" : ""}.`,
           actionUrl: "/shop/orders",
         },
         tx,
@@ -518,6 +551,11 @@ export async function updateOrderStatus(
       note: note ?? null,
     });
 
+    // GS-030: a cash-on-delivery order becomes paid when it is delivered —
+    // before the finance snapshot, which only covers paid orders.
+    if (newStatus === "DELIVERED" && order.paymentMethod === "COD") {
+      await recordCodCollection(order, actor.id, tx);
+    }
     // Slice 6: snapshot the order's GMV / commission / shop payable the moment
     // it is delivered, in the same transaction (idempotent).
     if (newStatus === "DELIVERED") {
@@ -956,10 +994,18 @@ async function findOrdersForRequest(
     .select({ orderId: walletTransactions.orderId })
     .from(walletTransactions)
     .where(like(walletTransactions.idempotencyKey, `${prefix}%`));
+  // COD orders have no wallet debit — they are found by their checkout key.
+  const keyed = await db
+    .select({ id: orders.id })
+    .from(orders)
+    .where(like(orders.checkoutKey, `${prefix}%`));
 
-  const orderIds = priorTxns
-    .map((t) => t.orderId)
-    .filter((id): id is string => id !== null);
+  const orderIds = [
+    ...new Set([
+      ...priorTxns.map((t) => t.orderId).filter((id): id is string => id !== null),
+      ...keyed.map((o) => o.id),
+    ]),
+  ];
   if (orderIds.length === 0) return [];
 
   return db.select().from(orders).where(inArray(orders.id, orderIds));

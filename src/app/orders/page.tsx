@@ -96,6 +96,9 @@ export default async function OrdersPage({
                     <Badge tone="info">subscription</Badge>
                   ) : null}
                   {order.orderType === "B2B" ? <Badge tone="info">business</Badge> : null}
+                  {order.paymentMethod === "COD" ? (
+                    <Badge tone="warning">{order.codCollectedAt ? "paid in cash" : "pay cash on delivery"}</Badge>
+                  ) : null}
                   <span className="text-sm text-ink-500">
                     {order.orderNumber}
                   </span>

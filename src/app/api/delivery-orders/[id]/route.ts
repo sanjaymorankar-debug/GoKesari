@@ -27,7 +27,7 @@ const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("reject"), reason: z.string().max(500).optional() }),
   z.object({ action: z.literal("pickup"), pickupCode: z.string().max(8).optional() }),
   z.object({ action: z.literal("start") }),
-  z.object({ action: z.literal("deliver"), otp: z.string().max(8).optional() }),
+  z.object({ action: z.literal("deliver"), otp: z.string().max(8).optional(), cashCollected: z.boolean().optional() }),
   z.object({ action: z.literal("fail"), reason: z.string().min(3).max(300) }),
 ]);
 
@@ -47,7 +47,7 @@ export const PATCH = route(
       case "start":
         return ok(toRiderView(await startDelivery(id, user)));
       case "deliver":
-        return ok(toRiderView(await markDelivered(id, user, body.otp)));
+        return ok(toRiderView(await markDelivered(id, user, body.otp, body.cashCollected)));
       case "fail":
         return ok(toRiderView(await markDeliveryFailed(id, user, body.reason)));
     }

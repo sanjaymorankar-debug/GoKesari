@@ -23,6 +23,7 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { grantRole } from "./roles";
 import { uniqueSlug } from "./catalogue";
 import { resolveLocationVerification } from "./geocoding";
 import { attributeShopToCode } from "./referrals";
@@ -171,17 +172,13 @@ export async function registerShop(
   // Registering a shop promotes a plain customer to SHOP_OWNER — whether they
   // registered it themselves or an operator registered it for them. Operators
   // and admins keep their higher role.
-  const [owner] = await db
-    .select({ role: users.role })
-    .from(users)
-    .where(eq(users.id, ownerId))
-    .limit(1);
-  if (owner?.role === "CUSTOMER") {
-    await db
-      .update(users)
-      .set({ role: "SHOP_OWNER", updatedAt: new Date() })
-      .where(eq(users.id, ownerId));
-  }
+  // GS-003: SHOP_OWNER is granted alongside any role the owner already holds
+  // (a rider or society admin can also run a shop and switch between them).
+  await grantRole(ownerId, "SHOP_OWNER", {
+    source: "SHOP_REGISTRATION",
+    grantedBy: actor.id,
+    activateIfCustomer: true,
+  });
 
   if (privileged && input.referralCode) {
     await attributeShopToCode(shop.id, input.referralCode, actor);
@@ -482,6 +479,8 @@ export interface UpdateShopInput {
   freeDeliveryAbovePaise?: number | null;
   /** GS-010 delivery zone, km from the shop pin (1-50). */
   serviceRadiusKm?: number;
+  /** GS-030: accept cash on delivery (within the platform's COD limits). */
+  codEnabled?: boolean;
   description?: string | null;
 }
 
@@ -549,6 +548,7 @@ export async function updateShop(
       openingHours: current.openingHours,
       shopType: current.shopType,
       serviceRadiusKm: current.serviceRadiusKm,
+      codEnabled: current.codEnabled,
       ...(coordinatesChanged
         ? { latitude: current.latitude, longitude: current.longitude, locationVerified: current.locationVerified }
         : {}),
@@ -557,6 +557,7 @@ export async function updateShop(
       openingHours: updated.openingHours,
       shopType: updated.shopType,
       serviceRadiusKm: updated.serviceRadiusKm,
+      codEnabled: updated.codEnabled,
       ...(coordinatesChanged
         ? { latitude: updated.latitude, longitude: updated.longitude, locationVerified: updated.locationVerified }
         : {}),

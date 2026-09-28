@@ -355,3 +355,58 @@ New enums: society status / member role / member status / link status, rating ta
 - Subscriptions: pause/resume/skip/cancel refused on CANCELLED/COMPLETED; history rows for each action and payment failure; resume/cancel notifications; generated orders carry address snapshot + society and dispatch a rider
 - Report a problem: creates a ticket linked to the order; cannot report on someone else's order
 - Regression: existing checkout (no address), delivery flow, finance snapshot on DELIVERED
+
+---
+
+## Phase 3 — remaining "yet to start" features (2026-09-27)
+
+Branch `dev/phase3-growth` (from `dev/phase2-society`). Development only — not tested.
+
+### Status changes
+
+| ID | Previous | New | Implementation |
+|---|---|---|---|
+| GS-003 | YET TO START | COMPLETED | `user_role_grants`; `users.role` = active role; header role switcher; `/api/me/roles`; admin revoke; shop / rider / society flows grant alongside existing roles; staff roles exclusive |
+| GS-030 | YET TO START | COMPLETED | COD at checkout with risk limits; shop opt-in; rider/operator cash confirmation; collection → finance adjustments netted in batches; deposits `/admin/cod`; COD refunds as wallet credit; reconciliation counts cash |
+| GS-052 | YET TO START | COMPLETED | Segments by PIN, society, delivered orders, recency, lapse, spend; consent always required; counts only |
+| GS-053 | IN PROGRESS | COMPLETED | Shop campaigns with budget (max recipients), shop rate limit and customer frequency caps |
+| WF-009 | YET TO START | COMPLETED | Audience → consent → budget → operations approval → send → tracking (opened, converted, revenue) |
+| NAV-009 | YET TO START | COMPLETED | `/shop/marketing` (customers, segments, campaigns, COD setting). Vouchers/referrals stay admin tools |
+| KPI-015 | YET TO START | COMPLETED | Campaign conversion within the attribution days |
+| GS-068 | YET TO START | COMPLETED | 11 rules (customer, rider, shop), hourly cron, review queue `/admin/risk`; open HIGH customer flag pauses COD |
+| KPI-002…008, 010…014 | YET TO START | COMPLETED | `analytics.ts` — fill, acceptance, pick-pack, assignment, delivery, on-time, cancellation, repeat, subscription retention, rider acceptance, rider utilisation (new `delivery_partner_sessions`), shop retention |
+| KPI-001 | COMPLETED | COMPLETED | Daily GMV trend added |
+| KPI-009 | IN PROGRESS | COMPLETED | Refund rate (count and value) |
+| GS-069 / NAV-018 | IN PROGRESS | COMPLETED | `/admin/analytics` (marketplace) and `/shop/analytics` (own shop) |
+
+### Database — migration `0023_phase3_growth_cod_risk_roles.sql` (not applied anywhere)
+- New tables: `user_role_grants`, `delivery_partner_sessions`, `customer_segments`, `marketing_campaigns`, `campaign_recipients`, `risk_flags`
+- New columns: `orders.payment_method` (default WALLET), `orders.checkout_key` (unique), `orders.cod_collected_at`, `shops.cod_enabled`
+- New enum values: `financial_adjustment_type` COD_CASH_COLLECTED / COD_CASH_DEPOSITED; `ledger_entry_type` COD_CASH
+- Backfill: a grant for every existing non-customer role, every rider and every shop owner; open sessions for riders online now
+- Requires 0022 first (staging and production)
+
+### Deployment notes
+- Apply 0022 then 0023. No new environment variables.
+- Schedule `POST /api/cron/risk-rules` hourly (same `CRON_SECRET` as the other crons).
+
+### Decisions taken with defaults (confirm or change)
+- COD limits: ₹2,000 per order, 2 open COD orders per customer, paused after 2 failed COD deliveries in 90 days (`COD_LIMITS` in `cod.ts`)
+- COD cash still held at batch time is deducted from the rider payout / shop settlement; a batch can then be negative (the rider/shop owes the platform) — collection of a negative batch is manual
+- Marketing: 2 campaigns per shop per week; per customer 1 per shop and 3 total per week; attribution 7 days by default (`MARKETING_LIMITS`)
+- Risk thresholds as listed in `risk.ts`; flags never act on their own except pausing COD
+
+### Known gaps
+- Negative payouts / settlements (COD cash held > earnings) have no in-app collection flow
+- Campaigns are in-app notifications only (email/SMS/WhatsApp providers are GS-074)
+- A campaign is marked SENT before messages are written; if sending fails midway, sent_count reflects what was written
+- KPI "placed" requires an order_status_history CONFIRMED row — orders created before history existed are not counted
+- Rider utilisation relies on online sessions recorded from this release on (backfilled only for riders online at migration time)
+
+### Testing handoff (not performed here)
+- GS-003: shop owner who applies as rider keeps SHOP_OWNER and can switch; switching only to held roles; admin demotion from OPERATOR removes the grant; revoking the active role falls back to CUSTOMER; bootstrap admins get an ADMIN grant; existing users keep access after migration backfill
+- GS-030: COD refused for B2B, without address, shop not opted in, total > ₹2,000, 3rd open COD order, after 2 failed COD deliveries, with open HIGH risk flag; COD order confirmed unpaid; cancel before delivery → no refund, stock restored; rider cannot mark delivered without cash confirmation; operator override needs cashCollected; shop self-delivery collects as SHOP; delivered → paid, finance snapshot present, adjustment −total; deposit ≤ held; next payout/settlement nets cash; refund after delivery → wallet credit; reconciliation ORDER_PAYMENT matched for COD; checkout replay returns the same COD orders
+- Analytics: each KPI against hand-computed fixtures; shop owner sees only own shop; operator/admin marketplace; customer forbidden
+- Marketing: segments counts only; consent required; lapsed/ordered-within conflict rejected; rate limit on submit; approval required before send; frequency caps; budget cap; double send impossible; opened/converted counts; rejected campaign editable and resubmittable; operations cannot edit shop campaigns
+- Risk: each rule raises one OPEN flag per subject; re-run refreshes (no duplicate); dismiss / action with note; HIGH customer flag blocks COD; cron auth
+- Regression: wallet checkout unchanged (paymentMethod default), B2B checkout, rider flow for prepaid orders, finance batches, reconciliation for wallet orders

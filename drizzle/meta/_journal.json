@@ -162,6 +162,13 @@
       "when": 1790313554895,
       "tag": "0022_society_ratings_subscription_history",
       "breakpoints": true
+    },
+    {
+      "idx": 23,
+      "version": "7",
+      "when": 1790526299068,
+      "tag": "0023_phase3_growth_cod_risk_roles",
+      "breakpoints": true
     }
   ]
 }

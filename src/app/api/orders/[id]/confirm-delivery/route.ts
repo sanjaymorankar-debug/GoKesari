@@ -11,11 +11,11 @@ import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { confirmDeliveryByOperator } from "@/server/services/delivery-assignment";
 
-const schema = z.object({ proofNote: z.string().min(5).max(500) });
+const schema = z.object({ proofNote: z.string().min(5).max(500), cashCollected: z.boolean().optional() });
 
 export const POST = route(async (request: NextRequest, context: RouteContext<{ id: string }>) => {
   const user = await requirePermission(PERMISSIONS.DELIVERY_ORDER_MANAGE_ANY);
   const { id } = await context.params;
   const body = await parseBody(request, schema);
-  return ok(await confirmDeliveryByOperator(id, user, body.proofNote));
+  return ok(await confirmDeliveryByOperator(id, user, body.proofNote, body.cashCollected));
 });
