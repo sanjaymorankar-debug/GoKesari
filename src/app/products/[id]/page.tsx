@@ -1,7 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
-import { ProductGrid } from "@/app/page";
+import { ProductGrid } from "@/components/product-grid";
 import { LocationBar } from "@/components/location-bar";
 import { Badge, Card, EmptyState, Money, PageHeader, Section } from "@/components/ui";
 import { formatQuantity, lineTotalPaise } from "@/lib/money";
