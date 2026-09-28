@@ -121,9 +121,19 @@ INSERT INTO "user_role_grants" ("user_id", "role", "source")
 SELECT "id", "role", 'BACKFILL' FROM "users" WHERE "role" <> 'CUSTOMER' AND "deleted_at" IS NULL
 ON CONFLICT DO NOTHING;--> statement-breakpoint
 -- A rider who also runs a shop or society keeps that role as a grant too.
-INSERT INTO "user_role_grants" ("user_id", "role", "source")
-SELECT DISTINCT dp."user_id", 'DELIVERY_PARTNER'::"user_role", 'BACKFILL' FROM "delivery_partners" dp
-ON CONFLICT DO NOTHING;--> statement-breakpoint
+-- On a fresh database 0011 adds DELIVERY_PARTNER in this same transaction, and
+-- Postgres refuses a new enum value before commit (55P04); there are no riders
+-- to backfill then, so the insert is skipped.
+DO $$
+BEGIN
+  EXECUTE $sql$
+    INSERT INTO "user_role_grants" ("user_id", "role", "source")
+    SELECT DISTINCT dp."user_id", 'DELIVERY_PARTNER'::"user_role", 'BACKFILL' FROM "delivery_partners" dp
+    ON CONFLICT DO NOTHING
+  $sql$;
+EXCEPTION WHEN unsafe_new_enum_value_usage THEN
+  NULL;
+END $$;--> statement-breakpoint
 INSERT INTO "user_role_grants" ("user_id", "role", "source")
 SELECT DISTINCT s."owner_id", 'SHOP_OWNER'::"user_role", 'BACKFILL' FROM "shops" s WHERE s."deleted_at" IS NULL
 ON CONFLICT DO NOTHING;--> statement-breakpoint
