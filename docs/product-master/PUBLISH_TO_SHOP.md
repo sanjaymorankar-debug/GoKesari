@@ -60,6 +60,19 @@ Write `<target>` for the site's **direct** (non-pooled) Postgres URL. Do not com
    15 minutes. Each product is still its own transaction, and a clash on a brand or slug created by another worker a
    moment earlier is retried.
 
+## Resolving the possible-duplicate queue
+
+The matcher never merges below its threshold; it queues the pair for a person (admin screen, or `scripts/pmd/review-decide.ts`).
+A merge retires the duplicate master **by pointer** (its sources, offers and history move to the survivor, and it is logged);
+nothing is deleted, and a merged product that is in the shop catalogue keeps its catalogue entry.
+
+`scripts/pmd/review-decide.ts` applies a JSON list of `{ id, decision, note }` (`CONFIRMED_SAME` merges, `CONFIRMED_DIFFERENT`
+closes) - a dry run unless `--apply --actor-email <admin>` is given. Back up the `pmd` tables first. On 2026-09-21 the test
+database's queue (22 pairs) was reviewed by three independent reviewers per pair (identity, variant/pack, skeptic); only
+**unanimous** verdicts were applied (8 merged, 1 closed as different), and the 13 uncertain pairs were left for a person.
+Most of a queue like this is *not* duplicates: generic names ("Maggi", "Eggs"), a missing pack size, or a variant word
+("Honey Corn Flakes") are exactly what an automatic delete would get wrong.
+
 ## Undoing it
 
 `psql "<target>" -v ON_ERROR_STOP=1 -f scripts/pmd/rollback-promotion.sql` removes the products promotion created, except
