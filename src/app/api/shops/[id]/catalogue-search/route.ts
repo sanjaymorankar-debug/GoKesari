@@ -9,6 +9,7 @@ import type { NextRequest } from "next/server";
 import { requireShopAccess } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { ok, route, type RouteContext } from "@/server/api/handler";
+import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
 import { db } from "@/server/db";
 import { shopProducts, shops } from "@/server/db/schema";
 import { and, eq, isNull } from "drizzle-orm";
@@ -19,9 +20,10 @@ export const dynamic = "force-dynamic";
 export const GET = route(
   async (request: NextRequest, context: RouteContext<{ id: string }>) => {
     const { id } = await context.params;
-    await requireShopAccess(id, {
+    const { user } = await requireShopAccess(id, {
       anyPermission: PERMISSIONS.SHOP_PRODUCT_MANAGE_ANY,
     });
+    enforceRateLimit(`catalogue-search:${user.id}`, RATE_LIMITS.MUTATION);
 
     const [shop] = await db
       .select({ shopType: shops.shopType })

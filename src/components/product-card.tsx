@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
@@ -21,6 +22,10 @@ export interface ProductCardData {
   subscribable: boolean;
   shopName?: string;
   shopSlug?: string;
+  /** Catalogue product id — enables the "Compare prices" link (GS-021/022). */
+  productId?: string;
+  /** Distance to the shop when a customer location is set (GS-020). */
+  distanceKm?: number | null;
 }
 
 /**
@@ -95,7 +100,10 @@ export function ProductCard({
       </div>
 
       {product.shopName && product.shopSlug ? (
-        <p className="mb-2 text-xs text-ink-500">at {product.shopName}</p>
+        <p className="mb-2 text-xs text-ink-500">
+          at {product.shopName}
+          {product.distanceKm != null ? ` · ${product.distanceKm} km` : null}
+        </p>
       ) : null}
 
       <div className="mt-auto">
@@ -116,6 +124,15 @@ export function ProductCard({
             </span>
           ) : null}
         </div>
+
+        {product.productId ? (
+          <Link
+            href={`/products/${product.productId}`}
+            className="mt-1 inline-block text-xs font-medium text-kesari-600 hover:underline"
+          >
+            Compare prices at other shops →
+          </Link>
+        ) : null}
 
         {error ? (
           <p className="mt-2 text-xs text-red-600" role="alert">

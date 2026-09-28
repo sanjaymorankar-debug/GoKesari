@@ -7,6 +7,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 
 import { route, type RouteContext } from "@/server/api/handler";
+import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
 import { requireShopAccess } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { buildTemplate } from "@/server/services/excel";
@@ -14,9 +15,10 @@ import { buildTemplate } from "@/server/services/excel";
 export const GET = route(
   async (request: NextRequest, context: RouteContext<{ id: string }>) => {
     const { id } = await context.params;
-    await requireShopAccess(id, {
+    const { user } = await requireShopAccess(id, {
       anyPermission: PERMISSIONS.SHOP_PRODUCT_MANAGE_ANY,
     });
+    enforceRateLimit(`price-template:${user.id}`, RATE_LIMITS.MUTATION);
 
     const type =
       new URL(request.url).searchParams.get("type") === "goods"

@@ -10,11 +10,12 @@
  * multi-order batching needs actual route sequencing to justify the cost
  * (see MAPS_USAGE.md).
  */
-import { and, eq, isNull } from "drizzle-orm";
+import { eq } from "drizzle-orm";
 
-import { haversineDistanceKm, parseCoordinates } from "@/lib/geo/haversine";
+import { parseCoordinates } from "@/lib/geo/haversine";
 import { db } from "@/server/db";
-import { deliveryOrders, deliveryPartners, shops } from "@/server/db/schema";
+import { shops } from "@/server/db/schema";
+import { findEligiblePartnersNearShop } from "./delivery-eligibility";
 
 /** Phase 1 placeholder for real travel-time estimation — see file header. */
 const ASSUMED_AVERAGE_SPEED_KMH = 20;
@@ -36,33 +37,6 @@ const INFEASIBLE_NO_SCHEDULE: DeliveryWindowFeasibility = {
   estimatedMinutes: null,
 };
 
-/**
- * A delivery partner is eligible for a shop's orders when they're online,
- * approved, and the shop falls within their own declared operating radius —
- * not a shop-level radius (that's Phase 2's zone system; see the plan's
- * "Explicitly NOT in this plan" note).
- */
-async function findEligiblePartners(shopLatLng: { latitude: number; longitude: number }) {
-  const candidates = await db.query.deliveryPartners.findMany({
-    where: and(
-      eq(deliveryPartners.status, "APPROVED"),
-      eq(deliveryPartners.isOnline, true),
-      isNull(deliveryPartners.deletedAt),
-    ),
-  });
-
-  return candidates
-    .map((partner) => {
-      const coords = parseCoordinates(partner.lastLocationLatitude, partner.lastLocationLongitude);
-      if (!coords) return null;
-      const distanceKm = haversineDistanceKm(shopLatLng, coords);
-      if (distanceKm > partner.operatingRadiusKm) return null;
-      return { partner, distanceToShopKm: distanceKm };
-    })
-    .filter((v): v is { partner: typeof candidates[number]; distanceToShopKm: number } => v !== null)
-    .sort((a, b) => a.distanceToShopKm - b.distanceToShopKm);
-}
-
 export async function getFeasibleDeliveryWindows(shopId: string): Promise<DeliveryWindowFeasibility> {
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
   if (!shop || !shop.deliveryAvailable) return INFEASIBLE_NO_SCHEDULE;
@@ -75,21 +49,12 @@ export async function getFeasibleDeliveryWindows(shopId: string): Promise<Delive
     return { ...INFEASIBLE_NO_SCHEDULE, SCHEDULED: true };
   }
 
-  const eligible = await findEligiblePartners(shopCoords);
-  // Excludes a partner already carrying an active delivery — approximated
-  // here by checking their open deliveryOrders rather than a workload
-  // counter, since Phase 1 caps everyone at one order at a time (no
-  // batching yet).
-  const available: typeof eligible = [];
-  for (const candidate of eligible) {
-    const activeAssignment = await db.query.deliveryOrders.findFirst({
-      where: and(
-        eq(deliveryOrders.deliveryPartnerId, candidate.partner.id),
-        eq(deliveryOrders.status, "ACCEPTED"),
-      ),
-    });
-    if (!activeAssignment) available.push(candidate);
-  }
+  // DEF-05 fix (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): this preview
+  // and actual dispatch (assignNearestPartner) now share ONE eligibility
+  // predicate — same busy rule (OFFERED/ACCEPTED/PICKED_UP, not just
+  // ACCEPTED), same soft-delete check — so a partner shown as "available"
+  // here can no longer turn out ineligible moments later at assignment time.
+  const available = await findEligiblePartnersNearShop(shopCoords);
 
   if (available.length === 0) {
     return { ...INFEASIBLE_NO_SCHEDULE, SCHEDULED: true };

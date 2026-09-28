@@ -4,17 +4,24 @@ import { ProductCard } from "@/components/product-card";
 import { ShopGrid } from "@/components/shop-grid";
 import { Card, Section } from "@/components/ui";
 import { SHOP_TYPES } from "@/lib/shop-types";
+import { LocationBar } from "@/components/location-bar";
+import { getCurrentUser } from "@/server/authz/guards";
+import { getCustomerLocation } from "@/server/location";
 import { listStorefrontProducts } from "@/server/services/catalogue";
+import { listServiceableShops } from "@/server/services/serviceability";
 import { searchShops } from "@/server/services/shops";
 
 export const dynamic = "force-dynamic";
 
 /** Marketplace home (requirement §6). All content comes from the database. */
 export default async function HomePage() {
-  const [featuredShops, kesariShops, greenShops] = await Promise.all([
+  const user = await getCurrentUser();
+  const location = await getCustomerLocation(user?.id);
+  const [featuredShops, kesariShops, greenShops, nearbyShops] = await Promise.all([
     searchShops({ limit: 4 }),
     searchShops({ classification: "KESARI", limit: 4 }),
     searchShops({ classification: "GREEN", limit: 4 }),
+    location ? listServiceableShops(location, { limit: 8 }) : Promise.resolve([]),
   ]);
 
   return (
@@ -44,6 +51,14 @@ export default async function HomePage() {
           </button>
         </form>
       </section>
+
+      <LocationBar userId={user?.id ?? null} location={location} />
+
+      {location ? (
+        <Section title="Shops that deliver to you" href="/shops">
+          <ShopGrid shops={nearbyShops} />
+        </Section>
+      ) : null}
 
       {/* Every shop type is browsable, even without an account (§6). */}
       <Section title="Browse all categories" href="/categories">
@@ -118,9 +133,15 @@ export default async function HomePage() {
 export function ProductGrid({
   products,
   signedIn,
+  distances,
+  compare = true,
 }: {
   products: Awaited<ReturnType<typeof listStorefrontProducts>>;
   signedIn: boolean;
+  /** shopId -> km, from serviceability.ts, when a customer location is set. */
+  distances?: ReadonlyMap<string, number | null>;
+  /** Show the "Compare prices" link (off on the comparison page itself). */
+  compare?: boolean;
 }) {
   return (
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
@@ -144,6 +165,8 @@ export function ProductGrid({
             subscribable: p.subscribable,
             shopName: p.shopName,
             shopSlug: p.shopSlug,
+            productId: compare ? p.productId : undefined,
+            distanceKm: distances?.get(p.shopId) ?? null,
           }}
         />
       ))}

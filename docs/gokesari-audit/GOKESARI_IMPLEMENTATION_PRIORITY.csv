@@ -1,0 +1,149 @@
+﻿Seq,Wave,Wave Name,ID,Source,Module,Feature / Requirement,Actors,Workbook Priority,Workbook Phase,Current Status,Action,Depends On,Remaining Scope,Evidence / File Path
+1,1,Access & security foundation,RBAC-002,RBAC Matrix,Security,"Place order (Customer, Admin only)",All,n/a,n/a,IN PROGRESS,FIX CONFLICT,-,CONFLICT: remove ORDER_PLACE from Shop Owner/Gig/Operator or get workbook changed,"ORDER_PLACE inherited by Shop Owner, Gig, Operator"
+2,1,Access & security foundation,RBAC-007,RBAC Matrix,Security,Assign delivery,"Gig (Limited), Operator, Admin",n/a,n/a,IN PROGRESS,FIX CONFLICT,-,CONFLICT: Shop Owner should not assign; auto-assignment replaces manual,Shop Owner has DELIVERY_ORDER_ASSIGN_SHOP
+3,1,Access & security foundation,RBAC-003,RBAC Matrix,Security,Manage own shop (Operator Limited),"Shop, Operator, Admin",n/a,n/a,UNCLEAR,CLARIFY THEN FIX,-,Define and enforce Operator 'Limited' scope,Operator has SHOP_UPDATE_ANY
+4,1,Access & security foundation,GS-002,Feature Master,Identity & Access,Role-based access control,All roles,P0,MVP,IN PROGRESS,COMPLETE EXISTING,"RBAC-002, RBAC-007",Society Admin role; fix RBAC conflicts,"src/server/authz/permissions.ts, guards.ts; 5 roles"
+5,1,Access & security foundation,GS-001,Feature Master,Identity & Access,Mobile/email/Gmail login,"Customer, Shop, Gig, Operator, Admin, Society",P0,MVP,IN PROGRESS,COMPLETE EXISTING,GS-002,Mobile OTP and email login,src/server/auth.ts (Google OAuth only)
+6,1,Access & security foundation,GS-070,Feature Master,Security,Privacy/consent management,All,P0,MVP,IN PROGRESS,COMPLETE EXISTING,GS-001,Marketing consent capture and screen,svc/consents.ts; terms consent at sign-in
+7,1,Access & security foundation,GS-067,Feature Master,Admin,Audit logs,"Admin, Auditor",P0,MVP,IN PROGRESS,COMPLETE EXISTING,-,Database-enforced immutability; Auditor role,svc/audit.ts; audit-log-view
+8,1,Access & security foundation,RBAC-010,RBAC Matrix,Security,View orders (role-scoped),All,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,GS-002,Society scope; Operator operational scope,ORDER_VIEW_OWN/SHOP/ANY
+9,2,"State model extension (map, don't replace)",SM-001,State Machines,Orders,Order state machine,System,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,-,"DRAFT, SHOP_PENDING/ACCEPTED, ASSIGNED, PICKED_UP, FAILED, RETURNED, DISPUTED (map existing states, don't replace)",svc/orders.ts ALLOWED_TRANSITIONS; order_status_history
+10,2,"State model extension (map, don't replace)",SM-005,State Machines,Payments,Payment state machine,System,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,-,"AUTHORIZED/CAPTURED, RECONCILED, CHARGEBACK",payment_status (top-ups)
+11,2,"State model extension (map, don't replace)",SM-002,State Machines,Shop Onboarding,Shop state machine,System,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,-,"KYC_PENDING, PAYMENT_PENDING, VERIFIED vs ACTIVE, CLOSED",shop_status enum
+12,2,"State model extension (map, don't replace)",SM-003,State Machines,Delivery,Gig state machine,System,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,-,"KYC_PENDING, BLOCKED, DELIVERING",delivery_partner_status; isOnline; delivery_order_status
+13,2,"State model extension (map, don't replace)",SM-004,State Machines,Subscription,Subscription state machine,System,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,SM-001,"DRAFT, RENEWAL_PENDING, ORDER_CREATED/FULFILLED",subscription_status
+14,2,"State model extension (map, don't replace)",SM-006,State Machines,Support,Issue state machine,System,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,-,"TRIAGED, INVESTIGATING, RESOLUTION_PROPOSED, ESCALATED; link to order/payment",grievance_status
+15,3,Location & serviceability,GS-004,Feature Master,Location,PIN / address selection,Customer,P0,MVP,IN PROGRESS,COMPLETE EXISTING,-,Service-area selection and check,"svc/addresses.ts, svc/geocoding.ts, api/geo/verify-location"
+16,3,Location & serviceability,GS-010,Feature Master,Shop Onboarding,Service radius / delivery zone,"Shop, Operator",P0,MVP,YET TO START,BUILD NEW,GS-004,Shop delivery zone/radius with geospatial validation,Shop has only deliveryAvailable flag
+17,3,Location & serviceability,GS-026,Feature Master,Checkout,Address validation,Customer,P0,MVP,YET TO START,BUILD NEW,GS-010,Mandatory address; hard block when not serviceable,Checkout addressId optional; no serviceability check
+18,3,Location & serviceability,GS-072,Feature Master,Integration,Maps/navigation,"Customer, Gig, Shop",P0,MVP,IN PROGRESS,COMPLETE EXISTING,GS-004,"Routing, ETA, navigation",lib/geo/provider.ts; haversine
+19,4,Shop onboarding completion,GS-007,Feature Master,Shop Onboarding,Business KYC,"Shop, Operator, Admin",P0,MVP,IN PROGRESS,COMPLETE EXISTING,SM-002,Document upload/storage; single tracked KYC status,svc/gst-pan-verification.ts; FSSAI field; svc/compliance.ts
+20,4,Shop onboarding completion,GS-008,Feature Master,Shop Onboarding,Payment reference verification,Operator,P0,MVP,IN PROGRESS,COMPLETE EXISTING,SM-002,Shop approval must require verified fee payment,svc/shop-payments.ts; shops.feePaymentStatus
+21,4,Shop onboarding completion,GS-009,Feature Master,Shop Onboarding,Shop categories,"Admin, Operator",P0,MVP,IN PROGRESS,COMPLETE EXISTING,-,Shop-type master configurable from admin,"src/lib/shop-types.ts (44 types, fixed in code)"
+22,4,Shop onboarding completion,GS-015,Feature Master,Catalog,MRP / selling price / discount,Shop,P0,MVP,IN PROGRESS,COMPLETE EXISTING,-,Guard: selling price must not exceed MRP; valid discount display,"mrpPaise, product_mrp_history, shop prices"
+23,4,Shop onboarding completion,WF-008,Workflow Master,Shop Onboarding,Shop onboarding,Shop/Operator,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,"GS-007, GS-008, GS-010","Documents, service area, correction queue, fee gate",svc/shops.ts; gst-pan-verification
+24,5,Discovery & local price comparison,GS-019,Feature Master,Search,Shop search,Customer,P0,MVP,IN PROGRESS,COMPLETE EXISTING,GS-010,Distance filter; location-aware results,svc/shops.ts searchShops (text)
+25,5,Discovery & local price comparison,GS-020,Feature Master,Search,Product search,Customer,P0,MVP,IN PROGRESS,COMPLETE EXISTING,GS-010,Limit to nearby / serviceable shops,svc/catalogue.ts listStorefrontProducts (text)
+26,5,Discovery & local price comparison,GS-021,Feature Master,Search,All shops selling product,Customer,P0,MVP,IN PROGRESS,COMPLETE EXISTING,GS-020,Product-centred view of eligible shops with availability and distance,Search returns one row per shop listing
+27,5,Discovery & local price comparison,GS-022,Feature Master,Comparison,Local price comparison,Customer,P0,MVP,YET TO START,BUILD NEW,GS-021,"Same-product comparison across local shops, normalised by pack/unit",None
+28,5,Discovery & local price comparison,NAV-001,Navigation,Customer,Customer portal - Home,Customer,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,"GS-019, GS-022","Location picker, nearby shops, comparison","app/page, search, categories, shops"
+29,5,Discovery & local price comparison,NAV-002,Navigation,Customer,Customer portal - Shop,Customer,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,GS-021,"Offers, ratings, delivery options",app/shops/[slug]
+30,6,Checkout & payments,GS-027,Feature Master,Checkout,Delivery slot,Customer,P0,MVP,IN PROGRESS,COMPLETE EXISTING,GS-026,Slot capacity rules; scheduled slot times,delivery_window enum; svc/delivery-feasibility.ts
+31,6,Checkout & payments,GS-028,Feature Master,Payments,UPI/card/netbanking gateway,Customer,P0,MVP,IN PROGRESS,COMPLETE EXISTING,SM-005,Direct gateway payment for orders,Cashfree for wallet top-up only
+32,6,Checkout & payments,GS-073,Feature Master,Integration,Payment gateway,System,P0,MVP,IN PROGRESS,COMPLETE EXISTING,GS-028,Gateway refunds; order payments,Cashfree orders + webhook verification
+33,6,Checkout & payments,GS-033,Feature Master,Orders,Shop order split,"System, Shop",P0,MVP,IN PROGRESS,COMPLETE EXISTING,SM-001,Master order linked to child orders,One independent order per shop
+34,6,Checkout & payments,GS-031,Feature Master,Payments,Payment reconciliation,"Operator, Admin",P0,MVP,YET TO START,BUILD NEW,GS-073,Match gateway transactions to orders; exception queue,Webhook idempotent; no reconciliation
+35,6,Checkout & payments,NAV-003,Navigation,Customer,Customer portal - Cart & Checkout,Customer,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,"GS-027, GS-028",Coupons; gateway payment,app/cart
+36,6,Checkout & payments,WF-001,Workflow Master,Orders,Customer product purchase,Customer,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,"GS-022, GS-026, GS-028","Location, eligible shops, price comparison, serviceability, alternate shop/substitution","search, cart, checkout, orders"
+37,7,Shop fulfilment,GS-034,Feature Master,Orders,Shop accept/reject,Shop,P0,MVP,IN PROGRESS,COMPLETE EXISTING,SM-001,Explicit accept/reject step; timeout escalation,CONFIRMED->PREPARING or cancel
+38,7,Shop fulfilment,GS-036,Feature Master,Orders,Pick and pack,Shop,P0,MVP,IN PROGRESS,COMPLETE EXISTING,GS-034,SLA tracking,PREPARING->READY; preparationTimeMinutes
+39,7,Shop fulfilment,NAV-006,Navigation,Shop,Shop portal - Dashboard,Shop,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,GS-034,Sales and performance,app/shop
+40,7,Shop fulfilment,WF-002,Workflow Master,Orders,Shop fulfillment,Shop,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,"GS-034, GS-036","Explicit accept, stock check, substitute/reject, timeout escalation",api/orders/[id]/status
+41,8,Society module,GS-005,Feature Master,Location,Society identification,"Customer, Society",P0,MVP,YET TO START,BUILD NEW,GS-004,Society model; link address to society,None
+42,8,Society module,GS-044,Feature Master,Society,Society registration,"Society, Operator",P1,MVP,YET TO START,BUILD NEW,GS-005,Society profile and rules; verified society admin,None
+43,8,Society module,GS-045,Feature Master,Society,Authorized Gig worker whitelist,Society,P0,MVP,YET TO START,BUILD NEW,"GS-044, GS-002","Approve/revoke workers, effective immediately, audited",None
+44,8,Society module,RBAC-009,RBAC Matrix,Security,Whitelist Gig workers,"Society Admin, Admin",n/a,n/a,YET TO START,BUILD NEW,GS-045,Role and permission,No Society Admin role
+45,8,Society module,GS-047,Feature Master,Society,Delivery instructions,"Society, Customer",P1,MVP,YET TO START,BUILD NEW,GS-005,Gate/parking/access instructions with limited exposure,Only order notes / shop pickupInstructions
+46,8,Society module,NAV-014,Navigation,Society,Society portal - Dashboard,Society,n/a,n/a,YET TO START,BUILD NEW,"GS-044, GS-045",Whole portal,None
+47,9,Delivery & gig assignment,GA-006,Gig Assignment Rules,Delivery,Shop readiness,System,P0,n/a,IN PROGRESS,COMPLETE EXISTING,WF-002,Auto-start on READY; pre-dispatch threshold,assignNearestPartner requires READY
+48,9,Delivery & gig assignment,GS-039,Feature Master,Delivery,Job assignment,"System, Gig",P0,MVP,IN PROGRESS,COMPLETE EXISTING,"GA-006, SM-003",Auto-trigger on READY; rules engine; re-offer after reject,svc/delivery-assignment.ts assignNearestPartner (manual)
+49,9,Delivery & gig assignment,GA-005,Gig Assignment Rules,Delivery,Current load,System,P0,n/a,IN PROGRESS,COMPLETE EXISTING,GS-039,Lower priority instead of exclusion; batching,Busy partners fully excluded
+50,9,Delivery & gig assignment,GA-009,Gig Assignment Rules,Delivery,No worker fallback,System,P0,n/a,IN PROGRESS,COMPLETE EXISTING,GS-039,"Widen radius, auto-retry, operations queue",Throws 'no rider available'
+51,9,Delivery & gig assignment,GA-001,Gig Assignment Rules,Delivery,Society authorization,System,P0,n/a,YET TO START,BUILD NEW,GS-045,Whitelist filter; exclusive-society policy,None
+52,9,Delivery & gig assignment,GA-002,Gig Assignment Rules,Delivery,Society preferred partner,System,P0,n/a,YET TO START,BUILD NEW,GA-001,Priority score for preferred workers/fleet,None
+53,9,Delivery & gig assignment,GS-040,Feature Master,Delivery,Society priority assignment,"System, Gig, Society",P0,MVP,YET TO START,BUILD NEW,"GA-001, GA-002",Society preference in assignment scoring,None
+54,9,Delivery & gig assignment,WF-003,Workflow Master,Delivery,Gig assignment,System,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,"GS-039, GS-040","Whitelist, priority/load scoring, auto-trigger, escalation",svc/delivery-assignment.ts
+55,9,Delivery & gig assignment,WF-004,Workflow Master,Society,Society authorized delivery,System/Society,n/a,n/a,YET TO START,BUILD NEW,GS-040,All steps,None
+56,9,Delivery & gig assignment,GS-041,Feature Master,Delivery,Pickup OTP/QR,"Shop, Gig",P0,MVP,YET TO START,BUILD NEW,GS-039,OTP/QR handover with audit timestamp,markPickedUp has no OTP
+57,9,Delivery & gig assignment,GS-043,Feature Master,Delivery,Delivery OTP/POD,"Customer, Gig",P0,MVP,YET TO START,BUILD NEW,GS-041,Customer OTP; optional photo/signature,markDelivered has no OTP/POD
+58,9,Delivery & gig assignment,GS-042,Feature Master,Delivery,Live tracking,"Customer, Gig, Admin",P0,MVP,IN PROGRESS,COMPLETE EXISTING,GS-072,Customer/admin tracking screen; privacy controls,Partner last location stored
+59,9,Delivery & gig assignment,WF-005,Workflow Master,Delivery,Delivery,Gig,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,"GS-041, GS-042, GS-043","Navigation, pickup OTP, society access, customer OTP/POD, failed/return",accept/markPickedUp/markDelivered
+60,9,Delivery & gig assignment,NAV-013,Navigation,Gig,Gig portal - Profile,Gig,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,-,Edit KYC/vehicle/bank,app/delivery-partner
+61,10,Notifications,GS-055,Feature Master,Notifications,Order notifications,"Customer, Shop, Gig",P0,MVP,IN PROGRESS,COMPLETE EXISTING,-,Email/SMS/WhatsApp/push delivery,svc/notifications.ts in-app events
+62,10,Notifications,GS-074,Feature Master,Integration,SMS/WhatsApp/email/push,System,P1,MVP,IN PROGRESS,COMPLETE EXISTING,GS-055,Real providers,Pluggable notification transport
+63,11,"Support, returns & disputes",GS-056,Feature Master,Support,Report an issue,"Customer, Shop, Gig",P0,MVP,IN PROGRESS,COMPLETE EXISTING,SM-006,Link ticket to order,svc/grievances.ts; app/grievance
+64,11,"Support, returns & disputes",GS-057,Feature Master,Support,Returns/refunds,"Customer, Operator, Admin",P0,MVP,IN PROGRESS,COMPLETE EXISTING,GS-073,Return flow; policy rules; gateway refund,cancelOrder -> wallet refund
+65,11,"Support, returns & disputes",GS-058,Feature Master,Support,Dispute management,All,P0,MVP,IN PROGRESS,COMPLETE EXISTING,GS-056,Escalation; case lifecycle linked to order/payment,Grievance OPEN/IN_PROGRESS/RESOLVED/CLOSED
+66,11,"Support, returns & disputes",RBAC-011,RBAC Matrix,Security,Refund approval,"Operator, Admin (Customer/Shop request)",n/a,n/a,IN PROGRESS,COMPLETE EXISTING,GS-057,Request/approve flow; Operator permission,Auto refund on cancel; WALLET_REFUND admin-only
+67,11,"Support, returns & disputes",WF-007,Workflow Master,Support,Return/refund,Customer/Operator,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,"GS-057, GS-058","Policy, evidence, approve/refuse, pickup/replacement, gateway refund, escalation",cancelOrder wallet refund
+68,11,"Support, returns & disputes",NAV-004,Navigation,Customer,Customer portal - Orders,Customer,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,"GS-042, GS-056",Tracking; issues/refunds from order,app/orders
+69,12,Finance & settlement,GS-061,Feature Master,Finance,Shop commission,"Admin, Operator",P0,MVP,YET TO START,BUILD NEW,-,Commission configurable by category/shop,None
+70,12,Finance & settlement,GS-062,Feature Master,Finance,Shop settlement,"Admin, Operator, Shop",P0,MVP,YET TO START,BUILD NEW,"GS-061, GS-031",Settlement ledger and shop payouts,shop_payments holds registration fees only
+71,12,Finance & settlement,GS-063,Feature Master,Finance,Gig earnings,"Gig, Admin",P0,MVP,IN PROGRESS,COMPLETE EXISTING,-,Slot and incentive rules,svc/delivery-earnings.ts base + per-km
+72,12,Finance & settlement,GS-064,Feature Master,Finance,Gig payout,"Admin, Operator, Gig",P0,MVP,YET TO START,BUILD NEW,GS-063,Payout transfer and reconciliation,None
+73,12,Finance & settlement,WF-010,Workflow Master,Finance,Settlement,System/Finance,n/a,n/a,YET TO START,BUILD NEW,"GS-062, GS-064","GMV, commission, refunds, adjustments, payouts, reconciliation",Gig earnings credit only
+74,12,Finance & settlement,RBAC-012,RBAC Matrix,Security,Settlement visibility,All except Society,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,WF-010,Shop statements; Operator/Admin settlement views,Gig own earnings only
+75,12,Finance & settlement,NAV-010,Navigation,Shop,Shop portal - Finance,Shop,n/a,n/a,YET TO START,BUILD NEW,GS-062,"Commission, invoices, settlements, payouts",Registration-fee panel only
+76,12,Finance & settlement,NAV-012,Navigation,Gig,Gig portal - Earnings,Gig,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,GS-064,"Incentives, payouts",EarningsSummary
+77,13,Subscription completion,WF-006,Workflow Master,Subscription,Subscription,Customer/System,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,GS-039,Auto gig assignment; shop-unavailable exception,generateDailyOrders; retry
+78,14,Admin & operations console,GS-065,Feature Master,Admin,Global dashboard,Admin,P0,MVP,IN PROGRESS,COMPLETE EXISTING,-,Orders and payments operations,app/admin/page.tsx (18 panels)
+79,14,Admin & operations console,GS-066,Feature Master,Admin,Operator console,Operator,P0,MVP,IN PROGRESS,COMPLETE EXISTING,GS-031,Exceptions queue; payment operations,/operator redirects to /admin
+80,14,Admin & operations console,NAV-015,Navigation,Operator,Operator portal - Operations,Operator,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,GS-066,Exceptions queue,/admin panels
+81,14,Admin & operations console,NAV-016,Navigation,Operator,Operator portal - Orders,Operator,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,GS-065,Order monitoring screen,Reassign API; grievance manager
+82,14,Admin & operations console,NAV-017,Navigation,Admin,Admin portal - Control Tower,Admin,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,GS-065,Orders and payments operations,app/admin
+83,14,Admin & operations console,NAV-019,Navigation,Admin,Admin portal - Security,Admin,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,"GS-067, GS-070",Fraud and consent views,"user-role-manager, audit-log-view, compliance"
+84,15,Analytics & KPIs,GS-069,Feature Master,Analytics,Marketplace KPI dashboard,"Admin, Operator, Shop",P0,MVP,IN PROGRESS,COMPLETE EXISTING,SM-001,Full KPI set; role-scoped views,Admin stat tiles
+85,15,Analytics & KPIs,KPI-001,KPIs,Analytics,GMV,Admin,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,GS-069,Paid-order basis; trend view,Admin tile sums delivered orders
+86,15,Analytics & KPIs,KPI-002,KPIs,Analytics,Order fill rate,Operations,n/a,n/a,YET TO START,BUILD NEW,GS-069,Calculation and dashboard,None
+87,15,Analytics & KPIs,KPI-003,KPIs,Analytics,Shop acceptance time,Shop/Operations,n/a,n/a,YET TO START,BUILD NEW,GS-069,Calculation and dashboard,Data: order_status_history
+88,15,Analytics & KPIs,KPI-004,KPIs,Analytics,Pick-pack time,Shop,n/a,n/a,YET TO START,BUILD NEW,GS-069,Calculation and dashboard,Data: order_status_history
+89,15,Analytics & KPIs,KPI-005,KPIs,Analytics,Assignment time,Delivery Ops,n/a,n/a,YET TO START,BUILD NEW,GS-069,Calculation and dashboard,Data: offeredAt/acceptedAt
+90,15,Analytics & KPIs,KPI-006,KPIs,Analytics,Delivery time,Delivery Ops,n/a,n/a,YET TO START,BUILD NEW,GS-069,Calculation and dashboard,Data: pickedUpAt/deliveredAt
+91,15,Analytics & KPIs,KPI-007,KPIs,Analytics,On-time delivery rate,Operations,n/a,n/a,YET TO START,BUILD NEW,GS-069,Calculation and dashboard,Data: promisedByAt/deliveredAt
+92,15,Analytics & KPIs,KPI-008,KPIs,Analytics,Cancellation rate,Operations,n/a,n/a,YET TO START,BUILD NEW,GS-069,Calculation and dashboard,Data: order status
+93,15,Analytics & KPIs,KPI-009,KPIs,Analytics,Refund rate,Finance,n/a,n/a,YET TO START,BUILD NEW,GS-069,Calculation and dashboard,"Data: REFUNDED status, wallet refunds"
+94,15,Analytics & KPIs,KPI-010,KPIs,Analytics,Customer repeat rate,Growth,n/a,n/a,YET TO START,BUILD NEW,GS-069,Calculation and dashboard,None
+95,15,Analytics & KPIs,KPI-011,KPIs,Analytics,Subscription retention,Growth,n/a,n/a,YET TO START,BUILD NEW,GS-069,Calculation and dashboard,Active subscription count only
+96,15,Analytics & KPIs,KPI-012,KPIs,Analytics,Gig acceptance rate,Delivery Ops,n/a,n/a,YET TO START,BUILD NEW,GS-069,Calculation and dashboard,Data: OFFERED/ACCEPTED/REJECTED
+97,15,Analytics & KPIs,KPI-013,KPIs,Analytics,Gig utilization,Delivery Ops,n/a,n/a,YET TO START,BUILD NEW,GS-069,Calculation and dashboard,No online-time log
+98,15,Analytics & KPIs,KPI-014,KPIs,Analytics,Shop retention,Marketplace,n/a,n/a,YET TO START,BUILD NEW,GS-069,Calculation and dashboard,None
+99,15,Analytics & KPIs,NAV-018,Navigation,Admin,Admin portal - Analytics,Admin,n/a,n/a,IN PROGRESS,COMPLETE EXISTING,GS-069,"GMV, SLA, retention, seller/gig metrics",Stat tiles
+100,16,P1 MVP features,GS-014,Feature Master,Catalog,Product images/specifications,"Shop, Operator",P1,MVP,IN PROGRESS,COMPLETE EXISTING,-,Image upload and image moderation,"products.imageUrl/specifications, product_images"
+101,16,P1 MVP features,GS-035,Feature Master,Orders,Substitution approval,"Customer, Shop",P1,MVP,YET TO START,BUILD NEW,GS-034,Substitution flow with customer preference,None
+102,16,P1 MVP features,GS-059,Feature Master,Ratings,Shop rating,Customer,P1,MVP,YET TO START,BUILD NEW,-,Shop/order rating with moderation,None
+103,16,P1 MVP features,GS-060,Feature Master,Ratings,Gig rating,Customer,P1,MVP,YET TO START,BUILD NEW,-,Delivery rating; quality metrics,None
+104,16,P1 MVP features,GA-007,Gig Assignment Rules,Delivery,Reliability,System,P1,n/a,YET TO START,BUILD NEW,GS-060,Acceptance/on-time/cancellation scoring,None
+105,16,P1 MVP features,GA-008,Gig Assignment Rules,Delivery,Fairness,System,P1,n/a,YET TO START,BUILD NEW,GS-039,Rotation and cap rules,None
+106,17,Phase 2 features,GS-003,Feature Master,Identity & Access,Multi-role user account,All,P1,Phase 2,YET TO START,BUILD NEW,GS-002,Multiple roles per user with separate approval per role,users.role is a single value
+107,17,Phase 2 features,GS-018,Feature Master,Inventory,Reorder level / quantity,Shop,P1,Phase 2,IN PROGRESS,COMPLETE EXISTING,GS-069,Analytics-driven replenishment suggestions,"reorderLevel/reorderQuantity, REORDER alert"
+108,17,Phase 2 features,GS-023,Feature Master,Comparison,E-commerce price benchmark,Customer,P1,Phase 2,IN PROGRESS,COMPLETE EXISTING,GS-022,Customer display with source and timestamp; lawful source,pmd offers/price-history (admin only); marketplaces BLOCKED
+109,17,Phase 2 features,GS-030,Feature Master,Payments,COD,"Customer, Shop",P1,Phase 2,YET TO START,BUILD NEW,GS-031,Cash on delivery with risk limits,None
+110,17,Phase 2 features,GS-046,Feature Master,Society,Security notification,"Society, Gig",P1,Phase 2,YET TO START,BUILD NEW,GS-045,Notify gate security of assigned worker/order,None
+111,17,Phase 2 features,GS-049,Feature Master,Subscription,Recurring vegetables/daily goods,"Customer, Shop",P1,Phase 2,IN PROGRESS,COMPLETE EXISTING,-,Custom schedules; generate order before cutoff,subscribable products; DAILY/WEEKLY
+112,17,Phase 2 features,GS-052,Feature Master,Marketing,Customer segmentation,"Shop, Operator",P1,Phase 2,YET TO START,BUILD NEW,GS-070,"Segments by locality, purchases, consent",None
+113,17,Phase 2 features,GS-053,Feature Master,Marketing,Shop promotional campaigns,Shop,P1,Phase 2,IN PROGRESS,COMPLETE EXISTING,GS-052,Shop-run campaigns with budget/rate limits,"svc/vouchers.ts (admin-only, wallet top-up)"
+114,17,Phase 2 features,GS-054,Feature Master,Marketing,Referral program,"Shop, Customer",P1,Phase 2,IN PROGRESS,COMPLETE EXISTING,-,Customer referral rewards; fraud checks,svc/referrals.ts (shop registration referrals)
+115,17,Phase 2 features,WF-009,Workflow Master,Marketing,Marketing campaign,Shop,n/a,n/a,YET TO START,BUILD NEW,"GS-052, GS-053","Audience, consent, budget, approval, send, tracking",Vouchers only (admin)
+116,17,Phase 2 features,NAV-009,Navigation,Shop,Shop portal - Marketing,Shop,n/a,n/a,YET TO START,BUILD NEW,WF-009,"Customers, segments, campaigns, vouchers, referrals",None
+117,17,Phase 2 features,KPI-015,KPIs,Analytics,Marketing conversion,Shop/Growth,n/a,n/a,YET TO START,BUILD NEW,WF-009,Calculation and dashboard,No campaigns
+118,17,Phase 2 features,GS-068,Feature Master,Admin,Fraud/risk rules,"Admin, Operator",P1,Phase 2,YET TO START,BUILD NEW,-,Rules and review queue,Rate limiting only
+119,18,Completed - preserve & add regression tests,GS-006,Feature Master,Shop Onboarding,Shop registration,"Shop, Operator",P0,MVP,COMPLETED,PRESERVE,-,None,svc/shops.ts register/approve/reject; app/shop/register
+120,18,Completed - preserve & add regression tests,GS-011,Feature Master,Catalog,Product master,"Admin, Operator",P0,MVP,COMPLETED,PRESERVE,-,None,"schema products (gtin, hsn, gst, brand); src/server/pmd"
+121,18,Completed - preserve & add regression tests,GS-012,Feature Master,Catalog,Shop catalog mapping,"Shop, Operator",P0,MVP,COMPLETED,PRESERVE,-,None,schema shop_products; svc/catalogue.ts
+122,18,Completed - preserve & add regression tests,GS-013,Feature Master,Catalog,Bulk product upload,"Shop, Operator",P0,MVP,COMPLETED,PRESERVE,-,None,svc/excel.ts validate/preview/apply
+123,18,Completed - preserve & add regression tests,GS-016,Feature Master,Inventory,Stock quantity,"Shop, Operator",P0,MVP,COMPLETED,PRESERVE,-,None,"onlineStock/offlineStock, inventory_movements"
+124,18,Completed - preserve & add regression tests,GS-017,Feature Master,Inventory,Low-stock threshold,Shop,P1,MVP,COMPLETED,PRESERVE,-,None,"svc/inventory-alerts.ts, stock_alerts"
+125,18,Completed - preserve & add regression tests,GS-024,Feature Master,Cart,Single-shop cart,Customer,P0,MVP,COMPLETED,PRESERVE,-,None,"svc/cart.ts, app/cart"
+126,18,Completed - preserve & add regression tests,GS-025,Feature Master,Cart,Multi-shop cart,Customer,P1,Phase 2,COMPLETED,PRESERVE,-,Parent order handled under GS-033,Cart grouped by shop; one order per shop
+127,18,Completed - preserve & add regression tests,GS-029,Feature Master,Payments,Wallet,Customer,P1,Phase 2,COMPLETED,PRESERVE,-,None,svc/wallet.ts ledger with idempotency keys
+128,18,Completed - preserve & add regression tests,GS-032,Feature Master,Orders,Order creation,Customer,P0,MVP,COMPLETED,PRESERVE,-,None,svc/orders.ts checkout (idempotent)
+129,18,Completed - preserve & add regression tests,GS-037,Feature Master,Delivery,Gig worker onboarding,"Gig, Operator",P0,MVP,COMPLETED,PRESERVE,-,None,svc/delivery-partners.ts; encrypted KYC (uncommitted)
+130,18,Completed - preserve & add regression tests,GS-038,Feature Master,Delivery,Online/offline status,Gig,P0,MVP,COMPLETED,PRESERVE,-,None,goOnline/goOffline/updateMyLocation
+131,18,Completed - preserve & add regression tests,GS-048,Feature Master,Subscription,Daily milk subscription,"Customer, Shop",P0,MVP,COMPLETED,PRESERVE,-,None,svc/subscriptions.ts; api/cron/daily-orders
+132,18,Completed - preserve & add regression tests,GS-050,Feature Master,Subscription,Subscription payment,"Customer, System",P0,MVP,COMPLETED,PRESERVE,-,None (per-cycle gateway charge optional),Wallet deduction; PAYMENT_PENDING; retry
+133,18,Completed - preserve & add regression tests,GS-051,Feature Master,Subscription,Skip/pause/resume/cancel,Customer,P0,MVP,COMPLETED,PRESERVE,-,Confirm explicit cutoff rule,skip/pause/resume/cancel; calendar
+134,18,Completed - preserve & add regression tests,GS-071,Feature Master,Security,Data access controls,"Admin, Operator",P0,MVP,COMPLETED,PRESERVE,-,None,Encrypted PAN/KYC; audited reveal
+135,18,Completed - preserve & add regression tests,RBAC-001,RBAC Matrix,Security,Browse/search,All,n/a,n/a,COMPLETED,PRESERVE,-,None,Public storefront
+136,18,Completed - preserve & add regression tests,RBAC-004,RBAC Matrix,Security,Manage catalog,"Shop, Operator, Admin",n/a,n/a,COMPLETED,PRESERVE,-,None,SHOP_PRODUCT_MANAGE_OWN/ANY
+137,18,Completed - preserve & add regression tests,RBAC-005,RBAC Matrix,Security,Upload product lists,"Shop, Operator, Admin",n/a,n/a,COMPLETED,PRESERVE,-,None,EXCEL_UPLOAD_OWN/ANY
+138,18,Completed - preserve & add regression tests,RBAC-006,RBAC Matrix,Security,Verify shop,"Operator, Admin",n/a,n/a,COMPLETED,PRESERVE,-,None,SHOP_APPROVE/REJECT
+139,18,Completed - preserve & add regression tests,RBAC-008,RBAC Matrix,Security,Manage own availability,"Gig, Admin",n/a,n/a,COMPLETED,PRESERVE,-,None,goOnline/goOffline
+140,18,Completed - preserve & add regression tests,RBAC-013,RBAC Matrix,Security,Manage users/roles,"Operator (Limited), Admin",n/a,n/a,COMPLETED,PRESERVE,-,None,USER_VIEW_ANY / USER_SET_ROLE
+141,18,Completed - preserve & add regression tests,RBAC-014,RBAC Matrix,Security,System configuration,"Operator (Limited), Admin",n/a,n/a,COMPLETED,PRESERVE,-,None,SYSTEM_CONFIG admin-only
+142,18,Completed - preserve & add regression tests,RBAC-015,RBAC Matrix,Security,Audit logs,"Operator (Limited), Admin",n/a,n/a,COMPLETED,PRESERVE,-,None,AUDIT_LOG_VIEW_LIMITED / AUDIT_LOG_VIEW
+143,18,Completed - preserve & add regression tests,GA-003,Gig Assignment Rules,Delivery,Distance,System,P0,n/a,COMPLETED,PRESERVE,-,Travel-time ETA later (GS-072),delivery-eligibility.ts nearest-first
+144,18,Completed - preserve & add regression tests,GA-004,Gig Assignment Rules,Delivery,Availability,System,P0,n/a,COMPLETED,PRESERVE,-,None,APPROVED + online + in radius
+145,18,Completed - preserve & add regression tests,NAV-005,Navigation,Customer,Customer portal - Subscriptions,Customer,n/a,n/a,COMPLETED,PRESERVE,-,None,app/subscriptions
+146,18,Completed - preserve & add regression tests,NAV-007,Navigation,Shop,Shop portal - Catalog,Shop,n/a,n/a,COMPLETED,PRESERVE,-,None,"shop-product-manager, excel upload, app/shop/prices"
+147,18,Completed - preserve & add regression tests,NAV-008,Navigation,Shop,Shop portal - Orders,Shop,n/a,n/a,COMPLETED,PRESERVE,-,None,app/shop/orders
+148,18,Completed - preserve & add regression tests,NAV-011,Navigation,Gig,Gig portal - Jobs,Gig,n/a,n/a,COMPLETED,PRESERVE,-,None,delivery-partner-dashboard

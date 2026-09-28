@@ -59,6 +59,8 @@ const schema = z
     deliveryAvailable: z.boolean().optional(),
     deliveryFeePaise: z.number().int().min(0).optional(),
     freeDeliveryAbovePaise: z.number().int().min(0).nullish(),
+    /** GS-010 delivery zone in km from the shop pin. */
+    serviceRadiusKm: z.number().int().min(1).max(50).optional(),
     description: z.string().max(1000).nullish(),
   })
   .strict();

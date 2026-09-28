@@ -6,7 +6,7 @@
  *   - Kesari/Green classification is writable only by OPERATOR/ADMIN, and every
  *     change is recorded with who/when/why.
  */
-import { and, asc, desc, eq, gte, ilike, isNull, lte, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, or, sql } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import type { ShopTypeKey } from "@/lib/shop-types";
@@ -480,6 +480,8 @@ export interface UpdateShopInput {
   deliveryAvailable?: boolean;
   deliveryFeePaise?: number;
   freeDeliveryAbovePaise?: number | null;
+  /** GS-010 delivery zone, km from the shop pin (1-50). */
+  serviceRadiusKm?: number;
   description?: string | null;
 }
 
@@ -494,6 +496,12 @@ export async function updateShop(
   }
   if (input.phone && !/^[6-9]\d{9}$/.test(input.phone)) {
     throw validationFailed("Enter a valid 10-digit Indian mobile number.");
+  }
+  if (
+    input.serviceRadiusKm !== undefined &&
+    (!Number.isInteger(input.serviceRadiusKm) || input.serviceRadiusKm < 1 || input.serviceRadiusKm > 50)
+  ) {
+    throw validationFailed("Delivery radius must be a whole number of km between 1 and 50.");
   }
 
   const [current] = await db
@@ -540,6 +548,7 @@ export async function updateShop(
     previousValue: {
       openingHours: current.openingHours,
       shopType: current.shopType,
+      serviceRadiusKm: current.serviceRadiusKm,
       ...(coordinatesChanged
         ? { latitude: current.latitude, longitude: current.longitude, locationVerified: current.locationVerified }
         : {}),
@@ -547,6 +556,7 @@ export async function updateShop(
     newValue: {
       openingHours: updated.openingHours,
       shopType: updated.shopType,
+      serviceRadiusKm: updated.serviceRadiusKm,
       ...(coordinatesChanged
         ? { latitude: updated.latitude, longitude: updated.longitude, locationVerified: updated.locationVerified }
         : {}),
@@ -671,6 +681,8 @@ export interface ShopSearchFilters {
   shopType?: ShopTypeKey;
   classification?: Classification;
   deliveryOnly?: boolean;
+  /** Only these shops — e.g. the ones that deliver to the customer (serviceability.ts). */
+  ids?: readonly string[];
   limit?: number;
   offset?: number;
 }
@@ -679,10 +691,12 @@ export interface ShopSearchFilters {
 export async function searchShops(
   filters: ShopSearchFilters = {},
 ): Promise<Shop[]> {
+  if (filters.ids && filters.ids.length === 0) return [];
   const conditions = [
     eq(shops.status, "APPROVED"),
     isNull(shops.deletedAt),
   ];
+  if (filters.ids) conditions.push(inArray(shops.id, [...filters.ids]));
 
   if (filters.query) {
     const term = `%${filters.query}%`;
