@@ -448,6 +448,22 @@ export async function setShopStatus(
   return updated;
 }
 
+export async function suspendShop(
+  shopId: string,
+  reason: string,
+  actor: { id: string; role: UserRole },
+): Promise<Shop> {
+  const trimmed = reason.trim();
+  if (trimmed.length < 3) throw validationFailed("A suspension reason is required.");
+  const shop = await db.query.shops.findFirst({
+    where: and(eq(shops.id, shopId), isNull(shops.deletedAt)),
+    columns: { status: true },
+  });
+  if (!shop) throw notFound("Shop");
+  if (shop.status !== "APPROVED") throw conflict("Only an approved shop can be suspended.");
+  return setShopStatus(shopId, "SUSPENDED", actor, trimmed);
+}
+
 /**
  * Editable subset of a shop's own details — name/contact/address, shop type,
  * opening hours ("shop time"), delivery settings. Status and classification

@@ -25,12 +25,15 @@
  *  - KPI-014 shop retention — shops with a delivered order in the previous window that have one again ÷ those shops
  *  - KPI-015 marketing conversion — campaign recipients who ordered from the shop within the attribution days ÷ recipients
  */
-import { sql, type SQL } from "drizzle-orm";
+import { and, count, countDistinct, eq, inArray, isNull, sql, type SQL } from "drizzle-orm";
 
 import { addDays, assertIsoDate, todayIn, type IsoDate } from "@/lib/dates";
 import { getEnv } from "@/lib/env";
 import { validationFailed } from "@/lib/errors";
+import { RIDER_IDLE_CAP_MINUTES } from "@/lib/rider-sessions";
 import { db } from "@/server/db";
+import { deliveryOrders, deliveryPartners, orders, type OrderStatus } from "@/server/db/schema";
+import { ACTIVE_ASSIGNMENT_STATUSES } from "./delivery-eligibility";
 
 export interface KpiWindow {
   from: IsoDate;
@@ -239,7 +242,7 @@ export async function getMarketplaceKpis(window: KpiWindow): Promise<Marketplace
       from delivery_orders d where d.offered_at >= ${start} and d.offered_at < ${end}`);
     const online = await one(sql`
       select coalesce(sum(extract(epoch from (
-        least(coalesce(s.ended_at, least(now(), coalesce(p.last_location_at, s.started_at) + interval '15 minutes')), ${end})
+        least(coalesce(s.ended_at, least(now(), greatest(p.last_location_at, s.started_at) + make_interval(mins => ${RIDER_IDLE_CAP_MINUTES}))), ${end})
         - greatest(s.started_at, ${start})))), 0) / 3600.0 as hours
       from delivery_partner_sessions s join delivery_partners p on p.id = s.delivery_partner_id
       where s.started_at < ${end} and coalesce(s.ended_at, now()) > ${start}`);
@@ -327,5 +330,53 @@ export async function getMarketplaceKpis(window: KpiWindow): Promise<Marketplace
       revenuePaise: n(marketing.revenue),
     },
     gmvTrend: trend.map((t) => ({ day: String(t.day), gmvPaise: n(t.gmv), orders: n(t.orders) })),
+  };
+}
+
+export const IN_FLIGHT_ORDER_STATUSES = [
+  "CONFIRMED",
+  "ACCEPTED",
+  "PREPARING",
+  "READY",
+  "ASSIGNED",
+  "PICKED_UP",
+  "OUT_FOR_DELIVERY",
+  "FAILED",
+] as const satisfies readonly OrderStatus[];
+
+export type InFlightOrderStatus = (typeof IN_FLIGHT_ORDER_STATUSES)[number];
+
+export interface LiveOperations {
+  inFlight: { status: InFlightOrderStatus; count: number }[];
+  /** Approved, marked online, not deleted — the same predicate dispatch uses. */
+  ridersOnline: number;
+  ridersBusy: number;
+}
+
+/** Point-in-time snapshot, not windowed: orders in flight right now and riders online right now. */
+export async function getLiveOperations(): Promise<LiveOperations> {
+  const onlineRider = and(
+    eq(deliveryPartners.status, "APPROVED"),
+    eq(deliveryPartners.isOnline, true),
+    isNull(deliveryPartners.deletedAt),
+  );
+  const [statusRows, onlineRows, busyRows] = await Promise.all([
+    db
+      .select({ status: orders.status, count: count() })
+      .from(orders)
+      .where(inArray(orders.status, IN_FLIGHT_ORDER_STATUSES))
+      .groupBy(orders.status),
+    db.select({ value: count() }).from(deliveryPartners).where(onlineRider),
+    db
+      .select({ value: countDistinct(deliveryOrders.deliveryPartnerId) })
+      .from(deliveryOrders)
+      .innerJoin(deliveryPartners, eq(deliveryPartners.id, deliveryOrders.deliveryPartnerId))
+      .where(and(onlineRider, inArray(deliveryOrders.status, ACTIVE_ASSIGNMENT_STATUSES))),
+  ]);
+  const byStatus = new Map<OrderStatus, number>(statusRows.map((r) => [r.status, r.count]));
+  return {
+    inFlight: IN_FLIGHT_ORDER_STATUSES.map((status) => ({ status, count: byStatus.get(status) ?? 0 })),
+    ridersOnline: onlineRows[0]?.value ?? 0,
+    ridersBusy: busyRows[0]?.value ?? 0,
   };
 }

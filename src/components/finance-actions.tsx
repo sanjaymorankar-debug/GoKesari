@@ -221,9 +221,9 @@ export function CommissionRateForm({
 }
 
 /** Refund a delivered order to the customer's wallet (full, partial or item amount). */
-export function RefundDeliveredForm() {
+export function RefundDeliveredForm({ initialOrderNumber = "" }: { initialOrderNumber?: string }) {
   const { busy, error, notice, send } = useAction();
-  const [orderNumber, setOrderNumber] = useState("");
+  const [orderNumber, setOrderNumber] = useState(initialOrderNumber);
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
   const [chargeTo, setChargeTo] = useState<"SHOP" | "PLATFORM">("SHOP");
@@ -237,7 +237,7 @@ export function RefundDeliveredForm() {
       "Refunded to the customer's wallet.",
     );
     if (ok) {
-      setOrderNumber("");
+      setOrderNumber(initialOrderNumber);
       setAmount("");
       setReason("");
       setRequestId(crypto.randomUUID());
@@ -259,7 +259,7 @@ export function RefundDeliveredForm() {
         </select>
       </Field>
       <Field label="Reason">
-        <input className={inputClass} value={reason} onChange={(e) => setReason(e.target.value)} />
+        <input className={inputClass} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} />
       </Field>
       <div className="flex items-end">
         <Button

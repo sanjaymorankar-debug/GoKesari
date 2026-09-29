@@ -307,9 +307,15 @@ per shop and 3 in total per 7 days; budget = max recipients (1–5,000).
 
 | Endpoint | Who | Purpose |
 |---|---|---|
-| `GET /api/admin/risk?status=` · `POST` | `RISK_REVIEW` | Flags (default OPEN); run the rules now |
+| `GET /api/admin/risk?status=&severity=&subjectType=` · `POST` | `RISK_REVIEW` | Flags (default OPEN; optional severity `HIGH\|MEDIUM\|LOW`, subjectType `USER\|SHOP\|DELIVERY_PARTNER`), each with `subjectName` and `subjectStatus` (the subject's current account status); run the rules now |
 | `PATCH /api/admin/risk/{id}` | `RISK_REVIEW` | `{ decision: DISMISSED\|ACTIONED, note }` |
 | `POST /api/cron/risk-rules` | cron (`CRON_SECRET`) | Hourly rules sweep |
+| `POST /api/shops/{id}/suspend` | `SHOP_SUSPEND` (operator, admin) | `{ reason }` — APPROVED → SUSPENDED; audited `shop.suspended`. The shop leaves the storefront and stops taking orders; open orders are not cancelled |
+| `POST /api/users/{id}/suspend` | `USER_SUSPEND` (admin) | `{ reason }` — ACTIVE → SUSPENDED (not your own account, not an ADMIN); audited `user.suspended`. The user can no longer sign in and existing sessions stop working |
+
+The `/admin/risk` page offers "Suspend & mark actioned" on open flags: it calls the
+subject's suspend endpoint (`PATCH /api/delivery-partner/{id}` `{ action: "suspend", reason }`
+for riders), then closes the flag as ACTIONED with the note `Suspended: <reason>`.
 
 ## Finance (Slice 6)
 

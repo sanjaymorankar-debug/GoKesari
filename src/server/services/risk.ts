@@ -14,6 +14,12 @@
  *  USER              REPEATED_DISPUTES     MEDIUM  2+ disputed orders in 30 days
  *  USER              TOPUP_FAILURES        MEDIUM  5+ failed wallet top-ups in 24 hours
  *  USER              SHARED_PHONE          LOW     the same mobile number on 2+ active accounts
+ *  USER              HIGH_VALUE_OUTLIER    MEDIUM  an order in 7 days ≥ ₹2,000 and ≥ 5× the customer's average over the 90 days
+ *                                                  before it (3+ orders then), or ≥ ₹10,000 with fewer than 3 orders then.
+ *                                                  PERSONAL + DIRECT orders only (B2B stock buying and subscription runs
+ *                                                  excluded, also from the average); PENDING / PAYMENT_FAILED /
+ *                                                  WALLET_INSUFFICIENT ignored; value = total + already refunded; an order
+ *                                                  already listed on a reviewed flag is not raised again
  *  DELIVERY_PARTNER  OTP_OVERRIDES         MEDIUM  3+ deliveries confirmed by operations override in 30 days
  *  DELIVERY_PARTNER  OTP_LOCKOUTS          MEDIUM  2+ deliveries with the OTP attempts used up in 30 days
  *  DELIVERY_PARTNER  FAILED_DELIVERIES     MEDIUM  3+ failed deliveries in 7 days
@@ -117,6 +123,55 @@ const RULES: Rule[] = [
             group by phone having count(*) >= 2) x on x.phone = u.phone
       where u.status = 'ACTIVE' and u.deleted_at is null`,
     describe: (r) => `Mobile number used by ${r.count} active accounts`,
+  },
+  {
+    code: "HIGH_VALUE_OUTLIER",
+    subject: "USER",
+    severity: "MEDIUM",
+    label: "Order far above the customer's usual spend",
+    query: sql`with candidate as (
+        select o.id, o.user_id, o.order_number, o.created_at, o.total_paise + o.refunded_paise as value_paise
+        from orders o
+        where o.created_at > now() - interval '7 days'
+          and o.order_type = 'PERSONAL' and o.source = 'DIRECT'
+          and o.status not in ('PENDING', 'PAYMENT_FAILED', 'WALLET_INSUFFICIENT')
+          and o.total_paise + o.refunded_paise >= 200000
+          and not exists (
+            select 1 from risk_flags f
+            where f.subject_type = 'USER' and f.subject_id = o.user_id and f.rule_code = 'HIGH_VALUE_OUTLIER'
+              and f.status <> 'OPEN'
+              and strpos('; ' || coalesce(f.details->>'orders', ''), '; ' || o.order_number || ' for ') > 0
+          )
+      ), scored as (
+        select c.*, b.prior_orders, b.avg_paise
+        from candidate c
+        cross join lateral (
+          select count(*)::int as prior_orders, avg(p.total_paise + p.refunded_paise) as avg_paise
+          from orders p
+          where p.user_id = c.user_id and p.id <> c.id
+            and p.created_at < c.created_at and p.created_at >= c.created_at - interval '90 days'
+            and p.order_type = 'PERSONAL' and p.source = 'DIRECT'
+            and p.status not in ('PENDING', 'PAYMENT_FAILED', 'WALLET_INSUFFICIENT')
+        ) b
+      )
+      select s.user_id as subject_id, count(*)::int as count, max(s.value_paise)::bigint as largest_paise,
+        string_agg(
+          s.order_number || ' for ₹' || to_char(s.value_paise / 100.0, 'FM999999999990.00') || ' (' ||
+            case
+              when s.prior_orders >= 3 then
+                coalesce(to_char(s.value_paise / nullif(s.avg_paise, 0), 'FM999999999990.0') || '× ', 'far above ') ||
+                'their 90-day average of ₹' || to_char(s.avg_paise / 100.0, 'FM999999999990.00')
+              when s.prior_orders = 0 then 'no earlier orders in 90 days'
+              when s.prior_orders = 1 then 'only 1 earlier order in 90 days'
+              else 'only ' || s.prior_orders::text || ' earlier orders in 90 days'
+            end || ')',
+          '; ' order by s.created_at desc) as orders
+      from scored s
+      where (s.prior_orders >= 3 and s.value_paise >= 5 * s.avg_paise)
+         or (s.prior_orders < 3 and s.value_paise >= 1000000)
+      group by s.user_id`,
+    describe: (r) =>
+      `${Number(r.count) === 1 ? "An order" : `${r.count} orders`} in the last 7 days far above this customer's usual spend: ${r.orders}`,
   },
   {
     code: "OTP_OVERRIDES",
@@ -247,32 +302,59 @@ export async function runRiskRules(actor: { id: string | null; role: UserRole | 
 
 export interface RiskFlagView extends RiskFlag {
   subjectName: string;
+  subjectStatus: string | null;
   ruleLabel: string;
 }
 
-/** Review queue with a readable subject name (never contact details). */
-export async function listRiskFlags(options: { status?: RiskFlagStatus; limit?: number } = {}): Promise<RiskFlagView[]> {
+export interface ListRiskFlagsOptions {
+  status?: RiskFlagStatus;
+  severity?: RiskSeverity;
+  subjectType?: RiskSubject;
+  limit?: number;
+}
+
+/** Review queue with a readable subject name and its current account status (never contact details). */
+export async function listRiskFlags(options: ListRiskFlagsOptions = {}): Promise<RiskFlagView[]> {
   const rows = await db
     .select({
       flag: riskFlags,
       userName: users.name,
+      userStatus: users.status,
+      userDeletedAt: users.deletedAt,
       shopName: shops.name,
+      shopStatus: shops.status,
+      shopDeletedAt: shops.deletedAt,
       riderName: deliveryPartners.fullName,
+      riderStatus: deliveryPartners.status,
+      riderDeletedAt: deliveryPartners.deletedAt,
     })
     .from(riskFlags)
     .leftJoin(users, and(eq(riskFlags.subjectType, "USER"), eq(riskFlags.subjectId, users.id)))
     .leftJoin(shops, and(eq(riskFlags.subjectType, "SHOP"), eq(riskFlags.subjectId, shops.id)))
     .leftJoin(deliveryPartners, and(eq(riskFlags.subjectType, "DELIVERY_PARTNER"), eq(riskFlags.subjectId, deliveryPartners.id)))
-    .where(eq(riskFlags.status, options.status ?? "OPEN"))
+    .where(
+      and(
+        eq(riskFlags.status, options.status ?? "OPEN"),
+        options.severity ? eq(riskFlags.severity, options.severity) : undefined,
+        options.subjectType ? eq(riskFlags.subjectType, options.subjectType) : undefined,
+      ),
+    )
     .orderBy(sql`case ${riskFlags.severity} when 'HIGH' then 0 when 'MEDIUM' then 1 else 2 end`, desc(riskFlags.lastDetectedAt))
     .limit(Math.min(options.limit ?? 200, 500));
-  return rows.map((r) => ({
-    ...r.flag,
-    subjectName:
-      (r.flag.subjectType === "USER" ? r.userName : r.flag.subjectType === "SHOP" ? r.shopName : r.riderName) ??
-      `${r.flag.subjectType.toLowerCase()} ${r.flag.subjectId.slice(0, 8)}`,
-    ruleLabel: RISK_RULE_LABELS[r.flag.ruleCode] ?? r.flag.ruleCode,
-  }));
+  return rows.map((r) => {
+    const subject =
+      r.flag.subjectType === "USER"
+        ? { name: r.userName, status: r.userStatus, deletedAt: r.userDeletedAt }
+        : r.flag.subjectType === "SHOP"
+          ? { name: r.shopName, status: r.shopStatus, deletedAt: r.shopDeletedAt }
+          : { name: r.riderName, status: r.riderStatus, deletedAt: r.riderDeletedAt };
+    return {
+      ...r.flag,
+      subjectName: subject.name ?? `${r.flag.subjectType.toLowerCase()} ${r.flag.subjectId.slice(0, 8)}`,
+      subjectStatus: subject.deletedAt ? "DELETED" : subject.status,
+      ruleLabel: RISK_RULE_LABELS[r.flag.ruleCode] ?? r.flag.ruleCode,
+    };
+  });
 }
 
 export async function countOpenRiskFlags(): Promise<Record<RiskSeverity, number>> {
