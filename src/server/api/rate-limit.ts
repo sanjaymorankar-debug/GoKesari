@@ -49,6 +49,13 @@ export const RATE_LIMITS = {
    * tighter than a general authenticated mutation on purpose.
    */
   VOUCHER_PREVIEW: { limit: 10, windowMs: 60_000 },
+  /**
+   * Shop-registration duplicate pre-check (POST /api/shops/duplicate-check).
+   * It answers "is this PAN / licence number already registered?", so it is
+   * a probing surface like VOUCHER_PREVIEW — enough for a form's on-blur
+   * checks, not for trying numbers in bulk.
+   */
+  SHOP_IDENTITY_CHECK: { limit: 20, windowMs: 60_000 },
 } as const satisfies Record<string, RateLimitOptions>;
 
 /**

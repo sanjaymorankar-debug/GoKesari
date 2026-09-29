@@ -26,8 +26,22 @@ import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { grantRole } from "./roles";
 import { uniqueSlug } from "./catalogue";
 import { resolveLocationVerification } from "./geocoding";
+import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { attributeShopToCode } from "./referrals";
 import { resolveFeeForNewRegistration } from "./registration-fees";
+import {
+  duplicateShopError,
+  findRegistrationMatches,
+  isShopActUniqueViolation,
+  lockRegistrationKeys,
+  maskedIdentifiers,
+  parseShopIdentifiers,
+  recordDuplicateBlocked,
+  shopIdentityColumns,
+  type DuplicateMatch,
+  type DuplicateMatchReason,
+  type RegistrationCandidate,
+} from "./shop-duplicates";
 
 export interface RegisterShopInput {
   name: string;
@@ -56,6 +70,18 @@ export interface RegisterShopInput {
   freeDeliveryAbovePaise?: number | null;
   description?: string | null;
 
+  /* --------------------------- business identifiers (shop-duplicates.ts).
+   * Each optional here; POST /api/shops requires at least one. Checked
+   * against every existing registration before a new one is created. */
+  /** Shop Act / Gumasta licence number. */
+  shopActNumber?: string | null;
+  /** Encrypted at rest; compared only through its blind index. */
+  panNumber?: string | null;
+  /** Name on the PAN card — required with panNumber, as on the /shop PAN form. */
+  panHolderName?: string | null;
+  /** Udyam number, or an old Udyog Aadhaar number. */
+  udyamNumber?: string | null;
+
   /* ------------------------------------------- operator-only fields (§4.1) */
   /**
    * Register the shop on behalf of this user instead of the caller. Honoured
@@ -70,9 +96,23 @@ export interface RegisterShopInput {
 }
 
 /**
+ * A registration result. `resubmitted` is true when the account's own
+ * REJECTED registration of the same shop was updated and sent back for
+ * review, instead of a new shop being created.
+ */
+export type RegisterShopResult = Shop & { resubmitted: boolean };
+
+/**
  * Submits a shop registration. Always lands in PENDING_APPROVAL — the caller
  * cannot choose a status, and classification is left null for an operator to
  * assign at approval time (§8, §10).
+ *
+ * The same shop cannot be registered twice (see shop-duplicates.ts): a live
+ * registration with the same Shop Act licence — or the same PAN or Udyam
+ * number at the same place, or the same account's shop of the same name at
+ * the same PIN code — refuses the submission with a 409. The account's own
+ * REJECTED registration of the shop is updated and resubmitted instead of a
+ * new row being created.
  */
 export async function registerShop(
   input: RegisterShopInput,
@@ -84,12 +124,22 @@ export async function registerShop(
    * so a crafted request body cannot escalate.
    */
   options: { privileged?: boolean } = {},
-): Promise<Shop> {
+): Promise<RegisterShopResult> {
   if (!/^\d{6}$/.test(input.pincode)) {
     throw validationFailed("PIN code must be exactly 6 digits.");
   }
   if (!/^[6-9]\d{9}$/.test(input.phone)) {
     throw validationFailed("Enter a valid 10-digit Indian mobile number.");
+  }
+
+  // An invalid identifier is a field error, never silently dropped — and it
+  // is caught before anything slow (geocoding) runs.
+  const identity = parseShopIdentifiers(input);
+  const panHolderName = input.panHolderName?.trim() ?? "";
+  if (identity.pan && !panHolderName) {
+    throw validationFailed("Please check the highlighted fields.", {
+      fields: { panHolderName: "Enter the name on the PAN card." },
+    });
   }
 
   // Never trust a caller-supplied "verified" flag — status is always
@@ -125,61 +175,157 @@ export async function registerShop(
     throw validationFailed("Registration fee must be a whole number of paise.");
   }
 
-  const [shop] = await db
-    .insert(shops)
-    .values({
-      ownerId,
-      registrationDate:
-        (privileged ? input.registrationDate : null) ??
-        new Date().toISOString().slice(0, 10),
-      registrationFeePaise,
-      registrationFeeId: scheduled.feeId,
-      feePaymentStatus: registrationFeePaise > 0 ? "PENDING" : "PAID",
-      name: input.name.trim(),
-      slug: uniqueSlug(input.name),
-      ownerName: input.ownerName.trim(),
-      phone: input.phone,
-      email: input.email ?? null,
-      addressLine1: input.addressLine1,
-      addressLine2: input.addressLine2 ?? null,
-      area: input.area ?? null,
-      city: input.city,
-      state: input.state ?? null,
-      pincode: input.pincode,
-      latitude: input.latitude ?? null,
-      longitude: input.longitude ?? null,
-      pickupLatitude: input.pickupLatitude ?? null,
-      pickupLongitude: input.pickupLongitude ?? null,
-      pickupInstructions: input.pickupInstructions ?? null,
-      landmark: input.landmark ?? null,
-      locationVerified,
-      locationVerifiedAt,
-      locationSource,
-      shopType: input.shopType,
-      logoUrl: input.logoUrl ?? null,
-      photos: input.photos ?? [],
-      openingHours: input.openingHours ?? [],
-      deliveryAvailable: input.deliveryAvailable ?? false,
-      deliveryFeePaise: input.deliveryFeePaise ?? 0,
-      freeDeliveryAbovePaise: input.freeDeliveryAbovePaise ?? null,
-      description: input.description ?? null,
-      // Status and classification are deliberately NOT taken from input.
-      status: "PENDING_APPROVAL",
-      classification: null,
-    })
-    .returning();
+  // What the owner typed — shared by a new registration and a resubmission.
+  const details = {
+    name: input.name.trim(),
+    ownerName: input.ownerName.trim(),
+    phone: input.phone,
+    email: input.email ?? null,
+    addressLine1: input.addressLine1,
+    addressLine2: input.addressLine2 ?? null,
+    area: input.area ?? null,
+    city: input.city,
+    state: input.state ?? null,
+    pincode: input.pincode,
+    latitude: input.latitude ?? null,
+    longitude: input.longitude ?? null,
+    pickupLatitude: input.pickupLatitude ?? null,
+    pickupLongitude: input.pickupLongitude ?? null,
+    pickupInstructions: input.pickupInstructions ?? null,
+    landmark: input.landmark ?? null,
+    locationVerified,
+    locationVerifiedAt,
+    locationSource,
+    shopType: input.shopType,
+    logoUrl: input.logoUrl ?? null,
+    photos: input.photos ?? [],
+    openingHours: input.openingHours ?? [],
+    deliveryAvailable: input.deliveryAvailable ?? false,
+    deliveryFeePaise: input.deliveryFeePaise ?? 0,
+    freeDeliveryAbovePaise: input.freeDeliveryAbovePaise ?? null,
+    description: input.description ?? null,
+  };
 
+  const candidate: RegistrationCandidate = {
+    ownerId,
+    name: details.name,
+    addressLine1: details.addressLine1,
+    pincode: details.pincode,
+    identity,
+  };
   // Registering a shop promotes a plain customer to SHOP_OWNER — whether they
   // registered it themselves or an operator registered it for them. Operators
   // and admins keep their higher role.
   // GS-003: SHOP_OWNER is granted alongside any role the owner already holds
   // (a rider or society admin can also run a shop and switch between them).
-  await grantRole(ownerId, "SHOP_OWNER", {
-    source: "SHOP_REGISTRATION",
+  const roleGrant = {
+    source: "SHOP_REGISTRATION" as const,
     grantedBy: actor.id,
     activateIfCustomer: true,
-  });
+  };
 
+  type Outcome =
+    | { kind: "blocked"; match: DuplicateMatch }
+    | { kind: "created"; shop: Shop }
+    | { kind: "resubmitted"; shop: Shop; previous: Shop; matchedOn: DuplicateMatchReason };
+
+  let outcome: Outcome;
+  try {
+    outcome = await db.transaction(async (tx): Promise<Outcome> => {
+      // Lock, then look: a simultaneous second submission of the same shop
+      // (a double-click, a second tab) waits here, then sees this one.
+      await lockRegistrationKeys(tx, candidate);
+      const { blocking, rejectedOwn } = await findRegistrationMatches(tx, candidate);
+      if (blocking) return { kind: "blocked", match: blocking };
+
+      if (rejectedOwn) {
+        const [previous] = await tx
+          .select()
+          .from(shops)
+          .where(eq(shops.id, rejectedOwn.shop.id))
+          .for("update");
+        // Re-sending the PAN already on file must not reset its verification.
+        const samePan = identity.pan !== null && previous.panHash === identity.pan.hash;
+        const [shop] = await tx
+          .update(shops)
+          .set({
+            ...details,
+            ...shopIdentityColumns(samePan ? { ...identity, pan: null } : identity, panHolderName),
+            // Registration number, fee snapshot, payments and slug stay as
+            // they were: this is the same registration going back for review.
+            status: "PENDING_APPROVAL",
+            rejectionReason: null,
+            updatedAt: new Date(),
+          })
+          .where(eq(shops.id, previous.id))
+          .returning();
+        await grantRole(ownerId, "SHOP_OWNER", roleGrant, tx);
+        return { kind: "resubmitted", shop, previous, matchedOn: rejectedOwn.reason };
+      }
+
+      const [shop] = await tx
+        .insert(shops)
+        .values({
+          ownerId,
+          registrationDate:
+            (privileged ? input.registrationDate : null) ??
+            new Date().toISOString().slice(0, 10),
+          registrationFeePaise,
+          registrationFeeId: scheduled.feeId,
+          feePaymentStatus: registrationFeePaise > 0 ? "PENDING" : "PAID",
+          slug: uniqueSlug(input.name),
+          ...details,
+          ...shopIdentityColumns(identity, panHolderName),
+          // Status and classification are deliberately NOT taken from input.
+          status: "PENDING_APPROVAL",
+          classification: null,
+        })
+        .returning();
+      await grantRole(ownerId, "SHOP_OWNER", roleGrant, tx);
+      return { kind: "created", shop };
+    });
+  } catch (error) {
+    // Unreachable for two registrations racing each other — the lock
+    // serialises them. Kept for a write that bypassed the lock, e.g. an
+    // operator re-approving a rejected shop with the same licence meanwhile.
+    if (!isShopActUniqueViolation(error)) throw error;
+    const { blocking } = await findRegistrationMatches(db, candidate);
+    if (!blocking) {
+      throw conflict("This Shop Act licence number is already registered to another shop.");
+    }
+    outcome = { kind: "blocked", match: blocking };
+  }
+
+  if (outcome.kind === "blocked") {
+    await recordDuplicateBlocked(outcome.match, identity, actor, {
+      kind: "registration",
+      ownerId,
+    });
+    throw duplicateShopError(outcome.match, identity, { privileged });
+  }
+
+  if (outcome.kind === "resubmitted") {
+    await recordAudit({
+      actorId: actor.id,
+      actorRole: actor.role,
+      action: AUDIT_ACTIONS.SHOP_RESUBMITTED,
+      entityType: "shop",
+      entityId: outcome.shop.id,
+      previousValue: {
+        status: outcome.previous.status,
+        rejectionReason: outcome.previous.rejectionReason,
+      },
+      newValue: {
+        status: outcome.shop.status,
+        matchedOn: outcome.matchedOn,
+        onBehalf: ownerId !== actor.id,
+        identifiers: maskedIdentifiers(identity),
+      },
+    });
+    return { ...outcome.shop, resubmitted: true };
+  }
+
+  const shop = outcome.shop;
   if (privileged && input.referralCode) {
     await attributeShopToCode(shop.id, input.referralCode, actor);
   }
@@ -197,9 +343,10 @@ export async function registerShop(
       registrationNumber: shop.registrationNumber,
       registrationFeePaise: shop.registrationFeePaise,
       onBehalf: ownerId !== actor.id,
+      identifiers: maskedIdentifiers(identity),
     },
   });
-  return shop;
+  return { ...shop, resubmitted: false };
 }
 
 /**
@@ -345,7 +492,38 @@ export async function updateShopCompliance(
 
 /* ------------------------------------------------------------- approval */
 
+/**
+ * Approving a REJECTED shop puts it back among live registrations, where its
+ * Shop Act licence must still be unique (shops_shop_act_key_active_unique).
+ */
+const SHOP_ACT_TAKEN_MESSAGE =
+  "Another live shop already has this Shop Act licence number. Resolve the duplicate first.";
+
 export async function approveShop(
+  shopId: string,
+  input: { classification: Classification },
+  actor: { id: string; role: UserRole },
+): Promise<Shop> {
+  let approved: Shop;
+  try {
+    approved = await approveShopTransaction(shopId, input, actor);
+  } catch (error) {
+    if (isShopActUniqueViolation(error)) throw conflict(SHOP_ACT_TAKEN_MESSAGE);
+    throw error;
+  }
+
+  // The duplicate-registration message promises the owner a notification.
+  await notify({
+    userId: approved.ownerId,
+    type: NOTIFICATION_TYPES.SHOP_APPROVED,
+    title: "Your shop is approved",
+    body: `${approved.name} is now live on GoKesari.`,
+    actionUrl: "/shop",
+  });
+  return approved;
+}
+
+function approveShopTransaction(
   shopId: string,
   input: { classification: Classification },
   actor: { id: string; role: UserRole },
@@ -421,6 +599,14 @@ export async function rejectShop(
     entityId: shopId,
     newValue: { status: "REJECTED", reason },
   });
+
+  await notify({
+    userId: updated.ownerId,
+    type: NOTIFICATION_TYPES.SHOP_REJECTED,
+    title: "Your shop registration wasn't approved",
+    body: `${reason.trim().replace(/[.\s]+$/, "")}. You can correct the details and resubmit from My Shop.`,
+    actionUrl: "/shop",
+  });
   return updated;
 }
 
@@ -430,11 +616,17 @@ export async function setShopStatus(
   actor: { id: string; role: UserRole },
   reason?: string,
 ): Promise<Shop> {
-  const [updated] = await db
-    .update(shops)
-    .set({ status, updatedAt: new Date() })
-    .where(eq(shops.id, shopId))
-    .returning();
+  let updated: Shop | undefined;
+  try {
+    [updated] = await db
+      .update(shops)
+      .set({ status, updatedAt: new Date() })
+      .where(eq(shops.id, shopId))
+      .returning();
+  } catch (error) {
+    if (isShopActUniqueViolation(error)) throw conflict(SHOP_ACT_TAKEN_MESSAGE);
+    throw error;
+  }
   if (!updated) throw notFound("Shop");
 
   await recordAudit({

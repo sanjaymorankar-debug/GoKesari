@@ -17,6 +17,10 @@ export const AUDIT_ACTIONS = {
   SHOP_SUSPENDED: "shop.suspended",
   SHOP_UPDATED: "shop.updated",
   SHOP_CLASSIFICATION_CHANGED: "shop.classification_changed",
+  /** A rejected registration submitted again — the same row goes back to PENDING_APPROVAL. */
+  SHOP_RESUBMITTED: "shop.resubmitted",
+  /** A registration or PAN refused because the shop is already registered (identifiers masked). */
+  SHOP_DUPLICATE_BLOCKED: "shop.duplicate_blocked",
   PRODUCT_PRICE_CHANGED: "shop_product.price_changed",
   PRODUCT_AVAILABILITY_CHANGED: "shop_product.availability_changed",
   PRODUCT_CREATED: "shop_product.created",
