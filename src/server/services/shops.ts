@@ -711,6 +711,12 @@ export interface UpdateShopInput {
   freeDeliveryAbovePaise?: number | null;
   /** GS-010 delivery zone, km from the shop pin (1-50). */
   serviceRadiusKm?: number;
+  /** Extra PIN codes the shop delivers to, on top of its radius. */
+  deliveryPincodes?: string[];
+  /** Minimum order subtotal in paise (0 = none). */
+  minOrderPaise?: number;
+  /** Pause new orders without leaving the marketplace. */
+  ordersPaused?: boolean;
   /** GS-030: accept cash on delivery (within the platform's COD limits). */
   codEnabled?: boolean;
   description?: string | null;
@@ -733,6 +739,15 @@ export async function updateShop(
     (!Number.isInteger(input.serviceRadiusKm) || input.serviceRadiusKm < 1 || input.serviceRadiusKm > 50)
   ) {
     throw validationFailed("Delivery radius must be a whole number of km between 1 and 50.");
+  }
+  if (input.deliveryPincodes) {
+    if (input.deliveryPincodes.length > 50 || input.deliveryPincodes.some((p) => !/^\d{6}$/.test(p))) {
+      throw validationFailed("Delivery zones must be up to 50 six-digit PIN codes.");
+    }
+    input.deliveryPincodes = [...new Set(input.deliveryPincodes)];
+  }
+  if (input.minOrderPaise !== undefined && (!Number.isInteger(input.minOrderPaise) || input.minOrderPaise < 0)) {
+    throw validationFailed("Minimum order must be a whole, non-negative amount.");
   }
 
   const [current] = await db
@@ -780,6 +795,9 @@ export async function updateShop(
       openingHours: current.openingHours,
       shopType: current.shopType,
       serviceRadiusKm: current.serviceRadiusKm,
+      deliveryPincodes: current.deliveryPincodes,
+      minOrderPaise: current.minOrderPaise,
+      ordersPaused: current.ordersPaused,
       codEnabled: current.codEnabled,
       ...(coordinatesChanged
         ? { latitude: current.latitude, longitude: current.longitude, locationVerified: current.locationVerified }
@@ -789,6 +807,9 @@ export async function updateShop(
       openingHours: updated.openingHours,
       shopType: updated.shopType,
       serviceRadiusKm: updated.serviceRadiusKm,
+      deliveryPincodes: updated.deliveryPincodes,
+      minOrderPaise: updated.minOrderPaise,
+      ordersPaused: updated.ordersPaused,
       codEnabled: updated.codEnabled,
       ...(coordinatesChanged
         ? { latitude: updated.latitude, longitude: updated.longitude, locationVerified: updated.locationVerified }

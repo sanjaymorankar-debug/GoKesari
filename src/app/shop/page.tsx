@@ -281,6 +281,9 @@ export default async function ShopDashboardPage() {
             pickupLatitude: shop.pickupLatitude,
             pickupLongitude: shop.pickupLongitude,
             serviceRadiusKm: shop.serviceRadiusKm,
+            deliveryPincodes: shop.deliveryPincodes,
+            minOrderPaise: shop.minOrderPaise,
+            ordersPaused: shop.ordersPaused,
             pickupInstructions: shop.pickupInstructions,
           }}
         />

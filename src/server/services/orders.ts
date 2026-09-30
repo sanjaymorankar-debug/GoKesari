@@ -262,6 +262,27 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     }
   }
 
+  // A paused shop takes no new orders at all, and a delivered order must meet
+  // the shop's minimum value (pickup orders are exempt from the minimum).
+  {
+    const groupShops = await db
+      .select()
+      .from(shops)
+      .where(inArray(shops.id, purchasableGroups.map((g) => g.shop.id)));
+    for (const group of purchasableGroups) {
+      const shopRow = groupShops.find((s) => s.id === group.shop.id);
+      if (!shopRow) continue;
+      if (shopRow.ordersPaused) {
+        throw conflict(`${shopRow.name} is not taking new orders right now.`);
+      }
+      if (addressSnapshot && shopRow.deliveryAvailable && group.subtotalPaise < shopRow.minOrderPaise) {
+        throw validationFailed(
+          `${shopRow.name} needs a minimum order of ₹${(shopRow.minOrderPaise / 100).toFixed(0)}; your items come to ₹${(group.subtotalPaise / 100).toFixed(0)}.`,
+        );
+      }
+    }
+  }
+
   // GS-030: cash on delivery — personal orders to a delivery address, for a
   // customer within the COD limits. Shop opt-in and amount are checked per order.
   const paymentMethod: PaymentMethod = input.paymentMethod ?? "WALLET";

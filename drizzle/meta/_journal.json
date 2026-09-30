@@ -183,6 +183,13 @@
       "when": 1790773984590,
       "tag": "0025_phase_a_mobile_otp_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 26,
+      "version": "7",
+      "when": 1790774453567,
+      "tag": "0026_phase_b_delivery_location",
+      "breakpoints": true
     }
   ]
 }

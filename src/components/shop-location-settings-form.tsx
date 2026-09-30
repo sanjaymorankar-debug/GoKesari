@@ -15,6 +15,9 @@ export interface ShopLocationSettings {
   pickupLongitude: string | null;
   pickupInstructions: string | null;
   serviceRadiusKm: number;
+  deliveryPincodes: string[];
+  minOrderPaise: number;
+  ordersPaused: boolean;
 }
 
 /**
@@ -36,6 +39,9 @@ export function ShopLocationSettingsForm({ settings }: { settings: ShopLocationS
   );
   const [pickupInstructions, setPickupInstructions] = useState(settings.pickupInstructions ?? "");
   const [serviceRadiusKm, setServiceRadiusKm] = useState(String(settings.serviceRadiusKm));
+  const [zones, setZones] = useState(settings.deliveryPincodes.join(", "));
+  const [minOrder, setMinOrder] = useState(String(settings.minOrderPaise / 100));
+  const [paused, setPaused] = useState(settings.ordersPaused);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
@@ -55,6 +61,12 @@ export function ShopLocationSettingsForm({ settings }: { settings: ShopLocationS
         pickupLongitude: pickupCoordinates ? String(pickupCoordinates.longitude) : null,
         pickupInstructions: pickupInstructions || null,
         serviceRadiusKm: Number(serviceRadiusKm),
+        deliveryPincodes: zones
+          .split(/[\s,]+/)
+          .map((z) => z.trim())
+          .filter(Boolean),
+        minOrderPaise: Math.round(Number(minOrder || 0) * 100),
+        ordersPaused: paused,
       }),
     });
     setBusy(false);
@@ -112,6 +124,36 @@ export function ShopLocationSettingsForm({ settings }: { settings: ShopLocationS
             Customers further than this from your shop location will not see you
             as delivering to them.
           </p>
+        </div>
+
+        <div className="space-y-3 border-t border-cream-200 pt-4">
+          <Field label="Extra delivery zones — PIN codes (optional)">
+            <input
+              className={inputClass}
+              value={zones}
+              onChange={(e) => setZones(e.target.value)}
+              placeholder="e.g. 411045, 411057"
+              data-testid="delivery-zones"
+            />
+          </Field>
+          <p className="text-xs text-ink-500">
+            Customers in these PIN codes can order even when they are beyond your radius.
+          </p>
+          <Field label="Minimum order value (₹, 0 for none)">
+            <input
+              className={inputClass}
+              type="number"
+              min={0}
+              step={1}
+              value={minOrder}
+              onChange={(e) => setMinOrder(e.target.value)}
+              data-testid="min-order"
+            />
+          </Field>
+          <label className="flex items-center gap-2 text-sm text-ink-700">
+            <input type="checkbox" checked={paused} onChange={(e) => setPaused(e.target.checked)} className="h-4 w-4 accent-kesari-600" />
+            Pause new orders (your shop stays listed but customers cannot check out)
+          </label>
         </div>
 
         <div className="border-t border-cream-200 pt-4">

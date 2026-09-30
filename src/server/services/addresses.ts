@@ -14,6 +14,9 @@ import { resolveLocationVerification } from "./geocoding";
 
 export interface SaveAddressInput {
   label?: string | null;
+  recipientName?: string | null;
+  recipientPhone?: string | null;
+  addressType?: "HOME" | "WORK" | "OTHER";
   line1: string;
   line2?: string | null;
   area?: string | null;
@@ -33,6 +36,9 @@ function validate(input: SaveAddressInput): void {
   if (!input.city.trim()) throw validationFailed("Enter the city.");
   if (!/^\d{6}$/.test(input.pincode.trim())) {
     throw validationFailed("Enter a valid 6-digit PIN code.");
+  }
+  if (input.recipientPhone && !/^[6-9]\d{9}$/.test(input.recipientPhone.trim())) {
+    throw validationFailed("Enter a valid 10-digit mobile number for the recipient.");
   }
 }
 
@@ -60,6 +66,9 @@ export async function createAddress(
     .values({
       userId,
       label: input.label ?? null,
+      recipientName: input.recipientName?.trim() || null,
+      recipientPhone: input.recipientPhone?.trim() || null,
+      addressType: input.addressType ?? "OTHER",
       line1: input.line1.trim(),
       line2: input.line2?.trim() || null,
       area: input.area?.trim() || null,
@@ -111,6 +120,9 @@ export async function updateAddress(
     .update(addresses)
     .set({
       label: input.label ?? null,
+      recipientName: input.recipientName?.trim() || null,
+      recipientPhone: input.recipientPhone?.trim() || null,
+      addressType: input.addressType ?? existing.addressType,
       line1: input.line1.trim(),
       line2: input.line2?.trim() || null,
       area: input.area?.trim() || null,

@@ -34,6 +34,8 @@ const schema = z.union([
     latitude: z.number().min(-90).max(90),
     longitude: z.number().min(-180).max(180),
     pincode: z.string().regex(/^\d{6}$/).nullish(),
+    /** Set when the customer picked the point by searching an address. */
+    label: z.string().min(1).max(120).nullish(),
   }),
   z.object({ pincode: z.string().regex(/^\d{6}$/, "Enter a valid 6-digit PIN code.") }),
 ]);
@@ -48,7 +50,7 @@ export const POST = route(async (request: NextRequest) => {
     location = locationFromAddress(await getAddress(user.id, body.addressId));
   } else if ("latitude" in body) {
     location = {
-      label: "Current location",
+      label: body.label ?? "Current location",
       pincode: body.pincode ?? null,
       latitude: roundCoordinate(body.latitude),
       longitude: roundCoordinate(body.longitude),

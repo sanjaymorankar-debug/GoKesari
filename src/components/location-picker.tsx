@@ -3,7 +3,9 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { MapPicker, type MapPickerResult } from "@/components/map-picker";
 import { Alert, Button, inputClass } from "@/components/ui";
+import { isMapsAvailable } from "@/lib/geo/provider";
 
 /**
  * "Deliver to" chooser (GS-004). Three ways to set the location discovery
@@ -21,6 +23,7 @@ export function LocationPicker({
   const router = useRouter();
   const [open, setOpen] = useState(currentLabel == null);
   const [pincode, setPincode] = useState("");
+  const [searching, setSearching] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -45,6 +48,17 @@ export function LocationPicker({
     } finally {
       setBusy(false);
     }
+  }
+
+  /** A searched/pinned address: coordinates plus the PIN found in the formatted address. */
+  function useSearchedAddress(result: MapPickerResult) {
+    const pin = result.formattedAddress.match(/\d{6}/)?.[0];
+    void choose({
+      latitude: result.latitude,
+      longitude: result.longitude,
+      pincode: pin ?? null,
+      label: result.formattedAddress.slice(0, 120),
+    });
   }
 
   function useDevice() {
@@ -130,6 +144,25 @@ export function LocationPicker({
                 Use PIN
               </Button>
             </form>
+          </div>
+
+          <div>
+            {isMapsAvailable() ? (
+              <>
+                <Button size="sm" variant="secondary" onClick={() => setSearching((v) => !v)}>
+                  {searching ? "Hide address search" : "Search an address"}
+                </Button>
+                {searching ? (
+                  <div className="mt-2">
+                    <MapPicker purpose="location_search" onConfirm={useSearchedAddress} />
+                  </div>
+                ) : null}
+              </>
+            ) : null}
+            <p className="mt-2 text-xs text-ink-500">
+              Want to keep this place? <a href="/profile/addresses" className="underline">Save it as an address</a> to
+              reuse it at checkout.
+            </p>
           </div>
 
           {error ? <Alert tone="warning">{error}</Alert> : null}

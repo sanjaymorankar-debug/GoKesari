@@ -600,6 +600,12 @@ export const addresses = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     label: text("label"),
+    /** Who receives the delivery, when not the account holder. */
+    recipientName: text("recipient_name"),
+    recipientPhone: text("recipient_phone"),
+    addressType: text("address_type", { enum: ["HOME", "WORK", "OTHER"] })
+      .notNull()
+      .default("OTHER"),
     line1: text("line1").notNull(),
     line2: text("line2"),
     area: text("area"),
@@ -675,6 +681,15 @@ export const shops = pgTable(
      * delivery partner's `operatingRadiusKm` already works.
      */
     serviceRadiusKm: integer("service_radius_km").notNull().default(5),
+    /**
+     * Extra delivery zones: PIN codes the shop delivers to in addition to its
+     * radius (e.g. a neighbouring locality just outside it).
+     */
+    deliveryPincodes: jsonb("delivery_pincodes").$type<string[]>().notNull().default([]),
+    /** Orders below this subtotal are refused at checkout; 0 = no minimum. */
+    minOrderPaise: bigint("min_order_paise", { mode: "number" }).notNull().default(0),
+    /** Owner switch: the shop keeps its listing but takes no new orders for now. */
+    ordersPaused: boolean("orders_paused").notNull().default(false),
     /** Rating aggregate (GS-059), maintained from visible order_ratings. Average × 100. */
     ratingAvgX100: integer("rating_avg_x100").notNull().default(0),
     ratingCount: integer("rating_count").notNull().default(0),
@@ -847,6 +862,7 @@ export const shops = pgTable(
       "shops_delivery_fee_non_negative",
       sql`${t.deliveryFeePaise} >= 0`,
     ),
+    check("shops_min_order_non_negative", sql`${t.minOrderPaise} >= 0`),
     check(
       "shops_service_radius_range",
       sql`${t.serviceRadiusKm} BETWEEN 1 AND 50`,

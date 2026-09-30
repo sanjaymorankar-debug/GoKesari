@@ -61,6 +61,9 @@ const schema = z
     freeDeliveryAbovePaise: z.number().int().min(0).nullish(),
     /** GS-010 delivery zone in km from the shop pin. */
     serviceRadiusKm: z.number().int().min(1).max(50).optional(),
+    deliveryPincodes: z.array(z.string().regex(/^\d{6}$/)).max(50).optional(),
+    minOrderPaise: z.number().int().min(0).optional(),
+    ordersPaused: z.boolean().optional(),
     /** GS-030 cash on delivery opt-in. */
     codEnabled: z.boolean().optional(),
     description: z.string().max(1000).nullish(),

@@ -4,7 +4,9 @@
  * GS-026's checkout hard-block).
  *
  * Phase 1 rule, deliberately simple and explainable to a shop owner:
- *  - the shop must be APPROVED, not deleted, and offer home delivery;
+ *  - the shop must be APPROVED, not deleted, offer home delivery, and not have
+ *    paused new orders;
+ *  - a PIN code the shop lists as an extra delivery zone always qualifies;
  *  - when both the shop and the customer have coordinates, the straight-line
  *    (Haversine) distance must be within the shop's `serviceRadiusKm`;
  *  - when either side has no coordinates, fall back to an exact PIN-code
@@ -35,7 +37,15 @@ export interface ShopServiceability {
 
 type ServiceabilityShop = Pick<
   Shop,
-  "status" | "deletedAt" | "deliveryAvailable" | "latitude" | "longitude" | "pincode" | "serviceRadiusKm"
+  | "status"
+  | "deletedAt"
+  | "deliveryAvailable"
+  | "latitude"
+  | "longitude"
+  | "pincode"
+  | "serviceRadiusKm"
+  | "deliveryPincodes"
+  | "ordersPaused"
 >;
 
 export function shopServiceability(
@@ -57,6 +67,12 @@ export function shopServiceability(
   }
   if (!shop.deliveryAvailable) {
     return { deliversHere: false, distanceKm, reason: "This shop offers pickup only." };
+  }
+  if (shop.ordersPaused) {
+    return { deliversHere: false, distanceKm, reason: "This shop is not taking new orders right now." };
+  }
+  if (location.pincode && shop.deliveryPincodes?.includes(location.pincode)) {
+    return { deliversHere: true, distanceKm, reason: null };
   }
   if (distanceKm != null) {
     return distanceKm <= shop.serviceRadiusKm
@@ -99,6 +115,7 @@ export async function societyPartnerShopIds(societyId: string | null | undefined
         eq(shops.status, "APPROVED"),
         isNull(shops.deletedAt),
         eq(shops.deliveryAvailable, true),
+        eq(shops.ordersPaused, false),
       ),
     );
   return new Set(rows.map((r) => r.shopId));
@@ -127,7 +144,10 @@ export async function listServiceableShops(
         AND ${shops.longitude}::double precision BETWEEN ${location.longitude - lonDelta} AND ${location.longitude + lonDelta})`,
     );
   }
-  if (location.pincode) near.push(sql`${shops.pincode} = ${location.pincode}`);
+  if (location.pincode) {
+    near.push(sql`${shops.pincode} = ${location.pincode}`);
+    near.push(sql`${shops.deliveryPincodes} @> ${JSON.stringify([location.pincode])}::jsonb`);
+  }
   const partners = await societyPartnerShopIds(location.societyId);
   if (partners.size > 0) near.push(inArray(shops.id, [...partners]));
   if (near.length === 0) return [];
@@ -140,6 +160,7 @@ export async function listServiceableShops(
         eq(shops.status, "APPROVED"),
         isNull(shops.deletedAt),
         eq(shops.deliveryAvailable, true),
+        eq(shops.ordersPaused, false),
         or(...near),
       ),
     )

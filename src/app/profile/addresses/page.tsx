@@ -30,6 +30,9 @@ export default async function AddressesPage() {
         addresses={addresses.map((a) => ({
           id: a.id,
           label: a.label,
+          recipientName: a.recipientName,
+          recipientPhone: a.recipientPhone,
+          addressType: a.addressType,
           line1: a.line1,
           line2: a.line2,
           area: a.area,

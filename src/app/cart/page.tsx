@@ -11,7 +11,7 @@ import { getCart } from "@/server/services/cart";
 import { db } from "@/server/db";
 import { shops } from "@/server/db/schema";
 import { getCustomerLocation } from "@/server/location";
-import { shopServiceability } from "@/server/services/serviceability";
+import { validateCartForLocation } from "@/server/services/cart-validation";
 import { listShopsForOwner } from "@/server/services/shops";
 import { getWalletByUserId } from "@/server/services/wallet";
 
@@ -30,19 +30,14 @@ export default async function CartPage() {
     canOrderB2B ? listShopsForOwner(user.id) : Promise.resolve([]),
     getCodEligibility(user.id),
   ]);
-  // Serviceability against the chosen delivery location (GS-004/010). A
-  // warning only here — the hard block belongs to checkout (GS-026).
+  // Cart re-validated against the chosen delivery location: shop eligibility,
+  // availability, minimum order and delivery charge, each with a suggested
+  // action. Checkout enforces the same rules (GS-026).
   const location = await getCustomerLocation(user.id);
   const cartShopIds = cart.groups.map((g) => g.shop.id);
   const cartShops =
     cartShopIds.length > 0 ? await db.select().from(shops).where(inArray(shops.id, cartShopIds)) : [];
-  const deliveryWarnings: Record<string, string> = {};
-  if (location) {
-    for (const shop of cartShops) {
-      const check = shopServiceability(shop, location);
-      if (!check.deliversHere && check.reason) deliveryWarnings[shop.id] = check.reason;
-    }
-  }
+  const validation = await validateCartForLocation(user.id, location);
   // GS-030: why cash on delivery is unavailable for this cart, if it is.
   const tooLarge = cart.groups.find((g) => g.totalPaise > codEligibility.maxOrderPaise);
   const noCodShop = cartShops.find((s) => !s.codEnabled || !s.deliveryAvailable);
@@ -75,7 +70,7 @@ export default async function CartPage() {
         cart={cart}
         walletBalancePaise={wallet?.balancePaise ?? 0}
         buyerShops={buyerShops}
-        deliveryWarnings={deliveryWarnings}
+        initialChecks={validation.shops}
         preferredAddressId={preferredAddressId}
         codUnavailableReason={codUnavailableReason}
         addresses={addresses.map((a) => ({
