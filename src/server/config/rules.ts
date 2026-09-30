@@ -173,6 +173,28 @@ export const RULES = {
       defaultExpectedAction: "Contact Gokesari support to resolve the reason above so your shop can be reinstated.",
     },
   },
+  mrp: {
+    description:
+      "MRP governance: when a shop's selling price is refused for being above the master MRP.",
+    schema: z.object({
+      /** VERIFIED: enforce only against a verified MRP. ANY: also unverified. NONE: never refuse. */
+      enforceOn: z.enum(["VERIFIED", "ANY", "NONE"]),
+      /** Paise a selling price may exceed the MRP by (rounding), normally 0. */
+      tolerancePaise: int(0, 1000),
+    }),
+    defaults: { enforceOn: "VERIFIED", tolerancePaise: 0 },
+  },
+  externalPrices: {
+    description:
+      "Who sees external reference prices. Customer display stays off until the licensed-source decision (D7) is made.",
+    schema: z.object({
+      showToCustomers: z.boolean(),
+      showToShops: z.boolean(),
+      /** References older than this are not shown outside operations. */
+      maxAgeDays: int(1, 3650),
+    }),
+    defaults: { showToCustomers: false, showToShops: true, maxAgeDays: 90 },
+  },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;

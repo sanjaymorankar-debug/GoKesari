@@ -219,6 +219,8 @@ export const PERMISSIONS = {
   COD_CASH_MANAGE: "cod-cash:manage",
   /** Review fraud / risk flags and run the rules (GS-068). Operator + admin. */
   RISK_REVIEW: "risk:review",
+  /** Record and verify external reference prices. Operator + admin. */
+  PRICE_REFERENCE_MANAGE: "price-reference:manage",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -336,6 +338,7 @@ const OPERATOR_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.MARKETING_APPROVE,
   PERMISSIONS.COD_CASH_MANAGE,
   PERMISSIONS.RISK_REVIEW,
+  PERMISSIONS.PRICE_REFERENCE_MANAGE,
   // Deliberately absent (§43 "not unrestricted system access"):
   // USER_SET_ROLE, USER_SUSPEND, WALLET_ADJUST, SYSTEM_CONFIG,
   // AUDIT_LOG_VIEW, REPORT_VIEW_ALL, WALLET_VIEW_ANY.
@@ -504,4 +507,5 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.MARKETING_APPROVE]: "Approve or reject shop marketing campaigns",
   [PERMISSIONS.COD_CASH_MANAGE]: "Record cash-on-delivery deposits",
   [PERMISSIONS.RISK_REVIEW]: "Review fraud and risk flags",
+  [PERMISSIONS.PRICE_REFERENCE_MANAGE]: "Record and verify external reference prices",
 };

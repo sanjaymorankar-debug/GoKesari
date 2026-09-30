@@ -34,6 +34,7 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { evaluateStockAlerts } from "./inventory-alerts";
+import { assertPriceWithinMrp } from "./mrp-governance";
 
 /* ------------------------------------------------------------ categories */
 
@@ -612,6 +613,12 @@ export async function createShopProduct(
   client: DbClient = db,
 ): Promise<ShopProduct> {
   validatePricing(input);
+  // A selling price above an (enforced) MRP is refused — see mrp-governance.ts.
+  await assertPriceWithinMrp(
+    input.productId,
+    { online: input.onlinePricePaise, offline: input.offlinePricePaise },
+    client,
+  );
 
   const duplicate = await client.query.shopProducts.findFirst({
     where: and(
@@ -698,6 +705,16 @@ export async function updateShopProduct(
           : current.offlinePricePaise,
     };
     validatePricing(next);
+    // Only a price that is actually being changed is checked, so unrelated edits
+    // to a listing that already sat above a later-lowered MRP are not blocked.
+    await assertPriceWithinMrp(
+      current.productId,
+      {
+        online: patch.onlinePricePaise !== undefined ? next.onlinePricePaise : undefined,
+        offline: patch.offlinePricePaise !== undefined ? next.offlinePricePaise : undefined,
+      },
+      tx,
+    );
 
     const [updated] = await tx
       .update(shopProducts)

@@ -225,6 +225,13 @@
       "when": 1790777585016,
       "tag": "0031_phase_g_shop_suspension",
       "breakpoints": true
+    },
+    {
+      "idx": 32,
+      "version": "7",
+      "when": 1790778848698,
+      "tag": "0032_phase_i1_price_refs_mrp",
+      "breakpoints": true
     }
   ]
 }

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 
+import { MrpDisputeForm } from "@/components/mrp-dispute-form";
 import { ProductGrid } from "@/components/product-grid";
 import { LocationBar } from "@/components/location-bar";
 import { Badge, Card, EmptyState, Money, PageHeader, Section } from "@/components/ui";
@@ -8,7 +9,13 @@ import { formatQuantity, lineTotalPaise } from "@/lib/money";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getCustomerLocation } from "@/server/location";
 import { listStorefrontProducts } from "@/server/services/catalogue";
+import { can, PERMISSIONS } from "@/server/authz/permissions";
+import { db } from "@/server/db";
+import { products } from "@/server/db/schema";
+import { listReferencesForProduct } from "@/server/services/price-references";
 import { serviceableShopIds } from "@/server/services/serviceability";
+import { listShopsForOwner } from "@/server/services/shops";
+import { eq } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
 
@@ -39,6 +46,23 @@ export default async function ProductComparePage({
 
   const product = offers[0];
   const packMilli = product.unitSizeMilli;
+
+  // Three different numbers, kept apart: the printed MRP, each shop's price (compared below),
+  // and external reference prices (shown only where the settings allow).
+  const [master] = await db
+    .select({ kind: products.kind, mrpPaise: products.mrpPaise, verification: products.mrpVerificationStatus })
+    .from(products)
+    .where(eq(products.id, id));
+  const viewer = !user
+    ? "CUSTOMER"
+    : can(user.role, PERMISSIONS.PRICE_REFERENCE_MANAGE)
+      ? "STAFF"
+      : can(user.role, PERMISSIONS.SHOP_PRODUCT_MANAGE_OWN)
+        ? "SHOP"
+        : "CUSTOMER";
+  const references = await listReferencesForProduct(id, viewer);
+  const ownShop =
+    user && can(user.role, PERMISSIONS.PRODUCT_MRP_DISPUTE) ? (await listShopsForOwner(user.id))[0] : undefined;
   const mapped = offers.map((offer) => {
       const outOfStock = offer.trackInventory && offer.onlineStock <= 0;
       const buyable =
@@ -71,6 +95,18 @@ export default async function ProductComparePage({
         description={`${product.categoryName} · sold by ${offers.length} shop${offers.length === 1 ? "" : "s"}`}
       />
       <LocationBar userId={user?.id ?? null} location={location} />
+
+      {master?.kind === "PACKAGED" && master.mrpPaise != null ? (
+        <p className="mb-4 text-sm text-ink-600" data-testid="product-mrp">
+          MRP <Money paise={master.mrpPaise} />
+          {master.verification === "VERIFIED" ? null : <span className="text-ink-400"> (not yet verified)</span>}
+          {ownShop ? (
+            <span className="ml-3">
+              <MrpDisputeForm productId={id} shopId={ownShop.id} />
+            </span>
+          ) : null}
+        </p>
+      ) : null}
 
       <Section title="Compare prices">
         <Card className="divide-y divide-cream-200" data-testid="price-comparison">
@@ -118,6 +154,33 @@ export default async function ProductComparePage({
           ))}
         </Card>
       </Section>
+
+      {references.length > 0 ? (
+        <Section title="Reference prices">
+          <Card className="divide-y divide-cream-200" data-testid="reference-prices">
+            <p className="p-4 text-xs text-ink-500">
+              Seen outside Gokesari. These are not the MRP and not any shop&apos;s selling price.
+            </p>
+            {references.map((r) => (
+              <div key={r.id} className="flex flex-wrap items-center justify-between gap-2 p-4 text-sm">
+                <span className="text-ink-700">
+                  {r.sourceName}
+                  {r.marketLocation ? ` · ${r.marketLocation}` : ""}
+                  <span className="text-xs text-ink-500">
+                    {" "}
+                    · {new Date(r.referencedAt).toLocaleDateString("en-IN", { dateStyle: "medium" })}
+                    {r.verificationStatus !== "VERIFIED" ? ` · ${r.verificationStatus.toLowerCase()}` : ""}
+                  </span>
+                </span>
+                <span className="font-semibold text-ink-900">
+                  <Money paise={r.pricePaise} />
+                  {r.unitBasis ? <span className="text-xs font-normal text-ink-500"> {r.unitBasis}</span> : null}
+                </span>
+              </div>
+            ))}
+          </Card>
+        </Section>
+      ) : null}
 
       {purchasable.length > 0 ? (
         <Section title="Buy from">

@@ -1890,6 +1890,100 @@ export const shopSuspensionOrders = pgTable(
   ],
 );
 
+/* ------------------------------------------- external price references
+ * A reference price seen OUTSIDE Gokesari (a mandi, a manufacturer list, a
+ * survey). It is information — never the shop's selling price and never the
+ * MRP, and nothing here writes to either (services/price-references.ts).
+ * Changes are appended to the history table.
+ */
+export const externalPriceReferences = pgTable(
+  "external_price_references",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    pricePaise: bigint("price_paise", { mode: "number" }).notNull(),
+    /** What the price is for, e.g. "per 500 g pack" or "per kg, loose". */
+    unitBasis: text("unit_basis"),
+    sourceType: text("source_type", {
+      enum: ["MARKET_SURVEY", "MANUFACTURER", "GOVT_MANDI", "PARTNER_FEED", "PMD_IMPORT", "OTHER"],
+    }).notNull(),
+    sourceName: text("source_name").notNull(),
+    /** The source's own identifier for the listing or record, where it has one. */
+    sourceIdentifier: text("source_identifier"),
+    referenceUrl: text("reference_url"),
+    /** Where the price applies: market / city / locality. */
+    marketLocation: text("market_location"),
+    pincode: text("pincode"),
+    /** When the price was observed at the source (not when it was entered). */
+    referencedAt: timestamp("referenced_at", { withTimezone: true }).notNull(),
+    verificationStatus: text("verification_status", { enum: ["UNVERIFIED", "VERIFIED", "REJECTED"] })
+      .notNull()
+      .default("UNVERIFIED"),
+    verifiedBy: uuid("verified_by").references(() => users.id),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    verificationNote: text("verification_note"),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("external_price_refs_product_idx").on(t.productId, t.referencedAt),
+    check("external_price_refs_price_positive", sql`${t.pricePaise} > 0`),
+  ],
+);
+
+export const externalPriceReferenceHistory = pgTable(
+  "external_price_reference_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    referenceId: uuid("reference_id")
+      .notNull()
+      .references(() => externalPriceReferences.id, { onDelete: "cascade" }),
+    action: text("action", { enum: ["CREATED", "EDITED", "VERIFIED", "REJECTED", "REOPENED"] }).notNull(),
+    previous: jsonb("previous").$type<Record<string, unknown> | null>(),
+    next: jsonb("next").$type<Record<string, unknown>>().notNull(),
+    note: text("note"),
+    actorId: uuid("actor_id").references(() => users.id),
+    actorRole: text("actor_role"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("external_price_ref_history_idx").on(t.referenceId, t.createdAt)],
+);
+
+/**
+ * A shop owner's claim that the master MRP is wrong. The claimed figure lives
+ * here until an operator decides; it never reaches products.mrp_paise on its own.
+ */
+export const mrpCorrections = pgTable(
+  "mrp_corrections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id").references(() => shops.id, { onDelete: "set null" }),
+    claimedMrpPaise: bigint("claimed_mrp_paise", { mode: "number" }).notNull(),
+    note: text("note"),
+    submittedBy: uuid("submitted_by")
+      .notNull()
+      .references(() => users.id),
+    status: text("status", { enum: ["PENDING", "ACCEPTED", "REJECTED"] }).notNull().default("PENDING"),
+    /** The product's verification status before the dispute, restored if the claim is rejected. */
+    previousVerificationStatus: text("previous_verification_status"),
+    decidedBy: uuid("decided_by").references(() => users.id),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decisionNote: text("decision_note"),
+    appliedMrpPaise: bigint("applied_mrp_paise", { mode: "number" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("mrp_corrections_status_idx").on(t.status, t.createdAt),
+    index("mrp_corrections_product_idx").on(t.productId),
+    check("mrp_corrections_claim_non_negative", sql`${t.claimedMrpPaise} >= 0`),
+  ],
+);
+
 /* ------------------------------------------------------- stored images
  * Uploaded images (product photos, return evidence). Kept in the database so
  * they survive redeploys on hosts with an ephemeral filesystem; the browser
@@ -4078,3 +4172,6 @@ export type NotificationPreference = typeof notificationPreferences.$inferSelect
 export type NotificationDelivery = typeof notificationDeliveries.$inferSelect;
 export type ShopSuspension = typeof shopSuspensions.$inferSelect;
 export type ShopSuspensionOrder = typeof shopSuspensionOrders.$inferSelect;
+export type ExternalPriceReference = typeof externalPriceReferences.$inferSelect;
+export type ExternalPriceReferenceHistoryRow = typeof externalPriceReferenceHistory.$inferSelect;
+export type MrpCorrection = typeof mrpCorrections.$inferSelect;
