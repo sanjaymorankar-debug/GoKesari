@@ -232,6 +232,13 @@
       "when": 1790778848698,
       "tag": "0032_phase_i1_price_refs_mrp",
       "breakpoints": true
+    },
+    {
+      "idx": 33,
+      "version": "7",
+      "when": 1790779234205,
+      "tag": "0033_phase_i2_stock_thresholds",
+      "breakpoints": true
     }
   ]
 }

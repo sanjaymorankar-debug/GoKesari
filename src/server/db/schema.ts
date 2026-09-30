@@ -689,6 +689,13 @@ export const shops = pgTable(
      * radius (e.g. a neighbouring locality just outside it).
      */
     deliveryPincodes: jsonb("delivery_pincodes").$type<string[]>().notNull().default([]),
+    /**
+     * Stock-alert defaults for every listing of this shop that does not set its
+     * own (see services/inventory-alerts.ts resolveThresholds). 0 / null = none.
+     */
+    defaultLowStockThreshold: integer("default_low_stock_threshold").notNull().default(0),
+    defaultReorderLevel: integer("default_reorder_level"),
+    defaultReorderQuantity: integer("default_reorder_quantity"),
     /** Orders below this subtotal are refused at checkout; 0 = no minimum. */
     minOrderPaise: bigint("min_order_paise", { mode: "number" }).notNull().default(0),
     /** Owner switch: the shop keeps its listing but takes no new orders for now. */
@@ -1160,6 +1167,13 @@ export const products = pgTable(
     hsnCode: text("hsn_code"),
     gstRateBp: integer("gst_rate_bp"),
 
+    /* Stock-alert defaults for this product in every shop, set by catalogue
+     * staff (a milk packet needs a higher mark than a slow-moving line).
+     * Outranked by a listing's own values, outranks the shop default. */
+    defaultLowStockThreshold: integer("default_low_stock_threshold"),
+    defaultReorderLevel: integer("default_reorder_level"),
+    defaultReorderQuantity: integer("default_reorder_quantity"),
+
     /* ------------------------------------------- manufacturer & packaging */
     manufacturerName: text("manufacturer_name"),
     manufacturerAddress: text("manufacturer_address"),
@@ -1299,6 +1313,8 @@ export const shopProducts = pgTable(
     reorderQuantity: integer("reorder_quantity"),
     minimumOrderQuantity: integer("minimum_order_quantity").notNull().default(1),
     maximumOrderQuantity: integer("maximum_order_quantity"),
+    /** The owner opted this listing out of every stock alert (explicit, unlike a 0 threshold that just inherits). */
+    stockAlertsDisabled: boolean("stock_alerts_disabled").notNull().default(false),
     isActive: boolean("is_active").notNull().default(true),
     /** Temporary availability toggle (e.g. sold out today) distinct from isActive. */
     isAvailable: boolean("is_available").notNull().default(true),

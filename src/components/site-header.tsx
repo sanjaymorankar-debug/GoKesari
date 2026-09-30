@@ -38,6 +38,7 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/shop", label: "My Shop" },
     { href: "/shop/orders", label: "Orders" },
     { href: "/shop/returns", label: "Returns" },
+    { href: "/shop/inventory", label: "Inventory" },
     { href: "/shop/prices", label: "Price Updates" },
     { href: "/shop/finance", label: "Finance" },
     { href: "/shop/marketing", label: "Marketing" },

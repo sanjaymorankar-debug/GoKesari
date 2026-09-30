@@ -776,6 +776,26 @@ export async function updateShopProduct(
       );
     }
 
+    // A hand-edited stock level is a stock movement like any other: it is written to the
+    // ledger and re-checked against the thresholds, so an alert can never lag the balance.
+    for (const [channel, before, after] of [
+      ["ONLINE", current.onlineStock, updated.onlineStock],
+      ["OFFLINE", current.offlineStock, updated.offlineStock],
+    ] as const) {
+      if (after !== before) {
+        await tx.insert(inventoryMovements).values({
+          shopProductId,
+          channel,
+          deltaUnits: after - before,
+          previousUnits: before,
+          newUnits: after,
+          reason: "Manual stock update",
+          createdBy: actor.id,
+        });
+      }
+    }
+    if (updated.onlineStock !== current.onlineStock) await evaluateStockAlerts(shopProductId, tx);
+
     const availabilityChanged =
       (patch.isAvailable !== undefined &&
         patch.isAvailable !== current.isAvailable) ||
