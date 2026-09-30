@@ -365,9 +365,18 @@ per shop and 3 in total per 7 days; budget = max recipients (1–5,000).
 
 | Endpoint | Who | Purpose |
 |---|---|---|
-| `GET /api/admin/risk?status=` · `POST` | `RISK_REVIEW` | Flags (default OPEN); run the rules now |
+| `GET /api/admin/risk?status=&severity=&subjectType=` · `POST` | `RISK_REVIEW` | Flags (default OPEN; optional severity `HIGH\|MEDIUM\|LOW`, subjectType `USER\|SHOP\|DELIVERY_PARTNER`), each with `subjectName`, `subjectStatus` (the subject's current account status) and `subjectIsAdmin` (a USER flag on an admin account, which cannot be suspended); run the rules now |
 | `PATCH /api/admin/risk/{id}` | `RISK_REVIEW` | `{ decision: DISMISSED\|ACTIONED, note }` |
 | `POST /api/cron/risk-rules` | cron (`CRON_SECRET`) | Hourly rules sweep |
+| `POST /api/shops/{id}/suspend` | `SHOP_SUSPEND` (operator, admin) | `{ reason }` — APPROVED → SUSPENDED in one conditional update (a concurrent reject or suspend gets 409); audited `shop.suspended`. The shop leaves the storefront and stops taking orders. Open orders are not cancelled or refunded, the shop's subscriptions stay active (each subscriber is told daily their delivery is unavailable), and the owner is not notified: the reason is in the audit log only. Re-approve with `POST /api/shops/{id}/approve` |
+| `POST /api/users/{id}/suspend` | `USER_SUSPEND` (admin) | `{ reason }` — ACTIVE → SUSPENDED; audited `user.suspended`. Refused (403) for your own account and for any admin: an ACTIVE ADMIN role grant (not just the active role), the active role ADMIN or a `PERMANENT_ADMIN_EMAILS` address. The user can no longer sign in (`/signin?error=AccessDenied` explains why) and existing sessions stop working. An APPROVED delivery-partner profile of the user is suspended first through the delivery-partner suspend (offline, notified); a delivery it was carrying stays assigned until operations resolves it. Subscriptions and shops the user owns are not paused |
+| `POST /api/users/{id}/reinstate` | `USER_SUSPEND` (admin) | `{ reason }` — SUSPENDED → ACTIVE (409 otherwise, 404 if unknown); audited `user.reinstated`. Restores the account only: a delivery-partner profile suspended with it stays SUSPENDED until `PATCH /api/delivery-partner/{id}` `{ action: "reactivate" }`, and a suspended shop needs its own re-approval. No screen yet |
+
+The `/admin/risk` page offers "Suspend & mark actioned" on open flags: it calls the
+subject's suspend endpoint (`PATCH /api/delivery-partner/{id}` `{ action: "suspend", reason }`
+for riders), then closes the flag as ACTIONED with the note `Suspended: <reason>`. A rider is
+shown the reason (it is their suspension notice), so the page says so; if another reviewer
+closed the flag first, the page says the suspension worked and the flag was already closed.
 
 ## Finance (Slice 6)
 

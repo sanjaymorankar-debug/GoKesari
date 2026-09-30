@@ -640,6 +640,46 @@ export async function setShopStatus(
   return updated;
 }
 
+export async function suspendShop(
+  shopId: string,
+  reason: string,
+  actor: { id: string; role: UserRole },
+): Promise<Shop> {
+  const trimmed = reason.trim();
+  if (trimmed.length < 3) throw validationFailed("A suspension reason is required.");
+
+  // The APPROVED check is part of the UPDATE, so a concurrent reject or suspend cannot be overwritten or audited twice.
+  const updated = await db.transaction(async (tx) => {
+    const [row] = await tx
+      .update(shops)
+      .set({ status: "SUSPENDED", updatedAt: new Date() })
+      .where(and(eq(shops.id, shopId), eq(shops.status, "APPROVED"), isNull(shops.deletedAt)))
+      .returning();
+    if (!row) return null;
+    await recordAudit(
+      {
+        actorId: actor.id,
+        actorRole: actor.role,
+        action: AUDIT_ACTIONS.SHOP_SUSPENDED,
+        entityType: "shop",
+        entityId: shopId,
+        previousValue: { status: "APPROVED" },
+        newValue: { status: "SUSPENDED", reason: trimmed },
+      },
+      tx,
+    );
+    return row;
+  });
+  if (updated) return updated;
+
+  const exists = await db.query.shops.findFirst({
+    where: and(eq(shops.id, shopId), isNull(shops.deletedAt)),
+    columns: { id: true },
+  });
+  if (!exists) throw notFound("Shop");
+  throw conflict("Only an approved shop can be suspended.");
+}
+
 /**
  * Editable subset of a shop's own details — name/contact/address, shop type,
  * opening hours ("shop time"), delivery settings. Status and classification

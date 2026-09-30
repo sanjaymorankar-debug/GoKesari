@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useEffectEvent, useState } from "react";
 
 import { Alert, Button, Card, Money } from "@/components/ui";
 
@@ -46,6 +46,199 @@ const STATUS_LABEL: Record<string, string> = {
   PICKED_UP: "Picked up — deliver to the customer",
 };
 
+// Customers poll tracking every 15s; idle riders only need to be fresh enough for dispatch.
+const HEARTBEAT_ON_DELIVERY_MS = 15_000;
+const HEARTBEAT_IDLE_MS = 60_000;
+const HEARTBEAT_TICK_MS = 5_000;
+const MAX_FIX_AGE_MS = 2 * 60_000;
+const REQUEST_TIMEOUT_MS = 10_000;
+const LOCATION_TIMEOUT_MS = 20_000;
+// Outlasts the geolocation timeout, for browsers that never call either callback (Firefox "Not now").
+const GO_ONLINE_WATCHDOG_MS = LOCATION_TIMEOUT_MS + 10_000;
+
+type LocationIssue = "blocked" | "unauthorized" | "unavailable" | null;
+
+interface Fix {
+  latitude: number;
+  longitude: number;
+  receivedAt: number;
+  receivedWallAt: number;
+}
+
+function isStale(fix: Fix): boolean {
+  // performance.now() pauses while some phones sleep, so the wall-clock receipt time is a second bound.
+  return performance.now() - fix.receivedAt > MAX_FIX_AGE_MS || Date.now() - fix.receivedWallAt > MAX_FIX_AGE_MS;
+}
+
+/**
+ * Posts the rider's position to /api/delivery-partner/location while online.
+ * The server ignores it if the rider is offline, so this never writes location
+ * outside an online session.
+ */
+function useLocationHeartbeat(enabled: boolean, intervalMs: number, onServerOffline: () => void): LocationIssue {
+  const [blocked, setBlocked] = useState(false);
+  const [unauthorized, setUnauthorized] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
+  const [arm, setArm] = useState(0);
+  const serverOffline = useEffectEvent(onServerOffline);
+
+  // Alerts from a previous online stretch must not resurface when the rider goes online again.
+  const [wasEnabled, setWasEnabled] = useState(enabled);
+  if (wasEnabled !== enabled) {
+    setWasEnabled(enabled);
+    if (!enabled) {
+      setBlocked(false);
+      setUnauthorized(false);
+      setUnavailable(false);
+    }
+  }
+
+  useEffect(() => {
+    if (!enabled || !("geolocation" in navigator)) return;
+    const geo = navigator.geolocation;
+    let latest: Fix | null = null;
+    let lastSentAt = -Infinity;
+    let inFlight: AbortController | null = null;
+    let refreshing = false;
+    let denied = false;
+    let disposed = false;
+    let permission: PermissionStatus | null = null;
+    // When errors started with no fix in between; performance.now() pauses in sleep, so a wake-up never counts as a gap.
+    let failingSince: number | null = null;
+
+    function remember(position: GeolocationPosition) {
+      latest = {
+        latitude: position.coords.latitude,
+        longitude: position.coords.longitude,
+        receivedAt: performance.now(),
+        receivedWallAt: Date.now(),
+      };
+      failingSince = null;
+      setBlocked(false);
+      setUnavailable(false);
+    }
+
+    function fail(err: GeolocationPositionError) {
+      if (err.code === err.PERMISSION_DENIED) {
+        denied = true;
+        setBlocked(true);
+        return;
+      }
+      // POSITION_UNAVAILABLE / TIMEOUT: device location off, or no fix indoors. Tell the rider once it has lasted.
+      const now = performance.now();
+      if (failingSince === null) failingSince = now;
+      if (now - failingSince >= MAX_FIX_AGE_MS) setUnavailable(true);
+    }
+
+    // Some providers only report on movement, so a stationary rider needs an explicit fresh fix.
+    function refresh() {
+      if (refreshing || denied) return;
+      refreshing = true;
+      try {
+        geo.getCurrentPosition(
+          (position) => {
+            refreshing = false;
+            if (disposed) return;
+            remember(position);
+            sendIfDue();
+          },
+          (err) => {
+            refreshing = false;
+            if (!disposed) fail(err);
+          },
+          { enableHighAccuracy: true, maximumAge: 0, timeout: LOCATION_TIMEOUT_MS },
+        );
+      } catch {
+        // A synchronous throw (embedded WebView, Permissions-Policy) will not clear on retry; surface it as blocked.
+        refreshing = false;
+        denied = true;
+        if (!disposed) setBlocked(true);
+      }
+    }
+
+    function sendIfDue() {
+      if (disposed || inFlight || performance.now() - lastSentAt < intervalMs) return;
+      if (!latest || isStale(latest)) {
+        refresh();
+        return;
+      }
+      const controller = new AbortController();
+      const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+      inFlight = controller;
+      lastSentAt = performance.now();
+      fetch("/api/delivery-partner/location", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ latitude: latest.latitude, longitude: latest.longitude }),
+        signal: controller.signal,
+      })
+        .then(async (response) => {
+          if (disposed) return;
+          if (response.status === 401 || response.status === 403) {
+            setUnauthorized(true);
+            return;
+          }
+          if (!response.ok) return;
+          setUnauthorized(false);
+          const body: unknown = await response.json();
+          if (!disposed && typeof body === "object" && body !== null && "shared" in body && body.shared === false) {
+            serverOffline();
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          clearTimeout(timeout);
+          if (inFlight === controller) inFlight = null;
+        });
+    }
+
+    // A denial kills the watch; re-arm once the rider allows location again (Safari never fires this — hence Reload).
+    function onPermissionChange() {
+      if (!denied || permission?.state === "denied") return;
+      setBlocked(false);
+      setArm((n) => n + 1);
+    }
+    if ("permissions" in navigator) {
+      navigator.permissions.query({ name: "geolocation" }).then(
+        (status) => {
+          if (disposed) return;
+          permission = status;
+          status.addEventListener("change", onPermissionChange);
+        },
+        () => {},
+      );
+    }
+
+    let watchId: number | null = null;
+    try {
+      watchId = geo.watchPosition(
+        (position) => {
+          remember(position);
+          sendIfDue();
+        },
+        fail,
+        { enableHighAccuracy: true, maximumAge: 10_000, timeout: 30_000 },
+      );
+    } catch {
+      // Left unarmed: the first tick's refresh() hits the same failure and raises the blocked alert.
+    }
+    const timer = setInterval(sendIfDue, HEARTBEAT_TICK_MS);
+
+    return () => {
+      disposed = true;
+      if (watchId !== null) geo.clearWatch(watchId);
+      clearInterval(timer);
+      inFlight?.abort();
+      permission?.removeEventListener("change", onPermissionChange);
+    };
+  }, [enabled, intervalMs, arm]);
+
+  if (!enabled) return null;
+  if (blocked) return "blocked";
+  if (unauthorized) return "unauthorized";
+  return unavailable ? "unavailable" : null;
+}
+
 /** 4-digit code entry for pickup/delivery handover. */
 function CodeInput({
   label,
@@ -88,29 +281,61 @@ export function DeliveryPartnerDashboard({
 }) {
   const router = useRouter();
   const [isOnline, setIsOnline] = useState(initialOnline);
+  const [serverOnline, setServerOnline] = useState(initialOnline);
+  if (serverOnline !== initialOnline) {
+    setServerOnline(initialOnline);
+    setIsOnline(initialOnline);
+  }
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [failReason, setFailReason] = useState("");
   const [showFail, setShowFail] = useState(false);
   const [cashCollected, setCashCollected] = useState(false);
+  const onDelivery = activeDelivery?.status === "PICKED_UP";
+  const locationIssue = useLocationHeartbeat(
+    isOnline,
+    onDelivery ? HEARTBEAT_ON_DELIVERY_MS : HEARTBEAT_IDLE_MS,
+    () => {
+      setIsOnline(false);
+      router.refresh();
+    },
+  );
+
+  async function setStatus(body: Record<string, string | number>, fallback: string): Promise<boolean> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const response = await fetch("/api/delivery-partner/status", {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      });
+      if (response.ok) return true;
+      const payload = await response.json().catch(() => null);
+      setError(payload?.error?.message ?? fallback);
+    } catch {
+      setError("Could not reach the server. Check your connection and try again.");
+      // The change may have committed before the response was lost; re-read the real online flag.
+      router.refresh();
+    } finally {
+      clearTimeout(timeout);
+    }
+    return false;
+  }
 
   async function toggleOnline() {
     setError(null);
     if (isOnline) {
       setBusy(true);
-      const response = await fetch("/api/delivery-partner/status", {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action: "offline" }),
-      });
-      setBusy(false);
-      if (!response.ok) {
-        setError("Could not go offline. Try again.");
-        return;
+      try {
+        if (!(await setStatus({ action: "offline" }, "Could not go offline. Try again."))) return;
+        setIsOnline(false);
+        router.refresh();
+      } finally {
+        setBusy(false);
       }
-      setIsOnline(false);
-      router.refresh();
       return;
     }
 
@@ -119,31 +344,52 @@ export function DeliveryPartnerDashboard({
       return;
     }
     setBusy(true);
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        const response = await fetch("/api/delivery-partner/status", {
-          method: "PATCH",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({
-            action: "online",
-            latitude: position.coords.latitude,
-            longitude: position.coords.longitude,
-          }),
-        });
-        setBusy(false);
-        if (!response.ok) {
-          const payload = await response.json().catch(() => null);
-          setError(payload?.error?.message ?? "Could not go online.");
-          return;
-        }
-        setIsOnline(true);
-        router.refresh();
-      },
-      () => {
-        setBusy(false);
-        setError("Location permission is required to go online.");
-      },
-    );
+    // A late callback after the watchdog fired must not submit the PATCH behind the rider's back.
+    let settled = false;
+    const watchdog = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      setBusy(false);
+      setError("Could not get your location. Try again.");
+    }, GO_ONLINE_WATCHDOG_MS);
+    const settle = (): boolean => {
+      if (settled) return false;
+      settled = true;
+      clearTimeout(watchdog);
+      return true;
+    };
+    try {
+      navigator.geolocation.getCurrentPosition(
+        async (position) => {
+          if (!settle()) return;
+          try {
+            const online = await setStatus(
+              { action: "online", latitude: position.coords.latitude, longitude: position.coords.longitude },
+              "Could not go online.",
+            );
+            if (!online) return;
+            setIsOnline(true);
+            router.refresh();
+          } finally {
+            setBusy(false);
+          }
+        },
+        (err) => {
+          if (!settle()) return;
+          setBusy(false);
+          setError(
+            err.code === err.PERMISSION_DENIED
+              ? "Location permission is required to go online."
+              : "Could not get your location. Try again.",
+          );
+        },
+        { timeout: LOCATION_TIMEOUT_MS },
+      );
+    } catch {
+      if (!settle()) return;
+      setBusy(false);
+      setError("Could not get your location. Try again.");
+    }
   }
 
   async function act(
@@ -153,24 +399,27 @@ export function DeliveryPartnerDashboard({
     if (!activeDelivery) return;
     setBusy(true);
     setError(null);
-    const response = await fetch(`/api/delivery-orders/${activeDelivery.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, ...extra }),
-    });
-    if (response.ok) {
+    try {
+      const response = await fetch(`/api/delivery-orders/${activeDelivery.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ...extra }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        setError(payload?.error?.message ?? "Action failed.");
+        return;
+      }
       setCode("");
       setFailReason("");
       setShowFail(false);
       setCashCollected(false);
+      router.refresh();
+    } catch {
+      setError("Could not reach the server. Check your connection and try again.");
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
-    if (!response.ok) {
-      const payload = await response.json().catch(() => null);
-      setError(payload?.error?.message ?? "Action failed.");
-      return;
-    }
-    router.refresh();
   }
 
   return (
@@ -190,6 +439,32 @@ export function DeliveryPartnerDashboard({
           {isOnline ? "Go offline" : "Go online"}
         </Button>
       </Card>
+
+      {locationIssue === "blocked" ? (
+        <Alert tone="warning" title="Location is blocked">
+          <p>
+            Nearby offers and live tracking for customers won&apos;t work. Allow location for this site in your
+            browser settings, then reload this page.
+          </p>
+          <div className="mt-2">
+            <Button size="sm" variant="secondary" onClick={() => window.location.reload()}>
+              Reload
+            </Button>
+          </div>
+        </Alert>
+      ) : null}
+      {locationIssue === "unauthorized" ? (
+        <Alert tone="warning" title="Your location isn't being shared">
+          Switch to your Delivery Partner role from the &ldquo;Acting as&rdquo; menu at the top of the page, or sign
+          in again.
+        </Alert>
+      ) : null}
+      {locationIssue === "unavailable" ? (
+        <Alert tone="warning" title="We can't read your location">
+          Nearby offers and live tracking for customers won&apos;t work until we can. Turn on location services for
+          your device, or move somewhere with a clearer signal.
+        </Alert>
+      ) : null}
 
       <div className="grid grid-cols-3 gap-3">
         <Card className="p-4">

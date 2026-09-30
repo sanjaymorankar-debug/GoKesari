@@ -18,7 +18,7 @@ export const dynamic = "force-dynamic";
 export default async function SignInPage({
   searchParams,
 }: {
-  searchParams: Promise<{ "check-email"?: string }>;
+  searchParams: Promise<{ "check-email"?: string; error?: string }>;
 }) {
   const user = await getCurrentUser();
   if (user) redirect("/");
@@ -26,7 +26,10 @@ export default async function SignInPage({
   const env = getEnv();
   const googleEnabled = Boolean(env.AUTH_GOOGLE_ID && env.AUTH_GOOGLE_SECRET);
   const emailEnabled = emailSignInMode(env) !== "disabled";
-  const checkEmail = Boolean((await searchParams)["check-email"]);
+  const query = await searchParams;
+  const checkEmail = Boolean(query["check-email"]);
+  // Auth.js sends AccessDenied when the signIn callback refuses: a suspended or closed account.
+  const accessDenied = query.error === "AccessDenied";
   const devLoginEnabled = env.NODE_ENV !== "production";
 
   return (
@@ -36,6 +39,20 @@ export default async function SignInPage({
         <p className="mt-1 text-sm text-ink-500">
           A wallet is created for you automatically on first sign-in.
         </p>
+
+        {accessDenied ? (
+          <p
+            role="alert"
+            className="mt-6 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900"
+            data-testid="signin-access-denied"
+          >
+            This account is suspended or closed, so it cannot sign in. If you think this is a mistake,{" "}
+            <a href="/grievance" className="underline">
+              contact us through the grievance form
+            </a>
+            .
+          </p>
+        ) : null}
 
         {googleEnabled ? (
           <form

@@ -1,0 +1,164 @@
+﻿
+> dairy-bakery@0.1.0 build
+> next build
+
+▲ Next.js 16.3.1 (Turbopack)
+- Environments: .env
+✓ Running next.config.ts took 4.4s
+
+  Creating an optimized production build ...
+✓ Compiled successfully in 110s
+  Running TypeScript ...
+  Finished TypeScript in 49s ...
+  Collecting page data using 7 workers ...
+  Generating static pages using 7 workers (0/39) ...
+  Generating static pages using 7 workers (9/39) 
+  Generating static pages using 7 workers (19/39) 
+  Generating static pages using 7 workers (29/39) 
+✓ Generating static pages using 7 workers (39/39) in 797ms
+  Finalizing page optimization ...
+
+Route (app)
+┌ ƒ /
+├ ƒ /_not-found
+├ ƒ /about
+├ ƒ /admin
+├ ƒ /admin/product-master
+├ ƒ /admin/shops
+├ ƒ /admin/shops/[id]/products
+├ ƒ /api/addresses
+├ ƒ /api/addresses/[id]
+├ ƒ /api/auth/[...nextauth]
+├ ƒ /api/cart
+├ ƒ /api/cart/items/[id]
+├ ƒ /api/catalogue
+├ ƒ /api/checkout
+├ ƒ /api/checkout/delivery-windows
+├ ƒ /api/cron/daily-orders
+├ ƒ /api/delivery-orders/[id]
+├ ƒ /api/delivery-partner
+├ ƒ /api/delivery-partner/[id]
+├ ƒ /api/delivery-partner/deliveries
+├ ƒ /api/delivery-partner/earnings
+├ ƒ /api/delivery-partner/earnings-config
+├ ƒ /api/delivery-partner/location
+├ ƒ /api/delivery-partner/me
+├ ƒ /api/delivery-partner/status
+├ ƒ /api/dev/settle-topup
+├ ƒ /api/excel-uploads
+├ ƒ /api/excel-uploads/[id]/apply
+├ ƒ /api/geo/verify-location
+├ ƒ /api/grievances
+├ ƒ /api/grievances/[id]
+├ ƒ /api/grievances/lookup
+├ ƒ /api/notifications
+├ ƒ /api/orders
+├ ƒ /api/orders/[id]/assign
+├ ƒ /api/orders/[id]/status
+├ ƒ /api/price-requests
+├ ƒ /api/price-requests/[id]/override
+├ ƒ /api/price-requests/decide
+├ ƒ /api/product-master/brands
+├ ƒ /api/product-master/categories
+├ ƒ /api/product-master/data-quality
+├ ƒ /api/product-master/manufacturers
+├ ƒ /api/product-master/products
+├ ƒ /api/product-master/products/[id]
+├ ƒ /api/product-master/products/[id]/offers
+├ ƒ /api/product-master/products/[id]/price-history
+├ ƒ /api/product-master/products/[id]/promote
+├ ƒ /api/product-master/products/import
+├ ƒ /api/product-master/products/match
+├ ƒ /api/product-master/products/search
+├ ƒ /api/product-master/products/validate
+├ ƒ /api/product-master/review
+├ ƒ /api/product-master/review/[candidateId]
+├ ƒ /api/products
+├ ƒ /api/products/[id]/approval
+├ ƒ /api/products/pending-approval
+├ ƒ /api/referral-codes
+├ ƒ /api/registration-fees
+├ ƒ /api/shop-payments
+├ ƒ /api/shop-payments/[id]/reverse
+├ ƒ /api/shop-products/[id]
+├ ƒ /api/shops
+├ ƒ /api/shops/[id]
+├ ƒ /api/shops/[id]/approve
+├ ƒ /api/shops/[id]/catalogue-search
+├ ƒ /api/shops/[id]/classification
+├ ƒ /api/shops/[id]/compliance
+├ ƒ /api/shops/[id]/gst
+├ ƒ /api/shops/[id]/gst/reject
+├ ƒ /api/shops/[id]/gst/verify
+├ ƒ /api/shops/[id]/pan
+├ ƒ /api/shops/[id]/pan/reject
+├ ƒ /api/shops/[id]/pan/reveal
+├ ƒ /api/shops/[id]/pan/verify
+├ ƒ /api/shops/[id]/price-template
+├ ƒ /api/shops/[id]/products
+├ ƒ /api/shops/[id]/reject
+├ ƒ /api/subscriptions
+├ ƒ /api/subscriptions/[id]
+├ ƒ /api/subscriptions/[id]/calendar
+├ ƒ /api/subscriptions/[id]/override
+├ ƒ /api/subscriptions/[id]/pause
+├ ƒ /api/subscriptions/[id]/resume
+├ ƒ /api/subscriptions/[id]/retry
+├ ƒ /api/subscriptions/[id]/skip
+├ ƒ /api/users
+├ ƒ /api/users/[id]/role
+├ ƒ /api/voucher-uploads
+├ ƒ /api/voucher-uploads/[id]/apply
+├ ƒ /api/voucher-uploads/template
+├ ƒ /api/vouchers
+├ ƒ /api/vouchers/[id]
+├ ƒ /api/vouchers/[id]/status
+├ ƒ /api/vouchers/dashboard
+├ ƒ /api/vouchers/preview
+├ ƒ /api/vouchers/redemptions
+├ ƒ /api/wallet
+├ ƒ /api/wallet/settings
+├ ƒ /api/wallet/topup
+├ ƒ /api/wallet/verify
+├ ƒ /api/webhooks/cashfree
+├ ƒ /bakery
+├ ƒ /cart
+├ ƒ /categories
+├ ƒ /category/[type]
+├ ƒ /contact
+├ ƒ /dairy
+├ ƒ /delivery-partner
+├ ƒ /delivery-partner/apply
+├ ƒ /delivery-partner/register
+├ ƒ /grievance
+├ ƒ /legal/cookie-policy
+├ ƒ /legal/grievance-redressal
+├ ƒ /legal/privacy-policy
+├ ƒ /legal/refund-policy
+├ ƒ /legal/seller-terms
+├ ƒ /legal/shipping-policy
+├ ƒ /legal/subscription-terms
+├ ƒ /legal/terms
+├ ƒ /legal/voucher-terms
+├ ƒ /legal/wallet-terms
+├ ƒ /operator
+├ ƒ /orders
+├ ƒ /profile
+├ ƒ /profile/addresses
+├ ƒ /search
+├ ƒ /shop
+├ ƒ /shop/orders
+├ ƒ /shop/prices
+├ ƒ /shop/register
+├ ƒ /shops
+├ ƒ /shops/[slug]
+├ ƒ /shops/[slug]/contact
+├ ƒ /signin
+├ ƒ /subscribe/[shopProductId]
+├ ƒ /subscriptions
+├ ƒ /subscriptions/[id]
+└ ƒ /wallet
+
+
+ƒ  (Dynamic)  server-rendered on demand
+

@@ -15,7 +15,8 @@
  *  - **Per-shop split.** A cart spanning several shops becomes one order per
  *    shop, each paid for independently (§17).
  */
-import { and, desc, eq, inArray, like } from "drizzle-orm";
+import { and, desc, eq, gte, lte, inArray, like } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 
 import { conflict, forbidden, invalidTransition, notFound, validationFailed } from "@/lib/errors";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
@@ -24,6 +25,7 @@ import { db, type DbClient } from "@/server/db";
 import {
   addresses,
   deliveryOrders,
+  deliveryPartners,
   orderItems,
   orderStatusHistory,
   orders,
@@ -31,6 +33,7 @@ import {
   products,
   shopProducts,
   shops,
+  users,
   walletTransactions,
   type DeliveryWindow,
   type Order,
@@ -1090,4 +1093,87 @@ export async function orderDepartments(orderId: string): Promise<string[]> {
     .innerJoin(productCategories, eq(products.categoryId, productCategories.id))
     .where(eq(orderItems.orderId, orderId));
   return rows.map((r) => r.department);
+}
+
+export interface MonitoredOrder {
+  id: string;
+  orderNumber: string;
+  shopName: string;
+  customerName: string | null;
+  status: OrderStatus;
+  totalPaise: number;
+  createdAt: Date;
+  riderName: string | null;
+  deliveryStatus: string | null;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function parseDay(value: string | undefined): Date | undefined {
+  if (!value) return undefined;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
+/** Staff order-monitoring list. Filters come from the URL, so bad values are ignored rather than thrown. */
+export async function listOrdersForMonitoring(filters: {
+  status?: string;
+  shopId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}): Promise<MonitoredOrder[]> {
+  const conditions = [];
+
+  if (filters.status && filters.status in ORDER_STATUS_LABELS) {
+    conditions.push(eq(orders.status, filters.status as OrderStatus));
+  }
+  if (filters.shopId && UUID_RE.test(filters.shopId)) {
+    conditions.push(eq(orders.shopId, filters.shopId));
+  }
+  const dateFrom = parseDay(filters.dateFrom);
+  if (dateFrom) conditions.push(gte(orders.createdAt, dateFrom));
+  const dateTo = parseDay(filters.dateTo);
+  if (dateTo) {
+    dateTo.setHours(23, 59, 59, 999);
+    conditions.push(lte(orders.createdAt, dateTo));
+  }
+
+  const riderUser = alias(users, "rider_user");
+
+  return db
+    .select({
+      id: orders.id,
+      orderNumber: orders.orderNumber,
+      shopName: shops.name,
+      customerName: users.name,
+      status: orders.status,
+      totalPaise: orders.totalPaise,
+      createdAt: orders.createdAt,
+      riderName: riderUser.name,
+      deliveryStatus: deliveryOrders.status,
+    })
+    .from(orders)
+    .innerJoin(shops, eq(orders.shopId, shops.id))
+    .innerJoin(users, eq(orders.userId, users.id))
+    // Only the live assignment — rejected/cancelled offers would duplicate rows.
+    .leftJoin(
+      deliveryOrders,
+      and(
+        eq(deliveryOrders.orderId, orders.id),
+        inArray(deliveryOrders.status, ["OFFERED", "ACCEPTED", "PICKED_UP", "DELIVERED", "FAILED"]),
+      ),
+    )
+    .leftJoin(deliveryPartners, eq(deliveryOrders.deliveryPartnerId, deliveryPartners.id))
+    .leftJoin(riderUser, eq(deliveryPartners.userId, riderUser.id))
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(orders.createdAt))
+    .limit(100);
+}
+
+export function orderStatusOptions(): Array<{ value: string; label: string }> {
+  return Object.entries(ORDER_STATUS_LABELS).map(([value, label]) => ({ value, label }));
+}
+
+export async function listShopOptions(): Promise<Array<{ id: string; name: string }>> {
+  return db.select({ id: shops.id, name: shops.name }).from(shops).orderBy(shops.name).limit(500);
 }

@@ -427,3 +427,144 @@ export function RiskReviewButtons({ flagId }: { flagId: string }) {
     </div>
   );
 }
+
+type RiskSuspendSubject = "USER" | "SHOP" | "DELIVERY_PARTNER";
+
+const SUSPEND_COPY: Record<RiskSuspendSubject, { noun: string; reasonPlaceholder: string; effect: string }> = {
+  USER: {
+    noun: "account",
+    reasonPlaceholder: "Reason (internal note)",
+    effect:
+      "Signs them out and blocks sign-in. A delivery-partner profile they hold is suspended too, but any delivery they are carrying stays assigned to them until operations resolves it from Orders. Their subscriptions keep running and any shop they own stays open, so deal with those separately. Reinstating is an admin API call (POST /api/users/{id}/reinstate), not a screen, and a suspended rider profile stays suspended until you reactivate it from the delivery partner queue.",
+  },
+  SHOP: {
+    noun: "shop",
+    reasonPlaceholder: "Reason (internal note)",
+    effect:
+      "Hides the shop and stops new orders. Open orders are not cancelled or refunded, and its customers' subscriptions stay active, so each subscriber is told every day that their delivery is unavailable. The owner is not notified and the reason is kept in the audit log only. Re-approving needs POST /api/shops/{id}/approve; there is no screen for it yet.",
+  },
+  DELIVERY_PARTNER: {
+    noun: "delivery partner",
+    reasonPlaceholder: "Reason (shown to the rider)",
+    effect:
+      "Takes them offline, stops new delivery offers and notifies them; the rider is shown the reason you type. A delivery they have accepted or picked up stays assigned to them but disappears from their app, so reassign it (accepted) or confirm or fail it (picked up) from Orders first. Reactivate from the delivery partner queue.",
+  },
+};
+
+function suspendRequest(subjectType: RiskSuspendSubject, subjectId: string, reason: string) {
+  if (subjectType === "DELIVERY_PARTNER") {
+    return { url: `/api/delivery-partner/${subjectId}`, method: "PATCH", body: { action: "suspend", reason } };
+  }
+  if (subjectType === "SHOP") return { url: `/api/shops/${subjectId}/suspend`, method: "POST", body: { reason } };
+  return { url: `/api/users/${subjectId}/suspend`, method: "POST", body: { reason } };
+}
+
+interface RequestFailure {
+  status: number | null;
+  message: string;
+}
+
+async function requestFailure(url: string, method: string, body: unknown): Promise<RequestFailure | null> {
+  try {
+    const response = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
+    if (response.ok) return null;
+    const payload = await response.json().catch(() => null);
+    return { status: response.status, message: payload?.error?.message ?? "That did not work." };
+  } catch {
+    return { status: null, message: "Could not reach the server." };
+  }
+}
+
+/** Suspends the flag's subject through its existing endpoint, then closes the flag as ACTIONED. */
+export function RiskSuspendButton({
+  flagId,
+  subjectType,
+  subjectId,
+  available,
+}: {
+  flagId: string;
+  subjectType: RiskSuspendSubject;
+  subjectId: string;
+  available: boolean;
+}) {
+  const router = useRouter();
+  const [open, setOpen] = useState(false);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
+  const [suspended, setSuspended] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
+  const [closedByOther, setClosedByOther] = useState(false);
+  const { noun, effect, reasonPlaceholder } = SUSPEND_COPY[subjectType];
+
+  async function suspendAndClose() {
+    const trimmed = reason.trim();
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    const suspend = suspendRequest(subjectType, subjectId, trimmed);
+    const suspendFailure = await requestFailure(suspend.url, suspend.method, suspend.body);
+    if (suspendFailure) {
+      setBusy(false);
+      setError(`The ${noun} was not suspended: ${suspendFailure.message}`);
+      return;
+    }
+    setSuspended(true);
+    const flagFailure = await requestFailure(`/api/admin/risk/${flagId}`, "PATCH", { decision: "ACTIONED", note: `Suspended: ${trimmed}` });
+    setBusy(false);
+    setOpen(false);
+    setReason("");
+    if (flagFailure?.status === 409) {
+      // Another reviewer closed this flag first. A refresh would drop the row and this message with it, so wait for the operator.
+      setNotice(`The ${noun} was suspended. Another reviewer had already closed this flag, so its review note is theirs.`);
+      setClosedByOther(true);
+      return;
+    }
+    if (flagFailure) {
+      setError(`The ${noun} WAS suspended, but this flag could not be marked actioned (${flagFailure.message}). Close it above with a note.`);
+    } else {
+      setNotice(`The ${noun} was suspended and the flag marked actioned.`);
+    }
+    router.refresh();
+  }
+
+  const canSuspend = available && !suspended;
+  if (!canSuspend && !error && !notice) return null;
+  return (
+    <div>
+      {canSuspend ? (
+        open ? (
+          <div className="space-y-1">
+            <div className="flex flex-wrap items-center gap-2">
+              <input
+                className={`${inputClass} w-64`}
+                maxLength={480}
+                aria-label={`Reason for suspending this ${noun}`}
+                placeholder={reasonPlaceholder}
+                value={reason}
+                onChange={(e) => setReason(e.target.value)}
+              />
+              <Button size="sm" variant="danger" disabled={busy || reason.trim().length < 5} onClick={suspendAndClose}>
+                Confirm suspension
+              </Button>
+              <Button size="sm" variant="secondary" disabled={busy} onClick={() => setOpen(false)}>
+                Cancel
+              </Button>
+            </div>
+            <p className="text-xs text-ink-500">{effect}</p>
+          </div>
+        ) : (
+          <Button size="sm" variant="danger" onClick={() => setOpen(true)} data-testid="risk-suspend">
+            Suspend &amp; mark actioned
+          </Button>
+        )
+      ) : null}
+      <Messages error={error} notice={notice} />
+      {closedByOther ? (
+        <Button size="sm" variant="secondary" onClick={() => router.refresh()}>
+          Refresh list
+        </Button>
+      ) : null}
+    </div>
+  );
+}

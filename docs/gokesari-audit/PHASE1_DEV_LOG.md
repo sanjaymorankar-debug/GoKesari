@@ -413,6 +413,123 @@ Branch `dev/phase3-growth` (from `dev/phase2-society`). Development only — not
 
 ---
 
+## Phase 4.3 — Admin order monitoring (2026-09-28)
+
+### Completed
+- `/admin/orders`: staff order list (latest 100) with status / shop / date-range filters in the URL
+- Rows show order number, placed time, shop, customer, status, amount, and the live rider assignment
+- Quick actions reuse the existing `POST /api/orders/[id]/assign`: "Assign rider" (READY with no live delivery), "Reassign" (live OFFERED/ACCEPTED/PICKED_UP delivery, asks for a reason)
+- Page gated by ORDER_VIEW_ANY; actions shown only with DELIVERY_ORDER_MANAGE_ANY (the API enforces it again)
+
+### Files
+- `src/app/admin/orders/page.tsx` (new)
+- `src/components/order-monitoring-table.tsx` (new)
+- `src/components/order-filters.tsx` (new)
+- `src/server/services/orders.ts`: `listOrdersForMonitoring`, `orderStatusOptions`, `listShopOptions`, `MonitoredOrder`
+
+### APIs / DB
+- No new API routes, no migrations
+
+### Known gaps
+- "Extend deadline" from the plan is not built: orders have no deadline/SLA column; it needs a schema decision
+- No staff order-detail page, so order numbers are not links
+- No pagination beyond 100 rows; no live refresh (reload or re-filter)
+- If an order ever had two live delivery_orders rows at once it would appear twice
+
+### Testing handoff (not performed here)
+- Filters: each alone and combined; invalid status / shopId / date in the URL is ignored, not a 500
+- Customer and shop owner are redirected; operator and admin see all shops
+- Assign rider on a READY order; Reassign with and without a reason; cancel on the prompt does nothing; API error shows inline
+- Order with rejected + accepted offers shows once, with the accepted rider
+
+---
+
+## Tasks 7–11 type-error remediation (2026-09-29)
+
+Tasks 7–11 had been written without a typecheck (47 errors). Each was rewired onto the existing services instead of the invented stubs; `tsc --noEmit` now passes for the whole repo and eslint passes on every touched file.
+
+### Completed
+- Tracking: `GET /api/tracking/[orderId]` reads the rider's location from the existing `delivery_partners.last_location_*` columns (migration 0012). Access is limited to the customer, the shop owner, ORDER_VIEW_ANY and the assigned rider. Coordinates are shown only after pickup, and only from readings taken after pickup. ETA is null rather than NaN. Redundant `POST /api/tracking/update` deleted (riders already use `/api/delivery-partner/location`). Un-migrated `tracking_events` table removed from schema.ts. `src/lib/tracking.ts` reuses `haversineDistanceKm`; the inverted redaction logic was removed.
+- Admin dashboard: now uses `getMarketplaceKpis(defaultWindow(1))` and the same gate as `/admin/analytics`. Added `getLiveOperations()` to analytics.ts (add-only): orders in flight by status, riders online/busy. Removed the fake trends, the empty payment chart and the invented top-shops list. Dead links now point to `/admin/finance/exceptions`, `/admin/risk` and `/admin`. The unused `/api/admin/kpis` was deleted; it duplicated `/api/analytics/kpis`.
+- Gig: uses `getMyDeliveryPartnerProfile`, `getPartnerEarningsSummary`, `getMyActiveDeliveryDetail` and `listMyDeliveryHistory`. `/gig/orders` is now "My deliveries" (push dispatch, no order pool). All actions link to the existing `/delivery-partner` app. Invented fields (insurance, bank account, acceptance rate) removed.
+- Notification preferences form: no per-user email-preference storage exists, so it now uses the existing `PUT /api/consents/marketing`.
+
+### Files
+- Changed: src/lib/tracking.ts, src/app/api/tracking/[orderId]/route.ts, src/components/live-tracking-map.tsx, src/app/admin/dashboard/page.tsx, src/components/kpi-card.tsx, src/components/analytics-chart.tsx, src/server/services/analytics.ts, src/app/gig/profile/page.tsx, src/app/gig/orders/page.tsx, src/components/gig-earnings-card.tsx, src/components/notification-preferences-form.tsx
+- Deleted: src/app/api/tracking/update/route.ts, src/app/api/admin/kpis/route.ts
+- schema.ts: trackingEvents removed (no net diff against HEAD)
+
+### APIs / DB
+- Removed: POST /api/tracking/update, GET /api/admin/kpis (both new this sprint, never released)
+- No migrations
+
+### Known gaps
+- HIGH: nothing posts rider location during a delivery (no caller of `/api/delivery-partner/location`), so tracking never shows coordinates in practice
+- LiveTrackingMap and NotificationPreferencesForm are not mounted anywhere. The form now duplicates MarketingConsentToggle on /profile.
+- /admin/dashboard overlaps /admin/analytics; /gig overlaps /delivery-partner; neither /admin/dashboard nor /admin/orders is in site-header nav
+- Suspended riders keep their active delivery (the rider services don't check APPROVED)
+
+### Testing handoff (not performed here)
+- Tracking GET: each viewer role allowed or denied; offered/rejected rider denied; coordinates only while PICKED_UP and recorded after pickedUpAt; self-delivery and retry show "not tracked"; bad uuid → 422
+- Dashboard: operator vs admin vs customer gate; today KPIs match /admin/analytics for a 1-day window; in-flight counts include FAILED; risk tile hidden without RISK_REVIEW
+- Gig: unregistered → apply CTA; non-approved → no action links; approved with/without an active job; history excludes the active row; earnings amounts per delivery
+- Consent form: toggle saves, Save disabled when unchanged, error message shown
+
+---
+
+## Phase 4.5 — Risk review extensions on /admin/risk (2026-09-29)
+
+### Completed
+- New rule HIGH_VALUE_OUTLIER ("Unusually large order", USER, MEDIUM; defaults pending business confirmation): an order in the last 7 days of ≥ ₹2,000 and ≥ 5× the customer's average over the 90 days before it (with 3+ orders then), or ≥ ₹10,000 with fewer than 3 orders then. PERSONAL + DIRECT orders only; PENDING / PAYMENT_FAILED / WALLET_INSUFFICIENT ignored; value = total + already refunded. The summary names each order number, its amount in rupees and the multiple or prior-order count. An order already listed on a reviewed flag is not raised again. Rule count is now 12.
+- /admin/risk filters: severity and subject type in the URL, combined with the status tabs; every link keeps the other filters; unknown values are ignored; "Clear filters" on an empty filtered result
+- Each flag shows the subject's current account status (user / shop / rider status, or "deleted" / "not found")
+- "Suspend & mark actioned" on OPEN flags when the viewer holds the subject's suspend permission and the subject is suspendable: asks for a reason (≥ 5 chars), calls the suspend endpoint, then closes the flag as ACTIONED with `Suspended: <reason>`. If the suspension worked but the flag update failed, it says so plainly.
+- Suspended users are enforced (auth.ts signIn rejects non-ACTIVE; the session callback re-reads status; getCurrentUser() returns null unless ACTIVE), so a user suspend route was added
+
+### Repair pass (2026-09-30, after two independent reviews)
+- Admin protection: `suspendUser` now refuses any account holding an ACTIVE ADMIN grant (not only `users.role`, which is just the active role), the active role ADMIN, or a `PERMANENT_ADMIN_EMAILS` address. The guard is in the UPDATE's WHERE too (NOT EXISTS on `user_role_grants`) so a concurrent grant cannot slip past. `/admin/risk` no longer offers the button on an admin subject (`RiskFlagView.subjectIsAdmin`).
+- Suspending a user who is an APPROVED rider suspends the rider profile first through the existing `suspendDeliveryPartner` (offline, session closed, notified with a generic reason), so a failure leaves the account untouched and retryable. The audit row records how many rider profiles were suspended.
+- Suspend-shortcut copy now states the real consequences: user (rider profile suspended too, carried delivery stays assigned, subscriptions and owned shop untouched, reinstate is API only), shop (open orders not cancelled, subscribers told daily, owner not notified, reason in the audit log only, re-approve API), rider (in-flight delivery disappears from their app until ops resolve it from Orders, the rider sees the reason). The rider reason field says it is shown to the rider; the other two say internal note.
+- HIGH_VALUE_OUTLIER label and summary reworded ("Unusually large order", "unusually large for this customer") so they fit both branches; the per-order parenthetical says which applied.
+- 409 "already reviewed" on the flag update after a successful suspend is now reported as "another reviewer had already closed this flag", is not refreshed away, and offers a "Refresh list" button. Other flag failures keep the "WAS suspended, but could not be marked actioned" message.
+- `suspendShop` is one conditional UPDATE inside a transaction with its audit row (APPROVED and not deleted in the WHERE), so a concurrent reject or suspend cannot be overwritten or audited twice.
+- `/signin` explains `?error=AccessDenied` (suspended or closed account, with a link to the grievance form).
+- New admin-only reinstate: `reinstateUser` + `POST /api/users/{id}/reinstate` (USER_SUSPEND, `{ reason }`, SUSPENDED to ACTIVE, audited `user.reinstated`; `AUDIT_ACTIONS.USER_REINSTATED` added in `src/server/services/audit.ts`). It restores the account only; a suspended rider profile needs reactivating from the delivery partner queue. No UI.
+
+### Files
+- `src/server/services/risk.ts`: HIGH_VALUE_OUTLIER, `ListRiskFlagsOptions` (severity, subjectType; additive), `RiskFlagView.subjectStatus`, `RiskFlagView.subjectIsAdmin`
+- `src/app/admin/risk/page.tsx`, `src/app/api/admin/risk/route.ts`, `src/components/growth-actions.tsx` (`RiskSuspendButton`)
+- `src/server/services/shops.ts`: `suspendShop` (APPROVED only; one conditional UPDATE + `shop.suspended` audit in a transaction)
+- `src/server/services/users.ts`: `suspendUser` (ACTIVE only; not yourself; not an admin by grant, role or permanent email; suspends an APPROVED rider profile; audited `user.suspended`), `reinstateUser`, `findAdminUserIds`
+- `src/server/services/audit.ts`: `USER_REINSTATED` (one line)
+- `src/app/signin/page.tsx`
+- New: `src/app/api/shops/[id]/suspend/route.ts`, `src/app/api/users/[id]/suspend/route.ts`, `src/app/api/users/[id]/reinstate/route.ts`
+- API.md
+
+### APIs / DB
+- New: `POST /api/shops/{id}/suspend` (SHOP_SUSPEND) and `POST /api/users/{id}/suspend` (USER_SUSPEND, admin only), both `{ reason }`; `POST /api/users/{id}/reinstate` (USER_SUSPEND, admin only, `{ reason }`)
+- `GET /api/admin/risk` accepts `severity` and `subjectType` and returns `subjectStatus` and `subjectIsAdmin`
+- No migrations, no new permissions
+
+### Known gaps
+- No reinstate screen: a suspended user is reinstated through `POST /api/users/{id}/reinstate` only. A suspended shop can only be reinstated through `POST /api/shops/{id}/approve`, and no admin screen offers either.
+- A suspended customer's subscriptions keep generating orders and debiting the wallet. Open orders carry on. A suspended user who owns a shop keeps that shop APPROVED (a rider profile is now suspended with the account).
+- Suspending a shop does not notify the owner or store the reason on the shop (the reason is in the audit log only). Open orders are not cancelled and the owner can still fulfil them; its subscribers get a "Delivery unavailable" notice each day.
+- A rider suspended from the queue, the risk page, or through the user suspend keeps any accepted or picked-up delivery assigned to them; it disappears from their app until operations resolve it.
+- Other rules still raise a new flag an hour after a review if the condition persists (existing behaviour)
+- A non-UUID id on the suspend and reinstate routes returns a generic 500, like the sibling approve and reject routes
+
+### Testing handoff (not performed here)
+- Rule: an order of ₹2,000+ at 5× the average with 3+ prior orders is flagged; 4.9× is not; ₹10,000 with 0–2 prior orders is flagged; ₹9,999 is not; B2B, SUBSCRIPTION, PENDING, PAYMENT_FAILED and WALLET_INSUFFICIENT orders are ignored both as candidates and in the average; re-run refreshes; after Dismiss, the same order is not re-raised but a new outlier order is
+- Filters: each alone and combined with each status tab; invalid values ignored; links keep the other filters
+- Suspend: operator sees it for shops and riders but not customers; admin sees all three; hidden when the subject is already suspended, deleted, or yourself; reason < 5 chars keeps Confirm disabled; flag closed with `Suspended: <reason>`; a suspend API error leaves the flag open; suspend OK + flag update failure shows the plain message
+- Suspended user: signed out on next request, cannot sign in again and sees the AccessDenied message on /signin; an ADMIN target is refused, including an admin currently acting as CUSTOMER or SHOP_OWNER and a permanent bootstrap admin; no suspend button on an admin subject; a user who is also an APPROVED rider ends with the rider profile SUSPENDED and offline
+- Reinstate: SUSPENDED to ACTIVE with a reason (audited `user.reinstated`); ACTIVE, unknown and deleted targets give 409, 404, 409; an OPERATOR gets 403; the user can sign in again; a rider profile stays SUSPENDED
+- Suspend shop: a second concurrent suspend or a concurrent reject gives 409 and only one `shop.suspended` audit row
+- Risk page 409: the flag closed by another reviewer just before Confirm shows "another reviewer had already closed this flag" and a Refresh list button, not the "could not be marked actioned" error
+
+---
+
 ## Duplicate shop registration fix (2026-09-29)
 
 Branch `fix/shop-duplicate-registration` (from `origin/staging` 8193ec6). Development only — not tested.
