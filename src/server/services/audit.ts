@@ -168,6 +168,14 @@ export const AUDIT_ACTIONS = {
   PMD_PRODUCT_ADOPTED: "pmd.product_adopted",
   PMD_MATCH_DECIDED: "pmd.match_decided",
   PMD_PRODUCTS_IMPORTED: "pmd.products_imported",
+
+  /* ------------------------------------------- platform rules & auth */
+  SETTING_CHANGED: "setting.changed",
+  OTP_REQUESTED: "auth.otp_requested",
+  OTP_VERIFIED: "auth.otp_verified",
+  OTP_FAILED: "auth.otp_failed",
+  OTP_BLOCKED: "auth.otp_blocked",
+  PHONE_LINKED: "auth.phone_linked",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

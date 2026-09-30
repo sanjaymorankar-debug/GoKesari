@@ -27,7 +27,9 @@ import {
   wallets,
   type UserRole,
 } from "@/server/db/schema";
+import { enforceRateLimit } from "@/server/api/rate-limit";
 import { emailProvider } from "@/server/auth-email";
+import { verifyLoginOtp } from "@/server/otp/service";
 import { recordConsent } from "@/server/services/consents";
 import { grantRole } from "@/server/services/roles";
 
@@ -77,9 +79,42 @@ const testCredentialsProvider = Credentials({
   },
 });
 
+/**
+ * Mobile login: the mobile number identifies the account and the one-time
+ * code (emailed to the account's verified address, see otp/service.ts) proves
+ * the login. Codes are requested through POST /api/otp/request. Auth.js issues
+ * a brand-new JWT on success, so nothing from a pre-login session survives.
+ */
+const mobileOtpProvider = Credentials({
+  id: "mobile-otp",
+  name: "Mobile number",
+  credentials: {
+    countryCode: { label: "Country code", type: "text" },
+    mobile: { label: "Mobile number", type: "text" },
+    code: { label: "Code", type: "text" },
+  },
+  async authorize(raw, request) {
+    const ip = request?.headers?.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
+    try {
+      enforceRateLimit(`otp-verify:${ip ?? "unknown"}`, { limit: 30, windowMs: 10 * 60_000 });
+      const user = await verifyLoginOtp({
+        countryCode: String(raw?.countryCode ?? ""),
+        mobile: String(raw?.mobile ?? ""),
+        code: String(raw?.code ?? ""),
+        ip,
+      });
+      return { id: user.id, email: user.email, name: user.name, image: user.image };
+    } catch {
+      // Every failure looks the same to the caller (no enumeration); details are audited.
+      return null;
+    }
+  },
+});
+
 const magicLink = emailProvider();
 
 const providers = [
+  mobileOtpProvider,
   ...(magicLink ? [magicLink] : []),
   ...(env.AUTH_GOOGLE_ID && env.AUTH_GOOGLE_SECRET
     ? [

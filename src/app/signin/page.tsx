@@ -1,10 +1,16 @@
 import { redirect } from "next/navigation";
+import { AuthError } from "next-auth";
+import { isRedirectError } from "next/dist/client/components/redirect-error";
 
+import { MobileOtpSignIn } from "@/components/mobile-otp-signin";
 import { Card } from "@/components/ui";
 import { getEnv } from "@/lib/env";
 import { getCurrentUser } from "@/server/authz/guards";
 import { signIn } from "@/server/auth";
 import { EMAIL_PROVIDER_ID, emailSignInMode } from "@/server/auth-email";
+import { emailMode } from "@/server/email/transport";
+import { getProvider } from "@/server/otp/providers";
+import { getRule } from "@/server/services/settings";
 
 export const metadata = { title: "Sign in" };
 export const dynamic = "force-dynamic";
@@ -31,6 +37,20 @@ export default async function SignInPage({
   // Auth.js sends AccessDenied when the signIn callback refuses: a suspended or closed account.
   const accessDenied = query.error === "AccessDenied";
   const devLoginEnabled = env.NODE_ENV !== "production";
+  const otpRules = await getRule("otp");
+  const otpEmailAvailable = emailMode() !== "disabled";
+  const otpSmsAvailable = otpRules.smsEnabled && Boolean(getProvider("SMS")?.isAvailable());
+
+  async function verifyMobileOtp(input: { countryCode: string; mobile: string; code: string }) {
+    "use server";
+    try {
+      await signIn("mobile-otp", { ...input, redirectTo: "/" });
+    } catch (error) {
+      if (isRedirectError(error)) throw error;
+      if (error instanceof AuthError) return { error: "That code is invalid or has expired. Request a new one." };
+      throw error;
+    }
+  }
 
   return (
     <div className="mx-auto max-w-md py-8">
@@ -89,6 +109,14 @@ export default async function SignInPage({
             <code>AUTH_GOOGLE_SECRET</code> to enable it.
           </p>
         )}
+
+        {otpEmailAvailable || otpSmsAvailable ? (
+          <MobileOtpSignIn
+            verify={verifyMobileOtp}
+            emailAvailable={otpEmailAvailable}
+            smsAvailable={otpSmsAvailable}
+          />
+        ) : null}
 
         {checkEmail ? (
           <p

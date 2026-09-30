@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { PhoneLinkForm } from "@/components/phone-link-form";
 import { MarketingConsentToggle } from "@/components/marketing-consent-toggle";
 import { Badge, Card, PageHeader } from "@/components/ui";
 import { ROLE_LABELS } from "@/server/authz/permissions";
@@ -8,6 +9,9 @@ import { getCurrentUser } from "@/server/authz/guards";
 import { getMarketingConsentStatus } from "@/server/services/consents";
 import { listNotifications } from "@/server/services/notifications";
 import { signOut } from "@/server/auth";
+import { db } from "@/server/db";
+import { users } from "@/server/db/schema";
+import { eq } from "drizzle-orm";
 
 export const metadata = { title: "Profile" };
 export const dynamic = "force-dynamic";
@@ -16,9 +20,10 @@ export default async function ProfilePage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
 
-  const [notifications, marketingConsent] = await Promise.all([
+  const [notifications, marketingConsent, phoneRow] = await Promise.all([
     listNotifications(user.id, { limit: 20 }),
     getMarketingConsentStatus(user.id),
+    db.select({ phoneE164: users.phoneE164 }).from(users).where(eq(users.id, user.id)),
   ]);
 
   return (
@@ -32,6 +37,10 @@ export default async function ProfilePage() {
         <p className="text-sm text-ink-500">{user.email}</p>
         <div className="mt-2">
           <Badge tone="info">{ROLE_LABELS[user.role]}</Badge>
+        </div>
+
+        <div className="mt-4">
+          <PhoneLinkForm current={phoneRow[0]?.phoneE164 ?? null} />
         </div>
 
         <Link

@@ -176,6 +176,13 @@
       "when": 1790694068707,
       "tag": "0024_shop_identity_dedup",
       "breakpoints": true
+    },
+    {
+      "idx": 25,
+      "version": "7",
+      "when": 1790773984590,
+      "tag": "0025_phase_a_mobile_otp_settings",
+      "breakpoints": true
     }
   ]
 }

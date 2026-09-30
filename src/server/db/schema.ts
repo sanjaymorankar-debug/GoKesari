@@ -446,6 +446,13 @@ export const users = pgTable(
     emailVerified: timestamp("email_verified", { withTimezone: true }),
     image: text("image"),
     phone: text("phone"),
+    /**
+     * Normalised E.164 number ("+919876543210") used for mobile login lookup.
+     * `phoneVerifiedAt` is set only when possession of the number is proven
+     * (an SMS code); an email-OTP login never sets it.
+     */
+    phoneE164: text("phone_e164"),
+    phoneVerifiedAt: timestamp("phone_verified_at", { withTimezone: true }),
     // Role is server-owned. It is never read from a request body.
     role: userRoleEnum("role").notNull().default("CUSTOMER"),
     status: userStatusEnum("status").notNull().default("ACTIVE"),
@@ -457,7 +464,54 @@ export const users = pgTable(
       .defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
-  (t) => [uniqueIndex("users_email_unique").on(t.email)],
+  (t) => [
+    uniqueIndex("users_email_unique").on(t.email),
+    uniqueIndex("users_phone_e164_unique")
+      .on(t.phoneE164)
+      .where(sql`${t.phoneE164} IS NOT NULL AND ${t.deletedAt} IS NULL`),
+  ],
+);
+
+/**
+ * Admin-tunable business rules (OTP limits, matching retries, earnings slots,
+ * return windows, suspension policy...). One JSON document per key; the code
+ * carries the defaults, so an absent row simply means "use the default".
+ * Every change is audited (services/settings.ts).
+ */
+export const platformSettings = pgTable("platform_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").$type<unknown>().notNull(),
+  updatedBy: uuid("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * One-time codes for mobile login. Only a salted HMAC of the code is stored.
+ * `userId` is null when the number matched no account: the request still
+ * behaves identically from the outside (no account enumeration) but nothing
+ * is ever sent for it.
+ */
+export const loginOtps = pgTable(
+  "login_otps",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    phoneE164: text("phone_e164").notNull(),
+    channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
+    codeHash: text("code_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull(),
+    /** Set when the code was used, or when a newer code replaced it. */
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    ipAddress: text("ip_address"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("login_otps_phone_created_idx").on(t.phoneE164, t.createdAt),
+    index("login_otps_user_idx").on(t.userId),
+  ],
 );
 
 export const accounts = pgTable(
