@@ -57,6 +57,11 @@ export const PATCH = route(
       // unrestricted, exactly as before.
       const user = await requireUser();
       const isOwnOrder = order.userId === user.id;
+      // D10 / DEF-08 point 4: the permission that gates self-cancel is enforced,
+      // not left ambient to "this row is mine".
+      if (isOwnOrder && !can(user.role, PERMISSIONS.ORDER_CANCEL_OWN)) {
+        throw forbidden("You do not have permission to cancel orders.");
+      }
       if (!isOwnOrder) {
         await requireShopAccess(order.shopId, {
           anyPermission: PERMISSIONS.ORDER_UPDATE_STATUS_ANY,

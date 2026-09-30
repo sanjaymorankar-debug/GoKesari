@@ -50,7 +50,7 @@ import { COD_LIMITS, assertCodAllowedForOrder, getCodEligibility, recordCodColle
 import { creditDeliveryEarnings } from "./delivery-earnings";
 import { DELIVERY_WINDOW_MINUTES, getFeasibleDeliveryWindows } from "./delivery-feasibility";
 import { notifyOpenStockAlerts } from "./inventory-alerts";
-import { recordOrderFinancials } from "./finance";
+import { postRetainedDeliveryFee, recordOrderFinancials } from "./finance";
 import { shopServiceability, societyPartnerShopIds } from "./serviceability";
 import { assertShopMayProgress } from "./shop-suspension-guard";
 import { resolveAddressSociety } from "./societies";
@@ -869,6 +869,8 @@ export async function cancelOrder(
         },
         tx,
       );
+      // D10: the delivery fee that was NOT refunded is platform revenue.
+      if (goodsOnlyRefund) await postRetainedDeliveryFee(order, tx);
       // REFUNDED is the closest existing status for a goods-only refund too —
       // there is no PARTIALLY_REFUNDED state yet (tracked under decision D8
       // in the roadmap). cancellationReason above already records that the
