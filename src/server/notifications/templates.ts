@@ -123,12 +123,14 @@ export function renderEmail(input: { title: string; body: string; actionUrl?: st
   text: string;
   html: string;
 } {
-  const link = input.actionUrl
-    ? input.actionUrl.startsWith("http")
-      ? input.actionUrl
-      : `${(input.baseUrl ?? "").replace(/\/$/, "")}${input.actionUrl}`
-    : null;
-  const showLink = link && (link.startsWith("http://") || link.startsWith("https://"));
+  // Only an in-app path ("/orders") or a full http(s) URL becomes a link; anything else is dropped.
+  const raw = input.actionUrl ?? "";
+  const link = raw.startsWith("/")
+    ? `${(input.baseUrl ?? "").replace(/\/$/, "")}${raw}`
+    : /^https?:\/\//i.test(raw)
+      ? raw
+      : null;
+  const showLink = link !== null && /^https?:\/\//i.test(link);
   return {
     subject: `${input.title} — Gokesari`,
     text: `${input.title}\n\n${input.body}\n${showLink ? `\n${link}\n` : ""}\nYou receive this because of your notification settings on Gokesari.`,

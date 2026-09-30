@@ -70,6 +70,7 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin/returns", label: "Returns" },
     { href: "/admin/suspensions", label: "Suspensions" },
     { href: "/admin/rider-earnings", label: "Rider earnings" },
+    { href: "/admin/settings", label: "Business rules" },
     { href: "/admin/societies", label: "Societies" },
     { href: "/admin/ratings", label: "Ratings" },
     { href: "/admin/analytics", label: "Analytics" },
