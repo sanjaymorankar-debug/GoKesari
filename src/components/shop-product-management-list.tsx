@@ -110,6 +110,12 @@ export function ShopProductManagementList({ shops, canSuspend = false }: { shops
                     >
                       Manage products →
                     </Link>
+                    <Link
+                      href={`/admin/shops/${s.id}/categories`}
+                      className="ml-3 text-sm font-medium text-kesari-600 hover:underline"
+                    >
+                      Categories
+                    </Link>
                   </td>
                   {canSuspend ? (
                     <td className="px-4 py-2 align-top">

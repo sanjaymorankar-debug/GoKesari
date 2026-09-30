@@ -28,6 +28,7 @@ import { uniqueSlug } from "./catalogue";
 import { resolveLocationVerification } from "./geocoding";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { attributeShopToCode } from "./referrals";
+import { applyShopCategories } from "./shop-categories";
 import { resolveFeeForNewRegistration } from "./registration-fees";
 import {
   duplicateShopError,
@@ -62,6 +63,8 @@ export interface RegisterShopInput {
   pickupInstructions?: string | null;
   landmark?: string | null;
   shopType: ShopTypeKey;
+  /** Shop categories chosen by the owner (many per shop). POST /api/shops requires at least one. */
+  categoryIds?: string[];
   logoUrl?: string | null;
   photos?: string[];
   openingHours?: { day: number; open: string; close: string; closed?: boolean }[];
@@ -260,6 +263,7 @@ export async function registerShop(
           .where(eq(shops.id, previous.id))
           .returning();
         await grantRole(ownerId, "SHOP_OWNER", roleGrant, tx);
+        if (input.categoryIds) await applyShopCategories(tx, shop.id, input.categoryIds);
         return { kind: "resubmitted", shop, previous, matchedOn: rejectedOwn.reason };
       }
 
@@ -282,6 +286,7 @@ export async function registerShop(
         })
         .returning();
       await grantRole(ownerId, "SHOP_OWNER", roleGrant, tx);
+      if (input.categoryIds) await applyShopCategories(tx, shop.id, input.categoryIds);
       return { kind: "created", shop };
     });
   } catch (error) {
@@ -909,6 +914,8 @@ export interface ShopSearchFilters {
   shopType?: ShopTypeKey;
   classification?: Classification;
   deliveryOnly?: boolean;
+  /** Internal filter: shops tagged with this shop category (not shown to customers as browsing). */
+  categoryId?: string;
   /** Only these shops — e.g. the ones that deliver to the customer (serviceability.ts). */
   ids?: readonly string[];
   limit?: number;
@@ -934,7 +941,15 @@ export async function searchShops(
         ilike(shops.area, term),
         ilike(shops.city, term),
         ilike(shops.description, term),
+        // A shop's categories also make it findable ("dairy" finds a shop tagged Dairy).
+        sql`exists (select 1 from shop_category_mapping m join shop_categories c on c.id = m.category_id
+          where m.shop_id = ${shops.id} and c.status = 'ACTIVE' and c.name ilike ${term})`,
       )!,
+    );
+  }
+  if (filters.categoryId) {
+    conditions.push(
+      sql`exists (select 1 from shop_category_mapping m where m.shop_id = ${shops.id} and m.category_id = ${filters.categoryId})`,
     );
   }
   if (filters.city) conditions.push(ilike(shops.city, `%${filters.city}%`));

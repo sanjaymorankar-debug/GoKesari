@@ -176,6 +176,8 @@ export const AUDIT_ACTIONS = {
   MRP_CORRECTION_DECIDED: "product.mrp_correction_decided",
   MRP_CONFLICT_DETECTED: "product.mrp_conflict_detected",
   PRODUCT_IMAGE_CHANGED: "product_image.changed",
+  SHOP_CATEGORY_SAVED: "shop_category.saved",
+  SHOP_CATEGORIES_CHANGED: "shop.categories_changed",
   RETURN_REQUESTED: "return.requested",
   RETURN_STATUS_CHANGED: "return.status_changed",
   RETURN_PICKUP_OFFERED: "return_pickup.offered",

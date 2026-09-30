@@ -885,6 +885,51 @@ export const shops = pgTable(
   ],
 );
 
+/**
+ * Shop categories — what kind of business a shop runs, chosen by the owner
+ * (many per shop) and managed centrally by staff. NOT the same as:
+ *   - `shops.shop_type`, the single business type that drives product suggestions;
+ *   - `product_categories`, which classify the products a shop sells;
+ *   - `shops.classification` (Kesari / Green), set by staff.
+ * Customers do not browse by these; search and reporting use them internally.
+ */
+export const shopCategories = pgTable(
+  "shop_categories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    description: text("description"),
+    status: text("status", { enum: ["ACTIVE", "INACTIVE"] }).notNull().default("ACTIVE"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("shop_categories_slug_unique").on(t.slug),
+    uniqueIndex("shop_categories_name_unique").on(sql`lower(${t.name})`),
+  ],
+);
+
+/** Many-to-many: one shop, many categories; one category, many shops. */
+export const shopCategoryMapping = pgTable(
+  "shop_category_mapping",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    categoryId: uuid("category_id")
+      .notNull()
+      .references(() => shopCategories.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("shop_category_mapping_unique").on(t.shopId, t.categoryId),
+    index("shop_category_mapping_category_idx").on(t.categoryId),
+  ],
+);
+
 /** Immutable audit trail of Kesari/Green changes (requirement §10). */
 export const shopClassificationHistory = pgTable(
   "shop_classification_history",
@@ -4212,3 +4257,5 @@ export type ShopSuspensionOrder = typeof shopSuspensionOrders.$inferSelect;
 export type ExternalPriceReference = typeof externalPriceReferences.$inferSelect;
 export type ExternalPriceReferenceHistoryRow = typeof externalPriceReferenceHistory.$inferSelect;
 export type MrpCorrection = typeof mrpCorrections.$inferSelect;
+export type ShopCategory = typeof shopCategories.$inferSelect;
+export type ShopCategoryMapping = typeof shopCategoryMapping.$inferSelect;

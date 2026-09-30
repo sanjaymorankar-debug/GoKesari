@@ -19,7 +19,6 @@ interface Props {
 }
 
 const NAV = [
-  { href: "/categories", label: "Categories" },
   { href: "/shops", label: "Shops" },
   { href: "/orders", label: "My Orders" },
   { href: "/subscriptions", label: "My Subscriptions" },
@@ -48,6 +47,7 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin", label: "Operator Console" },
     { href: "/admin/shops", label: "Shop Product Management" },
     { href: "/admin/product-master", label: "Product Master" },
+    { href: "/admin/shop-categories", label: "Shop categories" },
     { href: "/admin/mrp", label: "MRP" },
     { href: "/admin/price-references", label: "Reference prices" },
     { href: "/admin/finance/exceptions", label: "Finance exceptions" },
@@ -64,6 +64,7 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin", label: "Admin Console" },
     { href: "/admin/shops", label: "Shop Product Management" },
     { href: "/admin/product-master", label: "Product Master" },
+    { href: "/admin/shop-categories", label: "Shop categories" },
     { href: "/admin/mrp", label: "MRP" },
     { href: "/admin/price-references", label: "Reference prices" },
     { href: "/admin/finance", label: "Finance" },

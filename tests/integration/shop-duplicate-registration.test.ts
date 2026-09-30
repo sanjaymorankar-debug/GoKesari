@@ -11,7 +11,7 @@
  * Identifiers are made up: syntactically valid, not real registrations.
  */
 import { eq } from "drizzle-orm";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { UserRole } from "@/server/db/schema";
 
@@ -41,7 +41,7 @@ import type { AppError } from "@/lib/errors";
 import { panBlindIndex } from "@/lib/pan-crypto";
 import { resetRateLimits } from "@/server/api/rate-limit";
 import { db } from "@/server/db";
-import { auditLogs, notifications, shops } from "@/server/db/schema";
+import { auditLogs, notifications, shopCategories, shops } from "@/server/db/schema";
 import { AUDIT_ACTIONS } from "@/server/services/audit";
 import { submitPan } from "@/server/services/gst-pan-verification";
 import { isShopActUniqueViolation } from "@/server/services/shop-duplicates";
@@ -419,11 +419,18 @@ describe("the post-registration PAN form", () => {
 });
 
 describe("POST /api/shops", () => {
+  let categoryIds: string[];
+  beforeAll(async () => {
+    // Seeded by migration 0035; resetDatabase leaves the category list alone.
+    const rows = await db.select({ id: shopCategories.id }).from(shopCategories).limit(2);
+    categoryIds = rows.map((r) => r.id);
+  });
+
   it("requires at least one of Shop Act, PAN or Udyam", async () => {
     const owner = await createUser();
     signIn(owner);
 
-    const result = await call(registerRoute, "/api/shops", { method: "POST", body: baseShop });
+    const result = await call(registerRoute, "/api/shops", { method: "POST", body: { ...baseShop, categoryIds } });
     expect(result.status).toBe(422);
     expect(Object.keys(result.body.error.details.fields)).toEqual(
       expect.arrayContaining(["shopActNumber", "panNumber", "udyamNumber"]),
@@ -438,14 +445,14 @@ describe("POST /api/shops", () => {
 
     const created = await call(registerRoute, "/api/shops", {
       method: "POST",
-      body: { ...baseShop, shopActNumber: SHOP_ACT },
+      body: { ...baseShop, categoryIds, shopActNumber: SHOP_ACT },
     });
     expect(created.status).toBe(201);
     expect(created.body.resubmitted).toBe(false);
 
     const duplicate = await call(registerRoute, "/api/shops", {
       method: "POST",
-      body: { ...baseShop, shopActNumber: SHOP_ACT },
+      body: { ...baseShop, categoryIds, shopActNumber: SHOP_ACT },
     });
     expect(duplicate.status).toBe(409);
     expect(duplicate.body.error.details.reason).toBe("DUPLICATE_SHOP");
@@ -454,7 +461,7 @@ describe("POST /api/shops", () => {
     await rejectShop(created.body.id, "Wrong shop type", asActor(admin));
     const resubmitted = await call(registerRoute, "/api/shops", {
       method: "POST",
-      body: { ...baseShop, shopType: "BAKERY", shopActNumber: SHOP_ACT },
+      body: { ...baseShop, categoryIds, shopType: "BAKERY", shopActNumber: SHOP_ACT },
     });
     expect(resubmitted.status).toBe(200);
     expect(resubmitted.body.resubmitted).toBe(true);

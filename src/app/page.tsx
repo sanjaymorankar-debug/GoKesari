@@ -2,7 +2,6 @@ import Link from "next/link";
 
 import { ShopGrid } from "@/components/shop-grid";
 import { Card, Section } from "@/components/ui";
-import { SHOP_TYPES } from "@/lib/shop-types";
 import { LocationBar } from "@/components/location-bar";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getCustomerLocation } from "@/server/location";
@@ -26,18 +25,18 @@ export default async function HomePage() {
     <>
       <section className="mb-10 overflow-hidden rounded-2xl bg-gradient-to-br from-kesari-50 via-cream-100 to-leaf-50 px-6 py-10 sm:px-10 sm:py-14">
         <h1 className="max-w-2xl text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-          Your Neighbourhood, Now Online
+          What are you looking for?
         </h1>
         <p className="mt-3 max-w-xl text-base text-ink-600">
-          Find a shop near you by product, area or PIN code — grocery,
-          pharmacy, jewellery, hardware and every other kind of local shop.
+          Find products at nearby shops — search for what you need and we
+          will show you who has it close to you.
         </p>
 
         <form action="/search" className="mt-6 flex max-w-xl gap-2">
           <input
             type="search"
             name="q"
-            placeholder="Search a product, a shop, an area or PIN code"
+            placeholder="Search for a product, e.g. milk, paracetamol, screws"
             aria-label="Search"
             className="min-w-0 flex-1 rounded-lg border border-cream-200 bg-white px-4 py-2.5 text-sm focus:border-kesari-500 focus:outline-none"
           />
@@ -57,21 +56,6 @@ export default async function HomePage() {
           <ShopGrid shops={nearbyShops} />
         </Section>
       ) : null}
-
-      {/* Every shop type is browsable, even without an account (§6). */}
-      <Section title="Browse all categories" href="/categories">
-        <div className="flex flex-wrap gap-2">
-          {SHOP_TYPES.map((t) => (
-            <Link
-              key={t.key}
-              href={`/category/${t.key}`}
-              className="rounded-full border border-cream-200 bg-white px-3 py-1.5 text-xs font-medium text-ink-700 hover:border-kesari-300 hover:text-kesari-700"
-            >
-              {t.label}
-            </Link>
-          ))}
-        </div>
-      </Section>
 
       <Section title="Featured shops" href="/shops">
         <ShopGrid shops={featuredShops} />
@@ -96,7 +80,7 @@ export default async function HomePage() {
           </h2>
           <p className="mt-1 text-sm text-ink-500">
             List your shop and start taking online orders — grocery, dairy,
-            bakery, pharmacy or any of our 44 shop types.
+            bakery, pharmacy or any other kind of local shop.
           </p>
         </div>
         <Link

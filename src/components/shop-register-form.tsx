@@ -1,5 +1,6 @@
 "use client";
 
+import { ShopCategoryPicker } from "@/components/shop-category-picker";
 import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 
@@ -66,6 +67,7 @@ export function ShopRegisterForm() {
   const [checks, setChecks] = useState<Partial<Record<CheckedField, CheckResult>>>({});
   const [panEntered, setPanEntered] = useState(false);
   const [deliveryAvailable, setDeliveryAvailable] = useState(false);
+  const [categoryIds, setCategoryIds] = useState<string[]>([]);
   const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number } | null>(
     null,
   );
@@ -153,6 +155,13 @@ export function ShopRegisterForm() {
       return false;
     }
 
+    if (categoryIds.length === 0) {
+      setErrorTone("danger");
+      setError("Please select at least one shop category.");
+      setFieldErrors({ categoryIds: "Please select at least one shop category." });
+      return false;
+    }
+
     let response: Response;
     try {
       response = await fetch("/api/shops", {
@@ -173,6 +182,7 @@ export function ShopRegisterForm() {
           longitude: coordinates ? String(coordinates.longitude) : null,
           landmark: get("landmark") || null,
           shopType: get("shopType"),
+          categoryIds,
           description: get("description") || null,
           shopActNumber: get("shopActNumber") || null,
           panNumber: get("panNumber") || null,
@@ -332,6 +342,16 @@ export function ShopRegisterForm() {
                 </option>
               ))}
             </select>
+          </Field>
+        </div>
+
+        <div className="sm:col-span-2">
+          <Field
+            label="Shop categories"
+            hint="Choose every kind of business your shop runs — you can pick several and change them later."
+            error={errorFor("categoryIds")}
+          >
+            <ShopCategoryPicker value={categoryIds} onChange={setCategoryIds} error={null} />
           </Field>
         </div>
 

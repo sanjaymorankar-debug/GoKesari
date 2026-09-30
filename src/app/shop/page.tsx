@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { ExcelPriceUpload } from "@/components/excel-price-upload";
+import { ShopCategoriesEditor } from "@/components/shop-categories-editor";
 import { ShopDashboardView } from "@/components/shop-dashboard";
 import { PendingPriceApprovals } from "@/components/pending-price-approvals";
 import { RegistrationPanel } from "@/components/registration-panel";
@@ -34,6 +35,7 @@ import { listPendingForShop } from "@/server/services/price-requests";
 import { getReferralCodeById } from "@/server/services/referrals";
 import { listPaymentsForShop } from "@/server/services/shop-payments";
 import { getShopDashboard } from "@/server/services/dashboards";
+import { getShopCategories } from "@/server/services/shop-categories";
 import { getActiveSuspension } from "@/server/services/shop-suspension";
 import { listShopsForOwner } from "@/server/services/shops";
 import { listSubscriptionOrdersForShop } from "@/server/services/subscriptions";
@@ -63,6 +65,7 @@ export default async function ShopDashboardPage() {
   const shop = shops[0];
   const today = todayIn(getEnv().APP_TIMEZONE);
   const suspension = shop.status === "SUSPENDED" ? await getActiveSuspension(shop.id) : null;
+  const shopCategoryList = await getShopCategories(shop.id);
   // Live figures for the operator's day — only for a shop that trades.
   const dashboard = shop.status === "APPROVED" || shop.status === "SUSPENDED" ? await getShopDashboard(shop.id, user.id) : null;
 
@@ -292,6 +295,13 @@ export default async function ShopDashboardPage() {
             panStatus: shop.panStatus,
             panMasked: getMaskedPan(shop),
           }}
+        />
+      </div>
+
+      <div className="mb-8">
+        <ShopCategoriesEditor
+          shopId={shop.id}
+          current={shopCategoryList.map((c) => ({ id: c.id, name: c.name, status: c.status }))}
         />
       </div>
 

@@ -246,6 +246,13 @@
       "when": 1790779733955,
       "tag": "0034_phase_i3_product_images",
       "breakpoints": true
+    },
+    {
+      "idx": 35,
+      "version": "7",
+      "when": 1790795472919,
+      "tag": "0035_shop_categories_many_to_many",
+      "breakpoints": true
     }
   ]
 }
