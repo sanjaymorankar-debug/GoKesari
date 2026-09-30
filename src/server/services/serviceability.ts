@@ -14,12 +14,12 @@
  * No Google Distance Matrix call anywhere here (see MAPS_USAGE.md) — the same
  * straight-line approach delivery-eligibility.ts already uses.
  */
-import { and, eq, isNull, or, sql, type SQL } from "drizzle-orm";
+import { and, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 
 import { haversineDistanceKm, parseCoordinates } from "@/lib/geo/haversine";
 import type { CustomerLocation } from "@/lib/location";
 import { db } from "@/server/db";
-import { shops, type Shop } from "@/server/db/schema";
+import { shops, societies, societyShops, type Shop } from "@/server/db/schema";
 
 /** Upper bound of any shop's radius (the schema CHECK) — used for the SQL pre-filter. */
 const MAX_SERVICE_RADIUS_KM = 50;
@@ -77,7 +77,32 @@ export function shopServiceability(
   };
 }
 
-export type ServiceableShop = Shop & ShopServiceability;
+export type ServiceableShop = Shop & ShopServiceability & { societyPartner?: boolean };
+
+/**
+ * Shops a VERIFIED society lists for its residents. They count as delivering
+ * to that society's addresses even outside their own radius (society-aware
+ * serviceability) — provided they are approved and offer delivery.
+ */
+export async function societyPartnerShopIds(societyId: string | null | undefined): Promise<Set<string>> {
+  if (!societyId) return new Set();
+  const rows = await db
+    .select({ shopId: societyShops.shopId })
+    .from(societyShops)
+    .innerJoin(societies, eq(societyShops.societyId, societies.id))
+    .innerJoin(shops, eq(societyShops.shopId, shops.id))
+    .where(
+      and(
+        eq(societyShops.societyId, societyId),
+        eq(societyShops.status, "ACTIVE"),
+        eq(societies.status, "VERIFIED"),
+        eq(shops.status, "APPROVED"),
+        isNull(shops.deletedAt),
+        eq(shops.deliveryAvailable, true),
+      ),
+    );
+  return new Set(rows.map((r) => r.shopId));
+}
 
 /**
  * Approved delivering shops that serve `location`, nearest first (shops
@@ -103,6 +128,8 @@ export async function listServiceableShops(
     );
   }
   if (location.pincode) near.push(sql`${shops.pincode} = ${location.pincode}`);
+  const partners = await societyPartnerShopIds(location.societyId);
+  if (partners.size > 0) near.push(inArray(shops.id, [...partners]));
   if (near.length === 0) return [];
 
   const candidates = await db
@@ -119,9 +146,19 @@ export async function listServiceableShops(
     .limit(1000);
 
   return candidates
-    .map((shop) => ({ ...shop, ...shopServiceability(shop, location) }))
+    .map((shop) => {
+      const check = shopServiceability(shop, location);
+      return partners.has(shop.id)
+        ? { ...shop, ...check, deliversHere: true, reason: null, societyPartner: true }
+        : { ...shop, ...check, societyPartner: false };
+    })
     .filter((shop) => shop.deliversHere)
-    .sort((a, b) => (a.distanceKm ?? Number.POSITIVE_INFINITY) - (b.distanceKm ?? Number.POSITIVE_INFINITY))
+    // Society partner shops first, then nearest.
+    .sort(
+      (a, b) =>
+        Number(b.societyPartner) - Number(a.societyPartner) ||
+        (a.distanceKm ?? Number.POSITIVE_INFINITY) - (b.distanceKm ?? Number.POSITIVE_INFINITY),
+    )
     .slice(0, Math.min(options.limit ?? 200, 500));
 }
 

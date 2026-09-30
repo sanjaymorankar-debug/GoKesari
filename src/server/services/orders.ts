@@ -15,7 +15,8 @@
  *  - **Per-shop split.** A cart spanning several shops becomes one order per
  *    shop, each paid for independently (§17).
  */
-import { and, desc, eq, inArray, like } from "drizzle-orm";
+import { and, desc, eq, gte, lte, inArray, like } from "drizzle-orm";
+import { alias } from "drizzle-orm/pg-core";
 
 import { conflict, forbidden, invalidTransition, notFound, validationFailed } from "@/lib/errors";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
@@ -24,6 +25,7 @@ import { db, type DbClient } from "@/server/db";
 import {
   addresses,
   deliveryOrders,
+  deliveryPartners,
   orderItems,
   orderStatusHistory,
   orders,
@@ -31,21 +33,26 @@ import {
   products,
   shopProducts,
   shops,
+  users,
   walletTransactions,
   type DeliveryWindow,
   type Order,
   type OrderItemFulfilment,
   type OrderStatus,
   type OrderType,
+  type PaymentMethod,
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { clearCartForShop, computeDeliveryFee, getCart } from "./cart";
 import { consumeOnlineStock, loadPurchasableShopProduct, restockOnline } from "./catalogue";
+import { COD_LIMITS, assertCodAllowedForOrder, getCodEligibility, recordCodCollection } from "./cod";
 import { creditDeliveryEarnings } from "./delivery-earnings";
 import { DELIVERY_WINDOW_MINUTES, getFeasibleDeliveryWindows } from "./delivery-feasibility";
 import { notifyOpenStockAlerts } from "./inventory-alerts";
 import { recordOrderFinancials } from "./finance";
+import { shopServiceability, societyPartnerShopIds } from "./serviceability";
+import { resolveAddressSociety } from "./societies";
 import { NOTIFICATION_TYPES, notify, type NotificationType } from "./notifications";
 import { applyWalletMutation, refundOriginalDebit } from "./wallet";
 
@@ -171,6 +178,8 @@ export interface CheckoutInput {
   buyerShopId?: string | null;
   /** The caller's role — B2B is refused unless it holds ORDER_PLACE_B2B. */
   actorRole?: UserRole;
+  /** WALLET (default) or COD — cash on delivery, within the COD limits (GS-030). */
+  paymentMethod?: PaymentMethod;
 }
 
 export interface CheckoutResult {
@@ -214,9 +223,60 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     );
   }
 
-  const addressSnapshot = input.addressId
+  const addressWithSociety = input.addressId
     ? await loadAddressSnapshot(input.userId, input.addressId)
     : null;
+  // Society of the delivery address — only while the customer is still an
+  // active member of a verified society (society rider rules, security, visibility).
+  const orderSocietyId = addressWithSociety
+    ? await resolveAddressSociety(input.userId, addressWithSociety.societyId ?? null)
+    : null;
+  const addressSnapshot = addressWithSociety
+    ? (({ societyId: _societyId, ...rest }) => {
+        void _societyId;
+        return rest;
+      })(addressWithSociety)
+    : null;
+
+  // GS-026: never take payment for a delivery the shop cannot make. Checked
+  // per shop against the chosen address (radius, PIN, or society partner
+  // shop). Orders without an address (pickup) are unchanged.
+  if (addressSnapshot) {
+    const partners = await societyPartnerShopIds(orderSocietyId);
+    const location = {
+      label: "checkout",
+      pincode: addressSnapshot.pincode,
+      latitude: addressSnapshot.latitude ? Number(addressSnapshot.latitude) : null,
+      longitude: addressSnapshot.longitude ? Number(addressSnapshot.longitude) : null,
+      source: "ADDRESS" as const,
+      addressId: input.addressId ?? null,
+      societyId: orderSocietyId,
+    };
+    for (const group of purchasableGroups) {
+      const [shopRow] = await db.select().from(shops).where(eq(shops.id, group.shop.id));
+      if (!shopRow?.deliveryAvailable || partners.has(shopRow.id)) continue;
+      const check = shopServiceability(shopRow, location);
+      if (!check.deliversHere) {
+        throw validationFailed(`${shopRow.name} does not deliver to this address. ${check.reason ?? ""}`.trim());
+      }
+    }
+  }
+
+  // GS-030: cash on delivery — personal orders to a delivery address, for a
+  // customer within the COD limits. Shop opt-in and amount are checked per order.
+  const paymentMethod: PaymentMethod = input.paymentMethod ?? "WALLET";
+  if (paymentMethod === "COD") {
+    if (orderType !== "PERSONAL") throw validationFailed("Business orders are paid from the wallet.");
+    if (!addressSnapshot) throw validationFailed("Choose a delivery address to pay cash on delivery.");
+    const eligibility = await getCodEligibility(input.userId);
+    if (!eligibility.allowed) throw conflict(eligibility.reason ?? "Cash on delivery is not available.");
+    const codOrdersAllowed = COD_LIMITS.maxOpenOrders - eligibility.openOrders;
+    if (purchasableGroups.length > codOrdersAllowed) {
+      throw conflict(
+        `Cash on delivery allows ${codOrdersAllowed} more open order${codOrdersAllowed === 1 ? "" : "s"} — this cart would create ${purchasableGroups.length}. Pay from your wallet instead.`,
+      );
+    }
+  }
 
   const created: Order[] = [];
   let anyDeduplicated = false;
@@ -226,7 +286,14 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   for (const group of purchasableGroups) {
     const idempotencyKey = `checkout:${input.userId}:${input.requestId}:${group.shop.id}`;
 
-    // Fast path: this shop's order was already placed under this request id.
+    // Fast path: this shop's order was already placed under this request id
+    // (found by its checkout key; older wallet orders by their debit).
+    const priorOrder = await db.query.orders.findFirst({ where: eq(orders.checkoutKey, idempotencyKey) });
+    if (priorOrder) {
+      created.push(priorOrder);
+      anyDeduplicated = true;
+      continue;
+    }
     const priorTxn = await db.query.walletTransactions.findFirst({
       where: eq(walletTransactions.idempotencyKey, idempotencyKey),
     });
@@ -291,6 +358,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       const deliveryFeePaise = computeDeliveryFee(shopRow, subtotalPaise);
       const taxPaise = 0;
       const totalPaise = subtotalPaise + deliveryFeePaise + taxPaise;
+      if (paymentMethod === "COD") assertCodAllowedForOrder(shopRow, totalPaise);
 
       const [orderRow] = await tx
         .insert(orders)
@@ -304,6 +372,9 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           source: "DIRECT",
           orderType,
           buyerShopId,
+          paymentMethod,
+          checkoutKey: idempotencyKey,
+          societyId: orderSocietyId,
           subtotalPaise,
           deliveryFeePaise,
           taxPaise,
@@ -338,21 +409,24 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
 
       // Charge the wallet. Throws INSUFFICIENT_BALANCE, which rolls the whole
       // transaction back — no order, no stock consumed, no deduction (§23).
-      await applyWalletMutation(
-        {
-          userId: input.userId,
-          amountPaise: totalPaise,
-          type: "PRODUCT_PURCHASE",
-          idempotencyKey,
-          description: `Order ${orderRow.orderNumber} — ${shopRow.name}`,
-          orderId: orderRow.id,
-        },
-        tx,
-      );
+      // A COD order is confirmed unpaid; it is paid when the cash is collected.
+      if (paymentMethod === "WALLET") {
+        await applyWalletMutation(
+          {
+            userId: input.userId,
+            amountPaise: totalPaise,
+            type: "PRODUCT_PURCHASE",
+            idempotencyKey,
+            description: `Order ${orderRow.orderNumber} — ${shopRow.name}`,
+            orderId: orderRow.id,
+          },
+          tx,
+        );
+      }
 
       const [confirmed] = await tx
         .update(orders)
-        .set({ status: "CONFIRMED", paidAt: new Date(), updatedAt: new Date() })
+        .set({ status: "CONFIRMED", paidAt: paymentMethod === "WALLET" ? new Date() : null, updatedAt: new Date() })
         .where(eq(orders.id, orderRow.id))
         .returning();
 
@@ -361,7 +435,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
         previousStatus: "PENDING",
         newStatus: "CONFIRMED",
         changedBy: input.userId,
-        note: "Paid from wallet",
+        note: paymentMethod === "WALLET" ? "Paid from wallet" : "Cash on delivery",
       });
 
       await recordAudit(
@@ -370,7 +444,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           action: AUDIT_ACTIONS.ORDER_PLACED,
           entityType: "order",
           entityId: orderRow.id,
-          newValue: { orderNumber: orderRow.orderNumber, totalPaise },
+          newValue: { orderNumber: orderRow.orderNumber, totalPaise, paymentMethod },
         },
         tx,
       );
@@ -394,7 +468,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           userId: shopRow.ownerId,
           type: NOTIFICATION_TYPES.SHOP_NEW_ORDER,
           title: "New order",
-          body: `Order ${orderRow.orderNumber} — ${lines.length} item${lines.length === 1 ? "" : "s"}, ₹${(totalPaise / 100).toFixed(2)}.`,
+          body: `Order ${orderRow.orderNumber} — ${lines.length} item${lines.length === 1 ? "" : "s"}, ₹${(totalPaise / 100).toFixed(2)}${paymentMethod === "COD" ? " (cash on delivery)" : ""}.`,
           actionUrl: "/shop/orders",
         },
         tx,
@@ -480,10 +554,29 @@ export async function updateOrderStatus(
       note: note ?? null,
     });
 
+    // GS-030: a cash-on-delivery order becomes paid when it is delivered —
+    // before the finance snapshot, which only covers paid orders.
+    if (newStatus === "DELIVERED" && order.paymentMethod === "COD") {
+      await recordCodCollection(order, actor.id, tx);
+    }
     // Slice 6: snapshot the order's GMV / commission / shop payable the moment
     // it is delivered, in the same transaction (idempotent).
     if (newStatus === "DELIVERED") {
       await recordOrderFinancials(orderId, tx);
+    }
+    // Phase 2: invite the customer to rate the shop and rider (GS-059/060).
+    if (newStatus === "DELIVERED") {
+      await notify(
+        {
+          userId: order.userId,
+          type: NOTIFICATION_TYPES.RATING_REQUESTED,
+          title: "How was your order?",
+          body: `Rate order ${order.orderNumber} — your rating helps other customers and the shop.`,
+          actionUrl: "/orders",
+          dedupeKey: `rating-requested:${orderId}`,
+        },
+        tx,
+      );
     }
 
     await recordAudit(
@@ -904,10 +997,18 @@ async function findOrdersForRequest(
     .select({ orderId: walletTransactions.orderId })
     .from(walletTransactions)
     .where(like(walletTransactions.idempotencyKey, `${prefix}%`));
+  // COD orders have no wallet debit — they are found by their checkout key.
+  const keyed = await db
+    .select({ id: orders.id })
+    .from(orders)
+    .where(like(orders.checkoutKey, `${prefix}%`));
 
-  const orderIds = priorTxns
-    .map((t) => t.orderId)
-    .filter((id): id is string => id !== null);
+  const orderIds = [
+    ...new Set([
+      ...priorTxns.map((t) => t.orderId).filter((id): id is string => id !== null),
+      ...keyed.map((o) => o.id),
+    ]),
+  ];
   if (orderIds.length === 0) return [];
 
   return db.select().from(orders).where(inArray(orders.id, orderIds));
@@ -960,6 +1061,9 @@ async function loadAddressSnapshot(
   pincode: string;
   latitude?: string | null;
   longitude?: string | null;
+  landmark?: string | null;
+  deliveryInstructions?: string | null;
+  societyId?: string | null;
 } | null> {
   const address = await db.query.addresses.findFirst({
     where: and(eq(addresses.id, addressId), eq(addresses.userId, userId)),
@@ -973,6 +1077,9 @@ async function loadAddressSnapshot(
     pincode: address.pincode,
     latitude: address.latitude,
     longitude: address.longitude,
+    landmark: address.landmark,
+    deliveryInstructions: address.deliveryInstructions,
+    societyId: address.societyId,
   };
 }
 
@@ -986,4 +1093,87 @@ export async function orderDepartments(orderId: string): Promise<string[]> {
     .innerJoin(productCategories, eq(products.categoryId, productCategories.id))
     .where(eq(orderItems.orderId, orderId));
   return rows.map((r) => r.department);
+}
+
+export interface MonitoredOrder {
+  id: string;
+  orderNumber: string;
+  shopName: string;
+  customerName: string | null;
+  status: OrderStatus;
+  totalPaise: number;
+  createdAt: Date;
+  riderName: string | null;
+  deliveryStatus: string | null;
+}
+
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function parseDay(value: string | undefined): Date | undefined {
+  if (!value) return undefined;
+  const d = new Date(value);
+  return Number.isNaN(d.getTime()) ? undefined : d;
+}
+
+/** Staff order-monitoring list. Filters come from the URL, so bad values are ignored rather than thrown. */
+export async function listOrdersForMonitoring(filters: {
+  status?: string;
+  shopId?: string;
+  dateFrom?: string;
+  dateTo?: string;
+}): Promise<MonitoredOrder[]> {
+  const conditions = [];
+
+  if (filters.status && filters.status in ORDER_STATUS_LABELS) {
+    conditions.push(eq(orders.status, filters.status as OrderStatus));
+  }
+  if (filters.shopId && UUID_RE.test(filters.shopId)) {
+    conditions.push(eq(orders.shopId, filters.shopId));
+  }
+  const dateFrom = parseDay(filters.dateFrom);
+  if (dateFrom) conditions.push(gte(orders.createdAt, dateFrom));
+  const dateTo = parseDay(filters.dateTo);
+  if (dateTo) {
+    dateTo.setHours(23, 59, 59, 999);
+    conditions.push(lte(orders.createdAt, dateTo));
+  }
+
+  const riderUser = alias(users, "rider_user");
+
+  return db
+    .select({
+      id: orders.id,
+      orderNumber: orders.orderNumber,
+      shopName: shops.name,
+      customerName: users.name,
+      status: orders.status,
+      totalPaise: orders.totalPaise,
+      createdAt: orders.createdAt,
+      riderName: riderUser.name,
+      deliveryStatus: deliveryOrders.status,
+    })
+    .from(orders)
+    .innerJoin(shops, eq(orders.shopId, shops.id))
+    .innerJoin(users, eq(orders.userId, users.id))
+    // Only the live assignment — rejected/cancelled offers would duplicate rows.
+    .leftJoin(
+      deliveryOrders,
+      and(
+        eq(deliveryOrders.orderId, orders.id),
+        inArray(deliveryOrders.status, ["OFFERED", "ACCEPTED", "PICKED_UP", "DELIVERED", "FAILED"]),
+      ),
+    )
+    .leftJoin(deliveryPartners, eq(deliveryOrders.deliveryPartnerId, deliveryPartners.id))
+    .leftJoin(riderUser, eq(deliveryPartners.userId, riderUser.id))
+    .where(conditions.length > 0 ? and(...conditions) : undefined)
+    .orderBy(desc(orders.createdAt))
+    .limit(100);
+}
+
+export function orderStatusOptions(): Array<{ value: string; label: string }> {
+  return Object.entries(ORDER_STATUS_LABELS).map(([value, label]) => ({ value, label }));
+}
+
+export async function listShopOptions(): Promise<Array<{ id: string; name: string }>> {
+  return db.select({ id: shops.id, name: shops.name }).from(shops).orderBy(shops.name).limit(500);
 }

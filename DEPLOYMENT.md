@@ -156,6 +156,41 @@ the backfill below. Do this in order, on staging first:
    `bank_account_holder_name`, `bank_account_number`, `bank_ifsc`,
    `driving_licence_number`).
 
+### Migration 0024 — duplicate shop registrations
+
+Adds `shop_act_number`, `shop_act_key`, `udyam_number` and `pan_hash` to
+`shops`, a partial unique index on `shop_act_key` (every live registration;
+rejected and soft-deleted rows excluded) and plain indexes on `pan_hash` and
+`udyam_number`. It is additive and every new column starts NULL, so the
+unique index cannot fail on existing data, and the previous release keeps
+working if it is applied first. Staging first:
+
+1. Back up the database (§7).
+2. `npm run db:migrate`.
+3. Deploy the release. From here a registration needs a Shop Act, PAN or Udyam
+   number, and a duplicate is refused (API.md, `POST /api/shops`).
+4. Hash the PANs submitted before this release, so duplicates are found among
+   them too. Same safety rules as the KYC backfill above; `PAN_ENCRYPTION_KEY`
+   must be the target host's own key:
+
+   ```bash
+   export DATABASE_URL=<target> PAN_ENCRYPTION_KEY=<that host's key>
+   npx tsx scripts/backfill-shop-pan-hash.ts                                   # dry run
+   SHOP_PAN_BACKFILL_ALLOW_REMOTE=1 npx tsx scripts/backfill-shop-pan-hash.ts --apply
+   ```
+
+5. List the duplicates already in the database — read-only, deletes nothing;
+   choose the record to keep in each group yourself:
+
+   ```bash
+   DATABASE_URL=<target> npx tsx scripts/shop-duplicate-report.ts          # table
+   DATABASE_URL=<target> npx tsx scripts/shop-duplicate-report.ts --csv    # for a spreadsheet
+   ```
+
+   or paste `scripts/shop-duplicate-report.sql` into the Neon SQL editor.
+   Shops registered before this release have no Shop Act or Udyam number, so
+   for them only the same-name-and-PIN-code grouping applies.
+
 ## 5. Schedule the daily order engine
 
 This is the step that makes subscriptions work. Without it, no daily orders are

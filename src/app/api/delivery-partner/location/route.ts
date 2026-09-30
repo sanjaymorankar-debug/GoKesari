@@ -5,7 +5,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
-import { noContent, parseBody, route } from "@/server/api/handler";
+import { ok, parseBody, route } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
@@ -18,6 +18,6 @@ export const POST = route(async (request: NextRequest) => {
   enforceRateLimit(`delivery-location:${user.id}`, RATE_LIMITS.MUTATION);
 
   const body = await parseBody(request, schema);
-  await updateMyLocation(user.id, body.latitude, body.longitude);
-  return noContent();
+  // shared is false when the server has the rider offline, so the client can resync instead of looping.
+  return ok({ shared: await updateMyLocation(user.id, body.latitude, body.longitude) });
 });

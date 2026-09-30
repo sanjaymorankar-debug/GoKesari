@@ -64,6 +64,9 @@ export interface ShopOrderRow {
   /** Read this to the rider at handover (only while a rider is assigned). */
   pickupCode: string | null;
   orderType?: string;
+  /** GS-030: COD orders are paid in cash at the door (by the rider, or to you if you deliver). */
+  paymentMethod?: string;
+  cashCollected?: boolean;
 }
 
 export interface SubstituteOption {
@@ -152,6 +155,9 @@ function OrderRow({
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge status={order.status} />
           {order.orderType === "B2B" ? <Badge tone="info">business order</Badge> : null}
+          {order.paymentMethod === "COD" ? (
+            <Badge tone="warning">{order.cashCollected ? "cash collected" : "cash on delivery"}</Badge>
+          ) : null}
           {order.deliveryStatus ? (
             <Badge tone="info">{DELIVERY_STATUS_LABEL[order.deliveryStatus] ?? order.deliveryStatus}</Badge>
           ) : null}

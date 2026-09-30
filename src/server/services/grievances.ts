@@ -20,6 +20,7 @@ import { and, desc, eq, ilike, or } from "drizzle-orm";
 import { forbidden, notFound, validationFailed } from "@/lib/errors";
 import { db } from "@/server/db";
 import {
+  orders,
   grievances,
   type Grievance,
   type GrievanceCategory,
@@ -42,6 +43,8 @@ export interface SubmitGrievanceInput {
   subject: string;
   description: string;
   submittedByUserId?: string | null;
+  /** The order this problem is about (GS-056 / WF-007). Must belong to the submitter. */
+  orderId?: string | null;
 }
 
 function validateEmail(email: string): void {
@@ -62,10 +65,18 @@ export async function submitGrievance(input: SubmitGrievanceInput): Promise<Grie
     throw validationFailed("Describe your complaint in a bit more detail.");
   }
 
+  if (input.orderId) {
+    const order = await db.query.orders.findFirst({ where: eq(orders.id, input.orderId) });
+    if (!order || !input.submittedByUserId || order.userId !== input.submittedByUserId) {
+      throw notFound("Order");
+    }
+  }
+
   const [grievance] = await db
     .insert(grievances)
     .values({
       submittedByUserId: input.submittedByUserId ?? null,
+      orderId: input.orderId ?? null,
       name: input.name.trim(),
       email: input.email.trim().toLowerCase(),
       phone: input.phone?.trim() || null,

@@ -1,13 +1,19 @@
+import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { DeliveryPartnerDashboard } from "@/components/delivery-partner-dashboard";
+import { RoleSwitcher } from "@/components/growth-actions";
 import { Alert, Card, Money, PageHeader, StatusBadge } from "@/components/ui";
 import { vehicleTypeLabel } from "@/lib/vehicle-types";
 import { getCurrentUser } from "@/server/authz/guards";
+import { PERMISSIONS, can } from "@/server/authz/permissions";
+import { db } from "@/server/db";
+import { deliveryPartners, type UserRole } from "@/server/db/schema";
 import { getMyActiveDeliveryDetail } from "@/server/services/delivery-assignment";
 import { getRiderEarningsView, listAdjustments, listRiderPayouts } from "@/server/services/finance";
 import { getPartnerEarningsSummary } from "@/server/services/delivery-earnings";
 import { getMyDeliveryPartnerProfile } from "@/server/services/delivery-partners";
+import { listUserRoles } from "@/server/services/roles";
 
 export const metadata = { title: "My Delivery Partner Application" };
 export const dynamic = "force-dynamic";
@@ -32,6 +38,10 @@ export default async function DeliveryPartnerStatusPage() {
 
   const partner = await getMyDeliveryPartnerProfile(user.id);
   if (!partner) redirect("/delivery-partner/apply");
+  const partnerRating = await db.query.deliveryPartners.findFirst({
+    where: eq(deliveryPartners.id, partner.id),
+    columns: { ratingAvgX100: true, ratingCount: true },
+  });
 
   const [activeDelivery, earnings] =
     partner.status === "APPROVED"
@@ -46,6 +56,9 @@ export default async function DeliveryPartnerStatusPage() {
           listAdjustments({ deliveryPartnerId: partner.id, limit: 20 }),
         ])
       : [[], null, []];
+  // GS-003: the dashboard's actions all need the Delivery Partner role to be the active one.
+  const canDeliver = can(user.role, PERMISSIONS.DELIVERY_ORDER_MANAGE_OWN);
+  const roles: UserRole[] = partner.status === "APPROVED" && !canDeliver ? await listUserRoles(user.id) : [];
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -106,11 +119,30 @@ export default async function DeliveryPartnerStatusPage() {
 
       {partner.status === "APPROVED" ? (
         <div className="mt-4">
-          <DeliveryPartnerDashboard
-            isOnline={partner.isOnline}
-            activeDelivery={activeDelivery}
-            earnings={earnings}
-          />
+          {canDeliver ? (
+            <DeliveryPartnerDashboard
+              isOnline={partner.isOnline}
+              activeDelivery={activeDelivery}
+              earnings={earnings}
+              rating={{ avgX100: partnerRating?.ratingAvgX100 ?? 0, count: partnerRating?.ratingCount ?? 0 }}
+            />
+          ) : roles.includes("DELIVERY_PARTNER") ? (
+            <Alert tone="warning" title="Switch to your Delivery Partner role">
+              <p>
+                You&apos;re browsing with another role, so you can&apos;t go online or take deliveries
+                {partner.isOnline ? " — but you are still marked online and may be offered deliveries" : ""}. Choose
+                &ldquo;Delivery Partner&rdquo; in the &ldquo;Acting as&rdquo; menu at the top of the page, or here:
+              </p>
+              <div className="mt-2">
+                <RoleSwitcher active={user.role} roles={roles} />
+              </div>
+            </Alert>
+          ) : (
+            <Alert tone="warning" title="Delivery Partner role not active">
+              Your account no longer holds the Delivery Partner role, so you can&apos;t go online or take
+              deliveries. Please contact support.
+            </Alert>
+          )}
           {earningsView ? (
             <Card className="mt-4 p-5" data-testid="rider-earnings">
               <h2 className="mb-1 text-sm font-semibold uppercase tracking-wide text-ink-500">Earnings</h2>

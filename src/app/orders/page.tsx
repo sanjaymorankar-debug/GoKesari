@@ -10,12 +10,14 @@ import {
   PageHeader,
   StatusBadge,
 } from "@/components/ui";
+import { RateOrderForm, ReportIssueForm } from "@/components/rating-actions";
 import { SubstitutionDecision } from "@/components/substitution-decision";
 import { formatQuantity } from "@/lib/money";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { getDeliveryOrdersForOrders } from "@/server/services/delivery-assignment";
 import { listOrdersForUser } from "@/server/services/orders";
+import { listMyRatingsByOrder } from "@/server/services/ratings";
 
 const DELIVERY_STATUS_LABELS: Record<string, string> = {
   OFFERED: "Finding a rider",
@@ -43,7 +45,10 @@ export default async function OrdersPage({
   const showBusiness = can(user.role, PERMISSIONS.ORDER_PLACE_B2B);
   const orderType = showBusiness && params.type === "business" ? "B2B" : "PERSONAL";
   const orders = await listOrdersForUser(user.id, { limit: 50, orderType });
-  const deliveryOrders = await getDeliveryOrdersForOrders(orders.map((o) => o.id));
+  const [deliveryOrders, myRatings] = await Promise.all([
+    getDeliveryOrdersForOrders(orders.map((o) => o.id)),
+    listMyRatingsByOrder(user.id, orders.map((o) => o.id)),
+  ]);
 
   return (
     <>
@@ -91,6 +96,9 @@ export default async function OrdersPage({
                     <Badge tone="info">subscription</Badge>
                   ) : null}
                   {order.orderType === "B2B" ? <Badge tone="info">business</Badge> : null}
+                  {order.paymentMethod === "COD" ? (
+                    <Badge tone="warning">{order.codCollectedAt ? "paid in cash" : "pay cash on delivery"}</Badge>
+                  ) : null}
                   <span className="text-sm text-ink-500">
                     {order.orderNumber}
                   </span>
@@ -170,6 +178,20 @@ export default async function OrdersPage({
                   {deliveryOrders.get(order.id)!.partnerName}
                 </p>
               ) : null}
+
+              {order.status === "DELIVERED" || order.status === "DISPUTED" ? (
+                <RateOrderForm
+                  orderId={order.id}
+                  canRateShop={myRatings.get(order.id)?.shop == null}
+                  canRateRider={
+                    myRatings.get(order.id)?.rider == null && deliveryOrders.get(order.id)?.status === "DELIVERED"
+                  }
+                  shopScore={myRatings.get(order.id)?.shop ?? null}
+                  riderScore={myRatings.get(order.id)?.rider ?? null}
+                />
+              ) : null}
+
+              {order.paidAt && order.status !== "PENDING" ? <ReportIssueForm orderId={order.id} /> : null}
 
               {order.status === "WALLET_INSUFFICIENT" ? (
                 <div className="mt-3">

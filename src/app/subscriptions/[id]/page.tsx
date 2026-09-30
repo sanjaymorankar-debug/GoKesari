@@ -9,9 +9,11 @@ import { addDays, formatDisplayDate, todayIn } from "@/lib/dates";
 import { getEnv } from "@/lib/env";
 import { MILLI_PER_UNIT } from "@/lib/money";
 import { getCurrentUser } from "@/server/authz/guards";
+import { can, PERMISSIONS } from "@/server/authz/permissions";
 import {
   getCalendar,
   getSubscriptionDetail,
+  listSubscriptionEvents,
 } from "@/server/services/subscriptions";
 
 export const dynamic = "force-dynamic";
@@ -28,10 +30,12 @@ export default async function SubscriptionDetailPage({
   const { id } = await params;
   const subscription = await getSubscriptionDetail(id);
   if (!subscription) notFound();
+  const history = await listSubscriptionEvents(id);
 
   // Ownership: a customer may only view their own subscription. Operators and
   // admins reach subscriptions through the admin area, not this page.
-  if (subscription.userId !== user.id && user.role === "CUSTOMER") {
+  // Only the owner, or staff who manage subscriptions (was: any non-CUSTOMER role).
+  if (subscription.userId !== user.id && !can(user.role, PERMISSIONS.SUBSCRIPTION_MANAGE_ANY)) {
     notFound();
   }
 
@@ -112,6 +116,27 @@ export default async function SubscriptionDetailPage({
             pauseFrom={subscription.pauseFrom}
             pauseUntil={subscription.pauseUntil}
           />
+
+          <Card className="p-5" data-testid="subscription-history">
+            <h2 className="text-base font-semibold text-ink-900">History</h2>
+            {history.length === 0 ? (
+              <p className="mt-1 text-sm text-ink-500">No changes yet.</p>
+            ) : (
+              <ul className="mt-2 space-y-1 text-sm text-ink-600">
+                {history.map((event) => (
+                  <li key={event.id} className="flex justify-between gap-3">
+                    <span>
+                      {event.action.toLowerCase().replace(/_/g, " ")}
+                      {event.note ? <span className="text-xs text-ink-500"> · {event.note}</span> : null}
+                    </span>
+                    <span className="text-xs text-ink-400">
+                      {new Date(event.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium" })}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            )}
+          </Card>
 
           <Card className="p-5">
             <h2 className="text-base font-semibold text-ink-900">

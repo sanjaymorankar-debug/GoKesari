@@ -152,7 +152,8 @@ describe("SEC-04 rate limits", () => {
         method: "POST",
         body: { latitude: 18.5204, longitude: 73.8567 },
       });
-      expect(r.status).toBe(204);
+      expect(r.status).toBe(200);
+      expect(r.body).toEqual({ shared: true });
     }
 
     const blocked = await call(deliveryLocationRoute, "/api/delivery-partner/location", {

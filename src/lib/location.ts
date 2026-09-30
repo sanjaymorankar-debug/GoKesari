@@ -23,6 +23,8 @@ export const customerLocationSchema = z
     source: z.enum(["ADDRESS", "DEVICE", "PINCODE"]),
     /** Set when chosen from a saved address — lets checkout preselect it. */
     addressId: z.string().uuid().nullable(),
+    /** The address's society, when it is inside one (society-aware discovery). */
+    societyId: z.string().uuid().nullable().default(null),
   })
   .refine((l) => l.pincode != null || (l.latitude != null && l.longitude != null), {
     message: "A location needs a PIN code or coordinates.",

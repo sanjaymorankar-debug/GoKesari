@@ -17,11 +17,21 @@ import { eq, or } from "drizzle-orm";
 
 import { isGstProviderConfigured, isPanProviderConfigured } from "@/lib/env";
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
-import { decryptPan, encryptPan, maskPan } from "@/lib/pan-crypto";
+import { decryptPan, encryptPan, maskPan, panBlindIndex } from "@/lib/pan-crypto";
+import { parsePanNumber } from "@/lib/shop-identity";
 import { db } from "@/server/db";
 import { shops, type GstStatus, type PanStatus, type Shop, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
+import {
+  duplicateShopError,
+  findRegistrationMatches,
+  lockRegistrationKeys,
+  recordDuplicateBlocked,
+  type DuplicateMatch,
+  type RegistrationCandidate,
+  type ShopIdentity,
+} from "./shop-duplicates";
 
 interface Actor {
   id: string;
@@ -29,7 +39,6 @@ interface Actor {
 }
 
 const GSTIN_PATTERN = /^[0-9A-Z]{15}$/;
-const PAN_PATTERN = /^[A-Z]{5}[0-9]{4}[A-Z]$/;
 
 async function loadOwnedShop(shopId: string, actor: Actor): Promise<Shop> {
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
@@ -228,15 +237,15 @@ export async function submitPan(
   holderName: string,
   actor: Actor,
 ): Promise<Shop> {
-  const normalized = panNumber.trim().toUpperCase();
-  if (!PAN_PATTERN.test(normalized)) {
-    throw validationFailed("PAN must be 10 characters in the format AAAAA9999A.");
-  }
+  const parsed = parsePanNumber(panNumber);
+  if (!parsed.ok) throw validationFailed(parsed.error);
+  const normalized = parsed.value;
   if (!holderName.trim()) throw validationFailed("Enter the name on the PAN card.");
 
   const shop = await loadOwnedShop(shopId, actor);
   const encrypted = encryptPan(normalized);
   const last4 = normalized.slice(-4);
+  const panHash = panBlindIndex(normalized);
 
   let status: PanStatus = "PENDING_VERIFICATION";
   let source: "PROVIDER_VERIFIED" | "SELF_DECLARED" = "SELF_DECLARED";
@@ -255,20 +264,60 @@ export async function submitPan(
     }
   }
 
-  const [updated] = await db
-    .update(shops)
-    .set({
-      panNumberEncrypted: encrypted,
-      panLast4: last4,
-      panHolderName: confirmedHolderName,
-      panStatus: status,
-      panVerificationSource: source,
-      panVerifiedAt: verifiedAt,
-      panVerifiedBy: verifiedAt ? null : shop.panVerifiedBy,
-      updatedAt: new Date(),
-    })
-    .where(eq(shops.id, shopId))
-    .returning();
+  // The same PAN on another live shop at this same place means this shop is a
+  // duplicate registration — the rule registerShop() applies, so a PAN left
+  // off at registration cannot be added afterwards to slip past it.
+  const identity: ShopIdentity = {
+    shopAct: null,
+    udyamNumber: null,
+    pan: { normalized, hash: panHash, last4 },
+  };
+  const candidate: RegistrationCandidate = {
+    ownerId: shop.ownerId,
+    name: shop.name,
+    addressLine1: shop.addressLine1,
+    pincode: shop.pincode,
+    identity,
+    excludeShopId: shop.id,
+    sameOwnerRule: false,
+  };
+
+  const outcome = await db.transaction(
+    async (tx): Promise<{ kind: "blocked"; match: DuplicateMatch } | { kind: "saved"; shop: Shop }> => {
+      await lockRegistrationKeys(tx, candidate);
+      const { blocking } = await findRegistrationMatches(tx, candidate);
+      if (blocking) return { kind: "blocked", match: blocking };
+
+      const [saved] = await tx
+        .update(shops)
+        .set({
+          panNumberEncrypted: encrypted,
+          panLast4: last4,
+          panHash,
+          panHolderName: confirmedHolderName,
+          panStatus: status,
+          panVerificationSource: source,
+          panVerifiedAt: verifiedAt,
+          panVerifiedBy: verifiedAt ? null : shop.panVerifiedBy,
+          updatedAt: new Date(),
+        })
+        .where(eq(shops.id, shopId))
+        .returning();
+      return { kind: "saved", shop: saved };
+    },
+  );
+
+  if (outcome.kind === "blocked") {
+    await recordDuplicateBlocked(outcome.match, identity, actor, {
+      kind: "pan_submission",
+      ownerId: shop.ownerId,
+    });
+    throw duplicateShopError(outcome.match, identity, {
+      privileged: actor.role === "ADMIN" || actor.role === "OPERATOR",
+      context: "pan_submission",
+    });
+  }
+  const updated = outcome.shop;
 
   await recordAudit({
     actorId: actor.id,

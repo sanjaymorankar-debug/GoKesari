@@ -17,6 +17,10 @@ export const AUDIT_ACTIONS = {
   SHOP_SUSPENDED: "shop.suspended",
   SHOP_UPDATED: "shop.updated",
   SHOP_CLASSIFICATION_CHANGED: "shop.classification_changed",
+  /** A rejected registration submitted again — the same row goes back to PENDING_APPROVAL. */
+  SHOP_RESUBMITTED: "shop.resubmitted",
+  /** A registration or PAN refused because the shop is already registered (identifiers masked). */
+  SHOP_DUPLICATE_BLOCKED: "shop.duplicate_blocked",
   PRODUCT_PRICE_CHANGED: "shop_product.price_changed",
   PRODUCT_AVAILABILITY_CHANGED: "shop_product.availability_changed",
   PRODUCT_CREATED: "shop_product.created",
@@ -26,6 +30,7 @@ export const AUDIT_ACTIONS = {
   WALLET_TOPUP_VERIFIED: "wallet.topup_verified",
   USER_ROLE_CHANGED: "user.role_changed",
   USER_SUSPENDED: "user.suspended",
+  USER_REINSTATED: "user.reinstated",
   ORDER_STATUS_CHANGED: "order.status_changed",
   ORDER_PLACED: "order.placed",
   SUBSCRIPTION_CREATED: "subscription.created",
@@ -133,6 +138,29 @@ export const AUDIT_ACTIONS = {
   RIDER_PAYOUT_STATUS_CHANGED: "finance.rider_payout_status_changed",
   RECONCILIATION_RUN: "finance.reconciliation_run",
   RECONCILIATION_RESOLVED: "finance.reconciliation_resolved",
+  /* ------------------------------------------ society / ratings / subscriptions (Phase 2) */
+  SOCIETY_REGISTERED: "society.registered",
+  SOCIETY_STATUS_CHANGED: "society.status_changed",
+  SOCIETY_UPDATED: "society.updated",
+  SOCIETY_MEMBER_CHANGED: "society.member_changed",
+  SOCIETY_RIDER_CHANGED: "society.rider_changed",
+  SOCIETY_SHOP_CHANGED: "society.shop_changed",
+  RATING_CREATED: "rating.created",
+  RATING_MODERATED: "rating.moderated",
+  // Phase 3
+  ROLE_GRANTED: "user.role_granted",
+  ROLE_REVOKED: "user.role_revoked",
+  ROLE_SWITCHED: "user.role_switched",
+  COD_CASH_COLLECTED: "cod.cash_collected",
+  COD_CASH_DEPOSITED: "cod.cash_deposited",
+  SHOP_COD_SETTING_CHANGED: "shop.cod_setting_changed",
+  SEGMENT_SAVED: "marketing.segment_saved",
+  SEGMENT_DELETED: "marketing.segment_deleted",
+  CAMPAIGN_SAVED: "marketing.campaign_saved",
+  CAMPAIGN_STATUS_CHANGED: "marketing.campaign_status_changed",
+  CAMPAIGN_SENT: "marketing.campaign_sent",
+  RISK_RULES_RUN: "risk.rules_run",
+  RISK_FLAG_REVIEWED: "risk.flag_reviewed",
   DELIVERY_EARNINGS_CONFIG_CHANGED: "delivery_earnings_config.changed",
 
   /* ------------------------------------ product master data platform */

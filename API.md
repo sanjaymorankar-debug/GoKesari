@@ -51,6 +51,15 @@ Query: `onlineOnly=true` to restrict to online-purchasable offerings.
 Requires `shop:create`. Always creates a shop with status `PENDING_APPROVAL`
 and no classification; both are server-assigned and cannot be supplied.
 
+At least one of `shopActNumber`, `panNumber` or `udyamNumber` is required
+(422 with all three fields highlighted otherwise). `panHolderName` is required
+with `panNumber`. Values are normalised before they are stored or compared
+(`src/lib/shop-identity.ts`): case, spaces, hyphens and slashes don't matter;
+PAN must be `AAAAA9999A`; Udyam is stored as `UDYAM-XX-00-0000000`, an old
+Udyog Aadhaar number as e.g. `MH26A0012345`, and a bare 12-digit number is
+refused (it cannot be told apart from a personal Aadhaar number). The PAN is
+stored encrypted and compared only through a keyed hash.
+
 ```json
 {
   "name": "Kesari Dairy",
@@ -61,15 +70,64 @@ and no classification; both are server-assigned and cannot be supplied.
   "pincode": "411038",
   "shopType": "DAIRY",
   "deliveryAvailable": true,
-  "deliveryFeePaise": 2000
+  "deliveryFeePaise": 2000,
+  "shopActNumber": "PII/KOTHRUD/II/12345",
+  "panNumber": "ABCDE1234F",
+  "panHolderName": "Owner Name",
+  "udyamNumber": "UDYAM-MH-26-0012345"
 }
 ```
 
+Duplicate registrations (`src/server/services/shop-duplicates.ts`):
+
+| Existing registration | Matched on | Result |
+|---|---|---|
+| Pending, approved, suspended or inactive | same Shop Act licence; or same PAN / Udyam at the same place (same PIN code and same shop name or first address line); or the same account's shop of the same name at the same PIN code | **409** `CONFLICT`, nothing written |
+| Rejected, same account | any of the above | **200**, that registration is updated and back in `PENDING_APPROVAL` (same id and registration number), `"resubmitted": true` |
+| Rejected, another account | — | ignored: a new registration is created (**201**) |
+
+A 409 body names the identifier that matched (masked) and the existing
+registration's state, and never anything else about that shop:
+
+```json
+{
+  "error": {
+    "code": "CONFLICT",
+    "message": "PAN number already registered (XXXXXX234F). This shop is already registered and is waiting for admin approval. You'll be notified once it's reviewed. You don't need to submit again.",
+    "details": {
+      "reason": "DUPLICATE_SHOP",
+      "matchedOn": "PAN",
+      "shopStatus": "PENDING_APPROVAL",
+      "fields": { "panNumber": "PAN number already registered (XXXXXX234F)" }
+    }
+  }
+}
+```
+
+`matchedOn` is one of `SHOP_ACT`, `PAN`, `UDYAM`, `NAME_AND_PIN`. An operator
+registering on someone's behalf also gets `matchedShopId` and
+`matchedRegistrationNumber`. Two simultaneous submissions of the same shop are
+serialised by the server, so a double-click creates one registration.
+
+### `POST /api/shops/duplicate-check`
+Requires `shop:create`; rate-limited to 20 a minute per user. The registration
+form's early warning — the same rules as registration, advisory only (the
+registration re-checks). Body: any of `shopActNumber`, `panNumber`,
+`udyamNumber`, plus `name`, `addressLine1`, `pincode` for the same-place rules.
+Returns `{ "status": "CLEAR" }`,
+`{ "status": "RESUBMISSION", "message": "…" }` (the caller's own rejected
+registration), or
+`{ "status": "DUPLICATE", "matchedOn", "field", "fieldMessage", "shopStatus", "message" }`.
+A badly formatted number is a 422 with `details.fields`.
+
 ### `POST /api/shops/{id}/approve`
-Requires `shop:approve` (Operator/Admin). Body: `{ "classification": "KESARI" | "GREEN" }`
+Requires `shop:approve` (Operator/Admin). Body: `{ "classification": "KESARI" | "GREEN" }`.
+Notifies the owner. 409 if the shop was rejected and its Shop Act licence is
+now held by another live registration.
 
 ### `POST /api/shops/{id}/reject`
-Requires `shop:reject`. Body: `{ "reason": "…" }`
+Requires `shop:reject`. Body: `{ "reason": "…" }`. Notifies the owner, who
+can correct the details and resubmit.
 
 ### `GET|POST /api/shops/{id}/classification`
 Requires `shop:set-classification` — **not held by shop owners**.
@@ -208,6 +266,117 @@ offers (2 min) and retries a rider for every READY order of a delivering shop
 with nobody working on it. Returns `{ expired, attempted, offered }`.
 
 ---
+
+## Society (Phase 2)
+
+Society roles are scoped per society through membership (`ADMIN` / `OPERATOR`
+/ `RESIDENT`); platform operators/admins (`SOCIETY_MANAGE_ANY`) can act on any
+society. Society staff never see residents' contact details or order contents.
+
+| Endpoint | Who | Purpose |
+|---|---|---|
+| `GET /api/societies?q=` · `POST /api/societies` | signed in / `SOCIETY_REGISTER` | Search verified societies; register one (caller becomes ADMIN, status APPLIED) |
+| `GET /api/societies/mine` | signed in | Own memberships |
+| `GET /api/societies/{id}` · `PATCH` | society ADMIN/OPERATOR (GET), ADMIN (PATCH) | Dashboard; rules: `deliveryInstructions`, `securityNotifyEnabled`, `exclusiveRiders`, `boundaryRadiusMeters`, coordinates |
+| `POST /api/societies/{id}/decision` | `SOCIETY_MANAGE_ANY` | `{ decision: verify\|reject\|suspend\|reinstate, reason? }` |
+| `POST /api/societies/{id}/members` | `SOCIETY_REGISTER` | Ask to join `{ unitLabel? }` (PENDING) |
+| `PATCH /api/societies/members/{memberId}` | society ADMIN/OPERATOR; member (remove = leave) | `{ action: approve\|decline\|role\|remove, role? }` (role: ADMIN only; last admin protected) |
+| `POST /api/societies/{id}/riders` · `PATCH /api/societies/riders/{linkId}` | society ADMIN | Add rider by mobile `{ mobile, preferred }`; `{ revoke?, preferred? }` |
+| `POST /api/societies/{id}/shops` | society ADMIN | `{ shopId, active }` — shops recommended to residents |
+| `PUT /api/addresses/{id}/society` | owner | `{ societyId \| null }` — only a verified society you actively belong to |
+
+Integration: an order to a society-linked address stores `orders.society_id`;
+dispatch applies the society's rider list (exclusive filter / listed and
+preferred first); security staff are notified on rider acceptance when enabled;
+the rider's active job shows the society's gate notes; society partner shops
+count as delivering to residents; checkout refuses shops that do not deliver to
+the chosen address (GS-026).
+
+## Ratings (Phase 2)
+
+| Endpoint | Who | Purpose |
+|---|---|---|
+| `GET /api/orders/{id}/rating` · `POST` | order's customer (`RATING_CREATE_OWN`) | Eligibility; `{ target: SHOP\|DELIVERY_PARTNER, score 1-5, comment? }` — DELIVERED orders only, within 30 days, once per target |
+| `GET /api/shops/{id}/ratings` | public | Average, count, recent visible reviews (no customer identity) |
+| `PATCH /api/ratings/{id}` | `RATING_MODERATE` | `{ hide, reason }` — hidden ratings leave the average |
+
+## Subscriptions & issues (Phase 2)
+
+| Endpoint | Who | Purpose |
+|---|---|---|
+| `GET /api/subscriptions/{id}/history` | owner / `SUBSCRIPTION_MANAGE_ANY` | Lifecycle events (paused, resumed, skipped, cancelled, payment failed) |
+| `POST /api/orders/{id}/issue` | order's customer | `{ category: ORDER\|PRODUCT\|PAYMENT, description }` — grievance linked to the order |
+
+Pause / resume / skip / cancel now refuse CANCELLED or COMPLETED subscriptions
+(resume no longer revives a cancelled one).
+
+## Roles (Phase 3 — GS-003)
+
+A user can hold several roles; `users.role` is the active one used by every
+permission check. CUSTOMER is implicit. Shop registration, rider application
+and society administration grant their role alongside any role already held.
+
+| Endpoint | Who | Purpose |
+|---|---|---|
+| `GET /api/me/roles` · `PUT` | signed in | Held roles and the active one; `{ role }` switches to a held role |
+| `GET /api/users/{id}/roles` · `DELETE ?role=` | `USER_SET_ROLE` (admin) | Grants; revoke one (falls back to CUSTOMER if it was active) |
+| `PATCH /api/users/{id}/role` | `USER_SET_ROLE` | Unchanged API — now grants + activates; staff roles (OPERATOR/ADMIN) are exclusive |
+
+## Cash on delivery (Phase 3 — GS-030)
+
+| Endpoint | Who | Purpose |
+|---|---|---|
+| `POST /api/checkout` `{ paymentMethod: "COD" }` | customer | Personal orders to a saved address; shop must opt in; ≤ ₹2,000 per order; ≤ 2 open COD orders; paused after 2 failed COD deliveries in 90 days or an open HIGH risk flag |
+| `GET /api/cod/eligibility` | customer | Whether COD is available and why not |
+| `PATCH /api/shops/{id}` `{ codEnabled }` | shop owner | Opt in / out |
+| `PATCH /api/delivery-orders/{id}` `{ action: "deliver", otp, cashCollected: true }` | rider | Required for COD orders |
+| `POST /api/orders/{id}/confirm-delivery` `{ proofNote, cashCollected: true }` | operations | Required for COD orders |
+| `GET /api/admin/cod` · `POST` | `COD_CASH_MANAGE` | Cash held per rider / shop; record a deposit `{ party, id, amountPaise, reference, requestId }` |
+
+On delivery the order becomes paid and a `COD_CASH_COLLECTED` adjustment (−total)
+is recorded against the collector (rider, or the shop when it delivers itself);
+a deposit adds `COD_CASH_DEPOSITED` (+). Whatever is still held is netted in the
+next weekly payout / settlement. Refunds of COD orders are wallet credits.
+Reconciliation counts collected cash as payment.
+
+## Analytics (Phase 3 — GS-069, KPI-001…015)
+
+| Endpoint | Who | Purpose |
+|---|---|---|
+| `GET /api/analytics/kpis?from=&to=&shopId=` | `REPORT_VIEW_ALL` / `REPORT_VIEW_OPERATIONAL`; shop owner for own `shopId` | KPI set for the window (default last 30 days). Definitions in `src/server/services/analytics.ts` |
+
+## Marketing (Phase 3 — GS-052/053, WF-009, KPI-015)
+
+Shops only ever see counts, never customer identities; only customers with
+marketing consent are messaged.
+
+| Endpoint | Who | Purpose |
+|---|---|---|
+| `GET/POST /api/shops/{id}/marketing/segments` | owner (`MARKETING_MANAGE_OWN`); operations view | List with audience counts; create; `{ preview: true, rules }` previews |
+| `PATCH/DELETE /api/shops/{id}/marketing/segments/{segmentId}` | owner | Edit / delete (not while a live campaign uses it) |
+| `GET/POST /api/shops/{id}/marketing/campaigns` | owner; operations view | List with results; create a draft |
+| `PATCH /api/shops/{id}/marketing/campaigns/{campaignId}` | owner | `{ action: update\|submit\|send\|cancel }` |
+| `GET /api/admin/campaigns?status=` · `POST /api/admin/campaigns/{id}/decision` | `MARKETING_APPROVE` | Review queue; `{ decision: approve\|reject, reason }` |
+
+Limits: 2 campaigns per shop per 7 days; a customer receives at most 1 campaign
+per shop and 3 in total per 7 days; budget = max recipients (1–5,000).
+
+## Risk (Phase 3 — GS-068)
+
+| Endpoint | Who | Purpose |
+|---|---|---|
+| `GET /api/admin/risk?status=&severity=&subjectType=` · `POST` | `RISK_REVIEW` | Flags (default OPEN; optional severity `HIGH\|MEDIUM\|LOW`, subjectType `USER\|SHOP\|DELIVERY_PARTNER`), each with `subjectName`, `subjectStatus` (the subject's current account status) and `subjectIsAdmin` (a USER flag on an admin account, which cannot be suspended); run the rules now |
+| `PATCH /api/admin/risk/{id}` | `RISK_REVIEW` | `{ decision: DISMISSED\|ACTIONED, note }` |
+| `POST /api/cron/risk-rules` | cron (`CRON_SECRET`) | Hourly rules sweep |
+| `POST /api/shops/{id}/suspend` | `SHOP_SUSPEND` (operator, admin) | `{ reason }` — APPROVED → SUSPENDED in one conditional update (a concurrent reject or suspend gets 409); audited `shop.suspended`. The shop leaves the storefront and stops taking orders. Open orders are not cancelled or refunded, the shop's subscriptions stay active (each subscriber is told daily their delivery is unavailable), and the owner is not notified: the reason is in the audit log only. Re-approve with `POST /api/shops/{id}/approve` |
+| `POST /api/users/{id}/suspend` | `USER_SUSPEND` (admin) | `{ reason }` — ACTIVE → SUSPENDED; audited `user.suspended`. Refused (403) for your own account and for any admin: an ACTIVE ADMIN role grant (not just the active role), the active role ADMIN or a `PERMANENT_ADMIN_EMAILS` address. The user can no longer sign in (`/signin?error=AccessDenied` explains why) and existing sessions stop working. An APPROVED delivery-partner profile of the user is suspended first through the delivery-partner suspend (offline, notified); a delivery it was carrying stays assigned until operations resolves it. Subscriptions and shops the user owns are not paused |
+| `POST /api/users/{id}/reinstate` | `USER_SUSPEND` (admin) | `{ reason }` — SUSPENDED → ACTIVE (409 otherwise, 404 if unknown); audited `user.reinstated`. Restores the account only: a delivery-partner profile suspended with it stays SUSPENDED until `PATCH /api/delivery-partner/{id}` `{ action: "reactivate" }`, and a suspended shop needs its own re-approval. No screen yet |
+
+The `/admin/risk` page offers "Suspend & mark actioned" on open flags: it calls the
+subject's suspend endpoint (`PATCH /api/delivery-partner/{id}` `{ action: "suspend", reason }`
+for riders), then closes the flag as ACTIONED with the note `Suspended: <reason>`. A rider is
+shown the reason (it is their suspension notice), so the page says so; if another reviewer
+closed the flag first, the page says the suspension worked and the flag was already closed.
 
 ## Finance (Slice 6)
 

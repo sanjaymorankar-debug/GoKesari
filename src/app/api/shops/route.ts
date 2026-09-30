@@ -68,6 +68,17 @@ const registerSchema = z.object({
   description: z.string().max(1000).nullish(),
 
   /*
+   * Business identifiers — at least one is required (refinement below) so
+   * every new registration can be checked for duplicates. Format checks and
+   * normalisation live in the service (lib/shop-identity.ts), which reports
+   * a bad value against its own field.
+   */
+  shopActNumber: z.string().max(60).nullish(),
+  panNumber: z.string().max(20).nullish(),
+  panHolderName: z.string().max(120).nullish(),
+  udyamNumber: z.string().max(40).nullish(),
+
+  /*
    * Operator-only fields (§4.1). They are accepted by the schema but only
    * *honoured* when the caller holds SHOP_REGISTRATION_MANAGE — see the
    * `privileged` flag below. A self-service applicant sending these gets them
@@ -84,12 +95,29 @@ const registerSchema = z.object({
 
   // NOTE: status and classification are intentionally absent — they are
   // server-assigned and cannot be influenced by the applicant (§8, §10).
+}).superRefine((body, ctx) => {
+  if (!body.shopActNumber?.trim() && !body.panNumber?.trim() && !body.udyamNumber?.trim()) {
+    for (const field of ["shopActNumber", "panNumber", "udyamNumber"]) {
+      ctx.addIssue({
+        code: "custom",
+        path: [field],
+        message: "Enter at least one of: Shop Act licence, PAN or Udyam number.",
+      });
+    }
+  }
 });
 
+/**
+ * 201 for a new registration; 200 when the caller's own rejected registration
+ * of the same shop was updated and sent back for review (`resubmitted: true`).
+ * 409 CONFLICT (details.reason "DUPLICATE_SHOP") when the shop is already
+ * registered — see services/shop-duplicates.ts.
+ */
 export const POST = route(async (request: NextRequest) => {
   const user = await requirePermission(PERMISSIONS.SHOP_CREATE);
   const body = await parseBody(request, registerSchema);
 
   const privileged = can(user.role, PERMISSIONS.SHOP_REGISTRATION_MANAGE);
-  return ok(await registerShop(body, user, { privileged }), 201);
+  const result = await registerShop(body, user, { privileged });
+  return ok(result, result.resubmitted ? 200 : 201);
 });
