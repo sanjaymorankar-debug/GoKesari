@@ -2,6 +2,7 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { ExcelPriceUpload } from "@/components/excel-price-upload";
+import { ShopDashboardView } from "@/components/shop-dashboard";
 import { PendingPriceApprovals } from "@/components/pending-price-approvals";
 import { RegistrationPanel } from "@/components/registration-panel";
 import { ShopGstPanForm } from "@/components/shop-gst-pan-form";
@@ -32,6 +33,7 @@ import { listOrdersForShop } from "@/server/services/orders";
 import { listPendingForShop } from "@/server/services/price-requests";
 import { getReferralCodeById } from "@/server/services/referrals";
 import { listPaymentsForShop } from "@/server/services/shop-payments";
+import { getShopDashboard } from "@/server/services/dashboards";
 import { getActiveSuspension } from "@/server/services/shop-suspension";
 import { listShopsForOwner } from "@/server/services/shops";
 import { listSubscriptionOrdersForShop } from "@/server/services/subscriptions";
@@ -61,6 +63,8 @@ export default async function ShopDashboardPage() {
   const shop = shops[0];
   const today = todayIn(getEnv().APP_TIMEZONE);
   const suspension = shop.status === "SUSPENDED" ? await getActiveSuspension(shop.id) : null;
+  // Live figures for the operator's day — only for a shop that trades.
+  const dashboard = shop.status === "APPROVED" || shop.status === "SUSPENDED" ? await getShopDashboard(shop.id, user.id) : null;
 
   const [
     products,
@@ -141,6 +145,8 @@ export default async function ShopDashboardPage() {
           </Alert>
         </div>
       ) : null}
+
+      {dashboard ? <ShopDashboardView data={dashboard} /> : null}
 
       {/* Subscription orders are separated from normal orders per §40. */}
       <section className="mb-8">
