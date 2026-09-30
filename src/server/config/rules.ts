@@ -84,6 +84,59 @@ export const RULES = {
       lateGraceMinutes: 15,
     },
   },
+  returns: {
+    description: "Customer returns: window, per-reason policy, pickup and refund behaviour.",
+    schema: z.object({
+      /** Hours after delivery within which a return may be requested. */
+      windowHours: int(1, 24 * 60),
+      /** Per reason: whether it is accepted, evidence needed, and who bears the refund. */
+      reasons: z.record(
+        z.string(),
+        z.object({
+          allowed: z.boolean(),
+          requiresImages: z.boolean(),
+          chargeTo: z.enum(["SHOP", "PLATFORM"]),
+        }),
+      ),
+      /** Riders collect the goods when the shop delivers; otherwise the customer takes them to the shop. */
+      pickupByRider: z.boolean(),
+      /** Fee credited to the rider for a completed return pickup; null = the default base fee. */
+      riderPickupFeePaise: z.number().int().min(0).max(1_000_000).nullable(),
+      /** Refund is paid automatically once the inspection accepts the goods. */
+      autoRefundAfterInspection: z.boolean(),
+      maxImagesPerReturn: int(0, 12),
+      /** Wrong PIN/code attempts at handover before only operations can complete the pickup. */
+      maxHandoverAttempts: int(1, 10),
+    }),
+    defaults: {
+      windowHours: 48,
+      reasons: {
+        DAMAGED: { allowed: true, requiresImages: true, chargeTo: "SHOP" },
+        WRONG_ITEM: { allowed: true, requiresImages: true, chargeTo: "SHOP" },
+        QUALITY_ISSUE: { allowed: true, requiresImages: true, chargeTo: "SHOP" },
+        EXPIRED: { allowed: true, requiresImages: true, chargeTo: "SHOP" },
+        MISSING_ITEM: { allowed: true, requiresImages: false, chargeTo: "SHOP" },
+        NOT_AS_DESCRIBED: { allowed: true, requiresImages: true, chargeTo: "SHOP" },
+        CHANGED_MIND: { allowed: false, requiresImages: false, chargeTo: "PLATFORM" },
+        OTHER: { allowed: true, requiresImages: false, chargeTo: "PLATFORM" },
+      },
+      pickupByRider: true,
+      riderPickupFeePaise: null,
+      autoRefundAfterInspection: true,
+      maxImagesPerReturn: 6,
+      maxHandoverAttempts: 5,
+    },
+  },
+  images: {
+    description: "Uploaded images: size and dimension limits and counts.",
+    schema: z.object({
+      maxBytes: int(50_000, 10_000_000),
+      maxDimensionPx: int(200, 8000),
+      minDimensionPx: int(1, 2000),
+      maxPerProduct: int(1, 30),
+    }),
+    defaults: { maxBytes: 2_000_000, maxDimensionPx: 4096, minDimensionPx: 100, maxPerProduct: 8 },
+  },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;

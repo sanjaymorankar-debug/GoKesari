@@ -27,6 +27,20 @@ export const NOTIFICATION_TYPES = {
   DELIVERY_UNASSIGNED: "delivery.unassigned",
   /** To the shop: the automatic rider search gave up (limit, time or delivery window). */
   DELIVERY_SEARCH_STOPPED: "delivery.search_stopped",
+  /* ---------------------------------------------------- returns */
+  RETURN_REQUESTED: "return.requested",
+  RETURN_APPROVED: "return.approved",
+  RETURN_REJECTED: "return.rejected",
+  RETURN_CANCELLED: "return.cancelled",
+  RETURN_PICKUP_OFFERED: "return.pickup_offered",
+  RETURN_PICKUP_ASSIGNED: "return.pickup_assigned",
+  RETURN_PICKUP_UNASSIGNED: "return.pickup_unassigned",
+  RETURN_RIDER_EN_ROUTE: "return.rider_en_route",
+  RETURN_PICKED_UP: "return.picked_up",
+  RETURN_PICKUP_FAILED: "return.pickup_failed",
+  RETURN_INSPECTION_PENDING: "return.inspection_pending",
+  RETURN_REFUND_INITIATED: "return.refund_initiated",
+  RETURN_REFUND_COMPLETED: "return.refund_completed",
   /** To the shop: the rider is at the counter. */
   DELIVERY_RIDER_AT_SHOP: "delivery.rider_at_shop",
   /** To the customer: the rider has reached the door / gate. */

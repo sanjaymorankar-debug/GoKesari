@@ -69,6 +69,21 @@ function ProgressSteps({ delivery }: { delivery: ActiveDelivery }) {
   );
 }
 
+export interface ActiveReturnPickupView {
+  id: string;
+  status: string;
+  returnNumber: string;
+  scheduledFor: Date | string | null;
+  needsHandoverCode: boolean;
+  shopName: string;
+  shopAddress: string;
+  itemSummary: string;
+  customerAddress: string | null;
+  customerNotes: string | null;
+  navigationUrl: string | null;
+  shopNavigationUrl: string | null;
+}
+
 export interface EarningsSummary {
   todayPaise: number;
   totalPaise: number;
@@ -310,11 +325,14 @@ function CodeInput({
 export function DeliveryPartnerDashboard({
   isOnline: initialOnline,
   activeDelivery,
+  activeReturnPickup = null,
   earnings,
   rating,
 }: {
   isOnline: boolean;
   activeDelivery: ActiveDelivery | null;
+  /** A customer return the rider is collecting (goods go back to the shop). */
+  activeReturnPickup?: ActiveReturnPickupView | null;
   earnings: EarningsSummary;
   /** The rider's own average (GS-060), shown only to them. */
   rating?: RiderRating;
@@ -714,7 +732,147 @@ export function DeliveryPartnerDashboard({
         <Card className="p-5 text-sm text-ink-500">Waiting for a delivery offer…</Card>
       ) : null}
 
+      {activeReturnPickup ? (
+        <ReturnPickupPanel pickup={activeReturnPickup} onDone={() => router.refresh()} />
+      ) : null}
+
       {error ? <Alert tone="danger">{error}</Alert> : null}
     </div>
+  );
+}
+
+const RETURN_PICKUP_LABEL: Record<string, string> = {
+  OFFERED: "New return pickup — accept within the offer time",
+  ACCEPTED: "Return pickup accepted — head to the customer when ready",
+  EN_ROUTE: "On the way to the customer",
+};
+
+/** A rider's live return pickup: accept, set off, take the goods with the customer's code, or report a problem. */
+function ReturnPickupPanel({ pickup, onDone }: { pickup: ActiveReturnPickupView; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [code, setCode] = useState("");
+  const [showFail, setShowFail] = useState(false);
+  const [failReason, setFailReason] = useState("");
+
+  async function act(body: Record<string, unknown>) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/return-pickups/${pickup.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        setError(payload?.error?.message ?? "Action failed.");
+        return;
+      }
+      setCode("");
+      setShowFail(false);
+      onDone();
+    } catch {
+      setError("Could not reach the server. Check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card className="p-5" data-testid="return-pickup-panel">
+      <p className="text-xs font-semibold uppercase tracking-wide text-kesari-600">
+        {RETURN_PICKUP_LABEL[pickup.status] ?? pickup.status}
+      </p>
+      <p className="mt-2 font-semibold text-ink-900">Return {pickup.returnNumber}</p>
+      <div className="mt-3 space-y-2 text-sm">
+        <div>
+          <p className="font-medium text-ink-700">Collect from</p>
+          <p className="text-ink-500">{pickup.customerAddress ?? "Address on order details"}</p>
+          {pickup.customerAddress && pickup.status !== "EN_ROUTE" ? (
+            <p className="text-xs text-ink-400">The full address and navigation appear once you set off.</p>
+          ) : null}
+          {pickup.customerNotes ? <p className="text-ink-500">Note: {pickup.customerNotes}</p> : null}
+          {pickup.scheduledFor ? (
+            <p className="text-ink-500">
+              Ready from {new Date(pickup.scheduledFor).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+            </p>
+          ) : null}
+          {pickup.navigationUrl ? (
+            <a href={pickup.navigationUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-kesari-700 underline">
+              Navigate to the customer
+            </a>
+          ) : null}
+        </div>
+        <div>
+          <p className="font-medium text-ink-700">Bring back to</p>
+          <p className="text-ink-500">
+            {pickup.shopName} — {pickup.shopAddress}
+          </p>
+          {pickup.shopNavigationUrl ? (
+            <a href={pickup.shopNavigationUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-kesari-700 underline">
+              Navigate to the shop
+            </a>
+          ) : null}
+        </div>
+        <p className="text-ink-500">{pickup.itemSummary}</p>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {pickup.status === "OFFERED" ? (
+          <>
+            <Button size="sm" disabled={busy} onClick={() => act({ action: "accept" })}>
+              Accept
+            </Button>
+            <Button size="sm" variant="secondary" disabled={busy} onClick={() => act({ action: "reject" })}>
+              Reject
+            </Button>
+          </>
+        ) : null}
+        {pickup.status === "ACCEPTED" ? (
+          <Button size="sm" disabled={busy} onClick={() => act({ action: "start" })}>
+            Set off to the customer
+          </Button>
+        ) : null}
+        {pickup.status === "EN_ROUTE" ? (
+          <>
+            <CodeInput label="Handover code from the customer" value={code} onChange={setCode} />
+            <Button size="sm" disabled={busy || code.length !== 4} onClick={() => act({ action: "pickup", code })}>
+              Confirm pickup
+            </Button>
+          </>
+        ) : null}
+        {pickup.status === "ACCEPTED" || pickup.status === "EN_ROUTE" ? (
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => setShowFail((v) => !v)}>
+            Could not collect
+          </Button>
+        ) : null}
+      </div>
+
+      {showFail ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <input
+            className="min-w-0 flex-1 rounded-lg border border-cream-200 px-3 py-2 text-sm"
+            placeholder="What happened? e.g. customer not home"
+            value={failReason}
+            onChange={(e) => setFailReason(e.target.value)}
+            aria-label="Reason the pickup failed"
+          />
+          <Button
+            size="sm"
+            variant="danger"
+            disabled={busy || failReason.trim().length < 3}
+            onClick={() => act({ action: "fail", reason: failReason })}
+          >
+            Report failed pickup
+          </Button>
+        </div>
+      ) : null}
+      {error ? (
+        <div className="mt-3">
+          <Alert tone="danger">{error}</Alert>
+        </div>
+      ) : null}
+    </Card>
   );
 }

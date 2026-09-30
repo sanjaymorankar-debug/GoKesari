@@ -165,6 +165,12 @@ export const AUDIT_ACTIONS = {
   RISK_RULES_RUN: "risk.rules_run",
   RISK_FLAG_REVIEWED: "risk.flag_reviewed",
   DELIVERY_EARNINGS_CONFIG_CHANGED: "delivery_earnings_config.changed",
+  RETURN_REQUESTED: "return.requested",
+  RETURN_STATUS_CHANGED: "return.status_changed",
+  RETURN_PICKUP_OFFERED: "return_pickup.offered",
+  RETURN_PICKUP_UPDATED: "return_pickup.updated",
+  RETURN_REFUND_ISSUED: "return.refund_issued",
+  IMAGE_UPLOADED: "image.uploaded",
   RIDER_EARNING_SLOT_SAVED: "rider_earning_slot.saved",
   RIDER_INCENTIVE_SAVED: "rider_incentive.saved",
 

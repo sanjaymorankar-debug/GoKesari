@@ -204,6 +204,13 @@
       "when": 1790775660120,
       "tag": "0028_phase_d_rider_earnings",
       "breakpoints": true
+    },
+    {
+      "idx": 29,
+      "version": "7",
+      "when": 1790776685874,
+      "tag": "0029_phase_e_returns_images",
+      "breakpoints": true
     }
   ]
 }

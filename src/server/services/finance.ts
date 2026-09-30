@@ -956,8 +956,9 @@ export async function getRiderEarningsView(deliveryPartnerId: string, limit = 50
       payoutStatus: riderPayouts.status,
     })
     .from(deliveryPartnerEarnings)
-    .innerJoin(deliveryOrders, eq(deliveryPartnerEarnings.deliveryOrderId, deliveryOrders.id))
-    .innerJoin(orders, eq(deliveryOrders.orderId, orders.id))
+    // Left joins: a return-pickup earning has no delivery order of its own.
+    .leftJoin(deliveryOrders, eq(deliveryPartnerEarnings.deliveryOrderId, deliveryOrders.id))
+    .leftJoin(orders, eq(deliveryOrders.orderId, orders.id))
     .leftJoin(riderPayouts, eq(deliveryPartnerEarnings.payoutId, riderPayouts.id))
     .where(eq(deliveryPartnerEarnings.deliveryPartnerId, deliveryPartnerId))
     .orderBy(desc(deliveryPartnerEarnings.createdAt))
@@ -973,8 +974,8 @@ export async function getRiderEarningsView(deliveryPartnerId: string, limit = 50
   return {
     earnings: earnings.map((e) => ({
       ...e.earning,
-      orderNumber: e.orderNumber,
-      deliveryStatus: e.deliveryStatus,
+      orderNumber: e.orderNumber ?? "Return pickup",
+      deliveryStatus: e.deliveryStatus ?? "RETURN_PICKUP",
       status: e.payoutStatus ?? "UNPAID",
     })),
     pendingEarningsPaise: Number(pendingEarnings.total),

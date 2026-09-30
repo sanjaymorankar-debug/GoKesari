@@ -325,6 +325,48 @@ export async function creditDeliveryEarnings(
   }
 }
 
+/**
+ * Flat fee for a completed return pickup (rule `returns.riderPickupFeePaise`,
+ * default: the base fee). Idempotent per pickup; journaled like any earning.
+ */
+export async function creditReturnPickupEarning(
+  returnPickupId: string,
+  deliveryPartnerId: string,
+  orderId: string,
+  client: DbClient = db,
+): Promise<DeliveryPartnerEarning> {
+  const existing = await client.query.deliveryPartnerEarnings.findFirst({
+    where: eq(deliveryPartnerEarnings.returnPickupId, returnPickupId),
+  });
+  if (existing) return existing;
+
+  const returns = await getRule("returns");
+  const fee = returns.riderPickupFeePaise ?? (await getActiveEarningsConfig()).baseFeePaise;
+  const [earning] = await client
+    .insert(deliveryPartnerEarnings)
+    .values({ deliveryPartnerId, returnPickupId, basePaise: fee, distancePaise: 0, totalPaise: fee })
+    .onConflictDoNothing()
+    .returning();
+  if (!earning) {
+    const row = await client.query.deliveryPartnerEarnings.findFirst({
+      where: eq(deliveryPartnerEarnings.returnPickupId, returnPickupId),
+    });
+    if (row) return row;
+    throw conflict("Could not record the return pickup earning.");
+  }
+  if (fee > 0) {
+    await client.insert(riderEarningsLedger).values({
+      deliveryPartnerId,
+      earningId: earning.id,
+      component: "BASE",
+      amountPaise: fee,
+      description: "Return pickup fee",
+    });
+  }
+  await postRiderEarning(earning, orderId, client);
+  return earning;
+}
+
 /** The audit lines behind one earning, oldest first. */
 export async function listEarningLines(earningIds: readonly string[]) {
   if (earningIds.length === 0) return [];

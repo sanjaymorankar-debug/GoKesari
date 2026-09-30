@@ -10,6 +10,7 @@ import { PERMISSIONS, can } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { deliveryPartners, type UserRole } from "@/server/db/schema";
 import { getMyActiveDeliveryDetail } from "@/server/services/delivery-assignment";
+import { getMyActiveReturnPickup } from "@/server/services/return-pickups";
 import { getRiderEarningsView, listAdjustments, listRiderPayouts } from "@/server/services/finance";
 import { getPartnerEarningsSummary } from "@/server/services/delivery-earnings";
 import { getMyDeliveryPartnerProfile } from "@/server/services/delivery-partners";
@@ -47,6 +48,7 @@ export default async function DeliveryPartnerStatusPage() {
     partner.status === "APPROVED"
       ? await Promise.all([getMyActiveDeliveryDetail(user.id), getPartnerEarningsSummary(partner.id)])
       : [null, { todayPaise: 0, totalPaise: 0, deliveryCount: 0 }];
+  const activeReturnPickup = partner.status === "APPROVED" ? await getMyActiveReturnPickup(user.id) : null;
   // Weekly payouts (GS-064) — what has been batched and paid to the rider's bank.
   const [payouts, earningsView, adjustments] =
     partner.status === "APPROVED"
@@ -123,6 +125,7 @@ export default async function DeliveryPartnerStatusPage() {
             <DeliveryPartnerDashboard
               isOnline={partner.isOnline}
               activeDelivery={activeDelivery}
+              activeReturnPickup={activeReturnPickup}
               earnings={earnings}
               rating={{ avgX100: partnerRating?.ratingAvgX100 ?? 0, count: partnerRating?.ratingCount ?? 0 }}
             />

@@ -7,11 +7,13 @@
  *  - Financial rows (wallet_transactions, order_items) are immutable once written.
  */
 import { sql } from "drizzle-orm";
+import { RETURN_CONDITIONS, RETURN_REASONS, RETURN_STATUSES, PICKUP_STATUSES } from "@/lib/return-states";
 import { SHOP_TYPE_KEYS } from "@/lib/shop-types";
 import {
   bigint,
   boolean,
   check,
+  customType,
   date,
   index,
   integer,
@@ -1797,9 +1799,10 @@ export const deliveryPartnerEarnings = pgTable(
     deliveryPartnerId: uuid("delivery_partner_id")
       .notNull()
       .references(() => deliveryPartners.id, { onDelete: "restrict" }),
-    deliveryOrderId: uuid("delivery_order_id")
-      .notNull()
-      .references(() => deliveryOrders.id, { onDelete: "restrict" }),
+    /** Null for a return-pickup earning (see returnPickupId). */
+    deliveryOrderId: uuid("delivery_order_id").references(() => deliveryOrders.id, { onDelete: "restrict" }),
+    /** Set for the flat fee a rider earns for collecting a customer return. */
+    returnPickupId: uuid("return_pickup_id"),
     basePaise: bigint("base_paise", { mode: "number" }).notNull(),
     distancePaise: bigint("distance_paise", { mode: "number" }).notNull(),
     /* Breakdown added with the slot/incentive engine. `totalPaise` is the net
@@ -1822,8 +1825,167 @@ export const deliveryPartnerEarnings = pgTable(
   },
   (t) => [
     uniqueIndex("delivery_partner_earnings_order_unique").on(t.deliveryOrderId),
+    uniqueIndex("delivery_partner_earnings_return_unique").on(t.returnPickupId),
     index("delivery_partner_earnings_payout_idx").on(t.payoutId),
     index("delivery_partner_earnings_partner_idx").on(t.deliveryPartnerId),
+  ],
+);
+
+/* ------------------------------------------------------- stored images
+ * Uploaded images (product photos, return evidence). Kept in the database so
+ * they survive redeploys on hosts with an ephemeral filesystem; the browser
+ * shrinks them before upload (components/image-uploader.tsx) and the server
+ * re-validates type, size and dimensions (services/image-store.ts).
+ */
+const bytea = customType<{ data: Buffer; default: false }>({
+  dataType() {
+    return "bytea";
+  },
+});
+
+export const storedImages = pgTable(
+  "stored_images",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
+    purpose: text("purpose", { enum: ["PRODUCT", "RETURN_EVIDENCE"] }).notNull(),
+    contentType: text("content_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    sha256: text("sha256").notNull(),
+    data: bytea("data").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("stored_images_owner_idx").on(t.ownerId), index("stored_images_sha_idx").on(t.sha256)],
+);
+
+/* ------------------------------------------------------------- returns
+ * Request → validation → approval → pickup → inspection → refund
+ * (lib/return-states.ts has the state machine; services/returns.ts drives it).
+ */
+export const returnRequests = pgTable(
+  "return_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    returnNumber: text("return_number").notNull(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "restrict" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    status: text("status", { enum: RETURN_STATUSES }).notNull().default("RETURN_REQUESTED"),
+    reason: text("reason", { enum: RETURN_REASONS }).notNull(),
+    comment: text("comment"),
+    /** Goods-only value of the requested items, worked out at request time. */
+    refundAmountPaise: bigint("refund_amount_paise", { mode: "number" }).notNull(),
+    /** Who bears the refund, decided by the reason's policy when the request is made. */
+    chargeTo: text("charge_to", { enum: ["SHOP", "PLATFORM"] }).notNull(),
+    /** True when a rider collects the goods; false when the customer hands them to the shop. */
+    pickupRequired: boolean("pickup_required").notNull().default(true),
+    pickupAddress: jsonb("pickup_address").$type<Record<string, unknown>>(),
+    /** Set once the refund has actually been paid; the amount may be lower than requested after inspection. */
+    refundedPaise: bigint("refunded_paise", { mode: "number" }),
+    refundAdjustmentId: uuid("refund_adjustment_id"),
+    decidedBy: uuid("decided_by").references(() => users.id),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decisionNote: text("decision_note"),
+    inspectedBy: uuid("inspected_by").references(() => users.id),
+    inspectedAt: timestamp("inspected_at", { withTimezone: true }),
+    inspectionNote: text("inspection_note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("return_requests_number_unique").on(t.returnNumber),
+    index("return_requests_order_idx").on(t.orderId),
+    index("return_requests_user_idx").on(t.userId, t.createdAt),
+    index("return_requests_shop_status_idx").on(t.shopId, t.status),
+    check("return_requests_refund_non_negative", sql`${t.refundAmountPaise} >= 0`),
+  ],
+);
+
+export const returnItems = pgTable(
+  "return_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    returnId: uuid("return_id")
+      .notNull()
+      .references(() => returnRequests.id, { onDelete: "cascade" }),
+    orderItemId: uuid("order_item_id")
+      .notNull()
+      .references(() => orderItems.id, { onDelete: "restrict" }),
+    /** Milli-units being returned (same scale as order_items.quantity_milli). */
+    quantityMilli: integer("quantity_milli").notNull(),
+    condition: text("condition", { enum: RETURN_CONDITIONS }).notNull(),
+    comment: text("comment"),
+    /** stored_images ids showing the item. */
+    imageIds: jsonb("image_ids").$type<string[]>().notNull().default([]),
+    refundPaise: bigint("refund_paise", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("return_items_return_idx").on(t.returnId),
+    index("return_items_order_item_idx").on(t.orderItemId),
+    check("return_items_quantity_positive", sql`${t.quantityMilli} > 0`),
+  ],
+);
+
+export const returnStatusHistory = pgTable(
+  "return_status_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    returnId: uuid("return_id")
+      .notNull()
+      .references(() => returnRequests.id, { onDelete: "cascade" }),
+    fromStatus: text("from_status", { enum: RETURN_STATUSES }),
+    toStatus: text("to_status", { enum: RETURN_STATUSES }).notNull(),
+    changedBy: uuid("changed_by").references(() => users.id),
+    changedByRole: text("changed_by_role"),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("return_status_history_return_idx").on(t.returnId, t.createdAt)],
+);
+
+/** A rider's collection of returned goods from the customer, back to the shop. */
+export const returnPickups = pgTable(
+  "return_pickups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    returnId: uuid("return_id")
+      .notNull()
+      .references(() => returnRequests.id, { onDelete: "cascade" }),
+    deliveryPartnerId: uuid("delivery_partner_id").references(() => deliveryPartners.id, { onDelete: "restrict" }),
+    status: text("status", { enum: PICKUP_STATUSES }).notNull().default("PENDING"),
+    /** Window the customer is asked to be ready in (start); the rider sees it. */
+    scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
+    /** Read out by the customer at handover; the rider must enter it. Never sent to the rider. */
+    handoverCode: text("handover_code").notNull(),
+    handoverAttempts: integer("handover_attempts").notNull().default(0),
+    offeredAt: timestamp("offered_at", { withTimezone: true }),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    enRouteAt: timestamp("en_route_at", { withTimezone: true }),
+    pickedUpAt: timestamp("picked_up_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+    failureReason: text("failure_reason"),
+    /** Riders who declined or let the offer lapse — never re-offered this pickup. */
+    rejectedPartnerIds: uuid("rejected_partner_ids").array().notNull().default(sql`'{}'::uuid[]`),
+    attempts: integer("attempts").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("return_pickups_return_idx").on(t.returnId),
+    index("return_pickups_partner_idx").on(t.deliveryPartnerId, t.status),
+    // One live pickup per return.
+    uniqueIndex("return_pickups_one_live")
+      .on(t.returnId)
+      .where(sql`${t.status} IN ('PENDING','OFFERED','ACCEPTED','EN_ROUTE')`),
   ],
 );
 
@@ -3789,3 +3951,8 @@ export type RiderEarningSlot = typeof riderEarningSlots.$inferSelect;
 export type RiderIncentiveRule = typeof riderIncentiveRules.$inferSelect;
 export type RiderIncentiveAward = typeof riderIncentiveAwards.$inferSelect;
 export type RiderEarningsLedgerLine = typeof riderEarningsLedger.$inferSelect;
+export type StoredImage = typeof storedImages.$inferSelect;
+export type ReturnRequest = typeof returnRequests.$inferSelect;
+export type ReturnItem = typeof returnItems.$inferSelect;
+export type ReturnStatusHistoryRow = typeof returnStatusHistory.$inferSelect;
+export type ReturnPickup = typeof returnPickups.$inferSelect;
