@@ -62,6 +62,28 @@ export const RULES = {
       notifyShopAfterAttempts: 1,
     },
   },
+  riderEarnings: {
+    description:
+      "Rider earnings: per-order minimum, and how failed or cancelled-after-pickup deliveries and late drops are paid.",
+    schema: z.object({
+      /** Floor for one order's earning when no slot sets its own. */
+      minimumEarningPaise: int(0, 1_000_000),
+      /** % of the computed earning paid when the drop failed (the rider made the trip). */
+      failedDeliveryPayoutPercent: int(0, 100),
+      /** % paid when the customer cancelled after the rider had picked up (D10: rider still paid). */
+      cancelledAfterPickupPayoutPercent: int(0, 100),
+      /** Flat deduction when a delivery is later than promised by more than the grace; 0 disables. */
+      latePenaltyPaise: int(0, 1_000_000),
+      lateGraceMinutes: int(0, 240),
+    }),
+    defaults: {
+      minimumEarningPaise: 0,
+      failedDeliveryPayoutPercent: 100,
+      cancelledAfterPickupPayoutPercent: 100,
+      latePenaltyPaise: 0,
+      lateGraceMinutes: 15,
+    },
+  },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;

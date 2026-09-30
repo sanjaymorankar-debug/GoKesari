@@ -165,6 +165,8 @@ export const AUDIT_ACTIONS = {
   RISK_RULES_RUN: "risk.rules_run",
   RISK_FLAG_REVIEWED: "risk.flag_reviewed",
   DELIVERY_EARNINGS_CONFIG_CHANGED: "delivery_earnings_config.changed",
+  RIDER_EARNING_SLOT_SAVED: "rider_earning_slot.saved",
+  RIDER_INCENTIVE_SAVED: "rider_incentive.saved",
 
   /* ------------------------------------ product master data platform */
   PMD_PRODUCT_PROMOTED: "pmd.product_promoted",

@@ -1802,6 +1802,17 @@ export const deliveryPartnerEarnings = pgTable(
       .references(() => deliveryOrders.id, { onDelete: "restrict" }),
     basePaise: bigint("base_paise", { mode: "number" }).notNull(),
     distancePaise: bigint("distance_paise", { mode: "number" }).notNull(),
+    /* Breakdown added with the slot/incentive engine. `totalPaise` is the net
+     * the rider is paid: base + distance + order component + slot incentive +
+     * minimum top-up + order incentive + other incentive − deductions. */
+    orderComponentPaise: bigint("order_component_paise", { mode: "number" }).notNull().default(0),
+    slotIncentivePaise: bigint("slot_incentive_paise", { mode: "number" }).notNull().default(0),
+    minTopUpPaise: bigint("min_top_up_paise", { mode: "number" }).notNull().default(0),
+    orderIncentivePaise: bigint("order_incentive_paise", { mode: "number" }).notNull().default(0),
+    otherIncentivePaise: bigint("other_incentive_paise", { mode: "number" }).notNull().default(0),
+    deductionsPaise: bigint("deductions_paise", { mode: "number" }).notNull().default(0),
+    /** The slot whose rates applied (null when none matched and the default rates were used). */
+    slotId: uuid("slot_id"),
     totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
     /** Set when this earning is included in a rider payout batch (GS-064). */
     payoutId: uuid("payout_id"),
@@ -1814,6 +1825,143 @@ export const deliveryPartnerEarnings = pgTable(
     index("delivery_partner_earnings_payout_idx").on(t.payoutId),
     index("delivery_partner_earnings_partner_idx").on(t.deliveryPartnerId),
   ],
+);
+
+/* ------------------------------------------------- rider earnings engine
+ * Configurable slots (Morning / Evening / custom range), each with its own
+ * rates, plus incentive rules. Every completed delivery's earning is computed
+ * from these (services/delivery-earnings.ts) and written as a breakdown on
+ * delivery_partner_earnings plus append-only lines in rider_earnings_ledger.
+ */
+
+/** Local-time window (APP_TIMEZONE) with its own earning rates. NULL rates fall back to the default config. */
+export const riderEarningSlots = pgTable(
+  "rider_earning_slots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    /** "HH:MM" local start (inclusive) and end (exclusive); end < start means the window crosses midnight. */
+    startTime: text("start_time").notNull(),
+    endTime: text("end_time").notNull(),
+    /** Weekdays (0 = Sunday .. 6) the slot applies to; empty = every day. */
+    daysOfWeek: jsonb("days_of_week").$type<number[]>().notNull().default([]),
+    baseFeePaise: bigint("base_fee_paise", { mode: "number" }),
+    perKmFeePaise: bigint("per_km_fee_paise", { mode: "number" }),
+    /** Floor for one order's earning in this slot (before incentives). */
+    minEarningPaise: bigint("min_earning_paise", { mode: "number" }),
+    /** Order-based component: flat amount plus a share of the order subtotal (basis points). */
+    orderFeePaise: bigint("order_fee_paise", { mode: "number" }).notNull().default(0),
+    orderPercentBp: integer("order_percent_bp").notNull().default(0),
+    /** Peak-period component paid on top in this slot. */
+    peakBonusPaise: bigint("peak_bonus_paise", { mode: "number" }).notNull().default(0),
+    isPeak: boolean("is_peak").notNull().default(false),
+    /** The highest-priority active slot containing the delivery time wins. */
+    priority: integer("priority").notNull().default(0),
+    validFrom: date("valid_from"),
+    validTo: date("valid_to"),
+    isActive: boolean("is_active").notNull().default(true),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("rider_slots_percent_range", sql`${t.orderPercentBp} BETWEEN 0 AND 10000`),
+    check(
+      "rider_slots_amounts_non_negative",
+      sql`${t.orderFeePaise} >= 0 AND ${t.peakBonusPaise} >= 0
+          AND (${t.baseFeePaise} IS NULL OR ${t.baseFeePaise} >= 0)
+          AND (${t.perKmFeePaise} IS NULL OR ${t.perKmFeePaise} >= 0)
+          AND (${t.minEarningPaise} IS NULL OR ${t.minEarningPaise} >= 0)`,
+    ),
+  ],
+);
+
+/**
+ * Incentive rules. `thresholdValue` is in orders for ORDER_COUNT / DAILY_TARGET /
+ * WEEKLY_TARGET and in metres for DISTANCE.
+ *  ORDER_COUNT   — `rewardPaise` on every delivery beyond the Nth in the period
+ *  DAILY_TARGET  — one-off reward on the delivery that reaches N in a day
+ *  WEEKLY_TARGET — one-off reward on the delivery that reaches N in a week
+ *  DISTANCE      — reward on a delivery whose leg is at least the threshold
+ *  PEAK_HOUR     — reward on a delivery inside the rule's own time window
+ *  CAMPAIGN      — reward on every delivery while the campaign window is live
+ */
+export const riderIncentiveRules = pgTable(
+  "rider_incentive_rules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    description: text("description"),
+    type: text("type", {
+      enum: ["ORDER_COUNT", "DAILY_TARGET", "WEEKLY_TARGET", "DISTANCE", "PEAK_HOUR", "CAMPAIGN"],
+    }).notNull(),
+    thresholdValue: integer("threshold_value").notNull().default(0),
+    rewardPaise: bigint("reward_paise", { mode: "number" }).notNull(),
+    /** ORDER_COUNT counts deliveries per DAY or per WEEK. */
+    period: text("period", { enum: ["DAY", "WEEK"] }).notNull().default("DAY"),
+    startTime: text("start_time"),
+    endTime: text("end_time"),
+    daysOfWeek: jsonb("days_of_week").$type<number[]>().notNull().default([]),
+    validFrom: date("valid_from"),
+    validTo: date("valid_to"),
+    isActive: boolean("is_active").notNull().default(true),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("rider_incentive_reward_positive", sql`${t.rewardPaise} > 0`)],
+);
+
+/** One row per incentive actually paid; the unique key stops a target being paid twice for the same period. */
+export const riderIncentiveAwards = pgTable(
+  "rider_incentive_awards",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ruleId: uuid("rule_id")
+      .notNull()
+      .references(() => riderIncentiveRules.id, { onDelete: "restrict" }),
+    deliveryPartnerId: uuid("delivery_partner_id")
+      .notNull()
+      .references(() => deliveryPartners.id, { onDelete: "restrict" }),
+    earningId: uuid("earning_id").references(() => deliveryPartnerEarnings.id, { onDelete: "set null" }),
+    /** Day key, ISO-week key, or the delivery order id for per-order rewards. */
+    periodKey: text("period_key").notNull(),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("rider_incentive_awards_unique").on(t.ruleId, t.deliveryPartnerId, t.periodKey)],
+);
+
+/** Append-only audit lines behind every earning: the components sum to the earning's net total. */
+export const riderEarningsLedger = pgTable(
+  "rider_earnings_ledger",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deliveryPartnerId: uuid("delivery_partner_id")
+      .notNull()
+      .references(() => deliveryPartners.id, { onDelete: "restrict" }),
+    earningId: uuid("earning_id")
+      .notNull()
+      .references(() => deliveryPartnerEarnings.id, { onDelete: "cascade" }),
+    deliveryOrderId: uuid("delivery_order_id").references(() => deliveryOrders.id, { onDelete: "set null" }),
+    component: text("component", {
+      enum: [
+        "BASE",
+        "DISTANCE",
+        "ORDER_COMPONENT",
+        "SLOT_INCENTIVE",
+        "MIN_TOP_UP",
+        "ORDER_INCENTIVE",
+        "OTHER_INCENTIVE",
+        "DEDUCTION",
+      ],
+    }).notNull(),
+    /** Signed: deductions are negative. */
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    description: text("description").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("rider_earnings_ledger_earning_idx").on(t.earningId), index("rider_earnings_ledger_partner_idx").on(t.deliveryPartnerId, t.createdAt)],
 );
 
 /* ------------------------------------------------------------- payments */
@@ -3637,3 +3785,7 @@ export type RiskSubject = (typeof riskSubjectEnum.enumValues)[number];
 export type RiskFlagStatus = (typeof riskFlagStatusEnum.enumValues)[number];
 export type RiderSearch = typeof riderSearches.$inferSelect;
 export type DispatchAttempt = typeof dispatchAttempts.$inferSelect;
+export type RiderEarningSlot = typeof riderEarningSlots.$inferSelect;
+export type RiderIncentiveRule = typeof riderIncentiveRules.$inferSelect;
+export type RiderIncentiveAward = typeof riderIncentiveAwards.$inferSelect;
+export type RiderEarningsLedgerLine = typeof riderEarningsLedger.$inferSelect;
