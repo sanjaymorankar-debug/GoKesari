@@ -51,6 +51,15 @@ Query: `onlineOnly=true` to restrict to online-purchasable offerings.
 Requires `shop:create`. Always creates a shop with status `PENDING_APPROVAL`
 and no classification; both are server-assigned and cannot be supplied.
 
+At least one of `shopActNumber`, `panNumber` or `udyamNumber` is required
+(422 with all three fields highlighted otherwise). `panHolderName` is required
+with `panNumber`. Values are normalised before they are stored or compared
+(`src/lib/shop-identity.ts`): case, spaces, hyphens and slashes don't matter;
+PAN must be `AAAAA9999A`; Udyam is stored as `UDYAM-XX-00-0000000`, an old
+Udyog Aadhaar number as e.g. `MH26A0012345`, and a bare 12-digit number is
+refused (it cannot be told apart from a personal Aadhaar number). The PAN is
+stored encrypted and compared only through a keyed hash.
+
 ```json
 {
   "name": "Kesari Dairy",
@@ -61,15 +70,64 @@ and no classification; both are server-assigned and cannot be supplied.
   "pincode": "411038",
   "shopType": "DAIRY",
   "deliveryAvailable": true,
-  "deliveryFeePaise": 2000
+  "deliveryFeePaise": 2000,
+  "shopActNumber": "PII/KOTHRUD/II/12345",
+  "panNumber": "ABCDE1234F",
+  "panHolderName": "Owner Name",
+  "udyamNumber": "UDYAM-MH-26-0012345"
 }
 ```
 
+Duplicate registrations (`src/server/services/shop-duplicates.ts`):
+
+| Existing registration | Matched on | Result |
+|---|---|---|
+| Pending, approved, suspended or inactive | same Shop Act licence; or same PAN / Udyam at the same place (same PIN code and same shop name or first address line); or the same account's shop of the same name at the same PIN code | **409** `CONFLICT`, nothing written |
+| Rejected, same account | any of the above | **200**, that registration is updated and back in `PENDING_APPROVAL` (same id and registration number), `"resubmitted": true` |
+| Rejected, another account | — | ignored: a new registration is created (**201**) |
+
+A 409 body names the identifier that matched (masked) and the existing
+registration's state, and never anything else about that shop:
+
+```json
+{
+  "error": {
+    "code": "CONFLICT",
+    "message": "PAN number already registered (XXXXXX234F). This shop is already registered and is waiting for admin approval. You'll be notified once it's reviewed. You don't need to submit again.",
+    "details": {
+      "reason": "DUPLICATE_SHOP",
+      "matchedOn": "PAN",
+      "shopStatus": "PENDING_APPROVAL",
+      "fields": { "panNumber": "PAN number already registered (XXXXXX234F)" }
+    }
+  }
+}
+```
+
+`matchedOn` is one of `SHOP_ACT`, `PAN`, `UDYAM`, `NAME_AND_PIN`. An operator
+registering on someone's behalf also gets `matchedShopId` and
+`matchedRegistrationNumber`. Two simultaneous submissions of the same shop are
+serialised by the server, so a double-click creates one registration.
+
+### `POST /api/shops/duplicate-check`
+Requires `shop:create`; rate-limited to 20 a minute per user. The registration
+form's early warning — the same rules as registration, advisory only (the
+registration re-checks). Body: any of `shopActNumber`, `panNumber`,
+`udyamNumber`, plus `name`, `addressLine1`, `pincode` for the same-place rules.
+Returns `{ "status": "CLEAR" }`,
+`{ "status": "RESUBMISSION", "message": "…" }` (the caller's own rejected
+registration), or
+`{ "status": "DUPLICATE", "matchedOn", "field", "fieldMessage", "shopStatus", "message" }`.
+A badly formatted number is a 422 with `details.fields`.
+
 ### `POST /api/shops/{id}/approve`
-Requires `shop:approve` (Operator/Admin). Body: `{ "classification": "KESARI" | "GREEN" }`
+Requires `shop:approve` (Operator/Admin). Body: `{ "classification": "KESARI" | "GREEN" }`.
+Notifies the owner. 409 if the shop was rejected and its Shop Act licence is
+now held by another live registration.
 
 ### `POST /api/shops/{id}/reject`
-Requires `shop:reject`. Body: `{ "reason": "…" }`
+Requires `shop:reject`. Body: `{ "reason": "…" }`. Notifies the owner, who
+can correct the details and resubmit.
 
 ### `GET|POST /api/shops/{id}/classification`
 Requires `shop:set-classification` — **not held by shop owners**.

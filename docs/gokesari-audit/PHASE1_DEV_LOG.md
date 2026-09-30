@@ -527,3 +527,46 @@ Tasks 7–11 had been written without a typecheck (47 errors). Each was rewired 
 - Reinstate: SUSPENDED to ACTIVE with a reason (audited `user.reinstated`); ACTIVE, unknown and deleted targets give 409, 404, 409; an OPERATOR gets 403; the user can sign in again; a rider profile stays SUSPENDED
 - Suspend shop: a second concurrent suspend or a concurrent reject gives 409 and only one `shop.suspended` audit row
 - Risk page 409: the flag closed by another reviewer just before Confirm shows "another reviewer had already closed this flag" and a Refresh list button, not the "could not be marked actioned" error
+
+---
+
+## Duplicate shop registration fix (2026-09-29)
+
+Branch `fix/shop-duplicate-registration` (from `origin/staging` 8193ec6). Development only — not tested.
+
+### Root cause
+- `registerShop()` inserted unconditionally — no lookup by owner, name, address or any licence number
+- The only unique keys on `shops` (`slug`, `registration_number`) are generated per insert, so identical submissions never collide
+- No Shop Act or Udyam column existed; PAN was collected only after registration, AES-GCM encrypted with a random IV, so two copies of one PAN never compare equal
+- The Submit button's `busy` flag was set inside a React 19 form action, whose state updates don't render until the action finishes — a double-click sent two POSTs. The same form action also made React reset the form after every server error, wiping what the owner had typed
+- `/shop/register` never checked for an existing shop, the dashboard shows only the newest shop, and a rejected shop had no resubmit path
+
+### Completed
+- Identifiers on registration: Shop Act / Gumasta, PAN (+ name on card), Udyam / Udyog Aadhaar — at least one required by `POST /api/shops`; normalised in `src/lib/shop-identity.ts`; placeholders (NA, NIL, 0000…) and bare 12-digit numbers refused
+- `src/server/services/shop-duplicates.ts`: Shop Act match always blocks; PAN/Udyam match blocks only at the same place (same PIN code + same name or first address line); same account + same name + same PIN code blocks; Pending/Approved/Suspended/Inactive block with the brief's messages (identifier masked, nothing about the other shop); same account's Rejected registration is updated and resubmitted; another account's Rejected one is ignored
+- Race safety: transaction-scoped advisory locks per identifier, taken in sorted order; partial unique index on `shop_act_key` as the backstop; unique violation mapped to 409 in register / approve / status change
+- PAN: `pan_hash` = HMAC-SHA256 under an HKDF sub-key of `PAN_ENCRYPTION_KEY` (no new env var); PAN still stored encrypted; `submitPan` runs the same guard and writes the hash
+- Form: new "Business registration" section; on-blur pre-check (`POST /api/shops/duplicate-check`, rate-limited, POST so numbers stay out of URLs); `onSubmit` handler instead of a form action (button disabled at once, typed values kept on errors) + a synchronous ref guard, spinner while submitting
+- `/shop/register` warns about the owner's own pending shop and explains resubmission; rejected alert on `/shop` links to resubmit
+- Owners now get in-app notifications on approval and rejection (the duplicate message promises one)
+- Audit: `shop.resubmitted`, `shop.duplicate_blocked` (identifiers masked)
+- Read-only duplicate report (`scripts/shop-duplicate-report.sql` / `.ts`) and PAN-hash backfill (`scripts/backfill-shop-pan-hash.ts`, dry run by default)
+
+### Database
+- Migration `0024_shop_identity_dedup`: `shops.pan_hash`, `shop_act_number`, `shop_act_key`, `udyam_number`; `shops_shop_act_key_active_unique` (partial: not null, not deleted, not REJECTED); `shops_pan_hash_idx`, `shops_udyam_number_idx`; check `shops_shop_act_key_with_number`
+- Additive, new columns NULL — the unique index cannot fail on existing rows. Applied nowhere.
+
+### Deployment notes
+- DEPLOYMENT.md "Migration 0024": migrate, deploy, backfill PAN hashes, run the duplicate report
+
+### Known gaps
+- Shops registered before this release have no Shop Act / Udyam number, so only the same-account name + PIN rule and PAN (after backfill) can match them
+- No UI to add or correct a Shop Act / Udyam number after registration (only via resubmission of a rejected shop)
+- The approval queue doesn't flag "same PAN as another shop elsewhere" (allowed as a branch)
+- The report's name grouping uses Postgres `[:alnum:]`, which may treat non-Latin names differently from the app's check
+
+### Testing handoff (not performed here)
+- `tests/unit/shop-identity.test.ts`, `tests/integration/shop-duplicate-registration.test.ts` (written, not run)
+- Brief's cases: new shop allowed; same PAN while pending blocked; same Udyam while approved blocked; same Shop Act with different spacing/case blocked; rejected shop updates the existing record; double-click creates one record (service-level race + browser double-click)
+- Also: same PAN at another place allowed (branch); suspended blocked; another account's rejected record → new record; approve of a rejected shop whose licence is now live → 409; operator sees matched shop id; messages never show the other shop's name or full PAN; `/api/shops` 422 with no identifier, 201/409/200; pre-check CLEAR/DUPLICATE/RESUBMISSION, 422 on bad format, 429 after 20/min
+- Regression: existing registration, GST/PAN and approval flows; `/shop/register` form in a browser (pending notice, spinner, PAN holder field appears)

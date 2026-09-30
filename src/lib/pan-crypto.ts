@@ -61,3 +61,19 @@ export const decryptPan = decryptSecret;
 export function maskPan(last4: string): string {
   return `XXXXXX${last4}`;
 }
+
+/**
+ * Deterministic keyed hash ("blind index") of a normalised PAN, so the same
+ * PAN on two shops can be found without storing it in plaintext — the
+ * AES-GCM ciphertext above uses a random IV, so two encryptions of one PAN
+ * never compare equal. HMAC-SHA256 under a sub-key derived from
+ * PAN_ENCRYPTION_KEY with HKDF: a separate key for a separate purpose, with
+ * nothing new to configure. Rotating PAN_ENCRYPTION_KEY means recomputing
+ * these as well (scripts/backfill-shop-pan-hash.ts).
+ */
+export function panBlindIndex(normalizedPan: string): string {
+  const subKey = Buffer.from(
+    crypto.hkdfSync("sha256", getKey(), Buffer.alloc(0), "gokesari:pan-blind-index:v1", 32),
+  );
+  return crypto.createHmac("sha256", subKey).update(normalizedPan, "utf8").digest("hex");
+}

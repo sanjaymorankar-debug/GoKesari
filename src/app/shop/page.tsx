@@ -114,6 +114,12 @@ export default async function ShopDashboardPage() {
         <div className="mb-6">
           <Alert tone="danger" title="Registration rejected">
             {shop.rejectionReason ?? "Please contact support for details."}
+            <span className="mt-2 block">
+              <Link href="/shop/register" className="font-medium underline">
+                Correct the details and resubmit
+              </Link>{" "}
+              — this updates the same registration; it does not create a new one.
+            </span>
           </Alert>
         </div>
       ) : null}

@@ -709,6 +709,25 @@ export const shops = pgTable(
     panVerifiedAt: timestamp("pan_verified_at", { withTimezone: true }),
     panVerifiedBy: uuid("pan_verified_by").references(() => users.id),
     /**
+     * HMAC-SHA256 blind index of the normalised PAN (lib/pan-crypto.ts
+     * panBlindIndex) — lets the duplicate-registration check find the same
+     * PAN on another shop without the PAN ever being stored in plaintext.
+     */
+    panHash: text("pan_hash"),
+
+    /* ---------------------------------------- duplicate-registration guard.
+     * Business identifiers checked before a shop is registered, so the same
+     * shop cannot be registered twice (services/shop-duplicates.ts). Stored
+     * normalised (lib/shop-identity.ts) so every check compares like with
+     * like. At least one of Shop Act / PAN / Udyam is required by the
+     * registration API; shops registered before this existed have none. */
+    /** Shop Act / Gumasta licence number as entered — trimmed, uppercased — for display. */
+    shopActNumber: text("shop_act_number"),
+    /** shopActNumber reduced to letters and digits: the matching key. */
+    shopActKey: text("shop_act_key"),
+    /** Udyam number as UDYAM-XX-00-0000000, or an old Udyog Aadhaar number (MH26A0012345). */
+    udyamNumber: text("udyam_number"),
+    /**
      * Shop-specific return/refund terms shown to buyers before purchase. Null
      * means the platform default (Refund & Cancellation Policy) applies.
      */
@@ -749,6 +768,27 @@ export const shops = pgTable(
     index("shops_pincode_idx").on(t.pincode),
     index("shops_fee_status_idx").on(t.feePaymentStatus),
     index("shops_referral_idx").on(t.referralCodeId),
+    // A Shop Act licence belongs to exactly one establishment, so it is a
+    // hard duplicate key across every live registration — the safety net
+    // behind the service-level check if two submissions race. REJECTED rows
+    // are excluded so a rejected applicant's record never blocks the real
+    // owner. PAN and Udyam are deliberately NOT unique: one owner's PAN or
+    // one enterprise's Udyam number legitimately covers several branches.
+    uniqueIndex("shops_shop_act_key_active_unique")
+      .on(t.shopActKey)
+      .where(
+        sql`${t.shopActKey} IS NOT NULL AND ${t.deletedAt} IS NULL AND ${t.status} <> 'REJECTED'`,
+      ),
+    index("shops_pan_hash_idx")
+      .on(t.panHash)
+      .where(sql`${t.panHash} IS NOT NULL`),
+    index("shops_udyam_number_idx")
+      .on(t.udyamNumber)
+      .where(sql`${t.udyamNumber} IS NOT NULL`),
+    check(
+      "shops_shop_act_key_with_number",
+      sql`(${t.shopActNumber} IS NULL) = (${t.shopActKey} IS NULL)`,
+    ),
     check(
       "shops_delivery_fee_non_negative",
       sql`${t.deliveryFeePaise} >= 0`,
