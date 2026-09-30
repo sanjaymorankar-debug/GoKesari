@@ -52,11 +52,11 @@ export default async function RootLayout({
           balancePaise={wallet?.balancePaise ?? null}
           unreadCount={unread}
         />
-        <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
+        <main className="mx-auto w-full max-w-[120rem] px-4 py-6 sm:px-6 sm:py-8 lg:px-8">
           {children}
         </main>
         <footer className="border-t border-cream-200 bg-white">
-          <div className="mx-auto max-w-6xl px-4 py-6 text-xs text-ink-500 sm:px-6">
+          <div className="mx-auto max-w-[120rem] px-4 py-6 text-xs text-ink-500 sm:px-6 lg:px-8">
             <p className="mb-1">
               Your Neighbourhood, Now Online — every local shop near you, in
               one directory.
