@@ -9,6 +9,7 @@
  * reports itself unavailable and the sign-in screen offers email only.
  */
 import { sendEmail } from "@/server/email/transport";
+import { renderOtpEmail } from "@/server/notifications/templates";
 
 export type OtpChannel = "EMAIL" | "SMS";
 
@@ -29,19 +30,8 @@ export const emailOtpProvider: OtpProvider = {
   channel: "EMAIL",
   isAvailable: () => true,
   async send({ to, code, expiryMinutes }) {
-    await sendEmail({
-      to,
-      subject: `${code} is your Gokesari sign-in code`,
-      text:
-        `Your Gokesari sign-in code is ${code}.\n\n` +
-        `It works once and expires in ${expiryMinutes} minutes. ` +
-        `If you did not ask for it, ignore this email — nobody can sign in without the code.\n`,
-      html:
-        `<p>Your Gokesari sign-in code is</p>` +
-        `<p style="font-size:28px;letter-spacing:6px;font-weight:600">${code}</p>` +
-        `<p style="color:#666;font-size:12px">It works once and expires in ${expiryMinutes} minutes. ` +
-        `If you did not ask for it, ignore this email.</p>`,
-    });
+    // Sent directly, never queued: a code must not sit in the notification tables.
+    await sendEmail({ to, ...renderOtpEmail(code, expiryMinutes) });
   },
 };
 

@@ -22,6 +22,7 @@ import { maskPhone, parsePhone } from "@/lib/phone";
 import { db } from "@/server/db";
 import { loginOtps, users, type User } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit, type AuditAction } from "@/server/services/audit";
+import { NOTIFICATION_TYPES, notifyEvent } from "@/server/services/notifications";
 import { getRule } from "@/server/services/settings";
 import { getProvider, type OtpChannel } from "./providers";
 
@@ -235,6 +236,9 @@ export async function verifyLoginOtp(input: {
     await db.update(users).set({ phoneVerifiedAt: new Date() }).where(eq(users.id, user.id));
   }
   await audit(AUDIT_ACTIONS.OTP_VERIFIED, user.id, { channel: otp.channel, otpId: otp.id });
+  await notifyEvent(NOTIFICATION_TYPES.SECURITY_SIGN_IN, user.id, {
+    at: new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: getEnv().APP_TIMEZONE }),
+  });
   return user;
 }
 
@@ -265,6 +269,7 @@ export async function linkPhone(
     entityId: userId,
     newValue: { phone: maskPhone(parsed.e164) },
   });
+  await notifyEvent(NOTIFICATION_TYPES.SECURITY_PHONE_CHANGED, userId, { action: "linked or changed" });
   return { phoneE164: parsed.e164 };
 }
 
@@ -281,4 +286,5 @@ export async function unlinkPhone(userId: string, role: User["role"]): Promise<v
     entityId: userId,
     newValue: { phone: null },
   });
+  await notifyEvent(NOTIFICATION_TYPES.SECURITY_PHONE_CHANGED, userId, { action: "removed" });
 }

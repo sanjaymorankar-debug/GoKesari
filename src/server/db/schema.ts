@@ -229,6 +229,7 @@ export const notificationChannelEnum = pgEnum("notification_channel", [
   "EMAIL",
   "SMS",
   "PUSH",
+  "WHATSAPP",
 ]);
 
 /* ------------------------------------- registration, fees & price approval */
@@ -2639,6 +2640,65 @@ export const notifications = pgTable(
   ],
 );
 
+/**
+ * A user's choice per notification category and channel. No row = the
+ * template's default applies. Security notices ignore these (always sent).
+ */
+export const notificationPreferences = pgTable(
+  "notification_preferences",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    category: text("category").notNull(),
+    channel: notificationChannelEnum("channel").notNull(),
+    enabled: boolean("enabled").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("notification_preferences_unique").on(t.userId, t.category, t.channel)],
+);
+
+/**
+ * Outbound (non in-app) delivery queue and log: one row per notification per
+ * channel. PENDING/FAILED rows are retried with backoff until `maxAttempts`,
+ * then marked DEAD; SKIPPED means the channel had nowhere to send (no provider,
+ * no address). The in-app inbox stays in `notifications`.
+ */
+export const notificationDeliveries = pgTable(
+  "notification_deliveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    notificationId: uuid("notification_id").references(() => notifications.id, { onDelete: "set null" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    type: text("type").notNull(),
+    category: text("category").notNull(),
+    channel: notificationChannelEnum("channel").notNull(),
+    status: text("status", { enum: ["PENDING", "SENDING", "SENT", "FAILED", "SKIPPED", "DEAD"] })
+      .notNull()
+      .default("PENDING"),
+    attempts: integer("attempts").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(4),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    lastError: text("last_error"),
+    providerRef: text("provider_ref"),
+    toAddress: text("to_address"),
+    subject: text("subject").notNull(),
+    body: text("body").notNull(),
+    html: text("html"),
+    actionUrl: text("action_url"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("notification_deliveries_due_idx").on(t.status, t.nextAttemptAt),
+    index("notification_deliveries_user_idx").on(t.userId, t.createdAt),
+  ],
+);
+
 /* --------------------------------------------------- registration fees */
 
 /**
@@ -3956,3 +4016,5 @@ export type ReturnRequest = typeof returnRequests.$inferSelect;
 export type ReturnItem = typeof returnItems.$inferSelect;
 export type ReturnStatusHistoryRow = typeof returnStatusHistory.$inferSelect;
 export type ReturnPickup = typeof returnPickups.$inferSelect;
+export type NotificationPreference = typeof notificationPreferences.$inferSelect;
+export type NotificationDelivery = typeof notificationDeliveries.$inferSelect;

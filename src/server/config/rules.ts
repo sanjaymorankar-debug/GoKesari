@@ -137,6 +137,17 @@ export const RULES = {
     }),
     defaults: { maxBytes: 2_000_000, maxDimensionPx: 4096, minDimensionPx: 100, maxPerProduct: 8 },
   },
+  notifications: {
+    description: "Notification delivery: retry schedule and batch size for outbound channels.",
+    schema: z.object({
+      /** Delivery attempts per outbound notification before it is marked dead. */
+      maxAttempts: int(1, 10),
+      /** Seconds to wait before attempt 2, 3, ...; the last value repeats. */
+      retryBackoffSeconds: z.array(int(10, 86_400)).min(1).max(10),
+      batchSize: int(1, 500),
+    }),
+    defaults: { maxAttempts: 4, retryBackoffSeconds: [60, 300, 1800], batchSize: 50 },
+  },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;

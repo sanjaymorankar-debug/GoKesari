@@ -1,13 +1,14 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { NotificationPreferences } from "@/components/notification-preferences";
 import { PhoneLinkForm } from "@/components/phone-link-form";
 import { MarketingConsentToggle } from "@/components/marketing-consent-toggle";
 import { Badge, Card, PageHeader } from "@/components/ui";
 import { ROLE_LABELS } from "@/server/authz/permissions";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getMarketingConsentStatus } from "@/server/services/consents";
-import { listNotifications } from "@/server/services/notifications";
+import { getPreferenceMatrix, listNotifications } from "@/server/services/notifications";
 import { signOut } from "@/server/auth";
 import { db } from "@/server/db";
 import { users } from "@/server/db/schema";
@@ -20,10 +21,11 @@ export default async function ProfilePage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
 
-  const [notifications, marketingConsent, phoneRow] = await Promise.all([
+  const [notifications, marketingConsent, phoneRow, preferences] = await Promise.all([
     listNotifications(user.id, { limit: 20 }),
     getMarketingConsentStatus(user.id),
     db.select({ phoneE164: users.phoneE164 }).from(users).where(eq(users.id, user.id)),
+    getPreferenceMatrix(user.id),
   ]);
 
   return (
@@ -75,6 +77,10 @@ export default async function ProfilePage() {
           lastChangedAt={marketingConsent.lastChangedAt}
         />
       </Card>
+
+      <div className="mb-6">
+        <NotificationPreferences initial={preferences} />
+      </div>
 
       <Card className="p-6">
         <h2 className="mb-3 text-base font-semibold text-ink-900">
