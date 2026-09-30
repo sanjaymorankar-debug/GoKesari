@@ -430,18 +430,24 @@ export function RiskReviewButtons({ flagId }: { flagId: string }) {
 
 type RiskSuspendSubject = "USER" | "SHOP" | "DELIVERY_PARTNER";
 
-const SUSPEND_COPY: Record<RiskSuspendSubject, { noun: string; effect: string }> = {
+const SUSPEND_COPY: Record<RiskSuspendSubject, { noun: string; reasonPlaceholder: string; effect: string }> = {
   USER: {
     noun: "account",
-    effect: "Signs them out and blocks sign-in. There is no reinstate action in the app yet.",
+    reasonPlaceholder: "Reason (internal note)",
+    effect:
+      "Signs them out and blocks sign-in. A delivery-partner profile they hold is suspended too, but any delivery they are carrying stays assigned to them until operations resolves it from Orders. Their subscriptions keep running and any shop they own stays open, so deal with those separately. Reinstating is an admin API call (POST /api/users/{id}/reinstate), not a screen, and a suspended rider profile stays suspended until you reactivate it from the delivery partner queue.",
   },
   SHOP: {
     noun: "shop",
-    effect: "Hides the shop and stops new orders. Open orders are not cancelled.",
+    reasonPlaceholder: "Reason (internal note)",
+    effect:
+      "Hides the shop and stops new orders. Open orders are not cancelled or refunded, and its customers' subscriptions stay active, so each subscriber is told every day that their delivery is unavailable. The owner is not notified and the reason is kept in the audit log only. Re-approving needs POST /api/shops/{id}/approve; there is no screen for it yet.",
   },
   DELIVERY_PARTNER: {
     noun: "delivery partner",
-    effect: "Stops new delivery offers and notifies the rider. Reactivate from the delivery partner queue.",
+    reasonPlaceholder: "Reason (shown to the rider)",
+    effect:
+      "Takes them offline, stops new delivery offers and notifies them; the rider is shown the reason you type. A delivery they have accepted or picked up stays assigned to them but disappears from their app, so reassign it (accepted) or confirm or fail it (picked up) from Orders first. Reactivate from the delivery partner queue.",
   },
 };
 
@@ -453,14 +459,19 @@ function suspendRequest(subjectType: RiskSuspendSubject, subjectId: string, reas
   return { url: `/api/users/${subjectId}/suspend`, method: "POST", body: { reason } };
 }
 
-async function requestError(url: string, method: string, body: unknown): Promise<string | null> {
+interface RequestFailure {
+  status: number | null;
+  message: string;
+}
+
+async function requestFailure(url: string, method: string, body: unknown): Promise<RequestFailure | null> {
   try {
     const response = await fetch(url, { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
     if (response.ok) return null;
     const payload = await response.json().catch(() => null);
-    return payload?.error?.message ?? "That did not work.";
+    return { status: response.status, message: payload?.error?.message ?? "That did not work." };
   } catch {
-    return "Could not reach the server.";
+    return { status: null, message: "Could not reach the server." };
   }
 }
 
@@ -483,7 +494,8 @@ export function RiskSuspendButton({
   const [suspended, setSuspended] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
-  const { noun, effect } = SUSPEND_COPY[subjectType];
+  const [closedByOther, setClosedByOther] = useState(false);
+  const { noun, effect, reasonPlaceholder } = SUSPEND_COPY[subjectType];
 
   async function suspendAndClose() {
     const trimmed = reason.trim();
@@ -491,19 +503,25 @@ export function RiskSuspendButton({
     setError(null);
     setNotice(null);
     const suspend = suspendRequest(subjectType, subjectId, trimmed);
-    const suspendError = await requestError(suspend.url, suspend.method, suspend.body);
-    if (suspendError) {
+    const suspendFailure = await requestFailure(suspend.url, suspend.method, suspend.body);
+    if (suspendFailure) {
       setBusy(false);
-      setError(`The ${noun} was not suspended: ${suspendError}`);
+      setError(`The ${noun} was not suspended: ${suspendFailure.message}`);
       return;
     }
     setSuspended(true);
-    const flagError = await requestError(`/api/admin/risk/${flagId}`, "PATCH", { decision: "ACTIONED", note: `Suspended: ${trimmed}` });
+    const flagFailure = await requestFailure(`/api/admin/risk/${flagId}`, "PATCH", { decision: "ACTIONED", note: `Suspended: ${trimmed}` });
     setBusy(false);
     setOpen(false);
     setReason("");
-    if (flagError) {
-      setError(`The ${noun} WAS suspended, but this flag could not be marked actioned (${flagError}). Close it above with a note.`);
+    if (flagFailure?.status === 409) {
+      // Another reviewer closed this flag first. A refresh would drop the row and this message with it, so wait for the operator.
+      setNotice(`The ${noun} was suspended. Another reviewer had already closed this flag, so its review note is theirs.`);
+      setClosedByOther(true);
+      return;
+    }
+    if (flagFailure) {
+      setError(`The ${noun} WAS suspended, but this flag could not be marked actioned (${flagFailure.message}). Close it above with a note.`);
     } else {
       setNotice(`The ${noun} was suspended and the flag marked actioned.`);
     }
@@ -522,7 +540,7 @@ export function RiskSuspendButton({
                 className={`${inputClass} w-64`}
                 maxLength={480}
                 aria-label={`Reason for suspending this ${noun}`}
-                placeholder={`Why suspend this ${noun}?`}
+                placeholder={reasonPlaceholder}
                 value={reason}
                 onChange={(e) => setReason(e.target.value)}
               />
@@ -542,6 +560,11 @@ export function RiskSuspendButton({
         )
       ) : null}
       <Messages error={error} notice={notice} />
+      {closedByOther ? (
+        <Button size="sm" variant="secondary" onClick={() => router.refresh()}>
+          Refresh list
+        </Button>
+      ) : null}
     </div>
   );
 }

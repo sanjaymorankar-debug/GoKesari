@@ -18,7 +18,12 @@ export interface MonitoringRow {
 }
 
 const LIVE_DELIVERY = new Set(["OFFERED", "ACCEPTED", "PICKED_UP"]);
-const REASSIGNABLE_DELIVERY = new Set(["OFFERED", "ACCEPTED"]);
+const REASON_MAX = 500;
+
+// A stale OFFERED row on an order that has moved on would be cancelled and then fail to re-offer.
+function isReassignable(status: string, deliveryStatus: string | null): boolean {
+  return (status === "READY" && deliveryStatus === "OFFERED") || (status === "ASSIGNED" && deliveryStatus === "ACCEPTED");
+}
 
 export function OrderMonitoringTable({
   orders,
@@ -34,9 +39,11 @@ export function OrderMonitoringTable({
   async function assign(orderId: string, reassign: boolean) {
     let reason: string | undefined;
     if (reassign) {
-      const input = window.prompt("Reason for reassigning this delivery?");
+      const input = window.prompt(
+        "Reason for reassigning this delivery? The current rider is removed first; if nobody else is free the order goes back to Ready with no rider.",
+      );
       if (input === null) return;
-      reason = input.trim() || undefined;
+      reason = input.trim().slice(0, REASON_MAX) || undefined;
     }
     setBusyId(orderId);
     setError(null);
@@ -49,9 +56,14 @@ export function OrderMonitoringTable({
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
         setError(payload?.error?.message ?? "Action failed.");
+        // A failed reassign can already have cancelled the old assignment, so show the order's real state.
+        if (reassign) router.refresh();
         return;
       }
       router.refresh();
+    } catch {
+      setError("Could not reach the server. Check the connection and try again.");
+      if (reassign) router.refresh();
     } finally {
       setBusyId(null);
     }
@@ -86,7 +98,7 @@ export function OrderMonitoringTable({
             {orders.map((order) => {
               const hasLiveDelivery = !!order.deliveryStatus && LIVE_DELIVERY.has(order.deliveryStatus);
               const canAssign = order.status === "READY" && !hasLiveDelivery;
-              const canReassignDelivery = !!order.deliveryStatus && REASSIGNABLE_DELIVERY.has(order.deliveryStatus);
+              const canReassignDelivery = isReassignable(order.status, order.deliveryStatus);
               const busy = busyId === order.id;
               return (
                 <tr key={order.id} className="border-b hover:bg-gray-50">

@@ -22,6 +22,10 @@ export const OPS_EXCEPTION_THRESHOLDS = {
   shopAcceptOther: 10,
   // Minutes unaccepted after which the order is critical whatever its window.
   shopAcceptCritical: 30,
+  // Hours a confirmed subscription order may sit unaccepted: it has no promised time and is created ahead of the shop's day.
+  shopAcceptSubscriptionHours: 4,
+  // Hours unaccepted after which a subscription order is critical: the day's delivery is at risk.
+  shopAcceptSubscriptionCriticalHours: 8,
   // Minutes allowed past the shop's own preparation_time_minutes, counted from acceptance.
   prepGraceAfterPrepTime: 10,
   // Minutes a proposed substitute may wait for the customer; it blocks READY until answered.
@@ -52,6 +56,8 @@ export const OPS_EXCEPTION_THRESHOLDS = {
   disputeCriticalHours: SETTLEMENT_HOLD_DAYS * 24,
   // Seconds an OFFERED row may exist before the dispatch sweep looks down: two offer TTLs.
   dispatchSweepStaleSeconds: OFFER_TTL_SECONDS * 2,
+  // Seconds between dispatch sweep runs: an expired offer is normally re-offered within one interval.
+  dispatchSweepIntervalSeconds: 60,
   // Flat speed for leg ETAs, the same as ASSUMED_AVERAGE_SPEED_KMH in delivery-feasibility.ts.
   legSpeedKmh: 20,
   // Wrong delivery-code attempts that lock the rider out (MAX_OTP_ATTEMPTS in delivery-assignment.ts).
@@ -143,6 +149,8 @@ export interface OpsExceptionRow {
   orderNumber: string;
   shopId: string;
   shopName: string;
+  shopHasLocation: boolean;
+  customerId: string;
   customerName: string | null;
   orderStatus: OrderStatus;
   category: OpsExceptionCategory;
@@ -268,7 +276,9 @@ interface CandidateOrder {
   shopHasLocation: boolean;
   preparationMinutes: number;
   serviceRadiusKm: number;
+  customerId: string;
   customerName: string | null;
+  isPickup: boolean;
   substitutionSince: number | null;
   delivery: CandidateDelivery | null;
 }
@@ -278,8 +288,13 @@ function parseCandidate(row: Record<string, unknown>): CandidateOrder | null {
   const orderId = text(row.order_id);
   const orderNumber = text(row.order_number);
   const shopId = text(row.shop_id);
+  const customerId = text(row.customer_id);
   const enteredAt = num(row.entered_ms);
-  if (!isOrderStatus(status) || !orderId || !orderNumber || !shopId || enteredAt == null) return null;
+  if (!isOrderStatus(status) || !orderId || !orderNumber || !shopId || !customerId || enteredAt == null) return null;
+
+  // assignNearestPartner stores the rider-to-shop distance when the address has no coordinates, so it is
+  // not the shop-to-customer distance the leg ETAs need.
+  const customerHasCoords = row.customer_has_coords === true;
 
   const deliveryStatus = row.delivery_status;
   const delivery: CandidateDelivery | null = isDeliveryStatus(deliveryStatus)
@@ -291,7 +306,7 @@ function parseCandidate(row: Record<string, unknown>): CandidateOrder | null {
         outForDeliveryAt: num(row.out_for_delivery_ms),
         failedAt: num(row.failed_ms),
         failureReason: text(row.failure_reason),
-        distanceKm: kilometres(row.distance_km),
+        distanceKm: customerHasCoords ? kilometres(row.distance_km) : null,
         otpAttempts: num(row.delivery_otp_attempts) ?? 0,
         rejectedCount: num(row.rejected_count) ?? 0,
         riderName: text(row.rider_name) ?? "The rider",
@@ -318,7 +333,9 @@ function parseCandidate(row: Record<string, unknown>): CandidateOrder | null {
     shopHasLocation: row.shop_has_location === true,
     preparationMinutes: num(row.preparation_time_minutes) ?? 0,
     serviceRadiusKm: num(row.service_radius_km) ?? 0,
+    customerId,
     customerName: text(row.customer_name),
+    isPickup: row.is_pickup === true,
     substitutionSince: num(row.substitution_ms),
     delivery,
   };
@@ -370,9 +387,11 @@ function noRiderReason(order: CandidateOrder, now: number): string {
   if (!delivery) return "No rider has been offered this order yet.";
   if (delivery.status === "OFFERED" && delivery.offeredAt != null) {
     const expiresAt = delivery.offeredAt + OFFER_TTL_SECONDS * 1000;
-    return now > expiresAt
-      ? `The offer to ${delivery.riderName} ran out ${ago(expiresAt, now)} but was not passed to another rider, which the dispatch sweep should have done.`
-      : `Offered to ${delivery.riderName} ${ago(delivery.offeredAt, now)}; waiting for an answer.`;
+    if (now <= expiresAt) return `Offered to ${delivery.riderName} ${ago(delivery.offeredAt, now)}; waiting for an answer.`;
+    if (now <= expiresAt + T.dispatchSweepIntervalSeconds * 1000) {
+      return `The offer to ${delivery.riderName} ran out ${ago(expiresAt, now)}; the next dispatch sweep will re-offer it.`;
+    }
+    return `The offer to ${delivery.riderName} ran out ${ago(expiresAt, now)} but was not passed to another rider, which the dispatch sweep should have done.`;
   }
   if (delivery.status === "REJECTED" || delivery.status === "CANCELLED") {
     const declined = delivery.rejectedCount;
@@ -385,8 +404,17 @@ function noRiderReason(order: CandidateOrder, now: number): string {
 
 const DETECTORS: Record<OpsExceptionCategory, Detector> = {
   SHOP_NOT_ACCEPTING(order, now) {
-    if (order.status !== "CONFIRMED" || order.source !== "DIRECT") return null;
+    if (order.status !== "CONFIRMED") return null;
     const waited = now - order.enteredAt;
+    if (order.source === "SUBSCRIPTION") {
+      if (waited <= T.shopAcceptSubscriptionHours * HOUR_MS) return null;
+      return {
+        severity: waited > T.shopAcceptSubscriptionCriticalHours * HOUR_MS ? "CRITICAL" : "WARNING",
+        since: order.enteredAt,
+        clockLabel: "waiting for the shop to accept",
+        detail: `This subscription delivery was confirmed ${ago(order.enteredAt, now)} and the shop has not accepted it. The customer's delivery for the day is at risk.`,
+      };
+    }
     const limit = order.deliveryWindow === "EXPRESS_30" ? T.shopAcceptExpress : T.shopAcceptOther;
     if (waited <= limit * MINUTE_MS) return null;
     const cannotMakePromise =
@@ -432,7 +460,7 @@ const DETECTORS: Record<OpsExceptionCategory, Detector> = {
   },
 
   NO_RIDER(order, now) {
-    if (order.status !== "READY" || !order.shopDeliveryAvailable) return null;
+    if (order.status !== "READY" || !order.shopDeliveryAvailable || order.isPickup) return null;
     const waited = now - order.enteredAt;
     if (waited <= T.noRiderWarning * MINUTE_MS) return null;
     return {
@@ -444,7 +472,8 @@ const DETECTORS: Record<OpsExceptionCategory, Detector> = {
   },
 
   SELF_DELIVERY_OVERDUE(order, now) {
-    if (order.status !== "READY" || order.shopDeliveryAvailable) return null;
+    // A pickup order has no address: the customer collects it, so there is no hand-over to chase.
+    if (order.status !== "READY" || order.shopDeliveryAvailable || order.isPickup) return null;
     const waited = now - order.enteredAt;
     const pastPromise = order.promisedByAt != null && now > order.promisedByAt;
     if (waited <= T.selfDeliveryReady * MINUTE_MS && !pastPromise) return null;
@@ -605,6 +634,8 @@ function toRow(order: CandidateOrder, hit: Detection & { category: OpsExceptionC
     orderNumber: order.orderNumber,
     shopId: order.shopId,
     shopName: order.shopName,
+    shopHasLocation: order.shopHasLocation,
+    customerId: order.customerId,
     customerName: order.customerName,
     orderStatus: order.status,
     category: hit.category,
@@ -653,7 +684,13 @@ const CANDIDATES_QUERY = sql`
     s.preparation_time_minutes,
     s.service_radius_km,
     (s.latitude is not null and s.longitude is not null) as shop_has_location,
+    u.id as customer_id,
     u.name as customer_name,
+    (o.delivery_address_snapshot is null or jsonb_typeof(o.delivery_address_snapshot) = 'null') as is_pickup,
+    (
+      nullif(o.delivery_address_snapshot ->> 'latitude', '') is not null
+      and nullif(o.delivery_address_snapshot ->> 'longitude', '') is not null
+    ) as customer_has_coords,
     d.status as delivery_status,
     (extract(epoch from d.offered_at) * 1000)::float8 as offered_ms,
     (extract(epoch from d.accepted_at) * 1000)::float8 as rider_accepted_ms,

@@ -262,6 +262,8 @@ export default async function OpsExceptionsPage({
                   isCod: row.isCod,
                   isPaid: row.isPaid,
                   totalPaise: row.totalPaise,
+                  shopHasLocation: row.shopHasLocation,
+                  isOwnOrder: row.customerId === user.id,
                 }}
                 canUpdateStatus={canUpdateStatus}
                 canManageDelivery={canManageDelivery}

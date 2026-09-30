@@ -158,6 +158,9 @@ export default async function RiskPage({
                 {f.status === "OPEN" && f.subjectStatus === "SUSPENDED" ? (
                   <span>Already suspended — record what you checked and close the flag.</span>
                 ) : null}
+                {f.status === "OPEN" && f.subjectIsAdmin ? (
+                  <span>Admin account — it cannot be suspended from here. Remove its admin role first.</span>
+                ) : null}
               </div>
               <p className="text-xs text-ink-400">
                 First seen {f.firstDetectedAt.toLocaleString("en-IN")} · last {f.lastDetectedAt.toLocaleString("en-IN")} · detected {f.occurrences}×
@@ -171,7 +174,11 @@ export default async function RiskPage({
                       flagId={f.id}
                       subjectType={f.subjectType}
                       subjectId={f.subjectId}
-                      available={f.subjectStatus === SUSPENDABLE_FROM[f.subjectType] && !(f.subjectType === "USER" && f.subjectId === user.id)}
+                      available={
+                        f.subjectStatus === SUSPENDABLE_FROM[f.subjectType] &&
+                        !f.subjectIsAdmin &&
+                        !(f.subjectType === "USER" && f.subjectId === user.id)
+                      }
                     />
                   ) : null}
                 </div>

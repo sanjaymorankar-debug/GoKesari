@@ -26,6 +26,7 @@ export const AUDIT_ACTIONS = {
   WALLET_TOPUP_VERIFIED: "wallet.topup_verified",
   USER_ROLE_CHANGED: "user.role_changed",
   USER_SUSPENDED: "user.suspended",
+  USER_REINSTATED: "user.reinstated",
   ORDER_STATUS_CHANGED: "order.status_changed",
   ORDER_PLACED: "order.placed",
   SUBSCRIPTION_CREATED: "subscription.created",

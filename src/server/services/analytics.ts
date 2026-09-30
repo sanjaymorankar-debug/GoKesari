@@ -240,12 +240,18 @@ export async function getMarketplaceKpis(window: KpiWindow): Promise<Marketplace
       select count(*) filter (where d.accepted_at is not null)::int as accepted,
         coalesce(sum(cardinality(d.rejected_partner_ids)), 0)::int as declined
       from delivery_orders d where d.offered_at >= ${start} and d.offered_at < ${end}`);
+    // An open session ends at last heartbeat + idle cap; rows count only if that effective end falls inside the window.
     const online = await one(sql`
-      select coalesce(sum(extract(epoch from (
-        least(coalesce(s.ended_at, least(now(), greatest(p.last_location_at, s.started_at) + make_interval(mins => ${RIDER_IDLE_CAP_MINUTES}))), ${end})
-        - greatest(s.started_at, ${start})))), 0) / 3600.0 as hours
-      from delivery_partner_sessions s join delivery_partners p on p.id = s.delivery_partner_id
-      where s.started_at < ${end} and coalesce(s.ended_at, now()) > ${start}`);
+      select coalesce(sum(greatest(0, extract(epoch from (e.end_at - greatest(s.started_at, ${start}))))), 0) / 3600.0 as hours
+      from delivery_partner_sessions s
+      join delivery_partners p on p.id = s.delivery_partner_id
+      cross join lateral (
+        select least(
+          coalesce(s.ended_at, least(now(), greatest(p.last_location_at, s.started_at) + make_interval(mins => ${RIDER_IDLE_CAP_MINUTES}))),
+          ${end}
+        ) as end_at
+      ) e
+      where s.started_at < ${end} and e.end_at > greatest(s.started_at, ${start})`);
     const busy = await one(sql`
       select coalesce(sum(extract(epoch from (
         least(coalesce(d.delivered_at, d.failed_at, d.cancelled_at, now()), ${end}) - greatest(d.accepted_at, ${start})))), 0) / 3600.0 as hours

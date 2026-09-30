@@ -17,9 +17,12 @@ export interface OpsExceptionActionOrder {
   isCod: boolean;
   isPaid: boolean;
   totalPaise: number;
+  shopHasLocation: boolean;
+  /** The signed-in operator placed this order, so the status route treats a cancel as a customer self-cancel. */
+  isOwnOrder: boolean;
 }
 
-type Panel = "cancel" | "reassign" | "confirm" | "returned" | "close" | "refund";
+type Panel = "cancel" | "reassign" | "confirm" | "returned" | "close" | "refund" | "delivered";
 
 const CANCELLABLE_STATUSES = new Set([
   "CONFIRMED",
@@ -34,6 +37,11 @@ const CANCELLABLE_STATUSES = new Set([
 ]);
 const PRE_PICKUP_STATUSES = new Set(["CONFIRMED", "ACCEPTED", "PREPARING", "READY", "ASSIGNED"]);
 const LIVE_DELIVERY_STATUSES = new Set(["OFFERED", "ACCEPTED", "PICKED_UP"]);
+const HAND_OVER_CATEGORIES: ReadonlySet<OpsExceptionCategory> = new Set<OpsExceptionCategory>([
+  "SELF_DELIVERY_OVERDUE",
+  "STUCK_AFTER_PICKUP",
+  "LATE",
+]);
 
 const CANCEL_REASON = { min: 5, max: 300 };
 const REASSIGN_REASON = { min: 3, max: 500 };
@@ -75,15 +83,17 @@ export function OpsExceptionActions({
   const amount = formatPaise(order.totalPaise);
 
   const showAccept = canUpdateStatus && category === "SHOP_NOT_ACCEPTING" && order.orderStatus === "CONFIRMED";
-  const showFindRider =
-    canManageDelivery && category === "NO_RIDER" && order.orderStatus === "READY" && !hasLiveDelivery;
+  const findRiderApplies = category === "NO_RIDER" && order.orderStatus === "READY" && !hasLiveDelivery;
+  const showFindRider = canManageDelivery && order.shopHasLocation && findRiderApplies;
   const reassignLabel =
     category === "NO_RIDER" && order.deliveryStatus === "OFFERED" && order.orderStatus === "READY"
       ? "Re-send offer"
       : category === "RIDER_NOT_PICKED_UP" && order.deliveryStatus === "ACCEPTED" && order.orderStatus === "ASSIGNED"
         ? "Reassign rider"
         : null;
-  const showReassign = canManageDelivery && reassignLabel != null;
+  const showReassign = canManageDelivery && order.shopHasLocation && reassignLabel != null;
+  const showLocationNote =
+    canManageDelivery && !order.shopHasLocation && (findRiderApplies || reassignLabel != null);
   const showConfirm =
     canManageDelivery &&
     (category === "STUCK_AFTER_PICKUP" || category === "OTP_LOCKED") &&
@@ -92,18 +102,52 @@ export function OpsExceptionActions({
   const showReturned = canUpdateStatus && category === "FAILED_DELIVERY" && order.orderStatus === "FAILED";
   const showClose = canUpdateStatus && category === "DISPUTED" && order.orderStatus === "DISPUTED";
   const showRefund = canRefund && category === "DISPUTED" && order.orderStatus === "DISPUTED" && order.totalPaise > 0;
-  const showCancel =
+  const showDelivered =
+    canUpdateStatus &&
+    HAND_OVER_CATEGORIES.has(category) &&
+    (order.orderStatus === "READY" || order.orderStatus === "OUT_FOR_DELIVERY") &&
+    !hasLiveDelivery;
+  const cancelApplies =
     canUpdateStatus &&
     category !== "DISPUTED" &&
     CANCELLABLE_STATUSES.has(order.orderStatus) &&
     (category !== "LATE" || PRE_PICKUP_STATUSES.has(order.orderStatus));
+  const showCancel = cancelApplies && !order.isOwnOrder;
+  const showOwnOrderNote = cancelApplies && order.isOwnOrder;
 
-  if (!showAccept && !showFindRider && !showReassign && !showConfirm && !showReturned && !showClose && !showRefund && !showCancel) {
-    return null;
+  const hasButtons =
+    showAccept ||
+    showFindRider ||
+    showReassign ||
+    showConfirm ||
+    showReturned ||
+    showClose ||
+    showRefund ||
+    showDelivered ||
+    showCancel;
+  if (!hasButtons && !showLocationNote && !showOwnOrderNote) return null;
+
+  // An open panel is shown only while its button still applies to the row's current state.
+  const panelAllowed: Record<Panel, boolean> = {
+    cancel: showCancel,
+    reassign: showReassign,
+    confirm: showConfirm,
+    returned: showReturned,
+    close: showClose,
+    refund: showRefund,
+    delivered: showDelivered,
+  };
+  const activePanel = panel !== null && panelAllowed[panel] ? panel : null;
+
+  function reset() {
+    setPanel(null);
+    setNote("");
+    setCashCollected(false);
+    setConfirming(false);
   }
 
   function open(next: Panel) {
-    setPanel((current) => (current === next ? null : next));
+    setPanel(activePanel === next ? null : next);
     setNote("");
     setCashCollected(false);
     setConfirming(false);
@@ -111,13 +155,12 @@ export function OpsExceptionActions({
   }
 
   function close() {
-    setPanel(null);
-    setNote("");
-    setCashCollected(false);
-    setConfirming(false);
+    reset();
+    setError(null);
   }
 
-  async function send(url: string, method: "POST" | "PATCH", body: unknown) {
+  // refreshOnError: a rider assignment change is not atomic, so a failed call can still have altered the order.
+  async function send(url: string, method: "POST" | "PATCH", body: unknown, refreshOnError = false) {
     setBusy(true);
     setError(null);
     try {
@@ -128,13 +171,16 @@ export function OpsExceptionActions({
       });
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
-        setError(payload?.error?.message ?? "That did not work. Refresh the page and try again.");
+        const message = payload?.error?.message ?? "That did not work. Refresh the page and try again.";
+        setError(refreshOnError ? `${message} The order may have changed, so the list has been refreshed.` : message);
+        if (refreshOnError) router.refresh();
         return;
       }
-      close();
+      reset();
       router.refresh();
     } catch {
       setError("Could not reach the server. Check the connection and try again.");
+      if (refreshOnError) router.refresh();
     } finally {
       setBusy(false);
     }
@@ -148,12 +194,12 @@ export function OpsExceptionActions({
       <div className="flex flex-wrap items-center gap-2">
         {showAccept ? (
           <Button size="sm" disabled={busy} onClick={() => send(`${base}/fulfilment`, "POST", { action: "accept" })}>
-            {busy && panel === null ? "Accepting…" : "Accept for shop"}
+            {busy && activePanel === null ? "Accepting…" : "Accept for shop"}
           </Button>
         ) : null}
         {showFindRider ? (
-          <Button size="sm" disabled={busy} onClick={() => send(`${base}/assign`, "POST", {})}>
-            {busy && panel === null ? "Finding a rider…" : "Find rider"}
+          <Button size="sm" disabled={busy} onClick={() => send(`${base}/assign`, "POST", {}, true)}>
+            {busy && activePanel === null ? "Finding a rider…" : "Find rider"}
           </Button>
         ) : null}
         {showReassign ? (
@@ -181,6 +227,11 @@ export function OpsExceptionActions({
             Refund
           </Button>
         ) : null}
+        {showDelivered ? (
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => open("delivered")}>
+            Mark delivered
+          </Button>
+        ) : null}
         {showCancel ? (
           <Button size="sm" variant="secondary" disabled={busy} onClick={() => open("cancel")}>
             {refundDue ? "Cancel & refund" : "Cancel order"}
@@ -188,12 +239,24 @@ export function OpsExceptionActions({
         ) : null}
       </div>
 
-      {panel === "reassign" ? (
+      {showLocationNote ? (
+        <p className="text-xs text-ink-500">
+          Riders cannot be matched until the shop has a location on file. Add the shop&apos;s location first.
+        </p>
+      ) : null}
+      {showOwnOrderNote ? (
+        <p className="text-xs text-ink-500">
+          You placed this order, so cancelling it from here would count as a customer cancel and is refused or limited
+          once the shop has started on it. Ask another operator to cancel it.
+        </p>
+      ) : null}
+
+      {activePanel === "reassign" ? (
         <div className="space-y-2 rounded-lg border border-cream-200 bg-cream-50 p-3">
           <p className="text-xs text-ink-600">
             {order.deliveryStatus === "OFFERED"
-              ? "Cancels the current offer and runs rider matching again."
-              : "Takes the order off the current rider and runs rider matching again."}{" "}
+              ? "Cancels the current offer first, then runs rider matching again. If no rider is free the offer stays cancelled and the dispatch sweep retries about every minute."
+              : "Takes the order off the current rider first, so they can no longer collect it, then runs rider matching again. If no other rider is free the order goes back to Ready with no rider and the dispatch sweep retries about every minute."}{" "}
             The current rider is not excluded and can be matched again if they are still the nearest free rider.
           </p>
           <Field label="Reason (recorded on the delivery and in the audit log)">
@@ -211,7 +274,7 @@ export function OpsExceptionActions({
             <Button
               size="sm"
               disabled={busy || trimmed.length < REASSIGN_REASON.min}
-              onClick={() => send(`${base}/assign`, "POST", { reassign: true, reason: trimmed })}
+              onClick={() => send(`${base}/assign`, "POST", { reassign: true, reason: trimmed }, true)}
             >
               {busy ? "Working…" : reassignLabel}
             </Button>
@@ -222,7 +285,7 @@ export function OpsExceptionActions({
         </div>
       ) : null}
 
-      {panel === "confirm" ? (
+      {activePanel === "confirm" ? (
         <div className="space-y-2 rounded-lg border border-cream-200 bg-cream-50 p-3">
           <Field label="How was the hand-over confirmed?">
             <textarea
@@ -268,7 +331,7 @@ export function OpsExceptionActions({
         </div>
       ) : null}
 
-      {panel === "returned" ? (
+      {activePanel === "returned" ? (
         <div className="space-y-2 rounded-lg border border-cream-200 bg-cream-50 p-3">
           <p className="text-xs text-ink-600">Only do this once the shop confirms it has the goods back.</p>
           <Field label="Note (optional)">
@@ -296,7 +359,7 @@ export function OpsExceptionActions({
         </div>
       ) : null}
 
-      {panel === "close" ? (
+      {activePanel === "close" ? (
         <div className="space-y-2 rounded-lg border border-cream-200 bg-cream-50 p-3">
           <p className="text-xs text-ink-600">
             Marks the order delivered again with no money returned. The shop is then paid for it as normal.
@@ -328,20 +391,66 @@ export function OpsExceptionActions({
         </div>
       ) : null}
 
-      {panel === "refund" ? (
+      {activePanel === "refund" ? (
         <div className="space-y-2 rounded-lg border border-cream-200 bg-cream-50 p-3">
           <p className="text-xs text-ink-600">
             Up to {amount} can be refunded to the customer&apos;s wallet. A full refund closes the dispute; a partial
             refund leaves it open.
           </p>
-          <RefundDeliveredForm initialOrderNumber={order.orderNumber} />
+          <RefundDeliveredForm initialOrderNumber={order.orderNumber} lockOrderNumber />
           <Button size="sm" variant="ghost" onClick={close}>
             Back
           </Button>
         </div>
       ) : null}
 
-      {panel === "cancel" ? (
+      {activePanel === "delivered" ? (
+        <div className="space-y-2 rounded-lg border border-cream-200 bg-cream-50 p-3">
+          <p className="text-xs text-ink-600">
+            Marks the order delivered in the app. No rider is working on it, so only do this once the shop or the
+            customer confirms the hand-over.
+            {order.isCod ? ` This records the ${amount} cash payment as collected by the shop.` : ""}
+          </p>
+          <Field label="How was the hand-over confirmed?">
+            <textarea
+              className={inputClass}
+              rows={2}
+              maxLength={STATUS_NOTE.max}
+              placeholder="For example: the shop confirmed the customer collected it"
+              value={note}
+              onChange={(e) => setNote(e.target.value)}
+            />
+          </Field>
+          <p className="text-xs text-ink-500">
+            <LengthHint value={note} {...STATUS_NOTE} />
+          </p>
+          {order.isCod ? (
+            <label className="flex items-start gap-2 text-sm text-ink-700">
+              <input
+                type="checkbox"
+                className="mt-0.5"
+                checked={cashCollected}
+                onChange={(e) => setCashCollected(e.target.checked)}
+              />
+              <span>I have confirmed {amount} in cash was collected.</span>
+            </label>
+          ) : null}
+          <div className="flex flex-wrap gap-2">
+            <Button
+              size="sm"
+              disabled={busy || trimmed.length < STATUS_NOTE.min || (order.isCod && !cashCollected)}
+              onClick={() => send(`${base}/status`, "PATCH", { status: "DELIVERED", note: trimmed })}
+            >
+              {busy ? "Saving…" : "Yes, mark delivered"}
+            </Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={close}>
+              Back
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {activePanel === "cancel" ? (
         <div className="space-y-2 rounded-lg border border-red-200 bg-red-50 p-3">
           {!confirming ? (
             <>

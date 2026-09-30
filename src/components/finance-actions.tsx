@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Alert, Button, Field, inputClass } from "@/components/ui";
-import { rupeesToPaise } from "@/lib/money";
+import { formatPaise, rupeesToPaise } from "@/lib/money";
 
 /** Shared fetch + error handling for the finance console controls. */
 function useAction() {
@@ -221,19 +221,31 @@ export function CommissionRateForm({
 }
 
 /** Refund a delivered order to the customer's wallet (full, partial or item amount). */
-export function RefundDeliveredForm({ initialOrderNumber = "" }: { initialOrderNumber?: string }) {
+export function RefundDeliveredForm({
+  initialOrderNumber = "",
+  lockOrderNumber = false,
+}: {
+  initialOrderNumber?: string;
+  /** Embedded in one order's row: the order number is fixed and the refund needs a second click. */
+  lockOrderNumber?: boolean;
+}) {
   const { busy, error, notice, send } = useAction();
   const [orderNumber, setOrderNumber] = useState(initialOrderNumber);
   const [amount, setAmount] = useState("");
   const [reason, setReason] = useState("");
   const [chargeTo, setChargeTo] = useState<"SHOP" | "PLATFORM">("SHOP");
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
+  const [confirming, setConfirming] = useState(false);
+  const parsedAmount = Number(amount);
+  const convertedPaise = Number.isFinite(parsedAmount) && parsedAmount > 0 ? rupeesToPaise(parsedAmount) : 0;
+  const amountPaise = Number.isSafeInteger(convertedPaise) ? convertedPaise : 0;
 
   async function submit() {
+    setConfirming(false);
     const ok = await send(
       "/api/finance/refunds",
       "POST",
-      { orderNumber: orderNumber.trim(), amountPaise: rupeesToPaise(Number(amount)), reason, chargeTo, requestId },
+      { orderNumber: orderNumber.trim(), amountPaise, reason, chargeTo, requestId },
       "Refunded to the customer's wallet.",
     );
     if (ok) {
@@ -247,29 +259,69 @@ export function RefundDeliveredForm({ initialOrderNumber = "" }: { initialOrderN
   return (
     <div className="grid gap-3 sm:grid-cols-5">
       <Field label="Order number">
-        <input className={inputClass} value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} />
+        <input
+          className={inputClass}
+          value={orderNumber}
+          readOnly={lockOrderNumber}
+          onChange={(e) => setOrderNumber(e.target.value)}
+        />
       </Field>
       <Field label="Amount (₹)">
-        <input className={inputClass} type="number" min={0} step={0.01} value={amount} onChange={(e) => setAmount(e.target.value)} />
+        <input
+          className={inputClass}
+          type="number"
+          min={0}
+          step={0.01}
+          disabled={confirming}
+          value={amount}
+          onChange={(e) => setAmount(e.target.value)}
+        />
       </Field>
       <Field label="Charge to">
-        <select className={inputClass} value={chargeTo} onChange={(e) => setChargeTo(e.target.value as "SHOP" | "PLATFORM")}>
+        <select
+          className={inputClass}
+          disabled={confirming}
+          value={chargeTo}
+          onChange={(e) => setChargeTo(e.target.value as "SHOP" | "PLATFORM")}
+        >
           <option value="SHOP">Shop (its share, next settlement)</option>
           <option value="PLATFORM">Platform</option>
         </select>
       </Field>
       <Field label="Reason">
-        <input className={inputClass} maxLength={300} value={reason} onChange={(e) => setReason(e.target.value)} />
+        <input
+          className={inputClass}
+          maxLength={300}
+          disabled={confirming}
+          value={reason}
+          onChange={(e) => setReason(e.target.value)}
+        />
       </Field>
       <div className="flex items-end">
         <Button
           variant="danger"
-          disabled={busy || !orderNumber.trim() || !(Number(amount) > 0) || reason.trim().length < 3}
-          onClick={submit}
+          disabled={busy || confirming || !orderNumber.trim() || amountPaise <= 0 || reason.trim().length < 3}
+          onClick={lockOrderNumber ? () => setConfirming(true) : submit}
         >
           Refund
         </Button>
       </div>
+      {confirming ? (
+        <div className="space-y-2 sm:col-span-5">
+          <p className="text-sm text-red-900">
+            Refund {formatPaise(amountPaise)} on #{orderNumber.trim()} to the customer&apos;s wallet, charged to{" "}
+            {chargeTo === "SHOP" ? "the shop" : "the platform"}? This cannot be undone.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="danger" disabled={busy} onClick={submit}>
+              {busy ? "Refunding…" : "Yes, refund"}
+            </Button>
+            <Button size="sm" variant="ghost" disabled={busy} onClick={() => setConfirming(false)}>
+              Change details
+            </Button>
+          </div>
+        </div>
+      ) : null}
       <div className="sm:col-span-5">
         <Messages error={error} notice={notice} />
       </div>

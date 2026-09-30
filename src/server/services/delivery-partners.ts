@@ -29,6 +29,7 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { ACTIVE_ASSIGNMENT_STATUSES } from "./delivery-eligibility";
 import { grantRole } from "./roles";
 import { encryptKycInput, toPublicPartner, type PublicDeliveryPartner } from "./delivery-partner-kyc";
 import { resolveLocationVerification } from "./geocoding";
@@ -188,17 +189,12 @@ export async function countDeliveryPartnersByStatus(): Promise<Record<string, nu
 
 const TERMINAL_STATUSES: readonly DeliveryPartnerStatus[] = ["DEACTIVATED"];
 
-async function loadForTransition(id: string): Promise<DeliveryPartner> {
-  const current = await db.query.deliveryPartners.findFirst({
-    where: and(eq(deliveryPartners.id, id), isNull(deliveryPartners.deletedAt)),
-  });
-  if (!current) throw notFound("Delivery partner");
-  if (TERMINAL_STATUSES.includes(current.status)) {
-    throw conflict("This delivery partner has been deactivated and cannot be changed.");
-  }
-  return current;
-}
-
+/**
+ * Reads the partner FOR UPDATE inside the transaction, so the terminal-state
+ * check, the caller's `guard` and the audited previous value all see the
+ * committed row and a concurrent transition or go-online/offline cannot slip
+ * in between the check and the write.
+ */
 async function transition(
   id: string,
   actor: Actor,
@@ -207,12 +203,23 @@ async function transition(
     reviewNotes: string | null;
     rejectionReason: string | null;
   }>,
+  guard?: (current: DeliveryPartner) => void,
 ): Promise<PublicDeliveryPartner> {
-  const current = await loadForTransition(id);
-  // Only an APPROVED partner may be online, so any other status takes them offline in the same write.
-  const takeOffline = set.status !== undefined && set.status !== "APPROVED";
-
   return db.transaction(async (tx) => {
+    const [current] = await tx
+      .select()
+      .from(deliveryPartners)
+      .where(and(eq(deliveryPartners.id, id), isNull(deliveryPartners.deletedAt)))
+      .for("update");
+    if (!current) throw notFound("Delivery partner");
+    if (TERMINAL_STATUSES.includes(current.status)) {
+      throw conflict("This delivery partner has been deactivated and cannot be changed.");
+    }
+    guard?.(current);
+
+    // Only an APPROVED partner may be online: leaving APPROVED, or entering it from another status (which also
+    // clears an online flag left by an older build), always ends offline.
+    const takeOffline = set.status !== undefined && (set.status !== "APPROVED" || current.status !== "APPROVED");
     const now = new Date();
     const [updated] = await tx
       .update(deliveryPartners)
@@ -264,7 +271,6 @@ export async function approveDeliveryPartner(
   actor: Actor,
   notes?: string | null,
 ): Promise<PublicDeliveryPartner> {
-  const current = await loadForTransition(id);
   const updated = await transition(id, actor, {
     status: "APPROVED",
     reviewNotes: notes ?? null,
@@ -272,7 +278,7 @@ export async function approveDeliveryPartner(
   });
 
   await notify({
-    userId: current.userId,
+    userId: updated.userId,
     type: NOTIFICATION_TYPES.DELIVERY_PARTNER_APPROVED,
     title: "You're approved as a delivery partner",
     body: "Your application has been approved. Welcome aboard.",
@@ -287,11 +293,10 @@ export async function rejectDeliveryPartner(
   actor: Actor,
 ): Promise<PublicDeliveryPartner> {
   if (!reason.trim()) throw validationFailed("A rejection reason is required.");
-  const current = await loadForTransition(id);
   const updated = await transition(id, actor, { status: "REJECTED", rejectionReason: reason.trim() });
 
   await notify({
-    userId: current.userId,
+    userId: updated.userId,
     type: NOTIFICATION_TYPES.DELIVERY_PARTNER_REJECTED,
     title: "Your delivery partner application was not approved",
     body: reason.trim(),
@@ -307,14 +312,14 @@ export async function suspendDeliveryPartner(
   actor: Actor,
 ): Promise<PublicDeliveryPartner> {
   if (!reason.trim()) throw validationFailed("A suspension reason is required.");
-  const current = await loadForTransition(id);
-  if (current.status !== "APPROVED") {
-    throw conflict("Only an approved delivery partner can be suspended.");
-  }
-  const updated = await transition(id, actor, { status: "SUSPENDED", rejectionReason: reason.trim() });
+  const updated = await transition(id, actor, { status: "SUSPENDED", rejectionReason: reason.trim() }, (current) => {
+    if (current.status !== "APPROVED") {
+      throw conflict("Only an approved delivery partner can be suspended.");
+    }
+  });
 
   await notify({
-    userId: current.userId,
+    userId: updated.userId,
     type: NOTIFICATION_TYPES.DELIVERY_PARTNER_SUSPENDED,
     title: "Your delivery partner account has been suspended",
     body: reason.trim(),
@@ -324,11 +329,11 @@ export async function suspendDeliveryPartner(
 }
 
 export async function reactivateDeliveryPartner(id: string, actor: Actor): Promise<PublicDeliveryPartner> {
-  const current = await loadForTransition(id);
-  if (current.status !== "SUSPENDED") {
-    throw conflict("Only a suspended delivery partner can be reactivated.");
-  }
-  return transition(id, actor, { status: "APPROVED", rejectionReason: null });
+  return transition(id, actor, { status: "APPROVED", rejectionReason: null }, (current) => {
+    if (current.status !== "SUSPENDED") {
+      throw conflict("Only a suspended delivery partner can be reactivated.");
+    }
+  });
 }
 
 /** Permanent close-out — e.g. the partner asked to stop, or a serious policy violation. Terminal; no further transitions. */
@@ -474,24 +479,32 @@ export async function goOnline(
   });
 }
 
-const OFFLINE_BLOCKING_STATUSES = ["ACCEPTED", "PICKED_UP"] as const;
-
+/**
+ * Refused while the rider holds any active assignment (a pending offer too),
+ * the same set the dashboard disables the button on and analytics counts as busy.
+ */
 export async function goOffline(userId: string): Promise<PublicDeliveryPartner> {
   return db.transaction(async (tx) => {
     const partner = await lockMyPartner(tx, userId);
     if (!partner) throw notFound("Delivery partner profile");
 
     const [holding] = await tx
-      .select({ id: deliveryOrders.id })
+      .select({ status: deliveryOrders.status })
       .from(deliveryOrders)
       .where(
         and(
           eq(deliveryOrders.deliveryPartnerId, partner.id),
-          inArray(deliveryOrders.status, OFFLINE_BLOCKING_STATUSES),
+          inArray(deliveryOrders.status, ACTIVE_ASSIGNMENT_STATUSES),
         ),
       )
       .limit(1);
-    if (holding) throw conflict("Finish or hand back your current delivery before going offline.");
+    if (holding) {
+      throw conflict(
+        holding.status === "OFFERED"
+          ? "Accept or reject your pending delivery offer before going offline."
+          : "Finish or hand back your current delivery before going offline.",
+      );
+    }
 
     const now = new Date();
     const [updated] = await tx

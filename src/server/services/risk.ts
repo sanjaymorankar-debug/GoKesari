@@ -43,6 +43,7 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { findAdminUserIds } from "./users";
 
 interface Actor {
   id: string;
@@ -128,7 +129,7 @@ const RULES: Rule[] = [
     code: "HIGH_VALUE_OUTLIER",
     subject: "USER",
     severity: "MEDIUM",
-    label: "Order far above the customer's usual spend",
+    label: "Unusually large order",
     query: sql`with candidate as (
         select o.id, o.user_id, o.order_number, o.created_at, o.total_paise + o.refunded_paise as value_paise
         from orders o
@@ -171,7 +172,7 @@ const RULES: Rule[] = [
          or (s.prior_orders < 3 and s.value_paise >= 1000000)
       group by s.user_id`,
     describe: (r) =>
-      `${Number(r.count) === 1 ? "An order" : `${r.count} orders`} in the last 7 days far above this customer's usual spend: ${r.orders}`,
+      `${Number(r.count) === 1 ? "An order" : `${r.count} orders`} in the last 7 days unusually large for this customer: ${r.orders}`,
   },
   {
     code: "OTP_OVERRIDES",
@@ -303,6 +304,8 @@ export async function runRiskRules(actor: { id: string | null; role: UserRole | 
 export interface RiskFlagView extends RiskFlag {
   subjectName: string;
   subjectStatus: string | null;
+  /** A USER flag whose account is an admin (any ADMIN grant, not just the active role): it cannot be suspended. */
+  subjectIsAdmin: boolean;
   ruleLabel: string;
 }
 
@@ -341,6 +344,7 @@ export async function listRiskFlags(options: ListRiskFlagsOptions = {}): Promise
     )
     .orderBy(sql`case ${riskFlags.severity} when 'HIGH' then 0 when 'MEDIUM' then 1 else 2 end`, desc(riskFlags.lastDetectedAt))
     .limit(Math.min(options.limit ?? 200, 500));
+  const adminIds = await findAdminUserIds(rows.filter((r) => r.flag.subjectType === "USER").map((r) => r.flag.subjectId));
   return rows.map((r) => {
     const subject =
       r.flag.subjectType === "USER"
@@ -352,6 +356,7 @@ export async function listRiskFlags(options: ListRiskFlagsOptions = {}): Promise
       ...r.flag,
       subjectName: subject.name ?? `${r.flag.subjectType.toLowerCase()} ${r.flag.subjectId.slice(0, 8)}`,
       subjectStatus: subject.deletedAt ? "DELETED" : subject.status,
+      subjectIsAdmin: r.flag.subjectType === "USER" && adminIds.has(r.flag.subjectId),
       ruleLabel: RISK_RULE_LABELS[r.flag.ruleCode] ?? r.flag.ruleCode,
     };
   });

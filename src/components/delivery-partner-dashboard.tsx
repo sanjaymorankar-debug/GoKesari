@@ -53,8 +53,10 @@ const HEARTBEAT_TICK_MS = 5_000;
 const MAX_FIX_AGE_MS = 2 * 60_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 const LOCATION_TIMEOUT_MS = 20_000;
+// Outlasts the geolocation timeout, for browsers that never call either callback (Firefox "Not now").
+const GO_ONLINE_WATCHDOG_MS = LOCATION_TIMEOUT_MS + 10_000;
 
-type LocationIssue = "blocked" | "unauthorized" | null;
+type LocationIssue = "blocked" | "unauthorized" | "unavailable" | null;
 
 interface Fix {
   latitude: number;
@@ -76,8 +78,20 @@ function isStale(fix: Fix): boolean {
 function useLocationHeartbeat(enabled: boolean, intervalMs: number, onServerOffline: () => void): LocationIssue {
   const [blocked, setBlocked] = useState(false);
   const [unauthorized, setUnauthorized] = useState(false);
+  const [unavailable, setUnavailable] = useState(false);
   const [arm, setArm] = useState(0);
   const serverOffline = useEffectEvent(onServerOffline);
+
+  // Alerts from a previous online stretch must not resurface when the rider goes online again.
+  const [wasEnabled, setWasEnabled] = useState(enabled);
+  if (wasEnabled !== enabled) {
+    setWasEnabled(enabled);
+    if (!enabled) {
+      setBlocked(false);
+      setUnauthorized(false);
+      setUnavailable(false);
+    }
+  }
 
   useEffect(() => {
     if (!enabled || !("geolocation" in navigator)) return;
@@ -89,6 +103,8 @@ function useLocationHeartbeat(enabled: boolean, intervalMs: number, onServerOffl
     let denied = false;
     let disposed = false;
     let permission: PermissionStatus | null = null;
+    // When errors started with no fix in between; performance.now() pauses in sleep, so a wake-up never counts as a gap.
+    let failingSince: number | null = null;
 
     function remember(position: GeolocationPosition) {
       latest = {
@@ -97,32 +113,47 @@ function useLocationHeartbeat(enabled: boolean, intervalMs: number, onServerOffl
         receivedAt: performance.now(),
         receivedWallAt: Date.now(),
       };
+      failingSince = null;
       setBlocked(false);
+      setUnavailable(false);
     }
 
     function fail(err: GeolocationPositionError) {
-      if (err.code !== err.PERMISSION_DENIED) return;
-      denied = true;
-      setBlocked(true);
+      if (err.code === err.PERMISSION_DENIED) {
+        denied = true;
+        setBlocked(true);
+        return;
+      }
+      // POSITION_UNAVAILABLE / TIMEOUT: device location off, or no fix indoors. Tell the rider once it has lasted.
+      const now = performance.now();
+      if (failingSince === null) failingSince = now;
+      if (now - failingSince >= MAX_FIX_AGE_MS) setUnavailable(true);
     }
 
     // Some providers only report on movement, so a stationary rider needs an explicit fresh fix.
     function refresh() {
       if (refreshing || denied) return;
       refreshing = true;
-      geo.getCurrentPosition(
-        (position) => {
-          refreshing = false;
-          if (disposed) return;
-          remember(position);
-          sendIfDue();
-        },
-        (err) => {
-          refreshing = false;
-          if (!disposed) fail(err);
-        },
-        { enableHighAccuracy: true, maximumAge: 0, timeout: LOCATION_TIMEOUT_MS },
-      );
+      try {
+        geo.getCurrentPosition(
+          (position) => {
+            refreshing = false;
+            if (disposed) return;
+            remember(position);
+            sendIfDue();
+          },
+          (err) => {
+            refreshing = false;
+            if (!disposed) fail(err);
+          },
+          { enableHighAccuracy: true, maximumAge: 0, timeout: LOCATION_TIMEOUT_MS },
+        );
+      } catch {
+        // A synchronous throw (embedded WebView, Permissions-Policy) will not clear on retry; surface it as blocked.
+        refreshing = false;
+        denied = true;
+        if (!disposed) setBlocked(true);
+      }
     }
 
     function sendIfDue() {
@@ -178,19 +209,24 @@ function useLocationHeartbeat(enabled: boolean, intervalMs: number, onServerOffl
       );
     }
 
-    const watchId = geo.watchPosition(
-      (position) => {
-        remember(position);
-        sendIfDue();
-      },
-      fail,
-      { enableHighAccuracy: true, maximumAge: 10_000, timeout: 30_000 },
-    );
+    let watchId: number | null = null;
+    try {
+      watchId = geo.watchPosition(
+        (position) => {
+          remember(position);
+          sendIfDue();
+        },
+        fail,
+        { enableHighAccuracy: true, maximumAge: 10_000, timeout: 30_000 },
+      );
+    } catch {
+      // Left unarmed: the first tick's refresh() hits the same failure and raises the blocked alert.
+    }
     const timer = setInterval(sendIfDue, HEARTBEAT_TICK_MS);
 
     return () => {
       disposed = true;
-      geo.clearWatch(watchId);
+      if (watchId !== null) geo.clearWatch(watchId);
       clearInterval(timer);
       inFlight?.abort();
       permission?.removeEventListener("change", onPermissionChange);
@@ -199,7 +235,8 @@ function useLocationHeartbeat(enabled: boolean, intervalMs: number, onServerOffl
 
   if (!enabled) return null;
   if (blocked) return "blocked";
-  return unauthorized ? "unauthorized" : null;
+  if (unauthorized) return "unauthorized";
+  return unavailable ? "unavailable" : null;
 }
 
 /** 4-digit code entry for pickup/delivery handover. */
@@ -266,17 +303,24 @@ export function DeliveryPartnerDashboard({
   );
 
   async function setStatus(body: Record<string, string | number>, fallback: string): Promise<boolean> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
       const response = await fetch("/api/delivery-partner/status", {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        signal: controller.signal,
       });
       if (response.ok) return true;
       const payload = await response.json().catch(() => null);
       setError(payload?.error?.message ?? fallback);
     } catch {
       setError("Could not reach the server. Check your connection and try again.");
+      // The change may have committed before the response was lost; re-read the real online flag.
+      router.refresh();
+    } finally {
+      clearTimeout(timeout);
     }
     return false;
   }
@@ -300,9 +344,24 @@ export function DeliveryPartnerDashboard({
       return;
     }
     setBusy(true);
+    // A late callback after the watchdog fired must not submit the PATCH behind the rider's back.
+    let settled = false;
+    const watchdog = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      setBusy(false);
+      setError("Could not get your location. Try again.");
+    }, GO_ONLINE_WATCHDOG_MS);
+    const settle = (): boolean => {
+      if (settled) return false;
+      settled = true;
+      clearTimeout(watchdog);
+      return true;
+    };
     try {
       navigator.geolocation.getCurrentPosition(
         async (position) => {
+          if (!settle()) return;
           try {
             const online = await setStatus(
               { action: "online", latitude: position.coords.latitude, longitude: position.coords.longitude },
@@ -316,6 +375,7 @@ export function DeliveryPartnerDashboard({
           }
         },
         (err) => {
+          if (!settle()) return;
           setBusy(false);
           setError(
             err.code === err.PERMISSION_DENIED
@@ -326,6 +386,7 @@ export function DeliveryPartnerDashboard({
         { timeout: LOCATION_TIMEOUT_MS },
       );
     } catch {
+      if (!settle()) return;
       setBusy(false);
       setError("Could not get your location. Try again.");
     }
@@ -338,24 +399,27 @@ export function DeliveryPartnerDashboard({
     if (!activeDelivery) return;
     setBusy(true);
     setError(null);
-    const response = await fetch(`/api/delivery-orders/${activeDelivery.id}`, {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ action, ...extra }),
-    });
-    if (response.ok) {
+    try {
+      const response = await fetch(`/api/delivery-orders/${activeDelivery.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, ...extra }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        setError(payload?.error?.message ?? "Action failed.");
+        return;
+      }
       setCode("");
       setFailReason("");
       setShowFail(false);
       setCashCollected(false);
+      router.refresh();
+    } catch {
+      setError("Could not reach the server. Check your connection and try again.");
+    } finally {
+      setBusy(false);
     }
-    setBusy(false);
-    if (!response.ok) {
-      const payload = await response.json().catch(() => null);
-      setError(payload?.error?.message ?? "Action failed.");
-      return;
-    }
-    router.refresh();
   }
 
   return (
@@ -393,6 +457,12 @@ export function DeliveryPartnerDashboard({
         <Alert tone="warning" title="Your location isn't being shared">
           Switch to your Delivery Partner role from the &ldquo;Acting as&rdquo; menu at the top of the page, or sign
           in again.
+        </Alert>
+      ) : null}
+      {locationIssue === "unavailable" ? (
+        <Alert tone="warning" title="We can't read your location">
+          Nearby offers and live tracking for customers won&apos;t work until we can. Turn on location services for
+          your device, or move somewhere with a clearer signal.
         </Alert>
       ) : null}
 
