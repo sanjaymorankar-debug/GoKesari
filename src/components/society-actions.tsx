@@ -157,16 +157,55 @@ export function SocietySettingsForm({
   initial,
 }: {
   societyId: string;
-  initial: { deliveryInstructions: string | null; securityNotifyEnabled: boolean; exclusiveRiders: boolean; boundaryRadiusMeters: number };
+  initial: {
+    deliveryInstructions: string | null;
+    securityNotifyEnabled: boolean;
+    exclusiveRiders: boolean;
+    boundaryRadiusMeters: number;
+    gateEntryMode: "OPEN" | "CALL_RESIDENT" | "PRE_APPROVAL" | "DROP_AT_GATE";
+    gateContactName: string | null;
+    gateContactPhone: string | null;
+    shareGateContactWithRider: boolean;
+    notifyCustomerAtGate: boolean;
+  };
 }) {
   const { busy, error, notice, send } = useSend();
   const [instructions, setInstructions] = useState(initial.deliveryInstructions ?? "");
   const [security, setSecurity] = useState(initial.securityNotifyEnabled);
   const [exclusive, setExclusive] = useState(initial.exclusiveRiders);
   const [radius, setRadius] = useState(String(initial.boundaryRadiusMeters));
+  const [entryMode, setEntryMode] = useState(initial.gateEntryMode);
+  const [gateName, setGateName] = useState(initial.gateContactName ?? "");
+  const [gatePhone, setGatePhone] = useState(initial.gateContactPhone ?? "");
+  const [shareContact, setShareContact] = useState(initial.shareGateContactWithRider);
+  const [notifyCustomer, setNotifyCustomer] = useState(initial.notifyCustomerAtGate);
 
   return (
     <div className="space-y-3">
+      <Field label="Gate entry for delivery riders">
+        <select className={inputClass} value={entryMode} onChange={(e) => setEntryMode(e.target.value as typeof entryMode)}>
+          <option value="OPEN">Open — riders walk in</option>
+          <option value="CALL_RESIDENT">Security calls the resident first</option>
+          <option value="PRE_APPROVAL">Resident pre-approves the rider</option>
+          <option value="DROP_AT_GATE">Hand over at the gate</option>
+        </select>
+      </Field>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Security desk contact name (optional)">
+          <input className={inputClass} value={gateName} maxLength={100} onChange={(e) => setGateName(e.target.value)} />
+        </Field>
+        <Field label="Security desk phone (optional)">
+          <input className={inputClass} value={gatePhone} maxLength={20} onChange={(e) => setGatePhone(e.target.value)} />
+        </Field>
+      </div>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={shareContact} onChange={(e) => setShareContact(e.target.checked)} />
+        Show the security desk contact to the rider on an active delivery
+      </label>
+      <label className="flex items-center gap-2 text-sm">
+        <input type="checkbox" checked={notifyCustomer} onChange={(e) => setNotifyCustomer(e.target.checked)} />
+        Tell the resident when the rider reaches the gate
+      </label>
       <Field label="Gate / parking / access instructions for riders">
         <textarea className={inputClass} rows={2} maxLength={500} value={instructions} onChange={(e) => setInstructions(e.target.value)} />
       </Field>
@@ -189,6 +228,11 @@ export function SocietySettingsForm({
             "PATCH",
             {
               deliveryInstructions: instructions || null,
+              gateEntryMode: entryMode,
+              gateContactName: gateName || null,
+              gateContactPhone: gatePhone || null,
+              shareGateContactWithRider: shareContact,
+              notifyCustomerAtGate: notifyCustomer,
               securityNotifyEnabled: security,
               exclusiveRiders: exclusive,
               boundaryRadiusMeters: Number(radius),

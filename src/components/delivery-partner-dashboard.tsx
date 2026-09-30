@@ -27,6 +27,46 @@ export interface ActiveDelivery {
   /** Society gate / parking notes, for society deliveries. */
   societyName: string | null;
   societyInstructions: string | null;
+  acceptedAt?: Date | string | null;
+  arrivedAtShopAt?: Date | string | null;
+  pickedUpAt?: Date | string | null;
+  arrivedAtCustomerAt?: Date | string | null;
+  /** Where to collect and drop, with a maps deep link; the drop is coarse until pickup. */
+  pickup?: { label: string; navigationUrl: string | null; notes: string | null };
+  drop?: { label: string; navigationUrl: string | null; notes: string | null; precise: boolean };
+  /** Society gate arrangement, for society deliveries. */
+  gate?: { entryMode: string; contactName: string | null; contactPhone: string | null } | null;
+}
+
+const GATE_MODE_LABEL: Record<string, string> = {
+  OPEN: "Open entry",
+  CALL_RESIDENT: "Security calls the resident before letting you in",
+  PRE_APPROVAL: "Resident pre-approves the rider at the gate",
+  DROP_AT_GATE: "Hand the order over at the gate",
+};
+
+/** The five checkpoints a rider moves through, with what has been reached. */
+function ProgressSteps({ delivery }: { delivery: ActiveDelivery }) {
+  const steps: { label: string; done: boolean }[] = [
+    { label: "Accepted", done: Boolean(delivery.acceptedAt) || delivery.status !== "OFFERED" },
+    { label: "At the shop", done: Boolean(delivery.arrivedAtShopAt) || delivery.status === "PICKED_UP" },
+    { label: "Picked up", done: delivery.status === "PICKED_UP" },
+    { label: "On the way", done: Boolean(delivery.outForDeliveryAt) },
+    { label: "At the customer", done: Boolean(delivery.arrivedAtCustomerAt) },
+  ];
+  return (
+    <ol className="mt-3 flex flex-wrap gap-1 text-xs" aria-label="Delivery progress" data-testid="delivery-progress">
+      {steps.map((step) => (
+        <li
+          key={step.label}
+          className={`rounded-full px-2 py-0.5 ${step.done ? "bg-leaf-100 text-leaf-800" : "bg-cream-100 text-ink-500"}`}
+        >
+          {step.done ? "✓ " : ""}
+          {step.label}
+        </li>
+      ))}
+    </ol>
+  );
 }
 
 export interface EarningsSummary {
@@ -393,7 +433,7 @@ export function DeliveryPartnerDashboard({
   }
 
   async function act(
-    action: "accept" | "reject" | "pickup" | "start" | "deliver" | "fail",
+    action: "accept" | "reject" | "arrived_shop" | "pickup" | "start" | "arrived_customer" | "deliver" | "fail",
     extra: Record<string, string | boolean> = {},
   ) {
     if (!activeDelivery) return;
@@ -496,21 +536,59 @@ export function DeliveryPartnerDashboard({
             {STATUS_LABEL[activeDelivery.status] ?? activeDelivery.status}
           </p>
           <p className="mt-2 font-semibold text-ink-900">{activeDelivery.orderNumber}</p>
+          {activeDelivery.status !== "OFFERED" ? <ProgressSteps delivery={activeDelivery} /> : null}
           <div className="mt-3 space-y-2 text-sm">
             <div>
               <p className="font-medium text-ink-700">Pickup</p>
               <p className="text-ink-500">{activeDelivery.shopName} — {activeDelivery.shopAddress}</p>
+              {activeDelivery.pickup?.notes ? <p className="text-ink-500">Note: {activeDelivery.pickup.notes}</p> : null}
+              {activeDelivery.pickup?.navigationUrl && activeDelivery.status !== "OFFERED" && activeDelivery.status !== "PICKED_UP" ? (
+                <a
+                  href={activeDelivery.pickup.navigationUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 inline-block text-sm font-medium text-kesari-700 underline"
+                  data-testid="navigate-pickup"
+                >
+                  Navigate to the shop
+                </a>
+              ) : null}
             </div>
             <div>
               <p className="font-medium text-ink-700">Drop</p>
               <p className="text-ink-500">{activeDelivery.customerAddress ?? "Address on order details"}</p>
+              {activeDelivery.drop && !activeDelivery.drop.precise ? (
+                <p className="text-xs text-ink-400">The full address and navigation appear once you pick up the order.</p>
+              ) : null}
               {activeDelivery.customerNotes ? <p className="text-ink-500">Note: {activeDelivery.customerNotes}</p> : null}
+              {activeDelivery.drop?.navigationUrl && activeDelivery.status === "PICKED_UP" ? (
+                <a
+                  href={activeDelivery.drop.navigationUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 inline-block text-sm font-medium text-kesari-700 underline"
+                  data-testid="navigate-drop"
+                >
+                  Navigate to the customer
+                </a>
+              ) : null}
             </div>
             {activeDelivery.societyName ? (
               <div className="rounded-lg bg-cream-100 p-2" data-testid="society-notes">
                 <p className="font-medium text-ink-700">{activeDelivery.societyName}</p>
+                {activeDelivery.gate ? (
+                  <p className="text-ink-600">Gate: {GATE_MODE_LABEL[activeDelivery.gate.entryMode] ?? activeDelivery.gate.entryMode}</p>
+                ) : null}
                 {activeDelivery.societyInstructions ? (
                   <p className="text-ink-600">{activeDelivery.societyInstructions}</p>
+                ) : null}
+                {activeDelivery.gate?.contactPhone ? (
+                  <p className="text-ink-600">
+                    Security desk{activeDelivery.gate.contactName ? ` (${activeDelivery.gate.contactName})` : ""}:{" "}
+                    <a href={`tel:${activeDelivery.gate.contactPhone}`} className="underline">
+                      {activeDelivery.gate.contactPhone}
+                    </a>
+                  </p>
                 ) : null}
               </div>
             ) : null}
@@ -535,6 +613,11 @@ export function DeliveryPartnerDashboard({
                 </Button>
               </>
             ) : null}
+            {activeDelivery.status === "ACCEPTED" && !activeDelivery.arrivedAtShopAt ? (
+              <Button size="sm" variant="secondary" disabled={busy} onClick={() => act("arrived_shop")}>
+                I&apos;ve arrived at the shop
+              </Button>
+            ) : null}
             {activeDelivery.status === "ACCEPTED" ? (
               <>
                 {activeDelivery.needsPickupCode ? (
@@ -558,6 +641,13 @@ export function DeliveryPartnerDashboard({
             !activeDelivery.outForDeliveryAt ? (
               <Button size="sm" disabled={busy} onClick={() => act("start")}>
                 Start delivery
+              </Button>
+            ) : null}
+            {activeDelivery.status === "PICKED_UP" &&
+            (activeDelivery.outForDeliveryAt || !activeDelivery.needsPickupCode) &&
+            !activeDelivery.arrivedAtCustomerAt ? (
+              <Button size="sm" variant="secondary" disabled={busy} onClick={() => act("arrived_customer")}>
+                I&apos;ve arrived at the customer
               </Button>
             ) : null}
             {activeDelivery.status === "PICKED_UP" &&

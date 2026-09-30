@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { ShopOrderManager } from "@/components/shop-order-manager";
 import { EmptyState, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
-import { getDeliveryOrdersForOrders } from "@/server/services/delivery-assignment";
+import { getDeliveryOrdersForOrders, getRiderSearchStatus } from "@/server/services/delivery-assignment";
 import { listShopProducts } from "@/server/services/catalogue";
 import { listOrdersForShop } from "@/server/services/orders";
 import { listShopsForOwner } from "@/server/services/shops";
@@ -28,6 +28,14 @@ export default async function ShopOrdersPage() {
     listShopProducts(shop.id, { onlineOnly: true }),
   ]);
   const deliveryOrders = await getDeliveryOrdersForOrders(orders.map((o) => o.id));
+  // Only READY orders of a delivering shop are waiting for a rider.
+  const searchByOrder = new Map(
+    shop.deliveryAvailable
+      ? await Promise.all(
+          orders.filter((o) => o.status === "READY").map(async (o) => [o.id, await getRiderSearchStatus(o.id)] as const),
+        )
+      : [],
+  );
   // Candidates a shop can offer as a substitute (server re-checks price/stock).
   const substitutes = onlineProducts
     .filter((sp) => sp.onlinePricePaise != null)
@@ -67,6 +75,15 @@ export default async function ShopOrdersPage() {
             })),
             deliveryStatus: deliveryOrders.get(o.id)?.status ?? null,
             pickupCode: deliveryOrders.get(o.id)?.pickupCode ?? null,
+            riderSearch: searchByOrder.has(o.id)
+              ? {
+                  state: searchByOrder.get(o.id)!.state,
+                  message: searchByOrder.get(o.id)!.message,
+                  attempts: searchByOrder.get(o.id)!.attempts,
+                  maxAttempts: searchByOrder.get(o.id)!.maxAttempts,
+                  canRetry: searchByOrder.get(o.id)!.canRetry,
+                }
+              : null,
           }))}
         />
       )}

@@ -33,6 +33,35 @@ export const RULES = {
       smsEnabled: false,
     },
   },
+  dispatch: {
+    description:
+      "Finding a rider: offer lifetime, retry cadence and limits, and when the search stops.",
+    schema: z.object({
+      /** How long a rider has to accept an offer. */
+      offerTtlSeconds: int(30, 900),
+      /** Wait between automatic attempts to match a rider for one order. */
+      retryIntervalSeconds: int(15, 1800),
+      /** Matching attempts (each offer counts) before automatic retries stop. */
+      maxAttempts: int(1, 100),
+      /** Total search time before automatic retries stop. */
+      maxSearchMinutes: int(1, 720),
+      /** Keep searching this long past the promised delivery time, then stop. */
+      windowGraceMinutes: int(0, 240),
+      /** Minimum gap between two manual "Find rider now" presses for one order. */
+      manualCooldownSeconds: int(0, 600),
+      /** Tell the shop after this many unsuccessful attempts (then once more when the search stops). */
+      notifyShopAfterAttempts: int(1, 20),
+    }),
+    defaults: {
+      offerTtlSeconds: 120,
+      retryIntervalSeconds: 60,
+      maxAttempts: 10,
+      maxSearchMinutes: 30,
+      windowGraceMinutes: 15,
+      manualCooldownSeconds: 30,
+      notifyShopAfterAttempts: 1,
+    },
+  },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;

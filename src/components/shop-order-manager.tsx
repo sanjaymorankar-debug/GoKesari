@@ -63,6 +63,14 @@ export interface ShopOrderRow {
   deliveryStatus: string | null;
   /** Read this to the rider at handover (only while a rider is assigned). */
   pickupCode: string | null;
+  /** Progress of the automatic rider search, for READY orders of a delivering shop. */
+  riderSearch?: {
+    state: string;
+    message: string;
+    attempts: number;
+    maxAttempts: number;
+    canRetry: boolean;
+  } | null;
   orderType?: string;
   /** GS-030: COD orders are paid in cash at the door (by the rider, or to you if you deliver). */
   paymentMethod?: string;
@@ -142,6 +150,8 @@ function OrderRow({
     call(`/api/orders/${order.id}/status`, "PATCH", { status: to }, "Could not update status.");
   const findRider = () =>
     call(`/api/orders/${order.id}/assign`, "POST", {}, "No delivery partner is available right now.");
+  const stopSearch = () =>
+    call(`/api/orders/${order.id}/assign`, "POST", { stop: true }, "Could not stop the search.");
 
   const working = order.status === "ACCEPTED" || order.status === "PREPARING";
   const waitingOnCustomer = order.items.some((i) => i.fulfilmentStatus === "SUBSTITUTION_PROPOSED");
@@ -171,6 +181,15 @@ function OrderRow({
       {order.pickupCode && order.status === "ASSIGNED" ? (
         <p className="mt-2 rounded-lg bg-kesari-50 px-3 py-2 text-sm text-kesari-800" data-testid="pickup-code">
           Pickup code for the rider: <span className="font-mono text-lg font-bold tracking-widest">{order.pickupCode}</span>
+        </p>
+      ) : null}
+
+      {order.status === "READY" && deliveryAvailable && order.riderSearch ? (
+        <p
+          className="mt-2 rounded-lg bg-cream-100 px-3 py-2 text-sm text-ink-700"
+          data-testid="rider-search-status"
+        >
+          {order.riderSearch.message}
         </p>
       ) : null}
 
@@ -213,7 +232,12 @@ function OrderRow({
         ) : null}
         {order.status === "READY" && deliveryAvailable && !riderActive ? (
           <Button size="sm" variant="secondary" disabled={busy} onClick={findRider}>
-            Find rider now
+            {order.riderSearch?.state === "STOPPED" ? "Try finding a rider again" : "Find rider now"}
+          </Button>
+        ) : null}
+        {order.status === "READY" && deliveryAvailable && !riderActive && order.riderSearch?.state === "SEARCHING" ? (
+          <Button size="sm" variant="ghost" disabled={busy} onClick={stopSearch}>
+            Stop searching
           </Button>
         ) : null}
         {(MANUAL_STEPS[order.status] ?? [])

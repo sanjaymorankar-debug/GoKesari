@@ -25,6 +25,12 @@ export const NOTIFICATION_TYPES = {
   ORDER_ITEM_REMOVED: "order.item_removed",
   /** To the shop: no rider accepted yet — the system keeps retrying. */
   DELIVERY_UNASSIGNED: "delivery.unassigned",
+  /** To the shop: the automatic rider search gave up (limit, time or delivery window). */
+  DELIVERY_SEARCH_STOPPED: "delivery.search_stopped",
+  /** To the shop: the rider is at the counter. */
+  DELIVERY_RIDER_AT_SHOP: "delivery.rider_at_shop",
+  /** To the customer: the rider has reached the door / gate. */
+  ORDER_RIDER_ARRIVING: "order.rider_arriving",
   /* ---------------------------------------------------- Phase 2 */
   SOCIETY_VERIFIED: "society.verified",
   SOCIETY_REJECTED: "society.rejected",

@@ -2,7 +2,9 @@
  * Delivery-partner actions on a single delivery assignment (delivery-system
  * Part 58, Slice C; Slice 4 handover) — accept, reject, pick up (with the
  * shop's pickup code), start the drop (issues the customer OTP), deliver
- * (with the customer's OTP), or report a failed delivery. Deliberately a
+ * (with the customer's OTP), or report a failed delivery. Checkpoints
+ * `arrived_shop` and `arrived_customer` record progress without changing the
+ * order status. Deliberately a
  * separate endpoint from /api/orders/[id]/status, which is the existing,
  * unmodified shop-owner order-status flow.
  */
@@ -14,6 +16,8 @@ import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import {
   acceptDeliveryOffer,
+  markArrivedAtCustomer,
+  markArrivedAtShop,
   markDelivered,
   markDeliveryFailed,
   markPickedUp,
@@ -25,8 +29,10 @@ import {
 const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("accept") }),
   z.object({ action: z.literal("reject"), reason: z.string().max(500).optional() }),
+  z.object({ action: z.literal("arrived_shop") }),
   z.object({ action: z.literal("pickup"), pickupCode: z.string().max(8).optional() }),
   z.object({ action: z.literal("start") }),
+  z.object({ action: z.literal("arrived_customer") }),
   z.object({ action: z.literal("deliver"), otp: z.string().max(8).optional(), cashCollected: z.boolean().optional() }),
   z.object({ action: z.literal("fail"), reason: z.string().min(3).max(300) }),
 ]);
@@ -42,6 +48,10 @@ export const PATCH = route(
         return ok(toRiderView(await acceptDeliveryOffer(id, user.id)));
       case "reject":
         return ok(toRiderView(await rejectDeliveryOffer(id, user.id, body.reason)));
+      case "arrived_shop":
+        return ok(toRiderView(await markArrivedAtShop(id, user)));
+      case "arrived_customer":
+        return ok(toRiderView(await markArrivedAtCustomer(id, user)));
       case "pickup":
         return ok(toRiderView(await markPickedUp(id, user, body.pickupCode)));
       case "start":

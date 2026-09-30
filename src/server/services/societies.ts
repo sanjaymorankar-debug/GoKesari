@@ -93,7 +93,7 @@ export async function requireSocietyRole(
 }
 
 /** Users who administer or operate a society, for notifications. */
-async function societyStaffUserIds(societyId: string, client: DbClient = db): Promise<string[]> {
+export async function societyStaffUserIds(societyId: string, client: DbClient = db): Promise<string[]> {
   const rows = await client
     .select({ userId: societyMembers.userId })
     .from(societyMembers)
@@ -256,6 +256,11 @@ export async function decideSociety(
 }
 
 export interface SocietySettingsInput {
+  gateEntryMode?: "OPEN" | "CALL_RESIDENT" | "PRE_APPROVAL" | "DROP_AT_GATE";
+  gateContactName?: string | null;
+  gateContactPhone?: string | null;
+  shareGateContactWithRider?: boolean;
+  notifyCustomerAtGate?: boolean;
   deliveryInstructions?: string | null;
   securityNotifyEnabled?: boolean;
   exclusiveRiders?: boolean;
@@ -273,9 +278,19 @@ export async function updateSocietySettings(societyId: string, input: SocietySet
   ) {
     throw validationFailed("Boundary must be 50–3000 metres.");
   }
+  if (input.gateContactPhone && !/^[+\d][\d\s-]{5,17}$/.test(input.gateContactPhone.trim())) {
+    throw validationFailed("Enter a valid gate contact phone number.");
+  }
   const [updated] = await db
     .update(societies)
     .set({
+      ...(input.gateEntryMode !== undefined ? { gateEntryMode: input.gateEntryMode } : {}),
+      ...(input.gateContactName !== undefined ? { gateContactName: input.gateContactName?.trim() || null } : {}),
+      ...(input.gateContactPhone !== undefined ? { gateContactPhone: input.gateContactPhone?.trim() || null } : {}),
+      ...(input.shareGateContactWithRider !== undefined
+        ? { shareGateContactWithRider: input.shareGateContactWithRider }
+        : {}),
+      ...(input.notifyCustomerAtGate !== undefined ? { notifyCustomerAtGate: input.notifyCustomerAtGate } : {}),
       ...(input.deliveryInstructions !== undefined ? { deliveryInstructions: input.deliveryInstructions?.trim() || null } : {}),
       ...(input.securityNotifyEnabled !== undefined ? { securityNotifyEnabled: input.securityNotifyEnabled } : {}),
       ...(input.exclusiveRiders !== undefined ? { exclusiveRiders: input.exclusiveRiders } : {}),
@@ -293,6 +308,9 @@ export async function updateSocietySettings(societyId: string, input: SocietySet
     entityType: "society",
     entityId: societyId,
     previousValue: {
+      gateEntryMode: society.gateEntryMode,
+      shareGateContactWithRider: society.shareGateContactWithRider,
+      notifyCustomerAtGate: society.notifyCustomerAtGate,
       securityNotifyEnabled: society.securityNotifyEnabled,
       exclusiveRiders: society.exclusiveRiders,
       boundaryRadiusMeters: society.boundaryRadiusMeters,
@@ -730,7 +748,15 @@ export async function getSocietyDeliveryNotes(societyId: string | null) {
   if (!societyId) return null;
   const society = await db.query.societies.findFirst({ where: eq(societies.id, societyId) });
   if (!society || society.status !== "VERIFIED") return null;
-  return { name: society.name, instructions: society.deliveryInstructions };
+  return {
+    name: society.name,
+    instructions: society.deliveryInstructions,
+    entryMode: society.gateEntryMode,
+    // The security desk's number reaches a rider only when the society chose to share it.
+    contactName: society.shareGateContactWithRider ? society.gateContactName : null,
+    contactPhone: society.shareGateContactWithRider ? society.gateContactPhone : null,
+    notifyCustomer: society.notifyCustomerAtGate,
+  };
 }
 
 /**

@@ -1679,6 +1679,9 @@ export const deliveryOrders = pgTable(
     deliveryOtp: text("delivery_otp"),
     deliveryOtpAttempts: integer("delivery_otp_attempts").notNull().default(0),
     outForDeliveryAt: timestamp("out_for_delivery_at", { withTimezone: true }),
+    /** Rider checkpoints (no status change): reached the shop / reached the customer's door or gate. */
+    arrivedAtShopAt: timestamp("arrived_at_shop_at", { withTimezone: true }),
+    arrivedAtCustomerAt: timestamp("arrived_at_customer_at", { withTimezone: true }),
     failedAt: timestamp("failed_at", { withTimezone: true }),
     failureReason: text("failure_reason"),
     /** How delivery was confirmed: CUSTOMER_OTP, or OPERATOR_OVERRIDE (proof note required). */
@@ -1699,6 +1702,67 @@ export const deliveryOrders = pgTable(
     index("delivery_orders_partner_idx").on(t.deliveryPartnerId),
     index("delivery_orders_status_idx").on(t.status),
   ],
+);
+
+/**
+ * "Find rider" search state, one row per order (see delivery-assignment.ts).
+ * Tracks how long and how often the platform has tried to match a rider so
+ * retries are bounded by configurable rules rather than looping forever.
+ */
+export const riderSearches = pgTable(
+  "rider_searches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    status: text("status", { enum: ["SEARCHING", "ASSIGNED", "STOPPED"] }).notNull().default("SEARCHING"),
+    stopReason: text("stop_reason", {
+      enum: [
+        "RIDER_ACCEPTED",
+        "ORDER_CANCELLED",
+        "ORDER_NOT_READY",
+        "WINDOW_EXPIRED",
+        "RETRY_LIMIT",
+        "TIME_LIMIT",
+        "STOPPED_BY_SHOP",
+      ],
+    }),
+    attempts: integer("attempts").notNull().default(0),
+    /** Rule values in force when the search (re)started, so a later rule change never moves the goalposts. */
+    maxAttempts: integer("max_attempts").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    stoppedAt: timestamp("stopped_at", { withTimezone: true }),
+    startedBy: uuid("started_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("rider_searches_order_unique").on(t.orderId),
+    index("rider_searches_status_next_idx").on(t.status, t.nextAttemptAt),
+  ],
+);
+
+/** One row per matching attempt — who triggered it, and what came of it. */
+export const dispatchAttempts = pgTable(
+  "dispatch_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    searchId: uuid("search_id").references(() => riderSearches.id, { onDelete: "set null" }),
+    attemptNo: integer("attempt_no").notNull(),
+    trigger: text("trigger", { enum: ["SHOP_MANUAL", "AUTO_READY", "SWEEP", "REOFFER"] }).notNull(),
+    outcome: text("outcome", { enum: ["OFFERED", "NO_RIDER", "STOPPED", "ERROR"] }).notNull(),
+    deliveryOrderId: uuid("delivery_order_id").references(() => deliveryOrders.id, { onDelete: "set null" }),
+    deliveryPartnerId: uuid("delivery_partner_id").references(() => deliveryPartners.id, { onDelete: "set null" }),
+    detail: text("detail"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("dispatch_attempts_order_idx").on(t.orderId, t.createdAt)],
 );
 
 /**
@@ -2755,6 +2819,23 @@ export const societies = pgTable(
     deliveryInstructions: text("delivery_instructions"),
     /** Notify society admins/operators when a rider is assigned to a society order (GS-046). */
     securityNotifyEnabled: boolean("security_notify_enabled").notNull().default(false),
+    /**
+     * Gate-access workflow. OPEN: riders walk in. CALL_RESIDENT: the gate calls
+     * the resident before letting the rider in. PRE_APPROVAL: the resident
+     * approves the rider ahead of arrival. DROP_AT_GATE: goods are handed over
+     * at the gate.
+     */
+    gateEntryMode: text("gate_entry_mode", {
+      enum: ["OPEN", "CALL_RESIDENT", "PRE_APPROVAL", "DROP_AT_GATE"],
+    })
+      .notNull()
+      .default("OPEN"),
+    /** Security desk contact; shown to a rider only when `shareGateContactWithRider` is on. */
+    gateContactName: text("gate_contact_name"),
+    gateContactPhone: text("gate_contact_phone"),
+    shareGateContactWithRider: boolean("share_gate_contact_with_rider").notNull().default(false),
+    /** Tell the customer when the rider reaches the gate, with what the gate will ask of them. */
+    notifyCustomerAtGate: boolean("notify_customer_at_gate").notNull().default(true),
     /** GA-001: when true and the rider list is non-empty, only listed riders may deliver here. */
     exclusiveRiders: boolean("exclusive_riders").notNull().default(false),
     registeredBy: uuid("registered_by").references(() => users.id),
@@ -3554,3 +3635,5 @@ export type RiskFlag = typeof riskFlags.$inferSelect;
 export type RiskSeverity = (typeof riskSeverityEnum.enumValues)[number];
 export type RiskSubject = (typeof riskSubjectEnum.enumValues)[number];
 export type RiskFlagStatus = (typeof riskFlagStatusEnum.enumValues)[number];
+export type RiderSearch = typeof riderSearches.$inferSelect;
+export type DispatchAttempt = typeof dispatchAttempts.$inferSelect;

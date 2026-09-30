@@ -11,6 +11,11 @@ import { getSocietyDashboard, updateSocietySettings } from "@/server/services/so
 
 const schema = z.object({
   deliveryInstructions: z.string().max(500).nullish(),
+  gateEntryMode: z.enum(["OPEN", "CALL_RESIDENT", "PRE_APPROVAL", "DROP_AT_GATE"]).optional(),
+  gateContactName: z.string().max(100).nullish(),
+  gateContactPhone: z.string().max(20).nullish(),
+  shareGateContactWithRider: z.boolean().optional(),
+  notifyCustomerAtGate: z.boolean().optional(),
   securityNotifyEnabled: z.boolean().optional(),
   exclusiveRiders: z.boolean().optional(),
   boundaryRadiusMeters: z.number().int().min(50).max(3000).optional(),

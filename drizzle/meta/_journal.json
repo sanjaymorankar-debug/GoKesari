@@ -190,6 +190,13 @@
       "when": 1790774453567,
       "tag": "0026_phase_b_delivery_location",
       "breakpoints": true
+    },
+    {
+      "idx": 27,
+      "version": "7",
+      "when": 1790774899478,
+      "tag": "0027_phase_c_rider_workflow",
+      "breakpoints": true
     }
   ]
 }

@@ -128,6 +128,9 @@ export const AUDIT_ACTIONS = {
   /** Delivered without the customer OTP — operator-confirmed with a proof note. */
   DELIVERY_CONFIRMED_BY_OPERATOR: "delivery_order.confirmed_by_operator",
   ORDER_ITEM_FULFILMENT_CHANGED: "order_item.fulfilment_changed",
+  DELIVERY_ARRIVED_AT_SHOP: "delivery_order.arrived_at_shop",
+  DELIVERY_ARRIVED_AT_CUSTOMER: "delivery_order.arrived_at_customer",
+  RIDER_SEARCH_STOPPED: "delivery_order.search_stopped",
   /* ------------------------------------------------ finance (Slice 6) */
   COMMISSION_RATE_SET: "finance.commission_rate_set",
   ORDER_REFUNDED_AFTER_DELIVERY: "finance.order_refunded_after_delivery",
