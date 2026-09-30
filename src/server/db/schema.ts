@@ -1258,7 +1258,14 @@ export const productMrpHistory = pgTable(
   (t) => [index("product_mrp_history_product_idx").on(t.productId)],
 );
 
-/** Additional product images. `products.imageUrl` stays as the primary/legacy image. */
+/**
+ * Product photos. `shopProductId` null = a photo of the product itself (every
+ * shop sees it); set = a photo of that one shop's listing (SKU), which takes
+ * precedence for that shop. One primary per scope; its URL is mirrored onto
+ * `products.image_url` / `shop_products.image_url` so existing readers keep
+ * working. New images point at `stored_images` (services/product-images.ts);
+ * older rows may carry only an external `url`.
+ */
 export const productImages = pgTable(
   "product_images",
   {
@@ -1266,13 +1273,27 @@ export const productImages = pgTable(
     productId: uuid("product_id")
       .notNull()
       .references(() => products.id, { onDelete: "cascade" }),
+    shopProductId: uuid("shop_product_id").references(() => shopProducts.id, { onDelete: "cascade" }),
+    storedImageId: uuid("stored_image_id").references(() => storedImages.id, { onDelete: "set null" }),
     url: text("url").notNull(),
+    altText: text("alt_text"),
+    isPrimary: boolean("is_primary").notNull().default(false),
     sortOrder: integer("sort_order").notNull().default(0),
+    createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("product_images_product_idx").on(t.productId)],
+  (t) => [
+    index("product_images_product_idx").on(t.productId),
+    index("product_images_shop_product_idx").on(t.shopProductId),
+    uniqueIndex("product_images_one_primary_product")
+      .on(t.productId)
+      .where(sql`${t.isPrimary} AND ${t.shopProductId} IS NULL`),
+    uniqueIndex("product_images_one_primary_listing")
+      .on(t.shopProductId)
+      .where(sql`${t.isPrimary} AND ${t.shopProductId} IS NOT NULL`),
+  ],
 );
 
 /**

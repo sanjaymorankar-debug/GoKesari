@@ -175,6 +175,7 @@ export const AUDIT_ACTIONS = {
   PRICE_REFERENCE_REJECTED: "price_reference.rejected",
   MRP_CORRECTION_DECIDED: "product.mrp_correction_decided",
   MRP_CONFLICT_DETECTED: "product.mrp_conflict_detected",
+  PRODUCT_IMAGE_CHANGED: "product_image.changed",
   RETURN_REQUESTED: "return.requested",
   RETURN_STATUS_CHANGED: "return.status_changed",
   RETURN_PICKUP_OFFERED: "return_pickup.offered",

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
+import { SafeImage } from "@/components/safe-image";
 import { AvailabilityBadge, Button, Card, Money } from "@/components/ui";
 
 export interface ProductCardData {
@@ -84,6 +85,11 @@ export function ProductCard({
       data-testid="product-card"
       data-product-name={product.productName}
     >
+      <SafeImage
+        src={product.imageUrl}
+        alt={product.productName}
+        className="mb-3 h-32 w-full rounded-lg bg-cream-100 object-cover"
+      />
       <div className="mb-2 flex items-start justify-between gap-2">
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold text-ink-900">

@@ -16,6 +16,7 @@ import {
   Money,
   inputClass,
 } from "@/components/ui";
+import { SafeImage } from "@/components/safe-image";
 import { formatQuantity } from "@/lib/money";
 import type { CartSummary } from "@/server/services/cart";
 import type { CartIssue, ShopCartCheck } from "@/server/services/cart-validation";
@@ -253,6 +254,11 @@ export function CartView({
             <ul className="divide-y divide-cream-200">
               {group.lines.map((line) => (
                 <li key={line.cartItemId} className="flex gap-3 p-4">
+                  <SafeImage
+                    src={line.imageUrl}
+                    alt={line.productName}
+                    className="h-14 w-14 shrink-0 rounded-lg bg-cream-100 object-cover"
+                  />
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-ink-900">
                       {line.productName}

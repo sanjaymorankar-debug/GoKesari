@@ -2,6 +2,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 
 import { MrpDisputeForm } from "@/components/mrp-dispute-form";
+import { SafeImage } from "@/components/safe-image";
 import { ProductGrid } from "@/components/product-grid";
 import { LocationBar } from "@/components/location-bar";
 import { Badge, Card, EmptyState, Money, PageHeader, Section } from "@/components/ui";
@@ -13,6 +14,7 @@ import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { products } from "@/server/db/schema";
 import { listReferencesForProduct } from "@/server/services/price-references";
+import { galleryFor } from "@/server/services/product-images";
 import { serviceableShopIds } from "@/server/services/serviceability";
 import { listShopsForOwner } from "@/server/services/shops";
 import { eq } from "drizzle-orm";
@@ -61,6 +63,7 @@ export default async function ProductComparePage({
         ? "SHOP"
         : "CUSTOMER";
   const references = await listReferencesForProduct(id, viewer);
+  const gallery = await galleryFor(id, null);
   const ownShop =
     user && can(user.role, PERMISSIONS.PRODUCT_MRP_DISPUTE) ? (await listShopsForOwner(user.id))[0] : undefined;
   const mapped = offers.map((offer) => {
@@ -95,6 +98,21 @@ export default async function ProductComparePage({
         description={`${product.categoryName} · sold by ${offers.length} shop${offers.length === 1 ? "" : "s"}`}
       />
       <LocationBar userId={user?.id ?? null} location={location} />
+
+      <div className="mb-4 flex gap-3 overflow-x-auto" data-testid="product-gallery">
+        {gallery.length === 0 ? (
+          <SafeImage src={product.imageUrl} alt={product.productName} className="h-40 w-40 shrink-0 rounded-xl bg-cream-100 object-cover" />
+        ) : (
+          gallery.map((image) => (
+            <SafeImage
+              key={image.id}
+              src={image.url}
+              alt={image.altText ?? product.productName}
+              className="h-40 w-40 shrink-0 rounded-xl bg-cream-100 object-cover"
+            />
+          ))
+        )}
+      </div>
 
       {master?.kind === "PACKAGED" && master.mrpPaise != null ? (
         <p className="mb-4 text-sm text-ink-600" data-testid="product-mrp">
