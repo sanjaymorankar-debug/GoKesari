@@ -33,6 +33,7 @@ export default async function AdminShopsPage() {
         description="Select a shop to add products, upload a product or price list, or review its catalogue."
       />
       <ShopProductManagementList
+        canSuspend={can(user.role, PERMISSIONS.SHOP_SUSPEND)}
         shops={shops.map((s) => ({
           id: s.id,
           registrationNumber: s.registrationNumber,

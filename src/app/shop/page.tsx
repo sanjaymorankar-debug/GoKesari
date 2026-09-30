@@ -32,6 +32,7 @@ import { listOrdersForShop } from "@/server/services/orders";
 import { listPendingForShop } from "@/server/services/price-requests";
 import { getReferralCodeById } from "@/server/services/referrals";
 import { listPaymentsForShop } from "@/server/services/shop-payments";
+import { getActiveSuspension } from "@/server/services/shop-suspension";
 import { listShopsForOwner } from "@/server/services/shops";
 import { listSubscriptionOrdersForShop } from "@/server/services/subscriptions";
 
@@ -59,6 +60,7 @@ export default async function ShopDashboardPage() {
 
   const shop = shops[0];
   const today = todayIn(getEnv().APP_TIMEZONE);
+  const suspension = shop.status === "SUSPENDED" ? await getActiveSuspension(shop.id) : null;
 
   const [
     products,
@@ -107,6 +109,22 @@ export default async function ShopDashboardPage() {
           <Alert tone="warning" title="Awaiting approval">
             Your shop is being reviewed by an operator. You can add products now
             — they go live as soon as the shop is approved.
+          </Alert>
+        </div>
+      ) : null}
+      {shop.status === "SUSPENDED" ? (
+        <div className="mb-6" data-testid="suspension-notice">
+          <Alert tone="danger" title="Your shop is suspended">
+            <span className="block">
+              {suspension
+                ? `Since ${suspension.effectiveAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}. Reason: ${suspension.reason}`
+                : "Please contact support for details."}
+            </span>
+            {suspension ? <span className="mt-1 block">What to do: {suspension.expectedAction}</span> : null}
+            <span className="mt-1 block">
+              New orders are switched off. Orders already on the road should still be completed; any order
+              our team is reviewing will be resolved for you.
+            </span>
           </Alert>
         </div>
       ) : null}

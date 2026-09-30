@@ -441,7 +441,7 @@ const SUSPEND_COPY: Record<RiskSuspendSubject, { noun: string; reasonPlaceholder
     noun: "shop",
     reasonPlaceholder: "Reason (internal note)",
     effect:
-      "Hides the shop and stops new orders. Open orders are not cancelled or refunded, and its customers' subscriptions stay active, so each subscriber is told every day that their delivery is unavailable. The owner is not notified and the reason is kept in the audit log only. Re-approving needs POST /api/shops/{id}/approve; there is no screen for it yet.",
+      "Hides the shop and stops new orders. Open orders are judged by their status under the suspension policy (unaccepted ones cancelled and refunded, orders on the road left to finish, the rest held for operations — see Shop suspensions). The owner is notified with the reason and what happened to their orders. Customers' subscriptions stay active, so each subscriber is told every day that their delivery is unavailable. Reinstate from Shop Product Management.",
   },
   DELIVERY_PARTNER: {
     noun: "delivery partner",

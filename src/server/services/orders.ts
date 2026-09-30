@@ -52,6 +52,7 @@ import { DELIVERY_WINDOW_MINUTES, getFeasibleDeliveryWindows } from "./delivery-
 import { notifyOpenStockAlerts } from "./inventory-alerts";
 import { recordOrderFinancials } from "./finance";
 import { shopServiceability, societyPartnerShopIds } from "./serviceability";
+import { assertShopMayProgress } from "./shop-suspension-guard";
 import { resolveAddressSociety } from "./societies";
 import { NOTIFICATION_TYPES, notify, type NotificationType } from "./notifications";
 import { applyWalletMutation, refundOriginalDebit } from "./wallet";
@@ -554,6 +555,8 @@ export async function updateOrderStatus(
         ORDER_STATUS_LABELS[newStatus],
       );
     }
+    // Suspended shops cannot take new orders or move orders under review.
+    await assertShopMayProgress(tx, order, newStatus, actor);
 
     const [updated] = await tx
       .update(orders)

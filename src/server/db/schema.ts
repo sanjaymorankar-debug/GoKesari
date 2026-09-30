@@ -1832,6 +1832,64 @@ export const deliveryPartnerEarnings = pgTable(
   ],
 );
 
+/* ------------------------------------------------------ shop suspensions
+ * One row per suspension, with what the policy did to each open order at that
+ * moment, so operations can see the impact and resolve the orders that need a
+ * decision (services/shop-suspension.ts).
+ */
+export const shopSuspensions = pgTable(
+  "shop_suspensions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    reason: text("reason").notNull(),
+    /** What the owner is expected to do (shown in the notice), e.g. "Upload a valid FSSAI licence". */
+    expectedAction: text("expected_action").notNull(),
+    suspendedBy: uuid("suspended_by").references(() => users.id),
+    effectiveAt: timestamp("effective_at", { withTimezone: true }).notNull().defaultNow(),
+    status: text("status", { enum: ["ACTIVE", "LIFTED"] }).notNull().default("ACTIVE"),
+    liftedAt: timestamp("lifted_at", { withTimezone: true }),
+    liftedBy: uuid("lifted_by").references(() => users.id),
+    liftNote: text("lift_note"),
+    /** Policy in force and the counts it produced — a snapshot, not a live view. */
+    policy: jsonb("policy").$type<Record<string, string>>().notNull().default({}),
+    impact: jsonb("impact").$type<Record<string, number>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("shop_suspensions_shop_idx").on(t.shopId, t.createdAt),
+    uniqueIndex("shop_suspensions_one_active").on(t.shopId).where(sql`${t.status} = 'ACTIVE'`),
+  ],
+);
+
+export const shopSuspensionOrders = pgTable(
+  "shop_suspension_orders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    suspensionId: uuid("suspension_id")
+      .notNull()
+      .references(() => shopSuspensions.id, { onDelete: "cascade" }),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    statusAtSuspension: text("status_at_suspension").notNull(),
+    plannedAction: text("planned_action", { enum: ["CANCEL_REFUND", "CONTINUE", "REVIEW"] }).notNull(),
+    /** CANCELLED: refunded and closed. CONTINUING: the shop finishes it. AWAITING_REVIEW: an operator decides. FAILED: the automatic action could not run — an operator must act. */
+    outcome: text("outcome", { enum: ["CANCELLED", "CONTINUING", "AWAITING_REVIEW", "FAILED"] }).notNull(),
+    note: text("note"),
+    resolvedBy: uuid("resolved_by").references(() => users.id),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("shop_suspension_orders_unique").on(t.suspensionId, t.orderId),
+    index("shop_suspension_orders_order_idx").on(t.orderId),
+    index("shop_suspension_orders_outcome_idx").on(t.outcome),
+  ],
+);
+
 /* ------------------------------------------------------- stored images
  * Uploaded images (product photos, return evidence). Kept in the database so
  * they survive redeploys on hosts with an ephemeral filesystem; the browser
@@ -4018,3 +4076,5 @@ export type ReturnStatusHistoryRow = typeof returnStatusHistory.$inferSelect;
 export type ReturnPickup = typeof returnPickups.$inferSelect;
 export type NotificationPreference = typeof notificationPreferences.$inferSelect;
 export type NotificationDelivery = typeof notificationDeliveries.$inferSelect;
+export type ShopSuspension = typeof shopSuspensions.$inferSelect;
+export type ShopSuspensionOrder = typeof shopSuspensionOrders.$inferSelect;

@@ -148,6 +148,31 @@ export const RULES = {
     }),
     defaults: { maxAttempts: 4, retryBackoffSeconds: [60, 300, 1800], batchSize: 50 },
   },
+  suspension: {
+    description:
+      "Shop suspension policy: what happens to each open order by its status when a shop is suspended.",
+    schema: z.object({
+      /**
+       * Per order status: CANCEL_REFUND (cancel with a full refund and restock),
+       * CONTINUE (the shop finishes it) or REVIEW (held until an operator decides).
+       * Statuses not listed are left alone.
+       */
+      actions: z.record(z.string(), z.enum(["CANCEL_REFUND", "CONTINUE", "REVIEW"])),
+      defaultExpectedAction: z.string().min(3).max(300),
+    }),
+    defaults: {
+      actions: {
+        CONFIRMED: "CANCEL_REFUND",
+        ACCEPTED: "REVIEW",
+        PREPARING: "REVIEW",
+        READY: "REVIEW",
+        ASSIGNED: "REVIEW",
+        PICKED_UP: "CONTINUE",
+        OUT_FOR_DELIVERY: "CONTINUE",
+      },
+      defaultExpectedAction: "Contact Gokesari support to resolve the reason above so your shop can be reinstated.",
+    },
+  },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;

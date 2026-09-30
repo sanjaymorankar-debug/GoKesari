@@ -42,6 +42,7 @@ import { creditDeliveryEarnings } from "./delivery-earnings";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { updateOrderStatus } from "./orders";
 import { getRule } from "./settings";
+import { suspensionRecordFor } from "./shop-suspension-guard";
 import {
   getSocietyDeliveryNotes,
   getSocietyDispatchRules,
@@ -976,6 +977,9 @@ export async function dispatchReadyOrder(
 
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, order.shopId) });
   if (!shop?.deliveryAvailable) return null; // pickup-only / shop hands over itself
+  // An order the suspension policy holds for review is not sent to a rider until an operator decides.
+  const held = await suspensionRecordFor(db, order.shopId, order.id);
+  if (held.record?.outcome === "AWAITING_REVIEW") return null;
 
   const active = await db.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.orderId, orderId) });
   if (active && (ACTIVE_ASSIGNMENT_STATUSES as readonly string[]).includes(active.status)) return null;

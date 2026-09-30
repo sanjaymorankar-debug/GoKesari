@@ -15,6 +15,8 @@ export const AUDIT_ACTIONS = {
   SHOP_APPROVED: "shop.approved",
   SHOP_REJECTED: "shop.rejected",
   SHOP_SUSPENDED: "shop.suspended",
+  SHOP_REACTIVATED: "shop.reactivated",
+  SHOP_SUSPENSION_ORDER_RESOLVED: "shop.suspension_order_resolved",
   SHOP_UPDATED: "shop.updated",
   SHOP_CLASSIFICATION_CHANGED: "shop.classification_changed",
   /** A rejected registration submitted again — the same row goes back to PENDING_APPROVAL. */

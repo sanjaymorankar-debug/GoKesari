@@ -218,6 +218,13 @@
       "when": 1790777103500,
       "tag": "0030_phase_f_notifications",
       "breakpoints": true
+    },
+    {
+      "idx": 31,
+      "version": "7",
+      "when": 1790777585016,
+      "tag": "0031_phase_g_shop_suspension",
+      "breakpoints": true
     }
   ]
 }

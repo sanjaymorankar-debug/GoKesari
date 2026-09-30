@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState } from "react";
 
+import { ShopSuspensionControls } from "@/components/shop-suspension-controls";
 import { Badge, Card, ClassificationBadge, EmptyState, StatusBadge, inputClass } from "@/components/ui";
 
 export interface ShopListRow {
@@ -24,7 +25,7 @@ export interface ShopListRow {
  * keystroke would be pure overhead — everything the operator needs is already
  * on the page.
  */
-export function ShopProductManagementList({ shops }: { shops: ShopListRow[] }) {
+export function ShopProductManagementList({ shops, canSuspend = false }: { shops: ShopListRow[]; canSuspend?: boolean }) {
   const [query, setQuery] = useState("");
   const [status, setStatus] = useState("");
 
@@ -81,6 +82,7 @@ export function ShopProductManagementList({ shops }: { shops: ShopListRow[] }) {
                 <th className="px-4 py-2">Status</th>
                 <th className="px-4 py-2">Products</th>
                 <th className="px-4 py-2" />
+                {canSuspend ? <th className="px-4 py-2" /> : null}
               </tr>
             </thead>
             <tbody className="divide-y divide-cream-200">
@@ -109,6 +111,11 @@ export function ShopProductManagementList({ shops }: { shops: ShopListRow[] }) {
                       Manage products →
                     </Link>
                   </td>
+                  {canSuspend ? (
+                    <td className="px-4 py-2 align-top">
+                      <ShopSuspensionControls shopId={s.id} shopName={s.name} status={s.status} />
+                    </td>
+                  ) : null}
                 </tr>
               ))}
             </tbody>
