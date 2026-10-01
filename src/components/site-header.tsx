@@ -190,7 +190,7 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
 
   return (
     <header className="sticky top-0 z-40 border-b border-cream-200 bg-white/95 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-[120rem] items-center gap-3 px-4 py-3 sm:px-6 lg:px-8">
+      <div className="mx-auto flex w-full max-w-6xl items-center gap-3 px-4 py-3 sm:px-6">
         <Link href="/" className="flex shrink-0 items-center gap-2">
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-kesari-600 text-lg font-bold text-white">
             N
