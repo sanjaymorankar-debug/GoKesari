@@ -43,3 +43,6 @@ next-env.d.ts
 
 # product master platform: generated workbooks (data, not source)
 /pmd-output/
+
+# local database backups
+/backups/
