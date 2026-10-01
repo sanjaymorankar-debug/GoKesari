@@ -253,6 +253,13 @@
       "when": 1790795472919,
       "tag": "0035_shop_categories_many_to_many",
       "breakpoints": true
+    },
+    {
+      "idx": 36,
+      "version": "7",
+      "when": 1790891559195,
+      "tag": "0036_orders_placed_while_closed",
+      "breakpoints": true
     }
   ]
 }

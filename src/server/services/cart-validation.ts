@@ -15,7 +15,7 @@
  */
 import { inArray } from "drizzle-orm";
 
-import { isShopOpenNow } from "@/lib/shop-hours";
+import { formatShopTime, isShopOpenNow, nextOpeningAt } from "@/lib/shop-hours";
 import type { CustomerLocation } from "@/lib/location";
 import { db } from "@/server/db";
 import { shops } from "@/server/db/schema";
@@ -127,10 +127,11 @@ export function checkShopForLocation(
   }
 
   if (!isShopOpenNow(shop, now)) {
+    const opens = nextOpeningAt(shop, now);
     issues.push({
       code: "SHOP_CLOSED_NOW",
       blocking: false,
-      message: `${shop.name} is closed right now; your order will be accepted when it opens.`,
+      message: `${shop.name} might be closed right now${opens ? ` (opens ${formatShopTime(opens)})` : ""}. You can still place the order — it may be processed once the shop opens, and you will be asked to confirm.`,
       action: "NONE",
     });
   }

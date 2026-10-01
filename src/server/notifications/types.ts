@@ -5,6 +5,14 @@ export const NOTIFICATION_TYPES = {
   SHOP_REJECTED: "shop.rejected",
   /** DEF-02 (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): a shop previously learned about a new order only by refreshing /shop/orders. */
   SHOP_NEW_ORDER: "shop.new_order",
+  /** To the shop: an order arrived while the shop is closed (customer confirmed they want to wait). */
+  SHOP_ORDER_WHILE_CLOSED: "shop.order_while_closed",
+  /** To the shop, once: it is open again and these queued orders are waiting for acceptance. */
+  SHOP_OPENED_ORDERS_WAITING: "shop.opened_orders_waiting",
+  /** To the customer: order placed, shop closed, it will be processed when the shop opens. */
+  ORDER_QUEUED_SHOP_CLOSED: "order.queued_shop_closed",
+  /** To the customer, once: the shop has opened and can now accept the order. */
+  ORDER_SHOP_NOW_OPEN: "order.shop_now_open",
   ORDER_CONFIRMED: "order.confirmed",
   ORDER_ACCEPTED: "order.accepted",
   ORDER_ASSIGNED: "order.assigned",

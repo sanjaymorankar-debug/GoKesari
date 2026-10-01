@@ -21,6 +21,7 @@ import { alias } from "drizzle-orm/pg-core";
 import { conflict, forbidden, invalidTransition, notFound, validationFailed } from "@/lib/errors";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { lineTotalPaise, sumPaise } from "@/lib/money";
+import { formatShopTime, isShopOpenNow, nextOpeningAt } from "@/lib/shop-hours";
 import { db, type DbClient } from "@/server/db";
 import {
   addresses,
@@ -181,6 +182,12 @@ export interface CheckoutInput {
   actorRole?: UserRole;
   /** WALLET (default) or COD — cash on delivery, within the COD limits (GS-030). */
   paymentMethod?: PaymentMethod;
+  /**
+   * Shops the customer has been warned are closed right now and chose to order
+   * from anyway. A closed shop NOT listed here refuses the checkout — the
+   * warning is enforced server-side, not just shown.
+   */
+  acknowledgeClosedShopIds?: string[];
 }
 
 export interface CheckoutResult {
@@ -221,6 +228,25 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   if (purchasableGroups.length === 0) {
     throw conflict(
       "None of the items in your cart can be ordered online right now.",
+    );
+  }
+
+  // Closed shops: the customer must have confirmed they are happy to wait. A
+  // confirmed order is placed normally and flagged, so the shop is alerted at
+  // once and again when it opens (see shop-opening.ts).
+  const closedShops = new Map<string, Date | null>();
+  const acknowledged = new Set(input.acknowledgeClosedShopIds ?? []);
+  const unconfirmed: string[] = [];
+  const checkedAt = new Date();
+  for (const group of purchasableGroups) {
+    const [shopRow] = await db.select().from(shops).where(eq(shops.id, group.shop.id));
+    if (!shopRow || isShopOpenNow(shopRow, checkedAt)) continue;
+    closedShops.set(shopRow.id, nextOpeningAt(shopRow, checkedAt));
+    if (!acknowledged.has(shopRow.id)) unconfirmed.push(shopRow.name);
+  }
+  if (unconfirmed.length > 0) {
+    throw conflict(
+      `${unconfirmed.join(", ")} ${unconfirmed.length === 1 ? "is" : "are"} closed right now. Confirm you want to continue — your order may be processed once the shop opens.`,
     );
   }
 
@@ -395,6 +421,8 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           orderType,
           buyerShopId,
           paymentMethod,
+          placedWhileClosed: closedShops.has(group.shop.id),
+          expectedOpenAt: closedShops.get(group.shop.id) ?? null,
           checkoutKey: idempotencyKey,
           societyId: orderSocietyId,
           subtotalPaise,
@@ -485,16 +513,42 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
         },
         tx,
       );
-      await notify(
-        {
-          userId: shopRow.ownerId,
-          type: NOTIFICATION_TYPES.SHOP_NEW_ORDER,
-          title: "New order",
-          body: `Order ${orderRow.orderNumber} — ${lines.length} item${lines.length === 1 ? "" : "s"}, ₹${(totalPaise / 100).toFixed(2)}${paymentMethod === "COD" ? " (cash on delivery)" : ""}.`,
-          actionUrl: "/shop/orders",
-        },
-        tx,
-      );
+      if (closedShops.has(group.shop.id)) {
+        // Alert 1 of 2: immediately, even though the shop is closed. Alert 2
+        // goes out once when the shop opens (sendShopOpeningAlerts).
+        const opensAt = closedShops.get(group.shop.id);
+        await notify(
+          {
+            userId: shopRow.ownerId,
+            type: NOTIFICATION_TYPES.SHOP_ORDER_WHILE_CLOSED,
+            title: "New order while your shop is closed",
+            body: `Order ${orderRow.orderNumber} — ${lines.length} item${lines.length === 1 ? "" : "s"}, ₹${(totalPaise / 100).toFixed(2)}${paymentMethod === "COD" ? " (cash on delivery)" : ""} — was placed while your shop is closed. The customer chose to wait; you will get another alert when your shop opens.`,
+            actionUrl: "/shop/orders",
+          },
+          tx,
+        );
+        await notify(
+          {
+            userId: input.userId,
+            type: NOTIFICATION_TYPES.ORDER_QUEUED_SHOP_CLOSED,
+            title: "Order placed — shop is closed now",
+            body: `Your order ${orderRow.orderNumber} was sent to ${shopRow.name}. The shop is closed right now, so it may be processed once it opens${opensAt ? ` (${formatShopTime(opensAt)})` : ""}.`,
+            actionUrl: "/orders",
+          },
+          tx,
+        );
+      } else {
+        await notify(
+          {
+            userId: shopRow.ownerId,
+            type: NOTIFICATION_TYPES.SHOP_NEW_ORDER,
+            title: "New order",
+            body: `Order ${orderRow.orderNumber} — ${lines.length} item${lines.length === 1 ? "" : "s"}, ₹${(totalPaise / 100).toFixed(2)}${paymentMethod === "COD" ? " (cash on delivery)" : ""}.`,
+            actionUrl: "/shop/orders",
+          },
+          tx,
+        );
+      }
 
       await clearCartForShop(input.userId, group.shop.id, tx);
       return { order: confirmed, shopOwnerId: shopRow.ownerId };
