@@ -110,7 +110,12 @@ function NavMenu({
   const ref = useRef<HTMLDivElement>(null);
   const active = items.some((i) => pathname.startsWith(i.href));
 
-  useEffect(() => setOpen(false), [pathname]);
+  // Close the menu on navigation (render-time sync, not an effect).
+  const [prevPathname, setPrevPathname] = useState(pathname);
+  if (prevPathname !== pathname) {
+    setPrevPathname(pathname);
+    setOpen(false);
+  }
   useEffect(() => {
     if (!open) return;
     const close = (e: MouseEvent) => {

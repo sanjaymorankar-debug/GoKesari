@@ -87,7 +87,12 @@ export function CartView({
   const [paymentMethod, setPaymentMethod] = useState<"WALLET" | "COD">("WALLET");
 
   const [checks, setChecks] = useState<ShopCartCheck[]>(initialChecks);
-  useEffect(() => setChecks(initialChecks), [initialChecks]);
+  // Adopt fresh server data when the prop changes (render-time sync, not an effect).
+  const [prevInitialChecks, setPrevInitialChecks] = useState(initialChecks);
+  if (prevInitialChecks !== initialChecks) {
+    setPrevInitialChecks(initialChecks);
+    setChecks(initialChecks);
+  }
   // Changing the delivery address re-validates the whole cart against it.
   useEffect(() => {
     if (!addressId) return;

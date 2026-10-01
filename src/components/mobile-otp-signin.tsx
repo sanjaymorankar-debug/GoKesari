@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 import { COUNTRY_CODES } from "@/lib/phone";
 
@@ -35,6 +35,13 @@ export function MobileOtpSignIn({
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [resendAt, setResendAt] = useState(0);
+  const [now, setNow] = useState(0);
+  // Tick once a second while a resend cooldown is running so the button re-enables itself.
+  useEffect(() => {
+    if (!resendAt) return;
+    const t = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [resendAt]);
 
   async function sendCode() {
     setBusy(true);
@@ -186,7 +193,7 @@ export function MobileOtpSignIn({
             <button
               type="button"
               className="underline disabled:no-underline disabled:opacity-50"
-              disabled={busy || Date.now() < resendAt}
+              disabled={busy || now < resendAt}
               onClick={sendCode}
             >
               Resend code
