@@ -7,11 +7,13 @@
  *  - Financial rows (wallet_transactions, order_items) are immutable once written.
  */
 import { sql } from "drizzle-orm";
+import { RETURN_CONDITIONS, RETURN_REASONS, RETURN_STATUSES, PICKUP_STATUSES } from "@/lib/return-states";
 import { SHOP_TYPE_KEYS } from "@/lib/shop-types";
 import {
   bigint,
   boolean,
   check,
+  customType,
   date,
   index,
   integer,
@@ -227,6 +229,7 @@ export const notificationChannelEnum = pgEnum("notification_channel", [
   "EMAIL",
   "SMS",
   "PUSH",
+  "WHATSAPP",
 ]);
 
 /* ------------------------------------- registration, fees & price approval */
@@ -446,6 +449,13 @@ export const users = pgTable(
     emailVerified: timestamp("email_verified", { withTimezone: true }),
     image: text("image"),
     phone: text("phone"),
+    /**
+     * Normalised E.164 number ("+919876543210") used for mobile login lookup.
+     * `phoneVerifiedAt` is set only when possession of the number is proven
+     * (an SMS code); an email-OTP login never sets it.
+     */
+    phoneE164: text("phone_e164"),
+    phoneVerifiedAt: timestamp("phone_verified_at", { withTimezone: true }),
     // Role is server-owned. It is never read from a request body.
     role: userRoleEnum("role").notNull().default("CUSTOMER"),
     status: userStatusEnum("status").notNull().default("ACTIVE"),
@@ -457,7 +467,54 @@ export const users = pgTable(
       .defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
-  (t) => [uniqueIndex("users_email_unique").on(t.email)],
+  (t) => [
+    uniqueIndex("users_email_unique").on(t.email),
+    uniqueIndex("users_phone_e164_unique")
+      .on(t.phoneE164)
+      .where(sql`${t.phoneE164} IS NOT NULL AND ${t.deletedAt} IS NULL`),
+  ],
+);
+
+/**
+ * Admin-tunable business rules (OTP limits, matching retries, earnings slots,
+ * return windows, suspension policy...). One JSON document per key; the code
+ * carries the defaults, so an absent row simply means "use the default".
+ * Every change is audited (services/settings.ts).
+ */
+export const platformSettings = pgTable("platform_settings", {
+  key: text("key").primaryKey(),
+  value: jsonb("value").$type<unknown>().notNull(),
+  updatedBy: uuid("updated_by").references(() => users.id),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+/**
+ * One-time codes for mobile login. Only a salted HMAC of the code is stored.
+ * `userId` is null when the number matched no account: the request still
+ * behaves identically from the outside (no account enumeration) but nothing
+ * is ever sent for it.
+ */
+export const loginOtps = pgTable(
+  "login_otps",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    phoneE164: text("phone_e164").notNull(),
+    channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
+    codeHash: text("code_hash").notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    attempts: integer("attempts").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull(),
+    /** Set when the code was used, or when a newer code replaced it. */
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    ipAddress: text("ip_address"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("login_otps_phone_created_idx").on(t.phoneE164, t.createdAt),
+    index("login_otps_user_idx").on(t.userId),
+  ],
 );
 
 export const accounts = pgTable(
@@ -546,6 +603,12 @@ export const addresses = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     label: text("label"),
+    /** Who receives the delivery, when not the account holder. */
+    recipientName: text("recipient_name"),
+    recipientPhone: text("recipient_phone"),
+    addressType: text("address_type", { enum: ["HOME", "WORK", "OTHER"] })
+      .notNull()
+      .default("OTHER"),
     line1: text("line1").notNull(),
     line2: text("line2"),
     area: text("area"),
@@ -621,6 +684,22 @@ export const shops = pgTable(
      * delivery partner's `operatingRadiusKm` already works.
      */
     serviceRadiusKm: integer("service_radius_km").notNull().default(5),
+    /**
+     * Extra delivery zones: PIN codes the shop delivers to in addition to its
+     * radius (e.g. a neighbouring locality just outside it).
+     */
+    deliveryPincodes: jsonb("delivery_pincodes").$type<string[]>().notNull().default([]),
+    /**
+     * Stock-alert defaults for every listing of this shop that does not set its
+     * own (see services/inventory-alerts.ts resolveThresholds). 0 / null = none.
+     */
+    defaultLowStockThreshold: integer("default_low_stock_threshold").notNull().default(0),
+    defaultReorderLevel: integer("default_reorder_level"),
+    defaultReorderQuantity: integer("default_reorder_quantity"),
+    /** Orders below this subtotal are refused at checkout; 0 = no minimum. */
+    minOrderPaise: bigint("min_order_paise", { mode: "number" }).notNull().default(0),
+    /** Owner switch: the shop keeps its listing but takes no new orders for now. */
+    ordersPaused: boolean("orders_paused").notNull().default(false),
     /** Rating aggregate (GS-059), maintained from visible order_ratings. Average × 100. */
     ratingAvgX100: integer("rating_avg_x100").notNull().default(0),
     ratingCount: integer("rating_count").notNull().default(0),
@@ -793,6 +872,7 @@ export const shops = pgTable(
       "shops_delivery_fee_non_negative",
       sql`${t.deliveryFeePaise} >= 0`,
     ),
+    check("shops_min_order_non_negative", sql`${t.minOrderPaise} >= 0`),
     check(
       "shops_service_radius_range",
       sql`${t.serviceRadiusKm} BETWEEN 1 AND 50`,
@@ -802,6 +882,51 @@ export const shops = pgTable(
       sql`(${t.registrationFeePaise} IS NULL OR ${t.registrationFeePaise} >= 0)
           AND ${t.amountPaidPaise} >= 0`,
     ),
+  ],
+);
+
+/**
+ * Shop categories — what kind of business a shop runs, chosen by the owner
+ * (many per shop) and managed centrally by staff. NOT the same as:
+ *   - `shops.shop_type`, the single business type that drives product suggestions;
+ *   - `product_categories`, which classify the products a shop sells;
+ *   - `shops.classification` (Kesari / Green), set by staff.
+ * Customers do not browse by these; search and reporting use them internally.
+ */
+export const shopCategories = pgTable(
+  "shop_categories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    description: text("description"),
+    status: text("status", { enum: ["ACTIVE", "INACTIVE"] }).notNull().default("ACTIVE"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("shop_categories_slug_unique").on(t.slug),
+    uniqueIndex("shop_categories_name_unique").on(sql`lower(${t.name})`),
+  ],
+);
+
+/** Many-to-many: one shop, many categories; one category, many shops. */
+export const shopCategoryMapping = pgTable(
+  "shop_category_mapping",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    categoryId: uuid("category_id")
+      .notNull()
+      .references(() => shopCategories.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("shop_category_mapping_unique").on(t.shopId, t.categoryId),
+    index("shop_category_mapping_category_idx").on(t.categoryId),
   ],
 );
 
@@ -1087,6 +1212,13 @@ export const products = pgTable(
     hsnCode: text("hsn_code"),
     gstRateBp: integer("gst_rate_bp"),
 
+    /* Stock-alert defaults for this product in every shop, set by catalogue
+     * staff (a milk packet needs a higher mark than a slow-moving line).
+     * Outranked by a listing's own values, outranks the shop default. */
+    defaultLowStockThreshold: integer("default_low_stock_threshold"),
+    defaultReorderLevel: integer("default_reorder_level"),
+    defaultReorderQuantity: integer("default_reorder_quantity"),
+
     /* ------------------------------------------- manufacturer & packaging */
     manufacturerName: text("manufacturer_name"),
     manufacturerAddress: text("manufacturer_address"),
@@ -1171,7 +1303,14 @@ export const productMrpHistory = pgTable(
   (t) => [index("product_mrp_history_product_idx").on(t.productId)],
 );
 
-/** Additional product images. `products.imageUrl` stays as the primary/legacy image. */
+/**
+ * Product photos. `shopProductId` null = a photo of the product itself (every
+ * shop sees it); set = a photo of that one shop's listing (SKU), which takes
+ * precedence for that shop. One primary per scope; its URL is mirrored onto
+ * `products.image_url` / `shop_products.image_url` so existing readers keep
+ * working. New images point at `stored_images` (services/product-images.ts);
+ * older rows may carry only an external `url`.
+ */
 export const productImages = pgTable(
   "product_images",
   {
@@ -1179,13 +1318,27 @@ export const productImages = pgTable(
     productId: uuid("product_id")
       .notNull()
       .references(() => products.id, { onDelete: "cascade" }),
+    shopProductId: uuid("shop_product_id").references(() => shopProducts.id, { onDelete: "cascade" }),
+    storedImageId: uuid("stored_image_id").references(() => storedImages.id, { onDelete: "set null" }),
     url: text("url").notNull(),
+    altText: text("alt_text"),
+    isPrimary: boolean("is_primary").notNull().default(false),
     sortOrder: integer("sort_order").notNull().default(0),
+    createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
   },
-  (t) => [index("product_images_product_idx").on(t.productId)],
+  (t) => [
+    index("product_images_product_idx").on(t.productId),
+    index("product_images_shop_product_idx").on(t.shopProductId),
+    uniqueIndex("product_images_one_primary_product")
+      .on(t.productId)
+      .where(sql`${t.isPrimary} AND ${t.shopProductId} IS NULL`),
+    uniqueIndex("product_images_one_primary_listing")
+      .on(t.shopProductId)
+      .where(sql`${t.isPrimary} AND ${t.shopProductId} IS NOT NULL`),
+  ],
 );
 
 /**
@@ -1226,6 +1379,8 @@ export const shopProducts = pgTable(
     reorderQuantity: integer("reorder_quantity"),
     minimumOrderQuantity: integer("minimum_order_quantity").notNull().default(1),
     maximumOrderQuantity: integer("maximum_order_quantity"),
+    /** The owner opted this listing out of every stock alert (explicit, unlike a 0 threshold that just inherits). */
+    stockAlertsDisabled: boolean("stock_alerts_disabled").notNull().default(false),
     isActive: boolean("is_active").notNull().default(true),
     /** Temporary availability toggle (e.g. sold out today) distinct from isActive. */
     isAvailable: boolean("is_available").notNull().default(true),
@@ -1609,6 +1764,9 @@ export const deliveryOrders = pgTable(
     deliveryOtp: text("delivery_otp"),
     deliveryOtpAttempts: integer("delivery_otp_attempts").notNull().default(0),
     outForDeliveryAt: timestamp("out_for_delivery_at", { withTimezone: true }),
+    /** Rider checkpoints (no status change): reached the shop / reached the customer's door or gate. */
+    arrivedAtShopAt: timestamp("arrived_at_shop_at", { withTimezone: true }),
+    arrivedAtCustomerAt: timestamp("arrived_at_customer_at", { withTimezone: true }),
     failedAt: timestamp("failed_at", { withTimezone: true }),
     failureReason: text("failure_reason"),
     /** How delivery was confirmed: CUSTOMER_OTP, or OPERATOR_OVERRIDE (proof note required). */
@@ -1629,6 +1787,67 @@ export const deliveryOrders = pgTable(
     index("delivery_orders_partner_idx").on(t.deliveryPartnerId),
     index("delivery_orders_status_idx").on(t.status),
   ],
+);
+
+/**
+ * "Find rider" search state, one row per order (see delivery-assignment.ts).
+ * Tracks how long and how often the platform has tried to match a rider so
+ * retries are bounded by configurable rules rather than looping forever.
+ */
+export const riderSearches = pgTable(
+  "rider_searches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    status: text("status", { enum: ["SEARCHING", "ASSIGNED", "STOPPED"] }).notNull().default("SEARCHING"),
+    stopReason: text("stop_reason", {
+      enum: [
+        "RIDER_ACCEPTED",
+        "ORDER_CANCELLED",
+        "ORDER_NOT_READY",
+        "WINDOW_EXPIRED",
+        "RETRY_LIMIT",
+        "TIME_LIMIT",
+        "STOPPED_BY_SHOP",
+      ],
+    }),
+    attempts: integer("attempts").notNull().default(0),
+    /** Rule values in force when the search (re)started, so a later rule change never moves the goalposts. */
+    maxAttempts: integer("max_attempts").notNull(),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    stoppedAt: timestamp("stopped_at", { withTimezone: true }),
+    startedBy: uuid("started_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("rider_searches_order_unique").on(t.orderId),
+    index("rider_searches_status_next_idx").on(t.status, t.nextAttemptAt),
+  ],
+);
+
+/** One row per matching attempt — who triggered it, and what came of it. */
+export const dispatchAttempts = pgTable(
+  "dispatch_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    searchId: uuid("search_id").references(() => riderSearches.id, { onDelete: "set null" }),
+    attemptNo: integer("attempt_no").notNull(),
+    trigger: text("trigger", { enum: ["SHOP_MANUAL", "AUTO_READY", "SWEEP", "REOFFER"] }).notNull(),
+    outcome: text("outcome", { enum: ["OFFERED", "NO_RIDER", "STOPPED", "ERROR"] }).notNull(),
+    deliveryOrderId: uuid("delivery_order_id").references(() => deliveryOrders.id, { onDelete: "set null" }),
+    deliveryPartnerId: uuid("delivery_partner_id").references(() => deliveryPartners.id, { onDelete: "set null" }),
+    detail: text("detail"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("dispatch_attempts_order_idx").on(t.orderId, t.createdAt)],
 );
 
 /**
@@ -1663,11 +1882,23 @@ export const deliveryPartnerEarnings = pgTable(
     deliveryPartnerId: uuid("delivery_partner_id")
       .notNull()
       .references(() => deliveryPartners.id, { onDelete: "restrict" }),
-    deliveryOrderId: uuid("delivery_order_id")
-      .notNull()
-      .references(() => deliveryOrders.id, { onDelete: "restrict" }),
+    /** Null for a return-pickup earning (see returnPickupId). */
+    deliveryOrderId: uuid("delivery_order_id").references(() => deliveryOrders.id, { onDelete: "restrict" }),
+    /** Set for the flat fee a rider earns for collecting a customer return. */
+    returnPickupId: uuid("return_pickup_id"),
     basePaise: bigint("base_paise", { mode: "number" }).notNull(),
     distancePaise: bigint("distance_paise", { mode: "number" }).notNull(),
+    /* Breakdown added with the slot/incentive engine. `totalPaise` is the net
+     * the rider is paid: base + distance + order component + slot incentive +
+     * minimum top-up + order incentive + other incentive − deductions. */
+    orderComponentPaise: bigint("order_component_paise", { mode: "number" }).notNull().default(0),
+    slotIncentivePaise: bigint("slot_incentive_paise", { mode: "number" }).notNull().default(0),
+    minTopUpPaise: bigint("min_top_up_paise", { mode: "number" }).notNull().default(0),
+    orderIncentivePaise: bigint("order_incentive_paise", { mode: "number" }).notNull().default(0),
+    otherIncentivePaise: bigint("other_incentive_paise", { mode: "number" }).notNull().default(0),
+    deductionsPaise: bigint("deductions_paise", { mode: "number" }).notNull().default(0),
+    /** The slot whose rates applied (null when none matched and the default rates were used). */
+    slotId: uuid("slot_id"),
     totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
     /** Set when this earning is included in a rider payout batch (GS-064). */
     payoutId: uuid("payout_id"),
@@ -1677,9 +1908,457 @@ export const deliveryPartnerEarnings = pgTable(
   },
   (t) => [
     uniqueIndex("delivery_partner_earnings_order_unique").on(t.deliveryOrderId),
+    uniqueIndex("delivery_partner_earnings_return_unique").on(t.returnPickupId),
     index("delivery_partner_earnings_payout_idx").on(t.payoutId),
     index("delivery_partner_earnings_partner_idx").on(t.deliveryPartnerId),
   ],
+);
+
+/* ------------------------------------------------------ shop suspensions
+ * One row per suspension, with what the policy did to each open order at that
+ * moment, so operations can see the impact and resolve the orders that need a
+ * decision (services/shop-suspension.ts).
+ */
+export const shopSuspensions = pgTable(
+  "shop_suspensions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    reason: text("reason").notNull(),
+    /** What the owner is expected to do (shown in the notice), e.g. "Upload a valid FSSAI licence". */
+    expectedAction: text("expected_action").notNull(),
+    suspendedBy: uuid("suspended_by").references(() => users.id),
+    effectiveAt: timestamp("effective_at", { withTimezone: true }).notNull().defaultNow(),
+    status: text("status", { enum: ["ACTIVE", "LIFTED"] }).notNull().default("ACTIVE"),
+    liftedAt: timestamp("lifted_at", { withTimezone: true }),
+    liftedBy: uuid("lifted_by").references(() => users.id),
+    liftNote: text("lift_note"),
+    /** Policy in force and the counts it produced — a snapshot, not a live view. */
+    policy: jsonb("policy").$type<Record<string, string>>().notNull().default({}),
+    impact: jsonb("impact").$type<Record<string, number>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("shop_suspensions_shop_idx").on(t.shopId, t.createdAt),
+    uniqueIndex("shop_suspensions_one_active").on(t.shopId).where(sql`${t.status} = 'ACTIVE'`),
+  ],
+);
+
+export const shopSuspensionOrders = pgTable(
+  "shop_suspension_orders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    suspensionId: uuid("suspension_id")
+      .notNull()
+      .references(() => shopSuspensions.id, { onDelete: "cascade" }),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    statusAtSuspension: text("status_at_suspension").notNull(),
+    plannedAction: text("planned_action", { enum: ["CANCEL_REFUND", "CONTINUE", "REVIEW"] }).notNull(),
+    /** CANCELLED: refunded and closed. CONTINUING: the shop finishes it. AWAITING_REVIEW: an operator decides. FAILED: the automatic action could not run — an operator must act. */
+    outcome: text("outcome", { enum: ["CANCELLED", "CONTINUING", "AWAITING_REVIEW", "FAILED"] }).notNull(),
+    note: text("note"),
+    resolvedBy: uuid("resolved_by").references(() => users.id),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("shop_suspension_orders_unique").on(t.suspensionId, t.orderId),
+    index("shop_suspension_orders_order_idx").on(t.orderId),
+    index("shop_suspension_orders_outcome_idx").on(t.outcome),
+  ],
+);
+
+/* ------------------------------------------- external price references
+ * A reference price seen OUTSIDE Gokesari (a mandi, a manufacturer list, a
+ * survey). It is information — never the shop's selling price and never the
+ * MRP, and nothing here writes to either (services/price-references.ts).
+ * Changes are appended to the history table.
+ */
+export const externalPriceReferences = pgTable(
+  "external_price_references",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    pricePaise: bigint("price_paise", { mode: "number" }).notNull(),
+    /** What the price is for, e.g. "per 500 g pack" or "per kg, loose". */
+    unitBasis: text("unit_basis"),
+    sourceType: text("source_type", {
+      enum: ["MARKET_SURVEY", "MANUFACTURER", "GOVT_MANDI", "PARTNER_FEED", "PMD_IMPORT", "OTHER"],
+    }).notNull(),
+    sourceName: text("source_name").notNull(),
+    /** The source's own identifier for the listing or record, where it has one. */
+    sourceIdentifier: text("source_identifier"),
+    referenceUrl: text("reference_url"),
+    /** Where the price applies: market / city / locality. */
+    marketLocation: text("market_location"),
+    pincode: text("pincode"),
+    /** When the price was observed at the source (not when it was entered). */
+    referencedAt: timestamp("referenced_at", { withTimezone: true }).notNull(),
+    verificationStatus: text("verification_status", { enum: ["UNVERIFIED", "VERIFIED", "REJECTED"] })
+      .notNull()
+      .default("UNVERIFIED"),
+    verifiedBy: uuid("verified_by").references(() => users.id),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    verificationNote: text("verification_note"),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("external_price_refs_product_idx").on(t.productId, t.referencedAt),
+    check("external_price_refs_price_positive", sql`${t.pricePaise} > 0`),
+  ],
+);
+
+export const externalPriceReferenceHistory = pgTable(
+  "external_price_reference_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    referenceId: uuid("reference_id")
+      .notNull()
+      .references(() => externalPriceReferences.id, { onDelete: "cascade" }),
+    action: text("action", { enum: ["CREATED", "EDITED", "VERIFIED", "REJECTED", "REOPENED"] }).notNull(),
+    previous: jsonb("previous").$type<Record<string, unknown> | null>(),
+    next: jsonb("next").$type<Record<string, unknown>>().notNull(),
+    note: text("note"),
+    actorId: uuid("actor_id").references(() => users.id),
+    actorRole: text("actor_role"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("external_price_ref_history_idx").on(t.referenceId, t.createdAt)],
+);
+
+/**
+ * A shop owner's claim that the master MRP is wrong. The claimed figure lives
+ * here until an operator decides; it never reaches products.mrp_paise on its own.
+ */
+export const mrpCorrections = pgTable(
+  "mrp_corrections",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    productId: uuid("product_id")
+      .notNull()
+      .references(() => products.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id").references(() => shops.id, { onDelete: "set null" }),
+    claimedMrpPaise: bigint("claimed_mrp_paise", { mode: "number" }).notNull(),
+    note: text("note"),
+    submittedBy: uuid("submitted_by")
+      .notNull()
+      .references(() => users.id),
+    status: text("status", { enum: ["PENDING", "ACCEPTED", "REJECTED"] }).notNull().default("PENDING"),
+    /** The product's verification status before the dispute, restored if the claim is rejected. */
+    previousVerificationStatus: text("previous_verification_status"),
+    decidedBy: uuid("decided_by").references(() => users.id),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decisionNote: text("decision_note"),
+    appliedMrpPaise: bigint("applied_mrp_paise", { mode: "number" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("mrp_corrections_status_idx").on(t.status, t.createdAt),
+    index("mrp_corrections_product_idx").on(t.productId),
+    check("mrp_corrections_claim_non_negative", sql`${t.claimedMrpPaise} >= 0`),
+  ],
+);
+
+/* ------------------------------------------------------- stored images
+ * Uploaded images (product photos, return evidence). Kept in the database so
+ * they survive redeploys on hosts with an ephemeral filesystem; the browser
+ * shrinks them before upload (components/image-uploader.tsx) and the server
+ * re-validates type, size and dimensions (services/image-store.ts).
+ */
+const bytea = customType<{ data: Buffer; default: false }>({
+  dataType() {
+    return "bytea";
+  },
+});
+
+export const storedImages = pgTable(
+  "stored_images",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
+    purpose: text("purpose", { enum: ["PRODUCT", "RETURN_EVIDENCE"] }).notNull(),
+    contentType: text("content_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    sha256: text("sha256").notNull(),
+    data: bytea("data").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("stored_images_owner_idx").on(t.ownerId), index("stored_images_sha_idx").on(t.sha256)],
+);
+
+/* ------------------------------------------------------------- returns
+ * Request → validation → approval → pickup → inspection → refund
+ * (lib/return-states.ts has the state machine; services/returns.ts drives it).
+ */
+export const returnRequests = pgTable(
+  "return_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    returnNumber: text("return_number").notNull(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "restrict" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    status: text("status", { enum: RETURN_STATUSES }).notNull().default("RETURN_REQUESTED"),
+    reason: text("reason", { enum: RETURN_REASONS }).notNull(),
+    comment: text("comment"),
+    /** Goods-only value of the requested items, worked out at request time. */
+    refundAmountPaise: bigint("refund_amount_paise", { mode: "number" }).notNull(),
+    /** Who bears the refund, decided by the reason's policy when the request is made. */
+    chargeTo: text("charge_to", { enum: ["SHOP", "PLATFORM"] }).notNull(),
+    /** True when a rider collects the goods; false when the customer hands them to the shop. */
+    pickupRequired: boolean("pickup_required").notNull().default(true),
+    pickupAddress: jsonb("pickup_address").$type<Record<string, unknown>>(),
+    /** Set once the refund has actually been paid; the amount may be lower than requested after inspection. */
+    refundedPaise: bigint("refunded_paise", { mode: "number" }),
+    refundAdjustmentId: uuid("refund_adjustment_id"),
+    decidedBy: uuid("decided_by").references(() => users.id),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decisionNote: text("decision_note"),
+    inspectedBy: uuid("inspected_by").references(() => users.id),
+    inspectedAt: timestamp("inspected_at", { withTimezone: true }),
+    inspectionNote: text("inspection_note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("return_requests_number_unique").on(t.returnNumber),
+    index("return_requests_order_idx").on(t.orderId),
+    index("return_requests_user_idx").on(t.userId, t.createdAt),
+    index("return_requests_shop_status_idx").on(t.shopId, t.status),
+    check("return_requests_refund_non_negative", sql`${t.refundAmountPaise} >= 0`),
+  ],
+);
+
+export const returnItems = pgTable(
+  "return_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    returnId: uuid("return_id")
+      .notNull()
+      .references(() => returnRequests.id, { onDelete: "cascade" }),
+    orderItemId: uuid("order_item_id")
+      .notNull()
+      .references(() => orderItems.id, { onDelete: "restrict" }),
+    /** Milli-units being returned (same scale as order_items.quantity_milli). */
+    quantityMilli: integer("quantity_milli").notNull(),
+    condition: text("condition", { enum: RETURN_CONDITIONS }).notNull(),
+    comment: text("comment"),
+    /** stored_images ids showing the item. */
+    imageIds: jsonb("image_ids").$type<string[]>().notNull().default([]),
+    refundPaise: bigint("refund_paise", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("return_items_return_idx").on(t.returnId),
+    index("return_items_order_item_idx").on(t.orderItemId),
+    check("return_items_quantity_positive", sql`${t.quantityMilli} > 0`),
+  ],
+);
+
+export const returnStatusHistory = pgTable(
+  "return_status_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    returnId: uuid("return_id")
+      .notNull()
+      .references(() => returnRequests.id, { onDelete: "cascade" }),
+    fromStatus: text("from_status", { enum: RETURN_STATUSES }),
+    toStatus: text("to_status", { enum: RETURN_STATUSES }).notNull(),
+    changedBy: uuid("changed_by").references(() => users.id),
+    changedByRole: text("changed_by_role"),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("return_status_history_return_idx").on(t.returnId, t.createdAt)],
+);
+
+/** A rider's collection of returned goods from the customer, back to the shop. */
+export const returnPickups = pgTable(
+  "return_pickups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    returnId: uuid("return_id")
+      .notNull()
+      .references(() => returnRequests.id, { onDelete: "cascade" }),
+    deliveryPartnerId: uuid("delivery_partner_id").references(() => deliveryPartners.id, { onDelete: "restrict" }),
+    status: text("status", { enum: PICKUP_STATUSES }).notNull().default("PENDING"),
+    /** Window the customer is asked to be ready in (start); the rider sees it. */
+    scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
+    /** Read out by the customer at handover; the rider must enter it. Never sent to the rider. */
+    handoverCode: text("handover_code").notNull(),
+    handoverAttempts: integer("handover_attempts").notNull().default(0),
+    offeredAt: timestamp("offered_at", { withTimezone: true }),
+    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    enRouteAt: timestamp("en_route_at", { withTimezone: true }),
+    pickedUpAt: timestamp("picked_up_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+    failureReason: text("failure_reason"),
+    /** Riders who declined or let the offer lapse — never re-offered this pickup. */
+    rejectedPartnerIds: uuid("rejected_partner_ids").array().notNull().default(sql`'{}'::uuid[]`),
+    attempts: integer("attempts").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("return_pickups_return_idx").on(t.returnId),
+    index("return_pickups_partner_idx").on(t.deliveryPartnerId, t.status),
+    // One live pickup per return.
+    uniqueIndex("return_pickups_one_live")
+      .on(t.returnId)
+      .where(sql`${t.status} IN ('PENDING','OFFERED','ACCEPTED','EN_ROUTE')`),
+  ],
+);
+
+/* ------------------------------------------------- rider earnings engine
+ * Configurable slots (Morning / Evening / custom range), each with its own
+ * rates, plus incentive rules. Every completed delivery's earning is computed
+ * from these (services/delivery-earnings.ts) and written as a breakdown on
+ * delivery_partner_earnings plus append-only lines in rider_earnings_ledger.
+ */
+
+/** Local-time window (APP_TIMEZONE) with its own earning rates. NULL rates fall back to the default config. */
+export const riderEarningSlots = pgTable(
+  "rider_earning_slots",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    /** "HH:MM" local start (inclusive) and end (exclusive); end < start means the window crosses midnight. */
+    startTime: text("start_time").notNull(),
+    endTime: text("end_time").notNull(),
+    /** Weekdays (0 = Sunday .. 6) the slot applies to; empty = every day. */
+    daysOfWeek: jsonb("days_of_week").$type<number[]>().notNull().default([]),
+    baseFeePaise: bigint("base_fee_paise", { mode: "number" }),
+    perKmFeePaise: bigint("per_km_fee_paise", { mode: "number" }),
+    /** Floor for one order's earning in this slot (before incentives). */
+    minEarningPaise: bigint("min_earning_paise", { mode: "number" }),
+    /** Order-based component: flat amount plus a share of the order subtotal (basis points). */
+    orderFeePaise: bigint("order_fee_paise", { mode: "number" }).notNull().default(0),
+    orderPercentBp: integer("order_percent_bp").notNull().default(0),
+    /** Peak-period component paid on top in this slot. */
+    peakBonusPaise: bigint("peak_bonus_paise", { mode: "number" }).notNull().default(0),
+    isPeak: boolean("is_peak").notNull().default(false),
+    /** The highest-priority active slot containing the delivery time wins. */
+    priority: integer("priority").notNull().default(0),
+    validFrom: date("valid_from"),
+    validTo: date("valid_to"),
+    isActive: boolean("is_active").notNull().default(true),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("rider_slots_percent_range", sql`${t.orderPercentBp} BETWEEN 0 AND 10000`),
+    check(
+      "rider_slots_amounts_non_negative",
+      sql`${t.orderFeePaise} >= 0 AND ${t.peakBonusPaise} >= 0
+          AND (${t.baseFeePaise} IS NULL OR ${t.baseFeePaise} >= 0)
+          AND (${t.perKmFeePaise} IS NULL OR ${t.perKmFeePaise} >= 0)
+          AND (${t.minEarningPaise} IS NULL OR ${t.minEarningPaise} >= 0)`,
+    ),
+  ],
+);
+
+/**
+ * Incentive rules. `thresholdValue` is in orders for ORDER_COUNT / DAILY_TARGET /
+ * WEEKLY_TARGET and in metres for DISTANCE.
+ *  ORDER_COUNT   — `rewardPaise` on every delivery beyond the Nth in the period
+ *  DAILY_TARGET  — one-off reward on the delivery that reaches N in a day
+ *  WEEKLY_TARGET — one-off reward on the delivery that reaches N in a week
+ *  DISTANCE      — reward on a delivery whose leg is at least the threshold
+ *  PEAK_HOUR     — reward on a delivery inside the rule's own time window
+ *  CAMPAIGN      — reward on every delivery while the campaign window is live
+ */
+export const riderIncentiveRules = pgTable(
+  "rider_incentive_rules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    description: text("description"),
+    type: text("type", {
+      enum: ["ORDER_COUNT", "DAILY_TARGET", "WEEKLY_TARGET", "DISTANCE", "PEAK_HOUR", "CAMPAIGN"],
+    }).notNull(),
+    thresholdValue: integer("threshold_value").notNull().default(0),
+    rewardPaise: bigint("reward_paise", { mode: "number" }).notNull(),
+    /** ORDER_COUNT counts deliveries per DAY or per WEEK. */
+    period: text("period", { enum: ["DAY", "WEEK"] }).notNull().default("DAY"),
+    startTime: text("start_time"),
+    endTime: text("end_time"),
+    daysOfWeek: jsonb("days_of_week").$type<number[]>().notNull().default([]),
+    validFrom: date("valid_from"),
+    validTo: date("valid_to"),
+    isActive: boolean("is_active").notNull().default(true),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("rider_incentive_reward_positive", sql`${t.rewardPaise} > 0`)],
+);
+
+/** One row per incentive actually paid; the unique key stops a target being paid twice for the same period. */
+export const riderIncentiveAwards = pgTable(
+  "rider_incentive_awards",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ruleId: uuid("rule_id")
+      .notNull()
+      .references(() => riderIncentiveRules.id, { onDelete: "restrict" }),
+    deliveryPartnerId: uuid("delivery_partner_id")
+      .notNull()
+      .references(() => deliveryPartners.id, { onDelete: "restrict" }),
+    earningId: uuid("earning_id").references(() => deliveryPartnerEarnings.id, { onDelete: "set null" }),
+    /** Day key, ISO-week key, or the delivery order id for per-order rewards. */
+    periodKey: text("period_key").notNull(),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("rider_incentive_awards_unique").on(t.ruleId, t.deliveryPartnerId, t.periodKey)],
+);
+
+/** Append-only audit lines behind every earning: the components sum to the earning's net total. */
+export const riderEarningsLedger = pgTable(
+  "rider_earnings_ledger",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deliveryPartnerId: uuid("delivery_partner_id")
+      .notNull()
+      .references(() => deliveryPartners.id, { onDelete: "restrict" }),
+    earningId: uuid("earning_id")
+      .notNull()
+      .references(() => deliveryPartnerEarnings.id, { onDelete: "cascade" }),
+    deliveryOrderId: uuid("delivery_order_id").references(() => deliveryOrders.id, { onDelete: "set null" }),
+    component: text("component", {
+      enum: [
+        "BASE",
+        "DISTANCE",
+        "ORDER_COMPONENT",
+        "SLOT_INCENTIVE",
+        "MIN_TOP_UP",
+        "ORDER_INCENTIVE",
+        "OTHER_INCENTIVE",
+        "DEDUCTION",
+      ],
+    }).notNull(),
+    /** Signed: deductions are negative. */
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    description: text("description").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("rider_earnings_ledger_earning_idx").on(t.earningId), index("rider_earnings_ledger_partner_idx").on(t.deliveryPartnerId, t.createdAt)],
 );
 
 /* ------------------------------------------------------------- payments */
@@ -2195,6 +2874,65 @@ export const notifications = pgTable(
   ],
 );
 
+/**
+ * A user's choice per notification category and channel. No row = the
+ * template's default applies. Security notices ignore these (always sent).
+ */
+export const notificationPreferences = pgTable(
+  "notification_preferences",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    category: text("category").notNull(),
+    channel: notificationChannelEnum("channel").notNull(),
+    enabled: boolean("enabled").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("notification_preferences_unique").on(t.userId, t.category, t.channel)],
+);
+
+/**
+ * Outbound (non in-app) delivery queue and log: one row per notification per
+ * channel. PENDING/FAILED rows are retried with backoff until `maxAttempts`,
+ * then marked DEAD; SKIPPED means the channel had nowhere to send (no provider,
+ * no address). The in-app inbox stays in `notifications`.
+ */
+export const notificationDeliveries = pgTable(
+  "notification_deliveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    notificationId: uuid("notification_id").references(() => notifications.id, { onDelete: "set null" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    type: text("type").notNull(),
+    category: text("category").notNull(),
+    channel: notificationChannelEnum("channel").notNull(),
+    status: text("status", { enum: ["PENDING", "SENDING", "SENT", "FAILED", "SKIPPED", "DEAD"] })
+      .notNull()
+      .default("PENDING"),
+    attempts: integer("attempts").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(4),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    lastError: text("last_error"),
+    providerRef: text("provider_ref"),
+    toAddress: text("to_address"),
+    subject: text("subject").notNull(),
+    body: text("body").notNull(),
+    html: text("html"),
+    actionUrl: text("action_url"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("notification_deliveries_due_idx").on(t.status, t.nextAttemptAt),
+    index("notification_deliveries_user_idx").on(t.userId, t.createdAt),
+  ],
+);
+
 /* --------------------------------------------------- registration fees */
 
 /**
@@ -2685,6 +3423,23 @@ export const societies = pgTable(
     deliveryInstructions: text("delivery_instructions"),
     /** Notify society admins/operators when a rider is assigned to a society order (GS-046). */
     securityNotifyEnabled: boolean("security_notify_enabled").notNull().default(false),
+    /**
+     * Gate-access workflow. OPEN: riders walk in. CALL_RESIDENT: the gate calls
+     * the resident before letting the rider in. PRE_APPROVAL: the resident
+     * approves the rider ahead of arrival. DROP_AT_GATE: goods are handed over
+     * at the gate.
+     */
+    gateEntryMode: text("gate_entry_mode", {
+      enum: ["OPEN", "CALL_RESIDENT", "PRE_APPROVAL", "DROP_AT_GATE"],
+    })
+      .notNull()
+      .default("OPEN"),
+    /** Security desk contact; shown to a rider only when `shareGateContactWithRider` is on. */
+    gateContactName: text("gate_contact_name"),
+    gateContactPhone: text("gate_contact_phone"),
+    shareGateContactWithRider: boolean("share_gate_contact_with_rider").notNull().default(false),
+    /** Tell the customer when the rider reaches the gate, with what the gate will ask of them. */
+    notifyCustomerAtGate: boolean("notify_customer_at_gate").notNull().default(true),
     /** GA-001: when true and the rider list is non-empty, only listed riders may deliver here. */
     exclusiveRiders: boolean("exclusive_riders").notNull().default(false),
     registeredBy: uuid("registered_by").references(() => users.id),
@@ -3484,3 +4239,23 @@ export type RiskFlag = typeof riskFlags.$inferSelect;
 export type RiskSeverity = (typeof riskSeverityEnum.enumValues)[number];
 export type RiskSubject = (typeof riskSubjectEnum.enumValues)[number];
 export type RiskFlagStatus = (typeof riskFlagStatusEnum.enumValues)[number];
+export type RiderSearch = typeof riderSearches.$inferSelect;
+export type DispatchAttempt = typeof dispatchAttempts.$inferSelect;
+export type RiderEarningSlot = typeof riderEarningSlots.$inferSelect;
+export type RiderIncentiveRule = typeof riderIncentiveRules.$inferSelect;
+export type RiderIncentiveAward = typeof riderIncentiveAwards.$inferSelect;
+export type RiderEarningsLedgerLine = typeof riderEarningsLedger.$inferSelect;
+export type StoredImage = typeof storedImages.$inferSelect;
+export type ReturnRequest = typeof returnRequests.$inferSelect;
+export type ReturnItem = typeof returnItems.$inferSelect;
+export type ReturnStatusHistoryRow = typeof returnStatusHistory.$inferSelect;
+export type ReturnPickup = typeof returnPickups.$inferSelect;
+export type NotificationPreference = typeof notificationPreferences.$inferSelect;
+export type NotificationDelivery = typeof notificationDeliveries.$inferSelect;
+export type ShopSuspension = typeof shopSuspensions.$inferSelect;
+export type ShopSuspensionOrder = typeof shopSuspensionOrders.$inferSelect;
+export type ExternalPriceReference = typeof externalPriceReferences.$inferSelect;
+export type ExternalPriceReferenceHistoryRow = typeof externalPriceReferenceHistory.$inferSelect;
+export type MrpCorrection = typeof mrpCorrections.$inferSelect;
+export type ShopCategory = typeof shopCategories.$inferSelect;
+export type ShopCategoryMapping = typeof shopCategoryMapping.$inferSelect;

@@ -570,3 +570,14 @@ Branch `fix/shop-duplicate-registration` (from `origin/staging` 8193ec6). Develo
 - Brief's cases: new shop allowed; same PAN while pending blocked; same Udyam while approved blocked; same Shop Act with different spacing/case blocked; rejected shop updates the existing record; double-click creates one record (service-level race + browser double-click)
 - Also: same PAN at another place allowed (branch); suspended blocked; another account's rejected record → new record; approve of a rejected shop whose licence is now live → 409; operator sees matched shop id; messages never show the other shop's name or full PAN; `/api/shops` 422 with no identifier, 201/409/200; pre-check CLEAR/DUPLICATE/RESUBMISSION, 422 on bad format, 429 after 20/min
 - Regression: existing registration, GST/PAN and approval flows; `/shop/register` form in a browser (pending notice, spinner, PAN holder field appears)
+
+---
+
+## Complete in-progress features — Phases A–J (2026-09-30)
+
+Development report, status tables, migrations, APIs, configuration and the QA hand-off
+are in [COMPLETE_IN_PROGRESS_REPORT.md](./COMPLETE_IN_PROGRESS_REPORT.md);
+D10 verification is in [D10_VERIFICATION.md](./D10_VERIFICATION.md);
+the consolidated test plan for QA is [QA_TEST_PLAN_COMPLETE_IN_PROGRESS.md](./QA_TEST_PLAN_COMPLETE_IN_PROGRESS.md).
+Migrations `0025`–`0034` are new and **not applied anywhere yet** (they were applied to a
+scratch local database only, to check they run).

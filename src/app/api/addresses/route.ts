@@ -10,6 +10,9 @@ export const dynamic = "force-dynamic";
 
 const saveSchema = z.object({
   label: z.string().max(50).nullish(),
+  recipientName: z.string().max(100).nullish(),
+  recipientPhone: z.string().regex(/^[6-9]\d{9}$/, "Enter a valid 10-digit mobile number").nullish().or(z.literal("")),
+  addressType: z.enum(["HOME", "WORK", "OTHER"]).optional(),
   line1: z.string().min(1).max(200),
   line2: z.string().max(200).nullish(),
   area: z.string().max(100).nullish(),

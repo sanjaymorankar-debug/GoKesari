@@ -16,7 +16,11 @@ import { and, count, eq, isNull, sql } from "drizzle-orm";
 import { forbidden, notFound, validationFailed } from "@/lib/errors";
 import { db, type DbClient } from "@/server/db";
 import {
+  orderItems,
+  orders,
+  products,
   shopProducts,
+  shops,
   stockAlerts,
   type ShopProduct,
   type StockAlert,
@@ -45,6 +49,54 @@ export function needsReorder(stock: number, reorderLevel: number | null): boolea
   return reorderLevel != null && reorderLevel > 0 && stock <= reorderLevel;
 }
 
+export interface EffectiveThresholds {
+  lowStock: number;
+  reorderLevel: number | null;
+  reorderQuantity: number | null;
+  /** Where each value came from — shown in the UI so an owner knows what to change. */
+  source: { lowStock: ThresholdSource; reorderLevel: ThresholdSource; reorderQuantity: ThresholdSource };
+  alertsDisabled: boolean;
+}
+export type ThresholdSource = "LISTING" | "PRODUCT" | "SHOP" | "NONE";
+
+/**
+ * Which threshold applies to a listing: the listing's own value, else the
+ * product's default (set by catalogue staff), else the shop's default.
+ * A listing threshold of 0 means "inherit"; `stockAlertsDisabled` is the
+ * explicit opt-out. Pure, so the alert engine and every screen agree.
+ */
+export function resolveThresholds(
+  listing: Pick<ShopProduct, "lowStockThreshold" | "reorderLevel" | "reorderQuantity" | "stockAlertsDisabled">,
+  product: { defaultLowStockThreshold: number | null; defaultReorderLevel: number | null; defaultReorderQuantity: number | null },
+  shop: { defaultLowStockThreshold: number; defaultReorderLevel: number | null; defaultReorderQuantity: number | null },
+): EffectiveThresholds {
+  if (listing.stockAlertsDisabled) {
+    return {
+      lowStock: 0,
+      reorderLevel: null,
+      reorderQuantity: null,
+      source: { lowStock: "NONE", reorderLevel: "NONE", reorderQuantity: "NONE" },
+      alertsDisabled: true,
+    };
+  }
+  const pick = <T extends number | null>(own: T, fromProduct: number | null, fromShop: number | null) => {
+    if (own != null && own > 0) return { value: own as number, source: "LISTING" as ThresholdSource };
+    if (fromProduct != null && fromProduct > 0) return { value: fromProduct, source: "PRODUCT" as ThresholdSource };
+    if (fromShop != null && fromShop > 0) return { value: fromShop, source: "SHOP" as ThresholdSource };
+    return { value: null, source: "NONE" as ThresholdSource };
+  };
+  const low = pick(listing.lowStockThreshold, product.defaultLowStockThreshold, shop.defaultLowStockThreshold);
+  const level = pick(listing.reorderLevel, product.defaultReorderLevel, shop.defaultReorderLevel);
+  const qty = pick(listing.reorderQuantity, product.defaultReorderQuantity, shop.defaultReorderQuantity);
+  return {
+    lowStock: low.value ?? 0,
+    reorderLevel: level.value,
+    reorderQuantity: qty.value,
+    source: { lowStock: low.source, reorderLevel: level.source, reorderQuantity: qty.source },
+    alertsDisabled: false,
+  };
+}
+
 /**
  * Opens or resolves alerts to match the current stock level. Idempotent:
  * safe to call after every stock movement, and the partial unique index on
@@ -58,14 +110,19 @@ export async function evaluateStockAlerts(
   shopProductId: string,
   client: DbClient = db,
 ): Promise<void> {
-  const [sp] = await client
-    .select()
+  const [row] = await client
+    .select({ sp: shopProducts, shop: shops, product: products })
     .from(shopProducts)
+    .innerJoin(shops, eq(shopProducts.shopId, shops.id))
+    .innerJoin(products, eq(shopProducts.productId, products.id))
     .where(eq(shopProducts.id, shopProductId));
-  if (!sp || !sp.trackInventory) return;
+  if (!row || !row.sp.trackInventory) return;
+  const { sp, shop, product } = row;
+  const effective = resolveThresholds(sp, product, shop);
 
-  const status = stockStatus(sp.onlineStock, sp.lowStockThreshold);
-  const reorder = needsReorder(sp.onlineStock, sp.reorderLevel);
+  // An opted-out listing raises no alert at all, and any open one is closed below.
+  const status = effective.alertsDisabled ? "IN_STOCK" : stockStatus(sp.onlineStock, effective.lowStock);
+  const reorder = !effective.alertsDisabled && needsReorder(sp.onlineStock, effective.reorderLevel);
 
   const wanted: StockAlertType[] = [];
   if (status === "OUT_OF_STOCK") wanted.push("OUT_OF_STOCK");
@@ -91,17 +148,39 @@ export async function evaluateStockAlerts(
   // concurrent movements both cross the threshold.
   for (const alertType of wanted) {
     if (open.some((a) => a.alertType === alertType)) continue;
-    await client
+    const [created] = await client
       .insert(stockAlerts)
       .values({
         shopProductId,
         shopId: sp.shopId,
         alertType,
         stockAtAlert: sp.onlineStock,
-        thresholdAtAlert:
-          alertType === "REORDER" ? (sp.reorderLevel ?? 0) : sp.lowStockThreshold,
+        thresholdAtAlert: alertType === "REORDER" ? (effective.reorderLevel ?? 0) : effective.lowStock,
       })
-      .onConflictDoNothing();
+      .onConflictDoNothing()
+      .returning();
+    // Only a newly opened alert notifies (one message per alert, ever) — a line that
+    // stays below its mark does not repeat, and a lost race inserts nothing.
+    if (created) {
+      const suggestion =
+        alertType === "REORDER" && effective.reorderQuantity ? ` Suggested reorder: ${effective.reorderQuantity}.` : "";
+      await notify(
+        {
+          userId: shop.ownerId,
+          type: NOTIFICATION_TYPES.STOCK_LOW,
+          title:
+            alertType === "OUT_OF_STOCK"
+              ? `Out of stock: ${product.name}`
+              : alertType === "REORDER"
+                ? `Time to reorder: ${product.name}`
+                : `Low stock: ${product.name}`,
+          body: `${product.name} is down to ${sp.onlineStock} unit(s).${suggestion}`,
+          actionUrl: "/shop/inventory",
+          dedupeKey: `stock-alert:${created.id}`,
+        },
+        client,
+      );
+    }
   }
 
   // §17: zero stock makes the line unorderable, but the inventory record and
@@ -156,6 +235,7 @@ export async function setStockThresholds(
     reorderQuantity?: number | null;
     minimumOrderQuantity?: number;
     maximumOrderQuantity?: number | null;
+    stockAlertsDisabled?: boolean;
   },
   actor: Actor,
 ): Promise<ShopProduct> {
@@ -193,6 +273,7 @@ export async function setStockThresholds(
           : {}),
         ...(input.reorderLevel !== undefined ? { reorderLevel: input.reorderLevel } : {}),
         ...(input.reorderQuantity !== undefined ? { reorderQuantity: input.reorderQuantity } : {}),
+        ...(input.stockAlertsDisabled !== undefined ? { stockAlertsDisabled: input.stockAlertsDisabled } : {}),
         ...(input.minimumOrderQuantity !== undefined
           ? { minimumOrderQuantity: input.minimumOrderQuantity }
           : {}),
@@ -274,10 +355,12 @@ export interface InventoryDashboard {
 
 /** §22. One pass over the shop's lines — the counts must always agree with stockStatus(). */
 export async function getInventoryDashboard(shopId: string): Promise<InventoryDashboard> {
-  const rows = await db
-    .select()
-    .from(shopProducts)
-    .where(and(eq(shopProducts.shopId, shopId), isNull(shopProducts.deletedAt)));
+  const rows = (await listInventory(shopId)).map((r) => ({
+    onlineStock: r.available,
+    onlinePricePaise: r.onlinePricePaise,
+    status: r.status,
+    reorderNeeded: r.reorderNeeded,
+  }));
 
   const dashboard: InventoryDashboard = {
     totalProducts: rows.length,
@@ -289,7 +372,7 @@ export async function getInventoryDashboard(shopId: string): Promise<InventoryDa
   };
 
   for (const row of rows) {
-    switch (stockStatus(row.onlineStock, row.lowStockThreshold)) {
+    switch (row.status) {
       case "IN_STOCK":
         dashboard.inStock += 1;
         break;
@@ -300,7 +383,7 @@ export async function getInventoryDashboard(shopId: string): Promise<InventoryDa
         dashboard.outOfStock += 1;
         break;
     }
-    if (needsReorder(row.onlineStock, row.reorderLevel)) dashboard.reorderRequired += 1;
+    if (row.reorderNeeded) dashboard.reorderRequired += 1;
     // Valued at the shop's own selling price — the only price it actually
     // realises. MRP would overstate a discounted shelf.
     dashboard.inventoryValuePaise += (row.onlinePricePaise ?? 0) * row.onlineStock;
@@ -315,4 +398,183 @@ export async function countOpenAlerts(shopId: string): Promise<number> {
     .from(stockAlerts)
     .where(and(eq(stockAlerts.shopId, shopId), eq(stockAlerts.status, "OPEN")));
   return row?.value ?? 0;
+}
+
+/** Order statuses in which the goods are committed to a customer and not yet handed over. */
+const OPEN_ORDER_STATUSES = [
+  "CONFIRMED",
+  "ACCEPTED",
+  "PREPARING",
+  "READY",
+  "ASSIGNED",
+  "PICKED_UP",
+  "OUT_FOR_DELIVERY",
+] as const;
+
+export interface InventoryRow {
+  shopProductId: string;
+  productId: string;
+  productCode: string;
+  productName: string;
+  unit: string;
+  onlinePricePaise: number | null;
+  /** Sellable right now — checkout takes stock the moment an order is placed. */
+  available: number;
+  /** Units already committed to open orders (placed, not yet delivered). */
+  reserved: number;
+  /** Physically with the shop: available + reserved. */
+  onHand: number;
+  offlineStock: number;
+  trackInventory: boolean;
+  status: StockStatus;
+  reorderNeeded: boolean;
+  thresholds: EffectiveThresholds;
+  /** The listing's own settings, for the edit form. */
+  own: { lowStockThreshold: number; reorderLevel: number | null; reorderQuantity: number | null; stockAlertsDisabled: boolean };
+  openAlerts: StockAlertType[];
+}
+
+/** Every live listing with stock, reservations, effective thresholds and any open alert. */
+export async function listInventory(shopId: string): Promise<InventoryRow[]> {
+  const rows = await db
+    .select({ sp: shopProducts, shop: shops, product: products })
+    .from(shopProducts)
+    .innerJoin(shops, eq(shopProducts.shopId, shops.id))
+    .innerJoin(products, eq(shopProducts.productId, products.id))
+    .where(and(eq(shopProducts.shopId, shopId), isNull(shopProducts.deletedAt)));
+  if (rows.length === 0) return [];
+
+  const reservedRows = await db
+    .select({
+      shopProductId: orderItems.shopProductId,
+      milli: sql<number>`coalesce(sum(${orderItems.quantityMilli}), 0)::bigint`,
+    })
+    .from(orderItems)
+    .innerJoin(orders, eq(orderItems.orderId, orders.id))
+    .where(
+      and(
+        eq(orders.shopId, shopId),
+        sql`${orders.status} IN (${sql.join(OPEN_ORDER_STATUSES.map((s) => sql`${s}`), sql`, `)})`,
+        sql`${orderItems.fulfilmentStatus} <> 'REMOVED'`,
+      ),
+    )
+    .groupBy(orderItems.shopProductId);
+  const reservedMilli = new Map(reservedRows.map((r) => [r.shopProductId, Number(r.milli)]));
+
+  const alertRows = await db
+    .select({ shopProductId: stockAlerts.shopProductId, alertType: stockAlerts.alertType })
+    .from(stockAlerts)
+    .where(and(eq(stockAlerts.shopId, shopId), eq(stockAlerts.status, "OPEN")));
+
+  return rows.map(({ sp, shop, product }) => {
+    const thresholds = resolveThresholds(sp, product, shop);
+    const reserved = Math.round((reservedMilli.get(sp.id) ?? 0) / Math.max(1, product.unitSizeMilli));
+    return {
+      shopProductId: sp.id,
+      productId: product.id,
+      productCode: product.code,
+      productName: product.name,
+      unit: product.unit,
+      onlinePricePaise: sp.onlinePricePaise,
+      available: sp.onlineStock,
+      reserved,
+      onHand: sp.onlineStock + reserved,
+      offlineStock: sp.offlineStock,
+      trackInventory: sp.trackInventory,
+      status: sp.trackInventory ? stockStatus(sp.onlineStock, thresholds.lowStock) : ("IN_STOCK" as StockStatus),
+      reorderNeeded: !thresholds.alertsDisabled && needsReorder(sp.onlineStock, thresholds.reorderLevel),
+      thresholds,
+      own: {
+        lowStockThreshold: sp.lowStockThreshold,
+        reorderLevel: sp.reorderLevel,
+        reorderQuantity: sp.reorderQuantity,
+        stockAlertsDisabled: sp.stockAlertsDisabled,
+      },
+      openAlerts: alertRows.filter((a) => a.shopProductId === sp.id).map((a) => a.alertType),
+    };
+  });
+}
+
+/** The shop-wide defaults every listing inherits unless it (or its product) sets its own. */
+export async function setShopStockDefaults(
+  shopId: string,
+  input: { lowStockThreshold?: number; reorderLevel?: number | null; reorderQuantity?: number | null },
+  actor: Actor,
+): Promise<void> {
+  const shop = await db.query.shops.findFirst({ where: (s, { eq: e }) => e(s.id, shopId) });
+  if (!shop) throw notFound("Shop");
+  if (shop.ownerId !== actor.id && actor.role !== "ADMIN" && actor.role !== "OPERATOR") {
+    throw forbidden("This shop does not belong to you.");
+  }
+  if (input.lowStockThreshold != null && (!Number.isInteger(input.lowStockThreshold) || input.lowStockThreshold < 0)) {
+    throw validationFailed("Low-stock threshold must be a whole number, 0 or more.");
+  }
+  if (input.reorderLevel != null && (!Number.isInteger(input.reorderLevel) || input.reorderLevel < 0)) {
+    throw validationFailed("Reorder level must be a whole number, 0 or more.");
+  }
+  if (input.reorderQuantity != null && (!Number.isInteger(input.reorderQuantity) || input.reorderQuantity <= 0)) {
+    throw validationFailed("Reorder quantity must be a positive whole number.");
+  }
+  await db.transaction(async (tx) => {
+    await tx
+      .update(shops)
+      .set({
+        ...(input.lowStockThreshold !== undefined ? { defaultLowStockThreshold: input.lowStockThreshold } : {}),
+        ...(input.reorderLevel !== undefined ? { defaultReorderLevel: input.reorderLevel } : {}),
+        ...(input.reorderQuantity !== undefined ? { defaultReorderQuantity: input.reorderQuantity } : {}),
+        updatedAt: new Date(),
+      })
+      .where(eq(shops.id, shopId));
+    // Re-evaluate every listing: a raised default can put lines into alert at once.
+    const listings = await tx.select({ id: shopProducts.id }).from(shopProducts).where(and(eq(shopProducts.shopId, shopId), isNull(shopProducts.deletedAt)));
+    for (const l of listings) await evaluateStockAlerts(l.id, tx);
+  });
+  await recordAudit({
+    actorId: actor.id,
+    actorRole: actor.role,
+    action: AUDIT_ACTIONS.STOCK_THRESHOLD_CHANGED,
+    entityType: "shop",
+    entityId: shopId,
+    previousValue: { low: shop.defaultLowStockThreshold, level: shop.defaultReorderLevel, qty: shop.defaultReorderQuantity },
+    newValue: input,
+  });
+}
+
+/** Catalogue staff set a product's default for every shop that sells it. */
+export async function setProductStockDefaults(
+  productId: string,
+  input: { lowStockThreshold?: number | null; reorderLevel?: number | null; reorderQuantity?: number | null },
+  actor: Actor,
+): Promise<void> {
+  if (actor.role !== "ADMIN" && actor.role !== "OPERATOR") throw forbidden("Only catalogue staff can set product-wide defaults.");
+  for (const [label, v] of [
+    ["Low-stock threshold", input.lowStockThreshold],
+    ["Reorder level", input.reorderLevel],
+    ["Reorder quantity", input.reorderQuantity],
+  ] as const) {
+    if (v != null && (!Number.isInteger(v) || v < 0)) throw validationFailed(`${label} must be a whole number, 0 or more.`);
+  }
+  const [current] = await db.select().from(products).where(eq(products.id, productId));
+  if (!current) throw notFound("Product");
+  await db.transaction(async (tx) => {
+    await tx
+      .update(products)
+      .set({
+        ...(input.lowStockThreshold !== undefined ? { defaultLowStockThreshold: input.lowStockThreshold } : {}),
+        ...(input.reorderLevel !== undefined ? { defaultReorderLevel: input.reorderLevel } : {}),
+        ...(input.reorderQuantity !== undefined ? { defaultReorderQuantity: input.reorderQuantity } : {}),
+      })
+      .where(eq(products.id, productId));
+    const listings = await tx.select({ id: shopProducts.id }).from(shopProducts).where(and(eq(shopProducts.productId, productId), isNull(shopProducts.deletedAt)));
+    for (const l of listings) await evaluateStockAlerts(l.id, tx);
+  });
+  await recordAudit({
+    actorId: actor.id,
+    actorRole: actor.role,
+    action: AUDIT_ACTIONS.STOCK_THRESHOLD_CHANGED,
+    entityType: "product",
+    entityId: productId,
+    previousValue: { low: current.defaultLowStockThreshold, level: current.defaultReorderLevel, qty: current.defaultReorderQuantity },
+    newValue: input,
+  });
 }

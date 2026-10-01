@@ -52,7 +52,11 @@ export default async function OrdersPage({
 
   return (
     <>
-      <PageHeader title="My Orders" description="Track everything you've ordered." />
+      <PageHeader
+        title="My Orders"
+        description="Track everything you've ordered."
+        action={<LinkButton href="/returns" variant="secondary">My returns</LinkButton>}
+      />
 
       {showBusiness ? (
         <nav className="mb-6 flex gap-2" aria-label="Order type">
@@ -189,6 +193,14 @@ export default async function OrdersPage({
                   shopScore={myRatings.get(order.id)?.shop ?? null}
                   riderScore={myRatings.get(order.id)?.rider ?? null}
                 />
+              ) : null}
+
+              {order.status === "DELIVERED" && order.orderType === "PERSONAL" ? (
+                <div className="mt-3">
+                  <LinkButton href={`/orders/${order.id}/return`} variant="secondary">
+                    Return items
+                  </LinkButton>
+                </div>
               ) : null}
 
               {order.paidAt && order.status !== "PENDING" ? <ReportIssueForm orderId={order.id} /> : null}

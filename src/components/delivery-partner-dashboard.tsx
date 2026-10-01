@@ -27,6 +27,61 @@ export interface ActiveDelivery {
   /** Society gate / parking notes, for society deliveries. */
   societyName: string | null;
   societyInstructions: string | null;
+  acceptedAt?: Date | string | null;
+  arrivedAtShopAt?: Date | string | null;
+  pickedUpAt?: Date | string | null;
+  arrivedAtCustomerAt?: Date | string | null;
+  /** Where to collect and drop, with a maps deep link; the drop is coarse until pickup. */
+  pickup?: { label: string; navigationUrl: string | null; notes: string | null };
+  drop?: { label: string; navigationUrl: string | null; notes: string | null; precise: boolean };
+  /** Society gate arrangement, for society deliveries. */
+  gate?: { entryMode: string; contactName: string | null; contactPhone: string | null } | null;
+}
+
+const GATE_MODE_LABEL: Record<string, string> = {
+  OPEN: "Open entry",
+  CALL_RESIDENT: "Security calls the resident before letting you in",
+  PRE_APPROVAL: "Resident pre-approves the rider at the gate",
+  DROP_AT_GATE: "Hand the order over at the gate",
+};
+
+/** The five checkpoints a rider moves through, with what has been reached. */
+function ProgressSteps({ delivery }: { delivery: ActiveDelivery }) {
+  const steps: { label: string; done: boolean }[] = [
+    { label: "Accepted", done: Boolean(delivery.acceptedAt) || delivery.status !== "OFFERED" },
+    { label: "At the shop", done: Boolean(delivery.arrivedAtShopAt) || delivery.status === "PICKED_UP" },
+    { label: "Picked up", done: delivery.status === "PICKED_UP" },
+    { label: "On the way", done: Boolean(delivery.outForDeliveryAt) },
+    { label: "At the customer", done: Boolean(delivery.arrivedAtCustomerAt) },
+  ];
+  return (
+    <ol className="mt-3 flex flex-wrap gap-1 text-xs" aria-label="Delivery progress" data-testid="delivery-progress">
+      {steps.map((step) => (
+        <li
+          key={step.label}
+          className={`rounded-full px-2 py-0.5 ${step.done ? "bg-leaf-100 text-leaf-800" : "bg-cream-100 text-ink-500"}`}
+        >
+          {step.done ? "✓ " : ""}
+          {step.label}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+export interface ActiveReturnPickupView {
+  id: string;
+  status: string;
+  returnNumber: string;
+  scheduledFor: Date | string | null;
+  needsHandoverCode: boolean;
+  shopName: string;
+  shopAddress: string;
+  itemSummary: string;
+  customerAddress: string | null;
+  customerNotes: string | null;
+  navigationUrl: string | null;
+  shopNavigationUrl: string | null;
 }
 
 export interface EarningsSummary {
@@ -270,11 +325,14 @@ function CodeInput({
 export function DeliveryPartnerDashboard({
   isOnline: initialOnline,
   activeDelivery,
+  activeReturnPickup = null,
   earnings,
   rating,
 }: {
   isOnline: boolean;
   activeDelivery: ActiveDelivery | null;
+  /** A customer return the rider is collecting (goods go back to the shop). */
+  activeReturnPickup?: ActiveReturnPickupView | null;
   earnings: EarningsSummary;
   /** The rider's own average (GS-060), shown only to them. */
   rating?: RiderRating;
@@ -393,7 +451,7 @@ export function DeliveryPartnerDashboard({
   }
 
   async function act(
-    action: "accept" | "reject" | "pickup" | "start" | "deliver" | "fail",
+    action: "accept" | "reject" | "arrived_shop" | "pickup" | "start" | "arrived_customer" | "deliver" | "fail",
     extra: Record<string, string | boolean> = {},
   ) {
     if (!activeDelivery) return;
@@ -496,21 +554,59 @@ export function DeliveryPartnerDashboard({
             {STATUS_LABEL[activeDelivery.status] ?? activeDelivery.status}
           </p>
           <p className="mt-2 font-semibold text-ink-900">{activeDelivery.orderNumber}</p>
+          {activeDelivery.status !== "OFFERED" ? <ProgressSteps delivery={activeDelivery} /> : null}
           <div className="mt-3 space-y-2 text-sm">
             <div>
               <p className="font-medium text-ink-700">Pickup</p>
               <p className="text-ink-500">{activeDelivery.shopName} — {activeDelivery.shopAddress}</p>
+              {activeDelivery.pickup?.notes ? <p className="text-ink-500">Note: {activeDelivery.pickup.notes}</p> : null}
+              {activeDelivery.pickup?.navigationUrl && activeDelivery.status !== "OFFERED" && activeDelivery.status !== "PICKED_UP" ? (
+                <a
+                  href={activeDelivery.pickup.navigationUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 inline-block text-sm font-medium text-kesari-700 underline"
+                  data-testid="navigate-pickup"
+                >
+                  Navigate to the shop
+                </a>
+              ) : null}
             </div>
             <div>
               <p className="font-medium text-ink-700">Drop</p>
               <p className="text-ink-500">{activeDelivery.customerAddress ?? "Address on order details"}</p>
+              {activeDelivery.drop && !activeDelivery.drop.precise ? (
+                <p className="text-xs text-ink-400">The full address and navigation appear once you pick up the order.</p>
+              ) : null}
               {activeDelivery.customerNotes ? <p className="text-ink-500">Note: {activeDelivery.customerNotes}</p> : null}
+              {activeDelivery.drop?.navigationUrl && activeDelivery.status === "PICKED_UP" ? (
+                <a
+                  href={activeDelivery.drop.navigationUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-1 inline-block text-sm font-medium text-kesari-700 underline"
+                  data-testid="navigate-drop"
+                >
+                  Navigate to the customer
+                </a>
+              ) : null}
             </div>
             {activeDelivery.societyName ? (
               <div className="rounded-lg bg-cream-100 p-2" data-testid="society-notes">
                 <p className="font-medium text-ink-700">{activeDelivery.societyName}</p>
+                {activeDelivery.gate ? (
+                  <p className="text-ink-600">Gate: {GATE_MODE_LABEL[activeDelivery.gate.entryMode] ?? activeDelivery.gate.entryMode}</p>
+                ) : null}
                 {activeDelivery.societyInstructions ? (
                   <p className="text-ink-600">{activeDelivery.societyInstructions}</p>
+                ) : null}
+                {activeDelivery.gate?.contactPhone ? (
+                  <p className="text-ink-600">
+                    Security desk{activeDelivery.gate.contactName ? ` (${activeDelivery.gate.contactName})` : ""}:{" "}
+                    <a href={`tel:${activeDelivery.gate.contactPhone}`} className="underline">
+                      {activeDelivery.gate.contactPhone}
+                    </a>
+                  </p>
                 ) : null}
               </div>
             ) : null}
@@ -535,6 +631,11 @@ export function DeliveryPartnerDashboard({
                 </Button>
               </>
             ) : null}
+            {activeDelivery.status === "ACCEPTED" && !activeDelivery.arrivedAtShopAt ? (
+              <Button size="sm" variant="secondary" disabled={busy} onClick={() => act("arrived_shop")}>
+                I&apos;ve arrived at the shop
+              </Button>
+            ) : null}
             {activeDelivery.status === "ACCEPTED" ? (
               <>
                 {activeDelivery.needsPickupCode ? (
@@ -558,6 +659,13 @@ export function DeliveryPartnerDashboard({
             !activeDelivery.outForDeliveryAt ? (
               <Button size="sm" disabled={busy} onClick={() => act("start")}>
                 Start delivery
+              </Button>
+            ) : null}
+            {activeDelivery.status === "PICKED_UP" &&
+            (activeDelivery.outForDeliveryAt || !activeDelivery.needsPickupCode) &&
+            !activeDelivery.arrivedAtCustomerAt ? (
+              <Button size="sm" variant="secondary" disabled={busy} onClick={() => act("arrived_customer")}>
+                I&apos;ve arrived at the customer
               </Button>
             ) : null}
             {activeDelivery.status === "PICKED_UP" &&
@@ -624,7 +732,147 @@ export function DeliveryPartnerDashboard({
         <Card className="p-5 text-sm text-ink-500">Waiting for a delivery offer…</Card>
       ) : null}
 
+      {activeReturnPickup ? (
+        <ReturnPickupPanel pickup={activeReturnPickup} onDone={() => router.refresh()} />
+      ) : null}
+
       {error ? <Alert tone="danger">{error}</Alert> : null}
     </div>
+  );
+}
+
+const RETURN_PICKUP_LABEL: Record<string, string> = {
+  OFFERED: "New return pickup — accept within the offer time",
+  ACCEPTED: "Return pickup accepted — head to the customer when ready",
+  EN_ROUTE: "On the way to the customer",
+};
+
+/** A rider's live return pickup: accept, set off, take the goods with the customer's code, or report a problem. */
+function ReturnPickupPanel({ pickup, onDone }: { pickup: ActiveReturnPickupView; onDone: () => void }) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [code, setCode] = useState("");
+  const [showFail, setShowFail] = useState(false);
+  const [failReason, setFailReason] = useState("");
+
+  async function act(body: Record<string, unknown>) {
+    setBusy(true);
+    setError(null);
+    try {
+      const res = await fetch(`/api/return-pickups/${pickup.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        setError(payload?.error?.message ?? "Action failed.");
+        return;
+      }
+      setCode("");
+      setShowFail(false);
+      onDone();
+    } catch {
+      setError("Could not reach the server. Check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <Card className="p-5" data-testid="return-pickup-panel">
+      <p className="text-xs font-semibold uppercase tracking-wide text-kesari-600">
+        {RETURN_PICKUP_LABEL[pickup.status] ?? pickup.status}
+      </p>
+      <p className="mt-2 font-semibold text-ink-900">Return {pickup.returnNumber}</p>
+      <div className="mt-3 space-y-2 text-sm">
+        <div>
+          <p className="font-medium text-ink-700">Collect from</p>
+          <p className="text-ink-500">{pickup.customerAddress ?? "Address on order details"}</p>
+          {pickup.customerAddress && pickup.status !== "EN_ROUTE" ? (
+            <p className="text-xs text-ink-400">The full address and navigation appear once you set off.</p>
+          ) : null}
+          {pickup.customerNotes ? <p className="text-ink-500">Note: {pickup.customerNotes}</p> : null}
+          {pickup.scheduledFor ? (
+            <p className="text-ink-500">
+              Ready from {new Date(pickup.scheduledFor).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+            </p>
+          ) : null}
+          {pickup.navigationUrl ? (
+            <a href={pickup.navigationUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-kesari-700 underline">
+              Navigate to the customer
+            </a>
+          ) : null}
+        </div>
+        <div>
+          <p className="font-medium text-ink-700">Bring back to</p>
+          <p className="text-ink-500">
+            {pickup.shopName} — {pickup.shopAddress}
+          </p>
+          {pickup.shopNavigationUrl ? (
+            <a href={pickup.shopNavigationUrl} target="_blank" rel="noopener noreferrer" className="text-sm font-medium text-kesari-700 underline">
+              Navigate to the shop
+            </a>
+          ) : null}
+        </div>
+        <p className="text-ink-500">{pickup.itemSummary}</p>
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        {pickup.status === "OFFERED" ? (
+          <>
+            <Button size="sm" disabled={busy} onClick={() => act({ action: "accept" })}>
+              Accept
+            </Button>
+            <Button size="sm" variant="secondary" disabled={busy} onClick={() => act({ action: "reject" })}>
+              Reject
+            </Button>
+          </>
+        ) : null}
+        {pickup.status === "ACCEPTED" ? (
+          <Button size="sm" disabled={busy} onClick={() => act({ action: "start" })}>
+            Set off to the customer
+          </Button>
+        ) : null}
+        {pickup.status === "EN_ROUTE" ? (
+          <>
+            <CodeInput label="Handover code from the customer" value={code} onChange={setCode} />
+            <Button size="sm" disabled={busy || code.length !== 4} onClick={() => act({ action: "pickup", code })}>
+              Confirm pickup
+            </Button>
+          </>
+        ) : null}
+        {pickup.status === "ACCEPTED" || pickup.status === "EN_ROUTE" ? (
+          <Button size="sm" variant="secondary" disabled={busy} onClick={() => setShowFail((v) => !v)}>
+            Could not collect
+          </Button>
+        ) : null}
+      </div>
+
+      {showFail ? (
+        <div className="mt-3 flex flex-wrap gap-2">
+          <input
+            className="min-w-0 flex-1 rounded-lg border border-cream-200 px-3 py-2 text-sm"
+            placeholder="What happened? e.g. customer not home"
+            value={failReason}
+            onChange={(e) => setFailReason(e.target.value)}
+            aria-label="Reason the pickup failed"
+          />
+          <Button
+            size="sm"
+            variant="danger"
+            disabled={busy || failReason.trim().length < 3}
+            onClick={() => act({ action: "fail", reason: failReason })}
+          >
+            Report failed pickup
+          </Button>
+        </div>
+      ) : null}
+      {error ? (
+        <div className="mt-3">
+          <Alert tone="danger">{error}</Alert>
+        </div>
+      ) : null}
+    </Card>
   );
 }

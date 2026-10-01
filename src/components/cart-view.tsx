@@ -16,8 +16,10 @@ import {
   Money,
   inputClass,
 } from "@/components/ui";
+import { SafeImage } from "@/components/safe-image";
 import { formatQuantity } from "@/lib/money";
 import type { CartSummary } from "@/server/services/cart";
+import type { CartIssue, ShopCartCheck } from "@/server/services/cart-validation";
 
 type DeliveryWindowKey = "EXPRESS_30" | "STANDARD_60" | "SCHEDULED";
 
@@ -55,7 +57,7 @@ export function CartView({
   walletBalancePaise,
   addresses,
   buyerShops = [],
-  deliveryWarnings = {},
+  initialChecks = [],
   preferredAddressId = null,
   codUnavailableReason = null,
 }: {
@@ -64,8 +66,8 @@ export function CartView({
   addresses: CheckoutAddress[];
   /** Approved shops the user may buy for (B2B). Empty = personal orders only. */
   buyerShops?: { id: string; name: string }[];
-  /** shopId -> reason, for shops that do not deliver to the chosen location. */
-  deliveryWarnings?: Record<string, string>;
+  /** Per-shop validation of the cart against the chosen delivery location. */
+  initialChecks?: ShopCartCheck[];
   /** The saved address the customer picked as their location, if any. */
   preferredAddressId?: string | null;
   /** GS-030: null when cash on delivery is available for this cart; otherwise why not. */
@@ -83,6 +85,49 @@ export function CartView({
   const [feasibility, setFeasibility] = useState<Record<string, Feasibility>>({});
   const [deliveryWindows, setDeliveryWindows] = useState<Record<string, DeliveryWindowKey>>({});
   const [paymentMethod, setPaymentMethod] = useState<"WALLET" | "COD">("WALLET");
+
+  const [checks, setChecks] = useState<ShopCartCheck[]>(initialChecks);
+  // Adopt fresh server data when the prop changes (render-time sync, not an effect).
+  const [prevInitialChecks, setPrevInitialChecks] = useState(initialChecks);
+  if (prevInitialChecks !== initialChecks) {
+    setPrevInitialChecks(initialChecks);
+    setChecks(initialChecks);
+  }
+  // Changing the delivery address re-validates the whole cart against it.
+  useEffect(() => {
+    if (!addressId) return;
+    let cancelled = false;
+    fetch(`/api/cart/validate?addressId=${addressId}`)
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data: { shops: ShopCartCheck[] } | null) => {
+        if (!cancelled && data) setChecks(data.shops);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [addressId, cart]);
+  const checkFor = (shopId: string) => checks.find((c) => c.shopId === shopId);
+  const hasBlockingIssue = checks.some((c) => c.issues.some((i) => i.blocking));
+
+  async function removeShop(shopId: string) {
+    setBusy(true);
+    await fetch(`/api/cart/validate?shopId=${shopId}`, { method: "DELETE" });
+    setBusy(false);
+    router.refresh();
+  }
+
+  function runAction(issue: CartIssue, group: CartSummary["groups"][number]) {
+    if (issue.action === "CHANGE_ADDRESS") {
+      document.getElementById("deliver-to")?.scrollIntoView({ behavior: "smooth", block: "center" });
+    } else if (issue.action === "REMOVE_SHOP_ITEMS") {
+      void removeShop(group.shop.id);
+    } else if (issue.action === "REMOVE_UNAVAILABLE_ITEMS") {
+      group.lines.filter((l) => !l.purchasable).forEach((l) => void updateQuantity(l.cartItemId, 0));
+    } else if (issue.action === "ADD_ITEMS") {
+      router.push(`/shops/${group.shop.slug}`);
+    }
+  }
 
   const shopIds = cart.groups.map((g) => g.shop.id).join(",");
   useEffect(() => {
@@ -185,15 +230,40 @@ export function CartView({
               </span>
             </div>
 
-            {deliveryWarnings[group.shop.id] ? (
-              <div className="px-4 pt-3" data-testid="delivery-warning">
-                <Alert tone="warning">{deliveryWarnings[group.shop.id]}</Alert>
+            {checkFor(group.shop.id)?.issues.length ? (
+              <div className="space-y-2 px-4 pt-3" data-testid="delivery-warning">
+                {checkFor(group.shop.id)!.issues.map((issue) => (
+                  <Alert key={issue.code} tone={issue.blocking ? "warning" : "info"}>
+                    <span>{issue.message}</span>
+                    {issue.action !== "NONE" ? (
+                      <button
+                        type="button"
+                        className="ml-2 underline"
+                        disabled={busy}
+                        onClick={() => runAction(issue, group)}
+                      >
+                        {issue.action === "CHANGE_ADDRESS"
+                          ? "Change address"
+                          : issue.action === "REMOVE_SHOP_ITEMS"
+                            ? "Remove these items"
+                            : issue.action === "REMOVE_UNAVAILABLE_ITEMS"
+                              ? "Remove unavailable items"
+                              : "Add items"}
+                      </button>
+                    ) : null}
+                  </Alert>
+                ))}
               </div>
             ) : null}
 
             <ul className="divide-y divide-cream-200">
               {group.lines.map((line) => (
                 <li key={line.cartItemId} className="flex gap-3 p-4">
+                  <SafeImage
+                    src={line.imageUrl}
+                    alt={line.productName}
+                    className="h-14 w-14 shrink-0 rounded-lg bg-cream-100 object-cover"
+                  />
                   <div className="min-w-0 flex-1">
                     <p className="font-medium text-ink-900">
                       {line.productName}
@@ -325,6 +395,7 @@ export function CartView({
             ) : (
               <Field label="Deliver to">
                 <select
+                  id="deliver-to"
                   className={inputClass}
                   value={addressId ?? ""}
                   onChange={(e) => setAddressId(e.target.value || null)}
@@ -424,7 +495,7 @@ export function CartView({
               <Button
                 className="w-full"
                 size="lg"
-                disabled={busy || cart.grandTotalPaise === 0}
+                disabled={busy || cart.grandTotalPaise === 0 || hasBlockingIssue}
                 onClick={checkout}
               >
                 {busy ? "Placing order…" : payingCod ? "Place order — pay cash on delivery" : "Pay from wallet"}

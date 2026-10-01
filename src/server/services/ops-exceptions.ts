@@ -11,7 +11,7 @@ import {
   type Order,
   type OrderStatus,
 } from "@/server/db/schema";
-import { OFFER_TTL_SECONDS } from "./delivery-assignment";
+import { OFFER_TTL_SECONDS, getOfferTtlSeconds } from "./delivery-assignment";
 import { SETTLEMENT_HOLD_DAYS } from "./finance";
 import { ORDER_STATUS_LABELS } from "./orders";
 
@@ -55,6 +55,7 @@ export const OPS_EXCEPTION_THRESHOLDS = {
   // Hours after which a dispute is critical: the shop settlement hold (SETTLEMENT_HOLD_DAYS).
   disputeCriticalHours: SETTLEMENT_HOLD_DAYS * 24,
   // Seconds an OFFERED row may exist before the dispatch sweep looks down: two offer TTLs.
+  // (The code default; the live value follows the `dispatch` rule — see liveOfferTtlSeconds.)
   dispatchSweepStaleSeconds: OFFER_TTL_SECONDS * 2,
   // Seconds between dispatch sweep runs: an expired offer is normally re-offered within one interval.
   dispatchSweepIntervalSeconds: 60,
@@ -381,12 +382,15 @@ function riderPresence(delivery: CandidateDelivery, now: number): { stale: boole
   return { stale: false, sentence: `${name} is online and sharing their location.` };
 }
 
+/** Live `dispatch.offerTtlSeconds`, refreshed at the start of every exceptions load. */
+let liveOfferTtlSeconds = OFFER_TTL_SECONDS;
+
 function noRiderReason(order: CandidateOrder, now: number): string {
   if (!order.shopHasLocation) return "The shop has no location on file, so no rider can be matched to it.";
   const delivery = order.delivery;
   if (!delivery) return "No rider has been offered this order yet.";
   if (delivery.status === "OFFERED" && delivery.offeredAt != null) {
-    const expiresAt = delivery.offeredAt + OFFER_TTL_SECONDS * 1000;
+    const expiresAt = delivery.offeredAt + liveOfferTtlSeconds * 1000;
     if (now <= expiresAt) return `Offered to ${delivery.riderName} ${ago(delivery.offeredAt, now)}; waiting for an answer.`;
     if (now <= expiresAt + T.dispatchSweepIntervalSeconds * 1000) {
       return `The offer to ${delivery.riderName} ran out ${ago(expiresAt, now)}; the next dispatch sweep will re-offer it.`;
@@ -723,13 +727,14 @@ const CANDIDATES_QUERY = sql`
 `;
 
 async function loadDispatchHealth(): Promise<OpsExceptionHealth> {
+  const staleAfterSeconds = liveOfferTtlSeconds * 2;
   const [row] = await db
     .select({ staleOffers: count(), oldestOfferedAt: min(deliveryOrders.offeredAt) })
     .from(deliveryOrders)
     .where(
       and(
         eq(deliveryOrders.status, "OFFERED"),
-        lt(deliveryOrders.offeredAt, sql`now() - make_interval(secs => ${T.dispatchSweepStaleSeconds})`),
+        lt(deliveryOrders.offeredAt, sql`now() - make_interval(secs => ${staleAfterSeconds})`),
       ),
     );
   const staleOfferCount = row?.staleOffers ?? 0;
@@ -737,8 +742,8 @@ async function loadDispatchHealth(): Promise<OpsExceptionHealth> {
     dispatchSweepLooksDown: staleOfferCount > 0,
     staleOfferCount,
     oldestStaleOfferAt: row?.oldestOfferedAt ?? null,
-    offerTtlSeconds: OFFER_TTL_SECONDS,
-    staleAfterSeconds: T.dispatchSweepStaleSeconds,
+    offerTtlSeconds: liveOfferTtlSeconds,
+    staleAfterSeconds,
   };
 }
 
@@ -783,6 +788,7 @@ function emptyCounts(): Record<OpsExceptionCategory, OpsExceptionCounts> {
 }
 
 export async function listOpsExceptions(options: { category?: OpsExceptionCategory } = {}): Promise<OpsExceptionQueue> {
+  liveOfferTtlSeconds = await getOfferTtlSeconds();
   const [raw, health] = await Promise.all([
     db.execute<Record<string, unknown>>(CANDIDATES_QUERY),
     loadDispatchHealth(),

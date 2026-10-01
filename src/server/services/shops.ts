@@ -28,6 +28,7 @@ import { uniqueSlug } from "./catalogue";
 import { resolveLocationVerification } from "./geocoding";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { attributeShopToCode } from "./referrals";
+import { applyShopCategories } from "./shop-categories";
 import { resolveFeeForNewRegistration } from "./registration-fees";
 import {
   duplicateShopError,
@@ -62,6 +63,8 @@ export interface RegisterShopInput {
   pickupInstructions?: string | null;
   landmark?: string | null;
   shopType: ShopTypeKey;
+  /** Shop categories chosen by the owner (many per shop). POST /api/shops requires at least one. */
+  categoryIds?: string[];
   logoUrl?: string | null;
   photos?: string[];
   openingHours?: { day: number; open: string; close: string; closed?: boolean }[];
@@ -260,6 +263,7 @@ export async function registerShop(
           .where(eq(shops.id, previous.id))
           .returning();
         await grantRole(ownerId, "SHOP_OWNER", roleGrant, tx);
+        if (input.categoryIds) await applyShopCategories(tx, shop.id, input.categoryIds);
         return { kind: "resubmitted", shop, previous, matchedOn: rejectedOwn.reason };
       }
 
@@ -282,6 +286,7 @@ export async function registerShop(
         })
         .returning();
       await grantRole(ownerId, "SHOP_OWNER", roleGrant, tx);
+      if (input.categoryIds) await applyShopCategories(tx, shop.id, input.categoryIds);
       return { kind: "created", shop };
     });
   } catch (error) {
@@ -640,44 +645,18 @@ export async function setShopStatus(
   return updated;
 }
 
+/**
+ * Suspends an approved shop. Delegates to the suspension policy service
+ * (open orders are judged by status, the owner is notified). Imported lazily:
+ * that service uses orders.ts, which already depends on this module.
+ */
 export async function suspendShop(
   shopId: string,
   reason: string,
   actor: { id: string; role: UserRole },
 ): Promise<Shop> {
-  const trimmed = reason.trim();
-  if (trimmed.length < 3) throw validationFailed("A suspension reason is required.");
-
-  // The APPROVED check is part of the UPDATE, so a concurrent reject or suspend cannot be overwritten or audited twice.
-  const updated = await db.transaction(async (tx) => {
-    const [row] = await tx
-      .update(shops)
-      .set({ status: "SUSPENDED", updatedAt: new Date() })
-      .where(and(eq(shops.id, shopId), eq(shops.status, "APPROVED"), isNull(shops.deletedAt)))
-      .returning();
-    if (!row) return null;
-    await recordAudit(
-      {
-        actorId: actor.id,
-        actorRole: actor.role,
-        action: AUDIT_ACTIONS.SHOP_SUSPENDED,
-        entityType: "shop",
-        entityId: shopId,
-        previousValue: { status: "APPROVED" },
-        newValue: { status: "SUSPENDED", reason: trimmed },
-      },
-      tx,
-    );
-    return row;
-  });
-  if (updated) return updated;
-
-  const exists = await db.query.shops.findFirst({
-    where: and(eq(shops.id, shopId), isNull(shops.deletedAt)),
-    columns: { id: true },
-  });
-  if (!exists) throw notFound("Shop");
-  throw conflict("Only an approved shop can be suspended.");
+  const { suspendShopWithPolicy } = await import("./shop-suspension");
+  return (await suspendShopWithPolicy(shopId, { reason }, actor)).shop;
 }
 
 /**
@@ -711,6 +690,12 @@ export interface UpdateShopInput {
   freeDeliveryAbovePaise?: number | null;
   /** GS-010 delivery zone, km from the shop pin (1-50). */
   serviceRadiusKm?: number;
+  /** Extra PIN codes the shop delivers to, on top of its radius. */
+  deliveryPincodes?: string[];
+  /** Minimum order subtotal in paise (0 = none). */
+  minOrderPaise?: number;
+  /** Pause new orders without leaving the marketplace. */
+  ordersPaused?: boolean;
   /** GS-030: accept cash on delivery (within the platform's COD limits). */
   codEnabled?: boolean;
   description?: string | null;
@@ -733,6 +718,15 @@ export async function updateShop(
     (!Number.isInteger(input.serviceRadiusKm) || input.serviceRadiusKm < 1 || input.serviceRadiusKm > 50)
   ) {
     throw validationFailed("Delivery radius must be a whole number of km between 1 and 50.");
+  }
+  if (input.deliveryPincodes) {
+    if (input.deliveryPincodes.length > 50 || input.deliveryPincodes.some((p) => !/^\d{6}$/.test(p))) {
+      throw validationFailed("Delivery zones must be up to 50 six-digit PIN codes.");
+    }
+    input.deliveryPincodes = [...new Set(input.deliveryPincodes)];
+  }
+  if (input.minOrderPaise !== undefined && (!Number.isInteger(input.minOrderPaise) || input.minOrderPaise < 0)) {
+    throw validationFailed("Minimum order must be a whole, non-negative amount.");
   }
 
   const [current] = await db
@@ -780,6 +774,9 @@ export async function updateShop(
       openingHours: current.openingHours,
       shopType: current.shopType,
       serviceRadiusKm: current.serviceRadiusKm,
+      deliveryPincodes: current.deliveryPincodes,
+      minOrderPaise: current.minOrderPaise,
+      ordersPaused: current.ordersPaused,
       codEnabled: current.codEnabled,
       ...(coordinatesChanged
         ? { latitude: current.latitude, longitude: current.longitude, locationVerified: current.locationVerified }
@@ -789,6 +786,9 @@ export async function updateShop(
       openingHours: updated.openingHours,
       shopType: updated.shopType,
       serviceRadiusKm: updated.serviceRadiusKm,
+      deliveryPincodes: updated.deliveryPincodes,
+      minOrderPaise: updated.minOrderPaise,
+      ordersPaused: updated.ordersPaused,
       codEnabled: updated.codEnabled,
       ...(coordinatesChanged
         ? { latitude: updated.latitude, longitude: updated.longitude, locationVerified: updated.locationVerified }
@@ -914,6 +914,8 @@ export interface ShopSearchFilters {
   shopType?: ShopTypeKey;
   classification?: Classification;
   deliveryOnly?: boolean;
+  /** Internal filter: shops tagged with this shop category (not shown to customers as browsing). */
+  categoryId?: string;
   /** Only these shops — e.g. the ones that deliver to the customer (serviceability.ts). */
   ids?: readonly string[];
   limit?: number;
@@ -939,7 +941,15 @@ export async function searchShops(
         ilike(shops.area, term),
         ilike(shops.city, term),
         ilike(shops.description, term),
+        // A shop's categories also make it findable ("dairy" finds a shop tagged Dairy).
+        sql`exists (select 1 from shop_category_mapping m join shop_categories c on c.id = m.category_id
+          where m.shop_id = ${shops.id} and c.status = 'ACTIVE' and c.name ilike ${term})`,
       )!,
+    );
+  }
+  if (filters.categoryId) {
+    conditions.push(
+      sql`exists (select 1 from shop_category_mapping m where m.shop_id = ${shops.id} and m.category_id = ${filters.categoryId})`,
     );
   }
   if (filters.city) conditions.push(ilike(shops.city, `%${filters.city}%`));

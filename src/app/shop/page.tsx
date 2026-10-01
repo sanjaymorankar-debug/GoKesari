@@ -2,6 +2,8 @@ import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { ExcelPriceUpload } from "@/components/excel-price-upload";
+import { ShopCategoriesEditor } from "@/components/shop-categories-editor";
+import { ShopDashboardView } from "@/components/shop-dashboard";
 import { PendingPriceApprovals } from "@/components/pending-price-approvals";
 import { RegistrationPanel } from "@/components/registration-panel";
 import { ShopGstPanForm } from "@/components/shop-gst-pan-form";
@@ -32,6 +34,9 @@ import { listOrdersForShop } from "@/server/services/orders";
 import { listPendingForShop } from "@/server/services/price-requests";
 import { getReferralCodeById } from "@/server/services/referrals";
 import { listPaymentsForShop } from "@/server/services/shop-payments";
+import { getShopDashboard } from "@/server/services/dashboards";
+import { getShopCategories } from "@/server/services/shop-categories";
+import { getActiveSuspension } from "@/server/services/shop-suspension";
 import { listShopsForOwner } from "@/server/services/shops";
 import { listSubscriptionOrdersForShop } from "@/server/services/subscriptions";
 
@@ -59,6 +64,10 @@ export default async function ShopDashboardPage() {
 
   const shop = shops[0];
   const today = todayIn(getEnv().APP_TIMEZONE);
+  const suspension = shop.status === "SUSPENDED" ? await getActiveSuspension(shop.id) : null;
+  const shopCategoryList = await getShopCategories(shop.id);
+  // Live figures for the operator's day — only for a shop that trades.
+  const dashboard = shop.status === "APPROVED" || shop.status === "SUSPENDED" ? await getShopDashboard(shop.id, user.id) : null;
 
   const [
     products,
@@ -110,6 +119,22 @@ export default async function ShopDashboardPage() {
           </Alert>
         </div>
       ) : null}
+      {shop.status === "SUSPENDED" ? (
+        <div className="mb-6" data-testid="suspension-notice">
+          <Alert tone="danger" title="Your shop is suspended">
+            <span className="block">
+              {suspension
+                ? `Since ${suspension.effectiveAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}. Reason: ${suspension.reason}`
+                : "Please contact support for details."}
+            </span>
+            {suspension ? <span className="mt-1 block">What to do: {suspension.expectedAction}</span> : null}
+            <span className="mt-1 block">
+              New orders are switched off. Orders already on the road should still be completed; any order
+              our team is reviewing will be resolved for you.
+            </span>
+          </Alert>
+        </div>
+      ) : null}
       {shop.status === "REJECTED" ? (
         <div className="mb-6">
           <Alert tone="danger" title="Registration rejected">
@@ -123,6 +148,8 @@ export default async function ShopDashboardPage() {
           </Alert>
         </div>
       ) : null}
+
+      {dashboard ? <ShopDashboardView data={dashboard} /> : null}
 
       {/* Subscription orders are separated from normal orders per §40. */}
       <section className="mb-8">
@@ -272,6 +299,13 @@ export default async function ShopDashboardPage() {
       </div>
 
       <div className="mb-8">
+        <ShopCategoriesEditor
+          shopId={shop.id}
+          current={shopCategoryList.map((c) => ({ id: c.id, name: c.name, status: c.status }))}
+        />
+      </div>
+
+      <div className="mb-8">
         <ShopLocationSettingsForm
           settings={{
             shopId: shop.id,
@@ -281,6 +315,9 @@ export default async function ShopDashboardPage() {
             pickupLatitude: shop.pickupLatitude,
             pickupLongitude: shop.pickupLongitude,
             serviceRadiusKm: shop.serviceRadiusKm,
+            deliveryPincodes: shop.deliveryPincodes,
+            minOrderPaise: shop.minOrderPaise,
+            ordersPaused: shop.ordersPaused,
             pickupInstructions: shop.pickupInstructions,
           }}
         />

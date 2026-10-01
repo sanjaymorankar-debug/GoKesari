@@ -9,6 +9,9 @@ import { MapPicker, type MapPickerResult } from "@/components/map-picker";
 export interface AddressRow {
   id: string;
   label: string | null;
+  recipientName: string | null;
+  recipientPhone: string | null;
+  addressType: "HOME" | "WORK" | "OTHER";
   line1: string;
   line2: string | null;
   area: string | null;
@@ -98,6 +101,9 @@ function AddressCard({
       <div className="flex items-start justify-between gap-3">
         <div>
           <div className="mb-1 flex items-center gap-2">
+            <Badge tone="neutral">
+              {address.addressType === "HOME" ? "Home" : address.addressType === "WORK" ? "Work" : "Other"}
+            </Badge>
             {address.label ? (
               <span className="text-sm font-semibold text-ink-900">{address.label}</span>
             ) : null}
@@ -138,6 +144,9 @@ function AddressForm({
   onCancel: () => void;
 }) {
   const [label, setLabel] = useState(address?.label ?? "");
+  const [recipientName, setRecipientName] = useState(address?.recipientName ?? "");
+  const [recipientPhone, setRecipientPhone] = useState(address?.recipientPhone ?? "");
+  const [addressType, setAddressType] = useState<"HOME" | "WORK" | "OTHER">(address?.addressType ?? "HOME");
   const [line1, setLine1] = useState(address?.line1 ?? "");
   const [line2, setLine2] = useState(address?.line2 ?? "");
   const [area, setArea] = useState(address?.area ?? "");
@@ -168,6 +177,9 @@ function AddressForm({
 
     const body = {
       label: label || null,
+      recipientName: recipientName || null,
+      recipientPhone: recipientPhone || null,
+      addressType,
       line1,
       line2: line2 || null,
       area: area || null,
@@ -217,9 +229,43 @@ function AddressForm({
         ) : null}
       </div>
 
-      <Field label="Label (optional)" hint="e.g. Home, Work">
+      <Field label="Address type">
+        <div className="flex gap-2" role="radiogroup" aria-label="Address type">
+          {(["HOME", "WORK", "OTHER"] as const).map((type) => (
+            <button
+              key={type}
+              type="button"
+              role="radio"
+              aria-checked={addressType === type}
+              onClick={() => setAddressType(type)}
+              className={`rounded-lg border px-4 py-1.5 text-sm ${
+                addressType === type
+                  ? "border-kesari-600 bg-kesari-50 font-medium text-kesari-700"
+                  : "border-cream-200 text-ink-700"
+              }`}
+            >
+              {type === "HOME" ? "Home" : type === "WORK" ? "Work" : "Other"}
+            </button>
+          ))}
+        </div>
+      </Field>
+      <Field label="Label (optional)" hint="e.g. Mom's flat">
         <input className={inputClass} value={label} onChange={(e) => setLabel(e.target.value)} />
       </Field>
+      <div className="grid gap-4 sm:grid-cols-2">
+        <Field label="Recipient name (optional)">
+          <input className={inputClass} value={recipientName} onChange={(e) => setRecipientName(e.target.value)} />
+        </Field>
+        <Field label="Recipient mobile (optional)">
+          <input
+            className={inputClass}
+            value={recipientPhone}
+            onChange={(e) => setRecipientPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+            inputMode="numeric"
+            pattern="[6-9]\d{9}"
+          />
+        </Field>
+      </div>
       <Field label="Address line 1">
         <input
           className={inputClass}

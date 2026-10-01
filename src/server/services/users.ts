@@ -20,6 +20,7 @@ import { db } from "@/server/db";
 import { deliveryPartners, userRoleGrants, users, userRoleEnum, type User, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { suspendDeliveryPartner } from "./delivery-partners";
+import { NOTIFICATION_TYPES, notifyEvent } from "./notifications";
 import { assignRoleByAdmin } from "./roles";
 
 export interface ListUsersOptions {
@@ -87,6 +88,7 @@ export async function setUserRole(
     previousValue: { role: current.role },
     newValue: { role },
   });
+  await notifyEvent(NOTIFICATION_TYPES.SECURITY_ROLE_CHANGED, userId, { detail: `${current.role} → ${role}` });
   return updated;
 }
 
@@ -169,6 +171,7 @@ export async function suspendUser(
     previousValue: { status: "ACTIVE" },
     newValue: { status: "SUSPENDED", reason: trimmed, ...(riders.length > 0 ? { deliveryPartnersSuspended: riders.length } : {}) },
   });
+  await notifyEvent(NOTIFICATION_TYPES.SECURITY_ACCOUNT_STATUS, userId, { status: "suspended", detail: `Reason: ${trimmed}` });
   return updated;
 }
 
@@ -206,5 +209,6 @@ export async function reinstateUser(
     previousValue: { status: "SUSPENDED" },
     newValue: { status: "ACTIVE", reason: trimmed },
   });
+  await notifyEvent(NOTIFICATION_TYPES.SECURITY_ACCOUNT_STATUS, userId, { status: "reinstated", detail: "You can sign in again." });
   return updated;
 }

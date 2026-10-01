@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { RoleSwitcher } from "@/components/growth-actions";
@@ -19,7 +19,6 @@ interface Props {
 }
 
 const NAV = [
-  { href: "/categories", label: "Categories" },
   { href: "/shops", label: "Shops" },
   { href: "/orders", label: "My Orders" },
   { href: "/subscriptions", label: "My Subscriptions" },
@@ -37,6 +36,8 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
   SHOP_OWNER: [
     { href: "/shop", label: "My Shop" },
     { href: "/shop/orders", label: "Orders" },
+    { href: "/shop/returns", label: "Returns" },
+    { href: "/shop/inventory", label: "Inventory" },
     { href: "/shop/prices", label: "Price Updates" },
     { href: "/shop/finance", label: "Finance" },
     { href: "/shop/marketing", label: "Marketing" },
@@ -46,7 +47,12 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin", label: "Operator Console" },
     { href: "/admin/shops", label: "Shop Product Management" },
     { href: "/admin/product-master", label: "Product Master" },
+    { href: "/admin/shop-categories", label: "Shop categories" },
+    { href: "/admin/mrp", label: "MRP" },
+    { href: "/admin/price-references", label: "Reference prices" },
     { href: "/admin/finance/exceptions", label: "Finance exceptions" },
+    { href: "/admin/returns", label: "Returns" },
+    { href: "/admin/suspensions", label: "Suspensions" },
     { href: "/admin/societies", label: "Societies" },
     { href: "/admin/ratings", label: "Ratings" },
     { href: "/admin/analytics", label: "Analytics" },
@@ -58,7 +64,14 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin", label: "Admin Console" },
     { href: "/admin/shops", label: "Shop Product Management" },
     { href: "/admin/product-master", label: "Product Master" },
+    { href: "/admin/shop-categories", label: "Shop categories" },
+    { href: "/admin/mrp", label: "MRP" },
+    { href: "/admin/price-references", label: "Reference prices" },
     { href: "/admin/finance", label: "Finance" },
+    { href: "/admin/returns", label: "Returns" },
+    { href: "/admin/suspensions", label: "Suspensions" },
+    { href: "/admin/rider-earnings", label: "Rider earnings" },
+    { href: "/admin/settings", label: "Business rules" },
     { href: "/admin/societies", label: "Societies" },
     { href: "/admin/ratings", label: "Ratings" },
     { href: "/admin/analytics", label: "Analytics" },
@@ -68,6 +81,96 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
   ],
   DELIVERY_PARTNER: [{ href: "/delivery-partner", label: "Delivery Partner" }],
 };
+
+/** Label for the role menu that replaces a long inline row of links. */
+const ROLE_MENU_LABEL: Partial<Record<UserRole, string>> = {
+  ADMIN: "Admin",
+  OPERATOR: "Operator",
+  SHOP_OWNER: "My Shop",
+  DELIVERY_PARTNER: "Rider",
+};
+
+/**
+ * A click-to-open menu. The panel is capped to the viewport width and height
+ * (it scrolls inside itself), closes on outside click, Escape, or navigation —
+ * so it can never run off the screen however many items it holds.
+ */
+function NavMenu({
+  label,
+  items,
+  pathname,
+  emphasis,
+}: {
+  label: string;
+  items: { href: string; label: string }[];
+  pathname: string;
+  emphasis?: boolean;
+}) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const active = items.some((i) => pathname.startsWith(i.href));
+
+  // Close the menu on navigation (render-time sync, not an effect).
+  const [prevPathname, setPrevPathname] = useState(pathname);
+  if (prevPathname !== pathname) {
+    setPrevPathname(pathname);
+    setOpen(false);
+  }
+  useEffect(() => {
+    if (!open) return;
+    const close = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) setOpen(false);
+    };
+    const esc = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
+    document.addEventListener("mousedown", close);
+    document.addEventListener("keydown", esc);
+    return () => {
+      document.removeEventListener("mousedown", close);
+      document.removeEventListener("keydown", esc);
+    };
+  }, [open]);
+
+  return (
+    <div ref={ref} className="relative">
+      <button
+        type="button"
+        aria-haspopup="menu"
+        aria-expanded={open}
+        onClick={() => setOpen((v) => !v)}
+        className={clsx(
+          "flex items-center gap-1 rounded-lg px-2.5 py-1.5 text-sm font-semibold transition-colors",
+          active || open ? "bg-kesari-100 text-kesari-800" : emphasis ? "text-kesari-700 hover:bg-kesari-50" : "text-ink-600 hover:bg-cream-100",
+        )}
+      >
+        {label}
+        <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden className={clsx("transition-transform", open && "rotate-180")}>
+          <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+        </svg>
+      </button>
+      {open ? (
+        <div
+          role="menu"
+          data-testid="nav-menu-panel"
+          className="absolute left-0 top-full z-50 mt-1 max-h-[70vh] w-64 max-w-[calc(100vw-1.5rem)] overflow-y-auto rounded-xl border border-cream-200 bg-white p-1.5 shadow-lg"
+        >
+          {items.map((item) => (
+            <Link
+              key={item.href}
+              href={item.href}
+              role="menuitem"
+              className={clsx(
+                "block rounded-lg px-3 py-2 text-sm",
+                pathname === item.href ? "bg-kesari-50 font-semibold text-kesari-700" : "text-ink-700 hover:bg-cream-100",
+              )}
+            >
+              {item.label}
+            </Link>
+          ))}
+        </div>
+      ) : null}
+    </div>
+  );
+}
 
 /** Header per requirement §6, collapsing to a drawer on mobile (§52). */
 export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCount }: Props) {
@@ -87,7 +190,7 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
 
   return (
     <header className="sticky top-0 z-40 border-b border-cream-200 bg-white/95 backdrop-blur">
-      <div className="mx-auto flex max-w-6xl items-center gap-3 px-4 py-3 sm:px-6">
+      <div className="mx-auto flex w-full max-w-6xl items-center gap-3 px-4 py-3 sm:px-6">
         <Link href="/" className="flex shrink-0 items-center gap-2">
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-kesari-600 text-lg font-bold text-white">
             N
@@ -97,7 +200,7 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
           </span>
         </Link>
 
-        <form action="/search" className="ml-2 min-w-0 flex-1">
+        <form action="/search" className="ml-2 min-w-0 max-w-xl flex-1">
           <input
             type="search"
             name="q"
@@ -107,27 +210,21 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
           />
         </form>
 
-        <nav className="hidden items-center gap-1 lg:flex">
-          {(user ? (ROLE_NAV[user.role] ?? []) : []).map((item) => (
-            <Link
-              key={item.href}
-              href={item.href}
-              className={clsx(
-                "rounded-lg px-2.5 py-1.5 text-sm font-semibold transition-colors",
-                pathname.startsWith(item.href)
-                  ? "bg-kesari-100 text-kesari-800"
-                  : "text-kesari-700 hover:bg-kesari-50",
-              )}
-            >
-              {item.label}
-            </Link>
-          ))}
+        <nav className="hidden items-center gap-1 xl:flex" aria-label="Main">
+          {user && (ROLE_NAV[user.role] ?? []).length > 0 ? (
+            <NavMenu
+              label={ROLE_MENU_LABEL[user.role] ?? "Menu"}
+              items={ROLE_NAV[user.role] ?? []}
+              pathname={pathname}
+              emphasis
+            />
+          ) : null}
           {NAV.map((item) => (
             <Link
               key={item.href}
               href={item.href}
               className={clsx(
-                "rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors",
+                "whitespace-nowrap rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors",
                 pathname.startsWith(item.href)
                   ? "bg-kesari-50 text-kesari-700"
                   : "text-ink-600 hover:bg-cream-100",
@@ -195,7 +292,7 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
-            className="rounded-lg p-1.5 text-ink-600 hover:bg-cream-100 lg:hidden"
+            className="rounded-lg p-1.5 text-ink-600 hover:bg-cream-100 xl:hidden"
             aria-label="Toggle menu"
             aria-expanded={open}
           >
@@ -212,7 +309,26 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
       </div>
 
       {open ? (
-        <nav className="border-t border-cream-200 bg-white px-4 py-2 lg:hidden">
+        <nav className="max-h-[80vh] overflow-y-auto border-t border-cream-200 bg-white px-4 py-2 xl:hidden" aria-label="Menu">
+          {user && (ROLE_NAV[user.role] ?? []).length > 0 ? (
+            <details className="mb-1" open={(ROLE_NAV[user.role] ?? []).some((i) => pathname.startsWith(i.href))}>
+              <summary className="cursor-pointer rounded-lg px-2 py-2 text-sm font-semibold text-kesari-700 hover:bg-cream-100">
+                {ROLE_MENU_LABEL[user.role] ?? "Menu"}
+              </summary>
+              <div className="ml-2 border-l border-cream-200 pl-2">
+                {(ROLE_NAV[user.role] ?? []).map((item) => (
+                  <Link
+                    key={item.href}
+                    href={item.href}
+                    onClick={() => setOpen(false)}
+                    className="block rounded-lg px-2 py-1.5 text-sm text-ink-700 hover:bg-cream-100"
+                  >
+                    {item.label}
+                  </Link>
+                ))}
+              </div>
+            </details>
+          ) : null}
           {NAV.map((item) => (
             <Link
               key={item.href}

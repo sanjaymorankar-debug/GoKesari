@@ -270,6 +270,35 @@ export async function recordOrderFinancials(orderId: string, client: DbClient = 
   );
 }
 
+/**
+ * D10: a customer who cancels a dispatched order is refunded the goods only —
+ * the delivery fee stays with the platform (it funds the rider's still-paid
+ * trip). That retained fee is platform revenue exactly like a delivered
+ * order's, so it is journaled here; without it the ledger would show the
+ * rider's earning as a platform cost with nothing against it. Idempotent.
+ */
+export async function postRetainedDeliveryFee(
+  order: { id: string; deliveryFeePaise: number },
+  client: DbClient = db,
+): Promise<void> {
+  await postLedger(
+    [
+      {
+        orderId: order.id,
+        entityType: "PLATFORM",
+        entryType: "DELIVERY_FEE",
+        direction: "CREDIT",
+        amountPaise: order.deliveryFeePaise,
+        sourceType: "orders",
+        sourceId: order.id,
+        key: `order:${order.id}:delivery-fee-retained`,
+      },
+    ],
+    null,
+    client,
+  );
+}
+
 /** Journal a rider earning (called where the earning is created — delivery-earnings.ts). */
 export async function postRiderEarning(earning: DeliveryPartnerEarning, orderId: string | null, client: DbClient = db): Promise<void> {
   const base = { orderId, sourceType: "delivery_partner_earnings", sourceId: earning.id, entryType: "RIDER_EARNING" as const };
@@ -956,8 +985,9 @@ export async function getRiderEarningsView(deliveryPartnerId: string, limit = 50
       payoutStatus: riderPayouts.status,
     })
     .from(deliveryPartnerEarnings)
-    .innerJoin(deliveryOrders, eq(deliveryPartnerEarnings.deliveryOrderId, deliveryOrders.id))
-    .innerJoin(orders, eq(deliveryOrders.orderId, orders.id))
+    // Left joins: a return-pickup earning has no delivery order of its own.
+    .leftJoin(deliveryOrders, eq(deliveryPartnerEarnings.deliveryOrderId, deliveryOrders.id))
+    .leftJoin(orders, eq(deliveryOrders.orderId, orders.id))
     .leftJoin(riderPayouts, eq(deliveryPartnerEarnings.payoutId, riderPayouts.id))
     .where(eq(deliveryPartnerEarnings.deliveryPartnerId, deliveryPartnerId))
     .orderBy(desc(deliveryPartnerEarnings.createdAt))
@@ -973,8 +1003,8 @@ export async function getRiderEarningsView(deliveryPartnerId: string, limit = 50
   return {
     earnings: earnings.map((e) => ({
       ...e.earning,
-      orderNumber: e.orderNumber,
-      deliveryStatus: e.deliveryStatus,
+      orderNumber: e.orderNumber ?? "Return pickup",
+      deliveryStatus: e.deliveryStatus ?? "RETURN_PICKUP",
       status: e.payoutStatus ?? "UNPAID",
     })),
     pendingEarningsPaise: Number(pendingEarnings.total),

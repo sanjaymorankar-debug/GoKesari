@@ -7,7 +7,7 @@ import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { orders } from "@/server/db/schema";
 import {
-  OFFER_TTL_SECONDS,
+  getOfferTtlSeconds,
   getMyActiveDeliveryDetail,
   listMyDeliveryHistory,
   toRiderView,
@@ -68,7 +68,7 @@ export default async function GigOrdersPage() {
       : [];
   const orderNumberById = new Map(orderRows.map((o) => [o.id, o.orderNumber]));
   const earnedByDelivery = new Map(earnings.map((e) => [e.deliveryOrderId, e.totalPaise]));
-  const offerMinutes = Math.round(OFFER_TTL_SECONDS / 60);
+  const offerMinutes = Math.max(1, Math.round((await getOfferTtlSeconds()) / 60));
   const isApproved = partner.status === "APPROVED";
   const statusText = partner.status.replace(/_/g, " ").toLowerCase();
 

@@ -15,6 +15,8 @@ export const AUDIT_ACTIONS = {
   SHOP_APPROVED: "shop.approved",
   SHOP_REJECTED: "shop.rejected",
   SHOP_SUSPENDED: "shop.suspended",
+  SHOP_REACTIVATED: "shop.reactivated",
+  SHOP_SUSPENSION_ORDER_RESOLVED: "shop.suspension_order_resolved",
   SHOP_UPDATED: "shop.updated",
   SHOP_CLASSIFICATION_CHANGED: "shop.classification_changed",
   /** A rejected registration submitted again — the same row goes back to PENDING_APPROVAL. */
@@ -128,6 +130,9 @@ export const AUDIT_ACTIONS = {
   /** Delivered without the customer OTP — operator-confirmed with a proof note. */
   DELIVERY_CONFIRMED_BY_OPERATOR: "delivery_order.confirmed_by_operator",
   ORDER_ITEM_FULFILMENT_CHANGED: "order_item.fulfilment_changed",
+  DELIVERY_ARRIVED_AT_SHOP: "delivery_order.arrived_at_shop",
+  DELIVERY_ARRIVED_AT_CUSTOMER: "delivery_order.arrived_at_customer",
+  RIDER_SEARCH_STOPPED: "delivery_order.search_stopped",
   /* ------------------------------------------------ finance (Slice 6) */
   COMMISSION_RATE_SET: "finance.commission_rate_set",
   ORDER_REFUNDED_AFTER_DELIVERY: "finance.order_refunded_after_delivery",
@@ -162,12 +167,39 @@ export const AUDIT_ACTIONS = {
   RISK_RULES_RUN: "risk.rules_run",
   RISK_FLAG_REVIEWED: "risk.flag_reviewed",
   DELIVERY_EARNINGS_CONFIG_CHANGED: "delivery_earnings_config.changed",
+  NOTIFICATION_DELIVERY_DEAD: "notification.delivery_dead",
+  NOTIFICATION_DELIVERY_REQUEUED: "notification.delivery_requeued",
+  NOTIFICATION_PREFERENCE_CHANGED: "notification.preference_changed",
+  PRICE_REFERENCE_SAVED: "price_reference.saved",
+  PRICE_REFERENCE_VERIFIED: "price_reference.verified",
+  PRICE_REFERENCE_REJECTED: "price_reference.rejected",
+  MRP_CORRECTION_DECIDED: "product.mrp_correction_decided",
+  MRP_CONFLICT_DETECTED: "product.mrp_conflict_detected",
+  PRODUCT_IMAGE_CHANGED: "product_image.changed",
+  SHOP_CATEGORY_SAVED: "shop_category.saved",
+  SHOP_CATEGORIES_CHANGED: "shop.categories_changed",
+  RETURN_REQUESTED: "return.requested",
+  RETURN_STATUS_CHANGED: "return.status_changed",
+  RETURN_PICKUP_OFFERED: "return_pickup.offered",
+  RETURN_PICKUP_UPDATED: "return_pickup.updated",
+  RETURN_REFUND_ISSUED: "return.refund_issued",
+  IMAGE_UPLOADED: "image.uploaded",
+  RIDER_EARNING_SLOT_SAVED: "rider_earning_slot.saved",
+  RIDER_INCENTIVE_SAVED: "rider_incentive.saved",
 
   /* ------------------------------------ product master data platform */
   PMD_PRODUCT_PROMOTED: "pmd.product_promoted",
   PMD_PRODUCT_ADOPTED: "pmd.product_adopted",
   PMD_MATCH_DECIDED: "pmd.match_decided",
   PMD_PRODUCTS_IMPORTED: "pmd.products_imported",
+
+  /* ------------------------------------------- platform rules & auth */
+  SETTING_CHANGED: "setting.changed",
+  OTP_REQUESTED: "auth.otp_requested",
+  OTP_VERIFIED: "auth.otp_verified",
+  OTP_FAILED: "auth.otp_failed",
+  OTP_BLOCKED: "auth.otp_blocked",
+  PHONE_LINKED: "auth.phone_linked",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

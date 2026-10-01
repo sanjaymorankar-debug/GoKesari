@@ -34,6 +34,7 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { evaluateStockAlerts } from "./inventory-alerts";
+import { assertPriceWithinMrp } from "./mrp-governance";
 
 /* ------------------------------------------------------------ categories */
 
@@ -612,6 +613,12 @@ export async function createShopProduct(
   client: DbClient = db,
 ): Promise<ShopProduct> {
   validatePricing(input);
+  // A selling price above an (enforced) MRP is refused — see mrp-governance.ts.
+  await assertPriceWithinMrp(
+    input.productId,
+    { online: input.onlinePricePaise, offline: input.offlinePricePaise },
+    client,
+  );
 
   const duplicate = await client.query.shopProducts.findFirst({
     where: and(
@@ -698,6 +705,16 @@ export async function updateShopProduct(
           : current.offlinePricePaise,
     };
     validatePricing(next);
+    // Only a price that is actually being changed is checked, so unrelated edits
+    // to a listing that already sat above a later-lowered MRP are not blocked.
+    await assertPriceWithinMrp(
+      current.productId,
+      {
+        online: patch.onlinePricePaise !== undefined ? next.onlinePricePaise : undefined,
+        offline: patch.offlinePricePaise !== undefined ? next.offlinePricePaise : undefined,
+      },
+      tx,
+    );
 
     const [updated] = await tx
       .update(shopProducts)
@@ -758,6 +775,26 @@ export async function updateShopProduct(
         tx,
       );
     }
+
+    // A hand-edited stock level is a stock movement like any other: it is written to the
+    // ledger and re-checked against the thresholds, so an alert can never lag the balance.
+    for (const [channel, before, after] of [
+      ["ONLINE", current.onlineStock, updated.onlineStock],
+      ["OFFLINE", current.offlineStock, updated.offlineStock],
+    ] as const) {
+      if (after !== before) {
+        await tx.insert(inventoryMovements).values({
+          shopProductId,
+          channel,
+          deltaUnits: after - before,
+          previousUnits: before,
+          newUnits: after,
+          reason: "Manual stock update",
+          createdBy: actor.id,
+        });
+      }
+    }
+    if (updated.onlineStock !== current.onlineStock) await evaluateStockAlerts(shopProductId, tx);
 
     const availabilityChanged =
       (patch.isAvailable !== undefined &&

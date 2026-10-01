@@ -50,6 +50,11 @@ const registerSchema = z.object({
   pickupInstructions: z.string().max(500).nullish(),
   landmark: z.string().max(200).nullish(),
   shopType: z.enum(SHOP_TYPE_KEYS),
+  /** Shop categories — at least one is required to register. */
+  categoryIds: z
+    .array(z.string().uuid())
+    .min(1, "Please select at least one shop category.")
+    .max(60),
   logoUrl: z.string().url().nullish(),
   photos: z.array(z.string().url()).max(10).default([]),
   openingHours: z

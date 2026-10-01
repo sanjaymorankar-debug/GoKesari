@@ -2,6 +2,8 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { imageRefSchema } from "@/lib/image-ref";
+
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { requireShopAccess } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
@@ -22,7 +24,7 @@ const schema = z
   .object({
     productId: z.string().uuid(),
     description: z.string().max(500).nullish(),
-    imageUrl: z.string().url().nullish(),
+    imageUrl: imageRefSchema.nullish(),
     onlineSaleEnabled: z.boolean().default(false),
     offlineSaleEnabled: z.boolean().default(false),
     onlinePricePaise: z.number().int().min(0).nullish(),

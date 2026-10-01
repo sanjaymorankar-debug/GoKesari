@@ -26,9 +26,14 @@ import { db, type DbClient } from "@/server/db";
 import {
   deliveryOrders,
   deliveryPartners,
+  dispatchAttempts,
   orders,
+  riderSearches,
   shops,
+  societies,
   type DeliveryOrder,
+  type DispatchAttempt,
+  type RiderSearch,
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
@@ -36,7 +41,14 @@ import { ACTIVE_ASSIGNMENT_STATUSES, findEligiblePartnersNearShop } from "./deli
 import { creditDeliveryEarnings } from "./delivery-earnings";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { updateOrderStatus } from "./orders";
-import { getSocietyDeliveryNotes, getSocietyDispatchRules, notifySocietySecurity } from "./societies";
+import { getRule } from "./settings";
+import { suspensionRecordFor } from "./shop-suspension-guard";
+import {
+  getSocietyDeliveryNotes,
+  getSocietyDispatchRules,
+  notifySocietySecurity,
+  societyStaffUserIds,
+} from "./societies";
 
 interface Actor {
   id: string;
@@ -52,8 +64,16 @@ interface DispatchActor {
   role: UserRole | null;
 }
 
-/** How long a rider has to accept an offer before it moves to the next rider (GA-009). */
+/**
+ * Default offer lifetime (GA-009). The live value is the `dispatch` rule's
+ * `offerTtlSeconds` — read it with getOfferTtlSeconds(); this constant is only
+ * the code default, kept for callers that need a value without a query.
+ */
 export const OFFER_TTL_SECONDS = 120;
+
+export async function getOfferTtlSeconds(): Promise<number> {
+  return (await getRule("dispatch")).offerTtlSeconds;
+}
 /** Wrong delivery-OTP attempts before only an operator can confirm the drop. */
 const MAX_OTP_ATTEMPTS = 5;
 
@@ -325,6 +345,7 @@ async function loadOwnDeliveryOrder(deliveryOrderId: string, partnerUserId: stri
 export async function acceptDeliveryOffer(deliveryOrderId: string, partnerUserId: string): Promise<DeliveryOrder> {
   const row = await loadOwnDeliveryOrder(deliveryOrderId, partnerUserId); // ownership check
   const actor: Actor = { id: partnerUserId, role: "DELIVERY_PARTNER" };
+  const offerTtlSeconds = await getOfferTtlSeconds();
 
   // Slice 4: accepting also moves the order READY → ASSIGNED and issues the
   // pickup code the shop reads out at handover — in one transaction, so a
@@ -337,7 +358,7 @@ export async function acceptDeliveryOffer(deliveryOrderId: string, partnerUserId
         and(
           eq(deliveryOrders.id, deliveryOrderId),
           eq(deliveryOrders.status, "OFFERED"),
-          sql`${deliveryOrders.offeredAt} > now() - make_interval(secs => ${OFFER_TTL_SECONDS})`,
+          sql`${deliveryOrders.offeredAt} > now() - make_interval(secs => ${offerTtlSeconds})`,
         ),
       )
       .returning();
@@ -350,6 +371,11 @@ export async function acceptDeliveryOffer(deliveryOrderId: string, partnerUserId
       throw conflict("This order is no longer waiting for a rider.");
     }
     await updateOrderStatus(row.orderId, "ASSIGNED", actor, "Rider accepted", tx);
+    // The search is over: a rider has the order.
+    await tx
+      .update(riderSearches)
+      .set({ status: "ASSIGNED", stopReason: "RIDER_ACCEPTED", stoppedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(riderSearches.orderId, row.orderId), eq(riderSearches.status, "SEARCHING")));
 
     await recordAudit(
       {
@@ -401,7 +427,7 @@ export async function rejectDeliveryOffer(
   });
 
   // GA-009: move straight on to the next nearest rider.
-  await dispatchReadyOrder(updated.orderId, { id: null, role: null }).catch((error) => {
+  await dispatchReadyOrder(updated.orderId, { id: null, role: null }, "REOFFER").catch((error) => {
     console.error("[delivery] re-offer after rejection failed", updated.orderId, error);
   });
   return updated;
@@ -563,6 +589,123 @@ export async function startDelivery(deliveryOrderId: string, actor: Actor): Prom
 }
 
 /**
+ * Checkpoint: the rider has reached the shop. No order-status change (the
+ * order stays ASSIGNED until the pickup code is entered); the shop is told so
+ * it can have the parcel and the pickup code ready. Idempotent.
+ */
+export async function markArrivedAtShop(deliveryOrderId: string, actor: Actor): Promise<DeliveryOrder> {
+  const row = await loadOwnDeliveryOrder(deliveryOrderId, actor.id);
+  if (row.status !== "ACCEPTED") throw conflict("Accept the delivery before marking arrival at the shop.");
+  if (row.arrivedAtShopAt) return row;
+
+  const [updated] = await db
+    .update(deliveryOrders)
+    .set({ arrivedAtShopAt: new Date(), updatedAt: new Date() })
+    .where(
+      and(
+        eq(deliveryOrders.id, deliveryOrderId),
+        eq(deliveryOrders.status, "ACCEPTED"),
+        isNull(deliveryOrders.arrivedAtShopAt),
+      ),
+    )
+    .returning();
+  if (!updated) return (await loadOwnDeliveryOrder(deliveryOrderId, actor.id)) ?? row;
+
+  await recordAudit({
+    actorId: actor.id,
+    actorRole: actor.role,
+    action: AUDIT_ACTIONS.DELIVERY_ARRIVED_AT_SHOP,
+    entityType: "delivery_order",
+    entityId: deliveryOrderId,
+  });
+  const [order] = await db.select().from(orders).where(eq(orders.id, row.orderId));
+  const shop = order ? await db.query.shops.findFirst({ where: eq(shops.id, order.shopId) }) : null;
+  if (order && shop) {
+    await notify({
+      userId: shop.ownerId,
+      type: NOTIFICATION_TYPES.DELIVERY_RIDER_AT_SHOP,
+      title: "Rider has arrived",
+      body: `The rider for order ${order.orderNumber} is at your shop. Hand over the parcel once they read out the pickup code.`,
+      actionUrl: "/shop/orders",
+      dedupeKey: `rider-at-shop:${deliveryOrderId}`,
+    });
+  }
+  return updated;
+}
+
+const GATE_CUSTOMER_MESSAGE: Record<string, string> = {
+  OPEN: "Your rider has arrived. Please keep your delivery code ready.",
+  CALL_RESIDENT: "Your rider is at the gate. Security may call you to approve entry — please pick up.",
+  PRE_APPROVAL: "Your rider is at the gate. Please approve their entry with security.",
+  DROP_AT_GATE: "Your rider is at the gate with your order. Please come down to collect it and share your delivery code.",
+};
+
+/**
+ * Checkpoint: the rider has reached the customer's door or society gate.
+ * Only after the drop has started (PICKED_UP + out for delivery). Tells the
+ * customer — with what the society's gate will ask of them — and, when the
+ * society turned security notices on, the gate. Idempotent.
+ */
+export async function markArrivedAtCustomer(deliveryOrderId: string, actor: Actor): Promise<DeliveryOrder> {
+  const row = await loadOwnDeliveryOrder(deliveryOrderId, actor.id);
+  if (row.status !== "PICKED_UP") throw conflict("Pick up the order before marking arrival at the customer.");
+  if (row.pickupCode && !row.outForDeliveryAt) throw conflict("Start the delivery before marking arrival.");
+  if (row.arrivedAtCustomerAt) return row;
+
+  const [updated] = await db
+    .update(deliveryOrders)
+    .set({ arrivedAtCustomerAt: new Date(), updatedAt: new Date() })
+    .where(
+      and(
+        eq(deliveryOrders.id, deliveryOrderId),
+        eq(deliveryOrders.status, "PICKED_UP"),
+        isNull(deliveryOrders.arrivedAtCustomerAt),
+      ),
+    )
+    .returning();
+  if (!updated) return row;
+
+  await recordAudit({
+    actorId: actor.id,
+    actorRole: actor.role,
+    action: AUDIT_ACTIONS.DELIVERY_ARRIVED_AT_CUSTOMER,
+    entityType: "delivery_order",
+    entityId: deliveryOrderId,
+  });
+
+  const [order] = await db.select().from(orders).where(eq(orders.id, row.orderId));
+  if (order) {
+    const society = order.societyId
+      ? await db.query.societies.findFirst({ where: eq(societies.id, order.societyId) })
+      : null;
+    const gated = society?.status === "VERIFIED";
+    if (!gated || society.notifyCustomerAtGate) {
+      await notify({
+        userId: order.userId,
+        type: NOTIFICATION_TYPES.ORDER_RIDER_ARRIVING,
+        title: "Your rider has arrived",
+        body: `Order ${order.orderNumber}: ${GATE_CUSTOMER_MESSAGE[gated ? society.gateEntryMode : "OPEN"]}`,
+        actionUrl: "/orders",
+        dedupeKey: `rider-arrived:${deliveryOrderId}`,
+      });
+    }
+    if (gated && society.securityNotifyEnabled) {
+      for (const userId of await societyStaffUserIds(society.id)) {
+        await notify({
+          userId,
+          type: NOTIFICATION_TYPES.SOCIETY_SECURITY_ALERT,
+          title: "Delivery rider at the gate",
+          body: `The rider for order ${order.orderNumber} has arrived. Entry mode: ${society.gateEntryMode.replace(/_/g, " ").toLowerCase()}.`,
+          actionUrl: `/society/${society.id}`,
+          dedupeKey: `society-gate-arrival:${deliveryOrderId}:${userId}`,
+        });
+      }
+    }
+  }
+  return updated;
+}
+
+/**
  * The drop could not be completed (customer unavailable, wrong address…).
  * The order becomes FAILED for the shop/operations to retry or mark
  * RETURNED; the rider is still paid for the trip.
@@ -675,35 +818,341 @@ async function assertCashConfirmed(orderId: string, cashCollected: boolean | und
   }
 }
 
+/* ------------------------------------------------------ find-rider search */
+
+export type DispatchTrigger = "SHOP_MANUAL" | "AUTO_READY" | "SWEEP" | "REOFFER";
+type StopReason = NonNullable<RiderSearch["stopReason"]>;
+type DispatchRules = Awaited<ReturnType<typeof getDispatchRules>>;
+
+function getDispatchRules() {
+  return getRule("dispatch");
+}
+
+const STOP_MESSAGES: Record<StopReason, string> = {
+  RIDER_ACCEPTED: "A rider has accepted this order.",
+  ORDER_CANCELLED: "The order was cancelled, so the search stopped.",
+  ORDER_NOT_READY: "The order is no longer waiting for a rider.",
+  WINDOW_EXPIRED: "The promised delivery time has passed, so automatic search stopped.",
+  RETRY_LIMIT: "No rider accepted after the maximum number of attempts.",
+  TIME_LIMIT: "No rider accepted within the search time limit.",
+  STOPPED_BY_SHOP: "You stopped the search.",
+};
+
+async function logAttempt(
+  search: Pick<RiderSearch, "id" | "orderId">,
+  attemptNo: number,
+  trigger: DispatchTrigger,
+  outcome: DispatchAttempt["outcome"],
+  extra: { deliveryOrderId?: string; deliveryPartnerId?: string; detail?: string } = {},
+): Promise<void> {
+  try {
+    await db.insert(dispatchAttempts).values({
+      orderId: search.orderId,
+      searchId: search.id,
+      attemptNo,
+      trigger,
+      outcome,
+      deliveryOrderId: extra.deliveryOrderId ?? null,
+      deliveryPartnerId: extra.deliveryPartnerId ?? null,
+      detail: extra.detail?.slice(0, 300) ?? null,
+    });
+  } catch (error) {
+    // The log must never break dispatch.
+    console.error("[delivery] could not log dispatch attempt", error);
+  }
+}
+
+async function closeSearch(searchId: string, reason: StopReason): Promise<void> {
+  await db
+    .update(riderSearches)
+    .set({
+      status: reason === "RIDER_ACCEPTED" ? "ASSIGNED" : "STOPPED",
+      stopReason: reason,
+      stoppedAt: new Date(),
+      updatedAt: new Date(),
+    })
+    .where(and(eq(riderSearches.id, searchId), eq(riderSearches.status, "SEARCHING")));
+}
+
+/** Why a search must not continue, or null. Checked before every attempt. */
+function stopReasonFor(
+  order: { status: string; promisedByAt: Date | null },
+  search: RiderSearch,
+  rules: DispatchRules,
+  now: Date,
+): StopReason | null {
+  if (order.status === "CANCELLED") return "ORDER_CANCELLED";
+  if (order.status !== "READY") return "ORDER_NOT_READY";
+  if (search.attempts >= search.maxAttempts) return "RETRY_LIMIT";
+  if (now.getTime() - search.startedAt.getTime() > rules.maxSearchMinutes * 60_000) return "TIME_LIMIT";
+  if (order.promisedByAt && now.getTime() > order.promisedByAt.getTime() + rules.windowGraceMinutes * 60_000) {
+    return "WINDOW_EXPIRED";
+  }
+  return null;
+}
+
+/** Creates the search row, or restarts a finished one when the shop asks again. */
+async function ensureSearch(
+  orderId: string,
+  trigger: DispatchTrigger,
+  actorId: string | null,
+  rules: DispatchRules,
+): Promise<RiderSearch> {
+  const now = new Date();
+  const [existing] = await db.select().from(riderSearches).where(eq(riderSearches.orderId, orderId));
+  if (!existing) {
+    const [created] = await db
+      .insert(riderSearches)
+      .values({ orderId, maxAttempts: rules.maxAttempts, startedBy: actorId })
+      .onConflictDoNothing()
+      .returning();
+    if (created) return created;
+    const [raced] = await db.select().from(riderSearches).where(eq(riderSearches.orderId, orderId));
+    return raced;
+  }
+  if (trigger === "SHOP_MANUAL" && existing.status !== "SEARCHING") {
+    const [restarted] = await db
+      .update(riderSearches)
+      .set({
+        status: "SEARCHING",
+        stopReason: null,
+        stoppedAt: null,
+        attempts: 0,
+        maxAttempts: rules.maxAttempts,
+        startedAt: now,
+        lastAttemptAt: null,
+        nextAttemptAt: null,
+        startedBy: actorId,
+        updatedAt: now,
+      })
+      .where(eq(riderSearches.id, existing.id))
+      .returning();
+    return restarted;
+  }
+  return existing;
+}
+
 /**
  * Asks for a rider for a READY order (GA-006). Used right after the shop
- * marks an order ready, after a rejection, and by the dispatch cron. Returns
- * null — never throws — when there is nothing to do or nobody is free; the
- * shop is told once and the cron keeps retrying (GA-009).
+ * marks an order ready, after a rejection/expiry, by the dispatch cron, and
+ * by the shop's "Find rider now". Returns null — never throws — when there is
+ * nothing to do or nobody is free.
+ *
+ * Every call is one bounded step of a search (rider_searches):
+ *  - automatic attempts are paced by `dispatch.retryIntervalSeconds`;
+ *  - the search stops on acceptance, cancellation, an expired delivery window,
+ *    `maxAttempts`, or `maxSearchMinutes` — all configurable;
+ *  - each attempt is logged (dispatch_attempts); the shop hears when it fails
+ *    and when the search gives up. Only a manual press restarts a stopped search.
+ * Duplicate assignment is impossible regardless: assignNearestPartner locks the
+ * order's row and the rider's row and refuses a second active assignment.
  */
-export async function dispatchReadyOrder(orderId: string, actor: DispatchActor): Promise<DeliveryOrder | null> {
+export async function dispatchReadyOrder(
+  orderId: string,
+  actor: DispatchActor,
+  trigger: DispatchTrigger = "AUTO_READY",
+): Promise<DeliveryOrder | null> {
   const order = await db.query.orders.findFirst({ where: eq(orders.id, orderId) });
-  if (!order || order.status !== "READY") return null;
-  const shop = await db.query.shops.findFirst({ where: eq(shops.id, order.shopId) });
-  if (!shop?.deliveryAvailable) return null; // pickup-only / shop hands over itself
+  if (!order) return null;
+  const rules = await getDispatchRules();
 
-  const existing = await db.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.orderId, orderId) });
-  if (existing && (ACTIVE_ASSIGNMENT_STATUSES as readonly string[]).includes(existing.status)) return null;
-
-  try {
-    return await assignNearestPartner(orderId, actor);
-  } catch (error) {
-    if (!(error instanceof Error) || !/No delivery partner|no verified location/i.test(error.message)) throw error;
-    await notify({
-      userId: shop.ownerId,
-      type: NOTIFICATION_TYPES.DELIVERY_UNASSIGNED,
-      title: "Looking for a rider",
-      body: `No rider has taken order ${order.orderNumber} yet — we keep trying automatically. ${error.message}`,
-      actionUrl: "/shop/orders",
-      dedupeKey: `delivery-unassigned:${orderId}`,
-    });
+  if (order.status !== "READY") {
+    // Cancelled, already assigned, delivered...: close any open search and stop.
+    const [open] = await db
+      .select()
+      .from(riderSearches)
+      .where(and(eq(riderSearches.orderId, orderId), eq(riderSearches.status, "SEARCHING")));
+    if (open) {
+      const reason: StopReason =
+        order.status === "CANCELLED"
+          ? "ORDER_CANCELLED"
+          : ["ASSIGNED", "PICKED_UP", "OUT_FOR_DELIVERY", "DELIVERED"].includes(order.status)
+            ? "RIDER_ACCEPTED"
+            : "ORDER_NOT_READY";
+      await closeSearch(open.id, reason);
+      await logAttempt(open, open.attempts, trigger, "STOPPED", { detail: STOP_MESSAGES[reason] });
+    }
     return null;
   }
+
+  const shop = await db.query.shops.findFirst({ where: eq(shops.id, order.shopId) });
+  if (!shop?.deliveryAvailable) return null; // pickup-only / shop hands over itself
+  // An order the suspension policy holds for review is not sent to a rider until an operator decides.
+  const held = await suspensionRecordFor(db, order.shopId, order.id);
+  if (held.record?.outcome === "AWAITING_REVIEW") return null;
+
+  const active = await db.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.orderId, orderId) });
+  if (active && (ACTIVE_ASSIGNMENT_STATUSES as readonly string[]).includes(active.status)) return null;
+
+  const search = await ensureSearch(orderId, trigger, actor.id, rules);
+  if (search.status !== "SEARCHING") return null; // finished: only a manual retry restarts it
+
+  const now = new Date();
+  const stop = stopReasonFor(order, search, rules, now);
+  if (stop) {
+    await closeSearch(search.id, stop);
+    await logAttempt(search, search.attempts, trigger, "STOPPED", { detail: STOP_MESSAGES[stop] });
+    if (stop === "RETRY_LIMIT" || stop === "TIME_LIMIT" || stop === "WINDOW_EXPIRED") {
+      await notify({
+        userId: shop.ownerId,
+        type: NOTIFICATION_TYPES.DELIVERY_SEARCH_STOPPED,
+        title: "No rider found",
+        body: `Order ${order.orderNumber}: ${STOP_MESSAGES[stop]} Press "Find rider now" to try again, or deliver it yourself.`,
+        actionUrl: "/shop/orders",
+        dedupeKey: `rider-search-stopped:${search.id}`,
+      });
+    }
+    return null;
+  }
+
+  // Automatic sweeps respect the retry interval; a rejection/expiry re-offer and manual presses go straight through.
+  if (trigger === "SWEEP" && search.nextAttemptAt && search.nextAttemptAt.getTime() > now.getTime()) return null;
+
+  const attemptNo = search.attempts + 1;
+  await db
+    .update(riderSearches)
+    .set({
+      attempts: attemptNo,
+      lastAttemptAt: now,
+      nextAttemptAt: new Date(now.getTime() + rules.retryIntervalSeconds * 1000),
+      updatedAt: now,
+    })
+    .where(eq(riderSearches.id, search.id));
+
+  try {
+    const offer = await assignNearestPartner(orderId, actor);
+    await logAttempt(search, attemptNo, trigger, "OFFERED", {
+      deliveryOrderId: offer.id,
+      deliveryPartnerId: offer.deliveryPartnerId,
+    });
+    return offer;
+  } catch (error) {
+    const message = error instanceof Error ? error.message : "Matching failed.";
+    const noRider = /No delivery partner|no verified location/i.test(message);
+    await logAttempt(search, attemptNo, trigger, noRider ? "NO_RIDER" : "ERROR", { detail: message });
+    if (!noRider) throw error;
+    if (attemptNo >= rules.notifyShopAfterAttempts) {
+      await notify({
+        userId: shop.ownerId,
+        type: NOTIFICATION_TYPES.DELIVERY_UNASSIGNED,
+        title: "Looking for a rider",
+        body: `No rider has taken order ${order.orderNumber} yet — we keep trying automatically (attempt ${attemptNo} of ${search.maxAttempts}). ${message}`,
+        actionUrl: "/shop/orders",
+        dedupeKey: `delivery-unassigned:${search.id}`,
+      });
+    }
+    return null;
+  }
+}
+
+export interface RiderSearchStatus {
+  state: "NOT_STARTED" | "SEARCHING" | "OFFERED" | "ASSIGNED" | "STOPPED";
+  attempts: number;
+  maxAttempts: number;
+  nextAttemptAt: Date | null;
+  stopReason: StopReason | null;
+  /** Plain-language line for the shop operator. */
+  message: string;
+  /** True when pressing "Find rider now" would do something useful. */
+  canRetry: boolean;
+  log: DispatchAttempt[];
+}
+
+/** What the shop operator sees for an order that needs a rider. */
+export async function getRiderSearchStatus(orderId: string): Promise<RiderSearchStatus> {
+  const [search] = await db.select().from(riderSearches).where(eq(riderSearches.orderId, orderId));
+  const delivery = await db.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.orderId, orderId) });
+  const log = await db
+    .select()
+    .from(dispatchAttempts)
+    .where(eq(dispatchAttempts.orderId, orderId))
+    .orderBy(desc(dispatchAttempts.createdAt))
+    .limit(10);
+  const rules = await getDispatchRules();
+  const base = {
+    attempts: search?.attempts ?? 0,
+    maxAttempts: search?.maxAttempts ?? rules.maxAttempts,
+    nextAttemptAt: search?.nextAttemptAt ?? null,
+    stopReason: search?.stopReason ?? null,
+    log,
+  };
+
+  if (delivery && ["ACCEPTED", "PICKED_UP"].includes(delivery.status)) {
+    return { ...base, state: "ASSIGNED", message: "A rider has accepted this order.", canRetry: false };
+  }
+  if (delivery?.status === "OFFERED") {
+    return { ...base, state: "OFFERED", message: "Offer sent to a rider — waiting for them to accept.", canRetry: false };
+  }
+  if (!search) {
+    return { ...base, state: "NOT_STARTED", message: "No rider search has started for this order yet.", canRetry: true };
+  }
+  if (search.status === "SEARCHING") {
+    return {
+      ...base,
+      state: "SEARCHING",
+      message: `Looking for a rider — attempt ${search.attempts} of ${search.maxAttempts}${
+        search.nextAttemptAt ? "; the next try is automatic" : ""
+      }.`,
+      canRetry: true,
+    };
+  }
+  if (search.status === "ASSIGNED") {
+    return { ...base, state: "ASSIGNED", message: STOP_MESSAGES.RIDER_ACCEPTED, canRetry: false };
+  }
+  return {
+    ...base,
+    state: "STOPPED",
+    message: search.stopReason ? STOP_MESSAGES[search.stopReason] : "The search has stopped.",
+    canRetry: true,
+  };
+}
+
+/**
+ * The shop's "Find rider now". Restarts a stopped search, makes one attempt
+ * immediately, and leaves automatic retries running. Throws a conflict — like
+ * the previous single-shot behaviour — when nobody can be offered the order
+ * right now, but the retries continue in the background.
+ */
+export async function findRiderNow(orderId: string, actor: Actor): Promise<DeliveryOrder> {
+  const rules = await getDispatchRules();
+  const [search] = await db.select().from(riderSearches).where(eq(riderSearches.orderId, orderId));
+  if (search?.status === "SEARCHING" && search.lastAttemptAt) {
+    const wait = Math.ceil((search.lastAttemptAt.getTime() + rules.manualCooldownSeconds * 1000 - Date.now()) / 1000);
+    if (wait > 0) throw conflict(`A rider search just ran. Please wait ${wait}s before pressing again.`);
+  }
+
+  const offer = await dispatchReadyOrder(orderId, actor, "SHOP_MANUAL");
+  if (offer) return offer;
+
+  const order = await db.query.orders.findFirst({ where: eq(orders.id, orderId) });
+  if (!order) throw notFound("Order");
+  if (order.status !== "READY") {
+    throw conflict("Only an order marked READY can be assigned to a delivery partner.");
+  }
+  const active = await db.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.orderId, orderId) });
+  if (active && (ACTIVE_ASSIGNMENT_STATUSES as readonly string[]).includes(active.status)) {
+    throw conflict("This order already has an active delivery assignment.");
+  }
+  const status = await getRiderSearchStatus(orderId);
+  throw conflict(`No delivery partner is currently available for this order. ${status.message}`);
+}
+
+/** The shop stops the search (it will deliver the order itself). */
+export async function stopRiderSearch(orderId: string, actor: Actor): Promise<void> {
+  const [open] = await db
+    .select()
+    .from(riderSearches)
+    .where(and(eq(riderSearches.orderId, orderId), eq(riderSearches.status, "SEARCHING")));
+  if (!open) return;
+  await closeSearch(open.id, "STOPPED_BY_SHOP");
+  await logAttempt(open, open.attempts, "SHOP_MANUAL", "STOPPED", { detail: STOP_MESSAGES.STOPPED_BY_SHOP });
+  await recordAudit({
+    actorId: actor.id,
+    actorRole: actor.role,
+    action: AUDIT_ACTIONS.RIDER_SEARCH_STOPPED,
+    entityType: "order",
+    entityId: orderId,
+  });
 }
 
 /**
@@ -711,6 +1160,7 @@ export async function dispatchReadyOrder(orderId: string, actor: DispatchActor):
  * rider is remembered on the row and the order goes to the next rider.
  */
 export async function expireStaleOffers(): Promise<number> {
+  const offerTtlSeconds = await getOfferTtlSeconds();
   const expired = await db
     .update(deliveryOrders)
     .set({
@@ -723,7 +1173,7 @@ export async function expireStaleOffers(): Promise<number> {
     .where(
       and(
         eq(deliveryOrders.status, "OFFERED"),
-        lt(deliveryOrders.offeredAt, sql`now() - make_interval(secs => ${OFFER_TTL_SECONDS})`),
+        lt(deliveryOrders.offeredAt, sql`now() - make_interval(secs => ${offerTtlSeconds})`),
       ),
     )
     .returning();
@@ -735,7 +1185,7 @@ export async function expireStaleOffers(): Promise<number> {
       entityId: row.id,
       newValue: { deliveryPartnerId: row.deliveryPartnerId },
     });
-    await dispatchReadyOrder(row.orderId, { id: null, role: null }).catch((error) => {
+    await dispatchReadyOrder(row.orderId, { id: null, role: null }, "REOFFER").catch((error) => {
       console.error("[delivery] re-offer after expiry failed", row.orderId, error);
     });
   }
@@ -754,7 +1204,7 @@ export async function runDispatchSweep(): Promise<{ expired: number; attempted: 
 
   let offered = 0;
   for (const { id } of waiting) {
-    const result = await dispatchReadyOrder(id, { id: null, role: null }).catch((error) => {
+    const result = await dispatchReadyOrder(id, { id: null, role: null }, "SWEEP").catch((error) => {
       console.error("[delivery] dispatch sweep failed", id, error);
       return null;
     });
@@ -784,7 +1234,21 @@ export function toRiderView(row: DeliveryOrder): RiderDeliveryView {
  * OTP are deliberately NOT included — the rider must get them from the shop
  * and the customer, or the handover checks mean nothing. Only flags saying
  * which code is expected are exposed.
+ *
+ * Privacy: until the parcel is picked up the rider sees only the customer's
+ * area (enough to judge the trip); the full address, coordinates and
+ * navigation link to the door appear from PICKED_UP. The customer's name and
+ * phone number are never included.
  */
+export interface DeliveryPlace {
+  label: string;
+  latitude: number | null;
+  longitude: number | null;
+  /** A maps deep link the rider's phone opens in its navigation app. */
+  navigationUrl: string | null;
+  notes: string | null;
+}
+
 export interface ActiveDeliveryDetail
   extends Omit<DeliveryOrder, "pickupCode" | "deliveryOtp" | "rejectedPartnerIds"> {
   needsPickupCode: boolean;
@@ -801,9 +1265,24 @@ export interface ActiveDeliveryDetail
   /** Society gate / parking / access notes for society deliveries (GS-047). */
   societyName: string | null;
   societyInstructions: string | null;
+  /** Where to collect the order. */
+  pickup: DeliveryPlace;
+  /** Where to drop it; `precise` is false while only the area is shown. */
+  drop: DeliveryPlace & { precise: boolean };
+  /** Society gate arrangement; null for non-society deliveries. */
+  gate: {
+    entryMode: string;
+    contactName: string | null;
+    contactPhone: string | null;
+  } | null;
 }
 
-/** Enriched view for the delivery-partner dashboard — pickup/drop details a rider needs, no map integration. */
+function navigationUrl(lat: number | null, lng: number | null, addressText: string): string | null {
+  const destination = lat != null && lng != null ? `${lat},${lng}` : addressText ? encodeURIComponent(addressText) : null;
+  return destination ? `https://www.google.com/maps/dir/?api=1&destination=${destination}` : null;
+}
+
+/** Enriched view for the delivery-partner dashboard — pickup/drop details a rider needs, with navigation links. */
 export async function getMyActiveDeliveryDetail(userId: string): Promise<ActiveDeliveryDetail | null> {
   const active = await getMyActiveDeliveryOrder(userId);
   if (!active) return null;
@@ -819,6 +1298,11 @@ export async function getMyActiveDeliveryDetail(userId: string): Promise<ActiveD
       addressLine1: shops.addressLine1,
       addressLine2: shops.addressLine2,
       city: shops.city,
+      shopLatitude: shops.latitude,
+      shopLongitude: shops.longitude,
+      pickupLatitude: shops.pickupLatitude,
+      pickupLongitude: shops.pickupLongitude,
+      pickupInstructions: shops.pickupInstructions,
     })
     .from(orders)
     .innerJoin(shops, eq(orders.shopId, shops.id))
@@ -827,11 +1311,20 @@ export async function getMyActiveDeliveryDetail(userId: string): Promise<ActiveD
 
   // Only the rider holding this active job gets the society's gate notes.
   const society = await getSocietyDeliveryNotes(row.societyId);
-  const customerAddress = row.deliveryAddressSnapshot
-    ? [row.deliveryAddressSnapshot.line1, row.deliveryAddressSnapshot.area, row.deliveryAddressSnapshot.city]
-        .filter(Boolean)
-        .join(", ")
-    : null;
+  const snapshot = row.deliveryAddressSnapshot;
+  const pickedUp = active.status === "PICKED_UP";
+  const fullAddress = snapshot ? [snapshot.line1, snapshot.area, snapshot.city].filter(Boolean).join(", ") : null;
+  const areaOnly = snapshot ? [snapshot.area, snapshot.city].filter(Boolean).join(", ") : null;
+  const customerAddress = pickedUp ? fullAddress : areaOnly;
+  const customerNotes =
+    pickedUp && snapshot
+      ? [snapshot.landmark, snapshot.deliveryInstructions].filter(Boolean).join(" · ") || null
+      : null;
+
+  const dropCoords = pickedUp ? parseCoordinates(snapshot?.latitude ?? null, snapshot?.longitude ?? null) : null;
+  const pickupCoords =
+    parseCoordinates(row.pickupLatitude, row.pickupLongitude) ?? parseCoordinates(row.shopLatitude, row.shopLongitude);
+  const shopAddress = [row.addressLine1, row.addressLine2, row.city].filter(Boolean).join(", ");
 
   // Strip both codes before this leaves the server (see ActiveDeliveryDetail).
   const { pickupCode, deliveryOtp, rejectedPartnerIds: _rejected, ...safe } = active;
@@ -844,14 +1337,29 @@ export async function getMyActiveDeliveryDetail(userId: string): Promise<ActiveD
     orderTotalPaise: row.orderTotalPaise,
     cashToCollectPaise: row.paymentMethod === "COD" ? row.orderTotalPaise : null,
     shopName: row.shopName,
-    shopAddress: [row.addressLine1, row.addressLine2, row.city].filter(Boolean).join(", "),
+    shopAddress,
     customerAddress,
-    customerNotes:
-      [row.deliveryAddressSnapshot?.landmark, row.deliveryAddressSnapshot?.deliveryInstructions]
-        .filter(Boolean)
-        .join(" · ") || null,
+    customerNotes,
     societyName: society?.name ?? null,
-    societyInstructions: society?.instructions ?? null,
+    societyInstructions: pickedUp ? (society?.instructions ?? null) : null,
+    pickup: {
+      label: `${row.shopName} — ${shopAddress}`,
+      latitude: pickupCoords?.latitude ?? null,
+      longitude: pickupCoords?.longitude ?? null,
+      navigationUrl: navigationUrl(pickupCoords?.latitude ?? null, pickupCoords?.longitude ?? null, `${row.shopName} ${shopAddress}`),
+      notes: row.pickupInstructions,
+    },
+    drop: {
+      label: customerAddress ?? "Address on order details",
+      latitude: dropCoords?.latitude ?? null,
+      longitude: dropCoords?.longitude ?? null,
+      navigationUrl: pickedUp ? navigationUrl(dropCoords?.latitude ?? null, dropCoords?.longitude ?? null, fullAddress ?? "") : null,
+      notes: customerNotes,
+      precise: pickedUp,
+    },
+    gate: society
+      ? { entryMode: society.entryMode, contactName: society.contactName, contactPhone: society.contactPhone }
+      : null,
   };
 }
 

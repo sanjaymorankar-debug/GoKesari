@@ -10,6 +10,8 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { imageRefSchema } from "@/lib/image-ref";
+
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requireShopAccess } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
@@ -34,7 +36,7 @@ const schema = z
     unit: z.string().min(1).max(20),
     unitSizeMilli: z.number().int().positive().default(1000),
     subscribable: z.boolean().default(false),
-    imageUrl: z.string().url().nullish(),
+    imageUrl: imageRefSchema.nullish(),
     onlineSaleEnabled: z.boolean().default(false),
     offlineSaleEnabled: z.boolean().default(false),
     onlinePricePaise: z.number().int().min(0).nullish(),

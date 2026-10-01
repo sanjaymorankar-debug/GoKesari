@@ -14,13 +14,16 @@ import { ok, route } from "@/server/api/handler";
 import { assertCronAuthorized } from "@/server/api/cron-auth";
 import { RATE_LIMITS, clientKey, enforceRateLimit } from "@/server/api/rate-limit";
 import { runDispatchSweep } from "@/server/services/delivery-assignment";
+import { runReturnPickupSweep } from "@/server/services/return-pickups";
 
 export const POST = route(async (request: NextRequest) => {
   enforceRateLimit(clientKey(request, "cron"), RATE_LIMITS.CRON);
   assertCronAuthorized(request);
   const result = await runDispatchSweep();
-  console.info("[cron:delivery-dispatch]", JSON.stringify(result));
-  return ok(result);
+  // Return pickups share the same rider pool and schedule.
+  const returns = await runReturnPickupSweep();
+  console.info("[cron:delivery-dispatch]", JSON.stringify({ ...result, returns }));
+  return ok({ ...result, returns });
 });
 
 /** Health probe so a scheduler can verify wiring without dispatching anything. */

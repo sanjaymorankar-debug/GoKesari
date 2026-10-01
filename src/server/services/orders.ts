@@ -50,8 +50,9 @@ import { COD_LIMITS, assertCodAllowedForOrder, getCodEligibility, recordCodColle
 import { creditDeliveryEarnings } from "./delivery-earnings";
 import { DELIVERY_WINDOW_MINUTES, getFeasibleDeliveryWindows } from "./delivery-feasibility";
 import { notifyOpenStockAlerts } from "./inventory-alerts";
-import { recordOrderFinancials } from "./finance";
+import { postRetainedDeliveryFee, recordOrderFinancials } from "./finance";
 import { shopServiceability, societyPartnerShopIds } from "./serviceability";
+import { assertShopMayProgress } from "./shop-suspension-guard";
 import { resolveAddressSociety } from "./societies";
 import { NOTIFICATION_TYPES, notify, type NotificationType } from "./notifications";
 import { applyWalletMutation, refundOriginalDebit } from "./wallet";
@@ -258,6 +259,27 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       const check = shopServiceability(shopRow, location);
       if (!check.deliversHere) {
         throw validationFailed(`${shopRow.name} does not deliver to this address. ${check.reason ?? ""}`.trim());
+      }
+    }
+  }
+
+  // A paused shop takes no new orders at all, and a delivered order must meet
+  // the shop's minimum value (pickup orders are exempt from the minimum).
+  {
+    const groupShops = await db
+      .select()
+      .from(shops)
+      .where(inArray(shops.id, purchasableGroups.map((g) => g.shop.id)));
+    for (const group of purchasableGroups) {
+      const shopRow = groupShops.find((s) => s.id === group.shop.id);
+      if (!shopRow) continue;
+      if (shopRow.ordersPaused) {
+        throw conflict(`${shopRow.name} is not taking new orders right now.`);
+      }
+      if (addressSnapshot && shopRow.deliveryAvailable && group.subtotalPaise < shopRow.minOrderPaise) {
+        throw validationFailed(
+          `${shopRow.name} needs a minimum order of ₹${(shopRow.minOrderPaise / 100).toFixed(0)}; your items come to ₹${(group.subtotalPaise / 100).toFixed(0)}.`,
+        );
       }
     }
   }
@@ -533,6 +555,8 @@ export async function updateOrderStatus(
         ORDER_STATUS_LABELS[newStatus],
       );
     }
+    // Suspended shops cannot take new orders or move orders under review.
+    await assertShopMayProgress(tx, order, newStatus, actor);
 
     const [updated] = await tx
       .update(orders)
@@ -601,6 +625,7 @@ export async function updateOrderStatus(
       ACCEPTED: NOTIFICATION_TYPES.ORDER_ACCEPTED,
       READY: NOTIFICATION_TYPES.ORDER_READY,
       ASSIGNED: NOTIFICATION_TYPES.ORDER_ASSIGNED,
+      PICKED_UP: NOTIFICATION_TYPES.ORDER_PICKED_UP,
       FAILED: NOTIFICATION_TYPES.ORDER_DELIVERY_FAILED,
       OUT_FOR_DELIVERY: NOTIFICATION_TYPES.ORDER_OUT_FOR_DELIVERY,
       DELIVERED: NOTIFICATION_TYPES.ORDER_DELIVERED,
@@ -844,6 +869,8 @@ export async function cancelOrder(
         },
         tx,
       );
+      // D10: the delivery fee that was NOT refunded is platform revenue.
+      if (goodsOnlyRefund) await postRetainedDeliveryFee(order, tx);
       // REFUNDED is the closest existing status for a goods-only refund too —
       // there is no PARTIALLY_REFUNDED state yet (tracked under decision D8
       // in the roadmap). cancellationReason above already records that the

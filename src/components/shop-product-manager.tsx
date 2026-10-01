@@ -215,6 +215,12 @@ function ProductRow({ product }: { product: ManagedProduct }) {
           {product.trackInventory ? (
             <Badge>{product.onlineStock} in stock</Badge>
           ) : null}
+          <a
+            href={`/shop/products/${product.id}/images`}
+            className="rounded-lg border border-cream-200 px-3 py-1.5 text-sm font-medium text-ink-700 hover:bg-cream-100"
+          >
+            Photos
+          </a>
           <Button size="sm" variant="secondary" onClick={() => setOpen((v) => !v)}>
             {open ? "Close" : "Edit"}
           </Button>

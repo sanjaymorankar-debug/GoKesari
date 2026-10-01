@@ -7,20 +7,35 @@
  * sufficient traceability for v1. One earnings row per completed delivery,
  * idempotent on deliveryOrderId so a retried credit never pays out twice.
  */
-import { desc, eq } from "drizzle-orm";
+import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
 import { conflict, isUniqueViolation, notFound, validationFailed } from "@/lib/errors";
+import {
+  calculateEarning,
+  localTime,
+  type EarningBreakdown,
+  type EarningOutcome,
+  type IncentiveRule,
+  type SlotRule,
+} from "@/lib/earnings-calc";
+import { getEnv } from "@/lib/env";
 import { db, type DbClient } from "@/server/db";
 import {
   deliveryEarningsConfig,
   deliveryOrders,
   deliveryPartnerEarnings,
+  orders,
+  riderEarningSlots,
+  riderEarningsLedger,
+  riderIncentiveAwards,
+  riderIncentiveRules,
   type DeliveryEarningsConfig,
   type DeliveryPartnerEarning,
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { postRiderEarning } from "./finance";
+import { getRule } from "./settings";
 
 interface Actor {
   id: string;
@@ -102,6 +117,54 @@ export async function setEarningsConfig(
   });
 }
 
+/** Active slot and incentive rules in the shapes the calculator takes. */
+export async function loadEarningRules(client: DbClient = db): Promise<{
+  slots: SlotRule[];
+  incentives: IncentiveRule[];
+}> {
+  const [slotRows, incentiveRows] = await Promise.all([
+    client.select().from(riderEarningSlots).where(eq(riderEarningSlots.isActive, true)),
+    client.select().from(riderIncentiveRules).where(eq(riderIncentiveRules.isActive, true)),
+  ]);
+  return {
+    slots: slotRows.map((r) => ({ ...r })),
+    incentives: incentiveRows.map((r) => ({ ...r })),
+  };
+}
+
+/**
+ * What one delivery earns, without writing anything — the same calculation
+ * creditDeliveryEarnings persists. `counts` say how many deliveries the rider
+ * has completed today/this week INCLUDING this one (used by count incentives).
+ */
+export async function previewEarning(input: {
+  outcome?: EarningOutcome;
+  distanceKm: number;
+  orderSubtotalPaise: number;
+  at: Date;
+  dayCount?: number;
+  weekCount?: number;
+  minutesLate?: number | null;
+}): Promise<EarningBreakdown> {
+  const [config, rules, { slots, incentives }] = await Promise.all([
+    getActiveEarningsConfig(),
+    getRule("riderEarnings"),
+    loadEarningRules(),
+  ]);
+  return calculateEarning(config, slots, incentives, rules, {
+    outcome: input.outcome ?? "DELIVERED",
+    distanceKm: input.distanceKm,
+    orderSubtotalPaise: input.orderSubtotalPaise,
+    at: input.at,
+    timeZone: getEnv().APP_TIMEZONE,
+    dayCount: input.dayCount ?? 1,
+    weekCount: input.weekCount ?? 1,
+    minutesLate: input.minutesLate ?? null,
+    alreadyAwarded: new Set(),
+    deliveryOrderId: "preview",
+  });
+}
+
 /**
  * Idempotent on deliveryOrderId — a retried credit (e.g. a re-run failsafe)
  * never pays out twice. Eligible once a delivery is DELIVERED, or — per D10
@@ -110,6 +173,11 @@ export async function setEarningsConfig(
  * order, but the rider still did the pickup-and-transit work and is still
  * paid for it. `client` composes this into a caller's own transaction (e.g.
  * cancelOrder's DEF-08 fix); omit it for the original standalone behaviour.
+ *
+ * The amount comes from the configurable engine (lib/earnings-calc.ts): the
+ * slot matching the completion time supplies the rates, incentives are added
+ * for completed drops, deductions applied, and each component is written both
+ * on the earning row and as append-only lines in rider_earnings_ledger.
  */
 export async function creditDeliveryEarnings(
   deliveryOrderId: string,
@@ -137,10 +205,66 @@ export async function creditDeliveryEarnings(
     );
   }
 
+  const outcome: EarningOutcome =
+    deliveryOrder.status === "DELIVERED" ? "DELIVERED" : deliveryOrder.status === "FAILED" ? "FAILED" : "CANCELLED_AFTER_PICKUP";
+  const at =
+    (outcome === "DELIVERED" ? deliveryOrder.deliveredAt : outcome === "FAILED" ? deliveryOrder.failedAt : deliveryOrder.cancelledAt) ??
+    deliveryOrder.acceptedAt ??
+    deliveryOrder.offeredAt;
+  const timeZone = getEnv().APP_TIMEZONE;
+  const t = localTime(at, timeZone);
+
+  const [order] = await c
+    .select({ subtotalPaise: orders.subtotalPaise, promisedByAt: orders.promisedByAt })
+    .from(orders)
+    .where(eq(orders.id, deliveryOrder.orderId));
   const config = await getActiveEarningsConfig();
-  const distanceKm = deliveryOrder.distanceKm ? Number(deliveryOrder.distanceKm) : 0;
-  const distancePaise = Math.round((Number.isFinite(distanceKm) ? distanceKm : 0) * config.perKmFeePaise);
-  const totalPaise = config.baseFeePaise + distancePaise;
+  const rules = await getRule("riderEarnings");
+  const { slots, incentives } = await loadEarningRules(c);
+
+  // Completed drops by this rider in the local day / ISO week of `at`, this one included.
+  const countIn = async (bucket: "day" | "week") => {
+    const [row] = await c
+      .select({ n: sql<number>`count(*)::int` })
+      .from(deliveryOrders)
+      .where(
+        and(
+          eq(deliveryOrders.deliveryPartnerId, deliveryOrder.deliveryPartnerId),
+          eq(deliveryOrders.status, "DELIVERED"),
+          bucket === "day"
+            ? sql`(${deliveryOrders.deliveredAt} AT TIME ZONE ${timeZone})::date = ${t.dateKey}::date`
+            : sql`to_char(${deliveryOrders.deliveredAt} AT TIME ZONE ${timeZone}, 'IYYY-"W"IW') = ${t.weekKey}`,
+        ),
+      );
+    return row?.n ?? 0;
+  };
+  const [dayCount, weekCount] = outcome === "DELIVERED" ? await Promise.all([countIn("day"), countIn("week")]) : [0, 0];
+
+  const awardedRows = await c
+    .select({ ruleId: riderIncentiveAwards.ruleId, periodKey: riderIncentiveAwards.periodKey })
+    .from(riderIncentiveAwards)
+    .where(
+      and(
+        eq(riderIncentiveAwards.deliveryPartnerId, deliveryOrder.deliveryPartnerId),
+        inArray(riderIncentiveAwards.periodKey, [t.dateKey, t.weekKey]),
+      ),
+    );
+
+  const breakdown = calculateEarning(config, slots, incentives, rules, {
+    outcome,
+    distanceKm: deliveryOrder.distanceKm ? Number(deliveryOrder.distanceKm) : 0,
+    orderSubtotalPaise: order?.subtotalPaise ?? 0,
+    at,
+    timeZone,
+    dayCount,
+    weekCount,
+    minutesLate:
+      order?.promisedByAt && deliveryOrder.deliveredAt
+        ? (deliveryOrder.deliveredAt.getTime() - order.promisedByAt.getTime()) / 60_000
+        : null,
+    alreadyAwarded: new Set(awardedRows.map((r) => `${r.ruleId}:${r.periodKey}`)),
+    deliveryOrderId,
+  });
 
   try {
     const [earning] = await c
@@ -148,11 +272,45 @@ export async function creditDeliveryEarnings(
       .values({
         deliveryPartnerId: deliveryOrder.deliveryPartnerId,
         deliveryOrderId,
-        basePaise: config.baseFeePaise,
-        distancePaise,
-        totalPaise,
+        basePaise: breakdown.basePaise,
+        distancePaise: breakdown.distancePaise,
+        orderComponentPaise: breakdown.orderComponentPaise,
+        slotIncentivePaise: breakdown.slotIncentivePaise,
+        minTopUpPaise: breakdown.minTopUpPaise,
+        orderIncentivePaise: breakdown.orderIncentivePaise,
+        otherIncentivePaise: breakdown.otherIncentivePaise,
+        deductionsPaise: breakdown.deductionsPaise,
+        slotId: breakdown.slotId,
+        totalPaise: breakdown.totalPaise,
       })
       .returning();
+
+    if (breakdown.lines.length > 0) {
+      await c.insert(riderEarningsLedger).values(
+        breakdown.lines.map((line) => ({
+          deliveryPartnerId: deliveryOrder.deliveryPartnerId,
+          earningId: earning.id,
+          deliveryOrderId,
+          component: line.component,
+          amountPaise: line.amountPaise,
+          description: line.description,
+        })),
+      );
+    }
+    if (breakdown.awards.length > 0) {
+      await c
+        .insert(riderIncentiveAwards)
+        .values(
+          breakdown.awards.map((a) => ({
+            ruleId: a.ruleId,
+            deliveryPartnerId: deliveryOrder.deliveryPartnerId,
+            earningId: earning.id,
+            periodKey: a.periodKey,
+            amountPaise: a.amountPaise,
+          })),
+        )
+        .onConflictDoNothing();
+    }
     // Slice 6: journal the earning (rider credit / platform cost), same transaction.
     await postRiderEarning(earning, deliveryOrder.orderId, c);
     return earning;
@@ -165,6 +323,58 @@ export async function creditDeliveryEarnings(
     }
     throw error;
   }
+}
+
+/**
+ * Flat fee for a completed return pickup (rule `returns.riderPickupFeePaise`,
+ * default: the base fee). Idempotent per pickup; journaled like any earning.
+ */
+export async function creditReturnPickupEarning(
+  returnPickupId: string,
+  deliveryPartnerId: string,
+  orderId: string,
+  client: DbClient = db,
+): Promise<DeliveryPartnerEarning> {
+  const existing = await client.query.deliveryPartnerEarnings.findFirst({
+    where: eq(deliveryPartnerEarnings.returnPickupId, returnPickupId),
+  });
+  if (existing) return existing;
+
+  const returns = await getRule("returns");
+  const fee = returns.riderPickupFeePaise ?? (await getActiveEarningsConfig()).baseFeePaise;
+  const [earning] = await client
+    .insert(deliveryPartnerEarnings)
+    .values({ deliveryPartnerId, returnPickupId, basePaise: fee, distancePaise: 0, totalPaise: fee })
+    .onConflictDoNothing()
+    .returning();
+  if (!earning) {
+    const row = await client.query.deliveryPartnerEarnings.findFirst({
+      where: eq(deliveryPartnerEarnings.returnPickupId, returnPickupId),
+    });
+    if (row) return row;
+    throw conflict("Could not record the return pickup earning.");
+  }
+  if (fee > 0) {
+    await client.insert(riderEarningsLedger).values({
+      deliveryPartnerId,
+      earningId: earning.id,
+      component: "BASE",
+      amountPaise: fee,
+      description: "Return pickup fee",
+    });
+  }
+  await postRiderEarning(earning, orderId, client);
+  return earning;
+}
+
+/** The audit lines behind one earning, oldest first. */
+export async function listEarningLines(earningIds: readonly string[]) {
+  if (earningIds.length === 0) return [];
+  return db
+    .select()
+    .from(riderEarningsLedger)
+    .where(inArray(riderEarningsLedger.earningId, [...earningIds]))
+    .orderBy(riderEarningsLedger.createdAt);
 }
 
 export async function getPartnerEarningsSummary(

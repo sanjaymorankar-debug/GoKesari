@@ -64,6 +64,11 @@ export default async function SocietyDashboardPage({ params }: { params: Promise
               societyId={society.id}
               initial={{
                 deliveryInstructions: society.deliveryInstructions,
+                gateEntryMode: society.gateEntryMode,
+                gateContactName: society.gateContactName,
+                gateContactPhone: society.gateContactPhone,
+                shareGateContactWithRider: society.shareGateContactWithRider,
+                notifyCustomerAtGate: society.notifyCustomerAtGate,
                 securityNotifyEnabled: society.securityNotifyEnabled,
                 exclusiveRiders: society.exclusiveRiders,
                 boundaryRadiusMeters: society.boundaryRadiusMeters,
