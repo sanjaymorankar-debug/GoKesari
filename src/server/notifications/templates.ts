@@ -62,6 +62,19 @@ const t = (title: string, body: string, emailByDefault = true): Template => ({ t
 /** Important events. Variables are documented in the body text. */
 export const TEMPLATES: Record<string, Template> = {
   [T.ORDER_CONFIRMED]: t("Order placed", "Your order {{orderNumber}} from {{shopName}} is confirmed."),
+  [T.SHOP_ORDER_WHILE_CLOSED]: t(
+    "New order while your shop is closed",
+    "Order {{orderNumber}} ({{amount}}) was placed while {{shopName}} is closed; the customer chose to wait. You will get another alert when your shop opens.",
+  ),
+  [T.SHOP_OPENED_ORDERS_WAITING]: t(
+    "Your shop is open — orders are waiting",
+    "{{count}} order(s) placed while {{shopName}} was closed are waiting for you to accept.",
+  ),
+  [T.ORDER_QUEUED_SHOP_CLOSED]: t(
+    "Order placed — shop is closed now",
+    "Your order {{orderNumber}} was sent to {{shopName}}. The shop is closed right now, so it may be processed once it opens{{opensAt}}.",
+  ),
+  [T.ORDER_SHOP_NOW_OPEN]: t("The shop is open now", "{{shopName}} is open now and can accept your order {{orderNumber}}."),
   [T.ORDER_ACCEPTED]: t("Order accepted", "{{shopName}} accepted your order {{orderNumber}} and is preparing it."),
   [T.ORDER_ASSIGNED]: t("Rider assigned", "A rider has been assigned to your order {{orderNumber}}."),
   [T.ORDER_RIDER_ARRIVING]: t("Your rider is arriving", "Your rider for order {{orderNumber}} has reached you. Keep your delivery code ready."),

@@ -18,6 +18,7 @@ import {
 } from "@/components/ui";
 import { SafeImage } from "@/components/safe-image";
 import { formatQuantity } from "@/lib/money";
+import { formatShopTime, isShopOpenNow, nextOpeningAt } from "@/lib/shop-hours";
 import type { CartSummary } from "@/server/services/cart";
 import type { CartIssue, ShopCartCheck } from "@/server/services/cart-validation";
 
@@ -108,6 +109,11 @@ export function CartView({
     };
   }, [addressId, cart]);
   const checkFor = (shopId: string) => checks.find((c) => c.shopId === shopId);
+  // Shops that look closed right now: the customer must confirm before ordering from them.
+  const closedGroups = cart.groups.filter(
+    (g) => g.lines.some((l) => l.purchasable) && !isShopOpenNow(g.shop),
+  );
+  const [confirmingClosed, setConfirmingClosed] = useState(false);
   const hasBlockingIssue = checks.some((c) => c.issues.some((i) => i.blocking));
 
   async function removeShop(shopId: string) {
@@ -175,7 +181,8 @@ export function CartView({
     router.refresh();
   }
 
-  async function checkout() {
+  async function checkout(acknowledgeClosedShopIds: string[] = []) {
+    setConfirmingClosed(false);
     setBusy(true);
     setError(null);
     const response = await fetch("/api/checkout", {
@@ -186,6 +193,7 @@ export function CartView({
         addressId,
         deliveryWindows,
         paymentMethod: payingCod ? "COD" : "WALLET",
+        acknowledgeClosedShopIds,
         ...(buyerShopId ? { orderType: "B2B", buyerShopId } : { orderType: "PERSONAL" }),
       }),
     });
@@ -491,12 +499,39 @@ export function CartView({
           ) : null}
 
           <div className="mt-4 space-y-2">
-            {affordable ? (
+            {affordable && confirmingClosed ? (
+              <div className="space-y-2" data-testid="shop-closed-confirm">
+                <Alert tone="warning">
+                  <span>
+                    {closedGroups
+                      .map((g) => {
+                        const opens = nextOpeningAt(g.shop);
+                        return `${g.shop.name}${opens ? ` (opens ${formatShopTime(opens)})` : ""}`;
+                      })
+                      .join(", ")}{" "}
+                    might be closed now. Your order may be processed once the shop opens. The shop is alerted
+                    immediately and again when it opens. Do you want to continue?
+                  </span>
+                </Alert>
+                <div className="flex gap-2">
+                  <Button
+                    className="flex-1"
+                    disabled={busy}
+                    onClick={() => checkout(closedGroups.map((g) => g.shop.id))}
+                  >
+                    Yes, continue
+                  </Button>
+                  <Button className="flex-1" variant="secondary" disabled={busy} onClick={() => setConfirmingClosed(false)}>
+                    No, go back
+                  </Button>
+                </div>
+              </div>
+            ) : affordable ? (
               <Button
                 className="w-full"
                 size="lg"
                 disabled={busy || cart.grandTotalPaise === 0 || hasBlockingIssue}
-                onClick={checkout}
+                onClick={() => (closedGroups.length > 0 ? setConfirmingClosed(true) : checkout())}
               >
                 {busy ? "Placing order…" : payingCod ? "Place order — pay cash on delivery" : "Pay from wallet"}
               </Button>

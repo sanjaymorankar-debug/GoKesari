@@ -581,3 +581,25 @@ D10 verification is in [D10_VERIFICATION.md](./D10_VERIFICATION.md);
 the consolidated test plan for QA is [QA_TEST_PLAN_COMPLETE_IN_PROGRESS.md](./QA_TEST_PLAN_COMPLETE_IN_PROGRESS.md).
 Migrations `0025`–`0034` are new and **not applied anywhere yet** (they were applied to a
 scratch local database only, to check they run).
+
+---
+
+## Closed-shop ordering and IST opening hours (2026-10-02)
+
+Development only — type-check and lint run; no functional tests.
+
+**Why:** `isShopOpenNow` read the machine's own clock, so the server (UTC) and the browser (IST) disagreed — a React hydration error (#418) on the shop grid and wrong open/closed judgement in the cart check. Closed shops also took orders with no confirmation and no alert.
+
+| Change | Detail |
+|---|---|
+| Opening hours in IST | `src/lib/shop-hours.ts` now evaluates on an IST-shifted clock; new `nextOpeningAt` and `formatShopTime` (deterministic text, safe for SSR) |
+| Cart warning | `SHOP_CLOSED_NOW` message: "might be closed … opens Fri 9:00 AM … you will be asked to confirm" |
+| Customer confirmation | Cart shows "may be processed once the shop opens … continue?" with Yes / No; Yes sends `acknowledgeClosedShopIds` |
+| Server enforcement | `checkout` refuses a closed shop that was not acknowledged (409) |
+| Alert 1 (immediate) | Shop owner gets `shop.order_while_closed` (in-app + email); customer gets `order.queued_shop_closed` |
+| Alert 2 (once, on opening) | `sendShopOpeningAlerts` (called from `/api/cron/notifications`, already scheduled every minute) sends `shop.opened_orders_waiting` to the shop and `order.shop_now_open` to the customer; claimed with a conditional UPDATE so overlapping runs never double-send |
+| Migration 0036 | `orders.placed_while_closed`, `expected_open_at`, `shop_open_alert_sent_at` + partial index; additive |
+
+Files: `src/lib/shop-hours.ts`, `src/server/services/{orders,cart,cart-validation,shop-opening}.ts`, `src/components/cart-view.tsx`, `src/app/api/checkout/route.ts`, `src/app/api/cron/notifications/route.ts`, `src/server/notifications/{types,templates}.ts`, `src/server/db/schema.ts`, `drizzle/0036_*`.
+
+Testing handoff: order from an open shop (no prompt); from a closed shop (prompt, No keeps the cart, Yes places the order); both alerts arrive once; shop with no hours is always open; Sunday/closed days; midnight boundaries; subscriptions are unchanged; hydration error gone on `/`.

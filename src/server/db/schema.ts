@@ -1596,6 +1596,12 @@ export const orders = pgTable(
     checkoutKey: text("checkout_key"),
     /** COD: when the cash was collected (the order counts as paid from then). */
     codCollectedAt: timestamp("cod_collected_at", { withTimezone: true }),
+    /** Placed after the customer confirmed the shop was closed: processed once it opens. */
+    placedWhileClosed: boolean("placed_while_closed").notNull().default(false),
+    /** When the shop was expected to open, at the time of ordering (informational). */
+    expectedOpenAt: timestamp("expected_open_at", { withTimezone: true }),
+    /** Set when the "shop is open, orders are waiting" alert has been sent (one alert only). */
+    shopOpenAlertSentAt: timestamp("shop_open_alert_sent_at", { withTimezone: true }),
     /** Society of the delivery address (society rider rules, security, society visibility). */
     societyId: uuid("society_id").references(() => societies.id, { onDelete: "set null" }),
     /** B2B only: the approved shop buying for its business. Null for PERSONAL. */
@@ -1642,6 +1648,9 @@ export const orders = pgTable(
     index("orders_created_idx").on(t.createdAt),
     index("orders_buyer_shop_idx").on(t.buyerShopId),
     index("orders_society_idx").on(t.societyId),
+    index("orders_open_alert_pending_idx")
+      .on(t.shopId)
+      .where(sql`${t.placedWhileClosed} AND ${t.shopOpenAlertSentAt} IS NULL`),
     uniqueIndex("orders_checkout_key_unique").on(t.checkoutKey),
     check(
       "orders_totals_non_negative",

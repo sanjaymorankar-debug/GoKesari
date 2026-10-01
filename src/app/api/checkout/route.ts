@@ -27,6 +27,8 @@ const schema = z.object({
   buyerShopId: z.string().uuid().nullish(),
   /** WALLET (default) or COD — cash on delivery, checked against the COD limits (GS-030). */
   paymentMethod: z.enum(["WALLET", "COD"]).optional(),
+  /** Shops the customer was warned are closed and chose to order from anyway. */
+  acknowledgeClosedShopIds: z.array(z.string().uuid()).max(20).optional(),
 });
 
 export const POST = route(async (request: NextRequest) => {
@@ -47,6 +49,7 @@ export const POST = route(async (request: NextRequest) => {
     notes: body.notes ?? null,
     deliveryWindows: body.deliveryWindows,
     paymentMethod: body.paymentMethod,
+    acknowledgeClosedShopIds: body.acknowledgeClosedShopIds,
   });
 
   return ok(

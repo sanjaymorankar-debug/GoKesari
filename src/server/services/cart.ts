@@ -54,6 +54,7 @@ export interface CartShopGroup {
     | "deliveryFeePaise"
     | "freeDeliveryAbovePaise"
     | "status"
+    | "openingHours"
   >;
   lines: CartLine[];
   subtotalPaise: number;
@@ -266,6 +267,7 @@ export async function getCart(userId: string): Promise<CartSummary> {
           deliveryFeePaise: row.shop.deliveryFeePaise,
           freeDeliveryAbovePaise: row.shop.freeDeliveryAbovePaise,
           status: row.shop.status,
+          openingHours: row.shop.openingHours,
         },
         lines: [],
         subtotalPaise: 0,
