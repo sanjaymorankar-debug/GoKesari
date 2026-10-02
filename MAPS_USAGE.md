@@ -10,7 +10,7 @@ before estimating cost at any given scale.
 
 **Google is called exactly once per shop location and once per customer
 address, at the moment it's confirmed — never again for that same
-location.** Everything else reads Bkesari's own stored `latitude`/
+location.** Everything else reads GoKesari's own stored `latitude`/
 `longitude` columns. See `src/server/services/geocoding.ts` for the
 rationale in full.
 
