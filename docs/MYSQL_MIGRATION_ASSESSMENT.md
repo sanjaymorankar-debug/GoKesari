@@ -168,10 +168,53 @@ happens: they make the money paths more robust on Postgres too.
 
 ### What is already done elsewhere
 
-- `agtci` is the house precedent — commit `9db30ad`, "Convert schema/driver from
-  Postgres to MySQL (Hostinger-hosted)". Follow its conventions: `mysqlTable`,
-  `mysqlEnum`, `json`, and `varchar(36)` ids via `$defaultFn(crypto.randomUUID)`.
-  It is a far smaller app (8 tables), so it is a style guide, not a size estimate.
+**The `bkesari` repo has already been ported** — `claude/amazing-cannon-5n3fro`,
+open as PR #9 there, "Port Milk & Dairy from PostgreSQL to MySQL for Hostinger",
+reporting 275/275 tests passing against MariaDB 10.11 and MySQL 8.0.46 with a
+52-table schema migrating cleanly.
+
+That is the same application, and it does **not** mean this port is easy. It means
+the port is easy *where the two hard parts are absent*, and `bkesari` is the
+smaller, older variant where they are:
+
+| | `bkesari` (ported) | here |
+|---|---|---|
+| `schema.ts` | 2,316 lines, 52 tables | **4,270 lines, 94 tables** |
+| `.returning()` sites | **0** | **180** |
+| `src/server/pmd/**` | **does not exist** | **44 files, 10,317 lines** |
+
+So its success is evidence *for* §2, not against it: the obstacles that make this
+port expensive are the ones that repo never had.
+
+**What is directly reusable, though, is the hardest single piece.** That branch adds
+`src/server/db/returning.ts`, which reproduces `RETURNING` on MySQL and already
+solves the correctness trap §2.1 warns about — it distinguishes two cases that a
+naive insert-then-select conflates:
+
+- `updateReturning` — for an update whose `WHERE` does not test a column the update
+  changes. Re-reading the same `WHERE` afterwards is exact.
+- `updateReturningIfChanged` — for a **compare-and-swap** guard
+  (`SET status='SUCCESS' WHERE status='CREATED'`), where re-reading the `WHERE`
+  afterwards matches nothing, and an empty result is exactly how callers detect a
+  lost race. It judges by the affected-row count instead.
+- `insertReturning` — generates the id in the application (`crypto.randomUUID()`)
+  so the inserted rows can be read back, since MySQL's `LAST_INSERT_ID()` only
+  covers `AUTO_INCREMENT`. That is **stage 1 of the plan above, already written**.
+- `upsertReturning` — keeps Postgres's explicit conflict target, not because MySQL
+  needs it (`ON DUPLICATE KEY UPDATE` picks the key itself) but because it names
+  the columns to read the row back by.
+
+This changes the estimate for stage 4 from "design and apply 180 times" to "port a
+reviewed helper and apply it 180 times", and it removes the design risk from the
+money paths. It does **not** touch §2.2: `bkesari` has no PMD layer, so nothing
+there addresses the `ts_rank` search, the `pmd.` namespace, the sequences or
+`generate_series`. That remains the largest single piece of work.
+
+Other precedents:
+
+- `agtci` is the house style guide — commit `9db30ad`, "Convert schema/driver from
+  Postgres to MySQL (Hostinger-hosted)": `mysqlTable`, `mysqlEnum`, `json`, and
+  `varchar(36)` ids via `$defaultFn(crypto.randomUUID)`. 8 tables, so style only.
 - ATIP's `db/mysql.py` solves the same dialect problems on the Python side, with
   the `TEXT`-cannot-be-indexed and reserved-word rules worked out and verified
   against a real server (`tests/test_mysql_backend.py`).
