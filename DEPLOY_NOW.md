@@ -1,11 +1,11 @@
-# Deploying to test.bkesari.com
+# Deploying to test.gokesari.com
 
 Copy-paste steps to get this running on your Hostinger staging domain.
 
 Two things this session could not do for you, and why:
 
 - **Push to GitHub** — the sandbox's git proxy only serves repositories in its
-  pre-authorised set, and `sanjaymorankar-debug/bkesari` is not in it. Step 2 is
+  pre-authorised set, and `sanjaymorankar-debug/GoKesari` is not in it. Step 2 is
   yours to run.
 - **Call the Hostinger API** — `developers.hostinger.com` is blocked at the
   sandbox's network proxy, so hPanel steps are manual.
@@ -40,24 +40,31 @@ Keep it handy — it becomes `DATABASE_URL` in step 4.
 
 ## Step 2 — Push the code to GitHub
 
-Unzip the delivered archive, then from inside the `dairy-bakery` folder:
+This repository **is** the app — `sanjaymorankar-debug/GoKesari`. If you are
+working in a clone of it, there is nothing to do in this step; go to step 3.
+
+Only if you are starting from a delivered archive rather than a clone:
 
 ```bash
 cd dairy-bakery
 
-# Point at your existing repo (already wired to test.bkesari.com)
+# This repo, not bkesari: bkesari.com is the separate Milk & Dairy site.
 git remote remove origin 2>/dev/null
-git remote add origin https://github.com/sanjaymorankar-debug/bkesari.git
+git remote add origin https://github.com/sanjaymorankar-debug/GoKesari.git
 
-# Replace the throwaway scaffold with the real app.
-# --force is intentional: the scaffold has no history worth keeping.
 git branch -M main
-git push --force -u origin main
+git push -u origin main
 
-# Staging branch — this is what test.bkesari.com deploys from
+# Staging branch — this is what test.gokesari.com deploys from
 git checkout -b staging
-git push --force -u origin staging
+git push -u origin staging
 ```
+
+**Never `--force` these pushes.** An earlier version of this file pointed at
+`sanjaymorankar-debug/bkesari` and force-pushed, from when this app lived in
+that repo and was overwriting a throwaway scaffold. Both repositories now carry
+real history, and a force-push would destroy it — bkesari especially, which is
+a different site and not yours to overwrite from here.
 
 If git asks for a password, paste your Personal Access Token (not your GitHub
 password).
@@ -66,9 +73,9 @@ password).
 
 ## Step 3 — Point the Hostinger app at the right branch
 
-In hPanel → your Node.js Web App for `test.bkesari.com`:
+In hPanel → your Node.js Web App for `test.gokesari.com`:
 
-- Confirm the connected repository is `sanjaymorankar-debug/bkesari`
+- Confirm the connected repository is `sanjaymorankar-debug/GoKesari`
 - Confirm the branch is **`staging`**
 - Build command: `npm run build` · Start command: `npm start` (usually
   auto-detected for Next.js)
@@ -90,7 +97,7 @@ openssl rand -hex 32      # CRON_SECRET
 | `DATABASE_URL` | the Neon string from step 1 |
 | `DATABASE_POOL_MAX` | `10` |
 | `AUTH_SECRET` | output of `openssl rand -base64 32` |
-| `AUTH_URL` | `https://test.bkesari.com` |
+| `AUTH_URL` | `https://test.gokesari.com` |
 | `AUTH_GOOGLE_ID` | from Google Cloud Console (step 6) |
 | `AUTH_GOOGLE_SECRET` | from Google Cloud Console (step 6) |
 | `CRON_SECRET` | output of `openssl rand -hex 32` |
@@ -141,8 +148,8 @@ psql "$DATABASE_URL" -c "SELECT count(*) FROM products;"   # expect 40
 Google Cloud Console → APIs & Services → Credentials → Create OAuth 2.0 Client
 ID (Web application):
 
-- Authorised JavaScript origin: `https://test.bkesari.com`
-- Authorised redirect URI: `https://test.bkesari.com/api/auth/callback/google`
+- Authorised JavaScript origin: `https://test.gokesari.com`
+- Authorised redirect URI: `https://test.gokesari.com/api/auth/callback/google`
 
 Copy the Client ID and Secret into `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET`, then
 redeploy.
@@ -160,7 +167,7 @@ It is the single most important post-deploy step.
 In hPanel → Cron Jobs, daily at 05:00 IST:
 
 ```bash
-curl -fsS -X POST https://test.bkesari.com/api/cron/daily-orders \
+curl -fsS -X POST https://test.gokesari.com/api/cron/daily-orders \
   -H "Authorization: Bearer YOUR_CRON_SECRET"
 ```
 
@@ -168,7 +175,7 @@ Verify wiring without generating anything:
 
 ```bash
 curl -H "Authorization: Bearer YOUR_CRON_SECRET" \
-  https://test.bkesari.com/api/cron/daily-orders
+  https://test.gokesari.com/api/cron/daily-orders
 # {"status":"ready","timezone":"Asia/Kolkata"}
 ```
 
@@ -179,9 +186,9 @@ The job is idempotent — a duplicate or retried run cannot double-charge.
 ## Step 8 — Verify the deployment
 
 ```bash
-curl -o /dev/null -w "%{http_code}\n" https://test.bkesari.com/          # 200
-curl https://test.bkesari.com/api/cart                                   # 401
-curl -X POST https://test.bkesari.com/api/cron/daily-orders              # 403
+curl -o /dev/null -w "%{http_code}\n" https://test.gokesari.com/          # 200
+curl https://test.gokesari.com/api/cart                                   # 401
+curl -X POST https://test.gokesari.com/api/cron/daily-orders              # 403
 ```
 
 Then in a browser:
@@ -212,7 +219,7 @@ Before production, in addition to the above:
 - A **separate** Neon database (never share one with staging)
 - Real `CASHFREE_APP_ID` / `CASHFREE_SECRET_KEY` with `CASHFREE_ENV=production`
   — confirm the app is not in mock payment mode
-- `AUTH_URL=https://bkesari.com` and the matching Google redirect URI
+- `AUTH_URL=https://gokesari.com` and the matching Google redirect URI
 - Backups and the ledger-integrity checks from `DEPLOYMENT.md §7`
 
 ---
@@ -225,6 +232,6 @@ Before production, in addition to the above:
 | 500 on every page | Migrations not run | Step 5 |
 | `ECONNREFUSED` / SSL errors | Missing `?sslmode=require` | Append it to `DATABASE_URL` |
 | Sign-in shows a message, no Google button | OAuth not configured | Step 6 |
-| `redirect_uri_mismatch` from Google | URI doesn't match exactly | Must be `https://test.bkesari.com/api/auth/callback/google` |
+| `redirect_uri_mismatch` from Google | URI doesn't match exactly | Must be `https://test.gokesari.com/api/auth/callback/google` |
 | Subscriptions never deliver | Cron not scheduled | Step 7 — check it actually ran |
 | Intermittent DB connection failures | Pool exceeds Neon's cap | Lower `DATABASE_POOL_MAX` |

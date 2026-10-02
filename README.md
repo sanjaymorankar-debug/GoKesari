@@ -50,7 +50,7 @@ Dairy Farm) so the online/offline rule is visible immediately.
 | `DATABASE_URL` | yes | PostgreSQL connection string |
 | `TEST_DATABASE_URL` | tests | Separate database for integration tests |
 | `AUTH_SECRET` | yes | Auth.js session encryption. Generate with `openssl rand -base64 32` |
-| `AUTH_URL` | prod | Canonical app URL, e.g. `https://bkesari.com` |
+| `AUTH_URL` | prod | Canonical app URL, e.g. `https://gokesari.com` |
 | `AUTH_GOOGLE_ID` / `AUTH_GOOGLE_SECRET` | prod | Google OAuth client. Without these, Google sign-in is hidden |
 | `CASHFREE_APP_ID` / `CASHFREE_SECRET_KEY` | prod | Payment gateway. Without these the app runs in MOCK payment mode |
 | `CASHFREE_ENV` | no | `sandbox` (default) or `production` |
