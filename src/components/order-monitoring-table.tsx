@@ -1,9 +1,11 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 
+import { LiveTrackingMap } from "@/components/live-tracking-map";
 import { Button, Card, Money, StatusBadge } from "@/components/ui";
+import { isTrackableOrderStatus } from "@/lib/tracking";
 
 export interface MonitoringRow {
   id: string;
@@ -18,6 +20,8 @@ export interface MonitoringRow {
 }
 
 const LIVE_DELIVERY = new Set(["OFFERED", "ACCEPTED", "PICKED_UP"]);
+/** Keep in step with the header row below. */
+const COLUMN_COUNT = 8;
 const REASON_MAX = 500;
 
 // A stale OFFERED row on an order that has moved on would be cancelled and then fail to re-offer.
@@ -35,6 +39,9 @@ export function OrderMonitoringTable({
   const router = useRouter();
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // GS-042: one order's tracking at a time, so monitoring a long list does not
+  // open a poll per row.
+  const [trackingId, setTrackingId] = useState<string | null>(null);
 
   async function assign(orderId: string, reassign: boolean) {
     let reason: string | undefined;
@@ -100,51 +107,72 @@ export function OrderMonitoringTable({
               const canAssign = order.status === "READY" && !hasLiveDelivery;
               const canReassignDelivery = isReassignable(order.status, order.deliveryStatus);
               const busy = busyId === order.id;
+              const trackable = isTrackableOrderStatus(order.status) && hasLiveDelivery;
+              const tracking = trackingId === order.id;
               return (
-                <tr key={order.id} className="border-b hover:bg-gray-50">
-                  <td className="px-4 py-3 font-medium">#{order.orderNumber}</td>
-                  <td className="px-4 py-3 text-gray-600">
-                    {new Date(order.createdAt).toLocaleString("en-IN", {
-                      dateStyle: "short",
-                      timeStyle: "short",
-                    })}
-                  </td>
-                  <td className="px-4 py-3 text-gray-700">{order.shopName}</td>
-                  <td className="px-4 py-3 text-gray-700">{order.customerName ?? "—"}</td>
-                  <td className="px-4 py-3">
-                    <StatusBadge status={order.status} />
-                  </td>
-                  <td className="px-4 py-3 font-medium">
-                    <Money paise={order.totalPaise} />
-                  </td>
-                  <td className="px-4 py-3 text-gray-700">
-                    {order.riderName ? (
-                      <div>
-                        <p className="font-medium">{order.riderName}</p>
-                        <p className="text-xs text-gray-500">{order.deliveryStatus?.replace(/_/g, " ").toLowerCase()}</p>
-                      </div>
-                    ) : (
-                      <span className="text-gray-400">—</span>
-                    )}
-                  </td>
-                  <td className="px-4 py-3">
-                    {canReassign && canAssign && (
-                      <Button size="sm" disabled={busy} onClick={() => assign(order.id, false)}>
-                        {busy ? "Assigning…" : "Assign rider"}
-                      </Button>
-                    )}
-                    {canReassign && canReassignDelivery && (
-                      <Button
-                        size="sm"
-                        variant="secondary"
-                        disabled={busy}
-                        onClick={() => assign(order.id, true)}
-                      >
-                        {busy ? "Reassigning…" : "Reassign"}
-                      </Button>
-                    )}
-                  </td>
-                </tr>
+                <Fragment key={order.id}>
+                  <tr className="border-b hover:bg-gray-50">
+                    <td className="px-4 py-3 font-medium">#{order.orderNumber}</td>
+                    <td className="px-4 py-3 text-gray-600">
+                      {new Date(order.createdAt).toLocaleString("en-IN", {
+                        dateStyle: "short",
+                        timeStyle: "short",
+                      })}
+                    </td>
+                    <td className="px-4 py-3 text-gray-700">{order.shopName}</td>
+                    <td className="px-4 py-3 text-gray-700">{order.customerName ?? "—"}</td>
+                    <td className="px-4 py-3">
+                      <StatusBadge status={order.status} />
+                    </td>
+                    <td className="px-4 py-3 font-medium">
+                      <Money paise={order.totalPaise} />
+                    </td>
+                    <td className="px-4 py-3 text-gray-700">
+                      {order.riderName ? (
+                        <div>
+                          <p className="font-medium">{order.riderName}</p>
+                          <p className="text-xs text-gray-500">{order.deliveryStatus?.replace(/_/g, " ").toLowerCase()}</p>
+                        </div>
+                      ) : (
+                        <span className="text-gray-400">—</span>
+                      )}
+                    </td>
+                    <td className="px-4 py-3">
+                      {canReassign && canAssign && (
+                        <Button size="sm" disabled={busy} onClick={() => assign(order.id, false)}>
+                          {busy ? "Assigning…" : "Assign rider"}
+                        </Button>
+                      )}
+                      {canReassign && canReassignDelivery && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          disabled={busy}
+                          onClick={() => assign(order.id, true)}
+                        >
+                          {busy ? "Reassigning…" : "Reassign"}
+                        </Button>
+                      )}
+                      {trackable && (
+                        <Button
+                          size="sm"
+                          variant="secondary"
+                          aria-expanded={tracking}
+                          onClick={() => setTrackingId(tracking ? null : order.id)}
+                        >
+                          {tracking ? "Hide tracking" : "Track"}
+                        </Button>
+                      )}
+                    </td>
+                  </tr>
+                  {trackable && tracking && (
+                    <tr className="border-b bg-gray-50">
+                      <td colSpan={COLUMN_COUNT} className="px-4 py-3">
+                        <LiveTrackingMap orderId={order.id} />
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
               );
             })}
           </tbody>

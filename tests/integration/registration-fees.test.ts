@@ -22,7 +22,7 @@ import {
   recordPayment,
   reversePayment,
 } from "@/server/services/shop-payments";
-import { registerShop } from "@/server/services/shops";
+import { approveShop, registerShop } from "@/server/services/shops";
 import { createShop, createUser, resetDatabase } from "../helpers/fixtures";
 
 const ADMIN = (id: string) => ({ id, role: "ADMIN" as const });
@@ -241,5 +241,129 @@ describe("shop payments", () => {
     expect(report.pendingPaise).toBe(500_000);
     expect(report.fullyPaid).toBe(1);
     expect(report.unpaid).toBe(1);
+  });
+});
+
+/**
+ * GS-008 — a shop cannot go live until its registration fee is settled.
+ *
+ * The gate reads one column, `shops.fee_payment_status`, which is derived from
+ * the payments ledger rather than set by hand. These tests therefore drive it
+ * the way operations does — by recording real payments — and check the two
+ * directions that matter: an unpaid shop stays pending, and a paid shop goes
+ * through unchanged.
+ */
+describe("registration fee gate on shop approval (GS-008)", () => {
+  beforeEach(resetDatabase);
+
+  it("refuses approval while the fee is unpaid, and says what is outstanding", async () => {
+    const admin = await createUser({ role: "ADMIN" });
+    const owner = await createUser({ role: "SHOP_OWNER" });
+    const shop = await createShop(owner.id, {
+      status: "PENDING_APPROVAL",
+      registrationFeePaise: 500_000,
+    });
+
+    await expect(
+      approveShop(shop.id, { classification: "KESARI" }, ADMIN(admin.id)),
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: { feePaymentStatus: "PENDING", amountPaidPaise: 0 },
+    });
+
+    // The refusal must leave the shop exactly as it was — no half-approval.
+    const [after] = await db.select().from(shops).where(eq(shops.id, shop.id));
+    expect(after.status).toBe("PENDING_APPROVAL");
+    expect(after.approvedAt).toBeNull();
+    expect(after.classification).toBe("KESARI"); // the fixture's value, untouched
+  });
+
+  it("still refuses when the fee is only part-paid", async () => {
+    const admin = await createUser({ role: "ADMIN" });
+    const operator = await createUser({ role: "OPERATOR" });
+    const owner = await createUser({ role: "SHOP_OWNER" });
+    const shop = await createShop(owner.id, {
+      status: "PENDING_APPROVAL",
+      registrationFeePaise: 500_000,
+    });
+
+    await recordPayment(
+      { shopId: shop.id, paymentType: "REGISTRATION_FEE", amountPaise: 200_000 },
+      OPERATOR(operator.id),
+    );
+
+    await expect(
+      approveShop(shop.id, { classification: "GREEN" }, ADMIN(admin.id)),
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: { feePaymentStatus: "PARTIALLY_PAID", amountPaidPaise: 200_000 },
+    });
+  });
+
+  it("approves once the fee is paid in full", async () => {
+    const admin = await createUser({ role: "ADMIN" });
+    const operator = await createUser({ role: "OPERATOR" });
+    const owner = await createUser({ role: "SHOP_OWNER" });
+    const shop = await createShop(owner.id, {
+      status: "PENDING_APPROVAL",
+      registrationFeePaise: 500_000,
+    });
+
+    await recordPayment(
+      { shopId: shop.id, paymentType: "REGISTRATION_FEE", amountPaise: 500_000 },
+      OPERATOR(operator.id),
+    );
+
+    const approved = await approveShop(shop.id, { classification: "GREEN" }, ADMIN(admin.id));
+    expect(approved.status).toBe("APPROVED");
+    expect(approved.classification).toBe("GREEN");
+    expect(approved.approvedAt).not.toBeNull();
+  });
+
+  it("lets a waived fee through — a zero fee is settled by definition", async () => {
+    const admin = await createUser({ role: "ADMIN" });
+    const owner = await createUser({ role: "SHOP_OWNER" });
+    const shop = await createShop(owner.id, {
+      status: "PENDING_APPROVAL",
+      registrationFeePaise: 0,
+    });
+    // A zero fee is what a waiver looks like; registerShop writes PAID for it,
+    // so set the same thing the fixture's direct insert skips.
+    await db.update(shops).set({ feePaymentStatus: "PAID" }).where(eq(shops.id, shop.id));
+
+    const approved = await approveShop(shop.id, { classification: "KESARI" }, ADMIN(admin.id));
+    expect(approved.status).toBe("APPROVED");
+  });
+
+  it("refuses a shop whose fee was refunded or whose registration was cancelled", async () => {
+    const admin = await createUser({ role: "ADMIN" });
+    const owner = await createUser({ role: "SHOP_OWNER" });
+
+    for (const status of ["REFUNDED", "CANCELLED"] as const) {
+      const shop = await createShop(owner.id, {
+        name: `Shop ${status}`,
+        status: "PENDING_APPROVAL",
+        registrationFeePaise: 500_000,
+      });
+      await db.update(shops).set({ feePaymentStatus: status }).where(eq(shops.id, shop.id));
+
+      await expect(
+        approveShop(shop.id, { classification: "KESARI" }, ADMIN(admin.id)),
+      ).rejects.toMatchObject({ code: "CONFLICT", details: { feePaymentStatus: status } });
+    }
+  });
+
+  it("does not revoke a shop approved before the gate existed", async () => {
+    // An already-APPROVED shop with an unpaid fee keeps its status: the gate is
+    // on the transition, not a standing condition.
+    const owner = await createUser({ role: "SHOP_OWNER" });
+    const shop = await createShop(owner.id, {
+      status: "APPROVED",
+      registrationFeePaise: 500_000,
+    });
+
+    const [row] = await db.select().from(shops).where(eq(shops.id, shop.id));
+    expect(row.status).toBe("APPROVED");
+    expect(row.feePaymentStatus).toBe("PENDING");
   });
 });

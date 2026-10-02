@@ -10,9 +10,11 @@ import {
   PageHeader,
   StatusBadge,
 } from "@/components/ui";
+import { LiveTrackingMap } from "@/components/live-tracking-map";
 import { RateOrderForm, ReportIssueForm } from "@/components/rating-actions";
 import { SubstitutionDecision } from "@/components/substitution-decision";
 import { formatQuantity } from "@/lib/money";
+import { isTrackableOrderStatus } from "@/lib/tracking";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { getDeliveryOrdersForOrders } from "@/server/services/delivery-assignment";
@@ -181,6 +183,18 @@ export default async function OrdersPage({
                   {DELIVERY_STATUS_LABELS[deliveryOrders.get(order.id)!.status]} ·{" "}
                   {deliveryOrders.get(order.id)!.partnerName}
                 </p>
+              ) : null}
+
+              {/*
+                GS-042/NAV-004: live tracking, mounted only for an order that
+                has a rider and has not finished — one poll per in-flight order
+                rather than one per card. The panel's own API decides what this
+                viewer may see.
+              */}
+              {deliveryOrders.has(order.id) && isTrackableOrderStatus(order.status) ? (
+                <div className="mt-3">
+                  <LiveTrackingMap orderId={order.id} />
+                </div>
               ) : null}
 
               {order.status === "DELIVERED" || order.status === "DISPUTED" ? (
