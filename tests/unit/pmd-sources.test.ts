@@ -6,7 +6,7 @@
  * when this platform was designed - the tests prove the platform refuses the
  * paths those files disallow and reaches the official bulk dumps they allow.
  */
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import fs, { mkdtempSync, readFileSync, rmSync, writeFileSync, type ReadStream } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -557,6 +557,37 @@ describe("streaming .xlsx reader", () => {
         await expect(collect(path, { headerRow: 9 })).rejects.toBeInstanceOf(XlsxReadError);
       },
     );
+  });
+
+  it("reads skipped sheets through, so ExcelJS never deletes a temp file a stream is still opening", async () => {
+    // ExcelJS spools sheets that precede the shared strings to temp files (tmp-*) and deletes each
+    // once the reader moves past it. A skipped sheet left unread raced that delete (CI: ENOENT).
+    const streams: ReadStream[] = [];
+    const real = fs.createReadStream;
+    const spy = vi.spyOn(fs, "createReadStream").mockImplementation(((...args: Parameters<typeof fs.createReadStream>) => {
+      const stream = real(...args);
+      if (String(args[0]).includes("tmp-")) streams.push(stream);
+      return stream;
+    }) as typeof fs.createReadStream);
+    try {
+      await withWorkbook(
+        (wb) => {
+          for (const name of ["Internal", "Front", "Back"]) {
+            const ws = wb.addWorksheet(name);
+            ws.addRow(["Item"]);
+            ws.addRow([`${name.toLowerCase()}-1`]);
+          }
+        },
+        async (path) => {
+          expect((await collect(path, { sheet: "back" }))[0].row.Item).toBe("back-1");
+        },
+      );
+    } finally {
+      spy.mockRestore();
+    }
+    expect(streams.length).toBe(3);
+    await new Promise((resolve) => setImmediate(resolve));
+    expect(streams.map((s) => s.closed)).toEqual([true, true, true]);
   });
 
   it("feeds the same mapping as a CSV: a numeric GTIN that lost its zero comes out whole", async () => {
