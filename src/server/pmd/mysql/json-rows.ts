@@ -88,9 +88,7 @@ export async function jsonRows(
   const spec = columns.map((column) => {
     const type = types.get(column);
     if (!type) throw new Error(`${table} has no column ${column}`);
-    // PATH '$.<column>' with the name quoted, so a column that happens to be a
-    // reserved word (product_image.rank) still resolves.
-    return sql`${sql(column)} ${sql.unsafe(type)} PATH ${`$.${column}`}`;
+    return columnSpec(sql, column, type);
   });
   return build(sql, spec, rows);
 }
@@ -105,9 +103,7 @@ export function jsonRowsTyped(
   columns: Record<string, string>,
   rows: readonly unknown[],
 ): RowSource {
-  const spec = Object.entries(columns).map(
-    ([column, type]) => sql`${sql(column)} ${sql.unsafe(type)} PATH ${`$.${column}`}`,
-  );
+  const spec = Object.entries(columns).map(([column, type]) => columnSpec(sql, column, type));
   return build(sql, spec, rows);
 }
 
@@ -133,6 +129,25 @@ function assertPlainRows(rows: readonly unknown[]): void {
       }
     }
   }
+}
+
+/**
+ * One `COLUMNS (...)` entry.
+ *
+ * The JSON path has to be *literal* text: MySQL reads it when it parses the
+ * statement, so a placeholder there is a syntax error rather than a value. That
+ * makes the column name part of the SQL, so it is checked against a strict
+ * pattern first - everything PMD passes is either read from
+ * information_schema or written in this repository, and a name that is neither
+ * should fail here rather than be interpolated.
+ */
+function columnSpec(sql: Queryable, column: string, type: string) {
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(column)) {
+    throw new Error(`refusing to build a JSON_TABLE path for column name ${JSON.stringify(column)}`);
+  }
+  // The name is also quoted on the left, so a column that happens to be a
+  // reserved word (product_image.rank) still resolves.
+  return sql`${sql(column)} ${sql.unsafe(type)} PATH ${sql.unsafe(`'$.${column}'`)}`;
 }
 
 /** Splices fragments together with a separator, since the shim has no join. */

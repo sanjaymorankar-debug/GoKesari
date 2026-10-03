@@ -4,23 +4,26 @@
  *   pmd.product_master        (universal, multi-source, millions)
  *        |  promote  (this module - explicit, audited, operator/admin only)
  *        v
- *   public.products           GOKESARI_PRODUCT_CATALOG  (what shops can pick)
+ *   products (application db) GOKESARI_PRODUCT_CATALOG  (what shops can pick)
  *        |
  *        v
- *   public.shop_products      SHOP_PRODUCT_CATALOG      (per-shop selling price, stock)
+ *   shop_products (app db)    SHOP_PRODUCT_CATALOG      (per-shop selling price, stock)
  *
  * Rules that keep the two worlds honest:
  *   - Seller pricing NEVER crosses the bridge. Marketplace prices are observations, not
  *     GoKesari's MRP; `products.mrp_paise` is filled only from a source that may verify MRP.
  *   - Shops select an existing catalogue product; they never re-create it. Two shops selling
- *     the same master product both reference the SAME public.products row.
+ *     the same master product both reference the SAME `products` row.
  *   - An existing catalogue product with the same GTIN (in ANY of its written forms) is
  *     adopted, not duplicated - GoKesari stores GTINs as scanned, so EAN-13 and UPC-A of one
  *     item would otherwise slip past its unique index.
  *   - Promotion is one transaction with its audit row; nothing half-happens.
  */
+import { randomUUID } from "node:crypto";
+
 import type { Sql, TransactionSql } from "../db";
 import { lockNames } from "../mysql/lock";
+import { nextProductCode } from "../mysql/sequence";
 import { toEan13, toUpcA } from "../normalize/identifiers";
 import { slugify } from "../taxonomy/categories";
 
@@ -107,7 +110,7 @@ async function uniqueSlug(tx: TransactionSql, table: "products" | "brands", base
   const root = slugify(base) || "item";
   for (let i = 0; i < 50; i++) {
     const candidate = i === 0 ? root : `${root}-${i + 1}`;
-    const [hit] = await tx.unsafe<{ n: number }[]>(`SELECT 1 AS n FROM public.${table} WHERE slug = $1`, [candidate]);
+    const [hit] = await tx.unsafe<{ n: number }[]>(`SELECT 1 AS n FROM ${table} WHERE slug = ?`, [candidate]);
     if (!hit) return candidate;
   }
   return `${root}-${Date.now()}`;
@@ -119,13 +122,13 @@ async function resolveOperationalCategory(tx: TransactionSql, m: MasterForPromot
   const l2 = m.category_path?.[1] ?? null;
   if (l2) {
     const [byName] = await tx<{ id: string }[]>`
-      SELECT id FROM public.product_categories
-      WHERE department = ${m.gokesari_department}::department AND lower(name) = lower(${l2}) AND deleted_at IS NULL LIMIT 1`;
+      SELECT id FROM product_categories
+      WHERE department = ${m.gokesari_department} AND lower(name) = lower(${l2}) AND deleted_at IS NULL LIMIT 1`;
     if (byName) return byName;
   }
   const [dflt] = await tx<{ id: string }[]>`
-    SELECT id FROM public.product_categories
-    WHERE department = ${m.gokesari_department}::department AND deleted_at IS NULL ORDER BY sort_order, created_at LIMIT 1`;
+    SELECT id FROM product_categories
+    WHERE department = ${m.gokesari_department} AND deleted_at IS NULL ORDER BY sort_order, created_at LIMIT 1`;
   return dflt ?? null;
 }
 
@@ -164,7 +167,7 @@ export async function promoteToCatalogue(
     if (m.gtin) {
       const forms = gtinForms(m.gtin);
       const [existing] = await tx<{ id: string; code: string }[]>`
-        SELECT id, code FROM public.products WHERE gtin IN ${tx(forms)} AND deleted_at IS NULL LIMIT 1`;
+        SELECT id, code FROM products WHERE gtin IN ${tx(forms)} AND deleted_at IS NULL LIMIT 1`;
       if (existing) {
         const [taken] = await tx`SELECT 1 FROM pmd.catalogue_link WHERE catalogue_product_id = ${existing.id}`;
         if (taken) throw new PromotionError("CATALOGUE_TAKEN", `Catalogue product ${existing.code} is already linked to another master product.`);
@@ -192,11 +195,17 @@ export async function promoteToCatalogue(
       // Two promotions of the same NEW brand at once would both miss it, and the second would then pick "brand-2" as its
       // slug and create a duplicate. Queue them per brand: the second waits for the first to commit, then finds its row.
       await lockNames(tx, [`pmd.catalogue-brand:${brandSlug}`]);
-      const [b] = await tx<{ id: string }[]>`SELECT id FROM public.brands WHERE slug = ${brandSlug} AND deleted_at IS NULL`;
+      const [b] = await tx<{ id: string }[]>`SELECT id FROM brands WHERE slug = ${brandSlug} AND deleted_at IS NULL`;
       if (b) brandId = b.id;
       else {
         const slug = await uniqueSlug(tx, "brands", m.brand_name);
-        const [nb] = await tx<{ id: string }[]>`INSERT INTO public.brands (name, slug, created_by) VALUES (${m.brand_name}, ${slug}, ${actor.userId}) RETURNING id`;
+        // The application's uuid primary keys have no *database* default - the
+        // schema fills them with drizzle's $defaultFn, which raw SQL does not go
+        // through - so the key is generated here. That also removes the need for
+        // RETURNING.
+        const newBrandId = randomUUID();
+        await tx`INSERT INTO brands (id, name, slug, created_by) VALUES (${newBrandId}, ${m.brand_name}, ${slug}, ${actor.userId})`;
+        const nb = { id: newBrandId };
         brandId = nb.id;
         createdBrand = true;
       }
@@ -213,27 +222,36 @@ export async function promoteToCatalogue(
     const { unit, netQuantity, netUnit } = displayUnit(m.net_quantity_value, m.net_quantity_unit);
     const slug = await uniqueSlug(tx, "products", `${m.brand_name ? m.brand_name + " " : ""}${m.product_name}`);
 
-    const [p] = await tx<{ id: string; code: string }[]>`
-      INSERT INTO public.products
-        (category_id, name, slug, description, brand_id, kind, gtin, variant, hsn_code, gst_rate_bp,
+    // Both of this row's identifiers have to be supplied. `id` is a uuid whose
+    // default lives in drizzle's $defaultFn rather than in the database, and
+    // `code` was a sequence default and is now allocated by the application -
+    // from the same counter and formatter, so the two cannot diverge. Supplying
+    // them also removes the need for RETURNING.
+    const newProductId = randomUUID();
+    const newProductCode = await nextProductCode(tx);
+    // The `::product_kind` style casts are gone: these columns are enums in
+    // MySQL, so the string value is already the right type.
+    await tx`
+      INSERT INTO products
+        (id, code, category_id, name, slug, description, brand_id, kind, gtin, variant, hsn_code, gst_rate_bp,
          manufacturer_name, country_of_origin, net_quantity, net_quantity_unit, unit,
          mrp_paise, mrp_source, mrp_effective_from, mrp_verification_status, mrp_updated_at,
          approval_status, approved_by, approved_at, created_by)
-      VALUES (${category.id}, ${m.product_name}, ${slug}, ${m.long_description ?? m.short_description}, ${brandId},
-              ${packaged ? "PACKAGED" : "LOOSE"}::product_kind, ${m.gtin ? catalogueGtin(m.gtin) : null}, ${m.variant_name},
+      VALUES (${newProductId}, ${newProductCode}, ${category.id}, ${m.product_name}, ${slug}, ${m.long_description ?? m.short_description}, ${brandId},
+              ${packaged ? "PACKAGED" : "LOOSE"}, ${m.gtin ? catalogueGtin(m.gtin) : null}, ${m.variant_name},
               ${m.hsn_code}, ${m.gst_rate_bp}, ${m.manufacturer_name}, ${m.country_of_origin},
               ${netQuantity}, ${netUnit}, ${unit},
-              ${mrp?.mrp_minor ?? null}, ${mrp ? (mrp.kind === "BRAND_MANUFACTURER" ? "BRAND" : mrp.kind === "GS1" ? "GS1" : "IMPORT") : null}::mrp_source,
-              ${mrp ? tx`current_date` : null}, ${mrp ? "PENDING_VERIFICATION" : "UNVERIFIED"}::mrp_verification_status, ${mrp ? tx`now()` : null},
-              'APPROVED'::product_approval_status, ${actor.userId}, now(), ${actor.userId})
-      RETURNING id, code`;
+              ${mrp?.mrp_minor ?? null}, ${mrp ? (mrp.kind === "BRAND_MANUFACTURER" ? "BRAND" : mrp.kind === "GS1" ? "GS1" : "IMPORT") : null},
+              ${mrp ? tx`current_date` : null}, ${mrp ? "PENDING_VERIFICATION" : "UNVERIFIED"}, ${mrp ? tx`now()` : null},
+              'APPROVED', ${actor.userId}, now(), ${actor.userId})`;
+    const p = { id: newProductId, code: newProductCode };
 
     // Images are referenced, not copied.
     const images = opts.images === false ? [] : await tx<{ image_url: string; rank: number }[]>`SELECT image_url, \`rank\` FROM pmd.product_image WHERE product_id = ${m.product_id} ORDER BY \`rank\` LIMIT 5`;
     if (images.length) {
-      await tx`UPDATE public.products SET image_url = ${images[0].image_url} WHERE id = ${p.id}`;
+      await tx`UPDATE products SET image_url = ${images[0].image_url} WHERE id = ${p.id}`;
       for (const [i, img] of images.slice(1).entries()) {
-        await tx`INSERT INTO public.product_images (product_id, url, sort_order) VALUES (${p.id}, ${img.image_url}, ${i})`;
+        await tx`INSERT INTO product_images (product_id, url, sort_order) VALUES (${p.id}, ${img.image_url}, ${i})`;
       }
     }
 
@@ -246,8 +264,8 @@ export async function promoteToCatalogue(
 /** Written in the same transaction as the promotion, so a rolled-back promotion leaves no phantom audit entry. */
 async function audit(tx: TransactionSql, actor: PromotionActor, action: string, entityId: string, detail: Record<string, unknown>): Promise<void> {
   await tx`
-    INSERT INTO public.audit_logs (actor_id, actor_role, action, entity_type, entity_id, new_value)
-    VALUES (${actor.userId}, ${actor.role}::user_role, ${action}, 'product', ${entityId}, ${tx.json(detail as never)})`;
+    INSERT INTO audit_logs (actor_id, actor_role, action, entity_type, entity_id, new_value)
+    VALUES (${actor.userId}, ${actor.role}, ${action}, 'product', ${entityId}, ${tx.json(detail as never)})`;
 }
 
 /** Which shops sell a master product, through the catalogue link (Section 30: "both reference MASTER_PRODUCT_ID"). */
@@ -256,9 +274,9 @@ export async function shopsSellingMasterProduct(sql: Sql, masterProductId: strin
     SELECT s.id AS shop_id, s.name AS shop_name, p.code AS catalogue_product_code, sp.online_price_paise, sp.online_stock
     FROM pmd.product_master pm
     JOIN pmd.catalogue_link cl ON cl.product_id = pm.product_id
-    JOIN public.products p ON p.id = cl.catalogue_product_id
-    JOIN public.shop_products sp ON sp.product_id = p.id AND sp.deleted_at IS NULL
-    JOIN public.shops s ON s.id = sp.shop_id
+    JOIN products p ON p.id = cl.catalogue_product_id
+    JOIN shop_products sp ON sp.product_id = p.id AND sp.deleted_at IS NULL
+    JOIN shops s ON s.id = sp.shop_id
     WHERE pm.master_product_id = ${masterProductId}
     ORDER BY s.name`;
 }

@@ -432,8 +432,13 @@ async function createMaster(
   matchConfidence: number,
 ): Promise<number> {
   const built = buildMasterRow(ctx, n, ids, matchConfidence);
-  const row = { ...built, key_features: tx.json(built.key_features as never), field_sources: tx.json(built.field_sources as never) };
-  const [m] = await tx<{ product_id: number }[]>`INSERT INTO pmd.product_master ${tx(row as never, ...(Object.keys(row) as never[]))} RETURNING product_id`;
+  // product_id is allocated by the application, not AUTO_INCREMENT, because
+  // master_product_id is generated from it (see mysql/sequence.ts) - so there
+  // is no key to return and it has to be supplied.
+  const productId = await nextId(tx, "product_seq");
+  const row = { product_id: productId, ...built, key_features: tx.json(built.key_features as never), field_sources: tx.json(built.field_sources as never) };
+  await tx`INSERT INTO pmd.product_master ${tx(row as never, ...(Object.keys(row) as never[]))}`;
+  const m = { product_id: productId };
   await logChanges(tx, ctx, m.product_id, "product_master", [{ field: "created", oldValue: null, newValue: { name: n.name, brand: n.brand?.display ?? null } }]);
   return m.product_id;
 }

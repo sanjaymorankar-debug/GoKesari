@@ -89,7 +89,7 @@ function quoteIdent(name: string): string {
  */
 class Builder {
   constructor(
-    readonly first: string | readonly unknown[],
+    readonly first: string | readonly unknown[] | object,
     readonly columns: readonly string[],
   ) {}
 
@@ -98,7 +98,10 @@ class Builder {
     if (typeof this.first === "string") return { text: quoteIdent(this.first), params: [] };
 
     const tail = preceding.slice(-60);
-    const rows = this.first;
+    // postgres.js takes either one row object or an array of them, and PMD uses
+    // both - `sql(row, ...keys)` for a single insert, `sql(rows, ...keys)` for a
+    // batch. A lone object is normalised to a one-row batch.
+    const rows: readonly unknown[] = Array.isArray(this.first) ? this.first : [this.first];
 
     // `INSERT INTO t ${sql(rows, ...cols)}` — columns and values together.
     if (/\binsert\s+into\s+[`\w.]+\s*$/i.test(tail)) {
@@ -109,10 +112,7 @@ class Builder {
       const placeholders = rows.map(() => `(${cols.map(() => "?").join(", ")})`).join(", ");
       const params: unknown[] = [];
       for (const row of rows) {
-        for (const col of cols) {
-          const value = (row as Record<string, unknown>)[col];
-          params.push(value instanceof JsonParam ? JSON.stringify(value.value) : value);
-        }
+        for (const col of cols) params.push(jsonSafe((row as Record<string, unknown>)[col]));
       }
       return { text: `(${names}) VALUES ${placeholders}`, params };
     }
@@ -159,6 +159,28 @@ export class RowSource {
     readonly text: string,
     readonly params: readonly unknown[],
   ) {}
+}
+
+/**
+ * A value ready to be bound as one column.
+ *
+ * `sql.json(v)` is serialised, as it must be. So is a plain object or array,
+ * and that is not merely a convenience: mysql2 escapes a plain object into an
+ * **assignment list** (`` `a` = 1 ``) and an array into a comma-separated list,
+ * so either one silently corrupts the statement rather than failing. In a
+ * single-column position a JavaScript object or array can only have been meant
+ * as JSON, and several PMD columns that were `text[]` on PostgreSQL are `json`
+ * here (product_master.search_keywords, key_features, field_sources), so the
+ * values arrive exactly this way.
+ *
+ * Date and Buffer are left alone - mysql2 binds both correctly - and so is
+ * everything scalar.
+ */
+function jsonSafe(value: unknown): unknown {
+  if (value instanceof JsonParam) return JSON.stringify(value.value);
+  if (value === null || typeof value !== "object") return value;
+  if (value instanceof Date || Buffer.isBuffer(value)) return value;
+  return JSON.stringify(value);
 }
 
 /** Anything that can run a compiled statement: the pool, or one connection. */
@@ -246,7 +268,13 @@ class Fragment<T extends readonly unknown[] = Row[]> implements Promise<RowList<
   async execute(): Promise<RowList<T>> {
     if (!this.executor) throw new Error("this SQL fragment is not bound to a connection");
     const { text, params } = this.compile();
-    const [result] = await this.executor.query(text, params);
+    let result;
+    try {
+      [result] = await this.executor.query(text, params);
+    } catch (e) {
+      if (process.env.PMD_SQL_DEBUG) console.error("\n--- FAILED SQL ---\n" + text + "\n--- params ---\n" + JSON.stringify(params).slice(0, 600) + "\n");
+      throw e;
+    }
     // A write returns mysql2's ResultSetHeader rather than rows; postgres.js
     // gave an empty array for those, and PMD's callers expect an array - but
     // the affected-row count has to survive, because `.count` is read off it.
@@ -284,7 +312,7 @@ export interface PmdSql {
   /** Tagged template: `sql`SELECT …``. `T` is the row *array* type. */
   <T extends readonly unknown[] = Row[]>(strings: TemplateStringsArray, ...values: unknown[]): Fragment<T>;
   /** Value list, identifier list, or the insert helper — see Builder. */
-  (first: string | readonly unknown[], ...columns: string[]): Builder;
+  (first: string | readonly unknown[] | object, ...columns: string[]): Builder;
   /** Send a value as a JSON parameter. */
   json(value: unknown): JsonParam;
   /** Literal SQL, for text assembled elsewhere. */
@@ -355,12 +383,12 @@ function sslFor(url: string) {
 
 /** Builds the callable `sql` object around one executor. */
 function bind(executor: Executor, pool: Pool | null): PmdSql {
-  const sql = ((first: TemplateStringsArray | string | readonly unknown[], ...values: unknown[]) => {
+  const sql = ((first: TemplateStringsArray | string | readonly unknown[] | object, ...values: unknown[]) => {
     // A tagged template's first argument is the only one carrying `raw`.
     if (Array.isArray(first) && "raw" in (first as object)) {
       return new Fragment(first as unknown as readonly string[], values, executor);
     }
-    return new Builder(first as string | readonly unknown[], values as string[]);
+    return new Builder(first as string | readonly unknown[] | object, values as string[]);
   }) as PmdSql;
 
   sql.json = (value: unknown) => new JsonParam(value);

@@ -21,7 +21,7 @@ import { refreshQuality } from "./quality";
 import { resolveAttribute } from "./specs";
 
 export interface ReviewActor {
-  /** The application user (public.users.id) making the decision; null for a system action. */
+  /** The application user (users.id) making the decision; null for a system action. */
   userId: string | null;
   /** Human-readable label written to the audit trail, e.g. an email. */
   label: string;
@@ -102,11 +102,19 @@ export async function mergeProducts(
     await tx`DELETE FROM pmd.product_identifier WHERE product_id = ${fromProductId}`;
 
     // Specifications: each source's value survives; then every affected attribute is re-resolved.
-    const moved = await tx<{ attribute_key: string }[]>`
-      UPDATE pmd.product_specification f SET product_id = ${intoProductId}, is_preferred = false
+    // The spec_ids are read (and locked) first: the NOT EXISTS predicate stops
+    // matching once the rows have moved, so it cannot be re-run afterwards to
+    // learn which keys were affected.
+    const moved = await tx<{ spec_id: number; attribute_key: string }[]>`
+      SELECT f.spec_id, f.attribute_key FROM pmd.product_specification f
        WHERE f.product_id = ${fromProductId}
          AND NOT EXISTS (SELECT 1 FROM pmd.product_specification i WHERE i.product_id = ${intoProductId} AND i.attribute_key = f.attribute_key AND i.source_id = f.source_id)
-      RETURNING attribute_key`;
+       FOR UPDATE`;
+    if (moved.length) {
+      await tx`
+        UPDATE pmd.product_specification SET product_id = ${intoProductId}, is_preferred = false
+         WHERE spec_id IN ${tx(moved.map((m) => m.spec_id))}`;
+    }
     await tx`DELETE FROM pmd.product_specification WHERE product_id = ${fromProductId}`;
     await tx`
       UPDATE pmd.product_attribute_conflict SET conflict_status = 'IGNORED', resolution = ${`Product merged into ${intoProductId}`}, resolution_source = 'MERGE', resolution_date = now()
@@ -120,13 +128,16 @@ export async function mergeProducts(
     await tx`DELETE FROM pmd.match_candidate WHERE candidate_product_id = ${fromProductId}`;
 
     // Fill blanks on the survivor from the retired master (never overwrite).
+    // `UPDATE t s SET … FROM t f WHERE …` is Postgres-only; MySQL joins the two
+    // aliases of the same table instead. The placeholders are `?`, not `$1`.
     await tx.unsafe(
-      `UPDATE pmd.product_master s SET ${FILL_COLUMNS.map((c) => `${c} = COALESCE(s.${c}, f.${c})`).join(", ")},
-              version = s.version + 1, updated_at = now(),
-              match_confidence = LEAST(COALESCE(s.match_confidence, 100), COALESCE(f.match_confidence, 100))
-         FROM pmd.product_master f
-        WHERE s.product_id = $1 AND f.product_id = $2`,
-      [intoProductId, fromProductId],
+      `UPDATE pmd.product_master s
+         JOIN pmd.product_master f ON f.product_id = ?
+          SET ${FILL_COLUMNS.map((c) => `s.${c} = COALESCE(s.${c}, f.${c})`).join(", ")},
+              s.version = s.version + 1, s.updated_at = now(),
+              s.match_confidence = LEAST(COALESCE(s.match_confidence, 100), COALESCE(f.match_confidence, 100))
+        WHERE s.product_id = ?`,
+      [fromProductId, intoProductId],
     );
 
     await tx`
@@ -175,10 +186,9 @@ async function ensureSharedFamily(tx: TransactionSql, a: number, b: number): Pro
   let familyId = existing;
   if (familyId == null) {
     const r = rows[0];
-    const [f] = await tx<{ family_id: number }[]>`
+    const f = { family_id: (await tx`
       INSERT INTO pmd.product_family (brand_id, family_key, family_name, category_id)
-      VALUES (${r.brand_id}, ${`manual-${a}-${b}`}, ${r.normalized_name || "Product family"}, ${r.category_id})
-      RETURNING family_id`;
+      VALUES (${r.brand_id}, ${`manual-${a}-${b}`}, ${r.normalized_name || "Product family"}, ${r.category_id})`).insertId };
     familyId = f.family_id;
   }
   await tx`UPDATE pmd.product_master SET product_family_id = ${familyId} WHERE product_id IN (${a}, ${b})`;

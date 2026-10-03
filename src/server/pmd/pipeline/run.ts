@@ -11,6 +11,7 @@
  */
 import { resolveConfig, type PmdConfigOverrides } from "../config";
 import type { Sql } from "../db";
+import { ensurePriceHistoryPartitions } from "../mysql/routines";
 import { normalizeStaged } from "../normalize";
 import { ensureReferenceData, loadManualCategoryMapper } from "../reference-data";
 import { ParseError, type SourceAdapter } from "../sources/adapter";
@@ -104,11 +105,14 @@ export async function runIngestion(sql: Sql, adapter: SourceAdapter, opts: RunOp
   const [src] = await sql<{ status: string; enabled: boolean }[]>`SELECT status, enabled FROM pmd.source WHERE source_id = ${sourceId}`;
   if (src.status !== "ACTIVE" || !src.enabled) throw new SourceNotEnabledError(key, src.status, src.enabled);
 
-  const [run] = await sql<{ run_id: number; started_at: Date }[]>`
+  // run_id is AUTO_INCREMENT, so it arrives on the result; started_at is a
+  // server-side default, so it has to be read back.
+  const inserted = await sql`
     INSERT INTO pmd.ingestion_run (source_id, run_mode, triggered_by, params)
-    VALUES (${sourceId}, ${opts.mode}, ${opts.triggeredBy ?? "system"}, ${sql.json({ limit: opts.limit ?? null, since: opts.since?.toISOString() ?? null } as never)})
-    RETURNING run_id, started_at`;
-  const runId = run.run_id;
+    VALUES (${sourceId}, ${opts.mode}, ${opts.triggeredBy ?? "system"}, ${sql.json({ limit: opts.limit ?? null, since: opts.since?.toISOString() ?? null } as never)})`;
+  const runId = inserted.insertId;
+  const [run] = await sql<{ run_id: number; started_at: Date }[]>`
+    SELECT run_id, started_at FROM pmd.ingestion_run WHERE run_id = ${runId}`;
 
   const counters = emptyCounters();
   const errors: PendingError[] = [];
@@ -116,7 +120,18 @@ export async function runIngestion(sql: Sql, adapter: SourceAdapter, opts: RunOp
   const manual = await loadManualCategoryMapper(sql, key);
   const categoryMapper = chainMappers(manual, adapter.categoryMapper);
 
-  await sql`SELECT pmd.ensure_price_history_partitions(CAST(date_trunc('month', now()) AS DATE), CAST((now() + interval '3 months') AS DATE))`;
+  // `pmd.ensure_price_history_partitions` was a plpgsql function building
+  // `CREATE TABLE … PARTITION OF` with EXECUTE format(). MySQL permits no
+  // dynamic DDL inside a function, so it is TypeScript now - and it reorganizes
+  // the catch-all partition rather than attaching a new one, because every row
+  // in MySQL is already in some partition. Same window: this month through
+  // three months out.
+  const now = new Date();
+  await ensurePriceHistoryPartitions(
+    sql,
+    new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)),
+    new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 3, 1)),
+  );
 
   const ctx: LoadContext = {
     sql, cfg, ref, adapter, sourceId, runId, counters, touched, errors,

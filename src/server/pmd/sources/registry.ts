@@ -148,7 +148,7 @@ const otherSources: SourceDefinition[] = [
     status: "PLANNED",
     reliability: 65,
     specPrecedence: 45,
-    legalBasis: "GoKesari's own operational product catalogue (public.products). Read-only; used to reconcile what shops already sell with the master.",
+    legalBasis: "GoKesari's own operational product catalogue (the `products` table). Read-only; used to reconcile what shops already sell with the master.",
     collectionFrequency: "daily",
     notes: "Adapter not built in the pilot: the current catalogue is generic (no brands or GTINs), so it would add noise rather than signal.",
   },

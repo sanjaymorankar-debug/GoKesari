@@ -275,7 +275,7 @@ export async function getProduct(sql: Sql, masterProductId: string): Promise<Pro
       : Promise.resolve([]),
     sql<{ offer_count: number; min_price_minor: number | null; max_price_minor: number | null; currency: string | null }[]>`SELECT offer_count, min_price_minor, max_price_minor, currency FROM pmd.v_product_price_summary WHERE product_id = ${id}`,
     sql<{ catalogue_product_id: string; code: string; promoted_at: Date }[]>`
-      SELECT cl.catalogue_product_id, p.code, cl.promoted_at FROM pmd.catalogue_link cl JOIN public.products p ON p.id = cl.catalogue_product_id WHERE cl.product_id = ${id}`,
+      SELECT cl.catalogue_product_id, p.code, cl.promoted_at FROM pmd.catalogue_link cl JOIN products p ON p.id = cl.catalogue_product_id WHERE cl.product_id = ${id}`,
     sql<{ n: number }[]>`SELECT CAST(count(*) AS SIGNED) AS n FROM pmd.match_candidate mc JOIN pmd.product_source ps USING (product_source_id) WHERE ps.product_id = ${id} AND mc.review_status = 'PENDING'`,
   ]);
 

@@ -80,15 +80,15 @@ export async function applyOffer(
       FROM pmd.product_offer WHERE product_source_id = ${productSourceId} AND seller_key = ${o.sellerKey} FOR UPDATE`;
 
   if (!existing) {
-    const [row] = await sql<{ offer_id: number }[]>`
+    const inserted = await sql`
       INSERT INTO pmd.product_offer
         (product_source_id, product_id, source_id, source_product_id, seller_key, seller_id, seller_name, seller_location, seller_rating,
          price_minor, mrp_minor, discount_minor, discount_pct, currency, tax_inclusive, stock_status, delivery_information, source_url,
          first_seen_at, last_seen_at, collection_date, collected_at, is_current)
       VALUES (${productSourceId}, ${productId}, ${sourceId}, ${sourceProductId}, ${o.sellerKey}, ${o.sellerId}, ${o.sellerName}, ${o.sellerLocation}, ${o.sellerRating},
               ${o.priceMinor}, ${o.mrpMinor}, ${d.minor}, ${d.pct}, ${o.currency}, ${o.taxInclusive}, ${o.stockStatus}, ${o.deliveryInformation}, ${o.url ?? args.sourceUrl},
-              now(), now(), ${dateOnly(o.collectedAt)}, ${o.collectedAt}, true)
-      RETURNING offer_id`;
+              now(), now(), ${dateOnly(o.collectedAt)}, ${o.collectedAt}, true)`;
+    const row = { offer_id: inserted.insertId };
     await insertHistory(sql, { productId, offerId: row.offer_id, sourceId, o, reason: "FIRST_SEEN", runId });
     return { kind: "INSERTED", offerId: row.offer_id, historyRows: 1 };
   }
@@ -140,9 +140,16 @@ export async function applyOffer(
 export async function markUnseenOffers(sql: Queryable, sourceId: number, seenBefore: Date, runId: number): Promise<number[]> {
   const gone = await sql<
     { offer_id: number; product_id: number | null; seller_key: string; seller_name: string | null; mrp_minor: number | null; price_minor: number | null; currency: string }[]
-  >`UPDATE pmd.product_offer SET is_current = false
+  >`SELECT offer_id, product_id, seller_key, seller_name, mrp_minor, price_minor, currency
+      FROM pmd.product_offer
      WHERE source_id = ${sourceId} AND is_current AND last_seen_at < ${seenBefore}
-     RETURNING offer_id, product_id, seller_key, seller_name, mrp_minor, price_minor, currency`;
+     FOR UPDATE`;
+  // RETURNING gave the rows the UPDATE touched. Read them first - locked, so no
+  // one else can change the set - then update by the keys just read, because the
+  // `is_current` predicate stops matching the moment the update lands.
+  if (gone.length) {
+    await sql`UPDATE pmd.product_offer SET is_current = false WHERE offer_id IN ${sql(gone.map((g) => g.offer_id))}`;
+  }
   const productIds = new Set<number>();
   for (const g of gone) {
     if (g.product_id == null) continue;
@@ -163,10 +170,16 @@ export async function markUnseenOffers(sql: Queryable, sourceId: number, seenBef
  */
 export async function recomputeProductStatus(sql: Queryable, productIds: number[]): Promise<void> {
   if (productIds.length === 0) return;
+  // `UPDATE … SET … FROM (d) WHERE pm.x = d.x` becomes a join. The derived
+  // table is materialised, which is also what lets product_master be read
+  // inside a statement that updates it - MySQL rejects that for a *subquery*
+  // in the WHERE clause (errno 1093) but not for a derived table in the join.
+  //
+  // `IS DISTINCT FROM` has no MySQL spelling; `<=>` is its NULL-safe equality,
+  // so the negation of that is the same test.
   await sql`
-    UPDATE pmd.product_master pm SET
-      product_status = d.status, status_basis = d.basis, status_updated_at = now()
-    FROM (
+    UPDATE pmd.product_master pm
+    JOIN (
       SELECT p.product_id,
         CASE
           WHEN a.in_stock > 0 THEN 'ACTIVE'
@@ -188,7 +201,8 @@ export async function recomputeProductStatus(sql: Queryable, productIds: number[
         FROM pmd.product_offer o WHERE o.product_id = p.product_id
       ) a ON true
       WHERE p.product_id IN ${sql(productIds)}
-    ) d
-    WHERE pm.product_id = d.product_id AND pm.product_status <> 'DISCONTINUED'
-      AND (pm.product_status <> d.status OR pm.status_basis IS DISTINCT FROM d.basis)`;
+    ) d ON pm.product_id = d.product_id
+    SET pm.product_status = d.status, pm.status_basis = d.basis, pm.status_updated_at = now()
+    WHERE pm.product_status <> 'DISCONTINUED'
+      AND (pm.product_status <> d.status OR NOT (pm.status_basis <=> d.basis))`;
 }

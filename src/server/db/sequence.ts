@@ -26,6 +26,19 @@ const SEQUENCES = {
 export type SequenceName = keyof typeof SEQUENCES;
 
 /**
+ * Formats an allocated counter value the way its PostgreSQL default did.
+ *
+ * Exported because the product-master layer allocates `product_code_seq` too,
+ * against this same `counters` table, and it talks to mysql2 directly rather
+ * than through drizzle - so it cannot call `nextSequenceValue` below. Sharing
+ * the formatter is what stops the two spellings of a product code drifting
+ * apart.
+ */
+export function formatSequenceValue(name: SequenceName, n: number): string {
+  return SEQUENCES[name](n);
+}
+
+/**
  * The next value of `name`, formatted as its Postgres default was.
  *
  * The increment is one statement:
@@ -61,6 +74,6 @@ export async function nextSequenceValue(
     if (!Number.isFinite(n) || n <= 0) {
       throw new Error(`counter ${name} returned no value`);
     }
-    return SEQUENCES[name](n);
+    return formatSequenceValue(name, n);
   });
 }
