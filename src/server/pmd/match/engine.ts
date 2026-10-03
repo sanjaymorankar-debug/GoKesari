@@ -16,6 +16,19 @@
  */
 import type { PmdConfig } from "../config";
 import type { Queryable } from "../db";
+import { ngramQuery, rankBySimilarity } from "../mysql/search";
+
+/**
+ * How many candidates to retrieve per wanted result before ranking.
+ *
+ * PostgreSQL ordered by similarity inside the index scan, so `LIMIT max` gave
+ * the best `max`. MySQL's full-text index does not order by similarity, so it
+ * has to offer more than are wanted and let the ranking choose. Too small and a
+ * good match is missed because the index returned it below the cut; too large
+ * and the batch is pointlessly wide. 10x is what the recall measurement in
+ * scripts/pmd/measure-recall.ts settled on.
+ */
+const CANDIDATE_FANOUT = 20;
 import { normalizeColor, normalizeSize } from "../normalize/attributes";
 import { normalizeAlnumKey } from "../normalize/identifiers";
 import { tokenize } from "../normalize/text";
@@ -125,19 +138,47 @@ export async function findCandidateIds(
       SELECT product_id FROM pmd.product_master
       WHERE brand_id = ${brandId} AND normalized_name = ${n.coreName} AND record_status = 'ACTIVE' LIMIT ${max * 2}`);
     if (n.coreName) {
-      await sql`SELECT set_config('pg_trgm.similarity_threshold', ${String(cfg.match.trigramThreshold)}, true)`;
-      add(await sql`
-        SELECT product_id FROM pmd.product_master
-        WHERE brand_id = ${brandId} AND record_status = 'ACTIVE' AND normalized_name % ${n.coreName}
-        ORDER BY similarity(normalized_name, ${n.coreName}) DESC LIMIT ${max}`);
+      // `normalized_name % $1 ORDER BY similarity(normalized_name, $1)` was one
+      // index answering both the predicate and the ordering. MySQL's ngram
+      // full-text index can only narrow, so it retrieves candidates and
+      // trigramSimilarity - the same definition similarity() uses - ranks them
+      // and applies the same threshold. `%` could not be left in place: in
+      // MySQL it is modulo, so on two strings it answers 0 and the predicate
+      // would have matched nothing at all.
+      const query = ngramQuery(n.coreName);
+      if (query) {
+        const candidates = await sql<{ product_id: number; normalized_name: string }[]>`
+          SELECT product_id, normalized_name,
+                 MATCH(normalized_name) AGAINST(${query} IN BOOLEAN MODE) AS score
+          FROM pmd.product_master
+          WHERE brand_id = ${brandId} AND record_status = 'ACTIVE'
+            AND MATCH(normalized_name) AGAINST(${query} IN BOOLEAN MODE)
+          ORDER BY score DESC
+          LIMIT ${max * CANDIDATE_FANOUT}`;
+        add(rankBySimilarity(candidates, n.coreName, (r) => r.normalized_name, cfg.match.trigramThreshold, max));
+      }
     }
   } else if (n.searchText) {
     // 6. no brand to block on: search the whole master, but demand more similarity
-    await sql`SELECT set_config('pg_trgm.similarity_threshold', ${String(Math.max(cfg.match.trigramThreshold, 0.5))}, true)`;
-    add(await sql`
-      SELECT product_id FROM pmd.product_master
-      WHERE record_status = 'ACTIVE' AND search_text % ${n.searchText}
-      ORDER BY similarity(search_text, ${n.searchText}) DESC LIMIT ${max}`);
+    const query = ngramQuery(n.searchText);
+    if (query) {
+      const candidates = await sql<{ product_id: number; search_text: string }[]>`
+        SELECT product_id, search_text,
+               MATCH(search_text) AGAINST(${query} IN BOOLEAN MODE) AS score
+        FROM pmd.product_master
+        WHERE record_status = 'ACTIVE' AND MATCH(search_text) AGAINST(${query} IN BOOLEAN MODE)
+        ORDER BY score DESC
+        LIMIT ${max * CANDIDATE_FANOUT}`;
+      add(
+        rankBySimilarity(
+          candidates,
+          n.searchText,
+          (r) => r.search_text,
+          Math.max(cfg.match.trigramThreshold, 0.5),
+          max,
+        ),
+      );
+    }
   }
   return [...ids];
 }

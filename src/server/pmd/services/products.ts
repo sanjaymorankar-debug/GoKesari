@@ -5,6 +5,12 @@
  * product_id (never OFFSET), so page 1,000,000 costs the same as page 1 at 10M rows.
  */
 import type { Sql } from "../db";
+import { booleanQuery, ngramQuery, normaliseRelevance, rankBySimilarity } from "../mysql/search";
+
+/** The similarity floor the fuzzy strategy used, previously set with set_config. */
+const FUZZY_THRESHOLD = 0.3;
+/** Candidates retrieved per wanted row before ranking - see match/engine.ts. */
+const FUZZY_FANOUT = 20;
 import { analyzeGtin, normalizeAlnumKey } from "../normalize/identifiers";
 import { normalizeText, tokenize } from "../normalize/text";
 
@@ -161,15 +167,21 @@ export async function searchProducts(
   // 2. keywords: every term, last as prefix (uses the GIN full-text index)
   const tokens = tokenize(q).filter((t) => /^[\p{L}\p{N}.%]+$/u.test(t));
   if (tokens.length && seen.size < max) {
-    const tsquery = tokens.map((t, i) => `${t.replace(/[':&|!()<>]/g, "")}${i === tokens.length - 1 ? ":*" : ""}`).filter(Boolean).join(" & ");
-    if (tsquery) {
+    // `to_tsvector @@ to_tsquery` with ts_rank becomes MySQL's full-text match
+    // with its relevance score. The boolean query requires every term and
+    // wildcards each one, which is what `term & term:*` did.
+    const query = booleanQuery(tokens.join(" "));
+    if (query) {
       const rows = await sql<SummaryRow[]>`
-        SELECT ${SUMMARY_SELECT(sql)}, ts_rank(to_tsvector('simple', pm.search_text), to_tsquery('simple', ${tsquery})) AS \`rank\`
+        SELECT ${SUMMARY_SELECT(sql)}, MATCH(pm.search_text) AGAINST(${query} IN BOOLEAN MODE) AS \`rank\`
         ${SUMMARY_FROM(sql)}
         WHERE pm.record_status = 'ACTIVE' ${f1} ${f2} ${f3} ${f4} ${f5} ${f6}
-          AND to_tsvector('simple', pm.search_text) @@ to_tsquery('simple', ${tsquery})
-        ORDER BY \`rank\` DESC, pm.data_quality_score DESC NULLS LAST LIMIT ${max}`;
-      add(rows, "KEYWORD", 50);
+          AND MATCH(pm.search_text) AGAINST(${query} IN BOOLEAN MODE)
+        ORDER BY \`rank\` DESC, pm.data_quality_score IS NULL, pm.data_quality_score DESC LIMIT ${max}`;
+      // MySQL's relevance is unbounded where ts_rank was 0-1, and `add` sums it
+      // with the strategy's base score - so raw it could eventually push a
+      // keyword hit past the identifier base of 100.
+      add(normaliseRelevance(rows), "KEYWORD", 50);
     }
   }
 
@@ -177,15 +189,27 @@ export async function searchProducts(
   if (seen.size < max) {
     const norm = normalizeText(q);
     if (norm.length >= 3) {
-      const out = await sql.begin("read only", async (tx) => {
-        await tx`SELECT set_config('pg_trgm.similarity_threshold', '0.3', true)`;
-        return tx<SummaryRow[]>`
-          SELECT ${SUMMARY_SELECT(tx as unknown as Sql)}, similarity(pm.search_text, ${norm}) AS \`rank\`
-          ${SUMMARY_FROM(tx as unknown as Sql)}
-          WHERE pm.record_status = 'ACTIVE' ${f1} ${f2} ${f3} ${f4} ${f5} ${f6} AND pm.search_text % ${norm}
-          ORDER BY \`rank\` DESC LIMIT ${max}`;
-      });
-      add(out, "FUZZY", 0);
+      // `pm.search_text % ${norm} ORDER BY similarity(...)` with the threshold
+      // set to 0.3. `%` is modulo in MySQL, so it had to go; the ngram index
+      // retrieves candidates and trigramSimilarity - the same definition
+      // similarity() uses - ranks them and applies the same 0.3, which leaves
+      // the ordering and the scores identical to the PostgreSQL ones.
+      // ngramQuery, not booleanQuery: requiring the terms themselves makes the
+      // parser look for them as substrings, and a misspelling is not a
+      // substring of the correct spelling. Measured, that scored 0% recall on
+      // exactly the typo queries this strategy exists for.
+      const query = ngramQuery(norm);
+      if (query) {
+        const candidates = await sql<(SummaryRow & { search_text: string })[]>`
+          SELECT ${SUMMARY_SELECT(sql)}, pm.search_text AS search_text,
+                 MATCH(pm.search_text) AGAINST(${query} IN BOOLEAN MODE) AS score
+          ${SUMMARY_FROM(sql)}
+          WHERE pm.record_status = 'ACTIVE' ${f1} ${f2} ${f3} ${f4} ${f5} ${f6}
+            AND MATCH(pm.search_text) AGAINST(${query} IN BOOLEAN MODE)
+          ORDER BY score DESC
+          LIMIT ${max * FUZZY_FANOUT}`;
+        add(rankBySimilarity(candidates, norm, (r) => r.search_text, FUZZY_THRESHOLD, max), "FUZZY", 0);
+      }
     }
   }
   const items = [...seen.values()].sort((a, b) => b.score - a.score).slice(0, max);

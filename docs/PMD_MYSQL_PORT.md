@@ -181,35 +181,105 @@ TypeScript. The helpers written for the application port
 (`insertReturning`, `upsertReturning`, `keepExisting`, the counters idiom, the
 lock-row idiom) all transfer.
 
-### Stage 4 — retrieval and search: the one product-visible change
+### Stage 4 — retrieval and search ranking (landed)
 
-Two queries use the trigram `%` operator against GIN indexes, with a threshold
-set per probe, and one uses `ts_rank`. MySQL has neither trigram indexes nor a
-similarity operator, so this stage has to pick a replacement and **measure it**
-rather than assert it:
+This was the stage flagged from the start as the one that changes behaviour
+rather than spelling, so it was measured rather than asserted. The measurement
+is `scripts/pmd/measure-recall.ts` and is repeatable.
 
-- **Candidate retrieval** (`match/engine.ts` strategies 5 and 6). Because
-  scoring is app-side, the question is purely recall: does the replacement
-  surface the same masters? That can be answered by running both retrievals over
-  the same corpus and comparing candidate sets. Options are MySQL 8's `ngram`
-  full-text parser (character trigrams, so closest to `pg_trgm`, but MySQL-only
-  and `ngram_token_size` is a server start-up setting), a trigram table the
-  application maintains (exact Jaccard similarity, portable, costs rows), or a
-  word-level `FULLTEXT` index (cheapest, weakest on typos).
-- **Product search** (`services/products.ts`). `ts_rank` ordering has no MySQL
-  equivalent, so **result ordering will change**. This is the one part of the
-  port a person should sign off on, and it should be shown before/after on real
-  queries rather than described.
+**What PostgreSQL was doing.** `WHERE col % $1 ORDER BY similarity(col, $1) DESC
+LIMIT k` answered the predicate *and* the ordering from one GIN trigram index,
+so the k rows were exactly the k most similar above `pg_trgm.similarity_threshold`.
+
+**What MySQL does instead.** Its full-text index can only narrow, and its
+relevance score is not similarity, so the work splits: MySQL retrieves
+candidates through an ngram index, and `trigramSimilarity()` in
+`normalize/text.ts` ranks them. That function already implemented the same
+definition PostgreSQL's `similarity()` uses, so **ordering and scores are
+identical by construction** and the only thing that can differ is recall —
+which rows the index offers up to be ranked.
+
+`%` could not be left in place under any circumstances: in MySQL it is *modulo*.
+It parses, it runs, and on two strings it answers 0, so every predicate using it
+would have silently matched nothing.
+
+**Recall, measured over a 5,000-row catalogue** (`top/qual` is the top-k against
+how many rows clear the threshold; the columns are candidates retrieved per
+wanted row):
+
+| query | top/qual | x10 | x20 | x50 | x200 |
+|---|---|---|---|---|---|
+| exact phrase | 20/62 | 100% | 100% | 100% | 100% |
+| typo ("amull buttar") | 15/15 | 100% | 100% | 100% | 100% |
+| transposition ("amul buttre") | 20/43 | 100% | 100% | 100% | 100% |
+| misspelt brand ("brittania") | 12/12 | 100% | 100% | 100% | 100% |
+| pack size ("500 ml") | 20/27 | 85% | 100% | 100% | 100% |
+| brand only ("britannia") | 20/347 | 50% | 80% | 90% | 90% |
+| three words | 20/352 | 35% | 90% | 90% | 90% |
+
+Retrieval saturates at **20x**, which is what the code uses; 50x and 200x
+recover nothing further. Recall is 100% for every query whose answer is well
+defined. The two that stop at 90% are the ones where ~350 rows clear the
+threshold for a top-20: there the twenty are chosen among hundreds of near-ties,
+so which twenty come back is arbitrary in either engine, and all twenty are
+above the threshold either way.
+
+**Two findings that make the difference between this working and not.** Both
+were silent, and both were found by measuring rather than by reading:
+
+1. **The obvious query form scores 0% on exactly the typo queries fuzzy search
+   exists for.** Asking the index for the terms themselves — `+"amull"
+   +"buttar"` — makes the ngram parser look for them as *substrings*, and a
+   misspelling is not a substring of the correct spelling. Overall recall was
+   47%, with typo and transposition at 0%. Decomposing the query into its own
+   ngrams and OR-ing them (`"am" "mu" "ul" ...`) is how an ngram index is meant
+   to be asked a fuzzy question: "buttar" shares `bu`, `ut` and `tt` with
+   "butter", so the row is retrieved and then ranked exactly. That one change
+   took overall recall from 47% to 97%.
+
+2. **InnoDB's stopword list applies to ngrams.** Fifteen of its thirty-five
+   default stopwords are exactly two characters — `an as at be by de en in is it
+   la of on or to` — and under the ngram parser a token *is* a 2-gram, so each
+   of those is dropped from the index. Any word containing one has a hole in its
+   gram sequence and stops matching as a phrase. Measured: `"tata"` and
+   `"patanjali"` matched **nothing** while `"amul"` worked, so Tata, Patanjali,
+   Britannia and Colgate would all have been unfindable with nothing to say why.
+   The index is therefore built with `innodb_ft_enable_stopword = OFF`. That is
+   a SESSION variable read at build time, not query time, so the migration sets
+   it for its own connection and **the deployment needs no server
+   configuration** — verified that an index built with it off still matches
+   correctly from a connection using the default.
+
+**Why the ngram parser rather than MySQL's default word parser.** The default
+parser silently drops every token shorter than `innodb_ft_min_token_size`, which
+is 3: `"lg"` and `"hp"` match nothing, not even as `+lg*`, and a catalogue is
+full of two-letter brands and units. PostgreSQL's `to_tsvector('simple', …)` had
+no minimum. Raising that variable fixes it but is server-level — a restart, a
+rebuild of every full-text index, and impossible on shared hosting. The ngram
+index needs none of that and additionally matches substrings, which is closer to
+trigram behaviour than whole-word matching.
+
+**The one genuine behaviour change** is the keyword strategy's ordering.
+`ts_rank` has no MySQL equivalent, so it becomes MySQL's `MATCH … AGAINST`
+relevance. That relevance is unbounded (1.337 on a nine-row table) where
+`ts_rank` was 0–1, and `products.ts` *adds* it to a per-strategy base — 100 for
+an identifier hit, 50 for keyword, 0 for fuzzy — so used raw it would eventually
+push a keyword hit past the identifier base and let a name match outrank an exact
+barcode match. It is rescaled onto 0–1 by dividing by the largest in the result
+set, which is monotonic and so leaves the order within the strategy alone while
+keeping the strategy layering intact. Ordering *within* keyword results changes;
+ordering *between* strategies does not, and fuzzy ordering does not change at
+all.
+
 
 ### Stage 5 — tests and CI
 
 15 `pmd-*.test.ts` files, currently excluded from CI by `npm run test:ci`
-because their schema no longer exists on the MySQL side. Restoring them is how
+because their schema no longer existed on the MySQL side. Restoring them is how
 this port proves itself. `tests/helpers/pmd.ts` needs its `TRUNCATE … RESTART
 IDENTITY CASCADE` and `ALTER SEQUENCE … RESTART` replaced the same way the
-application's `resetDatabase` was.
-
----
+application's `resetDatabase` was — and now also needs to reset `pmd.counters`,
+since three keys are allocated from it rather than by AUTO_INCREMENT.
 
 ## Running it today
 
@@ -221,3 +291,13 @@ DATABASE_URL='mysql://user:pass@host:3306/gokesari' npm run pmd:migrate
 `PMD_DATABASE_URL` still overrides the connection if PMD is pointed somewhere
 else on purpose. It must name a MySQL server: the runner refuses a
 `postgresql://` URL rather than failing later inside the wire protocol.
+
+To re-run the retrieval measurement behind stage 4:
+
+```bash
+npx tsx scripts/pmd/measure-recall.ts 'mysql://user:pass@host:3306/scratch'
+```
+
+It builds its own 5,000-row catalogue and needs no PostgreSQL server: the
+PostgreSQL answer is computed directly, since `trigramSimilarity()` is the same
+definition `similarity()` uses.
