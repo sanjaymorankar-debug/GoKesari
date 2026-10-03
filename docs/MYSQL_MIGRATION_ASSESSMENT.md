@@ -156,8 +156,8 @@ is independently revertable.
 | Stage | Work | Rough size |
 |---|---|---|
 | 0 | Decide: MySQL 8 or MariaDB, and which version (`check()` support, §2.3). Stand up an empty database per tier | hours |
-| 1 | Adopt app-generated UUIDs (`$defaultFn`) on Postgres, unchanged behaviour. Unblocks §2.1 | 1–2 days |
-| 2 | Wrap every `.returning()` site in a transaction, still on Postgres. No MySQL yet, and a correctness win on its own | 3–5 days |
+| 1 | **DONE** (`b26c977`) Adopt app-generated UUIDs (`$defaultFn`) on Postgres, unchanged behaviour. Unblocks §2.1 | ~0 — one 86-line helper; no migration, 814/814 tests |
+| 2 | **Largely dissolved** by the self-transacting helper above. Measured on this tree: 180 sites split 111 update / 53 insert / 16 upsert; 64 already inside a transaction; of the 116 that were not, stage 1 makes the 29 plain inserts safe, leaving 87 — and of those, 4 are false positives already running on a passed `tx` and 7 delegate to a caller-supplied `client`. So ~75 sites, none of which need editing if the helper opens its own transaction | hours, not days |
 | 3 | Port `schema.ts` to `mysql-core`; regenerate all 37 migrations. Index-aware `text`→`varchar`, per §2.3 | 3–5 days |
 | 4 | Swap the driver (`postgres-js` → `mysql2`) and convert the 180 `.returning()` sites, now that stage 2 made them safe | 5–8 days |
 | 5 | Rewrite the PMD layer, including the FULLTEXT search redesign | 2–3 weeks |
@@ -209,6 +209,41 @@ reviewed helper and apply it 180 times", and it removes the design risk from the
 money paths. It does **not** touch §2.2: `bkesari` has no PMD layer, so nothing
 there addresses the `ts_rank` search, the `pmd.` namespace, the sequences or
 `generate_series`. That remains the largest single piece of work.
+
+### A race in that helper — do not copy it as-is
+
+`bkesari`'s helpers take the executor as their first argument, and **58 of its 81
+call sites pass `db`, not a transaction** (22 pass `tx`, 1 passes a `client`):
+
+```ts
+const [record] = await updateReturning(db, users, { role: "ADMIN" }, eq(users.id, id));
+```
+
+`updateReturning` runs three statements — `select` the matching ids, `update`
+them, `select` the rows back. With `db` they are three separate transactions, so
+another writer can change the row between the first and the third and the
+returned rows need not reflect what this update did. PostgreSQL's
+`update().returning()` was a single statement and therefore exact. The helper's
+own docstring is careful about *which* `WHERE` can be re-read safely, but
+atomicity is left to the caller and most callers do not provide it.
+
+So the helper is the right shape and the wrong default. Here it should make
+itself atomic instead of hoping the caller does:
+
+```ts
+/** Run `fn` inside a transaction unless the caller already gave us one. */
+async function atomically<T>(exec: DbClient, fn: (tx: DbClient) => Promise<T>) {
+  // `exec === db` means no transaction was passed. The read-modify-read below is
+  // only equivalent to RETURNING when it is atomic, so open one. When a tx WAS
+  // passed we must use it rather than nest.
+  return exec === db ? db.transaction((tx) => fn(tx)) : fn(exec);
+}
+```
+
+**This is what makes stage 2 cheap.** Wrapping call sites by hand was the
+expensive half of the estimate; with a self-transacting helper the call sites do
+not change at all, and atomicity cannot be forgotten at a call site because it is
+no longer a call-site decision.
 
 Other precedents:
 
