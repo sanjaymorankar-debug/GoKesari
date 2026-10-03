@@ -21,6 +21,7 @@ import {
   createShopProduct,
   createUser,
   createUserWithWallet,
+  deliveryAddressId,
   resetDatabase,
 } from "../helpers/fixtures";
 
@@ -34,7 +35,7 @@ describe("cancelOrder refund (TEST 8)", () => {
     const { customer } = await setupOneShop(500_000); // ₹5,000, no promo
     await addToCart(customer.id, customer.shopProductId, 1);
 
-    const { orders } = await checkout({ userId: customer.id, requestId: "req-1", addressId: null });
+    const { orders } = await checkout({ userId: customer.id, requestId: "req-1", addressId: await deliveryAddressId(customer.id) });
     expect(orders[0].totalPaise).toBe(7000);
 
     const afterCheckout = await balanceOf(customer.id);
@@ -61,7 +62,7 @@ describe("cancelOrder refund (TEST 8)", () => {
     });
 
     await addToCart(customer.id, customer.shopProductId, 1);
-    const { orders } = await checkout({ userId: customer.id, requestId: "req-2", addressId: null });
+    const { orders } = await checkout({ userId: customer.id, requestId: "req-2", addressId: await deliveryAddressId(customer.id) });
 
     const afterCheckout = await balanceOf(customer.id);
     expect(afterCheckout.balancePaise).toBe(7000); // ₹140 - ₹70 order = ₹70 left

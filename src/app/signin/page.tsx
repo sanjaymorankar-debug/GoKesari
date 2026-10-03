@@ -2,18 +2,22 @@ import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 
-import { MobileOtpSignIn } from "@/components/mobile-otp-signin";
+import { OtpLoginForm } from "@/components/otp-login-form";
 import { Card } from "@/components/ui";
 import { getEnv } from "@/lib/env";
 import { getCurrentUser } from "@/server/authz/guards";
-import { signIn } from "@/server/auth";
+import { OTP_TICKET_PROVIDER_ID, signIn } from "@/server/auth";
 import { EMAIL_PROVIDER_ID, emailSignInMode } from "@/server/auth-email";
 import { emailMode } from "@/server/email/transport";
-import { getProvider } from "@/server/otp/providers";
-import { getRule } from "@/server/services/settings";
+import { createLoginTicket, verifyLoginOtp } from "@/server/otp/service";
+import { toClientError } from "@/lib/errors";
+import { headers } from "next/headers";
 
 export const metadata = { title: "Sign in" };
 export const dynamic = "force-dynamic";
+
+/** Every sign-in method lands here first: it asks for missing details, then goes home. */
+const AFTER_SIGN_IN = "/onboarding";
 
 /**
  * Production sign-in methods: Google (§5) and, when an SMTP sender is
@@ -37,17 +41,23 @@ export default async function SignInPage({
   // Auth.js sends AccessDenied when the signIn callback refuses: a suspended or closed account.
   const accessDenied = query.error === "AccessDenied";
   const devLoginEnabled = env.NODE_ENV !== "production";
-  const otpRules = await getRule("otp");
   const otpEmailAvailable = emailMode() !== "disabled";
-  const otpSmsAvailable = otpRules.smsEnabled && Boolean(getProvider("SMS")?.isAvailable());
 
-  async function verifyMobileOtp(input: { countryCode: string; mobile: string; code: string }) {
+  async function verifyLoginCode(input: { mobile: string | null; email: string | null; code: string }) {
     "use server";
+    const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
+    let ticket: string;
     try {
-      await signIn("mobile-otp", { ...input, redirectTo: "/" });
+      const { user } = await verifyLoginOtp({ ...input, ip });
+      ticket = createLoginTicket(user.id);
+    } catch (error) {
+      return { error: toClientError(error).body.error.message };
+    }
+    try {
+      await signIn(OTP_TICKET_PROVIDER_ID, { ticket, redirectTo: AFTER_SIGN_IN });
     } catch (error) {
       if (isRedirectError(error)) throw error;
-      if (error instanceof AuthError) return { error: "That code is invalid or has expired. Request a new one." };
+      if (error instanceof AuthError) return { error: "Could not sign you in. Please request a new code." };
       throw error;
     }
   }
@@ -79,7 +89,7 @@ export default async function SignInPage({
             className="mt-6"
             action={async () => {
               "use server";
-              await signIn("google", { redirectTo: "/" });
+              await signIn("google", { redirectTo: AFTER_SIGN_IN });
             }}
           >
             <label className="mb-3 flex items-start gap-2 text-xs text-ink-600">
@@ -110,13 +120,13 @@ export default async function SignInPage({
           </p>
         )}
 
-        {otpEmailAvailable || otpSmsAvailable ? (
-          <MobileOtpSignIn
-            verify={verifyMobileOtp}
-            emailAvailable={otpEmailAvailable}
-            smsAvailable={otpSmsAvailable}
-          />
-        ) : null}
+        {otpEmailAvailable ? (
+          <OtpLoginForm verify={verifyLoginCode} />
+        ) : (
+          <p className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            Sign-in codes cannot be emailed: set <code>AUTH_EMAIL_FROM</code> and <code>AUTH_EMAIL_SERVER</code>.
+          </p>
+        )}
 
         {checkEmail ? (
           <p
@@ -135,7 +145,7 @@ export default async function SignInPage({
               "use server";
               await signIn(EMAIL_PROVIDER_ID, {
                 email: String(formData.get("email") ?? ""),
-                redirectTo: "/",
+                redirectTo: AFTER_SIGN_IN,
               });
             }}
           >
@@ -183,7 +193,7 @@ export default async function SignInPage({
               "use server";
               await signIn("test-credentials", {
                 email: String(formData.get("email") ?? ""),
-                redirectTo: "/",
+                redirectTo: AFTER_SIGN_IN,
               });
             }}
           >

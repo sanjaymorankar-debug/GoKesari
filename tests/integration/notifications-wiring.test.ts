@@ -22,6 +22,7 @@ import {
   createShopProduct,
   createUser,
   createUserWithWallet,
+  deliveryAddressId,
   resetDatabase,
 } from "../helpers/fixtures";
 
@@ -41,7 +42,7 @@ async function paidOrderSetup() {
   const shopProduct = await createShopProduct(shop.id, product.id, { onlinePricePaise: 7000, onlineStock: 50 });
 
   await addToCart(customer.id, shopProduct.id, 1);
-  const { orders } = await checkout({ userId: customer.id, requestId: `req-${customer.id}`, addressId: null });
+  const { orders } = await checkout({ userId: customer.id, requestId: `req-${customer.id}`, addressId: await deliveryAddressId(customer.id) });
   return { customer, owner, order: orders[0] };
 }
 

@@ -96,7 +96,7 @@ export const TEMPLATES: Record<string, Template> = {
     "Rider assignment failed",
     "No rider could be found for order {{orderNumber}}. {{detail}} You can try again or deliver it yourself.",
   ),
-  [T.SECURITY_SIGN_IN]: t("New sign-in to your account", "Someone signed in to your Gokesari account using your mobile number at {{at}}. If this was not you, contact support."),
+  [T.SECURITY_SIGN_IN]: t("New sign-in to your account", "Someone signed in to your Gokesari account at {{at}}. If this was not you, contact support."),
   [T.SECURITY_PHONE_CHANGED]: t("Mobile number changed", "The mobile number on your account was {{action}}. If this was not you, contact support."),
   [T.SECURITY_ROLE_CHANGED]: t("Account role changed", "Your account role was changed: {{detail}}."),
   [T.SECURITY_ACCOUNT_STATUS]: t("Account status changed", "Your account was {{status}}. {{detail}}"),
@@ -159,6 +159,20 @@ export function renderEmail(input: { title: string; body: string; actionUrl?: st
 }
 
 /** The sign-in code email. Rendered here for one consistent look, but never stored or queued. */
+export function renderEmailChangeOtpEmail(code: string, expiryMinutes: number): { subject: string; text: string; html: string } {
+  return {
+    subject: `${code} is your Gokesari email confirmation code`,
+    text:
+      `Use ${code} to confirm this address as the new email on your Gokesari account.\n\n` +
+      `It works once and expires in ${expiryMinutes} minutes. If you did not ask for this, ignore this email.\n`,
+    html:
+      `<p>Use this code to confirm this address as the new email on your Gokesari account:</p>` +
+      `<p style="font-size:28px;letter-spacing:6px;font-weight:600">${escapeHtml(code)}</p>` +
+      `<p style="color:#666;font-size:12px">It works once and expires in ${expiryMinutes} minutes. ` +
+      `If you did not ask for this, ignore this email.</p>`,
+  };
+}
+
 export function renderOtpEmail(code: string, expiryMinutes: number): { subject: string; text: string; html: string } {
   return {
     subject: `${code} is your Gokesari sign-in code`,

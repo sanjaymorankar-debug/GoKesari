@@ -207,6 +207,9 @@ export const AUDIT_ACTIONS = {
   OTP_FAILED: "auth.otp_failed",
   OTP_BLOCKED: "auth.otp_blocked",
   PHONE_LINKED: "auth.phone_linked",
+  PHONE_RELEASED: "auth.phone_released",
+  EMAIL_CHANGED: "auth.email_changed",
+  PROFILE_UPDATED: "user.profile_updated",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

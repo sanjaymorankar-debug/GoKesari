@@ -218,6 +218,15 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   if (cart.groups.length === 0) {
     throw validationFailed("Your cart is empty.");
   }
+
+  // The delivery partner (or the shop, for a pickup) must be able to call the buyer.
+  const [buyer] = await db.select({ phoneE164: users.phoneE164 }).from(users).where(eq(users.id, input.userId));
+  if (!buyer?.phoneE164) {
+    throw validationFailed(
+      "Add your mobile number in My Profile before placing an order — the delivery partner needs it to reach you.",
+      { missing: "mobile" },
+    );
+  }
   if (buyerShopId && cart.groups.some((g) => g.shop.id === buyerShopId)) {
     throw validationFailed("A shop cannot place a business order with itself.");
   }
@@ -296,6 +305,11 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       .select()
       .from(shops)
       .where(inArray(shops.id, purchasableGroups.map((g) => g.shop.id)));
+    // A personal order from a shop that delivers needs a saved delivery address.
+    // Business orders and shops that only offer pickup are unchanged.
+    if (orderType === "PERSONAL" && !addressSnapshot && groupShops.some((s) => s.deliveryAvailable)) {
+      throw validationFailed("Add a delivery address before placing this order.", { missing: "address" });
+    }
     for (const group of purchasableGroups) {
       const shopRow = groupShops.find((s) => s.id === group.shop.id);
       if (!shopRow) continue;

@@ -274,7 +274,8 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
               <Link
                 href="/profile"
                 className="relative grid h-8 w-8 place-items-center rounded-full bg-kesari-100 text-sm font-semibold text-kesari-700"
-                aria-label="Profile"
+                aria-label="My Profile"
+                title="My Profile"
               >
                 {(user.name ?? user.email).charAt(0).toUpperCase()}
                 {unreadCount > 0 ? (
