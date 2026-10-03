@@ -11,7 +11,7 @@ import { shopTypeLabel } from "@/lib/shop-types";
 import { db } from "@/server/db";
 import { shops } from "@/server/db/schema";
 import { eq } from "drizzle-orm";
-import { listShopProducts, suggestProductsForShopType } from "@/server/services/catalogue";
+import { listShopProducts, suggestProductsForShop } from "@/server/services/catalogue";
 import { appliesImmediately, listPendingForShop } from "@/server/services/price-requests";
 
 export const metadata = { title: "Manage Shop Products" };
@@ -42,7 +42,7 @@ export default async function AdminShopProductsPage({
 
   const [products, suggestions, pending] = await Promise.all([
     listShopProducts(shop.id),
-    suggestProductsForShopType(shop.shopType),
+    suggestProductsForShop(shop.id),
     listPendingForShop(shop.id),
   ]);
 

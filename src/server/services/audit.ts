@@ -185,6 +185,15 @@ export const AUDIT_ACTIONS = {
   PRODUCT_IMAGE_CHANGED: "product_image.changed",
   SHOP_CATEGORY_SAVED: "shop_category.saved",
   SHOP_CATEGORIES_CHANGED: "shop.categories_changed",
+  /* Category master and shop ↔ product-category links. */
+  PRODUCT_CATEGORY_CREATED: "product_category.created",
+  PRODUCT_CATEGORY_UPDATED: "product_category.updated",
+  /** Soft delete; its products moved to General and its shop links removed (counts in newValue). */
+  PRODUCT_CATEGORY_REMOVED: "product_category.removed",
+  SHOP_PRODUCT_CATEGORY_ADDED: "shop.product_category_added",
+  SHOP_PRODUCT_CATEGORY_REMOVED: "shop.product_category_removed",
+  /** A product moved between categories (edit form or the one-time categorisation). */
+  PRODUCT_CATEGORY_CHANGED: "product.category_changed",
   RETURN_REQUESTED: "return.requested",
   RETURN_STATUS_CHANGED: "return.status_changed",
   RETURN_PICKUP_OFFERED: "return_pickup.offered",

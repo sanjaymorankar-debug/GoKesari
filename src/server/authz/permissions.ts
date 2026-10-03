@@ -39,6 +39,23 @@ export const PERMISSIONS = {
    */
   PRODUCT_APPROVE: "product:approve",
 
+  /* ------------------------------ category master & shop categories */
+  /** Browse the category master and every product in it. */
+  CATALOGUE_BROWSE: "catalogue:browse",
+  /** Add a category to the category master. */
+  PRODUCT_CATEGORY_CREATE: "product-category:create",
+  /**
+   * Edit or remove a category the actor created, only while no other owner's
+   * shop carries it — so one shop owner cannot reshuffle the whole marketplace.
+   */
+  PRODUCT_CATEGORY_MANAGE_OWN: "product-category:manage:own",
+  /** Edit or remove any category (except General, which nobody may remove). */
+  PRODUCT_CATEGORY_MANAGE_ANY: "product-category:manage:any",
+  /** Add or remove categories on own shop(s). */
+  SHOP_PRODUCT_CATEGORY_MANAGE_OWN: "shop-product-category:manage:own",
+  /** Add or remove categories on any shop. */
+  SHOP_PRODUCT_CATEGORY_MANAGE_ANY: "shop-product-category:manage:any",
+
   // Orders
   ORDER_PLACE: "order:place",
   /** Place a B2B order on behalf of an approved shop the user owns. */
@@ -286,7 +303,12 @@ const SHOP_OWNER_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.PRODUCT_MRP_DISPUTE,
   PERMISSIONS.SETTLEMENT_VIEW_OWN,
   PERMISSIONS.MARKETING_MANAGE_OWN,
+  PERMISSIONS.CATALOGUE_BROWSE,
+  PERMISSIONS.PRODUCT_CATEGORY_CREATE,
+  PERMISSIONS.PRODUCT_CATEGORY_MANAGE_OWN,
+  PERMISSIONS.SHOP_PRODUCT_CATEGORY_MANAGE_OWN,
   // Deliberately absent: SHOP_SET_CLASSIFICATION, CATEGORY_MANAGE,
+  // PRODUCT_CATEGORY_MANAGE_ANY, SHOP_PRODUCT_CATEGORY_MANAGE_ANY,
   // SHOP_UPDATE_ANY, SYSTEM_CONFIG, REGISTRATION_FEE_MANAGE,
   // SHOP_REGISTRATION_MANAGE, PAYMENT_RECORD, REFERRAL_MANAGE, PRODUCT_APPROVE
   // — every one of these is an administrative field the owner may read but
@@ -310,6 +332,10 @@ const OPERATOR_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.SHOP_SUSPEND,
   PERMISSIONS.SHOP_SET_CLASSIFICATION,
   PERMISSIONS.CATEGORY_MANAGE,
+  PERMISSIONS.CATALOGUE_BROWSE,
+  PERMISSIONS.PRODUCT_CATEGORY_CREATE,
+  PERMISSIONS.PRODUCT_CATEGORY_MANAGE_ANY,
+  PERMISSIONS.SHOP_PRODUCT_CATEGORY_MANAGE_ANY,
   PERMISSIONS.PRODUCT_MANAGE,
   PERMISSIONS.SHOP_PRODUCT_MANAGE_ANY,
   PERMISSIONS.PRODUCT_CREATE_ANY,
@@ -429,6 +455,13 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.SHOP_SET_CLASSIFICATION]: "Change Kesari/Green classification",
   [PERMISSIONS.CATEGORY_MANAGE]: "Create and edit product categories",
   [PERMISSIONS.PRODUCT_MANAGE]: "Create and edit catalogue products",
+  [PERMISSIONS.CATALOGUE_BROWSE]: "Browse the category master and the products in each category",
+  [PERMISSIONS.PRODUCT_CATEGORY_CREATE]: "Add a category to the category master",
+  [PERMISSIONS.PRODUCT_CATEGORY_MANAGE_OWN]:
+    "Edit or remove a category you created, while no other owner's shop carries it",
+  [PERMISSIONS.PRODUCT_CATEGORY_MANAGE_ANY]: "Edit or remove any category (General is permanent)",
+  [PERMISSIONS.SHOP_PRODUCT_CATEGORY_MANAGE_OWN]: "Add or remove categories on own shop",
+  [PERMISSIONS.SHOP_PRODUCT_CATEGORY_MANAGE_ANY]: "Add or remove categories on any shop",
   [PERMISSIONS.SHOP_PRODUCT_MANAGE_OWN]: "Manage own shop's products",
   [PERMISSIONS.SHOP_PRODUCT_MANAGE_ANY]: "Manage any shop's products",
   [PERMISSIONS.PRODUCT_CREATE_OWN]: "Create a new product for own shop",

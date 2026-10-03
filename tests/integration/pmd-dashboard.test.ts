@@ -70,14 +70,16 @@ describe("Product Master dashboard page", () => {
     ]);
     const page = text(await html());
     for (const label of ["Total products", "Duplicates merged", "Possible duplicates", "Awaiting manual review", "Missing GTIN", "Missing brand", "Missing manufacturer",
-      "Missing MRP", "Missing GST rate", "Missing HSN", "Missing category", "Conflicting specifications", "Products by marketplace", "Products by category", "Products by brand", "Recent collection runs"]) {
+      "Missing MRP", "Missing GST rate", "Missing HSN", "Filed under General (no category mapped)", "Conflicting specifications", "Products by marketplace", "Products by category", "Products by brand", "Recent collection runs"]) {
       expect(page, label).toContain(label);
     }
     // 3 products, 2 without a GTIN, 1 without a brand, all without a category
     expect(page).toMatch(/Total products\s+3/);
     expect(page).toMatch(/Missing GTIN\s+2/);
     expect(page).toMatch(/Missing brand\s+1/);
-    expect(page).toMatch(/Missing category\s+3/);
+    // The unmapped bucket reads "General", never "Uncategorised".
+    expect(page).toMatch(/Filed under General \(no category mapped\)\s+3/);
+    expect(page).not.toMatch(/uncategorised/i);
     expect(page).toContain("test_market_a");
     expect(page).toContain("Amul");
   });

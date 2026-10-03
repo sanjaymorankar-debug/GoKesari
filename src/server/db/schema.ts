@@ -939,6 +939,35 @@ export const shopCategoryMapping = pgTable(
   ],
 );
 
+/**
+ * Which product categories a shop carries (many-to-many). A shop sees every
+ * product in its categories, including ones added to a category later — the
+ * visibility is computed from this table at query time, never copied. Removing
+ * a link hides those products from the shop's catalogue picker and pauses the
+ * shop's listings in that category on the storefront; it never deletes
+ * listings, orders or history, and re-adding the link restores them.
+ * Every add/remove is also written to audit_logs.
+ */
+export const shopProductCategories = pgTable(
+  "shop_product_categories",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    categoryId: uuid("category_id")
+      .notNull()
+      .references(() => productCategories.id, { onDelete: "restrict" }),
+    /** Null for links created by a migration or backfill. */
+    addedBy: uuid("added_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("shop_product_categories_unique").on(t.shopId, t.categoryId),
+    index("shop_product_categories_category_idx").on(t.categoryId),
+  ],
+);
+
 /** Immutable audit trail of Kesari/Green changes (requirement §10). */
 export const shopClassificationHistory = pgTable(
   "shop_classification_history",
@@ -1103,6 +1132,16 @@ export const brands = pgTable(
   (t) => [uniqueIndex("brands_slug_unique").on(t.slug), index("brands_name_idx").on(t.name)],
 );
 
+/**
+ * The category master: every product sits in exactly one of these, and shops
+ * see the products of the categories assigned to them (shop_product_categories).
+ *
+ * `department` is the customer-facing aisle the category's products appear
+ * under (/dairy, /category/[type]); it no longer limits which shops see them.
+ * The one `is_system` row is "General" — the fallback every unclassified
+ * product lands in. A database trigger stops it being deleted, renamed or
+ * deactivated (migration 0038). Removal is a soft delete (`deleted_at`).
+ */
 export const productCategories = pgTable(
   "product_categories",
   {
@@ -1114,7 +1153,14 @@ export const productCategories = pgTable(
     imageUrl: text("image_url"),
     sortOrder: integer("sort_order").notNull().default(0),
     isActive: boolean("is_active").notNull().default(true),
+    /** True only for "General". */
+    isSystem: boolean("is_system").notNull().default(false),
+    /** Null for seeded/migrated rows. */
+    createdBy: uuid("created_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true })
+      .notNull()
+      .defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -1122,6 +1168,14 @@ export const productCategories = pgTable(
   (t) => [
     uniqueIndex("product_categories_slug_unique").on(t.slug),
     index("product_categories_dept_idx").on(t.department),
+    // Names are unique ignoring case among live categories; a removed
+    // category's name may be reused.
+    uniqueIndex("product_categories_name_live_unique")
+      .on(sql`lower(${t.name})`)
+      .where(sql`${t.deletedAt} IS NULL`),
+    uniqueIndex("product_categories_one_system")
+      .on(t.isSystem)
+      .where(sql`${t.isSystem}`),
   ],
 );
 
@@ -4156,6 +4210,7 @@ export type GstStatus = (typeof gstStatusEnum.enumValues)[number];
 export type PanStatus = (typeof panStatusEnum.enumValues)[number];
 export type IdentityVerificationSource = (typeof identityVerificationSourceEnum.enumValues)[number];
 export type ProductCategory = typeof productCategories.$inferSelect;
+export type ShopProductCategory = typeof shopProductCategories.$inferSelect;
 export type Product = typeof products.$inferSelect;
 export type Brand = typeof brands.$inferSelect;
 export type ProductSubcategory = typeof productSubcategories.$inferSelect;

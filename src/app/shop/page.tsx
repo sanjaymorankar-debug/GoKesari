@@ -28,7 +28,7 @@ import { formatQuantity } from "@/lib/money";
 import { getCurrentUser } from "@/server/authz/guards";
 import {
   listShopProducts,
-  suggestProductsForShopType,
+  suggestProductsForShop,
 } from "@/server/services/catalogue";
 import { getMaskedPan } from "@/server/services/gst-pan-verification";
 import { listOrdersForShop } from "@/server/services/orders";
@@ -82,7 +82,7 @@ export default async function ShopDashboardPage() {
     listShopProducts(shop.id),
     listOrdersForShop(shop.id, { source: "DIRECT", limit: 20 }),
     listSubscriptionOrdersForShop(shop.id, today),
-    suggestProductsForShopType(shop.shopType),
+    suggestProductsForShop(shop.id),
     listPendingForShop(shop.id),
     listPaymentsForShop(shop.id),
     shop.referralCodeId ? getReferralCodeById(shop.referralCodeId) : null,

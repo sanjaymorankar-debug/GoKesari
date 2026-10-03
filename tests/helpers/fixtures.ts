@@ -4,7 +4,7 @@
  * Builds real rows in the real test database so tests exercise the same
  * constraints and locking behaviour as production.
  */
-import { sql } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { db } from "@/server/db";
 import {
@@ -14,6 +14,7 @@ import {
   payments,
   productCategories,
   products,
+  shopProductCategories,
   shopProducts,
   shops,
   users,
@@ -311,6 +312,12 @@ export async function createShopProduct(
   } = {},
 ) {
   const onlineEnabled = overrides.onlineSaleEnabled ?? true;
+  // A listing is on sale only while the shop carries the product's category
+  // (as migration 0038 backfilled for every existing listing).
+  const [product] = await db.select({ categoryId: products.categoryId }).from(products).where(eq(products.id, productId));
+  if (product) {
+    await db.insert(shopProductCategories).values({ shopId, categoryId: product.categoryId }).onConflictDoNothing();
+  }
   const [shopProduct] = await db
     .insert(shopProducts)
     .values({
@@ -416,4 +423,9 @@ export async function createVoucher(
     })
     .returning();
   return voucher;
+}
+
+/** The shop carries this product category, so it sees (and may sell) the category's products. */
+export async function linkShopCategory(shopId: string, categoryId: string) {
+  await db.insert(shopProductCategories).values({ shopId, categoryId }).onConflictDoNothing();
 }

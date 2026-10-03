@@ -30,6 +30,7 @@ import {
   ROLE_PERMISSIONS,
 } from "../authz/permissions";
 import { SHOP_TYPES } from "@/lib/shop-types";
+import { ensureGeneralCategory } from "@/server/services/product-categories";
 
 /** Requirement §7 — the starting catalogue. */
 const DAIRY_CATALOGUE = [
@@ -381,6 +382,18 @@ async function seedDemoMarketplace(): Promise<void> {
       });
   }
 
+  // Each demo shop carries its department's categories plus the categories of
+  // what it lists — the same rule migration 0038 used for existing shops.
+  await db.execute(sql`
+    INSERT INTO shop_product_categories (shop_id, category_id)
+    SELECT s.id, c.id FROM shops s
+      JOIN product_categories c ON c.department::text = s.shop_type::text AND c.deleted_at IS NULL
+     WHERE s.deleted_at IS NULL
+    UNION
+    SELECT DISTINCT sp.shop_id, p.category_id FROM shop_products sp JOIN products p ON p.id = sp.product_id
+     WHERE sp.deleted_at IS NULL
+    ON CONFLICT (shop_id, category_id) DO NOTHING`);
+
   console.log(`  demo marketplace seeded: ${demoShops.length} shops`);
 }
 
@@ -389,6 +402,7 @@ async function main() {
   console.log(`Seeding database${minimal ? " (reference data only)" : ""}…`);
 
   await seedRolesAndPermissions();
+  await ensureGeneralCategory();
   await seedCatalogue();
   await seedGeneralCatalogue();
   if (!minimal) await seedDemoMarketplace();

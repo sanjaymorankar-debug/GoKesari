@@ -62,7 +62,7 @@ export default async function ProductMasterPage() {
             <Stat label="Missing GTIN" value={n("missing_gtin")} warn />
             <Stat label="Missing brand" value={n("missing_brand")} warn />
             <Stat label="Missing manufacturer" value={n("missing_manufacturer")} warn />
-            <Stat label="Missing category" value={n("missing_category")} warn />
+            <Stat label="Filed under General (no category mapped)" value={n("missing_category")} warn />
             <Stat label="Missing MRP" value={n("missing_mrp")} warn />
             <Stat label="Missing GST rate" value={n("missing_gst")} warn />
             <Stat label="Missing HSN" value={n("missing_hsn")} warn />
@@ -74,7 +74,7 @@ export default async function ProductMasterPage() {
 
           <div className="mb-8 grid gap-6 lg:grid-cols-3">
             <Breakdown title="Products by marketplace / source" rows={report.byMarketplace.map((r) => ({ label: r.source, count: r.count }))} max={maxOf(report.byMarketplace)} />
-            <Breakdown title="Products by category" rows={report.byCategory.map((r) => ({ label: r.category, count: r.count }))} max={maxOf(report.byCategory)} />
+            <Breakdown title="Products by category" rows={report.byCategory.map((r) => ({ label: categoryLabel(r.category), count: r.count }))} max={maxOf(report.byCategory)} />
             <Breakdown title="Products by brand (top 15)" rows={report.byBrand.slice(0, 15).map((r) => ({ label: r.brand, count: r.count }))} max={maxOf(report.byBrand)} />
           </div>
 
@@ -179,4 +179,9 @@ function Breakdown({ title, rows, max }: { title: string; rows: { label: string;
       )}
     </Card>
   );
+}
+
+/** The master's unmapped bucket is shown as "General", the same fallback the marketplace uses. */
+function categoryLabel(raw: string): string {
+  return /^\(?uncategorised\)?$/i.test(raw.trim()) ? "General" : raw;
 }

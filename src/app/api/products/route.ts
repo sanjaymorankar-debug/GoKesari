@@ -28,7 +28,8 @@ import {
 const schema = z
   .object({
     shopId: z.string().uuid(),
-    categoryId: z.string().uuid(),
+    // Optional: General when omitted (a product always has a category).
+    categoryId: z.string().uuid().nullish(),
     name: z.string().min(2).max(200),
     description: z.string().max(2000).nullish(),
     specifications: z.string().max(2000).nullish(),

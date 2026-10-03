@@ -19,6 +19,7 @@ import {
   createShop,
   createShopProduct,
   createUser,
+  linkShopCategory,
   resetDatabase,
 } from "../helpers/fixtures";
 
@@ -120,6 +121,16 @@ describe("GOODS upload — new products", () => {
       [[product.code, "A2 Milk", "Milk", "L", "9500"]],
     );
 
+    // Shop B does not carry "Milk" yet, so the row is refused with the reason...
+    const refused = await validateUpload(
+      { shopId: shopB.id, fileName: "goods.xlsx", buffer, uploadType: "GOODS" },
+      OWNER(ownerB.id),
+    );
+    expect(refused.rows[0].status).toBe("NOT_FOUND");
+    expect(refused.rows[0].errorMessage).toMatch(/does not carry/);
+
+    // ...and accepted once it does.
+    await linkShopCategory(shopB.id, category.id);
     const preview = await validateUpload(
       { shopId: shopB.id, fileName: "goods.xlsx", buffer, uploadType: "GOODS" },
       OWNER(ownerB.id),

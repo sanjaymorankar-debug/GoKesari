@@ -35,6 +35,12 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { evaluateStockAlerts } from "./inventory-alerts";
 import { assertPriceWithinMrp } from "./mrp-governance";
+import {
+  addCategoryToShop,
+  ensureGeneralCategory,
+  listProductsVisibleToShop,
+  shopCarriesProductCategory,
+} from "./product-categories";
 
 /* ------------------------------------------------------------ categories */
 
@@ -125,14 +131,26 @@ export async function listProducts(options: {
 }
 
 /**
- * Products a shop of the given type is likely to sell (requirement §9).
- * Used to pre-populate the shop owner's catalogue picker; the owner still
- * chooses which of these they actually stock. APPROVED-only (see listProducts).
+ * The products a shop can add to its catalogue: every APPROVED product in the
+ * categories the shop carries (shop_product_categories), including products
+ * added to those categories later. The owner still chooses which to stock.
  */
-export async function suggestProductsForShopType(
-  shopType: Department,
+export async function suggestProductsForShop(
+  shopId: string,
+  options: { query?: string; limit?: number } = {},
 ): Promise<(Product & { category: ProductCategory })[]> {
-  return listProducts({ department: shopType });
+  const { products: visible } = await listProductsVisibleToShop(shopId, {
+    query: options.query,
+    limit: options.limit ?? 200,
+  });
+  if (visible.length === 0) return [];
+  const rows = await db
+    .select({ product: products, category: productCategories })
+    .from(products)
+    .innerJoin(productCategories, eq(products.categoryId, productCategories.id))
+    .where(inArray(products.id, visible.map((v) => v.id)))
+    .orderBy(asc(productCategories.name), asc(products.name));
+  return rows.map((r) => ({ ...r.product, category: r.category }));
 }
 
 /* --------------------------------------- shop-owner / admin product creation */
@@ -214,7 +232,8 @@ export async function findSimilarProducts(
 
 export interface CreateProductForShopInput {
   shopId: string;
-  categoryId: string;
+  /** Defaults to General when omitted. */
+  categoryId?: string | null;
   name: string;
   description?: string | null;
   specifications?: string | null;
@@ -270,13 +289,21 @@ export async function createProductForShop(
   }
 
   const lookupClient = client ?? db;
+  const categoryId = input.categoryId || (await ensureGeneralCategory(lookupClient)).id;
   const category = await lookupClient.query.productCategories.findFirst({
     where: and(
-      eq(productCategories.id, input.categoryId),
+      eq(productCategories.id, categoryId),
       isNull(productCategories.deletedAt),
     ),
   });
   if (!category) throw notFound("Category");
+  if (!category.isActive) {
+    throw validationFailed(`"${category.name}" is inactive — choose another category.`);
+  }
+  // Creating a product in a category is an explicit choice, so the shop starts
+  // carrying that category (audited) — otherwise its own new listing would be
+  // paused straight away.
+  await addCategoryToShop(input.shopId, categoryId, actor, { reason: "product_created" }, lookupClient);
 
   validatePricing({
     onlineSaleEnabled: input.onlineSaleEnabled ?? false,
@@ -287,7 +314,7 @@ export async function createProductForShop(
 
   const { exact, similar } = await findSimilarProducts(
     name,
-    input.categoryId,
+    categoryId,
     lookupClient,
   );
 
@@ -333,7 +360,7 @@ export async function createProductForShop(
     const [product] = await tx
       .insert(products)
       .values({
-        categoryId: input.categoryId,
+        categoryId,
         name,
         slug: uniqueSlug(name),
         description: input.description ?? null,
@@ -498,6 +525,11 @@ export async function rejectProduct(
 export interface ShopProductDetail extends ShopProduct {
   product: Product;
   category: ProductCategory;
+  /**
+   * The shop carries this product's category. When false the listing is
+   * paused: hidden from customers and not purchasable, but kept intact.
+   */
+  categoryCarried?: boolean;
 }
 
 export async function getShopProduct(
@@ -537,8 +569,14 @@ export async function listShopProducts(
   shopId: string,
   options: { onlineOnly?: boolean } = {},
 ): Promise<ShopProductDetail[]> {
+  const carried = shopCarriesProductCategory(shopProducts.shopId, products.categoryId);
   const rows = await db
-    .select({ sp: shopProducts, product: products, category: productCategories })
+    .select({
+      sp: shopProducts,
+      product: products,
+      category: productCategories,
+      categoryCarried: sql<boolean>`${carried}`,
+    })
     .from(shopProducts)
     .innerJoin(products, eq(shopProducts.productId, products.id))
     .innerJoin(productCategories, eq(products.categoryId, productCategories.id))
@@ -551,13 +589,19 @@ export async function listShopProducts(
               eq(shopProducts.isActive, true),
               eq(shopProducts.isAvailable, true),
               eq(shopProducts.onlineSaleEnabled, true),
+              carried,
             )
           : undefined,
       ),
     )
     .orderBy(asc(productCategories.sortOrder), asc(products.name));
 
-  return rows.map((r) => ({ ...r.sp, product: r.product, category: r.category }));
+  return rows.map((r) => ({
+    ...r.sp,
+    product: r.product,
+    category: r.category,
+    categoryCarried: r.categoryCarried,
+  }));
 }
 
 export interface UpsertShopProductInput {
@@ -613,6 +657,22 @@ export async function createShopProduct(
   client: DbClient = db,
 ): Promise<ShopProduct> {
   validatePricing(input);
+  // A shop lists only products in the categories it carries.
+  const [visibility] = await client
+    .select({
+      categoryName: productCategories.name,
+      carried: sql<boolean>`${shopCarriesProductCategory(input.shopId, products.categoryId)}`,
+    })
+    .from(products)
+    .innerJoin(productCategories, eq(products.categoryId, productCategories.id))
+    .where(eq(products.id, input.productId))
+    .limit(1);
+  if (!visibility) throw notFound("Product");
+  if (!visibility.carried) {
+    throw validationFailed(
+      `This product is in the "${visibility.categoryName}" category, which this shop does not carry. Add the category to the shop first.`,
+    );
+  }
   // A selling price above an (enforced) MRP is refused — see mrp-governance.ts.
   await assertPriceWithinMrp(
     input.productId,
@@ -922,6 +982,8 @@ export async function listStorefrontProducts(options: {
     eq(shopProducts.isActive, true),
     isNull(shopProducts.deletedAt),
     eq(products.isActive, true),
+    // A listing is on sale only while its shop carries the product's category.
+    shopCarriesProductCategory(shopProducts.shopId, products.categoryId),
   ];
 
   if (options.department) {
@@ -1070,7 +1132,12 @@ export async function loadPurchasableShopProduct(
   unitPricePaise: number;
 }> {
   const [row] = await client
-    .select({ sp: shopProducts, product: products, shopStatus: shops.status })
+    .select({
+      sp: shopProducts,
+      product: products,
+      shopStatus: shops.status,
+      categoryCarried: sql<boolean>`${shopCarriesProductCategory(shopProducts.shopId, products.categoryId)}`,
+    })
     .from(shopProducts)
     .innerJoin(products, eq(shopProducts.productId, products.id))
     .innerJoin(shops, eq(shopProducts.shopId, shops.id))
@@ -1078,6 +1145,9 @@ export async function loadPurchasableShopProduct(
     .limit(1);
 
   if (!row) throw notFound("Product");
+  if (!row.categoryCarried) {
+    throw notPurchasableOnline("This shop is not offering this product right now.");
+  }
 
   assertOnlinePurchasable(
     {
