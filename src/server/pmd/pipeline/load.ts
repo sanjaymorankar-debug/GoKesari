@@ -20,6 +20,7 @@ import { createHash } from "node:crypto";
 import type { PmdConfig } from "../config";
 import type { Queryable, Sql, TransactionSql } from "../db";
 import { matchNormalized } from "../match/engine";
+import { lockNames, pmdLock } from "../mysql/lock";
 import { nextId } from "../mysql/sequence";
 import { insertedNew } from "../mysql/upsert";
 import { toEan13, toUpcA } from "../normalize/identifiers";
@@ -642,7 +643,7 @@ async function loadInTransaction(tx: TransactionSql, ctx: LoadContext, input: Lo
 
   // Serialise per brand so two workers cannot both decide "no such product" for the same brand.
   const lockKey = n.brand?.key ? `b:${n.brand.key}` : n.gtin?.usableForMatching ? `g:${n.gtin.gtin14}` : `n:${n.coreName.slice(0, 40)}`;
-  await tx`SELECT pg_advisory_xact_lock(hashtextextended(${"pmd:" + lockKey}, 0))`;
+  await lockNames(tx, [pmdLock(lockKey)]);
 
   const [existing] = await tx<{ product_source_id: number; product_id: number | null; content_hash: string | null }[]>`
     SELECT product_source_id, product_id, content_hash FROM pmd.product_source

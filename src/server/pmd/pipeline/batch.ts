@@ -20,7 +20,9 @@
  * (GTIN, ISBN, brand+MPN, brand+model, same or trigram-similar core name within the brand), at a LOWER similarity
  * threshold than PostgreSQL's, so this path can only defer more, never less, than the reference would have.
  */
+import { trigramSimilarity } from "../normalize/text";
 import { jsonRows, jsonRowsTyped } from "../mysql/json-rows";
+import { brandLockName, lockNames } from "../mysql/lock";
 import { nextIds, type PmdSequence } from "../mysql/sequence";
 import { getAttributeDefinition } from "../taxonomy/attributes";
 import type { NamedEntity, NormalizedProduct } from "../types";
@@ -138,6 +140,14 @@ const MAKER: EntityTable = { table: "pmd.manufacturer", aliasTable: "pmd.manufac
 const compact = compactOriginal;
 
 /**
+ * How many of a brand's master names the batch loader will compare in process
+ * before giving up and deferring. A brand with more ACTIVE masters than this is
+ * rare; when it happens the records go to the one-at-a-time path, which asks
+ * the database per record instead of pulling the brand in.
+ */
+const SIBLING_SCAN_LIMIT = 20_000;
+
+/**
  * Resolves every brand (or manufacturer) spelling of a batch that the run has not seen yet in a fixed number of
  * statements, however many there are. Autocommit: the rows are durable at once, so caching them is safe.
  */
@@ -233,7 +243,7 @@ export async function loadBatch(ctx: LoadContext, inputs: LoadInput[], loadOne: 
   /* 1. What do we already hold for these source records? */
   const held = await ctx.sql<{ source_product_id: string; product_source_id: number; product_id: number | null; content_hash: string | null }[]>`
     SELECT source_product_id, product_source_id, product_id, content_hash FROM pmd.product_source
-    WHERE source_id = ${ctx.sourceId} AND source_product_id = ANY(${entries.map((e) => e.input.raw.sourceProductId)}::text[])`;
+    WHERE source_id = ${ctx.sourceId} AND source_product_id IN ${ctx.sql(entries.map((e) => e.input.raw.sourceProductId))}`;
   const existing = new Map(held.map((r) => [r.source_product_id, r]));
 
   const seenIds = new Set<string>();
@@ -331,9 +341,8 @@ async function createInBulk(ctx: LoadContext, candidates: Creatable[]): Promise<
   return ctx.sql.begin(async (tx): Promise<BulkResult> => {
     const defer: Creatable[] = [];
     // Same per-brand lock the reference loader takes, in a fixed order so two batches cannot deadlock.
-    const lockKeys = [...new Set(candidates.map((c) => `b:${c.input.normalized.brand!.key}`))].sort();
-    await tx`SELECT pg_advisory_xact_lock(hashtextextended('pmd:' || k, 0)) FROM (SELECT k FROM unnest(${lockKeys}::text[]) AS k ORDER BY k) s`;
-    await tx`SELECT set_config('pg_trgm.similarity_threshold', ${String(cfg.trigramThreshold)}, true)`;
+    const lockKeys = [...new Set(candidates.map((c) => brandLockName(c.input.normalized.brand!.key)))];
+    await lockNames(tx, lockKeys);
 
     /* Is there ANY master the reference loader would have retrieved as a candidate? Then it decides, not us. */
     const hit = new Set<number>();
@@ -343,7 +352,7 @@ async function createInBulk(ctx: LoadContext, candidates: Creatable[]): Promise<
       const taken = await tx<{ id_type: string; id_value: string }[]>`
         SELECT i.id_type, i.id_value FROM pmd.product_identifier i
         JOIN pmd.product_master pm ON pm.product_id = i.product_id AND pm.record_status = 'ACTIVE'
-        WHERE (i.id_type = 'GTIN' AND i.id_value = ANY(${gtins}::text[])) OR (i.id_type = 'ISBN' AND i.id_value = ANY(${isbns}::text[]))`;
+        WHERE (i.id_type = 'GTIN' AND i.id_value IN ${tx(gtins)}) OR (i.id_type = 'ISBN' AND i.id_value IN ${tx(isbns)})`;
       const takenSet = new Set(taken.map((t) => `${t.id_type}|${t.id_value}`));
       candidates.forEach((c, i) => {
         const n = c.input.normalized;
@@ -357,20 +366,68 @@ async function createInBulk(ctx: LoadContext, candidates: Creatable[]): Promise<
       }),
     );
     if (scoped.length) {
+      // `unnest(a, b, c) AS t(...)` zips three parallel arrays into rows. MySQL
+      // has no unnest at all; JSON_TABLE over one array of objects is the same
+      // shape, and says what the columns are rather than relying on position.
+      const wanted = jsonRowsTyped(
+        tx,
+        { id_type: "varchar(32)", id_value: "varchar(191)", brand_id: "bigint" },
+        scoped.map((x) => ({ id_type: x.type, id_value: x.key, brand_id: x.brand })),
+      );
       const found = await tx<{ id_type: string; id_value: string; scope_brand_id: number }[]>`
         SELECT DISTINCT i.id_type, i.id_value, i.scope_brand_id FROM pmd.product_identifier i
         JOIN pmd.product_master pm ON pm.product_id = i.product_id AND pm.record_status = 'ACTIVE'
-        JOIN unnest(${scoped.map((s) => s.type)}::text[], ${scoped.map((s) => s.key)}::text[], ${scoped.map((s) => s.brand)}::bigint[]) AS t(id_type, id_value, brand_id)
-          ON i.id_type = t.id_type AND i.id_value = t.id_value AND i.scope_brand_id = t.brand_id`;
+        JOIN ${wanted}
+          ON i.id_type = r.id_type AND i.id_value = r.id_value AND i.scope_brand_id = r.brand_id`;
       const foundSet = new Set(found.map((f) => `${f.id_type}|${f.id_value}|${f.scope_brand_id}`));
       for (const s of scoped) if (foundSet.has(`${s.type}|${s.key}|${s.brand}`)) hit.add(s.i);
     }
-    // Sibling (same brand, identical core name) or trigram-similar name within the brand.
-    const named = await tx<{ ord: number }[]>`
-      SELECT t.ord FROM unnest(${candidates.map((_, i) => i)}::int[], ${candidates.map((c) => c.brandId)}::bigint[], ${candidates.map((c) => c.input.normalized.coreName)}::text[]) AS t(ord, brand_id, core)
-      WHERE EXISTS (SELECT 1 FROM pmd.product_master pm
-                    WHERE pm.brand_id = t.brand_id AND pm.record_status = 'ACTIVE' AND (pm.normalized_name = t.core OR (t.core <> '' AND pm.normalized_name % t.core)))`;
-    for (const r of named) hit.add(r.ord);
+    // Sibling (same brand, identical core name) or trigram-similar name within
+    // the brand.
+    //
+    // `pm.normalized_name % t.core` was pg_trgm's operator for
+    // `similarity(a, b) >= pg_trgm.similarity_threshold`, which the set_config
+    // above had just set. MySQL has no trigram operator, and `%` there is
+    // *modulo* - it would have compared two strings numerically and quietly
+    // answered 0, so every candidate would have looked unlike every master and
+    // the batch loader would have created duplicate masters instead of
+    // deferring. This has to be a real translation, not a dropped predicate.
+    //
+    // It is an exact one, because normalize/text.ts already implements the same
+    // definition PostgreSQL's similarity() uses, so the names are fetched for
+    // the brands in this batch and both tests are applied here. This gate only
+    // decides whether to defer a record to the careful one-at-a-time path, so
+    // it is deliberately conservative: including too much costs time, excluding
+    // too much creates a duplicate master.
+    const brandIds = [...new Set(candidates.map((c) => c.brandId).filter((b): b is number => b != null))];
+    if (brandIds.length) {
+      const names = await tx<{ brand_id: number; normalized_name: string }[]>`
+        SELECT brand_id, normalized_name FROM pmd.product_master
+        WHERE brand_id IN ${tx(brandIds)} AND record_status = 'ACTIVE'
+        LIMIT ${SIBLING_SCAN_LIMIT + 1}`;
+      if (names.length > SIBLING_SCAN_LIMIT) {
+        // Too many to compare here. Defer the whole batch rather than risk a
+        // missed sibling: the per-record path does this one master at a time.
+        candidates.forEach((_, i) => hit.add(i));
+      } else {
+        const byBrand = new Map<number, string[]>();
+        for (const n of names) {
+          const list = byBrand.get(n.brand_id);
+          if (list) list.push(n.normalized_name);
+          else byBrand.set(n.brand_id, [n.normalized_name]);
+        }
+        candidates.forEach((c, i) => {
+          if (c.brandId == null) return;
+          const core = c.input.normalized.coreName;
+          const existing = byBrand.get(c.brandId);
+          if (!existing) return;
+          const similar = existing.some(
+            (name) => name === core || (core !== "" && trigramSimilarity(name, core) >= cfg.trigramThreshold),
+          );
+          if (similar) hit.add(i);
+        });
+      }
+    }
 
     const fresh = candidates.filter((c, i) => (hit.has(i) ? (defer.push(c), false) : true));
     if (fresh.length === 0) return { created: [], deferred: defer, productIds: [], offers: 0 };

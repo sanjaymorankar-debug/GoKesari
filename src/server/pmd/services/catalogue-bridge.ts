@@ -20,6 +20,7 @@
  *   - Promotion is one transaction with its audit row; nothing half-happens.
  */
 import type { Sql, TransactionSql } from "../db";
+import { lockNames } from "../mysql/lock";
 import { toEan13, toUpcA } from "../normalize/identifiers";
 import { slugify } from "../taxonomy/categories";
 
@@ -190,7 +191,7 @@ export async function promoteToCatalogue(
       const brandSlug = slugify(m.brand_name);
       // Two promotions of the same NEW brand at once would both miss it, and the second would then pick "brand-2" as its
       // slug and create a duplicate. Queue them per brand: the second waits for the first to commit, then finds its row.
-      await tx`SELECT pg_advisory_xact_lock(hashtextextended(${"pmd.catalogue-brand:" + brandSlug}, 0))`;
+      await lockNames(tx, [`pmd.catalogue-brand:${brandSlug}`]);
       const [b] = await tx<{ id: string }[]>`SELECT id FROM public.brands WHERE slug = ${brandSlug} AND deleted_at IS NULL`;
       if (b) brandId = b.id;
       else {
