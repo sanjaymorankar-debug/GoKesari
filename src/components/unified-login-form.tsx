@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import { COUNTRY_CODES } from "@/lib/phone";
 
 type Step = "identifier" | "code" | "mobile-if-email";
@@ -36,6 +37,7 @@ export function UnifiedLoginForm({
   const [resendAt, setResendAt] = useState(0);
   const [now, setNow] = useState(0);
   const [maskedEmail, setMaskedEmail] = useState<string | null>(null);
+  const router = useRouter();
 
   useEffect(() => {
     if (!resendAt) return;
@@ -97,7 +99,7 @@ export function UnifiedLoginForm({
     }
   }
 
-  const resendDisabled = Date.now() < resendAt;
+  const resendDisabled = now > 0 && now < resendAt;
   const resendSeconds = Math.ceil((resendAt - now) / 1000);
 
   return (
@@ -288,10 +290,7 @@ export function UnifiedLoginForm({
           </form>
           <button
             type="button"
-            onClick={() => {
-              // Redirect to dashboard
-              window.location.href = "/";
-            }}
+            onClick={() => router.push("/")}
             className="w-full text-sm text-kesari-600 hover:underline"
           >
             Continue without adding →

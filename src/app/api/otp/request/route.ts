@@ -36,9 +36,9 @@ export const POST = route(async (request: NextRequest) => {
     windowMs: rules.resendWindowMinutes * 60_000,
   });
 
-  let body: any;
+  let body: Record<string, unknown>;
   try {
-    body = await request.json();
+    body = (await request.json()) as Record<string, unknown>;
   } catch {
     return ok({ error: "Invalid JSON" });
   }

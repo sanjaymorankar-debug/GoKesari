@@ -17,7 +17,7 @@ export default async function CompleteProfilePage() {
   const [dbUser] = await db.select().from(users).where(eq(users.id, user.id));
   if (dbUser?.profileCompletedAt) redirect("/");
 
-  async function handleComplete(data: any) {
+  async function handleComplete(data: Record<string, unknown>) {
     "use server";
     try {
       const response = await fetch("http://localhost:3000/api/profile/complete", {

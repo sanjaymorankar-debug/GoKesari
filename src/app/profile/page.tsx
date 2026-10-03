@@ -30,7 +30,7 @@ export default async function ProfilePage() {
     db.select().from(addresses).where(and(eq(addresses.userId, user.id), isNull(addresses.deletedAt))),
   ]);
 
-  const defaultAddress = userAddresses.find((a: any) => a.isDefault);
+  const defaultAddress = userAddresses.find((a) => a.isDefault);
   const userData = dbUser[0];
 
   return (

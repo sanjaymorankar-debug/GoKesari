@@ -84,8 +84,8 @@ export async function requestLoginOtp(input: {
 
   let identifier: string; // phone or email
   let identifierForQuery: { type: "phone"; value: string } | { type: "email"; value: string };
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   let userQueryCondition: any;
-  let user: (typeof users.$inferSelect) | undefined;
 
   if (isPhoneLogin) {
     const parsed = parsePhone(input.countryCode!, input.mobile!);
@@ -113,7 +113,7 @@ export async function requestLoginOtp(input: {
   const now = Date.now();
   const windowStart = new Date(now - rules.resendWindowMinutes * 60_000);
   const audit = (action: AuditAction, extra: object = {}) => {
-    const newValue: any = { channel: input.channel, ...extra };
+    const newValue: Record<string, unknown> = { channel: input.channel, ...extra };
     if (identifierForQuery.type === "phone") {
       newValue.phone = maskPhone(identifier);
     } else {
@@ -154,7 +154,7 @@ export async function requestLoginOtp(input: {
     .from(users)
     .where(and(userQueryCondition, isNull(users.deletedAt)));
 
-  user = foundUser;
+  const user = foundUser;
   const eligible = Boolean(user && user.status === "ACTIVE");
 
   // For email login with no account, ask user to create one first (no auto-create)
@@ -258,7 +258,7 @@ export async function verifyLoginOtp(input: {
   if (!/^\d{4,8}$/.test(code)) return fail();
 
   const audit = (action: AuditAction, actorId: string | null, extra: object = {}) => {
-    const newValue: any = { ...extra };
+    const newValue: Record<string, unknown> = { ...extra };
     if (identifierType === "phone") {
       newValue.phone = maskPhone(identifier);
     } else {

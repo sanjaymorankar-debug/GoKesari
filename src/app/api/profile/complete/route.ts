@@ -55,7 +55,7 @@ export const PUT = route(async (request: NextRequest) => {
     throw validationFailed("Name is required");
   }
 
-  const updateData: any = {
+  const updateData: Record<string, unknown> = {
     name: body.name,
     profileCompletedAt: new Date(),
     updatedAt: new Date(),
@@ -102,7 +102,7 @@ export const PUT = route(async (request: NextRequest) => {
           )
         );
 
-      const addressData: any = {
+      const addressData: Record<string, unknown> = {
         userId: user.id,
         label: body.deliveryAddress.label || "Home",
         line1: body.deliveryAddress.line1,

@@ -1,9 +1,9 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 
 interface ProfileCompletionFormProps {
-  onComplete: (data: any) => Promise<void>;
+  onComplete: (data: Record<string, unknown>) => Promise<void>;
   onSkip: () => Promise<void>;
 }
 
@@ -17,7 +17,6 @@ export function ProfileCompletionForm({ onComplete, onSkip }: ProfileCompletionF
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [useGeolocation, setUseGeolocation] = useState(false);
-  const mapRef = useRef<HTMLDivElement>(null);
 
   // Personal details
   const [name, setName] = useState("");
@@ -46,7 +45,7 @@ export function ProfileCompletionForm({ onComplete, onSkip }: ProfileCompletionF
         setUseGeolocation(true);
         setLoading(false);
       },
-      (err) => {
+      () => {
         setError("Could not access your location. Please enter address manually.");
         setLoading(false);
       }

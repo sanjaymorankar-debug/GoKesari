@@ -39,7 +39,7 @@ export const PUT = route(async (request: NextRequest) => {
   if (!user) throw new AppError("UNAUTHENTICATED", "Not signed in", { status: 401 });
 
   const body = await parseBody(request, updateSchema);
-  const updateData: any = { updatedAt: new Date() };
+  const updateData: Record<string, unknown> = { updatedAt: new Date() };
 
   if (body.name !== undefined) {
     updateData.name = body.name;
