@@ -33,7 +33,7 @@ export interface TargetCategory {
 
 export const GENERAL = "General";
 
-export const TARGET_CATEGORIES: readonly TargetCategory[] = [
+const CURATED: TargetCategory[] = [
   {
     name: "Dairy",
     department: "DAIRY",
@@ -168,6 +168,112 @@ export const TARGET_CATEGORIES: readonly TargetCategory[] = [
   },
 ];
 
+/**
+ * Specialist shop types and the category their goods belong in. Each listed
+ * shop type's standard goods (src/lib/shop-types.ts) become keywords of that
+ * category, and its products get the department hint. Mixed shop types
+ * (Grocery/Kirana, Supermarket, Convenience, Wholesale, Online, General
+ * Trading) are deliberately absent: their goods span many categories and are
+ * covered by the curated keywords above.
+ */
+const SHOP_TYPE_TARGETS: Partial<Record<Department, string>> = {
+  DAIRY: "Dairy",
+  BAKERY: "Bakery",
+  FRUIT_VEGETABLE: "Fruits & Vegetables",
+  MEAT_SHOP: "Meat, Fish & Eggs",
+  SWEET_SHOP: "Sweets",
+  PHARMACY: "Health & Pharmacy",
+  MEDICAL_EQUIPMENT: "Health & Pharmacy",
+  COSMETICS_BEAUTY: "Personal Care",
+  STATIONERY_STORE: "Stationery",
+  PRINTING_PHOTOCOPY: "Stationery",
+  ELECTRONICS_STORE: "Electronics",
+  MOBILE_PHONE_STORE: "Electronics",
+  COMPUTER_STORE: "Electronics",
+  HOME_APPLIANCE_STORE: "Electronics",
+  ELECTRICAL_SHOP: "Electronics",
+  MOBILE_ELECTRONICS_REPAIR: "Electronics",
+  CLOTHING_STORE: "Clothing",
+  FOOTWEAR_STORE: "Footwear",
+  JEWELLERY_STORE: "Jewellery & Watches",
+  OPTICAL_STORE: "Optical",
+  FURNITURE_STORE: "Furniture",
+  HARDWARE_STORE: "Hardware & Building",
+  BUILDING_MATERIALS: "Hardware & Building",
+  PAINT_SANITARY_STORE: "Hardware & Building",
+  BOOKSTORE: "Books",
+  TOY_STORE: "Toys & Games",
+  SPORTS_STORE: "Sports & Fitness",
+  PET_STORE: "Pet Supplies",
+  AUTO_SPARE_PARTS: "Automotive",
+  AUTO_ACCESSORIES: "Automotive",
+  GIFT_SHOP: "Gifts & Flowers",
+  FLOWER_SHOP: "Gifts & Flowers",
+  AGRICULTURAL_SUPPLY: "Agriculture & Poultry",
+  POULTRY_SUPPLY: "Agriculture & Poultry",
+  RESTAURANT: "Ready-to-Eat Food",
+  FAST_FOOD: "Ready-to-Eat Food",
+  CAFE: "Ready-to-Eat Food",
+  PACKAGING_MATERIALS: "Packaging",
+};
+
+/** Categories that exist only for specialist shop types (no curated keywords). */
+const DERIVED_DESCRIPTIONS: Record<string, string> = {
+  Clothing: "Apparel for men, women and children.",
+  Footwear: "Shoes, sandals, slippers and footwear care.",
+  "Jewellery & Watches": "Gold, silver and imitation jewellery, and watches.",
+  Optical: "Spectacles, sunglasses, contact lenses and accessories.",
+  Furniture: "Home and office furniture.",
+  "Hardware & Building": "Tools, fittings, building materials, paint and sanitaryware.",
+  Books: "Books and reading material.",
+  "Toys & Games": "Toys, games and puzzles.",
+  "Sports & Fitness": "Sports equipment, fitness gear and sportswear.",
+  "Pet Supplies": "Pet food and accessories.",
+  Automotive: "Vehicle spare parts and accessories.",
+  "Gifts & Flowers": "Gift items, flowers and bouquets.",
+  "Agriculture & Poultry": "Seeds, fertilisers, farm tools and poultry supplies.",
+  "Ready-to-Eat Food": "Prepared meals, fast food and café items.",
+  Packaging: "Packaging and carry materials.",
+};
+
+/** Generic words that clearly name a category, beyond the shop types' goods. */
+const EXTRA_KEYWORDS: Record<string, readonly string[]> = {
+  Grocery: ["groceries", "bulk groceries"],
+  Household: ["household items", "home goods"],
+  "Personal Care": ["beauty products"],
+  Clothing: ["garments", "apparel", "clothing", "shirt", "t-shirt", "saree", "kurta"],
+  Footwear: ["footwear", "shoe"],
+  Books: ["books", "book"],
+  "Hardware & Building": ["hardware"],
+  Packaging: ["packaging materials", "packaging"],
+};
+
+function buildTargets(): TargetCategory[] {
+  const curatedKeywords = new Set(CURATED.flatMap((c) => c.keywords));
+  const byName = new Map<string, TargetCategory & { departments: Department[] }>(
+    CURATED.map((c) => [c.name, { ...c, keywords: [...c.keywords], departments: [c.department] }]),
+  );
+  for (const type of SHOP_TYPES) {
+    const target = SHOP_TYPE_TARGETS[type.key as Department];
+    if (!target) continue;
+    const entry =
+      byName.get(target) ??
+      { name: target, department: type.key as Department, description: DERIVED_DESCRIPTIONS[target] ?? "", keywords: [], departments: [] };
+    // A shop type's goods never override a curated keyword (that would create ties).
+    const goods = type.standardGoods.map((g) => g.toLowerCase().replace(/’/g, "'").trim()).filter((g) => g && !curatedKeywords.has(g));
+    entry.keywords = [...new Set([...entry.keywords, ...goods])];
+    if (!entry.departments.includes(type.key as Department)) entry.departments.push(type.key as Department);
+    byName.set(target, entry);
+  }
+  for (const [name, words] of Object.entries(EXTRA_KEYWORDS)) {
+    const entry = byName.get(name);
+    if (entry) entry.keywords = [...new Set([...entry.keywords, ...words])];
+  }
+  return [...byName.values()];
+}
+
+export const TARGET_CATEGORIES: readonly (TargetCategory & { departments?: Department[] })[] = buildTargets();
+
 export interface ProductForCategorisation {
   name: string;
   description?: string | null;
@@ -194,7 +300,11 @@ const SHOP_TYPE_LABELS = new Set(SHOP_TYPES.map((t) => t.label.toLowerCase()));
 
 /** Every keyword of every category, longest first, compiled once. */
 const KEYWORD_INDEX = TARGET_CATEGORIES.flatMap((c) =>
-  c.keywords.map((k) => ({ category: c.name, keyword: k, re: new RegExp(`(^|[^a-z0-9])${escape(k)}(?=$|[^a-z0-9])`, "g") })),
+  c.keywords.map((k) => {
+    // Keywords are normalised the same way as the text they are matched against.
+    const keyword = normalise(k);
+    return { category: c.name, keyword, re: new RegExp(`(^|[^a-z0-9])${escape(keyword)}(?=$|[^a-z0-9])`, "g") };
+  }),
 ).sort((a, b) => b.keyword.length - a.keyword.length);
 
 function escape(text: string): string {
@@ -202,7 +312,7 @@ function escape(text: string): string {
 }
 
 function normalise(text: string | null | undefined): string {
-  return (text ?? "").toLowerCase().replace(/&/g, " and ").replace(/\s+/g, " ").trim();
+  return (text ?? "").toLowerCase().replace(/’/g, "'").replace(/&/g, " and ").replace(/\s+/g, " ").trim();
 }
 
 /** Keyword hits in `text`, longest first, without reusing a matched span. Ordered by position. */
@@ -274,7 +384,9 @@ export function categoriseProduct(product: ProductForCategorisation): Categorisa
 
   if (product.oldDepartment) {
     for (const c of TARGET_CATEGORIES) {
-      if (c.department === product.oldDepartment) add(c.name, 1, `department ${product.oldDepartment}`);
+      if ((c.departments ?? [c.department]).includes(product.oldDepartment as Department)) {
+        add(c.name, 1, `department ${product.oldDepartment}`);
+      }
     }
   }
 

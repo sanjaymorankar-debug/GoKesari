@@ -300,6 +300,20 @@ export default async function ShopDashboardPage() {
       </div>
 
       <div className="mb-8">
+        <Card className="flex flex-wrap items-center justify-between gap-2 p-4 text-sm" data-testid="product-categories-link">
+          <span>
+            <span className="font-medium text-ink-900">Product categories</span>
+            <span className="block text-ink-500">
+              Your shop sees every product in the categories it carries when you add products.
+            </span>
+          </span>
+          <Link href="/shop/product-categories" className="font-medium text-kesari-700 underline">
+            Manage product categories
+          </Link>
+        </Card>
+      </div>
+
+      <div className="mb-8">
         <UnsavedChangesProvider>
           <ShopCategoriesEditor
             shopId={shop.id}
@@ -343,6 +357,7 @@ export default async function ShopDashboardPage() {
           trackInventory: p.trackInventory,
           isActive: p.isActive,
           isAvailable: p.isAvailable,
+          paused: p.categoryCarried === false,
         }))}
         suggestions={availableToAdd.map((p) => ({
           id: p.id,

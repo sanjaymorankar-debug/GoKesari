@@ -147,6 +147,13 @@ export async function createCategory(
   overrides: { department?: Department; name?: string } = {},
 ) {
   const name = overrides.name ?? "Milk";
+  // Category names are unique (ignoring case) among live categories, so a
+  // second call with the same name reuses the first category.
+  const [existing] = await db
+    .select()
+    .from(productCategories)
+    .where(sql`lower(${productCategories.name}) = ${name.toLowerCase()} AND ${productCategories.deletedAt} IS NULL`);
+  if (existing) return existing;
   const [category] = await db
     .insert(productCategories)
     .values({

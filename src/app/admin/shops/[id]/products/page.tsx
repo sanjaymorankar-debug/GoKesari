@@ -63,12 +63,20 @@ export default async function AdminShopProductsPage({
           </span>
         }
         action={
-          <Link
-            href="/admin/shops"
-            className="text-sm font-medium text-kesari-600 hover:underline"
-          >
-            ← All shops
-          </Link>
+          <span className="flex gap-4">
+            <Link
+              href={`/admin/shops/${shop.id}/product-categories`}
+              className="text-sm font-medium text-kesari-600 hover:underline"
+            >
+              Product categories
+            </Link>
+            <Link
+              href="/admin/shops"
+              className="text-sm font-medium text-kesari-600 hover:underline"
+            >
+              ← All shops
+            </Link>
+          </span>
         }
       />
 
@@ -122,6 +130,7 @@ export default async function AdminShopProductsPage({
           trackInventory: p.trackInventory,
           isActive: p.isActive,
           isAvailable: p.isAvailable,
+          paused: p.categoryCarried === false,
         }))}
         suggestions={availableToAdd.map((p) => ({
           id: p.id,

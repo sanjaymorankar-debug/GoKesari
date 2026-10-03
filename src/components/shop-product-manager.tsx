@@ -29,6 +29,8 @@ interface ManagedProduct {
   trackInventory: boolean;
   isActive: boolean;
   isAvailable: boolean;
+  /** The shop no longer carries this product's category: hidden from customers until it does again. */
+  paused?: boolean;
 }
 
 interface Suggestion {
@@ -193,6 +195,11 @@ function ProductRow({ product }: { product: ManagedProduct }) {
         <div>
           <p className="font-medium text-ink-900">{product.productName}</p>
           <p className="text-xs text-ink-500">{product.categoryName}</p>
+          {product.paused ? (
+            <p className="mt-1 text-xs font-medium text-amber-700" data-testid="listing-paused">
+              Paused — this shop no longer carries {product.categoryName}. Add the category back to sell it again.
+            </p>
+          ) : null}
         </div>
 
         <div className="flex flex-wrap items-center gap-2">

@@ -66,3 +66,19 @@ describe("evidence hygiene", () => {
     );
   });
 });
+
+describe("specialist shop types", () => {
+  it.each([
+    ["Shirts", "Clothing Store", "CLOTHING_STORE", "Clothing"],
+    ["sandals", "Footwear Store", "FOOTWEAR_STORE", "Footwear"],
+    ["Eyeglasses", "Optical Store", "OPTICAL_STORE", "Optical"],
+    ["lubricants", "Automobile Spare Parts Shop", "AUTO_SPARE_PARTS", "Automotive"],
+    ["groceries", "Online Store / E-commerce", "ONLINE_STORE", "Grocery"],
+  ])("%s (%s) → %s", (name, oldCategoryName, oldDepartment, expected) => {
+    expect(cat(name, { oldCategoryName, oldDepartment })).toBe(expected);
+  });
+
+  it("still sends genuinely mixed goods to General", () => {
+    expect(cat("Mixed consumer goods", { oldCategoryName: "General Trading Store", oldDepartment: "GENERAL_TRADING" })).toBe("General");
+  });
+});

@@ -18,7 +18,7 @@
  *     storefront (see `shopCarriesProductCategory`); listings, orders and
  *     history are never touched, and re-adding the category restores them.
  */
-import { and, asc, eq, ilike, inArray, isNull, ne, or, sql, type SQL } from "drizzle-orm";
+import { and, asc, eq, getTableName, ilike, inArray, isNull, ne, or, sql, type SQL } from "drizzle-orm";
 import type { AnyPgColumn } from "drizzle-orm/pg-core";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
@@ -31,7 +31,6 @@ import {
   shopProductCategories,
   shopProducts,
   shops,
-  users,
   type Department,
   type ProductCategory,
   type UserRole,
@@ -61,9 +60,16 @@ const slugify = (value: string) =>
  * sellable while the shop carries the listing's category.
  */
 export function shopCarriesProductCategory(shopId: AnyPgColumn | string, categoryIdColumn: AnyPgColumn): SQL {
-  return sql`EXISTS (SELECT 1 FROM ${shopProductCategories}
-    WHERE ${shopProductCategories.shopId} = ${shopId}
-      AND ${shopProductCategories.categoryId} = ${categoryIdColumn})`;
+  // Outer columns are written fully qualified: drizzle renders a single-table
+  // query's columns bare, and a bare "category_id" here would bind to the
+  // inner table and match every row.
+  const shop = typeof shopId === "string" ? sql`${shopId}::uuid` : qualified(shopId);
+  return sql`EXISTS (SELECT 1 FROM shop_product_categories spc_visible
+    WHERE spc_visible.shop_id = ${shop} AND spc_visible.category_id = ${qualified(categoryIdColumn)})`;
+}
+
+function qualified(column: AnyPgColumn): SQL {
+  return sql.raw(`"${getTableName(column.table)}"."${column.name}"`);
 }
 
 /* ---------------------------------------------------------------- General */
@@ -147,12 +153,14 @@ export async function listCategoryMaster(
       isActive: productCategories.isActive,
       isSystem: productCategories.isSystem,
       createdBy: productCategories.createdBy,
-      createdByName: sql<string | null>`(SELECT coalesce(${users.name}, ${users.email}) FROM ${users} WHERE ${users.id} = ${productCategories.createdBy})`,
+      // Subqueries name their columns explicitly: drizzle renders a lone
+      // table's columns unqualified, which would bind to the inner table.
+      createdByName: sql<string | null>`(SELECT coalesce(u.name, u.email) FROM users u WHERE u.id = product_categories.created_by)`,
       createdAt: productCategories.createdAt,
-      productCount: sql<number>`(SELECT count(*)::int FROM ${products} p
-        WHERE p.category_id = ${productCategories.id} AND p.deleted_at IS NULL)`,
-      shopCount: sql<number>`(SELECT count(*)::int FROM ${shopProductCategories} l JOIN ${shops} s ON s.id = l.shop_id
-        WHERE l.category_id = ${productCategories.id} AND s.deleted_at IS NULL)`,
+      productCount: sql<number>`(SELECT count(*)::int FROM products p
+        WHERE p.category_id = product_categories.id AND p.deleted_at IS NULL)`,
+      shopCount: sql<number>`(SELECT count(*)::int FROM shop_product_categories l JOIN shops s ON s.id = l.shop_id
+        WHERE l.category_id = product_categories.id AND s.deleted_at IS NULL)`,
     })
     .from(productCategories)
     .where(
@@ -470,11 +478,11 @@ export async function listShopProductCategories(shopId: string, client: DbClient
       name: productCategories.name,
       isActive: productCategories.isActive,
       isSystem: productCategories.isSystem,
-      productCount: sql<number>`(SELECT count(*)::int FROM ${products} p
-        WHERE p.category_id = ${productCategories.id} AND p.deleted_at IS NULL
+      productCount: sql<number>`(SELECT count(*)::int FROM products p
+        WHERE p.category_id = product_categories.id AND p.deleted_at IS NULL
           AND p.is_active AND p.approval_status = 'APPROVED')`,
       addedAt: shopProductCategories.createdAt,
-      addedByName: sql<string | null>`(SELECT coalesce(${users.name}, ${users.email}) FROM ${users} WHERE ${users.id} = ${shopProductCategories.addedBy})`,
+      addedByName: sql<string | null>`(SELECT coalesce(u.name, u.email) FROM users u WHERE u.id = shop_product_categories.added_by)`,
     })
     .from(shopProductCategories)
     .innerJoin(productCategories, eq(productCategories.id, shopProductCategories.categoryId))
