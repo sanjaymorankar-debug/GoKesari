@@ -61,6 +61,7 @@ export function CartView({
   initialChecks = [],
   preferredAddressId = null,
   codUnavailableReason = null,
+  hasMobile = true,
 }: {
   cart: CartSummary;
   walletBalancePaise: number;
@@ -73,6 +74,8 @@ export function CartView({
   preferredAddressId?: string | null;
   /** GS-030: null when cash on delivery is available for this cart; otherwise why not. */
   codUnavailableReason?: string | null;
+  /** Orders need a mobile number on the account so the delivery partner can call. */
+  hasMobile?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -115,6 +118,9 @@ export function CartView({
   );
   const [confirmingClosed, setConfirmingClosed] = useState(false);
   const hasBlockingIssue = checks.some((c) => c.issues.some((i) => i.blocking));
+  // Checkout enforces both server-side; shown here so the customer can fix them first.
+  const needsAddress = !buyerShopId && !addressId && cart.groups.some((g) => g.shop.deliveryAvailable);
+  const missingDetails = !hasMobile || needsAddress;
 
   async function removeShop(shopId: string) {
     setBusy(true);
@@ -525,6 +531,25 @@ export function CartView({
                     No, go back
                   </Button>
                 </div>
+              </div>
+            ) : missingDetails ? (
+              <div className="grid gap-2" data-testid="checkout-missing-details">
+                {!hasMobile ? (
+                  <Alert tone="warning">
+                    Add your mobile number before ordering — the delivery partner needs it to reach you.{" "}
+                    <a href="/profile" className="font-medium underline">
+                      Add mobile number
+                    </a>
+                  </Alert>
+                ) : null}
+                {needsAddress ? (
+                  <Alert tone="warning">
+                    Add a delivery address before ordering.{" "}
+                    <a href="/profile/addresses" className="font-medium underline">
+                      Add address
+                    </a>
+                  </Alert>
+                ) : null}
               </div>
             ) : affordable ? (
               <Button

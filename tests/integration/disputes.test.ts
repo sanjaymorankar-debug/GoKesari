@@ -33,6 +33,7 @@ import {
   createShopProduct,
   createUser,
   createUserWithWallet,
+  deliveryAddressId,
   resetDatabase,
 } from "../helpers/fixtures";
 
@@ -58,7 +59,7 @@ async function deliveredOrder() {
   const { orders: created } = await checkout({
     userId: customer.id,
     requestId: `req-${customer.id}`,
-    addressId: null,
+    addressId: await deliveryAddressId(customer.id),
   });
   const order = created[0];
   const ownerActor = { id: owner.id, role: "SHOP_OWNER" as const };
@@ -107,7 +108,7 @@ describe("opening a dispute", () => {
     const shop = await createShop(owner.id, { deliveryFeePaise: FEE });
     const sp = await createShopProduct(shop.id, milk.id, { onlinePricePaise: GOODS, onlineStock: 50 });
     await addToCart(customer.id, sp.id, 1);
-    const { orders: created } = await checkout({ userId: customer.id, requestId: "r1", addressId: null });
+    const { orders: created } = await checkout({ userId: customer.id, requestId: "r1", addressId: await deliveryAddressId(customer.id) });
 
     await expect(
       openDispute({ orderId: created[0].id, ...OPEN_INPUT }, { id: customer.id, role: "CUSTOMER" }),

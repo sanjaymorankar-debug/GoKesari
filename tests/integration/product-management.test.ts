@@ -18,13 +18,14 @@ import {
   createShopProduct,
   findSimilarProducts,
   listProducts,
-  suggestProductsForShopType,
+  suggestProductsForShop,
 } from "@/server/services/catalogue";
 import {
   createCategory,
   createProduct,
   createShop,
   createUser,
+  linkShopCategory,
   resetDatabase,
 } from "../helpers/fixtures";
 
@@ -128,7 +129,9 @@ describe("shop owner creates a new product", () => {
     expect(inShopB).toBeUndefined();
 
     // And it must not surface in Shop B's "add existing" search.
-    const suggestionsForB = await suggestProductsForShopType("DAIRY");
+    // (Shop B carries the category, so only the approval gate hides it.)
+    await linkShopCategory(shopB.id, category.id);
+    const suggestionsForB = await suggestProductsForShop(shopB.id);
     expect(suggestionsForB.some((p) => p.id === result.product.id)).toBe(false);
   });
 
@@ -243,6 +246,8 @@ describe("multi-shop pricing independence (TEST 10)", () => {
     const shopB = await createShop(ownerB.id, { name: "Shop B" });
     const category = await createCategory({ department: "DAIRY", name: "Milk" });
     const product = await createProduct(category.id, { name: "Milk 1 L" });
+    await linkShopCategory(shopA.id, category.id);
+    await linkShopCategory(shopB.id, category.id);
 
     const spA = await createShopProduct(
       { shopId: shopA.id, productId: product.id, onlineSaleEnabled: true, offlineSaleEnabled: false, onlinePricePaise: 6500 },

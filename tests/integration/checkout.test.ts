@@ -21,6 +21,7 @@ import {
   createShopProduct,
   createUser,
   createUserWithWallet,
+  deliveryAddressId,
   resetDatabase,
 } from "../helpers/fixtures";
 
@@ -68,6 +69,7 @@ describe("multi-shop checkout (§17)", () => {
 
     const result = await checkout({
       userId: customer.id,
+      addressId: await deliveryAddressId(customer.id),
       requestId: "req-split-001",
     });
 
@@ -90,7 +92,7 @@ describe("multi-shop checkout (§17)", () => {
     await addToCart(customer.id, milkSp.id, 1);
     await addToCart(customer.id, breadSp.id, 1);
 
-    await checkout({ userId: customer.id, requestId: "req-empty-001" });
+    await checkout({ userId: customer.id, addressId: await deliveryAddressId(customer.id), requestId: "req-empty-001" });
 
     const cart = await getCart(customer.id);
     expect(cart.groups).toHaveLength(0);
@@ -103,6 +105,7 @@ describe("multi-shop checkout (§17)", () => {
 
     const { orders: placed } = await checkout({
       userId: customer.id,
+      addressId: await deliveryAddressId(customer.id),
       requestId: "req-snap-001",
     });
 
@@ -133,7 +136,7 @@ describe("multi-shop checkout (§17)", () => {
     const { customer, milkSp } = await twoShopSetup(500_000);
     await addToCart(customer.id, milkSp.id, 3);
 
-    await checkout({ userId: customer.id, requestId: "req-stock-001" });
+    await checkout({ userId: customer.id, addressId: await deliveryAddressId(customer.id), requestId: "req-stock-001" });
 
     const after = await db.query.shopProducts.findFirst({
       where: eq(shopProducts.id, milkSp.id),
@@ -149,7 +152,7 @@ describe("insufficient balance (§23)", () => {
     await addToCart(customer.id, milkSp.id, 2);
 
     await expect(
-      checkout({ userId: customer.id, requestId: "req-poor-001" }),
+      checkout({ userId: customer.id, addressId: await deliveryAddressId(customer.id), requestId: "req-poor-001" }),
     ).rejects.toMatchObject({ code: "INSUFFICIENT_BALANCE" });
 
     expect(await balanceOf(customer.id)).toBe(5_000);
@@ -175,12 +178,14 @@ describe("idempotency (§48)", () => {
 
     const first = await checkout({
       userId: customer.id,
+      addressId: await deliveryAddressId(customer.id),
       requestId: "req-dup-001",
     });
     const balanceAfterFirst = await balanceOf(customer.id);
 
     const second = await checkout({
       userId: customer.id,
+      addressId: await deliveryAddressId(customer.id),
       requestId: "req-dup-001",
     });
 
@@ -193,7 +198,7 @@ describe("idempotency (§48)", () => {
   it("rejects an empty cart", async () => {
     const { customer } = await twoShopSetup(500_000);
     await expect(
-      checkout({ userId: customer.id, requestId: "req-empty-cart" }),
+      checkout({ userId: customer.id, addressId: await deliveryAddressId(customer.id), requestId: "req-empty-cart" }),
     ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
   });
 });

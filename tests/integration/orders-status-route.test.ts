@@ -61,6 +61,7 @@ import {
   createShopProduct,
   createUser,
   createUserWithWallet,
+  deliveryAddressId,
   resetDatabase,
 } from "../helpers/fixtures";
 
@@ -99,7 +100,7 @@ async function paidOrderSetup(customerBalancePaise = 500_000) {
   });
 
   await addToCart(customer.id, shopProduct.id, 1);
-  const { orders: created } = await checkout({ userId: customer.id, requestId: `req-${customer.id}`, addressId: null });
+  const { orders: created } = await checkout({ userId: customer.id, requestId: `req-${customer.id}`, addressId: await deliveryAddressId(customer.id) });
   const order = created[0];
   expect(order.totalPaise).toBe(8000); // 7000 subtotal + 1000 delivery fee, sanity check on the fixture itself
 

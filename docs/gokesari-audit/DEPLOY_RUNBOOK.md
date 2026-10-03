@@ -1,7 +1,7 @@
 # Gokesari — deploy runbook
 
-**Scope:** promoting the Phases A–J release plus dispute cases (migrations
-`0025`–`0037`) to an environment that is still on `0024`. Written 3 Oct 2026.
+**Scope:** promoting the Phases A–J release plus dispute cases, login by
+mobile/email and the product category master (migrations `0025`–`0039`) to an environment that is still on `0024`. Written 3 Oct 2026.
 
 This is the step-by-step companion to [DEPLOYMENT.md](../../DEPLOYMENT.md), which
 remains the reference for environment variables, Cashfree setup, backups and
@@ -15,8 +15,8 @@ this file is the authority on *the order for this release*.
 
 ## 0. Why the order matters
 
-Every migration from `0025` to `0037` is **additive** — no `DROP TABLE`, no
-`DROP COLUMN` (verified across all thirteen files). The single non-additive
+Every migration from `0025` to `0039` is **additive** — no `DROP TABLE`, no
+`DROP COLUMN` (verified across all fifteen files). The single non-additive
 statement is in `0029`:
 
 ```sql
@@ -50,7 +50,8 @@ So: **migrate first, deploy second.** Always.
 # Confirm which environment you are pointed at. Do this every time.
 psql "$DATABASE_URL" -c "select current_database(), inet_server_addr();"
 
-# What is already applied? 25 rows = on 0024. 38 rows = fully migrated.
+# What is already applied? 25 rows = on 0024. 40 rows = fully migrated
+# (42 on the test database: see "0038 and 0039 run twice on test" below).
 psql "$DATABASE_URL" -c "select count(*) from drizzle.__drizzle_migrations;"
 ```
 
@@ -95,7 +96,7 @@ npm run db:migrate
 # → "Migrations applied."
 ```
 
-`drizzle` applies the thirteen files in journal order and records each in
+`drizzle` applies the fifteen files in journal order and records each in
 `drizzle.__drizzle_migrations`. It is resumable: a re-run applies only what is
 missing, so an interrupted migration is safe to repeat.
 
@@ -111,10 +112,27 @@ drizzle-kit cannot emit a sequence, so the `CREATE SEQUENCE` is written at the
 top of the migration — if you ever regenerate that file, put it back or the
 first dispute insert fails on a missing sequence.
 
+**`0038` and `0039` run twice on test.** On `staging` they were numbered `0037`
+(login profile) and `0038` (category master) until the merge with `main`'s
+`0037_dispute_cases`. drizzle does not track migrations by name: it runs every
+journal entry whose `when` is later than the newest `created_at` in
+`drizzle.__drizzle_migrations`. So the two were re-timestamped to sort after
+`0037_dispute_cases`, which means:
+
+* a database migrated from `main` (on `0037_dispute_cases`) picks up both;
+* the test database, which ran them under their old numbers, runs
+  `0037_dispute_cases` and then runs both again. Both are written to be no-ops
+  the second time, and their one-off data steps (the profile backfill, the
+  shop-category links) run only in the run that creates the column or table,
+  so links an admin has removed since are not restored.
+
+The test database therefore ends with 42 rows rather than 40; the newest
+`created_at` is `1791030174408` on every fully migrated database.
+
 Verify:
 
 ```bash
-psql "$DATABASE_URL" -c "select count(*) from drizzle.__drizzle_migrations;"   # 38
+psql "$DATABASE_URL" -c "select count(*), max(created_at) from drizzle.__drizzle_migrations;"   # 40 (42 on test), 1791030174408
 psql "$DATABASE_URL" -c "\d platform_settings"                                 # exists
 psql "$DATABASE_URL" -c "select unnest(enum_range(null::notification_channel));"  # includes WHATSAPP
 psql "$DATABASE_URL" -c "select sequencename from pg_sequences where sequencename='dispute_case_seq';"  # one row

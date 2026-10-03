@@ -38,6 +38,8 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/shop/orders", label: "Orders" },
     { href: "/shop/returns", label: "Returns" },
     { href: "/shop/inventory", label: "Inventory" },
+    { href: "/shop/product-categories", label: "My product categories" },
+    { href: "/product-categories", label: "All product categories" },
     { href: "/shop/prices", label: "Price Updates" },
     { href: "/shop/finance", label: "Finance" },
     { href: "/shop/marketing", label: "Marketing" },
@@ -47,6 +49,7 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin", label: "Operator Console" },
     { href: "/admin/shops", label: "Shop Product Management" },
     { href: "/admin/product-master", label: "Product Master" },
+    { href: "/product-categories", label: "Product categories" },
     { href: "/admin/shop-categories", label: "Shop categories" },
     { href: "/admin/mrp", label: "MRP" },
     { href: "/admin/price-references", label: "Reference prices" },
@@ -66,6 +69,7 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin", label: "Admin Console" },
     { href: "/admin/shops", label: "Shop Product Management" },
     { href: "/admin/product-master", label: "Product Master" },
+    { href: "/product-categories", label: "Product categories" },
     { href: "/admin/shop-categories", label: "Shop categories" },
     { href: "/admin/mrp", label: "MRP" },
     { href: "/admin/price-references", label: "Reference prices" },
@@ -276,7 +280,8 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
               <Link
                 href="/profile"
                 className="relative grid h-8 w-8 place-items-center rounded-full bg-kesari-100 text-sm font-semibold text-kesari-700"
-                aria-label="Profile"
+                aria-label="My Profile"
+                title="My Profile"
               >
                 {(user.name ?? user.email).charAt(0).toUpperCase()}
                 {unreadCount > 0 ? (
