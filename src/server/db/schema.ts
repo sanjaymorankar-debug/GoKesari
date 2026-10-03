@@ -7,6 +7,13 @@
  *  - Financial rows (wallet_transactions, order_items) are immutable once written.
  */
 import { sql } from "drizzle-orm";
+import {
+  DISPUTE_LEVELS,
+  DISPUTE_OUTCOMES,
+  DISPUTE_REASONS,
+  DISPUTE_STATUSES,
+  ESCALATION_TRIGGERS,
+} from "@/lib/dispute-states";
 import { RETURN_CONDITIONS, RETURN_REASONS, RETURN_STATUSES, PICKUP_STATUSES } from "@/lib/return-states";
 import { SHOP_TYPE_KEYS } from "@/lib/shop-types";
 import {
@@ -3317,6 +3324,113 @@ export const grievances = pgTable(
   ],
 );
 
+/* --------------------------------------------------------- disputes (GS-058)
+ * A dispute is the CASE about a delivered order, with its own lifecycle and a
+ * second line of review. It is deliberately not the same row as a grievance:
+ * `grievances` is the statutory redressal record (IT Rules 2021 Rule 3(2)),
+ * kept as a plain ladder on purpose, and a dispute references the grievance
+ * that started it rather than colonising it.
+ *
+ * Money never moves from here. Resolving a case with a refund calls the
+ * existing finance refund, and the adjustment it returns is recorded on the
+ * row — so "what did this dispute cost" is answerable without trusting a
+ * number typed into the case.
+ */
+export const orderDisputes = pgTable(
+  "order_disputes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Human-readable reference, e.g. DSP-000123 — what the customer quotes back. */
+    caseNumber: text("case_number")
+      .notNull()
+      .default(sql`'DSP-' || lpad(nextval('dispute_case_seq')::text, 6, '0')`),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "restrict" }),
+    /** Denormalised from the order so the operations queue can filter by shop without a join. */
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    raisedByUserId: uuid("raised_by_user_id").references(() => users.id, { onDelete: "set null" }),
+    /** The complaint this case came from, when it came from one. */
+    grievanceId: uuid("grievance_id").references(() => grievances.id, { onDelete: "set null" }),
+
+    status: text("status", { enum: DISPUTE_STATUSES }).notNull().default("OPEN"),
+    level: text("level", { enum: DISPUTE_LEVELS }).notNull().default("L1"),
+    reason: text("reason", { enum: DISPUTE_REASONS }).notNull(),
+    description: text("description").notNull(),
+    assignedToUserId: uuid("assigned_to_user_id").references(() => users.id, { onDelete: "set null" }),
+
+    /** What the customer is disputing, in money. Never more than the order total. */
+    disputedAmountPaise: bigint("disputed_amount_paise", { mode: "number" }).notNull(),
+
+    /* ----------------------------------------------- the payment under dispute
+     * Snapshotted at open, not joined at read time: how the order was paid is a
+     * fact about the moment the case was raised, and a later COD collection or
+     * refund must not rewrite what the case was about. */
+    paymentMethodSnapshot: paymentMethodEnum("payment_method_snapshot").notNull(),
+    orderTotalPaise: bigint("order_total_paise", { mode: "number" }).notNull(),
+    /** When the order was paid, at open: null means it was not paid yet. */
+    orderPaidAt: timestamp("order_paid_at", { withTimezone: true }),
+
+    /* ------------------------------------------------------------- escalation */
+    escalatedAt: timestamp("escalated_at", { withTimezone: true }),
+    escalationTrigger: text("escalation_trigger", { enum: ESCALATION_TRIGGERS }),
+    escalationNote: text("escalation_note"),
+
+    /* -------------------------------------------------------------- outcome */
+    outcome: text("outcome", { enum: DISPUTE_OUTCOMES }),
+    /** What was actually refunded, from the finance adjustment — not what was asked for. */
+    refundedPaise: bigint("refunded_paise", { mode: "number" }),
+    /** The financial_adjustments row the refund created, so the money is traceable. */
+    refundAdjustmentId: uuid("refund_adjustment_id"),
+    resolutionNotes: text("resolution_notes"),
+    resolvedBy: uuid("resolved_by").references(() => users.id, { onDelete: "set null" }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("order_disputes_case_number_unique").on(t.caseNumber),
+    index("order_disputes_order_idx").on(t.orderId),
+    index("order_disputes_shop_status_idx").on(t.shopId, t.status),
+    index("order_disputes_raised_by_idx").on(t.raisedByUserId, t.createdAt),
+    /** The escalation sweep's working set: live cases, oldest first. */
+    index("order_disputes_status_created_idx").on(t.status, t.createdAt),
+    check("order_disputes_amount_positive", sql`${t.disputedAmountPaise} > 0`),
+    check(
+      "order_disputes_amount_within_order",
+      sql`${t.disputedAmountPaise} <= ${t.orderTotalPaise}`,
+    ),
+    check(
+      "order_disputes_refund_non_negative",
+      sql`${t.refundedPaise} IS NULL OR ${t.refundedPaise} >= 0`,
+    ),
+  ],
+);
+
+/** Append-only. Every status or level change on a case, including the automatic ones. */
+export const disputeEvents = pgTable(
+  "dispute_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    disputeId: uuid("dispute_id")
+      .notNull()
+      .references(() => orderDisputes.id, { onDelete: "cascade" }),
+    fromStatus: text("from_status", { enum: DISPUTE_STATUSES }),
+    toStatus: text("to_status", { enum: DISPUTE_STATUSES }).notNull(),
+    fromLevel: text("from_level", { enum: DISPUTE_LEVELS }),
+    toLevel: text("to_level", { enum: DISPUTE_LEVELS }).notNull(),
+    /** Null for a move the escalation sweep made: nobody decided it. */
+    actorId: uuid("actor_id").references(() => users.id, { onDelete: "set null" }),
+    actorRole: userRoleEnum("actor_role"),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("dispute_events_dispute_idx").on(t.disputeId, t.createdAt)],
+);
+
 /** Append-only — a consent is never edited or deleted, only superseded by a newer row. */
 export const userConsents = pgTable(
   "user_consents",
@@ -4258,6 +4372,8 @@ export type StoredImage = typeof storedImages.$inferSelect;
 export type ReturnRequest = typeof returnRequests.$inferSelect;
 export type ReturnItem = typeof returnItems.$inferSelect;
 export type ReturnStatusHistoryRow = typeof returnStatusHistory.$inferSelect;
+export type OrderDispute = typeof orderDisputes.$inferSelect;
+export type DisputeEvent = typeof disputeEvents.$inferSelect;
 export type ReturnPickup = typeof returnPickups.$inferSelect;
 export type NotificationPreference = typeof notificationPreferences.$inferSelect;
 export type NotificationDelivery = typeof notificationDeliveries.$inferSelect;

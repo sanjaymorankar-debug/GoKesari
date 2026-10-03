@@ -59,6 +59,7 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin/campaigns", label: "Campaigns" },
     { href: "/admin/risk", label: "Risk" },
     { href: "/admin/consents", label: "Consent" },
+    { href: "/admin/disputes", label: "Disputes" },
     { href: "/admin/cod", label: "COD cash" },
   ],
   ADMIN: [
@@ -79,6 +80,7 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin/campaigns", label: "Campaigns" },
     { href: "/admin/risk", label: "Risk" },
     { href: "/admin/consents", label: "Consent" },
+    { href: "/admin/disputes", label: "Disputes" },
     { href: "/admin/cod", label: "COD cash" },
   ],
   DELIVERY_PARTNER: [{ href: "/delivery-partner", label: "Delivery Partner" }],

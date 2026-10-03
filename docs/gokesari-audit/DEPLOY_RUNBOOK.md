@@ -1,7 +1,7 @@
 # Gokesari — deploy runbook
 
-**Scope:** promoting the Phases A–J release (migrations `0025`–`0036`) to an
-environment that is still on `0024`. Written 3 Oct 2026 against `main` @`10b8914`.
+**Scope:** promoting the Phases A–J release plus dispute cases (migrations
+`0025`–`0037`) to an environment that is still on `0024`. Written 3 Oct 2026.
 
 This is the step-by-step companion to [DEPLOYMENT.md](../../DEPLOYMENT.md), which
 remains the reference for environment variables, Cashfree setup, backups and
@@ -15,8 +15,8 @@ this file is the authority on *the order for this release*.
 
 ## 0. Why the order matters
 
-Every migration from `0025` to `0036` is **additive** — no `DROP TABLE`, no
-`DROP COLUMN` (verified across all twelve files). The single non-additive
+Every migration from `0025` to `0037` is **additive** — no `DROP TABLE`, no
+`DROP COLUMN` (verified across all thirteen files). The single non-additive
 statement is in `0029`:
 
 ```sql
@@ -50,7 +50,7 @@ So: **migrate first, deploy second.** Always.
 # Confirm which environment you are pointed at. Do this every time.
 psql "$DATABASE_URL" -c "select current_database(), inet_server_addr();"
 
-# What is already applied? 25 rows = on 0024. 37 rows = fully migrated.
+# What is already applied? 25 rows = on 0024. 38 rows = fully migrated.
 psql "$DATABASE_URL" -c "select count(*) from drizzle.__drizzle_migrations;"
 ```
 
@@ -65,8 +65,8 @@ two connection strings look almost identical.
 Wallet balances are money.
 
 ```bash
-pg_dump "$DATABASE_URL" -Fc -f ~/gokesari_pre_0036_$(date +%F_%H%M).dump
-ls -lh ~/gokesari_pre_0036_*.dump   # confirm it is not 0 bytes
+pg_dump "$DATABASE_URL" -Fc -f ~/gokesari_pre_0037_$(date +%F_%H%M).dump
+ls -lh ~/gokesari_pre_0037_*.dump   # confirm it is not 0 bytes
 ```
 
 If the provider offers point-in-time recovery, note the timestamp you are
@@ -95,7 +95,7 @@ npm run db:migrate
 # → "Migrations applied."
 ```
 
-`drizzle` applies the twelve files in journal order and records each in
+`drizzle` applies the thirteen files in journal order and records each in
 `drizzle.__drizzle_migrations`. It is resumable: a re-run applies only what is
 missing, so an interrupted migration is safe to repeat.
 
@@ -105,12 +105,19 @@ runs it as its own statement, so this needs nothing from you — but if you are
 applying the SQL by hand instead of with the runner, do not wrap `0030` in a
 transaction with anything else.
 
+**`0037` creates a sequence by hand.** `dispute_case_seq` backs the
+`DSP-000001…` case numbers, the same pattern as `grievance_ticket_seq`.
+drizzle-kit cannot emit a sequence, so the `CREATE SEQUENCE` is written at the
+top of the migration — if you ever regenerate that file, put it back or the
+first dispute insert fails on a missing sequence.
+
 Verify:
 
 ```bash
-psql "$DATABASE_URL" -c "select count(*) from drizzle.__drizzle_migrations;"   # 37
+psql "$DATABASE_URL" -c "select count(*) from drizzle.__drizzle_migrations;"   # 38
 psql "$DATABASE_URL" -c "\d platform_settings"                                 # exists
 psql "$DATABASE_URL" -c "select unnest(enum_range(null::notification_channel));"  # includes WHATSAPP
+psql "$DATABASE_URL" -c "select sequencename from pg_sequences where sequencename='dispute_case_seq';"  # one row
 ```
 
 Nothing needs backfilling. Every new column is nullable or has a default, and
@@ -157,9 +164,9 @@ not drop the flag from one without the other.
 
 ## 6. Schedule the crons
 
-Two were already required; **one is new in this release.** All five authenticate
-with `Authorization: Bearer $CRON_SECRET`, and all are idempotent, so a retried
-or duplicated run is harmless.
+**Two are new in this release.** All six authenticate with
+`Authorization: Bearer $CRON_SECRET`, and all are idempotent, so a retried or
+duplicated run is harmless.
 
 ```bash
 # NEW in this release — sends queued email and retries failures.
@@ -180,14 +187,20 @@ or duplicated run is harmless.
 17 * * * * curl -fsS -X POST https://test.gokesari.com/api/cron/risk-rules \
   -H "Authorization: Bearer $CRON_SECRET" >> /var/log/gk-risk.log 2>&1
 
+# NEW in this release — escalates dispute cases past the age limit (GS-058).
+# Hourly is enough: the limit is in hours. Without it, the amount trigger still
+# escalates at open, but a case nobody touches never rises to an administrator.
+23 * * * * curl -fsS -X POST https://test.gokesari.com/api/cron/dispute-escalation \
+  -H "Authorization: Bearer $CRON_SECRET" >> /var/log/gk-disputes.log 2>&1
+
 # Existing — weekly finance batches.
 30 2 * * 1 curl -fsS -X POST https://test.gokesari.com/api/cron/finance-weekly \
   -H "Authorization: Bearer $CRON_SECRET" >> /var/log/gk-finance.log 2>&1
 ```
 
-Four of the five also answer `GET` with a readiness probe, so you can confirm
+Five of the six also answer `GET` with a readiness probe, so you can confirm
 wiring without causing a run — `daily-orders`, `delivery-dispatch`,
-`notifications` and `risk-rules`. **`finance-weekly` is POST-only**, so there is
+`notifications`, `risk-rules` and `dispute-escalation`. **`finance-weekly` is POST-only**, so there is
 no way to test its wiring without running it; check it by its log output after
 the first Monday.
 
@@ -219,6 +232,8 @@ actually changed. Sign in as an admin first — if that fails, stop and re-check
 | 8 | Open `/admin/orders`, click **Track** on the live row | Tracking panel expands for that one order |
 | 9 | Request a return on a delivered order | `/orders/{id}/return` → appears in `/returns` and `/shop/returns` |
 | 10 | Approve a pending shop with an unpaid registration fee | **Refused**, naming the amount outstanding (this is new — see §8) |
+| 11 | Open a dispute on a delivered order, then work it at `/admin/disputes` | Case gets a `DSP-` number; triage → investigate → propose → resolve; a refund outcome credits the wallet and shows a finance adjustment |
+| 12 | Open a dispute for more than the review limit (default ₹2,000) | Opens **already escalated** to L2, and an operator cannot take it forward — only an administrator |
 
 ---
 
@@ -238,7 +253,14 @@ from somebody if support has not been told:
 5. **Hand-edited stock now writes the inventory ledger** and re-checks alerts.
 6. **Ordering from a closed shop is now possible** behind an explicit customer
    confirmation, and the shop gets an alert immediately and again when it opens.
-7. **Mobile-number login exists** but the code is emailed, not texted — SMS is
+7. **A dispute case is now its own thing** (GS-058), separate from a grievance:
+   only one live case per order, only on a delivered order, and an escalated
+   case can only be taken forward by an administrator. Escalation is
+   **automatic** — at open if the amount is at or above the review limit, and
+   by the hourly sweep once a case passes the age limit. Both limits are in
+   `/admin/settings` under `disputes`, and setting either to 0 switches that
+   trigger off.
+8. **Mobile-number login exists** but the code is emailed, not texted — SMS is
    blocked on decision D2 (vendor choice; India needs DLT registration). A number
    is therefore *claimed*, not proven: `phoneVerifiedAt` is only set by an SMS
    code. Whoever links a number first holds it.
@@ -310,6 +332,8 @@ deploy. They were chosen during development, not agreed with the business:
 | OTP | 6 digits, 10 min expiry, 5 attempts, 60 s resend cooldown, 5 resends per 60 min, 20 requests per IP per window |
 | Images | 2 MB, 8 per product |
 | MRP enforcement | Only when the MRP is **verified** |
+| Dispute escalation | Automatic: after 48 h open, or at ₹2,000 and above on opening |
+| Dispute resolve target | 120 h after escalation, then counted as overdue |
 
 Also unconfirmed: the D10 cancellation treatments for `ACCEPTED`/`ASSIGNED`
 (customer blocked) and `PICKED_UP` (goods-only refund) — implemented and tested
