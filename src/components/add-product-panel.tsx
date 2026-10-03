@@ -17,6 +17,7 @@ interface CatalogueProduct {
 interface Category {
   id: string;
   name: string;
+  isSystem?: boolean;
 }
 
 /**
@@ -29,11 +30,11 @@ interface Category {
  */
 export function AddProductPanel({
   shopId,
-  department,
   applyPriceImmediately,
 }: {
   shopId: string;
-  department: string;
+  /** No longer used: what a shop can add comes from its categories, not its type. */
+  department?: string;
   /** False for an operator acting on a shop they don't own — price queues for approval. */
   applyPriceImmediately: boolean;
 }) {
@@ -70,11 +71,10 @@ export function AddProductPanel({
       </div>
 
       {mode === "existing" ? (
-        <ExistingProductSearch shopId={shopId} department={department} />
+        <ExistingProductSearch shopId={shopId} />
       ) : (
         <NewProductForm
           shopId={shopId}
-          department={department}
           applyPriceImmediately={applyPriceImmediately}
           onCreated={() => setMode("closed")}
         />
@@ -83,13 +83,7 @@ export function AddProductPanel({
   );
 }
 
-function ExistingProductSearch({
-  shopId,
-  department,
-}: {
-  shopId: string;
-  department: string;
-}) {
+function ExistingProductSearch({ shopId }: { shopId: string }) {
   const [query, setQuery] = useState("");
   const [results, setResults] = useState<CatalogueProduct[] | null>(null);
   const [busy, setBusy] = useState(false);
@@ -119,7 +113,7 @@ function ExistingProductSearch({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           onKeyDown={(e) => e.key === "Enter" && search()}
-          placeholder={`Search the ${department.toLowerCase().replace(/_/g, " ")} catalogue…`}
+          placeholder="Search products in this shop's categories…"
           className={inputClass}
         />
         <Button disabled={busy} onClick={search}>
@@ -131,8 +125,9 @@ function ExistingProductSearch({
       {results !== null ? (
         results.length === 0 ? (
           <p className="text-sm text-ink-500">
-            No matching products in the central catalogue. Try &ldquo;Create New
-            Product&rdquo; instead.
+            No matching products in the categories this shop carries. Add a
+            category under &ldquo;Product categories&rdquo;, or try &ldquo;Create
+            New Product&rdquo; instead.
           </p>
         ) : (
           <div className="grid gap-2 sm:grid-cols-2">
@@ -213,12 +208,10 @@ function ExistingResultRow({
 
 function NewProductForm({
   shopId,
-  department,
   applyPriceImmediately,
   onCreated,
 }: {
   shopId: string;
-  department: string;
   applyPriceImmediately: boolean;
   onCreated: () => void;
 }) {
@@ -241,10 +234,14 @@ function NewProductForm({
 
   useEffect(() => {
     let cancelled = false;
-    fetch(`/api/catalogue?department=${department}`)
+    fetch("/api/product-categories?selectable=1")
       .then((r) => r.json())
       .then((data) => {
-        if (!cancelled) setCategories(data.categories ?? []);
+        if (cancelled) return;
+        const list: Category[] = data.categories ?? [];
+        setCategories(list);
+        // Category is required; General is the default when nothing else fits.
+        setCategoryId((current) => current || list.find((c) => c.isSystem)?.id || "");
       })
       .catch(() => {
         if (!cancelled) setCategories([]);
@@ -252,7 +249,7 @@ function NewProductForm({
     return () => {
       cancelled = true;
     };
-  }, [department]);
+  }, []);
 
   if (categories === null) {
     return <p className="text-sm text-ink-500">Loading categories…</p>;
@@ -376,19 +373,22 @@ function NewProductForm({
         </label>
 
         <label className="text-sm text-ink-700">
-          Category
+          Category <span className="text-red-600">*</span>
           <select
+            required
             value={categoryId}
             onChange={(e) => setCategoryId(e.target.value)}
             className={inputClass}
           >
-            <option value="">Select…</option>
             {categories.map((c) => (
               <option key={c.id} value={c.id}>
                 {c.name}
               </option>
             ))}
           </select>
+          <span className="mt-1 block text-xs text-ink-500">
+            The shop starts carrying this category if it does not already.
+          </span>
         </label>
         <label className="text-sm text-ink-700">
           Sub-category (optional)

@@ -16,7 +16,7 @@
  * past the parser is integer paise.
  */
 import ExcelJS from "exceljs";
-import { and, eq, ilike, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { db, type DbClient } from "@/server/db";
@@ -34,6 +34,7 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { appliesImmediately, submitPriceRequests } from "./price-requests";
 import { createShopProduct, createProductForShop, findSimilarProducts, updateShopProduct } from "./catalogue";
+import { ensureGeneralCategory, shopCarriesProductCategory } from "./product-categories";
 
 interface Actor {
   id: string;
@@ -309,18 +310,6 @@ export async function validateUpload(
   const byCode = new Map(catalogue.map((c) => [c.code, c]));
   const isGoods = input.uploadType === "GOODS";
 
-  // GOODS only: the shop's department, needed to resolve a category name to a
-  // categoryId when a row's product isn't found anywhere yet.
-  const shopDepartment = isGoods
-    ? (
-        await db
-          .select({ shopType: shops.shopType })
-          .from(shops)
-          .where(eq(shops.id, input.shopId))
-          .limit(1)
-      )[0]?.shopType
-    : undefined;
-
   const seenCodes = new Set<string>();
 
   const rows: PreviewRow[] = await Promise.all(
@@ -409,8 +398,14 @@ export async function validateUpload(
       // another shop may already sell this exact product.
       if (row.productCode) {
         const [central] = await db
-          .select({ id: products.id, name: products.name })
+          .select({
+            id: products.id,
+            name: products.name,
+            categoryName: productCategories.name,
+            carried: sql<boolean>`${shopCarriesProductCategory(input.shopId, products.categoryId)}`,
+          })
           .from(products)
+          .innerJoin(productCategories, eq(productCategories.id, products.categoryId))
           .where(
             and(
               eq(products.code, row.productCode),
@@ -420,6 +415,14 @@ export async function validateUpload(
           )
           .limit(1);
         if (central) {
+          if (!central.carried) {
+            return {
+              ...base,
+              matchedProductId: central.id,
+              status: "NOT_FOUND",
+              errorMessage: `${row.productCode} is in the "${central.categoryName}" category, which this shop does not carry. Add the category to the shop first.`,
+            };
+          }
           if (row.pricePaise == null) {
             return {
               ...base,
@@ -439,7 +442,7 @@ export async function validateUpload(
       }
 
       // Nothing matched by code — this is a genuinely new product. It needs a
-      // name and a category that resolves within this shop's department.
+      // name; a blank category means General.
       if (!row.productName) {
         return {
           ...base,
@@ -448,26 +451,19 @@ export async function validateUpload(
         };
       }
 
-      if (!row.category) {
-        return {
-          ...base,
-          status: "NOT_FOUND",
-          errorMessage: `Category is required to create "${row.productName}".`,
-        };
-      }
-      const [category] = shopDepartment
+      const [category] = row.category
         ? await db
             .select({ id: productCategories.id })
             .from(productCategories)
             .where(
               and(
-                eq(productCategories.department, shopDepartment),
-                ilike(productCategories.name, row.category),
+                sql`lower(${productCategories.name}) = ${row.category.toLowerCase()}`,
+                eq(productCategories.isActive, true),
                 isNull(productCategories.deletedAt),
               ),
             )
             .limit(1)
-        : [];
+        : [await ensureGeneralCategory()];
       if (!category) {
         return {
           ...base,
@@ -737,11 +733,12 @@ export async function applyUpload(
       const resolvedCategory = categoryName
         ? await tx.query.productCategories.findFirst({
             where: and(
-              ilike(productCategories.name, categoryName),
+              sql`lower(${productCategories.name}) = ${categoryName.toLowerCase()}`,
+              eq(productCategories.isActive, true),
               isNull(productCategories.deletedAt),
             ),
           })
-        : undefined;
+        : await ensureGeneralCategory(tx);
       if (!resolvedCategory) {
         throw conflict(
           `Category "${categoryName}" for row ${item.rowNumber} is no longer available. Re-upload the sheet.`,
@@ -978,10 +975,10 @@ export async function buildTemplate(
   const notes = workbook.addWorksheet("How to use");
   if (uploadType === "GOODS") {
     notes.addRows([
-      ["Required columns", "Product Name, Category, Unit, Price"],
+      ["Required columns", "Product Name, Unit, Price (Category defaults to General)"],
       ["Product ID", "Leave blank for a new product — it will be assigned automatically"],
       ["Optional columns", "Description, Specifications, Sub Category"],
-      ["Category", "Must match an existing category name exactly (case-insensitive)"],
+      ["Category", "Must match an existing category name exactly (case-insensitive). Leave blank for General"],
       ["Price format", "Rupees, e.g. 72 or 72.50 — do not include the ₹ sign"],
       ["Note", "A Product ID that already exists updates that product's price instead of creating a new one"],
     ]);
