@@ -13,6 +13,7 @@ import {
   EmptyState,
   inputClass,
 } from "@/components/ui";
+import { formatPaiseCompact } from "@/lib/money";
 
 export interface AdminShop {
   id: string;
@@ -27,6 +28,33 @@ export interface AdminShop {
   status: string;
   classification: "KESARI" | "GREEN" | null;
   createdAt: string;
+  feePaymentStatus: "PENDING" | "PARTIALLY_PAID" | "PAID" | "REFUNDED" | "CANCELLED";
+  registrationFeePaise: number | null;
+  amountPaidPaise: number;
+}
+
+/**
+ * GS-008: approval is refused until the fee is settled, so the queue says where
+ * each shop stands before the operator reaches for Approve.
+ */
+function FeeBadge({ shop }: { shop: AdminShop }) {
+  if (shop.feePaymentStatus === "PAID") {
+    return (
+      <Badge tone="success">
+        {(shop.registrationFeePaise ?? 0) === 0 ? "fee waived" : "fee paid"}
+      </Badge>
+    );
+  }
+  const outstanding = Math.max(0, (shop.registrationFeePaise ?? 0) - shop.amountPaidPaise);
+  return (
+    <Badge tone="danger">
+      {shop.feePaymentStatus === "PARTIALLY_PAID"
+        ? `fee part-paid · ${formatPaiseCompact(outstanding)} due`
+        : shop.feePaymentStatus === "PENDING"
+          ? `fee due · ${formatPaiseCompact(outstanding)}`
+          : `fee ${shop.feePaymentStatus.toLowerCase()}`}
+    </Badge>
+  );
 }
 
 /** Shop approval queue and classification management (§8, §10, §42, §43). */
@@ -124,9 +152,10 @@ function PendingShopRow({
           <p className="text-sm text-ink-500">
             {[shop.area, shop.city].filter(Boolean).join(", ")} — {shop.pincode}
           </p>
-          <div className="mt-1.5 flex gap-1.5">
+          <div className="mt-1.5 flex flex-wrap gap-1.5">
             <Badge>{shop.shopType}</Badge>
             <Badge tone="warning">pending</Badge>
+            <FeeBadge shop={shop} />
           </div>
         </div>
 
