@@ -27,6 +27,32 @@ import {
   uuid,
 } from "drizzle-orm/pg-core";
 
+/* ----------------------------------------------------------- primary keys */
+
+/**
+ * Primary-key id, generated in the APPLICATION rather than by the database.
+ *
+ * `.defaultRandom()` is kept, so the column keeps its `DEFAULT gen_random_uuid()`
+ * in Postgres: no migration is needed and anything inserting outside Drizzle is
+ * unaffected. `$defaultFn` is what changes behaviour — with it Drizzle sends the
+ * id as a bound parameter instead of `DEFAULT`, so the application knows the id
+ * *before* the insert:
+ *
+ *     with $defaultFn     insert into t ("id", "n") values ($1, $2)
+ *     without it          insert into t ("id", "n") values (default, $1)
+ *
+ * That is the prerequisite for MySQL (docs/MYSQL_MIGRATION_ASSESSMENT.md §2.1).
+ * MySQL has no `RETURNING`, so a row can only be read back by an id the caller
+ * already holds, and `LAST_INSERT_ID()` covers only `AUTO_INCREMENT` keys —
+ * never a UUID. Doing this first, while still on Postgres, keeps that change
+ * separate from the dialect switch.
+ */
+const uuidPk = () =>
+  uuid("id")
+    .primaryKey()
+    .defaultRandom()
+    .$defaultFn(() => crypto.randomUUID());
+
 /* ------------------------------------------------------------------ enums */
 
 export const userRoleEnum = pgEnum("user_role", [
@@ -443,7 +469,7 @@ export const consentTypeEnum = pgEnum("consent_type", [
 export const users = pgTable(
   "users",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     name: text("name"),
     email: text("email").notNull(),
     emailVerified: timestamp("email_verified", { withTimezone: true }),
@@ -497,7 +523,7 @@ export const platformSettings = pgTable("platform_settings", {
 export const loginOtps = pgTable(
   "login_otps",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
     phoneE164: text("phone_e164").notNull(),
     channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
@@ -598,7 +624,7 @@ export const rolePermissions = pgTable(
 export const addresses = pgTable(
   "addresses",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -644,7 +670,7 @@ export const addresses = pgTable(
 export const shops = pgTable(
   "shops",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     ownerId: uuid("owner_id")
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
@@ -896,7 +922,7 @@ export const shops = pgTable(
 export const shopCategories = pgTable(
   "shop_categories",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     name: text("name").notNull(),
     slug: text("slug").notNull(),
     description: text("description"),
@@ -914,7 +940,7 @@ export const shopCategories = pgTable(
 export const shopCategoryMapping = pgTable(
   "shop_category_mapping",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     shopId: uuid("shop_id")
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
@@ -934,7 +960,7 @@ export const shopCategoryMapping = pgTable(
 export const shopClassificationHistory = pgTable(
   "shop_classification_history",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     shopId: uuid("shop_id")
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
@@ -970,7 +996,7 @@ export const deliveryPartnerStatusEnum = pgEnum("delivery_partner_status", [
 export const deliveryPartners = pgTable(
   "delivery_partners",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
@@ -1076,7 +1102,7 @@ export const deliveryPartners = pgTable(
 export const brands = pgTable(
   "brands",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     name: text("name").notNull(),
     slug: text("slug").notNull(),
     description: text("description"),
@@ -1097,7 +1123,7 @@ export const brands = pgTable(
 export const productCategories = pgTable(
   "product_categories",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     department: departmentEnum("department").notNull(),
     name: text("name").notNull(),
     slug: text("slug").notNull(),
@@ -1124,7 +1150,7 @@ export const productCategories = pgTable(
 export const productSubcategories = pgTable(
   "product_subcategories",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     categoryId: uuid("category_id")
       .notNull()
       .references(() => productCategories.id, { onDelete: "restrict" }),
@@ -1150,7 +1176,7 @@ export const productSubcategories = pgTable(
 export const products = pgTable(
   "products",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     categoryId: uuid("category_id")
       .notNull()
       .references(() => productCategories.id, { onDelete: "restrict" }),
@@ -1286,7 +1312,7 @@ export const products = pgTable(
 export const productMrpHistory = pgTable(
   "product_mrp_history",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     productId: uuid("product_id")
       .notNull()
       .references(() => products.id, { onDelete: "cascade" }),
@@ -1314,7 +1340,7 @@ export const productMrpHistory = pgTable(
 export const productImages = pgTable(
   "product_images",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     productId: uuid("product_id")
       .notNull()
       .references(() => products.id, { onDelete: "cascade" }),
@@ -1348,7 +1374,7 @@ export const productImages = pgTable(
 export const shopProducts = pgTable(
   "shop_products",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     shopId: uuid("shop_id")
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
@@ -1435,7 +1461,7 @@ export const shopProducts = pgTable(
 export const stockAlerts = pgTable(
   "stock_alerts",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     shopProductId: uuid("shop_product_id")
       .notNull()
       .references(() => shopProducts.id, { onDelete: "cascade" }),
@@ -1468,7 +1494,7 @@ export const stockAlerts = pgTable(
 export const productPriceHistory = pgTable(
   "product_price_history",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     shopProductId: uuid("shop_product_id")
       .notNull()
       .references(() => shopProducts.id, { onDelete: "cascade" }),
@@ -1490,7 +1516,7 @@ export const productPriceHistory = pgTable(
 export const inventoryMovements = pgTable(
   "inventory_movements",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     shopProductId: uuid("shop_product_id")
       .notNull()
       .references(() => shopProducts.id, { onDelete: "cascade" }),
@@ -1514,7 +1540,7 @@ export const inventoryMovements = pgTable(
 export const carts = pgTable(
   "carts",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -1531,7 +1557,7 @@ export const carts = pgTable(
 export const cartItems = pgTable(
   "cart_items",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     cartId: uuid("cart_id")
       .notNull()
       .references(() => carts.id, { onDelete: "cascade" }),
@@ -1559,7 +1585,7 @@ export const cartItems = pgTable(
 export const orders = pgTable(
   "orders",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     orderNumber: text("order_number").notNull(),
     userId: uuid("user_id")
       .notNull()
@@ -1670,7 +1696,7 @@ export const orders = pgTable(
 export const orderItems = pgTable(
   "order_items",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     orderId: uuid("order_id")
       .notNull()
       .references(() => orders.id, { onDelete: "cascade" }),
@@ -1714,7 +1740,7 @@ export const orderItems = pgTable(
 export const orderStatusHistory = pgTable(
   "order_status_history",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     orderId: uuid("order_id")
       .notNull()
       .references(() => orders.id, { onDelete: "cascade" }),
@@ -1748,7 +1774,7 @@ export const deliveryOrderStatusEnum = pgEnum("delivery_order_status", [
 export const deliveryOrders = pgTable(
   "delivery_orders",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     orderId: uuid("order_id")
       .notNull()
       .references(() => orders.id, { onDelete: "restrict" }),
@@ -1806,7 +1832,7 @@ export const deliveryOrders = pgTable(
 export const riderSearches = pgTable(
   "rider_searches",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     orderId: uuid("order_id")
       .notNull()
       .references(() => orders.id, { onDelete: "cascade" }),
@@ -1843,7 +1869,7 @@ export const riderSearches = pgTable(
 export const dispatchAttempts = pgTable(
   "dispatch_attempts",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     orderId: uuid("order_id")
       .notNull()
       .references(() => orders.id, { onDelete: "cascade" }),
@@ -1868,7 +1894,7 @@ export const dispatchAttempts = pgTable(
 export const deliveryEarningsConfig = pgTable(
   "delivery_earnings_config",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     baseFeePaise: bigint("base_fee_paise", { mode: "number" }).notNull(),
     perKmFeePaise: bigint("per_km_fee_paise", { mode: "number" }).notNull(),
     isActive: boolean("is_active").notNull().default(true),
@@ -1887,7 +1913,7 @@ export const deliveryEarningsConfig = pgTable(
 export const deliveryPartnerEarnings = pgTable(
   "delivery_partner_earnings",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     deliveryPartnerId: uuid("delivery_partner_id")
       .notNull()
       .references(() => deliveryPartners.id, { onDelete: "restrict" }),
@@ -1931,7 +1957,7 @@ export const deliveryPartnerEarnings = pgTable(
 export const shopSuspensions = pgTable(
   "shop_suspensions",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     shopId: uuid("shop_id")
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
@@ -1958,7 +1984,7 @@ export const shopSuspensions = pgTable(
 export const shopSuspensionOrders = pgTable(
   "shop_suspension_orders",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     suspensionId: uuid("suspension_id")
       .notNull()
       .references(() => shopSuspensions.id, { onDelete: "cascade" }),
@@ -1990,7 +2016,7 @@ export const shopSuspensionOrders = pgTable(
 export const externalPriceReferences = pgTable(
   "external_price_references",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     productId: uuid("product_id")
       .notNull()
       .references(() => products.id, { onDelete: "cascade" }),
@@ -2027,7 +2053,7 @@ export const externalPriceReferences = pgTable(
 export const externalPriceReferenceHistory = pgTable(
   "external_price_reference_history",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     referenceId: uuid("reference_id")
       .notNull()
       .references(() => externalPriceReferences.id, { onDelete: "cascade" }),
@@ -2049,7 +2075,7 @@ export const externalPriceReferenceHistory = pgTable(
 export const mrpCorrections = pgTable(
   "mrp_corrections",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     productId: uuid("product_id")
       .notNull()
       .references(() => products.id, { onDelete: "cascade" }),
@@ -2090,7 +2116,7 @@ const bytea = customType<{ data: Buffer; default: false }>({
 export const storedImages = pgTable(
   "stored_images",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
     purpose: text("purpose", { enum: ["PRODUCT", "RETURN_EVIDENCE"] }).notNull(),
     contentType: text("content_type").notNull(),
@@ -2111,7 +2137,7 @@ export const storedImages = pgTable(
 export const returnRequests = pgTable(
   "return_requests",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     returnNumber: text("return_number").notNull(),
     orderId: uuid("order_id")
       .notNull()
@@ -2156,7 +2182,7 @@ export const returnRequests = pgTable(
 export const returnItems = pgTable(
   "return_items",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     returnId: uuid("return_id")
       .notNull()
       .references(() => returnRequests.id, { onDelete: "cascade" }),
@@ -2182,7 +2208,7 @@ export const returnItems = pgTable(
 export const returnStatusHistory = pgTable(
   "return_status_history",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     returnId: uuid("return_id")
       .notNull()
       .references(() => returnRequests.id, { onDelete: "cascade" }),
@@ -2200,7 +2226,7 @@ export const returnStatusHistory = pgTable(
 export const returnPickups = pgTable(
   "return_pickups",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     returnId: uuid("return_id")
       .notNull()
       .references(() => returnRequests.id, { onDelete: "cascade" }),
@@ -2244,7 +2270,7 @@ export const returnPickups = pgTable(
 export const riderEarningSlots = pgTable(
   "rider_earning_slots",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     name: text("name").notNull(),
     /** "HH:MM" local start (inclusive) and end (exclusive); end < start means the window crosses midnight. */
     startTime: text("start_time").notNull(),
@@ -2295,7 +2321,7 @@ export const riderEarningSlots = pgTable(
 export const riderIncentiveRules = pgTable(
   "rider_incentive_rules",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     name: text("name").notNull(),
     description: text("description"),
     type: text("type", {
@@ -2322,7 +2348,7 @@ export const riderIncentiveRules = pgTable(
 export const riderIncentiveAwards = pgTable(
   "rider_incentive_awards",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     ruleId: uuid("rule_id")
       .notNull()
       .references(() => riderIncentiveRules.id, { onDelete: "restrict" }),
@@ -2342,7 +2368,7 @@ export const riderIncentiveAwards = pgTable(
 export const riderEarningsLedger = pgTable(
   "rider_earnings_ledger",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     deliveryPartnerId: uuid("delivery_partner_id")
       .notNull()
       .references(() => deliveryPartners.id, { onDelete: "restrict" }),
@@ -2375,7 +2401,7 @@ export const riderEarningsLedger = pgTable(
 export const payments = pgTable(
   "payments",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
@@ -2421,7 +2447,7 @@ export const payments = pgTable(
 export const wallets = pgTable(
   "wallets",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -2488,7 +2514,7 @@ export const wallets = pgTable(
 export const walletTransactions = pgTable(
   "wallet_transactions",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     walletId: uuid("wallet_id")
       .notNull()
       .references(() => wallets.id, { onDelete: "restrict" }),
@@ -2576,7 +2602,7 @@ export const walletTransactions = pgTable(
 export const vouchers = pgTable(
   "vouchers",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     name: text("name").notNull(),
     /** Stored upper-cased; NULL when applyMode is AUTO_APPLY. */
     code: text("code"),
@@ -2653,7 +2679,7 @@ export const vouchers = pgTable(
 export const voucherRedemptions = pgTable(
   "voucher_redemptions",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     voucherId: uuid("voucher_id")
       .notNull()
       .references(() => vouchers.id, { onDelete: "restrict" }),
@@ -2689,7 +2715,7 @@ export const voucherRedemptions = pgTable(
 export const voucherUploads = pgTable(
   "voucher_uploads",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     uploadedBy: uuid("uploaded_by")
       .notNull()
       .references(() => users.id),
@@ -2710,7 +2736,7 @@ export const voucherUploads = pgTable(
 export const voucherUploadItems = pgTable(
   "voucher_upload_items",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     uploadId: uuid("upload_id")
       .notNull()
       .references(() => voucherUploads.id, { onDelete: "cascade" }),
@@ -2738,7 +2764,7 @@ export const voucherUploadItems = pgTable(
 export const subscriptions = pgTable(
   "subscriptions",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -2790,7 +2816,7 @@ export const subscriptions = pgTable(
 export const subscriptionDailyOverrides = pgTable(
   "subscription_daily_overrides",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     subscriptionId: uuid("subscription_id")
       .notNull()
       .references(() => subscriptions.id, { onDelete: "cascade" }),
@@ -2826,7 +2852,7 @@ export const subscriptionDailyOverrides = pgTable(
 export const subscriptionOrders = pgTable(
   "subscription_orders",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     subscriptionId: uuid("subscription_id")
       .notNull()
       .references(() => subscriptions.id, { onDelete: "cascade" }),
@@ -2857,7 +2883,7 @@ export const subscriptionOrders = pgTable(
 export const notifications = pgTable(
   "notifications",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -2890,7 +2916,7 @@ export const notifications = pgTable(
 export const notificationPreferences = pgTable(
   "notification_preferences",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -2911,7 +2937,7 @@ export const notificationPreferences = pgTable(
 export const notificationDeliveries = pgTable(
   "notification_deliveries",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     notificationId: uuid("notification_id").references(() => notifications.id, { onDelete: "set null" }),
     userId: uuid("user_id")
       .notNull()
@@ -2952,7 +2978,7 @@ export const notificationDeliveries = pgTable(
 export const registrationFees = pgTable(
   "registration_fees",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
     currency: text("currency").notNull().default("INR"),
     effectiveFrom: date("effective_from").notNull(),
@@ -2974,7 +3000,7 @@ export const registrationFees = pgTable(
 export const registrationFeeHistory = pgTable(
   "registration_fee_history",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     registrationFeeId: uuid("registration_fee_id")
       .notNull()
       .references(() => registrationFees.id, { onDelete: "restrict" }),
@@ -2997,7 +3023,7 @@ export const registrationFeeHistory = pgTable(
 export const referralCodes = pgTable(
   "referral_codes",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     /** Stored upper-cased; matching is case-insensitive at the service layer. */
     code: text("code").notNull(),
     label: text("label"),
@@ -3027,7 +3053,7 @@ export const referralCodes = pgTable(
 export const referralRedemptions = pgTable(
   "referral_redemptions",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     referralCodeId: uuid("referral_code_id")
       .notNull()
       .references(() => referralCodes.id, { onDelete: "restrict" }),
@@ -3057,7 +3083,7 @@ export const referralRedemptions = pgTable(
 export const shopPayments = pgTable(
   "shop_payments",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     /** Human-readable receipt id shown to the owner, e.g. PAY-2026-000045. */
     reference: text("reference").notNull(),
     shopId: uuid("shop_id")
@@ -3107,7 +3133,7 @@ export const shopPayments = pgTable(
 export const excelUploads = pgTable(
   "excel_uploads",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     shopId: uuid("shop_id")
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
@@ -3143,7 +3169,7 @@ export const excelUploads = pgTable(
 export const excelUploadItems = pgTable(
   "excel_upload_items",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     uploadId: uuid("upload_id")
       .notNull()
       .references(() => excelUploads.id, { onDelete: "cascade" }),
@@ -3197,7 +3223,7 @@ export const excelUploadItems = pgTable(
 export const priceUpdateBatches = pgTable(
   "price_update_batches",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     shopId: uuid("shop_id")
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
@@ -3229,7 +3255,7 @@ export const priceUpdateBatches = pgTable(
 export const priceUpdateRequests = pgTable(
   "price_update_requests",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     batchId: uuid("batch_id")
       .notNull()
       .references(() => priceUpdateBatches.id, { onDelete: "cascade" }),
@@ -3280,7 +3306,7 @@ export const priceUpdateRequests = pgTable(
 export const grievances = pgTable(
   "grievances",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     /** Human-readable reference, e.g. GRV-000123 — what the complainant quotes back. */
     ticketNumber: text("ticket_number")
       .notNull()
@@ -3321,7 +3347,7 @@ export const grievances = pgTable(
 export const userConsents = pgTable(
   "user_consents",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -3346,7 +3372,7 @@ export const userConsents = pgTable(
 export const auditLogs = pgTable(
   "audit_logs",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     actorId: uuid("actor_id").references(() => users.id),
     actorRole: userRoleEnum("actor_role"),
     action: text("action").notNull(),
@@ -3377,7 +3403,7 @@ export const auditLogs = pgTable(
 export const mapsApiCallLog = pgTable(
   "maps_api_call_log",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     service: text("service", { enum: ["GEOCODING"] }).notNull(),
     purpose: text("purpose").notNull(),
     entityType: text("entity_type"),
@@ -3416,7 +3442,7 @@ export const societyLinkStatusEnum = pgEnum("society_link_status", ["ACTIVE", "R
 export const societies = pgTable(
   "societies",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     name: text("name").notNull(),
     slug: text("slug").notNull(),
     addressLine1: text("address_line1").notNull(),
@@ -3470,7 +3496,7 @@ export const societies = pgTable(
 export const societyMembers = pgTable(
   "society_members",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     societyId: uuid("society_id")
       .notNull()
       .references(() => societies.id, { onDelete: "cascade" }),
@@ -3496,7 +3522,7 @@ export const societyMembers = pgTable(
 export const societyRiders = pgTable(
   "society_riders",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     societyId: uuid("society_id")
       .notNull()
       .references(() => societies.id, { onDelete: "cascade" }),
@@ -3521,7 +3547,7 @@ export const societyRiders = pgTable(
 export const societyShops = pgTable(
   "society_shops",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     societyId: uuid("society_id")
       .notNull()
       .references(() => societies.id, { onDelete: "cascade" }),
@@ -3549,7 +3575,7 @@ export const ratingStatusEnum = pgEnum("rating_status", ["VISIBLE", "HIDDEN"]);
 export const orderRatings = pgTable(
   "order_ratings",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     orderId: uuid("order_id")
       .notNull()
       .references(() => orders.id, { onDelete: "cascade" }),
@@ -3587,7 +3613,7 @@ export const orderRatings = pgTable(
 export const subscriptionEvents = pgTable(
   "subscription_events",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     subscriptionId: uuid("subscription_id")
       .notNull()
       .references(() => subscriptions.id, { onDelete: "cascade" }),
@@ -3626,7 +3652,7 @@ export const commissionScopeEnum = pgEnum("commission_scope", ["DEFAULT", "SHOP_
 export const commissionRates = pgTable(
   "commission_rates",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     scope: commissionScopeEnum("scope").notNull(),
     /** Set for SHOP_TYPE. */
     shopType: shopTypeEnum("shop_type"),
@@ -3689,7 +3715,7 @@ const payoutLifecycleColumns = () => ({
 export const shopSettlements = pgTable(
   "shop_settlements",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     shopId: uuid("shop_id")
       .notNull()
       .references(() => shops.id, { onDelete: "restrict" }),
@@ -3718,7 +3744,7 @@ export const shopSettlements = pgTable(
 export const riderPayouts = pgTable(
   "rider_payouts",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     deliveryPartnerId: uuid("delivery_partner_id")
       .notNull()
       .references(() => deliveryPartners.id, { onDelete: "restrict" }),
@@ -3811,7 +3837,7 @@ export const adjustmentStatusEnum = pgEnum("financial_adjustment_status", [
 export const financialAdjustments = pgTable(
   "financial_adjustments",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     type: adjustmentTypeEnum("type").notNull(),
     party: financialPartyEnum("party").notNull(),
     status: adjustmentStatusEnum("status").notNull().default("PENDING"),
@@ -3873,7 +3899,7 @@ export const ledgerDirectionEnum = pgEnum("ledger_direction", ["CREDIT", "DEBIT"
 export const financeLedgerEntries = pgTable(
   "finance_ledger_entries",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     orderId: uuid("order_id").references(() => orders.id, { onDelete: "restrict" }),
     entityType: financialPartyEnum("entity_type").notNull(),
     /** Shop id, delivery partner id, or null for the platform. */
@@ -3922,7 +3948,7 @@ export const reconciliationStatusEnum = pgEnum("reconciliation_status", [
 export const reconciliationRecords = pgTable(
   "reconciliation_records",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     entityType: reconciliationEntityEnum("entity_type").notNull(),
     entityId: text("entity_id").notNull(),
     /** Human reference: order number, gateway order id, settlement id. */
@@ -3960,7 +3986,7 @@ export const roleGrantStatusEnum = pgEnum("role_grant_status", ["ACTIVE", "REVOK
 export const userRoleGrants = pgTable(
   "user_role_grants",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     userId: uuid("user_id")
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
@@ -3983,7 +4009,7 @@ export const userRoleGrants = pgTable(
 export const deliveryPartnerSessions = pgTable(
   "delivery_partner_sessions",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     deliveryPartnerId: uuid("delivery_partner_id")
       .notNull()
       .references(() => deliveryPartners.id, { onDelete: "cascade" }),
@@ -4019,7 +4045,7 @@ export interface SegmentRules {
 export const customerSegments = pgTable(
   "customer_segments",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     shopId: uuid("shop_id")
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
@@ -4050,7 +4076,7 @@ export const campaignStatusEnum = pgEnum("campaign_status", [
 export const marketingCampaigns = pgTable(
   "marketing_campaigns",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     shopId: uuid("shop_id")
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
@@ -4088,7 +4114,7 @@ export const marketingCampaigns = pgTable(
 export const campaignRecipients = pgTable(
   "campaign_recipients",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     campaignId: uuid("campaign_id")
       .notNull()
       .references(() => marketingCampaigns.id, { onDelete: "cascade" }),
@@ -4117,7 +4143,7 @@ export const riskFlagStatusEnum = pgEnum("risk_flag_status", ["OPEN", "DISMISSED
 export const riskFlags = pgTable(
   "risk_flags",
   {
-    id: uuid("id").primaryKey().defaultRandom(),
+    id: uuidPk(),
     subjectType: riskSubjectEnum("subject_type").notNull(),
     subjectId: uuid("subject_id").notNull(),
     ruleCode: text("rule_code").notNull(),
