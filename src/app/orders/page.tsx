@@ -14,10 +14,12 @@ import { LiveTrackingMap } from "@/components/live-tracking-map";
 import { RateOrderForm, ReportIssueForm } from "@/components/rating-actions";
 import { SubstitutionDecision } from "@/components/substitution-decision";
 import { formatQuantity } from "@/lib/money";
+import { DISPUTE_STATUS_LABELS } from "@/lib/dispute-states";
 import { isTrackableOrderStatus } from "@/lib/tracking";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { getDeliveryOrdersForOrders } from "@/server/services/delivery-assignment";
+import { getLiveDisputesForOrders } from "@/server/services/disputes";
 import { listOrdersForUser } from "@/server/services/orders";
 import { listMyRatingsByOrder } from "@/server/services/ratings";
 
@@ -47,9 +49,10 @@ export default async function OrdersPage({
   const showBusiness = can(user.role, PERMISSIONS.ORDER_PLACE_B2B);
   const orderType = showBusiness && params.type === "business" ? "B2B" : "PERSONAL";
   const orders = await listOrdersForUser(user.id, { limit: 50, orderType });
-  const [deliveryOrders, myRatings] = await Promise.all([
+  const [deliveryOrders, myRatings, liveDisputes] = await Promise.all([
     getDeliveryOrdersForOrders(orders.map((o) => o.id)),
     listMyRatingsByOrder(user.id, orders.map((o) => o.id)),
+    getLiveDisputesForOrders(orders.map((o) => o.id)),
   ]);
 
   return (
@@ -217,7 +220,22 @@ export default async function OrdersPage({
                 </div>
               ) : null}
 
-              {order.paidAt && order.status !== "PENDING" ? <ReportIssueForm orderId={order.id} /> : null}
+              {/*
+                GS-058: while a dispute is open on this order, the card says so
+                instead of inviting another report — a second case on the same
+                order is refused by the service anyway.
+              */}
+              {liveDisputes.has(order.id) ? (
+                <p className="mt-3 rounded-lg bg-cream-50 px-3 py-2 text-sm text-ink-700">
+                  Dispute <span className="font-mono">{liveDisputes.get(order.id)!.caseNumber}</span> on this order:{" "}
+                  <span className="font-medium">
+                    {DISPUTE_STATUS_LABELS[liveDisputes.get(order.id)!.status].toLowerCase()}
+                  </span>
+                  . We will be in touch.
+                </p>
+              ) : order.paidAt && order.status !== "PENDING" ? (
+                <ReportIssueForm orderId={order.id} />
+              ) : null}
 
               {order.status === "WALLET_INSUFFICIENT" ? (
                 <div className="mt-3">

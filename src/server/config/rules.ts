@@ -195,6 +195,26 @@ export const RULES = {
     }),
     defaults: { showToCustomers: false, showToShops: true, maxAgeDays: 90 },
   },
+  disputes: {
+    description:
+      "When a dispute case is escalated to an administrator automatically (GS-058). Both triggers are off at 0, which leaves escalation entirely to a reviewer.",
+    schema: z.object({
+      /** A live case older than this is escalated by the sweep. 0 disables the age trigger. */
+      escalateAfterHours: int(0, 720),
+      /** A case opened for more than this is escalated at once. 0 disables the amount trigger. */
+      escalateAbovePaise: int(0, 100_000_000),
+      /** How long a reviewer has to resolve an escalated case before it is flagged as overdue. */
+      resolveTargetHours: int(1, 720),
+    }),
+    defaults: {
+      // 48 h matches the return window, so a dispute and a return on the same
+      // order age out on the same clock.
+      escalateAfterHours: 48,
+      // ₹2,000. Above this an administrator decides, not operations.
+      escalateAbovePaise: 200_000,
+      resolveTargetHours: 120,
+    },
+  },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;

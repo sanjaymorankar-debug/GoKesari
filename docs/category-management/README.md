@@ -7,7 +7,7 @@ this out on **test.gokesari.com first** (production only after approval).
 
 | Piece | Where |
 |---|---|
-| Category master (`product_categories`): unique names ignoring case, created by/at, active flag, permanent **General** | `src/server/services/product-categories.ts`, migration `drizzle/0038_product_category_management.sql` |
+| Category master (`product_categories`): unique names ignoring case, created by/at, active flag, permanent **General** | `src/server/services/product-categories.ts`, migration `drizzle/0039_product_category_management.sql` (numbered 0038 before the merge with main) |
 | Shop ↔ category links (`shop_product_categories`, unique per shop + category) | same |
 | A shop sees every APPROVED product in the categories it carries — computed at query time, so products added later appear with no extra step | `listProductsVisibleToShop`, `suggestProductsForShop` |
 | Removing a category from a shop pauses that shop's listings in it (hidden from customers, not purchasable); listings, orders and history are untouched, and re-adding restores them | `shopCarriesProductCategory` in the storefront and checkout queries |

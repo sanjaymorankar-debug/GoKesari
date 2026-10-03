@@ -1,25 +1,22 @@
--- 0038 Product category management.
+-- 0039 Product category management.
 --   * product_categories becomes the category master: created_by, updated_at,
 --     case-insensitive unique names, and one protected "General" row.
 --   * shop_product_categories: which categories each shop carries (many-to-many).
 -- Rollback: scripts/rollback-0038.sql
-CREATE TABLE "shop_product_categories" (
-	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
-	"shop_id" uuid NOT NULL,
-	"category_id" uuid NOT NULL,
-	"added_by" uuid,
-	"created_at" timestamp with time zone DEFAULT now() NOT NULL
-);
---> statement-breakpoint
-ALTER TABLE "product_categories" ADD COLUMN "is_system" boolean DEFAULT false NOT NULL;--> statement-breakpoint
-ALTER TABLE "product_categories" ADD COLUMN "created_by" uuid;--> statement-breakpoint
-ALTER TABLE "product_categories" ADD COLUMN "updated_at" timestamp with time zone DEFAULT now() NOT NULL;--> statement-breakpoint
-ALTER TABLE "shop_product_categories" ADD CONSTRAINT "shop_product_categories_shop_id_shops_id_fk" FOREIGN KEY ("shop_id") REFERENCES "public"."shops"("id") ON DELETE cascade ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "shop_product_categories" ADD CONSTRAINT "shop_product_categories_category_id_product_categories_id_fk" FOREIGN KEY ("category_id") REFERENCES "public"."product_categories"("id") ON DELETE restrict ON UPDATE no action;--> statement-breakpoint
-ALTER TABLE "shop_product_categories" ADD CONSTRAINT "shop_product_categories_added_by_users_id_fk" FOREIGN KEY ("added_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
-CREATE UNIQUE INDEX "shop_product_categories_unique" ON "shop_product_categories" USING btree ("shop_id","category_id");--> statement-breakpoint
-CREATE INDEX "shop_product_categories_category_idx" ON "shop_product_categories" USING btree ("category_id");--> statement-breakpoint
-ALTER TABLE "product_categories" ADD CONSTRAINT "product_categories_created_by_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;--> statement-breakpoint
+--
+-- Numbered 0038 on staging until it was merged with main's 0037_dispute_cases
+-- (the rollback script and the migration_0038_category_renames table keep that
+-- name). The test database already ran it under 0038, and drizzle will run it
+-- again there under 0039, so every statement is a no-op the second time and
+-- the one-off backfill of shop links runs only in the run that creates the
+-- table — re-running it would re-link categories an admin has since removed.
+ALTER TABLE "product_categories" ADD COLUMN IF NOT EXISTS "is_system" boolean DEFAULT false NOT NULL;--> statement-breakpoint
+ALTER TABLE "product_categories" ADD COLUMN IF NOT EXISTS "created_by" uuid;--> statement-breakpoint
+ALTER TABLE "product_categories" ADD COLUMN IF NOT EXISTS "updated_at" timestamp with time zone DEFAULT now() NOT NULL;--> statement-breakpoint
+DO $$ BEGIN
+  ALTER TABLE "product_categories" ADD CONSTRAINT "product_categories_created_by_users_id_fk" FOREIGN KEY ("created_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
+EXCEPTION WHEN duplicate_object THEN NULL;
+END $$;--> statement-breakpoint
 -- Category names become unique ignoring case (among live categories). Existing
 -- duplicates (e.g. "Biscuits" under two departments) are renamed, never merged,
 -- so no product moves: the later row becomes "Biscuits (Bakery)", and if that is
@@ -55,8 +52,8 @@ BEGIN
   END LOOP;
 END $$;
 --> statement-breakpoint
-CREATE UNIQUE INDEX "product_categories_name_live_unique" ON "product_categories" USING btree (lower("name")) WHERE "product_categories"."deleted_at" IS NULL;--> statement-breakpoint
-CREATE UNIQUE INDEX "product_categories_one_system" ON "product_categories" USING btree ("is_system") WHERE "product_categories"."is_system";
+CREATE UNIQUE INDEX IF NOT EXISTS "product_categories_name_live_unique" ON "product_categories" USING btree (lower("name")) WHERE "product_categories"."deleted_at" IS NULL;--> statement-breakpoint
+CREATE UNIQUE INDEX IF NOT EXISTS "product_categories_one_system" ON "product_categories" USING btree ("is_system") WHERE "product_categories"."is_system";
 --> statement-breakpoint
 -- The permanent "General" category. If a live category already called "general"
 -- exists it becomes the system row; otherwise one is created.
@@ -106,6 +103,8 @@ BEGIN
   RETURN NEW;
 END $$;
 --> statement-breakpoint
+DROP TRIGGER IF EXISTS product_categories_protect_system ON product_categories;
+--> statement-breakpoint
 CREATE TRIGGER product_categories_protect_system
   BEFORE UPDATE OR DELETE ON product_categories
   FOR EACH ROW EXECUTE FUNCTION product_categories_protect_system();
@@ -114,15 +113,32 @@ CREATE TRIGGER product_categories_protect_system
 -- shop loses anything on the day this ships, every live shop is linked to:
 --   1. every category of its own department (what its catalogue picker showed), and
 --   2. the category of every product it already lists (so no listing pauses).
-INSERT INTO shop_product_categories (shop_id, category_id)
-SELECT s.id, c.id
-  FROM shops s
-  JOIN product_categories c ON c.department::text = s.shop_type::text AND c.deleted_at IS NULL
- WHERE s.deleted_at IS NULL
-UNION
-SELECT DISTINCT sp.shop_id, p.category_id
-  FROM shop_products sp
-  JOIN products p ON p.id = sp.product_id
-  JOIN shops s ON s.id = sp.shop_id
- WHERE sp.deleted_at IS NULL AND s.deleted_at IS NULL
-ON CONFLICT (shop_id, category_id) DO NOTHING;
+-- The table, its constraints and the backfill are created together, once.
+DO $$ BEGIN
+  IF to_regclass('public.shop_product_categories') IS NULL THEN
+    CREATE TABLE "shop_product_categories" (
+      "id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
+      "shop_id" uuid NOT NULL,
+      "category_id" uuid NOT NULL,
+      "added_by" uuid,
+      "created_at" timestamp with time zone DEFAULT now() NOT NULL
+    );
+    ALTER TABLE "shop_product_categories" ADD CONSTRAINT "shop_product_categories_shop_id_shops_id_fk" FOREIGN KEY ("shop_id") REFERENCES "public"."shops"("id") ON DELETE cascade ON UPDATE no action;
+    ALTER TABLE "shop_product_categories" ADD CONSTRAINT "shop_product_categories_category_id_product_categories_id_fk" FOREIGN KEY ("category_id") REFERENCES "public"."product_categories"("id") ON DELETE restrict ON UPDATE no action;
+    ALTER TABLE "shop_product_categories" ADD CONSTRAINT "shop_product_categories_added_by_users_id_fk" FOREIGN KEY ("added_by") REFERENCES "public"."users"("id") ON DELETE no action ON UPDATE no action;
+    CREATE UNIQUE INDEX "shop_product_categories_unique" ON "shop_product_categories" USING btree ("shop_id","category_id");
+    CREATE INDEX "shop_product_categories_category_idx" ON "shop_product_categories" USING btree ("category_id");
+    INSERT INTO shop_product_categories (shop_id, category_id)
+    SELECT s.id, c.id
+      FROM shops s
+      JOIN product_categories c ON c.department::text = s.shop_type::text AND c.deleted_at IS NULL
+     WHERE s.deleted_at IS NULL
+    UNION
+    SELECT DISTINCT sp.shop_id, p.category_id
+      FROM shop_products sp
+      JOIN products p ON p.id = sp.product_id
+      JOIN shops s ON s.id = sp.shop_id
+     WHERE sp.deleted_at IS NULL AND s.deleted_at IS NULL
+    ON CONFLICT (shop_id, category_id) DO NOTHING;
+  END IF;
+END $$;

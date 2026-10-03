@@ -24,6 +24,11 @@ export const NOTIFICATION_TYPES = {
   DELIVERY_UNASSIGNED: "delivery.unassigned",
   /** To the shop: the automatic rider search gave up (limit, time or delivery window). */
   DELIVERY_SEARCH_STOPPED: "delivery.search_stopped",
+  /* --------------------------------------------------- disputes (GS-058) */
+  DISPUTE_OPENED: "dispute.opened",
+  DISPUTE_RESOLUTION_PROPOSED: "dispute.resolution_proposed",
+  DISPUTE_RESOLVED: "dispute.resolved",
+  DISPUTE_REJECTED: "dispute.rejected",
   /* ---------------------------------------------------- returns */
   RETURN_REQUESTED: "return.requested",
   RETURN_APPROVED: "return.approved",

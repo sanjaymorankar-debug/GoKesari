@@ -12,6 +12,7 @@ import {
   type InFlightOrderStatus,
 } from "@/server/services/analytics";
 import { ORDER_STATUS_LABELS } from "@/server/services/orders";
+import { countDisputes } from "@/server/services/disputes";
 import { countOpenRiskFlags } from "@/server/services/risk";
 import { countShopsByStatus } from "@/server/services/shops";
 import { getAdminDashboard } from "@/server/services/dashboards";
@@ -29,15 +30,17 @@ export default async function AdminDashboardPage() {
   const canViewOrders = can(user.role, PERMISSIONS.ORDER_VIEW_ANY);
   const canApproveShops = can(user.role, PERMISSIONS.SHOP_APPROVE);
   const canReviewRisk = can(user.role, PERMISSIONS.RISK_REVIEW);
+  const canWorkDisputes = can(user.role, PERMISSIONS.DISPUTE_MANAGE);
   const canViewFinanceExceptions =
     can(user.role, PERMISSIONS.FINANCE_VIEW) || can(user.role, PERMISSIONS.FINANCE_EXCEPTIONS_VIEW);
 
   const today = defaultWindow(1);
-  const [kpis, live, shopCounts, riskCounts] = await Promise.all([
+  const [kpis, live, shopCounts, riskCounts, disputeCounts] = await Promise.all([
     getMarketplaceKpis(today),
     getLiveOperations(),
     countShopsByStatus(),
     canReviewRisk ? countOpenRiskFlags() : Promise.resolve(null),
+    canWorkDisputes ? countDisputes() : Promise.resolve(null),
   ]);
 
   const deliveredGmvPaise = kpis.gmvTrend.reduce((sum, d) => sum + d.gmvPaise, 0);
@@ -139,6 +142,14 @@ export default async function AdminDashboardPage() {
               value={openRiskTotal}
               subtitle={`${riskCounts.HIGH} high · ${riskCounts.MEDIUM} medium · ${riskCounts.LOW} low`}
               color={riskCounts.HIGH > 0 ? "red" : "purple"}
+            />
+          ) : null}
+          {disputeCounts ? (
+            <KPICard
+              title="Open disputes"
+              value={disputeCounts.live}
+              subtitle={`${disputeCounts.escalated} escalated · ${disputeCounts.overdue} past target`}
+              color={disputeCounts.overdue > 0 ? "red" : disputeCounts.escalated > 0 ? "orange" : "purple"}
             />
           ) : null}
         </div>

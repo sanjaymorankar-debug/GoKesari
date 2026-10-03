@@ -1,6 +1,6 @@
 # Login by mobile or email + profile — deploy and test
 
-Covers migration `0037_login_profile` and the sign-in / onboarding / My Profile / checkout changes.
+Covers migration `0038_login_profile` (numbered `0037` on staging before the merge with main's `0037_dispute_cases`) and the sign-in / onboarding / My Profile / checkout changes.
 
 ## What changed for users
 
@@ -31,7 +31,7 @@ Optional, for the draggable map pin: `NEXT_PUBLIC_GOOGLE_MAPS_API_KEY` (browser)
 ## Deploy — test first (test.gokesari.com, `staging` branch)
 
 1. **Back up the test database.** In Neon, create a branch/snapshot, or run:
-   `pg_dump "$DATABASE_URL" -Fc -f gokesari_test_before_0037.dump`
+   `pg_dump "$DATABASE_URL" -Fc -f gokesari_test_before_0038.dump`
 2. **Run the migration against the test database** from any machine with the repo checked out at this branch:
    `DATABASE_URL="<test database URL>" npm run db:migrate`
    It is additive and safe to re-run. It adds:
@@ -51,7 +51,7 @@ The old code keeps working after the migration (the new columns are nullable), s
 
 Only after every checklist item passes on test:
 
-1. Back up the production database (Neon snapshot or `pg_dump … -f gokesari_prod_before_0037.dump`).
+1. Back up the production database (Neon snapshot or `pg_dump … -f gokesari_prod_before_0038.dump`).
 2. `DATABASE_URL="<production database URL>" npm run db:migrate`
 3. Run the verify query from test step 3.
 4. Open a PR `staging` → `main` and merge it. Hostinger auto-deploys gokesari.com.

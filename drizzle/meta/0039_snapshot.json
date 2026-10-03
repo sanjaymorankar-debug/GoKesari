@@ -1,6 +1,6 @@
 {
-  "id": "56b900ea-e630-4241-bb8d-a42a17b8f952",
-  "prevId": "476ec5d8-e97c-44d2-930b-d1f40f44de37",
+  "id": "378ed051-e0c9-4aa8-b48f-05f48158ce8b",
+  "prevId": "9a70577d-440e-4a02-a760-7398384d4cdc",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -3893,7 +3893,20 @@
           "name": "phone_e164",
           "type": "text",
           "primaryKey": false,
-          "notNull": true
+          "notNull": false
+        },
+        "email": {
+          "name": "email",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "purpose": {
+          "name": "purpose",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'LOGIN'"
         },
         "channel": {
           "name": "channel",
@@ -3974,6 +3987,27 @@
           "method": "btree",
           "with": {}
         },
+        "login_otps_email_created_idx": {
+          "name": "login_otps_email_created_idx",
+          "columns": [
+            {
+              "expression": "email",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "created_at",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
         "login_otps_user_idx": {
           "name": "login_otps_user_idx",
           "columns": [
@@ -4008,7 +4042,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "login_otps_identifier_present": {
+          "name": "login_otps_identifier_present",
+          "value": "\"login_otps\".\"phone_e164\" IS NOT NULL OR \"login_otps\".\"email\" IS NOT NULL"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.maps_api_call_log": {
@@ -7247,8 +7286,28 @@
           "notNull": true,
           "default": true
         },
+        "is_system": {
+          "name": "is_system",
+          "type": "boolean",
+          "primaryKey": false,
+          "notNull": true,
+          "default": false
+        },
+        "created_by": {
+          "name": "created_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        },
+        "updated_at": {
+          "name": "updated_at",
           "type": "timestamp with time zone",
           "primaryKey": false,
           "notNull": true,
@@ -7291,9 +7350,55 @@
           "concurrently": false,
           "method": "btree",
           "with": {}
+        },
+        "product_categories_name_live_unique": {
+          "name": "product_categories_name_live_unique",
+          "columns": [
+            {
+              "expression": "lower(\"name\")",
+              "asc": true,
+              "isExpression": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"product_categories\".\"deleted_at\" IS NULL",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "product_categories_one_system": {
+          "name": "product_categories_one_system",
+          "columns": [
+            {
+              "expression": "is_system",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "where": "\"product_categories\".\"is_system\"",
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
         }
       },
-      "foreignKeys": {},
+      "foreignKeys": {
+        "product_categories_created_by_users_id_fk": {
+          "name": "product_categories_created_by_users_id_fk",
+          "tableFrom": "product_categories",
+          "tableTo": "users",
+          "columnsFrom": [
+            "created_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
@@ -11493,6 +11598,128 @@
       },
       "isRLSEnabled": false
     },
+    "public.shop_product_categories": {
+      "name": "shop_product_categories",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "shop_id": {
+          "name": "shop_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "category_id": {
+          "name": "category_id",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "added_by": {
+          "name": "added_by",
+          "type": "uuid",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "created_at": {
+          "name": "created_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "now()"
+        }
+      },
+      "indexes": {
+        "shop_product_categories_unique": {
+          "name": "shop_product_categories_unique",
+          "columns": [
+            {
+              "expression": "shop_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "category_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "shop_product_categories_category_idx": {
+          "name": "shop_product_categories_category_idx",
+          "columns": [
+            {
+              "expression": "category_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "shop_product_categories_shop_id_shops_id_fk": {
+          "name": "shop_product_categories_shop_id_shops_id_fk",
+          "tableFrom": "shop_product_categories",
+          "tableTo": "shops",
+          "columnsFrom": [
+            "shop_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "shop_product_categories_category_id_product_categories_id_fk": {
+          "name": "shop_product_categories_category_id_product_categories_id_fk",
+          "tableFrom": "shop_product_categories",
+          "tableTo": "product_categories",
+          "columnsFrom": [
+            "category_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "restrict",
+          "onUpdate": "no action"
+        },
+        "shop_product_categories_added_by_users_id_fk": {
+          "name": "shop_product_categories_added_by_users_id_fk",
+          "tableFrom": "shop_product_categories",
+          "tableTo": "users",
+          "columnsFrom": [
+            "added_by"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "no action",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
+    },
     "public.shop_products": {
       "name": "shop_products",
       "schema": "",
@@ -15052,6 +15279,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "gender": {
+          "name": "gender",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "profile_completed_at": {
+          "name": "profile_completed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "role": {
           "name": "role",
           "type": "user_role",
@@ -16262,29 +16501,6 @@
     }
   },
   "enums": {
-    "public.financial_adjustment_status": {
-      "name": "financial_adjustment_status",
-      "schema": "public",
-      "values": [
-        "PENDING",
-        "SETTLED",
-        "RECORDED"
-      ]
-    },
-    "public.financial_adjustment_type": {
-      "name": "financial_adjustment_type",
-      "schema": "public",
-      "values": [
-        "REFUND_SHOP",
-        "REFUND_PLATFORM",
-        "SHOP_ADJUSTMENT",
-        "RIDER_ADJUSTMENT",
-        "DELIVERY_ADJUSTMENT",
-        "MARKETPLACE_ADJUSTMENT",
-        "COD_CASH_COLLECTED",
-        "COD_CASH_DEPOSITED"
-      ]
-    },
     "public.campaign_status": {
       "name": "campaign_status",
       "schema": "public",
@@ -16295,14 +16511,6 @@
         "REJECTED",
         "SENT",
         "CANCELLED"
-      ]
-    },
-    "public.shop_classification": {
-      "name": "shop_classification",
-      "schema": "public",
-      "values": [
-        "KESARI",
-        "GREEN"
       ]
     },
     "public.commission_scope": {
@@ -16446,6 +16654,29 @@
         "PAID",
         "REFUNDED",
         "CANCELLED"
+      ]
+    },
+    "public.financial_adjustment_status": {
+      "name": "financial_adjustment_status",
+      "schema": "public",
+      "values": [
+        "PENDING",
+        "SETTLED",
+        "RECORDED"
+      ]
+    },
+    "public.financial_adjustment_type": {
+      "name": "financial_adjustment_type",
+      "schema": "public",
+      "values": [
+        "REFUND_SHOP",
+        "REFUND_PLATFORM",
+        "SHOP_ADJUSTMENT",
+        "RIDER_ADJUSTMENT",
+        "DELIVERY_ADJUSTMENT",
+        "MARKETPLACE_ADJUSTMENT",
+        "COD_CASH_COLLECTED",
+        "COD_CASH_DEPOSITED"
       ]
     },
     "public.financial_party": {
@@ -16778,6 +17009,14 @@
       "values": [
         "ACTIVE",
         "REVOKED"
+      ]
+    },
+    "public.shop_classification": {
+      "name": "shop_classification",
+      "schema": "public",
+      "values": [
+        "KESARI",
+        "GREEN"
       ]
     },
     "public.shop_payment_method": {

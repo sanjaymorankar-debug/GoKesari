@@ -1,5 +1,7 @@
 -- ============================================================================
--- Rollback of migration 0038 (product category management).
+-- Rollback of the product category management migration: drizzle/0039_product_category_management.sql
+-- (numbered 0038 on staging before the merge with main's 0037_dispute_cases;
+-- this script and the migration_0038_category_renames table keep that name).
 --
 -- Run on the target database inside one transaction (psql or the Neon SQL editor).
 -- Take a backup first:
@@ -49,7 +51,8 @@ ALTER TABLE product_categories DROP COLUMN IF EXISTS is_system;
 ALTER TABLE product_categories DROP COLUMN IF EXISTS created_by;
 ALTER TABLE product_categories DROP COLUMN IF EXISTS updated_at;
 
--- Let drizzle re-apply 0038 later: forget that it ran.
-DELETE FROM drizzle.__drizzle_migrations WHERE created_at = 1791025062254;
+-- Let drizzle re-apply it later: forget that it ran, under either number
+-- (1791025062254 = as 0038 on staging, 1791030174408 = as 0039 after the merge).
+DELETE FROM drizzle.__drizzle_migrations WHERE created_at IN (1791025062254, 1791030174408);
 
 COMMIT;
