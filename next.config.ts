@@ -67,6 +67,14 @@ const nextConfig: NextConfig = {
   // Hostinger installs production dependencies only, so `typescript` is absent
   // when the build starts and Next never reads the "@/*" paths in tsconfig.json.
   // Declaring the alias here keeps webpack resolving "@/..." either way.
+  //
+  // This hook is why BOTH scripts pass `--webpack` (Next 16 defaults to
+  // Turbopack, which ignores it). Keep the flag on `dev` as well as `build`:
+  // without it `next dev` prints "Ready", then exits 1 on an unconfigured
+  // webpack config — so the dev server looks like it came up and is gone a
+  // second later. Bundling dev differently from the build is also how you ship
+  // a difference you never saw. Moving to Turbopack means replacing this with
+  // `turbopack.resolveAlias` and dropping the flag from both, together.
   webpack(config) {
     config.resolve.alias = {
       ...config.resolve.alias,
