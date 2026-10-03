@@ -490,13 +490,95 @@ export async function listShopProductCategories(shopId: string, client: DbClient
     .orderBy(asc(productCategories.name));
 }
 
+/** Stock each product starts with when a category fills a shop's inventory. */
+export const CATEGORY_FILL_STOCK = 100;
+const CATEGORY_FILL_BATCH = 500;
+
+export interface CategoryFillResult {
+  /** Listings created for products the shop did not have yet. */
+  addedProducts: number;
+  /** Of those, the ones left without a price for the owner to enter. */
+  needsPrice: { shopProductId: string; productName: string; unit: string }[];
+}
+
+/**
+ * Lists every live product of the category in the shop, so the owner starts
+ * with a full inventory: stock CATEGORY_FILL_STOCK on both channels, priced
+ * at the master MRP and on sale. Loose goods, and products with no MRP, get
+ * no price — they stay off sale until the owner enters one. A product the
+ * shop already has (even one it removed) is left exactly as it is.
+ */
+async function fillInventoryFromCategory(
+  shopId: string,
+  categoryId: string,
+  client: DbClient,
+): Promise<CategoryFillResult> {
+  const startingPrice = sql`CASE WHEN ${products.kind} = 'LOOSE' THEN NULL ELSE ${products.mrpPaise} END`;
+  const candidates = await client
+    .select({
+      productId: products.id,
+      productName: products.name,
+      unit: products.unit,
+      pricePaise: sql<number | null>`${startingPrice}`.mapWith((v) => (v == null ? null : Number(v))),
+    })
+    .from(products)
+    .where(
+      and(
+        eq(products.categoryId, categoryId),
+        isNull(products.deletedAt),
+        eq(products.isActive, true),
+        eq(products.approvalStatus, "APPROVED"),
+      ),
+    );
+  if (candidates.length === 0) return { addedProducts: 0, needsPrice: [] };
+
+  // In batches: one INSERT for a very large category would pass PostgreSQL's
+  // limit on bind parameters per statement.
+  const created: { id: string; productId: string; pricePaise: number | null }[] = [];
+  for (let i = 0; i < candidates.length; i += CATEGORY_FILL_BATCH) {
+    const batch = await client
+      .insert(shopProducts)
+      .values(
+        candidates.slice(i, i + CATEGORY_FILL_BATCH).map((c) => ({
+          shopId,
+          productId: c.productId,
+          onlinePricePaise: c.pricePaise,
+          offlinePricePaise: c.pricePaise,
+          onlineSaleEnabled: c.pricePaise != null,
+          offlineSaleEnabled: c.pricePaise != null,
+          onlineStock: CATEGORY_FILL_STOCK,
+          offlineStock: CATEGORY_FILL_STOCK,
+        })),
+      )
+      .onConflictDoNothing({ target: [shopProducts.shopId, shopProducts.productId] })
+      .returning({ id: shopProducts.id, productId: shopProducts.productId, pricePaise: shopProducts.onlinePricePaise });
+    created.push(...batch);
+  }
+
+  const byId = new Map(candidates.map((c) => [c.productId, c]));
+  return {
+    addedProducts: created.length,
+    needsPrice: created
+      .filter((row) => row.pricePaise == null)
+      .map((row) => ({
+        shopProductId: row.id,
+        productName: byId.get(row.productId)!.productName,
+        unit: byId.get(row.productId)!.unit,
+      })),
+  };
+}
+
 export async function addCategoryToShop(
   shopId: string,
   categoryId: string,
   actor: CategoryActor,
-  options: { reason?: string } = {},
+  /**
+   * `fillInventory: false` links the category without listing its products —
+   * for a caller that lists one product itself (createProductForShop).
+   */
+  options: { reason?: string; fillInventory?: boolean } = {},
   client: DbClient = db,
-): Promise<{ added: boolean; categoryName: string }> {
+): Promise<{ added: boolean; categoryName: string } & CategoryFillResult> {
   const shop = await assertCanManageShopCategories(shopId, actor, client);
   const category = await loadLiveCategory(categoryId, client);
   if (!category.isActive) throw validationFailed(`"${category.name}" is inactive and cannot be added to a shop.`);
@@ -506,6 +588,12 @@ export async function addCategoryToShop(
     .values({ shopId, categoryId, addedBy: actor.id })
     .onConflictDoNothing()
     .returning({ id: shopProductCategories.id });
+  // Only a newly added category fills the inventory: adding one the shop
+  // already carries changes nothing.
+  const fill: CategoryFillResult =
+    inserted.length && options.fillInventory !== false
+      ? await fillInventoryFromCategory(shopId, categoryId, client)
+      : { addedProducts: 0, needsPrice: [] };
   if (inserted.length) {
     await recordAudit(
       {
@@ -519,12 +607,13 @@ export async function addCategoryToShop(
           categoryName: category.name,
           byOwner: shop.ownerId === actor.id,
           ...(options.reason ? { reason: options.reason } : {}),
+          ...(fill.addedProducts ? { productsListed: fill.addedProducts } : {}),
         },
       },
       client,
     );
   }
-  return { added: inserted.length > 0, categoryName: category.name };
+  return { added: inserted.length > 0, categoryName: category.name, ...fill };
 }
 
 /** Live listings this shop has in the category — they pause if it is removed. */

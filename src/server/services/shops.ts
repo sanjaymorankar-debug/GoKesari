@@ -10,6 +10,7 @@ import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, or, sql } from "d
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { formatPaise } from "@/lib/money";
+import { parseGstin } from "@/lib/shop-identity";
 import type { ShopTypeKey } from "@/lib/shop-types";
 import { db } from "@/server/db";
 import {
@@ -85,6 +86,8 @@ export interface RegisterShopInput {
   panHolderName?: string | null;
   /** Udyam number, or an old Udyog Aadhaar number. */
   udyamNumber?: string | null;
+  /** GSTIN, self-declared at registration — queued for GST verification like the /shop GST form. */
+  gstin?: string | null;
 
   /* ------------------------------------------- operator-only fields (§4.1) */
   /**
@@ -139,6 +142,26 @@ export async function registerShop(
   // An invalid identifier is a field error, never silently dropped — and it
   // is caught before anything slow (geocoding) runs.
   const identity = parseShopIdentifiers(input);
+  let gstin: string | null = null;
+  if (input.gstin?.trim()) {
+    const parsed = parseGstin(input.gstin);
+    if (!parsed.ok) {
+      throw validationFailed("Please check the highlighted fields.", {
+        fields: { gstin: parsed.error },
+      });
+    }
+    gstin = parsed.value;
+  }
+  // Stored as submitGstin() stores an owner's GSTIN: self-declared, awaiting
+  // verification. Absent, nothing is written, so a resubmission keeps what is on file.
+  const gstColumns = gstin
+    ? {
+        gstin,
+        gstStatus: "PENDING_VERIFICATION" as const,
+        gstVerificationSource: "SELF_DECLARED" as const,
+        gstVerifiedAt: null,
+      }
+    : {};
   const panHolderName = input.panHolderName?.trim() ?? "";
   if (identity.pan && !panHolderName) {
     throw validationFailed("Please check the highlighted fields.", {
@@ -255,6 +278,8 @@ export async function registerShop(
           .set({
             ...details,
             ...shopIdentityColumns(samePan ? { ...identity, pan: null } : identity, panHolderName),
+            // Likewise the GSTIN already on file keeps its verification.
+            ...(previous.gstin === gstin ? {} : gstColumns),
             // Registration number, fee snapshot, payments and slug stay as
             // they were: this is the same registration going back for review.
             status: "PENDING_APPROVAL",
@@ -281,6 +306,7 @@ export async function registerShop(
           slug: uniqueSlug(input.name),
           ...details,
           ...shopIdentityColumns(identity, panHolderName),
+          ...gstColumns,
           // Status and classification are deliberately NOT taken from input.
           status: "PENDING_APPROVAL",
           classification: null,

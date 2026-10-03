@@ -8,6 +8,7 @@ import clsx from "clsx";
 import { RoleSwitcher } from "@/components/growth-actions";
 import { formatPaiseCompact } from "@/lib/money";
 import type { UserRole } from "@/server/db/schema";
+import { signOutAction } from "@/server/sign-out-action";
 
 interface Props {
   user: { id: string; name: string | null; email: string; role: UserRole } | null;
@@ -198,7 +199,7 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
 
   return (
     <header className="sticky top-0 z-40 border-b border-cream-200 bg-white/95 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-6xl items-center gap-3 px-4 py-3 sm:px-6">
+      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6">
         <Link href="/" className="flex shrink-0 items-center gap-2">
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-kesari-600 text-lg font-bold text-white">
             N
@@ -288,6 +289,26 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
                   <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white" />
                 ) : null}
               </Link>
+              {/* Every role, every page: an icon on phones, labelled from sm up. */}
+              <form action={signOutAction}>
+                <button
+                  type="submit"
+                  className="flex items-center gap-1.5 rounded-lg border border-cream-200 p-1.5 text-sm font-medium text-ink-700 hover:bg-cream-100 sm:px-2.5"
+                  aria-label="Sign out"
+                  title="Sign out"
+                >
+                  <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden>
+                    <path
+                      d="M8 4H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3M12 6l4 4-4 4M16 10H8"
+                      stroke="currentColor"
+                      strokeWidth="1.75"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    />
+                  </svg>
+                  <span className="hidden whitespace-nowrap sm:inline">Sign out</span>
+                </button>
+              </form>
             </div>
           ) : (
             <Link
@@ -356,6 +377,16 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
             >
               Dashboard
             </Link>
+          ) : null}
+          {user ? (
+            <form action={signOutAction} className="mt-1 border-t border-cream-200 pt-1">
+              <button
+                type="submit"
+                className="block w-full rounded-lg px-2 py-2 text-left text-sm font-medium text-ink-700 hover:bg-cream-100"
+              >
+                Sign out
+              </button>
+            </form>
           ) : null}
         </nav>
       ) : null}

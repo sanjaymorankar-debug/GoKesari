@@ -129,6 +129,9 @@ export function ProductCard({
               <Money paise={product.offlinePricePaise} /> in shop
             </span>
           ) : null}
+          {product.onlinePricePaise == null && product.offlinePricePaise == null ? (
+            <span className="text-sm font-medium text-ink-700">Price on request</span>
+          ) : null}
         </div>
 
         {product.productId ? (
@@ -158,9 +161,11 @@ export function ProductCard({
             </Button>
           ) : (
             <Button size="sm" variant="secondary" disabled className="flex-1">
-              {product.offlineSaleEnabled && !product.onlineSaleEnabled
-                ? "In-shop only"
-                : "Unavailable"}
+              {product.onlinePricePaise == null && product.offlinePricePaise == null
+                ? "Ask shop"
+                : product.offlineSaleEnabled && !product.onlineSaleEnabled
+                  ? "In-shop only"
+                  : "Unavailable"}
             </Button>
           )}
 
