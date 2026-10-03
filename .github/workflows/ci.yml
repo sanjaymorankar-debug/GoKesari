@@ -1,9 +1,10 @@
 name: CI
 
 # Runs the full suite on every push and pull request. The integration tests need
-# a real PostgreSQL, so one is provided as a service container — the guarantees
-# they check (row locking, unique constraints, CHECK constraints) cannot be
-# verified against a mock.
+# a real MySQL, so one is provided as a service container — the guarantees they
+# check (row locking, unique constraints, CHECK constraints, the generated
+# columns standing in for partial unique indexes) cannot be verified against a
+# mock.
 on:
   push:
     branches: [main, staging]
@@ -15,21 +16,23 @@ jobs:
     runs-on: ubuntu-latest
 
     services:
-      postgres:
-        image: postgres:16
+      # 8.4, not 8.0: CHECK constraints are only enforced from 8.0.16, and on an
+      # older server they are parsed and then silently ignored — the schema
+      # would load with 82 invariants quietly unenforced.
+      mysql:
+        image: mysql:8.4
         env:
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: dairy_bakery_test
-        ports: ["5432:5432"]
+          MYSQL_ROOT_PASSWORD: root
+        ports: ["3306:3306"]
         options: >-
-          --health-cmd pg_isready
+          --health-cmd "mysqladmin ping -h 127.0.0.1 -uroot -proot"
           --health-interval 10s
           --health-timeout 5s
-          --health-retries 5
+          --health-retries 10
 
     env:
-      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/dairy_bakery_test
-      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/dairy_bakery_test
+      DATABASE_URL: mysql://root:root@127.0.0.1:3306/gokesari_test
+      TEST_DATABASE_URL: mysql://root:root@127.0.0.1:3306/gokesari_test
       AUTH_SECRET: ci-only-secret-not-used-in-production
       CRON_SECRET: ci-only-cron-secret
 
@@ -43,6 +46,40 @@ jobs:
 
       - run: npm ci
 
+      # The collation is load-bearing, so it is stated rather than inherited:
+      # 31 former ILIKE calls are now plain LIKE, and a UNIQUE (lower(name))
+      # is now a plain UNIQUE (name). Under a case-sensitive collation both
+      # change behaviour silently. See docs/MYSQL_REQUIREMENTS.md.
+      - name: Create the test database
+        run: |
+          mysql -h 127.0.0.1 -P 3306 -uroot -proot -e "
+            DROP DATABASE IF EXISTS gokesari_test;
+            CREATE DATABASE gokesari_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+
+      # Reporting converts stored UTC timestamps into APP_TIMEZONE with
+      # CONVERT_TZ, which returns NULL for a *named* zone until these tables are
+      # populated. The official image does not populate them.
+      - name: Load the MySQL time zone tables
+        run: |
+          CID=$(docker ps --filter "ancestor=mysql:8.4" --format '{{.ID}}' | head -1)
+          test -n "$CID" || { echo "::error::MySQL service container not found"; exit 1; }
+          # The image may not ship /usr/share/zoneinfo, so use the runner's copy.
+          docker cp /usr/share/zoneinfo "$CID":/tmp/zoneinfo
+          docker exec "$CID" sh -c \
+            'mysql_tzinfo_to_sql /tmp/zoneinfo 2>/dev/null | mysql -uroot -proot mysql'
+
+      # A NULL here is the dangerous failure: every "today" figure would read
+      # zero and nothing would raise. Fail the build instead.
+      - name: Verify named-zone conversion works
+        run: |
+          OUT=$(mysql -h 127.0.0.1 -P 3306 -uroot -proot -N -B -e \
+            "SELECT CONVERT_TZ('2026-01-01 00:00:00','+00:00','Asia/Kolkata')")
+          echo "CONVERT_TZ(..., 'Asia/Kolkata') -> $OUT"
+          if [ -z "$OUT" ] || [ "$OUT" = "NULL" ]; then
+            echo "::error::The MySQL time zone tables are not loaded; CONVERT_TZ returns NULL. See docs/MYSQL_REQUIREMENTS.md section 2."
+            exit 1
+          fi
+
       - name: Apply migrations
         run: npm run db:migrate
 
@@ -50,10 +87,15 @@ jobs:
         run: npm run typecheck
 
       - name: Lint
-        run: npx eslint src tests --ext .ts,.tsx
+        run: npx eslint src tests
 
+      # PMD's tests are excluded: that layer is still PostgreSQL by design (it
+      # speaks to postgres.js directly and uses Postgres-only SQL), and the
+      # migrations that build its schema now live in drizzle-postgres-legacy/
+      # and are not applied. Restoring this coverage is part of porting PMD —
+      # see docs/MYSQL_REQUIREMENTS.md section 5.
       - name: Unit and integration tests
-        run: npm test
+        run: npm run test:ci
 
       - name: Production build
         run: npm run build
