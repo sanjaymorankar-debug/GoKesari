@@ -10,8 +10,10 @@
  *   - a keyword in the DESCRIPTION             1 point (once per keyword)
  *   - a keyword in the OLD CATEGORY name       2 points, unless the old
  *     category is just a shop-type label ("Grocery / Kirana Store")
- *   - a known BRAND                            2 points
- *   - the old category's DEPARTMENT            1 point
+ *   - a known BRAND                            3 points
+ *   - the old category's DEPARTMENT            3 points when it is a
+ *     specialist shop type (a product filed under "Bookstore" is a book),
+ *     1 point for Grocery/Kirana, nothing for mixed types (Supermarket…)
  *   - the UNIT (L/ml → liquids)                0.5 points
  * Keywords match on word boundaries, longest first, and a matched span is not
  * reused — so "peanut butter" counts for Grocery and not also for Dairy.
@@ -217,6 +219,14 @@ const SHOP_TYPE_TARGETS: Partial<Record<Department, string>> = {
   PACKAGING_MATERIALS: "Packaging",
 };
 
+/**
+ * Mixed shop types whose goods lean one way: a weak hint only. Supermarket,
+ * Convenience, Wholesale, Online and General Trading give no hint at all.
+ */
+const WEAK_DEPARTMENT_HINTS: Partial<Record<Department, string>> = {
+  GROCERY_KIRANA: "Grocery",
+};
+
 /** Categories that exist only for specialist shop types (no curated keywords). */
 const DERIVED_DESCRIPTIONS: Record<string, string> = {
   Clothing: "Apparel for men, women and children.",
@@ -238,14 +248,29 @@ const DERIVED_DESCRIPTIONS: Record<string, string> = {
 
 /** Generic words that clearly name a category, beyond the shop types' goods. */
 const EXTRA_KEYWORDS: Record<string, readonly string[]> = {
-  Grocery: ["groceries", "bulk groceries"],
+  Grocery: ["groceries", "bulk groceries", "dates", "peanuts", "roasted peanuts", "tofu", "glucose"],
+  "Fruits & Vegetables": ["bhendi"],
+  "Health & Pharmacy": ["condoms", "condom", "protein", "protein shake", "roll-on balm", "balm", "ayurvedic"],
+  "Pet Supplies": ["dog food", "cat food", "kitten", "puppy", "pet food"],
   Household: ["household items", "home goods"],
-  "Personal Care": ["beauty products"],
-  Clothing: ["garments", "apparel", "clothing", "shirt", "t-shirt", "saree", "kurta"],
+  "Personal Care": ["beauty products", "teeth", "nail enamel", "attar", "fragrance"],
+  Clothing: ["garments", "apparel", "clothing", "shirt", "t-shirt", "saree", "kurta", "vest", "brief", "trunk"],
   Footwear: ["footwear", "shoe"],
   Books: ["books", "book"],
   "Hardware & Building": ["hardware"],
   Packaging: ["packaging materials", "packaging"],
+};
+
+/** Brands seen in the catalogue that clearly name a category. */
+const EXTRA_BRANDS: Record<string, readonly string[]> = {
+  // Only brands that are not also everyday words ("Real", "Polo", "Boost" are left out).
+  "Snacks & Beverages": ["campa", "mountain dew", "horlicks", "bournvita", "paper boat", "doritos", "cheetos",
+    "chupa chups", "tiggle", "sprite", "thums up", "limca", "tropicana", "lahori zeera"],
+  "Personal Care": ["sensodyne", "sunsilk", "dove", "nail trend", "lakme", "garnier", "loreal", "l'oreal", "mamaearth"],
+  "Pet Supplies": ["pedigree", "whiskas", "drools", "royal canin", "purepet"],
+  Electronics: ["portronics", "asus", "lenovo", "logitech", "zebronics", "realme", "oneplus"],
+  Clothing: ["jockey"],
+  Books: ["penguin", "puffin", "harpercollins", "rupa", "wolters kluwer"],
 };
 
 function buildTargets(): TargetCategory[] {
@@ -264,6 +289,10 @@ function buildTargets(): TargetCategory[] {
     entry.keywords = [...new Set([...entry.keywords, ...goods])];
     if (!entry.departments.includes(type.key as Department)) entry.departments.push(type.key as Department);
     byName.set(target, entry);
+  }
+  for (const [name, list] of Object.entries(EXTRA_BRANDS)) {
+    const entry = byName.get(name);
+    if (entry) entry.brands = [...new Set([...(entry.brands ?? []), ...list])];
   }
   for (const [name, words] of Object.entries(EXTRA_KEYWORDS)) {
     const entry = byName.get(name);
@@ -379,15 +408,14 @@ export function categoriseProduct(product: ProductForCategorisation): Categorisa
     const hit = c.brands?.find(
       (b) => brand === b || brand.startsWith(`${b} `) || new RegExp(`(^|[^a-z0-9])${escape(b)}(?=$|[^a-z0-9])`).test(name),
     );
-    if (hit) add(c.name, 2, `brand "${hit}"`);
+    if (hit) add(c.name, 3, `brand "${hit}"`);
   }
 
   if (product.oldDepartment) {
-    for (const c of TARGET_CATEGORIES) {
-      if ((c.departments ?? [c.department]).includes(product.oldDepartment as Department)) {
-        add(c.name, 1, `department ${product.oldDepartment}`);
-      }
-    }
+    const specialist = SHOP_TYPE_TARGETS[product.oldDepartment as Department];
+    const weak = WEAK_DEPARTMENT_HINTS[product.oldDepartment as Department];
+    if (specialist) add(specialist, 3, `filed under shop type ${product.oldDepartment}`);
+    else if (weak) add(weak, 1, `department ${product.oldDepartment}`);
   }
 
   const unit = normalise(product.unit).replace(/[^a-z]/g, "");

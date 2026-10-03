@@ -47,8 +47,8 @@ describe("one-time product categorisation rules", () => {
 
   it("falls back to General when nothing fits or the evidence is ambiguous", () => {
     expect(cat("Mystery Thing")).toBe("General");
-    expect(cat("Gift Voucher Pack", { oldDepartment: "GIFT_SHOP" })).toBe("General");
-    const r = categoriseProduct({ name: "Assorted", oldDepartment: "DAIRY" });
+    expect(cat("Gift Voucher Pack", { oldDepartment: "WHOLESALE_STORE" })).toBe("General");
+    const r = categoriseProduct({ name: "Assorted", oldDepartment: "GROCERY_KIRANA" });
     expect(r.confident).toBe(false);
     expect(r.reason).toMatch(/too little evidence/);
   });
@@ -80,5 +80,25 @@ describe("specialist shop types", () => {
 
   it("still sends genuinely mixed goods to General", () => {
     expect(cat("Mixed consumer goods", { oldCategoryName: "General Trading Store", oldDepartment: "GENERAL_TRADING" })).toBe("General");
+  });
+});
+
+describe("evidence from real catalogue data", () => {
+  it("trusts a specialist shop-type category on its own", () => {
+    expect(cat("The Psychology of Money", { oldCategoryName: "Bookstore", oldDepartment: "BOOKSTORE" })).toBe("Books");
+    expect(cat("Whiskas 1+ 3Kg", { oldCategoryName: "Pet Store", oldDepartment: "PET_STORE" })).toBe("Pet Supplies");
+  });
+
+  it("gives no hint for mixed shop types, but trusts a known brand", () => {
+    expect(cat("Chupa Chups Bites Multi Colour", { oldCategoryName: "Supermarket", oldDepartment: "SUPERMARKET" })).toBe(
+      "Snacks & Beverages",
+    );
+    expect(cat("Iced Mocha Mystery", { oldCategoryName: "Supermarket", oldDepartment: "SUPERMARKET" })).toBe("General");
+  });
+
+  it("sends a brand that contradicts its shop type to General rather than guessing", () => {
+    expect(
+      cat("Surf Excel Quick Wash", { brand: "Surf Excel", oldCategoryName: "Home Appliance Store", oldDepartment: "HOME_APPLIANCE_STORE" }),
+    ).toBe("General");
   });
 });
