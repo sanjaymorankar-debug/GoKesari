@@ -199,6 +199,13 @@ export const AUDIT_ACTIONS = {
   RETURN_PICKUP_OFFERED: "return_pickup.offered",
   RETURN_PICKUP_UPDATED: "return_pickup.updated",
   RETURN_REFUND_ISSUED: "return.refund_issued",
+
+  /* ---------------------------------------------------- disputes (GS-058) */
+  DISPUTE_OPENED: "dispute.opened",
+  DISPUTE_STATUS_CHANGED: "dispute.status_changed",
+  /** Separate from the status change so an automatic escalation is findable on its own. */
+  DISPUTE_ESCALATED: "dispute.escalated",
+  DISPUTE_RESOLVED: "dispute.resolved",
   IMAGE_UPLOADED: "image.uploaded",
   RIDER_EARNING_SLOT_SAVED: "rider_earning_slot.saved",
   RIDER_INCENTIVE_SAVED: "rider_incentive.saved",

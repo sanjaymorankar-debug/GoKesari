@@ -33,6 +33,8 @@ export const MANDATORY_CATEGORIES: readonly CategoryKey[] = ["ACCOUNT_SECURITY"]
 const PREFIX_CATEGORY: [string, CategoryKey][] = [
   ["order.", "ORDERS"],
   ["return.", "RETURNS"],
+  // A dispute is the customer's complaint about an order they already have.
+  ["dispute.", "RETURNS"],
   ["delivery", "DELIVERY"],
   ["shop.", "SHOP"],
   ["inventory.", "SHOP"],
@@ -82,6 +84,16 @@ export const TEMPLATES: Record<string, Template> = {
   [T.ORDER_DELIVERED]: t("Order delivered", "Your order {{orderNumber}} has been delivered. Enjoy!"),
   [T.ORDER_CANCELLED]: t("Order cancelled", "Your order {{orderNumber}} was cancelled. {{reason}}"),
   [T.ORDER_DELIVERY_FAILED]: t("Delivery attempt failed", "We could not deliver order {{orderNumber}}. {{reason}}"),
+  [T.DISPUTE_OPENED]: t(
+    "We are looking into your order",
+    "Dispute {{caseNumber}} has been opened for order {{orderNumber}} and is with our team.",
+  ),
+  [T.DISPUTE_RESOLUTION_PROPOSED]: t(
+    "We have proposed a resolution",
+    "For dispute {{caseNumber}} we have proposed: {{proposal}}. Reply to accept or tell us if this does not work.",
+  ),
+  [T.DISPUTE_RESOLVED]: t("Dispute resolved", "Dispute {{caseNumber}} is resolved. {{outcome}}"),
+  [T.DISPUTE_REJECTED]: t("Dispute closed", "Dispute {{caseNumber}} was closed without a refund: {{reason}}"),
   [T.RETURN_REQUESTED]: t("Return requested", "Return {{returnNumber}} has been requested and is awaiting review."),
   [T.RETURN_APPROVED]: t("Return approved", "Return {{returnNumber}} is approved. {{nextStep}}"),
   [T.RETURN_REJECTED]: t("Return declined", "Return {{returnNumber}} was declined: {{reason}}"),
