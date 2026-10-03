@@ -9,7 +9,7 @@ export async function listBrands(sql: Sql, opts: { q?: string; limit?: number; c
   const q = opts.q?.trim();
   const rows = await sql<{ brand_id: number; brand_code: string; brand_name: string; brand_status: string; verification_status: string; country: string | null; manufacturer_name: string | null; product_count: number; aliases: string[] }[]>`
     SELECT b.brand_id, b.brand_code, b.brand_name, b.brand_status, b.verification_status, b.country, m.manufacturer_name,
-           (SELECT count(*)::int FROM pmd.product_master p WHERE p.brand_id = b.brand_id AND p.record_status = 'ACTIVE') AS product_count,
+           (SELECT CAST(count(*) AS SIGNED) FROM pmd.product_master p WHERE p.brand_id = b.brand_id AND p.record_status = 'ACTIVE') AS product_count,
            ARRAY(SELECT alias_original FROM pmd.brand_alias a WHERE a.brand_id = b.brand_id ORDER BY alias_original) AS aliases
     FROM pmd.brand b LEFT JOIN pmd.manufacturer m ON m.manufacturer_id = b.manufacturer_id
     WHERE b.brand_id > ${after} ${q ? sql`AND (b.brand_name ILIKE ${"%" + q + "%"} OR EXISTS (SELECT 1 FROM pmd.brand_alias a WHERE a.brand_id = b.brand_id AND a.alias_original ILIKE ${"%" + q + "%"}))` : sql``}
@@ -28,7 +28,7 @@ export async function listManufacturers(sql: Sql, opts: { q?: string; limit?: nu
   const q = opts.q?.trim();
   const rows = await sql<{ manufacturer_id: number; manufacturer_code: string; manufacturer_name: string; legal_name: string | null; country: string | null; gstin: string | null; website: string | null; verification_status: string; brand_count: number; aliases: string[] }[]>`
     SELECT m.manufacturer_id, m.manufacturer_code, m.manufacturer_name, m.legal_name, m.country, m.gstin, m.website, m.verification_status,
-           (SELECT count(*)::int FROM pmd.brand b WHERE b.manufacturer_id = m.manufacturer_id) AS brand_count,
+           (SELECT CAST(count(*) AS SIGNED) FROM pmd.brand b WHERE b.manufacturer_id = m.manufacturer_id) AS brand_count,
            ARRAY(SELECT alias_original FROM pmd.manufacturer_alias a WHERE a.manufacturer_id = m.manufacturer_id ORDER BY alias_original) AS aliases
     FROM pmd.manufacturer m WHERE m.manufacturer_id > ${after} ${q ? sql`AND m.manufacturer_name ILIKE ${"%" + q + "%"}` : sql``}
     ORDER BY m.manufacturer_id LIMIT ${limit + 1}`;
@@ -44,7 +44,7 @@ export async function listManufacturers(sql: Sql, opts: { q?: string; limit?: nu
 export async function listCategories(sql: Sql, opts: { level?: number; parent?: string } = {}) {
   const rows = await sql<{ category_id: number; category_code: string; level: number; name: string; path_names: string[]; gokesari_department: string | null; product_count: number }[]>`
     SELECT c.category_id, c.category_code, c.level, c.name, c.path_names, c.gokesari_department,
-           (SELECT count(*)::int FROM pmd.product_master p WHERE p.category_id = c.category_id AND p.record_status = 'ACTIVE') AS product_count
+           (SELECT CAST(count(*) AS SIGNED) FROM pmd.product_master p WHERE p.category_id = c.category_id AND p.record_status = 'ACTIVE') AS product_count
     FROM pmd.category c
     WHERE c.is_active
       ${opts.level ? sql`AND c.level = ${opts.level}` : sql``}

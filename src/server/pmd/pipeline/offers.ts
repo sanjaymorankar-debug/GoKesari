@@ -181,9 +181,9 @@ export async function recomputeProductStatus(sql: Queryable, productIds: number[
           ELSE 'NO_OFFERS' END AS basis
       FROM pmd.product_master p
       LEFT JOIN LATERAL (
-        SELECT count(*) FILTER (WHERE is_current) AS current_offers,
-               count(*) FILTER (WHERE is_current AND stock_status IN ('IN_STOCK','LIMITED')) AS in_stock,
-               count(*) FILTER (WHERE is_current AND stock_status = 'OUT_OF_STOCK') AS out_of_stock,
+        SELECT count(case when is_current then 1 end) AS current_offers,
+               count(case when is_current AND stock_status IN ('IN_STOCK','LIMITED') then 1 end) AS in_stock,
+               count(case when is_current AND stock_status = 'OUT_OF_STOCK' then 1 end) AS out_of_stock,
                count(*) AS any_offers
         FROM pmd.product_offer o WHERE o.product_id = p.product_id
       ) a ON true

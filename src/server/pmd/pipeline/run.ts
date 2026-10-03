@@ -116,7 +116,7 @@ export async function runIngestion(sql: Sql, adapter: SourceAdapter, opts: RunOp
   const manual = await loadManualCategoryMapper(sql, key);
   const categoryMapper = chainMappers(manual, adapter.categoryMapper);
 
-  await sql`SELECT pmd.ensure_price_history_partitions(date_trunc('month', now())::date, (now() + interval '3 months')::date)`;
+  await sql`SELECT pmd.ensure_price_history_partitions(CAST(date_trunc('month', now()) AS DATE), CAST((now() + interval '3 months') AS DATE))`;
 
   const ctx: LoadContext = {
     sql, cfg, ref, adapter, sourceId, runId, counters, touched, errors,

@@ -164,7 +164,7 @@ export async function promoteToCatalogue(
     if (m.gtin) {
       const forms = gtinForms(m.gtin);
       const [existing] = await tx<{ id: string; code: string }[]>`
-        SELECT id, code FROM public.products WHERE gtin = ANY(${forms}::text[]) AND deleted_at IS NULL LIMIT 1`;
+        SELECT id, code FROM public.products WHERE gtin IN ${tx(forms)} AND deleted_at IS NULL LIMIT 1`;
       if (existing) {
         const [taken] = await tx`SELECT 1 FROM pmd.catalogue_link WHERE catalogue_product_id = ${existing.id}`;
         if (taken) throw new PromotionError("CATALOGUE_TAKEN", `Catalogue product ${existing.code} is already linked to another master product.`);
@@ -206,7 +206,7 @@ export async function promoteToCatalogue(
     const [mrp] = await tx<{ mrp_minor: number; source_key: string; kind: string }[]>`
       SELECT o.mrp_minor, s.source_key, s.source_kind AS kind
       FROM pmd.product_offer o JOIN pmd.source s USING (source_id)
-      WHERE o.product_id = ${m.product_id} AND o.mrp_minor IS NOT NULL AND o.currency = 'INR' AND s.source_kind = ANY(${MRP_TRUSTED_KINDS}::text[])
+      WHERE o.product_id = ${m.product_id} AND o.mrp_minor IS NOT NULL AND o.currency = 'INR' AND s.source_kind IN ${tx(MRP_TRUSTED_KINDS)}
       ORDER BY o.collected_at DESC LIMIT 1`;
 
     const packaged = !!(m.gtin || m.net_quantity_value);

@@ -78,7 +78,7 @@ const toSummary = (r: SummaryRow): ProductSummary => ({
 const SUMMARY_SELECT = (sql: Sql) => sql`
   pm.product_id, pm.master_product_id, pm.product_name, b.brand_name, m.manufacturer_name, c.path_names AS category_path,
   pm.gtin, pm.pack_size, pm.product_status, pm.data_quality_score, ps.offer_count, ps.min_price_minor, ps.currency,
-  (SELECT count(*)::int FROM pmd.product_source x WHERE x.product_id = pm.product_id) AS source_count`;
+  (SELECT CAST(count(*) AS SIGNED) FROM pmd.product_source x WHERE x.product_id = pm.product_id) AS source_count`;
 
 const SUMMARY_FROM = (sql: Sql) => sql`
   FROM pmd.product_master pm
@@ -276,7 +276,7 @@ export async function getProduct(sql: Sql, masterProductId: string): Promise<Pro
     sql<{ offer_count: number; min_price_minor: number | null; max_price_minor: number | null; currency: string | null }[]>`SELECT offer_count, min_price_minor, max_price_minor, currency FROM pmd.v_product_price_summary WHERE product_id = ${id}`,
     sql<{ catalogue_product_id: string; code: string; promoted_at: Date }[]>`
       SELECT cl.catalogue_product_id, p.code, cl.promoted_at FROM pmd.catalogue_link cl JOIN public.products p ON p.id = cl.catalogue_product_id WHERE cl.product_id = ${id}`,
-    sql<{ n: number }[]>`SELECT count(*)::int AS n FROM pmd.match_candidate mc JOIN pmd.product_source ps USING (product_source_id) WHERE ps.product_id = ${id} AND mc.review_status = 'PENDING'`,
+    sql<{ n: number }[]>`SELECT CAST(count(*) AS SIGNED) AS n FROM pmd.match_candidate mc JOIN pmd.product_source ps USING (product_source_id) WHERE ps.product_id = ${id} AND mc.review_status = 'PENDING'`,
   ]);
 
   const p = pm as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -407,8 +407,8 @@ export async function getPriceHistory(
     JOIN pmd.product_master pm ON pm.product_id = h.product_id
     JOIN pmd.source s ON s.source_id = h.source_id
     WHERE pm.master_product_id = ${masterProductId}
-      ${opts.from ? sql`AND h.collected_at >= ${opts.from}::date` : sql``}
-      ${opts.to ? sql`AND h.collected_at < (${opts.to}::date + 1)` : sql``}
+      ${opts.from ? sql`AND h.collected_at >= CAST(${opts.from} AS DATE)` : sql``}
+      ${opts.to ? sql`AND h.collected_at < (CAST(${opts.to} AS DATE) + 1)` : sql``}
     ORDER BY h.collected_at, h.price_history_id LIMIT ${limit}`;
   const points: PricePointView[] = rows.map((r) => ({
     source: r.source, seller: r.seller, mrpMinor: r.mrp_minor, sellingPriceMinor: r.selling_price_minor, discountMinor: r.discount_minor,

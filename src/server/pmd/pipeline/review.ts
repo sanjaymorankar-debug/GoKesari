@@ -81,7 +81,7 @@ export async function mergeProducts(
     const history = await tx`UPDATE pmd.price_history SET product_id = ${intoProductId} WHERE product_id = ${fromProductId}`;
 
     // Images: keep the survivor's, add the retired one's that are new, up to the six-image limit.
-    const [{ n: haveImages }] = await tx<{ n: number }[]>`SELECT count(*)::int AS n FROM pmd.product_image WHERE product_id = ${intoProductId}`;
+    const [{ n: haveImages }] = await tx<{ n: number }[]>`SELECT CAST(count(*) AS SIGNED) AS n FROM pmd.product_image WHERE product_id = ${intoProductId}`;
     const fromImages = await tx<{ image_id: number; image_url: string }[]>`SELECT image_id, image_url FROM pmd.product_image WHERE product_id = ${fromProductId} ORDER BY \`rank\``;
     let rank = haveImages;
     for (const img of fromImages) {

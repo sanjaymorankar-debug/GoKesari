@@ -30,7 +30,7 @@ const CHECKS: CheckDef[] = [
     id: "unique-active-gtin",
     kind: "INVARIANT",
     description: "No two ACTIVE masters share a GTIN",
-    sql: `SELECT gtin, count(*)::int AS masters FROM pmd.product_master WHERE record_status = 'ACTIVE' AND gtin IS NOT NULL GROUP BY gtin HAVING count(*) > 1`,
+    sql: `SELECT gtin, CAST(count(*) AS SIGNED) AS masters FROM pmd.product_master WHERE record_status = 'ACTIVE' AND gtin IS NOT NULL GROUP BY gtin HAVING count(*) > 1`,
   },
   {
     id: "unique-master-id",
@@ -42,8 +42,8 @@ const CHECKS: CheckDef[] = [
     id: "gtin-check-digit",
     kind: "INVARIANT",
     description: "Every stored GTIN is a 14-digit code with a valid GS1 check digit",
-    sql: `WITH g AS (SELECT product_id, gtin, substr(gtin, 14, 1)::int AS cd,
-              (SELECT sum(substr(gtin, i, 1)::int * CASE WHEN (14 - i) % 2 = 1 THEN 3 ELSE 1 END) FROM generate_series(1, 13) i) AS s
+    sql: `WITH g AS (SELECT product_id, gtin, CAST(substr(gtin, 14, 1) AS SIGNED) AS cd,
+              (SELECT sum(CAST(substr(gtin, i, 1) AS SIGNED) * CASE WHEN (14 - i) % 2 = 1 THEN 3 ELSE 1 END) FROM generate_series(1, 13) i) AS s
             FROM pmd.product_master WHERE gtin IS NOT NULL)
           SELECT product_id, gtin FROM g WHERE (10 - (s % 10)) % 10 <> cd`,
   },
@@ -59,7 +59,7 @@ const CHECKS: CheckDef[] = [
     id: "one-preferred-spec",
     kind: "INVARIANT",
     description: "Every attribute of a product has exactly one preferred value",
-    sql: `SELECT product_id, attribute_key, count(*) FILTER (WHERE is_preferred)::int AS preferred FROM pmd.product_specification GROUP BY 1, 2 HAVING count(*) FILTER (WHERE is_preferred) <> 1`,
+    sql: `SELECT product_id, attribute_key, CAST(count(case when is_preferred then 1 end) AS SIGNED) AS preferred FROM pmd.product_specification GROUP BY 1, 2 HAVING count(case when is_preferred then 1 end) <> 1`,
   },
   {
     id: "sources-traceable",
@@ -107,7 +107,7 @@ const CHECKS: CheckDef[] = [
     id: "same-name-different-master",
     kind: "REVIEW",
     description: "Distinct ACTIVE masters with the same brand, core name and pack (suspicious duplicates the matcher kept apart)",
-    sql: `SELECT brand_id, normalized_name, pack_size, count(*)::int AS masters FROM pmd.product_master
+    sql: `SELECT brand_id, normalized_name, pack_size, CAST(count(*) AS SIGNED) AS masters FROM pmd.product_master
           WHERE record_status = 'ACTIVE' AND brand_id IS NOT NULL AND normalized_name <> '' AND pack_size IS NOT NULL
           GROUP BY 1, 2, 3 HAVING count(*) > 1`,
   },

@@ -264,8 +264,8 @@ export async function loadBatch(ctx: LoadContext, inputs: LoadInput[], loadOne: 
 
   /* 2. Unchanged: note that we still see them - two statements for the whole batch. */
   if (unchangedIds.length) {
-    await ctx.sql`UPDATE pmd.product_source SET last_seen_date = current_date, last_run_id = ${ctx.runId} WHERE product_source_id = ANY(${unchangedIds}::bigint[])`;
-    await ctx.sql`UPDATE pmd.product_offer SET last_seen_at = now(), is_current = true WHERE product_source_id = ANY(${unchangedIds}::bigint[])`;
+    await ctx.sql`UPDATE pmd.product_source SET last_seen_date = current_date, last_run_id = ${ctx.runId} WHERE product_source_id IN ${ctx.sql(unchangedIds)}`;
+    await ctx.sql`UPDATE pmd.product_offer SET last_seen_at = now(), is_current = true WHERE product_source_id IN ${ctx.sql(unchangedIds)}`;
     ctx.counters.recordsUnchanged += unchangedIds.length;
     out.bulkUnchanged = unchangedIds.length;
   }

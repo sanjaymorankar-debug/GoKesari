@@ -237,7 +237,7 @@ async function upsertIdentifiers(tx: TransactionSql, ctx: LoadContext, productId
 
 async function upsertImages(tx: TransactionSql, ctx: LoadContext, productId: number, urls: string[]): Promise<void> {
   if (urls.length === 0) return;
-  const [{ n }] = await tx<{ n: number }[]>`SELECT count(*)::int AS n FROM pmd.product_image WHERE product_id = ${productId}`;
+  const [{ n }] = await tx<{ n: number }[]>`SELECT CAST(count(*) AS SIGNED) AS n FROM pmd.product_image WHERE product_id = ${productId}`;
   let rank = n;
   for (const url of urls) {
     if (rank >= 6) break;
@@ -273,7 +273,7 @@ async function ensureFamily(tx: TransactionSql, productId: number, brandId: numb
   }
   const members = [...sibs.map((s) => s.product_id), productId];
   await tx`UPDATE pmd.product_master SET product_family_id = ${familyId}
-           WHERE product_id = ANY(${members}::bigint[]) AND product_family_id IS NULL`;
+           WHERE product_id IN ${tx(members)} AND product_family_id IS NULL`;
 }
 
 async function recordCandidates(

@@ -279,7 +279,7 @@ export async function buildWorkbook(sql: Sql, opts: ExportOptions = {}): Promise
   }
 
   // RUN_SUMMARY: provenance, counts, and what the blanks mean.
-  const [{ migration }] = await sql<{ migration: string | null }[]>`SELECT (SELECT max(created_at)::text FROM drizzle.__drizzle_migrations) AS migration`.catch(() => [{ migration: null }]);
+  const [{ migration }] = await sql<{ migration: string | null }[]>`SELECT (SELECT CAST(max(created_at) AS CHAR) FROM drizzle.__drizzle_migrations) AS migration`.catch(() => [{ migration: null }]);
   const metrics = await sql<{ metric: string; dimension: string; value: number }[]>`SELECT metric, dimension, value FROM pmd.dashboard_metric WHERE dimension = '' ORDER BY metric`.catch(() => []);
   const summary: unknown[][] = [
     ["Generated at (UTC)", generatedAt.toISOString()],
@@ -335,7 +335,7 @@ export async function exportInParts(
   const per = opts.productsPerFile ?? 50_000;
   const baseName = opts.baseName ?? "GOKESARI_PRODUCT_MASTER";
   const [{ lo, hi, n }] = await sql<{ lo: number | null; hi: number | null; n: number }[]>`
-    SELECT min(product_id) AS lo, max(product_id) AS hi, count(*)::int AS n FROM pmd.product_master WHERE record_status = 'ACTIVE'`;
+    SELECT min(product_id) AS lo, max(product_id) AS hi, CAST(count(*) AS SIGNED) AS n FROM pmd.product_master WHERE record_status = 'ACTIVE'`;
 
   const parts: PartResult[] = [];
   if (lo == null || hi == null || n <= per) {

@@ -99,7 +99,7 @@ export async function upsertCategories(sql: Queryable): Promise<Map<string, numb
       currentPath = known.path_ids;
     } else {
       // text[] and integer[] are json columns now, so the arrays go through
-      // sql.json and the empty-array default is '[]' rather than '{}'::int4[].
+      // sql.json and the empty-array default is '[]' rather than CAST('{}' AS SIGNED)[].
       const upserted = await sql`
         INSERT INTO pmd.category (category_code, parent_id, level, name, slug, path_names, path_ids, gokesari_department, sort_order)
         VALUES (${c.code}, ${parentId}, ${c.level}, ${c.name}, ${c.slug}, ${sql.json(c.pathNames)}, ${sql.json([])}, ${c.department}, ${c.sortOrder})
