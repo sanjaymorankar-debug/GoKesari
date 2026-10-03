@@ -12,7 +12,7 @@ import { decideCandidate, mergeProducts, ReviewError, type ReviewActor } from "@
 import { catalogueGtin, gtinForms, promoteToCatalogue, PromotionError, shopsSellingMasterProduct } from "@/server/pmd/services/catalogue-bridge";
 import { createCategoryMapper } from "@/server/pmd/taxonomy/mapper";
 import { createCategory, createProduct, createShop, createShopProduct, createUser, resetDatabase } from "../helpers/fixtures";
-import { count, GTIN, ingest, pmdSql, product, resetPmd, seedReference } from "../helpers/pmd";
+import { count, GTIN, ingest, pmdSql, product, resetPmd, seedReference, runSqlScript } from "../helpers/pmd";
 
 const sql = pmdSql();
 const steward: ReviewActor = { userId: null, label: "steward@test.local" };
@@ -165,7 +165,7 @@ describe("catalogue bridge: master product -> GoKesari catalogue -> shops", () =
     const [p] = await sql<Record<string, unknown>[]>`
       SELECT p.name, p.gtin, p.kind, p.net_quantity, p.net_quantity_unit, p.unit, p.gst_rate_bp, p.hsn_code, p.manufacturer_name,
              p.mrp_paise, p.mrp_source, p.mrp_verification_status, p.approval_status, p.created_by, b.name AS brand
-      FROM public.products p JOIN public.brands b ON b.id = p.brand_id WHERE p.id = ${res.catalogueProductId}`;
+      FROM products p JOIN brands b ON b.id = p.brand_id WHERE p.id = ${res.catalogueProductId}`;
     expect(p).toMatchObject({
       name: "Amul Taaza Homogenised Toned Milk 1 L", gtin: GTIN.MILK_1L, kind: "PACKAGED", net_quantity: 1000, net_quantity_unit: "ml", unit: "L",
       gst_rate_bp: 500, hsn_code: "0402", manufacturer_name: "Gujarat Co-operative Milk Marketing Federation",
@@ -175,7 +175,7 @@ describe("catalogue bridge: master product -> GoKesari catalogue -> shops", () =
     });
     const [link] = await sql<{ catalogue_product_id: string }[]>`SELECT catalogue_product_id FROM pmd.catalogue_link`;
     expect(link.catalogue_product_id).toBe(res.catalogueProductId);
-    const audit = await sql<{ action: string; actor_id: string }[]>`SELECT action, actor_id FROM public.audit_logs WHERE action = 'pmd.product_promoted'`;
+    const audit = await sql<{ action: string; actor_id: string }[]>`SELECT action, actor_id FROM audit_logs WHERE action = 'pmd.product_promoted'`;
     expect(audit).toEqual([{ action: "pmd.product_promoted", actor_id: admin.id }]);
   });
 
@@ -183,8 +183,8 @@ describe("catalogue bridge: master product -> GoKesari catalogue -> shops", () =
   const promotedImages = async (images: boolean) => {
     const { admin, masterId } = await setup({ images: shots });
     const res = await promoteToCatalogue(sql, masterId, { userId: admin.id, role: "ADMIN" }, { images });
-    const [p] = await sql<{ image_url: string | null }[]>`SELECT image_url FROM public.products WHERE id = ${res.catalogueProductId}`;
-    return [p.image_url, await count(sql, "public.product_images", `product_id = '${res.catalogueProductId}'`)];
+    const [p] = await sql<{ image_url: string | null }[]>`SELECT image_url FROM products WHERE id = ${res.catalogueProductId}`;
+    return [p.image_url, await count(sql, "product_images", `product_id = '${res.catalogueProductId}'`)];
   };
   it("links the source's image URLs to the catalogue product by default", async () => {
     expect(await promotedImages(true)).toEqual([shots[0], 1]);
@@ -198,40 +198,40 @@ describe("catalogue bridge: master product -> GoKesari catalogue -> shops", () =
     // "-2" slug). A race like that is too narrow to hit reliably, so the lock is checked directly.
     const { admin, masterId } = await setup(); // brand "Amul"
     const holder = await sql.reserve();
-    await holder.unsafe("BEGIN");
-    await holder.unsafe("SELECT pg_advisory_xact_lock(hashtextextended('pmd.catalogue-brand:amul', 0))");
+    await holder.unsafe("START TRANSACTION");
+    // The bridge's lock is a row in pmd.advisory_lock now, so holding it means
+    // inserting the name if absent and then locking that row.
+    await holder.unsafe("INSERT INTO pmd.advisory_lock (name) VALUES ('pmd.catalogue-brand:amul') ON DUPLICATE KEY UPDATE name = name");
+    await holder.unsafe("SELECT name FROM pmd.advisory_lock WHERE name = 'pmd.catalogue-brand:amul' FOR UPDATE");
     let settled = false;
     const pending = promoteToCatalogue(sql, masterId, { userId: admin.id, role: "ADMIN" }).finally(() => {
       settled = true;
     });
     await new Promise((resolve) => setTimeout(resolve, 700));
     expect(settled).toBe(false); // still waiting for the brand
-    expect(await count(sql, "public.brands")).toBe(0);
+    expect(await count(sql, "brands")).toBe(0);
     await holder.unsafe("COMMIT");
     holder.release();
     const res = await pending;
     expect(res.created.brand).toBe(true);
-    expect(await count(sql, "public.brands")).toBe(1);
+    expect(await count(sql, "brands")).toBe(1);
   });
 
   describe("rolling a promotion back (scripts/pmd/rollback-promotion.sql)", () => {
-    // the script carries its own BEGIN/COMMIT, which postgres.js only allows on a connection reserved for it
+    // The script carries its own transaction, so it runs on one reserved
+    // connection - and statement by statement, because multipleStatements is
+    // off on the pool (see runSqlScript).
     const rollback = async () => {
-      const conn = await sql.reserve();
-      try {
-        await conn.unsafe(readFileSync(join(process.cwd(), "scripts/pmd/rollback-promotion.sql"), "utf8"));
-      } finally {
-        conn.release();
-      }
+      await runSqlScript(readFileSync(join(process.cwd(), "scripts/pmd/rollback-promotion.sql"), "utf8"), sql);
     };
 
     it("deletes what promotion created, but never a catalogue product it merely adopted", async () => {
       const { admin, masterId } = await setup(); // milk: created by promotion
       const cat = await createCategory({ department: "COSMETICS_BEAUTY", name: "Personal care" });
       const existing = await createProduct(cat.id, { name: "Kleenex Tissue", unit: "pack", subscribable: false });
-      await sql`UPDATE public.products SET gtin = '036000291452' WHERE id = ${existing.id}`;
+      await sql`UPDATE products SET gtin = '036000291452' WHERE id = ${existing.id}`;
       await ingest("test_market_a", [product({ sourceProductId: "K1", name: "Kleenex Facial Tissue", brand: "Kleenex", gtin: "0036000291452" })]);
-      const [{ master_product_id: kleenex }] = await sql<{ master_product_id: string }[]>`SELECT master_product_id FROM pmd.product_master WHERE product_name ILIKE 'Kleenex%'`;
+      const [{ master_product_id: kleenex }] = await sql<{ master_product_id: string }[]>`SELECT master_product_id FROM pmd.product_master WHERE product_name LIKE 'Kleenex%'`;
 
       const created = await promoteToCatalogue(sql, masterId, { userId: admin.id, role: "ADMIN" });
       const adopted = await promoteToCatalogue(sql, kleenex, { userId: admin.id, role: "ADMIN" });
@@ -240,10 +240,10 @@ describe("catalogue bridge: master product -> GoKesari catalogue -> shops", () =
 
       await rollback();
 
-      expect(await count(sql, "public.products", `id = '${created.catalogueProductId}'`)).toBe(0); // created: gone
-      expect(await count(sql, "public.products", `id = '${existing.id}'`)).toBe(1); // adopted: still there
+      expect(await count(sql, "products", `id = '${created.catalogueProductId}'`)).toBe(0); // created: gone
+      expect(await count(sql, "products", `id = '${existing.id}'`)).toBe(1); // adopted: still there
       expect(await count(sql, "pmd.catalogue_link")).toBe(0);
-      expect(await count(sql, "public.audit_logs", "action LIKE 'pmd.product_%'")).toBe(2); // the record stays
+      expect(await count(sql, "audit_logs", "action LIKE 'pmd.product_%'")).toBe(2); // the record stays
       // and the product can be promoted again afterwards (its GTIN is free)
       expect((await promoteToCatalogue(sql, masterId, { userId: admin.id, role: "ADMIN" })).adopted).toBe(false);
     });
@@ -257,16 +257,16 @@ describe("catalogue bridge: master product -> GoKesari catalogue -> shops", () =
 
       await rollback();
 
-      expect(await count(sql, "public.products", `id = '${res.catalogueProductId}'`)).toBe(1);
+      expect(await count(sql, "products", `id = '${res.catalogueProductId}'`)).toBe(1);
       expect(await count(sql, "pmd.catalogue_link")).toBe(1);
-      expect(await count(sql, "public.shop_products")).toBe(1);
+      expect(await count(sql, "shop_products")).toBe(1);
     });
   });
 
   it("marketplace seller pricing never becomes GoKesari's MRP", async () => {
     const { admin, masterId } = await setup({ offer: { sellerName: "Random Seller", price: 60, mrp: 90, stock: "in stock" } }, "MARKETPLACE");
     const res = await promoteToCatalogue(sql, masterId, { userId: admin.id, role: "ADMIN" });
-    const [p] = await sql<{ mrp_paise: number | null; mrp_source: string | null; mrp_verification_status: string }[]>`SELECT mrp_paise, mrp_source, mrp_verification_status FROM public.products WHERE id = ${res.catalogueProductId}`;
+    const [p] = await sql<{ mrp_paise: number | null; mrp_source: string | null; mrp_verification_status: string }[]>`SELECT mrp_paise, mrp_source, mrp_verification_status FROM products WHERE id = ${res.catalogueProductId}`;
     expect(p).toEqual({ mrp_paise: null, mrp_source: null, mrp_verification_status: "UNVERIFIED" });
   });
 
@@ -283,22 +283,22 @@ describe("catalogue bridge: master product -> GoKesari catalogue -> shops", () =
     const sellers = await shopsSellingMasterProduct(sql, masterId);
     expect(sellers.map((s) => [s.shop_name, s.online_price_paise, s.online_stock])).toEqual([["Shop A", 6700, 10], ["Shop B", 6900, 25]]);
     expect(new Set(sellers.map((s) => s.catalogue_product_code)).size).toBe(1);
-    expect(await count(sql, "public.products", `gtin = '${GTIN.MILK_1L}'`)).toBe(1);
+    expect(await count(sql, "products", `gtin = '${GTIN.MILK_1L}'`)).toBe(1);
     // Nothing about a shop's price exists on the master product.
-    expect(await count(sql, "information_schema.columns", "table_schema = 'pmd' AND table_name = 'product_master' AND column_name ~ 'price|stock'")).toBe(0);
+    expect(await count(sql, "information_schema.columns", "table_schema = 'pmd' AND table_name = 'product_master' AND REGEXP_LIKE(column_name, 'price|stock')")).toBe(0);
   });
 
   it("adopts an existing catalogue product with the same GTIN in ANY written form instead of duplicating it", async () => {
     const admin = await createUser({ role: "ADMIN" });
     const cat = await createCategory({ department: "COSMETICS_BEAUTY", name: "Personal care" });
     const existing = await createProduct(cat.id, { name: "Kleenex Tissue", unit: "pack", subscribable: false });
-    await sql`UPDATE public.products SET gtin = '036000291452' WHERE id = ${existing.id}`; // stored as a 12-digit UPC-A
+    await sql`UPDATE products SET gtin = '036000291452' WHERE id = ${existing.id}`; // stored as a 12-digit UPC-A
 
     await ingest("test_market_a", [product({ sourceProductId: "K1", name: "Kleenex Facial Tissue", brand: "Kleenex", gtin: "0036000291452" })]);
     const [{ master_product_id }] = await sql<{ master_product_id: string }[]>`SELECT master_product_id FROM pmd.product_master`;
     const res = await promoteToCatalogue(sql, master_product_id, { userId: admin.id, role: "ADMIN" });
     expect(res).toMatchObject({ adopted: true, catalogueProductId: existing.id });
-    expect(await count(sql, "public.products")).toBe(1);
+    expect(await count(sql, "products")).toBe(1);
     expect(gtinForms("00036000291452").sort()).toEqual(["0036000291452", "00036000291452", "036000291452"].sort());
     expect(catalogueGtin("00036000291452")).toBe("0036000291452");
   });
@@ -313,16 +313,16 @@ describe("catalogue bridge: master product -> GoKesari catalogue -> shops", () =
     expect((thin as PromotionError).reasons.join(" ")).toMatch(/data-quality score/);
     // ...and even with the quality bar lowered, a product with no standard category cannot be filed.
     await expect(promoteToCatalogue(sql, masterId, { userId: admin.id, role: "ADMIN" }, { minQuality: 0 })).rejects.toMatchObject({ code: "NOT_ELIGIBLE", reasons: ["no standard category"] });
-    expect(await count(sql, "public.products")).toBe(0);
-    expect(await count(sql, "public.brands")).toBe(0);
+    expect(await count(sql, "products")).toBe(0);
+    expect(await count(sql, "brands")).toBe(0);
     expect(await count(sql, "pmd.catalogue_link")).toBe(0);
-    expect(await count(sql, "public.audit_logs", "action LIKE 'pmd.%'")).toBe(0);
+    expect(await count(sql, "audit_logs", "action LIKE 'pmd.%'")).toBe(0);
   });
 
   it("enforces a minimum data-quality score", async () => {
     const { admin, masterId } = await setup();
     await expect(promoteToCatalogue(sql, masterId, { userId: admin.id, role: "ADMIN" }, { minQuality: 99 })).rejects.toBeInstanceOf(PromotionError);
-    expect(await count(sql, "public.products")).toBe(0);
+    expect(await count(sql, "products")).toBe(0);
   });
 
   it("cannot promote the same master twice, or into a department with no marketplace category", async () => {
@@ -356,16 +356,21 @@ describe("automated data-quality and duplicate checks", () => {
   it("detects a duplicated GTIN if one were ever forced in (the check itself works)", async () => {
     await ingest("test_market_a", [product({ sourceProductId: "D1", name: "Dup Check Item", brand: "Acme", gtin: GTIN.TEA })]);
     expect(await count(sql, "pmd.product_master", "gtin IS NOT NULL")).toBe(1);
-    await sql`ALTER TABLE pmd.product_master DISABLE TRIGGER ALL`;
-    await sql`DROP INDEX pmd.product_master_gtin_uq`;
+    // MySQL has no per-table trigger switch, and this table has no triggers
+    // anyway - touch_updated_at became ON UPDATE CURRENT_TIMESTAMP(3). The
+    // partial unique index is a UNIQUE on the generated column active_gtin_key,
+    // so that is what gets dropped and rebuilt.
+    await sql`ALTER TABLE pmd.product_master DROP INDEX product_master_gtin_uq`;
     try {
-      await sql`INSERT INTO pmd.product_master (gtin, product_name, normalized_name, search_text) SELECT gtin, 'dup', 'dup', 'dup' FROM pmd.product_master LIMIT 1`;
+      // Read first, then insert: MySQL will not read the insert target in a
+      // subquery of the same statement, and product_id is application-allocated.
+      const [{ gtin }] = await sql<{ gtin: string }[]>`SELECT gtin FROM pmd.product_master WHERE gtin IS NOT NULL LIMIT 1`;
+      await sql`INSERT INTO pmd.product_master (product_id, gtin, product_name, normalized_name, search_text) VALUES (910001, ${gtin}, 'dup', 'dup', 'dup')`;
       const failed = await failedInvariants(sql);
       expect(failed.map((f) => f.id)).toContain("unique-active-gtin");
     } finally {
       await sql`DELETE FROM pmd.product_master WHERE product_name = 'dup'`;
-      await sql`CREATE UNIQUE INDEX product_master_gtin_uq ON pmd.product_master (gtin) WHERE gtin IS NOT NULL AND record_status = 'ACTIVE'`;
-      await sql`ALTER TABLE pmd.product_master ENABLE TRIGGER ALL`;
+      await sql`ALTER TABLE pmd.product_master ADD UNIQUE KEY product_master_gtin_uq (active_gtin_key)`;
     }
   });
 

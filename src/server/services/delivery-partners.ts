@@ -31,9 +31,14 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { ACTIVE_ASSIGNMENT_STATUSES } from "./delivery-eligibility";
 import { grantRole } from "./roles";
-import { encryptKycInput, toPublicPartner, type PublicDeliveryPartner } from "./delivery-partner-kyc";
+import {
+  encryptKycInput,
+  toPublicPartner,
+  type PublicDeliveryPartner,
+} from "./delivery-partner-kyc";
 import { resolveLocationVerification } from "./geocoding";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
+import { insertReturning, updateReturning } from "@/server/db/returning";
 
 interface Actor {
   id: string;
@@ -93,7 +98,10 @@ export async function registerDeliveryPartner(
   validate(input);
 
   const existing = await db.query.deliveryPartners.findFirst({
-    where: and(eq(deliveryPartners.userId, userId), isNull(deliveryPartners.deletedAt)),
+    where: and(
+      eq(deliveryPartners.userId, userId),
+      isNull(deliveryPartners.deletedAt),
+    ),
   });
   if (existing) {
     throw conflict("You have already applied to become a delivery partner.");
@@ -104,30 +112,32 @@ export async function registerDeliveryPartner(
   const encryptedKyc = encryptKycInput(input);
 
   const { locationVerified, locationVerifiedAt, locationSource } =
-    await resolveLocationVerification(input.latitude, input.longitude, "delivery_partner_registration", "delivery_partner");
+    await resolveLocationVerification(
+      input.latitude,
+      input.longitude,
+      "delivery_partner_registration",
+      "delivery_partner",
+    );
 
-  const [partner] = await db
-    .insert(deliveryPartners)
-    .values({
-      userId,
-      fullName: input.fullName.trim(),
-      mobile: input.mobile,
-      email: input.email?.trim() || null,
-      dateOfBirth: input.dateOfBirth || null,
-      profilePhotoUrl: input.profilePhotoUrl || null,
-      governmentIdType: input.governmentIdType?.trim() || null,
-      ...encryptedKyc,
-      vehicleType: input.vehicleType,
-      vehicleRegistrationNumber: input.vehicleRegistrationNumber?.trim() || null,
-      latitude: input.latitude != null ? String(input.latitude) : null,
-      longitude: input.longitude != null ? String(input.longitude) : null,
-      operatingRadiusKm: input.operatingRadiusKm ?? 5,
-      locationVerified,
-      locationVerifiedAt,
-      locationSource,
-      status: "REGISTERED",
-    })
-    .returning();
+  const [partner] = await insertReturning(db, deliveryPartners, {
+    userId,
+    fullName: input.fullName.trim(),
+    mobile: input.mobile,
+    email: input.email?.trim() || null,
+    dateOfBirth: input.dateOfBirth || null,
+    profilePhotoUrl: input.profilePhotoUrl || null,
+    governmentIdType: input.governmentIdType?.trim() || null,
+    ...encryptedKyc,
+    vehicleType: input.vehicleType,
+    vehicleRegistrationNumber: input.vehicleRegistrationNumber?.trim() || null,
+    latitude: input.latitude != null ? String(input.latitude) : null,
+    longitude: input.longitude != null ? String(input.longitude) : null,
+    operatingRadiusKm: input.operatingRadiusKm ?? 5,
+    locationVerified,
+    locationVerifiedAt,
+    locationSource,
+    status: "REGISTERED",
+  });
 
   // A plain customer applying becomes DELIVERY_PARTNER immediately, the same
   // way shop registration promotes to SHOP_OWNER — operators/admins keep
@@ -150,9 +160,14 @@ export async function registerDeliveryPartner(
   return toPublicPartner(partner);
 }
 
-export async function getMyDeliveryPartnerProfile(userId: string): Promise<PublicDeliveryPartner | null> {
+export async function getMyDeliveryPartnerProfile(
+  userId: string,
+): Promise<PublicDeliveryPartner | null> {
   const partner = await db.query.deliveryPartners.findFirst({
-    where: and(eq(deliveryPartners.userId, userId), isNull(deliveryPartners.deletedAt)),
+    where: and(
+      eq(deliveryPartners.userId, userId),
+      isNull(deliveryPartners.deletedAt),
+    ),
   });
   return partner ? toPublicPartner(partner) : null;
 }
@@ -166,7 +181,8 @@ export async function listDeliveryPartners(
   filters: DeliveryPartnerFilters = {},
 ): Promise<PublicDeliveryPartner[]> {
   const conditions = [isNull(deliveryPartners.deletedAt)];
-  if (filters.status) conditions.push(eq(deliveryPartners.status, filters.status));
+  if (filters.status)
+    conditions.push(eq(deliveryPartners.status, filters.status));
 
   const rows = await db
     .select()
@@ -177,7 +193,9 @@ export async function listDeliveryPartners(
   return rows.map(toPublicPartner);
 }
 
-export async function countDeliveryPartnersByStatus(): Promise<Record<string, number>> {
+export async function countDeliveryPartnersByStatus(): Promise<
+  Record<string, number>
+> {
   const rows = await db
     .select({ status: deliveryPartners.status })
     .from(deliveryPartners)
@@ -209,31 +227,39 @@ async function transition(
     const [current] = await tx
       .select()
       .from(deliveryPartners)
-      .where(and(eq(deliveryPartners.id, id), isNull(deliveryPartners.deletedAt)))
+      .where(
+        and(eq(deliveryPartners.id, id), isNull(deliveryPartners.deletedAt)),
+      )
       .for("update");
     if (!current) throw notFound("Delivery partner");
     if (TERMINAL_STATUSES.includes(current.status)) {
-      throw conflict("This delivery partner has been deactivated and cannot be changed.");
+      throw conflict(
+        "This delivery partner has been deactivated and cannot be changed.",
+      );
     }
     guard?.(current);
 
     // Only an APPROVED partner may be online: leaving APPROVED, or entering it from another status (which also
     // clears an online flag left by an older build), always ends offline.
-    const takeOffline = set.status !== undefined && (set.status !== "APPROVED" || current.status !== "APPROVED");
+    const takeOffline =
+      set.status !== undefined &&
+      (set.status !== "APPROVED" || current.status !== "APPROVED");
     const now = new Date();
-    const [updated] = await tx
-      .update(deliveryPartners)
-      .set({
+    const [updated] = await updateReturning(
+      tx,
+      deliveryPartners,
+      {
         ...set,
         ...(takeOffline ? { isOnline: false } : {}),
         reviewedBy: actor.id,
         reviewedAt: now,
         updatedAt: now,
-      })
-      .where(eq(deliveryPartners.id, id))
-      .returning();
+      },
+      eq(deliveryPartners.id, id),
+    );
 
-    if (takeOffline) await closeOpenSessions(tx, id, updated.lastLocationAt, now);
+    if (takeOffline)
+      await closeOpenSessions(tx, id, updated.lastLocationAt, now);
 
     await recordAudit(
       {
@@ -242,7 +268,10 @@ async function transition(
         action: AUDIT_ACTIONS.DELIVERY_PARTNER_STATUS_CHANGED,
         entityType: "delivery_partner",
         entityId: id,
-        previousValue: { status: current.status, ...(takeOffline ? { isOnline: current.isOnline } : {}) },
+        previousValue: {
+          status: current.status,
+          ...(takeOffline ? { isOnline: current.isOnline } : {}),
+        },
         newValue: {
           status: updated.status,
           reviewNotes: updated.reviewNotes,
@@ -262,7 +291,10 @@ export async function startDeliveryPartnerReview(
   actor: Actor,
   notes?: string | null,
 ): Promise<PublicDeliveryPartner> {
-  return transition(id, actor, { status: "UNDER_REVIEW", reviewNotes: notes ?? null });
+  return transition(id, actor, {
+    status: "UNDER_REVIEW",
+    reviewNotes: notes ?? null,
+  });
 }
 
 /** Approves an application (from REGISTERED or UNDER_REVIEW). Only APPROVED partners are assignment-eligible once Slice C exists. */
@@ -293,7 +325,10 @@ export async function rejectDeliveryPartner(
   actor: Actor,
 ): Promise<PublicDeliveryPartner> {
   if (!reason.trim()) throw validationFailed("A rejection reason is required.");
-  const updated = await transition(id, actor, { status: "REJECTED", rejectionReason: reason.trim() });
+  const updated = await transition(id, actor, {
+    status: "REJECTED",
+    rejectionReason: reason.trim(),
+  });
 
   await notify({
     userId: updated.userId,
@@ -311,12 +346,18 @@ export async function suspendDeliveryPartner(
   reason: string,
   actor: Actor,
 ): Promise<PublicDeliveryPartner> {
-  if (!reason.trim()) throw validationFailed("A suspension reason is required.");
-  const updated = await transition(id, actor, { status: "SUSPENDED", rejectionReason: reason.trim() }, (current) => {
-    if (current.status !== "APPROVED") {
-      throw conflict("Only an approved delivery partner can be suspended.");
-    }
-  });
+  if (!reason.trim())
+    throw validationFailed("A suspension reason is required.");
+  const updated = await transition(
+    id,
+    actor,
+    { status: "SUSPENDED", rejectionReason: reason.trim() },
+    (current) => {
+      if (current.status !== "APPROVED") {
+        throw conflict("Only an approved delivery partner can be suspended.");
+      }
+    },
+  );
 
   await notify({
     userId: updated.userId,
@@ -328,12 +369,20 @@ export async function suspendDeliveryPartner(
   return updated;
 }
 
-export async function reactivateDeliveryPartner(id: string, actor: Actor): Promise<PublicDeliveryPartner> {
-  return transition(id, actor, { status: "APPROVED", rejectionReason: null }, (current) => {
-    if (current.status !== "SUSPENDED") {
-      throw conflict("Only a suspended delivery partner can be reactivated.");
-    }
-  });
+export async function reactivateDeliveryPartner(
+  id: string,
+  actor: Actor,
+): Promise<PublicDeliveryPartner> {
+  return transition(
+    id,
+    actor,
+    { status: "APPROVED", rejectionReason: null },
+    (current) => {
+      if (current.status !== "SUSPENDED") {
+        throw conflict("Only a suspended delivery partner can be reactivated.");
+      }
+    },
+  );
 }
 
 /** Permanent close-out — e.g. the partner asked to stop, or a serious policy violation. Terminal; no further transitions. */
@@ -343,10 +392,15 @@ export async function deactivateDeliveryPartner(
   actor: Actor,
 ): Promise<PublicDeliveryPartner> {
   if (!reason.trim()) throw validationFailed("A reason is required.");
-  return transition(id, actor, { status: "DEACTIVATED", rejectionReason: reason.trim() });
+  return transition(id, actor, {
+    status: "DEACTIVATED",
+    rejectionReason: reason.trim(),
+  });
 }
 
-export async function getDeliveryPartnerById(id: string): Promise<PublicDeliveryPartner> {
+export async function getDeliveryPartnerById(
+  id: string,
+): Promise<PublicDeliveryPartner> {
   const partner = await db.query.deliveryPartners.findFirst({
     where: and(eq(deliveryPartners.id, id), isNull(deliveryPartners.deletedAt)),
   });
@@ -360,7 +414,8 @@ export async function requireOwnDeliveryPartnerProfile(
   partnerId: string,
 ): Promise<PublicDeliveryPartner> {
   const partner = await getDeliveryPartnerById(partnerId);
-  if (partner.userId !== userId) throw forbidden("This profile does not belong to you.");
+  if (partner.userId !== userId)
+    throw forbidden("This profile does not belong to you.");
   return partner;
 }
 
@@ -377,11 +432,19 @@ function validCoordinate(latitude: number, longitude: number): boolean {
 
 const RIDER_IDLE_CAP_MS = RIDER_IDLE_CAP_MINUTES * 60_000;
 
-async function lockMyPartner(tx: DbClient, userId: string): Promise<DeliveryPartner | undefined> {
+async function lockMyPartner(
+  tx: DbClient,
+  userId: string,
+): Promise<DeliveryPartner | undefined> {
   const [partner] = await tx
     .select()
     .from(deliveryPartners)
-    .where(and(eq(deliveryPartners.userId, userId), isNull(deliveryPartners.deletedAt)))
+    .where(
+      and(
+        eq(deliveryPartners.userId, userId),
+        isNull(deliveryPartners.deletedAt),
+      ),
+    )
     .for("update");
   return partner;
 }
@@ -398,13 +461,21 @@ async function closeOpenSessions(
   now: Date,
 ): Promise<void> {
   const startedAt = deliveryPartnerSessions.startedAt;
-  const lastSeen = sql`greatest(${lastLocationAt?.toISOString() ?? null}::timestamptz, ${startedAt})`;
+  // Postgres GREATEST ignores NULLs and returns the largest non-NULL; MySQL
+  // returns NULL if any argument is NULL, so a rider who has never reported a
+  // location would get a NULL session end instead of falling back to the start.
+  const lastSeen = sql`greatest(coalesce(${lastLocationAt}, ${startedAt}), ${startedAt})`;
   await client
     .update(deliveryPartnerSessions)
     .set({
-      endedAt: sql`greatest(${startedAt}, least(${now.toISOString()}::timestamptz, ${lastSeen} + make_interval(mins => ${RIDER_IDLE_CAP_MINUTES})))`,
+      endedAt: sql`greatest(${startedAt}, least(${now}, ${lastSeen} + interval ${RIDER_IDLE_CAP_MINUTES} minute))`,
     })
-    .where(and(eq(deliveryPartnerSessions.deliveryPartnerId, partnerId), isNull(deliveryPartnerSessions.endedAt)));
+    .where(
+      and(
+        eq(deliveryPartnerSessions.deliveryPartnerId, partnerId),
+        isNull(deliveryPartnerSessions.endedAt),
+      ),
+    );
 }
 
 /** KPI-013: keeps one open session; after an idle gap longer than the cap, ends it at the gap and starts a new one now. */
@@ -417,15 +488,25 @@ async function syncOnlineSession(
   const [open] = await tx
     .select({ startedAt: deliveryPartnerSessions.startedAt })
     .from(deliveryPartnerSessions)
-    .where(and(eq(deliveryPartnerSessions.deliveryPartnerId, partnerId), isNull(deliveryPartnerSessions.endedAt)))
+    .where(
+      and(
+        eq(deliveryPartnerSessions.deliveryPartnerId, partnerId),
+        isNull(deliveryPartnerSessions.endedAt),
+      ),
+    )
     .orderBy(desc(deliveryPartnerSessions.startedAt))
     .limit(1);
   if (open) {
-    const lastSeen = Math.max(open.startedAt.getTime(), lastLocationAt?.getTime() ?? 0);
+    const lastSeen = Math.max(
+      open.startedAt.getTime(),
+      lastLocationAt?.getTime() ?? 0,
+    );
     if (now.getTime() - lastSeen <= RIDER_IDLE_CAP_MS) return;
     await closeOpenSessions(tx, partnerId, lastLocationAt, now);
   }
-  await tx.insert(deliveryPartnerSessions).values({ deliveryPartnerId: partnerId, startedAt: now });
+  await tx
+    .insert(deliveryPartnerSessions)
+    .values({ deliveryPartnerId: partnerId, startedAt: now });
 }
 
 /**
@@ -440,7 +521,9 @@ export async function goOnline(
   longitude: number,
 ): Promise<PublicDeliveryPartner> {
   if (!validCoordinate(latitude, longitude)) {
-    throw validationFailed("A valid current location is required to go online.");
+    throw validationFailed(
+      "A valid current location is required to go online.",
+    );
   }
 
   return db.transaction(async (tx) => {
@@ -452,17 +535,18 @@ export async function goOnline(
 
     const now = new Date();
     await syncOnlineSession(tx, partner.id, partner.lastLocationAt, now);
-    const [updated] = await tx
-      .update(deliveryPartners)
-      .set({
+    const [updated] = await updateReturning(
+      tx,
+      deliveryPartners,
+      {
         isOnline: true,
         lastLocationLatitude: String(latitude),
         lastLocationLongitude: String(longitude),
         lastLocationAt: now,
         updatedAt: now,
-      })
-      .where(eq(deliveryPartners.id, partner.id))
-      .returning();
+      },
+      eq(deliveryPartners.id, partner.id),
+    );
 
     await recordAudit(
       {
@@ -483,7 +567,9 @@ export async function goOnline(
  * Refused while the rider holds any active assignment (a pending offer too),
  * the same set the dashboard disables the button on and analytics counts as busy.
  */
-export async function goOffline(userId: string): Promise<PublicDeliveryPartner> {
+export async function goOffline(
+  userId: string,
+): Promise<PublicDeliveryPartner> {
   return db.transaction(async (tx) => {
     const partner = await lockMyPartner(tx, userId);
     if (!partner) throw notFound("Delivery partner profile");
@@ -507,11 +593,12 @@ export async function goOffline(userId: string): Promise<PublicDeliveryPartner> 
     }
 
     const now = new Date();
-    const [updated] = await tx
-      .update(deliveryPartners)
-      .set({ isOnline: false, updatedAt: now })
-      .where(eq(deliveryPartners.id, partner.id))
-      .returning();
+    const [updated] = await updateReturning(
+      tx,
+      deliveryPartners,
+      { isOnline: false, updatedAt: now },
+      eq(deliveryPartners.id, partner.id),
+    );
     await closeOpenSessions(tx, partner.id, partner.lastLocationAt, now);
 
     await recordAudit(
@@ -546,7 +633,10 @@ export async function updateMyLocation(
 
   return db.transaction(async (tx) => {
     const [partner] = await tx
-      .select({ id: deliveryPartners.id, lastLocationAt: deliveryPartners.lastLocationAt })
+      .select({
+        id: deliveryPartners.id,
+        lastLocationAt: deliveryPartners.lastLocationAt,
+      })
       .from(deliveryPartners)
       .where(
         and(

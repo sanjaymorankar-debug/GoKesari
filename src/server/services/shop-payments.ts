@@ -25,6 +25,7 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { insertReturning } from "@/server/db/returning";
 
 interface Actor {
   id: string;
@@ -39,7 +40,7 @@ interface Actor {
 async function nextReference(tx: DbClient): Promise<string> {
   const year = new Date().getFullYear();
   const [{ n }] = await tx
-    .select({ n: sql<number>`COUNT(*)::int` })
+    .select({ n: sql<number>`CAST(COUNT(*) AS SIGNED)` })
     .from(shopPayments);
   return `PAY-${year}-${String(n + 1).padStart(6, "0")}`;
 }
@@ -67,7 +68,7 @@ async function recomputeShopSettlement(
 
   const [{ paid }] = await tx
     .select({
-      paid: sql<number>`COALESCE(SUM(${shopPayments.amountPaise}), 0)::bigint`,
+      paid: sql<number>`CAST(COALESCE(SUM(${shopPayments.amountPaise}), 0) AS SIGNED)`,
     })
     .from(shopPayments)
     .where(eq(shopPayments.shopId, shopId));
@@ -117,12 +118,20 @@ export interface RecordPaymentInput {
 export async function recordPayment(
   input: RecordPaymentInput,
   actor: Actor,
-): Promise<{ payment: ShopPayment; amountPaidPaise: number; feePaymentStatus: FeePaymentStatus }> {
+): Promise<{
+  payment: ShopPayment;
+  amountPaidPaise: number;
+  feePaymentStatus: FeePaymentStatus;
+}> {
   if (!Number.isInteger(input.amountPaise) || input.amountPaise <= 0) {
-    throw validationFailed("Payment amount must be a positive whole number of paise.");
+    throw validationFailed(
+      "Payment amount must be a positive whole number of paise.",
+    );
   }
   if (input.paymentType === "REVERSAL") {
-    throw validationFailed("Use reversePayment() to reverse an existing payment.");
+    throw validationFailed(
+      "Use reversePayment() to reverse an existing payment.",
+    );
   }
 
   return db.transaction(async (tx) => {
@@ -141,23 +150,20 @@ export async function recordPayment(
     const signed =
       input.paymentType === "REFUND" ? -input.amountPaise : input.amountPaise;
 
-    const [payment] = await tx
-      .insert(shopPayments)
-      .values({
-        reference: await nextReference(tx),
-        shopId: shop.id,
-        ownerId: shop.ownerId,
-        paymentType: input.paymentType,
-        amountPaise: signed,
-        method: input.method ?? "CASH",
-        transactionId: input.transactionId ?? null,
-        feeSnapshotPaise: shop.registrationFeePaise,
-        paidAt: input.paidAt ?? new Date(),
-        note: input.note ?? null,
-        receiptUrl: input.receiptUrl ?? null,
-        recordedBy: actor.id,
-      })
-      .returning();
+    const [payment] = await insertReturning(tx, shopPayments, {
+      reference: await nextReference(tx),
+      shopId: shop.id,
+      ownerId: shop.ownerId,
+      paymentType: input.paymentType,
+      amountPaise: signed,
+      method: input.method ?? "CASH",
+      transactionId: input.transactionId ?? null,
+      feeSnapshotPaise: shop.registrationFeePaise,
+      paidAt: input.paidAt ?? new Date(),
+      note: input.note ?? null,
+      receiptUrl: input.receiptUrl ?? null,
+      recordedBy: actor.id,
+    });
 
     const settlement = await recomputeShopSettlement(tx, shop.id);
 
@@ -193,7 +199,11 @@ export async function reversePayment(
   paymentId: string,
   reason: string,
   actor: Actor,
-): Promise<{ reversal: ShopPayment; amountPaidPaise: number; feePaymentStatus: FeePaymentStatus }> {
+): Promise<{
+  reversal: ShopPayment;
+  amountPaidPaise: number;
+  feePaymentStatus: FeePaymentStatus;
+}> {
   return db.transaction(async (tx) => {
     const [original] = await tx
       .select()
@@ -207,24 +217,22 @@ export async function reversePayment(
       .from(shopPayments)
       .where(eq(shopPayments.reversalOfId, paymentId))
       .limit(1);
-    if (alreadyReversed) throw conflict("That payment has already been reversed.");
+    if (alreadyReversed)
+      throw conflict("That payment has already been reversed.");
 
-    const [reversal] = await tx
-      .insert(shopPayments)
-      .values({
-        reference: await nextReference(tx),
-        shopId: original.shopId,
-        ownerId: original.ownerId,
-        paymentType: "REVERSAL",
-        amountPaise: -original.amountPaise,
-        method: original.method,
-        transactionId: original.transactionId,
-        feeSnapshotPaise: original.feeSnapshotPaise,
-        note: reason,
-        reversalOfId: original.id,
-        recordedBy: actor.id,
-      })
-      .returning();
+    const [reversal] = await insertReturning(tx, shopPayments, {
+      reference: await nextReference(tx),
+      shopId: original.shopId,
+      ownerId: original.ownerId,
+      paymentType: "REVERSAL",
+      amountPaise: -original.amountPaise,
+      method: original.method,
+      transactionId: original.transactionId,
+      feeSnapshotPaise: original.feeSnapshotPaise,
+      note: reason,
+      reversalOfId: original.id,
+      recordedBy: actor.id,
+    });
 
     const settlement = await recomputeShopSettlement(tx, original.shopId);
 
@@ -248,7 +256,9 @@ export async function reversePayment(
   });
 }
 
-export async function listPaymentsForShop(shopId: string): Promise<ShopPayment[]> {
+export async function listPaymentsForShop(
+  shopId: string,
+): Promise<ShopPayment[]> {
   return db
     .select()
     .from(shopPayments)
@@ -288,19 +298,19 @@ export async function getRegistrationFeeReport(): Promise<{
 }> {
   const [totals] = await db
     .select({
-      totalShops: sql<number>`COUNT(*)::int`,
-      expectedPaise: sql<number>`COALESCE(SUM(${shops.registrationFeePaise}), 0)::bigint`,
-      collectedPaise: sql<number>`COALESCE(SUM(${shops.amountPaidPaise}), 0)::bigint`,
-      fullyPaid: sql<number>`COUNT(*) FILTER (WHERE ${shops.feePaymentStatus} = 'PAID')::int`,
-      partiallyPaid: sql<number>`COUNT(*) FILTER (WHERE ${shops.feePaymentStatus} = 'PARTIALLY_PAID')::int`,
-      unpaid: sql<number>`COUNT(*) FILTER (WHERE ${shops.feePaymentStatus} = 'PENDING')::int`,
+      totalShops: sql<number>`CAST(COUNT(*) AS SIGNED)`,
+      expectedPaise: sql<number>`CAST(COALESCE(SUM(${shops.registrationFeePaise}), 0) AS SIGNED)`,
+      collectedPaise: sql<number>`CAST(COALESCE(SUM(${shops.amountPaidPaise}), 0) AS SIGNED)`,
+      fullyPaid: sql<number>`CAST(COUNT(case when ${shops.feePaymentStatus} = 'PAID' then 1 end) AS SIGNED)`,
+      partiallyPaid: sql<number>`CAST(COUNT(case when ${shops.feePaymentStatus} = 'PARTIALLY_PAID' then 1 end) AS SIGNED)`,
+      unpaid: sql<number>`CAST(COUNT(case when ${shops.feePaymentStatus} = 'PENDING' then 1 end) AS SIGNED)`,
     })
     .from(shops)
     .where(isNull(shops.deletedAt));
 
   const [refunds] = await db
     .select({
-      refundedPaise: sql<number>`COALESCE(SUM(ABS(${shopPayments.amountPaise})), 0)::bigint`,
+      refundedPaise: sql<number>`CAST(COALESCE(SUM(ABS(${shopPayments.amountPaise})), 0) AS SIGNED)`,
     })
     .from(shopPayments)
     .where(eq(shopPayments.paymentType, "REFUND"));

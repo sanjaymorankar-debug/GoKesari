@@ -15,13 +15,14 @@
  */
 import { resolveConfig } from "../config";
 import type { Sql, TransactionSql } from "../db";
+import { refreshDashboard } from "../mysql/routines";
 import { loadReferenceIds } from "../reference-data";
 import { recomputeProductStatus } from "./offers";
 import { refreshQuality } from "./quality";
 import { resolveAttribute } from "./specs";
 
 export interface ReviewActor {
-  /** The application user (public.users.id) making the decision; null for a system action. */
+  /** The application user (users.id) making the decision; null for a system action. */
   userId: string | null;
   /** Human-readable label written to the audit trail, e.g. an email. */
   label: string;
@@ -81,13 +82,13 @@ export async function mergeProducts(
     const history = await tx`UPDATE pmd.price_history SET product_id = ${intoProductId} WHERE product_id = ${fromProductId}`;
 
     // Images: keep the survivor's, add the retired one's that are new, up to the six-image limit.
-    const [{ n: haveImages }] = await tx<{ n: number }[]>`SELECT count(*)::int AS n FROM pmd.product_image WHERE product_id = ${intoProductId}`;
-    const fromImages = await tx<{ image_id: number; image_url: string }[]>`SELECT image_id, image_url FROM pmd.product_image WHERE product_id = ${fromProductId} ORDER BY rank`;
+    const [{ n: haveImages }] = await tx<{ n: number }[]>`SELECT CAST(count(*) AS SIGNED) AS n FROM pmd.product_image WHERE product_id = ${intoProductId}`;
+    const fromImages = await tx<{ image_id: number; image_url: string }[]>`SELECT image_id, image_url FROM pmd.product_image WHERE product_id = ${fromProductId} ORDER BY \`rank\``;
     let rank = haveImages;
     for (const img of fromImages) {
       const dup = await tx`SELECT 1 FROM pmd.product_image WHERE product_id = ${intoProductId} AND image_url = ${img.image_url}`;
       if (dup.length === 0 && rank < 6) {
-        await tx`UPDATE pmd.product_image SET product_id = ${intoProductId}, rank = ${rank++} WHERE image_id = ${img.image_id}`;
+        await tx`UPDATE pmd.product_image SET product_id = ${intoProductId}, \`rank\` = ${rank++} WHERE image_id = ${img.image_id}`;
       } else {
         await tx`DELETE FROM pmd.product_image WHERE image_id = ${img.image_id}`; // a duplicate link, not history
       }
@@ -95,42 +96,70 @@ export async function mergeProducts(
 
     // Identifiers: every one is kept on the survivor; duplicates collapse; only one is primary.
     await tx`UPDATE pmd.product_identifier SET is_primary = false WHERE product_id = ${fromProductId}`;
-    await tx`
-      UPDATE pmd.product_identifier f SET product_id = ${intoProductId}
+    // MySQL refuses to read the table being updated inside a subquery of the
+    // same statement (errno 1093), and the NOT EXISTS predicate stops matching
+    // once the rows have moved, so the ids are read (and locked) first.
+    const movable = await tx<{ identifier_id: number }[]>`
+      SELECT f.identifier_id FROM pmd.product_identifier f
        WHERE f.product_id = ${fromProductId}
-         AND NOT EXISTS (SELECT 1 FROM pmd.product_identifier i WHERE i.product_id = ${intoProductId} AND i.id_type = f.id_type AND i.id_value = f.id_value)`;
+         AND NOT EXISTS (SELECT 1 FROM pmd.product_identifier i WHERE i.product_id = ${intoProductId} AND i.id_type = f.id_type AND i.id_value = f.id_value)
+       FOR UPDATE`;
+    if (movable.length) {
+      await tx`
+        UPDATE pmd.product_identifier SET product_id = ${intoProductId}
+         WHERE identifier_id IN ${tx(movable.map((m) => m.identifier_id))}`;
+    }
     await tx`DELETE FROM pmd.product_identifier WHERE product_id = ${fromProductId}`;
 
     // Specifications: each source's value survives; then every affected attribute is re-resolved.
-    const moved = await tx<{ attribute_key: string }[]>`
-      UPDATE pmd.product_specification f SET product_id = ${intoProductId}, is_preferred = false
+    // The spec_ids are read (and locked) first: the NOT EXISTS predicate stops
+    // matching once the rows have moved, so it cannot be re-run afterwards to
+    // learn which keys were affected.
+    const moved = await tx<{ spec_id: number; attribute_key: string }[]>`
+      SELECT f.spec_id, f.attribute_key FROM pmd.product_specification f
        WHERE f.product_id = ${fromProductId}
          AND NOT EXISTS (SELECT 1 FROM pmd.product_specification i WHERE i.product_id = ${intoProductId} AND i.attribute_key = f.attribute_key AND i.source_id = f.source_id)
-      RETURNING attribute_key`;
+       FOR UPDATE`;
+    if (moved.length) {
+      await tx`
+        UPDATE pmd.product_specification SET product_id = ${intoProductId}, is_preferred = false
+         WHERE spec_id IN ${tx(moved.map((m) => m.spec_id))}`;
+    }
     await tx`DELETE FROM pmd.product_specification WHERE product_id = ${fromProductId}`;
     await tx`
-      UPDATE pmd.product_attribute_conflict SET conflict_status = 'IGNORED', resolution = ${`Product merged into ${intoProductId}`}, resolution_source = 'MERGE', resolution_date = now()
+      UPDATE pmd.product_attribute_conflict SET conflict_status = 'IGNORED', resolution = ${`Product merged into ${intoProductId}`}, resolution_source = 'MERGE', resolution_date = now(3)
        WHERE product_id = ${fromProductId} AND conflict_status = 'OPEN'`;
 
     // Review items that pointed at the retired master now point at the survivor.
-    await tx`
-      UPDATE pmd.match_candidate c SET candidate_product_id = ${intoProductId}
+    // MySQL will not read the table being updated inside a subquery of the same
+    // statement (errno 1093), so the candidates are read and locked first.
+    const repointable = await tx<{ candidate_id: number }[]>`
+      SELECT c.candidate_id FROM pmd.match_candidate c
        WHERE c.candidate_product_id = ${fromProductId}
-         AND NOT EXISTS (SELECT 1 FROM pmd.match_candidate x WHERE x.product_source_id = c.product_source_id AND x.candidate_product_id = ${intoProductId})`;
+         AND NOT EXISTS (SELECT 1 FROM pmd.match_candidate x WHERE x.product_source_id = c.product_source_id AND x.candidate_product_id = ${intoProductId})
+       FOR UPDATE`;
+    if (repointable.length) {
+      await tx`
+        UPDATE pmd.match_candidate SET candidate_product_id = ${intoProductId}
+         WHERE candidate_id IN ${tx(repointable.map((r) => r.candidate_id))}`;
+    }
     await tx`DELETE FROM pmd.match_candidate WHERE candidate_product_id = ${fromProductId}`;
 
     // Fill blanks on the survivor from the retired master (never overwrite).
+    // `UPDATE t s SET … FROM t f WHERE …` is Postgres-only; MySQL joins the two
+    // aliases of the same table instead. The placeholders are `?`, not `$1`.
     await tx.unsafe(
-      `UPDATE pmd.product_master s SET ${FILL_COLUMNS.map((c) => `${c} = COALESCE(s.${c}, f.${c})`).join(", ")},
-              version = s.version + 1, updated_at = now(),
-              match_confidence = LEAST(COALESCE(s.match_confidence, 100), COALESCE(f.match_confidence, 100))
-         FROM pmd.product_master f
-        WHERE s.product_id = $1 AND f.product_id = $2`,
-      [intoProductId, fromProductId],
+      `UPDATE pmd.product_master s
+         JOIN pmd.product_master f ON f.product_id = ?
+          SET ${FILL_COLUMNS.map((c) => `s.${c} = COALESCE(s.${c}, f.${c})`).join(", ")},
+              s.version = s.version + 1, s.updated_at = now(3),
+              s.match_confidence = LEAST(COALESCE(s.match_confidence, 100), COALESCE(f.match_confidence, 100))
+        WHERE s.product_id = ?`,
+      [fromProductId, intoProductId],
     );
 
     await tx`
-      UPDATE pmd.product_master SET record_status = 'MERGED', merged_into_product_id = ${intoProductId}, updated_at = now()
+      UPDATE pmd.product_master SET record_status = 'MERGED', merged_into_product_id = ${intoProductId}, updated_at = now(3)
        WHERE product_id = ${fromProductId}`;
     await tx`
       INSERT INTO pmd.product_merge_log (from_product_id, into_product_id, reason, merged_by)
@@ -175,10 +204,9 @@ async function ensureSharedFamily(tx: TransactionSql, a: number, b: number): Pro
   let familyId = existing;
   if (familyId == null) {
     const r = rows[0];
-    const [f] = await tx<{ family_id: number }[]>`
+    const f = { family_id: (await tx`
       INSERT INTO pmd.product_family (brand_id, family_key, family_name, category_id)
-      VALUES (${r.brand_id}, ${`manual-${a}-${b}`}, ${r.normalized_name || "Product family"}, ${r.category_id})
-      RETURNING family_id`;
+      VALUES (${r.brand_id}, ${`manual-${a}-${b}`}, ${r.normalized_name || "Product family"}, ${r.category_id})`).insertId };
     familyId = f.family_id;
   }
   await tx`UPDATE pmd.product_master SET product_family_id = ${familyId} WHERE product_id IN (${a}, ${b})`;
@@ -224,8 +252,8 @@ export async function decideCandidate(
 
   await sql`
     UPDATE pmd.match_candidate
-       SET review_status = ${decision}, reviewed_by = ${actor.userId}, reviewed_at = now(), review_note = ${note}
+       SET review_status = ${decision}, reviewed_by = ${actor.userId}, reviewed_at = now(3), review_note = ${note}
      WHERE candidate_id = ${candidateId}`;
-  await sql`SELECT pmd.refresh_dashboard()`;
+  await refreshDashboard(sql);
   return result;
 }

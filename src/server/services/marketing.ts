@@ -34,6 +34,12 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit, type AuditAction } from "./audit";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
+import {
+  insertReturning,
+  keepExisting,
+  updateReturning,
+} from "@/server/db/returning";
+import { row as queryRow, rows as queryRows } from "@/server/db/raw";
 
 export const MARKETING_LIMITS = {
   shopCampaignsPerWeek: 2,
@@ -55,48 +61,105 @@ const n = (v: unknown) => (v == null ? 0 : Number(v));
 export function normaliseRules(input: SegmentRules): SegmentRules {
   const rules: SegmentRules = {};
   if (input.pincodes?.length) {
-    const pins = [...new Set(input.pincodes.map((p) => p.trim()).filter(Boolean))];
-    if (pins.some((p) => !/^\d{6}$/.test(p))) throw validationFailed("PIN codes must be 6 digits.");
-    if (pins.length > 50) throw validationFailed("At most 50 PIN codes per segment.");
+    const pins = [
+      ...new Set(input.pincodes.map((p) => p.trim()).filter(Boolean)),
+    ];
+    if (pins.some((p) => !/^\d{6}$/.test(p)))
+      throw validationFailed("PIN codes must be 6 digits.");
+    if (pins.length > 50)
+      throw validationFailed("At most 50 PIN codes per segment.");
     rules.pincodes = pins;
   }
-  if (input.societyIds?.length) rules.societyIds = [...new Set(input.societyIds)].slice(0, 50);
-  const whole = (value: number | undefined, label: string, min: number, max: number) => {
+  if (input.societyIds?.length)
+    rules.societyIds = [...new Set(input.societyIds)].slice(0, 50);
+  const whole = (
+    value: number | undefined,
+    label: string,
+    min: number,
+    max: number,
+  ) => {
     if (value == null) return undefined;
-    if (!Number.isInteger(value) || value < min || value > max) throw validationFailed(`${label} must be between ${min} and ${max}.`);
+    if (!Number.isInteger(value) || value < min || value > max)
+      throw validationFailed(`${label} must be between ${min} and ${max}.`);
     return value;
   };
   rules.minOrders = whole(input.minOrders, "Minimum orders", 1, 1000);
-  rules.orderedWithinDays = whole(input.orderedWithinDays, "Ordered within (days)", 1, 365);
-  rules.lapsedForDays = whole(input.lapsedForDays, "Not ordered for (days)", 1, 365);
-  rules.minSpendPaise = whole(input.minSpendPaise, "Minimum spend", 1, 100_000_000);
-  if (rules.orderedWithinDays && rules.lapsedForDays && rules.lapsedForDays >= rules.orderedWithinDays) {
-    throw validationFailed("'Ordered within' must be longer than 'not ordered for' — otherwise nobody matches.");
+  rules.orderedWithinDays = whole(
+    input.orderedWithinDays,
+    "Ordered within (days)",
+    1,
+    365,
+  );
+  rules.lapsedForDays = whole(
+    input.lapsedForDays,
+    "Not ordered for (days)",
+    1,
+    365,
+  );
+  rules.minSpendPaise = whole(
+    input.minSpendPaise,
+    "Minimum spend",
+    1,
+    100_000_000,
+  );
+  if (
+    rules.orderedWithinDays &&
+    rules.lapsedForDays &&
+    rules.lapsedForDays >= rules.orderedWithinDays
+  ) {
+    throw validationFailed(
+      "'Ordered within' must be longer than 'not ordered for' — otherwise nobody matches.",
+    );
   }
-  return Object.fromEntries(Object.entries(rules).filter(([, v]) => v !== undefined)) as SegmentRules;
+  return Object.fromEntries(
+    Object.entries(rules).filter(([, v]) => v !== undefined),
+  ) as SegmentRules;
 }
 
 const placedByShop = (shopId: string) => sql`o.shop_id = ${shopId}
   and exists (select 1 from order_status_history h where h.order_id = o.id and h.new_status = 'CONFIRMED')`;
 
-const hasMarketingConsent = (userColumn: SQL) => sql`coalesce((select uc.granted from user_consents uc
+const hasMarketingConsent = (
+  userColumn: SQL,
+) => sql`coalesce((select uc.granted from user_consents uc
   where uc.user_id = ${userColumn} and uc.consent_type = 'MARKETING_COMMUNICATIONS'
   order by uc.created_at desc limit 1), false)`;
 
 /** The shop's customers matching `rules` (user id + consent), as a SQL subquery. */
 function audienceQuery(shopId: string, rules: SegmentRules): SQL {
   const having: SQL[] = [sql`true`];
-  if (rules.minOrders) having.push(sql`count(*) filter (where o.status in ('DELIVERED', 'DISPUTED')) >= ${rules.minOrders}`);
+  if (rules.minOrders)
+    having.push(
+      sql`count(case when o.status in ('DELIVERED', 'DISPUTED') then 1 end) >= ${rules.minOrders}`,
+    );
   if (rules.minSpendPaise) {
-    having.push(sql`coalesce(sum(o.total_paise) filter (where o.status in ('DELIVERED', 'DISPUTED')), 0) >= ${rules.minSpendPaise}`);
+    having.push(
+      sql`coalesce(sum(case when o.status in ('DELIVERED', 'DISPUTED') then o.total_paise end), 0) >= ${rules.minSpendPaise}`,
+    );
   }
-  if (rules.orderedWithinDays) having.push(sql`max(o.created_at) >= now() - make_interval(days => ${rules.orderedWithinDays})`);
-  if (rules.lapsedForDays) having.push(sql`max(o.created_at) < now() - make_interval(days => ${rules.lapsedForDays})`);
+  if (rules.orderedWithinDays)
+    having.push(
+      sql`max(o.created_at) >= now() - interval ${rules.orderedWithinDays} day`,
+    );
+  if (rules.lapsedForDays)
+    having.push(
+      sql`max(o.created_at) < now() - interval ${rules.lapsedForDays} day`,
+    );
   if (rules.pincodes?.length) {
-    having.push(sql`bool_or(o.delivery_address_snapshot->>'pincode' in (${sql.join(rules.pincodes.map((p) => sql`${p}`), sql`, `)}))`);
+    having.push(
+      sql`max(o.delivery_address_snapshot->>'$.pincode' in (${sql.join(
+        rules.pincodes.map((p) => sql`${p}`),
+        sql`, `,
+      )}))`,
+    );
   }
   if (rules.societyIds?.length) {
-    having.push(sql`bool_or(o.society_id in (${sql.join(rules.societyIds.map((id) => sql`${id}::uuid`), sql`, `)}))`);
+    having.push(
+      sql`max(o.society_id in (${sql.join(
+        rules.societyIds.map((id) => sql`${id}`),
+        sql`, `,
+      )}))`,
+    );
   }
   return sql`(select o.user_id, ${hasMarketingConsent(sql`o.user_id`)} as consent
     from orders o join users u on u.id = o.user_id
@@ -110,27 +173,34 @@ export interface AudiencePreview {
   reachable: number;
 }
 
-export async function previewAudience(shopId: string, rules: SegmentRules): Promise<AudiencePreview> {
+export async function previewAudience(
+  shopId: string,
+  rules: SegmentRules,
+): Promise<AudiencePreview> {
   const normalised = normaliseRules(rules);
-  const [row] = (await db.execute(sql`
-    select count(*)::int as matched, count(*) filter (where a.consent)::int as reachable
-    from ${audienceQuery(shopId, normalised)} a`)) as unknown as Row[];
-  return { matched: n(row?.matched), reachable: n(row?.reachable) };
+  const summary = queryRow<Row>(
+    await db.execute(sql`
+    select CAST(count(*) AS SIGNED) as matched, CAST(count(case when a.consent then 1 end) AS SIGNED) as reachable
+    from ${audienceQuery(shopId, normalised)} a`),
+  );
+  return { matched: n(summary?.matched), reachable: n(summary?.reachable) };
 }
 
 /** Headline customer counts for the shop's marketing page (never identities). */
 export async function getShopCustomerOverview(shopId: string) {
-  const [row] = (await db.execute(sql`
-    select count(*)::int as customers,
-      count(*) filter (where c.consent)::int as consenting,
-      count(*) filter (where c.delivered >= 2)::int as repeat,
-      count(*) filter (where c.last_order < now() - interval '30 days')::int as lapsed
+  const row = queryRow<Row>(
+    await db.execute(sql`
+    select CAST(count(*) AS SIGNED) as customers,
+      CAST(count(case when c.consent then 1 end) AS SIGNED) as consenting,
+      CAST(count(case when c.delivered >= 2 then 1 end) AS SIGNED) as repeat,
+      CAST(count(case when c.last_order < now() - interval 30 day then 1 end) AS SIGNED) as lapsed
     from (
       select o.user_id, ${hasMarketingConsent(sql`o.user_id`)} as consent,
-        count(*) filter (where o.status in ('DELIVERED', 'DISPUTED')) as delivered,
+        count(case when o.status in ('DELIVERED', 'DISPUTED') then 1 end) as delivered,
         max(o.created_at) as last_order
       from orders o where ${placedByShop(shopId)} group by o.user_id
-    ) c`)) as unknown as Row[];
+    ) c`),
+  );
   return {
     customers: n(row?.customers),
     consenting: n(row?.consenting),
@@ -139,15 +209,25 @@ export async function getShopCustomerOverview(shopId: string) {
   };
 }
 
-export async function listSegments(shopId: string): Promise<(CustomerSegment & AudiencePreview)[]> {
+export async function listSegments(
+  shopId: string,
+): Promise<(CustomerSegment & AudiencePreview)[]> {
   const rows = await db
     .select()
     .from(customerSegments)
-    .where(and(eq(customerSegments.shopId, shopId), isNull(customerSegments.deletedAt)))
+    .where(
+      and(
+        eq(customerSegments.shopId, shopId),
+        isNull(customerSegments.deletedAt),
+      ),
+    )
     .orderBy(desc(customerSegments.createdAt));
   const result = [];
   for (const segment of rows) {
-    result.push({ ...segment, ...(await previewAudience(shopId, segment.rules)) });
+    result.push({
+      ...segment,
+      ...(await previewAudience(shopId, segment.rules)),
+    });
   }
   return result;
 }
@@ -158,20 +238,31 @@ export async function saveSegment(
   actor: Actor,
 ): Promise<CustomerSegment> {
   const name = input.name.trim();
-  if (name.length < 2 || name.length > 80) throw validationFailed("Give the segment a name (2–80 characters).");
+  if (name.length < 2 || name.length > 80)
+    throw validationFailed("Give the segment a name (2–80 characters).");
   const rules = normaliseRules(input.rules);
 
   let saved: CustomerSegment;
   if (input.id) {
-    const [updated] = await db
-      .update(customerSegments)
-      .set({ name, rules, updatedAt: new Date() })
-      .where(and(eq(customerSegments.id, input.id), eq(customerSegments.shopId, shopId), isNull(customerSegments.deletedAt)))
-      .returning();
+    const [updated] = await updateReturning(
+      db,
+      customerSegments,
+      { name, rules, updatedAt: new Date() },
+      and(
+        eq(customerSegments.id, input.id),
+        eq(customerSegments.shopId, shopId),
+        isNull(customerSegments.deletedAt),
+      ),
+    );
     if (!updated) throw notFound("Segment");
     saved = updated;
   } else {
-    [saved] = await db.insert(customerSegments).values({ shopId, name, rules, createdBy: actor.id }).returning();
+    [saved] = await insertReturning(db, customerSegments, {
+      shopId,
+      name,
+      rules,
+      createdBy: actor.id,
+    });
   }
   await recordAudit({
     actorId: actor.id,
@@ -184,18 +275,35 @@ export async function saveSegment(
   return saved;
 }
 
-export async function deleteSegment(shopId: string, segmentId: string, actor: Actor): Promise<void> {
+export async function deleteSegment(
+  shopId: string,
+  segmentId: string,
+  actor: Actor,
+): Promise<void> {
   const [inUse] = await db
     .select({ id: marketingCampaigns.id })
     .from(marketingCampaigns)
-    .where(and(eq(marketingCampaigns.segmentId, segmentId), inArray(marketingCampaigns.status, ["DRAFT", "SUBMITTED", "APPROVED"])))
+    .where(
+      and(
+        eq(marketingCampaigns.segmentId, segmentId),
+        inArray(marketingCampaigns.status, ["DRAFT", "SUBMITTED", "APPROVED"]),
+      ),
+    )
     .limit(1);
-  if (inUse) throw conflict("A campaign still uses this segment — cancel or send it first.");
-  const [deleted] = await db
-    .update(customerSegments)
-    .set({ deletedAt: new Date() })
-    .where(and(eq(customerSegments.id, segmentId), eq(customerSegments.shopId, shopId), isNull(customerSegments.deletedAt)))
-    .returning();
+  if (inUse)
+    throw conflict(
+      "A campaign still uses this segment — cancel or send it first.",
+    );
+  const [deleted] = await updateReturning(
+    db,
+    customerSegments,
+    { deletedAt: new Date() },
+    and(
+      eq(customerSegments.id, segmentId),
+      eq(customerSegments.shopId, shopId),
+      isNull(customerSegments.deletedAt),
+    ),
+  );
   if (!deleted) throw notFound("Segment");
   await recordAudit({
     actorId: actor.id,
@@ -220,27 +328,58 @@ export interface CampaignInput {
 function validateCampaign(input: CampaignInput) {
   const title = input.title.trim();
   const message = input.message.trim();
-  if (title.length < 3 || title.length > 80) throw validationFailed("Title must be 3–80 characters.");
-  if (message.length < 10 || message.length > 500) throw validationFailed("Message must be 10–500 characters.");
+  if (title.length < 3 || title.length > 80)
+    throw validationFailed("Title must be 3–80 characters.");
+  if (message.length < 10 || message.length > 500)
+    throw validationFailed("Message must be 10–500 characters.");
   const offerText = input.offerText?.trim() || null;
-  if (offerText && offerText.length > 120) throw validationFailed("Offer line must be at most 120 characters.");
-  if (!Number.isInteger(input.maxRecipients) || input.maxRecipients < 1 || input.maxRecipients > MARKETING_LIMITS.maxRecipients) {
-    throw validationFailed(`Budget must be between 1 and ${MARKETING_LIMITS.maxRecipients} customers.`);
+  if (offerText && offerText.length > 120)
+    throw validationFailed("Offer line must be at most 120 characters.");
+  if (
+    !Number.isInteger(input.maxRecipients) ||
+    input.maxRecipients < 1 ||
+    input.maxRecipients > MARKETING_LIMITS.maxRecipients
+  ) {
+    throw validationFailed(
+      `Budget must be between 1 and ${MARKETING_LIMITS.maxRecipients} customers.`,
+    );
   }
   const attributionDays = input.attributionDays ?? 7;
-  if (!Number.isInteger(attributionDays) || attributionDays < 1 || attributionDays > 30) {
+  if (
+    !Number.isInteger(attributionDays) ||
+    attributionDays < 1 ||
+    attributionDays > 30
+  ) {
     throw validationFailed("Attribution window must be 1–30 days.");
   }
-  return { title, message, offerText, maxRecipients: input.maxRecipients, attributionDays };
+  return {
+    title,
+    message,
+    offerText,
+    maxRecipients: input.maxRecipients,
+    attributionDays,
+  };
 }
 
-async function loadCampaign(campaignId: string, shopId?: string): Promise<MarketingCampaign> {
-  const campaign = await db.query.marketingCampaigns.findFirst({ where: eq(marketingCampaigns.id, campaignId) });
-  if (!campaign || (shopId && campaign.shopId !== shopId)) throw notFound("Campaign");
+async function loadCampaign(
+  campaignId: string,
+  shopId?: string,
+): Promise<MarketingCampaign> {
+  const campaign = await db.query.marketingCampaigns.findFirst({
+    where: eq(marketingCampaigns.id, campaignId),
+  });
+  if (!campaign || (shopId && campaign.shopId !== shopId))
+    throw notFound("Campaign");
   return campaign;
 }
 
-async function audit(campaign: MarketingCampaign, actor: Actor, action: AuditAction, from: CampaignStatus | null, extra: Record<string, unknown> = {}) {
+async function audit(
+  campaign: MarketingCampaign,
+  actor: Actor,
+  action: AuditAction,
+  from: CampaignStatus | null,
+  extra: Record<string, unknown> = {},
+) {
   await recordAudit({
     actorId: actor.id,
     actorRole: actor.role,
@@ -259,7 +398,11 @@ export async function saveCampaign(
 ): Promise<MarketingCampaign> {
   const values = validateCampaign(input);
   const segment = await db.query.customerSegments.findFirst({
-    where: and(eq(customerSegments.id, input.segmentId), eq(customerSegments.shopId, shopId), isNull(customerSegments.deletedAt)),
+    where: and(
+      eq(customerSegments.id, input.segmentId),
+      eq(customerSegments.shopId, shopId),
+      isNull(customerSegments.deletedAt),
+    ),
   });
   if (!segment) throw notFound("Segment");
 
@@ -269,51 +412,87 @@ export async function saveCampaign(
     if (current.status !== "DRAFT" && current.status !== "REJECTED") {
       throw conflict("Only a draft or rejected campaign can be edited.");
     }
-    [campaign] = await db
-      .update(marketingCampaigns)
-      .set({ ...values, segmentId: segment.id, status: "DRAFT", rejectionReason: null, updatedAt: new Date() })
-      .where(eq(marketingCampaigns.id, current.id))
-      .returning();
+    [campaign] = await updateReturning(
+      db,
+      marketingCampaigns,
+      {
+        ...values,
+        segmentId: segment.id,
+        status: "DRAFT",
+        rejectionReason: null,
+        updatedAt: new Date(),
+      },
+      eq(marketingCampaigns.id, current.id),
+    );
   } else {
-    [campaign] = await db
-      .insert(marketingCampaigns)
-      .values({ ...values, shopId, segmentId: segment.id, createdBy: actor.id })
-      .returning();
+    [campaign] = await insertReturning(db, marketingCampaigns, {
+      ...values,
+      shopId,
+      segmentId: segment.id,
+      createdBy: actor.id,
+    });
   }
-  await audit(campaign, actor, AUDIT_ACTIONS.CAMPAIGN_SAVED, null, { title: values.title, maxRecipients: values.maxRecipients });
+  await audit(campaign, actor, AUDIT_ACTIONS.CAMPAIGN_SAVED, null, {
+    title: values.title,
+    maxRecipients: values.maxRecipients,
+  });
   return campaign;
 }
 
 /** Shop rate limit: campaigns submitted, approved or sent in the last 7 days. */
 async function recentCampaignCount(shopId: string): Promise<number> {
   const [row] = await db
-    .select({ n: sql<number>`count(*)::int` })
+    .select({ n: sql<number>`CAST(count(*) AS SIGNED)` })
     .from(marketingCampaigns)
     .where(
       and(
         eq(marketingCampaigns.shopId, shopId),
         inArray(marketingCampaigns.status, ["SUBMITTED", "APPROVED", "SENT"]),
-        sql`coalesce(${marketingCampaigns.sentAt}, ${marketingCampaigns.submittedAt}) > now() - interval '7 days'`,
+        sql`coalesce(${marketingCampaigns.sentAt}, ${marketingCampaigns.submittedAt}) > now() - interval 7 day`,
       ),
     );
   return row.n;
 }
 
-export async function submitCampaign(shopId: string, campaignId: string, actor: Actor): Promise<MarketingCampaign> {
+export async function submitCampaign(
+  shopId: string,
+  campaignId: string,
+  actor: Actor,
+): Promise<MarketingCampaign> {
   const current = await loadCampaign(campaignId, shopId);
-  if (current.status !== "DRAFT" && current.status !== "REJECTED") throw conflict("This campaign has already been submitted.");
+  if (current.status !== "DRAFT" && current.status !== "REJECTED")
+    throw conflict("This campaign has already been submitted.");
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
-  if (!shop || shop.status !== "APPROVED") throw conflict("Only an approved shop can run campaigns.");
-  if ((await recentCampaignCount(shopId)) >= MARKETING_LIMITS.shopCampaignsPerWeek) {
-    throw conflict(`A shop can run at most ${MARKETING_LIMITS.shopCampaignsPerWeek} campaigns a week.`);
+  if (!shop || shop.status !== "APPROVED")
+    throw conflict("Only an approved shop can run campaigns.");
+  if (
+    (await recentCampaignCount(shopId)) >= MARKETING_LIMITS.shopCampaignsPerWeek
+  ) {
+    throw conflict(
+      `A shop can run at most ${MARKETING_LIMITS.shopCampaignsPerWeek} campaigns a week.`,
+    );
   }
-  const [campaign] = await db
-    .update(marketingCampaigns)
-    .set({ status: "SUBMITTED", submittedAt: new Date(), rejectionReason: null, updatedAt: new Date() })
-    .where(and(eq(marketingCampaigns.id, campaignId), inArray(marketingCampaigns.status, ["DRAFT", "REJECTED"])))
-    .returning();
+  const [campaign] = await updateReturning(
+    db,
+    marketingCampaigns,
+    {
+      status: "SUBMITTED",
+      submittedAt: new Date(),
+      rejectionReason: null,
+      updatedAt: new Date(),
+    },
+    and(
+      eq(marketingCampaigns.id, campaignId),
+      inArray(marketingCampaigns.status, ["DRAFT", "REJECTED"]),
+    ),
+  );
   if (!campaign) throw conflict("This campaign has already been submitted.");
-  await audit(campaign, actor, AUDIT_ACTIONS.CAMPAIGN_STATUS_CHANGED, current.status);
+  await audit(
+    campaign,
+    actor,
+    AUDIT_ACTIONS.CAMPAIGN_STATUS_CHANGED,
+    current.status,
+  );
   return campaign;
 }
 
@@ -325,30 +504,45 @@ export async function decideCampaign(
   actor: Actor,
 ): Promise<MarketingCampaign> {
   const current = await loadCampaign(campaignId);
-  if (current.status !== "SUBMITTED") throw conflict("Only a submitted campaign can be approved or rejected.");
+  if (current.status !== "SUBMITTED")
+    throw conflict("Only a submitted campaign can be approved or rejected.");
   const trimmed = reason?.trim() || null;
-  if (decision === "reject" && (!trimmed || trimmed.length < 3)) throw validationFailed("Say why the campaign is rejected.");
+  if (decision === "reject" && (!trimmed || trimmed.length < 3))
+    throw validationFailed("Say why the campaign is rejected.");
 
-  const [campaign] = await db
-    .update(marketingCampaigns)
-    .set({
+  const [campaign] = await updateReturning(
+    db,
+    marketingCampaigns,
+    {
       status: decision === "approve" ? "APPROVED" : "REJECTED",
       decidedBy: actor.id,
       decidedAt: new Date(),
       rejectionReason: decision === "reject" ? trimmed : null,
       updatedAt: new Date(),
-    })
-    .where(and(eq(marketingCampaigns.id, campaignId), eq(marketingCampaigns.status, "SUBMITTED")))
-    .returning();
+    },
+    and(
+      eq(marketingCampaigns.id, campaignId),
+      eq(marketingCampaigns.status, "SUBMITTED"),
+    ),
+  );
   if (!campaign) throw conflict("This campaign has already been decided.");
-  await audit(campaign, actor, AUDIT_ACTIONS.CAMPAIGN_STATUS_CHANGED, "SUBMITTED", { reason: trimmed });
+  await audit(
+    campaign,
+    actor,
+    AUDIT_ACTIONS.CAMPAIGN_STATUS_CHANGED,
+    "SUBMITTED",
+    { reason: trimmed },
+  );
 
-  const shop = await db.query.shops.findFirst({ where: eq(shops.id, campaign.shopId) });
+  const shop = await db.query.shops.findFirst({
+    where: eq(shops.id, campaign.shopId),
+  });
   if (shop) {
     await notify({
       userId: shop.ownerId,
       type: NOTIFICATION_TYPES.CAMPAIGN_DECIDED,
-      title: decision === "approve" ? "Campaign approved" : "Campaign needs changes",
+      title:
+        decision === "approve" ? "Campaign approved" : "Campaign needs changes",
       body:
         decision === "approve"
           ? `"${campaign.title}" is approved — send it from your marketing page.`
@@ -359,15 +553,34 @@ export async function decideCampaign(
   return campaign;
 }
 
-export async function cancelCampaign(shopId: string, campaignId: string, actor: Actor): Promise<MarketingCampaign> {
+export async function cancelCampaign(
+  shopId: string,
+  campaignId: string,
+  actor: Actor,
+): Promise<MarketingCampaign> {
   const current = await loadCampaign(campaignId, shopId);
-  const [campaign] = await db
-    .update(marketingCampaigns)
-    .set({ status: "CANCELLED", updatedAt: new Date() })
-    .where(and(eq(marketingCampaigns.id, campaignId), inArray(marketingCampaigns.status, ["DRAFT", "SUBMITTED", "APPROVED", "REJECTED"])))
-    .returning();
-  if (!campaign) throw conflict("A sent or cancelled campaign cannot be cancelled.");
-  await audit(campaign, actor, AUDIT_ACTIONS.CAMPAIGN_STATUS_CHANGED, current.status);
+  const [campaign] = await updateReturning(
+    db,
+    marketingCampaigns,
+    { status: "CANCELLED", updatedAt: new Date() },
+    and(
+      eq(marketingCampaigns.id, campaignId),
+      inArray(marketingCampaigns.status, [
+        "DRAFT",
+        "SUBMITTED",
+        "APPROVED",
+        "REJECTED",
+      ]),
+    ),
+  );
+  if (!campaign)
+    throw conflict("A sent or cancelled campaign cannot be cancelled.");
+  await audit(
+    campaign,
+    actor,
+    AUDIT_ACTIONS.CAMPAIGN_STATUS_CHANGED,
+    current.status,
+  );
   return campaign;
 }
 
@@ -375,46 +588,73 @@ export async function cancelCampaign(shopId: string, campaignId: string, actor: 
  * Sends an APPROVED campaign: consenting customers of the segment, minus
  * anyone at a frequency cap, up to the budget. Each gets one in-app message.
  */
-export async function sendCampaign(shopId: string, campaignId: string, actor: Actor): Promise<MarketingCampaign> {
+export async function sendCampaign(
+  shopId: string,
+  campaignId: string,
+  actor: Actor,
+): Promise<MarketingCampaign> {
   const current = await loadCampaign(campaignId, shopId);
-  if (current.status !== "APPROVED") throw conflict("Only an approved campaign can be sent.");
+  if (current.status !== "APPROVED")
+    throw conflict("Only an approved campaign can be sent.");
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
-  if (!shop || shop.status !== "APPROVED") throw forbidden("Only an approved shop can send campaigns.");
-  const segment = await db.query.customerSegments.findFirst({ where: eq(customerSegments.id, current.segmentId) });
-  if (!segment || segment.deletedAt) throw conflict("The campaign's segment was deleted.");
+  if (!shop || shop.status !== "APPROVED")
+    throw forbidden("Only an approved shop can send campaigns.");
+  const segment = await db.query.customerSegments.findFirst({
+    where: eq(customerSegments.id, current.segmentId),
+  });
+  if (!segment || segment.deletedAt)
+    throw conflict("The campaign's segment was deleted.");
 
   // Claim the send first so a double click can never message twice.
-  const [claimed] = await db
-    .update(marketingCampaigns)
-    .set({ status: "SENT", sentAt: new Date(), updatedAt: new Date() })
-    .where(and(eq(marketingCampaigns.id, campaignId), eq(marketingCampaigns.status, "APPROVED")))
-    .returning();
+  const [claimed] = await updateReturning(
+    db,
+    marketingCampaigns,
+    { status: "SENT", sentAt: new Date(), updatedAt: new Date() },
+    and(
+      eq(marketingCampaigns.id, campaignId),
+      eq(marketingCampaigns.status, "APPROVED"),
+    ),
+  );
   if (!claimed) throw conflict("This campaign is already being sent.");
 
-  const audience = (await db.execute(sql`
+  const audience = queryRows<{ user_id: string }>(
+    await db.execute(sql`
     select a.user_id from ${audienceQuery(shopId, normaliseRules(segment.rules))} a
     where a.consent
       and (select count(*) from campaign_recipients r join marketing_campaigns c on c.id = r.campaign_id
-           where r.user_id = a.user_id and c.shop_id = ${shopId} and r.sent_at > now() - interval '7 days')
+           where r.user_id = a.user_id and c.shop_id = ${shopId} and r.sent_at > now() - interval 7 day)
           < ${MARKETING_LIMITS.perShopPerCustomerPerWeek}
       and (select count(*) from campaign_recipients r
-           where r.user_id = a.user_id and r.sent_at > now() - interval '7 days')
+           where r.user_id = a.user_id and r.sent_at > now() - interval 7 day)
           < ${MARKETING_LIMITS.totalPerCustomerPerWeek}
-    order by a.user_id`)) as unknown as { user_id: string }[];
-  const [{ matched }] = (await db.execute(sql`
-    select count(*)::int as matched from ${audienceQuery(shopId, normaliseRules(segment.rules))} a where a.consent`)) as unknown as {
-    matched: number;
-  }[];
+    order by a.user_id`),
+  );
+  const matched = Number(
+    queryRow<{ matched: number }>(
+      await db.execute(sql`
+    select CAST(count(*) AS SIGNED) as matched from ${audienceQuery(shopId, normaliseRules(segment.rules))} a where a.consent`),
+    )?.matched ?? 0,
+  );
 
-  const recipients = audience.slice(0, current.maxRecipients).map((r) => r.user_id);
-  const body = current.offerText ? `${current.message}\n${current.offerText}` : current.message;
+  const recipients = audience
+    .slice(0, current.maxRecipients)
+    .map((r) => r.user_id);
+  const body = current.offerText
+    ? `${current.message}\n${current.offerText}`
+    : current.message;
   for (let i = 0; i < recipients.length; i += 500) {
     const chunk = recipients.slice(i, i + 500);
     await db.transaction(async (tx) => {
       await tx
         .insert(campaignRecipients)
-        .values(chunk.map((userId) => ({ campaignId, userId, notificationKey: `campaign:${campaignId}:${userId}` })))
-        .onConflictDoNothing();
+        .values(
+          chunk.map((userId) => ({
+            campaignId,
+            userId,
+            notificationKey: `campaign:${campaignId}:${userId}`,
+          })),
+        )
+        .onDuplicateKeyUpdate({ set: keepExisting(campaignRecipients) });
       await tx
         .insert(notifications)
         .values(
@@ -429,16 +669,24 @@ export async function sendCampaign(shopId: string, campaignId: string, actor: Ac
             sentAt: new Date(),
           })),
         )
-        .onConflictDoNothing();
+        .onDuplicateKeyUpdate({ set: keepExisting(notifications) });
     });
   }
 
-  const [campaign] = await db
-    .update(marketingCampaigns)
-    .set({ sentCount: recipients.length, suppressedCount: Math.max(0, n(matched) - recipients.length), updatedAt: new Date() })
-    .where(eq(marketingCampaigns.id, campaignId))
-    .returning();
-  await audit(campaign, actor, AUDIT_ACTIONS.CAMPAIGN_SENT, "APPROVED", { sent: recipients.length, suppressed: campaign.suppressedCount });
+  const [campaign] = await updateReturning(
+    db,
+    marketingCampaigns,
+    {
+      sentCount: recipients.length,
+      suppressedCount: Math.max(0, n(matched) - recipients.length),
+      updatedAt: new Date(),
+    },
+    eq(marketingCampaigns.id, campaignId),
+  );
+  await audit(campaign, actor, AUDIT_ACTIONS.CAMPAIGN_SENT, "APPROVED", {
+    sent: recipients.length,
+    suppressed: campaign.suppressedCount,
+  });
   return campaign;
 }
 
@@ -449,58 +697,105 @@ export interface CampaignStats {
   revenuePaise: number;
 }
 
-const statsSelect = sql`
-  count(r.id)::int as recipients,
-  count(r.id) filter (where exists (select 1 from notifications nt where nt.dedupe_key = r.notification_key and nt.read_at is not null))::int as opened,
-  count(r.id) filter (where conv.first_order is not null)::int as converted,
-  coalesce(sum(conv.value), 0)::bigint as revenue`;
-
-const conversionJoin = sql`left join lateral (
-    select min(o.created_at) as first_order, sum(o.total_paise) as value from orders o
+// The attributed-orders rows. This was a LEFT JOIN LATERAL, which MySQL 8
+// supports but MariaDB does not at all, so the two aggregates it produced
+// become correlated scalar subqueries over the same predicate.
+const attributedOrders = sql`from orders o
     where o.user_id = r.user_id and o.shop_id = c.shop_id and o.created_at >= r.sent_at
-      and o.created_at < r.sent_at + make_interval(days => c.attribution_days)
-      and exists (select 1 from order_status_history h where h.order_id = o.id and h.new_status = 'CONFIRMED')
-  ) conv on true`;
+      and o.created_at < r.sent_at + interval c.attribution_days day
+      and exists (select 1 from order_status_history h where h.order_id = o.id and h.new_status = 'CONFIRMED')`;
 
-async function statsFor(campaignIds: string[]): Promise<Map<string, CampaignStats>> {
+const statsSelect = sql`
+  CAST(count(r.id) AS SIGNED) as recipients,
+  CAST(count(case when exists (select 1 from notifications nt where nt.dedupe_key = r.notification_key and nt.read_at is not null) then r.id end) AS SIGNED) as opened,
+  CAST(count(case when (select min(o.created_at) ${attributedOrders}) is not null then r.id end) AS SIGNED) as converted,
+  CAST(coalesce(sum((select sum(o.total_paise) ${attributedOrders})), 0) AS SIGNED) as revenue`;
+
+async function statsFor(
+  campaignIds: string[],
+): Promise<Map<string, CampaignStats>> {
   if (campaignIds.length === 0) return new Map();
-  const rows = (await db.execute(sql`
+  const rows = queryRows<Row>(
+    await db.execute(sql`
     select c.id, ${statsSelect}
-    from marketing_campaigns c join campaign_recipients r on r.campaign_id = c.id ${conversionJoin}
-    where c.id in (${sql.join(campaignIds.map((id) => sql`${id}::uuid`), sql`, `)})
-    group by c.id`)) as unknown as Row[];
+    from marketing_campaigns c join campaign_recipients r on r.campaign_id = c.id
+    where c.id in (${sql.join(
+      campaignIds.map((id) => sql`${id}`),
+      sql`, `,
+    )})
+    group by c.id`),
+  ) as unknown as Row[];
   return new Map(
     rows.map((r) => [
       String(r.id),
-      { recipients: n(r.recipients), opened: n(r.opened), converted: n(r.converted), revenuePaise: n(r.revenue) },
+      {
+        recipients: n(r.recipients),
+        opened: n(r.opened),
+        converted: n(r.converted),
+        revenuePaise: n(r.revenue),
+      },
     ]),
   );
 }
 
-const EMPTY_STATS: CampaignStats = { recipients: 0, opened: 0, converted: 0, revenuePaise: 0 };
+const EMPTY_STATS: CampaignStats = {
+  recipients: 0,
+  opened: 0,
+  converted: 0,
+  revenuePaise: 0,
+};
 
-export async function listShopCampaigns(shopId: string): Promise<(MarketingCampaign & { segmentName: string; stats: CampaignStats })[]> {
+export async function listShopCampaigns(
+  shopId: string,
+): Promise<
+  (MarketingCampaign & { segmentName: string; stats: CampaignStats })[]
+> {
   const rows = await db
-    .select({ campaign: marketingCampaigns, segmentName: customerSegments.name })
+    .select({
+      campaign: marketingCampaigns,
+      segmentName: customerSegments.name,
+    })
     .from(marketingCampaigns)
-    .innerJoin(customerSegments, eq(marketingCampaigns.segmentId, customerSegments.id))
+    .innerJoin(
+      customerSegments,
+      eq(marketingCampaigns.segmentId, customerSegments.id),
+    )
     .where(eq(marketingCampaigns.shopId, shopId))
     .orderBy(desc(marketingCampaigns.createdAt))
     .limit(100);
-  const stats = await statsFor(rows.filter((r) => r.campaign.status === "SENT").map((r) => r.campaign.id));
-  return rows.map((r) => ({ ...r.campaign, segmentName: r.segmentName, stats: stats.get(r.campaign.id) ?? EMPTY_STATS }));
+  const stats = await statsFor(
+    rows.filter((r) => r.campaign.status === "SENT").map((r) => r.campaign.id),
+  );
+  return rows.map((r) => ({
+    ...r.campaign,
+    segmentName: r.segmentName,
+    stats: stats.get(r.campaign.id) ?? EMPTY_STATS,
+  }));
 }
 
 /** Operations review queue: submitted first, then recent decisions and sends. */
 export async function listCampaignsForReview(status?: CampaignStatus) {
   const rows = await db
-    .select({ campaign: marketingCampaigns, shopName: shops.name, segmentName: customerSegments.name, segmentRules: customerSegments.rules })
+    .select({
+      campaign: marketingCampaigns,
+      shopName: shops.name,
+      segmentName: customerSegments.name,
+      segmentRules: customerSegments.rules,
+    })
     .from(marketingCampaigns)
     .innerJoin(shops, eq(marketingCampaigns.shopId, shops.id))
-    .innerJoin(customerSegments, eq(marketingCampaigns.segmentId, customerSegments.id))
+    .innerJoin(
+      customerSegments,
+      eq(marketingCampaigns.segmentId, customerSegments.id),
+    )
     .where(status ? eq(marketingCampaigns.status, status) : undefined)
     .orderBy(desc(marketingCampaigns.updatedAt))
     .limit(150);
-  const stats = await statsFor(rows.filter((r) => r.campaign.status === "SENT").map((r) => r.campaign.id));
-  return rows.map((r) => ({ ...r, stats: stats.get(r.campaign.id) ?? EMPTY_STATS }));
+  const stats = await statsFor(
+    rows.filter((r) => r.campaign.status === "SENT").map((r) => r.campaign.id),
+  );
+  return rows.map((r) => ({
+    ...r,
+    stats: stats.get(r.campaign.id) ?? EMPTY_STATS,
+  }));
 }

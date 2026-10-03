@@ -11,6 +11,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { getTaxonomy } from "@/server/pmd/taxonomy/categories";
 import { ATTRIBUTE_DEFINITIONS } from "@/server/pmd/taxonomy/attributes";
 import { createCategoryMapper } from "@/server/pmd/taxonomy/mapper";
+import { claimJob, refreshDashboard } from "@/server/pmd/mysql/routines";
 import { ensureReferenceData } from "@/server/pmd/reference-data";
 import { runIngestion, SourceNotEnabledError } from "@/server/pmd/pipeline/run";
 import { createRowsAdapter } from "@/server/pmd/sources/adapters/rows";
@@ -58,9 +59,16 @@ describe("reference data", () => {
 
   it("re-syncing never consumes identity values - source_id is a smallint and every run used to burn 41 of it", async () => {
     await ensureReferenceData(sql, { force: true });
+    // The identity values live in AUTO_INCREMENT counters now, not sequences,
+    // so the same question - "did a re-sync consume any?" - is asked of
+    // information_schema instead of last_value.
     const seq = async () => {
       const [r] = await sql<{ s: number; c: number }[]>`
-        SELECT (SELECT last_value FROM pmd.source_source_id_seq)::int AS s, (SELECT last_value FROM pmd.category_category_id_seq)::int AS c`;
+        SELECT
+          CAST((SELECT AUTO_INCREMENT FROM information_schema.TABLES
+                 WHERE TABLE_SCHEMA = 'pmd' AND TABLE_NAME = 'source') AS SIGNED) AS s,
+          CAST((SELECT AUTO_INCREMENT FROM information_schema.TABLES
+                 WHERE TABLE_SCHEMA = 'pmd' AND TABLE_NAME = 'category') AS SIGNED) AS c`;
       return r;
     };
     const before = await seq();
@@ -125,7 +133,7 @@ describe("collection -> normalisation -> master creation", () => {
 
     // Amul / AMUL India -> ONE brand, both spellings preserved.
     expect(await count(sql, "pmd.brand")).toBe(1);
-    const aliases = await sql<{ alias_original: string }[]>`SELECT alias_original FROM pmd.brand_alias ORDER BY alias_original COLLATE "C"`;
+    const aliases = await sql<{ alias_original: string }[]>`SELECT alias_original FROM pmd.brand_alias ORDER BY alias_original COLLATE utf8mb4_bin`;
     expect(aliases.map((a) => a.alias_original)).toEqual(["AMUL India", "Amul"]);
 
     const [m] = await sql<{ gst_rate_bp: number; hsn_code: string; net_quantity_value: number; net_quantity_unit: string; pack_size: string; ean: string }[]>`
@@ -437,7 +445,7 @@ describe("specification conflicts", () => {
   it("exactly one preferred value exists per product and attribute", async () => {
     await ingest("test_market_a", [phone("M1", { gstRate: "12%", material: "Metal" })]);
     await ingest("test_brand_feed", [phone("B1", { gstRate: "18%", material: "Metal" })], { kind: "BRAND_MANUFACTURER" });
-    const rows = await sql<{ n: number }[]>`SELECT count(*) FILTER (WHERE is_preferred)::int AS n FROM pmd.product_specification GROUP BY product_id, attribute_key`;
+    const rows = await sql<{ n: number }[]>`SELECT CAST(count(case when is_preferred then 1 end) AS SIGNED) AS n FROM pmd.product_specification GROUP BY product_id, attribute_key`;
     expect(rows.every((r) => r.n === 1)).toBe(true);
   });
 
@@ -561,13 +569,17 @@ describe("governance: history, versions, integrity", () => {
 
   it("the database refuses duplicate active GTINs and negative prices", async () => {
     await ingest("test_market_a", [product({ sourceProductId: "I1", name: "Amul Butter 500 g", brand: "Amul", gtin: GTIN.AMUL_BUTTER_500 })]);
-    await expect(sql`INSERT INTO pmd.product_master (gtin, product_name, normalized_name, search_text) VALUES (${"0" + GTIN.AMUL_BUTTER_500}, 'dup', 'dup', 'dup')`).rejects.toThrow(/product_master_gtin_uq/);
+    // product_id is supplied because it is allocated by the application now, not
+    // AUTO_INCREMENT (product_master_id is generated from it, and MySQL forbids a
+    // generated column over an auto-increment column). Without it the insert
+    // fails for the wrong reason and the GTIN constraint is never exercised.
+    await expect(sql`INSERT INTO pmd.product_master (product_id, gtin, product_name, normalized_name, search_text) VALUES (900001, ${"0" + GTIN.AMUL_BUTTER_500}, 'dup', 'dup', 'dup')`).rejects.toThrow(/product_master_gtin_uq/);
     await expect(sql`INSERT INTO pmd.product_offer (product_source_id, source_id, source_product_id, seller_key, price_minor, collection_date, collected_at)
-                     SELECT product_source_id, source_id, 'x', 'neg', -1, current_date, now() FROM pmd.product_source LIMIT 1`).rejects.toThrow(/check/);
+                     SELECT product_source_id, source_id, 'x', 'neg', -1, current_date, now(3) FROM pmd.product_source LIMIT 1`).rejects.toThrow(/check constraint/i);
   });
 
   it("MASTER_PRODUCT_ID cannot be supplied or duplicated - it is generated", async () => {
-    await expect(sql`INSERT INTO pmd.product_master (master_product_id, product_name, normalized_name, search_text) VALUES ('GKS-PROD-000000001', 'x', 'x', 'x')`).rejects.toThrow(/non-DEFAULT value/);
+    await expect(sql`INSERT INTO pmd.product_master (product_id, master_product_id, product_name, normalized_name, search_text) VALUES (900002, 'GKS-PROD-000000001', 'x', 'x', 'x')`).rejects.toThrow(/generated column/);
   });
 
   it("the dashboard snapshot matches the data", async () => {
@@ -593,33 +605,34 @@ describe("work queue", () => {
     let release!: () => void;
     const gate = new Promise<void>((r) => (release = r));
     const first = sql.begin(async (tx) => {
-      await tx`SELECT pmd.refresh_dashboard()`;
+      await refreshDashboard(tx as unknown as typeof sql);
       await gate;
     });
     await new Promise((r) => setTimeout(r, 150));
-    const second = sql`SELECT pmd.refresh_dashboard()`.execute(); // postgres.js queries are lazy: start it now, while the first is still open
+    const second = refreshDashboard(sql); // started now, while the first is still open
     await new Promise((r) => setTimeout(r, 300)); // the second now waits on the lock (previously it ran into the primary key)
     release();
     await Promise.all([first, second]);
-    const [row] = await sql<{ n: number; value: number }[]>`SELECT count(*)::int AS n, max(value) AS value FROM pmd.dashboard_metric WHERE metric = 'total_products'`;
+    const [row] = await sql<{ n: number; value: number }[]>`SELECT CAST(count(*) AS SIGNED) AS n, max(value) AS value FROM pmd.dashboard_metric WHERE metric = 'total_products'`;
     expect(row.n).toBe(1);
     expect(Number(row.value)).toBe(1);
   });
 
   it("concurrent workers never claim the same job (SKIP LOCKED)", async () => {
     for (let i = 0; i < 12; i++) await sql`INSERT INTO pmd.job (job_type, payload) VALUES ('ingest_batch', ${sql.json({ i } as never)})`;
-    const claims = await Promise.all(Array.from({ length: 8 }, (_, w) => sql<{ job_id: number }[]>`SELECT job_id FROM pmd.claim_job(ARRAY['ingest_batch'], ${"worker-" + w})`));
-    const ids = claims.flat().map((r) => r.job_id);
+    const claims = await Promise.all(Array.from({ length: 8 }, (_, w) => claimJob(sql, ["ingest_batch"], `worker-${w}`)));
+    const ids = claims.filter((c): c is NonNullable<typeof c> => c != null).map((r) => r.job_id);
     expect(ids).toHaveLength(8);
     expect(new Set(ids).size).toBe(8);
     expect(await count(sql, "pmd.job", "status = 'RUNNING'")).toBe(8);
   });
 
   it("abandoned jobs are re-claimable and dead-lettered after max attempts", async () => {
-    await sql`INSERT INTO pmd.job (job_type, max_attempts, status, attempts, locked_at) VALUES ('t', 2, 'RUNNING', 1, now() - interval '1 hour')`;
-    const [a] = await sql<{ attempts: number }[]>`SELECT attempts FROM pmd.claim_job(ARRAY['t'], 'w1')`;
-    expect(a.attempts).toBe(2);
-    await sql`UPDATE pmd.job SET locked_at = now() - interval '1 hour'`;
-    expect(await sql`SELECT 1 FROM pmd.claim_job(ARRAY['t'], 'w2')`).toHaveLength(0);
+    await sql`INSERT INTO pmd.job (job_type, max_attempts, status, attempts, locked_at) VALUES ('t', 2, 'RUNNING', 1, now(3) - INTERVAL 1 HOUR)`;
+    const a = await claimJob(sql, ["t"], "w1");
+    expect(a?.attempts).toBe(2);
+    await sql`UPDATE pmd.job SET locked_at = now(3) - INTERVAL 1 HOUR`;
+    // attempts has now reached max_attempts: dead-lettered, not re-claimable.
+    expect(await claimJob(sql, ["t"], "w2")).toBeNull();
   });
 });

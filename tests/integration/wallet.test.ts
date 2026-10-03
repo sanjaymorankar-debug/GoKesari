@@ -1,7 +1,7 @@
 /**
  * Wallet integration tests (requirement §48 — financial integrity).
  *
- * These run against real PostgreSQL. The concurrency cases are the point of the
+ * These run against a real MySQL server. The concurrency cases are the point of the
  * whole suite: they would pass trivially against a mock and only prove anything
  * against a real database with real row locks.
  */

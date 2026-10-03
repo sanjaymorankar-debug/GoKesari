@@ -334,7 +334,7 @@ describe("POST /products/import (admin)", () => {
     const [m] = await sql<{ category_code: string; gst_rate_bp: number }[]>`SELECT c.category_code, pm.gst_rate_bp FROM pmd.product_master pm JOIN pmd.category c USING (category_id)`;
     expect(m).toEqual({ category_code: "dairy/butter-and-margarine", gst_rate_bp: 1200 });
     expect(await count(sql, "pmd.product_offer")).toBe(1);
-    expect(await count(sql, "public.audit_logs", `action = 'pmd.products_imported' AND actor_id = '${admin.id}'`)).toBe(1);
+    expect(await count(sql, "audit_logs", `action = 'pmd.products_imported' AND actor_id = '${admin.id}'`)).toBe(1);
     expect(await count(sql, "pmd.ingestion_run", "run_mode = 'IMPORT' AND triggered_by IS NOT NULL")).toBe(1);
   });
 
@@ -372,7 +372,7 @@ describe("review queue and promotion over the API", () => {
     expect(done.status).toBe(200);
     expect(done.body.merged).toMatchObject({ sourcesMoved: 1 });
     expect((await call(reviewList as never, "/review")).body.items).toHaveLength(0);
-    expect(await count(sql, "public.audit_logs", `action = 'pmd.match_decided' AND actor_id = '${admin.id}'`)).toBe(1);
+    expect(await count(sql, "audit_logs", `action = 'pmd.match_decided' AND actor_id = '${admin.id}'`)).toBe(1);
 
     const again = await call(reviewDecide as never, `/review/${item.candidateId}`, { method: "POST", body: { decision: "CONFIRMED_SAME" }, params: { candidateId: String(item.candidateId) } });
     expect(again.status).toBe(409);

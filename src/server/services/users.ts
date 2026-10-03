@@ -12,16 +12,36 @@
  * their own role — that mirrors SELF_ASSIGNABLE_ROLES in authz/permissions.ts
  * and stops an admin from ever locking themselves out by mistake.
  */
-import { and, desc, eq, exists, ilike, inArray, isNull, ne, notExists, or, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  exists,
+  inArray,
+  isNull,
+  like,
+  ne,
+  notExists,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import { permanentBootstrapAdminEmails } from "@/lib/env";
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { db, type DbClient } from "@/server/db";
-import { deliveryPartners, userRoleGrants, users, userRoleEnum, type User, type UserRole } from "@/server/db/schema";
+import {
+  deliveryPartners,
+  userRoleGrants,
+  users,
+  userRoleEnum,
+  type User,
+  type UserRole,
+} from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { suspendDeliveryPartner } from "./delivery-partners";
 import { NOTIFICATION_TYPES, notifyEvent } from "./notifications";
 import { assignRoleByAdmin, grantRole } from "./roles";
+import { updateReturning } from "@/server/db/returning";
 
 export interface ListUsersOptions {
   query?: string;
@@ -30,11 +50,13 @@ export interface ListUsersOptions {
   offset?: number;
 }
 
-export async function listUsers(options: ListUsersOptions = {}): Promise<User[]> {
+export async function listUsers(
+  options: ListUsersOptions = {},
+): Promise<User[]> {
   const conditions = [];
   if (options.query) {
     const term = `%${options.query}%`;
-    conditions.push(or(ilike(users.email, term), ilike(users.name, term))!);
+    conditions.push(or(like(users.email, term), like(users.name, term))!);
   }
   if (options.role) conditions.push(eq(users.role, options.role));
 
@@ -71,11 +93,12 @@ export async function setUserRole(
   // removes the staff grant so the user cannot switch back to it.
   const updated = await db.transaction(async (tx) => {
     await assignRoleByAdmin(userId, role, actor, tx);
-    const [row] = await tx
-      .update(users)
-      .set({ role, updatedAt: new Date() })
-      .where(eq(users.id, userId))
-      .returning();
+    const [row] = await updateReturning(
+      tx,
+      users,
+      { role, updatedAt: new Date() },
+      eq(users.id, userId),
+    );
     return row;
   });
 
@@ -88,26 +111,41 @@ export async function setUserRole(
     previousValue: { role: current.role },
     newValue: { role },
   });
-  await notifyEvent(NOTIFICATION_TYPES.SECURITY_ROLE_CHANGED, userId, { detail: `${current.role} → ${role}` });
+  await notifyEvent(NOTIFICATION_TYPES.SECURITY_ROLE_CHANGED, userId, {
+    detail: `${current.role} → ${role}`,
+  });
   return updated;
 }
 
-const ADMIN_NOT_SUSPENDABLE = "An admin account cannot be suspended. Remove its admin role first.";
+const ADMIN_NOT_SUSPENDABLE =
+  "An admin account cannot be suspended. Remove its admin role first.";
 
 /** Which of these accounts are admins (see the header: any ACTIVE ADMIN grant, active role or permanent admin email). */
-export async function findAdminUserIds(userIds: string[]): Promise<Set<string>> {
+export async function findAdminUserIds(
+  userIds: string[],
+): Promise<Set<string>> {
   const found = new Set<string>();
   if (userIds.length === 0) return found;
   const [accounts, grants] = await Promise.all([
-    db.select({ id: users.id, role: users.role, email: users.email }).from(users).where(inArray(users.id, userIds)),
+    db
+      .select({ id: users.id, role: users.role, email: users.email })
+      .from(users)
+      .where(inArray(users.id, userIds)),
     db
       .select({ userId: userRoleGrants.userId })
       .from(userRoleGrants)
-      .where(and(inArray(userRoleGrants.userId, userIds), eq(userRoleGrants.role, "ADMIN"), eq(userRoleGrants.status, "ACTIVE"))),
+      .where(
+        and(
+          inArray(userRoleGrants.userId, userIds),
+          eq(userRoleGrants.role, "ADMIN"),
+          eq(userRoleGrants.status, "ACTIVE"),
+        ),
+      ),
   ]);
   const permanent = new Set(permanentBootstrapAdminEmails());
   for (const a of accounts) {
-    if (a.role === "ADMIN" || permanent.has(a.email.toLowerCase())) found.add(a.id);
+    if (a.role === "ADMIN" || permanent.has(a.email.toLowerCase()))
+      found.add(a.id);
   }
   for (const g of grants) found.add(g.userId);
   return found;
@@ -119,46 +157,66 @@ export async function suspendUser(
   actor: { id: string; role: UserRole },
 ): Promise<Pick<User, "id" | "status">> {
   const trimmed = reason.trim();
-  if (trimmed.length < 3) throw validationFailed("A suspension reason is required.");
-  if (userId === actor.id) throw forbidden("You cannot suspend your own account.");
+  if (trimmed.length < 3)
+    throw validationFailed("A suspension reason is required.");
+  if (userId === actor.id)
+    throw forbidden("You cannot suspend your own account.");
 
   const target = await db.query.users.findFirst({
     where: eq(users.id, userId),
     columns: { status: true, deletedAt: true },
   });
   if (!target) throw notFound("User");
-  if ((await findAdminUserIds([userId])).has(userId)) throw forbidden(ADMIN_NOT_SUSPENDABLE);
-  if (target.status !== "ACTIVE" || target.deletedAt) throw conflict("Only an active account can be suspended.");
+  if ((await findAdminUserIds([userId])).has(userId))
+    throw forbidden(ADMIN_NOT_SUSPENDABLE);
+  if (target.status !== "ACTIVE" || target.deletedAt)
+    throw conflict("Only an active account can be suspended.");
 
   // A rider profile goes offline first: if that fails the account is untouched and the request can be retried.
   const riders = await db
     .select({ id: deliveryPartners.id })
     .from(deliveryPartners)
-    .where(and(eq(deliveryPartners.userId, userId), eq(deliveryPartners.status, "APPROVED"), isNull(deliveryPartners.deletedAt)));
-  for (const rider of riders) {
-    await suspendDeliveryPartner(rider.id, "The account was suspended by operations.", actor);
-  }
-
-  const [updated] = await db
-    .update(users)
-    .set({ status: "SUSPENDED", updatedAt: new Date() })
     .where(
       and(
-        eq(users.id, userId),
-        eq(users.status, "ACTIVE"),
-        isNull(users.deletedAt),
-        ne(users.role, "ADMIN"),
-        notExists(
-          db
-            .select({ id: userRoleGrants.id })
-            .from(userRoleGrants)
-            .where(and(eq(userRoleGrants.userId, users.id), eq(userRoleGrants.role, "ADMIN"), eq(userRoleGrants.status, "ACTIVE"))),
-        ),
+        eq(deliveryPartners.userId, userId),
+        eq(deliveryPartners.status, "APPROVED"),
+        isNull(deliveryPartners.deletedAt),
       ),
-    )
-    .returning({ id: users.id, status: users.status });
+    );
+  for (const rider of riders) {
+    await suspendDeliveryPartner(
+      rider.id,
+      "The account was suspended by operations.",
+      actor,
+    );
+  }
+
+  const [updated] = await updateReturning(
+    db,
+    users,
+    { status: "SUSPENDED", updatedAt: new Date() },
+    and(
+      eq(users.id, userId),
+      eq(users.status, "ACTIVE"),
+      isNull(users.deletedAt),
+      ne(users.role, "ADMIN"),
+      notExists(
+        db
+          .select({ id: userRoleGrants.id })
+          .from(userRoleGrants)
+          .where(
+            and(
+              eq(userRoleGrants.userId, users.id),
+              eq(userRoleGrants.role, "ADMIN"),
+              eq(userRoleGrants.status, "ACTIVE"),
+            ),
+          ),
+      ),
+    ),
+  );
   if (!updated) {
-    if ((await findAdminUserIds([userId])).has(userId)) throw forbidden(ADMIN_NOT_SUSPENDABLE);
+    if ((await findAdminUserIds([userId])).has(userId))
+      throw forbidden(ADMIN_NOT_SUSPENDABLE);
     throw conflict("Only an active account can be suspended.");
   }
 
@@ -169,9 +227,18 @@ export async function suspendUser(
     entityType: "user",
     entityId: userId,
     previousValue: { status: "ACTIVE" },
-    newValue: { status: "SUSPENDED", reason: trimmed, ...(riders.length > 0 ? { deliveryPartnersSuspended: riders.length } : {}) },
+    newValue: {
+      status: "SUSPENDED",
+      reason: trimmed,
+      ...(riders.length > 0
+        ? { deliveryPartnersSuspended: riders.length }
+        : {}),
+    },
   });
-  await notifyEvent(NOTIFICATION_TYPES.SECURITY_ACCOUNT_STATUS, userId, { status: "suspended", detail: `Reason: ${trimmed}` });
+  await notifyEvent(NOTIFICATION_TYPES.SECURITY_ACCOUNT_STATUS, userId, {
+    status: "suspended",
+    detail: `Reason: ${trimmed}`,
+  });
   return updated;
 }
 
@@ -187,15 +254,24 @@ export async function reinstateUser(
   actor: { id: string; role: UserRole },
 ): Promise<Pick<User, "id" | "status">> {
   const trimmed = reason.trim();
-  if (trimmed.length < 3) throw validationFailed("A reinstatement reason is required.");
+  if (trimmed.length < 3)
+    throw validationFailed("A reinstatement reason is required.");
 
-  const [updated] = await db
-    .update(users)
-    .set({ status: "ACTIVE", updatedAt: new Date() })
-    .where(and(eq(users.id, userId), eq(users.status, "SUSPENDED"), isNull(users.deletedAt)))
-    .returning({ id: users.id, status: users.status });
+  const [updated] = await updateReturning(
+    db,
+    users,
+    { status: "ACTIVE", updatedAt: new Date() },
+    and(
+      eq(users.id, userId),
+      eq(users.status, "SUSPENDED"),
+      isNull(users.deletedAt),
+    ),
+  );
   if (!updated) {
-    const target = await db.query.users.findFirst({ where: eq(users.id, userId), columns: { id: true } });
+    const target = await db.query.users.findFirst({
+      where: eq(users.id, userId),
+      columns: { id: true },
+    });
     if (!target) throw notFound("User");
     throw conflict("Only a suspended account can be reinstated.");
   }
@@ -209,7 +285,10 @@ export async function reinstateUser(
     previousValue: { status: "SUSPENDED" },
     newValue: { status: "ACTIVE", reason: trimmed },
   });
-  await notifyEvent(NOTIFICATION_TYPES.SECURITY_ACCOUNT_STATUS, userId, { status: "reinstated", detail: "You can sign in again." });
+  await notifyEvent(NOTIFICATION_TYPES.SECURITY_ACCOUNT_STATUS, userId, {
+    status: "reinstated",
+    detail: "You can sign in again.",
+  });
   return updated;
 }
 
@@ -231,16 +310,23 @@ export interface PrivilegesResult {
 }
 
 const sortRoles = (roles: Iterable<UserRole>): UserRole[] =>
-  [...new Set(roles)].sort((a, b) => userRoleEnum.enumValues.indexOf(a) - userRoleEnum.enumValues.indexOf(b));
+  [...new Set(roles)].sort(
+    (a, b) =>
+      userRoleEnum.enumValues.indexOf(a) - userRoleEnum.enumValues.indexOf(b),
+  );
 
 /** CUSTOMER is implicit for every account (roles.ts), so it is always held. */
-const normaliseHeld = (roles: readonly UserRole[]): UserRole[] => sortRoles(["CUSTOMER", ...roles]);
+const normaliseHeld = (roles: readonly UserRole[]): UserRole[] =>
+  sortRoles(["CUSTOMER", ...roles]);
 
 const hasAdminRight = (snapshot: PrivilegesSnapshot): boolean =>
   snapshot.activeRole === "ADMIN" || snapshot.heldRoles.includes("ADMIN");
 
 /** Is there an active admin account other than `excludeUserId`? */
-async function anotherAdminExists(excludeUserId: string, client: DbClient = db): Promise<boolean> {
+async function anotherAdminExists(
+  excludeUserId: string,
+  client: DbClient = db,
+): Promise<boolean> {
   const permanent = permanentBootstrapAdminEmails();
   const [row] = await client
     .select({ id: users.id })
@@ -252,7 +338,9 @@ async function anotherAdminExists(excludeUserId: string, client: DbClient = db):
         eq(users.status, "ACTIVE"),
         or(
           eq(users.role, "ADMIN"),
-          permanent.length > 0 ? inArray(sql`lower(${users.email})`, permanent) : undefined,
+          permanent.length > 0
+            ? inArray(sql`lower(${users.email})`, permanent)
+            : undefined,
           exists(
             db
               .select({ x: sql`1` })
@@ -300,9 +388,11 @@ export async function updateUserPrivileges(
   actor: { id: string; role: UserRole },
 ): Promise<PrivilegesResult> {
   const activeRole = input.activeRole;
-  if (!VALID_ROLES.has(activeRole)) throw validationFailed("Not a recognised role.");
+  if (!VALID_ROLES.has(activeRole))
+    throw validationFailed("Not a recognised role.");
   for (const role of input.heldRoles) {
-    if (!VALID_ROLES.has(role)) throw validationFailed("Not a recognised role.");
+    if (!VALID_ROLES.has(role))
+      throw validationFailed("Not a recognised role.");
   }
 
   const wantedHeld = normaliseHeld(input.heldRoles);
@@ -310,7 +400,9 @@ export async function updateUserPrivileges(
     throw validationFailed("The account must hold the role it is acting as.");
   }
   if (wantedHeld.includes("OPERATOR") && wantedHeld.includes("ADMIN")) {
-    throw validationFailed("An account cannot hold both Operator and Administrator. Choose one.");
+    throw validationFailed(
+      "An account cannot hold both Operator and Administrator. Choose one.",
+    );
   }
 
   // Everything from here runs in one transaction: the state the guards judge is
@@ -318,7 +410,12 @@ export async function updateUserPrivileges(
   // both pass the "another admin exists" check and leave nobody holding it.
   const result = await db.transaction(async (tx) => {
     const [target] = await tx
-      .select({ id: users.id, email: users.email, role: users.role, deletedAt: users.deletedAt })
+      .select({
+        id: users.id,
+        email: users.email,
+        role: users.role,
+        deletedAt: users.deletedAt,
+      })
       .from(users)
       .where(eq(users.id, userId))
       .for("update");
@@ -327,7 +424,12 @@ export async function updateUserPrivileges(
     const currentGrants = await tx
       .select({ role: userRoleGrants.role })
       .from(userRoleGrants)
-      .where(and(eq(userRoleGrants.userId, userId), eq(userRoleGrants.status, "ACTIVE")));
+      .where(
+        and(
+          eq(userRoleGrants.userId, userId),
+          eq(userRoleGrants.status, "ACTIVE"),
+        ),
+      );
 
     const previous: PrivilegesSnapshot = {
       activeRole: target.role,
@@ -335,7 +437,10 @@ export async function updateUserPrivileges(
     };
     const next: PrivilegesSnapshot = { activeRole, heldRoles: wantedHeld };
 
-    if (previous.activeRole === next.activeRole && previous.heldRoles.join(",") === next.heldRoles.join(",")) {
+    if (
+      previous.activeRole === next.activeRole &&
+      previous.heldRoles.join(",") === next.heldRoles.join(",")
+    ) {
       return { previous, next, changed: false as const };
     }
 
@@ -350,7 +455,10 @@ export async function updateUserPrivileges(
       );
     }
 
-    if (permanentBootstrapAdminEmails().includes(target.email.toLowerCase()) && !hasAdminRight(next)) {
+    if (
+      permanentBootstrapAdminEmails().includes(target.email.toLowerCase()) &&
+      !hasAdminRight(next)
+    ) {
       throw conflict(
         "This account is a permanent administrator (PERMANENT_ADMIN_EMAILS) and would be granted ADMIN again on its next sign-in. Remove it from that list first.",
       );
@@ -359,8 +467,14 @@ export async function updateUserPrivileges(
     // Never leave the platform with nobody who can administer it. Asked as
     // "does another admin exist?" rather than by listing every account, so the
     // check stays cheap as the user table grows.
-    if (hasAdminRight(previous) && !hasAdminRight(next) && !(await anotherAdminExists(userId, tx))) {
-      throw conflict("This is the only administrator account left. Grant admin to someone else first.");
+    if (
+      hasAdminRight(previous) &&
+      !hasAdminRight(next) &&
+      !(await anotherAdminExists(userId, tx))
+    ) {
+      throw conflict(
+        "This is the only administrator account left. Grant admin to someone else first.",
+      );
     }
 
     for (const role of previous.heldRoles) {
@@ -368,14 +482,28 @@ export async function updateUserPrivileges(
       await tx
         .update(userRoleGrants)
         .set({ status: "REVOKED", revokedBy: actor.id, revokedAt: new Date() })
-        .where(and(eq(userRoleGrants.userId, userId), eq(userRoleGrants.role, role), eq(userRoleGrants.status, "ACTIVE")));
+        .where(
+          and(
+            eq(userRoleGrants.userId, userId),
+            eq(userRoleGrants.role, role),
+            eq(userRoleGrants.status, "ACTIVE"),
+          ),
+        );
     }
     for (const role of next.heldRoles) {
       if (role === "CUSTOMER" || previous.heldRoles.includes(role)) continue;
-      await grantRole(userId, role, { source: "ADMIN", grantedBy: actor.id }, tx);
+      await grantRole(
+        userId,
+        role,
+        { source: "ADMIN", grantedBy: actor.id },
+        tx,
+      );
     }
     if (previous.activeRole !== next.activeRole) {
-      await tx.update(users).set({ role: next.activeRole, updatedAt: new Date() }).where(eq(users.id, userId));
+      await tx
+        .update(users)
+        .set({ role: next.activeRole, updatedAt: new Date() })
+        .where(eq(users.id, userId));
     }
 
     await recordAudit(
@@ -403,22 +531,33 @@ export async function updateUserPrivileges(
 }
 
 /** What the privileges screen renders, including why a field may be locked. */
-export async function getUserPrivileges(userId: string): Promise<
-  PrivilegesSnapshot & { isPermanentAdmin: boolean }
-> {
+export async function getUserPrivileges(
+  userId: string,
+): Promise<PrivilegesSnapshot & { isPermanentAdmin: boolean }> {
   const [target] = await db
-    .select({ email: users.email, role: users.role, deletedAt: users.deletedAt })
+    .select({
+      email: users.email,
+      role: users.role,
+      deletedAt: users.deletedAt,
+    })
     .from(users)
     .where(eq(users.id, userId));
   if (!target || target.deletedAt) throw notFound("User");
   const grants = await db
     .select({ role: userRoleGrants.role })
     .from(userRoleGrants)
-    .where(and(eq(userRoleGrants.userId, userId), eq(userRoleGrants.status, "ACTIVE")));
+    .where(
+      and(
+        eq(userRoleGrants.userId, userId),
+        eq(userRoleGrants.status, "ACTIVE"),
+      ),
+    );
   return {
     activeRole: target.role,
     heldRoles: normaliseHeld(grants.map((g) => g.role)),
-    isPermanentAdmin: permanentBootstrapAdminEmails().includes(target.email.toLowerCase()),
+    isPermanentAdmin: permanentBootstrapAdminEmails().includes(
+      target.email.toLowerCase(),
+    ),
   };
 }
 
@@ -458,7 +597,13 @@ export async function updateUserProfileByAdmin(
   actor: { id: string; role: UserRole },
 ): Promise<ProfileUpdateResult> {
   const [current] = await db
-    .select({ id: users.id, name: users.name, phone: users.phone, status: users.status, deletedAt: users.deletedAt })
+    .select({
+      id: users.id,
+      name: users.name,
+      phone: users.phone,
+      status: users.status,
+      deletedAt: users.deletedAt,
+    })
     .from(users)
     .where(eq(users.id, userId));
   if (!current || current.deletedAt) throw notFound("User");
@@ -471,7 +616,9 @@ export async function updateUserProfileByAdmin(
   if (patch.name !== undefined) {
     const name = patch.name?.trim() || null;
     if (name !== null && (name.length < 2 || name.length > 120)) {
-      throw validationFailed("A name needs 2–120 characters.", { fields: { name: "A name needs 2–120 characters." } });
+      throw validationFailed("A name needs 2–120 characters.", {
+        fields: { name: "A name needs 2–120 characters." },
+      });
     }
     if (name !== current.name) {
       set.name = name;
@@ -510,12 +657,17 @@ export async function updateUserProfileByAdmin(
     });
   }
 
-  let status = current.status === "SUSPENDED" ? ("SUSPENDED" as const) : ("ACTIVE" as const);
+  let status =
+    current.status === "SUSPENDED"
+      ? ("SUSPENDED" as const)
+      : ("ACTIVE" as const);
   if (patch.status !== undefined && patch.status !== current.status) {
     const reason = patch.statusReason?.trim() ?? "";
     if (reason.length < 3) {
       throw validationFailed("Give a reason for the account status change.", {
-        fields: { statusReason: "Give a reason for the account status change." },
+        fields: {
+          statusReason: "Give a reason for the account status change.",
+        },
       });
     }
     // Both audit the change themselves and notify the account holder.

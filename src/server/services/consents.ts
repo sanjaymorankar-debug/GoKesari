@@ -27,24 +27,27 @@ import {
   type UserConsent,
   type UserRole,
 } from "@/server/db/schema";
+import { insertReturning } from "@/server/db/returning";
+import { rows as queryRows } from "@/server/db/raw";
 
 export { CURRENT_POLICY_VERSION };
 
 export async function recordConsent(
   userId: string,
   consentType: ConsentType,
-  options: { version?: string; ipAddress?: string | null; granted?: boolean } = {},
+  options: {
+    version?: string;
+    ipAddress?: string | null;
+    granted?: boolean;
+  } = {},
 ): Promise<UserConsent> {
-  const [consent] = await db
-    .insert(userConsents)
-    .values({
-      userId,
-      consentType,
-      version: options.version ?? CURRENT_POLICY_VERSION,
-      granted: options.granted ?? true,
-      ipAddress: options.ipAddress ?? null,
-    })
-    .returning();
+  const [consent] = await insertReturning(db, userConsents, {
+    userId,
+    consentType,
+    version: options.version ?? CURRENT_POLICY_VERSION,
+    granted: options.granted ?? true,
+    ipAddress: options.ipAddress ?? null,
+  });
   return consent;
 }
 
@@ -59,7 +62,9 @@ export interface MarketingConsentStatus {
  * latest row, means no marketing may be sent. A grant made against an older
  * policy version still counts until the user is asked again.
  */
-export async function getMarketingConsentStatus(userId: string): Promise<MarketingConsentStatus> {
+export async function getMarketingConsentStatus(
+  userId: string,
+): Promise<MarketingConsentStatus> {
   const latest = await getLatestConsent(userId, "MARKETING_COMMUNICATIONS");
   return {
     granted: latest?.granted ?? false,
@@ -82,7 +87,11 @@ export async function setMarketingConsent(
     action: AUDIT_ACTIONS.CONSENT_RECORDED,
     entityType: "user_consent",
     entityId: consent.id,
-    newValue: { consentType: "MARKETING_COMMUNICATIONS", granted, version: consent.version },
+    newValue: {
+      consentType: "MARKETING_COMMUNICATIONS",
+      granted,
+      version: consent.version,
+    },
     ipAddress: options.ipAddress ?? null,
   });
   return consent;
@@ -93,7 +102,10 @@ export async function getLatestConsent(
   consentType: ConsentType,
 ): Promise<UserConsent | undefined> {
   return db.query.userConsents.findFirst({
-    where: and(eq(userConsents.userId, userId), eq(userConsents.consentType, consentType)),
+    where: and(
+      eq(userConsents.userId, userId),
+      eq(userConsents.consentType, consentType),
+    ),
     orderBy: desc(userConsents.createdAt),
   });
 }
@@ -110,7 +122,9 @@ export async function hasCurrentConsent(
   return latest?.granted === true && latest.version === CURRENT_POLICY_VERSION;
 }
 
-export async function listConsentHistory(userId: string): Promise<UserConsent[]> {
+export async function listConsentHistory(
+  userId: string,
+): Promise<UserConsent[]> {
   return db
     .select()
     .from(userConsents)
@@ -143,11 +157,21 @@ const LIVE_USER = isNull(users.deletedAt);
  * The latest row per (user, consent type) — consent is append-only and a later
  * row supersedes an earlier one, so every question below is about the newest.
  */
+// The newest consent row per (user, type). PostgreSQL spelled this
+// `DISTINCT ON (user_id, consent_type) ... ORDER BY ..., created_at DESC`,
+// which MySQL does not have; ranking inside each group and keeping rank 1 is
+// the same thing and works on MySQL 8 and MariaDB alike.
 const latestConsentPerUser = sql`
-  select distinct on (uc.user_id, uc.consent_type)
-         uc.user_id, uc.consent_type, uc.granted, uc.version, uc.created_at
-    from user_consents uc
-   order by uc.user_id, uc.consent_type, uc.created_at desc`;
+  select user_id, consent_type, granted, version, created_at
+    from (
+      select uc.user_id, uc.consent_type, uc.granted, uc.version, uc.created_at,
+             row_number() over (
+               partition by uc.user_id, uc.consent_type
+               order by uc.created_at desc
+             ) as rn
+        from user_consents uc
+    ) ranked
+   where rn = 1`;
 
 export interface ConsentTypeSummary {
   consentType: ConsentType;
@@ -170,20 +194,35 @@ export interface ConsentOverview {
 /** Aggregate consent state across live users. Identifies nobody. */
 export async function getConsentOverview(): Promise<ConsentOverview> {
   const [[{ total }], rows] = await Promise.all([
-    db.select({ total: sql<number>`count(*)::int` }).from(users).where(LIVE_USER),
+    db
+      .select({ total: sql<number>`CAST(count(*) AS SIGNED)` })
+      .from(users)
+      .where(LIVE_USER),
+    // `count(*) filter (where c)` becomes `count(case when c then 1 end)`: CASE
+    // yields NULL when the condition is false and COUNT skips NULLs, which is
+    // what FILTER did. consent_type needed no cast — it is an enum column, so
+    // selecting it already gives the string.
     db.execute(sql`
-      select l.consent_type::text as consent_type,
-             count(*) filter (where l.granted and l.version = ${CURRENT_POLICY_VERSION})::int as current,
-             count(*) filter (where l.granted and l.version <> ${CURRENT_POLICY_VERSION})::int as stale,
-             count(*) filter (where not l.granted)::int as withdrawn
+      select l.consent_type as consent_type,
+             CAST(count(case when l.granted and l.version = ${CURRENT_POLICY_VERSION} then 1 end) AS SIGNED) as current,
+             CAST(count(case when l.granted and l.version <> ${CURRENT_POLICY_VERSION} then 1 end) AS SIGNED) as stale,
+             CAST(count(case when not l.granted then 1 end) AS SIGNED) as withdrawn
         from (${latestConsentPerUser}) l
         join users u on u.id = l.user_id and u.deleted_at is null
        group by l.consent_type`),
   ]);
 
   const liveUsers = Number(total);
-  const seen = new Map<string, { current: number; stale: number; withdrawn: number }>();
-  for (const row of rows as unknown as { consent_type: string; current: number; stale: number; withdrawn: number }[]) {
+  const seen = new Map<
+    string,
+    { current: number; stale: number; withdrawn: number }
+  >();
+  for (const row of queryRows<{
+    consent_type: string;
+    current: number;
+    stale: number;
+    withdrawn: number;
+  }>(rows)) {
     seen.set(row.consent_type, {
       current: Number(row.current),
       stale: Number(row.stale),
@@ -197,7 +236,11 @@ export async function getConsentOverview(): Promise<ConsentOverview> {
     // Every consent type is listed, including ones nobody has a row for —
     // "nobody has consented to this yet" is itself the answer to a question.
     byType: consentTypeEnum.enumValues.map((consentType) => {
-      const counts = seen.get(consentType) ?? { current: 0, stale: 0, withdrawn: 0 };
+      const counts = seen.get(consentType) ?? {
+        current: 0,
+        stale: 0,
+        withdrawn: 0,
+      };
       const recorded = counts.current + counts.stale + counts.withdrawn;
       return {
         consentType,
@@ -227,10 +270,14 @@ export interface ConsentChangeFilters {
 }
 
 /** The consent trail, newest first — what a grant or withdrawal looked like and when. */
-export async function listConsentChanges(filters: ConsentChangeFilters = {}): Promise<ConsentChange[]> {
+export async function listConsentChanges(
+  filters: ConsentChangeFilters = {},
+): Promise<ConsentChange[]> {
   const conditions = [LIVE_USER];
-  if (filters.consentType) conditions.push(eq(userConsents.consentType, filters.consentType));
-  if (filters.granted !== undefined) conditions.push(eq(userConsents.granted, filters.granted));
+  if (filters.consentType)
+    conditions.push(eq(userConsents.consentType, filters.consentType));
+  if (filters.granted !== undefined)
+    conditions.push(eq(userConsents.granted, filters.granted));
 
   return db
     .select({

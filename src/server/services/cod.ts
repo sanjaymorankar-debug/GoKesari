@@ -37,6 +37,7 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { postLedger } from "./finance";
+import { insertIfNewReturning, insertReturning } from "@/server/db/returning";
 
 export const COD_LIMITS = {
   maxOrderPaise: 200_000,
@@ -46,7 +47,14 @@ export const COD_LIMITS = {
 } as const;
 
 /** COD order still waiting for its cash. */
-const OPEN_COD_EXCLUDED: OrderStatus[] = ["DELIVERED", "DISPUTED", "CANCELLED", "REFUND_PENDING", "REFUNDED", "RETURNED"];
+const OPEN_COD_EXCLUDED: OrderStatus[] = [
+  "DELIVERED",
+  "DISPUTED",
+  "CANCELLED",
+  "REFUND_PENDING",
+  "REFUNDED",
+  "RETURNED",
+];
 
 interface Actor {
   id: string;
@@ -61,13 +69,22 @@ export interface CodEligibility {
 }
 
 /** Customer-level COD check (shop and amount are checked per order at checkout). */
-export async function getCodEligibility(userId: string, client: DbClient = db): Promise<CodEligibility> {
+export async function getCodEligibility(
+  userId: string,
+  client: DbClient = db,
+): Promise<CodEligibility> {
   const [open] = await client
-    .select({ n: sql<number>`count(*)::int` })
+    .select({ n: sql<number>`CAST(count(*) AS SIGNED)` })
     .from(orders)
-    .where(and(eq(orders.userId, userId), eq(orders.paymentMethod, "COD"), notInArray(orders.status, OPEN_COD_EXCLUDED)));
+    .where(
+      and(
+        eq(orders.userId, userId),
+        eq(orders.paymentMethod, "COD"),
+        notInArray(orders.status, OPEN_COD_EXCLUDED),
+      ),
+    );
   const [failures] = await client
-    .select({ n: sql<number>`count(*)::int` })
+    .select({ n: sql<number>`CAST(count(*) AS SIGNED)` })
     .from(orders)
     .where(
       and(
@@ -75,7 +92,7 @@ export async function getCodEligibility(userId: string, client: DbClient = db): 
         eq(orders.paymentMethod, "COD"),
         sql`exists (select 1 from order_status_history h where h.order_id = ${orders.id}
               and h.new_status in ('FAILED', 'RETURNED')
-              and h.created_at > now() - make_interval(days => ${COD_LIMITS.failureWindowDays}))`,
+              and h.created_at > now() - interval ${COD_LIMITS.failureWindowDays} day)`,
       ),
     );
   const [flag] = await client
@@ -92,20 +109,41 @@ export async function getCodEligibility(userId: string, client: DbClient = db): 
     .limit(1);
 
   const base = { maxOrderPaise: COD_LIMITS.maxOrderPaise, openOrders: open.n };
-  if (flag) return { ...base, allowed: false, reason: "Cash on delivery is not available on this account right now." };
+  if (flag)
+    return {
+      ...base,
+      allowed: false,
+      reason: "Cash on delivery is not available on this account right now.",
+    };
   if (failures.n >= COD_LIMITS.maxFailures) {
-    return { ...base, allowed: false, reason: "Cash on delivery is paused after recent undelivered cash orders. Please pay from your wallet." };
+    return {
+      ...base,
+      allowed: false,
+      reason:
+        "Cash on delivery is paused after recent undelivered cash orders. Please pay from your wallet.",
+    };
   }
   if (open.n >= COD_LIMITS.maxOpenOrders) {
-    return { ...base, allowed: false, reason: `You already have ${open.n} cash-on-delivery orders on the way — pay from your wallet or wait for them to arrive.` };
+    return {
+      ...base,
+      allowed: false,
+      reason: `You already have ${open.n} cash-on-delivery orders on the way — pay from your wallet or wait for them to arrive.`,
+    };
   }
   return { ...base, allowed: true, reason: null };
 }
 
 /** Shop- and amount-level COD check for one order at checkout. */
-export function assertCodAllowedForOrder(shop: Pick<Shop, "name" | "codEnabled" | "deliveryAvailable">, totalPaise: number): void {
-  if (!shop.codEnabled) throw validationFailed(`${shop.name} does not accept cash on delivery.`);
-  if (!shop.deliveryAvailable) throw validationFailed(`${shop.name} does not deliver, so cash on delivery is not available.`);
+export function assertCodAllowedForOrder(
+  shop: Pick<Shop, "name" | "codEnabled" | "deliveryAvailable">,
+  totalPaise: number,
+): void {
+  if (!shop.codEnabled)
+    throw validationFailed(`${shop.name} does not accept cash on delivery.`);
+  if (!shop.deliveryAvailable)
+    throw validationFailed(
+      `${shop.name} does not deliver, so cash on delivery is not available.`,
+    );
   if (totalPaise > COD_LIMITS.maxOrderPaise) {
     throw validationFailed(
       `Cash on delivery is available up to ${formatPaise(COD_LIMITS.maxOrderPaise)} per order — ${shop.name}'s order is ${formatPaise(totalPaise)}.`,
@@ -119,13 +157,25 @@ export function assertCodAllowedForOrder(shop: Pick<Shop, "name" | "codEnabled" 
  * transaction. The collector is the rider when a platform delivery was
  * completed, otherwise the shop. Idempotent.
  */
-export async function recordCodCollection(order: Order, actorId: string, client: DbClient): Promise<void> {
+export async function recordCodCollection(
+  order: Order,
+  actorId: string,
+  client: DbClient,
+): Promise<void> {
   if (order.paymentMethod !== "COD" || order.codCollectedAt) return;
 
   const [delivery] = await client
-    .select({ id: deliveryOrders.id, partnerId: deliveryOrders.deliveryPartnerId })
+    .select({
+      id: deliveryOrders.id,
+      partnerId: deliveryOrders.deliveryPartnerId,
+    })
     .from(deliveryOrders)
-    .where(and(eq(deliveryOrders.orderId, order.id), eq(deliveryOrders.status, "DELIVERED")))
+    .where(
+      and(
+        eq(deliveryOrders.orderId, order.id),
+        eq(deliveryOrders.status, "DELIVERED"),
+      ),
+    )
     .limit(1);
   const party = delivery ? ("RIDER" as const) : ("SHOP" as const);
   const now = new Date();
@@ -135,9 +185,10 @@ export async function recordCodCollection(order: Order, actorId: string, client:
     .set({ paidAt: order.paidAt ?? now, codCollectedAt: now, updatedAt: now })
     .where(eq(orders.id, order.id));
 
-  const [adjustment] = await client
-    .insert(financialAdjustments)
-    .values({
+  const [adjustment] = await insertIfNewReturning(
+    client,
+    financialAdjustments,
+    {
       type: "COD_CASH_COLLECTED",
       party,
       status: "PENDING",
@@ -149,19 +200,37 @@ export async function recordCodCollection(order: Order, actorId: string, client:
       reason: `Cash collected for order ${order.orderNumber}`,
       idempotencyKey: `cod:collected:${order.id}`,
       createdBy: actorId,
-    })
-    .onConflictDoNothing()
-    .returning();
+    },
+    eq(financialAdjustments.idempotencyKey, `cod:collected:${order.id}`),
+  );
   if (!adjustment) return;
 
   const entityId = party === "RIDER" ? delivery!.partnerId : order.shopId;
-  const base = { orderId: order.id, sourceType: "financial_adjustments", sourceId: adjustment.id, entryType: "COD_CASH" as const };
+  const base = {
+    orderId: order.id,
+    sourceType: "financial_adjustments",
+    sourceId: adjustment.id,
+    entryType: "COD_CASH" as const,
+  };
   await postLedger(
     [
       // The collector now holds the platform's cash...
-      { ...base, entityType: party, entityId, direction: "DEBIT", amountPaise: order.totalPaise, key: `cod:${order.id}:collector` },
+      {
+        ...base,
+        entityType: party,
+        entityId,
+        direction: "DEBIT",
+        amountPaise: order.totalPaise,
+        key: `cod:${order.id}:collector`,
+      },
       // ...which the platform has been paid.
-      { ...base, entityType: "PLATFORM", direction: "CREDIT", amountPaise: order.totalPaise, key: `cod:${order.id}:platform` },
+      {
+        ...base,
+        entityType: "PLATFORM",
+        direction: "CREDIT",
+        amountPaise: order.totalPaise,
+        key: `cod:${order.id}:platform`,
+      },
     ],
     actorId,
     client,
@@ -173,7 +242,11 @@ export async function recordCodCollection(order: Order, actorId: string, client:
       action: AUDIT_ACTIONS.COD_CASH_COLLECTED,
       entityType: "order",
       entityId: order.id,
-      newValue: { amountPaise: order.totalPaise, collector: party, collectorId: entityId },
+      newValue: {
+        amountPaise: order.totalPaise,
+        collector: party,
+        collectorId: entityId,
+      },
     },
     client,
   );
@@ -196,15 +269,21 @@ export async function listCodCashHeld(): Promise<CashHolder[]> {
       shopId: financialAdjustments.shopId,
       riderName: deliveryPartners.fullName,
       shopName: shops.name,
-      net: sql<number>`sum(${financialAdjustments.amountPaise})::bigint`,
-      orders: sql<number>`count(*) filter (where ${financialAdjustments.type} = 'COD_CASH_COLLECTED')::int`,
+      net: sql<number>`CAST(sum(${financialAdjustments.amountPaise}) AS SIGNED)`,
+      orders: sql<number>`CAST(count(case when ${financialAdjustments.type} = 'COD_CASH_COLLECTED' then 1 end) AS SIGNED)`,
     })
     .from(financialAdjustments)
-    .leftJoin(deliveryPartners, eq(financialAdjustments.deliveryPartnerId, deliveryPartners.id))
+    .leftJoin(
+      deliveryPartners,
+      eq(financialAdjustments.deliveryPartnerId, deliveryPartners.id),
+    )
     .leftJoin(shops, eq(financialAdjustments.shopId, shops.id))
     .where(
       and(
-        inArray(financialAdjustments.type, ["COD_CASH_COLLECTED", "COD_CASH_DEPOSITED"]),
+        inArray(financialAdjustments.type, [
+          "COD_CASH_COLLECTED",
+          "COD_CASH_DEPOSITED",
+        ]),
         eq(financialAdjustments.status, "PENDING"),
       ),
     )
@@ -222,12 +301,20 @@ export async function listCodCashHeld(): Promise<CashHolder[]> {
     const party = r.party === "RIDER" ? "RIDER" : "SHOP";
     const id = party === "RIDER" ? r.partnerId! : r.shopId!;
     const key = `${party}:${id}`;
-    const entry = byKey.get(key) ?? { party, id, name: (party === "RIDER" ? r.riderName : r.shopName) ?? "—", heldPaise: 0, orders: 0 };
+    const entry = byKey.get(key) ?? {
+      party,
+      id,
+      name: (party === "RIDER" ? r.riderName : r.shopName) ?? "—",
+      heldPaise: 0,
+      orders: 0,
+    };
     entry.heldPaise += -Number(r.net);
     entry.orders += r.orders;
     byKey.set(key, entry);
   }
-  return [...byKey.values()].filter((h) => h.heldPaise > 0).sort((a, b) => b.heldPaise - a.heldPaise);
+  return [...byKey.values()]
+    .filter((h) => h.heldPaise > 0)
+    .sort((a, b) => b.heldPaise - a.heldPaise);
 }
 
 export interface CodDepositInput {
@@ -250,39 +337,62 @@ export async function recordCodDeposit(input: CodDepositInput, actor: Actor) {
     throw validationFailed("Deposit amount must be more than zero.");
   }
   const reference = input.reference.trim();
-  if (reference.length < 3) throw validationFailed("Enter the receipt / deposit reference.");
+  if (reference.length < 3)
+    throw validationFailed("Enter the receipt / deposit reference.");
 
-  const holder = (await listCodCashHeld()).find((h) => h.party === input.party && h.id === input.id);
+  const holder = (await listCodCashHeld()).find(
+    (h) => h.party === input.party && h.id === input.id,
+  );
   if (!holder) throw notFound("Cash to deposit");
   if (input.amountPaise > holder.heldPaise) {
-    throw conflict(`${holder.name} holds ${formatPaise(holder.heldPaise)} — the deposit cannot be larger.`);
+    throw conflict(
+      `${holder.name} holds ${formatPaise(holder.heldPaise)} — the deposit cannot be larger.`,
+    );
   }
 
   const key = `cod:deposit:${input.party}:${input.id}:${input.requestId}`;
   return db.transaction(async (tx) => {
-    const existing = await tx.query.financialAdjustments.findFirst({ where: eq(financialAdjustments.idempotencyKey, key) });
+    const existing = await tx.query.financialAdjustments.findFirst({
+      where: eq(financialAdjustments.idempotencyKey, key),
+    });
     if (existing) return existing;
 
-    const [row] = await tx
-      .insert(financialAdjustments)
-      .values({
-        type: "COD_CASH_DEPOSITED",
-        party: input.party,
-        status: "PENDING",
-        shopId: input.party === "SHOP" ? input.id : null,
-        deliveryPartnerId: input.party === "RIDER" ? input.id : null,
-        amountPaise: input.amountPaise,
-        reason: `Cash deposited — ref ${reference}`,
-        idempotencyKey: key,
-        createdBy: actor.id,
-      })
-      .returning();
+    const [row] = await insertReturning(tx, financialAdjustments, {
+      type: "COD_CASH_DEPOSITED",
+      party: input.party,
+      status: "PENDING",
+      shopId: input.party === "SHOP" ? input.id : null,
+      deliveryPartnerId: input.party === "RIDER" ? input.id : null,
+      amountPaise: input.amountPaise,
+      reason: `Cash deposited — ref ${reference}`,
+      idempotencyKey: key,
+      createdBy: actor.id,
+    });
 
-    const base = { orderId: null, sourceType: "financial_adjustments", sourceId: row.id, entryType: "COD_CASH" as const, reference };
+    const base = {
+      orderId: null,
+      sourceType: "financial_adjustments",
+      sourceId: row.id,
+      entryType: "COD_CASH" as const,
+      reference,
+    };
     await postLedger(
       [
-        { ...base, entityType: input.party, entityId: input.id, direction: "CREDIT", amountPaise: input.amountPaise, key: `cod-deposit:${row.id}:collector` },
-        { ...base, entityType: "PLATFORM", direction: "DEBIT", amountPaise: input.amountPaise, key: `cod-deposit:${row.id}:platform` },
+        {
+          ...base,
+          entityType: input.party,
+          entityId: input.id,
+          direction: "CREDIT",
+          amountPaise: input.amountPaise,
+          key: `cod-deposit:${row.id}:collector`,
+        },
+        {
+          ...base,
+          entityType: "PLATFORM",
+          direction: "DEBIT",
+          amountPaise: input.amountPaise,
+          key: `cod-deposit:${row.id}:platform`,
+        },
       ],
       actor.id,
       tx,
@@ -294,7 +404,12 @@ export async function recordCodDeposit(input: CodDepositInput, actor: Actor) {
         action: AUDIT_ACTIONS.COD_CASH_DEPOSITED,
         entityType: "financial_adjustment",
         entityId: row.id,
-        newValue: { party: input.party, id: input.id, amountPaise: input.amountPaise, reference },
+        newValue: {
+          party: input.party,
+          id: input.id,
+          amountPaise: input.amountPaise,
+          reference,
+        },
       },
       tx,
     );

@@ -71,7 +71,7 @@ export async function upsertSources(sql: Queryable, defs: readonly SourceDefinit
           ${d.rateLimitPerMin ?? null}, ${d.parserKey ?? null}, ${mapping},
           ${d.retryMax ?? 3}, ${d.notes ?? null}
         )
-        ON CONFLICT (source_key) DO NOTHING`;
+        ON DUPLICATE KEY UPDATE source_id = source_id`;
     }
   }
 }
@@ -93,26 +93,34 @@ export async function upsertCategories(sql: Queryable): Promise<Map<string, numb
     if (known) {
       await sql`
         UPDATE pmd.category SET parent_id = ${parentId}, level = ${c.level}, name = ${c.name}, slug = ${c.slug},
-          path_names = ${c.pathNames}, gokesari_department = ${c.department}, sort_order = ${c.sortOrder}
+          path_names = ${sql.json(c.pathNames)}, gokesari_department = ${c.department}, sort_order = ${c.sortOrder}
         WHERE category_id = ${known.category_id}`;
       categoryId = known.category_id;
       currentPath = known.path_ids;
     } else {
-      const [row] = await sql<{ category_id: number; path_ids: number[] }[]>`
+      // text[] and integer[] are json columns now, so the arrays go through
+      // sql.json and the empty-array default is '[]' rather than CAST('{}' AS SIGNED)[].
+      const upserted = await sql`
         INSERT INTO pmd.category (category_code, parent_id, level, name, slug, path_names, path_ids, gokesari_department, sort_order)
-        VALUES (${c.code}, ${parentId}, ${c.level}, ${c.name}, ${c.slug}, ${c.pathNames}, '{}'::int4[], ${c.department}, ${c.sortOrder})
-        ON CONFLICT (category_code) DO UPDATE SET
-          parent_id = EXCLUDED.parent_id, level = EXCLUDED.level, name = EXCLUDED.name, slug = EXCLUDED.slug,
-          path_names = EXCLUDED.path_names, gokesari_department = EXCLUDED.gokesari_department, sort_order = EXCLUDED.sort_order
-        RETURNING category_id, path_ids`;
-      categoryId = row.category_id;
-      currentPath = row.path_ids;
+        VALUES (${c.code}, ${parentId}, ${c.level}, ${c.name}, ${c.slug}, ${sql.json(c.pathNames)}, ${sql.json([])}, ${c.department}, ${c.sortOrder})
+        ON DUPLICATE KEY UPDATE
+          category_id = LAST_INSERT_ID(category_id),
+          parent_id = ${parentId}, level = ${c.level}, name = ${c.name}, slug = ${c.slug},
+          path_names = ${sql.json(c.pathNames)}, gokesari_department = ${c.department}, sort_order = ${c.sortOrder}`;
+      categoryId = upserted.insertId;
+      // path_ids is deliberately not written by the upsert - it is rebuilt
+      // below once the whole level is known - so it has to be read back: '[]'
+      // for a fresh row, whatever was there for a row a concurrent sync
+      // inserted. One lookup by primary key, which the upsert just set.
+      const [back] = await sql<{ path_ids: number[] }[]>`
+        SELECT path_ids FROM pmd.category WHERE category_id = ${categoryId}`;
+      currentPath = back?.path_ids ?? [];
     }
     ids.set(c.code, categoryId);
     const full = [...(c.parentCode ? pathIds.get(c.parentCode)! : []), categoryId];
     pathIds.set(c.code, full);
     if (currentPath.join(",") !== full.join(",")) {
-      await sql`UPDATE pmd.category SET path_ids = ${full}::int4[] WHERE category_id = ${categoryId}`;
+      await sql`UPDATE pmd.category SET path_ids = ${sql.json(full)} WHERE category_id = ${categoryId}`;
     }
   }
   return ids;
@@ -121,13 +129,16 @@ export async function upsertCategories(sql: Queryable): Promise<Map<string, numb
 export async function upsertAttributeDefinitions(sql: Queryable): Promise<void> {
   let order = 0;
   for (const a of ATTRIBUTE_DEFINITIONS) {
+    // Hoisted out of the template: it is interpolated twice now (the insert and
+    // the update), and `order++` in both places would advance it twice.
+    const sortOrder = order++;
     await sql`
       INSERT INTO pmd.attribute_definition (attribute_key, attribute_label, attribute_group, data_type, canonical_unit, source_authority, track_conflicts, description, sort_order)
-      VALUES (${a.key}, ${a.label}, ${a.group}, ${a.dataType}, ${a.unit ?? null}, ${a.authority ?? "SPEC"}, ${a.trackConflicts ?? true}, ${a.description ?? null}, ${order++})
-      ON CONFLICT (attribute_key) DO UPDATE SET
-        attribute_label = EXCLUDED.attribute_label, attribute_group = EXCLUDED.attribute_group, data_type = EXCLUDED.data_type,
-        canonical_unit = EXCLUDED.canonical_unit, source_authority = EXCLUDED.source_authority,
-        track_conflicts = EXCLUDED.track_conflicts, description = EXCLUDED.description, sort_order = EXCLUDED.sort_order`;
+      VALUES (${a.key}, ${a.label}, ${a.group}, ${a.dataType}, ${a.unit ?? null}, ${a.authority ?? "SPEC"}, ${a.trackConflicts ?? true}, ${a.description ?? null}, ${sortOrder})
+      ON DUPLICATE KEY UPDATE
+        attribute_label = ${a.label}, attribute_group = ${a.group}, data_type = ${a.dataType},
+        canonical_unit = ${a.unit ?? null}, source_authority = ${a.authority ?? "SPEC"},
+        track_conflicts = ${a.trackConflicts ?? true}, description = ${a.description ?? null}, sort_order = ${sortOrder}`;
   }
 }
 
@@ -147,9 +158,9 @@ export async function upsertCategoryMappings(
     await sql`
       INSERT INTO pmd.category_mapping (source_id, source_category, source_category_original, standard_category_id, match_type, confidence, mapped_by)
       VALUES (${src.source_id}, ${normalizeSourceCategory(tag)}, ${tag}, ${catId}, 'EXACT', 90, 'SYSTEM')
-      ON CONFLICT (source_id, source_category) DO UPDATE SET
-        standard_category_id = EXCLUDED.standard_category_id, source_category_original = EXCLUDED.source_category_original
-      WHERE pmd.category_mapping.mapped_by = 'SYSTEM'`;
+      ON DUPLICATE KEY UPDATE
+        standard_category_id     = CASE WHEN mapped_by = 'SYSTEM' THEN ${catId} ELSE standard_category_id     END,
+        source_category_original = CASE WHEN mapped_by = 'SYSTEM' THEN ${tag}   ELSE source_category_original END`;
     n++;
   }
   return n;
@@ -222,6 +233,6 @@ export async function ensureReferenceData(sql: Queryable, opts: { force?: boolea
   }
   await sql`
     INSERT INTO pmd.reference_state (singleton, content_hash) VALUES (true, ${hash})
-    ON CONFLICT (singleton) DO UPDATE SET content_hash = EXCLUDED.content_hash, applied_at = now()`;
+    ON DUPLICATE KEY UPDATE content_hash = ${hash}, applied_at = now(3)`;
   return { ...(await loadReferenceIds(sql)), synced: true };
 }

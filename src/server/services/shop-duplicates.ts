@@ -33,8 +33,13 @@ import { createHash } from "node:crypto";
 
 import { and, eq, isNotNull, isNull, ne, or, sql, type SQL } from "drizzle-orm";
 
-import { conflict, validationFailed, type AppError } from "@/lib/errors";
-import { decryptPan, encryptPan, maskPan, panBlindIndex } from "@/lib/pan-crypto";
+import { conflict, type AppError, validationFailed, violatedUniqueIndex } from "@/lib/errors";
+import {
+  decryptPan,
+  encryptPan,
+  maskPan,
+  panBlindIndex,
+} from "@/lib/pan-crypto";
 import {
   looseKey,
   maskTail,
@@ -44,10 +49,19 @@ import {
   type ShopActNumber,
 } from "@/lib/shop-identity";
 import { db, type DbClient } from "@/server/db";
-import { shops, type Shop, type ShopStatus, type UserRole } from "@/server/db/schema";
+import {
+  shops,
+  type Shop,
+  type ShopStatus,
+  type UserRole,
+} from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 
-export type DuplicateMatchReason = "SHOP_ACT" | "PAN" | "UDYAM" | "NAME_AND_PIN";
+export type DuplicateMatchReason =
+  | "SHOP_ACT"
+  | "PAN"
+  | "UDYAM"
+  | "NAME_AND_PIN";
 
 /** Parsed, normalised identifiers. The PAN carries its blind index, never stored plain. */
 export interface ShopIdentity {
@@ -76,7 +90,10 @@ export interface RegistrationCandidate {
 }
 
 export interface DuplicateMatch {
-  shop: Pick<Shop, "id" | "ownerId" | "status" | "registrationNumber" | "createdAt">;
+  shop: Pick<
+    Shop,
+    "id" | "ownerId" | "status" | "registrationNumber" | "createdAt"
+  >;
   reason: DuplicateMatchReason;
 }
 
@@ -96,7 +113,11 @@ export interface RegistrationMatches {
  */
 export function parseShopIdentifiers(input: ShopIdentifierInput): ShopIdentity {
   const fields: Record<string, string> = {};
-  const identity: ShopIdentity = { shopAct: null, pan: null, udyamNumber: null };
+  const identity: ShopIdentity = {
+    shopAct: null,
+    pan: null,
+    udyamNumber: null,
+  };
 
   if (input.shopActNumber?.trim()) {
     const parsed = parseShopActNumber(input.shopActNumber);
@@ -140,7 +161,10 @@ export function shopIdentityColumns(
 ): Partial<typeof shops.$inferInsert> {
   return {
     ...(identity.shopAct
-      ? { shopActNumber: identity.shopAct.display, shopActKey: identity.shopAct.key }
+      ? {
+          shopActNumber: identity.shopAct.display,
+          shopActKey: identity.shopAct.key,
+        }
       : {}),
     ...(identity.udyamNumber ? { udyamNumber: identity.udyamNumber } : {}),
     ...(identity.pan
@@ -167,14 +191,18 @@ function lockLabels(candidate: RegistrationCandidate): string[] {
   if (pan) labels.push(`pan:${pan.hash}`);
   if (udyamNumber) labels.push(`udyam:${udyamNumber}`);
   if (candidate.sameOwnerRule !== false) {
-    labels.push(`owner-shop:${candidate.ownerId}:${candidate.pincode}:${looseKey(candidate.name)}`);
+    labels.push(
+      `owner-shop:${candidate.ownerId}:${candidate.pincode}:${looseKey(candidate.name)}`,
+    );
   }
   return labels;
 }
 
-/** A signed 64-bit id for the label — the key space of pg_advisory_xact_lock. */
-function advisoryLockKey(label: string): bigint {
-  return createHash("sha256").update(`shop-registration:${label}`).digest().readBigInt64BE(0);
+/** A bounded, stable key for the label — the primary key of registration_locks. */
+function advisoryLockKey(label: string): string {
+  return createHash("sha256")
+    .update(`shop-registration:${label}`)
+    .digest("hex");
 }
 
 /**
@@ -183,22 +211,36 @@ function advisoryLockKey(label: string): bigint {
  * fixed order so two transactions sharing several keys cannot deadlock.
  * Released automatically at commit or rollback. Must run inside a
  * transaction — outside one, each lock is released as soon as it is taken.
+ *
+ * On MySQL the lock is a row in `registration_locks` rather than
+ * pg_advisory_xact_lock; see that table for why not GET_LOCK.
  */
 export async function lockRegistrationKeys(
   tx: DbClient,
   candidate: RegistrationCandidate,
 ): Promise<void> {
-  const keys = [...new Set(lockLabels(candidate).map(advisoryLockKey))].sort((a, b) =>
-    a < b ? -1 : a > b ? 1 : 0,
-  );
+  const keys = [...new Set(lockLabels(candidate).map(advisoryLockKey))].sort();
   for (const key of keys) {
-    await tx.execute(sql`SELECT pg_advisory_xact_lock(${key.toString()}::bigint)`);
+    // The row has to exist before it can be locked. Both statements take an
+    // exclusive lock on it, held until this transaction ends.
+    await tx.execute(
+      sql`INSERT INTO registration_locks (name) VALUES (${key})
+          ON DUPLICATE KEY UPDATE name = name`,
+    );
+    await tx.execute(
+      sql`SELECT name FROM registration_locks WHERE name = ${key} FOR UPDATE`,
+    );
   }
 }
 
 /* ----------------------------------------------------------- matching */
 
-const REASON_ORDER: readonly DuplicateMatchReason[] = ["SHOP_ACT", "PAN", "UDYAM", "NAME_AND_PIN"];
+const REASON_ORDER: readonly DuplicateMatchReason[] = [
+  "SHOP_ACT",
+  "PAN",
+  "UDYAM",
+  "NAME_AND_PIN",
+];
 const BLOCKING_STATUS_ORDER: readonly ShopStatus[] = [
   "APPROVED",
   "PENDING_APPROVAL",
@@ -221,7 +263,10 @@ export async function findRegistrationMatches(
   if (pan) lookups.push(eq(shops.panHash, pan.hash));
   if (udyamNumber) lookups.push(eq(shops.udyamNumber, udyamNumber));
   if (sameOwnerRule) {
-    const ownShopsHere = and(eq(shops.ownerId, candidate.ownerId), eq(shops.pincode, candidate.pincode));
+    const ownShopsHere = and(
+      eq(shops.ownerId, candidate.ownerId),
+      eq(shops.pincode, candidate.pincode),
+    );
     if (ownShopsHere) lookups.push(ownShopsHere);
   }
   if (lookups.length === 0) return { blocking: null, rejectedOwn: null };
@@ -245,7 +290,9 @@ export async function findRegistrationMatches(
       and(
         isNull(shops.deletedAt),
         or(...lookups),
-        candidate.excludeShopId ? ne(shops.id, candidate.excludeShopId) : undefined,
+        candidate.excludeShopId
+          ? ne(shops.id, candidate.excludeShopId)
+          : undefined,
       ),
     );
 
@@ -254,12 +301,14 @@ export async function findRegistrationMatches(
     const sameName = nameKey !== "" && looseKey(row.name) === nameKey;
     const samePlace =
       row.pincode === candidate.pincode &&
-      (sameName || (addressKey !== "" && looseKey(row.addressLine1) === addressKey));
+      (sameName ||
+        (addressKey !== "" && looseKey(row.addressLine1) === addressKey));
 
     let reason: DuplicateMatchReason | null = null;
     if (shopAct && row.shopActKey === shopAct.key) reason = "SHOP_ACT";
     else if (pan && row.panHash === pan.hash && samePlace) reason = "PAN";
-    else if (udyamNumber && row.udyamNumber === udyamNumber && samePlace) reason = "UDYAM";
+    else if (udyamNumber && row.udyamNumber === udyamNumber && samePlace)
+      reason = "UDYAM";
     else if (
       sameOwnerRule &&
       row.ownerId === candidate.ownerId &&
@@ -289,12 +338,18 @@ export async function findRegistrationMatches(
       .sort(
         (a, b) =>
           REASON_ORDER.indexOf(a.reason) - REASON_ORDER.indexOf(b.reason) ||
-          BLOCKING_STATUS_ORDER.indexOf(a.shop.status) - BLOCKING_STATUS_ORDER.indexOf(b.shop.status),
+          BLOCKING_STATUS_ORDER.indexOf(a.shop.status) -
+            BLOCKING_STATUS_ORDER.indexOf(b.shop.status),
       )[0] ?? null;
   const rejectedOwn =
     matches
-      .filter((m) => m.shop.status === "REJECTED" && m.shop.ownerId === candidate.ownerId)
-      .sort((a, b) => b.shop.createdAt.getTime() - a.shop.createdAt.getTime())[0] ?? null;
+      .filter(
+        (m) =>
+          m.shop.status === "REJECTED" && m.shop.ownerId === candidate.ownerId,
+      )
+      .sort(
+        (a, b) => b.shop.createdAt.getTime() - a.shop.createdAt.getTime(),
+      )[0] ?? null;
 
   return { blocking, rejectedOwn };
 }
@@ -324,7 +379,10 @@ const REASON_FIELDS: Record<DuplicateMatchReason, string> = {
 };
 
 /** e.g. "PAN number already registered (XXXXXX234F)". */
-function matchedFieldLine(reason: DuplicateMatchReason, identity: ShopIdentity): string {
+function matchedFieldLine(
+  reason: DuplicateMatchReason,
+  identity: ShopIdentity,
+): string {
   switch (reason) {
     case "SHOP_ACT":
       return `Shop Act licence number already registered (ending ${identity.shopAct?.key.slice(-4) ?? ""})`;
@@ -345,7 +403,10 @@ function matchedFieldLine(reason: DuplicateMatchReason, identity: ShopIdentity):
 export function duplicateShopError(
   match: DuplicateMatch,
   identity: ShopIdentity,
-  options: { privileged?: boolean; context?: "registration" | "pan_submission" } = {},
+  options: {
+    privileged?: boolean;
+    context?: "registration" | "pan_submission";
+  } = {},
 ): AppError {
   const status = match.shop.status as Exclude<ShopStatus, "REJECTED">;
   const fieldLine = matchedFieldLine(match.reason, identity);
@@ -360,7 +421,10 @@ export function duplicateShopError(
     shopStatus: status,
     fields: { [REASON_FIELDS[match.reason]]: fieldLine },
     ...(options.privileged
-      ? { matchedShopId: match.shop.id, matchedRegistrationNumber: match.shop.registrationNumber }
+      ? {
+          matchedShopId: match.shop.id,
+          matchedRegistrationNumber: match.shop.registrationNumber,
+        }
       : {}),
   });
 }
@@ -401,17 +465,14 @@ const SHOP_ACT_UNIQUE_INDEX = "shops_shop_act_key_active_unique";
 
 /**
  * True when a write hit shops_shop_act_key_active_unique — it would have left
- * two live registrations holding one Shop Act licence. Drizzle wraps the
- * driver's error, so the Postgres code is looked for along the cause chain.
+ * two live registrations holding one Shop Act licence.
+ *
+ * On MySQL the index is backed by the generated column `shop_act_active_key`,
+ * which is the Shop Act key only while the shop is live, so the index name is
+ * what identifies this particular violation (see lib/errors.ts).
  */
 export function isShopActUniqueViolation(error: unknown): boolean {
-  let current: unknown = error;
-  for (let depth = 0; current && depth < 4; depth += 1) {
-    const candidate = current as { code?: unknown; constraint_name?: unknown; cause?: unknown };
-    if (candidate.code === "23505") return candidate.constraint_name === SHOP_ACT_UNIQUE_INDEX;
-    current = candidate.cause;
-  }
-  return false;
+  return violatedUniqueIndex(error) === SHOP_ACT_UNIQUE_INDEX;
 }
 
 /* ------------------------------------------------ registration pre-check */
@@ -467,7 +528,8 @@ export async function checkRegistrationDuplicate(
       message: duplicateShopError(blocking, identity).message,
     };
   }
-  if (rejectedOwn) return { status: "RESUBMISSION", message: RESUBMISSION_MESSAGE };
+  if (rejectedOwn)
+    return { status: "RESUBMISSION", message: RESUBMISSION_MESSAGE };
   return { status: "CLEAR" };
 }
 
@@ -493,7 +555,11 @@ export async function backfillShopPanHashes(options: {
   apply: boolean;
 }): Promise<PanHashBackfillResult> {
   const rows = await db
-    .select({ id: shops.id, encrypted: shops.panNumberEncrypted, panHash: shops.panHash })
+    .select({
+      id: shops.id,
+      encrypted: shops.panNumberEncrypted,
+      panHash: shops.panHash,
+    })
     .from(shops)
     .where(isNotNull(shops.panNumberEncrypted));
 

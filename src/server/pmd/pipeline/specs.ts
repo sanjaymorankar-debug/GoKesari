@@ -16,6 +16,7 @@
  * projected onto product_master from the preferred value.
  */
 import type { Queryable } from "../db";
+import { insertedNew } from "../mysql/upsert";
 import type { ReferenceIds } from "../reference-data";
 import { ATTRIBUTE_DEFINITIONS, getAttributeDefinition, type AttributeDefinition } from "../taxonomy/attributes";
 import type { NormalizedAttribute } from "../types";
@@ -70,7 +71,7 @@ export async function ensureDefinitions(sql: Queryable, attrs: NormalizedAttribu
     await sql`
       INSERT INTO pmd.attribute_definition (attribute_key, attribute_label, attribute_group, data_type)
       VALUES (${a.key}, ${label}, 'OTHER', ${type})
-      ON CONFLICT (attribute_key) DO NOTHING`;
+      ON DUPLICATE KEY UPDATE attribute_key = attribute_key`;
   }
 }
 
@@ -104,10 +105,10 @@ export async function upsertSpecs(
         (product_id, attribute_key, value_text, value_num, value_bool, unit, original_value, source_id, source_url, confidence)
       VALUES (${productId}, ${a.key}, ${a.valueText ?? null}, ${a.valueNum ?? null}, ${a.valueBool ?? null}, ${a.unit ?? null},
               ${a.original ?? null}, ${ctx.sourceId}, ${ctx.sourceUrl}, ${ctx.confidence})
-      ON CONFLICT (product_id, attribute_key, source_id) DO UPDATE SET
-        value_text = EXCLUDED.value_text, value_num = EXCLUDED.value_num, value_bool = EXCLUDED.value_bool,
-        unit = EXCLUDED.unit, original_value = EXCLUDED.original_value, source_url = EXCLUDED.source_url,
-        confidence = EXCLUDED.confidence, collected_at = now()`;
+      ON DUPLICATE KEY UPDATE
+        value_text = ${a.valueText ?? null}, value_num = ${a.valueNum ?? null}, value_bool = ${a.valueBool ?? null},
+        unit = ${a.unit ?? null}, original_value = ${a.original ?? null}, source_url = ${ctx.sourceUrl},
+        confidence = ${ctx.confidence}, collected_at = now(3)`;
     outcome.changedKeys.push(a.key);
   }
 
@@ -165,19 +166,37 @@ export async function resolveAttribute(
       const v1 = displayValue({ valueText: winner.value_text, valueNum: winner.value_num, valueBool: winner.value_bool, unit: winner.unit });
       const v2 = displayValue({ valueText: other.value_text, valueNum: other.value_num, valueBool: other.value_bool, unit: other.unit });
       currentPairs.add(`${winner.sourceKey}|${other.sourceKey}|${v1}|${v2}`);
-      const [c] = await sql<{ inserted: boolean }[]>`
+      const status = autoResolved ? "AUTO_RESOLVED" : "OPEN";
+      // `RETURNING (xmax = 0)` read Postgres's system column to learn whether
+      // the row had just been inserted, which is what `opened` counts. MySQL has
+      // no xmax, and no row count can stand in for it: an insert and a duplicate
+      // that changes nothing both report 1 affected row. So the insert is tried
+      // bare and the duplicate key is caught (safe here - a duplicate key does
+      // not abort a MySQL transaction; see mysql/upsert.ts), and the guarded
+      // update runs only on the branch where the row already existed.
+      const isNew = await insertedNew(sql`
         INSERT INTO pmd.product_attribute_conflict
           (product_id, attribute_key, value_1, source_1, value_2, source_2, conflict_status, resolution, resolution_source, resolution_date, detected_run_id)
         VALUES (${productId}, ${key}, ${v1}, ${winner.sourceKey}, ${v2}, ${other.sourceKey},
-                ${autoResolved ? "AUTO_RESOLVED" : "OPEN"},
+                ${status},
                 ${autoResolved ? `Preferred ${winner.sourceKey} (spec precedence ${winner.precedence} beats ${other.precedence})` : null},
                 ${autoResolved ? "RULE:SPEC_PRECEDENCE" : null},
-                ${autoResolved ? sql`now()` : null}, ${ctx.runId})
-        ON CONFLICT (product_id, attribute_key, source_1, source_2, md5(value_1 || chr(31) || value_2)) DO UPDATE SET
-          conflict_status = CASE WHEN pmd.product_attribute_conflict.conflict_status IN ('MANUALLY_RESOLVED','IGNORED')
-                                 THEN pmd.product_attribute_conflict.conflict_status ELSE EXCLUDED.conflict_status END
-        RETURNING (xmax = 0) AS inserted`;
-      if (c.inserted && !autoResolved) opened++;
+                ${autoResolved ? sql`now(3)` : null}, ${ctx.runId})`);
+      if (!isNew) {
+        // The conflict target was the expression md5(value_1 || chr(31) ||
+        // value_2); the schema carries it as the generated column
+        // value_pair_digest, which the unique key is on, so matching on the
+        // digest keeps this an index lookup. A steward's verdict is never
+        // overwritten, exactly as the guarded DO UPDATE did.
+        await sql`
+          UPDATE pmd.product_attribute_conflict
+          SET conflict_status = CASE WHEN conflict_status IN ('MANUALLY_RESOLVED','IGNORED')
+                                     THEN conflict_status ELSE ${status} END
+          WHERE product_id = ${productId} AND attribute_key = ${key}
+            AND source_1 = ${winner.sourceKey} AND source_2 = ${other.sourceKey}
+            AND value_pair_digest = MD5(CONCAT(${v1}, CHAR(31), ${v2}))`;
+      }
+      if (isNew && !autoResolved) opened++;
     }
 
     // Stale OPEN conflicts for this attribute whose values no longer differ are closed, not left dangling.
@@ -188,7 +207,7 @@ export async function resolveAttribute(
       if (!currentPairs.has(`${o.source_1}|${o.source_2}|${o.value_1}|${o.value_2}`)) {
         await sql`
           UPDATE pmd.product_attribute_conflict
-             SET conflict_status = 'AUTO_RESOLVED', resolution = 'Values no longer differ', resolution_source = 'RULE:CONVERGED', resolution_date = now()
+             SET conflict_status = 'AUTO_RESOLVED', resolution = 'Values no longer differ', resolution_source = 'RULE:CONVERGED', resolution_date = now(3)
            WHERE conflict_id = ${o.conflict_id}`;
       }
     }
@@ -202,7 +221,7 @@ export async function resolveAttribute(
     // Sources agree (or the attribute is not conflict-tracked): close anything left over.
     await sql`
       UPDATE pmd.product_attribute_conflict
-         SET conflict_status = 'AUTO_RESOLVED', resolution = 'Sources now agree', resolution_source = 'RULE:CONVERGED', resolution_date = now()
+         SET conflict_status = 'AUTO_RESOLVED', resolution = 'Sources now agree', resolution_source = 'RULE:CONVERGED', resolution_date = now(3)
        WHERE product_id = ${productId} AND attribute_key = ${key} AND conflict_status = 'OPEN'`;
   }
 

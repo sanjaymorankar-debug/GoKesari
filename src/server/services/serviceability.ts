@@ -63,13 +63,25 @@ export function shopServiceability(
       : null;
 
   if (shop.status !== "APPROVED" || shop.deletedAt) {
-    return { deliversHere: false, distanceKm, reason: "This shop is not open for orders." };
+    return {
+      deliversHere: false,
+      distanceKm,
+      reason: "This shop is not open for orders.",
+    };
   }
   if (!shop.deliveryAvailable) {
-    return { deliversHere: false, distanceKm, reason: "This shop offers pickup only." };
+    return {
+      deliversHere: false,
+      distanceKm,
+      reason: "This shop offers pickup only.",
+    };
   }
   if (shop.ordersPaused) {
-    return { deliversHere: false, distanceKm, reason: "This shop is not taking new orders right now." };
+    return {
+      deliversHere: false,
+      distanceKm,
+      reason: "This shop is not taking new orders right now.",
+    };
   }
   if (location.pincode && shop.deliveryPincodes?.includes(location.pincode)) {
     return { deliversHere: true, distanceKm, reason: null };
@@ -93,14 +105,17 @@ export function shopServiceability(
   };
 }
 
-export type ServiceableShop = Shop & ShopServiceability & { societyPartner?: boolean };
+export type ServiceableShop = Shop &
+  ShopServiceability & { societyPartner?: boolean };
 
 /**
  * Shops a VERIFIED society lists for its residents. They count as delivering
  * to that society's addresses even outside their own radius (society-aware
  * serviceability) — provided they are approved and offer delivery.
  */
-export async function societyPartnerShopIds(societyId: string | null | undefined): Promise<Set<string>> {
+export async function societyPartnerShopIds(
+  societyId: string | null | undefined,
+): Promise<Set<string>> {
   if (!societyId) return new Set();
   const rows = await db
     .select({ shopId: societyShops.shopId })
@@ -137,16 +152,22 @@ export async function listServiceableShops(
   if (location.latitude != null && location.longitude != null) {
     const latDelta = MAX_SERVICE_RADIUS_KM / 111;
     const lonDelta =
-      MAX_SERVICE_RADIUS_KM / (111 * Math.max(Math.cos((location.latitude * Math.PI) / 180), 0.01));
+      MAX_SERVICE_RADIUS_KM /
+      (111 * Math.max(Math.cos((location.latitude * Math.PI) / 180), 0.01));
     near.push(
-      sql`(${shops.latitude} ~ '^-?[0-9.]+$' AND ${shops.longitude} ~ '^-?[0-9.]+$'
-        AND ${shops.latitude}::double precision BETWEEN ${location.latitude - latDelta} AND ${location.latitude + latDelta}
-        AND ${shops.longitude}::double precision BETWEEN ${location.longitude - lonDelta} AND ${location.longitude + lonDelta})`,
+      // `~` is Postgres's regex-match operator; MySQL spells it REGEXP. The guard
+      // is still needed: latitude/longitude are text columns, and CAST on a
+      // non-numeric string warns and yields 0 rather than skipping the row.
+      sql`(${shops.latitude} REGEXP '^-?[0-9.]+$' AND ${shops.longitude} REGEXP '^-?[0-9.]+$'
+        AND CAST(${shops.latitude} AS DECIMAL(12, 8)) BETWEEN ${location.latitude - latDelta} AND ${location.latitude + latDelta}
+        AND CAST(${shops.longitude} AS DECIMAL(12, 8)) BETWEEN ${location.longitude - lonDelta} AND ${location.longitude + lonDelta})`,
     );
   }
   if (location.pincode) {
     near.push(sql`${shops.pincode} = ${location.pincode}`);
-    near.push(sql`${shops.deliveryPincodes} @> ${JSON.stringify([location.pincode])}::jsonb`);
+    near.push(
+      sql`JSON_CONTAINS(${shops.deliveryPincodes}, ${JSON.stringify([location.pincode])})`,
+    );
   }
   const partners = await societyPartnerShopIds(location.societyId);
   if (partners.size > 0) near.push(inArray(shops.id, [...partners]));
@@ -166,25 +187,36 @@ export async function listServiceableShops(
     )
     .limit(1000);
 
-  return candidates
-    .map((shop) => {
-      const check = shopServiceability(shop, location);
-      return partners.has(shop.id)
-        ? { ...shop, ...check, deliversHere: true, reason: null, societyPartner: true }
-        : { ...shop, ...check, societyPartner: false };
-    })
-    .filter((shop) => shop.deliversHere)
-    // Society partner shops first, then nearest.
-    .sort(
-      (a, b) =>
-        Number(b.societyPartner) - Number(a.societyPartner) ||
-        (a.distanceKm ?? Number.POSITIVE_INFINITY) - (b.distanceKm ?? Number.POSITIVE_INFINITY),
-    )
-    .slice(0, Math.min(options.limit ?? 200, 500));
+  return (
+    candidates
+      .map((shop) => {
+        const check = shopServiceability(shop, location);
+        return partners.has(shop.id)
+          ? {
+              ...shop,
+              ...check,
+              deliversHere: true,
+              reason: null,
+              societyPartner: true,
+            }
+          : { ...shop, ...check, societyPartner: false };
+      })
+      .filter((shop) => shop.deliversHere)
+      // Society partner shops first, then nearest.
+      .sort(
+        (a, b) =>
+          Number(b.societyPartner) - Number(a.societyPartner) ||
+          (a.distanceKm ?? Number.POSITIVE_INFINITY) -
+            (b.distanceKm ?? Number.POSITIVE_INFINITY),
+      )
+      .slice(0, Math.min(options.limit ?? 200, 500))
+  );
 }
 
 /** Ids of the shops serving `location` — the filter discovery queries apply. */
-export async function serviceableShopIds(location: CustomerLocation): Promise<Map<string, number | null>> {
+export async function serviceableShopIds(
+  location: CustomerLocation,
+): Promise<Map<string, number | null>> {
   const served = await listServiceableShops(location, { limit: 500 });
   return new Map(served.map((shop) => [shop.id, shop.distanceKm]));
 }

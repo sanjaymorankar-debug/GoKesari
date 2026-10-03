@@ -26,6 +26,7 @@ import { AppError } from "@/lib/errors";
 import { decryptSecret, encryptSecret } from "@/lib/pan-crypto";
 import { db } from "@/server/db";
 import { deliveryPartners, type DeliveryPartner } from "@/server/db/schema";
+import { updateReturning } from "@/server/db/returning";
 
 export const KYC_FIELDS = [
   "panNumber",
@@ -47,7 +48,10 @@ const SENSITIVE_KEYS: ReadonlySet<string> = new Set<string>([
   ...KYC_FIELDS.map(encryptedKey),
 ]);
 
-export type PublicDeliveryPartner = Omit<DeliveryPartner, KycField | KycEncryptedKey>;
+export type PublicDeliveryPartner = Omit<
+  DeliveryPartner,
+  KycField | KycEncryptedKey
+>;
 
 /**
  * The only shape of a partner row that may be returned to a caller. Applied
@@ -133,7 +137,9 @@ export async function backfillDeliveryPartnerKyc(
   const nullPlaintext = Boolean(options.nullPlaintext);
 
   if (!isPanEncryptionConfigured()) {
-    throw new Error("PAN_ENCRYPTION_KEY must be configured to run the KYC backfill.");
+    throw new Error(
+      "PAN_ENCRYPTION_KEY must be configured to run the KYC backfill.",
+    );
   }
 
   const result: KycBackfillResult = {
@@ -148,7 +154,9 @@ export async function backfillDeliveryPartnerKyc(
   const rows = await db
     .select()
     .from(deliveryPartners)
-    .where(or(...KYC_FIELDS.map((field) => isNotNull(deliveryPartners[field]))));
+    .where(
+      or(...KYC_FIELDS.map((field) => isNotNull(deliveryPartners[field]))),
+    );
   result.rowsWithPlaintext = rows.length;
 
   for (const row of rows) {
@@ -163,11 +171,15 @@ export async function backfillDeliveryPartnerKyc(
         result.fieldsEncrypted += 1;
         if (!apply) continue;
         ciphertext = encryptSecret(plaintext);
-        const written = await db
-          .update(deliveryPartners)
-          .set({ [key]: ciphertext })
-          .where(and(eq(deliveryPartners.id, row.id), eq(deliveryPartners[field], plaintext)))
-          .returning({ id: deliveryPartners.id });
+        const written = await updateReturning(
+          db,
+          deliveryPartners,
+          { [key]: ciphertext },
+          and(
+            eq(deliveryPartners.id, row.id),
+            eq(deliveryPartners[field], plaintext),
+          ),
+        );
         if (written.length === 0) continue; // row changed underneath us; the next run picks it up
       } else if (safeDecrypt(ciphertext) === plaintext) {
         result.fieldsAlreadyEncrypted += 1;
@@ -177,11 +189,15 @@ export async function backfillDeliveryPartnerKyc(
       }
 
       if (nullPlaintext && safeDecrypt(ciphertext) === plaintext) {
-        const nulled = await db
-          .update(deliveryPartners)
-          .set({ [field]: null })
-          .where(and(eq(deliveryPartners.id, row.id), eq(deliveryPartners[field], plaintext)))
-          .returning({ id: deliveryPartners.id });
+        const nulled = await updateReturning(
+          db,
+          deliveryPartners,
+          { [field]: null },
+          and(
+            eq(deliveryPartners.id, row.id),
+            eq(deliveryPartners[field], plaintext),
+          ),
+        );
         result.plaintextNulled += nulled.length;
       }
     }

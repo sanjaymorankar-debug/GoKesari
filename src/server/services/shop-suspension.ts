@@ -32,6 +32,8 @@ import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { NOTIFICATION_TYPES, notifyEvent } from "./notifications";
 import { cancelOrder } from "./orders";
 import { getRule } from "./settings";
+import { insertReturning, updateReturning } from "@/server/db/returning";
+import { row } from "@/server/db/raw";
 
 interface Actor {
   id: string;
@@ -41,11 +43,22 @@ interface Actor {
 type Action = "CANCEL_REFUND" | "CONTINUE" | "REVIEW";
 
 /** Statuses an order can still be in while the shop has something to do with it. */
-const OPEN_STATUSES = ["CONFIRMED", "ACCEPTED", "PREPARING", "READY", "ASSIGNED", "PICKED_UP", "OUT_FOR_DELIVERY"] as const;
+const OPEN_STATUSES = [
+  "CONFIRMED",
+  "ACCEPTED",
+  "PREPARING",
+  "READY",
+  "ASSIGNED",
+  "PICKED_UP",
+  "OUT_FOR_DELIVERY",
+] as const;
 
 async function policyActions(): Promise<Record<string, Action>> {
   const rule = await getRule("suspension");
-  return { ...RULES.suspension.defaults.actions, ...rule.actions } as Record<string, Action>;
+  return { ...RULES.suspension.defaults.actions, ...rule.actions } as Record<
+    string,
+    Action
+  >;
 }
 
 export interface SuspensionPreview {
@@ -58,20 +71,37 @@ export interface SuspensionPreview {
     totalPaise: number;
     plannedAction: Action | "LEFT_ALONE";
   }[];
-  counts: { cancelRefund: number; continue: number; review: number; leftAlone: number };
+  counts: {
+    cancelRefund: number;
+    continue: number;
+    review: number;
+    leftAlone: number;
+  };
   refundPaise: number;
   subscriptionsActive: number;
 }
 
 /** What suspending this shop would do to its open orders, before anything changes. */
-export async function previewSuspension(shopId: string): Promise<SuspensionPreview> {
+export async function previewSuspension(
+  shopId: string,
+): Promise<SuspensionPreview> {
   const [shop] = await db.select().from(shops).where(eq(shops.id, shopId));
   if (!shop) throw notFound("Shop");
   const actions = await policyActions();
   const open = await db
-    .select({ id: orders.id, orderNumber: orders.orderNumber, status: orders.status, totalPaise: orders.totalPaise })
+    .select({
+      id: orders.id,
+      orderNumber: orders.orderNumber,
+      status: orders.status,
+      totalPaise: orders.totalPaise,
+    })
     .from(orders)
-    .where(and(eq(orders.shopId, shopId), inArray(orders.status, [...OPEN_STATUSES])))
+    .where(
+      and(
+        eq(orders.shopId, shopId),
+        inArray(orders.status, [...OPEN_STATUSES]),
+      ),
+    )
     .orderBy(orders.createdAt);
 
   const rows = open.map((o) => ({
@@ -82,8 +112,10 @@ export async function previewSuspension(shopId: string): Promise<SuspensionPrevi
     plannedAction: (actions[o.status] ?? "LEFT_ALONE") as Action | "LEFT_ALONE",
   }));
   const count = (a: string) => rows.filter((r) => r.plannedAction === a).length;
-  const [subs] = await db.execute<{ n: number }>(
-    sql`select count(*)::int as n from subscriptions where shop_id = ${shopId} and status = 'ACTIVE'`,
+  const subs = row<{ n: number }>(
+    await db.execute(
+      sql`select count(*) as n from subscriptions where shop_id = ${shopId} and status = 'ACTIVE'`,
+    ),
   );
   return {
     shopId,
@@ -95,7 +127,9 @@ export async function previewSuspension(shopId: string): Promise<SuspensionPrevi
       review: count("REVIEW"),
       leftAlone: count("LEFT_ALONE"),
     },
-    refundPaise: rows.filter((r) => r.plannedAction === "CANCEL_REFUND").reduce((n, r) => n + r.totalPaise, 0),
+    refundPaise: rows
+      .filter((r) => r.plannedAction === "CANCEL_REFUND")
+      .reduce((n, r) => n + r.totalPaise, 0),
     subscriptionsActive: Number(subs?.n ?? 0),
   };
 }
@@ -103,7 +137,12 @@ export async function previewSuspension(shopId: string): Promise<SuspensionPrevi
 export interface SuspensionResult {
   shop: Shop;
   suspension: ShopSuspension;
-  impact: { cancelled: number; continuing: number; awaitingReview: number; failed: number };
+  impact: {
+    cancelled: number;
+    continuing: number;
+    awaitingReview: number;
+    failed: number;
+  };
 }
 
 export async function suspendShopWithPolicy(
@@ -112,33 +151,50 @@ export async function suspendShopWithPolicy(
   actor: Actor,
 ): Promise<SuspensionResult> {
   const reason = input.reason.trim();
-  if (reason.length < 3) throw validationFailed("A suspension reason is required.");
+  if (reason.length < 3)
+    throw validationFailed("A suspension reason is required.");
   const rule = await getRule("suspension");
   const actions = await policyActions();
-  const expectedAction = input.expectedAction?.trim() || rule.defaultExpectedAction;
+  const expectedAction =
+    input.expectedAction?.trim() || rule.defaultExpectedAction;
 
   const started = await db.transaction(async (tx) => {
     // The APPROVED check is part of the UPDATE, so a concurrent reject or suspend cannot be overwritten or audited twice.
-    const [shop] = await tx
-      .update(shops)
-      .set({ status: "SUSPENDED", updatedAt: new Date() })
-      .where(and(eq(shops.id, shopId), eq(shops.status, "APPROVED"), sql`${shops.deletedAt} IS NULL`))
-      .returning();
+    const [shop] = await updateReturning(
+      tx,
+      shops,
+      { status: "SUSPENDED", updatedAt: new Date() },
+      and(
+        eq(shops.id, shopId),
+        eq(shops.status, "APPROVED"),
+        sql`${shops.deletedAt} IS NULL`,
+      ),
+    );
     if (!shop) return null;
 
-    const [suspension] = await tx
-      .insert(shopSuspensions)
-      .values({ shopId, reason, expectedAction, suspendedBy: actor.id, policy: actions })
-      .returning();
+    const [suspension] = await insertReturning(tx, shopSuspensions, {
+      shopId,
+      reason,
+      expectedAction,
+      suspendedBy: actor.id,
+      policy: actions,
+    });
 
     const open = await tx
       .select({ id: orders.id, status: orders.status })
       .from(orders)
-      .where(and(eq(orders.shopId, shopId), inArray(orders.status, [...OPEN_STATUSES])))
+      .where(
+        and(
+          eq(orders.shopId, shopId),
+          inArray(orders.status, [...OPEN_STATUSES]),
+        ),
+      )
       .for("update");
     const planned = open.flatMap((o) => {
       const action = actions[o.status];
-      return action ? [{ orderId: o.id, status: o.status as string, action }] : [];
+      return action
+        ? [{ orderId: o.id, status: o.status as string, action }]
+        : [];
     });
     if (planned.length > 0) {
       await tx.insert(shopSuspensionOrders).values(
@@ -148,10 +204,11 @@ export async function suspendShopWithPolicy(
           statusAtSuspension: p.status,
           plannedAction: p.action,
           // Provisional for cancellations: FAILED until the refund has actually gone through.
-          outcome: (p.action === "CONTINUE" ? "CONTINUING" : p.action === "REVIEW" ? "AWAITING_REVIEW" : "FAILED") as
-            | "CONTINUING"
-            | "AWAITING_REVIEW"
-            | "FAILED",
+          outcome: (p.action === "CONTINUE"
+            ? "CONTINUING"
+            : p.action === "REVIEW"
+              ? "AWAITING_REVIEW"
+              : "FAILED") as "CONTINUING" | "AWAITING_REVIEW" | "FAILED",
         })),
       );
     }
@@ -159,7 +216,10 @@ export async function suspendShopWithPolicy(
   });
 
   if (!started) {
-    const exists = await db.query.shops.findFirst({ where: eq(shops.id, shopId), columns: { id: true, deletedAt: true } });
+    const exists = await db.query.shops.findFirst({
+      where: eq(shops.id, shopId),
+      columns: { id: true, deletedAt: true },
+    });
     if (!exists || exists.deletedAt) throw notFound("Shop");
     throw conflict("Only an approved shop can be suspended.");
   }
@@ -172,16 +232,35 @@ export async function suspendShopWithPolicy(
       await cancelOrder(p.orderId, actor, `The shop was suspended: ${reason}`);
       await db
         .update(shopSuspensionOrders)
-        .set({ outcome: "CANCELLED", note: "Cancelled and refunded when the shop was suspended." })
-        .where(and(eq(shopSuspensionOrders.suspensionId, started.suspension.id), eq(shopSuspensionOrders.orderId, p.orderId)));
+        .set({
+          outcome: "CANCELLED",
+          note: "Cancelled and refunded when the shop was suspended.",
+        })
+        .where(
+          and(
+            eq(shopSuspensionOrders.suspensionId, started.suspension.id),
+            eq(shopSuspensionOrders.orderId, p.orderId),
+          ),
+        );
       cancelled += 1;
     } catch (error) {
       failed += 1;
-      const message = error instanceof Error ? error.message.slice(0, 250) : "Could not cancel.";
+      const message =
+        error instanceof Error
+          ? error.message.slice(0, 250)
+          : "Could not cancel.";
       await db
         .update(shopSuspensionOrders)
-        .set({ outcome: "FAILED", note: `Automatic cancellation failed: ${message}` })
-        .where(and(eq(shopSuspensionOrders.suspensionId, started.suspension.id), eq(shopSuspensionOrders.orderId, p.orderId)));
+        .set({
+          outcome: "FAILED",
+          note: `Automatic cancellation failed: ${message}`,
+        })
+        .where(
+          and(
+            eq(shopSuspensionOrders.suspensionId, started.suspension.id),
+            eq(shopSuspensionOrders.orderId, p.orderId),
+          ),
+        );
     }
   }
   const impact = {
@@ -190,7 +269,10 @@ export async function suspendShopWithPolicy(
     awaitingReview: started.planned.filter((x) => x.action === "REVIEW").length,
     failed,
   };
-  await db.update(shopSuspensions).set({ impact }).where(eq(shopSuspensions.id, started.suspension.id));
+  await db
+    .update(shopSuspensions)
+    .set({ impact })
+    .where(eq(shopSuspensions.id, started.suspension.id));
 
   await recordAudit({
     actorId: actor.id,
@@ -199,54 +281,106 @@ export async function suspendShopWithPolicy(
     entityType: "shop",
     entityId: shopId,
     previousValue: { status: "APPROVED" },
-    newValue: { status: "SUSPENDED", reason, expectedAction, impact, suspensionId: started.suspension.id },
+    newValue: {
+      status: "SUSPENDED",
+      reason,
+      expectedAction,
+      impact,
+      suspensionId: started.suspension.id,
+    },
   });
 
   const parts = [
-    cancelled ? `${cancelled} unaccepted order${cancelled === 1 ? " was" : "s were"} cancelled and refunded.` : "",
-    impact.continuing ? `${impact.continuing} order${impact.continuing === 1 ? " is" : "s are"} already on the road — please let ${impact.continuing === 1 ? "it" : "them"} complete.` : "",
-    impact.awaitingReview ? `${impact.awaitingReview} order${impact.awaitingReview === 1 ? " is" : "s are"} being reviewed by our team — do not continue ${impact.awaitingReview === 1 ? "it" : "them"} until we confirm.` : "",
-    failed ? `${failed} order${failed === 1 ? "" : "s"} need our team's attention.` : "",
+    cancelled
+      ? `${cancelled} unaccepted order${cancelled === 1 ? " was" : "s were"} cancelled and refunded.`
+      : "",
+    impact.continuing
+      ? `${impact.continuing} order${impact.continuing === 1 ? " is" : "s are"} already on the road — please let ${impact.continuing === 1 ? "it" : "them"} complete.`
+      : "",
+    impact.awaitingReview
+      ? `${impact.awaitingReview} order${impact.awaitingReview === 1 ? " is" : "s are"} being reviewed by our team — do not continue ${impact.awaitingReview === 1 ? "it" : "them"} until we confirm.`
+      : "",
+    failed
+      ? `${failed} order${failed === 1 ? "" : "s"} need our team's attention.`
+      : "",
   ].filter(Boolean);
   await notifyEvent(
     NOTIFICATION_TYPES.SHOP_SUSPENDED,
     started.shop.ownerId,
     {
       shopName: started.shop.name,
-      effectiveAt: started.suspension.effectiveAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }),
+      effectiveAt: started.suspension.effectiveAt.toLocaleString("en-IN", {
+        dateStyle: "medium",
+        timeStyle: "short",
+      }),
       reason,
       impact: parts.length ? parts.join(" ") : "You had no open orders.",
       expectedAction,
     },
-    { actionUrl: "/shop", dedupeKey: `shop-suspended:${started.suspension.id}` },
+    {
+      actionUrl: "/shop",
+      dedupeKey: `shop-suspended:${started.suspension.id}`,
+    },
   );
 
-  const [suspension] = await db.select().from(shopSuspensions).where(eq(shopSuspensions.id, started.suspension.id));
+  const [suspension] = await db
+    .select()
+    .from(shopSuspensions)
+    .where(eq(shopSuspensions.id, started.suspension.id));
   return { shop: started.shop, suspension, impact };
 }
 
 /** Lifts the suspension: the shop is approved again and orders held for review go back to it. */
-export async function reactivateShop(shopId: string, note: string, actor: Actor): Promise<Shop> {
+export async function reactivateShop(
+  shopId: string,
+  note: string,
+  actor: Actor,
+): Promise<Shop> {
   const trimmed = note.trim();
-  if (trimmed.length < 3) throw validationFailed("A reinstatement note is required.");
+  if (trimmed.length < 3)
+    throw validationFailed("A reinstatement note is required.");
 
   const shop = await db.transaction(async (tx) => {
-    const [row] = await tx
-      .update(shops)
-      .set({ status: "APPROVED", updatedAt: new Date() })
-      .where(and(eq(shops.id, shopId), eq(shops.status, "SUSPENDED"), sql`${shops.deletedAt} IS NULL`))
-      .returning();
+    const [row] = await updateReturning(
+      tx,
+      shops,
+      { status: "APPROVED", updatedAt: new Date() },
+      and(
+        eq(shops.id, shopId),
+        eq(shops.status, "SUSPENDED"),
+        sql`${shops.deletedAt} IS NULL`,
+      ),
+    );
     if (!row) return null;
-    const [active] = await tx
-      .update(shopSuspensions)
-      .set({ status: "LIFTED", liftedAt: new Date(), liftedBy: actor.id, liftNote: trimmed })
-      .where(and(eq(shopSuspensions.shopId, shopId), eq(shopSuspensions.status, "ACTIVE")))
-      .returning();
+    const [active] = await updateReturning(
+      tx,
+      shopSuspensions,
+      {
+        status: "LIFTED",
+        liftedAt: new Date(),
+        liftedBy: actor.id,
+        liftNote: trimmed,
+      },
+      and(
+        eq(shopSuspensions.shopId, shopId),
+        eq(shopSuspensions.status, "ACTIVE"),
+      ),
+    );
     if (active) {
       await tx
         .update(shopSuspensionOrders)
-        .set({ outcome: "CONTINUING", note: "Returned to the shop when the suspension was lifted.", resolvedBy: actor.id, resolvedAt: new Date() })
-        .where(and(eq(shopSuspensionOrders.suspensionId, active.id), eq(shopSuspensionOrders.outcome, "AWAITING_REVIEW")));
+        .set({
+          outcome: "CONTINUING",
+          note: "Returned to the shop when the suspension was lifted.",
+          resolvedBy: actor.id,
+          resolvedAt: new Date(),
+        })
+        .where(
+          and(
+            eq(shopSuspensionOrders.suspensionId, active.id),
+            eq(shopSuspensionOrders.outcome, "AWAITING_REVIEW"),
+          ),
+        );
     }
     await recordAudit(
       {
@@ -263,11 +397,19 @@ export async function reactivateShop(shopId: string, note: string, actor: Actor)
     return row;
   });
   if (!shop) {
-    const exists = await db.query.shops.findFirst({ where: eq(shops.id, shopId), columns: { id: true } });
+    const exists = await db.query.shops.findFirst({
+      where: eq(shops.id, shopId),
+      columns: { id: true },
+    });
     if (!exists) throw notFound("Shop");
     throw conflict("Only a suspended shop can be reinstated.");
   }
-  await notifyEvent(NOTIFICATION_TYPES.SHOP_REACTIVATED, shop.ownerId, { shopName: shop.name }, { actionUrl: "/shop" });
+  await notifyEvent(
+    NOTIFICATION_TYPES.SHOP_REACTIVATED,
+    shop.ownerId,
+    { shopName: shop.name },
+    { actionUrl: "/shop" },
+  );
   return shop;
 }
 
@@ -281,7 +423,10 @@ export async function resolveSuspendedOrder(
   const [row] = await db
     .select({ rec: shopSuspensionOrders, shopId: shopSuspensions.shopId })
     .from(shopSuspensionOrders)
-    .innerJoin(shopSuspensions, eq(shopSuspensionOrders.suspensionId, shopSuspensions.id))
+    .innerJoin(
+      shopSuspensions,
+      eq(shopSuspensionOrders.suspensionId, shopSuspensions.id),
+    )
     .where(
       and(
         eq(shopSuspensionOrders.orderId, orderId),
@@ -289,10 +434,15 @@ export async function resolveSuspendedOrder(
         inArray(shopSuspensionOrders.outcome, ["AWAITING_REVIEW", "FAILED"]),
       ),
     );
-  if (!row) throw conflict("This order is not waiting for a suspension decision.");
+  if (!row)
+    throw conflict("This order is not waiting for a suspension decision.");
 
   if (decision === "CANCEL_REFUND") {
-    await cancelOrder(orderId, actor, `The shop was suspended${note ? `: ${note}` : ""}`);
+    await cancelOrder(
+      orderId,
+      actor,
+      `The shop was suspended${note ? `: ${note}` : ""}`,
+    );
   }
   await db
     .update(shopSuspensionOrders)
@@ -315,11 +465,18 @@ export async function resolveSuspendedOrder(
 
 /* ----------------------------------------------------------- reading */
 
-export async function getActiveSuspension(shopId: string): Promise<ShopSuspension | null> {
+export async function getActiveSuspension(
+  shopId: string,
+): Promise<ShopSuspension | null> {
   const [row] = await db
     .select()
     .from(shopSuspensions)
-    .where(and(eq(shopSuspensions.shopId, shopId), eq(shopSuspensions.status, "ACTIVE")))
+    .where(
+      and(
+        eq(shopSuspensions.shopId, shopId),
+        eq(shopSuspensions.status, "ACTIVE"),
+      ),
+    )
     .orderBy(desc(shopSuspensions.createdAt))
     .limit(1);
   return row ?? null;
@@ -328,7 +485,15 @@ export async function getActiveSuspension(shopId: string): Promise<ShopSuspensio
 export interface SuspensionOverview {
   suspension: ShopSuspension;
   shopName: string;
-  orders: { orderId: string; orderNumber: string; statusNow: string; statusAtSuspension: string; plannedAction: string; outcome: string; note: string | null }[];
+  orders: {
+    orderId: string;
+    orderNumber: string;
+    statusNow: string;
+    statusAtSuspension: string;
+    plannedAction: string;
+    outcome: string;
+    note: string | null;
+  }[];
 }
 
 /** Active suspensions with what happened to each order — the admin's "after" view. */
@@ -353,13 +518,20 @@ export async function listActiveSuspensions(): Promise<SuspensionOverview[]> {
     })
     .from(shopSuspensionOrders)
     .innerJoin(orders, eq(shopSuspensionOrders.orderId, orders.id))
-    .where(inArray(shopSuspensionOrders.suspensionId, active.map((a) => a.suspension.id)));
+    .where(
+      inArray(
+        shopSuspensionOrders.suspensionId,
+        active.map((a) => a.suspension.id),
+      ),
+    );
   return active.map((a) => ({
     suspension: a.suspension,
     shopName: a.shopName,
-    orders: recs.filter((r) => r.suspensionId === a.suspension.id).map(({ suspensionId: _s, ...rest }) => {
-      void _s;
-      return rest;
-    }),
+    orders: recs
+      .filter((r) => r.suspensionId === a.suspension.id)
+      .map(({ suspensionId: _s, ...rest }) => {
+        void _s;
+        return rest;
+      }),
   }));
 }

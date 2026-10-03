@@ -12,6 +12,13 @@ const serverEnvSchema = z.object({
     .default("development"),
 
   DATABASE_URL: z.string().min(1, "DATABASE_URL is required"),
+  /**
+   * The product-master (PMD) layer is still PostgreSQL — it talks to
+   * postgres.js directly and uses Postgres-only SQL (see
+   * docs/MYSQL_REQUIREMENTS.md §5). It used to share DATABASE_URL; now that
+   * DATABASE_URL is MySQL it needs its own, or PMD is simply unavailable.
+   */
+  PMD_DATABASE_URL: z.string().optional(),
 
   /**
    * Connection pool ceiling. Managed providers cap concurrent connections

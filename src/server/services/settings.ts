@@ -19,16 +19,24 @@ const CACHE_MS = 15_000;
 const cache = new Map<string, { at: number; value: unknown }>();
 
 /** Effective value: stored override merged over the code default. */
-export async function getRule<K extends RuleKey>(key: K): Promise<RuleValue<K>> {
+export async function getRule<K extends RuleKey>(
+  key: K,
+): Promise<RuleValue<K>> {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.value as RuleValue<K>;
 
   const def = RULES[key];
   let value: unknown = def.defaults;
   try {
-    const [row] = await db.select().from(platformSettings).where(eq(platformSettings.key, key));
+    const [row] = await db
+      .select()
+      .from(platformSettings)
+      .where(eq(platformSettings.key, key));
     if (row) {
-      const merged = def.schema.safeParse({ ...(def.defaults as object), ...(row.value as object) });
+      const merged = def.schema.safeParse({
+        ...(def.defaults as object),
+        ...(row.value as object),
+      });
       // A stored value that no longer validates (schema tightened later)
       // falls back to the safe default rather than breaking the flow.
       if (merged.success) value = merged.data;
@@ -41,7 +49,13 @@ export async function getRule<K extends RuleKey>(key: K): Promise<RuleValue<K>> 
 }
 
 export async function listRules(): Promise<
-  { key: RuleKey; description: string; defaults: unknown; value: unknown; overridden: boolean }[]
+  {
+    key: RuleKey;
+    description: string;
+    defaults: unknown;
+    value: unknown;
+    overridden: boolean;
+  }[]
 > {
   const rows = await db.select().from(platformSettings);
   const stored = new Map(rows.map((r) => [r.key, r.value]));
@@ -66,18 +80,22 @@ export async function setRule<K extends RuleKey>(
 ): Promise<RuleValue<K>> {
   const def = RULES[key];
   if (!def) throw validationFailed(`Unknown setting "${key}".`);
-  const parsed = def.schema.safeParse({ ...(def.defaults as object), ...((input as object) ?? {}) });
+  const parsed = def.schema.safeParse({
+    ...(def.defaults as object),
+    ...((input as object) ?? {}),
+  });
   if (!parsed.success) {
     throw validationFailed("That value is not allowed for this setting.", {
-      fields: Object.fromEntries(parsed.error.issues.map((i) => [i.path.join(".") || "_", i.message])),
+      fields: Object.fromEntries(
+        parsed.error.issues.map((i) => [i.path.join(".") || "_", i.message]),
+      ),
     });
   }
   const previous = await getRule(key);
   await db
     .insert(platformSettings)
     .values({ key, value: parsed.data, updatedBy: actor.id })
-    .onConflictDoUpdate({
-      target: platformSettings.key,
+    .onDuplicateKeyUpdate({
       set: { value: parsed.data, updatedBy: actor.id, updatedAt: new Date() },
     });
   cache.delete(key);
@@ -94,7 +112,10 @@ export async function setRule<K extends RuleKey>(
 }
 
 /** Removes the override, restoring the code default. */
-export async function resetRule(key: RuleKey, actor: { id: string; role: UserRole }): Promise<void> {
+export async function resetRule(
+  key: RuleKey,
+  actor: { id: string; role: UserRole },
+): Promise<void> {
   const previous = await getRule(key);
   await db.delete(platformSettings).where(eq(platformSettings.key, key));
   cache.delete(key);

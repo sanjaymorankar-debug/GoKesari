@@ -26,6 +26,7 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { insertReturning, updateReturning } from "@/server/db/returning";
 
 interface Actor {
   id: string;
@@ -46,29 +47,60 @@ export interface RatingEligibility {
 }
 
 /** Eligibility for one order and one customer — used by the UI and enforced on submit. */
-export async function getRatingEligibility(orderId: string, customerId: string, client: DbClient = db): Promise<RatingEligibility> {
-  const order = await client.query.orders.findFirst({ where: eq(orders.id, orderId) });
+export async function getRatingEligibility(
+  orderId: string,
+  customerId: string,
+  client: DbClient = db,
+): Promise<RatingEligibility> {
+  const order = await client.query.orders.findFirst({
+    where: eq(orders.id, orderId),
+  });
   if (!order || order.userId !== customerId) throw notFound("Order");
 
-  const existing = await client.select().from(orderRatings).where(eq(orderRatings.orderId, orderId));
+  const existing = await client
+    .select()
+    .from(orderRatings)
+    .where(eq(orderRatings.orderId, orderId));
   const shopRating = existing.find((r) => r.targetType === "SHOP") ?? null;
-  const riderRating = existing.find((r) => r.targetType === "DELIVERY_PARTNER") ?? null;
-  const delivery = await client.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.orderId, orderId) });
-  const riderDelivered = delivery?.status === "DELIVERED" ? delivery.deliveryPartnerId : null;
+  const riderRating =
+    existing.find((r) => r.targetType === "DELIVERY_PARTNER") ?? null;
+  const delivery = await client.query.deliveryOrders.findFirst({
+    where: eq(deliveryOrders.orderId, orderId),
+  });
+  const riderDelivered =
+    delivery?.status === "DELIVERED" ? delivery.deliveryPartnerId : null;
 
-  const base = { existing: { shop: shopRating, rider: riderRating }, deliveryPartnerId: riderDelivered };
+  const base = {
+    existing: { shop: shopRating, rider: riderRating },
+    deliveryPartnerId: riderDelivered,
+  };
   if (order.status !== "DELIVERED" && order.status !== "DISPUTED") {
-    return { ...base, canRateShop: false, canRateRider: false, reason: "You can rate an order once it has been delivered." };
+    return {
+      ...base,
+      canRateShop: false,
+      canRateRider: false,
+      reason: "You can rate an order once it has been delivered.",
+    };
   }
   const [deliveredAt] = await client
     .select({ at: orderStatusHistory.createdAt })
     .from(orderStatusHistory)
-    .where(and(eq(orderStatusHistory.orderId, orderId), eq(orderStatusHistory.newStatus, "DELIVERED")))
+    .where(
+      and(
+        eq(orderStatusHistory.orderId, orderId),
+        eq(orderStatusHistory.newStatus, "DELIVERED"),
+      ),
+    )
     .orderBy(orderStatusHistory.createdAt)
     .limit(1);
   const since = deliveredAt?.at ?? order.updatedAt;
   if (Date.now() - since.getTime() > RATING_WINDOW_DAYS * 86_400_000) {
-    return { ...base, canRateShop: false, canRateRider: false, reason: `Ratings close ${RATING_WINDOW_DAYS} days after delivery.` };
+    return {
+      ...base,
+      canRateShop: false,
+      canRateRider: false,
+      reason: `Ratings close ${RATING_WINDOW_DAYS} days after delivery.`,
+    };
   }
   return {
     ...base,
@@ -79,17 +111,31 @@ export async function getRatingEligibility(orderId: string, customerId: string, 
 }
 
 /** Recompute an aggregate from VISIBLE ratings and store it (average × 100 + count). */
-async function refreshAggregate(target: RatingTarget, id: string, client: DbClient): Promise<void> {
-  const column = target === "SHOP" ? orderRatings.shopId : orderRatings.deliveryPartnerId;
+async function refreshAggregate(
+  target: RatingTarget,
+  id: string,
+  client: DbClient,
+): Promise<void> {
+  const column =
+    target === "SHOP" ? orderRatings.shopId : orderRatings.deliveryPartnerId;
   const [agg] = await client
     .select({
-      count: sql<number>`count(*)::int`,
-      avgX100: sql<number>`coalesce(round(avg(${orderRatings.score}) * 100), 0)::int`,
+      count: sql<number>`CAST(count(*) AS SIGNED)`,
+      avgX100: sql<number>`CAST(coalesce(round(avg(${orderRatings.score}) * 100), 0) AS SIGNED)`,
     })
     .from(orderRatings)
-    .where(and(eq(column, id), eq(orderRatings.targetType, target), eq(orderRatings.status, "VISIBLE")));
+    .where(
+      and(
+        eq(column, id),
+        eq(orderRatings.targetType, target),
+        eq(orderRatings.status, "VISIBLE"),
+      ),
+    );
   if (target === "SHOP") {
-    await client.update(shops).set({ ratingAvgX100: agg.avgX100, ratingCount: agg.count }).where(eq(shops.id, id));
+    await client
+      .update(shops)
+      .set({ ratingAvgX100: agg.avgX100, ratingCount: agg.count })
+      .where(eq(shops.id, id));
   } else {
     await client
       .update(deliveryPartners)
@@ -106,35 +152,51 @@ export interface SubmitRatingInput {
 }
 
 /** Create a rating after checking eligibility; duplicates are refused (also by a unique index). */
-export async function submitRating(input: SubmitRatingInput, actor: Actor): Promise<OrderRating> {
+export async function submitRating(
+  input: SubmitRatingInput,
+  actor: Actor,
+): Promise<OrderRating> {
   if (!Number.isInteger(input.score) || input.score < 1 || input.score > 5) {
     throw validationFailed("Give a rating from 1 to 5 stars.");
   }
   const comment = input.comment?.trim() || null;
-  if (comment && comment.length > MAX_COMMENT) throw validationFailed(`Keep the review under ${MAX_COMMENT} characters.`);
+  if (comment && comment.length > MAX_COMMENT)
+    throw validationFailed(`Keep the review under ${MAX_COMMENT} characters.`);
 
   return db.transaction(async (tx) => {
     const eligibility = await getRatingEligibility(input.orderId, actor.id, tx);
-    const allowed = input.target === "SHOP" ? eligibility.canRateShop : eligibility.canRateRider;
+    const allowed =
+      input.target === "SHOP"
+        ? eligibility.canRateShop
+        : eligibility.canRateRider;
     if (!allowed) {
-      const already = input.target === "SHOP" ? eligibility.existing.shop : eligibility.existing.rider;
+      const already =
+        input.target === "SHOP"
+          ? eligibility.existing.shop
+          : eligibility.existing.rider;
       if (already) throw conflict("You have already rated this.");
       throw forbidden(eligibility.reason ?? "This order cannot be rated.");
     }
-    const order = (await tx.query.orders.findFirst({ where: eq(orders.id, input.orderId) }))!;
-    const [rating] = await tx
-      .insert(orderRatings)
-      .values({
-        orderId: order.id,
-        targetType: input.target,
-        customerId: actor.id,
-        shopId: order.shopId,
-        deliveryPartnerId: input.target === "DELIVERY_PARTNER" ? eligibility.deliveryPartnerId : null,
-        score: input.score,
-        comment,
-      })
-      .returning();
-    await refreshAggregate(input.target, input.target === "SHOP" ? order.shopId : eligibility.deliveryPartnerId!, tx);
+    const order = (await tx.query.orders.findFirst({
+      where: eq(orders.id, input.orderId),
+    }))!;
+    const [rating] = await insertReturning(tx, orderRatings, {
+      orderId: order.id,
+      targetType: input.target,
+      customerId: actor.id,
+      shopId: order.shopId,
+      deliveryPartnerId:
+        input.target === "DELIVERY_PARTNER"
+          ? eligibility.deliveryPartnerId
+          : null,
+      score: input.score,
+      comment,
+    });
+    await refreshAggregate(
+      input.target,
+      input.target === "SHOP" ? order.shopId : eligibility.deliveryPartnerId!,
+      tx,
+    );
     await recordAudit(
       {
         actorId: actor.id,
@@ -142,7 +204,11 @@ export async function submitRating(input: SubmitRatingInput, actor: Actor): Prom
         action: AUDIT_ACTIONS.RATING_CREATED,
         entityType: "order_rating",
         entityId: rating.id,
-        newValue: { orderId: order.id, target: input.target, score: input.score },
+        newValue: {
+          orderId: order.id,
+          target: input.target,
+          score: input.score,
+        },
       },
       tx,
     );
@@ -151,25 +217,38 @@ export async function submitRating(input: SubmitRatingInput, actor: Actor): Prom
 }
 
 /** Operations hides (or restores) a rating; the aggregate follows. */
-export async function moderateRating(ratingId: string, hide: boolean, reason: string, actor: Actor): Promise<OrderRating> {
+export async function moderateRating(
+  ratingId: string,
+  hide: boolean,
+  reason: string,
+  actor: Actor,
+): Promise<OrderRating> {
   const trimmed = reason.trim();
-  if (hide && trimmed.length < 3) throw validationFailed("Give a reason for hiding it.");
+  if (hide && trimmed.length < 3)
+    throw validationFailed("Give a reason for hiding it.");
   return db.transaction(async (tx) => {
-    const [current] = await tx.select().from(orderRatings).where(eq(orderRatings.id, ratingId)).for("update");
+    const [current] = await tx
+      .select()
+      .from(orderRatings)
+      .where(eq(orderRatings.id, ratingId))
+      .for("update");
     if (!current) throw notFound("Rating");
-    const [updated] = await tx
-      .update(orderRatings)
-      .set({
+    const [updated] = await updateReturning(
+      tx,
+      orderRatings,
+      {
         status: hide ? "HIDDEN" : "VISIBLE",
         moderatedBy: actor.id,
         moderatedAt: new Date(),
         moderationReason: hide ? trimmed : null,
-      })
-      .where(eq(orderRatings.id, ratingId))
-      .returning();
+      },
+      eq(orderRatings.id, ratingId),
+    );
     await refreshAggregate(
       current.targetType,
-      current.targetType === "SHOP" ? current.shopId : current.deliveryPartnerId!,
+      current.targetType === "SHOP"
+        ? current.shopId
+        : current.deliveryPartnerId!,
       tx,
     );
     await recordAudit(
@@ -191,9 +270,20 @@ export async function moderateRating(ratingId: string, hide: boolean, reason: st
 /** Public shop reviews: visible only, no customer identity. */
 export async function listShopReviews(shopId: string, limit = 10) {
   return db
-    .select({ id: orderRatings.id, score: orderRatings.score, comment: orderRatings.comment, createdAt: orderRatings.createdAt })
+    .select({
+      id: orderRatings.id,
+      score: orderRatings.score,
+      comment: orderRatings.comment,
+      createdAt: orderRatings.createdAt,
+    })
     .from(orderRatings)
-    .where(and(eq(orderRatings.shopId, shopId), eq(orderRatings.targetType, "SHOP"), eq(orderRatings.status, "VISIBLE")))
+    .where(
+      and(
+        eq(orderRatings.shopId, shopId),
+        eq(orderRatings.targetType, "SHOP"),
+        eq(orderRatings.status, "VISIBLE"),
+      ),
+    )
     .orderBy(desc(orderRatings.createdAt))
     .limit(limit);
 }
@@ -201,7 +291,12 @@ export async function listShopReviews(shopId: string, limit = 10) {
 /** A rider's own feedback (no customer identity). */
 export async function listRiderFeedback(deliveryPartnerId: string, limit = 10) {
   return db
-    .select({ id: orderRatings.id, score: orderRatings.score, comment: orderRatings.comment, createdAt: orderRatings.createdAt })
+    .select({
+      id: orderRatings.id,
+      score: orderRatings.score,
+      comment: orderRatings.comment,
+      createdAt: orderRatings.createdAt,
+    })
     .from(orderRatings)
     .where(
       and(
@@ -226,18 +321,34 @@ export async function listRatingsForModeration(limit = 100) {
     .from(orderRatings)
     .innerJoin(orders, eq(orderRatings.orderId, orders.id))
     .innerJoin(shops, eq(orderRatings.shopId, shops.id))
-    .leftJoin(deliveryPartners, eq(orderRatings.deliveryPartnerId, deliveryPartners.id))
+    .leftJoin(
+      deliveryPartners,
+      eq(orderRatings.deliveryPartnerId, deliveryPartners.id),
+    )
     .orderBy(desc(orderRatings.createdAt))
     .limit(limit);
 }
 
 /** Ratings a customer gave, keyed by order — for their order list. */
-export async function listMyRatingsByOrder(customerId: string, orderIds: readonly string[]) {
-  if (orderIds.length === 0) return new Map<string, { shop?: number; rider?: number }>();
+export async function listMyRatingsByOrder(
+  customerId: string,
+  orderIds: readonly string[],
+) {
+  if (orderIds.length === 0)
+    return new Map<string, { shop?: number; rider?: number }>();
   const rows = await db
-    .select({ orderId: orderRatings.orderId, targetType: orderRatings.targetType, score: orderRatings.score })
+    .select({
+      orderId: orderRatings.orderId,
+      targetType: orderRatings.targetType,
+      score: orderRatings.score,
+    })
     .from(orderRatings)
-    .where(and(eq(orderRatings.customerId, customerId), inArray(orderRatings.orderId, [...orderIds])));
+    .where(
+      and(
+        eq(orderRatings.customerId, customerId),
+        inArray(orderRatings.orderId, [...orderIds]),
+      ),
+    );
   const map = new Map<string, { shop?: number; rider?: number }>();
   for (const r of rows) {
     const entry = map.get(r.orderId) ?? {};

@@ -16,7 +16,18 @@
  * status, shop, rider name and vehicle, the resident's unit label — never the
  * customer's name, phone, items or payment.
  */
-import { and, desc, eq, gte, ilike, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  like,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { haversineDistanceKm, parseCoordinates } from "@/lib/geo/haversine";
@@ -41,6 +52,11 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { grantRole } from "./roles";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
+import {
+  insertReturning,
+  updateReturning,
+  upsertReturning,
+} from "@/server/db/returning";
 
 interface Actor {
   id: string;
@@ -75,7 +91,8 @@ export async function requireSocietyRole(
     .from(societies)
     .where(and(eq(societies.id, societyId), isNull(societies.deletedAt)));
   if (!society) throw notFound("Society");
-  if (can(actor.role, PERMISSIONS.SOCIETY_MANAGE_ANY)) return { society, membership: null };
+  if (can(actor.role, PERMISSIONS.SOCIETY_MANAGE_ANY))
+    return { society, membership: null };
   const [membership] = await client
     .select()
     .from(societyMembers)
@@ -93,7 +110,10 @@ export async function requireSocietyRole(
 }
 
 /** Users who administer or operate a society, for notifications. */
-export async function societyStaffUserIds(societyId: string, client: DbClient = db): Promise<string[]> {
+export async function societyStaffUserIds(
+  societyId: string,
+  client: DbClient = db,
+): Promise<string[]> {
   const rows = await client
     .select({ userId: societyMembers.userId })
     .from(societyMembers)
@@ -108,10 +128,18 @@ export async function societyStaffUserIds(societyId: string, client: DbClient = 
 }
 
 /** Give a plain customer the SOCIETY_ADMIN role once they run a society (navigation hint only). */
-async function promoteToSocietyRole(userId: string, client: DbClient): Promise<void> {
+async function promoteToSocietyRole(
+  userId: string,
+  client: DbClient,
+): Promise<void> {
   // GS-003: granted even to users who already hold another role (a shop owner
   // who runs their society switches to it from the header).
-  await grantRole(userId, "SOCIETY_ADMIN", { source: "SOCIETY", activateIfCustomer: true }, client);
+  await grantRole(
+    userId,
+    "SOCIETY_ADMIN",
+    { source: "SOCIETY", activateIfCustomer: true },
+    client,
+  );
 }
 
 /* ======================================================= registration */
@@ -128,38 +156,43 @@ export interface RegisterSocietyInput {
 }
 
 /** Anyone signed in may register a society; they become its first ADMIN. Operator verifies it (GS-044). */
-export async function registerSociety(input: RegisterSocietyInput, actor: Actor): Promise<Society> {
+export async function registerSociety(
+  input: RegisterSocietyInput,
+  actor: Actor,
+): Promise<Society> {
   const name = input.name.trim();
   if (name.length < 3) throw validationFailed("Enter the society's name.");
-  if (!input.addressLine1.trim()) throw validationFailed("Enter the society's address.");
+  if (!input.addressLine1.trim())
+    throw validationFailed("Enter the society's address.");
   if (!input.city.trim()) throw validationFailed("Enter the city.");
-  if (!/^\d{6}$/.test(input.pincode.trim())) throw validationFailed("Enter a valid 6-digit PIN code.");
+  if (!/^\d{6}$/.test(input.pincode.trim()))
+    throw validationFailed("Enter a valid 6-digit PIN code.");
 
   return db.transaction(async (tx) => {
     const duplicate = await tx.query.societies.findFirst({
       where: and(
-        ilike(societies.name, name),
+        like(societies.name, name),
         eq(societies.pincode, input.pincode.trim()),
         ne(societies.status, "REJECTED"),
         isNull(societies.deletedAt),
       ),
     });
-    if (duplicate) throw conflict("This society is already registered — ask to join it instead.");
+    if (duplicate)
+      throw conflict(
+        "This society is already registered — ask to join it instead.",
+      );
 
-    const [society] = await tx
-      .insert(societies)
-      .values({
-        name,
-        slug: slugify(name),
-        addressLine1: input.addressLine1.trim(),
-        area: input.area?.trim() || null,
-        city: input.city.trim(),
-        pincode: input.pincode.trim(),
-        latitude: input.latitude != null ? String(input.latitude) : null,
-        longitude: input.longitude != null ? String(input.longitude) : null,
-        registeredBy: actor.id,
-      })
-      .returning();
+    const [society] = await insertReturning(tx, societies, {
+      name,
+      slug: slugify(name),
+      addressLine1: input.addressLine1.trim(),
+      area: input.area?.trim() || null,
+      city: input.city.trim(),
+      pincode: input.pincode.trim(),
+      latitude: input.latitude != null ? String(input.latitude) : null,
+      longitude: input.longitude != null ? String(input.longitude) : null,
+      registeredBy: actor.id,
+    });
     await tx.insert(societyMembers).values({
       societyId: society.id,
       userId: actor.id,
@@ -186,7 +219,10 @@ export async function registerSociety(input: RegisterSocietyInput, actor: Actor)
 
 export type SocietyDecision = "verify" | "reject" | "suspend" | "reinstate";
 
-const SOCIETY_STEPS: Record<SocietyDecision, { from: Society["status"][]; to: Society["status"] }> = {
+const SOCIETY_STEPS: Record<
+  SocietyDecision,
+  { from: Society["status"][]; to: Society["status"] }
+> = {
   verify: { from: ["APPLIED"], to: "VERIFIED" },
   reject: { from: ["APPLIED"], to: "REJECTED" },
   suspend: { from: ["VERIFIED"], to: "SUSPENDED" },
@@ -200,30 +236,47 @@ export async function decideSociety(
   actor: Actor,
   reason?: string,
 ): Promise<Society> {
-  if (!can(actor.role, PERMISSIONS.SOCIETY_MANAGE_ANY)) throw forbidden("Only operations can verify societies.");
+  if (!can(actor.role, PERMISSIONS.SOCIETY_MANAGE_ANY))
+    throw forbidden("Only operations can verify societies.");
   const step = SOCIETY_STEPS[decision];
   if ((decision === "reject" || decision === "suspend") && !reason?.trim()) {
     throw validationFailed("Give a reason.");
   }
 
   const updated = await db.transaction(async (tx) => {
-    const [current] = await tx.select().from(societies).where(eq(societies.id, societyId)).for("update");
+    const [current] = await tx
+      .select()
+      .from(societies)
+      .where(eq(societies.id, societyId))
+      .for("update");
     if (!current) throw notFound("Society");
     if (!step.from.includes(current.status)) {
-      throw conflict(`A ${current.status.toLowerCase()} society cannot be ${decision === "verify" ? "verified" : decision + "ed"}.`);
+      throw conflict(
+        `A ${current.status.toLowerCase()} society cannot be ${decision === "verify" ? "verified" : decision + "ed"}.`,
+      );
     }
-    const [row] = await tx
-      .update(societies)
-      .set({
+    const [row] = await updateReturning(
+      tx,
+      societies,
+      {
         status: step.to,
-        ...(decision === "verify" ? { verifiedBy: actor.id, verifiedAt: new Date(), rejectionReason: null } : {}),
-        ...(decision === "reject" || decision === "suspend" ? { rejectionReason: reason!.trim() } : {}),
+        ...(decision === "verify"
+          ? {
+              verifiedBy: actor.id,
+              verifiedAt: new Date(),
+              rejectionReason: null,
+            }
+          : {}),
+        ...(decision === "reject" || decision === "suspend"
+          ? { rejectionReason: reason!.trim() }
+          : {}),
         updatedAt: new Date(),
-      })
-      .where(eq(societies.id, societyId))
-      .returning();
+      },
+      eq(societies.id, societyId),
+    );
     if (step.to === "VERIFIED") {
-      for (const userId of await societyStaffUserIds(societyId, tx)) await promoteToSocietyRole(userId, tx);
+      for (const userId of await societyStaffUserIds(societyId, tx))
+        await promoteToSocietyRole(userId, tx);
     }
     await recordAudit(
       {
@@ -243,7 +296,10 @@ export async function decideSociety(
   for (const userId of await societyStaffUserIds(societyId)) {
     await notify({
       userId,
-      type: step.to === "VERIFIED" ? NOTIFICATION_TYPES.SOCIETY_VERIFIED : NOTIFICATION_TYPES.SOCIETY_REJECTED,
+      type:
+        step.to === "VERIFIED"
+          ? NOTIFICATION_TYPES.SOCIETY_VERIFIED
+          : NOTIFICATION_TYPES.SOCIETY_REJECTED,
       title: `Society ${step.to.toLowerCase()}`,
       body:
         step.to === "VERIFIED"
@@ -270,37 +326,69 @@ export interface SocietySettingsInput {
 }
 
 /** Society ADMIN (or platform staff) edits rules and instructions. */
-export async function updateSocietySettings(societyId: string, input: SocietySettingsInput, actor: Actor): Promise<Society> {
+export async function updateSocietySettings(
+  societyId: string,
+  input: SocietySettingsInput,
+  actor: Actor,
+): Promise<Society> {
   const { society } = await requireSocietyRole(societyId, actor, ["ADMIN"]);
   if (
     input.boundaryRadiusMeters !== undefined &&
-    (!Number.isInteger(input.boundaryRadiusMeters) || input.boundaryRadiusMeters < 50 || input.boundaryRadiusMeters > 3000)
+    (!Number.isInteger(input.boundaryRadiusMeters) ||
+      input.boundaryRadiusMeters < 50 ||
+      input.boundaryRadiusMeters > 3000)
   ) {
     throw validationFailed("Boundary must be 50–3000 metres.");
   }
-  if (input.gateContactPhone && !/^[+\d][\d\s-]{5,17}$/.test(input.gateContactPhone.trim())) {
+  if (
+    input.gateContactPhone &&
+    !/^[+\d][\d\s-]{5,17}$/.test(input.gateContactPhone.trim())
+  ) {
     throw validationFailed("Enter a valid gate contact phone number.");
   }
-  const [updated] = await db
-    .update(societies)
-    .set({
-      ...(input.gateEntryMode !== undefined ? { gateEntryMode: input.gateEntryMode } : {}),
-      ...(input.gateContactName !== undefined ? { gateContactName: input.gateContactName?.trim() || null } : {}),
-      ...(input.gateContactPhone !== undefined ? { gateContactPhone: input.gateContactPhone?.trim() || null } : {}),
+  const [updated] = await updateReturning(
+    db,
+    societies,
+    {
+      ...(input.gateEntryMode !== undefined
+        ? { gateEntryMode: input.gateEntryMode }
+        : {}),
+      ...(input.gateContactName !== undefined
+        ? { gateContactName: input.gateContactName?.trim() || null }
+        : {}),
+      ...(input.gateContactPhone !== undefined
+        ? { gateContactPhone: input.gateContactPhone?.trim() || null }
+        : {}),
       ...(input.shareGateContactWithRider !== undefined
         ? { shareGateContactWithRider: input.shareGateContactWithRider }
         : {}),
-      ...(input.notifyCustomerAtGate !== undefined ? { notifyCustomerAtGate: input.notifyCustomerAtGate } : {}),
-      ...(input.deliveryInstructions !== undefined ? { deliveryInstructions: input.deliveryInstructions?.trim() || null } : {}),
-      ...(input.securityNotifyEnabled !== undefined ? { securityNotifyEnabled: input.securityNotifyEnabled } : {}),
-      ...(input.exclusiveRiders !== undefined ? { exclusiveRiders: input.exclusiveRiders } : {}),
-      ...(input.boundaryRadiusMeters !== undefined ? { boundaryRadiusMeters: input.boundaryRadiusMeters } : {}),
-      ...(input.latitude !== undefined ? { latitude: input.latitude != null ? String(input.latitude) : null } : {}),
-      ...(input.longitude !== undefined ? { longitude: input.longitude != null ? String(input.longitude) : null } : {}),
+      ...(input.notifyCustomerAtGate !== undefined
+        ? { notifyCustomerAtGate: input.notifyCustomerAtGate }
+        : {}),
+      ...(input.deliveryInstructions !== undefined
+        ? { deliveryInstructions: input.deliveryInstructions?.trim() || null }
+        : {}),
+      ...(input.securityNotifyEnabled !== undefined
+        ? { securityNotifyEnabled: input.securityNotifyEnabled }
+        : {}),
+      ...(input.exclusiveRiders !== undefined
+        ? { exclusiveRiders: input.exclusiveRiders }
+        : {}),
+      ...(input.boundaryRadiusMeters !== undefined
+        ? { boundaryRadiusMeters: input.boundaryRadiusMeters }
+        : {}),
+      ...(input.latitude !== undefined
+        ? { latitude: input.latitude != null ? String(input.latitude) : null }
+        : {}),
+      ...(input.longitude !== undefined
+        ? {
+            longitude: input.longitude != null ? String(input.longitude) : null,
+          }
+        : {}),
       updatedAt: new Date(),
-    })
-    .where(eq(societies.id, societyId))
-    .returning();
+    },
+    eq(societies.id, societyId),
+  );
   await recordAudit({
     actorId: actor.id,
     actorRole: actor.role,
@@ -323,27 +411,47 @@ export async function updateSocietySettings(societyId: string, input: SocietySet
 /* ========================================================= membership */
 
 /** A resident asks to join a verified society (GS-005). Society staff approve. */
-export async function requestMembership(societyId: string, actor: Actor, unitLabel?: string | null): Promise<SocietyMember> {
-  const society = await db.query.societies.findFirst({ where: eq(societies.id, societyId) });
+export async function requestMembership(
+  societyId: string,
+  actor: Actor,
+  unitLabel?: string | null,
+): Promise<SocietyMember> {
+  const society = await db.query.societies.findFirst({
+    where: eq(societies.id, societyId),
+  });
   if (!society || society.deletedAt) throw notFound("Society");
-  if (society.status !== "VERIFIED") throw conflict("This society is not open for residents yet.");
+  if (society.status !== "VERIFIED")
+    throw conflict("This society is not open for residents yet.");
 
   const existing = await db.query.societyMembers.findFirst({
-    where: and(eq(societyMembers.societyId, societyId), eq(societyMembers.userId, actor.id)),
+    where: and(
+      eq(societyMembers.societyId, societyId),
+      eq(societyMembers.userId, actor.id),
+    ),
   });
-  if (existing?.status === "ACTIVE") throw conflict("You are already a member of this society.");
+  if (existing?.status === "ACTIVE")
+    throw conflict("You are already a member of this society.");
   if (existing?.status === "PENDING") return existing;
 
   const [member] = existing
-    ? await db
-        .update(societyMembers)
-        .set({ status: "PENDING", role: "RESIDENT", unitLabel: unitLabel?.trim() || existing.unitLabel, updatedAt: new Date() })
-        .where(eq(societyMembers.id, existing.id))
-        .returning()
-    : await db
-        .insert(societyMembers)
-        .values({ societyId, userId: actor.id, role: "RESIDENT", status: "PENDING", unitLabel: unitLabel?.trim() || null })
-        .returning();
+    ? await updateReturning(
+        db,
+        societyMembers,
+        {
+          status: "PENDING",
+          role: "RESIDENT",
+          unitLabel: unitLabel?.trim() || existing.unitLabel,
+          updatedAt: new Date(),
+        },
+        eq(societyMembers.id, existing.id),
+      )
+    : await insertReturning(db, societyMembers, {
+        societyId,
+        userId: actor.id,
+        role: "RESIDENT",
+        status: "PENDING",
+        unitLabel: unitLabel?.trim() || null,
+      });
 
   for (const userId of await societyStaffUserIds(societyId)) {
     await notify({
@@ -359,22 +467,33 @@ export async function requestMembership(societyId: string, actor: Actor, unitLab
 }
 
 /** Society ADMIN/OPERATOR approves or declines a resident. */
-export async function decideMembership(memberId: string, approve: boolean, actor: Actor): Promise<SocietyMember> {
-  const member = await db.query.societyMembers.findFirst({ where: eq(societyMembers.id, memberId) });
+export async function decideMembership(
+  memberId: string,
+  approve: boolean,
+  actor: Actor,
+): Promise<SocietyMember> {
+  const member = await db.query.societyMembers.findFirst({
+    where: eq(societyMembers.id, memberId),
+  });
   if (!member) throw notFound("Membership");
-  const { society } = await requireSocietyRole(member.societyId, actor, ["ADMIN", "OPERATOR"]);
-  if (member.status !== "PENDING") throw conflict("This request has already been decided.");
+  const { society } = await requireSocietyRole(member.societyId, actor, [
+    "ADMIN",
+    "OPERATOR",
+  ]);
+  if (member.status !== "PENDING")
+    throw conflict("This request has already been decided.");
 
-  const [updated] = await db
-    .update(societyMembers)
-    .set({
+  const [updated] = await updateReturning(
+    db,
+    societyMembers,
+    {
       status: approve ? "ACTIVE" : "REMOVED",
       approvedBy: approve ? actor.id : null,
       approvedAt: approve ? new Date() : null,
       updatedAt: new Date(),
-    })
-    .where(eq(societyMembers.id, memberId))
-    .returning();
+    },
+    eq(societyMembers.id, memberId),
+  );
   await recordAudit({
     actorId: actor.id,
     actorRole: actor.role,
@@ -397,24 +516,38 @@ export async function decideMembership(memberId: string, approve: boolean, actor
 }
 
 /** Society ADMIN changes a member's society role (never leaving the society without an admin). */
-export async function setMemberRole(memberId: string, role: SocietyMemberRole, actor: Actor): Promise<SocietyMember> {
-  const member = await db.query.societyMembers.findFirst({ where: eq(societyMembers.id, memberId) });
+export async function setMemberRole(
+  memberId: string,
+  role: SocietyMemberRole,
+  actor: Actor,
+): Promise<SocietyMember> {
+  const member = await db.query.societyMembers.findFirst({
+    where: eq(societyMembers.id, memberId),
+  });
   if (!member) throw notFound("Membership");
   await requireSocietyRole(member.societyId, actor, ["ADMIN"]);
-  if (member.status !== "ACTIVE") throw conflict("Only an active member can be given a role.");
+  if (member.status !== "ACTIVE")
+    throw conflict("Only an active member can be given a role.");
   if (member.role === "ADMIN" && role !== "ADMIN") {
     const [{ admins }] = await db
-      .select({ admins: sql<number>`count(*)::int` })
+      .select({ admins: sql<number>`CAST(count(*) AS SIGNED)` })
       .from(societyMembers)
-      .where(and(eq(societyMembers.societyId, member.societyId), eq(societyMembers.role, "ADMIN"), eq(societyMembers.status, "ACTIVE")));
+      .where(
+        and(
+          eq(societyMembers.societyId, member.societyId),
+          eq(societyMembers.role, "ADMIN"),
+          eq(societyMembers.status, "ACTIVE"),
+        ),
+      );
     if (admins <= 1) throw conflict("A society needs at least one admin.");
   }
   return db.transaction(async (tx) => {
-    const [updated] = await tx
-      .update(societyMembers)
-      .set({ role, updatedAt: new Date() })
-      .where(eq(societyMembers.id, memberId))
-      .returning();
+    const [updated] = await updateReturning(
+      tx,
+      societyMembers,
+      { role, updatedAt: new Date() },
+      eq(societyMembers.id, memberId),
+    );
     if (role !== "RESIDENT") await promoteToSocietyRole(member.userId, tx);
     await recordAudit(
       {
@@ -436,27 +569,46 @@ export async function setMemberRole(memberId: string, role: SocietyMemberRole, a
  * Remove a member (society staff) or leave (the member themselves). Their
  * addresses stop being treated as inside the society.
  */
-export async function removeMember(memberId: string, actor: Actor): Promise<SocietyMember> {
-  const member = await db.query.societyMembers.findFirst({ where: eq(societyMembers.id, memberId) });
+export async function removeMember(
+  memberId: string,
+  actor: Actor,
+): Promise<SocietyMember> {
+  const member = await db.query.societyMembers.findFirst({
+    where: eq(societyMembers.id, memberId),
+  });
   if (!member) throw notFound("Membership");
-  if (member.userId !== actor.id) await requireSocietyRole(member.societyId, actor, ["ADMIN", "OPERATOR"]);
+  if (member.userId !== actor.id)
+    await requireSocietyRole(member.societyId, actor, ["ADMIN", "OPERATOR"]);
   if (member.role === "ADMIN") {
     const [{ admins }] = await db
-      .select({ admins: sql<number>`count(*)::int` })
+      .select({ admins: sql<number>`CAST(count(*) AS SIGNED)` })
       .from(societyMembers)
-      .where(and(eq(societyMembers.societyId, member.societyId), eq(societyMembers.role, "ADMIN"), eq(societyMembers.status, "ACTIVE")));
-    if (admins <= 1) throw conflict("A society needs at least one admin — hand over first.");
+      .where(
+        and(
+          eq(societyMembers.societyId, member.societyId),
+          eq(societyMembers.role, "ADMIN"),
+          eq(societyMembers.status, "ACTIVE"),
+        ),
+      );
+    if (admins <= 1)
+      throw conflict("A society needs at least one admin — hand over first.");
   }
   return db.transaction(async (tx) => {
-    const [updated] = await tx
-      .update(societyMembers)
-      .set({ status: "REMOVED", updatedAt: new Date() })
-      .where(eq(societyMembers.id, memberId))
-      .returning();
+    const [updated] = await updateReturning(
+      tx,
+      societyMembers,
+      { status: "REMOVED", updatedAt: new Date() },
+      eq(societyMembers.id, memberId),
+    );
     await tx
       .update(addresses)
       .set({ societyId: null })
-      .where(and(eq(addresses.userId, member.userId), eq(addresses.societyId, member.societyId)));
+      .where(
+        and(
+          eq(addresses.userId, member.userId),
+          eq(addresses.societyId, member.societyId),
+        ),
+      );
     await recordAudit(
       {
         actorId: actor.id,
@@ -477,29 +629,58 @@ export async function removeMember(memberId: string, actor: Actor): Promise<Soci
  * Mark (or clear) one of the user's own addresses as inside a society they
  * are an ACTIVE member of. Society delivery rules then apply to orders to it.
  */
-export async function linkAddressToSociety(userId: string, addressId: string, societyId: string | null): Promise<void> {
+export async function linkAddressToSociety(
+  userId: string,
+  addressId: string,
+  societyId: string | null,
+): Promise<void> {
   const address = await db.query.addresses.findFirst({
-    where: and(eq(addresses.id, addressId), eq(addresses.userId, userId), isNull(addresses.deletedAt)),
+    where: and(
+      eq(addresses.id, addressId),
+      eq(addresses.userId, userId),
+      isNull(addresses.deletedAt),
+    ),
   });
   if (!address) throw notFound("Address");
   if (societyId) {
     const member = await db.query.societyMembers.findFirst({
-      where: and(eq(societyMembers.societyId, societyId), eq(societyMembers.userId, userId), eq(societyMembers.status, "ACTIVE")),
+      where: and(
+        eq(societyMembers.societyId, societyId),
+        eq(societyMembers.userId, userId),
+        eq(societyMembers.status, "ACTIVE"),
+      ),
     });
-    const society = await db.query.societies.findFirst({ where: eq(societies.id, societyId) });
+    const society = await db.query.societies.findFirst({
+      where: eq(societies.id, societyId),
+    });
     if (!member || society?.status !== "VERIFIED") {
-      throw forbidden("You can only link an address to a verified society you belong to.");
+      throw forbidden(
+        "You can only link an address to a verified society you belong to.",
+      );
     }
   }
-  await db.update(addresses).set({ societyId }).where(eq(addresses.id, addressId));
+  await db
+    .update(addresses)
+    .set({ societyId })
+    .where(eq(addresses.id, addressId));
 }
 
 /** Verified societies whose boundary contains the address (suggestion for residents). */
-export async function suggestSocietiesForAddress(address: { latitude: string | null; longitude: string | null; pincode: string }) {
+export async function suggestSocietiesForAddress(address: {
+  latitude: string | null;
+  longitude: string | null;
+  pincode: string;
+}) {
   const rows = await db
     .select()
     .from(societies)
-    .where(and(eq(societies.status, "VERIFIED"), isNull(societies.deletedAt), eq(societies.pincode, address.pincode)))
+    .where(
+      and(
+        eq(societies.status, "VERIFIED"),
+        isNull(societies.deletedAt),
+        eq(societies.pincode, address.pincode),
+      ),
+    )
     .limit(50);
   const point = parseCoordinates(address.latitude, address.longitude);
   return rows.filter((s) => {
@@ -513,47 +694,88 @@ export async function suggestSocietiesForAddress(address: { latitude: string | n
  * The society an order to this address belongs to — only while the owner is
  * still an ACTIVE member of a VERIFIED society. Used at checkout / generation.
  */
-export async function resolveAddressSociety(userId: string, societyId: string | null, client: DbClient = db): Promise<string | null> {
+export async function resolveAddressSociety(
+  userId: string,
+  societyId: string | null,
+  client: DbClient = db,
+): Promise<string | null> {
   if (!societyId) return null;
   const [row] = await client
     .select({ id: societies.id })
     .from(societies)
-    .innerJoin(societyMembers, and(eq(societyMembers.societyId, societies.id), eq(societyMembers.userId, userId)))
-    .where(and(eq(societies.id, societyId), eq(societies.status, "VERIFIED"), eq(societyMembers.status, "ACTIVE")));
+    .innerJoin(
+      societyMembers,
+      and(
+        eq(societyMembers.societyId, societies.id),
+        eq(societyMembers.userId, userId),
+      ),
+    )
+    .where(
+      and(
+        eq(societies.id, societyId),
+        eq(societies.status, "VERIFIED"),
+        eq(societyMembers.status, "ACTIVE"),
+      ),
+    );
   return row?.id ?? null;
 }
 
 /* ============================================ riders & shops (society admin) */
 
 /** GS-045: add a rider by their registered mobile number. Effective immediately, audited. */
-export async function addSocietyRider(societyId: string, mobile: string, preferred: boolean, actor: Actor) {
+export async function addSocietyRider(
+  societyId: string,
+  mobile: string,
+  preferred: boolean,
+  actor: Actor,
+) {
   await requireSocietyRole(societyId, actor, ["ADMIN"]);
   const digits = mobile.replace(/\D/g, "").slice(-10);
-  if (!/^[6-9]\d{9}$/.test(digits)) throw validationFailed("Enter the rider's 10-digit mobile number.");
+  if (!/^[6-9]\d{9}$/.test(digits))
+    throw validationFailed("Enter the rider's 10-digit mobile number.");
   const partner = await db.query.deliveryPartners.findFirst({
     where: and(
       eq(deliveryPartners.status, "APPROVED"),
       isNull(deliveryPartners.deletedAt),
-      sql`right(regexp_replace(${deliveryPartners.mobile}, '\\D', '', 'g'), 10) = ${digits}`,
+      sql`right(regexp_replace(${deliveryPartners.mobile}, '[^0-9]', ''), 10) = ${digits}`,
     ),
   });
-  if (!partner) throw notFound("Approved delivery partner with that mobile number");
+  if (!partner)
+    throw notFound("Approved delivery partner with that mobile number");
 
-  const [row] = await db
-    .insert(societyRiders)
-    .values({ societyId, deliveryPartnerId: partner.id, preferred, addedBy: actor.id })
-    .onConflictDoUpdate({
-      target: [societyRiders.societyId, societyRiders.deliveryPartnerId],
-      set: { status: "ACTIVE", preferred, revokedAt: null, revokedBy: null, updatedAt: new Date() },
-    })
-    .returning();
+  const [row] = await upsertReturning(
+    db,
+    societyRiders,
+    {
+      societyId,
+      deliveryPartnerId: partner.id,
+      preferred,
+      addedBy: actor.id,
+    },
+    {
+      status: "ACTIVE",
+      preferred,
+      revokedAt: null,
+      revokedBy: null,
+      updatedAt: new Date(),
+    },
+    and(
+      eq(societyRiders.societyId, societyId),
+      eq(societyRiders.deliveryPartnerId, partner.id),
+    )!,
+  );
   await recordAudit({
     actorId: actor.id,
     actorRole: actor.role,
     action: AUDIT_ACTIONS.SOCIETY_RIDER_CHANGED,
     entityType: "society_rider",
     entityId: row.id,
-    newValue: { societyId, deliveryPartnerId: partner.id, status: "ACTIVE", preferred },
+    newValue: {
+      societyId,
+      deliveryPartnerId: partner.id,
+      status: "ACTIVE",
+      preferred,
+    },
   });
   return row;
 }
@@ -564,18 +786,29 @@ export async function updateSocietyRider(
   change: { revoke?: boolean; preferred?: boolean },
   actor: Actor,
 ) {
-  const link = await db.query.societyRiders.findFirst({ where: eq(societyRiders.id, riderLinkId) });
+  const link = await db.query.societyRiders.findFirst({
+    where: eq(societyRiders.id, riderLinkId),
+  });
   if (!link) throw notFound("Society rider");
   await requireSocietyRole(link.societyId, actor, ["ADMIN"]);
-  const [row] = await db
-    .update(societyRiders)
-    .set({
-      ...(change.revoke ? { status: "REVOKED" as const, revokedBy: actor.id, revokedAt: new Date() } : {}),
-      ...(change.preferred !== undefined ? { preferred: change.preferred } : {}),
+  const [row] = await updateReturning(
+    db,
+    societyRiders,
+    {
+      ...(change.revoke
+        ? {
+            status: "REVOKED" as const,
+            revokedBy: actor.id,
+            revokedAt: new Date(),
+          }
+        : {}),
+      ...(change.preferred !== undefined
+        ? { preferred: change.preferred }
+        : {}),
       updatedAt: new Date(),
-    })
-    .where(eq(societyRiders.id, riderLinkId))
-    .returning();
+    },
+    eq(societyRiders.id, riderLinkId),
+  );
   await recordAudit({
     actorId: actor.id,
     actorRole: actor.role,
@@ -589,18 +822,30 @@ export async function updateSocietyRider(
 }
 
 /** Add / remove a shop the society recommends to residents. */
-export async function setSocietyShop(societyId: string, shopId: string, active: boolean, actor: Actor) {
+export async function setSocietyShop(
+  societyId: string,
+  shopId: string,
+  active: boolean,
+  actor: Actor,
+) {
   await requireSocietyRole(societyId, actor, ["ADMIN"]);
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
   if (!shop || shop.status !== "APPROVED") throw notFound("Approved shop");
-  const [row] = await db
-    .insert(societyShops)
-    .values({ societyId, shopId, status: active ? "ACTIVE" : "REVOKED", addedBy: actor.id })
-    .onConflictDoUpdate({
-      target: [societyShops.societyId, societyShops.shopId],
-      set: { status: active ? "ACTIVE" : "REVOKED", updatedAt: new Date() },
-    })
-    .returning();
+  const [row] = await upsertReturning(
+    db,
+    societyShops,
+    {
+      societyId,
+      shopId,
+      status: active ? "ACTIVE" : "REVOKED",
+      addedBy: actor.id,
+    },
+    { status: active ? "ACTIVE" : "REVOKED", updatedAt: new Date() },
+    and(
+      eq(societyShops.societyId, societyId),
+      eq(societyShops.shopId, shopId),
+    )!,
+  );
   await recordAudit({
     actorId: actor.id,
     actorRole: actor.role,
@@ -619,7 +864,13 @@ export async function listMySocieties(userId: string) {
     .select({ membership: societyMembers, society: societies })
     .from(societyMembers)
     .innerJoin(societies, eq(societyMembers.societyId, societies.id))
-    .where(and(eq(societyMembers.userId, userId), ne(societyMembers.status, "REMOVED"), isNull(societies.deletedAt)))
+    .where(
+      and(
+        eq(societyMembers.userId, userId),
+        ne(societyMembers.status, "REMOVED"),
+        isNull(societies.deletedAt),
+      ),
+    )
     .orderBy(desc(societyMembers.createdAt));
 }
 
@@ -627,13 +878,25 @@ export async function listMySocieties(userId: string) {
 export async function searchSocieties(query: string, limit = 20) {
   const term = `%${query.trim()}%`;
   return db
-    .select({ id: societies.id, name: societies.name, area: societies.area, city: societies.city, pincode: societies.pincode })
+    .select({
+      id: societies.id,
+      name: societies.name,
+      area: societies.area,
+      city: societies.city,
+      pincode: societies.pincode,
+    })
     .from(societies)
     .where(
       and(
         eq(societies.status, "VERIFIED"),
         isNull(societies.deletedAt),
-        query.trim() ? or(ilike(societies.name, term), ilike(societies.area, term), eq(societies.pincode, query.trim())) : undefined,
+        query.trim()
+          ? or(
+              like(societies.name, term),
+              like(societies.area, term),
+              eq(societies.pincode, query.trim()),
+            )
+          : undefined,
       ),
     )
     .orderBy(societies.name)
@@ -645,10 +908,15 @@ export async function listSocietiesForReview(status?: Society["status"]) {
   return db
     .select({
       society: societies,
-      members: sql<number>`(select count(*)::int from ${societyMembers} where ${societyMembers.societyId} = ${societies.id} and ${societyMembers.status} = 'ACTIVE')`,
+      members: sql<number>`(select CAST(count(*) AS SIGNED) from ${societyMembers} where ${societyMembers.societyId} = ${societies.id} and ${societyMembers.status} = 'ACTIVE')`,
     })
     .from(societies)
-    .where(and(isNull(societies.deletedAt), status ? eq(societies.status, status) : undefined))
+    .where(
+      and(
+        isNull(societies.deletedAt),
+        status ? eq(societies.status, status) : undefined,
+      ),
+    )
     .orderBy(desc(societies.createdAt))
     .limit(200);
 }
@@ -659,7 +927,10 @@ export async function listSocietiesForReview(status?: Society["status"]) {
  * order contents are never included.
  */
 export async function getSocietyDashboard(societyId: string, actor: Actor) {
-  const { society, membership } = await requireSocietyRole(societyId, actor, ["ADMIN", "OPERATOR"]);
+  const { society, membership } = await requireSocietyRole(societyId, actor, [
+    "ADMIN",
+    "OPERATOR",
+  ]);
   const [members, riders, partnerShops, recentOrders] = await Promise.all([
     db
       .select({
@@ -672,7 +943,12 @@ export async function getSocietyDashboard(societyId: string, actor: Actor) {
       })
       .from(societyMembers)
       .innerJoin(users, eq(societyMembers.userId, users.id))
-      .where(and(eq(societyMembers.societyId, societyId), ne(societyMembers.status, "REMOVED")))
+      .where(
+        and(
+          eq(societyMembers.societyId, societyId),
+          ne(societyMembers.status, "REMOVED"),
+        ),
+      )
       .orderBy(societyMembers.status, societyMembers.createdAt),
     db
       .select({
@@ -685,14 +961,28 @@ export async function getSocietyDashboard(societyId: string, actor: Actor) {
         ratingCount: deliveryPartners.ratingCount,
       })
       .from(societyRiders)
-      .innerJoin(deliveryPartners, eq(societyRiders.deliveryPartnerId, deliveryPartners.id))
+      .innerJoin(
+        deliveryPartners,
+        eq(societyRiders.deliveryPartnerId, deliveryPartners.id),
+      )
       .where(eq(societyRiders.societyId, societyId))
       .orderBy(desc(societyRiders.preferred), deliveryPartners.fullName),
     db
-      .select({ id: societyShops.id, shopId: shops.id, name: shops.name, status: societyShops.status, shopType: shops.shopType })
+      .select({
+        id: societyShops.id,
+        shopId: shops.id,
+        name: shops.name,
+        status: societyShops.status,
+        shopType: shops.shopType,
+      })
       .from(societyShops)
       .innerJoin(shops, eq(societyShops.shopId, shops.id))
-      .where(and(eq(societyShops.societyId, societyId), eq(societyShops.status, "ACTIVE"))),
+      .where(
+        and(
+          eq(societyShops.societyId, societyId),
+          eq(societyShops.status, "ACTIVE"),
+        ),
+      ),
     db
       .select({
         orderNumber: orders.orderNumber,
@@ -708,13 +998,34 @@ export async function getSocietyDashboard(societyId: string, actor: Actor) {
       .from(orders)
       .innerJoin(shops, eq(orders.shopId, shops.id))
       .leftJoin(deliveryOrders, eq(deliveryOrders.orderId, orders.id))
-      .leftJoin(deliveryPartners, eq(deliveryOrders.deliveryPartnerId, deliveryPartners.id))
-      .leftJoin(societyMembers, and(eq(societyMembers.societyId, orders.societyId), eq(societyMembers.userId, orders.userId)))
-      .where(and(eq(orders.societyId, societyId), gte(orders.createdAt, sql`now() - interval '7 days'`)))
+      .leftJoin(
+        deliveryPartners,
+        eq(deliveryOrders.deliveryPartnerId, deliveryPartners.id),
+      )
+      .leftJoin(
+        societyMembers,
+        and(
+          eq(societyMembers.societyId, orders.societyId),
+          eq(societyMembers.userId, orders.userId),
+        ),
+      )
+      .where(
+        and(
+          eq(orders.societyId, societyId),
+          gte(orders.createdAt, sql`now() - interval 7 day`),
+        ),
+      )
       .orderBy(desc(orders.createdAt))
       .limit(100),
   ]);
-  return { society, myRole: membership?.role ?? "PLATFORM", members, riders, partnerShops, recentOrders };
+  return {
+    society,
+    myRole: membership?.role ?? "PLATFORM",
+    members,
+    riders,
+    partnerShops,
+    recentOrders,
+  };
 }
 
 /* ================================================ delivery integration */
@@ -727,14 +1038,28 @@ export interface SocietyDispatchRules {
 }
 
 /** GA-001/002 inputs for an order's society; null when the order is not a society delivery. */
-export async function getSocietyDispatchRules(societyId: string | null, client: DbClient = db): Promise<SocietyDispatchRules | null> {
+export async function getSocietyDispatchRules(
+  societyId: string | null,
+  client: DbClient = db,
+): Promise<SocietyDispatchRules | null> {
   if (!societyId) return null;
-  const [society] = await client.select().from(societies).where(eq(societies.id, societyId));
+  const [society] = await client
+    .select()
+    .from(societies)
+    .where(eq(societies.id, societyId));
   if (!society || society.status !== "VERIFIED") return null;
   const rows = await client
-    .select({ deliveryPartnerId: societyRiders.deliveryPartnerId, preferred: societyRiders.preferred })
+    .select({
+      deliveryPartnerId: societyRiders.deliveryPartnerId,
+      preferred: societyRiders.preferred,
+    })
     .from(societyRiders)
-    .where(and(eq(societyRiders.societyId, societyId), eq(societyRiders.status, "ACTIVE")));
+    .where(
+      and(
+        eq(societyRiders.societyId, societyId),
+        eq(societyRiders.status, "ACTIVE"),
+      ),
+    );
   return {
     societyId,
     // Exclusive only bites when there is someone on the list — an empty list never blocks deliveries.
@@ -746,15 +1071,21 @@ export async function getSocietyDispatchRules(societyId: string | null, client: 
 /** Society gate/parking notes for the rider of an active job (GS-047). */
 export async function getSocietyDeliveryNotes(societyId: string | null) {
   if (!societyId) return null;
-  const society = await db.query.societies.findFirst({ where: eq(societies.id, societyId) });
+  const society = await db.query.societies.findFirst({
+    where: eq(societies.id, societyId),
+  });
   if (!society || society.status !== "VERIFIED") return null;
   return {
     name: society.name,
     instructions: society.deliveryInstructions,
     entryMode: society.gateEntryMode,
     // The security desk's number reaches a rider only when the society chose to share it.
-    contactName: society.shareGateContactWithRider ? society.gateContactName : null,
-    contactPhone: society.shareGateContactWithRider ? society.gateContactPhone : null,
+    contactName: society.shareGateContactWithRider
+      ? society.gateContactName
+      : null,
+    contactPhone: society.shareGateContactWithRider
+      ? society.gateContactPhone
+      : null,
     notifyCustomer: society.notifyCustomerAtGate,
   };
 }
@@ -775,13 +1106,26 @@ export async function notifySocietySecurity(orderId: string): Promise<void> {
     })
     .from(orders)
     .innerJoin(deliveryOrders, eq(deliveryOrders.orderId, orders.id))
-    .innerJoin(deliveryPartners, eq(deliveryOrders.deliveryPartnerId, deliveryPartners.id))
+    .innerJoin(
+      deliveryPartners,
+      eq(deliveryOrders.deliveryPartnerId, deliveryPartners.id),
+    )
     .where(eq(orders.id, orderId));
   if (!row?.societyId) return;
-  const society = await db.query.societies.findFirst({ where: eq(societies.id, row.societyId) });
-  if (!society || society.status !== "VERIFIED" || !society.securityNotifyEnabled) return;
+  const society = await db.query.societies.findFirst({
+    where: eq(societies.id, row.societyId),
+  });
+  if (
+    !society ||
+    society.status !== "VERIFIED" ||
+    !society.securityNotifyEnabled
+  )
+    return;
   const member = await db.query.societyMembers.findFirst({
-    where: and(eq(societyMembers.societyId, row.societyId), eq(societyMembers.userId, row.userId)),
+    where: and(
+      eq(societyMembers.societyId, row.societyId),
+      eq(societyMembers.userId, row.userId),
+    ),
   });
   for (const userId of await societyStaffUserIds(row.societyId)) {
     await notify({

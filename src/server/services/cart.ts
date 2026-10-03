@@ -25,6 +25,7 @@ import {
   type Shop,
 } from "@/server/db/schema";
 import { assertOnlinePurchasable, isOnlinePurchasable } from "./catalogue";
+import { keepExisting } from "@/server/db/returning";
 
 export interface CartLine {
   cartItemId: string;
@@ -84,7 +85,10 @@ export async function getOrCreateCart(
   });
   if (existing) return existing;
 
-  await client.insert(carts).values({ userId }).onConflictDoNothing();
+  await client
+    .insert(carts)
+    .values({ userId })
+    .onDuplicateKeyUpdate({ set: keepExisting(carts) });
   const created = await client.query.carts.findFirst({
     where: eq(carts.userId, userId),
     columns: { id: true },
@@ -248,7 +252,8 @@ export async function getCart(userId: string): Promise<CartSummary> {
       imageUrl: row.sp.imageUrl ?? row.product.imageUrl,
       quantity: row.item.quantity,
       unitPricePaise: unitPrice,
-      lineTotalPaise: unitPrice > 0 ? lineTotalPaise(unitPrice, quantityMilli) : 0,
+      lineTotalPaise:
+        unitPrice > 0 ? lineTotalPaise(unitPrice, quantityMilli) : 0,
       purchasable,
       unavailableReason: purchasable
         ? null
@@ -284,7 +289,10 @@ export async function getCart(userId: string): Promise<CartSummary> {
     group.subtotalPaise = sumPaise(
       group.lines.filter((l) => l.purchasable).map((l) => l.lineTotalPaise),
     );
-    group.deliveryFeePaise = computeDeliveryFee(group.shop, group.subtotalPaise);
+    group.deliveryFeePaise = computeDeliveryFee(
+      group.shop,
+      group.subtotalPaise,
+    );
     // Dairy and bakery staples are zero-rated; the field exists so GST can be
     // introduced later without reshaping orders.
     group.taxPaise = 0;
@@ -304,7 +312,9 @@ export async function getCart(userId: string): Promise<CartSummary> {
     deliveryFeePaise: sumPaise(groups.map((g) => g.deliveryFeePaise)),
     taxPaise: sumPaise(groups.map((g) => g.taxPaise)),
     grandTotalPaise: sumPaise(groups.map((g) => g.totalPaise)),
-    hasUnavailableItems: groups.some((g) => g.lines.some((l) => !l.purchasable)),
+    hasUnavailableItems: groups.some((g) =>
+      g.lines.some((l) => !l.purchasable),
+    ),
   };
 }
 

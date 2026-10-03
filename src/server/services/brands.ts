@@ -6,12 +6,13 @@
  * "Amul" would rewrite it for everyone. Shops pick an existing brand when
  * creating a product; they never mint one.
  */
-import { and, asc, eq, ilike, isNull } from "drizzle-orm";
+import { and, asc, eq, isNull, like } from "drizzle-orm";
 
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { db } from "@/server/db";
 import { brands, type Brand, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { insertReturning, updateReturning } from "@/server/db/returning";
 
 interface Actor {
   id: string;
@@ -26,10 +27,12 @@ function slugify(name: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-export async function listBrands(options: { query?: string; limit?: number } = {}): Promise<Brand[]> {
+export async function listBrands(
+  options: { query?: string; limit?: number } = {},
+): Promise<Brand[]> {
   const conditions = [isNull(brands.deletedAt)];
   if (options.query?.trim()) {
-    conditions.push(ilike(brands.name, `%${options.query.trim()}%`));
+    conditions.push(like(brands.name, `%${options.query.trim()}%`));
   }
   return db
     .select()
@@ -46,21 +49,24 @@ export async function createBrand(
   const name = input.name.trim();
   if (!name) throw validationFailed("Enter a brand name.");
   const slug = slugify(name);
-  if (!slug) throw validationFailed("Brand name must contain at least one letter or number.");
+  if (!slug)
+    throw validationFailed(
+      "Brand name must contain at least one letter or number.",
+    );
 
-  const existing = await db.query.brands.findFirst({ where: eq(brands.slug, slug) });
-  if (existing) throw conflict(`A brand named "${existing.name}" already exists.`);
+  const existing = await db.query.brands.findFirst({
+    where: eq(brands.slug, slug),
+  });
+  if (existing)
+    throw conflict(`A brand named "${existing.name}" already exists.`);
 
-  const [brand] = await db
-    .insert(brands)
-    .values({
-      name,
-      slug,
-      description: input.description?.trim() || null,
-      logoUrl: input.logoUrl?.trim() || null,
-      createdBy: actor.id,
-    })
-    .returning();
+  const [brand] = await insertReturning(db, brands, {
+    name,
+    slug,
+    description: input.description?.trim() || null,
+    logoUrl: input.logoUrl?.trim() || null,
+    createdBy: actor.id,
+  });
 
   await recordAudit({
     actorId: actor.id,
@@ -76,7 +82,12 @@ export async function createBrand(
 
 export async function updateBrand(
   id: string,
-  patch: { name?: string; description?: string | null; logoUrl?: string | null; isActive?: boolean },
+  patch: {
+    name?: string;
+    description?: string | null;
+    logoUrl?: string | null;
+    isActive?: boolean;
+  },
   actor: Actor,
 ): Promise<Brand> {
   const current = await db.query.brands.findFirst({
@@ -86,17 +97,20 @@ export async function updateBrand(
 
   // The slug is intentionally left alone on rename: it may already be
   // embedded in URLs, and a brand's identity shouldn't shift under them.
-  const [updated] = await db
-    .update(brands)
-    .set({
+  const [updated] = await updateReturning(
+    db,
+    brands,
+    {
       ...(patch.name !== undefined ? { name: patch.name.trim() } : {}),
-      ...(patch.description !== undefined ? { description: patch.description } : {}),
+      ...(patch.description !== undefined
+        ? { description: patch.description }
+        : {}),
       ...(patch.logoUrl !== undefined ? { logoUrl: patch.logoUrl } : {}),
       ...(patch.isActive !== undefined ? { isActive: patch.isActive } : {}),
       updatedAt: new Date(),
-    })
-    .where(eq(brands.id, id))
-    .returning();
+    },
+    eq(brands.id, id),
+  );
 
   await recordAudit({
     actorId: actor.id,

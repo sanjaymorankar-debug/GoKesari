@@ -15,7 +15,7 @@
  * unable to sign in must not itself require signing in (§ "Grievance
  * Redressal" — "maintain a complaint submission form").
  */
-import { and, desc, eq, ilike, or } from "drizzle-orm";
+import { and, desc, eq, like, or } from "drizzle-orm";
 
 import { forbidden, notFound, validationFailed } from "@/lib/errors";
 import { db } from "@/server/db";
@@ -29,6 +29,8 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
+import { insertReturning, updateReturning } from "@/server/db/returning";
+import { nextSequenceValue } from "@/server/db/sequence";
 
 interface Actor {
   id: string;
@@ -53,7 +55,9 @@ function validateEmail(email: string): void {
   }
 }
 
-export async function submitGrievance(input: SubmitGrievanceInput): Promise<Grievance> {
+export async function submitGrievance(
+  input: SubmitGrievanceInput,
+): Promise<Grievance> {
   if (input.name.trim().length < 2) {
     throw validationFailed("Enter your name.");
   }
@@ -66,33 +70,40 @@ export async function submitGrievance(input: SubmitGrievanceInput): Promise<Grie
   }
 
   if (input.orderId) {
-    const order = await db.query.orders.findFirst({ where: eq(orders.id, input.orderId) });
-    if (!order || !input.submittedByUserId || order.userId !== input.submittedByUserId) {
+    const order = await db.query.orders.findFirst({
+      where: eq(orders.id, input.orderId),
+    });
+    if (
+      !order ||
+      !input.submittedByUserId ||
+      order.userId !== input.submittedByUserId
+    ) {
       throw notFound("Order");
     }
   }
 
-  const [grievance] = await db
-    .insert(grievances)
-    .values({
-      submittedByUserId: input.submittedByUserId ?? null,
-      orderId: input.orderId ?? null,
-      name: input.name.trim(),
-      email: input.email.trim().toLowerCase(),
-      phone: input.phone?.trim() || null,
-      category: input.category,
-      subject: input.subject.trim(),
-      description: input.description.trim(),
-      status: "OPEN",
-    })
-    .returning();
+  const [grievance] = await insertReturning(db, grievances, {
+    ticketNumber: await nextSequenceValue(db, "grievance_ticket_seq"),
+    submittedByUserId: input.submittedByUserId ?? null,
+    orderId: input.orderId ?? null,
+    name: input.name.trim(),
+    email: input.email.trim().toLowerCase(),
+    phone: input.phone?.trim() || null,
+    category: input.category,
+    subject: input.subject.trim(),
+    description: input.description.trim(),
+    status: "OPEN",
+  });
 
   await recordAudit({
     actorId: input.submittedByUserId ?? null,
     action: AUDIT_ACTIONS.GRIEVANCE_SUBMITTED,
     entityType: "grievance",
     entityId: grievance.id,
-    newValue: { ticketNumber: grievance.ticketNumber, category: grievance.category },
+    newValue: {
+      ticketNumber: grievance.ticketNumber,
+      category: grievance.category,
+    },
   });
 
   // Acknowledgement — the complainant should never be left wondering whether
@@ -110,7 +121,9 @@ export async function submitGrievance(input: SubmitGrievanceInput): Promise<Grie
   return grievance;
 }
 
-export async function getGrievanceByTicket(ticketNumber: string): Promise<Grievance> {
+export async function getGrievanceByTicket(
+  ticketNumber: string,
+): Promise<Grievance> {
   const [grievance] = await db
     .select()
     .from(grievances)
@@ -143,17 +156,20 @@ export interface GrievanceFilters {
   limit?: number;
 }
 
-export async function listGrievances(filters: GrievanceFilters = {}): Promise<Grievance[]> {
+export async function listGrievances(
+  filters: GrievanceFilters = {},
+): Promise<Grievance[]> {
   const conditions = [];
   if (filters.status) conditions.push(eq(grievances.status, filters.status));
-  if (filters.category) conditions.push(eq(grievances.category, filters.category));
+  if (filters.category)
+    conditions.push(eq(grievances.category, filters.category));
   if (filters.search) {
     const term = `%${filters.search}%`;
     conditions.push(
       or(
-        ilike(grievances.ticketNumber, term),
-        ilike(grievances.email, term),
-        ilike(grievances.subject, term),
+        like(grievances.ticketNumber, term),
+        like(grievances.email, term),
+        like(grievances.subject, term),
       )!,
     );
   }
@@ -187,7 +203,9 @@ export async function getGrievanceDashboard(): Promise<GrievanceDashboard> {
     closed: all.filter((g) => g.status === "CLOSED").length,
     total: all.length,
     overdue: all.filter(
-      (g) => (g.status === "OPEN" || g.status === "IN_PROGRESS") && g.createdAt < fifteenDaysAgo,
+      (g) =>
+        (g.status === "OPEN" || g.status === "IN_PROGRESS") &&
+        g.createdAt < fifteenDaysAgo,
     ).length,
   };
 }
@@ -197,18 +215,21 @@ export async function assignGrievance(
   assignedToUserId: string,
   actor: Actor,
 ): Promise<Grievance> {
-  const current = await db.query.grievances.findFirst({ where: eq(grievances.id, id) });
+  const current = await db.query.grievances.findFirst({
+    where: eq(grievances.id, id),
+  });
   if (!current) throw notFound("Grievance");
 
-  const [updated] = await db
-    .update(grievances)
-    .set({
+  const [updated] = await updateReturning(
+    db,
+    grievances,
+    {
       assignedToUserId,
       status: current.status === "OPEN" ? "IN_PROGRESS" : current.status,
       updatedAt: new Date(),
-    })
-    .where(eq(grievances.id, id))
-    .returning();
+    },
+    eq(grievances.id, id),
+  );
 
   await recordAudit({
     actorId: actor.id,
@@ -216,7 +237,10 @@ export async function assignGrievance(
     action: AUDIT_ACTIONS.GRIEVANCE_UPDATED,
     entityType: "grievance",
     entityId: id,
-    previousValue: { assignedToUserId: current.assignedToUserId, status: current.status },
+    previousValue: {
+      assignedToUserId: current.assignedToUserId,
+      status: current.status,
+    },
     newValue: { assignedToUserId, status: updated.status },
   });
   return updated;
@@ -230,19 +254,22 @@ export async function resolveGrievance(
   if (resolutionNotes.trim().length < 5) {
     throw validationFailed("Describe how this complaint was resolved.");
   }
-  const current = await db.query.grievances.findFirst({ where: eq(grievances.id, id) });
+  const current = await db.query.grievances.findFirst({
+    where: eq(grievances.id, id),
+  });
   if (!current) throw notFound("Grievance");
 
-  const [updated] = await db
-    .update(grievances)
-    .set({
+  const [updated] = await updateReturning(
+    db,
+    grievances,
+    {
       status: "RESOLVED",
       resolutionNotes: resolutionNotes.trim(),
       resolvedAt: new Date(),
       updatedAt: new Date(),
-    })
-    .where(eq(grievances.id, id))
-    .returning();
+    },
+    eq(grievances.id, id),
+  );
 
   await recordAudit({
     actorId: actor.id,
@@ -271,14 +298,17 @@ export async function setGrievanceStatus(
   status: GrievanceStatus,
   actor: Actor,
 ): Promise<Grievance> {
-  const current = await db.query.grievances.findFirst({ where: eq(grievances.id, id) });
+  const current = await db.query.grievances.findFirst({
+    where: eq(grievances.id, id),
+  });
   if (!current) throw notFound("Grievance");
 
-  const [updated] = await db
-    .update(grievances)
-    .set({ status, updatedAt: new Date() })
-    .where(eq(grievances.id, id))
-    .returning();
+  const [updated] = await updateReturning(
+    db,
+    grievances,
+    { status, updatedAt: new Date() },
+    eq(grievances.id, id),
+  );
 
   await recordAudit({
     actorId: actor.id,

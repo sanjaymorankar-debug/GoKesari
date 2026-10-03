@@ -30,20 +30,20 @@ const CHECKS: CheckDef[] = [
     id: "unique-active-gtin",
     kind: "INVARIANT",
     description: "No two ACTIVE masters share a GTIN",
-    sql: `SELECT gtin, count(*)::int AS masters FROM pmd.product_master WHERE record_status = 'ACTIVE' AND gtin IS NOT NULL GROUP BY gtin HAVING count(*) > 1`,
+    sql: `SELECT gtin, CAST(count(*) AS SIGNED) AS masters FROM pmd.product_master WHERE record_status = 'ACTIVE' AND gtin IS NOT NULL GROUP BY gtin HAVING count(*) > 1`,
   },
   {
     id: "unique-master-id",
     kind: "INVARIANT",
     description: "MASTER_PRODUCT_ID is unique and well-formed",
-    sql: `SELECT master_product_id FROM pmd.product_master WHERE master_product_id !~ '^GKS-PROD-[0-9]{9}$' OR master_product_id IN (SELECT master_product_id FROM pmd.product_master GROUP BY 1 HAVING count(*) > 1)`,
+    sql: `SELECT master_product_id FROM pmd.product_master WHERE NOT REGEXP_LIKE(master_product_id, '^GKS-PROD-[0-9]{9}$') OR master_product_id IN (SELECT master_product_id FROM pmd.product_master GROUP BY 1 HAVING count(*) > 1)`,
   },
   {
     id: "gtin-check-digit",
     kind: "INVARIANT",
     description: "Every stored GTIN is a 14-digit code with a valid GS1 check digit",
-    sql: `WITH g AS (SELECT product_id, gtin, substr(gtin, 14, 1)::int AS cd,
-              (SELECT sum(substr(gtin, i, 1)::int * CASE WHEN (14 - i) % 2 = 1 THEN 3 ELSE 1 END) FROM generate_series(1, 13) i) AS s
+    sql: `WITH g AS (SELECT product_id, gtin, CAST(substr(gtin, 14, 1) AS SIGNED) AS cd,
+              (SELECT sum(CAST(substr(gtin, i, 1) AS SIGNED) * CASE WHEN (14 - i) % 2 = 1 THEN 3 ELSE 1 END) FROM JSON_TABLE('[1,2,3,4,5,6,7,8,9,10,11,12,13]', '$[*]' COLUMNS (i int PATH '$')) i) AS s
             FROM pmd.product_master WHERE gtin IS NOT NULL)
           SELECT product_id, gtin FROM g WHERE (10 - (s % 10)) % 10 <> cd`,
   },
@@ -59,7 +59,7 @@ const CHECKS: CheckDef[] = [
     id: "one-preferred-spec",
     kind: "INVARIANT",
     description: "Every attribute of a product has exactly one preferred value",
-    sql: `SELECT product_id, attribute_key, count(*) FILTER (WHERE is_preferred)::int AS preferred FROM pmd.product_specification GROUP BY 1, 2 HAVING count(*) FILTER (WHERE is_preferred) <> 1`,
+    sql: `SELECT product_id, attribute_key, CAST(count(case when is_preferred then 1 end) AS SIGNED) AS preferred FROM pmd.product_specification GROUP BY 1, 2 HAVING count(case when is_preferred then 1 end) <> 1`,
   },
   {
     id: "sources-traceable",
@@ -71,13 +71,13 @@ const CHECKS: CheckDef[] = [
     id: "missing-is-null-not-zero",
     kind: "INVARIANT",
     description: "No zero or empty value stands in for missing data",
-    sql: `SELECT product_id FROM pmd.product_master WHERE net_quantity_value = 0 OR net_weight_g = 0 OR pack_count = 0 OR btrim(product_name) = '' OR gst_rate_bp IS NOT DISTINCT FROM -1`,
+    sql: `SELECT product_id FROM pmd.product_master WHERE net_quantity_value = 0 OR net_weight_g = 0 OR pack_count = 0 OR TRIM(product_name) = '' OR gst_rate_bp <=> -1`,
   },
   {
     id: "no-price-on-master",
     kind: "INVARIANT",
     description: "Price and MRP are never stored on the product itself",
-    sql: `SELECT column_name FROM information_schema.columns WHERE table_schema = 'pmd' AND table_name = 'product_master' AND column_name ~ '(price|mrp|discount)'`,
+    sql: `SELECT column_name FROM information_schema.columns WHERE table_schema = 'pmd' AND table_name = 'product_master' AND REGEXP_LIKE(column_name, '(price|mrp|discount)')`,
   },
   {
     id: "history-covers-offers",
@@ -107,7 +107,7 @@ const CHECKS: CheckDef[] = [
     id: "same-name-different-master",
     kind: "REVIEW",
     description: "Distinct ACTIVE masters with the same brand, core name and pack (suspicious duplicates the matcher kept apart)",
-    sql: `SELECT brand_id, normalized_name, pack_size, count(*)::int AS masters FROM pmd.product_master
+    sql: `SELECT brand_id, normalized_name, pack_size, CAST(count(*) AS SIGNED) AS masters FROM pmd.product_master
           WHERE record_status = 'ACTIVE' AND brand_id IS NOT NULL AND normalized_name <> '' AND pack_size IS NOT NULL
           GROUP BY 1, 2, 3 HAVING count(*) > 1`,
   },
@@ -127,7 +127,7 @@ const CHECKS: CheckDef[] = [
     id: "brand-looks-like-company",
     kind: "REVIEW",
     description: "Brands that read like legal entities (likely manufacturers filed as brands)",
-    sql: `SELECT brand_id, brand_name FROM pmd.brand WHERE brand_name ~* '\\m(ltd|limited|pvt|private|llp|inc|corporation|industries|unilever|hul)\\M'`,
+    sql: `SELECT brand_id, brand_name FROM pmd.brand WHERE REGEXP_LIKE(brand_name, '\\b(ltd|limited|pvt|private|llp|inc|corporation|industries|unilever|hul)\\b', 'i')`,
   },
 ];
 

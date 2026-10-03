@@ -23,19 +23,43 @@ export function pmdSql(): Sql {
   return sqlSingleton;
 }
 
+/**
+ * Order matters only in that it does not: foreign key checks are off for the
+ * duration, so children need not precede parents. Child-first order is kept
+ * anyway, so the list still reads as the dependency order.
+ */
+const RESET_TABLES = [
+  "job", "product_change_log", "product_merge_log", "match_candidate", "catalogue_link",
+  "product_image", "price_history", "product_offer", "product_attribute_conflict",
+  "product_specification", "product_identifier", "product_source", "raw_record", "import_error",
+  "ingestion_run", "product_master", "product_family", "brand_alias", "brand",
+  "manufacturer_alias", "manufacturer", "dashboard_metric",
+] as const;
+
 /** Wipes transactional PMD data; keeps reference data (sources, taxonomy, attribute registry). */
 export async function resetPmd(sql: Sql = pmdSql()): Promise<void> {
-  await sql`
-    TRUNCATE TABLE
-      pmd.job, pmd.product_change_log, pmd.product_merge_log, pmd.match_candidate, pmd.catalogue_link,
-      pmd.product_image, pmd.price_history, pmd.product_offer, pmd.product_attribute_conflict,
-      pmd.product_specification, pmd.product_identifier, pmd.product_source, pmd.raw_record, pmd.import_error,
-      pmd.ingestion_run, pmd.product_master, pmd.product_family, pmd.brand_alias, pmd.brand,
-      pmd.manufacturer_alias, pmd.manufacturer, pmd.dashboard_metric
-    RESTART IDENTITY CASCADE`;
-  await sql`ALTER SEQUENCE pmd.product_seq RESTART`;
-  await sql`ALTER SEQUENCE pmd.brand_seq RESTART`;
-  await sql`ALTER SEQUENCE pmd.manufacturer_seq RESTART`;
+  // One TRUNCATE per table, because MySQL's takes a single table - and on one
+  // held connection, because FOREIGN_KEY_CHECKS is a SESSION variable and a
+  // pool would scatter the statements across connections, leaving the checks
+  // on for most of them.
+  //
+  // The checks have to be off: half of these tables are the target of a foreign
+  // key and MySQL refuses to TRUNCATE such a table, where PostgreSQL's CASCADE
+  // simply followed them. TRUNCATE also resets AUTO_INCREMENT by itself, which
+  // is what RESTART IDENTITY asked for.
+  const held = await sql.reserve();
+  try {
+    await held.unsafe("SET FOREIGN_KEY_CHECKS = 0");
+    for (const table of RESET_TABLES) await held.unsafe(`TRUNCATE TABLE pmd.\`${table}\``);
+    // The three application-allocated keys come from pmd.counters rather than
+    // AUTO_INCREMENT, so TRUNCATE does not touch them (see mysql/sequence.ts).
+    await held.unsafe("DELETE FROM pmd.counters WHERE name IN ('product_seq', 'brand_seq', 'manufacturer_seq')");
+    // Locks are rows now; a stale name is harmless but the table should not grow.
+    await held.unsafe("DELETE FROM pmd.advisory_lock");
+  } finally {
+    await held.unsafe("SET FOREIGN_KEY_CHECKS = 1").catch(() => {});
+    held.release();
+  }
 }
 
 export async function seedReference(sql: Sql = pmdSql()): Promise<void> {
@@ -98,7 +122,33 @@ export function product(overrides: Partial<StagedProduct> & { sourceProductId: s
   return { name: "Test Product", ...overrides };
 }
 
+/**
+ * Runs a multi-statement `.sql` file on one held connection.
+ *
+ * `multipleStatements` is deliberately **off** on the PMD pool - it is the
+ * setting that turns a single injected semicolon into a second statement, and
+ * only the migration runner needs it - so a script that carries its own
+ * transaction is split here and sent statement by statement. One connection,
+ * in order, so the BEGIN/COMMIT the script contains still applies to all of it.
+ */
+export async function runSqlScript(script: string, sql: Sql = pmdSql()): Promise<void> {
+  const statements = script
+    .split("\n")
+    .map((line) => (line.trimStart().startsWith("--") ? "" : line))
+    .join("\n")
+    .split(";")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+
+  const held = await sql.reserve();
+  try {
+    for (const statement of statements) await held.unsafe(statement);
+  } finally {
+    held.release();
+  }
+}
+
 export async function count(sql: Sql, table: string, where = "true"): Promise<number> {
-  const [r] = await sql.unsafe<{ n: number }[]>(`SELECT count(*)::int AS n FROM ${table} WHERE ${where}`);
+  const [r] = await sql.unsafe<{ n: number }[]>(`SELECT CAST(count(*) AS SIGNED) AS n FROM ${table} WHERE ${where}`);
   return r.n;
 }

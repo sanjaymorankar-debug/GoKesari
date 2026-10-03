@@ -13,7 +13,18 @@
  * (retry, overlapping cron, manual replay) cannot create a second delivery or a
  * second wallet deduction for the same day.
  */
-import { and, asc, desc, eq, gte, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import {
   addDays,
@@ -49,6 +60,11 @@ import { consumeOnlineStock, isOnlinePurchasable } from "./catalogue";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { generateOrderNumber } from "./orders";
 import { applyWalletMutation } from "./wallet";
+import {
+  insertReturning,
+  updateReturning,
+  upsertReturning,
+} from "@/server/db/returning";
 
 /* ------------------------------------------------- pure schedule engine */
 
@@ -95,7 +111,10 @@ export function resolveDelivery(
   date: IsoDate,
   override?: Pick<SubscriptionDailyOverride, "type" | "quantityMilli"> | null,
 ): DeliveryResolution {
-  if (subscription.status !== "ACTIVE" && subscription.status !== "PAYMENT_PENDING") {
+  if (
+    subscription.status !== "ACTIVE" &&
+    subscription.status !== "PAYMENT_PENDING"
+  ) {
     return { delivers: false, reason: "NOT_ACTIVE" };
   }
   if (date < subscription.startDate) {
@@ -147,7 +166,11 @@ export function nextDeliveryDate(
 ): IsoDate | null {
   for (let i = 0; i < lookaheadDays; i += 1) {
     const date = addDays(from, i);
-    const result = resolveDelivery(subscription, date, overridesByDate.get(date));
+    const result = resolveDelivery(
+      subscription,
+      date,
+      overridesByDate.get(date),
+    );
     if (result.delivers) return date;
     // Nothing further can deliver once we are past the end date.
     if (result.reason === "AFTER_END") return null;
@@ -213,28 +236,26 @@ export async function createSubscription(
     throw conflict("This product cannot be subscribed to online right now.");
   }
 
-  const [subscription] = await db
-    .insert(subscriptions)
-    .values({
-      userId: input.userId,
-      shopId: row.sp.shopId,
-      shopProductId: input.shopProductId,
-      addressId: input.addressId ?? null,
-      quantityMilli: input.quantityMilli,
-      frequency,
-      weekdays: input.weekdays ?? [],
-      startDate: input.startDate,
-      endDate: input.endDate ?? null,
-      status: "ACTIVE",
-    })
-    .returning();
+  const [subscription] = await insertReturning(db, subscriptions, {
+    userId: input.userId,
+    shopId: row.sp.shopId,
+    shopProductId: input.shopProductId,
+    addressId: input.addressId ?? null,
+    quantityMilli: input.quantityMilli,
+    frequency,
+    weekdays: input.weekdays ?? [],
+    startDate: input.startDate,
+    endDate: input.endDate ?? null,
+    status: "ACTIVE",
+  });
 
   const next = nextDeliveryDate(toScheduleInput(subscription), input.startDate);
-  const [withNext] = await db
-    .update(subscriptions)
-    .set({ nextDeliveryDate: next })
-    .where(eq(subscriptions.id, subscription.id))
-    .returning();
+  const [withNext] = await updateReturning(
+    db,
+    subscriptions,
+    { nextDeliveryDate: next },
+    eq(subscriptions.id, subscription.id),
+  );
 
   await recordAudit({
     actorId: input.userId,
@@ -286,9 +307,10 @@ export async function updateSubscription(
     throw validationFailed("Quantity must be a positive amount.");
   }
 
-  const [updated] = await db
-    .update(subscriptions)
-    .set({
+  const [updated] = await updateReturning(
+    db,
+    subscriptions,
+    {
       ...(patch.quantityMilli !== undefined
         ? { quantityMilli: patch.quantityMilli }
         : {}),
@@ -298,9 +320,9 @@ export async function updateSubscription(
       ...(patch.addressId !== undefined ? { addressId: patch.addressId } : {}),
       ...(patch.endDate !== undefined ? { endDate: patch.endDate } : {}),
       updatedAt: new Date(),
-    })
-    .where(eq(subscriptions.id, subscriptionId))
-    .returning();
+    },
+    eq(subscriptions.id, subscriptionId),
+  );
 
   await refreshNextDeliveryDate(subscriptionId);
 
@@ -336,23 +358,22 @@ export async function setDailyOverride(
   }
   await assertDateIsModifiable(subscriptionId, date);
 
-  const [override] = await db
-    .insert(subscriptionDailyOverrides)
-    .values({
+  const [override] = await upsertReturning(
+    db,
+    subscriptionDailyOverrides,
+    {
       subscriptionId,
       deliveryDate: date,
       type: "QUANTITY",
       quantityMilli,
       createdBy: actor.id,
-    })
-    .onConflictDoUpdate({
-      target: [
-        subscriptionDailyOverrides.subscriptionId,
-        subscriptionDailyOverrides.deliveryDate,
-      ],
-      set: { type: "QUANTITY", quantityMilli, updatedAt: new Date() },
-    })
-    .returning();
+    },
+    { type: "QUANTITY", quantityMilli, updatedAt: new Date() },
+    and(
+      eq(subscriptionDailyOverrides.subscriptionId, subscriptionId),
+      eq(subscriptionDailyOverrides.deliveryDate, date),
+    )!,
+  );
 
   await recordAudit({
     actorId: actor.id,
@@ -382,23 +403,22 @@ export async function skipDate(
     actorId: actor.id,
   });
 
-  const [override] = await db
-    .insert(subscriptionDailyOverrides)
-    .values({
+  const [override] = await upsertReturning(
+    db,
+    subscriptionDailyOverrides,
+    {
       subscriptionId,
       deliveryDate: date,
       type: "SKIP",
       quantityMilli: null,
       createdBy: actor.id,
-    })
-    .onConflictDoUpdate({
-      target: [
-        subscriptionDailyOverrides.subscriptionId,
-        subscriptionDailyOverrides.deliveryDate,
-      ],
-      set: { type: "SKIP", quantityMilli: null, updatedAt: new Date() },
-    })
-    .returning();
+    },
+    { type: "SKIP", quantityMilli: null, updatedAt: new Date() },
+    and(
+      eq(subscriptionDailyOverrides.subscriptionId, subscriptionId),
+      eq(subscriptionDailyOverrides.deliveryDate, date),
+    )!,
+  );
 
   await recordAudit({
     actorId: actor.id,
@@ -444,11 +464,17 @@ export async function clearOverride(
 
 const FINAL_STATUSES = ["CANCELLED", "COMPLETED"] as const;
 
-async function loadLiveSubscription(subscriptionId: string): Promise<Subscription> {
-  const subscription = await db.query.subscriptions.findFirst({ where: eq(subscriptions.id, subscriptionId) });
+async function loadLiveSubscription(
+  subscriptionId: string,
+): Promise<Subscription> {
+  const subscription = await db.query.subscriptions.findFirst({
+    where: eq(subscriptions.id, subscriptionId),
+  });
   if (!subscription) throw notFound("Subscription");
   if ((FINAL_STATUSES as readonly string[]).includes(subscription.status)) {
-    throw conflict(`This subscription is ${subscription.status.toLowerCase()} and can no longer be changed.`);
+    throw conflict(
+      `This subscription is ${subscription.status.toLowerCase()} and can no longer be changed.`,
+    );
   }
   return subscription;
 }
@@ -475,7 +501,11 @@ export async function recordSubscriptionEvent(
     });
   } catch (error) {
     // History must never break the action it records.
-    console.error("[subscriptions] failed to record event", input.action, error);
+    console.error(
+      "[subscriptions] failed to record event",
+      input.action,
+      error,
+    );
   }
 }
 
@@ -495,14 +525,17 @@ export async function pauseSubscription(
   actor: { id: string; role: UserRole },
 ): Promise<Subscription> {
   if (until < from) {
-    throw validationFailed("The pause end date must be on or after the start date.");
+    throw validationFailed(
+      "The pause end date must be on or after the start date.",
+    );
   }
   const current = await loadLiveSubscription(subscriptionId);
-  const [updated] = await db
-    .update(subscriptions)
-    .set({ pauseFrom: from, pauseUntil: until, updatedAt: new Date() })
-    .where(eq(subscriptions.id, subscriptionId))
-    .returning();
+  const [updated] = await updateReturning(
+    db,
+    subscriptions,
+    { pauseFrom: from, pauseUntil: until, updatedAt: new Date() },
+    eq(subscriptions.id, subscriptionId),
+  );
   if (!updated) throw notFound("Subscription");
 
   await refreshNextDeliveryDate(subscriptionId);
@@ -538,16 +571,17 @@ export async function resumeSubscription(
 ): Promise<Subscription> {
   // A cancelled / completed subscription is never revived by "resume".
   const current = await loadLiveSubscription(subscriptionId);
-  const [updated] = await db
-    .update(subscriptions)
-    .set({
+  const [updated] = await updateReturning(
+    db,
+    subscriptions,
+    {
       pauseFrom: null,
       pauseUntil: null,
       status: "ACTIVE",
       updatedAt: new Date(),
-    })
-    .where(eq(subscriptions.id, subscriptionId))
-    .returning();
+    },
+    eq(subscriptions.id, subscriptionId),
+  );
   if (!updated) throw notFound("Subscription");
 
   await refreshNextDeliveryDate(subscriptionId);
@@ -583,17 +617,18 @@ export async function cancelSubscription(
   actor: { id: string; role: UserRole },
 ): Promise<Subscription> {
   const current = await loadLiveSubscription(subscriptionId);
-  const [updated] = await db
-    .update(subscriptions)
-    .set({
+  const [updated] = await updateReturning(
+    db,
+    subscriptions,
+    {
       status: "CANCELLED",
       cancelledAt: new Date(),
       cancellationReason: reason,
       nextDeliveryDate: null,
       updatedAt: new Date(),
-    })
-    .where(eq(subscriptions.id, subscriptionId))
-    .returning();
+    },
+    eq(subscriptions.id, subscriptionId),
+  );
   if (!updated) throw notFound("Subscription");
 
   await recordAudit({
@@ -755,7 +790,9 @@ export async function getCalendar(
         gte(subscriptionOrders.deliveryDate, start),
       ),
     );
-  const generatedMap = new Map(generated.map((g) => [g.deliveryDate, g.status]));
+  const generatedMap = new Map(
+    generated.map((g) => [g.deliveryDate, g.status]),
+  );
 
   const schedule = toScheduleInput(detail);
   const price = detail.currentUnitPricePaise ?? 0;
@@ -1054,41 +1091,44 @@ async function generateOneDelivery(
       // Same address snapshot and society link a checkout order gets, so
       // rider dispatch, society rules and the drop address work unchanged.
       const address = subscription.addressId
-        ? await tx.query.addresses.findFirst({ where: eq(addresses.id, subscription.addressId) })
+        ? await tx.query.addresses.findFirst({
+            where: eq(addresses.id, subscription.addressId),
+          })
         : null;
       const orderSocietyId = address
-        ? await resolveAddressSociety(subscription.userId, address.societyId ?? null, tx)
+        ? await resolveAddressSociety(
+            subscription.userId,
+            address.societyId ?? null,
+            tx,
+          )
         : null;
-      const [order] = await tx
-        .insert(orders)
-        .values({
-          orderNumber: generateOrderNumber(),
-          userId: subscription.userId,
-          shopId: subscription.shopId,
-          addressId: subscription.addressId,
-          deliveryAddressSnapshot: address
-            ? {
-                line1: address.line1,
-                line2: address.line2,
-                area: address.area,
-                city: address.city,
-                pincode: address.pincode,
-                latitude: address.latitude,
-                longitude: address.longitude,
-                landmark: address.landmark,
-                deliveryInstructions: address.deliveryInstructions,
-              }
-            : null,
-          societyId: orderSocietyId,
-          status: "PENDING",
-          source: "SUBSCRIPTION",
-          subtotalPaise: totalPaise,
-          deliveryFeePaise: 0, // subscription deliveries are bundled
-          taxPaise: 0,
-          totalPaise,
-          deliveryDate: date,
-        })
-        .returning();
+      const [order] = await insertReturning(tx, orders, {
+        orderNumber: generateOrderNumber(),
+        userId: subscription.userId,
+        shopId: subscription.shopId,
+        addressId: subscription.addressId,
+        deliveryAddressSnapshot: address
+          ? {
+              line1: address.line1,
+              line2: address.line2,
+              area: address.area,
+              city: address.city,
+              pincode: address.pincode,
+              latitude: address.latitude,
+              longitude: address.longitude,
+              landmark: address.landmark,
+              deliveryInstructions: address.deliveryInstructions,
+            }
+          : null,
+        societyId: orderSocietyId,
+        status: "PENDING",
+        source: "SUBSCRIPTION",
+        subtotalPaise: totalPaise,
+        deliveryFeePaise: 0, // subscription deliveries are bundled
+        taxPaise: 0,
+        totalPaise,
+        deliveryDate: date,
+      });
 
       await tx.insert(orderItems).values({
         orderId: order.id,
@@ -1196,20 +1236,17 @@ async function recordWalletFailure(
   },
 ): Promise<void> {
   await db.transaction(async (tx) => {
-    const [order] = await tx
-      .insert(orders)
-      .values({
-        orderNumber: generateOrderNumber(),
-        userId: subscription.userId,
-        shopId: subscription.shopId,
-        addressId: subscription.addressId,
-        status: "WALLET_INSUFFICIENT",
-        source: "SUBSCRIPTION",
-        subtotalPaise: detail.totalPaise,
-        totalPaise: detail.totalPaise,
-        deliveryDate: date,
-      })
-      .returning();
+    const [order] = await insertReturning(tx, orders, {
+      orderNumber: generateOrderNumber(),
+      userId: subscription.userId,
+      shopId: subscription.shopId,
+      addressId: subscription.addressId,
+      status: "WALLET_INSUFFICIENT",
+      source: "SUBSCRIPTION",
+      subtotalPaise: detail.totalPaise,
+      totalPaise: detail.totalPaise,
+      deliveryDate: date,
+    });
 
     await tx.insert(orderItems).values({
       orderId: order.id,
@@ -1439,7 +1476,7 @@ export async function countSubscriptionsByStatus(): Promise<
   const rows = await db
     .select({
       status: subscriptions.status,
-      count: sql<number>`count(*)::int`,
+      count: sql<number>`CAST(count(*) AS SIGNED)`,
     })
     .from(subscriptions)
     .groupBy(subscriptions.status);

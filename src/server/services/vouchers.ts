@@ -14,7 +14,7 @@
  * stored voucher row — a client-supplied bonus figure is never read.
  */
 import ExcelJS from "exceljs";
-import { and, count, desc, eq, gte, ilike, inArray, lte, or } from "drizzle-orm";
+import { and, count, desc, eq, gte, inArray, like, lte, or } from "drizzle-orm";
 
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { db, type DbClient } from "@/server/db";
@@ -30,6 +30,7 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { MAX_UPLOAD_BYTES, sanitiseCell } from "./excel";
+import { insertReturning, updateReturning } from "@/server/db/returning";
 
 interface Actor {
   id: string;
@@ -49,8 +50,12 @@ function todayIso(): string {
  * cron-flipped, so a voucher can never be "still ACTIVE" past its end date
  * just because nothing happened to run and update it (§21).
  */
-export function resolveEffectiveStatus(voucher: Voucher, asOf = todayIso()): VoucherStatus {
-  if (voucher.status === "DRAFT" || voucher.status === "PAUSED") return voucher.status;
+export function resolveEffectiveStatus(
+  voucher: Voucher,
+  asOf = todayIso(),
+): VoucherStatus {
+  if (voucher.status === "DRAFT" || voucher.status === "PAUSED")
+    return voucher.status;
   if (voucher.endDate < asOf) return "EXPIRED";
   if (
     voucher.totalBudgetPaise != null &&
@@ -58,7 +63,10 @@ export function resolveEffectiveStatus(voucher: Voucher, asOf = todayIso()): Vou
   ) {
     return "BUDGET_EXHAUSTED";
   }
-  if (voucher.usageLimit != null && voucher.redemptionCount >= voucher.usageLimit) {
+  if (
+    voucher.usageLimit != null &&
+    voucher.redemptionCount >= voucher.usageLimit
+  ) {
     return "BUDGET_EXHAUSTED";
   }
   if (voucher.startDate > asOf) return "PAUSED"; // scheduled, not yet live
@@ -67,7 +75,9 @@ export function resolveEffectiveStatus(voucher: Voucher, asOf = todayIso()): Vou
 
 function computeBonusPaise(voucher: Voucher, topupAmountPaise: number): number {
   const raw = Math.floor((topupAmountPaise * voucher.bonusPercent) / 100);
-  return voucher.maximumBonusPaise != null ? Math.min(raw, voucher.maximumBonusPaise) : raw;
+  return voucher.maximumBonusPaise != null
+    ? Math.min(raw, voucher.maximumBonusPaise)
+    : raw;
 }
 
 /* --------------------------------------------------------------- lookup */
@@ -126,7 +136,9 @@ export async function previewVoucher(
       ),
     );
   if (priorUses >= voucher.perCustomerLimit) {
-    throw validationFailed("You have already used this voucher the maximum number of times.");
+    throw validationFailed(
+      "You have already used this voucher the maximum number of times.",
+    );
   }
 
   const bonusAmountPaise = computeBonusPaise(voucher, topupAmountPaise);
@@ -203,7 +215,8 @@ export async function redeemVoucher(
     if (!voucher) throw validationFailed("That voucher code was not found.");
 
     const effective = resolveEffectiveStatus(voucher);
-    if (effective !== "ACTIVE") throw validationFailed(voucherStatusMessage(effective));
+    if (effective !== "ACTIVE")
+      throw validationFailed(voucherStatusMessage(effective));
     if (input.topupAmountPaise < voucher.minimumTopupPaise) {
       throw validationFailed(
         `This voucher requires a minimum top-up of ₹${voucher.minimumTopupPaise / 100}.`,
@@ -221,7 +234,9 @@ export async function redeemVoucher(
         ),
       );
     if (priorUses >= voucher.perCustomerLimit) {
-      throw validationFailed("You have already used this voucher the maximum number of times.");
+      throw validationFailed(
+        "You have already used this voucher the maximum number of times.",
+      );
     }
 
     const bonusAmountPaise = computeBonusPaise(voucher, input.topupAmountPaise);
@@ -232,23 +247,22 @@ export async function redeemVoucher(
       voucher.totalBudgetPaise != null &&
       voucher.budgetUsedPaise + bonusAmountPaise > voucher.totalBudgetPaise
     ) {
-      throw validationFailed("This voucher's promotional budget has been used up.");
+      throw validationFailed(
+        "This voucher's promotional budget has been used up.",
+      );
     }
 
-    const [redemption] = await tx
-      .insert(voucherRedemptions)
-      .values({
-        voucherId: voucher.id,
-        userId: input.userId,
-        walletId: input.walletId,
-        paymentId: input.paymentId,
-        topupAmountPaise: input.topupAmountPaise,
-        bonusPercent: voucher.bonusPercent,
-        bonusAmountPaise,
-        status: "APPLIED",
-        idempotencyKey,
-      })
-      .returning();
+    const [redemption] = await insertReturning(tx, voucherRedemptions, {
+      voucherId: voucher.id,
+      userId: input.userId,
+      walletId: input.walletId,
+      paymentId: input.paymentId,
+      topupAmountPaise: input.topupAmountPaise,
+      bonusPercent: voucher.bonusPercent,
+      bonusAmountPaise,
+      status: "APPLIED",
+      idempotencyKey,
+    });
 
     const newBudgetUsed = voucher.budgetUsedPaise + bonusAmountPaise;
     const newRedemptionCount = voucher.redemptionCount + 1;
@@ -257,9 +271,11 @@ export async function redeemVoucher(
       .set({
         budgetUsedPaise: newBudgetUsed,
         redemptionCount: newRedemptionCount,
-        status: resolveEffectiveStatus(
-          { ...voucher, budgetUsedPaise: newBudgetUsed, redemptionCount: newRedemptionCount },
-        ),
+        status: resolveEffectiveStatus({
+          ...voucher,
+          budgetUsedPaise: newBudgetUsed,
+          redemptionCount: newRedemptionCount,
+        }),
         updatedAt: new Date(),
       })
       .where(eq(vouchers.id, voucher.id));
@@ -309,7 +325,9 @@ function validateVoucherInput(input: VoucherInput): void {
     throw validationFailed("Voucher name must be at least 3 characters.");
   }
   if ((input.applyMode ?? "CODE") === "CODE" && !input.code?.trim()) {
-    throw validationFailed("A voucher code is required unless apply mode is AUTO_APPLY.");
+    throw validationFailed(
+      "A voucher code is required unless apply mode is AUTO_APPLY.",
+    );
   }
   if (
     !Number.isFinite(input.bonusPercent) ||
@@ -326,7 +344,10 @@ function validateVoucherInput(input: VoucherInput): void {
   if (input.maximumBonusPaise != null && input.maximumBonusPaise < 0) {
     throw validationFailed("Maximum bonus cannot be negative.");
   }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(input.endDate)) {
+  if (
+    !/^\d{4}-\d{2}-\d{2}$/.test(input.startDate) ||
+    !/^\d{4}-\d{2}-\d{2}$/.test(input.endDate)
+  ) {
     throw validationFailed("Dates must be in YYYY-MM-DD format.");
   }
   if (input.endDate < input.startDate) {
@@ -355,26 +376,23 @@ export async function createVoucher(
     if (existing) throw conflict(`Voucher code ${code} already exists.`);
   }
 
-  const [voucher] = await db
-    .insert(vouchers)
-    .values({
-      name: input.name.trim(),
-      code,
-      description: input.description ?? null,
-      termsAndConditions: input.termsAndConditions ?? null,
-      applyMode: input.applyMode ?? "CODE",
-      bonusPercent: input.bonusPercent,
-      minimumTopupPaise: input.minimumTopupPaise ?? 0,
-      maximumBonusPaise: input.maximumBonusPaise ?? null,
-      startDate: input.startDate,
-      endDate: input.endDate,
-      usageLimit: input.usageLimit ?? null,
-      perCustomerLimit: input.perCustomerLimit ?? 1,
-      totalBudgetPaise: input.totalBudgetPaise ?? null,
-      status: "ACTIVE",
-      createdBy: actor.id,
-    })
-    .returning();
+  const [voucher] = await insertReturning(db, vouchers, {
+    name: input.name.trim(),
+    code,
+    description: input.description ?? null,
+    termsAndConditions: input.termsAndConditions ?? null,
+    applyMode: input.applyMode ?? "CODE",
+    bonusPercent: input.bonusPercent,
+    minimumTopupPaise: input.minimumTopupPaise ?? 0,
+    maximumBonusPaise: input.maximumBonusPaise ?? null,
+    startDate: input.startDate,
+    endDate: input.endDate,
+    usageLimit: input.usageLimit ?? null,
+    perCustomerLimit: input.perCustomerLimit ?? 1,
+    totalBudgetPaise: input.totalBudgetPaise ?? null,
+    status: "ACTIVE",
+    createdBy: actor.id,
+  });
 
   await recordAudit({
     actorId: actor.id,
@@ -382,7 +400,11 @@ export async function createVoucher(
     action: AUDIT_ACTIONS.VOUCHER_CREATED,
     entityType: "voucher",
     entityId: voucher.id,
-    newValue: { name: voucher.name, code: voucher.code, bonusPercent: voucher.bonusPercent },
+    newValue: {
+      name: voucher.name,
+      code: voucher.code,
+      bonusPercent: voucher.bonusPercent,
+    },
   });
   return voucher;
 }
@@ -392,13 +414,16 @@ export async function updateVoucher(
   input: Partial<VoucherInput>,
   actor: Actor,
 ): Promise<Voucher> {
-  const current = await db.query.vouchers.findFirst({ where: eq(vouchers.id, id) });
+  const current = await db.query.vouchers.findFirst({
+    where: eq(vouchers.id, id),
+  });
   if (!current) throw notFound("Voucher");
 
   const merged: VoucherInput = {
     name: input.name ?? current.name,
     code: input.code !== undefined ? input.code : current.code,
-    description: input.description !== undefined ? input.description : current.description,
+    description:
+      input.description !== undefined ? input.description : current.description,
     termsAndConditions:
       input.termsAndConditions !== undefined
         ? input.termsAndConditions
@@ -407,13 +432,18 @@ export async function updateVoucher(
     bonusPercent: input.bonusPercent ?? current.bonusPercent,
     minimumTopupPaise: input.minimumTopupPaise ?? current.minimumTopupPaise,
     maximumBonusPaise:
-      input.maximumBonusPaise !== undefined ? input.maximumBonusPaise : current.maximumBonusPaise,
+      input.maximumBonusPaise !== undefined
+        ? input.maximumBonusPaise
+        : current.maximumBonusPaise,
     startDate: input.startDate ?? current.startDate,
     endDate: input.endDate ?? current.endDate,
-    usageLimit: input.usageLimit !== undefined ? input.usageLimit : current.usageLimit,
+    usageLimit:
+      input.usageLimit !== undefined ? input.usageLimit : current.usageLimit,
     perCustomerLimit: input.perCustomerLimit ?? current.perCustomerLimit,
     totalBudgetPaise:
-      input.totalBudgetPaise !== undefined ? input.totalBudgetPaise : current.totalBudgetPaise,
+      input.totalBudgetPaise !== undefined
+        ? input.totalBudgetPaise
+        : current.totalBudgetPaise,
   };
   validateVoucherInput(merged);
 
@@ -423,9 +453,10 @@ export async function updateVoucher(
     if (existing) throw conflict(`Voucher code ${code} already exists.`);
   }
 
-  const [updated] = await db
-    .update(vouchers)
-    .set({
+  const [updated] = await updateReturning(
+    db,
+    vouchers,
+    {
       name: merged.name.trim(),
       code,
       description: merged.description ?? null,
@@ -440,9 +471,9 @@ export async function updateVoucher(
       perCustomerLimit: merged.perCustomerLimit ?? 1,
       totalBudgetPaise: merged.totalBudgetPaise ?? null,
       updatedAt: new Date(),
-    })
-    .where(eq(vouchers.id, id))
-    .returning();
+    },
+    eq(vouchers.id, id),
+  );
 
   await recordAudit({
     actorId: actor.id,
@@ -450,7 +481,10 @@ export async function updateVoucher(
     action: AUDIT_ACTIONS.VOUCHER_UPDATED,
     entityType: "voucher",
     entityId: id,
-    previousValue: { bonusPercent: current.bonusPercent, status: current.status },
+    previousValue: {
+      bonusPercent: current.bonusPercent,
+      status: current.status,
+    },
     newValue: { bonusPercent: updated.bonusPercent, status: updated.status },
   });
   return updated;
@@ -461,20 +495,25 @@ export async function setVoucherStatus(
   status: "ACTIVE" | "PAUSED",
   actor: Actor,
 ): Promise<Voucher> {
-  const current = await db.query.vouchers.findFirst({ where: eq(vouchers.id, id) });
+  const current = await db.query.vouchers.findFirst({
+    where: eq(vouchers.id, id),
+  });
   if (!current) throw notFound("Voucher");
 
-  const [updated] = await db
-    .update(vouchers)
-    .set({ status, updatedAt: new Date() })
-    .where(eq(vouchers.id, id))
-    .returning();
+  const [updated] = await updateReturning(
+    db,
+    vouchers,
+    { status, updatedAt: new Date() },
+    eq(vouchers.id, id),
+  );
 
   await recordAudit({
     actorId: actor.id,
     actorRole: actor.role,
     action:
-      status === "ACTIVE" ? AUDIT_ACTIONS.VOUCHER_ACTIVATED : AUDIT_ACTIONS.VOUCHER_DEACTIVATED,
+      status === "ACTIVE"
+        ? AUDIT_ACTIONS.VOUCHER_ACTIVATED
+        : AUDIT_ACTIONS.VOUCHER_DEACTIVATED,
     entityType: "voucher",
     entityId: id,
     previousValue: { status: current.status },
@@ -485,15 +524,17 @@ export async function setVoucherStatus(
 
 /* -------------------------------------------------------------------- reads */
 
-export async function listVouchers(options: {
-  search?: string;
-  status?: VoucherStatus;
-  limit?: number;
-} = {}): Promise<Voucher[]> {
+export async function listVouchers(
+  options: {
+    search?: string;
+    status?: VoucherStatus;
+    limit?: number;
+  } = {},
+): Promise<Voucher[]> {
   const conditions = [];
   if (options.search) {
     const term = `%${options.search}%`;
-    conditions.push(or(ilike(vouchers.name, term), ilike(vouchers.code, term))!);
+    conditions.push(or(like(vouchers.name, term), like(vouchers.code, term))!);
   }
   if (options.status) conditions.push(eq(vouchers.status, options.status));
 
@@ -530,7 +571,12 @@ export async function getVoucherDashboard(): Promise<VoucherDashboard> {
     const effective = resolveEffectiveStatus(v, today);
     if (effective === "ACTIVE") active += 1;
     else if (effective === "EXPIRED") expired += 1;
-    else if (v.status !== "DRAFT" && v.status !== "PAUSED" && v.startDate > today) scheduled += 1;
+    else if (
+      v.status !== "DRAFT" &&
+      v.status !== "PAUSED" &&
+      v.startDate > today
+    )
+      scheduled += 1;
     budgetUsed += v.budgetUsedPaise;
     if (v.totalBudgetPaise != null) budgetTotal += v.totalBudgetPaise;
   }
@@ -562,10 +608,14 @@ export interface VoucherRedemptionFilters {
 
 export async function listRedemptions(filters: VoucherRedemptionFilters = {}) {
   const conditions = [];
-  if (filters.voucherId) conditions.push(eq(voucherRedemptions.voucherId, filters.voucherId));
-  if (filters.userId) conditions.push(eq(voucherRedemptions.userId, filters.userId));
-  if (filters.from) conditions.push(gte(voucherRedemptions.createdAt, new Date(filters.from)));
-  if (filters.to) conditions.push(lte(voucherRedemptions.createdAt, new Date(filters.to)));
+  if (filters.voucherId)
+    conditions.push(eq(voucherRedemptions.voucherId, filters.voucherId));
+  if (filters.userId)
+    conditions.push(eq(voucherRedemptions.userId, filters.userId));
+  if (filters.from)
+    conditions.push(gte(voucherRedemptions.createdAt, new Date(filters.from)));
+  if (filters.to)
+    conditions.push(lte(voucherRedemptions.createdAt, new Date(filters.to)));
 
   return db
     .select({
@@ -627,8 +677,18 @@ function parseVoucherDate(raw: unknown): string | null {
   }
 
   const months: Record<string, string> = {
-    jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
-    jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12",
+    jan: "01",
+    feb: "02",
+    mar: "03",
+    apr: "04",
+    may: "05",
+    jun: "06",
+    jul: "07",
+    aug: "08",
+    sep: "09",
+    oct: "10",
+    nov: "11",
+    dec: "12",
   };
   const dmon = text.match(/^(\d{1,2})[- ]([A-Za-z]{3,})[- ]?(\d{4})?$/);
   if (dmon) {
@@ -673,11 +733,18 @@ async function parseVoucherWorkbook(
   buffer: ArrayBuffer,
   fileName: string,
 ): Promise<VoucherUploadPreviewRow[]> {
-  if (!fileName.toLowerCase().endsWith(".xlsx") && !fileName.toLowerCase().endsWith(".xlsm")) {
-    throw validationFailed("Upload an .xlsx file exported from Excel or Sheets.");
+  if (
+    !fileName.toLowerCase().endsWith(".xlsx") &&
+    !fileName.toLowerCase().endsWith(".xlsm")
+  ) {
+    throw validationFailed(
+      "Upload an .xlsx file exported from Excel or Sheets.",
+    );
   }
   if (buffer.byteLength > MAX_UPLOAD_BYTES) {
-    throw validationFailed(`File is too large. The limit is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`);
+    throw validationFailed(
+      `File is too large. The limit is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`,
+    );
   }
 
   const workbook = new ExcelJS.Workbook();
@@ -693,12 +760,19 @@ async function parseVoucherWorkbook(
   const headerRow = sheet.getRow(1);
   const columns = new Map<number, string>();
   headerRow.eachCell((cell, colNumber) => {
-    const key = String(cell.value ?? "").trim().toLowerCase();
+    const key = String(cell.value ?? "")
+      .trim()
+      .toLowerCase();
     const field = VOUCHER_COLUMN_ALIASES[key];
     if (field) columns.set(colNumber, field);
   });
-  if (!Array.from(columns.values()).includes("code") && !Array.from(columns.values()).includes("name")) {
-    throw validationFailed('The sheet needs at least "Voucher Name" and "Voucher Code" columns.');
+  if (
+    !Array.from(columns.values()).includes("code") &&
+    !Array.from(columns.values()).includes("name")
+  ) {
+    throw validationFailed(
+      'The sheet needs at least "Voucher Name" and "Voucher Code" columns.',
+    );
   }
 
   const rows: VoucherUploadPreviewRow[] = [];
@@ -711,17 +785,28 @@ async function parseVoucherWorkbook(
     const raw: Record<string, unknown> = {};
     for (const [colNumber, field] of columns) {
       const cell = row.getCell(colNumber);
-      raw[field] = field === "startDate" || field === "endDate" ? cell.value : sanitiseCell(cell.value);
+      raw[field] =
+        field === "startDate" || field === "endDate"
+          ? cell.value
+          : sanitiseCell(cell.value);
     }
-    const hasContent = Object.values(raw).some((v) => v != null && String(v) !== "");
+    const hasContent = Object.values(raw).some(
+      (v) => v != null && String(v) !== "",
+    );
     if (!hasContent) return;
 
     const name = String(raw.name ?? "").trim();
-    const code = String(raw.code ?? "").trim().toUpperCase();
+    const code = String(raw.code ?? "")
+      .trim()
+      .toUpperCase();
     const bonusPercent = parseIntCell(raw.bonusPercent);
-    const minimumTopupPaise = raw.minimumTopup != null ? (parseIntCell(raw.minimumTopup) ?? 0) * 100 : 0;
+    const minimumTopupPaise =
+      raw.minimumTopup != null
+        ? (parseIntCell(raw.minimumTopup) ?? 0) * 100
+        : 0;
     const maximumBonusRaw = parseIntCell(raw.maximumBonus);
-    const maximumBonusPaise = maximumBonusRaw != null ? maximumBonusRaw * 100 : null;
+    const maximumBonusPaise =
+      maximumBonusRaw != null ? maximumBonusRaw * 100 : null;
     const startDate = parseVoucherDate(raw.startDate);
     const endDate = parseVoucherDate(raw.endDate);
 
@@ -737,14 +822,26 @@ async function parseVoucherWorkbook(
     };
 
     if (!name || !code) {
-      rows.push({ ...base, status: "INVALID", errorMessage: "Voucher name and code are both required." });
+      rows.push({
+        ...base,
+        status: "INVALID",
+        errorMessage: "Voucher name and code are both required.",
+      });
       return;
     }
     if (seenInFile.has(code)) {
-      rows.push({ ...base, status: "DUPLICATE_IN_FILE", errorMessage: `${code} appears more than once in this file.` });
+      rows.push({
+        ...base,
+        status: "DUPLICATE_IN_FILE",
+        errorMessage: `${code} appears more than once in this file.`,
+      });
       return;
     }
-    if (bonusPercent == null || bonusPercent <= 0 || bonusPercent > MAX_VOUCHER_BONUS_PERCENT) {
+    if (
+      bonusPercent == null ||
+      bonusPercent <= 0 ||
+      bonusPercent > MAX_VOUCHER_BONUS_PERCENT
+    ) {
       rows.push({
         ...base,
         status: "INVALID",
@@ -753,11 +850,19 @@ async function parseVoucherWorkbook(
       return;
     }
     if (!startDate || !endDate) {
-      rows.push({ ...base, status: "INVALID", errorMessage: "Start Date and End Date must be valid dates." });
+      rows.push({
+        ...base,
+        status: "INVALID",
+        errorMessage: "Start Date and End Date must be valid dates.",
+      });
       return;
     }
     if (endDate < startDate) {
-      rows.push({ ...base, status: "INVALID", errorMessage: "End Date must be on or after Start Date." });
+      rows.push({
+        ...base,
+        status: "INVALID",
+        errorMessage: "End Date must be on or after Start Date.",
+      });
       return;
     }
 
@@ -780,13 +885,20 @@ export async function validateVoucherUpload(
   // in-file duplicate check parseVoucherWorkbook already did.
   const codes = parsed.filter((r) => r.status === "VALID").map((r) => r.code);
   const existing = codes.length
-    ? await db.select({ code: vouchers.code }).from(vouchers).where(inArray(vouchers.code, codes))
+    ? await db
+        .select({ code: vouchers.code })
+        .from(vouchers)
+        .where(inArray(vouchers.code, codes))
     : [];
   const existingCodes = new Set(existing.map((r) => r.code));
 
   const rows = parsed.map((row) =>
     row.status === "VALID" && existingCodes.has(row.code)
-      ? { ...row, status: "DUPLICATE_EXISTING" as const, errorMessage: `Voucher code ${row.code} already exists.` }
+      ? {
+          ...row,
+          status: "DUPLICATE_EXISTING" as const,
+          errorMessage: `Voucher code ${row.code} already exists.`,
+        }
       : row,
   );
 
@@ -794,21 +906,21 @@ export async function validateVoucherUpload(
     total: rows.length,
     valid: rows.filter((r) => r.status === "VALID").length,
     invalid: rows.filter((r) => r.status === "INVALID").length,
-    duplicate: rows.filter((r) => r.status === "DUPLICATE_IN_FILE" || r.status === "DUPLICATE_EXISTING").length,
+    duplicate: rows.filter(
+      (r) =>
+        r.status === "DUPLICATE_IN_FILE" || r.status === "DUPLICATE_EXISTING",
+    ).length,
   };
 
-  const [upload] = await db
-    .insert(voucherUploads)
-    .values({
-      uploadedBy: actor.id,
-      fileName: input.fileName,
-      status: "VALIDATED",
-      totalRecords: counts.total,
-      successfulRecords: counts.valid,
-      failedRecords: counts.total - counts.valid,
-      summary: counts,
-    })
-    .returning();
+  const [upload] = await insertReturning(db, voucherUploads, {
+    uploadedBy: actor.id,
+    fileName: input.fileName,
+    status: "VALIDATED",
+    totalRecords: counts.total,
+    successfulRecords: counts.valid,
+    failedRecords: counts.total - counts.valid,
+    summary: counts,
+  });
 
   if (rows.length > 0) {
     await db.insert(voucherUploadItems).values(
@@ -849,32 +961,36 @@ export async function applyVoucherUpload(
       .for("update");
     if (!upload) throw notFound("Voucher upload");
     if (upload.status !== "VALIDATED") {
-      throw conflict(`This upload has already been ${upload.status.toLowerCase()}.`);
+      throw conflict(
+        `This upload has already been ${upload.status.toLowerCase()}.`,
+      );
     }
 
     const items = await tx
       .select()
       .from(voucherUploadItems)
-      .where(and(eq(voucherUploadItems.uploadId, uploadId), eq(voucherUploadItems.status, "VALID")));
+      .where(
+        and(
+          eq(voucherUploadItems.uploadId, uploadId),
+          eq(voucherUploadItems.status, "VALID"),
+        ),
+      );
 
     let created = 0;
     for (const item of items) {
       const raw = item.rawData as unknown as VoucherUploadPreviewRow;
-      const [voucher] = await tx
-        .insert(vouchers)
-        .values({
-          name: raw.name,
-          code: raw.code,
-          applyMode: "CODE",
-          bonusPercent: raw.bonusPercent!,
-          minimumTopupPaise: raw.minimumTopupPaise ?? 0,
-          maximumBonusPaise: raw.maximumBonusPaise,
-          startDate: raw.startDate!,
-          endDate: raw.endDate!,
-          status: "ACTIVE",
-          createdBy: actor.id,
-        })
-        .returning();
+      const [voucher] = await insertReturning(tx, vouchers, {
+        name: raw.name,
+        code: raw.code,
+        applyMode: "CODE",
+        bonusPercent: raw.bonusPercent!,
+        minimumTopupPaise: raw.minimumTopupPaise ?? 0,
+        maximumBonusPaise: raw.maximumBonusPaise,
+        startDate: raw.startDate!,
+        endDate: raw.endDate!,
+        status: "ACTIVE",
+        createdBy: actor.id,
+      });
       created += 1;
 
       await tx
@@ -883,7 +999,10 @@ export async function applyVoucherUpload(
         .where(eq(voucherUploadItems.id, item.id));
     }
 
-    await tx.update(voucherUploads).set({ status: "APPLIED", appliedAt: new Date() }).where(eq(voucherUploads.id, uploadId));
+    await tx
+      .update(voucherUploads)
+      .set({ status: "APPLIED", appliedAt: new Date() })
+      .where(eq(voucherUploads.id, uploadId));
 
     await recordAudit(
       {
@@ -901,8 +1020,13 @@ export async function applyVoucherUpload(
   });
 }
 
-export async function getUploadPreview(uploadId: string): Promise<VoucherUploadPreview> {
-  const [upload] = await db.select().from(voucherUploads).where(eq(voucherUploads.id, uploadId));
+export async function getUploadPreview(
+  uploadId: string,
+): Promise<VoucherUploadPreview> {
+  const [upload] = await db
+    .select()
+    .from(voucherUploads)
+    .where(eq(voucherUploads.id, uploadId));
   if (!upload) throw notFound("Voucher upload");
 
   const items = await db
@@ -926,7 +1050,10 @@ export async function getUploadPreview(uploadId: string): Promise<VoucherUploadP
       total: upload.totalRecords,
       valid: upload.successfulRecords,
       invalid: rows.filter((r) => r.status === "INVALID").length,
-      duplicate: rows.filter((r) => r.status === "DUPLICATE_IN_FILE" || r.status === "DUPLICATE_EXISTING").length,
+      duplicate: rows.filter(
+        (r) =>
+          r.status === "DUPLICATE_IN_FILE" || r.status === "DUPLICATE_EXISTING",
+      ).length,
     },
   };
 }
@@ -934,16 +1061,36 @@ export async function getUploadPreview(uploadId: string): Promise<VoucherUploadP
 export async function buildVoucherTemplate(): Promise<ArrayBuffer> {
   const workbook = new ExcelJS.Workbook();
   const sheet = workbook.addWorksheet("Vouchers");
-  sheet.columns = VOUCHER_TEMPLATE_COLUMNS.map((header) => ({ header, width: 16 }));
+  sheet.columns = VOUCHER_TEMPLATE_COLUMNS.map((header) => ({
+    header,
+    width: 16,
+  }));
   sheet.getRow(1).font = { bold: true };
-  sheet.addRow(["Diwali 10% Bonus", "DIWALI10", 10, 500, 500, "2026-09-01", "2026-09-30"]);
+  sheet.addRow([
+    "Diwali 10% Bonus",
+    "DIWALI10",
+    10,
+    500,
+    500,
+    "2026-09-01",
+    "2026-09-30",
+  ]);
 
   const notes = workbook.addWorksheet("How to use");
   notes.addRows([
-    ["Required columns", "Voucher Name, Voucher Code, Bonus %, Start Date, End Date"],
-    ["Optional columns", "Min Top-Up, Max Bonus (in rupees), Usage Limit, Per Customer Limit, Total Budget"],
+    [
+      "Required columns",
+      "Voucher Name, Voucher Code, Bonus %, Start Date, End Date",
+    ],
+    [
+      "Optional columns",
+      "Min Top-Up, Max Bonus (in rupees), Usage Limit, Per Customer Limit, Total Budget",
+    ],
     ["Dates", "Use YYYY-MM-DD, or a real Excel date cell"],
-    ["Voucher Code", "Must be unique — duplicates within the file or against existing vouchers are rejected"],
+    [
+      "Voucher Code",
+      "Must be unique — duplicates within the file or against existing vouchers are rejected",
+    ],
   ]);
 
   return workbook.xlsx.writeBuffer() as Promise<ArrayBuffer>;

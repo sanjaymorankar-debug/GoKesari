@@ -11,6 +11,7 @@ import { forbidden, notFound, validationFailed } from "@/lib/errors";
 import { db } from "@/server/db";
 import { addresses, type Address } from "@/server/db/schema";
 import { resolveLocationVerification } from "./geocoding";
+import { insertReturning, updateReturning } from "@/server/db/returning";
 
 export interface SaveAddressInput {
   label?: string | null;
@@ -37,8 +38,13 @@ function validate(input: SaveAddressInput): void {
   if (!/^\d{6}$/.test(input.pincode.trim())) {
     throw validationFailed("Enter a valid 6-digit PIN code.");
   }
-  if (input.recipientPhone && !/^[6-9]\d{9}$/.test(input.recipientPhone.trim())) {
-    throw validationFailed("Enter a valid 10-digit mobile number for the recipient.");
+  if (
+    input.recipientPhone &&
+    !/^[6-9]\d{9}$/.test(input.recipientPhone.trim())
+  ) {
+    throw validationFailed(
+      "Enter a valid 10-digit mobile number for the recipient.",
+    );
   }
 }
 
@@ -55,36 +61,41 @@ export async function createAddress(
   validate(input);
 
   const { locationVerified, locationVerifiedAt, locationSource } =
-    await resolveLocationVerification(input.latitude, input.longitude, "address_save", "address");
+    await resolveLocationVerification(
+      input.latitude,
+      input.longitude,
+      "address_save",
+      "address",
+    );
 
   if (input.isDefault) {
-    await db.update(addresses).set({ isDefault: false }).where(eq(addresses.userId, userId));
+    await db
+      .update(addresses)
+      .set({ isDefault: false })
+      .where(eq(addresses.userId, userId));
   }
 
-  const [address] = await db
-    .insert(addresses)
-    .values({
-      userId,
-      label: input.label ?? null,
-      recipientName: input.recipientName?.trim() || null,
-      recipientPhone: input.recipientPhone?.trim() || null,
-      addressType: input.addressType ?? "OTHER",
-      line1: input.line1.trim(),
-      line2: input.line2?.trim() || null,
-      area: input.area?.trim() || null,
-      city: input.city.trim(),
-      state: input.state?.trim() || null,
-      pincode: input.pincode.trim(),
-      landmark: input.landmark?.trim() || null,
-      deliveryInstructions: input.deliveryInstructions?.trim() || null,
-      latitude: input.latitude != null ? String(input.latitude) : null,
-      longitude: input.longitude != null ? String(input.longitude) : null,
-      locationVerified,
-      locationVerifiedAt,
-      locationSource,
-      isDefault: input.isDefault ?? false,
-    })
-    .returning();
+  const [address] = await insertReturning(db, addresses, {
+    userId,
+    label: input.label ?? null,
+    recipientName: input.recipientName?.trim() || null,
+    recipientPhone: input.recipientPhone?.trim() || null,
+    addressType: input.addressType ?? "OTHER",
+    line1: input.line1.trim(),
+    line2: input.line2?.trim() || null,
+    area: input.area?.trim() || null,
+    city: input.city.trim(),
+    state: input.state?.trim() || null,
+    pincode: input.pincode.trim(),
+    landmark: input.landmark?.trim() || null,
+    deliveryInstructions: input.deliveryInstructions?.trim() || null,
+    latitude: input.latitude != null ? String(input.latitude) : null,
+    longitude: input.longitude != null ? String(input.longitude) : null,
+    locationVerified,
+    locationVerifiedAt,
+    locationSource,
+    isDefault: input.isDefault ?? false,
+  });
 
   return address;
 }
@@ -97,28 +108,48 @@ export async function updateAddress(
   validate(input);
 
   const existing = await db.query.addresses.findFirst({
-    where: and(eq(addresses.id, addressId), eq(addresses.userId, userId), isNull(addresses.deletedAt)),
+    where: and(
+      eq(addresses.id, addressId),
+      eq(addresses.userId, userId),
+      isNull(addresses.deletedAt),
+    ),
   });
   if (!existing) throw notFound("Address");
 
   const coordinatesChanged =
     input.latitude != null &&
     input.longitude != null &&
-    (String(input.latitude) !== existing.latitude || String(input.longitude) !== existing.longitude);
+    (String(input.latitude) !== existing.latitude ||
+      String(input.longitude) !== existing.longitude);
 
   // Re-verify only if the pin actually moved — an update that leaves
   // coordinates untouched keeps whatever verification status it already had.
-  const { locationVerified, locationVerifiedAt, locationSource } = coordinatesChanged
-    ? await resolveLocationVerification(input.latitude, input.longitude, "address_update", "address", addressId)
-    : { locationVerified: existing.locationVerified, locationVerifiedAt: existing.locationVerifiedAt, locationSource: existing.locationSource };
+  const { locationVerified, locationVerifiedAt, locationSource } =
+    coordinatesChanged
+      ? await resolveLocationVerification(
+          input.latitude,
+          input.longitude,
+          "address_update",
+          "address",
+          addressId,
+        )
+      : {
+          locationVerified: existing.locationVerified,
+          locationVerifiedAt: existing.locationVerifiedAt,
+          locationSource: existing.locationSource,
+        };
 
   if (input.isDefault) {
-    await db.update(addresses).set({ isDefault: false }).where(eq(addresses.userId, userId));
+    await db
+      .update(addresses)
+      .set({ isDefault: false })
+      .where(eq(addresses.userId, userId));
   }
 
-  const [updated] = await db
-    .update(addresses)
-    .set({
+  const [updated] = await updateReturning(
+    db,
+    addresses,
+    {
       label: input.label ?? null,
       recipientName: input.recipientName?.trim() || null,
       recipientPhone: input.recipientPhone?.trim() || null,
@@ -131,15 +162,17 @@ export async function updateAddress(
       pincode: input.pincode.trim(),
       landmark: input.landmark?.trim() || null,
       deliveryInstructions: input.deliveryInstructions?.trim() || null,
-      latitude: input.latitude != null ? String(input.latitude) : existing.latitude,
-      longitude: input.longitude != null ? String(input.longitude) : existing.longitude,
+      latitude:
+        input.latitude != null ? String(input.latitude) : existing.latitude,
+      longitude:
+        input.longitude != null ? String(input.longitude) : existing.longitude,
       locationVerified,
       locationVerifiedAt,
       locationSource,
       isDefault: input.isDefault ?? existing.isDefault,
-    })
-    .where(eq(addresses.id, addressId))
-    .returning();
+    },
+    eq(addresses.id, addressId),
+  );
 
   return updated;
 }
@@ -151,20 +184,34 @@ export async function listAddresses(userId: string): Promise<Address[]> {
   });
 }
 
-export async function getAddress(userId: string, addressId: string): Promise<Address> {
+export async function getAddress(
+  userId: string,
+  addressId: string,
+): Promise<Address> {
   const address = await db.query.addresses.findFirst({
-    where: and(eq(addresses.id, addressId), eq(addresses.userId, userId), isNull(addresses.deletedAt)),
+    where: and(
+      eq(addresses.id, addressId),
+      eq(addresses.userId, userId),
+      isNull(addresses.deletedAt),
+    ),
   });
   if (!address) throw notFound("Address");
   return address;
 }
 
-export async function deleteAddress(userId: string, addressId: string): Promise<void> {
+export async function deleteAddress(
+  userId: string,
+  addressId: string,
+): Promise<void> {
   const existing = await db.query.addresses.findFirst({
     where: and(eq(addresses.id, addressId), isNull(addresses.deletedAt)),
   });
   if (!existing) throw notFound("Address");
-  if (existing.userId !== userId) throw forbidden("This address does not belong to you.");
+  if (existing.userId !== userId)
+    throw forbidden("This address does not belong to you.");
 
-  await db.update(addresses).set({ deletedAt: new Date() }).where(eq(addresses.id, addressId));
+  await db
+    .update(addresses)
+    .set({ deletedAt: new Date() })
+    .where(eq(addresses.id, addressId));
 }

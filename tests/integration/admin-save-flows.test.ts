@@ -10,10 +10,18 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { UserRole } from "@/server/db/schema";
+import { keepExisting } from "@/server/db/returning";
 
 const state = vi.hoisted(() => ({
   session: null as null | {
-    user: { id: string; email: string; name: string | null; image: string | null; role: UserRole; status: "ACTIVE" };
+    user: {
+      id: string;
+      email: string;
+      name: string | null;
+      image: string | null;
+      role: UserRole;
+      status: "ACTIVE";
+    };
   },
 }));
 
@@ -27,23 +35,46 @@ vi.mock("@/server/auth", () => ({
 import { PATCH as categoryPatch } from "@/app/api/shop-categories/[id]/route";
 import { POST as categoriesPost } from "@/app/api/shop-categories/route";
 import { PATCH as profilePatch } from "@/app/api/users/[id]/route";
-import { GET as privilegesGet, PATCH as privilegesPatch } from "@/app/api/users/[id]/privileges/route";
+import {
+  GET as privilegesGet,
+  PATCH as privilegesPatch,
+} from "@/app/api/users/[id]/privileges/route";
 import { resetRateLimits } from "@/server/api/rate-limit";
 import { db } from "@/server/db";
-import { auditLogs, shopCategories, userRoleGrants, users } from "@/server/db/schema";
+import {
+  auditLogs,
+  shopCategories,
+  userRoleGrants,
+  users,
+} from "@/server/db/schema";
 import { AUDIT_ACTIONS } from "@/server/services/audit";
 import { call } from "../helpers/http";
 import { createUser, resetDatabase } from "../helpers/fixtures";
 
-function signIn(user: { id: string; email: string; name: string | null; role: UserRole }) {
+function signIn(user: {
+  id: string;
+  email: string;
+  name: string | null;
+  role: UserRole;
+}) {
   state.session = {
-    user: { id: user.id, email: user.email, name: user.name, image: null, role: user.role, status: "ACTIVE" },
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      image: null,
+      role: user.role,
+      status: "ACTIVE",
+    },
   };
 }
 
 /** Gives a user an ACTIVE grant, as the real role flows do. */
 async function grant(userId: string, role: UserRole) {
-  await db.insert(userRoleGrants).values({ userId, role, source: "ADMIN" }).onConflictDoNothing();
+  await db
+    .insert(userRoleGrants)
+    .values({ userId, role, source: "ADMIN" })
+    .onDuplicateKeyUpdate({ set: keepExisting(userRoleGrants) });
 }
 
 async function latestAudit(action: string, entityId: string) {
@@ -64,7 +95,8 @@ async function latestAudit(action: string, entityId: string) {
  * its categories uniquely and the ids are dropped afterwards.
  */
 let counter = 0;
-const uniqueName = (stem: string) => `${stem} ${Date.now().toString(36)}${(counter += 1)}`;
+const uniqueName = (stem: string) =>
+  `${stem} ${Date.now().toString(36)}${(counter += 1)}`;
 let createdCategoryIds: string[] = [];
 
 beforeEach(async () => {
@@ -76,7 +108,9 @@ beforeEach(async () => {
 
 afterEach(async () => {
   if (createdCategoryIds.length > 0) {
-    await db.delete(shopCategories).where(inArray(shopCategories.id, createdCategoryIds));
+    await db
+      .delete(shopCategories)
+      .where(inArray(shopCategories.id, createdCategoryIds));
   }
 });
 
@@ -95,17 +129,24 @@ describe("screen 1 — shop category save", () => {
     expect(created.status).toBe(201);
     createdCategoryIds.push(created.body.id);
 
-    const renamed = await call(categoryPatch, `/api/shop-categories/${created.body.id}`, {
-      method: "PATCH",
-      params: { id: created.body.id },
-      body: { name: after, description: null, status: "ACTIVE" },
-    });
+    const renamed = await call(
+      categoryPatch,
+      `/api/shop-categories/${created.body.id}`,
+      {
+        method: "PATCH",
+        params: { id: created.body.id },
+        body: { name: after, description: null, status: "ACTIVE" },
+      },
+    );
     expect(renamed.status).toBe(200);
     expect(renamed.body.name).toBe(after);
     // The screen builds "Category updated: <before> → <after>" from this.
     expect(renamed.body.previous.name).toBe(before);
 
-    const entry = await latestAudit(AUDIT_ACTIONS.SHOP_CATEGORY_SAVED, created.body.id);
+    const entry = await latestAudit(
+      AUDIT_ACTIONS.SHOP_CATEGORY_SAVED,
+      created.body.id,
+    );
     expect(entry.actorId).toBe(admin.id);
     expect(entry.previousValue).toMatchObject({ name: before });
     expect(entry.newValue).toMatchObject({ name: after });
@@ -116,19 +157,29 @@ describe("screen 1 — shop category save", () => {
     const admin = await createUser({ role: "ADMIN" });
     signIn(admin);
     const name = uniqueName("Bakery");
-    const created = await call(categoriesPost, "/api/shop-categories", { method: "POST", body: { name } });
+    const created = await call(categoriesPost, "/api/shop-categories", {
+      method: "POST",
+      body: { name },
+    });
     expect(created.status).toBe(201);
     createdCategoryIds.push(created.body.id);
 
-    const tooShort = await call(categoryPatch, `/api/shop-categories/${created.body.id}`, {
-      method: "PATCH",
-      params: { id: created.body.id },
-      body: { name: "B" },
-    });
+    const tooShort = await call(
+      categoryPatch,
+      `/api/shop-categories/${created.body.id}`,
+      {
+        method: "PATCH",
+        params: { id: created.body.id },
+        body: { name: "B" },
+      },
+    );
     expect(tooShort.status).toBe(422);
 
     // Nothing was written: the admin's unsaved edit is theirs to fix and retry.
-    const [row] = await db.select().from(shopCategories).where(eq(shopCategories.id, created.body.id));
+    const [row] = await db
+      .select()
+      .from(shopCategories)
+      .where(eq(shopCategories.id, created.body.id));
     expect(row.name).toBe(name);
   });
 
@@ -152,26 +203,41 @@ describe("screen 2 — admin privileges save", () => {
     await grant(target.id, "SHOP_OWNER");
     signIn(admin);
 
-    const res = await call(privilegesPatch, `/api/users/${target.id}/privileges`, {
-      method: "PATCH",
-      params: { id: target.id },
-      body: { activeRole: "OPERATOR", heldRoles: ["CUSTOMER", "OPERATOR"] },
-    });
+    const res = await call(
+      privilegesPatch,
+      `/api/users/${target.id}/privileges`,
+      {
+        method: "PATCH",
+        params: { id: target.id },
+        body: { activeRole: "OPERATOR", heldRoles: ["CUSTOMER", "OPERATOR"] },
+      },
+    );
     expect(res.status).toBe(200);
     expect(res.body.changed).toBe(true);
     expect(res.body.previous).toMatchObject({ activeRole: "SHOP_OWNER" });
     expect(res.body.next).toMatchObject({ activeRole: "OPERATOR" });
 
-    const [saved] = await db.select({ role: users.role }).from(users).where(eq(users.id, target.id));
+    const [saved] = await db
+      .select({ role: users.role })
+      .from(users)
+      .where(eq(users.id, target.id));
     expect(saved.role).toBe("OPERATOR");
 
     const held = await db
       .select({ role: userRoleGrants.role })
       .from(userRoleGrants)
-      .where(and(eq(userRoleGrants.userId, target.id), eq(userRoleGrants.status, "ACTIVE")));
+      .where(
+        and(
+          eq(userRoleGrants.userId, target.id),
+          eq(userRoleGrants.status, "ACTIVE"),
+        ),
+      );
     expect(held.map((h) => h.role).sort()).toEqual(["OPERATOR"]);
 
-    const entry = await latestAudit(AUDIT_ACTIONS.USER_PRIVILEGES_UPDATED, target.id);
+    const entry = await latestAudit(
+      AUDIT_ACTIONS.USER_PRIVILEGES_UPDATED,
+      target.id,
+    );
     expect(entry.actorId).toBe(admin.id);
     expect(entry.previousValue).toMatchObject({ activeRole: "SHOP_OWNER" });
     expect(entry.newValue).toMatchObject({ activeRole: "OPERATOR" });
@@ -184,15 +250,24 @@ describe("screen 2 — admin privileges save", () => {
     await grant(other.id, "ADMIN");
     signIn(admin);
 
-    const res = await call(privilegesPatch, `/api/users/${admin.id}/privileges`, {
-      method: "PATCH",
-      params: { id: admin.id },
-      body: { activeRole: "CUSTOMER", heldRoles: ["CUSTOMER"] },
-    });
+    const res = await call(
+      privilegesPatch,
+      `/api/users/${admin.id}/privileges`,
+      {
+        method: "PATCH",
+        params: { id: admin.id },
+        body: { activeRole: "CUSTOMER", heldRoles: ["CUSTOMER"] },
+      },
+    );
     expect(res.status).toBe(403);
-    expect(JSON.stringify(res.body)).toContain("your own last administrator right");
+    expect(JSON.stringify(res.body)).toContain(
+      "your own last administrator right",
+    );
 
-    const [unchanged] = await db.select({ role: users.role }).from(users).where(eq(users.id, admin.id));
+    const [unchanged] = await db
+      .select({ role: users.role })
+      .from(users)
+      .where(eq(users.id, admin.id));
     expect(unchanged.role).toBe("ADMIN");
   });
 
@@ -204,15 +279,24 @@ describe("screen 2 — admin privileges save", () => {
 
     // The acting admin's own grant is removed first, so the target is the last one.
     await db.delete(userRoleGrants).where(eq(userRoleGrants.userId, admin.id));
-    await db.update(users).set({ role: "OPERATOR" }).where(eq(users.id, admin.id));
+    await db
+      .update(users)
+      .set({ role: "OPERATOR" })
+      .where(eq(users.id, admin.id));
 
-    const res = await call(privilegesPatch, `/api/users/${soleOther.id}/privileges`, {
-      method: "PATCH",
-      params: { id: soleOther.id },
-      body: { activeRole: "CUSTOMER", heldRoles: ["CUSTOMER"] },
-    });
+    const res = await call(
+      privilegesPatch,
+      `/api/users/${soleOther.id}/privileges`,
+      {
+        method: "PATCH",
+        params: { id: soleOther.id },
+        body: { activeRole: "CUSTOMER", heldRoles: ["CUSTOMER"] },
+      },
+    );
     expect(res.status).toBe(409);
-    expect(JSON.stringify(res.body)).toContain("only administrator account left");
+    expect(JSON.stringify(res.body)).toContain(
+      "only administrator account left",
+    );
   });
 
   it("rejects a draft whose active role is not held, and one holding both staff roles", async () => {
@@ -223,21 +307,35 @@ describe("screen 2 — admin privileges save", () => {
     const target = await createUser({ role: "CUSTOMER" });
     signIn(admin);
 
-    const notHeld = await call(privilegesPatch, `/api/users/${target.id}/privileges`, {
-      method: "PATCH",
-      params: { id: target.id },
-      body: { activeRole: "OPERATOR", heldRoles: ["CUSTOMER"] },
-    });
+    const notHeld = await call(
+      privilegesPatch,
+      `/api/users/${target.id}/privileges`,
+      {
+        method: "PATCH",
+        params: { id: target.id },
+        body: { activeRole: "OPERATOR", heldRoles: ["CUSTOMER"] },
+      },
+    );
     expect(notHeld.status).toBe(422);
 
-    const bothStaff = await call(privilegesPatch, `/api/users/${target.id}/privileges`, {
-      method: "PATCH",
-      params: { id: target.id },
-      body: { activeRole: "ADMIN", heldRoles: ["CUSTOMER", "OPERATOR", "ADMIN"] },
-    });
+    const bothStaff = await call(
+      privilegesPatch,
+      `/api/users/${target.id}/privileges`,
+      {
+        method: "PATCH",
+        params: { id: target.id },
+        body: {
+          activeRole: "ADMIN",
+          heldRoles: ["CUSTOMER", "OPERATOR", "ADMIN"],
+        },
+      },
+    );
     expect(bothStaff.status).toBe(422);
 
-    const [untouched] = await db.select({ role: users.role }).from(users).where(eq(users.id, target.id));
+    const [untouched] = await db
+      .select({ role: users.role })
+      .from(users)
+      .where(eq(users.id, target.id));
     expect(untouched.role).toBe("CUSTOMER");
   });
 
@@ -246,14 +344,22 @@ describe("screen 2 — admin privileges save", () => {
     const target = await createUser({ role: "CUSTOMER" });
     signIn(operator);
 
-    const read = await call(privilegesGet, `/api/users/${target.id}/privileges`, { params: { id: target.id } });
+    const read = await call(
+      privilegesGet,
+      `/api/users/${target.id}/privileges`,
+      { params: { id: target.id } },
+    );
     expect(read.status).toBe(403);
 
-    const write = await call(privilegesPatch, `/api/users/${target.id}/privileges`, {
-      method: "PATCH",
-      params: { id: target.id },
-      body: { activeRole: "ADMIN", heldRoles: ["CUSTOMER", "ADMIN"] },
-    });
+    const write = await call(
+      privilegesPatch,
+      `/api/users/${target.id}/privileges`,
+      {
+        method: "PATCH",
+        params: { id: target.id },
+        body: { activeRole: "ADMIN", heldRoles: ["CUSTOMER", "ADMIN"] },
+      },
+    );
     expect(write.status).toBe(403);
   });
 });
@@ -278,7 +384,10 @@ describe("screen 3 — admin user profile save", () => {
       .where(eq(users.id, target.id));
     expect(saved).toMatchObject({ name: "New Name", phone: "+919876543210" });
 
-    const entry = await latestAudit(AUDIT_ACTIONS.USER_PROFILE_UPDATED, target.id);
+    const entry = await latestAudit(
+      AUDIT_ACTIONS.USER_PROFILE_UPDATED,
+      target.id,
+    );
     expect(entry.actorId).toBe(admin.id);
     expect(entry.previousValue).toMatchObject({ name: "Old Name" });
     expect(entry.newValue).toMatchObject({ name: "New Name" });
@@ -296,7 +405,10 @@ describe("screen 3 — admin user profile save", () => {
     });
     expect(res.status).toBe(422);
 
-    const [unchanged] = await db.select({ name: users.name }).from(users).where(eq(users.id, target.id));
+    const [unchanged] = await db
+      .select({ name: users.name })
+      .from(users)
+      .where(eq(users.id, target.id));
     expect(unchanged.name).toBe("Keep Me");
   });
 
@@ -320,7 +432,10 @@ describe("screen 3 — admin user profile save", () => {
     expect(withReason.status).toBe(200);
     expect(withReason.body.status).toBe("SUSPENDED");
 
-    const [saved] = await db.select({ status: users.status }).from(users).where(eq(users.id, target.id));
+    const [saved] = await db
+      .select({ status: users.status })
+      .from(users)
+      .where(eq(users.id, target.id));
     expect(saved.status).toBe("SUSPENDED");
   });
 
@@ -336,7 +451,10 @@ describe("screen 3 — admin user profile save", () => {
     });
     expect(res.status).toBe(403);
 
-    const [unchanged] = await db.select({ name: users.name }).from(users).where(eq(users.id, target.id));
+    const [unchanged] = await db
+      .select({ name: users.name })
+      .from(users)
+      .where(eq(users.id, target.id));
     expect(unchanged.name).toBe("Untouched");
   });
 });

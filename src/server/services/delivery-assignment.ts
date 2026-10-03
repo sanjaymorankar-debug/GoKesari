@@ -37,7 +37,10 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
-import { ACTIVE_ASSIGNMENT_STATUSES, findEligiblePartnersNearShop } from "./delivery-eligibility";
+import {
+  ACTIVE_ASSIGNMENT_STATUSES,
+  findEligiblePartnersNearShop,
+} from "./delivery-eligibility";
 import { creditDeliveryEarnings } from "./delivery-earnings";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { updateOrderStatus } from "./orders";
@@ -49,6 +52,11 @@ import {
   notifySocietySecurity,
   societyStaffUserIds,
 } from "./societies";
+import {
+  insertIfNewReturning,
+  insertReturning,
+  updateReturning,
+} from "@/server/db/returning";
 
 interface Actor {
   id: string;
@@ -92,7 +100,9 @@ export const DISPATCH_WEIGHTS = {
   perOfferTodayKm: 0.3,
 } as const;
 
-type Candidate = Awaited<ReturnType<typeof findEligiblePartnersNearShop>>[number];
+type Candidate = Awaited<
+  ReturnType<typeof findEligiblePartnersNearShop>
+>[number];
 
 /** GA-001/002/007/008: filter to a society's riders when exclusive, then score and sort. */
 async function rankCandidates(
@@ -100,21 +110,23 @@ async function rankCandidates(
   rules: Awaited<ReturnType<typeof getSocietyDispatchRules>>,
   client: DbClient,
 ): Promise<Candidate[]> {
-  const pool = rules?.exclusive ? candidates.filter((c) => rules.riders.has(c.partner.id)) : candidates;
+  const pool = rules?.exclusive
+    ? candidates.filter((c) => rules.riders.has(c.partner.id))
+    : candidates;
   if (pool.length <= 1) return pool;
 
   const ids = pool.map((c) => c.partner.id);
   const stats = await client
     .select({
       partnerId: deliveryPartners.id,
-      delivered: sql<number>`(select count(*)::int from ${deliveryOrders} d where d.delivery_partner_id = ${deliveryPartners.id}
-        and d.status = 'DELIVERED' and d.updated_at > now() - interval '30 days')`,
-      failed: sql<number>`(select count(*)::int from ${deliveryOrders} d where d.delivery_partner_id = ${deliveryPartners.id}
-        and d.status = 'FAILED' and d.updated_at > now() - interval '30 days')`,
-      declined: sql<number>`(select count(*)::int from ${deliveryOrders} d where ${deliveryPartners.id} = any(d.rejected_partner_ids)
-        and d.updated_at > now() - interval '30 days')`,
-      offersToday: sql<number>`(select count(*)::int from ${deliveryOrders} d where (d.delivery_partner_id = ${deliveryPartners.id}
-        or ${deliveryPartners.id} = any(d.rejected_partner_ids)) and d.offered_at > date_trunc('day', now()))`,
+      delivered: sql<number>`(select CAST(count(*) AS SIGNED) from ${deliveryOrders} d where d.delivery_partner_id = ${deliveryPartners.id}
+        and d.status = 'DELIVERED' and d.updated_at > now() - interval 30 day)`,
+      failed: sql<number>`(select CAST(count(*) AS SIGNED) from ${deliveryOrders} d where d.delivery_partner_id = ${deliveryPartners.id}
+        and d.status = 'FAILED' and d.updated_at > now() - interval 30 day)`,
+      declined: sql<number>`(select CAST(count(*) AS SIGNED) from ${deliveryOrders} d where JSON_CONTAINS(d.rejected_partner_ids, JSON_QUOTE(${deliveryPartners.id}))
+        and d.updated_at > now() - interval 30 day)`,
+      offersToday: sql<number>`(select CAST(count(*) AS SIGNED) from ${deliveryOrders} d where (d.delivery_partner_id = ${deliveryPartners.id}
+        or JSON_CONTAINS(d.rejected_partner_ids, JSON_QUOTE(${deliveryPartners.id}))) and d.offered_at > CURDATE())`,
     })
     .from(deliveryPartners)
     .where(inArray(deliveryPartners.id, ids));
@@ -123,7 +135,9 @@ async function rankCandidates(
   const score = (c: Candidate) => {
     const st = byId.get(c.partner.id);
     // Laplace-smoothed so a new rider starts near 1, not 0.
-    const reliability = st ? (st.delivered + 1) / (st.delivered + st.failed + st.declined + 1) : 1;
+    const reliability = st
+      ? (st.delivered + 1) / (st.delivered + st.failed + st.declined + 1)
+      : 1;
     const listed = rules?.riders.has(c.partner.id) ?? false;
     const preferred = rules?.riders.get(c.partner.id) ?? false;
     return (
@@ -159,17 +173,27 @@ export { ACTIVE_ASSIGNMENT_STATUSES, findEligiblePartnersNearShop };
  * the fresh OFFERED row and moves on to its next-nearest candidate — instead
  * of both reading "idle" and both succeeding.
  */
-export async function assignNearestPartner(orderId: string, actor: DispatchActor): Promise<DeliveryOrder> {
-  const order = await db.query.orders.findFirst({ where: eq(orders.id, orderId) });
+export async function assignNearestPartner(
+  orderId: string,
+  actor: DispatchActor,
+): Promise<DeliveryOrder> {
+  const order = await db.query.orders.findFirst({
+    where: eq(orders.id, orderId),
+  });
   if (!order) throw notFound("Order");
   if (order.status !== "READY") {
-    throw conflict("Only an order marked READY can be assigned to a delivery partner.");
+    throw conflict(
+      "Only an order marked READY can be assigned to a delivery partner.",
+    );
   }
 
-  const shop = await db.query.shops.findFirst({ where: eq(shops.id, order.shopId) });
+  const shop = await db.query.shops.findFirst({
+    where: eq(shops.id, order.shopId),
+  });
   if (!shop) throw notFound("Shop");
   const shopCoords = parseCoordinates(shop.latitude, shop.longitude);
-  if (!shopCoords) throw conflict("This shop has no verified location on file yet.");
+  if (!shopCoords)
+    throw conflict("This shop has no verified location on file yet.");
 
   const customerCoords = parseCoordinates(
     order.deliveryAddressSnapshot?.latitude ?? null,
@@ -182,7 +206,12 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
       .from(deliveryOrders)
       .where(eq(deliveryOrders.orderId, orderId))
       .for("update");
-    if (existing && (ACTIVE_ASSIGNMENT_STATUSES as readonly string[]).includes(existing.status)) {
+    if (
+      existing &&
+      (ACTIVE_ASSIGNMENT_STATUSES as readonly string[]).includes(
+        existing.status,
+      )
+    ) {
       throw conflict("This order already has an active delivery assignment.");
     }
 
@@ -238,15 +267,13 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
       };
 
       const [deliveryOrder] = existing
-        ? await tx
-            .update(deliveryOrders)
-            .set(values)
-            .where(eq(deliveryOrders.id, existing.id))
-            .returning()
-        : await tx
-            .insert(deliveryOrders)
-            .values({ orderId, ...values })
-            .returning();
+        ? await updateReturning(
+            tx,
+            deliveryOrders,
+            values,
+            eq(deliveryOrders.id, existing.id),
+          )
+        : await insertReturning(tx, deliveryOrders, { orderId, ...values });
 
       await recordAudit(
         {
@@ -255,7 +282,11 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
           action: AUDIT_ACTIONS.DELIVERY_ORDER_OFFERED,
           entityType: "delivery_order",
           entityId: deliveryOrder.id,
-          newValue: { orderId, deliveryPartnerId: candidate.partner.id, distanceKm: legDistanceKm },
+          newValue: {
+            orderId,
+            deliveryPartnerId: candidate.partner.id,
+            distanceKm: legDistanceKm,
+          },
         },
         tx,
       );
@@ -283,22 +314,38 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
 }
 
 /** Cancels any in-flight assignment (if present) and re-runs assignment. Admin/operator manual override. */
-export async function reassignOrder(orderId: string, actor: Actor, reason?: string): Promise<DeliveryOrder> {
+export async function reassignOrder(
+  orderId: string,
+  actor: Actor,
+  reason?: string,
+): Promise<DeliveryOrder> {
   const existing = await db.query.deliveryOrders.findFirst({
     where: eq(deliveryOrders.orderId, orderId),
   });
   // The goods are with the rider once picked up — reassigning then would
   // strand them; use the failed-delivery / return path instead.
   if (existing?.status === "PICKED_UP") {
-    throw conflict("This order has already been picked up and cannot be reassigned.");
+    throw conflict(
+      "This order has already been picked up and cannot be reassigned.",
+    );
   }
   if (existing && existing.status === "ACCEPTED") {
-    const order = await db.query.orders.findFirst({ where: eq(orders.id, orderId) });
+    const order = await db.query.orders.findFirst({
+      where: eq(orders.id, orderId),
+    });
     if (order?.status === "ASSIGNED") {
-      await updateOrderStatus(orderId, "READY", actor, reason?.trim() || "Reassigning rider");
+      await updateOrderStatus(
+        orderId,
+        "READY",
+        actor,
+        reason?.trim() || "Reassigning rider",
+      );
     }
   }
-  if (existing && (ACTIVE_ASSIGNMENT_STATUSES as readonly string[]).includes(existing.status)) {
+  if (
+    existing &&
+    (ACTIVE_ASSIGNMENT_STATUSES as readonly string[]).includes(existing.status)
+  ) {
     await db
       .update(deliveryOrders)
       .set({
@@ -323,8 +370,13 @@ export async function reassignOrder(orderId: string, actor: Actor, reason?: stri
   return assignNearestPartner(orderId, actor);
 }
 
-async function loadOwnDeliveryOrder(deliveryOrderId: string, partnerUserId: string): Promise<DeliveryOrder> {
-  const row = await db.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.id, deliveryOrderId) });
+async function loadOwnDeliveryOrder(
+  deliveryOrderId: string,
+  partnerUserId: string,
+): Promise<DeliveryOrder> {
+  const row = await db.query.deliveryOrders.findFirst({
+    where: eq(deliveryOrders.id, deliveryOrderId),
+  });
   if (!row) throw notFound("Delivery assignment");
   const partner = await db.query.deliveryPartners.findFirst({
     where: eq(deliveryPartners.id, row.deliveryPartnerId),
@@ -342,7 +394,10 @@ async function loadOwnDeliveryOrder(deliveryOrderId: string, partnerUserId: stri
  * both write. Whichever one's UPDATE actually matches a row wins; the other
  * gets zero rows back and a clean conflict.
  */
-export async function acceptDeliveryOffer(deliveryOrderId: string, partnerUserId: string): Promise<DeliveryOrder> {
+export async function acceptDeliveryOffer(
+  deliveryOrderId: string,
+  partnerUserId: string,
+): Promise<DeliveryOrder> {
   const row = await loadOwnDeliveryOrder(deliveryOrderId, partnerUserId); // ownership check
   const actor: Actor = { id: partnerUserId, role: "DELIVERY_PARTNER" };
   const offerTtlSeconds = await getOfferTtlSeconds();
@@ -351,31 +406,54 @@ export async function acceptDeliveryOffer(deliveryOrderId: string, partnerUserId
   // pickup code the shop reads out at handover — in one transaction, so a
   // cancelled order can never end up with an accepted rider.
   const accepted = await db.transaction(async (tx) => {
-    const [updated] = await tx
-      .update(deliveryOrders)
-      .set({ status: "ACCEPTED", acceptedAt: new Date(), pickupCode: fourDigitCode(), updatedAt: new Date() })
-      .where(
-        and(
-          eq(deliveryOrders.id, deliveryOrderId),
-          eq(deliveryOrders.status, "OFFERED"),
-          sql`${deliveryOrders.offeredAt} > now() - make_interval(secs => ${offerTtlSeconds})`,
-        ),
-      )
-      .returning();
+    const [updated] = await updateReturning(
+      tx,
+      deliveryOrders,
+      {
+        status: "ACCEPTED",
+        acceptedAt: new Date(),
+        pickupCode: fourDigitCode(),
+        updatedAt: new Date(),
+      },
+      and(
+        eq(deliveryOrders.id, deliveryOrderId),
+        eq(deliveryOrders.status, "OFFERED"),
+        sql`${deliveryOrders.offeredAt} > now() - interval ${offerTtlSeconds} second`,
+      ),
+    );
     if (!updated) throw conflict("This delivery offer is no longer available.");
 
-    const [order] = await tx.select({ status: orders.status }).from(orders).where(eq(orders.id, row.orderId));
+    const [order] = await tx
+      .select({ status: orders.status })
+      .from(orders)
+      .where(eq(orders.id, row.orderId));
     // Only a READY order can take a rider — not one the shop has already
     // sent out itself, cancelled, or given to another rider.
     if (order?.status !== "READY") {
       throw conflict("This order is no longer waiting for a rider.");
     }
-    await updateOrderStatus(row.orderId, "ASSIGNED", actor, "Rider accepted", tx);
+    await updateOrderStatus(
+      row.orderId,
+      "ASSIGNED",
+      actor,
+      "Rider accepted",
+      tx,
+    );
     // The search is over: a rider has the order.
     await tx
       .update(riderSearches)
-      .set({ status: "ASSIGNED", stopReason: "RIDER_ACCEPTED", stoppedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(riderSearches.orderId, row.orderId), eq(riderSearches.status, "SEARCHING")));
+      .set({
+        status: "ASSIGNED",
+        stopReason: "RIDER_ACCEPTED",
+        stoppedAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .where(
+        and(
+          eq(riderSearches.orderId, row.orderId),
+          eq(riderSearches.status, "SEARCHING"),
+        ),
+      );
 
     await recordAudit(
       {
@@ -392,7 +470,11 @@ export async function acceptDeliveryOffer(deliveryOrderId: string, partnerUserId
   });
   // GS-046: society security desk hears who is coming (after commit; never blocks the accept).
   await notifySocietySecurity(row.orderId).catch((error) => {
-    console.error("[delivery] society security notification failed", row.orderId, error);
+    console.error(
+      "[delivery] society security notification failed",
+      row.orderId,
+      error,
+    );
   });
   return accepted;
 }
@@ -405,17 +487,21 @@ export async function rejectDeliveryOffer(
 ): Promise<DeliveryOrder> {
   await loadOwnDeliveryOrder(deliveryOrderId, partnerUserId); // ownership check
 
-  const [updated] = await db
-    .update(deliveryOrders)
-    .set({
+  const [updated] = await updateReturning(
+    db,
+    deliveryOrders,
+    {
       status: "REJECTED",
       cancelledAt: new Date(),
       cancellationReason: reason?.trim() || null,
-      rejectedPartnerIds: sql`array_append(${deliveryOrders.rejectedPartnerIds}, ${deliveryOrders.deliveryPartnerId})`,
+      rejectedPartnerIds: sql`JSON_ARRAY_APPEND(coalesce(${deliveryOrders.rejectedPartnerIds}, JSON_ARRAY()), '$', ${deliveryOrders.deliveryPartnerId})`,
       updatedAt: new Date(),
-    })
-    .where(and(eq(deliveryOrders.id, deliveryOrderId), eq(deliveryOrders.status, "OFFERED")))
-    .returning();
+    },
+    and(
+      eq(deliveryOrders.id, deliveryOrderId),
+      eq(deliveryOrders.status, "OFFERED"),
+    ),
+  );
   if (!updated) throw conflict("This delivery offer is no longer available.");
 
   await recordAudit({
@@ -427,8 +513,16 @@ export async function rejectDeliveryOffer(
   });
 
   // GA-009: move straight on to the next nearest rider.
-  await dispatchReadyOrder(updated.orderId, { id: null, role: null }, "REOFFER").catch((error) => {
-    console.error("[delivery] re-offer after rejection failed", updated.orderId, error);
+  await dispatchReadyOrder(
+    updated.orderId,
+    { id: null, role: null },
+    "REOFFER",
+  ).catch((error) => {
+    console.error(
+      "[delivery] re-offer after rejection failed",
+      updated.orderId,
+      error,
+    );
   });
   return updated;
 }
@@ -449,25 +543,49 @@ export async function markPickedUp(
   // GS-041: the shop reads the code to the rider. Rows accepted before the
   // code existed have none and keep the old one-tap pickup.
   if (row.pickupCode && pickupCode?.trim() !== row.pickupCode) {
-    throw validationFailed("That pickup code does not match. Ask the shop for the code shown on the order.");
+    throw validationFailed(
+      "That pickup code does not match. Ask the shop for the code shown on the order.",
+    );
   }
 
   return db.transaction(async (tx) => {
-    const [updated] = await tx
-      .update(deliveryOrders)
-      .set({ status: "PICKED_UP", pickedUpAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(deliveryOrders.id, deliveryOrderId), eq(deliveryOrders.status, "ACCEPTED")))
-      .returning();
-    if (!updated) throw conflict("This delivery must be accepted before it can be marked picked up.");
+    const [updated] = await updateReturning(
+      tx,
+      deliveryOrders,
+      { status: "PICKED_UP", pickedUpAt: new Date(), updatedAt: new Date() },
+      and(
+        eq(deliveryOrders.id, deliveryOrderId),
+        eq(deliveryOrders.status, "ACCEPTED"),
+      ),
+    );
+    if (!updated)
+      throw conflict(
+        "This delivery must be accepted before it can be marked picked up.",
+      );
 
     // ASSIGNED → PICKED_UP (the rider then starts the drop). An order still
     // READY was accepted before ASSIGNED existed — it keeps the old jump
     // straight to OUT_FOR_DELIVERY.
-    const [order] = await tx.select({ status: orders.status }).from(orders).where(eq(orders.id, row.orderId));
+    const [order] = await tx
+      .select({ status: orders.status })
+      .from(orders)
+      .where(eq(orders.id, row.orderId));
     if (order?.status === "ASSIGNED") {
-      await updateOrderStatus(row.orderId, "PICKED_UP", actor, "Picked up by rider", tx);
+      await updateOrderStatus(
+        row.orderId,
+        "PICKED_UP",
+        actor,
+        "Picked up by rider",
+        tx,
+      );
     } else {
-      await updateOrderStatus(row.orderId, "OUT_FOR_DELIVERY", actor, undefined, tx);
+      await updateOrderStatus(
+        row.orderId,
+        "OUT_FOR_DELIVERY",
+        actor,
+        undefined,
+        tx,
+      );
     }
 
     await recordAudit(
@@ -504,29 +622,43 @@ export async function markDelivered(
   }
   if (row.deliveryOtp) {
     if (row.deliveryOtpAttempts >= MAX_OTP_ATTEMPTS) {
-      throw conflict("Too many wrong codes — ask operations to confirm this delivery.");
+      throw conflict(
+        "Too many wrong codes — ask operations to confirm this delivery.",
+      );
     }
     if (otp?.trim() !== row.deliveryOtp) {
       await db
         .update(deliveryOrders)
-        .set({ deliveryOtpAttempts: sql`${deliveryOrders.deliveryOtpAttempts} + 1`, updatedAt: new Date() })
+        .set({
+          deliveryOtpAttempts: sql`${deliveryOrders.deliveryOtpAttempts} + 1`,
+          updatedAt: new Date(),
+        })
         .where(eq(deliveryOrders.id, deliveryOrderId));
-      throw validationFailed("That delivery code does not match. Ask the customer for the code in their order.");
+      throw validationFailed(
+        "That delivery code does not match. Ask the customer for the code in their order.",
+      );
     }
   }
 
   return db.transaction(async (tx) => {
-    const [updated] = await tx
-      .update(deliveryOrders)
-      .set({
+    const [updated] = await updateReturning(
+      tx,
+      deliveryOrders,
+      {
         status: "DELIVERED",
         deliveredAt: new Date(),
         deliveryConfirmation: row.deliveryOtp ? "CUSTOMER_OTP" : null,
         updatedAt: new Date(),
-      })
-      .where(and(eq(deliveryOrders.id, deliveryOrderId), eq(deliveryOrders.status, "PICKED_UP")))
-      .returning();
-    if (!updated) throw conflict("This delivery must be picked up before it can be marked delivered.");
+      },
+      and(
+        eq(deliveryOrders.id, deliveryOrderId),
+        eq(deliveryOrders.status, "PICKED_UP"),
+      ),
+    );
+    if (!updated)
+      throw conflict(
+        "This delivery must be picked up before it can be marked delivered.",
+      );
 
     await updateOrderStatus(row.orderId, "DELIVERED", actor, undefined, tx);
     await creditDeliveryEarnings(deliveryOrderId, tx);
@@ -551,28 +683,36 @@ export async function markDelivered(
  * Rider leaves the shop for the customer: PICKED_UP → OUT_FOR_DELIVERY and
  * the customer's delivery OTP is issued (shown only in their order).
  */
-export async function startDelivery(deliveryOrderId: string, actor: Actor): Promise<DeliveryOrder> {
+export async function startDelivery(
+  deliveryOrderId: string,
+  actor: Actor,
+): Promise<DeliveryOrder> {
   const row = await loadOwnDeliveryOrder(deliveryOrderId, actor.id);
   return db.transaction(async (tx) => {
-    const [updated] = await tx
-      .update(deliveryOrders)
-      .set({
+    const [updated] = await updateReturning(
+      tx,
+      deliveryOrders,
+      {
         outForDeliveryAt: new Date(),
         deliveryOtp: fourDigitCode(),
         deliveryOtpAttempts: 0,
         updatedAt: new Date(),
-      })
-      .where(
-        and(
-          eq(deliveryOrders.id, deliveryOrderId),
-          eq(deliveryOrders.status, "PICKED_UP"),
-          isNull(deliveryOrders.outForDeliveryAt),
-        ),
-      )
-      .returning();
+      },
+      and(
+        eq(deliveryOrders.id, deliveryOrderId),
+        eq(deliveryOrders.status, "PICKED_UP"),
+        isNull(deliveryOrders.outForDeliveryAt),
+      ),
+    );
     if (!updated) throw conflict("This delivery is not waiting to start.");
 
-    await updateOrderStatus(row.orderId, "OUT_FOR_DELIVERY", actor, "On the way to the customer", tx);
+    await updateOrderStatus(
+      row.orderId,
+      "OUT_FOR_DELIVERY",
+      actor,
+      "On the way to the customer",
+      tx,
+    );
     await recordAudit(
       {
         actorId: actor.id,
@@ -593,23 +733,27 @@ export async function startDelivery(deliveryOrderId: string, actor: Actor): Prom
  * order stays ASSIGNED until the pickup code is entered); the shop is told so
  * it can have the parcel and the pickup code ready. Idempotent.
  */
-export async function markArrivedAtShop(deliveryOrderId: string, actor: Actor): Promise<DeliveryOrder> {
+export async function markArrivedAtShop(
+  deliveryOrderId: string,
+  actor: Actor,
+): Promise<DeliveryOrder> {
   const row = await loadOwnDeliveryOrder(deliveryOrderId, actor.id);
-  if (row.status !== "ACCEPTED") throw conflict("Accept the delivery before marking arrival at the shop.");
+  if (row.status !== "ACCEPTED")
+    throw conflict("Accept the delivery before marking arrival at the shop.");
   if (row.arrivedAtShopAt) return row;
 
-  const [updated] = await db
-    .update(deliveryOrders)
-    .set({ arrivedAtShopAt: new Date(), updatedAt: new Date() })
-    .where(
-      and(
-        eq(deliveryOrders.id, deliveryOrderId),
-        eq(deliveryOrders.status, "ACCEPTED"),
-        isNull(deliveryOrders.arrivedAtShopAt),
-      ),
-    )
-    .returning();
-  if (!updated) return (await loadOwnDeliveryOrder(deliveryOrderId, actor.id)) ?? row;
+  const [updated] = await updateReturning(
+    db,
+    deliveryOrders,
+    { arrivedAtShopAt: new Date(), updatedAt: new Date() },
+    and(
+      eq(deliveryOrders.id, deliveryOrderId),
+      eq(deliveryOrders.status, "ACCEPTED"),
+      isNull(deliveryOrders.arrivedAtShopAt),
+    ),
+  );
+  if (!updated)
+    return (await loadOwnDeliveryOrder(deliveryOrderId, actor.id)) ?? row;
 
   await recordAudit({
     actorId: actor.id,
@@ -618,8 +762,13 @@ export async function markArrivedAtShop(deliveryOrderId: string, actor: Actor): 
     entityType: "delivery_order",
     entityId: deliveryOrderId,
   });
-  const [order] = await db.select().from(orders).where(eq(orders.id, row.orderId));
-  const shop = order ? await db.query.shops.findFirst({ where: eq(shops.id, order.shopId) }) : null;
+  const [order] = await db
+    .select()
+    .from(orders)
+    .where(eq(orders.id, row.orderId));
+  const shop = order
+    ? await db.query.shops.findFirst({ where: eq(shops.id, order.shopId) })
+    : null;
   if (order && shop) {
     await notify({
       userId: shop.ownerId,
@@ -635,9 +784,12 @@ export async function markArrivedAtShop(deliveryOrderId: string, actor: Actor): 
 
 const GATE_CUSTOMER_MESSAGE: Record<string, string> = {
   OPEN: "Your rider has arrived. Please keep your delivery code ready.",
-  CALL_RESIDENT: "Your rider is at the gate. Security may call you to approve entry — please pick up.",
-  PRE_APPROVAL: "Your rider is at the gate. Please approve their entry with security.",
-  DROP_AT_GATE: "Your rider is at the gate with your order. Please come down to collect it and share your delivery code.",
+  CALL_RESIDENT:
+    "Your rider is at the gate. Security may call you to approve entry — please pick up.",
+  PRE_APPROVAL:
+    "Your rider is at the gate. Please approve their entry with security.",
+  DROP_AT_GATE:
+    "Your rider is at the gate with your order. Please come down to collect it and share your delivery code.",
 };
 
 /**
@@ -646,23 +798,27 @@ const GATE_CUSTOMER_MESSAGE: Record<string, string> = {
  * customer — with what the society's gate will ask of them — and, when the
  * society turned security notices on, the gate. Idempotent.
  */
-export async function markArrivedAtCustomer(deliveryOrderId: string, actor: Actor): Promise<DeliveryOrder> {
+export async function markArrivedAtCustomer(
+  deliveryOrderId: string,
+  actor: Actor,
+): Promise<DeliveryOrder> {
   const row = await loadOwnDeliveryOrder(deliveryOrderId, actor.id);
-  if (row.status !== "PICKED_UP") throw conflict("Pick up the order before marking arrival at the customer.");
-  if (row.pickupCode && !row.outForDeliveryAt) throw conflict("Start the delivery before marking arrival.");
+  if (row.status !== "PICKED_UP")
+    throw conflict("Pick up the order before marking arrival at the customer.");
+  if (row.pickupCode && !row.outForDeliveryAt)
+    throw conflict("Start the delivery before marking arrival.");
   if (row.arrivedAtCustomerAt) return row;
 
-  const [updated] = await db
-    .update(deliveryOrders)
-    .set({ arrivedAtCustomerAt: new Date(), updatedAt: new Date() })
-    .where(
-      and(
-        eq(deliveryOrders.id, deliveryOrderId),
-        eq(deliveryOrders.status, "PICKED_UP"),
-        isNull(deliveryOrders.arrivedAtCustomerAt),
-      ),
-    )
-    .returning();
+  const [updated] = await updateReturning(
+    db,
+    deliveryOrders,
+    { arrivedAtCustomerAt: new Date(), updatedAt: new Date() },
+    and(
+      eq(deliveryOrders.id, deliveryOrderId),
+      eq(deliveryOrders.status, "PICKED_UP"),
+      isNull(deliveryOrders.arrivedAtCustomerAt),
+    ),
+  );
   if (!updated) return row;
 
   await recordAudit({
@@ -673,10 +829,15 @@ export async function markArrivedAtCustomer(deliveryOrderId: string, actor: Acto
     entityId: deliveryOrderId,
   });
 
-  const [order] = await db.select().from(orders).where(eq(orders.id, row.orderId));
+  const [order] = await db
+    .select()
+    .from(orders)
+    .where(eq(orders.id, row.orderId));
   if (order) {
     const society = order.societyId
-      ? await db.query.societies.findFirst({ where: eq(societies.id, order.societyId) })
+      ? await db.query.societies.findFirst({
+          where: eq(societies.id, order.societyId),
+        })
       : null;
     const gated = society?.status === "VERIFIED";
     if (!gated || society.notifyCustomerAtGate) {
@@ -717,15 +878,26 @@ export async function markDeliveryFailed(
 ): Promise<DeliveryOrder> {
   const row = await loadOwnDeliveryOrder(deliveryOrderId, actor.id);
   const trimmed = reason.trim();
-  if (!trimmed) throw validationFailed("Say why the delivery could not be completed.");
+  if (!trimmed)
+    throw validationFailed("Say why the delivery could not be completed.");
 
   const result = await db.transaction(async (tx) => {
-    const [updated] = await tx
-      .update(deliveryOrders)
-      .set({ status: "FAILED", failedAt: new Date(), failureReason: trimmed, updatedAt: new Date() })
-      .where(and(eq(deliveryOrders.id, deliveryOrderId), eq(deliveryOrders.status, "PICKED_UP")))
-      .returning();
-    if (!updated) throw conflict("Only a picked-up delivery can be marked failed.");
+    const [updated] = await updateReturning(
+      tx,
+      deliveryOrders,
+      {
+        status: "FAILED",
+        failedAt: new Date(),
+        failureReason: trimmed,
+        updatedAt: new Date(),
+      },
+      and(
+        eq(deliveryOrders.id, deliveryOrderId),
+        eq(deliveryOrders.status, "PICKED_UP"),
+      ),
+    );
+    if (!updated)
+      throw conflict("Only a picked-up delivery can be marked failed.");
 
     await updateOrderStatus(row.orderId, "FAILED", actor, trimmed, tx);
     await creditDeliveryEarnings(deliveryOrderId, tx);
@@ -743,8 +915,12 @@ export async function markDeliveryFailed(
     return updated;
   });
 
-  const order = await db.query.orders.findFirst({ where: eq(orders.id, row.orderId) });
-  const shop = order ? await db.query.shops.findFirst({ where: eq(shops.id, order.shopId) }) : null;
+  const order = await db.query.orders.findFirst({
+    where: eq(orders.id, row.orderId),
+  });
+  const shop = order
+    ? await db.query.shops.findFirst({ where: eq(shops.id, order.shopId) })
+    : null;
   if (order && shop) {
     await notify({
       userId: shop.ownerId,
@@ -769,28 +945,49 @@ export async function confirmDeliveryByOperator(
   cashCollected?: boolean,
 ): Promise<DeliveryOrder> {
   const note = proofNote.trim();
-  if (note.length < 5) throw validationFailed("Record how the delivery was confirmed.");
+  if (note.length < 5)
+    throw validationFailed("Record how the delivery was confirmed.");
   await assertCashConfirmed(orderId, cashCollected);
 
   return db.transaction(async (tx) => {
-    const [updated] = await tx
-      .update(deliveryOrders)
-      .set({
+    const [updated] = await updateReturning(
+      tx,
+      deliveryOrders,
+      {
         status: "DELIVERED",
         deliveredAt: new Date(),
         deliveryConfirmation: "OPERATOR_OVERRIDE",
         proofNote: note,
         updatedAt: new Date(),
-      })
-      .where(and(eq(deliveryOrders.orderId, orderId), eq(deliveryOrders.status, "PICKED_UP")))
-      .returning();
-    if (!updated) throw conflict("This order has no picked-up delivery to confirm.");
+      },
+      and(
+        eq(deliveryOrders.orderId, orderId),
+        eq(deliveryOrders.status, "PICKED_UP"),
+      ),
+    );
+    if (!updated)
+      throw conflict("This order has no picked-up delivery to confirm.");
 
-    const [order] = await tx.select({ status: orders.status }).from(orders).where(eq(orders.id, orderId));
+    const [order] = await tx
+      .select({ status: orders.status })
+      .from(orders)
+      .where(eq(orders.id, orderId));
     if (order?.status === "PICKED_UP") {
-      await updateOrderStatus(orderId, "OUT_FOR_DELIVERY", actor, "Operator confirmation", tx);
+      await updateOrderStatus(
+        orderId,
+        "OUT_FOR_DELIVERY",
+        actor,
+        "Operator confirmation",
+        tx,
+      );
     }
-    await updateOrderStatus(orderId, "DELIVERED", actor, `Confirmed by operations: ${note}`, tx);
+    await updateOrderStatus(
+      orderId,
+      "DELIVERED",
+      actor,
+      `Confirmed by operations: ${note}`,
+      tx,
+    );
     await creditDeliveryEarnings(updated.id, tx);
     await recordAudit(
       {
@@ -808,19 +1005,31 @@ export async function confirmDeliveryByOperator(
 }
 
 /** A COD order cannot be marked delivered until the cash is confirmed (GS-030). */
-async function assertCashConfirmed(orderId: string, cashCollected: boolean | undefined): Promise<void> {
+async function assertCashConfirmed(
+  orderId: string,
+  cashCollected: boolean | undefined,
+): Promise<void> {
   const [order] = await db
-    .select({ paymentMethod: orders.paymentMethod, totalPaise: orders.totalPaise })
+    .select({
+      paymentMethod: orders.paymentMethod,
+      totalPaise: orders.totalPaise,
+    })
     .from(orders)
     .where(eq(orders.id, orderId));
   if (order?.paymentMethod === "COD" && cashCollected !== true) {
-    throw validationFailed(`Collect ₹${(order.totalPaise / 100).toFixed(2)} in cash and confirm it before marking this order delivered.`);
+    throw validationFailed(
+      `Collect ₹${(order.totalPaise / 100).toFixed(2)} in cash and confirm it before marking this order delivered.`,
+    );
   }
 }
 
 /* ------------------------------------------------------ find-rider search */
 
-export type DispatchTrigger = "SHOP_MANUAL" | "AUTO_READY" | "SWEEP" | "REOFFER";
+export type DispatchTrigger =
+  | "SHOP_MANUAL"
+  | "AUTO_READY"
+  | "SWEEP"
+  | "REOFFER";
 type StopReason = NonNullable<RiderSearch["stopReason"]>;
 type DispatchRules = Awaited<ReturnType<typeof getDispatchRules>>;
 
@@ -832,7 +1041,8 @@ const STOP_MESSAGES: Record<StopReason, string> = {
   RIDER_ACCEPTED: "A rider has accepted this order.",
   ORDER_CANCELLED: "The order was cancelled, so the search stopped.",
   ORDER_NOT_READY: "The order is no longer waiting for a rider.",
-  WINDOW_EXPIRED: "The promised delivery time has passed, so automatic search stopped.",
+  WINDOW_EXPIRED:
+    "The promised delivery time has passed, so automatic search stopped.",
   RETRY_LIMIT: "No rider accepted after the maximum number of attempts.",
   TIME_LIMIT: "No rider accepted within the search time limit.",
   STOPPED_BY_SHOP: "You stopped the search.",
@@ -843,7 +1053,11 @@ async function logAttempt(
   attemptNo: number,
   trigger: DispatchTrigger,
   outcome: DispatchAttempt["outcome"],
-  extra: { deliveryOrderId?: string; deliveryPartnerId?: string; detail?: string } = {},
+  extra: {
+    deliveryOrderId?: string;
+    deliveryPartnerId?: string;
+    detail?: string;
+  } = {},
 ): Promise<void> {
   try {
     await db.insert(dispatchAttempts).values({
@@ -862,7 +1076,10 @@ async function logAttempt(
   }
 }
 
-async function closeSearch(searchId: string, reason: StopReason): Promise<void> {
+async function closeSearch(
+  searchId: string,
+  reason: StopReason,
+): Promise<void> {
   await db
     .update(riderSearches)
     .set({
@@ -871,7 +1088,12 @@ async function closeSearch(searchId: string, reason: StopReason): Promise<void> 
       stoppedAt: new Date(),
       updatedAt: new Date(),
     })
-    .where(and(eq(riderSearches.id, searchId), eq(riderSearches.status, "SEARCHING")));
+    .where(
+      and(
+        eq(riderSearches.id, searchId),
+        eq(riderSearches.status, "SEARCHING"),
+      ),
+    );
 }
 
 /** Why a search must not continue, or null. Checked before every attempt. */
@@ -884,8 +1106,16 @@ function stopReasonFor(
   if (order.status === "CANCELLED") return "ORDER_CANCELLED";
   if (order.status !== "READY") return "ORDER_NOT_READY";
   if (search.attempts >= search.maxAttempts) return "RETRY_LIMIT";
-  if (now.getTime() - search.startedAt.getTime() > rules.maxSearchMinutes * 60_000) return "TIME_LIMIT";
-  if (order.promisedByAt && now.getTime() > order.promisedByAt.getTime() + rules.windowGraceMinutes * 60_000) {
+  if (
+    now.getTime() - search.startedAt.getTime() >
+    rules.maxSearchMinutes * 60_000
+  )
+    return "TIME_LIMIT";
+  if (
+    order.promisedByAt &&
+    now.getTime() >
+      order.promisedByAt.getTime() + rules.windowGraceMinutes * 60_000
+  ) {
     return "WINDOW_EXPIRED";
   }
   return null;
@@ -899,21 +1129,29 @@ async function ensureSearch(
   rules: DispatchRules,
 ): Promise<RiderSearch> {
   const now = new Date();
-  const [existing] = await db.select().from(riderSearches).where(eq(riderSearches.orderId, orderId));
+  const [existing] = await db
+    .select()
+    .from(riderSearches)
+    .where(eq(riderSearches.orderId, orderId));
   if (!existing) {
-    const [created] = await db
-      .insert(riderSearches)
-      .values({ orderId, maxAttempts: rules.maxAttempts, startedBy: actorId })
-      .onConflictDoNothing()
-      .returning();
+    const [created] = await insertIfNewReturning(
+      db,
+      riderSearches,
+      { orderId, maxAttempts: rules.maxAttempts, startedBy: actorId },
+      eq(riderSearches.orderId, orderId),
+    );
     if (created) return created;
-    const [raced] = await db.select().from(riderSearches).where(eq(riderSearches.orderId, orderId));
+    const [raced] = await db
+      .select()
+      .from(riderSearches)
+      .where(eq(riderSearches.orderId, orderId));
     return raced;
   }
   if (trigger === "SHOP_MANUAL" && existing.status !== "SEARCHING") {
-    const [restarted] = await db
-      .update(riderSearches)
-      .set({
+    const [restarted] = await updateReturning(
+      db,
+      riderSearches,
+      {
         status: "SEARCHING",
         stopReason: null,
         stoppedAt: null,
@@ -924,9 +1162,9 @@ async function ensureSearch(
         nextAttemptAt: null,
         startedBy: actorId,
         updatedAt: now,
-      })
-      .where(eq(riderSearches.id, existing.id))
-      .returning();
+      },
+      eq(riderSearches.id, existing.id),
+    );
     return restarted;
   }
   return existing;
@@ -952,7 +1190,9 @@ export async function dispatchReadyOrder(
   actor: DispatchActor,
   trigger: DispatchTrigger = "AUTO_READY",
 ): Promise<DeliveryOrder | null> {
-  const order = await db.query.orders.findFirst({ where: eq(orders.id, orderId) });
+  const order = await db.query.orders.findFirst({
+    where: eq(orders.id, orderId),
+  });
   if (!order) return null;
   const rules = await getDispatchRules();
 
@@ -961,28 +1201,45 @@ export async function dispatchReadyOrder(
     const [open] = await db
       .select()
       .from(riderSearches)
-      .where(and(eq(riderSearches.orderId, orderId), eq(riderSearches.status, "SEARCHING")));
+      .where(
+        and(
+          eq(riderSearches.orderId, orderId),
+          eq(riderSearches.status, "SEARCHING"),
+        ),
+      );
     if (open) {
       const reason: StopReason =
         order.status === "CANCELLED"
           ? "ORDER_CANCELLED"
-          : ["ASSIGNED", "PICKED_UP", "OUT_FOR_DELIVERY", "DELIVERED"].includes(order.status)
+          : ["ASSIGNED", "PICKED_UP", "OUT_FOR_DELIVERY", "DELIVERED"].includes(
+                order.status,
+              )
             ? "RIDER_ACCEPTED"
             : "ORDER_NOT_READY";
       await closeSearch(open.id, reason);
-      await logAttempt(open, open.attempts, trigger, "STOPPED", { detail: STOP_MESSAGES[reason] });
+      await logAttempt(open, open.attempts, trigger, "STOPPED", {
+        detail: STOP_MESSAGES[reason],
+      });
     }
     return null;
   }
 
-  const shop = await db.query.shops.findFirst({ where: eq(shops.id, order.shopId) });
+  const shop = await db.query.shops.findFirst({
+    where: eq(shops.id, order.shopId),
+  });
   if (!shop?.deliveryAvailable) return null; // pickup-only / shop hands over itself
   // An order the suspension policy holds for review is not sent to a rider until an operator decides.
   const held = await suspensionRecordFor(db, order.shopId, order.id);
   if (held.record?.outcome === "AWAITING_REVIEW") return null;
 
-  const active = await db.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.orderId, orderId) });
-  if (active && (ACTIVE_ASSIGNMENT_STATUSES as readonly string[]).includes(active.status)) return null;
+  const active = await db.query.deliveryOrders.findFirst({
+    where: eq(deliveryOrders.orderId, orderId),
+  });
+  if (
+    active &&
+    (ACTIVE_ASSIGNMENT_STATUSES as readonly string[]).includes(active.status)
+  )
+    return null;
 
   const search = await ensureSearch(orderId, trigger, actor.id, rules);
   if (search.status !== "SEARCHING") return null; // finished: only a manual retry restarts it
@@ -991,8 +1248,14 @@ export async function dispatchReadyOrder(
   const stop = stopReasonFor(order, search, rules, now);
   if (stop) {
     await closeSearch(search.id, stop);
-    await logAttempt(search, search.attempts, trigger, "STOPPED", { detail: STOP_MESSAGES[stop] });
-    if (stop === "RETRY_LIMIT" || stop === "TIME_LIMIT" || stop === "WINDOW_EXPIRED") {
+    await logAttempt(search, search.attempts, trigger, "STOPPED", {
+      detail: STOP_MESSAGES[stop],
+    });
+    if (
+      stop === "RETRY_LIMIT" ||
+      stop === "TIME_LIMIT" ||
+      stop === "WINDOW_EXPIRED"
+    ) {
       await notify({
         userId: shop.ownerId,
         type: NOTIFICATION_TYPES.DELIVERY_SEARCH_STOPPED,
@@ -1006,7 +1269,12 @@ export async function dispatchReadyOrder(
   }
 
   // Automatic sweeps respect the retry interval; a rejection/expiry re-offer and manual presses go straight through.
-  if (trigger === "SWEEP" && search.nextAttemptAt && search.nextAttemptAt.getTime() > now.getTime()) return null;
+  if (
+    trigger === "SWEEP" &&
+    search.nextAttemptAt &&
+    search.nextAttemptAt.getTime() > now.getTime()
+  )
+    return null;
 
   const attemptNo = search.attempts + 1;
   await db
@@ -1014,7 +1282,9 @@ export async function dispatchReadyOrder(
     .set({
       attempts: attemptNo,
       lastAttemptAt: now,
-      nextAttemptAt: new Date(now.getTime() + rules.retryIntervalSeconds * 1000),
+      nextAttemptAt: new Date(
+        now.getTime() + rules.retryIntervalSeconds * 1000,
+      ),
       updatedAt: now,
     })
     .where(eq(riderSearches.id, search.id));
@@ -1029,7 +1299,13 @@ export async function dispatchReadyOrder(
   } catch (error) {
     const message = error instanceof Error ? error.message : "Matching failed.";
     const noRider = /No delivery partner|no verified location/i.test(message);
-    await logAttempt(search, attemptNo, trigger, noRider ? "NO_RIDER" : "ERROR", { detail: message });
+    await logAttempt(
+      search,
+      attemptNo,
+      trigger,
+      noRider ? "NO_RIDER" : "ERROR",
+      { detail: message },
+    );
     if (!noRider) throw error;
     if (attemptNo >= rules.notifyShopAfterAttempts) {
       await notify({
@@ -1059,9 +1335,16 @@ export interface RiderSearchStatus {
 }
 
 /** What the shop operator sees for an order that needs a rider. */
-export async function getRiderSearchStatus(orderId: string): Promise<RiderSearchStatus> {
-  const [search] = await db.select().from(riderSearches).where(eq(riderSearches.orderId, orderId));
-  const delivery = await db.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.orderId, orderId) });
+export async function getRiderSearchStatus(
+  orderId: string,
+): Promise<RiderSearchStatus> {
+  const [search] = await db
+    .select()
+    .from(riderSearches)
+    .where(eq(riderSearches.orderId, orderId));
+  const delivery = await db.query.deliveryOrders.findFirst({
+    where: eq(deliveryOrders.orderId, orderId),
+  });
   const log = await db
     .select()
     .from(dispatchAttempts)
@@ -1078,13 +1361,28 @@ export async function getRiderSearchStatus(orderId: string): Promise<RiderSearch
   };
 
   if (delivery && ["ACCEPTED", "PICKED_UP"].includes(delivery.status)) {
-    return { ...base, state: "ASSIGNED", message: "A rider has accepted this order.", canRetry: false };
+    return {
+      ...base,
+      state: "ASSIGNED",
+      message: "A rider has accepted this order.",
+      canRetry: false,
+    };
   }
   if (delivery?.status === "OFFERED") {
-    return { ...base, state: "OFFERED", message: "Offer sent to a rider — waiting for them to accept.", canRetry: false };
+    return {
+      ...base,
+      state: "OFFERED",
+      message: "Offer sent to a rider — waiting for them to accept.",
+      canRetry: false,
+    };
   }
   if (!search) {
-    return { ...base, state: "NOT_STARTED", message: "No rider search has started for this order yet.", canRetry: true };
+    return {
+      ...base,
+      state: "NOT_STARTED",
+      message: "No rider search has started for this order yet.",
+      canRetry: true,
+    };
   }
   if (search.status === "SEARCHING") {
     return {
@@ -1097,12 +1395,19 @@ export async function getRiderSearchStatus(orderId: string): Promise<RiderSearch
     };
   }
   if (search.status === "ASSIGNED") {
-    return { ...base, state: "ASSIGNED", message: STOP_MESSAGES.RIDER_ACCEPTED, canRetry: false };
+    return {
+      ...base,
+      state: "ASSIGNED",
+      message: STOP_MESSAGES.RIDER_ACCEPTED,
+      canRetry: false,
+    };
   }
   return {
     ...base,
     state: "STOPPED",
-    message: search.stopReason ? STOP_MESSAGES[search.stopReason] : "The search has stopped.",
+    message: search.stopReason
+      ? STOP_MESSAGES[search.stopReason]
+      : "The search has stopped.",
     canRetry: true,
   };
 }
@@ -1113,39 +1418,74 @@ export async function getRiderSearchStatus(orderId: string): Promise<RiderSearch
  * the previous single-shot behaviour — when nobody can be offered the order
  * right now, but the retries continue in the background.
  */
-export async function findRiderNow(orderId: string, actor: Actor): Promise<DeliveryOrder> {
+export async function findRiderNow(
+  orderId: string,
+  actor: Actor,
+): Promise<DeliveryOrder> {
   const rules = await getDispatchRules();
-  const [search] = await db.select().from(riderSearches).where(eq(riderSearches.orderId, orderId));
+  const [search] = await db
+    .select()
+    .from(riderSearches)
+    .where(eq(riderSearches.orderId, orderId));
   if (search?.status === "SEARCHING" && search.lastAttemptAt) {
-    const wait = Math.ceil((search.lastAttemptAt.getTime() + rules.manualCooldownSeconds * 1000 - Date.now()) / 1000);
-    if (wait > 0) throw conflict(`A rider search just ran. Please wait ${wait}s before pressing again.`);
+    const wait = Math.ceil(
+      (search.lastAttemptAt.getTime() +
+        rules.manualCooldownSeconds * 1000 -
+        Date.now()) /
+        1000,
+    );
+    if (wait > 0)
+      throw conflict(
+        `A rider search just ran. Please wait ${wait}s before pressing again.`,
+      );
   }
 
   const offer = await dispatchReadyOrder(orderId, actor, "SHOP_MANUAL");
   if (offer) return offer;
 
-  const order = await db.query.orders.findFirst({ where: eq(orders.id, orderId) });
+  const order = await db.query.orders.findFirst({
+    where: eq(orders.id, orderId),
+  });
   if (!order) throw notFound("Order");
   if (order.status !== "READY") {
-    throw conflict("Only an order marked READY can be assigned to a delivery partner.");
+    throw conflict(
+      "Only an order marked READY can be assigned to a delivery partner.",
+    );
   }
-  const active = await db.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.orderId, orderId) });
-  if (active && (ACTIVE_ASSIGNMENT_STATUSES as readonly string[]).includes(active.status)) {
+  const active = await db.query.deliveryOrders.findFirst({
+    where: eq(deliveryOrders.orderId, orderId),
+  });
+  if (
+    active &&
+    (ACTIVE_ASSIGNMENT_STATUSES as readonly string[]).includes(active.status)
+  ) {
     throw conflict("This order already has an active delivery assignment.");
   }
   const status = await getRiderSearchStatus(orderId);
-  throw conflict(`No delivery partner is currently available for this order. ${status.message}`);
+  throw conflict(
+    `No delivery partner is currently available for this order. ${status.message}`,
+  );
 }
 
 /** The shop stops the search (it will deliver the order itself). */
-export async function stopRiderSearch(orderId: string, actor: Actor): Promise<void> {
+export async function stopRiderSearch(
+  orderId: string,
+  actor: Actor,
+): Promise<void> {
   const [open] = await db
     .select()
     .from(riderSearches)
-    .where(and(eq(riderSearches.orderId, orderId), eq(riderSearches.status, "SEARCHING")));
+    .where(
+      and(
+        eq(riderSearches.orderId, orderId),
+        eq(riderSearches.status, "SEARCHING"),
+      ),
+    );
   if (!open) return;
   await closeSearch(open.id, "STOPPED_BY_SHOP");
-  await logAttempt(open, open.attempts, "SHOP_MANUAL", "STOPPED", { detail: STOP_MESSAGES.STOPPED_BY_SHOP });
+  await logAttempt(open, open.attempts, "SHOP_MANUAL", "STOPPED", {
+    detail: STOP_MESSAGES.STOPPED_BY_SHOP,
+  });
   await recordAudit({
     actorId: actor.id,
     actorRole: actor.role,
@@ -1161,22 +1501,24 @@ export async function stopRiderSearch(orderId: string, actor: Actor): Promise<vo
  */
 export async function expireStaleOffers(): Promise<number> {
   const offerTtlSeconds = await getOfferTtlSeconds();
-  const expired = await db
-    .update(deliveryOrders)
-    .set({
+  const expired = await updateReturning(
+    db,
+    deliveryOrders,
+    {
       status: "REJECTED",
       cancelledAt: new Date(),
       cancellationReason: "Offer expired",
-      rejectedPartnerIds: sql`array_append(${deliveryOrders.rejectedPartnerIds}, ${deliveryOrders.deliveryPartnerId})`,
+      rejectedPartnerIds: sql`JSON_ARRAY_APPEND(coalesce(${deliveryOrders.rejectedPartnerIds}, JSON_ARRAY()), '$', ${deliveryOrders.deliveryPartnerId})`,
       updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(deliveryOrders.status, "OFFERED"),
-        lt(deliveryOrders.offeredAt, sql`now() - make_interval(secs => ${offerTtlSeconds})`),
+    },
+    and(
+      eq(deliveryOrders.status, "OFFERED"),
+      lt(
+        deliveryOrders.offeredAt,
+        sql`now() - interval ${offerTtlSeconds} second`,
       ),
-    )
-    .returning();
+    ),
+  );
 
   for (const row of expired) {
     await recordAudit({
@@ -1185,15 +1527,27 @@ export async function expireStaleOffers(): Promise<number> {
       entityId: row.id,
       newValue: { deliveryPartnerId: row.deliveryPartnerId },
     });
-    await dispatchReadyOrder(row.orderId, { id: null, role: null }, "REOFFER").catch((error) => {
-      console.error("[delivery] re-offer after expiry failed", row.orderId, error);
+    await dispatchReadyOrder(
+      row.orderId,
+      { id: null, role: null },
+      "REOFFER",
+    ).catch((error) => {
+      console.error(
+        "[delivery] re-offer after expiry failed",
+        row.orderId,
+        error,
+      );
     });
   }
   return expired.length;
 }
 
 /** Cron sweep: expire stale offers, then retry every READY order that has no rider working on it. */
-export async function runDispatchSweep(): Promise<{ expired: number; attempted: number; offered: number }> {
+export async function runDispatchSweep(): Promise<{
+  expired: number;
+  attempted: number;
+  offered: number;
+}> {
   const expired = await expireStaleOffers();
   const waiting = await db
     .select({ id: orders.id })
@@ -1204,7 +1558,11 @@ export async function runDispatchSweep(): Promise<{ expired: number; attempted: 
 
   let offered = 0;
   for (const { id } of waiting) {
-    const result = await dispatchReadyOrder(id, { id: null, role: null }, "SWEEP").catch((error) => {
+    const result = await dispatchReadyOrder(
+      id,
+      { id: null, role: null },
+      "SWEEP",
+    ).catch((error) => {
       console.error("[delivery] dispatch sweep failed", id, error);
       return null;
     });
@@ -1213,7 +1571,10 @@ export async function runDispatchSweep(): Promise<{ expired: number; attempted: 
   return { expired, attempted: waiting.length, offered };
 }
 
-export type RiderDeliveryView = Omit<DeliveryOrder, "pickupCode" | "deliveryOtp" | "rejectedPartnerIds"> & {
+export type RiderDeliveryView = Omit<
+  DeliveryOrder,
+  "pickupCode" | "deliveryOtp" | "rejectedPartnerIds"
+> & {
   needsPickupCode: boolean;
   needsDeliveryOtp: boolean;
 };
@@ -1224,9 +1585,18 @@ export type RiderDeliveryView = Omit<DeliveryOrder, "pickupCode" | "deliveryOtp"
  * the OTP — a rider who could read either could confirm a handover alone.
  */
 export function toRiderView(row: DeliveryOrder): RiderDeliveryView {
-  const { pickupCode, deliveryOtp, rejectedPartnerIds: _rejected, ...safe } = row;
+  const {
+    pickupCode,
+    deliveryOtp,
+    rejectedPartnerIds: _rejected,
+    ...safe
+  } = row;
   void _rejected;
-  return { ...safe, needsPickupCode: pickupCode != null, needsDeliveryOtp: deliveryOtp != null };
+  return {
+    ...safe,
+    needsPickupCode: pickupCode != null,
+    needsDeliveryOtp: deliveryOtp != null,
+  };
 }
 
 /**
@@ -1249,8 +1619,10 @@ export interface DeliveryPlace {
   notes: string | null;
 }
 
-export interface ActiveDeliveryDetail
-  extends Omit<DeliveryOrder, "pickupCode" | "deliveryOtp" | "rejectedPartnerIds"> {
+export interface ActiveDeliveryDetail extends Omit<
+  DeliveryOrder,
+  "pickupCode" | "deliveryOtp" | "rejectedPartnerIds"
+> {
   needsPickupCode: boolean;
   needsDeliveryOtp: boolean;
   orderNumber: string;
@@ -1277,13 +1649,26 @@ export interface ActiveDeliveryDetail
   } | null;
 }
 
-function navigationUrl(lat: number | null, lng: number | null, addressText: string): string | null {
-  const destination = lat != null && lng != null ? `${lat},${lng}` : addressText ? encodeURIComponent(addressText) : null;
-  return destination ? `https://www.google.com/maps/dir/?api=1&destination=${destination}` : null;
+function navigationUrl(
+  lat: number | null,
+  lng: number | null,
+  addressText: string,
+): string | null {
+  const destination =
+    lat != null && lng != null
+      ? `${lat},${lng}`
+      : addressText
+        ? encodeURIComponent(addressText)
+        : null;
+  return destination
+    ? `https://www.google.com/maps/dir/?api=1&destination=${destination}`
+    : null;
 }
 
 /** Enriched view for the delivery-partner dashboard — pickup/drop details a rider needs, with navigation links. */
-export async function getMyActiveDeliveryDetail(userId: string): Promise<ActiveDeliveryDetail | null> {
+export async function getMyActiveDeliveryDetail(
+  userId: string,
+): Promise<ActiveDeliveryDetail | null> {
   const active = await getMyActiveDeliveryOrder(userId);
   if (!active) return null;
 
@@ -1313,21 +1698,37 @@ export async function getMyActiveDeliveryDetail(userId: string): Promise<ActiveD
   const society = await getSocietyDeliveryNotes(row.societyId);
   const snapshot = row.deliveryAddressSnapshot;
   const pickedUp = active.status === "PICKED_UP";
-  const fullAddress = snapshot ? [snapshot.line1, snapshot.area, snapshot.city].filter(Boolean).join(", ") : null;
-  const areaOnly = snapshot ? [snapshot.area, snapshot.city].filter(Boolean).join(", ") : null;
+  const fullAddress = snapshot
+    ? [snapshot.line1, snapshot.area, snapshot.city].filter(Boolean).join(", ")
+    : null;
+  const areaOnly = snapshot
+    ? [snapshot.area, snapshot.city].filter(Boolean).join(", ")
+    : null;
   const customerAddress = pickedUp ? fullAddress : areaOnly;
   const customerNotes =
     pickedUp && snapshot
-      ? [snapshot.landmark, snapshot.deliveryInstructions].filter(Boolean).join(" · ") || null
+      ? [snapshot.landmark, snapshot.deliveryInstructions]
+          .filter(Boolean)
+          .join(" · ") || null
       : null;
 
-  const dropCoords = pickedUp ? parseCoordinates(snapshot?.latitude ?? null, snapshot?.longitude ?? null) : null;
+  const dropCoords = pickedUp
+    ? parseCoordinates(snapshot?.latitude ?? null, snapshot?.longitude ?? null)
+    : null;
   const pickupCoords =
-    parseCoordinates(row.pickupLatitude, row.pickupLongitude) ?? parseCoordinates(row.shopLatitude, row.shopLongitude);
-  const shopAddress = [row.addressLine1, row.addressLine2, row.city].filter(Boolean).join(", ");
+    parseCoordinates(row.pickupLatitude, row.pickupLongitude) ??
+    parseCoordinates(row.shopLatitude, row.shopLongitude);
+  const shopAddress = [row.addressLine1, row.addressLine2, row.city]
+    .filter(Boolean)
+    .join(", ");
 
   // Strip both codes before this leaves the server (see ActiveDeliveryDetail).
-  const { pickupCode, deliveryOtp, rejectedPartnerIds: _rejected, ...safe } = active;
+  const {
+    pickupCode,
+    deliveryOtp,
+    rejectedPartnerIds: _rejected,
+    ...safe
+  } = active;
   void _rejected;
   return {
     ...safe,
@@ -1335,7 +1736,8 @@ export async function getMyActiveDeliveryDetail(userId: string): Promise<ActiveD
     needsDeliveryOtp: deliveryOtp != null,
     orderNumber: row.orderNumber,
     orderTotalPaise: row.orderTotalPaise,
-    cashToCollectPaise: row.paymentMethod === "COD" ? row.orderTotalPaise : null,
+    cashToCollectPaise:
+      row.paymentMethod === "COD" ? row.orderTotalPaise : null,
     shopName: row.shopName,
     shopAddress,
     customerAddress,
@@ -1346,25 +1748,43 @@ export async function getMyActiveDeliveryDetail(userId: string): Promise<ActiveD
       label: `${row.shopName} — ${shopAddress}`,
       latitude: pickupCoords?.latitude ?? null,
       longitude: pickupCoords?.longitude ?? null,
-      navigationUrl: navigationUrl(pickupCoords?.latitude ?? null, pickupCoords?.longitude ?? null, `${row.shopName} ${shopAddress}`),
+      navigationUrl: navigationUrl(
+        pickupCoords?.latitude ?? null,
+        pickupCoords?.longitude ?? null,
+        `${row.shopName} ${shopAddress}`,
+      ),
       notes: row.pickupInstructions,
     },
     drop: {
       label: customerAddress ?? "Address on order details",
       latitude: dropCoords?.latitude ?? null,
       longitude: dropCoords?.longitude ?? null,
-      navigationUrl: pickedUp ? navigationUrl(dropCoords?.latitude ?? null, dropCoords?.longitude ?? null, fullAddress ?? "") : null,
+      navigationUrl: pickedUp
+        ? navigationUrl(
+            dropCoords?.latitude ?? null,
+            dropCoords?.longitude ?? null,
+            fullAddress ?? "",
+          )
+        : null,
       notes: customerNotes,
       precise: pickedUp,
     },
     gate: society
-      ? { entryMode: society.entryMode, contactName: society.contactName, contactPhone: society.contactPhone }
+      ? {
+          entryMode: society.entryMode,
+          contactName: society.contactName,
+          contactPhone: society.contactPhone,
+        }
       : null,
   };
 }
 
-export async function getMyActiveDeliveryOrder(userId: string): Promise<DeliveryOrder | null> {
-  const partner = await db.query.deliveryPartners.findFirst({ where: eq(deliveryPartners.userId, userId) });
+export async function getMyActiveDeliveryOrder(
+  userId: string,
+): Promise<DeliveryOrder | null> {
+  const partner = await db.query.deliveryPartners.findFirst({
+    where: eq(deliveryPartners.userId, userId),
+  });
   if (!partner) return null;
 
   const row = await db.query.deliveryOrders.findFirst({
@@ -1377,8 +1797,13 @@ export async function getMyActiveDeliveryOrder(userId: string): Promise<Delivery
   return row ?? null;
 }
 
-export async function listMyDeliveryHistory(userId: string, limit = 30): Promise<DeliveryOrder[]> {
-  const partner = await db.query.deliveryPartners.findFirst({ where: eq(deliveryPartners.userId, userId) });
+export async function listMyDeliveryHistory(
+  userId: string,
+  limit = 30,
+): Promise<DeliveryOrder[]> {
+  const partner = await db.query.deliveryPartners.findFirst({
+    where: eq(deliveryPartners.userId, userId),
+  });
   if (!partner) return [];
 
   return db
@@ -1389,8 +1814,12 @@ export async function listMyDeliveryHistory(userId: string, limit = 30): Promise
     .limit(limit);
 }
 
-export async function getDeliveryOrderForOrder(orderId: string): Promise<DeliveryOrder | null> {
-  const row = await db.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.orderId, orderId) });
+export async function getDeliveryOrderForOrder(
+  orderId: string,
+): Promise<DeliveryOrder | null> {
+  const row = await db.query.deliveryOrders.findFirst({
+    where: eq(deliveryOrders.orderId, orderId),
+  });
   return row ?? null;
 }
 
@@ -1409,9 +1838,15 @@ export async function getDeliveryOrdersForOrders(
       partnerName: deliveryPartners.fullName,
     })
     .from(deliveryOrders)
-    .innerJoin(deliveryPartners, eq(deliveryOrders.deliveryPartnerId, deliveryPartners.id))
+    .innerJoin(
+      deliveryPartners,
+      eq(deliveryOrders.deliveryPartnerId, deliveryPartners.id),
+    )
     .where(inArray(deliveryOrders.orderId, orderIds));
   return new Map(
-    rows.map((row) => [row.deliveryOrder.orderId, { ...row.deliveryOrder, partnerName: row.partnerName }]),
+    rows.map((row) => [
+      row.deliveryOrder.orderId,
+      { ...row.deliveryOrder, partnerName: row.partnerName },
+    ]),
   );
 }

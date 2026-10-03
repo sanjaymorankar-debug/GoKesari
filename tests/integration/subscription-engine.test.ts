@@ -1,7 +1,7 @@
 /**
  * Daily subscription order engine (requirements §27, §33, §34, §39).
  *
- * Runs against real PostgreSQL. The idempotency and price-snapshot cases are the
+ * Runs against a real MySQL server. The idempotency and price-snapshot cases are the
  * reason this suite exists — they can only be proven against real constraints.
  */
 import { and, eq } from "drizzle-orm";

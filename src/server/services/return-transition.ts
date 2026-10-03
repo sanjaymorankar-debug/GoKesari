@@ -6,10 +6,20 @@
 import { and, eq } from "drizzle-orm";
 
 import { AppError, conflict } from "@/lib/errors";
-import { RETURN_STATUS_LABELS, RETURN_TRANSITIONS, type ReturnStatus } from "@/lib/return-states";
+import {
+  RETURN_STATUS_LABELS,
+  RETURN_TRANSITIONS,
+  type ReturnStatus,
+} from "@/lib/return-states";
 import type { DbClient } from "@/server/db";
-import { returnRequests, returnStatusHistory, type ReturnRequest, type UserRole } from "@/server/db/schema";
+import {
+  returnRequests,
+  returnStatusHistory,
+  type ReturnRequest,
+  type UserRole,
+} from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { updateReturning } from "@/server/db/returning";
 
 export interface ReturnActor {
   id: string | null;
@@ -31,12 +41,16 @@ export async function transitionReturn(
       `A return that is "${RETURN_STATUS_LABELS[from]}" cannot move to "${RETURN_STATUS_LABELS[to]}".`,
     );
   }
-  const [updated] = await tx
-    .update(returnRequests)
-    .set({ ...extra, status: to, updatedAt: new Date() })
-    .where(and(eq(returnRequests.id, ret.id), eq(returnRequests.status, from)))
-    .returning();
-  if (!updated) throw conflict("This return was just changed by someone else. Refresh and try again.");
+  const [updated] = await updateReturning(
+    tx,
+    returnRequests,
+    { ...extra, status: to, updatedAt: new Date() },
+    and(eq(returnRequests.id, ret.id), eq(returnRequests.status, from)),
+  );
+  if (!updated)
+    throw conflict(
+      "This return was just changed by someone else. Refresh and try again.",
+    );
 
   await tx.insert(returnStatusHistory).values({
     returnId: ret.id,

@@ -7,7 +7,18 @@
  * on add-to-cart, at checkout, and on every subscription order generation.
  * Nothing bypasses it.
  */
-import { and, asc, desc, eq, ilike, inArray, isNull, ne, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  inArray,
+  isNull,
+  like,
+  ne,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import {
   conflict,
@@ -35,6 +46,8 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { evaluateStockAlerts } from "./inventory-alerts";
 import { assertPriceWithinMrp } from "./mrp-governance";
+import { insertReturning, updateReturning } from "@/server/db/returning";
+import { nextSequenceValue } from "@/server/db/sequence";
 
 /* ------------------------------------------------------------ categories */
 
@@ -70,10 +83,10 @@ export async function createCategory(
   });
   if (existing) throw conflict("A category with that name already exists.");
 
-  const [category] = await db
-    .insert(productCategories)
-    .values({ ...input, slug })
-    .returning();
+  const [category] = await insertReturning(db, productCategories, {
+    ...input,
+    slug,
+  });
 
   await recordAudit({
     actorId: actor.id,
@@ -103,10 +116,7 @@ export async function listProducts(options: {
   const rows = await db
     .select({ product: products, category: productCategories })
     .from(products)
-    .innerJoin(
-      productCategories,
-      eq(products.categoryId, productCategories.id),
-    )
+    .innerJoin(productCategories, eq(products.categoryId, productCategories.id))
     .where(
       and(
         eq(products.isActive, true),
@@ -115,7 +125,9 @@ export async function listProducts(options: {
         options.department
           ? eq(productCategories.department, options.department)
           : undefined,
-        options.categoryId ? eq(products.categoryId, options.categoryId) : undefined,
+        options.categoryId
+          ? eq(products.categoryId, options.categoryId)
+          : undefined,
         options.subscribableOnly ? eq(products.subscribable, true) : undefined,
       ),
     )
@@ -138,7 +150,11 @@ export async function suggestProductsForShopType(
 /* --------------------------------------- shop-owner / admin product creation */
 
 function normaliseProductName(name: string): string {
-  return name.toLowerCase().trim().replace(/[^a-z0-9]+/g, " ").trim();
+  return name
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, " ")
+    .trim();
 }
 
 /** Classic edit-distance, used only for short product names so O(n·m) is fine. */
@@ -200,7 +216,10 @@ export async function findSimilarProducts(
       continue;
     }
     // Short names tolerate less absolute distance than long ones.
-    const threshold = Math.max(1, Math.floor(Math.min(target.length, candidateName.length) * 0.25));
+    const threshold = Math.max(
+      1,
+      Math.floor(Math.min(target.length, candidateName.length) * 0.25),
+    );
     if (
       levenshtein(target, candidateName) <= threshold ||
       candidateName.includes(target) ||
@@ -301,7 +320,9 @@ export async function createProductForShop(
         description: input.description,
         imageUrl: input.imageUrl,
         onlinePricePaise: applyPriceImmediately ? input.onlinePricePaise : null,
-        offlinePricePaise: applyPriceImmediately ? input.offlinePricePaise : null,
+        offlinePricePaise: applyPriceImmediately
+          ? input.offlinePricePaise
+          : null,
         onlineSaleEnabled: applyPriceImmediately
           ? (input.onlineSaleEnabled ?? false)
           : false,
@@ -330,25 +351,24 @@ export async function createProductForShop(
   }
 
   const run = async (tx: DbClient) => {
-    const [product] = await tx
-      .insert(products)
-      .values({
-        categoryId: input.categoryId,
-        name,
-        slug: uniqueSlug(name),
-        description: input.description ?? null,
-        specifications: input.specifications ?? null,
-        subCategory: input.subCategory ?? null,
-        imageUrl: input.imageUrl ?? null,
-        unit: input.unit.trim(),
-        unitSizeMilli: input.unitSizeMilli ?? 1000,
-        subscribable: input.subscribable ?? false,
-        // A SHOP_OWNER's product must not be discoverable by other shops until
-        // an admin publishes it; OPERATOR/ADMIN already hold that trust.
-        approvalStatus: actor.role === "SHOP_OWNER" ? "PENDING_APPROVAL" : "APPROVED",
-        createdBy: actor.id,
-      })
-      .returning();
+    const [product] = await insertReturning(tx, products, {
+      code: await nextSequenceValue(tx, "product_code_seq"),
+      categoryId: input.categoryId,
+      name,
+      slug: uniqueSlug(name),
+      description: input.description ?? null,
+      specifications: input.specifications ?? null,
+      subCategory: input.subCategory ?? null,
+      imageUrl: input.imageUrl ?? null,
+      unit: input.unit.trim(),
+      unitSizeMilli: input.unitSizeMilli ?? 1000,
+      subscribable: input.subscribable ?? false,
+      // A SHOP_OWNER's product must not be discoverable by other shops until
+      // an admin publishes it; OPERATOR/ADMIN already hold that trust.
+      approvalStatus:
+        actor.role === "SHOP_OWNER" ? "PENDING_APPROVAL" : "APPROVED",
+      createdBy: actor.id,
+    });
 
     await recordAudit(
       {
@@ -367,25 +387,26 @@ export async function createProductForShop(
       tx,
     );
 
-    const [shopProduct] = await tx
-      .insert(shopProducts)
-      .values({
-        shopId: input.shopId,
-        productId: product.id,
-        description: input.description ?? null,
-        imageUrl: input.imageUrl ?? null,
-        onlinePricePaise: applyPriceImmediately ? (input.onlinePricePaise ?? null) : null,
-        offlinePricePaise: applyPriceImmediately ? (input.offlinePricePaise ?? null) : null,
-        onlineSaleEnabled: applyPriceImmediately
-          ? (input.onlineSaleEnabled ?? false)
-          : false,
-        offlineSaleEnabled: applyPriceImmediately
-          ? (input.offlineSaleEnabled ?? false)
-          : false,
-        isActive: true,
-        isAvailable: input.isAvailable ?? true,
-      })
-      .returning();
+    const [shopProduct] = await insertReturning(tx, shopProducts, {
+      shopId: input.shopId,
+      productId: product.id,
+      description: input.description ?? null,
+      imageUrl: input.imageUrl ?? null,
+      onlinePricePaise: applyPriceImmediately
+        ? (input.onlinePricePaise ?? null)
+        : null,
+      offlinePricePaise: applyPriceImmediately
+        ? (input.offlinePricePaise ?? null)
+        : null,
+      onlineSaleEnabled: applyPriceImmediately
+        ? (input.onlineSaleEnabled ?? false)
+        : false,
+      offlineSaleEnabled: applyPriceImmediately
+        ? (input.offlineSaleEnabled ?? false)
+        : false,
+      isActive: true,
+      isAvailable: input.isAvailable ?? true,
+    });
 
     await recordAudit(
       {
@@ -403,7 +424,12 @@ export async function createProductForShop(
       tx,
     );
 
-    return { product, shopProduct, reusedExisting: false, similarWarning: similar };
+    return {
+      product,
+      shopProduct,
+      reusedExisting: false,
+      similarWarning: similar,
+    };
   };
 
   return client ? run(client) : db.transaction(run);
@@ -416,14 +442,20 @@ export async function listPendingProductApprovals(): Promise<
     .select({
       product: products,
       category: productCategories,
-      createdByName: sql<string | null>`(SELECT name FROM users WHERE users.id = ${products.createdBy})`,
+      createdByName: sql<
+        string | null
+      >`(SELECT name FROM users WHERE users.id = ${products.createdBy})`,
     })
     .from(products)
     .innerJoin(productCategories, eq(products.categoryId, productCategories.id))
     .where(eq(products.approvalStatus, "PENDING_APPROVAL"))
     .orderBy(desc(products.createdAt));
 
-  return rows.map((r) => ({ ...r.product, category: r.category, createdByName: r.createdByName }));
+  return rows.map((r) => ({
+    ...r.product,
+    category: r.category,
+    createdByName: r.createdByName,
+  }));
 }
 
 /** Publishes a shop-owner-created product to the central catalogue. ADMIN only. */
@@ -439,11 +471,17 @@ export async function approveProduct(
     throw conflict("This product has already been decided.");
   }
 
-  const [updated] = await db
-    .update(products)
-    .set({ approvalStatus: "APPROVED", approvedBy: actor.id, approvedAt: new Date(), rejectionReason: null })
-    .where(eq(products.id, productId))
-    .returning();
+  const [updated] = await updateReturning(
+    db,
+    products,
+    {
+      approvalStatus: "APPROVED",
+      approvedBy: actor.id,
+      approvedAt: new Date(),
+      rejectionReason: null,
+    },
+    eq(products.id, productId),
+  );
 
   await recordAudit({
     actorId: actor.id,
@@ -470,16 +508,17 @@ export async function rejectProduct(
     throw conflict("This product has already been decided.");
   }
 
-  const [updated] = await db
-    .update(products)
-    .set({
+  const [updated] = await updateReturning(
+    db,
+    products,
+    {
       approvalStatus: "REJECTED",
       approvedBy: actor.id,
       approvedAt: new Date(),
       rejectionReason: reason,
-    })
-    .where(eq(products.id, productId))
-    .returning();
+    },
+    eq(products.id, productId),
+  );
 
   await recordAudit({
     actorId: actor.id,
@@ -505,7 +544,11 @@ export async function getShopProduct(
   client: DbClient = db,
 ): Promise<ShopProductDetail | undefined> {
   const [row] = await client
-    .select({ sp: shopProducts, product: products, category: productCategories })
+    .select({
+      sp: shopProducts,
+      product: products,
+      category: productCategories,
+    })
     .from(shopProducts)
     .innerJoin(products, eq(shopProducts.productId, products.id))
     .innerJoin(productCategories, eq(products.categoryId, productCategories.id))
@@ -524,10 +567,15 @@ export async function countProductsByShop(
   const rows = await db
     .select({
       shopId: shopProducts.shopId,
-      count: sql<number>`COUNT(*)::int`,
+      count: sql<number>`CAST(COUNT(*) AS SIGNED)`,
     })
     .from(shopProducts)
-    .where(and(inArray(shopProducts.shopId, [...shopIds]), isNull(shopProducts.deletedAt)))
+    .where(
+      and(
+        inArray(shopProducts.shopId, [...shopIds]),
+        isNull(shopProducts.deletedAt),
+      ),
+    )
     .groupBy(shopProducts.shopId);
 
   return Object.fromEntries(rows.map((r) => [r.shopId, r.count]));
@@ -538,7 +586,11 @@ export async function listShopProducts(
   options: { onlineOnly?: boolean } = {},
 ): Promise<ShopProductDetail[]> {
   const rows = await db
-    .select({ sp: shopProducts, product: products, category: productCategories })
+    .select({
+      sp: shopProducts,
+      product: products,
+      category: productCategories,
+    })
     .from(shopProducts)
     .innerJoin(products, eq(shopProducts.productId, products.id))
     .innerJoin(productCategories, eq(products.categoryId, productCategories.id))
@@ -557,7 +609,11 @@ export async function listShopProducts(
     )
     .orderBy(asc(productCategories.sortOrder), asc(products.name));
 
-  return rows.map((r) => ({ ...r.sp, product: r.product, category: r.category }));
+  return rows.map((r) => ({
+    ...r.sp,
+    product: r.product,
+    category: r.category,
+  }));
 }
 
 export interface UpsertShopProductInput {
@@ -630,24 +686,21 @@ export async function createShopProduct(
     throw conflict("This product is already in your shop's catalogue.");
   }
 
-  const [created] = await client
-    .insert(shopProducts)
-    .values({
-      shopId: input.shopId,
-      productId: input.productId,
-      description: input.description ?? null,
-      imageUrl: input.imageUrl ?? null,
-      onlinePricePaise: input.onlinePricePaise ?? null,
-      offlinePricePaise: input.offlinePricePaise ?? null,
-      onlineSaleEnabled: input.onlineSaleEnabled,
-      offlineSaleEnabled: input.offlineSaleEnabled,
-      trackInventory: input.trackInventory ?? true,
-      onlineStock: input.onlineStock ?? 0,
-      offlineStock: input.offlineStock ?? 0,
-      isActive: input.isActive ?? true,
-      isAvailable: input.isAvailable ?? true,
-    })
-    .returning();
+  const [created] = await insertReturning(client, shopProducts, {
+    shopId: input.shopId,
+    productId: input.productId,
+    description: input.description ?? null,
+    imageUrl: input.imageUrl ?? null,
+    onlinePricePaise: input.onlinePricePaise ?? null,
+    offlinePricePaise: input.offlinePricePaise ?? null,
+    onlineSaleEnabled: input.onlineSaleEnabled,
+    offlineSaleEnabled: input.offlineSaleEnabled,
+    trackInventory: input.trackInventory ?? true,
+    onlineStock: input.onlineStock ?? 0,
+    offlineStock: input.offlineStock ?? 0,
+    isActive: input.isActive ?? true,
+    isAvailable: input.isAvailable ?? true,
+  });
 
   await recordAudit(
     {
@@ -694,7 +747,8 @@ export async function updateShopProduct(
 
     const next = {
       onlineSaleEnabled: patch.onlineSaleEnabled ?? current.onlineSaleEnabled,
-      offlineSaleEnabled: patch.offlineSaleEnabled ?? current.offlineSaleEnabled,
+      offlineSaleEnabled:
+        patch.offlineSaleEnabled ?? current.offlineSaleEnabled,
       onlinePricePaise:
         patch.onlinePricePaise !== undefined
           ? patch.onlinePricePaise
@@ -710,21 +764,28 @@ export async function updateShopProduct(
     await assertPriceWithinMrp(
       current.productId,
       {
-        online: patch.onlinePricePaise !== undefined ? next.onlinePricePaise : undefined,
-        offline: patch.offlinePricePaise !== undefined ? next.offlinePricePaise : undefined,
+        online:
+          patch.onlinePricePaise !== undefined
+            ? next.onlinePricePaise
+            : undefined,
+        offline:
+          patch.offlinePricePaise !== undefined
+            ? next.offlinePricePaise
+            : undefined,
       },
       tx,
     );
 
-    const [updated] = await tx
-      .update(shopProducts)
-      .set({
+    const [updated] = await updateReturning(
+      tx,
+      shopProducts,
+      {
         ...patch,
         ...next,
         updatedAt: new Date(),
-      })
-      .where(eq(shopProducts.id, shopProductId))
-      .returning();
+      },
+      eq(shopProducts.id, shopProductId),
+    );
 
     // Price history — one row per changed channel.
     const priceChanges: {
@@ -794,7 +855,8 @@ export async function updateShopProduct(
         });
       }
     }
-    if (updated.onlineStock !== current.onlineStock) await evaluateStockAlerts(shopProductId, tx);
+    if (updated.onlineStock !== current.onlineStock)
+      await evaluateStockAlerts(shopProductId, tx);
 
     const availabilityChanged =
       (patch.isAvailable !== undefined &&
@@ -844,7 +906,9 @@ export async function removeShopProduct(
   const [current] = await db
     .select()
     .from(shopProducts)
-    .where(and(eq(shopProducts.id, shopProductId), isNull(shopProducts.deletedAt)));
+    .where(
+      and(eq(shopProducts.id, shopProductId), isNull(shopProducts.deletedAt)),
+    );
   if (!current) throw notFound("Product");
 
   await db
@@ -931,9 +995,12 @@ export async function listStorefrontProducts(options: {
     conditions.push(eq(products.categoryId, options.categoryId));
   }
   if (options.shopId) conditions.push(eq(shopProducts.shopId, options.shopId));
-  if (options.shopIds) conditions.push(inArray(shopProducts.shopId, [...options.shopIds]));
-  if (options.productId) conditions.push(eq(shopProducts.productId, options.productId));
-  if (options.subscribableOnly) conditions.push(eq(products.subscribable, true));
+  if (options.shopIds)
+    conditions.push(inArray(shopProducts.shopId, [...options.shopIds]));
+  if (options.productId)
+    conditions.push(eq(shopProducts.productId, options.productId));
+  if (options.subscribableOnly)
+    conditions.push(eq(products.subscribable, true));
   if (options.onlineOnly) {
     conditions.push(eq(shopProducts.onlineSaleEnabled, true));
   }
@@ -941,10 +1008,10 @@ export async function listStorefrontProducts(options: {
     const term = `%${options.query}%`;
     conditions.push(
       or(
-        ilike(products.name, term),
-        ilike(productCategories.name, term),
-        ilike(shops.name, term),
-        ilike(shops.area, term),
+        like(products.name, term),
+        like(productCategories.name, term),
+        like(shops.name, term),
+        like(shops.area, term),
         eq(shops.pincode, options.query),
       )!,
     );
@@ -1122,19 +1189,18 @@ export async function consumeOnlineStock(
   if (!current) throw notFound("Product");
   if (!current.trackInventory) return;
 
-  const updated = await client
-    .update(shopProducts)
-    .set({
+  const updated = await updateReturning(
+    client,
+    shopProducts,
+    {
       onlineStock: sql`${shopProducts.onlineStock} - ${units}`,
       updatedAt: new Date(),
-    })
-    .where(
-      and(
-        eq(shopProducts.id, shopProductId),
-        sql`${shopProducts.onlineStock} >= ${units}`,
-      ),
-    )
-    .returning();
+    },
+    and(
+      eq(shopProducts.id, shopProductId),
+      sql`${shopProducts.onlineStock} >= ${units}`,
+    ),
+  );
 
   if (updated.length === 0) {
     throw outOfStock("This product is currently unavailable online.");
@@ -1180,14 +1246,15 @@ export async function restockOnline(
       .for("update");
     if (!current) throw notFound("Product");
 
-    const [updated] = await tx
-      .update(shopProducts)
-      .set({
+    const [updated] = await updateReturning(
+      tx,
+      shopProducts,
+      {
         onlineStock: current.onlineStock + units,
         updatedAt: new Date(),
-      })
-      .where(eq(shopProducts.id, shopProductId))
-      .returning();
+      },
+      eq(shopProducts.id, shopProductId),
+    );
 
     await tx.insert(inventoryMovements).values({
       shopProductId,

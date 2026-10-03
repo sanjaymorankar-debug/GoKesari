@@ -5,6 +5,12 @@
  * product_id (never OFFSET), so page 1,000,000 costs the same as page 1 at 10M rows.
  */
 import type { Sql } from "../db";
+import { booleanQuery, ngramQuery, normaliseRelevance, rankBySimilarity } from "../mysql/search";
+
+/** The similarity floor the fuzzy strategy used, previously set with set_config. */
+const FUZZY_THRESHOLD = 0.3;
+/** Candidates retrieved per wanted row before ranking - see match/engine.ts. */
+const FUZZY_FANOUT = 20;
 import { analyzeGtin, normalizeAlnumKey } from "../normalize/identifiers";
 import { normalizeText, tokenize } from "../normalize/text";
 
@@ -72,7 +78,7 @@ const toSummary = (r: SummaryRow): ProductSummary => ({
 const SUMMARY_SELECT = (sql: Sql) => sql`
   pm.product_id, pm.master_product_id, pm.product_name, b.brand_name, m.manufacturer_name, c.path_names AS category_path,
   pm.gtin, pm.pack_size, pm.product_status, pm.data_quality_score, ps.offer_count, ps.min_price_minor, ps.currency,
-  (SELECT count(*)::int FROM pmd.product_source x WHERE x.product_id = pm.product_id) AS source_count`;
+  (SELECT CAST(count(*) AS SIGNED) FROM pmd.product_source x WHERE x.product_id = pm.product_id) AS source_count`;
 
 const SUMMARY_FROM = (sql: Sql) => sql`
   FROM pmd.product_master pm
@@ -86,7 +92,7 @@ function filterFragments(sql: Sql, f: ProductFilters) {
     f.brand ? sql`AND pm.brand_id = (SELECT brand_id FROM pmd.brand WHERE brand_code = ${f.brand})` : sql``,
     f.manufacturer ? sql`AND pm.manufacturer_id = (SELECT manufacturer_id FROM pmd.manufacturer WHERE manufacturer_code = ${f.manufacturer})` : sql``,
     f.category
-      ? sql`AND pm.category_id IN (SELECT category_id FROM pmd.category WHERE (SELECT category_id FROM pmd.category WHERE category_code = ${f.category}) = ANY(path_ids))`
+      ? sql`AND pm.category_id IN (SELECT category_id FROM pmd.category WHERE JSON_CONTAINS(path_ids, CAST((SELECT category_id FROM pmd.category c2 WHERE c2.category_code = ${f.category}) AS JSON)))`
       : sql``,
     f.status ? sql`AND pm.product_status = ${f.status}` : sql``,
     f.minQuality != null ? sql`AND pm.data_quality_score >= ${f.minQuality}` : sql``,
@@ -152,7 +158,7 @@ export async function searchProducts(
       SELECT DISTINCT ${SUMMARY_SELECT(sql)} ${SUMMARY_FROM(sql)}
       JOIN pmd.product_identifier i ON i.product_id = pm.product_id
       WHERE pm.record_status = 'ACTIVE' ${f1} ${f2} ${f3} ${f4} ${f5} ${f6}
-        AND ((i.id_type IN ('GTIN','ISBN') AND i.id_value = ANY(${[gtin?.gtin14 ?? "", gtin?.isbn13 ?? ""]}))
+        AND ((i.id_type IN ('GTIN','ISBN') AND i.id_value IN ${sql([gtin?.gtin14 ?? "", gtin?.isbn13 ?? ""])})
           OR (i.id_type IN ('MPN','MODEL','SKU','PRODUCT_CODE') AND i.id_value = ${key?.key ?? ""}))
       LIMIT ${max}`;
     add(rows, "IDENTIFIER", 100);
@@ -161,15 +167,21 @@ export async function searchProducts(
   // 2. keywords: every term, last as prefix (uses the GIN full-text index)
   const tokens = tokenize(q).filter((t) => /^[\p{L}\p{N}.%]+$/u.test(t));
   if (tokens.length && seen.size < max) {
-    const tsquery = tokens.map((t, i) => `${t.replace(/[':&|!()<>]/g, "")}${i === tokens.length - 1 ? ":*" : ""}`).filter(Boolean).join(" & ");
-    if (tsquery) {
+    // `to_tsvector @@ to_tsquery` with ts_rank becomes MySQL's full-text match
+    // with its relevance score. The boolean query requires every term and
+    // wildcards each one, which is what `term & term:*` did.
+    const query = booleanQuery(tokens.join(" "));
+    if (query) {
       const rows = await sql<SummaryRow[]>`
-        SELECT ${SUMMARY_SELECT(sql)}, ts_rank(to_tsvector('simple', pm.search_text), to_tsquery('simple', ${tsquery})) AS rank
+        SELECT ${SUMMARY_SELECT(sql)}, MATCH(pm.search_text) AGAINST(${query} IN BOOLEAN MODE) AS \`rank\`
         ${SUMMARY_FROM(sql)}
         WHERE pm.record_status = 'ACTIVE' ${f1} ${f2} ${f3} ${f4} ${f5} ${f6}
-          AND to_tsvector('simple', pm.search_text) @@ to_tsquery('simple', ${tsquery})
-        ORDER BY rank DESC, pm.data_quality_score DESC NULLS LAST LIMIT ${max}`;
-      add(rows, "KEYWORD", 50);
+          AND MATCH(pm.search_text) AGAINST(${query} IN BOOLEAN MODE)
+        ORDER BY \`rank\` DESC, pm.data_quality_score IS NULL, pm.data_quality_score DESC LIMIT ${max}`;
+      // MySQL's relevance is unbounded where ts_rank was 0-1, and `add` sums it
+      // with the strategy's base score - so raw it could eventually push a
+      // keyword hit past the identifier base of 100.
+      add(normaliseRelevance(rows), "KEYWORD", 50);
     }
   }
 
@@ -177,15 +189,27 @@ export async function searchProducts(
   if (seen.size < max) {
     const norm = normalizeText(q);
     if (norm.length >= 3) {
-      const out = await sql.begin("read only", async (tx) => {
-        await tx`SELECT set_config('pg_trgm.similarity_threshold', '0.3', true)`;
-        return tx<SummaryRow[]>`
-          SELECT ${SUMMARY_SELECT(tx as unknown as Sql)}, similarity(pm.search_text, ${norm}) AS rank
-          ${SUMMARY_FROM(tx as unknown as Sql)}
-          WHERE pm.record_status = 'ACTIVE' ${f1} ${f2} ${f3} ${f4} ${f5} ${f6} AND pm.search_text % ${norm}
-          ORDER BY rank DESC LIMIT ${max}`;
-      });
-      add(out, "FUZZY", 0);
+      // `pm.search_text % ${norm} ORDER BY similarity(...)` with the threshold
+      // set to 0.3. `%` is modulo in MySQL, so it had to go; the ngram index
+      // retrieves candidates and trigramSimilarity - the same definition
+      // similarity() uses - ranks them and applies the same 0.3, which leaves
+      // the ordering and the scores identical to the PostgreSQL ones.
+      // ngramQuery, not booleanQuery: requiring the terms themselves makes the
+      // parser look for them as substrings, and a misspelling is not a
+      // substring of the correct spelling. Measured, that scored 0% recall on
+      // exactly the typo queries this strategy exists for.
+      const query = ngramQuery(norm);
+      if (query) {
+        const candidates = await sql<(SummaryRow & { search_text: string })[]>`
+          SELECT ${SUMMARY_SELECT(sql)}, pm.search_text AS search_text,
+                 MATCH(pm.search_text) AGAINST(${query} IN BOOLEAN MODE) AS score
+          ${SUMMARY_FROM(sql)}
+          WHERE pm.record_status = 'ACTIVE' ${f1} ${f2} ${f3} ${f4} ${f5} ${f6}
+            AND MATCH(pm.search_text) AGAINST(${query} IN BOOLEAN MODE)
+          ORDER BY score DESC
+          LIMIT ${max * FUZZY_FANOUT}`;
+        add(rankBySimilarity(candidates, norm, (r) => r.search_text, FUZZY_THRESHOLD, max), "FUZZY", 0);
+      }
     }
   }
   const items = [...seen.values()].sort((a, b) => b.score - a.score).slice(0, max);
@@ -242,17 +266,17 @@ export async function getProduct(sql: Sql, masterProductId: string): Promise<Pro
     sql<{ source_key: string; source_product_id: string; source_url: string | null; data_collection_method: string; match_status: string; match_score: number | null; last_seen_date: string }[]>`
       SELECT s.source_key, ps.source_product_id, ps.source_url, ps.data_collection_method, ps.match_status, ps.match_score, ps.last_seen_date
       FROM pmd.product_source ps JOIN pmd.source s USING (source_id) WHERE ps.product_id = ${id} ORDER BY s.source_key`,
-    sql<{ rank: number; image_url: string; image_source: string; validation_status: string }[]>`SELECT rank, image_url, image_source, validation_status FROM pmd.product_image WHERE product_id = ${id} ORDER BY rank`,
+    sql<{ rank: number; image_url: string; image_source: string; validation_status: string }[]>`SELECT \`rank\`, image_url, image_source, validation_status FROM pmd.product_image WHERE product_id = ${id} ORDER BY \`rank\``,
     sql<{ attribute_key: string; value_1: string; source_1: string; value_2: string; source_2: string; conflict_status: string; resolution: string | null }[]>`
       SELECT attribute_key, value_1, source_1, value_2, source_2, conflict_status, resolution FROM pmd.product_attribute_conflict WHERE product_id = ${id} ORDER BY conflict_id`,
     pm.product_family_id
       ? sql<{ master_product_id: string; product_name: string; pack_size: string | null }[]>`
-          SELECT master_product_id, product_name, pack_size FROM pmd.product_master WHERE product_family_id = ${pm.product_family_id as number} AND record_status = 'ACTIVE' ORDER BY net_quantity_value NULLS LAST, product_id LIMIT 50`
+          SELECT master_product_id, product_name, pack_size FROM pmd.product_master WHERE product_family_id = ${pm.product_family_id as number} AND record_status = 'ACTIVE' ORDER BY net_quantity_value IS NULL, net_quantity_value, product_id LIMIT 50`
       : Promise.resolve([]),
     sql<{ offer_count: number; min_price_minor: number | null; max_price_minor: number | null; currency: string | null }[]>`SELECT offer_count, min_price_minor, max_price_minor, currency FROM pmd.v_product_price_summary WHERE product_id = ${id}`,
     sql<{ catalogue_product_id: string; code: string; promoted_at: Date }[]>`
-      SELECT cl.catalogue_product_id, p.code, cl.promoted_at FROM pmd.catalogue_link cl JOIN public.products p ON p.id = cl.catalogue_product_id WHERE cl.product_id = ${id}`,
-    sql<{ n: number }[]>`SELECT count(*)::int AS n FROM pmd.match_candidate mc JOIN pmd.product_source ps USING (product_source_id) WHERE ps.product_id = ${id} AND mc.review_status = 'PENDING'`,
+      SELECT cl.catalogue_product_id, p.code, cl.promoted_at FROM pmd.catalogue_link cl JOIN products p ON p.id = cl.catalogue_product_id WHERE cl.product_id = ${id}`,
+    sql<{ n: number }[]>`SELECT CAST(count(*) AS SIGNED) AS n FROM pmd.match_candidate mc JOIN pmd.product_source ps USING (product_source_id) WHERE ps.product_id = ${id} AND mc.review_status = 'PENDING'`,
   ]);
 
   const p = pm as Record<string, any>; // eslint-disable-line @typescript-eslint/no-explicit-any
@@ -342,7 +366,7 @@ export async function getOffers(sql: Sql, masterProductId: string, opts: { curre
     JOIN pmd.product_master pm ON pm.product_id = o.product_id
     JOIN pmd.source s ON s.source_id = o.source_id
     WHERE pm.master_product_id = ${masterProductId} ${opts.currentOnly ? sql`AND o.is_current` : sql``}
-    ORDER BY o.price_minor NULLS LAST, s.source_key, o.seller_key`;
+    ORDER BY o.price_minor IS NULL, o.price_minor, s.source_key, o.seller_key`;
   return rows.map((r) => ({
     source: r.source, sourceProductId: r.source_product_id, sellerId: r.seller_id, sellerName: r.seller_name, sellerLocation: r.seller_location,
     sellerRating: r.seller_rating, priceMinor: r.price_minor, mrpMinor: r.mrp_minor, discountMinor: r.discount_minor, discountPct: r.discount_pct,
@@ -383,8 +407,8 @@ export async function getPriceHistory(
     JOIN pmd.product_master pm ON pm.product_id = h.product_id
     JOIN pmd.source s ON s.source_id = h.source_id
     WHERE pm.master_product_id = ${masterProductId}
-      ${opts.from ? sql`AND h.collected_at >= ${opts.from}::date` : sql``}
-      ${opts.to ? sql`AND h.collected_at < (${opts.to}::date + 1)` : sql``}
+      ${opts.from ? sql`AND h.collected_at >= CAST(${opts.from} AS DATE)` : sql``}
+      ${opts.to ? sql`AND h.collected_at < (CAST(${opts.to} AS DATE) + 1)` : sql``}
     ORDER BY h.collected_at, h.price_history_id LIMIT ${limit}`;
   const points: PricePointView[] = rows.map((r) => ({
     source: r.source, seller: r.seller, mrpMinor: r.mrp_minor, sellingPriceMinor: r.selling_price_minor, discountMinor: r.discount_minor,

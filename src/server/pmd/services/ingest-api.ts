@@ -106,7 +106,7 @@ export async function matchProduct(sql: Sql, staged: StagedProduct) {
   const ids = result.scored.map((s) => s.productId);
   const names = ids.length
     ? await sql<{ product_id: number; master_product_id: string; product_name: string; pack_size: string | null; gtin: string | null }[]>`
-        SELECT product_id, master_product_id, product_name, pack_size, gtin FROM pmd.product_master WHERE product_id = ANY(${ids}::bigint[])`
+        SELECT product_id, master_product_id, product_name, pack_size, gtin FROM pmd.product_master WHERE product_id IN ${sql(ids)}`
     : [];
   const byId = new Map(names.map((r) => [r.product_id, r]));
 

@@ -14,7 +14,13 @@ import { randomBytes } from "node:crypto";
 
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
-import { AppError, conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
+import {
+  AppError,
+  conflict,
+  forbidden,
+  notFound,
+  validationFailed,
+} from "@/lib/errors";
 import {
   RETURN_CONDITIONS,
   RETURN_REASONS,
@@ -43,9 +49,15 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { refundDeliveredOrder } from "./finance";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
-import { cancelLivePickup, createPickup, offerPickup, LIVE_PICKUP_STATUSES } from "./return-pickups";
+import {
+  cancelLivePickup,
+  createPickup,
+  offerPickup,
+  LIVE_PICKUP_STATUSES,
+} from "./return-pickups";
 import { transitionReturn, type ReturnActor } from "./return-transition";
 import { getRule } from "./settings";
+import { insertReturning } from "@/server/db/returning";
 
 interface Actor {
   id: string;
@@ -83,34 +95,52 @@ function effectiveLine(item: typeof orderItems.$inferSelect) {
       name: item.substituteNameSnapshot ?? item.productNameSnapshot,
     };
   }
-  return { milli: item.quantityMilli, totalPaise: item.lineTotalPaise, name: item.productNameSnapshot };
+  return {
+    milli: item.quantityMilli,
+    totalPaise: item.lineTotalPaise,
+    name: item.productNameSnapshot,
+  };
 }
 
 /** Creates a return request; validation runs here and the request goes straight to "under review". */
-export async function requestReturn(input: RequestReturnInput, actor: Actor): Promise<ReturnRequest> {
-  if (!RETURN_REASONS.includes(input.reason)) throw validationFailed("Choose a reason for the return.");
-  if (input.items.length === 0) throw validationFailed("Choose at least one item to return.");
-  if (new Set(input.items.map((i) => i.orderItemId)).size !== input.items.length) {
+export async function requestReturn(
+  input: RequestReturnInput,
+  actor: Actor,
+): Promise<ReturnRequest> {
+  if (!RETURN_REASONS.includes(input.reason))
+    throw validationFailed("Choose a reason for the return.");
+  if (input.items.length === 0)
+    throw validationFailed("Choose at least one item to return.");
+  if (
+    new Set(input.items.map((i) => i.orderItemId)).size !== input.items.length
+  ) {
     throw validationFailed("Each item can appear only once.");
   }
   for (const item of input.items) {
     if (!Number.isInteger(item.quantityMilli) || item.quantityMilli <= 0) {
       throw validationFailed("Enter how much of each item you are returning.");
     }
-    if (!RETURN_CONDITIONS.includes(item.condition)) throw validationFailed("Say what condition each item is in.");
+    if (!RETURN_CONDITIONS.includes(item.condition))
+      throw validationFailed("Say what condition each item is in.");
   }
 
   const rules = await getRule("returns");
   const policy = rules.reasons[input.reason];
   if (!policy?.allowed) {
-    throw validationFailed("Returns for this reason are not accepted. Please choose the reason that fits, or contact support.");
+    throw validationFailed(
+      "Returns for this reason are not accepted. Please choose the reason that fits, or contact support.",
+    );
   }
   const imageIds = [...new Set(input.items.flatMap((i) => i.imageIds ?? []))];
   if (policy.requiresImages && imageIds.length === 0) {
-    throw validationFailed("Please add at least one photo showing the problem.");
+    throw validationFailed(
+      "Please add at least one photo showing the problem.",
+    );
   }
   if (imageIds.length > rules.maxImagesPerReturn) {
-    throw validationFailed(`You can attach at most ${rules.maxImagesPerReturn} photos.`);
+    throw validationFailed(
+      `You can attach at most ${rules.maxImagesPerReturn} photos.`,
+    );
   }
   if (imageIds.length > 0) {
     const owned = await db
@@ -123,12 +153,19 @@ export async function requestReturn(input: RequestReturnInput, actor: Actor): Pr
           eq(storedImages.purpose, "RETURN_EVIDENCE"),
         ),
       );
-    if (owned.length !== imageIds.length) throw validationFailed("One of the photos could not be used. Upload it again.");
+    if (owned.length !== imageIds.length)
+      throw validationFailed(
+        "One of the photos could not be used. Upload it again.",
+      );
   }
 
   const created = await db.transaction(async (tx) => {
     // Lock the order so two simultaneous requests cannot both claim the same quantity.
-    const [order] = await tx.select().from(orders).where(eq(orders.id, input.orderId)).for("update");
+    const [order] = await tx
+      .select()
+      .from(orders)
+      .where(eq(orders.id, input.orderId))
+      .for("update");
     if (!order || order.userId !== actor.id) throw notFound("Order");
     if (order.status !== "DELIVERED") {
       throw conflict("Only a delivered order can be returned.");
@@ -137,15 +174,30 @@ export async function requestReturn(input: RequestReturnInput, actor: Actor): Pr
     const [delivered] = await tx
       .select({ at: sql<Date>`max(${orderStatusHistory.createdAt})` })
       .from(orderStatusHistory)
-      .where(and(eq(orderStatusHistory.orderId, order.id), eq(orderStatusHistory.newStatus, "DELIVERED")));
-    const deliveredAt = delivered?.at ? new Date(delivered.at) : order.updatedAt;
+      .where(
+        and(
+          eq(orderStatusHistory.orderId, order.id),
+          eq(orderStatusHistory.newStatus, "DELIVERED"),
+        ),
+      );
+    const deliveredAt = delivered?.at
+      ? new Date(delivered.at)
+      : order.updatedAt;
     if (Date.now() > deliveredAt.getTime() + rules.windowHours * 3_600_000) {
-      throw conflict(`The return window for this order (${rules.windowHours} hours after delivery) has passed.`);
+      throw conflict(
+        `The return window for this order (${rules.windowHours} hours after delivery) has passed.`,
+      );
     }
 
-    const lines = await tx.select().from(orderItems).where(eq(orderItems.orderId, order.id));
+    const lines = await tx
+      .select()
+      .from(orderItems)
+      .where(eq(orderItems.orderId, order.id));
     const held = await tx
-      .select({ orderItemId: returnItems.orderItemId, held: sql<number>`coalesce(sum(${returnItems.quantityMilli}), 0)::int` })
+      .select({
+        orderItemId: returnItems.orderItemId,
+        held: sql<number>`CAST(coalesce(sum(${returnItems.quantityMilli}), 0) AS SIGNED)`,
+      })
       .from(returnItems)
       .innerJoin(returnRequests, eq(returnItems.returnId, returnRequests.id))
       .where(
@@ -157,12 +209,23 @@ export async function requestReturn(input: RequestReturnInput, actor: Actor): Pr
       .groupBy(returnItems.orderItemId);
     const heldByLine = new Map(held.map((h) => [h.orderItemId, h.held]));
 
-    const rows: { orderItemId: string; quantityMilli: number; condition: ReturnCondition; comment: string | null; imageIds: string[]; refundPaise: number }[] = [];
+    const rows: {
+      orderItemId: string;
+      quantityMilli: number;
+      condition: ReturnCondition;
+      comment: string | null;
+      imageIds: string[];
+      refundPaise: number;
+    }[] = [];
     for (const wanted of input.items) {
       const line = lines.find((l) => l.id === wanted.orderItemId);
-      if (!line) throw validationFailed("One of those items is not part of this order.");
+      if (!line)
+        throw validationFailed("One of those items is not part of this order.");
       const effective = effectiveLine(line);
-      if (!effective) throw validationFailed(`${line.productNameSnapshot} was removed from this order and cannot be returned.`);
+      if (!effective)
+        throw validationFailed(
+          `${line.productNameSnapshot} was removed from this order and cannot be returned.`,
+        );
       const available = effective.milli - (heldByLine.get(line.id) ?? 0);
       if (wanted.quantityMilli > available) {
         throw validationFailed(
@@ -177,31 +240,39 @@ export async function requestReturn(input: RequestReturnInput, actor: Actor): Pr
         condition: wanted.condition,
         comment: wanted.comment?.trim() || null,
         imageIds: wanted.imageIds ?? [],
-        refundPaise: Math.round((effective.totalPaise * wanted.quantityMilli) / effective.milli),
+        refundPaise: Math.round(
+          (effective.totalPaise * wanted.quantityMilli) / effective.milli,
+        ),
       });
     }
     const refundAmountPaise = rows.reduce((n, r) => n + r.refundPaise, 0);
     if (refundAmountPaise > order.totalPaise) {
-      throw validationFailed("The value of these items is more than what is left to refund on this order.");
+      throw validationFailed(
+        "The value of these items is more than what is left to refund on this order.",
+      );
     }
 
-    const [shop] = await tx.select().from(shops).where(eq(shops.id, order.shopId));
-    const [ret] = await tx
-      .insert(returnRequests)
-      .values({
-        returnNumber: newReturnNumber(),
-        orderId: order.id,
-        userId: actor.id,
-        shopId: order.shopId,
-        reason: input.reason,
-        comment: input.comment?.trim() || null,
-        refundAmountPaise,
-        chargeTo: policy.chargeTo,
-        pickupRequired: rules.pickupByRider && Boolean(shop?.deliveryAvailable),
-        pickupAddress: (order.deliveryAddressSnapshot as Record<string, unknown> | null) ?? null,
-      })
-      .returning();
-    await tx.insert(returnItems).values(rows.map((r) => ({ ...r, returnId: ret.id })));
+    const [shop] = await tx
+      .select()
+      .from(shops)
+      .where(eq(shops.id, order.shopId));
+    const [ret] = await insertReturning(tx, returnRequests, {
+      returnNumber: newReturnNumber(),
+      orderId: order.id,
+      userId: actor.id,
+      shopId: order.shopId,
+      reason: input.reason,
+      comment: input.comment?.trim() || null,
+      refundAmountPaise,
+      chargeTo: policy.chargeTo,
+      pickupRequired: rules.pickupByRider && Boolean(shop?.deliveryAvailable),
+      pickupAddress:
+        (order.deliveryAddressSnapshot as Record<string, unknown> | null) ??
+        null,
+    });
+    await tx
+      .insert(returnItems)
+      .values(rows.map((r) => ({ ...r, returnId: ret.id })));
 
     const customer: ReturnActor = { id: actor.id, role: actor.role };
     await tx.insert(returnStatusHistory).values({
@@ -213,7 +284,13 @@ export async function requestReturn(input: RequestReturnInput, actor: Actor): Pr
       note: input.comment?.trim() || null,
     });
     // Automatic validation passed — the request now waits for the shop's decision.
-    const reviewing = await transitionReturn(tx, ret, "UNDER_REVIEW", customer, "Passed automatic checks");
+    const reviewing = await transitionReturn(
+      tx,
+      ret,
+      "UNDER_REVIEW",
+      customer,
+      "Passed automatic checks",
+    );
     await recordAudit(
       {
         actorId: actor.id,
@@ -221,7 +298,12 @@ export async function requestReturn(input: RequestReturnInput, actor: Actor): Pr
         action: AUDIT_ACTIONS.RETURN_REQUESTED,
         entityType: "return_request",
         entityId: ret.id,
-        newValue: { returnNumber: ret.returnNumber, orderId: order.id, reason: input.reason, refundAmountPaise },
+        newValue: {
+          returnNumber: ret.returnNumber,
+          orderId: order.id,
+          reason: input.reason,
+          refundAmountPaise,
+        },
       },
       tx,
     );
@@ -271,23 +353,44 @@ export interface ReturnableOrder {
 }
 
 /** What a customer may return from one order right now, and under which policy. */
-export async function getReturnableOrder(orderId: string, userId: string): Promise<ReturnableOrder> {
+export async function getReturnableOrder(
+  orderId: string,
+  userId: string,
+): Promise<ReturnableOrder> {
   const [order] = await db.select().from(orders).where(eq(orders.id, orderId));
   if (!order || order.userId !== userId) throw notFound("Order");
   const rules = await getRule("returns");
   const [delivered] = await db
     .select({ at: sql<Date>`max(${orderStatusHistory.createdAt})` })
     .from(orderStatusHistory)
-    .where(and(eq(orderStatusHistory.orderId, order.id), eq(orderStatusHistory.newStatus, "DELIVERED")));
+    .where(
+      and(
+        eq(orderStatusHistory.orderId, order.id),
+        eq(orderStatusHistory.newStatus, "DELIVERED"),
+      ),
+    );
   const deliveredAt = delivered?.at ? new Date(delivered.at) : order.updatedAt;
-  const windowEndsAt = new Date(deliveredAt.getTime() + rules.windowHours * 3_600_000);
+  const windowEndsAt = new Date(
+    deliveredAt.getTime() + rules.windowHours * 3_600_000,
+  );
 
-  const lines = await db.select().from(orderItems).where(eq(orderItems.orderId, order.id));
+  const lines = await db
+    .select()
+    .from(orderItems)
+    .where(eq(orderItems.orderId, order.id));
   const held = await db
-    .select({ orderItemId: returnItems.orderItemId, held: sql<number>`coalesce(sum(${returnItems.quantityMilli}), 0)::int` })
+    .select({
+      orderItemId: returnItems.orderItemId,
+      held: sql<number>`CAST(coalesce(sum(${returnItems.quantityMilli}), 0) AS SIGNED)`,
+    })
     .from(returnItems)
     .innerJoin(returnRequests, eq(returnItems.returnId, returnRequests.id))
-    .where(and(eq(returnRequests.orderId, order.id), sql`${returnRequests.status} NOT IN ('REJECTED','RETURN_CANCELLED')`))
+    .where(
+      and(
+        eq(returnRequests.orderId, order.id),
+        sql`${returnRequests.status} NOT IN ('REJECTED','RETURN_CANCELLED')`,
+      ),
+    )
     .groupBy(returnItems.orderItemId);
   const heldByLine = new Map(held.map((h) => [h.orderItemId, h.held]));
 
@@ -300,16 +403,24 @@ export async function getReturnableOrder(orderId: string, userId: string): Promi
         name: effective.name,
         unit: line.unitSnapshot,
         totalMilli: effective.milli,
-        availableMilli: Math.max(0, effective.milli - (heldByLine.get(line.id) ?? 0)),
-        unitValuePaise: Math.round(effective.totalPaise / Math.max(1, effective.milli / 1000)),
+        availableMilli: Math.max(
+          0,
+          effective.milli - (heldByLine.get(line.id) ?? 0),
+        ),
+        unitValuePaise: Math.round(
+          effective.totalPaise / Math.max(1, effective.milli / 1000),
+        ),
       },
     ];
   });
 
   let reason: string | null = null;
-  if (order.status !== "DELIVERED") reason = "Only a delivered order can be returned.";
-  else if (Date.now() > windowEndsAt.getTime()) reason = `The return window (${rules.windowHours} hours after delivery) has passed.`;
-  else if (mapped.every((l) => l.availableMilli === 0)) reason = "Everything in this order already has a return in progress.";
+  if (order.status !== "DELIVERED")
+    reason = "Only a delivered order can be returned.";
+  else if (Date.now() > windowEndsAt.getTime())
+    reason = `The return window (${rules.windowHours} hours after delivery) has passed.`;
+  else if (mapped.every((l) => l.availableMilli === 0))
+    reason = "Everything in this order already has a return in progress.";
 
   return {
     orderId: order.id,
@@ -318,10 +429,12 @@ export async function getReturnableOrder(orderId: string, userId: string): Promi
     reason,
     windowEndsAt: order.status === "DELIVERED" ? windowEndsAt : null,
     lines: mapped,
-    reasons: RETURN_REASONS.filter((r) => rules.reasons[r]?.allowed).map((r) => ({
-      reason: r,
-      requiresImages: rules.reasons[r].requiresImages,
-    })),
+    reasons: RETURN_REASONS.filter((r) => rules.reasons[r]?.allowed).map(
+      (r) => ({
+        reason: r,
+        requiresImages: rules.reasons[r].requiresImages,
+      }),
+    ),
     maxImages: rules.maxImagesPerReturn,
     pickupByRider: rules.pickupByRider,
   };
@@ -329,28 +442,47 @@ export async function getReturnableOrder(orderId: string, userId: string): Promi
 
 /* --------------------------------------------------------------- access */
 
-async function loadForActor(returnId: string, actor: Actor, mode: "manage" | "view") {
+async function loadForActor(
+  returnId: string,
+  actor: Actor,
+  mode: "manage" | "view",
+) {
   const [row] = await db
-    .select({ ret: returnRequests, shopOwnerId: shops.ownerId, shopName: shops.name })
+    .select({
+      ret: returnRequests,
+      shopOwnerId: shops.ownerId,
+      shopName: shops.name,
+    })
     .from(returnRequests)
     .innerJoin(shops, eq(returnRequests.shopId, shops.id))
     .where(eq(returnRequests.id, returnId));
   if (!row) throw notFound("Return");
   const manages = isStaff(actor.role) || row.shopOwnerId === actor.id;
-  if (mode === "manage" && !manages) throw forbidden("You cannot manage this return.");
-  if (mode === "view" && !manages && row.ret.userId !== actor.id) throw notFound("Return");
+  if (mode === "manage" && !manages)
+    throw forbidden("You cannot manage this return.");
+  if (mode === "view" && !manages && row.ret.userId !== actor.id)
+    throw notFound("Return");
   return row;
 }
 
 /** Evidence photos are visible to the customer who uploaded them, the shop the return is for, and staff. */
-export async function canViewReturnImage(imageId: string, owner: string | null, actor: Actor): Promise<boolean> {
+export async function canViewReturnImage(
+  imageId: string,
+  owner: string | null,
+  actor: Actor,
+): Promise<boolean> {
   if (owner === actor.id || isStaff(actor.role)) return true;
   const [row] = await db
     .select({ id: returnItems.id })
     .from(returnItems)
     .innerJoin(returnRequests, eq(returnItems.returnId, returnRequests.id))
     .innerJoin(shops, eq(returnRequests.shopId, shops.id))
-    .where(and(eq(shops.ownerId, actor.id), sql`${returnItems.imageIds} @> ${JSON.stringify([imageId])}::jsonb`))
+    .where(
+      and(
+        eq(shops.ownerId, actor.id),
+        sql`JSON_CONTAINS(${returnItems.imageIds}, ${JSON.stringify([imageId])})`,
+      ),
+    )
     .limit(1);
   return Boolean(row);
 }
@@ -363,41 +495,81 @@ export interface ReturnSummary extends ReturnRequest {
   itemCount: number;
 }
 
-async function summarise(rows: { ret: ReturnRequest; orderNumber: string; shopName: string }[]): Promise<ReturnSummary[]> {
+async function summarise(
+  rows: { ret: ReturnRequest; orderNumber: string; shopName: string }[],
+): Promise<ReturnSummary[]> {
   if (rows.length === 0) return [];
   const counts = await db
-    .select({ returnId: returnItems.returnId, n: sql<number>`count(*)::int` })
+    .select({
+      returnId: returnItems.returnId,
+      n: sql<number>`CAST(count(*) AS SIGNED)`,
+    })
     .from(returnItems)
-    .where(inArray(returnItems.returnId, rows.map((r) => r.ret.id)))
+    .where(
+      inArray(
+        returnItems.returnId,
+        rows.map((r) => r.ret.id),
+      ),
+    )
     .groupBy(returnItems.returnId);
   const byId = new Map(counts.map((c) => [c.returnId, c.n]));
-  return rows.map((r) => ({ ...r.ret, orderNumber: r.orderNumber, shopName: r.shopName, itemCount: byId.get(r.ret.id) ?? 0 }));
+  return rows.map((r) => ({
+    ...r.ret,
+    orderNumber: r.orderNumber,
+    shopName: r.shopName,
+    itemCount: byId.get(r.ret.id) ?? 0,
+  }));
 }
 
 const summaryQuery = () =>
   db
-    .select({ ret: returnRequests, orderNumber: orders.orderNumber, shopName: shops.name })
+    .select({
+      ret: returnRequests,
+      orderNumber: orders.orderNumber,
+      shopName: shops.name,
+    })
     .from(returnRequests)
     .innerJoin(orders, eq(returnRequests.orderId, orders.id))
     .innerJoin(shops, eq(returnRequests.shopId, shops.id));
 
-export async function listReturnsForUser(userId: string): Promise<ReturnSummary[]> {
-  return summarise(await summaryQuery().where(eq(returnRequests.userId, userId)).orderBy(desc(returnRequests.createdAt)).limit(100));
-}
-
-export async function listReturnsForShop(shopId: string, status?: ReturnStatus): Promise<ReturnSummary[]> {
+export async function listReturnsForUser(
+  userId: string,
+): Promise<ReturnSummary[]> {
   return summarise(
     await summaryQuery()
-      .where(status ? and(eq(returnRequests.shopId, shopId), eq(returnRequests.status, status)) : eq(returnRequests.shopId, shopId))
+      .where(eq(returnRequests.userId, userId))
+      .orderBy(desc(returnRequests.createdAt))
+      .limit(100),
+  );
+}
+
+export async function listReturnsForShop(
+  shopId: string,
+  status?: ReturnStatus,
+): Promise<ReturnSummary[]> {
+  return summarise(
+    await summaryQuery()
+      .where(
+        status
+          ? and(
+              eq(returnRequests.shopId, shopId),
+              eq(returnRequests.status, status),
+            )
+          : eq(returnRequests.shopId, shopId),
+      )
       .orderBy(desc(returnRequests.createdAt))
       .limit(200),
   );
 }
 
-export async function listAllReturns(options: { status?: ReturnStatus; limit?: number } = {}): Promise<ReturnSummary[]> {
+export async function listAllReturns(
+  options: { status?: ReturnStatus; limit?: number } = {},
+): Promise<ReturnSummary[]> {
   return summarise(
     await summaryQuery()
-      .where(options.status ? eq(returnRequests.status, options.status) : undefined)
+      .where(
+        options.status ? eq(returnRequests.status, options.status) : undefined,
+      )
       .orderBy(desc(returnRequests.createdAt))
       .limit(Math.min(options.limit ?? 100, 500)),
   );
@@ -410,18 +582,39 @@ export interface ReturnDetail {
   customerName: string | null;
   items: (ReturnItem & { productName: string; unit: string })[];
   history: (typeof returnStatusHistory.$inferSelect)[];
-  pickup: (Omit<ReturnPickup, "handoverCode" | "rejectedPartnerIds"> & { handoverCode?: string }) | null;
+  pickup:
+    | (Omit<ReturnPickup, "handoverCode" | "rejectedPartnerIds"> & {
+        handoverCode?: string;
+      })
+    | null;
   viewer: "CUSTOMER" | "SHOP" | "STAFF";
   /** Actions the viewer may take right now — the UI shows exactly these. */
   actions: string[];
 }
 
-export async function getReturnDetail(returnId: string, actor: Actor): Promise<ReturnDetail> {
-  const { ret, shopName, shopOwnerId } = await loadForActor(returnId, actor, "view");
-  const [order] = await db.select({ orderNumber: orders.orderNumber }).from(orders).where(eq(orders.id, ret.orderId));
-  const [customer] = await db.select({ name: users.name }).from(users).where(eq(users.id, ret.userId));
+export async function getReturnDetail(
+  returnId: string,
+  actor: Actor,
+): Promise<ReturnDetail> {
+  const { ret, shopName, shopOwnerId } = await loadForActor(
+    returnId,
+    actor,
+    "view",
+  );
+  const [order] = await db
+    .select({ orderNumber: orders.orderNumber })
+    .from(orders)
+    .where(eq(orders.id, ret.orderId));
+  const [customer] = await db
+    .select({ name: users.name })
+    .from(users)
+    .where(eq(users.id, ret.userId));
   const items = await db
-    .select({ item: returnItems, productName: orderItems.productNameSnapshot, unit: orderItems.unitSnapshot })
+    .select({
+      item: returnItems,
+      productName: orderItems.productNameSnapshot,
+      unit: orderItems.unitSnapshot,
+    })
     .from(returnItems)
     .innerJoin(orderItems, eq(returnItems.orderItemId, orderItems.id))
     .where(eq(returnItems.returnId, ret.id));
@@ -437,23 +630,51 @@ export async function getReturnDetail(returnId: string, actor: Actor): Promise<R
     .orderBy(desc(returnPickups.createdAt))
     .limit(1);
 
-  const isCustomer = ret.userId === actor.id && !isStaff(actor.role) && shopOwnerId !== actor.id;
-  const viewer = isStaff(actor.role) ? "STAFF" : shopOwnerId === actor.id ? "SHOP" : "CUSTOMER";
+  const isCustomer =
+    ret.userId === actor.id && !isStaff(actor.role) && shopOwnerId !== actor.id;
+  const viewer = isStaff(actor.role)
+    ? "STAFF"
+    : shopOwnerId === actor.id
+      ? "SHOP"
+      : "CUSTOMER";
   const actions: string[] = [];
   const s = ret.status as ReturnStatus;
   if (viewer === "CUSTOMER" || ret.userId === actor.id) {
-    if (["RETURN_REQUESTED", "UNDER_REVIEW", "APPROVED", "PICKUP_ASSIGNED", "PICKUP_SCHEDULED"].includes(s)) actions.push("cancel");
-    if (["PICKUP_ASSIGNED", "PICKUP_SCHEDULED"].includes(s)) actions.push("schedule");
+    if (
+      [
+        "RETURN_REQUESTED",
+        "UNDER_REVIEW",
+        "APPROVED",
+        "PICKUP_ASSIGNED",
+        "PICKUP_SCHEDULED",
+      ].includes(s)
+    )
+      actions.push("cancel");
+    if (["PICKUP_ASSIGNED", "PICKUP_SCHEDULED"].includes(s))
+      actions.push("schedule");
   }
   if (viewer !== "CUSTOMER") {
     if (s === "UNDER_REVIEW") actions.push("approve", "reject");
     if (s === "APPROVED" && ret.pickupRequired) actions.push("retry_pickup");
     if (s === "APPROVED" && !ret.pickupRequired) actions.push("receive");
     if (s === "PICKUP_COMPLETED") actions.push("receive");
-    if (["PICKUP_COMPLETED", "INSPECTION_PENDING"].includes(s)) actions.push("inspect");
-    if (["APPROVED_FOR_REFUND", "REFUND_INITIATED"].includes(s)) actions.push("issue_refund");
-    if (["RIDER_EN_ROUTE"].includes(s) && viewer === "STAFF") actions.push("complete_pickup");
-    if (["UNDER_REVIEW", "APPROVED", "PICKUP_ASSIGNED", "PICKUP_SCHEDULED", "RIDER_EN_ROUTE"].includes(s) && viewer === "STAFF") actions.push("cancel");
+    if (["PICKUP_COMPLETED", "INSPECTION_PENDING"].includes(s))
+      actions.push("inspect");
+    if (["APPROVED_FOR_REFUND", "REFUND_INITIATED"].includes(s))
+      actions.push("issue_refund");
+    if (["RIDER_EN_ROUTE"].includes(s) && viewer === "STAFF")
+      actions.push("complete_pickup");
+    if (
+      [
+        "UNDER_REVIEW",
+        "APPROVED",
+        "PICKUP_ASSIGNED",
+        "PICKUP_SCHEDULED",
+        "RIDER_EN_ROUTE",
+      ].includes(s) &&
+      viewer === "STAFF"
+    )
+      actions.push("cancel");
   }
 
   return {
@@ -461,13 +682,20 @@ export async function getReturnDetail(returnId: string, actor: Actor): Promise<R
     orderNumber: order?.orderNumber ?? "",
     shopName,
     customerName: viewer === "CUSTOMER" ? null : (customer?.name ?? null),
-    items: items.map((r) => ({ ...r.item, productName: r.productName, unit: r.unit })),
+    items: items.map((r) => ({
+      ...r.item,
+      productName: r.productName,
+      unit: r.unit,
+    })),
     history,
     pickup: pickup
       ? (({ handoverCode, rejectedPartnerIds: _r, ...rest }) => {
           void _r;
           // Only the customer is shown the code the rider must be given.
-          return isCustomer && LIVE_PICKUP_STATUSES.includes(rest.status as never) ? { ...rest, handoverCode } : rest;
+          return isCustomer &&
+            LIVE_PICKUP_STATUSES.includes(rest.status as never)
+            ? { ...rest, handoverCode }
+            : rest;
         })(pickup)
       : null,
     viewer,
@@ -477,16 +705,33 @@ export async function getReturnDetail(returnId: string, actor: Actor): Promise<R
 
 /* ------------------------------------------------------------- decisions */
 
-export async function approveReturn(returnId: string, actor: Actor, note?: string): Promise<ReturnRequest> {
+export async function approveReturn(
+  returnId: string,
+  actor: Actor,
+  note?: string,
+): Promise<ReturnRequest> {
   const { ret } = await loadForActor(returnId, actor, "manage");
   const result = await db.transaction(async (tx) => {
-    const [locked] = await tx.select().from(returnRequests).where(eq(returnRequests.id, returnId)).for("update");
-    const approved = await transitionReturn(tx, locked, "APPROVED", actor, note, {
-      decidedBy: actor.id,
-      decidedAt: new Date(),
-      decisionNote: note?.trim() || null,
-    });
-    const pickup = approved.pickupRequired ? await createPickup(approved.id, tx) : null;
+    const [locked] = await tx
+      .select()
+      .from(returnRequests)
+      .where(eq(returnRequests.id, returnId))
+      .for("update");
+    const approved = await transitionReturn(
+      tx,
+      locked,
+      "APPROVED",
+      actor,
+      note,
+      {
+        decidedBy: actor.id,
+        decidedAt: new Date(),
+        decisionNote: note?.trim() || null,
+      },
+    );
+    const pickup = approved.pickupRequired
+      ? await createPickup(approved.id, tx)
+      : null;
     return { approved, pickup };
   });
   await notify({
@@ -498,16 +743,30 @@ export async function approveReturn(returnId: string, actor: Actor, note?: strin
       : `Return ${ret.returnNumber} is approved. Please take the goods to the shop.`,
     actionUrl: `/returns/${ret.id}`,
   });
-  if (result.pickup) await offerPickup(result.pickup.id).catch((e) => console.error("[returns] offer failed", e));
+  if (result.pickup)
+    await offerPickup(result.pickup.id).catch((e) =>
+      console.error("[returns] offer failed", e),
+    );
   return result.approved;
 }
 
-export async function rejectReturn(returnId: string, actor: Actor, note: string): Promise<ReturnRequest> {
+export async function rejectReturn(
+  returnId: string,
+  actor: Actor,
+  note: string,
+): Promise<ReturnRequest> {
   const trimmed = note.trim();
-  if (trimmed.length < 3) throw validationFailed("Tell the customer why the return is being declined.");
+  if (trimmed.length < 3)
+    throw validationFailed(
+      "Tell the customer why the return is being declined.",
+    );
   const { ret } = await loadForActor(returnId, actor, "manage");
   const updated = await db.transaction(async (tx) => {
-    const [locked] = await tx.select().from(returnRequests).where(eq(returnRequests.id, returnId)).for("update");
+    const [locked] = await tx
+      .select()
+      .from(returnRequests)
+      .where(eq(returnRequests.id, returnId))
+      .for("update");
     return transitionReturn(tx, locked, "REJECTED", actor, trimmed, {
       decidedBy: actor.id,
       decidedAt: new Date(),
@@ -525,20 +784,45 @@ export async function rejectReturn(returnId: string, actor: Actor, note: string)
 }
 
 /** The customer (before the rider is on the way) or staff (until pickup) cancels the return. */
-export async function cancelReturn(returnId: string, actor: Actor, note?: string): Promise<ReturnRequest> {
+export async function cancelReturn(
+  returnId: string,
+  actor: Actor,
+  note?: string,
+): Promise<ReturnRequest> {
   const { ret, shopOwnerId } = await loadForActor(returnId, actor, "view");
   const isOwner = ret.userId === actor.id;
-  if (!isOwner && !isStaff(actor.role)) throw forbidden("Only the customer or support can cancel a return.");
-  if (isOwner && !isStaff(actor.role) && ["RIDER_EN_ROUTE"].includes(ret.status)) {
-    throw conflict("The rider is already on the way — contact support to cancel.");
+  if (!isOwner && !isStaff(actor.role))
+    throw forbidden("Only the customer or support can cancel a return.");
+  if (
+    isOwner &&
+    !isStaff(actor.role) &&
+    ["RIDER_EN_ROUTE"].includes(ret.status)
+  ) {
+    throw conflict(
+      "The rider is already on the way — contact support to cancel.",
+    );
   }
   const updated = await db.transaction(async (tx) => {
-    const [locked] = await tx.select().from(returnRequests).where(eq(returnRequests.id, returnId)).for("update");
-    const result = await transitionReturn(tx, locked, "RETURN_CANCELLED", actor, note ?? "Cancelled");
+    const [locked] = await tx
+      .select()
+      .from(returnRequests)
+      .where(eq(returnRequests.id, returnId))
+      .for("update");
+    const result = await transitionReturn(
+      tx,
+      locked,
+      "RETURN_CANCELLED",
+      actor,
+      note ?? "Cancelled",
+    );
     await cancelLivePickup(returnId, tx);
     return result;
   });
-  const recipients = new Set([ret.userId, shopOwnerId].filter((id): id is string => Boolean(id) && id !== actor.id));
+  const recipients = new Set(
+    [ret.userId, shopOwnerId].filter(
+      (id): id is string => Boolean(id) && id !== actor.id,
+    ),
+  );
   for (const userId of recipients) {
     await notify({
       userId,
@@ -552,15 +836,34 @@ export async function cancelReturn(returnId: string, actor: Actor, note?: string
 }
 
 /** The goods are back with the shop (customer drop-off, or the rider delivered them). */
-export async function receiveReturn(returnId: string, actor: Actor): Promise<ReturnRequest> {
+export async function receiveReturn(
+  returnId: string,
+  actor: Actor,
+): Promise<ReturnRequest> {
   await loadForActor(returnId, actor, "manage");
   return db.transaction(async (tx) => {
-    const [locked] = await tx.select().from(returnRequests).where(eq(returnRequests.id, returnId)).for("update");
+    const [locked] = await tx
+      .select()
+      .from(returnRequests)
+      .where(eq(returnRequests.id, returnId))
+      .for("update");
     let current = locked;
     if (current.status === "APPROVED" && !current.pickupRequired) {
-      current = await transitionReturn(tx, current, "PICKUP_COMPLETED", actor, "Customer handed the goods to the shop");
+      current = await transitionReturn(
+        tx,
+        current,
+        "PICKUP_COMPLETED",
+        actor,
+        "Customer handed the goods to the shop",
+      );
     }
-    return transitionReturn(tx, current, "INSPECTION_PENDING", actor, "Goods received at the shop");
+    return transitionReturn(
+      tx,
+      current,
+      "INSPECTION_PENDING",
+      actor,
+      "Goods received at the shop",
+    );
   });
 }
 
@@ -571,29 +874,67 @@ export interface InspectInput {
   refundPaise?: number;
 }
 
-export async function inspectReturn(returnId: string, actor: Actor, input: InspectInput): Promise<ReturnRequest> {
+export async function inspectReturn(
+  returnId: string,
+  actor: Actor,
+  input: InspectInput,
+): Promise<ReturnRequest> {
   const note = input.note.trim();
-  if (note.length < 3) throw validationFailed("Record what you found on inspection.");
+  if (note.length < 3)
+    throw validationFailed("Record what you found on inspection.");
   await loadForActor(returnId, actor, "manage");
 
   const updated = await db.transaction(async (tx) => {
-    const [locked] = await tx.select().from(returnRequests).where(eq(returnRequests.id, returnId)).for("update");
+    const [locked] = await tx
+      .select()
+      .from(returnRequests)
+      .where(eq(returnRequests.id, returnId))
+      .for("update");
     let current = locked;
     if (current.status === "PICKUP_COMPLETED") {
-      current = await transitionReturn(tx, current, "INSPECTION_PENDING", actor, "Goods received at the shop");
+      current = await transitionReturn(
+        tx,
+        current,
+        "INSPECTION_PENDING",
+        actor,
+        "Goods received at the shop",
+      );
     }
-    const inspected = { inspectedBy: actor.id, inspectedAt: new Date(), inspectionNote: note };
+    const inspected = {
+      inspectedBy: actor.id,
+      inspectedAt: new Date(),
+      inspectionNote: note,
+    };
     if (input.outcome === "REJECT") {
-      return transitionReturn(tx, current, "REJECTED", actor, `Failed inspection: ${note}`, inspected);
+      return transitionReturn(
+        tx,
+        current,
+        "REJECTED",
+        actor,
+        `Failed inspection: ${note}`,
+        inspected,
+      );
     }
     const refund = input.refundPaise ?? current.refundAmountPaise;
-    if (!Number.isInteger(refund) || refund <= 0 || refund > current.refundAmountPaise) {
-      throw validationFailed(`The refund must be between ₹0.01 and ₹${(current.refundAmountPaise / 100).toFixed(2)}.`);
+    if (
+      !Number.isInteger(refund) ||
+      refund <= 0 ||
+      refund > current.refundAmountPaise
+    ) {
+      throw validationFailed(
+        `The refund must be between ₹0.01 and ₹${(current.refundAmountPaise / 100).toFixed(2)}.`,
+      );
     }
-    return transitionReturn(tx, current, "APPROVED_FOR_REFUND", actor, note, { ...inspected, refundAmountPaise: refund });
+    return transitionReturn(tx, current, "APPROVED_FOR_REFUND", actor, note, {
+      ...inspected,
+      refundAmountPaise: refund,
+    });
   });
 
-  const [owner] = await db.select({ userId: returnRequests.userId }).from(returnRequests).where(eq(returnRequests.id, returnId));
+  const [owner] = await db
+    .select({ userId: returnRequests.userId })
+    .from(returnRequests)
+    .where(eq(returnRequests.id, returnId));
   if (updated.status === "REJECTED") {
     await notify({
       userId: owner.userId,
@@ -614,19 +955,38 @@ export async function inspectReturn(returnId: string, actor: Actor, input: Inspe
  * failure: the finance refund is idempotent on the return's own key, and the
  * return only moves on once the money has actually been credited.
  */
-export async function issueRefund(returnId: string, actor: Actor): Promise<ReturnRequest> {
+export async function issueRefund(
+  returnId: string,
+  actor: Actor,
+): Promise<ReturnRequest> {
   await loadForActor(returnId, actor, "manage");
-  const [current] = await db.select().from(returnRequests).where(eq(returnRequests.id, returnId));
+  const [current] = await db
+    .select()
+    .from(returnRequests)
+    .where(eq(returnRequests.id, returnId));
   if (!current) throw notFound("Return");
   if (!["APPROVED_FOR_REFUND", "REFUND_INITIATED"].includes(current.status)) {
-    throw new AppError("INVALID_STATE_TRANSITION", "This return is not ready for a refund.");
+    throw new AppError(
+      "INVALID_STATE_TRANSITION",
+      "This return is not ready for a refund.",
+    );
   }
 
   let working = current;
   if (working.status === "APPROVED_FOR_REFUND") {
     working = await db.transaction(async (tx) => {
-      const [locked] = await tx.select().from(returnRequests).where(eq(returnRequests.id, returnId)).for("update");
-      return transitionReturn(tx, locked, "REFUND_INITIATED", actor, "Refund started");
+      const [locked] = await tx
+        .select()
+        .from(returnRequests)
+        .where(eq(returnRequests.id, returnId))
+        .for("update");
+      return transitionReturn(
+        tx,
+        locked,
+        "REFUND_INITIATED",
+        actor,
+        "Refund started",
+      );
     });
     await notify({
       userId: working.userId,
@@ -637,7 +997,10 @@ export async function issueRefund(returnId: string, actor: Actor): Promise<Retur
     });
   }
 
-  const [order] = await db.select().from(orders).where(eq(orders.id, working.orderId));
+  const [order] = await db
+    .select()
+    .from(orders)
+    .where(eq(orders.id, working.orderId));
   const adjustment = await refundDeliveredOrder(
     {
       orderNumber: order.orderNumber,
@@ -650,12 +1013,23 @@ export async function issueRefund(returnId: string, actor: Actor): Promise<Retur
   );
 
   const completed = await db.transaction(async (tx) => {
-    const [locked] = await tx.select().from(returnRequests).where(eq(returnRequests.id, returnId)).for("update");
+    const [locked] = await tx
+      .select()
+      .from(returnRequests)
+      .where(eq(returnRequests.id, returnId))
+      .for("update");
     if (locked.status === "REFUND_COMPLETED") return locked;
-    const done = await transitionReturn(tx, locked, "REFUND_COMPLETED", actor, "Refund credited to the wallet", {
-      refundedPaise: working.refundAmountPaise,
-      refundAdjustmentId: adjustment.id,
-    });
+    const done = await transitionReturn(
+      tx,
+      locked,
+      "REFUND_COMPLETED",
+      actor,
+      "Refund credited to the wallet",
+      {
+        refundedPaise: working.refundAmountPaise,
+        refundAdjustmentId: adjustment.id,
+      },
+    );
     await recordAudit(
       {
         actorId: actor.id,
@@ -663,7 +1037,11 @@ export async function issueRefund(returnId: string, actor: Actor): Promise<Retur
         action: AUDIT_ACTIONS.RETURN_REFUND_ISSUED,
         entityType: "return_request",
         entityId: returnId,
-        newValue: { amountPaise: working.refundAmountPaise, chargeTo: working.chargeTo, adjustmentId: adjustment.id },
+        newValue: {
+          amountPaise: working.refundAmountPaise,
+          chargeTo: working.chargeTo,
+          adjustmentId: adjustment.id,
+        },
       },
       tx,
     );

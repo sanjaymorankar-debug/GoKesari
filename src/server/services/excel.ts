@@ -16,7 +16,7 @@
  * past the parser is integer paise.
  */
 import ExcelJS from "exceljs";
-import { and, eq, ilike, inArray, isNull } from "drizzle-orm";
+import { and, eq, inArray, isNull, like } from "drizzle-orm";
 
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { db, type DbClient } from "@/server/db";
@@ -33,7 +33,13 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { appliesImmediately, submitPriceRequests } from "./price-requests";
-import { createShopProduct, createProductForShop, findSimilarProducts, updateShopProduct } from "./catalogue";
+import {
+  createShopProduct,
+  createProductForShop,
+  findSimilarProducts,
+  updateShopProduct,
+} from "./catalogue";
+import { insertReturning } from "@/server/db/returning";
 
 interface Actor {
   id: string;
@@ -182,8 +188,12 @@ async function parseWorkbook(
   buffer: ArrayBuffer,
   fileName: string,
 ): Promise<ParsedRow[]> {
-  if (!ACCEPTED_EXTENSIONS.some((ext) => fileName.toLowerCase().endsWith(ext))) {
-    throw validationFailed("Upload an .xlsx file exported from Excel or Sheets.");
+  if (
+    !ACCEPTED_EXTENSIONS.some((ext) => fileName.toLowerCase().endsWith(ext))
+  ) {
+    throw validationFailed(
+      "Upload an .xlsx file exported from Excel or Sheets.",
+    );
   }
   if (buffer.byteLength > MAX_UPLOAD_BYTES) {
     throw validationFailed(
@@ -462,7 +472,7 @@ export async function validateUpload(
             .where(
               and(
                 eq(productCategories.department, shopDepartment),
-                ilike(productCategories.name, row.category),
+                like(productCategories.name, row.category),
                 isNull(productCategories.deletedAt),
               ),
             )
@@ -484,7 +494,10 @@ export async function validateUpload(
         };
       }
 
-      const { exact, similar } = await findSimilarProducts(row.productName, category.id);
+      const { exact, similar } = await findSimilarProducts(
+        row.productName,
+        category.id,
+      );
       if (exact) {
         return {
           ...base,
@@ -529,8 +542,9 @@ export async function validateUpload(
     // NEW_PRODUCT rows are folded into "valid" for the stored summary — like
     // VALID they will be acted on when applied — but stay distinct on the row
     // itself so the preview UI can label them "New" rather than "Update".
-    valid: rows.filter((r) => r.status === "VALID" || r.status === "NEW_PRODUCT")
-      .length,
+    valid: rows.filter(
+      (r) => r.status === "VALID" || r.status === "NEW_PRODUCT",
+    ).length,
     unchanged: rows.filter((r) => r.status === "NO_CHANGE").length,
     invalid: rows.filter((r) =>
       ["INVALID_PRICE", "MISSING_FIELD"].includes(r.status),
@@ -541,24 +555,21 @@ export async function validateUpload(
   };
 
   return db.transaction(async (tx) => {
-    const [upload] = await tx
-      .insert(excelUploads)
-      .values({
-        shopId: input.shopId,
-        uploadedBy: actor.id,
-        uploadType: input.uploadType ?? "PRICES",
-        status: "VALIDATED",
-        fileName: input.fileName,
-        fileSizeBytes: input.buffer.byteLength,
-        totalRows: counts.total,
-        validRows: counts.valid,
-        invalidRows: counts.invalid,
-        unchangedRows: counts.unchanged,
-        duplicateRows: counts.duplicate,
-        notFoundRows: counts.notFound,
-        summary: counts,
-      })
-      .returning();
+    const [upload] = await insertReturning(tx, excelUploads, {
+      shopId: input.shopId,
+      uploadedBy: actor.id,
+      uploadType: input.uploadType ?? "PRICES",
+      status: "VALIDATED",
+      fileName: input.fileName,
+      fileSizeBytes: input.buffer.byteLength,
+      totalRows: counts.total,
+      validRows: counts.valid,
+      invalidRows: counts.invalid,
+      unchangedRows: counts.unchanged,
+      duplicateRows: counts.duplicate,
+      notFoundRows: counts.notFound,
+      summary: counts,
+    });
 
     if (rows.length > 0) {
       await tx.insert(excelUploadItems).values(
@@ -627,7 +638,9 @@ export async function applyUpload(
       .limit(1);
     if (!upload) throw notFound("Upload");
     if (upload.status !== "VALIDATED") {
-      throw conflict(`This upload has already been ${upload.status.toLowerCase()}.`);
+      throw conflict(
+        `This upload has already been ${upload.status.toLowerCase()}.`,
+      );
     }
 
     const [shop] = await tx
@@ -702,7 +715,11 @@ export async function applyUpload(
     }
 
     // 2. Attach a product that exists centrally but not yet in this shop.
-    const attachRequests: { shopProductId: string; priceType: "ONLINE"; proposedPricePaise: number }[] = [];
+    const attachRequests: {
+      shopProductId: string;
+      priceType: "ONLINE";
+      proposedPricePaise: number;
+    }[] = [];
     for (const item of attachItems) {
       const shopProduct = await createShopProduct(
         {
@@ -737,7 +754,7 @@ export async function applyUpload(
       const resolvedCategory = categoryName
         ? await tx.query.productCategories.findFirst({
             where: and(
-              ilike(productCategories.name, categoryName),
+              like(productCategories.name, categoryName),
               isNull(productCategories.deletedAt),
             ),
           })
@@ -822,7 +839,9 @@ export async function cancelUpload(
     .limit(1);
   if (!upload) throw notFound("Upload");
   if (upload.status !== "VALIDATED") {
-    throw conflict("Only a validated upload awaiting confirmation can be cancelled.");
+    throw conflict(
+      "Only a validated upload awaiting confirmation can be cancelled.",
+    );
   }
 
   await db
@@ -839,7 +858,9 @@ export async function cancelUpload(
   });
 }
 
-export async function getUploadPreview(uploadId: string): Promise<UploadPreview> {
+export async function getUploadPreview(
+  uploadId: string,
+): Promise<UploadPreview> {
   const [upload] = await db
     .select()
     .from(excelUploads)
@@ -928,10 +949,14 @@ export async function buildTemplate(
     .from(shopProducts)
     .innerJoin(products, eq(products.id, shopProducts.productId))
     .innerJoin(productCategories, eq(productCategories.id, products.categoryId))
-    .where(and(eq(shopProducts.shopId, shopId), isNull(shopProducts.deletedAt)));
+    .where(
+      and(eq(shopProducts.shopId, shopId), isNull(shopProducts.deletedAt)),
+    );
 
   const workbook = new ExcelJS.Workbook();
-  const sheet = workbook.addWorksheet(uploadType === "GOODS" ? "Goods" : "Prices");
+  const sheet = workbook.addWorksheet(
+    uploadType === "GOODS" ? "Goods" : "Prices",
+  );
 
   if (uploadType === "GOODS") {
     sheet.columns = [
@@ -979,19 +1004,34 @@ export async function buildTemplate(
   if (uploadType === "GOODS") {
     notes.addRows([
       ["Required columns", "Product Name, Category, Unit, Price"],
-      ["Product ID", "Leave blank for a new product — it will be assigned automatically"],
+      [
+        "Product ID",
+        "Leave blank for a new product — it will be assigned automatically",
+      ],
       ["Optional columns", "Description, Specifications, Sub Category"],
-      ["Category", "Must match an existing category name exactly (case-insensitive)"],
+      [
+        "Category",
+        "Must match an existing category name exactly (case-insensitive)",
+      ],
       ["Price format", "Rupees, e.g. 72 or 72.50 — do not include the ₹ sign"],
-      ["Note", "A Product ID that already exists updates that product's price instead of creating a new one"],
+      [
+        "Note",
+        "A Product ID that already exists updates that product's price instead of creating a new one",
+      ],
     ]);
   } else {
     notes.addRows([
       ["Required columns", "Product ID, Price"],
-      ["Optional columns", "Product Name, Unit, Category, Online Price, Offline Price"],
+      [
+        "Optional columns",
+        "Product Name, Unit, Category, Online Price, Offline Price",
+      ],
       ["Price format", "Rupees, e.g. 72 or 72.50 — do not include the ₹ sign"],
       ["Do not", "change or delete the Product ID column"],
-      ["Note", "Rows with an unknown Product ID or an invalid price are reported and skipped"],
+      [
+        "Note",
+        "Rows with an unknown Product ID or an invalid price are reported and skipped",
+      ],
     ]);
   }
 

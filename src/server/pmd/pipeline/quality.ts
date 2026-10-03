@@ -16,6 +16,7 @@
  */
 import type { PmdConfig, QualityConfig } from "../config";
 import type { Queryable } from "../db";
+import { jsonRowsTyped } from "../mysql/json-rows";
 import type { ReferenceIds } from "../reference-data";
 
 export type QualityGroup = "FOOD" | "ELECTRONICS" | "APPAREL" | "GENERAL";
@@ -186,17 +187,17 @@ export async function refreshQuality(
       SELECT pm.product_id, pm.gtin, pm.isbn, pm.mpn, pm.brand_id, pm.manufacturer_id, pm.model_number, pm.sku, pm.product_code,
              pm.net_quantity_value, pm.gst_rate_bp, pm.hsn_code, pm.long_description, pm.short_description, pm.color, pm.size,
              pm.match_confidence, pm.last_seen_at, c.category_code, c.level AS category_level,
-             (SELECT count(*)::int FROM pmd.product_image i WHERE i.product_id = pm.product_id) AS image_count,
-             (SELECT array_agg(DISTINCT ps.source_id) FROM pmd.product_source ps WHERE ps.product_id = pm.product_id) AS source_ids,
-             (SELECT array_agg(DISTINCT sp.attribute_key) FROM pmd.product_specification sp WHERE sp.product_id = pm.product_id) AS spec_keys,
+             (SELECT CAST(count(*) AS SIGNED) FROM pmd.product_image i WHERE i.product_id = pm.product_id) AS image_count,
+             (SELECT JSON_ARRAYAGG(d.source_id)
+                FROM (SELECT DISTINCT ps.source_id FROM pmd.product_source ps WHERE ps.product_id = pm.product_id) d) AS source_ids,
+             (SELECT JSON_ARRAYAGG(d.attribute_key)
+                FROM (SELECT DISTINCT sp.attribute_key FROM pmd.product_specification sp WHERE sp.product_id = pm.product_id) d) AS spec_keys,
              EXISTS (SELECT 1 FROM pmd.product_identifier pi WHERE pi.product_id = pm.product_id AND pi.id_type = 'SOURCE_CODE') AS has_source_code
       FROM pmd.product_master pm
       LEFT JOIN pmd.category c ON c.category_id = pm.category_id
       WHERE pm.product_id IN ${sql(chunk)}`;
 
-    const ids: number[] = [];
-    const scores: number[] = [];
-    const comps: string[] = [];
+    const patches: { id: number; score: number; comp: unknown }[] = [];
     for (const r of rows) {
       const q = computeQuality(
         {
@@ -228,17 +229,30 @@ export async function refreshQuality(
         },
         cfg.quality,
       );
-      ids.push(r.product_id);
-      scores.push(q.score);
-      comps.push(JSON.stringify({ components: q.components, missingFields: q.missingFields }));
+      patches.push({
+        id: r.product_id,
+        score: q.score,
+        // A plain object, not a JSON string and not sql.json(): the whole array
+        // is serialised as one JSON parameter - see mysql/json-rows.ts.
+        comp: { components: q.components, missingFields: q.missingFields },
+      });
     }
-    if (ids.length === 0) continue;
+    if (patches.length === 0) continue;
+    // Postgres's `UPDATE … SET … FROM src WHERE …` is `UPDATE … JOIN src ON …
+    // SET …` in MySQL, and the three parallel arrays that `unnest(a, b, c)`
+    // zipped are one array of rows through JSON_TABLE.
+    const source = jsonRowsTyped(
+      sql,
+      { id: "bigint", score: "decimal(6,2)", comp: "json" },
+      patches,
+    );
     await sql`
       UPDATE pmd.product_master pm
-         SET data_quality_score = v.score, quality_components = v.comp::jsonb, quality_computed_at = now()
-        FROM (SELECT unnest(${ids}::bigint[]) AS id, unnest(${scores}::numeric[]) AS score, unnest(${comps}::text[]) AS comp) v
-       WHERE pm.product_id = v.id`;
-    updated += ids.length;
+        JOIN ${source} ON pm.product_id = r.id
+         SET pm.data_quality_score = r.score,
+             pm.quality_components = r.comp,
+             pm.quality_computed_at = now(3)`;
+    updated += patches.length;
   }
   return updated;
 }

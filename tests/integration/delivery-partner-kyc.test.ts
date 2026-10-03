@@ -35,13 +35,20 @@ vi.mock("@/lib/env", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/env")>();
   return {
     ...actual,
-    isPanEncryptionConfigured: () => state.keyConfigured && actual.isPanEncryptionConfigured(),
+    isPanEncryptionConfigured: () =>
+      state.keyConfigured && actual.isPanEncryptionConfigured(),
   };
 });
 
-import { GET as detailRoute, PATCH as transitionRoute } from "@/app/api/delivery-partner/[id]/route";
+import {
+  GET as detailRoute,
+  PATCH as transitionRoute,
+} from "@/app/api/delivery-partner/[id]/route";
 import { GET as meRoute } from "@/app/api/delivery-partner/me/route";
-import { GET as listRoute, POST as registerRoute } from "@/app/api/delivery-partner/route";
+import {
+  GET as listRoute,
+  POST as registerRoute,
+} from "@/app/api/delivery-partner/route";
 import { PATCH as statusRoute } from "@/app/api/delivery-partner/status/route";
 import { decryptSecret, encryptSecret } from "@/lib/pan-crypto";
 import { resetRateLimits } from "@/server/api/rate-limit";
@@ -69,6 +76,7 @@ import {
 } from "@/server/services/delivery-partners";
 import { call } from "../helpers/http";
 import { createUser, resetDatabase } from "../helpers/fixtures";
+import { insertReturning } from "@/server/db/returning";
 
 const ADMIN = (id: string) => ({ id, role: "ADMIN" as const });
 
@@ -89,11 +97,24 @@ const baseInput = {
 };
 
 const ENCRYPTED_COLUMN = (field: KycField) => `${field}Encrypted` as const;
-const SENSITIVE_NAMES: string[] = [...KYC_FIELDS, ...KYC_FIELDS.map(ENCRYPTED_COLUMN)];
+const SENSITIVE_NAMES: string[] = [
+  ...KYC_FIELDS,
+  ...KYC_FIELDS.map(ENCRYPTED_COLUMN),
+];
 
-function signInAs(user: { id: string; email: string; name: string | null }, role: UserRole) {
+function signInAs(
+  user: { id: string; email: string; name: string | null },
+  role: UserRole,
+) {
   state.session = {
-    user: { id: user.id, email: user.email, name: user.name, image: null, role, status: "ACTIVE" },
+    user: {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      image: null,
+      role,
+      status: "ACTIVE",
+    },
   };
 }
 
@@ -105,24 +126,27 @@ function expectNoKyc(payload: unknown) {
 }
 
 async function rawRow(id: string) {
-  const [row] = await db.select().from(deliveryPartners).where(eq(deliveryPartners.id, id));
+  const [row] = await db
+    .select()
+    .from(deliveryPartners)
+    .where(eq(deliveryPartners.id, id));
   return row;
 }
 
 /** A row as it looked before SEC-02: plaintext only, no ciphertext. */
-async function seedLegacyPartner(userId: string, overrides: Partial<typeof deliveryPartners.$inferInsert> = {}) {
-  const [row] = await db
-    .insert(deliveryPartners)
-    .values({
-      userId,
-      fullName: "Legacy Rider",
-      mobile: "9123456780",
-      vehicleType: "MOTORCYCLE",
-      status: "APPROVED",
-      ...KYC,
-      ...overrides,
-    })
-    .returning();
+async function seedLegacyPartner(
+  userId: string,
+  overrides: Partial<typeof deliveryPartners.$inferInsert> = {},
+) {
+  const [row] = await insertReturning(db, deliveryPartners, {
+    userId,
+    fullName: "Legacy Rider",
+    mobile: "9123456780",
+    vehicleType: "MOTORCYCLE",
+    status: "APPROVED",
+    ...KYC,
+    ...overrides,
+  });
   return row;
 }
 
@@ -156,14 +180,23 @@ describe("registration encrypts KYC at rest", () => {
 
   it("trims what it encrypts, as registration always trimmed what it stored", async () => {
     const user = await createUser({ role: "CUSTOMER" });
-    const partner = await registerDeliveryPartner(user.id, { ...baseInput, bankIfsc: "  HDFC0001234  " });
-    expect(decryptSecret((await rawRow(partner.id)).bankIfscEncrypted!)).toBe("HDFC0001234");
+    const partner = await registerDeliveryPartner(user.id, {
+      ...baseInput,
+      bankIfsc: "  HDFC0001234  ",
+    });
+    expect(decryptSecret((await rawRow(partner.id)).bankIfscEncrypted!)).toBe(
+      "HDFC0001234",
+    );
   });
 
   it("registration without KYC is unchanged: nothing is encrypted and no key is needed", async () => {
     state.keyConfigured = false;
     const user = await createUser({ role: "CUSTOMER" });
-    const partner = await registerDeliveryPartner(user.id, { ...baseInput, panNumber: "   ", bankAccountNumber: "" });
+    const partner = await registerDeliveryPartner(user.id, {
+      ...baseInput,
+      panNumber: "   ",
+      bankAccountNumber: "",
+    });
 
     const row = await rawRow(partner.id);
     for (const field of KYC_FIELDS) {
@@ -178,15 +211,27 @@ describe("registration encrypts KYC at rest", () => {
     const user = await createUser({ role: "CUSTOMER" });
 
     await expect(
-      registerDeliveryPartner(user.id, { ...baseInput, bankAccountNumber: KYC.bankAccountNumber }),
-    ).rejects.toMatchObject({ message: expect.stringContaining("can't securely store") });
+      registerDeliveryPartner(user.id, {
+        ...baseInput,
+        bankAccountNumber: KYC.bankAccountNumber,
+      }),
+    ).rejects.toMatchObject({
+      message: expect.stringContaining("can't securely store"),
+    });
     // The caller gets a safe message; the operator gets told why, and the value is never logged.
-    expect(logged).toHaveBeenCalledWith(expect.stringContaining("PAN_ENCRYPTION_KEY"));
-    expect(JSON.stringify(logged.mock.calls)).not.toContain(KYC.bankAccountNumber);
+    expect(logged).toHaveBeenCalledWith(
+      expect.stringContaining("PAN_ENCRYPTION_KEY"),
+    );
+    expect(JSON.stringify(logged.mock.calls)).not.toContain(
+      KYC.bankAccountNumber,
+    );
     logged.mockRestore();
 
     expect(await getMyDeliveryPartnerProfile(user.id)).toBeNull();
-    const [account] = await db.select({ role: users.role }).from(users).where(eq(users.id, user.id));
+    const [account] = await db
+      .select({ role: users.role })
+      .from(users)
+      .where(eq(users.id, user.id));
     expect(account.role).toBe("CUSTOMER"); // not promoted for an application that was never saved
     expect(await db.select().from(deliveryPartners)).toHaveLength(0);
   });
@@ -199,7 +244,10 @@ describe("the leak check is not vacuous", () => {
     expect(() => expectNoKyc(legacy)).toThrow();
 
     const applicant = await createUser({ role: "CUSTOMER" });
-    const encrypted = await rawRow((await registerDeliveryPartner(applicant.id, { ...baseInput, ...KYC })).id);
+    const encrypted = await rawRow(
+      (await registerDeliveryPartner(applicant.id, { ...baseInput, ...KYC }))
+        .id,
+    );
     expect(() => expectNoKyc(encrypted)).toThrow();
   });
 });
@@ -209,7 +257,10 @@ describe("nothing sensitive leaves the service layer", () => {
     const legacyUser = await createUser({ role: "DELIVERY_PARTNER" });
     const legacy = await seedLegacyPartner(legacyUser.id); // plaintext only
     const applicant = await createUser({ role: "CUSTOMER" });
-    const registered = await registerDeliveryPartner(applicant.id, { ...baseInput, ...KYC }); // ciphertext only
+    const registered = await registerDeliveryPartner(applicant.id, {
+      ...baseInput,
+      ...KYC,
+    }); // ciphertext only
     const admin = ADMIN((await createUser({ role: "ADMIN" })).id);
 
     const results = [
@@ -226,7 +277,16 @@ describe("nothing sensitive leaves the service layer", () => {
       await reactivateDeliveryPartner(registered.id, admin),
       await goOnline(legacyUser.id, 18.52, 73.85),
       await goOffline(legacyUser.id),
-      await rejectDeliveryPartner((await registerDeliveryPartner((await createUser()).id, { ...baseInput, ...KYC })).id, "unclear documents", admin),
+      await rejectDeliveryPartner(
+        (
+          await registerDeliveryPartner((await createUser()).id, {
+            ...baseInput,
+            ...KYC,
+          })
+        ).id,
+        "unclear documents",
+        admin,
+      ),
       await deactivateDeliveryPartner(legacy.id, "requested by partner", admin),
     ];
 
@@ -265,15 +325,23 @@ describe("no route returns KYC", () => {
     expect(list.body.partners).toHaveLength(1);
     expectNoKyc(list.body);
 
-    const detail = await call(detailRoute, `/api/delivery-partner/${partnerId}`, { params: { id: partnerId } });
+    const detail = await call(
+      detailRoute,
+      `/api/delivery-partner/${partnerId}`,
+      { params: { id: partnerId } },
+    );
     expect(detail.status).toBe(200);
     expectNoKyc(detail.body);
 
-    const approved = await call(transitionRoute, `/api/delivery-partner/${partnerId}`, {
-      method: "PATCH",
-      params: { id: partnerId },
-      body: { action: "approve" },
-    });
+    const approved = await call(
+      transitionRoute,
+      `/api/delivery-partner/${partnerId}`,
+      {
+        method: "PATCH",
+        params: { id: partnerId },
+        body: { action: "approve" },
+      },
+    );
     expect(approved.status).toBe(200);
     expect(approved.body.status).toBe("APPROVED");
     expectNoKyc(approved.body);
@@ -294,7 +362,13 @@ describe("backfillDeliveryPartnerKyc", () => {
     const legacy = await seedLegacyPartner(user.id);
 
     const result = await backfillDeliveryPartnerKyc();
-    expect(result).toMatchObject({ dryRun: true, rowsWithPlaintext: 1, fieldsEncrypted: 6, plaintextNulled: 0, mismatches: 0 });
+    expect(result).toMatchObject({
+      dryRun: true,
+      rowsWithPlaintext: 1,
+      fieldsEncrypted: 6,
+      plaintextNulled: 0,
+      mismatches: 0,
+    });
 
     const row = await rawRow(legacy.id);
     for (const field of KYC_FIELDS) {
@@ -308,7 +382,12 @@ describe("backfillDeliveryPartnerKyc", () => {
     const legacy = await seedLegacyPartner(user.id);
 
     const first = await backfillDeliveryPartnerKyc({ apply: true });
-    expect(first).toMatchObject({ dryRun: false, fieldsEncrypted: 6, plaintextNulled: 0, mismatches: 0 });
+    expect(first).toMatchObject({
+      dryRun: false,
+      fieldsEncrypted: 6,
+      plaintextNulled: 0,
+      mismatches: 0,
+    });
 
     const row = await rawRow(legacy.id);
     for (const field of KYC_FIELDS) {
@@ -317,7 +396,11 @@ describe("backfillDeliveryPartnerKyc", () => {
     }
 
     const second = await backfillDeliveryPartnerKyc({ apply: true });
-    expect(second).toMatchObject({ fieldsEncrypted: 0, fieldsAlreadyEncrypted: 6, mismatches: 0 });
+    expect(second).toMatchObject({
+      fieldsEncrypted: 0,
+      fieldsAlreadyEncrypted: 6,
+      mismatches: 0,
+    });
   });
 
   it("nullPlaintext clears the plaintext once the ciphertext is verified, and leaves nothing to do afterwards", async () => {
@@ -325,7 +408,12 @@ describe("backfillDeliveryPartnerKyc", () => {
     const legacy = await seedLegacyPartner(user.id);
 
     const result = await backfillDeliveryPartnerKyc({ nullPlaintext: true });
-    expect(result).toMatchObject({ dryRun: false, fieldsEncrypted: 6, plaintextNulled: 6, mismatches: 0 });
+    expect(result).toMatchObject({
+      dryRun: false,
+      fieldsEncrypted: 6,
+      plaintextNulled: 6,
+      mismatches: 0,
+    });
 
     const row = await rawRow(legacy.id);
     for (const field of KYC_FIELDS) {
@@ -333,7 +421,9 @@ describe("backfillDeliveryPartnerKyc", () => {
       expect(decryptSecret(row[ENCRYPTED_COLUMN(field)]!)).toBe(KYC[field]);
     }
 
-    expect(await backfillDeliveryPartnerKyc({ nullPlaintext: true })).toMatchObject({
+    expect(
+      await backfillDeliveryPartnerKyc({ nullPlaintext: true }),
+    ).toMatchObject({
       rowsWithPlaintext: 0,
       fieldsEncrypted: 0,
       plaintextNulled: 0,
@@ -347,7 +437,11 @@ describe("backfillDeliveryPartnerKyc", () => {
     });
 
     const result = await backfillDeliveryPartnerKyc({ nullPlaintext: true });
-    expect(result).toMatchObject({ mismatches: 1, fieldsEncrypted: 5, plaintextNulled: 5 });
+    expect(result).toMatchObject({
+      mismatches: 1,
+      fieldsEncrypted: 5,
+      plaintextNulled: 5,
+    });
 
     const row = await rawRow(legacy.id);
     expect(row.panNumber).toBe(KYC.panNumber); // still there — a human has to look
@@ -359,7 +453,10 @@ describe("backfillDeliveryPartnerKyc", () => {
     const legacyUser = await createUser({ role: "DELIVERY_PARTNER" });
     await seedLegacyPartner(legacyUser.id);
     const applicant = await createUser({ role: "CUSTOMER" });
-    const modern = await registerDeliveryPartner(applicant.id, { ...baseInput, ...KYC });
+    const modern = await registerDeliveryPartner(applicant.id, {
+      ...baseInput,
+      ...KYC,
+    });
     const before = await rawRow(modern.id);
 
     const result = await backfillDeliveryPartnerKyc({ nullPlaintext: true });
@@ -370,6 +467,8 @@ describe("backfillDeliveryPartnerKyc", () => {
 
   it("refuses to run without an encryption key", async () => {
     state.keyConfigured = false;
-    await expect(backfillDeliveryPartnerKyc({ apply: true })).rejects.toThrow(/PAN_ENCRYPTION_KEY/);
+    await expect(backfillDeliveryPartnerKyc({ apply: true })).rejects.toThrow(
+      /PAN_ENCRYPTION_KEY/,
+    );
   });
 });

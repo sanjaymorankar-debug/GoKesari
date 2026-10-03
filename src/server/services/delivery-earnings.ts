@@ -9,7 +9,12 @@
  */
 import { and, desc, eq, inArray, sql } from "drizzle-orm";
 
-import { conflict, isUniqueViolation, notFound, validationFailed } from "@/lib/errors";
+import {
+  conflict,
+  isUniqueViolation,
+  notFound,
+  validationFailed,
+} from "@/lib/errors";
 import {
   calculateEarning,
   localTime,
@@ -36,6 +41,11 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { postRiderEarning } from "./finance";
 import { getRule } from "./settings";
+import {
+  insertIfNewReturning,
+  insertReturning,
+  keepExisting,
+} from "@/server/db/returning";
 
 interface Actor {
   id: string;
@@ -53,15 +63,12 @@ export async function getActiveEarningsConfig(): Promise<DeliveryEarningsConfig>
   });
   if (active) return active;
 
-  const [created] = await db
-    .insert(deliveryEarningsConfig)
-    .values({
-      baseFeePaise: DEFAULT_BASE_FEE_PAISE,
-      perKmFeePaise: DEFAULT_PER_KM_FEE_PAISE,
-      isActive: true,
-      note: "Default (auto-created)",
-    })
-    .returning();
+  const [created] = await insertReturning(db, deliveryEarningsConfig, {
+    baseFeePaise: DEFAULT_BASE_FEE_PAISE,
+    perKmFeePaise: DEFAULT_PER_KM_FEE_PAISE,
+    isActive: true,
+    note: "Default (auto-created)",
+  });
   return created;
 }
 
@@ -87,16 +94,13 @@ export async function setEarningsConfig(
         .where(eq(deliveryEarningsConfig.id, previous.id));
     }
 
-    const [created] = await tx
-      .insert(deliveryEarningsConfig)
-      .values({
-        baseFeePaise: input.baseFeePaise,
-        perKmFeePaise: input.perKmFeePaise,
-        isActive: true,
-        note: input.note?.trim() || null,
-        createdBy: actor.id,
-      })
-      .returning();
+    const [created] = await insertReturning(tx, deliveryEarningsConfig, {
+      baseFeePaise: input.baseFeePaise,
+      perKmFeePaise: input.perKmFeePaise,
+      isActive: true,
+      note: input.note?.trim() || null,
+      createdBy: actor.id,
+    });
 
     await recordAudit(
       {
@@ -106,9 +110,15 @@ export async function setEarningsConfig(
         entityType: "delivery_earnings_config",
         entityId: created.id,
         previousValue: previous
-          ? { baseFeePaise: previous.baseFeePaise, perKmFeePaise: previous.perKmFeePaise }
+          ? {
+              baseFeePaise: previous.baseFeePaise,
+              perKmFeePaise: previous.perKmFeePaise,
+            }
           : null,
-        newValue: { baseFeePaise: created.baseFeePaise, perKmFeePaise: created.perKmFeePaise },
+        newValue: {
+          baseFeePaise: created.baseFeePaise,
+          perKmFeePaise: created.perKmFeePaise,
+        },
       },
       tx,
     );
@@ -123,8 +133,14 @@ export async function loadEarningRules(client: DbClient = db): Promise<{
   incentives: IncentiveRule[];
 }> {
   const [slotRows, incentiveRows] = await Promise.all([
-    client.select().from(riderEarningSlots).where(eq(riderEarningSlots.isActive, true)),
-    client.select().from(riderIncentiveRules).where(eq(riderIncentiveRules.isActive, true)),
+    client
+      .select()
+      .from(riderEarningSlots)
+      .where(eq(riderEarningSlots.isActive, true)),
+    client
+      .select()
+      .from(riderIncentiveRules)
+      .where(eq(riderIncentiveRules.isActive, true)),
   ]);
   return {
     slots: slotRows.map((r) => ({ ...r })),
@@ -206,16 +222,27 @@ export async function creditDeliveryEarnings(
   }
 
   const outcome: EarningOutcome =
-    deliveryOrder.status === "DELIVERED" ? "DELIVERED" : deliveryOrder.status === "FAILED" ? "FAILED" : "CANCELLED_AFTER_PICKUP";
+    deliveryOrder.status === "DELIVERED"
+      ? "DELIVERED"
+      : deliveryOrder.status === "FAILED"
+        ? "FAILED"
+        : "CANCELLED_AFTER_PICKUP";
   const at =
-    (outcome === "DELIVERED" ? deliveryOrder.deliveredAt : outcome === "FAILED" ? deliveryOrder.failedAt : deliveryOrder.cancelledAt) ??
+    (outcome === "DELIVERED"
+      ? deliveryOrder.deliveredAt
+      : outcome === "FAILED"
+        ? deliveryOrder.failedAt
+        : deliveryOrder.cancelledAt) ??
     deliveryOrder.acceptedAt ??
     deliveryOrder.offeredAt;
   const timeZone = getEnv().APP_TIMEZONE;
   const t = localTime(at, timeZone);
 
   const [order] = await c
-    .select({ subtotalPaise: orders.subtotalPaise, promisedByAt: orders.promisedByAt })
+    .select({
+      subtotalPaise: orders.subtotalPaise,
+      promisedByAt: orders.promisedByAt,
+    })
     .from(orders)
     .where(eq(orders.id, deliveryOrder.orderId));
   const config = await getActiveEarningsConfig();
@@ -225,27 +252,38 @@ export async function creditDeliveryEarnings(
   // Completed drops by this rider in the local day / ISO week of `at`, this one included.
   const countIn = async (bucket: "day" | "week") => {
     const [row] = await c
-      .select({ n: sql<number>`count(*)::int` })
+      .select({ n: sql<number>`CAST(count(*) AS SIGNED)` })
       .from(deliveryOrders)
       .where(
         and(
           eq(deliveryOrders.deliveryPartnerId, deliveryOrder.deliveryPartnerId),
           eq(deliveryOrders.status, "DELIVERED"),
           bucket === "day"
-            ? sql`(${deliveryOrders.deliveredAt} AT TIME ZONE ${timeZone})::date = ${t.dateKey}::date`
-            : sql`to_char(${deliveryOrders.deliveredAt} AT TIME ZONE ${timeZone}, 'IYYY-"W"IW') = ${t.weekKey}`,
+            ? sql`DATE(CONVERT_TZ(${deliveryOrders.deliveredAt}, '+00:00', ${timeZone})) = ${t.dateKey}`
+            : // Postgres 'IYYY-"W"IW' and MySQL '%x-W%v' are both ISO-8601 year
+              // and zero-padded ISO week, so the keys this produces are unchanged.
+              sql`DATE_FORMAT(CONVERT_TZ(${deliveryOrders.deliveredAt}, '+00:00', ${timeZone}), '%x-W%v') = ${t.weekKey}`,
         ),
       );
     return row?.n ?? 0;
   };
-  const [dayCount, weekCount] = outcome === "DELIVERED" ? await Promise.all([countIn("day"), countIn("week")]) : [0, 0];
+  const [dayCount, weekCount] =
+    outcome === "DELIVERED"
+      ? await Promise.all([countIn("day"), countIn("week")])
+      : [0, 0];
 
   const awardedRows = await c
-    .select({ ruleId: riderIncentiveAwards.ruleId, periodKey: riderIncentiveAwards.periodKey })
+    .select({
+      ruleId: riderIncentiveAwards.ruleId,
+      periodKey: riderIncentiveAwards.periodKey,
+    })
     .from(riderIncentiveAwards)
     .where(
       and(
-        eq(riderIncentiveAwards.deliveryPartnerId, deliveryOrder.deliveryPartnerId),
+        eq(
+          riderIncentiveAwards.deliveryPartnerId,
+          deliveryOrder.deliveryPartnerId,
+        ),
         inArray(riderIncentiveAwards.periodKey, [t.dateKey, t.weekKey]),
       ),
     );
@@ -260,30 +298,30 @@ export async function creditDeliveryEarnings(
     weekCount,
     minutesLate:
       order?.promisedByAt && deliveryOrder.deliveredAt
-        ? (deliveryOrder.deliveredAt.getTime() - order.promisedByAt.getTime()) / 60_000
+        ? (deliveryOrder.deliveredAt.getTime() - order.promisedByAt.getTime()) /
+          60_000
         : null,
-    alreadyAwarded: new Set(awardedRows.map((r) => `${r.ruleId}:${r.periodKey}`)),
+    alreadyAwarded: new Set(
+      awardedRows.map((r) => `${r.ruleId}:${r.periodKey}`),
+    ),
     deliveryOrderId,
   });
 
   try {
-    const [earning] = await c
-      .insert(deliveryPartnerEarnings)
-      .values({
-        deliveryPartnerId: deliveryOrder.deliveryPartnerId,
-        deliveryOrderId,
-        basePaise: breakdown.basePaise,
-        distancePaise: breakdown.distancePaise,
-        orderComponentPaise: breakdown.orderComponentPaise,
-        slotIncentivePaise: breakdown.slotIncentivePaise,
-        minTopUpPaise: breakdown.minTopUpPaise,
-        orderIncentivePaise: breakdown.orderIncentivePaise,
-        otherIncentivePaise: breakdown.otherIncentivePaise,
-        deductionsPaise: breakdown.deductionsPaise,
-        slotId: breakdown.slotId,
-        totalPaise: breakdown.totalPaise,
-      })
-      .returning();
+    const [earning] = await insertReturning(c, deliveryPartnerEarnings, {
+      deliveryPartnerId: deliveryOrder.deliveryPartnerId,
+      deliveryOrderId,
+      basePaise: breakdown.basePaise,
+      distancePaise: breakdown.distancePaise,
+      orderComponentPaise: breakdown.orderComponentPaise,
+      slotIncentivePaise: breakdown.slotIncentivePaise,
+      minTopUpPaise: breakdown.minTopUpPaise,
+      orderIncentivePaise: breakdown.orderIncentivePaise,
+      otherIncentivePaise: breakdown.otherIncentivePaise,
+      deductionsPaise: breakdown.deductionsPaise,
+      slotId: breakdown.slotId,
+      totalPaise: breakdown.totalPaise,
+    });
 
     if (breakdown.lines.length > 0) {
       await c.insert(riderEarningsLedger).values(
@@ -309,7 +347,7 @@ export async function creditDeliveryEarnings(
             amountPaise: a.amountPaise,
           })),
         )
-        .onConflictDoNothing();
+        .onDuplicateKeyUpdate({ set: keepExisting(riderIncentiveAwards) });
     }
     // Slice 6: journal the earning (rider credit / platform cost), same transaction.
     await postRiderEarning(earning, deliveryOrder.orderId, c);
@@ -341,12 +379,21 @@ export async function creditReturnPickupEarning(
   if (existing) return existing;
 
   const returns = await getRule("returns");
-  const fee = returns.riderPickupFeePaise ?? (await getActiveEarningsConfig()).baseFeePaise;
-  const [earning] = await client
-    .insert(deliveryPartnerEarnings)
-    .values({ deliveryPartnerId, returnPickupId, basePaise: fee, distancePaise: 0, totalPaise: fee })
-    .onConflictDoNothing()
-    .returning();
+  const fee =
+    returns.riderPickupFeePaise ??
+    (await getActiveEarningsConfig()).baseFeePaise;
+  const [earning] = await insertIfNewReturning(
+    client,
+    deliveryPartnerEarnings,
+    {
+      deliveryPartnerId,
+      returnPickupId,
+      basePaise: fee,
+      distancePaise: 0,
+      totalPaise: fee,
+    },
+    eq(deliveryPartnerEarnings.returnPickupId, returnPickupId),
+  );
   if (!earning) {
     const row = await client.query.deliveryPartnerEarnings.findFirst({
       where: eq(deliveryPartnerEarnings.returnPickupId, returnPickupId),

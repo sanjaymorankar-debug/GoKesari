@@ -150,26 +150,26 @@ const productMaster: SheetDef = {
     SELECT pm.master_product_id, pm.product_name, pm.gtin, pm.ean, pm.upc, pm.isbn, pm.sku, pm.mpn, pm.model_number, pm.product_code,
            pm.brand_name AS brand, pm.brand_code AS brand_id, pm.manufacturer_name AS manufacturer, pm.manufacturer_code AS manufacturer_id,
            pm.short_description, pm.long_description, pm.product_type, pm.sub_type, pm.product_family, pm.variant_name, pm.variant_code,
-           ARRAY(SELECT jsonb_array_elements_text(pm.key_features)) AS key_features, pm.search_keywords,
+           pm.key_features AS key_features, pm.search_keywords,
            pm.category_level_1, pm.category_level_2, pm.category_level_3, pm.category_level_4, pm.category_level_5, pm.category_id AS standard_category_id,
            pm.net_weight_g AS net_weight, pm.gross_weight_g AS gross_weight, pm.weight_unit, pm.length_mm AS length, pm.width_mm AS width,
            pm.height_mm AS height, pm.dimension_unit, pm.volume_ml AS volume, pm.volume_unit, pm.pack_size, pm.pack_count, pm.unit_count,
-           pm.material, pm.color, pm.size, pm.shape, pm.gst_rate_bp AS gst_rate, pm.hsn_code, pm.cess_bp AS cess, pm.other_taxes::text AS other_taxes,
+           pm.material, pm.color, pm.size, pm.shape, pm.gst_rate_bp AS gst_rate, pm.hsn_code, pm.cess_bp AS cess, CAST(pm.other_taxes AS CHAR) AS other_taxes,
            ps.max_mrp_minor AS reference_mrp, ps.min_price_minor AS reference_price_min, ps.max_price_minor AS reference_price_max,
            ps.avg_price_minor AS reference_price_avg, ps.currency AS reference_currency, ps.last_collected_at AS price_observed_on, ps.offer_count,
            pm.product_status, pm.status_basis,
            img.p0 AS primary_image_url, img.i1 AS image_url_1, img.i2 AS image_url_2, img.i3 AS image_url_3, img.i4 AS image_url_4, img.i5 AS image_url_5,
            img.image_source, img.validation_status AS image_validation_status,
            pm.data_quality_score,
-           (SELECT count(*)::int FROM pmd.product_source x WHERE x.product_id = pm.product_id) AS source_count,
-           (SELECT count(*)::int FROM pmd.product_attribute_conflict x WHERE x.product_id = pm.product_id AND x.conflict_status = 'OPEN') AS open_conflict_count,
+           (SELECT CAST(count(*) AS SIGNED) FROM pmd.product_source x WHERE x.product_id = pm.product_id) AS source_count,
+           (SELECT CAST(count(*) AS SIGNED) FROM pmd.product_attribute_conflict x WHERE x.product_id = pm.product_id AND x.conflict_status = 'OPEN') AS open_conflict_count,
            pm.first_seen_at AS first_seen_date, pm.last_seen_at AS last_seen_date, pm.created_at, pm.updated_at, pm.version
     FROM pmd.v_product_flat pm
     LEFT JOIN pmd.v_product_price_summary ps ON ps.product_id = pm.product_id
     LEFT JOIN LATERAL (
-      SELECT max(image_url) FILTER (WHERE rank = 0) p0, max(image_url) FILTER (WHERE rank = 1) i1, max(image_url) FILTER (WHERE rank = 2) i2,
-             max(image_url) FILTER (WHERE rank = 3) i3, max(image_url) FILTER (WHERE rank = 4) i4, max(image_url) FILTER (WHERE rank = 5) i5,
-             max(image_source) FILTER (WHERE rank = 0) image_source, max(validation_status) FILTER (WHERE rank = 0) validation_status
+      SELECT max(case when \`rank\` = 0 then image_url end) p0, max(case when \`rank\` = 1 then image_url end) i1, max(case when \`rank\` = 2 then image_url end) i2,
+             max(case when \`rank\` = 3 then image_url end) i3, max(case when \`rank\` = 4 then image_url end) i4, max(case when \`rank\` = 5 then image_url end) i5,
+             max(case when \`rank\` = 0 then image_source end) image_source, max(case when \`rank\` = 0 then validation_status end) validation_status
       FROM pmd.product_image WHERE product_id = pm.product_id) img ON true
     WHERE pm.record_status = 'ACTIVE' AND ${range("pm.product_id", s)}
     ORDER BY pm.product_id`,
@@ -198,7 +198,7 @@ const specifications: SheetDef = {
   ],
   query: (s) => `
     SELECT pm.master_product_id, sp.attribute_key, ad.attribute_label AS attribute_name, ad.attribute_group,
-           COALESCE(sp.value_text, CASE WHEN sp.value_num IS NOT NULL THEN trim(trailing '.' FROM trim(trailing '0' FROM sp.value_num::text)) END,
+           COALESCE(sp.value_text, CASE WHEN sp.value_num IS NOT NULL THEN trim(trailing '.' FROM trim(trailing '0' FROM CAST(sp.value_num AS CHAR))) END,
                     CASE WHEN sp.value_bool IS NOT NULL THEN CASE WHEN sp.value_bool THEN 'Yes' ELSE 'No' END END) AS attribute_value,
            sp.unit, s.source_key AS source, sp.confidence AS confidence_score, sp.is_preferred, sp.original_value, sp.source_url, sp.collected_at
     FROM pmd.product_specification sp
@@ -248,7 +248,7 @@ const sources: SheetDef = {
     JOIN pmd.source src USING (source_id)
     LEFT JOIN pmd.product_master pm ON pm.product_id = ps.product_id
     WHERE (ps.product_id IS NULL AND ${s.fromProductId == null ? "true" : "false"}) OR (pm.record_status = 'ACTIVE' AND ${range("pm.product_id", s)})
-    ORDER BY ps.product_id NULLS LAST, src.source_key, ps.source_product_id`,
+    ORDER BY ps.product_id IS NULL, ps.product_id, src.source_key, ps.source_product_id`,
 };
 
 /* ----------------------------------------------------------- PRODUCT_SELLER */
@@ -344,8 +344,8 @@ const brands: SheetDef = {
   query: () => `
     SELECT b.brand_code AS brand_id, b.brand_name, b.legal_company_name, m.manufacturer_name AS manufacturer, b.country, b.website, c.name AS category,
            b.brand_status, s.source_key AS source, b.verification_status,
-           ARRAY(SELECT alias_original FROM pmd.brand_alias a WHERE a.brand_id = b.brand_id ORDER BY alias_original) AS aliases,
-           (SELECT count(*)::int FROM pmd.product_master p WHERE p.brand_id = b.brand_id AND p.record_status = 'ACTIVE') AS product_count
+           (SELECT JSON_ARRAYAGG(d.alias_original) FROM (SELECT alias_original FROM pmd.brand_alias a WHERE a.brand_id = b.brand_id ORDER BY alias_original) d) AS aliases,
+           (SELECT CAST(count(*) AS SIGNED) FROM pmd.product_master p WHERE p.brand_id = b.brand_id AND p.record_status = 'ACTIVE') AS product_count
     FROM pmd.brand b
     LEFT JOIN pmd.manufacturer m ON m.manufacturer_id = b.manufacturer_id
     LEFT JOIN pmd.category c ON c.category_id = b.primary_category_id
@@ -375,8 +375,8 @@ const manufacturers: SheetDef = {
   query: () => `
     SELECT m.manufacturer_code AS manufacturer_id, m.manufacturer_name, m.legal_name, m.address, m.country, m.gstin, m.website, m.contact_information,
            s.source_key AS source, m.verification_status,
-           ARRAY(SELECT alias_original FROM pmd.manufacturer_alias a WHERE a.manufacturer_id = m.manufacturer_id ORDER BY alias_original) AS aliases,
-           (SELECT count(*)::int FROM pmd.brand b WHERE b.manufacturer_id = m.manufacturer_id) AS brand_count
+           (SELECT JSON_ARRAYAGG(d.alias_original) FROM (SELECT alias_original FROM pmd.manufacturer_alias a WHERE a.manufacturer_id = m.manufacturer_id ORDER BY alias_original) d) AS aliases,
+           (SELECT CAST(count(*) AS SIGNED) FROM pmd.brand b WHERE b.manufacturer_id = m.manufacturer_id) AS brand_count
     FROM pmd.manufacturer m LEFT JOIN pmd.source s ON s.source_id = m.source_id
     ORDER BY m.manufacturer_id`,
 };
@@ -402,10 +402,10 @@ const categories: SheetDef = {
     C("product_count", "PRODUCT_COUNT", "int", "count(pmd.product_master)", "ACTIVE products at exactly this node. DERIVED.", { derived: true }),
   ],
   query: () => `
-    SELECT c.category_id AS standard_category_id, c.category_code, c.level, c.path_names[1] AS category_level_1, c.path_names[2] AS category_level_2,
-           c.path_names[3] AS category_level_3, c.path_names[4] AS category_level_4, c.path_names[5] AS category_level_5,
+    SELECT c.category_id AS standard_category_id, c.category_code, c.level, JSON_UNQUOTE(JSON_EXTRACT(c.path_names, '$[0]')) AS category_level_1, JSON_UNQUOTE(JSON_EXTRACT(c.path_names, '$[1]')) AS category_level_2,
+           JSON_UNQUOTE(JSON_EXTRACT(c.path_names, '$[2]')) AS category_level_3, JSON_UNQUOTE(JSON_EXTRACT(c.path_names, '$[3]')) AS category_level_4, JSON_UNQUOTE(JSON_EXTRACT(c.path_names, '$[4]')) AS category_level_5,
            c.parent_id AS parent_category_id, c.gokesari_department,
-           (SELECT count(*)::int FROM pmd.product_master p WHERE p.category_id = c.category_id AND p.record_status = 'ACTIVE') AS product_count
+           (SELECT CAST(count(*) AS SIGNED) FROM pmd.product_master p WHERE p.category_id = c.category_id AND p.record_status = 'ACTIVE') AS product_count
     FROM pmd.category c ORDER BY c.sort_order`,
 };
 
@@ -426,7 +426,11 @@ const categoryMapping: SheetDef = {
   ],
   query: () => `
     SELECT s.source_key AS source, cm.source_category, cm.source_category_original, cm.standard_category_id,
-           array_to_string(c.path_names, ' > ') AS standard_category_path, cm.match_type, cm.confidence, cm.mapped_by
+           -- array_to_string over a text[]; path_names is json, so the elements
+           -- are expanded and re-joined. FOR ORDINALITY keeps the path in order.
+           (SELECT GROUP_CONCAT(jt.v ORDER BY jt.i SEPARATOR ' > ')
+              FROM JSON_TABLE(c.path_names, '$[*]' COLUMNS (i FOR ORDINALITY, v varchar(255) PATH '$')) jt
+           ) AS standard_category_path, cm.match_type, cm.confidence, cm.mapped_by
     FROM pmd.category_mapping cm JOIN pmd.source s USING (source_id) JOIN pmd.category c ON c.category_id = cm.standard_category_id
     WHERE cm.is_active ORDER BY s.source_key, cm.source_category`,
 };
@@ -493,21 +497,21 @@ const quality: SheetDef = {
   ],
   query: (s) => `
     SELECT pm.master_product_id, pm.product_name, pm.data_quality_score,
-           (pm.quality_components #>> '{components,identifier,score}')::numeric AS identifier_score,
-           (pm.quality_components #>> '{components,sourceReliability,score}')::numeric AS source_reliability_score,
-           (pm.quality_components #>> '{components,corroboration,score}')::numeric AS corroboration_score,
-           (pm.quality_components #>> '{components,completeness,score}')::numeric AS completeness_score,
-           (pm.quality_components #>> '{components,matchConfidence,score}')::numeric AS match_confidence_score,
-           (pm.quality_components #>> '{components,recency,score}')::numeric AS recency_score,
-           ARRAY(SELECT jsonb_array_elements_text(COALESCE(pm.quality_components -> 'missingFields', '[]'::jsonb))) AS missing_fields,
-           (SELECT count(*)::int FROM pmd.product_source x WHERE x.product_id = pm.product_id) AS source_count,
+           CAST((JSON_UNQUOTE(JSON_EXTRACT(pm.quality_components, '$.components.identifier.score'))) AS DECIMAL(20, 4)) AS identifier_score,
+           CAST((JSON_UNQUOTE(JSON_EXTRACT(pm.quality_components, '$.components.sourceReliability.score'))) AS DECIMAL(20, 4)) AS source_reliability_score,
+           CAST((JSON_UNQUOTE(JSON_EXTRACT(pm.quality_components, '$.components.corroboration.score'))) AS DECIMAL(20, 4)) AS corroboration_score,
+           CAST((JSON_UNQUOTE(JSON_EXTRACT(pm.quality_components, '$.components.completeness.score'))) AS DECIMAL(20, 4)) AS completeness_score,
+           CAST((JSON_UNQUOTE(JSON_EXTRACT(pm.quality_components, '$.components.matchConfidence.score'))) AS DECIMAL(20, 4)) AS match_confidence_score,
+           CAST((JSON_UNQUOTE(JSON_EXTRACT(pm.quality_components, '$.components.recency.score'))) AS DECIMAL(20, 4)) AS recency_score,
+           COALESCE(JSON_EXTRACT(pm.quality_components, '$.missingFields'), JSON_ARRAY()) AS missing_fields,
+           (SELECT CAST(count(*) AS SIGNED) FROM pmd.product_source x WHERE x.product_id = pm.product_id) AS source_count,
            pm.gtin IS NOT NULL AS has_gtin, pm.brand_id IS NOT NULL AS has_brand, pm.manufacturer_id IS NOT NULL AS has_manufacturer,
            pm.category_id IS NOT NULL AS has_category,
            (EXISTS (SELECT 1 FROM pmd.product_offer o WHERE o.product_id = pm.product_id AND o.mrp_minor IS NOT NULL)
             OR EXISTS (SELECT 1 FROM pmd.product_source x WHERE x.product_id = pm.product_id AND x.source_mrp_minor IS NOT NULL)) AS has_mrp_observation,
            pm.gst_rate_bp IS NOT NULL AS has_gst, pm.hsn_code IS NOT NULL AS has_hsn,
-           (SELECT count(*)::int FROM pmd.product_attribute_conflict x WHERE x.product_id = pm.product_id AND x.conflict_status = 'OPEN') AS open_conflicts,
-           (SELECT count(*)::int FROM pmd.match_candidate mc JOIN pmd.product_source ps USING (product_source_id) WHERE ps.product_id = pm.product_id AND mc.review_status = 'PENDING') AS pending_review_items,
+           (SELECT CAST(count(*) AS SIGNED) FROM pmd.product_attribute_conflict x WHERE x.product_id = pm.product_id AND x.conflict_status = 'OPEN') AS open_conflicts,
+           (SELECT CAST(count(*) AS SIGNED) FROM pmd.match_candidate mc JOIN pmd.product_source ps USING (product_source_id) WHERE ps.product_id = pm.product_id AND mc.review_status = 'PENDING') AS pending_review_items,
            pm.quality_computed_at
     FROM pmd.product_master pm
     WHERE pm.record_status = 'ACTIVE' AND ${range("pm.product_id", s)}
@@ -533,7 +537,7 @@ const importErrors: SheetDef = {
     C("raw_excerpt", "RAW_EXCERPT", "text", "pmd.import_error.raw_excerpt", "Start of the offending value or record (personal data already stripped).", { width: 50 }),
   ],
   query: (s) => `
-    SELECT e.run_id, src.source_key AS source, e.source_record_id, e.stage, e.severity, e.error_code, e.message, e.created_at, e.raw_excerpt ->> 'excerpt' AS raw_excerpt
+    SELECT e.run_id, src.source_key AS source, e.source_record_id, e.stage, e.severity, e.error_code, e.message, e.created_at, JSON_UNQUOTE(JSON_EXTRACT(e.raw_excerpt, '$.excerpt')) AS raw_excerpt
     FROM pmd.import_error e JOIN pmd.source src USING (source_id)
     WHERE ${s.fromProductId == null ? "true" : "false"}
     ORDER BY e.error_id`,

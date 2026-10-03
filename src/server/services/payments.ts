@@ -38,6 +38,7 @@ import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { getOrCreateWallet, applyWalletMutation } from "./wallet";
 import { previewVoucher, redeemVoucher } from "./vouchers";
+import { insertReturning, updateReturning } from "@/server/db/returning";
 
 /** Minimum top-up, in paise. */
 const MIN_TOPUP_PAISE = 100;
@@ -99,19 +100,16 @@ export async function createTopUpOrder(
     gatewayOrderId = `mock_order_${crypto.randomUUID()}`;
   }
 
-  const [payment] = await db
-    .insert(payments)
-    .values({
-      userId,
-      gateway: live ? "CASHFREE" : "MOCK",
-      gatewayOrderId,
-      amountPaise,
-      currency: "INR",
-      status: "CREATED",
-      purpose: "WALLET_TOPUP",
-      voucherCode: voucherPreview?.code ?? null,
-    })
-    .returning();
+  const [payment] = await insertReturning(db, payments, {
+    userId,
+    gateway: live ? "CASHFREE" : "MOCK",
+    gatewayOrderId,
+    amountPaise,
+    currency: "INR",
+    status: "CREATED",
+    purpose: "WALLET_TOPUP",
+    voucherCode: voucherPreview?.code ?? null,
+  });
 
   return {
     payment,
@@ -281,17 +279,18 @@ async function finalizeVerifiedPayment(
 ): Promise<VerifyTopUpResult> {
   // Mark verified. The UNIQUE index on gateway_payment_id means a concurrent
   // duplicate callback fails here rather than producing a second credit.
-  const [verified] = await db
-    .update(payments)
-    .set({
+  const [verified] = await updateReturning(
+    db,
+    payments,
+    {
       gatewayPaymentId: gateway.gatewayPaymentId,
       gatewaySignature: gateway.gatewaySignature,
       status: "SUCCESS",
       verifiedAt: new Date(),
       updatedAt: new Date(),
-    })
-    .where(and(eq(payments.id, payment.id), eq(payments.status, "CREATED")))
-    .returning();
+    },
+    and(eq(payments.id, payment.id), eq(payments.status, "CREATED")),
+  );
 
   // Another caller (the other of {client verify, webhook}) won the race
   // between our SELECT above and this UPDATE — treat as an already-processed
@@ -371,7 +370,11 @@ async function finalizeVerifiedPayment(
         voucherBonusPaise = redemption.bonusAmountPaise;
       }
     } catch (error) {
-      console.error("[vouchers] bonus not applied for payment", payment.id, error);
+      console.error(
+        "[vouchers] bonus not applied for payment",
+        payment.id,
+        error,
+      );
     }
   }
 
@@ -529,7 +532,11 @@ async function createCashfreeOrder(
   });
 
   if (!response.ok) {
-    console.error("[cashfree] order creation failed", response.status, await response.text());
+    console.error(
+      "[cashfree] order creation failed",
+      response.status,
+      await response.text(),
+    );
     throw new Error("Could not start the payment with Cashfree.");
   }
 
@@ -537,7 +544,10 @@ async function createCashfreeOrder(
     order_id: string;
     payment_session_id: string;
   };
-  return { gatewayOrderId: order.order_id, paymentSessionId: order.payment_session_id };
+  return {
+    gatewayOrderId: order.order_id,
+    paymentSessionId: order.payment_session_id,
+  };
 }
 
 /**
@@ -549,10 +559,13 @@ async function createCashfreeOrder(
 async function confirmCashfreeOrderPaid(
   gatewayOrderId: string,
 ): Promise<{ cfPaymentId: string } | null> {
-  const response = await fetch(`${cashfreeApiBase()}/orders/${gatewayOrderId}/payments`, {
-    method: "GET",
-    headers: cashfreeHeaders(),
-  });
+  const response = await fetch(
+    `${cashfreeApiBase()}/orders/${gatewayOrderId}/payments`,
+    {
+      method: "GET",
+      headers: cashfreeHeaders(),
+    },
+  );
 
   if (!response.ok) {
     console.error(
