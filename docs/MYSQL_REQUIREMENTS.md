@@ -13,7 +13,7 @@ See `MYSQL_MIGRATION_ASSESSMENT.md` for what each Postgres construct became.
 | Need | MySQL | MariaDB | Used by |
 |---|---|---|---|
 | `CHECK` constraints enforced | 8.0.16+ | 10.2.1+ | 82 constraints in the schema |
-| Generated (`STORED`) columns | 5.7+ | 5.2+ | the 8 columns replacing Postgres partial unique indexes |
+| Generated (`VIRTUAL`) columns, indexed | 5.7+ | 5.2+ | the 8 columns replacing Postgres partial unique indexes |
 | Window functions (`ROW_NUMBER`, `COUNT() OVER`) | 8.0+ | 10.2+ | the median in `services/analytics.ts` |
 | Common table expressions | 8.0+ | 10.2+ | `services/risk.ts`, `services/analytics.ts` |
 | `JSON_CONTAINS` / `JSON_LENGTH` / `JSON_ARRAY_APPEND` | 5.7+ | 10.2+ | the columns that were `uuid[]` and `jsonb` |
@@ -27,6 +27,25 @@ failure: the schema loads and the invariants simply are not enforced.
 `LATERAL` is deliberately not used anywhere, even though MySQL 8.0.14+ has it,
 because MariaDB has no support for it at all. The four places that had it are
 now correlated subqueries.
+
+### The two engines are not interchangeable here
+
+Two things this schema does are accepted by MariaDB and **rejected by MySQL**,
+so MariaDB alone is not a sufficient test:
+
+- **Generated columns are `VIRTUAL`, not `STORED`.** MySQL refuses a foreign key
+  with `ON DELETE CASCADE` on any column that a *stored* generated column is
+  built from (`ER_CANNOT_ADD_FOREIGN`, errno 1215), and five of these eight are
+  built from exactly such a column. For a *virtual* column only
+  `ON UPDATE CASCADE` is disallowed, which nothing here uses. MariaDB accepts
+  both forms. Verified on MySQL 8.0 and MariaDB 10.11: the unique index still
+  rejects a duplicate, non-matching rows stay unconstrained, and the cascade
+  still deletes.
+- **An over-long index prefix** is an error on MySQL and, outside strict mode,
+  a silently truncated index on MariaDB.
+
+CI therefore runs **MySQL 8.4** (`.github/workflows/ci.yml`), which is the
+stricter of the two.
 
 ## 2. The time zone tables must be loaded
 

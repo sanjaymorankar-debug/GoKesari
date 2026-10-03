@@ -559,17 +559,24 @@ export const users = mysqlTable(
     deletedAt: datetime("deleted_at", { mode: "date", fsp: 3 }),
     /**
      * MySQL has no partial indexes, so the predicate of the old PostgreSQL
-     * partial UNIQUE index lives in this STORED generated column: it is NULL
-     * when the predicate is false, and MySQL's UNIQUE ignores NULLs. Verified
-     * against a real server -- a second matching row is rejected with a
-     * duplicate-key error, non-matching rows are unconstrained, and leaving the
-     * predicate frees the slot again.
+     * partial UNIQUE index lives in this generated column: it is NULL when the
+     * predicate is false, and MySQL's UNIQUE ignores NULLs. Verified against
+     * both engines -- a second matching row is rejected with a duplicate-key
+     * error, non-matching rows are unconstrained, and leaving the predicate
+     * frees the slot again.
+     *
+     * VIRTUAL, not STORED. MySQL refuses a foreign key with ON DELETE CASCADE
+     * on any column a STORED generated column is built from (ER_CANNOT_ADD_
+     * FOREIGN), and five of these columns are built from exactly such a
+     * column. For a VIRTUAL column only ON UPDATE CASCADE is disallowed, which
+     * nothing here uses. MariaDB accepts both forms, so this only shows up on
+     * MySQL -- it was caught by CI, not by local testing.
      */
     activePhoneKey: varchar("active_phone_key", {
       length: 255,
     }).generatedAlwaysAs(
       sql`CASE WHEN phone_e164 IS NOT NULL AND deleted_at IS NULL THEN phone_e164 END`,
-      { mode: "stored" },
+      { mode: "virtual" },
     ),
   },
   (t) => [
@@ -981,17 +988,24 @@ export const shops = mysqlTable(
     deletedAt: datetime("deleted_at", { mode: "date", fsp: 3 }),
     /**
      * MySQL has no partial indexes, so the predicate of the old PostgreSQL
-     * partial UNIQUE index lives in this STORED generated column: it is NULL
-     * when the predicate is false, and MySQL's UNIQUE ignores NULLs. Verified
-     * against a real server -- a second matching row is rejected with a
-     * duplicate-key error, non-matching rows are unconstrained, and leaving the
-     * predicate frees the slot again.
+     * partial UNIQUE index lives in this generated column: it is NULL when the
+     * predicate is false, and MySQL's UNIQUE ignores NULLs. Verified against
+     * both engines -- a second matching row is rejected with a duplicate-key
+     * error, non-matching rows are unconstrained, and leaving the predicate
+     * frees the slot again.
+     *
+     * VIRTUAL, not STORED. MySQL refuses a foreign key with ON DELETE CASCADE
+     * on any column a STORED generated column is built from (ER_CANNOT_ADD_
+     * FOREIGN), and five of these columns are built from exactly such a
+     * column. For a VIRTUAL column only ON UPDATE CASCADE is disallowed, which
+     * nothing here uses. MariaDB accepts both forms, so this only shows up on
+     * MySQL -- it was caught by CI, not by local testing.
      */
     shopActActiveKey: varchar("shop_act_active_key", {
       length: 255,
     }).generatedAlwaysAs(
       sql`CASE WHEN shop_act_key IS NOT NULL AND deleted_at IS NULL AND status <> 'REJECTED' THEN shop_act_key END`,
-      { mode: "stored" },
+      { mode: "virtual" },
     ),
   },
   (t) => [
@@ -1502,31 +1516,45 @@ export const productImages = mysqlTable(
       .default(sql`CURRENT_TIMESTAMP(3)`),
     /**
      * MySQL has no partial indexes, so the predicate of the old PostgreSQL
-     * partial UNIQUE index lives in this STORED generated column: it is NULL
-     * when the predicate is false, and MySQL's UNIQUE ignores NULLs. Verified
-     * against a real server -- a second matching row is rejected with a
-     * duplicate-key error, non-matching rows are unconstrained, and leaving the
-     * predicate frees the slot again.
+     * partial UNIQUE index lives in this generated column: it is NULL when the
+     * predicate is false, and MySQL's UNIQUE ignores NULLs. Verified against
+     * both engines -- a second matching row is rejected with a duplicate-key
+     * error, non-matching rows are unconstrained, and leaving the predicate
+     * frees the slot again.
+     *
+     * VIRTUAL, not STORED. MySQL refuses a foreign key with ON DELETE CASCADE
+     * on any column a STORED generated column is built from (ER_CANNOT_ADD_
+     * FOREIGN), and five of these columns are built from exactly such a
+     * column. For a VIRTUAL column only ON UPDATE CASCADE is disallowed, which
+     * nothing here uses. MariaDB accepts both forms, so this only shows up on
+     * MySQL -- it was caught by CI, not by local testing.
      */
     primaryProductKey: varchar("primary_product_key", {
       length: 36,
     }).generatedAlwaysAs(
       sql`CASE WHEN is_primary AND shop_product_id IS NULL THEN product_id END`,
-      { mode: "stored" },
+      { mode: "virtual" },
     ),
     /**
      * MySQL has no partial indexes, so the predicate of the old PostgreSQL
-     * partial UNIQUE index lives in this STORED generated column: it is NULL
-     * when the predicate is false, and MySQL's UNIQUE ignores NULLs. Verified
-     * against a real server -- a second matching row is rejected with a
-     * duplicate-key error, non-matching rows are unconstrained, and leaving the
-     * predicate frees the slot again.
+     * partial UNIQUE index lives in this generated column: it is NULL when the
+     * predicate is false, and MySQL's UNIQUE ignores NULLs. Verified against
+     * both engines -- a second matching row is rejected with a duplicate-key
+     * error, non-matching rows are unconstrained, and leaving the predicate
+     * frees the slot again.
+     *
+     * VIRTUAL, not STORED. MySQL refuses a foreign key with ON DELETE CASCADE
+     * on any column a STORED generated column is built from (ER_CANNOT_ADD_
+     * FOREIGN), and five of these columns are built from exactly such a
+     * column. For a VIRTUAL column only ON UPDATE CASCADE is disallowed, which
+     * nothing here uses. MariaDB accepts both forms, so this only shows up on
+     * MySQL -- it was caught by CI, not by local testing.
      */
     primaryListingKey: varchar("primary_listing_key", {
       length: 36,
     }).generatedAlwaysAs(
       sql`CASE WHEN is_primary AND shop_product_id IS NOT NULL THEN shop_product_id END`,
-      { mode: "stored" },
+      { mode: "virtual" },
     ),
   },
   (t) => [
@@ -1654,15 +1682,22 @@ export const stockAlerts = mysqlTable(
       .default(sql`CURRENT_TIMESTAMP(3)`),
     /**
      * MySQL has no partial indexes, so the predicate of the old PostgreSQL
-     * partial UNIQUE index lives in this STORED generated column: it is NULL
-     * when the predicate is false, and MySQL's UNIQUE ignores NULLs. Verified
-     * against a real server -- a second matching row is rejected with a
-     * duplicate-key error, non-matching rows are unconstrained, and leaving the
-     * predicate frees the slot again.
+     * partial UNIQUE index lives in this generated column: it is NULL when the
+     * predicate is false, and MySQL's UNIQUE ignores NULLs. Verified against
+     * both engines -- a second matching row is rejected with a duplicate-key
+     * error, non-matching rows are unconstrained, and leaving the predicate
+     * frees the slot again.
+     *
+     * VIRTUAL, not STORED. MySQL refuses a foreign key with ON DELETE CASCADE
+     * on any column a STORED generated column is built from (ER_CANNOT_ADD_
+     * FOREIGN), and five of these columns are built from exactly such a
+     * column. For a VIRTUAL column only ON UPDATE CASCADE is disallowed, which
+     * nothing here uses. MariaDB accepts both forms, so this only shows up on
+     * MySQL -- it was caught by CI, not by local testing.
      */
     openAlertKey: varchar("open_alert_key", { length: 600 }).generatedAlwaysAs(
       sql`CASE WHEN status = 'OPEN' THEN CONCAT(shop_product_id,':',alert_type) END`,
-      { mode: "stored" },
+      { mode: "virtual" },
     ),
   },
   (t) => [
@@ -2257,15 +2292,22 @@ export const shopSuspensions = mysqlTable(
       .default(sql`CURRENT_TIMESTAMP(3)`),
     /**
      * MySQL has no partial indexes, so the predicate of the old PostgreSQL
-     * partial UNIQUE index lives in this STORED generated column: it is NULL
-     * when the predicate is false, and MySQL's UNIQUE ignores NULLs. Verified
-     * against a real server -- a second matching row is rejected with a
-     * duplicate-key error, non-matching rows are unconstrained, and leaving the
-     * predicate frees the slot again.
+     * partial UNIQUE index lives in this generated column: it is NULL when the
+     * predicate is false, and MySQL's UNIQUE ignores NULLs. Verified against
+     * both engines -- a second matching row is rejected with a duplicate-key
+     * error, non-matching rows are unconstrained, and leaving the predicate
+     * frees the slot again.
+     *
+     * VIRTUAL, not STORED. MySQL refuses a foreign key with ON DELETE CASCADE
+     * on any column a STORED generated column is built from (ER_CANNOT_ADD_
+     * FOREIGN), and five of these columns are built from exactly such a
+     * column. For a VIRTUAL column only ON UPDATE CASCADE is disallowed, which
+     * nothing here uses. MariaDB accepts both forms, so this only shows up on
+     * MySQL -- it was caught by CI, not by local testing.
      */
     activeShopKey: varchar("active_shop_key", { length: 36 }).generatedAlwaysAs(
       sql`CASE WHEN status = 'ACTIVE' THEN shop_id END`,
-      { mode: "stored" },
+      { mode: "virtual" },
     ),
   },
   (t) => [
@@ -2620,15 +2662,22 @@ export const returnPickups = mysqlTable(
       .default(sql`CURRENT_TIMESTAMP(3)`),
     /**
      * MySQL has no partial indexes, so the predicate of the old PostgreSQL
-     * partial UNIQUE index lives in this STORED generated column: it is NULL
-     * when the predicate is false, and MySQL's UNIQUE ignores NULLs. Verified
-     * against a real server -- a second matching row is rejected with a
-     * duplicate-key error, non-matching rows are unconstrained, and leaving the
-     * predicate frees the slot again.
+     * partial UNIQUE index lives in this generated column: it is NULL when the
+     * predicate is false, and MySQL's UNIQUE ignores NULLs. Verified against
+     * both engines -- a second matching row is rejected with a duplicate-key
+     * error, non-matching rows are unconstrained, and leaving the predicate
+     * frees the slot again.
+     *
+     * VIRTUAL, not STORED. MySQL refuses a foreign key with ON DELETE CASCADE
+     * on any column a STORED generated column is built from (ER_CANNOT_ADD_
+     * FOREIGN), and five of these columns are built from exactly such a
+     * column. For a VIRTUAL column only ON UPDATE CASCADE is disallowed, which
+     * nothing here uses. MariaDB accepts both forms, so this only shows up on
+     * MySQL -- it was caught by CI, not by local testing.
      */
     liveReturnKey: varchar("live_return_key", { length: 36 }).generatedAlwaysAs(
       sql`CASE WHEN status IN ('PENDING','OFFERED','ACCEPTED','EN_ROUTE') THEN return_id END`,
-      { mode: "stored" },
+      { mode: "virtual" },
     ),
   },
   (t) => [
@@ -4821,15 +4870,22 @@ export const riskFlags = mysqlTable(
     reviewNote: text("review_note"),
     /**
      * MySQL has no partial indexes, so the predicate of the old PostgreSQL
-     * partial UNIQUE index lives in this STORED generated column: it is NULL
-     * when the predicate is false, and MySQL's UNIQUE ignores NULLs. Verified
-     * against a real server -- a second matching row is rejected with a
-     * duplicate-key error, non-matching rows are unconstrained, and leaving the
-     * predicate frees the slot again.
+     * partial UNIQUE index lives in this generated column: it is NULL when the
+     * predicate is false, and MySQL's UNIQUE ignores NULLs. Verified against
+     * both engines -- a second matching row is rejected with a duplicate-key
+     * error, non-matching rows are unconstrained, and leaving the predicate
+     * frees the slot again.
+     *
+     * VIRTUAL, not STORED. MySQL refuses a foreign key with ON DELETE CASCADE
+     * on any column a STORED generated column is built from (ER_CANNOT_ADD_
+     * FOREIGN), and five of these columns are built from exactly such a
+     * column. For a VIRTUAL column only ON UPDATE CASCADE is disallowed, which
+     * nothing here uses. MariaDB accepts both forms, so this only shows up on
+     * MySQL -- it was caught by CI, not by local testing.
      */
     openFlagKey: varchar("open_flag_key", { length: 600 }).generatedAlwaysAs(
       sql`CASE WHEN status = 'OPEN' THEN CONCAT(subject_type,':',subject_id,':',rule_code) END`,
-      { mode: "stored" },
+      { mode: "virtual" },
     ),
   },
   (t) => [

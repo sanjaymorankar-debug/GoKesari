@@ -455,3 +455,10 @@ Recorded because each was silent, and each would have reached production:
   since a MySQL trigger handles one — in `drizzle/0001_audit_logs_append_only.sql`.
 - **PMD was reading `DATABASE_URL`**, which now points at MySQL, so postgres.js
   would have been handed a `mysql://` URL. It has its own `PMD_DATABASE_URL`.
+- **Five foreign keys are illegal on MySQL but fine on MariaDB.** MySQL refuses
+  `ON DELETE CASCADE` on a column that a *stored* generated column is built
+  from, and five of the eight partial-index replacements are built from exactly
+  such a column. Making them `VIRTUAL` satisfies both engines and keeps the
+  uniqueness and the cascade. This was caught by CI rather than by local
+  testing, because the local server was MariaDB — which is why CI now runs
+  MySQL 8.4, the stricter of the two.

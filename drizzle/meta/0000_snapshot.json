@@ -1,7 +1,7 @@
 {
   "version": "5",
   "dialect": "mysql",
-  "id": "da3a138c-4357-4cc6-bc2f-bd330f0a4a38",
+  "id": "d69e483b-3387-4d55-ae16-c70df7c37406",
   "prevId": "00000000-0000-0000-0000-000000000000",
   "tables": {
     "accounts": {
@@ -6728,7 +6728,7 @@
           "autoincrement": false,
           "generated": {
             "as": "CASE WHEN is_primary AND shop_product_id IS NULL THEN product_id END",
-            "type": "stored"
+            "type": "virtual"
           }
         },
         "primary_listing_key": {
@@ -6739,7 +6739,7 @@
           "autoincrement": false,
           "generated": {
             "as": "CASE WHEN is_primary AND shop_product_id IS NOT NULL THEN shop_product_id END",
-            "type": "stored"
+            "type": "virtual"
           }
         }
       },
@@ -8521,7 +8521,7 @@
           "autoincrement": false,
           "generated": {
             "as": "CASE WHEN status IN ('PENDING','OFFERED','ACCEPTED','EN_ROUTE') THEN return_id END",
-            "type": "stored"
+            "type": "virtual"
           }
         }
       },
@@ -10062,7 +10062,7 @@
           "autoincrement": false,
           "generated": {
             "as": "CASE WHEN status = 'OPEN' THEN CONCAT(subject_type,':',subject_id,':',rule_code) END",
-            "type": "stored"
+            "type": "virtual"
           }
         }
       },
@@ -11544,7 +11544,7 @@
           "autoincrement": false,
           "generated": {
             "as": "CASE WHEN status = 'ACTIVE' THEN shop_id END",
-            "type": "stored"
+            "type": "virtual"
           }
         }
       },
@@ -12181,7 +12181,7 @@
           "autoincrement": false,
           "generated": {
             "as": "CASE WHEN shop_act_key IS NOT NULL AND deleted_at IS NULL AND status <> 'REJECTED' THEN shop_act_key END",
-            "type": "stored"
+            "type": "virtual"
           }
         }
       },
@@ -13127,7 +13127,7 @@
           "autoincrement": false,
           "generated": {
             "as": "CASE WHEN status = 'OPEN' THEN CONCAT(shop_product_id,':',alert_type) END",
-            "type": "stored"
+            "type": "virtual"
           }
         }
       },
@@ -14268,7 +14268,7 @@
           "autoincrement": false,
           "generated": {
             "as": "CASE WHEN phone_e164 IS NOT NULL AND deleted_at IS NULL THEN phone_e164 END",
-            "type": "stored"
+            "type": "virtual"
           }
         }
       },

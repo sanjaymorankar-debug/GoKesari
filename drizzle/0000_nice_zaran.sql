@@ -758,8 +758,8 @@ CREATE TABLE `product_images` (
 	`sort_order` int NOT NULL DEFAULT 0,
 	`created_by` varchar(36),
 	`created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-	`primary_product_key` varchar(36) GENERATED ALWAYS AS (CASE WHEN is_primary AND shop_product_id IS NULL THEN product_id END) STORED,
-	`primary_listing_key` varchar(36) GENERATED ALWAYS AS (CASE WHEN is_primary AND shop_product_id IS NOT NULL THEN shop_product_id END) STORED,
+	`primary_product_key` varchar(36) GENERATED ALWAYS AS (CASE WHEN is_primary AND shop_product_id IS NULL THEN product_id END) VIRTUAL,
+	`primary_listing_key` varchar(36) GENERATED ALWAYS AS (CASE WHEN is_primary AND shop_product_id IS NOT NULL THEN shop_product_id END) VIRTUAL,
 	CONSTRAINT `product_images_id` PRIMARY KEY(`id`),
 	CONSTRAINT `product_images_one_primary_product` UNIQUE(`primary_product_key`),
 	CONSTRAINT `product_images_one_primary_listing` UNIQUE(`primary_listing_key`)
@@ -961,7 +961,7 @@ CREATE TABLE `return_pickups` (
 	`attempts` int NOT NULL DEFAULT 0,
 	`created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 	`updated_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-	`live_return_key` varchar(36) GENERATED ALWAYS AS (CASE WHEN status IN ('PENDING','OFFERED','ACCEPTED','EN_ROUTE') THEN return_id END) STORED,
+	`live_return_key` varchar(36) GENERATED ALWAYS AS (CASE WHEN status IN ('PENDING','OFFERED','ACCEPTED','EN_ROUTE') THEN return_id END) VIRTUAL,
 	CONSTRAINT `return_pickups_id` PRIMARY KEY(`id`),
 	CONSTRAINT `return_pickups_one_live` UNIQUE(`live_return_key`)
 );
@@ -1137,7 +1137,7 @@ CREATE TABLE `risk_flags` (
 	`reviewed_by` varchar(36),
 	`reviewed_at` datetime(3),
 	`review_note` text,
-	`open_flag_key` varchar(600) GENERATED ALWAYS AS (CASE WHEN status = 'OPEN' THEN CONCAT(subject_type,':',subject_id,':',rule_code) END) STORED,
+	`open_flag_key` varchar(600) GENERATED ALWAYS AS (CASE WHEN status = 'OPEN' THEN CONCAT(subject_type,':',subject_id,':',rule_code) END) VIRTUAL,
 	CONSTRAINT `risk_flags_id` PRIMARY KEY(`id`),
 	CONSTRAINT `risk_flags_open_unique` UNIQUE(`open_flag_key`)
 );
@@ -1313,7 +1313,7 @@ CREATE TABLE `shop_suspensions` (
 	`policy` json NOT NULL DEFAULT ('{}'),
 	`impact` json NOT NULL DEFAULT ('{}'),
 	`created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-	`active_shop_key` varchar(36) GENERATED ALWAYS AS (CASE WHEN status = 'ACTIVE' THEN shop_id END) STORED,
+	`active_shop_key` varchar(36) GENERATED ALWAYS AS (CASE WHEN status = 'ACTIVE' THEN shop_id END) VIRTUAL,
 	CONSTRAINT `shop_suspensions_id` PRIMARY KEY(`id`),
 	CONSTRAINT `shop_suspensions_one_active` UNIQUE(`active_shop_key`)
 );
@@ -1395,7 +1395,7 @@ CREATE TABLE `shops` (
 	`created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 	`updated_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 	`deleted_at` datetime(3),
-	`shop_act_active_key` varchar(255) GENERATED ALWAYS AS (CASE WHEN shop_act_key IS NOT NULL AND deleted_at IS NULL AND status <> 'REJECTED' THEN shop_act_key END) STORED,
+	`shop_act_active_key` varchar(255) GENERATED ALWAYS AS (CASE WHEN shop_act_key IS NOT NULL AND deleted_at IS NULL AND status <> 'REJECTED' THEN shop_act_key END) VIRTUAL,
 	CONSTRAINT `shops_id` PRIMARY KEY(`id`),
 	CONSTRAINT `shops_slug_unique` UNIQUE(`slug`),
 	CONSTRAINT `shops_registration_number_unique` UNIQUE(`registration_number`),
@@ -1494,7 +1494,7 @@ CREATE TABLE `stock_alerts` (
 	`acknowledged_at` datetime(3),
 	`resolved_at` datetime(3),
 	`created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
-	`open_alert_key` varchar(600) GENERATED ALWAYS AS (CASE WHEN status = 'OPEN' THEN CONCAT(shop_product_id,':',alert_type) END) STORED,
+	`open_alert_key` varchar(600) GENERATED ALWAYS AS (CASE WHEN status = 'OPEN' THEN CONCAT(shop_product_id,':',alert_type) END) VIRTUAL,
 	CONSTRAINT `stock_alerts_id` PRIMARY KEY(`id`),
 	CONSTRAINT `stock_alerts_open_unique` UNIQUE(`open_alert_key`)
 );
@@ -1619,7 +1619,7 @@ CREATE TABLE `users` (
 	`created_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 	`updated_at` datetime(3) NOT NULL DEFAULT CURRENT_TIMESTAMP(3),
 	`deleted_at` datetime(3),
-	`active_phone_key` varchar(255) GENERATED ALWAYS AS (CASE WHEN phone_e164 IS NOT NULL AND deleted_at IS NULL THEN phone_e164 END) STORED,
+	`active_phone_key` varchar(255) GENERATED ALWAYS AS (CASE WHEN phone_e164 IS NOT NULL AND deleted_at IS NULL THEN phone_e164 END) VIRTUAL,
 	CONSTRAINT `users_id` PRIMARY KEY(`id`),
 	CONSTRAINT `users_email_unique` UNIQUE(`email`),
 	CONSTRAINT `users_phone_e164_unique` UNIQUE(`active_phone_key`)
