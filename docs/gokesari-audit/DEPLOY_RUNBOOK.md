@@ -120,9 +120,10 @@ existing rows keep their values.
 
 ## 4. Environment variables
 
-Only one is newly **required** by this release — and it was already required:
-nothing in `src/lib/env.ts` gained a mandatory key. The release adds no new
-variables at all. What it does is make three existing optional ones matter more:
+**This release adds no environment variables and makes none newly required** —
+`src/lib/env.ts` gained no mandatory key, so an environment that boots today
+still boots. What it does is make three existing *optional* ones matter more
+than they did:
 
 | Variable | Effect if unset in this release |
 |---|---|
@@ -201,8 +202,10 @@ day you expect deliveries.**
 
 ## 7. Smoke test — in this order
 
-Each row is a page that would 500 on an unmigrated database, so this doubles as
-a migration check. Sign in as an admin first.
+Rows 1–5 are pages that fail outright on an unmigrated database, so getting
+through them is itself the migration check. Rows 6–10 exercise what this release
+actually changed. Sign in as an admin first — if that fails, stop and re-check
+§3, because broken sign-in is the signature of an unmigrated database.
 
 | # | Do this | Expect |
 |---|---|---|
