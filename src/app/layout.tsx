@@ -3,6 +3,7 @@ import type { Metadata, Viewport } from "next";
 import Link from "next/link";
 
 import { SiteHeader } from "@/components/site-header";
+import { SearchBar } from "@/components/search-bar";
 import { LEGAL_DOCS, LEGAL_ENTITY } from "@/lib/legal-docs";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getCart } from "@/server/services/cart";
@@ -52,6 +53,7 @@ export default async function RootLayout({
           balancePaise={wallet?.balancePaise ?? null}
           unreadCount={unread}
         />
+        <SearchBar />
         <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
           {children}
         </main>

@@ -199,7 +199,7 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
 
   return (
     <header className="sticky top-0 z-40 border-b border-cream-200 bg-white/95 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6">
+      <div className="mx-auto flex w-full max-w-6xl items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6">
         <Link href="/" className="flex shrink-0 items-center gap-2">
           <span className="grid h-8 w-8 place-items-center rounded-lg bg-kesari-600 text-lg font-bold text-white">
             N
@@ -208,16 +208,6 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
             Your Neighbourhood, Now Online
           </span>
         </Link>
-
-        <form action="/search" className="ml-2 min-w-0 max-w-xl flex-1">
-          <input
-            type="search"
-            name="q"
-            placeholder="Search products, shops, area or PIN code"
-            aria-label="Search products, shops, area or PIN code"
-            className="w-full rounded-lg border border-cream-200 bg-cream-50 px-3 py-2 text-sm placeholder:text-ink-400 focus:border-kesari-500 focus:outline-none"
-          />
-        </form>
 
         <nav className="hidden items-center gap-1 xl:flex" aria-label="Main">
           {user && (ROLE_NAV[user.role] ?? []).length > 0 ? (
