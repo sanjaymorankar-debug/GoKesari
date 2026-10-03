@@ -760,13 +760,19 @@ export async function setShopPrices(
   return db.transaction(async (tx) => {
     const ids = prices.map((p) => p.shopProductId);
     const owned = await tx
-      .select({ id: shopProducts.id, onlinePricePaise: shopProducts.onlinePricePaise })
+      .select({
+        id: shopProducts.id,
+        onlinePricePaise: shopProducts.onlinePricePaise,
+        offlinePricePaise: shopProducts.offlinePricePaise,
+      })
       .from(shopProducts)
       .where(and(inArray(shopProducts.id, ids), eq(shopProducts.shopId, shopId), isNull(shopProducts.deletedAt)));
     if (owned.length !== new Set(ids).size) {
       throw forbidden("You can only change prices of products in your own shop.");
     }
-    const unpriced = new Set(owned.filter((r) => r.onlinePricePaise == null).map((r) => r.id));
+    const unpriced = new Set(
+      owned.filter((r) => r.onlinePricePaise == null && r.offlinePricePaise == null).map((r) => r.id),
+    );
     for (const p of prices) {
       await updateShopProduct(
         p.shopProductId,

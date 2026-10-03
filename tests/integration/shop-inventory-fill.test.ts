@@ -120,6 +120,31 @@ describe("adding a category fills the shop's inventory", () => {
     expect(await db.select().from(shopProducts).where(eq(shopProducts.productId, biscuits.id))).toHaveLength(1);
   });
 
+  it("fills a category larger than one insert batch", async () => {
+    const owner = await createUser({ role: "SHOP_OWNER" });
+    const shop = await createShop(owner.id);
+    const category = await createCategory({ name: "Big Grocery" });
+    await db.insert(products).values(
+      Array.from({ length: 1201 }, (_, i) => ({
+        categoryId: category.id,
+        name: `Item ${i}`,
+        slug: `big-item-${i}`,
+        unit: "pack",
+        mrpPaise: 1000 + i,
+      })),
+    );
+    signIn(owner);
+
+    const res = await call(shopCategoryPost, `/api/shops/${shop.id}/product-categories`, {
+      method: "POST",
+      body: { categoryId: category.id },
+      params: { id: shop.id },
+    });
+    expect(res.status).toBe(201);
+    expect(res.body.addedProducts).toBe(1201);
+    expect(await db.select().from(shopProducts).where(eq(shopProducts.shopId, shop.id))).toHaveLength(1201);
+  });
+
   it("shows an unpriced product to buyers without a price, and it cannot be bought", async () => {
     const owner = await createUser({ role: "SHOP_OWNER" });
     const shop = await createShop(owner.id, { status: "APPROVED" });
@@ -187,6 +212,29 @@ describe("an owner's prices are their shop's own", () => {
     expect(await listing(shopB.id, biscuits.id)).toMatchObject({ onlinePricePaise: 3000 });
     const [master] = await db.select().from(products).where(eq(products.id, biscuits.id));
     expect(master.mrpPaise).toBe(3000);
+  });
+
+  it("keeps an in-shop-only product off online sale when its price is changed", async () => {
+    const { ownerA, shopA, rice } = await twoShopsWithRice();
+    const riceA = await listing(shopA.id, rice.id);
+    await db
+      .update(shopProducts)
+      .set({ offlinePricePaise: 5000, offlineSaleEnabled: true })
+      .where(eq(shopProducts.id, riceA.id));
+    signIn(ownerA);
+
+    const res = await call(pricesPatch, `/api/shops/${shopA.id}/prices`, {
+      method: "PATCH",
+      body: { prices: [{ shopProductId: riceA.id, pricePaise: 5500 }] },
+      params: { id: shopA.id },
+    });
+    expect(res.status).toBe(200);
+    expect(await listing(shopA.id, rice.id)).toMatchObject({
+      onlinePricePaise: 5500,
+      offlinePricePaise: 5500,
+      onlineSaleEnabled: false,
+      offlineSaleEnabled: true,
+    });
   });
 
   it("refuses a price of 0, a negative price or text, and saves none of the batch", async () => {

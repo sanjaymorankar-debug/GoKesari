@@ -11,8 +11,9 @@ export interface InventoryRowView {
   productCode: string;
   productName: string;
   unit: string;
-  /** The shop's own price; null until the owner sets one. */
+  /** The shop's own prices; both null until the owner sets one. */
   onlinePricePaise: number | null;
+  offlinePricePaise: number | null;
   available: number;
   reserved: number;
   onHand: number;
@@ -60,8 +61,10 @@ export function ShopInventoryManager({ shopId, view }: { shopId: string; view: I
   const [priceMessage, setPriceMessage] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
   const [needsPriceOnly, setNeedsPriceOnly] = useState(false);
 
-  const needsPriceCount = view.rows.filter((r) => r.onlinePricePaise == null).length;
-  const shownRows = needsPriceOnly ? view.rows.filter((r) => r.onlinePricePaise == null) : view.rows;
+  // The price shown and edited: online, else the in-shop one. Null means none set yet.
+  const priceOf = (r: InventoryRowView) => r.onlinePricePaise ?? r.offlinePricePaise;
+  const needsPriceCount = view.rows.filter((r) => priceOf(r) == null).length;
+  const shownRows = needsPriceOnly ? view.rows.filter((r) => priceOf(r) == null) : view.rows;
 
   async function savePrices() {
     setPriceMessage(null);
@@ -71,15 +74,17 @@ export function ShopInventoryManager({ shopId, view }: { shopId: string; view: I
       const row = view.rows.find((r) => r.shopProductId === shopProductId);
       if (!row) continue;
       const value = raw.trim();
-      // Clearing a box that had a price is not a change: a price cannot be removed here.
-      if (value === "" && row.onlinePricePaise != null) continue;
+      // An empty box is not a change: a price cannot be removed here.
+      if (value === "") continue;
       const rupees = Number(value);
-      if (value === "" || !Number.isFinite(rupees) || rupees <= 0) {
+      const pricePaise = Number.isFinite(rupees) ? rupeesToPaise(rupees) : 0;
+      if (pricePaise <= 0) {
         errors[shopProductId] = "Enter a price greater than 0.";
         continue;
       }
-      const pricePaise = rupeesToPaise(rupees);
-      if (pricePaise !== row.onlinePricePaise) prices.push({ shopProductId, pricePaise });
+      if (pricePaise !== row.onlinePricePaise || pricePaise !== row.offlinePricePaise) {
+        prices.push({ shopProductId, pricePaise });
+      }
     }
     setPriceErrors(errors);
     if (Object.keys(errors).length > 0) {
@@ -294,19 +299,19 @@ export function ShopInventoryManager({ shopId, view }: { shopId: string; view: I
                   <td className="px-3 py-2">
                     <input
                       aria-label={`Price of ${r.productName}`}
-                      className={`${inputClass} w-24`}
+                      className={`${inputClass} min-w-24`}
                       inputMode="decimal"
                       placeholder="Enter price"
                       value={
                         priceEdits[r.shopProductId] ??
-                        (r.onlinePricePaise != null ? String(paiseToRupees(r.onlinePricePaise)) : "")
+                        (priceOf(r) != null ? String(paiseToRupees(priceOf(r)!)) : "")
                       }
                       onChange={(e) => setPriceEdits({ ...priceEdits, [r.shopProductId]: e.target.value })}
                     />
                     {priceErrors[r.shopProductId] ? (
                       <span className="mt-1 block text-xs text-red-600">{priceErrors[r.shopProductId]}</span>
-                    ) : r.onlinePricePaise == null ? (
-                      <span className="mt-1 block text-xs text-ink-500">Needs a price</span>
+                    ) : priceOf(r) == null ? (
+                      <span className="mt-1 block whitespace-nowrap text-xs text-ink-500">Needs a price</span>
                     ) : null}
                   </td>
                   <td className="px-3 py-2">{r.reserved}</td>

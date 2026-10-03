@@ -492,6 +492,7 @@ export async function listShopProductCategories(shopId: string, client: DbClient
 
 /** Stock each product starts with when a category fills a shop's inventory. */
 export const CATEGORY_FILL_STOCK = 100;
+const CATEGORY_FILL_BATCH = 500;
 
 export interface CategoryFillResult {
   /** Listings created for products the shop did not have yet. */
@@ -531,22 +532,28 @@ async function fillInventoryFromCategory(
     );
   if (candidates.length === 0) return { addedProducts: 0, needsPrice: [] };
 
-  const created = await client
-    .insert(shopProducts)
-    .values(
-      candidates.map((c) => ({
-        shopId,
-        productId: c.productId,
-        onlinePricePaise: c.pricePaise,
-        offlinePricePaise: c.pricePaise,
-        onlineSaleEnabled: c.pricePaise != null,
-        offlineSaleEnabled: c.pricePaise != null,
-        onlineStock: CATEGORY_FILL_STOCK,
-        offlineStock: CATEGORY_FILL_STOCK,
-      })),
-    )
-    .onConflictDoNothing({ target: [shopProducts.shopId, shopProducts.productId] })
-    .returning({ id: shopProducts.id, productId: shopProducts.productId, pricePaise: shopProducts.onlinePricePaise });
+  // In batches: one INSERT for a very large category would pass PostgreSQL's
+  // limit on bind parameters per statement.
+  const created: { id: string; productId: string; pricePaise: number | null }[] = [];
+  for (let i = 0; i < candidates.length; i += CATEGORY_FILL_BATCH) {
+    const batch = await client
+      .insert(shopProducts)
+      .values(
+        candidates.slice(i, i + CATEGORY_FILL_BATCH).map((c) => ({
+          shopId,
+          productId: c.productId,
+          onlinePricePaise: c.pricePaise,
+          offlinePricePaise: c.pricePaise,
+          onlineSaleEnabled: c.pricePaise != null,
+          offlineSaleEnabled: c.pricePaise != null,
+          onlineStock: CATEGORY_FILL_STOCK,
+          offlineStock: CATEGORY_FILL_STOCK,
+        })),
+      )
+      .onConflictDoNothing({ target: [shopProducts.shopId, shopProducts.productId] })
+      .returning({ id: shopProducts.id, productId: shopProducts.productId, pricePaise: shopProducts.onlinePricePaise });
+    created.push(...batch);
+  }
 
   const byId = new Map(candidates.map((c) => [c.productId, c]));
   return {
