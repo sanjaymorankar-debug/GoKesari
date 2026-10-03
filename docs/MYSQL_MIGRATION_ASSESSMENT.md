@@ -253,3 +253,112 @@ Other precedents:
 - ATIP's `db/mysql.py` solves the same dialect problems on the Python side, with
   the `TEXT`-cannot-be-indexed and reserved-word rules worked out and verified
   against a real server (`tests/test_mysql_backend.py`).
+
+
+---
+
+# Stages 3 + 4: the execution plan, with the decisions resolved
+
+Stages 3 and 4 have to land as one commit: porting `schema.ts` to `mysql-core`
+breaks every service file until the call sites follow, so there is no green state
+in between. This section records what was measured and decided before starting,
+so the diff can be reviewed against intent.
+
+## The decision that unblocks it: PMD stays on PostgreSQL
+
+`src/server/pmd/**` is 44 files and 10,317 lines of raw Postgres SQL (§2.2) and is
+the largest remaining piece. It does **not** have to move at the same time,
+because it is separated at the data layer:
+
+- its SQL touches **no** app table — every `FROM`/`JOIN`/`INSERT` is `pmd.*`
+- it owns its own client (`src/server/pmd/db.ts`, `createSql`), independent of the
+  Drizzle client
+- the only coupling is **code**: 16 app files import PMD functions, which use
+  PMD's own connection and are unaffected by the Drizzle driver swap
+
+So the app's Drizzle layer moves to MySQL while PMD keeps a PostgreSQL
+connection. **This means two databases in production** — MySQL for the app,
+PostgreSQL for the product-master pipeline. On Hostinger that needs an external
+Postgres for PMD (Neon or similar), which `src/server/db/index.ts` already
+handles TLS for. It is reversible: porting PMD later is stage 5, unchanged.
+
+Flagging it plainly because it changes production topology and hosting, not just
+code.
+
+## Type mapping, as measured on this schema
+
+| Postgres | count | MySQL | why |
+|---|---|---|---|
+| `pgTable` | 94 | `mysqlTable` | |
+| `pgEnum` (shared objects) | 67 | shim, below | |
+| `uuid` | 226 | `varchar(36)` | no native UUID |
+| `timestamp({withTimezone:true})` | 215 | `datetime({mode:"date"})` | MySQL has no tz-aware type. `TIMESTAMP` would add a **2038 limit**, wrong for scheduled deliveries and subscriptions. UTC by convention, connection pinned to `Z` |
+| `text` **that is indexed** | 54 | `varchar(255)` | MySQL cannot index `TEXT` without a prefix length |
+| `text` (not indexed) | 253 | `text` | |
+| `jsonb` | 24 | `json` | the 14 `jsonb_*` calls need rewriting |
+| `integer` | 82 | `int` | |
+| `bigint({mode:"number"})` | 86 | unchanged | mysql-core takes the same option |
+| `boolean`, `date` | 37, 25 | unchanged | native |
+| `check` | 56 | `check` | MySQL **8.0.16+** enforces these; confirm the host's version |
+| `customType` `bytea` | 1 | `blob` | |
+
+**`varchar(255)`, not the usual 191.** Measured: with 255 the widest index in the
+schema is **2,044 bytes**, well inside InnoDB's 3,072-byte limit, and **zero**
+indexes exceed it. 191 would have truncated `users.email` and `grievances.email`,
+which RFC 5321 allows up to 254 characters.
+
+## The enum shim: 67 declarations change, 112 usages do not
+
+`pgEnum` returns a reusable object; `mysqlEnum(name, values)` is per-column. But
+`.enumValues` is used **62 times** — in `users.ts`, `roles.ts`,
+`ops-exceptions.ts` and ~50 exported type aliases like
+`export type GstStatus = (typeof gstStatusEnum.enumValues)[number]`. It is public
+API of the schema module.
+
+So the shim keeps it, and nothing outside the declarations changes:
+
+```ts
+function mysqlEnumType<const T extends readonly [string, ...string[]]>(values: T) {
+  return Object.assign((name: string) => mysqlEnum(name, values), { enumValues: values });
+}
+```
+
+Verified against all three usage shapes: as a column factory, as
+`new Set(x.enumValues)`, and as `(typeof x.enumValues)[number]`.
+
+## Two constructs with no MySQL equivalent
+
+**PostgreSQL arrays — 2 columns.** `delivery_orders.rejected_partner_ids` and
+`return_pickups.rejected_partner_ids`, both `uuid[]`, tracking riders who declined
+so they are never re-offered. Becoming `json`, with four operator rewrites across
+~8 call sites:
+
+| Postgres | MySQL |
+|---|---|
+| `array_append(c, v)` | `JSON_ARRAY_APPEND(c, '$', v)` |
+| `x = any(c)` | `JSON_CONTAINS(c, JSON_QUOTE(x), '$')` |
+| `cardinality(c)` | `JSON_LENGTH(c)` |
+| `'{}'::uuid[]` / `[]` | `JSON_ARRAY()` |
+
+**Three sequences producing user-visible identifiers.** MySQL has no sequences:
+
+| Column | Format | Where it surfaces |
+|---|---|---|
+| `shops.registration_number` | `BKS-000001` | admin shop search |
+| `products.code` | `P00001` | Excel import/export |
+| `grievances.ticket_number` | `GRV-000123` | the `/grievance/{ticket}` URL a complainant quotes back |
+
+These cannot stay column defaults — MySQL cannot call a generator in a `DEFAULT`.
+They become a `counters` table incremented with MySQL's atomic idiom, formatted in
+the application:
+
+```sql
+UPDATE counters SET n = LAST_INSERT_ID(n + 1) WHERE name = ?;
+SELECT LAST_INSERT_ID();   -- the new value, per-connection, race-free
+```
+
+This is a real behaviour change: any insert that previously relied on the column
+default must now supply the value, so every insert site for those three tables
+needs checking. They are business identifiers, so they must stay unique and
+monotonic — the idiom above is atomic, but it is not gap-free across rolled-back
+transactions, which is the same guarantee `nextval` gave.
