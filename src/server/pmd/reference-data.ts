@@ -233,6 +233,6 @@ export async function ensureReferenceData(sql: Queryable, opts: { force?: boolea
   }
   await sql`
     INSERT INTO pmd.reference_state (singleton, content_hash) VALUES (true, ${hash})
-    ON DUPLICATE KEY UPDATE content_hash = ${hash}, applied_at = now()`;
+    ON DUPLICATE KEY UPDATE content_hash = ${hash}, applied_at = now(3)`;
   return { ...(await loadReferenceIds(sql)), synced: true };
 }

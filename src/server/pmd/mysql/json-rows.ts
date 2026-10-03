@@ -37,6 +37,27 @@
 import type { Queryable } from "../db";
 import { JsonParam, RowSource } from "./sql";
 
+/**
+ * The select list for a JSON_TABLE row source, qualified with its alias.
+ *
+ * The qualification is required, not tidiness. In `INSERT INTO t (a, b) SELECT
+ * a, b FROM <source>`, MySQL puts **the insert target's** columns in scope for
+ * the select list as well as the source's - so a name the two share, which is
+ * every name here because the batch rows are shaped like the table, resolves to
+ * neither: "Column 'alias_key' in field list is ambiguous". PostgreSQL scoped
+ * only the source, so the original SQL did not need this.
+ */
+export function jsonSelect(sql: Queryable, columns: readonly string[]) {
+  return sql.unsafe(
+    columns
+      .map((c) => {
+        if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(c)) throw new Error(`bad column name ${JSON.stringify(c)}`);
+        return `r.\`${c}\``;
+      })
+      .join(", "),
+  );
+}
+
 /** table name (optionally `db.table`) -> column -> its MySQL type. */
 const schemaCache = new Map<string, Map<string, string>>();
 

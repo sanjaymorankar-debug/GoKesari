@@ -104,7 +104,7 @@ describe("workbook structure", () => {
     const ids = colValues(ws, "MASTER_PRODUCT_ID").map(String);
     expect(new Set(ids).size).toBe(ids.length);
     for (const id of ids) expect(id).toMatch(/^GKS-PROD-\d{9}$/);
-    const [{ n }] = await sql<{ n: number }[]>`SELECT count(*)::int AS n FROM pmd.product_master WHERE record_status = 'ACTIVE'`;
+    const [{ n }] = await sql<{ n: number }[]>`SELECT CAST(count(*) AS SIGNED) AS n FROM pmd.product_master WHERE record_status = 'ACTIVE'`;
     expect(ids.length).toBe(n);
     // no cell holds several identifiers
     for (const id of ids) expect(id).not.toMatch(/[;,\s]/);

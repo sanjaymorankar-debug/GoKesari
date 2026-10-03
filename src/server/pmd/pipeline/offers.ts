@@ -14,6 +14,7 @@
  *   older-than-current data  -> never overwrites current state; backfills history once
  */
 import type { Queryable } from "../db";
+import { jsonRowsTyped } from "../mysql/json-rows";
 import type { NormalizedOffer } from "../types";
 
 export interface OfferOutcome {
@@ -87,7 +88,7 @@ export async function applyOffer(
          first_seen_at, last_seen_at, collection_date, collected_at, is_current)
       VALUES (${productSourceId}, ${productId}, ${sourceId}, ${sourceProductId}, ${o.sellerKey}, ${o.sellerId}, ${o.sellerName}, ${o.sellerLocation}, ${o.sellerRating},
               ${o.priceMinor}, ${o.mrpMinor}, ${d.minor}, ${d.pct}, ${o.currency}, ${o.taxInclusive}, ${o.stockStatus}, ${o.deliveryInformation}, ${o.url ?? args.sourceUrl},
-              now(), now(), ${dateOnly(o.collectedAt)}, ${o.collectedAt}, true)`;
+              now(3), now(3), ${dateOnly(o.collectedAt)}, ${o.collectedAt}, true)`;
     const row = { offer_id: inserted.insertId };
     await insertHistory(sql, { productId, offerId: row.offer_id, sourceId, o, reason: "FIRST_SEEN", runId });
     return { kind: "INSERTED", offerId: row.offer_id, historyRows: 1 };
@@ -108,7 +109,7 @@ export async function applyOffer(
   if (!priceChanged && !mrpChanged && !stockChanged) {
     await sql`
       UPDATE pmd.product_offer
-         SET last_seen_at = now(), is_current = true, product_id = ${productId},
+         SET last_seen_at = now(3), is_current = true, product_id = ${productId},
              collected_at = ${o.collectedAt}, collection_date = ${dateOnly(o.collectedAt)}
        WHERE offer_id = ${existing.offer_id}`;
     return { kind: "UNCHANGED", offerId: existing.offer_id, historyRows: 0 };
@@ -120,7 +121,7 @@ export async function applyOffer(
       discount_pct = ${d.pct}, currency = ${o.currency}, stock_status = ${o.stockStatus}, tax_inclusive = ${o.taxInclusive},
       seller_name = COALESCE(${o.sellerName}, seller_name), seller_location = COALESCE(${o.sellerLocation}, seller_location),
       seller_rating = COALESCE(${o.sellerRating}, seller_rating), delivery_information = COALESCE(${o.deliveryInformation}, delivery_information),
-      last_seen_at = now(), collected_at = ${o.collectedAt}, collection_date = ${dateOnly(o.collectedAt)}, is_current = true
+      last_seen_at = now(3), collected_at = ${o.collectedAt}, collection_date = ${dateOnly(o.collectedAt)}, is_current = true
     WHERE offer_id = ${existing.offer_id}`;
 
   const reason: Reason =
@@ -158,7 +159,7 @@ export async function markUnseenOffers(sql: Queryable, sourceId: number, seenBef
       INSERT INTO pmd.price_history
         (product_id, offer_id, source_id, seller_key, seller_name, mrp_minor, selling_price_minor, currency, stock_status, change_reason, collection_date, collected_at, run_id)
       VALUES (${g.product_id}, ${g.offer_id}, ${sourceId}, ${g.seller_key}, ${g.seller_name}, ${g.mrp_minor}, ${g.price_minor}, ${g.currency},
-              'UNKNOWN', 'STOCK_CHANGED', current_date, now(), ${runId})`;
+              'UNKNOWN', 'STOCK_CHANGED', current_date, now(3), ${runId})`;
   }
   return [...productIds];
 }
@@ -170,39 +171,52 @@ export async function markUnseenOffers(sql: Queryable, sourceId: number, seenBef
  */
 export async function recomputeProductStatus(sql: Queryable, productIds: number[]): Promise<void> {
   if (productIds.length === 0) return;
-  // `UPDATE … SET … FROM (d) WHERE pm.x = d.x` becomes a join. The derived
-  // table is materialised, which is also what lets product_master be read
-  // inside a statement that updates it - MySQL rejects that for a *subquery*
-  // in the WHERE clause (errno 1093) but not for a derived table in the join.
+
+  // Two statements, and deliberately so. The Postgres version derived the new
+  // status inside the UPDATE, reading product_master in a subquery of the
+  // statement that wrote it. That is fine under MVCC, where a read takes no
+  // locks, but in InnoDB the read takes shared locks while the update takes
+  // exclusive ones - so two parallel workers covering overlapping products could
+  // take them in opposite orders and deadlock. They did: the loader-equivalence
+  // test failed with ER_LOCK_DEADLOCK until this was split.
   //
+  // Reading first is a plain non-locking read, and the write then locks only the
+  // rows it changes, in primary-key order.
+  const desired = await sql<{ product_id: number; status: string; basis: string }[]>`
+    SELECT p.product_id,
+      CASE
+        WHEN a.in_stock > 0 THEN 'ACTIVE'
+        WHEN a.current_offers > 0 AND a.out_of_stock = a.current_offers THEN 'OUT_OF_STOCK'
+        WHEN a.current_offers = 0 AND a.any_offers > 0 THEN 'TEMPORARILY_UNAVAILABLE'
+        ELSE 'UNKNOWN' END AS status,
+      CASE
+        WHEN a.in_stock > 0 THEN 'IN_STOCK_OFFER'
+        WHEN a.current_offers > 0 AND a.out_of_stock = a.current_offers THEN 'ALL_OFFERS_OUT_OF_STOCK'
+        WHEN a.current_offers = 0 AND a.any_offers > 0 THEN 'NO_CURRENT_OFFERS'
+        WHEN a.current_offers > 0 THEN 'NO_STOCK_SIGNAL'
+        ELSE 'NO_OFFERS' END AS basis
+    FROM pmd.product_master p
+    LEFT JOIN LATERAL (
+      SELECT count(case when is_current then 1 end) AS current_offers,
+             count(case when is_current AND stock_status IN ('IN_STOCK','LIMITED') then 1 end) AS in_stock,
+             count(case when is_current AND stock_status = 'OUT_OF_STOCK' then 1 end) AS out_of_stock,
+             count(*) AS any_offers
+      FROM pmd.product_offer o WHERE o.product_id = p.product_id
+    ) a ON TRUE
+    WHERE p.product_id IN ${sql(productIds)}`;
+  if (desired.length === 0) return;
+
   // `IS DISTINCT FROM` has no MySQL spelling; `<=>` is its NULL-safe equality,
   // so the negation of that is the same test.
+  const source = jsonRowsTyped(
+    sql,
+    { product_id: "bigint", status: "varchar(32)", basis: "varchar(64)" },
+    desired,
+  );
   await sql`
     UPDATE pmd.product_master pm
-    JOIN (
-      SELECT p.product_id,
-        CASE
-          WHEN a.in_stock > 0 THEN 'ACTIVE'
-          WHEN a.current_offers > 0 AND a.out_of_stock = a.current_offers THEN 'OUT_OF_STOCK'
-          WHEN a.current_offers = 0 AND a.any_offers > 0 THEN 'TEMPORARILY_UNAVAILABLE'
-          ELSE 'UNKNOWN' END AS status,
-        CASE
-          WHEN a.in_stock > 0 THEN 'IN_STOCK_OFFER'
-          WHEN a.current_offers > 0 AND a.out_of_stock = a.current_offers THEN 'ALL_OFFERS_OUT_OF_STOCK'
-          WHEN a.current_offers = 0 AND a.any_offers > 0 THEN 'NO_CURRENT_OFFERS'
-          WHEN a.current_offers > 0 THEN 'NO_STOCK_SIGNAL'
-          ELSE 'NO_OFFERS' END AS basis
-      FROM pmd.product_master p
-      LEFT JOIN LATERAL (
-        SELECT count(case when is_current then 1 end) AS current_offers,
-               count(case when is_current AND stock_status IN ('IN_STOCK','LIMITED') then 1 end) AS in_stock,
-               count(case when is_current AND stock_status = 'OUT_OF_STOCK' then 1 end) AS out_of_stock,
-               count(*) AS any_offers
-        FROM pmd.product_offer o WHERE o.product_id = p.product_id
-      ) a ON true
-      WHERE p.product_id IN ${sql(productIds)}
-    ) d ON pm.product_id = d.product_id
-    SET pm.product_status = d.status, pm.status_basis = d.basis, pm.status_updated_at = now()
+    JOIN ${source} ON pm.product_id = r.product_id
+    SET pm.product_status = r.status, pm.status_basis = r.basis, pm.status_updated_at = now(3)
     WHERE pm.product_status <> 'DISCONTINUED'
-      AND (pm.product_status <> d.status OR NOT (pm.status_basis <=> d.basis))`;
+      AND (pm.product_status <> r.status OR NOT (pm.status_basis <=> r.basis))`;
 }

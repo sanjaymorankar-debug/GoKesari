@@ -21,7 +21,7 @@
  * threshold than PostgreSQL's, so this path can only defer more, never less, than the reference would have.
  */
 import { trigramSimilarity } from "../normalize/text";
-import { jsonRows, jsonRowsTyped } from "../mysql/json-rows";
+import { jsonRows, jsonRowsTyped, jsonSelect } from "../mysql/json-rows";
 import { brandLockName, lockNames } from "../mysql/lock";
 import { nextIds, type PmdSequence } from "../mysql/sequence";
 import { getAttributeDefinition } from "../taxonomy/attributes";
@@ -194,7 +194,7 @@ async function resolveEntities(ctx: LoadContext, t: EntityTable, entities: Named
     );
     await ctx.sql`
       INSERT INTO ${ctx.sql(t.table)} (${ctx.sql(t.idCol)}, ${ctx.sql(t.nameCol)}, ${ctx.sql(t.keyCol)}, source_id)
-      SELECT entity_id, entity_name, entity_key, source_id FROM ${source}
+      SELECT r.entity_id, r.entity_name, r.entity_key, r.source_id FROM ${source}
       ON DUPLICATE KEY UPDATE ${ctx.sql(t.idCol)} = ${ctx.sql(t.idCol)}`;
     // RETURNING gave the ids back whether the row was inserted or already
     // there; the allocated ids only cover the inserted ones, so the keys are
@@ -219,10 +219,12 @@ async function resolveEntities(ctx: LoadContext, t: EntityTable, entities: Named
       { alias_key: "varchar(191)", id: "bigint", original: "varchar(255)", source_id: "smallint" },
       aliasRows,
     );
+    // The ON DUPLICATE KEY UPDATE target is qualified because the row source
+    // carries alias_key as well, which makes the bare name ambiguous.
     await ctx.sql`
       INSERT INTO ${ctx.sql(t.aliasTable)} (alias_key, ${ctx.sql(t.idCol)}, alias_original, source_id)
-      SELECT alias_key, id, original, source_id FROM ${source}
-      ON DUPLICATE KEY UPDATE alias_key = alias_key`;
+      SELECT r.alias_key, r.id, r.original, r.source_id FROM ${source}
+      ON DUPLICATE KEY UPDATE ${ctx.sql(t.aliasTable)}.alias_key = ${ctx.sql(t.aliasTable)}.alias_key`;
   }
 }
 
@@ -265,7 +267,7 @@ export async function loadBatch(ctx: LoadContext, inputs: LoadInput[], loadOne: 
   /* 2. Unchanged: note that we still see them - two statements for the whole batch. */
   if (unchangedIds.length) {
     await ctx.sql`UPDATE pmd.product_source SET last_seen_date = current_date, last_run_id = ${ctx.runId} WHERE product_source_id IN ${ctx.sql(unchangedIds)}`;
-    await ctx.sql`UPDATE pmd.product_offer SET last_seen_at = now(), is_current = true WHERE product_source_id IN ${ctx.sql(unchangedIds)}`;
+    await ctx.sql`UPDATE pmd.product_offer SET last_seen_at = now(3), is_current = true WHERE product_source_id IN ${ctx.sql(unchangedIds)}`;
     ctx.counters.recordsUnchanged += unchangedIds.length;
     out.bulkUnchanged = unchangedIds.length;
   }
@@ -276,7 +278,11 @@ export async function loadBatch(ctx: LoadContext, inputs: LoadInput[], loadOne: 
     try {
       await resolveEntities(ctx, BRAND, maybe.map((e) => e.input.normalized.brand!), ctx.brandCache);
       await resolveEntities(ctx, MAKER, maybe.flatMap((e) => (e.input.normalized.manufacturer ? [e.input.normalized.manufacturer] : [])), ctx.manufacturerCache);
-    } catch {
+    } catch (error) {
+      // An empty catch here hid a real SQL error for a long time: the batch
+      // resolver silently fell back to the per-record loader and the only
+      // symptom was missing alias rows. PMD_SQL_DEBUG surfaces it.
+      if (process.env.PMD_SQL_DEBUG) console.error("resolveEntities fell back:", error);
       sequential.push(...maybe); // the reference loader resolves them one at a time and isolates whatever went wrong
       resolvable = [];
       out.fellBack = true;
@@ -447,7 +453,7 @@ async function createInBulk(ctx: LoadContext, candidates: Creatable[]): Promise<
     const rawRows = fresh.map((c) => ({ run_id: ctx.runId, source_id: ctx.sourceId, source_product_id: c.input.raw.sourceProductId, content_hash: c.hash, payload: c.input.raw.payload }));
     await tx`
       INSERT INTO pmd.raw_record (${tx(RAW_COLS)})
-      SELECT ${tx(RAW_COLS)} FROM ${await jsonRows(tx, "pmd.raw_record", RAW_COLS, rawRows)}
+      SELECT ${jsonSelect(tx, RAW_COLS)} FROM ${await jsonRows(tx, "pmd.raw_record", RAW_COLS, rawRows)}
       ON DUPLICATE KEY UPDATE fetched_at = fetched_at`;
     // RETURNING is gone, so the keys are read back. The filter is the indexed
     // prefix of the unique key (source_id, source_product_id, content_hash) and
@@ -468,7 +474,7 @@ async function createInBulk(ctx: LoadContext, candidates: Creatable[]): Promise<
     }));
     const mcols = Object.keys(masterRows[0]);
     await tx`INSERT INTO pmd.product_master (${tx(mcols)})
-             SELECT ${tx(mcols)} FROM ${await jsonRows(tx, "pmd.product_master", mcols, masterRows)}`;
+             SELECT ${jsonSelect(tx, mcols)} FROM ${await jsonRows(tx, "pmd.product_master", mcols, masterRows)}`;
 
     /* identifiers (a GTIN/ISBN that already belongs to someone is a collision: roll back and let the reference loader say so) */
     const identRows = fresh.flatMap((c, k) =>
@@ -481,8 +487,8 @@ async function createInBulk(ctx: LoadContext, candidates: Creatable[]): Promise<
       const IDENT_COLS = ["product_id", "id_type", "id_value", "id_value_original", "id_format", "scope_brand_id", "is_primary", "check_digit_valid", "source_id"];
       await tx`
         INSERT INTO pmd.product_identifier (${tx(IDENT_COLS)})
-        SELECT ${tx(IDENT_COLS)} FROM ${await jsonRows(tx, "pmd.product_identifier", IDENT_COLS, identRows)}
-        ON DUPLICATE KEY UPDATE product_id = product_id`;
+        SELECT ${jsonSelect(tx, IDENT_COLS)} FROM ${await jsonRows(tx, "pmd.product_identifier", IDENT_COLS, identRows)}
+        ON DUPLICATE KEY UPDATE pmd.product_identifier.product_id = pmd.product_identifier.product_id`;
       // The Postgres version inferred a collision from which rows RETURNING
       // did *not* give back. Asking who owns each global identifier says the
       // same thing more directly, and it is what the one-at-a-time loader in
@@ -518,7 +524,7 @@ async function createInBulk(ctx: LoadContext, candidates: Creatable[]): Promise<
     for (const part of chunk(specRows, 5000)) {
       await tx`
         INSERT INTO pmd.product_specification (${tx(SPEC_COLS)})
-        SELECT ${tx(SPEC_COLS)} FROM ${await jsonRows(tx, "pmd.product_specification", SPEC_COLS, part)}`;
+        SELECT ${jsonSelect(tx, SPEC_COLS)} FROM ${await jsonRows(tx, "pmd.product_specification", SPEC_COLS, part)}`;
     }
 
     /* images: first six distinct URLs, ranked in order (the reference loader stops at six too) */
@@ -531,8 +537,8 @@ async function createInBulk(ctx: LoadContext, candidates: Creatable[]): Promise<
       const IMAGE_COLS = ["product_id", "rank", "image_url", "image_source", "source_id", "license_note"];
       await tx`
         INSERT INTO pmd.product_image (${tx(IMAGE_COLS)})
-        SELECT ${tx(IMAGE_COLS)} FROM ${await jsonRows(tx, "pmd.product_image", IMAGE_COLS, imageRows)}
-        ON DUPLICATE KEY UPDATE product_id = product_id`;
+        SELECT ${jsonSelect(tx, IMAGE_COLS)} FROM ${await jsonRows(tx, "pmd.product_image", IMAGE_COLS, imageRows)}
+        ON DUPLICATE KEY UPDATE pmd.product_image.product_id = pmd.product_image.product_id`;
     }
 
     /* the source listings */
@@ -570,9 +576,9 @@ async function createInBulk(ctx: LoadContext, candidates: Creatable[]): Promise<
         (product_id, source_id, source_product_id, source_url, source_category, source_product_name, source_brand, source_mrp_minor, source_price_minor,
          source_currency, source_rating, source_review_count, source_availability, first_seen_date, last_seen_date, data_collection_date,
          data_collection_method, data_confidence, match_status, match_score, match_rule, resolution, content_hash, normalized, raw_id, last_run_id)
-      SELECT product_id, source_id, source_product_id, source_url, source_category, source_product_name, source_brand, source_mrp_minor, source_price_minor,
-             source_currency, source_rating, source_review_count, source_availability, ${today}, ${today}, ${today},
-             data_collection_method, data_confidence, match_status, match_score, match_rule, resolution, content_hash, normalized, raw_id, last_run_id
+      SELECT r.product_id, r.source_id, r.source_product_id, r.source_url, r.source_category, r.source_product_name, r.source_brand, r.source_mrp_minor, r.source_price_minor,
+             r.source_currency, r.source_rating, r.source_review_count, r.source_availability, ${today}, ${today}, ${today},
+             r.data_collection_method, r.data_confidence, r.match_status, r.match_score, r.match_rule, r.resolution, r.content_hash, r.normalized, r.raw_id, r.last_run_id
       FROM ${await jsonRows(tx, "pmd.product_source", SOURCE_COLS, sourceRows)}`;
     // Read back on the unique key (source_id, source_product_id).
     const sources = await tx<{ product_source_id: number; source_product_id: string }[]>`
@@ -605,9 +611,9 @@ async function createInBulk(ctx: LoadContext, candidates: Creatable[]): Promise<
           (product_source_id, product_id, source_id, source_product_id, seller_key, seller_id, seller_name, seller_location, seller_rating, price_minor, mrp_minor,
            discount_minor, discount_pct, currency, tax_inclusive, stock_status, delivery_information, source_url, first_seen_at, last_seen_at,
            collection_date, collected_at, is_current)
-        SELECT product_source_id, product_id, source_id, source_product_id, seller_key, seller_id, seller_name, seller_location, seller_rating, price_minor, mrp_minor,
-               discount_minor, discount_pct, currency, tax_inclusive, stock_status, delivery_information, source_url, now(), now(),
-               collection_date, collected_at, true
+        SELECT r.product_source_id, r.product_id, r.source_id, r.source_product_id, r.seller_key, r.seller_id, r.seller_name, r.seller_location, r.seller_rating, r.price_minor, r.mrp_minor,
+               r.discount_minor, r.discount_pct, r.currency, r.tax_inclusive, r.stock_status, r.delivery_information, r.source_url, now(3), now(3),
+               r.collection_date, r.collected_at, true
         FROM ${await jsonRows(tx, "pmd.product_offer", OFFER_COLS, offerRows)}`;
       // Read back on the unique key (product_source_id, seller_key).
       const offers = await tx<{ offer_id: number; product_source_id: number }[]>`
@@ -630,7 +636,7 @@ async function createInBulk(ctx: LoadContext, candidates: Creatable[]): Promise<
         "collection_date", "collected_at", "run_id"];
       await tx`
         INSERT INTO pmd.price_history (${tx(HISTORY_COLS)})
-        SELECT ${tx(HISTORY_COLS)} FROM ${await jsonRows(tx, "pmd.price_history", HISTORY_COLS, historyRows)}`;
+        SELECT ${jsonSelect(tx, HISTORY_COLS)} FROM ${await jsonRows(tx, "pmd.price_history", HISTORY_COLS, historyRows)}`;
     }
 
     /* change log: one "created" entry per master, exactly as the reference loader writes it */
@@ -641,7 +647,7 @@ async function createInBulk(ctx: LoadContext, candidates: Creatable[]): Promise<
     const LOG_COLS = ["product_id", "entity", "field_name", "new_value", "source_id", "run_id"];
     await tx`
       INSERT INTO pmd.product_change_log (product_id, entity, field_name, old_value, new_value, source_id, run_id, changed_by)
-      SELECT product_id, entity, field_name, CAST('null' AS JSON), new_value, source_id, run_id, 'pipeline'
+      SELECT r.product_id, r.entity, r.field_name, CAST('null' AS JSON), r.new_value, r.source_id, r.run_id, 'pipeline'
       FROM ${await jsonRows(tx, "pmd.product_change_log", LOG_COLS, logRows)}`;
 
     return { created: fresh, deferred: defer, productIds, offers: offerCount };

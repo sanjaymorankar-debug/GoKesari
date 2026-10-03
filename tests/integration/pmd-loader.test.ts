@@ -21,7 +21,7 @@ async function dump(): Promise<unknown> {
   const q = (text: string) => sql.unsafe(text).then((r) => JSON.parse(JSON.stringify(r)));
   return {
     masters: await q(`SELECT m.product_name, m.gtin, b.brand_name, m.record_status, m.version, m.data_quality_score, m.search_keywords, m.field_sources
-      FROM pmd.product_master m LEFT JOIN pmd.brand b USING (brand_id) ORDER BY m.product_name, m.gtin NULLS FIRST, m.version`),
+      FROM pmd.product_master m LEFT JOIN pmd.brand b USING (brand_id) ORDER BY m.product_name, m.gtin IS NOT NULL, m.gtin, m.version`),
     sources: await q(`SELECT s.source_key, ps.source_product_id, ps.source_mrp_minor, ps.content_hash, m.product_name
       FROM pmd.product_source ps JOIN pmd.source s USING (source_id) LEFT JOIN pmd.product_master m USING (product_id)
       ORDER BY 1, 2`),
@@ -29,9 +29,9 @@ async function dump(): Promise<unknown> {
       FROM pmd.product_offer o JOIN pmd.product_source ps ON ps.product_source_id = o.product_source_id ORDER BY 1, 2, 3, 4`),
     identifiers: await q(`SELECT m.product_name, i.id_type, i.id_value FROM pmd.product_identifier i JOIN pmd.product_master m USING (product_id) ORDER BY 1, 2, 3`),
     aliases: await q(`SELECT alias_key, alias_original FROM pmd.brand_alias ORDER BY 1`),
-    candidates: await q(`SELECT match_status, review_status, count(*)::int AS n FROM pmd.match_candidate GROUP BY 1, 2 ORDER BY 1, 2`),
-    errors: await q(`SELECT stage, error_code, count(*)::int AS n FROM pmd.import_error GROUP BY 1, 2 ORDER BY 1, 2`),
-    history: await q(`SELECT count(*)::int AS n FROM pmd.price_history`),
+    candidates: await q(`SELECT match_status, review_status, CAST(count(*) AS SIGNED) AS n FROM pmd.match_candidate GROUP BY 1, 2 ORDER BY 1, 2`),
+    errors: await q(`SELECT stage, error_code, CAST(count(*) AS SIGNED) AS n FROM pmd.import_error GROUP BY 1, 2 ORDER BY 1, 2`),
+    history: await q(`SELECT CAST(count(*) AS SIGNED) AS n FROM pmd.price_history`),
   };
 }
 

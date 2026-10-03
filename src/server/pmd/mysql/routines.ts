@@ -82,10 +82,10 @@ export async function claimJob(
     const candidates = await tx<{ job_id: number }[]>`
       SELECT job_id FROM pmd.job
       WHERE job_type IN ${tx(types)}
-        AND run_after <= now()
+        AND run_after <= now(3)
         AND attempts < max_attempts
         AND (status = 'PENDING'
-             OR (status = 'RUNNING' AND locked_at < now() - INTERVAL ${staleSeconds} SECOND))
+             OR (status = 'RUNNING' AND locked_at < now(3) - INTERVAL ${staleSeconds} SECOND))
       ORDER BY priority, run_after, job_id
       LIMIT ${CLAIM_CANDIDATES}`;
 
@@ -94,7 +94,7 @@ export async function claimJob(
       // returns nothing if another worker holds it.
       const [held] = await tx<{ job_id: number; status: string; attempts: number; max_attempts: number; stale: number }[]>`
         SELECT job_id, status, attempts, max_attempts,
-               (status = 'RUNNING' AND locked_at < now() - INTERVAL ${staleSeconds} SECOND) AS stale
+               (status = 'RUNNING' AND locked_at < now(3) - INTERVAL ${staleSeconds} SECOND) AS stale
           FROM pmd.job WHERE job_id = ${candidate.job_id}
           FOR UPDATE SKIP LOCKED`;
       if (!held) continue;
@@ -106,7 +106,7 @@ export async function claimJob(
 
       await tx`
         UPDATE pmd.job
-           SET status = 'RUNNING', locked_by = ${worker}, locked_at = now(), attempts = attempts + 1
+           SET status = 'RUNNING', locked_by = ${worker}, locked_at = now(3), attempts = attempts + 1
          WHERE job_id = ${held.job_id}`;
       const [row] = await tx<JobRow[]>`SELECT * FROM pmd.job WHERE job_id = ${held.job_id}`;
       return row ?? null;
@@ -144,9 +144,9 @@ export async function refreshDashboard(sql: Sql, windowDays = 7): Promise<void> 
       m_gst: number; m_hsn: number; avg_q: number;
     }[]>`
       SELECT count(CASE WHEN record_status = 'ACTIVE' THEN 1 END) AS total,
-             count(CASE WHEN record_status = 'ACTIVE' AND created_at >= now() - INTERVAL ${windowDays} DAY THEN 1 END) AS new_p,
-             count(CASE WHEN record_status = 'ACTIVE' AND created_at < now() - INTERVAL ${windowDays} DAY
-                              AND updated_at >= now() - INTERVAL ${windowDays} DAY THEN 1 END) AS upd_p,
+             count(CASE WHEN record_status = 'ACTIVE' AND created_at >= now(3) - INTERVAL ${windowDays} DAY THEN 1 END) AS new_p,
+             count(CASE WHEN record_status = 'ACTIVE' AND created_at < now(3) - INTERVAL ${windowDays} DAY
+                              AND updated_at >= now(3) - INTERVAL ${windowDays} DAY THEN 1 END) AS upd_p,
              count(CASE WHEN record_status = 'MERGED' THEN 1 END) AS merged,
              count(CASE WHEN record_status = 'ACTIVE' AND gtin IS NULL THEN 1 END) AS m_gtin,
              count(CASE WHEN record_status = 'ACTIVE' AND brand_id IS NULL THEN 1 END) AS m_brand,

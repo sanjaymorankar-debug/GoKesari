@@ -242,8 +242,8 @@ export async function promoteToCatalogue(
               ${m.hsn_code}, ${m.gst_rate_bp}, ${m.manufacturer_name}, ${m.country_of_origin},
               ${netQuantity}, ${netUnit}, ${unit},
               ${mrp?.mrp_minor ?? null}, ${mrp ? (mrp.kind === "BRAND_MANUFACTURER" ? "BRAND" : mrp.kind === "GS1" ? "GS1" : "IMPORT") : null},
-              ${mrp ? tx`current_date` : null}, ${mrp ? "PENDING_VERIFICATION" : "UNVERIFIED"}, ${mrp ? tx`now()` : null},
-              'APPROVED', ${actor.userId}, now(), ${actor.userId})`;
+              ${mrp ? tx`current_date` : null}, ${mrp ? "PENDING_VERIFICATION" : "UNVERIFIED"}, ${mrp ? tx`now(3)` : null},
+              'APPROVED', ${actor.userId}, now(3), ${actor.userId})`;
     const p = { id: newProductId, code: newProductCode };
 
     // Images are referenced, not copied.
@@ -251,7 +251,7 @@ export async function promoteToCatalogue(
     if (images.length) {
       await tx`UPDATE products SET image_url = ${images[0].image_url} WHERE id = ${p.id}`;
       for (const [i, img] of images.slice(1).entries()) {
-        await tx`INSERT INTO product_images (product_id, url, sort_order) VALUES (${p.id}, ${img.image_url}, ${i})`;
+        await tx`INSERT INTO product_images (id, product_id, url, sort_order) VALUES (${randomUUID()}, ${p.id}, ${img.image_url}, ${i})`;
       }
     }
 
@@ -264,8 +264,8 @@ export async function promoteToCatalogue(
 /** Written in the same transaction as the promotion, so a rolled-back promotion leaves no phantom audit entry. */
 async function audit(tx: TransactionSql, actor: PromotionActor, action: string, entityId: string, detail: Record<string, unknown>): Promise<void> {
   await tx`
-    INSERT INTO audit_logs (actor_id, actor_role, action, entity_type, entity_id, new_value)
-    VALUES (${actor.userId}, ${actor.role}, ${action}, 'product', ${entityId}, ${tx.json(detail as never)})`;
+    INSERT INTO audit_logs (id, actor_id, actor_role, action, entity_type, entity_id, new_value)
+    VALUES (${randomUUID()}, ${actor.userId}, ${actor.role}, ${action}, 'product', ${entityId}, ${tx.json(detail as never)})`;
 }
 
 /** Which shops sell a master product, through the catalogue link (Section 30: "both reference MASTER_PRODUCT_ID"). */

@@ -133,7 +133,7 @@ describe("collection -> normalisation -> master creation", () => {
 
     // Amul / AMUL India -> ONE brand, both spellings preserved.
     expect(await count(sql, "pmd.brand")).toBe(1);
-    const aliases = await sql<{ alias_original: string }[]>`SELECT alias_original FROM pmd.brand_alias ORDER BY alias_original COLLATE "C"`;
+    const aliases = await sql<{ alias_original: string }[]>`SELECT alias_original FROM pmd.brand_alias ORDER BY alias_original COLLATE utf8mb4_bin`;
     expect(aliases.map((a) => a.alias_original)).toEqual(["AMUL India", "Amul"]);
 
     const [m] = await sql<{ gst_rate_bp: number; hsn_code: string; net_quantity_value: number; net_quantity_unit: string; pack_size: string; ean: string }[]>`
@@ -445,7 +445,7 @@ describe("specification conflicts", () => {
   it("exactly one preferred value exists per product and attribute", async () => {
     await ingest("test_market_a", [phone("M1", { gstRate: "12%", material: "Metal" })]);
     await ingest("test_brand_feed", [phone("B1", { gstRate: "18%", material: "Metal" })], { kind: "BRAND_MANUFACTURER" });
-    const rows = await sql<{ n: number }[]>`SELECT count(*) FILTER (WHERE is_preferred)::int AS n FROM pmd.product_specification GROUP BY product_id, attribute_key`;
+    const rows = await sql<{ n: number }[]>`SELECT CAST(count(case when is_preferred then 1 end) AS SIGNED) AS n FROM pmd.product_specification GROUP BY product_id, attribute_key`;
     expect(rows.every((r) => r.n === 1)).toBe(true);
   });
 
@@ -569,13 +569,17 @@ describe("governance: history, versions, integrity", () => {
 
   it("the database refuses duplicate active GTINs and negative prices", async () => {
     await ingest("test_market_a", [product({ sourceProductId: "I1", name: "Amul Butter 500 g", brand: "Amul", gtin: GTIN.AMUL_BUTTER_500 })]);
-    await expect(sql`INSERT INTO pmd.product_master (gtin, product_name, normalized_name, search_text) VALUES (${"0" + GTIN.AMUL_BUTTER_500}, 'dup', 'dup', 'dup')`).rejects.toThrow(/product_master_gtin_uq/);
+    // product_id is supplied because it is allocated by the application now, not
+    // AUTO_INCREMENT (product_master_id is generated from it, and MySQL forbids a
+    // generated column over an auto-increment column). Without it the insert
+    // fails for the wrong reason and the GTIN constraint is never exercised.
+    await expect(sql`INSERT INTO pmd.product_master (product_id, gtin, product_name, normalized_name, search_text) VALUES (900001, ${"0" + GTIN.AMUL_BUTTER_500}, 'dup', 'dup', 'dup')`).rejects.toThrow(/product_master_gtin_uq/);
     await expect(sql`INSERT INTO pmd.product_offer (product_source_id, source_id, source_product_id, seller_key, price_minor, collection_date, collected_at)
-                     SELECT product_source_id, source_id, 'x', 'neg', -1, current_date, now() FROM pmd.product_source LIMIT 1`).rejects.toThrow(/check/);
+                     SELECT product_source_id, source_id, 'x', 'neg', -1, current_date, now(3) FROM pmd.product_source LIMIT 1`).rejects.toThrow(/check constraint/i);
   });
 
   it("MASTER_PRODUCT_ID cannot be supplied or duplicated - it is generated", async () => {
-    await expect(sql`INSERT INTO pmd.product_master (master_product_id, product_name, normalized_name, search_text) VALUES ('GKS-PROD-000000001', 'x', 'x', 'x')`).rejects.toThrow(/generated column/);
+    await expect(sql`INSERT INTO pmd.product_master (product_id, master_product_id, product_name, normalized_name, search_text) VALUES (900002, 'GKS-PROD-000000001', 'x', 'x', 'x')`).rejects.toThrow(/generated column/);
   });
 
   it("the dashboard snapshot matches the data", async () => {
@@ -609,7 +613,7 @@ describe("work queue", () => {
     await new Promise((r) => setTimeout(r, 300)); // the second now waits on the lock (previously it ran into the primary key)
     release();
     await Promise.all([first, second]);
-    const [row] = await sql<{ n: number; value: number }[]>`SELECT count(*)::int AS n, max(value) AS value FROM pmd.dashboard_metric WHERE metric = 'total_products'`;
+    const [row] = await sql<{ n: number; value: number }[]>`SELECT CAST(count(*) AS SIGNED) AS n, max(value) AS value FROM pmd.dashboard_metric WHERE metric = 'total_products'`;
     expect(row.n).toBe(1);
     expect(Number(row.value)).toBe(1);
   });
@@ -624,10 +628,10 @@ describe("work queue", () => {
   });
 
   it("abandoned jobs are re-claimable and dead-lettered after max attempts", async () => {
-    await sql`INSERT INTO pmd.job (job_type, max_attempts, status, attempts, locked_at) VALUES ('t', 2, 'RUNNING', 1, now() - INTERVAL 1 HOUR)`;
+    await sql`INSERT INTO pmd.job (job_type, max_attempts, status, attempts, locked_at) VALUES ('t', 2, 'RUNNING', 1, now(3) - INTERVAL 1 HOUR)`;
     const a = await claimJob(sql, ["t"], "w1");
     expect(a?.attempts).toBe(2);
-    await sql`UPDATE pmd.job SET locked_at = now() - INTERVAL 1 HOUR`;
+    await sql`UPDATE pmd.job SET locked_at = now(3) - INTERVAL 1 HOUR`;
     // attempts has now reached max_attempts: dead-lettered, not re-claimable.
     expect(await claimJob(sql, ["t"], "w2")).toBeNull();
   });

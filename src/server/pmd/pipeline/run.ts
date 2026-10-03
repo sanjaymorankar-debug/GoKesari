@@ -11,7 +11,7 @@
  */
 import { resolveConfig, type PmdConfigOverrides } from "../config";
 import type { Sql } from "../db";
-import { ensurePriceHistoryPartitions } from "../mysql/routines";
+import { ensurePriceHistoryPartitions, refreshDashboard } from "../mysql/routines";
 import { normalizeStaged } from "../normalize";
 import { ensureReferenceData, loadManualCategoryMapper } from "../reference-data";
 import { ParseError, type SourceAdapter } from "../sources/adapter";
@@ -259,7 +259,7 @@ export async function runIngestion(sql: Sql, adapter: SourceAdapter, opts: RunOp
   const c = counters;
   const changedSomething = c.recordsStaged + c.productsCreated + c.productsLinked + c.productsUpdated + c.offersUpserted + c.priceChanges + c.reviewQueued + c.conflictsOpened + c.errorCount > 0 || unseenMarked;
   try {
-    if (changedSomething) await sql`SELECT pmd.refresh_dashboard()`;
+    if (changedSomething) await refreshDashboard(sql);
   } catch (e) {
     // The dashboard is a display snapshot rebuilt after every run: failing to refresh it must never fail a run whose work is done.
     log(`dashboard snapshot not refreshed: ${(e as Error).message}`);
@@ -267,10 +267,10 @@ export async function runIngestion(sql: Sql, adapter: SourceAdapter, opts: RunOp
 
   const status: RunSummary["status"] = failure ? "FAILED" : counters.errorCount > 0 ? "PARTIAL" : "SUCCEEDED";
   await sql`
-    UPDATE pmd.ingestion_run SET status = ${status}, finished_at = now(), error_summary = ${failure ? failure.message.slice(0, 1000) : null}
+    UPDATE pmd.ingestion_run SET status = ${status}, finished_at = now(3), error_summary = ${failure ? failure.message.slice(0, 1000) : null}
     WHERE run_id = ${runId}`;
   if (!failure) {
-    await sql`UPDATE pmd.source SET last_success_at = now(), last_run_products = ${counters.recordsRead} WHERE source_id = ${sourceId}`;
+    await sql`UPDATE pmd.source SET last_success_at = now(3), last_run_products = ${counters.recordsRead} WHERE source_id = ${sourceId}`;
   }
 
   const summary: RunSummary = { runId, sourceKey: key, status, counters, durationMs: Date.now() - started, errorSummary: failure?.message ?? null };

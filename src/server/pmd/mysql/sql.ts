@@ -76,7 +76,8 @@ function quoteIdent(name: string): string {
  *     sql(ids)                        -> (?, ?, ?)              after IN
  *     sql(["a", "b"])                 -> `a`, `b`                after SELECT / ( / ,
  *     sql("pmd.brand")                -> `pmd`.`brand`
- *     sql(rows, "a", "b")             -> (`a`, `b`) VALUES (?, ?), (?, ?)
+ *     sql(rows, "a", "b")             -> (`a`, `b`) VALUES (?, ?), (?, ?)   after INSERT INTO t
+ *     sql(row, "a", "b")              -> `a` = ?, `b` = ?         after SET
  *
  * An array of strings is `("a","b")` in one position and `` `a`,`b` `` in the
  * other, and the call itself cannot tell which: only the SQL around it can.
@@ -117,6 +118,20 @@ class Builder {
       return { text: `(${names}) VALUES ${placeholders}`, params };
     }
 
+    // `UPDATE t SET ${sql(row, ...cols)}` — assignments, not a column list.
+    // This has to be tested before the identifier branch below, which would
+    // otherwise claim the trailing `SET`.
+    if (/\bset\s*$/i.test(tail)) {
+      const cols = this.columns.length ? this.columns : Object.keys((rows[0] ?? {}) as object);
+      if (!cols.length) throw new Error("the update helper was given no columns and no row to infer them from");
+      if (rows.length !== 1) throw new Error(`the update helper takes one row, got ${rows.length}`);
+      const row = rows[0] as Record<string, unknown>;
+      return {
+        text: cols.map((c) => `${quoteIdent(c)} = ?`).join(", "),
+        params: cols.map((c) => jsonSafe(row[c])),
+      };
+    }
+
     // `IN ${sql(values)}` / `VALUES ${sql(values)}` — a parenthesised value list.
     if (/\b(in|values)\s*$/i.test(tail)) {
       if (rows.length === 0) {
@@ -128,7 +143,7 @@ class Builder {
     }
 
     // `SELECT ${sql(cols)}` / `(${sql(cols)})` — a bare identifier list.
-    if (/(select|returning|set|[(,])\s*$/i.test(tail)) {
+    if (/(select|returning|[(,])\s*$/i.test(tail)) {
       if (!rows.every((c) => typeof c === "string")) {
         throw new Error(
           `sql(...) in an identifier position was given non-strings: ${JSON.stringify(rows).slice(0, 80)}`,
@@ -247,12 +262,15 @@ class Fragment<T extends readonly unknown[] = Row[]> implements Promise<RowList<
         const built = value.build(parts.join(""));
         parts.push(built.text);
         params.push(...built.params);
-      } else if (value instanceof JsonParam) {
-        parts.push("?");
-        params.push(JSON.stringify(value.value));
       } else {
         parts.push("?");
-        params.push(value);
+        // jsonSafe, not the raw value: an interpolated object or array has no
+        // other sensible meaning in a single-value position, and mysql2 would
+        // otherwise expand an array into a comma list and an object into an
+        // assignment list - breaking the statement rather than failing. Several
+        // columns that were text[] on PostgreSQL are json here, and they are
+        // interpolated exactly like this (match_candidate.hard_conflicts).
+        params.push(jsonSafe(value));
       }
     }
     params.push(...this.rawParams);
@@ -272,7 +290,13 @@ class Fragment<T extends readonly unknown[] = Row[]> implements Promise<RowList<
     try {
       [result] = await this.executor.query(text, params);
     } catch (e) {
-      if (process.env.PMD_SQL_DEBUG) console.error("\n--- FAILED SQL ---\n" + text + "\n--- params ---\n" + JSON.stringify(params).slice(0, 600) + "\n");
+      // PMD_SQL_DEBUG prints the compiled statement and its parameters. A
+      // template's text is assembled at run time, so a driver error on its own
+      // says which *call site* failed but not what was sent; this is how the
+      // SQL defects in this port were found, and it costs nothing when unset.
+      if (process.env.PMD_SQL_DEBUG) {
+        console.error(`\n--- FAILED SQL ---\n${text}\n--- params ---\n${JSON.stringify(params).slice(0, 600)}\n`);
+      }
       throw e;
     }
     // A write returns mysql2's ResultSetHeader rather than rows; postgres.js

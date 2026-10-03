@@ -251,7 +251,7 @@ export async function refreshQuality(
         JOIN ${source} ON pm.product_id = r.id
          SET pm.data_quality_score = r.score,
              pm.quality_components = r.comp,
-             pm.quality_computed_at = now()`;
+             pm.quality_computed_at = now(3)`;
     updated += patches.length;
   }
   return updated;

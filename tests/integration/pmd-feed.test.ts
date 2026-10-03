@@ -46,7 +46,7 @@ describe("partner CSV feed, onboarded by mapping", () => {
     expect(run.status).toBe("PARTIAL");
 
     const errors = await sql<{ source_record_id: string; error_code: string }[]>`
-      SELECT source_record_id, error_code FROM pmd.import_error WHERE severity = 'ERROR' ORDER BY source_record_id COLLATE "C"`;
+      SELECT source_record_id, error_code FROM pmd.import_error WHERE severity = 'ERROR' ORDER BY source_record_id COLLATE utf8mb4_bin`;
     expect(errors).toEqual([
       { source_record_id: "XX-9001", error_code: "NAME_MISSING" },
       { source_record_id: "XX-9002", error_code: "NAME_MISSING" },
@@ -60,7 +60,7 @@ describe("partner CSV feed, onboarded by mapping", () => {
     const rice = await sql<{ product_id: number }[]>`SELECT product_id FROM pmd.product_master WHERE gtin = '08901234000014'`;
     expect(rice).toHaveLength(1);
     const offers = await sql<{ seller_name: string; price_minor: number; stock_status: string }[]>`
-      SELECT seller_name, price_minor::int AS price_minor, stock_status FROM pmd.product_offer WHERE product_id = ${rice[0].product_id} ORDER BY price_minor`;
+      SELECT seller_name, CAST(price_minor AS SIGNED) AS price_minor, stock_status FROM pmd.product_offer WHERE product_id = ${rice[0].product_id} ORDER BY price_minor`;
     expect(offers).toEqual([
       { seller_name: "Metro Mart", price_minor: 18500, stock_status: "LIMITED" },
       { seller_name: "Acme Retail", price_minor: 18900, stock_status: "IN_STOCK" },

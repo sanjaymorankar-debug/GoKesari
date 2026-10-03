@@ -150,7 +150,7 @@ const productMaster: SheetDef = {
     SELECT pm.master_product_id, pm.product_name, pm.gtin, pm.ean, pm.upc, pm.isbn, pm.sku, pm.mpn, pm.model_number, pm.product_code,
            pm.brand_name AS brand, pm.brand_code AS brand_id, pm.manufacturer_name AS manufacturer, pm.manufacturer_code AS manufacturer_id,
            pm.short_description, pm.long_description, pm.product_type, pm.sub_type, pm.product_family, pm.variant_name, pm.variant_code,
-           ARRAY(SELECT jsonb_array_elements_text(pm.key_features)) AS key_features, pm.search_keywords,
+           pm.key_features AS key_features, pm.search_keywords,
            pm.category_level_1, pm.category_level_2, pm.category_level_3, pm.category_level_4, pm.category_level_5, pm.category_id AS standard_category_id,
            pm.net_weight_g AS net_weight, pm.gross_weight_g AS gross_weight, pm.weight_unit, pm.length_mm AS length, pm.width_mm AS width,
            pm.height_mm AS height, pm.dimension_unit, pm.volume_ml AS volume, pm.volume_unit, pm.pack_size, pm.pack_count, pm.unit_count,
@@ -248,7 +248,7 @@ const sources: SheetDef = {
     JOIN pmd.source src USING (source_id)
     LEFT JOIN pmd.product_master pm ON pm.product_id = ps.product_id
     WHERE (ps.product_id IS NULL AND ${s.fromProductId == null ? "true" : "false"}) OR (pm.record_status = 'ACTIVE' AND ${range("pm.product_id", s)})
-    ORDER BY ps.product_id NULLS LAST, src.source_key, ps.source_product_id`,
+    ORDER BY ps.product_id IS NULL, ps.product_id, src.source_key, ps.source_product_id`,
 };
 
 /* ----------------------------------------------------------- PRODUCT_SELLER */
@@ -344,7 +344,7 @@ const brands: SheetDef = {
   query: () => `
     SELECT b.brand_code AS brand_id, b.brand_name, b.legal_company_name, m.manufacturer_name AS manufacturer, b.country, b.website, c.name AS category,
            b.brand_status, s.source_key AS source, b.verification_status,
-           ARRAY(SELECT alias_original FROM pmd.brand_alias a WHERE a.brand_id = b.brand_id ORDER BY alias_original) AS aliases,
+           (SELECT JSON_ARRAYAGG(d.alias_original) FROM (SELECT alias_original FROM pmd.brand_alias a WHERE a.brand_id = b.brand_id ORDER BY alias_original) d) AS aliases,
            (SELECT CAST(count(*) AS SIGNED) FROM pmd.product_master p WHERE p.brand_id = b.brand_id AND p.record_status = 'ACTIVE') AS product_count
     FROM pmd.brand b
     LEFT JOIN pmd.manufacturer m ON m.manufacturer_id = b.manufacturer_id
@@ -375,7 +375,7 @@ const manufacturers: SheetDef = {
   query: () => `
     SELECT m.manufacturer_code AS manufacturer_id, m.manufacturer_name, m.legal_name, m.address, m.country, m.gstin, m.website, m.contact_information,
            s.source_key AS source, m.verification_status,
-           ARRAY(SELECT alias_original FROM pmd.manufacturer_alias a WHERE a.manufacturer_id = m.manufacturer_id ORDER BY alias_original) AS aliases,
+           (SELECT JSON_ARRAYAGG(d.alias_original) FROM (SELECT alias_original FROM pmd.manufacturer_alias a WHERE a.manufacturer_id = m.manufacturer_id ORDER BY alias_original) d) AS aliases,
            (SELECT CAST(count(*) AS SIGNED) FROM pmd.brand b WHERE b.manufacturer_id = m.manufacturer_id) AS brand_count
     FROM pmd.manufacturer m LEFT JOIN pmd.source s ON s.source_id = m.source_id
     ORDER BY m.manufacturer_id`,
@@ -402,8 +402,8 @@ const categories: SheetDef = {
     C("product_count", "PRODUCT_COUNT", "int", "count(pmd.product_master)", "ACTIVE products at exactly this node. DERIVED.", { derived: true }),
   ],
   query: () => `
-    SELECT c.category_id AS standard_category_id, c.category_code, c.level, c.path_names[1] AS category_level_1, c.path_names[2] AS category_level_2,
-           c.path_names[3] AS category_level_3, c.path_names[4] AS category_level_4, c.path_names[5] AS category_level_5,
+    SELECT c.category_id AS standard_category_id, c.category_code, c.level, JSON_UNQUOTE(JSON_EXTRACT(c.path_names, '$[0]')) AS category_level_1, JSON_UNQUOTE(JSON_EXTRACT(c.path_names, '$[1]')) AS category_level_2,
+           JSON_UNQUOTE(JSON_EXTRACT(c.path_names, '$[2]')) AS category_level_3, JSON_UNQUOTE(JSON_EXTRACT(c.path_names, '$[3]')) AS category_level_4, JSON_UNQUOTE(JSON_EXTRACT(c.path_names, '$[4]')) AS category_level_5,
            c.parent_id AS parent_category_id, c.gokesari_department,
            (SELECT CAST(count(*) AS SIGNED) FROM pmd.product_master p WHERE p.category_id = c.category_id AND p.record_status = 'ACTIVE') AS product_count
     FROM pmd.category c ORDER BY c.sort_order`,
@@ -426,7 +426,11 @@ const categoryMapping: SheetDef = {
   ],
   query: () => `
     SELECT s.source_key AS source, cm.source_category, cm.source_category_original, cm.standard_category_id,
-           array_to_string(c.path_names, ' > ') AS standard_category_path, cm.match_type, cm.confidence, cm.mapped_by
+           -- array_to_string over a text[]; path_names is json, so the elements
+           -- are expanded and re-joined. FOR ORDINALITY keeps the path in order.
+           (SELECT GROUP_CONCAT(jt.v ORDER BY jt.i SEPARATOR ' > ')
+              FROM JSON_TABLE(c.path_names, '$[*]' COLUMNS (i FOR ORDINALITY, v varchar(255) PATH '$')) jt
+           ) AS standard_category_path, cm.match_type, cm.confidence, cm.mapped_by
     FROM pmd.category_mapping cm JOIN pmd.source s USING (source_id) JOIN pmd.category c ON c.category_id = cm.standard_category_id
     WHERE cm.is_active ORDER BY s.source_key, cm.source_category`,
 };
@@ -493,13 +497,13 @@ const quality: SheetDef = {
   ],
   query: (s) => `
     SELECT pm.master_product_id, pm.product_name, pm.data_quality_score,
-           CAST((pm.quality_components #>> '{components,identifier,score}') AS DECIMAL(20, 4)) AS identifier_score,
-           CAST((pm.quality_components #>> '{components,sourceReliability,score}') AS DECIMAL(20, 4)) AS source_reliability_score,
-           CAST((pm.quality_components #>> '{components,corroboration,score}') AS DECIMAL(20, 4)) AS corroboration_score,
-           CAST((pm.quality_components #>> '{components,completeness,score}') AS DECIMAL(20, 4)) AS completeness_score,
-           CAST((pm.quality_components #>> '{components,matchConfidence,score}') AS DECIMAL(20, 4)) AS match_confidence_score,
-           CAST((pm.quality_components #>> '{components,recency,score}') AS DECIMAL(20, 4)) AS recency_score,
-           ARRAY(SELECT jsonb_array_elements_text(COALESCE(pm.quality_components -> 'missingFields', CAST('[]' AS JSON)))) AS missing_fields,
+           CAST((JSON_UNQUOTE(JSON_EXTRACT(pm.quality_components, '$.components.identifier.score'))) AS DECIMAL(20, 4)) AS identifier_score,
+           CAST((JSON_UNQUOTE(JSON_EXTRACT(pm.quality_components, '$.components.sourceReliability.score'))) AS DECIMAL(20, 4)) AS source_reliability_score,
+           CAST((JSON_UNQUOTE(JSON_EXTRACT(pm.quality_components, '$.components.corroboration.score'))) AS DECIMAL(20, 4)) AS corroboration_score,
+           CAST((JSON_UNQUOTE(JSON_EXTRACT(pm.quality_components, '$.components.completeness.score'))) AS DECIMAL(20, 4)) AS completeness_score,
+           CAST((JSON_UNQUOTE(JSON_EXTRACT(pm.quality_components, '$.components.matchConfidence.score'))) AS DECIMAL(20, 4)) AS match_confidence_score,
+           CAST((JSON_UNQUOTE(JSON_EXTRACT(pm.quality_components, '$.components.recency.score'))) AS DECIMAL(20, 4)) AS recency_score,
+           COALESCE(JSON_EXTRACT(pm.quality_components, '$.missingFields'), JSON_ARRAY()) AS missing_fields,
            (SELECT CAST(count(*) AS SIGNED) FROM pmd.product_source x WHERE x.product_id = pm.product_id) AS source_count,
            pm.gtin IS NOT NULL AS has_gtin, pm.brand_id IS NOT NULL AS has_brand, pm.manufacturer_id IS NOT NULL AS has_manufacturer,
            pm.category_id IS NOT NULL AS has_category,
@@ -533,7 +537,7 @@ const importErrors: SheetDef = {
     C("raw_excerpt", "RAW_EXCERPT", "text", "pmd.import_error.raw_excerpt", "Start of the offending value or record (personal data already stripped).", { width: 50 }),
   ],
   query: (s) => `
-    SELECT e.run_id, src.source_key AS source, e.source_record_id, e.stage, e.severity, e.error_code, e.message, e.created_at, e.raw_excerpt ->> 'excerpt' AS raw_excerpt
+    SELECT e.run_id, src.source_key AS source, e.source_record_id, e.stage, e.severity, e.error_code, e.message, e.created_at, JSON_UNQUOTE(JSON_EXTRACT(e.raw_excerpt, '$.excerpt')) AS raw_excerpt
     FROM pmd.import_error e JOIN pmd.source src USING (source_id)
     WHERE ${s.fromProductId == null ? "true" : "false"}
     ORDER BY e.error_id`,

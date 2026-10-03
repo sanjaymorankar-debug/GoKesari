@@ -608,14 +608,53 @@ export interface LoadInput {
   normalized: NormalizedProduct;
 }
 
+/**
+ * Errors worth retrying: another transaction got in the way, or the connection
+ * went.
+ *
+ * These were PostgreSQL SQLSTATEs - 40001 serialization_failure, 40P01
+ * deadlock_detected, 55P03 lock_not_available, 57P01 admin_shutdown and the
+ * 08xxx connection classes - and **none of them exist on MySQL**, so after the
+ * port this function answered false for every error and the retry loop was
+ * dead. A deadlock under parallel workers then failed the record instead of
+ * being retried, which is what surfaced it.
+ *
+ * MySQL's equivalents are errnos, not SQLSTATEs: 1213 ER_LOCK_DEADLOCK and 1205
+ * ER_LOCK_WAIT_TIMEOUT, both of which InnoDB raises routinely when two writers
+ * touch the same rows in a different order and both of which succeed on a
+ * retry. The driver's own connection codes stay as they are - mysql2 spells
+ * them the same way.
+ */
 function isTransient(e: unknown): boolean {
-  const code = (e as { code?: string })?.code;
-  return ["40001", "40P01", "55P03", "57P01", "08006", "08003", "08000", "CONNECTION_CLOSED", "CONNECTION_ENDED", "ECONNRESET"].includes(String(code));
+  for (let error: unknown = e, depth = 0; error && depth < 5; depth += 1) {
+    const { errno, code } = error as { errno?: number; code?: string };
+    if (errno === 1213 || errno === 1205) return true;
+    if (
+      code != null &&
+      ["PROTOCOL_CONNECTION_LOST", "ECONNRESET", "EPIPE", "ETIMEDOUT", "ER_LOCK_DEADLOCK", "ER_LOCK_WAIT_TIMEOUT"].includes(code)
+    ) {
+      return true;
+    }
+    error = (error as { cause?: unknown }).cause;
+  }
+  return false;
 }
 
+/**
+ * A concurrent writer took the GTIN first.
+ *
+ * PostgreSQL reported 23505 with the constraint name in `constraint_name`;
+ * MySQL reports errno 1062 and names the key only inside the message, so the
+ * name is parsed out of it - the same thing src/lib/errors.ts does for the
+ * application.
+ */
 function isGtinRace(e: unknown): boolean {
-  const err = e as { code?: string; constraint_name?: string };
-  return err?.code === "23505" && /gtin_uq|identifier_global_uq/.test(err.constraint_name ?? "");
+  for (let error: unknown = e, depth = 0; error && depth < 5; depth += 1) {
+    const { errno, message } = error as { errno?: number; message?: string };
+    if (errno === 1062 && /gtin_uq|identifier_global_uq/.test(message ?? "")) return true;
+    error = (error as { cause?: unknown }).cause;
+  }
+  return false;
 }
 
 export async function loadRecord(ctx: LoadContext, input: LoadInput): Promise<RecordOutcome> {
@@ -657,7 +696,7 @@ async function loadInTransaction(tx: TransactionSql, ctx: LoadContext, input: Lo
   // Same content as last time and already resolved: nothing to do but note we still see it.
   if (existing && existing.product_id != null && existing.content_hash === hash) {
     await tx`UPDATE pmd.product_source SET last_seen_date = current_date, last_run_id = ${ctx.runId} WHERE product_source_id = ${existing.product_source_id}`;
-    await tx`UPDATE pmd.product_offer SET last_seen_at = now(), is_current = true WHERE product_source_id = ${existing.product_source_id}`;
+    await tx`UPDATE pmd.product_offer SET last_seen_at = now(3), is_current = true WHERE product_source_id = ${existing.product_source_id}`;
     ctx.counters.recordsUnchanged++;
     return "UNCHANGED";
   }

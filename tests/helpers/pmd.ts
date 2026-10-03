@@ -122,6 +122,32 @@ export function product(overrides: Partial<StagedProduct> & { sourceProductId: s
   return { name: "Test Product", ...overrides };
 }
 
+/**
+ * Runs a multi-statement `.sql` file on one held connection.
+ *
+ * `multipleStatements` is deliberately **off** on the PMD pool - it is the
+ * setting that turns a single injected semicolon into a second statement, and
+ * only the migration runner needs it - so a script that carries its own
+ * transaction is split here and sent statement by statement. One connection,
+ * in order, so the BEGIN/COMMIT the script contains still applies to all of it.
+ */
+export async function runSqlScript(script: string, sql: Sql = pmdSql()): Promise<void> {
+  const statements = script
+    .split("\n")
+    .map((line) => (line.trimStart().startsWith("--") ? "" : line))
+    .join("\n")
+    .split(";")
+    .map((part) => part.trim())
+    .filter((part) => part.length > 0);
+
+  const held = await sql.reserve();
+  try {
+    for (const statement of statements) await held.unsafe(statement);
+  } finally {
+    held.release();
+  }
+}
+
 export async function count(sql: Sql, table: string, where = "true"): Promise<number> {
   const [r] = await sql.unsafe<{ n: number }[]>(`SELECT CAST(count(*) AS SIGNED) AS n FROM ${table} WHERE ${where}`);
   return r.n;

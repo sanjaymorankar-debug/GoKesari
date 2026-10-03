@@ -159,7 +159,7 @@ PMD does this at 8 sites plus two helper fragments, so the shim returns a lazy
 any Fragment interpolated into it, and executes only when awaited. The test
 asserts a built-but-unawaited `INSERT` does not reach the database.
 
-### Stage 3 — the queries
+### Stage 3 — the queries — **done**
 
 The residue once the `pmd.` prefix is free, re-counted at the start of stage 3
 (the first pass under-counted because it measured before the `pmd.` rewrite and
@@ -181,7 +181,7 @@ TypeScript. The helpers written for the application port
 (`insertReturning`, `upsertReturning`, `keepExisting`, the counters idiom, the
 lock-row idiom) all transfer.
 
-### Stage 4 — retrieval and search ranking (landed)
+### Stage 4 — retrieval and search ranking — **done**
 
 This was the stage flagged from the start as the one that changes behaviour
 rather than spelling, so it was measured rather than asserted. The measurement
@@ -272,14 +272,33 @@ ordering *between* strategies does not, and fuzzy ordering does not change at
 all.
 
 
-### Stage 5 — tests and CI
+### Stage 5 — tests and CI — **done**
 
-15 `pmd-*.test.ts` files, currently excluded from CI by `npm run test:ci`
-because their schema no longer existed on the MySQL side. Restoring them is how
-this port proves itself. `tests/helpers/pmd.ts` needs its `TRUNCATE … RESTART
-IDENTITY CASCADE` and `ALTER SEQUENCE … RESTART` replaced the same way the
-application's `resetDatabase` was — and now also needs to reset `pmd.counters`,
-since three keys are allocated from it rather than by AUTO_INCREMENT.
+All 15 `pmd-*.test.ts` files run against MySQL, `npm run test:ci` no longer
+excludes anything, and CI applies the PMD schema before running them.
+
+Restoring them is what proved the port, and it is worth being blunt about why:
+**nothing in the type system checks the inside of a `sql` template.** `tsc` was
+clean while the layer was comprehensively broken. Every defect listed in this
+document under stages 3 and 5 was found by executing a query, not by reading
+one — including several that produced no error at all and simply returned the
+wrong answer.
+
+`tests/helpers/pmd.ts` changed shape more than expected. MySQL's `TRUNCATE`
+takes one table, refuses a table that is the target of a foreign key, and
+resets `AUTO_INCREMENT` by itself — so the reset is one statement per table with
+`FOREIGN_KEY_CHECKS` off, on a single held connection, because that is a SESSION
+variable and a pool would scatter it. It also clears `pmd.counters`, since three
+keys come from there rather than from `AUTO_INCREMENT`, and `pmd.advisory_lock`,
+since locks are rows now. A new `runSqlScript` helper runs a multi-statement
+`.sql` file statement by statement on one connection, because
+`multipleStatements` is deliberately **off** on the PMD pool — it is the setting
+that turns an injected semicolon into a second statement, and only the migration
+runner needs it.
+
+One operational note: the `pmd` database must be dropped **before** the
+application's, because `pmd.catalogue_link` holds foreign keys into it. CI does
+it in that order.
 
 ## Running it today
 

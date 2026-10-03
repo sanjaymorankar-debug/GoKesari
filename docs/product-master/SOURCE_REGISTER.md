@@ -150,7 +150,7 @@ Every source named in the brief, with its status and the lawful basis on which i
 
 - **Kind / access:** INTERNAL / INTERNAL_DB
 - **Trust:** reliability 65, specification precedence 45 (lower wins a conflict)
-- **Legal basis / route:** GoKesari's own operational product catalogue (public.products). Read-only; used to reconcile what shops already sell with the master.
+- **Legal basis / route:** GoKesari's own operational product catalogue (the `products` table). Read-only; used to reconcile what shops already sell with the master.
 - **Frequency:** daily
 - **Notes:** Adapter not built in the pilot: the current catalogue is generic (no brands or GTINs), so it would add noise rather than signal.
 

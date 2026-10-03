@@ -9,32 +9,37 @@
 -- its GTIN and block promoting it again. The audit_logs rows stay (they are the record that it happened).
 -- Brands the promotion created are left in place (unused brands are harmless); delete them by hand if you want them gone.
 --
--- Usage:  psql -v ON_ERROR_STOP=1 -f scripts/pmd/rollback-promotion.sql "<target>"
+-- Usage:  mysql --database=<app-db> < scripts/pmd/rollback-promotion.sql
 -- Any other table that references a product makes the DELETE fail and the whole transaction roll back - by design.
 
-BEGIN;
+START TRANSACTION;
 
-CREATE TEMP TABLE rollback_targets ON COMMIT DROP AS
+-- CREATE TEMPORARY TABLE, and dropped explicitly at the end: MySQL has no
+-- ON COMMIT DROP, and a temporary table outlives the transaction (it lives for
+-- the session), so leaving it behind would make a second run fail.
+CREATE TEMPORARY TABLE rollback_targets AS
   SELECT cl.catalogue_product_id AS catalogue_id,
-         EXISTS (SELECT 1 FROM public.audit_logs a
-                 WHERE a.action = 'pmd.product_promoted' AND a.entity_type = 'product' AND a.entity_id = cl.catalogue_product_id::text) AS created_by_promotion,
-         EXISTS (SELECT 1 FROM public.shop_products sp WHERE sp.product_id = cl.catalogue_product_id) AS sold_by_a_shop
+         EXISTS (SELECT 1 FROM audit_logs a
+                 WHERE a.action = 'pmd.product_promoted' AND a.entity_type = 'product' AND a.entity_id = CAST(cl.catalogue_product_id AS CHAR)) AS created_by_promotion,
+         EXISTS (SELECT 1 FROM shop_products sp WHERE sp.product_id = cl.catalogue_product_id) AS sold_by_a_shop
   FROM pmd.catalogue_link cl;
 
-SELECT count(*)                                                        AS linked_total,
-       count(*) FILTER (WHERE created_by_promotion AND NOT sold_by_a_shop) AS products_deleted,
-       count(*) FILTER (WHERE NOT created_by_promotion)                AS adopted_links_removed_product_kept,
-       count(*) FILTER (WHERE created_by_promotion AND sold_by_a_shop) AS kept_because_a_shop_sells_them
+SELECT count(*)                                                                      AS linked_total,
+       count(CASE WHEN created_by_promotion AND NOT sold_by_a_shop THEN 1 END)        AS products_deleted,
+       count(CASE WHEN NOT created_by_promotion THEN 1 END)                           AS adopted_links_removed_product_kept,
+       count(CASE WHEN created_by_promotion AND sold_by_a_shop THEN 1 END)            AS kept_because_a_shop_sells_them
 FROM rollback_targets;
 
 -- links: everything except products a shop sells that promotion created (their lineage stays)
 DELETE FROM pmd.catalogue_link
  WHERE catalogue_product_id IN (SELECT catalogue_id FROM rollback_targets WHERE NOT (created_by_promotion AND sold_by_a_shop));
 
-DELETE FROM public.product_images
+DELETE FROM product_images
  WHERE product_id IN (SELECT catalogue_id FROM rollback_targets WHERE created_by_promotion AND NOT sold_by_a_shop);
 
-DELETE FROM public.products
+DELETE FROM products
  WHERE id IN (SELECT catalogue_id FROM rollback_targets WHERE created_by_promotion AND NOT sold_by_a_shop);
+
+DROP TEMPORARY TABLE rollback_targets;
 
 COMMIT;

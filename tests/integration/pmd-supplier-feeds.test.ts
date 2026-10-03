@@ -83,7 +83,7 @@ describe("GS1 India connector (shipped mapping template)", () => {
     expect(await count(sql, "pmd.product_master")).toBe(2); // the barcode-matched one was NOT duplicated
     const [m] = await sql<{ product_name: string; manufacturer_name: string | null; gst_rate_bp: number | null; hsn_code: string | null; category_code: string | null; pack_size: string | null; name_source: string }[]>`
       SELECT pm.product_name, mf.manufacturer_name, pm.gst_rate_bp, pm.hsn_code, c.category_code, pm.pack_size,
-             (SELECT source_key FROM pmd.source WHERE source_id = (pm.field_sources ->> 'product_name')::int) AS name_source
+             (SELECT source_key FROM pmd.source WHERE source_id = CAST((JSON_UNQUOTE(JSON_EXTRACT(pm.field_sources, '$.product_name'))) AS SIGNED)) AS name_source
       FROM pmd.product_master pm LEFT JOIN pmd.manufacturer mf USING (manufacturer_id) LEFT JOIN pmd.category c ON c.category_id = pm.category_id
       WHERE pm.gtin = ${gtin14(GTIN.AMUL_BUTTER_500)}`;
     expect(m).toEqual({
@@ -152,7 +152,7 @@ describe("manufacturer catalogue connector (Excel workbook, shipped mapping temp
     });
 
     const rows = await sql<{ product_name: string; gtin: string | null; gst_rate_bp: number | null; hsn_code: string | null; category_code: string | null; mrp_minor: number; method: string }[]>`
-      SELECT pm.product_name, pm.gtin, pm.gst_rate_bp, pm.hsn_code, c.category_code, o.mrp_minor::int AS mrp_minor, ps.data_collection_method AS method
+      SELECT pm.product_name, pm.gtin, pm.gst_rate_bp, pm.hsn_code, c.category_code, CAST(o.mrp_minor AS SIGNED) AS mrp_minor, ps.data_collection_method AS method
       FROM pmd.product_master pm JOIN pmd.product_source ps ON ps.product_id = pm.product_id JOIN pmd.product_offer o ON o.product_source_id = ps.product_source_id
       LEFT JOIN pmd.category c ON c.category_id = pm.category_id ORDER BY pm.product_id`;
     expect(rows).toEqual([

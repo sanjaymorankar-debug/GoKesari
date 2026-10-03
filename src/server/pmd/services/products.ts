@@ -92,7 +92,7 @@ function filterFragments(sql: Sql, f: ProductFilters) {
     f.brand ? sql`AND pm.brand_id = (SELECT brand_id FROM pmd.brand WHERE brand_code = ${f.brand})` : sql``,
     f.manufacturer ? sql`AND pm.manufacturer_id = (SELECT manufacturer_id FROM pmd.manufacturer WHERE manufacturer_code = ${f.manufacturer})` : sql``,
     f.category
-      ? sql`AND pm.category_id IN (SELECT category_id FROM pmd.category WHERE (SELECT category_id FROM pmd.category WHERE category_code = ${f.category}) = ANY(path_ids))`
+      ? sql`AND pm.category_id IN (SELECT category_id FROM pmd.category WHERE JSON_CONTAINS(path_ids, CAST((SELECT category_id FROM pmd.category c2 WHERE c2.category_code = ${f.category}) AS JSON)))`
       : sql``,
     f.status ? sql`AND pm.product_status = ${f.status}` : sql``,
     f.minQuality != null ? sql`AND pm.data_quality_score >= ${f.minQuality}` : sql``,
@@ -158,7 +158,7 @@ export async function searchProducts(
       SELECT DISTINCT ${SUMMARY_SELECT(sql)} ${SUMMARY_FROM(sql)}
       JOIN pmd.product_identifier i ON i.product_id = pm.product_id
       WHERE pm.record_status = 'ACTIVE' ${f1} ${f2} ${f3} ${f4} ${f5} ${f6}
-        AND ((i.id_type IN ('GTIN','ISBN') AND i.id_value = ANY(${[gtin?.gtin14 ?? "", gtin?.isbn13 ?? ""]}))
+        AND ((i.id_type IN ('GTIN','ISBN') AND i.id_value IN ${sql([gtin?.gtin14 ?? "", gtin?.isbn13 ?? ""])})
           OR (i.id_type IN ('MPN','MODEL','SKU','PRODUCT_CODE') AND i.id_value = ${key?.key ?? ""}))
       LIMIT ${max}`;
     add(rows, "IDENTIFIER", 100);
@@ -271,7 +271,7 @@ export async function getProduct(sql: Sql, masterProductId: string): Promise<Pro
       SELECT attribute_key, value_1, source_1, value_2, source_2, conflict_status, resolution FROM pmd.product_attribute_conflict WHERE product_id = ${id} ORDER BY conflict_id`,
     pm.product_family_id
       ? sql<{ master_product_id: string; product_name: string; pack_size: string | null }[]>`
-          SELECT master_product_id, product_name, pack_size FROM pmd.product_master WHERE product_family_id = ${pm.product_family_id as number} AND record_status = 'ACTIVE' ORDER BY net_quantity_value NULLS LAST, product_id LIMIT 50`
+          SELECT master_product_id, product_name, pack_size FROM pmd.product_master WHERE product_family_id = ${pm.product_family_id as number} AND record_status = 'ACTIVE' ORDER BY net_quantity_value IS NULL, net_quantity_value, product_id LIMIT 50`
       : Promise.resolve([]),
     sql<{ offer_count: number; min_price_minor: number | null; max_price_minor: number | null; currency: string | null }[]>`SELECT offer_count, min_price_minor, max_price_minor, currency FROM pmd.v_product_price_summary WHERE product_id = ${id}`,
     sql<{ catalogue_product_id: string; code: string; promoted_at: Date }[]>`
@@ -366,7 +366,7 @@ export async function getOffers(sql: Sql, masterProductId: string, opts: { curre
     JOIN pmd.product_master pm ON pm.product_id = o.product_id
     JOIN pmd.source s ON s.source_id = o.source_id
     WHERE pm.master_product_id = ${masterProductId} ${opts.currentOnly ? sql`AND o.is_current` : sql``}
-    ORDER BY o.price_minor NULLS LAST, s.source_key, o.seller_key`;
+    ORDER BY o.price_minor IS NULL, o.price_minor, s.source_key, o.seller_key`;
   return rows.map((r) => ({
     source: r.source, sourceProductId: r.source_product_id, sellerId: r.seller_id, sellerName: r.seller_name, sellerLocation: r.seller_location,
     sellerRating: r.seller_rating, priceMinor: r.price_minor, mrpMinor: r.mrp_minor, discountMinor: r.discount_minor, discountPct: r.discount_pct,

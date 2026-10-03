@@ -66,12 +66,12 @@ describe("contributor data never reaches the database", () => {
     const res = await runIngestion(sql, createOpenFactsAdapter("food", { mode: "rows", rows }), { mode: "PILOT" });
     expect(res.counters).toMatchObject({ productsCreated: 1, errorCount: 1 });
 
-    const raw = await sql<{ payload: string }[]>`SELECT payload::text AS payload FROM pmd.raw_record`;
+    const raw = await sql<{ payload: string }[]>`SELECT CAST(payload AS CHAR) AS payload FROM pmd.raw_record`;
     expect(raw.length).toBeGreaterThan(0);
     expect(raw.map((r) => r.payload).join("\n")).toContain("Masala Tea"); // the facts are there...
     noPersonIn(raw.map((r) => r.payload).join("\n")); //                      ...the people are not
 
-    const errs = await sql<{ excerpt: string | null; message: string }[]>`SELECT raw_excerpt::text AS excerpt, message FROM pmd.import_error`;
+    const errs = await sql<{ excerpt: string | null; message: string }[]>`SELECT CAST(raw_excerpt AS CHAR) AS excerpt, message FROM pmd.import_error`;
     expect(errs.length).toBeGreaterThan(0);
     noPersonIn(errs.map((e) => `${e.excerpt ?? ""} ${e.message}`).join("\n"));
   });
@@ -90,9 +90,9 @@ describe("contributor data never reaches the database", () => {
     const res = await runIngestion(sql, createOpenPricesAdapter({ mode: "rows", rows }), { mode: "PILOT" });
     expect(res.counters).toMatchObject({ productsCreated: 1, offersUpserted: 1, errorCount: 1 });
 
-    const raw = await sql<{ payload: string }[]>`SELECT payload::text AS payload FROM pmd.raw_record`;
+    const raw = await sql<{ payload: string }[]>`SELECT CAST(payload AS CHAR) AS payload FROM pmd.raw_record`;
     noPersonIn(raw.map((r) => r.payload).join("\n"));
-    const errs = await sql<{ excerpt: string | null }[]>`SELECT raw_excerpt::text AS excerpt FROM pmd.import_error`;
+    const errs = await sql<{ excerpt: string | null }[]>`SELECT CAST(raw_excerpt AS CHAR) AS excerpt FROM pmd.import_error`;
     noPersonIn(errs.map((e) => e.excerpt ?? "").join("\n"));
   });
 });

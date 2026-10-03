@@ -108,7 +108,7 @@ export async function upsertSpecs(
       ON DUPLICATE KEY UPDATE
         value_text = ${a.valueText ?? null}, value_num = ${a.valueNum ?? null}, value_bool = ${a.valueBool ?? null},
         unit = ${a.unit ?? null}, original_value = ${a.original ?? null}, source_url = ${ctx.sourceUrl},
-        confidence = ${ctx.confidence}, collected_at = now()`;
+        confidence = ${ctx.confidence}, collected_at = now(3)`;
     outcome.changedKeys.push(a.key);
   }
 
@@ -181,7 +181,7 @@ export async function resolveAttribute(
                 ${status},
                 ${autoResolved ? `Preferred ${winner.sourceKey} (spec precedence ${winner.precedence} beats ${other.precedence})` : null},
                 ${autoResolved ? "RULE:SPEC_PRECEDENCE" : null},
-                ${autoResolved ? sql`now()` : null}, ${ctx.runId})`);
+                ${autoResolved ? sql`now(3)` : null}, ${ctx.runId})`);
       if (!isNew) {
         // The conflict target was the expression md5(value_1 || chr(31) ||
         // value_2); the schema carries it as the generated column
@@ -207,7 +207,7 @@ export async function resolveAttribute(
       if (!currentPairs.has(`${o.source_1}|${o.source_2}|${o.value_1}|${o.value_2}`)) {
         await sql`
           UPDATE pmd.product_attribute_conflict
-             SET conflict_status = 'AUTO_RESOLVED', resolution = 'Values no longer differ', resolution_source = 'RULE:CONVERGED', resolution_date = now()
+             SET conflict_status = 'AUTO_RESOLVED', resolution = 'Values no longer differ', resolution_source = 'RULE:CONVERGED', resolution_date = now(3)
            WHERE conflict_id = ${o.conflict_id}`;
       }
     }
@@ -221,7 +221,7 @@ export async function resolveAttribute(
     // Sources agree (or the attribute is not conflict-tracked): close anything left over.
     await sql`
       UPDATE pmd.product_attribute_conflict
-         SET conflict_status = 'AUTO_RESOLVED', resolution = 'Sources now agree', resolution_source = 'RULE:CONVERGED', resolution_date = now()
+         SET conflict_status = 'AUTO_RESOLVED', resolution = 'Sources now agree', resolution_source = 'RULE:CONVERGED', resolution_date = now(3)
        WHERE product_id = ${productId} AND attribute_key = ${key} AND conflict_status = 'OPEN'`;
   }
 

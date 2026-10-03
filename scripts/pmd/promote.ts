@@ -15,6 +15,15 @@
  */
 import { promoteToCatalogue, PromotionError } from "@/server/pmd/services/catalogue-bridge";
 import { createSql } from "@/server/pmd/db";
+
+/** MySQL's duplicate-key error, however deeply the driver wrapped it. */
+function isDuplicateKey(error: unknown): boolean {
+  for (let e: unknown = error, depth = 0; e && depth < 5; depth += 1) {
+    if ((e as { errno?: number }).errno === 1062) return true;
+    e = (e as { cause?: unknown }).cause;
+  }
+  return false;
+}
 import { arg, describeTarget, flag, pmdDatabaseUrl } from "./lib";
 
 interface Candidate {
@@ -94,8 +103,10 @@ async function main() {
           else outcome.promoted++;
           break;
         } catch (e) {
-          // 23505 = another worker created the same brand or slug a moment ago; this attempt will find it
-          if ((e as { code?: string }).code === "23505" && attempt < 5) continue;
+          // Another worker created the same brand or slug a moment ago; the next
+          // attempt will find it. PostgreSQL's 23505 is MySQL's errno 1062, and
+          // drizzle/mysql2 can wrap it, so the chain is walked.
+          if (attempt < 5 && isDuplicateKey(e)) continue;
           const code = e instanceof PromotionError ? e.code : "ERROR";
           outcome.failed.set(code, (outcome.failed.get(code) ?? 0) + 1);
           if (!(e instanceof PromotionError)) console.error(`  ${c.master_product_id}: ${(e as Error).message}`);

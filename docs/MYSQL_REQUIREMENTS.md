@@ -20,13 +20,20 @@ See `MYSQL_MIGRATION_ASSESSMENT.md` for what each Postgres construct became.
 | `REGEXP_REPLACE` | 8.0+ | 10.0+ | `services/societies.ts` |
 | `SIGNAL SQLSTATE` in a trigger | 5.5+ | 5.5+ | the append-only guard on `audit_logs` |
 
-**Minimum: MySQL 8.0.16, or MariaDB 10.3.** On MySQL 5.7 or MariaDB 10.1 the
-`CHECK` constraints are parsed and then *ignored*, which is the dangerous
-failure: the schema loads and the invariants simply are not enforced.
+**Minimum: MySQL 8.0.16.** On MySQL 5.7 the `CHECK` constraints are parsed and
+then *ignored*, which is the dangerous failure: the schema loads and the
+invariants simply are not enforced.
 
-`LATERAL` is deliberately not used anywhere, even though MySQL 8.0.14+ has it,
-because MariaDB has no support for it at all. The four places that had it are
-now correlated subqueries.
+**MariaDB is no longer an option for a deployment**, even though the
+application's own schema runs on 10.3+ — the MariaDB column above is kept
+because it is accurate for that schema and useful if PMD is ever dropped. The
+product-master layer requires MySQL: its search index uses the `ngram`
+full-text parser, an InnoDB plugin MariaDB does not ship, and PMD has to share
+the application's server because of its cross-database foreign keys. See
+section 5.
+
+The application's own SQL still avoids `LATERAL`, so that half stays portable;
+PMD uses it, since MySQL 8.0.14+ has it.
 
 ### The two engines are not interchangeable here
 
@@ -107,32 +114,42 @@ iteration of this schema.
 
 ## 5. The product-master layer (PMD)
 
-`src/server/pmd/**` (44 files) talks to postgres.js directly and was left on
-PostgreSQL when the application moved. **It is now being ported** — see
-`PMD_MYSQL_PORT.md` for the staged plan and what has landed.
+`src/server/pmd/**` is **ported**. It runs on MySQL, its tests run in CI, and
+`npm run test:ci` no longer excludes anything. `PMD_MYSQL_PORT.md` records how,
+and what each construct became.
 
-Where it stands today:
+What a deployment needs to know:
 
-- Its MySQL schema exists and is applied by `npm run pmd:migrate`, into a
-  database named **`pmd` on the same server as the application database**. It
-  has to be the same server: `pmd.catalogue_link` has foreign keys into
-  `products` and `users`, which MySQL allows across databases but not across
-  servers.
-- **The PMD code itself does not run on MySQL yet.** Every query is still a
-  postgres.js tagged template, so anything touching PMD needs a PostgreSQL
-  server until that stage lands.
-- `PMD_DATABASE_URL` (optional, in `src/lib/env.ts`) selects PMD's connection.
-  Point it at the retained PostgreSQL database to keep the product-master
-  features working in the meantime; leave it unset and anything touching PMD
-  raises an error naming this file rather than failing inside the Postgres wire
-  protocol. Once the port is finished it can be dropped and PMD will use the
-  application's own connection.
-- `scripts/pmd/*` and the 15 `tests/**/pmd-*.test.ts` files likewise still need
-  a PostgreSQL URL, so the PMD tests are excluded from the MySQL test run:
+- PMD lives in its own database, **`pmd`, on the same server as the application
+  database**, applied by `npm run pmd:migrate`. The same server is not a
+  preference: `pmd.catalogue_link` holds foreign keys into `products` and
+  `users`, which MySQL allows across databases but not across servers.
+- It uses the application's connection by default. `PMD_DATABASE_URL` still
+  overrides it for the case where PMD is pointed somewhere else deliberately,
+  and the runner refuses a `postgresql://` URL rather than failing later inside
+  the wire protocol. **The connection's default database must be the
+  application's**, because PMD's SQL refers to `products`, `users`,
+  `audit_logs` and `counters` unqualified — PostgreSQL's `public` schema has no
+  MySQL counterpart.
+- **PMD requires MySQL, not MariaDB.** Its search index uses MySQL's `ngram`
+  full-text parser, which is an InnoDB plugin MariaDB does not ship. Since PMD
+  must share the application's server, this makes the whole deployment
+  MySQL-only — a change from section 1, which the application alone did not
+  force. The minimum is **MySQL 8.0.16** for enforced `CHECK` constraints, and
+  8.0 generally for `FOR UPDATE SKIP LOCKED`, `LATERAL`, window functions and
+  `JSON_TABLE`, all of which PMD now uses.
+- **Nothing extra to configure.** The full-text index is built with
+  `innodb_ft_enable_stopword = OFF` set for the migration's own session, which
+  is read at build time rather than query time — so no server variable has to
+  be changed, no restart is needed, and it works on a managed instance. That
+  choice is deliberate: the alternative, raising `innodb_ft_min_token_size`, is
+  server-level and impossible on shared hosting. `PMD_MYSQL_PORT.md` stage 4
+  has the measurements behind it.
+- Dropping the databases has an order: **`pmd` first**, then the application's,
+  because of those foreign keys.
 
-```bash
-npm run test:ci        # vitest run --exclude 'tests/**/pmd-*.test.ts'
-```
-
-Product search ordering will change when stage 4 lands (`ts_rank` has no MySQL
-equivalent). That is the one part of the port that wants a person's sign-off.
+Product search ordering changed in one place — the keyword strategy, where
+`ts_rank` has no MySQL equivalent. Fuzzy ordering is unchanged, because the
+ranking moved into `trigramSimilarity()`, which is the same definition
+PostgreSQL's `similarity()` uses. Stage 4 of `PMD_MYSQL_PORT.md` has the detail
+and the recall measurements.
