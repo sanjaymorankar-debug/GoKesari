@@ -362,3 +362,96 @@ default must now supply the value, so every insert site for those three tables
 needs checking. They are business identifiers, so they must stay unique and
 monotonic — the idiom above is atomic, but it is not gap-free across rolled-back
 transactions, which is the same guarantee `nextval` gave.
+
+---
+
+# Outcome: the port was carried out
+
+The recommendation in §3 above was to leave this app on PostgreSQL. The owner
+decided to go ahead, for one engine across the whole estate. What follows is
+what actually landed, and the ways the finished port differs from the plan
+above — the plan is kept as written so the two can be compared.
+
+Server prerequisites, including two settings that fail **silently** if wrong, are
+in `MYSQL_REQUIREMENTS.md`. Read that before pointing a tier at a database.
+
+## Where the finished port differs from this plan
+
+**`.returning()` did not become insert-then-select at 180 call sites.** It became
+four helpers in `src/server/db/returning.ts`, because two correctness rules would
+otherwise have had to be repeated in 46 files:
+
+- the mutation and the read-back must be one transaction, and must *not* open a
+  second one when the caller already has one (`atomically`);
+- the caller's predicate usually stops matching after the update
+  (`set status = 'DONE' where status = 'PENDING'`), so the primary keys are read
+  and locked first and every later statement is driven by those keys.
+
+`$returningId()` covers the insert case because the schema generates ids in the
+application, as §2.1 anticipated. It is *not* usable after an upsert: MySQL
+reports `affectedRows = 2` for a row it updated, which walks drizzle's
+generated-id list off its end.
+
+**`ON CONFLICT DO NOTHING` is not `INSERT IGNORE`.** Drizzle's `.ignore()` is the
+usual suggestion and is wrong here: `IGNORE` downgrades *every* error on the
+statement to a warning, so `insert(wallets).values({ userId })` with a bad
+`userId` would leave the user with no wallet and raise nothing. It became a no-op
+`ON DUPLICATE KEY UPDATE` (`keepExisting`), which fires on duplicate keys only.
+
+Six of those sites also read the row back, and branch on getting nothing — a
+notification that must fire once per alert, a ledger snapshot posted once per
+order. `affectedRows` cannot tell an insert from a no-op duplicate (mysql2
+connects with `CLIENT_FOUND_ROWS`, so both report 1, verified against MariaDB
+10.11), so `insertIfNewReturning` guards the insert with a read and catches
+`ER_DUP_ENTRY` for the race.
+
+**The sequence idiom is one statement, not two.** §"Two constructs" proposes
+`UPDATE ... LAST_INSERT_ID(n + 1)` on an existing row. The implementation uses
+`INSERT ... ON DUPLICATE KEY UPDATE value = LAST_INSERT_ID(value + 1)`, which
+also creates the counter on first use. Both statements are wrapped in a
+transaction: `LAST_INSERT_ID()` is per *connection*, and a pool is otherwise free
+to run the read on a different one.
+
+**`pg_advisory_xact_lock` is a lock table, not `GET_LOCK`.** `GET_LOCK` is scoped
+to the session, so it would outlive the transaction and need releasing by hand. A
+row in `registration_locks` is released at commit or rollback — the lifetime the
+Postgres version had.
+
+**Four `LATERAL` joins became correlated subqueries.** MySQL 8.0.14+ has
+`LATERAL`; MariaDB has none at all, so it is avoided entirely.
+
+**`percentile_cont(0.5) WITHIN GROUP` has no MySQL equivalent.** MySQL 8 has no
+percentile function and MariaDB offers one only as a window function, so the
+median in `services/analytics.ts` ranks the rows and averages the middle one or
+two. Same value, including the two-value average for an even count.
+
+## Things that were wrong in the schema until a check caught them
+
+Recorded because each was silent, and each would have reached production:
+
+- **`date()` changes meaning between the dialects.** Drizzle's Postgres `date()`
+  defaults to `mode: "string"`; its MySQL `date()` defaults to `mode: "date"`.
+  All 25 date columns therefore changed from `string` to `Date` while keeping
+  the same spelling — and mysql2 hands DATE back as a string, so the type was
+  a lie at runtime too. Fixing it cleared 73 type errors at once.
+- **Two indexes exceeded InnoDB's key limit, and a third only "worked" because
+  MariaDB silently truncated it** to a 768-character prefix. Importing the DDL
+  under `STRICT_ALL_TABLES` is what surfaced it.
+- **`GREATEST`/`LEAST` disagree on NULL.** Postgres ignores NULL arguments and
+  returns the largest non-NULL; MySQL returns NULL if any argument is NULL. Two
+  rider-hours queries would have dropped every rider who had never reported a
+  location.
+- **`a - b` on two DATETIMEs is not an interval.** `extract(epoch from (a - b))`
+  translated naively to `UNIX_TIMESTAMP(a - b)`, which is arithmetic on the
+  YYYYMMDDHHMMSS digits. It needs `TIMESTAMPDIFF(SECOND, b, a)`.
+- **`||` is logical OR in MySQL, not concatenation.**
+- **`SUM()` returns DECIMAL, which mysql2 returns as a string.** So the `::int`
+  and `::bigint` casts could not simply be deleted; they became
+  `CAST(... AS SIGNED)`, which both matches Postgres and keeps the driver
+  returning numbers.
+- **`audit_logs` immutability was enforced in the database**, by a trigger the
+  schema does not describe (`drizzle-postgres-legacy/0018`). The port dropped
+  it, and a test caught it. It is back as two MySQL triggers — one per event,
+  since a MySQL trigger handles one — in `drizzle/0001_audit_logs_append_only.sql`.
+- **PMD was reading `DATABASE_URL`**, which now points at MySQL, so postgres.js
+  would have been handed a `mysql://` URL. It has its own `PMD_DATABASE_URL`.

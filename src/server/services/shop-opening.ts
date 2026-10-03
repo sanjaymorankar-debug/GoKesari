@@ -14,34 +14,56 @@ import { isShopOpenNow } from "@/lib/shop-hours";
 import { db } from "@/server/db";
 import { orders, shops } from "@/server/db/schema";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
+import { updateReturning } from "@/server/db/returning";
 
 export interface ShopOpeningSweepResult {
   shopsAlerted: number;
   ordersAlerted: number;
 }
 
-export async function sendShopOpeningAlerts(now: Date = new Date()): Promise<ShopOpeningSweepResult> {
+export async function sendShopOpeningAlerts(
+  now: Date = new Date(),
+): Promise<ShopOpeningSweepResult> {
   // Orders that moved on (accepted, cancelled, ...) while the shop was closed no longer need the alert.
   await db
     .update(orders)
     .set({ shopOpenAlertSentAt: now })
-    .where(and(eq(orders.placedWhileClosed, true), isNull(orders.shopOpenAlertSentAt), ne(orders.status, "CONFIRMED")));
+    .where(
+      and(
+        eq(orders.placedWhileClosed, true),
+        isNull(orders.shopOpenAlertSentAt),
+        ne(orders.status, "CONFIRMED"),
+      ),
+    );
 
   const pending = await db
     .select({ order: orders, shop: shops })
     .from(orders)
     .innerJoin(shops, eq(shops.id, orders.shopId))
-    .where(and(eq(orders.placedWhileClosed, true), isNull(orders.shopOpenAlertSentAt), eq(orders.status, "CONFIRMED")));
+    .where(
+      and(
+        eq(orders.placedWhileClosed, true),
+        isNull(orders.shopOpenAlertSentAt),
+        eq(orders.status, "CONFIRMED"),
+      ),
+    );
 
   const openNow = pending.filter((row) => isShopOpenNow(row.shop, now));
   if (openNow.length === 0) return { shopsAlerted: 0, ordersAlerted: 0 };
 
   // Claim first; only the sweep that wins the claim sends the alert.
-  const claimed = await db
-    .update(orders)
-    .set({ shopOpenAlertSentAt: now })
-    .where(and(inArray(orders.id, openNow.map((r) => r.order.id)), isNull(orders.shopOpenAlertSentAt)))
-    .returning({ id: orders.id });
+  const claimed = await updateReturning(
+    db,
+    orders,
+    { shopOpenAlertSentAt: now },
+    and(
+      inArray(
+        orders.id,
+        openNow.map((r) => r.order.id),
+      ),
+      isNull(orders.shopOpenAlertSentAt),
+    ),
+  );
   const claimedIds = new Set(claimed.map((c) => c.id));
 
   const byShop = new Map<string, typeof openNow>();
@@ -71,7 +93,11 @@ export async function sendShopOpeningAlerts(now: Date = new Date()): Promise<Sho
       }
     } catch (err) {
       // The claim is already recorded; a failed notification must not break the sweep.
-      console.error("[shop-opening] notify failed", shop.id, err instanceof Error ? err.message : err);
+      console.error(
+        "[shop-opening] notify failed",
+        shop.id,
+        err instanceof Error ? err.message : err,
+      );
     }
   }
 

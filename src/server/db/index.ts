@@ -1,5 +1,5 @@
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
+import { drizzle } from "drizzle-orm/mysql2";
+import { createPool, type Pool } from "mysql2";
 
 import { getEnv } from "@/lib/env";
 import * as schema from "./schema";
@@ -9,48 +9,85 @@ import * as schema from "./schema";
  * modules on every edit in dev, so without this the pool leaks connections.
  */
 const globalForDb = globalThis as unknown as {
-  __sql?: ReturnType<typeof postgres>;
+  __sql?: Pool;
 };
 
 /**
- * Managed Postgres providers (Neon, Supabase, RDS) require TLS and advertise it
- * as `?sslmode=require` in the URL. postgres-js needs the flag passed
- * explicitly, so it is read from the URL rather than assumed.
+ * Managed MySQL providers (PlanetScale, RDS, Aiven) require TLS. MySQL spells
+ * the URL flag `ssl-mode=REQUIRED`; `sslmode` is accepted too so a URL carried
+ * over from the Postgres deployment still enables TLS rather than silently
+ * connecting in the clear.
  */
-function resolveSsl(url: string): "require" | false {
+function resolveSsl(url: string): { minVersion: "TLSv1.2" } | undefined {
   try {
-    const sslmode = new URL(url).searchParams.get("sslmode");
-    if (!sslmode || sslmode === "disable") return false;
-    return "require";
+    const params = new URL(url).searchParams;
+    const mode = (
+      params.get("ssl-mode") ??
+      params.get("sslmode") ??
+      ""
+    ).toLowerCase();
+    if (!mode || mode === "disabled" || mode === "disable") return undefined;
+    return { minVersion: "TLSv1.2" };
   } catch {
-    return false;
+    return undefined;
   }
 }
 
-function createClient() {
+function createClient(): Pool {
   const env = getEnv();
   const url = env.DATABASE_URL;
 
-  return postgres(url, {
-    // Managed providers cap connections far below a self-hosted server — Neon's
-    // free tier allows well under 100 — so the ceiling is configurable rather
-    // than hard-coded.
-    max: env.DATABASE_POOL_MAX,
-    idle_timeout: 20,
-    connect_timeout: 30,
+  return createPool({
+    uri: url,
+    // Managed providers cap connections far below a self-hosted server, so the
+    // ceiling is configurable rather than hard-coded.
+    connectionLimit: env.DATABASE_POOL_MAX,
+    idleTimeout: 20_000,
+    connectTimeout: 30_000,
+    enableKeepAlive: true,
     ssl: resolveSsl(url),
-    // Money is bigint in the schema; postgres-js would otherwise hand back
-    // strings for int8. Parse to number — all values are well inside 2^53.
-    types: {
-      bigint: postgres.BigInt,
-    },
+    // MySQL DATETIME carries no zone, so the driver has to be told how to read
+    // one. "Z" makes mysql2 both write and parse DATETIME as UTC; the default
+    // ("local") would shift every timestamp by the host's offset, which on a
+    // machine in Asia/Kolkata is a silent 5h30m error in both directions.
+    timezone: "Z",
+    // Money is bigint in the schema. Without this, mysql2 hands back a JS
+    // number for BIGINT and loses precision past 2^53 silently. With it, only
+    // out-of-range values arrive as strings, and drizzle's bigint mode
+    // "number" coerces them (mapFromDriverValue -> Number(value)).
+    supportBigNumbers: true,
+    bigNumberStrings: false,
   });
 }
 
-const client = globalForDb.__sql ?? createClient();
+/**
+ * The driver's `timezone: "Z"` only governs how mysql2 converts between JS
+ * `Date` and the wire format. It does not change the *server* session, so
+ * `NOW()`, `CURRENT_TIMESTAMP` (the default on 125 columns) and
+ * `UNIX_TIMESTAMP()` would still be evaluated in the server's own zone and
+ * disagree with everything the driver writes. Pinning each pooled connection
+ * to UTC makes the two agree.
+ */
+function pinSessionToUtc(pool: Pool): Pool {
+  pool.on("connection", (connection) => {
+    // group_concat_max_len: GROUP_CONCAT replaced Postgres's string_agg (see
+    // services/risk.ts), and MySQL's 1024-byte default would TRUNCATE the
+    // result silently rather than erroring — a risk summary that quietly loses
+    // its last few orders. 16 MB is far above anything these queries build.
+    connection.query(
+      "SET time_zone = '+00:00', group_concat_max_len = 16777216",
+      (err) => {
+        if (err) console.error("could not initialise the session", err);
+      },
+    );
+  });
+  return pool;
+}
+
+const client = globalForDb.__sql ?? pinSessionToUtc(createClient());
 if (getEnv().NODE_ENV !== "production") globalForDb.__sql = client;
 
-export const db = drizzle(client, { schema });
+export const db = drizzle(client, { schema, mode: "default" });
 export { schema };
 export type Database = typeof db;
 

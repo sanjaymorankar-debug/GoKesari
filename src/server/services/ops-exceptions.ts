@@ -14,6 +14,7 @@ import {
 import { OFFER_TTL_SECONDS, getOfferTtlSeconds } from "./delivery-assignment";
 import { SETTLEMENT_HOLD_DAYS } from "./finance";
 import { ORDER_STATUS_LABELS } from "./orders";
+import { rows as queryRows } from "@/server/db/raw";
 
 export const OPS_EXCEPTION_THRESHOLDS = {
   // Minutes a 30-minute express order may sit unaccepted: a sixth of its whole window.
@@ -104,7 +105,10 @@ export const OPS_EXCEPTION_PRECEDENCE: readonly OpsExceptionCategory[] = [
   "LATE",
 ];
 
-export const OPS_EXCEPTION_CATEGORY_LABELS: Record<OpsExceptionCategory, string> = {
+export const OPS_EXCEPTION_CATEGORY_LABELS: Record<
+  OpsExceptionCategory,
+  string
+> = {
   SHOP_NOT_ACCEPTING: "Shop not accepting",
   SHOP_SLOW: "Shop slow to prepare",
   AWAITING_SUBSTITUTION: "Waiting on a substitute",
@@ -121,7 +125,9 @@ export const OPS_EXCEPTION_CATEGORY_LABELS: Record<OpsExceptionCategory, string>
 
 const CATEGORY_VALUES: readonly string[] = OPS_EXCEPTION_CATEGORIES;
 
-export function isOpsExceptionCategory(value: unknown): value is OpsExceptionCategory {
+export function isOpsExceptionCategory(
+  value: unknown,
+): value is OpsExceptionCategory {
   return typeof value === "string" && CATEGORY_VALUES.includes(value);
 }
 
@@ -195,7 +201,9 @@ export interface OpsExceptionQueue {
   matchingRows: number;
   capped: boolean;
   rowLimit: number;
-  summary: OpsExceptionCounts & { byCategory: Record<OpsExceptionCategory, OpsExceptionCounts> };
+  summary: OpsExceptionCounts & {
+    byCategory: Record<OpsExceptionCategory, OpsExceptionCounts>;
+  };
   health: OpsExceptionHealth;
 }
 
@@ -208,14 +216,12 @@ const ACTIVE_STATUSES: ReadonlySet<OrderStatus> = new Set<OrderStatus>([
   "PICKED_UP",
   "OUT_FOR_DELIVERY",
 ]);
-const LIVE_DELIVERY_STATUSES: ReadonlySet<DeliveryOrderStatus> = new Set<DeliveryOrderStatus>([
-  "OFFERED",
-  "ACCEPTED",
-  "PICKED_UP",
-]);
+const LIVE_DELIVERY_STATUSES: ReadonlySet<DeliveryOrderStatus> =
+  new Set<DeliveryOrderStatus>(["OFFERED", "ACCEPTED", "PICKED_UP"]);
 
 const ORDER_STATUS_VALUES: readonly string[] = orderStatusEnum.enumValues;
-const DELIVERY_STATUS_VALUES: readonly string[] = deliveryOrderStatusEnum.enumValues;
+const DELIVERY_STATUS_VALUES: readonly string[] =
+  deliveryOrderStatusEnum.enumValues;
 
 function isOrderStatus(value: unknown): value is OrderStatus {
   return typeof value === "string" && ORDER_STATUS_VALUES.includes(value);
@@ -291,7 +297,15 @@ function parseCandidate(row: Record<string, unknown>): CandidateOrder | null {
   const shopId = text(row.shop_id);
   const customerId = text(row.customer_id);
   const enteredAt = num(row.entered_ms);
-  if (!isOrderStatus(status) || !orderId || !orderNumber || !shopId || !customerId || enteredAt == null) return null;
+  if (
+    !isOrderStatus(status) ||
+    !orderId ||
+    !orderNumber ||
+    !shopId ||
+    !customerId ||
+    enteredAt == null
+  )
+    return null;
 
   // assignNearestPartner stores the rider-to-shop distance when the address has no coordinates, so it is
   // not the shop-to-customer distance the leg ETAs need.
@@ -362,8 +376,17 @@ function ago(from: number, now: number): string {
 }
 
 function riderLegStart(delivery: CandidateDelivery | null): number | null {
-  if (!delivery || delivery.status !== "PICKED_UP" || delivery.outForDeliveryAt == null) return null;
-  if (delivery.pickedUpAt != null && delivery.outForDeliveryAt < delivery.pickedUpAt) return null;
+  if (
+    !delivery ||
+    delivery.status !== "PICKED_UP" ||
+    delivery.outForDeliveryAt == null
+  )
+    return null;
+  if (
+    delivery.pickedUpAt != null &&
+    delivery.outForDeliveryAt < delivery.pickedUpAt
+  )
+    return null;
   return delivery.outForDeliveryAt;
 }
 
@@ -371,27 +394,43 @@ function legEtaMinutes(km: number): number {
   return (km / T.legSpeedKmh) * 60;
 }
 
-function riderPresence(delivery: CandidateDelivery, now: number): { stale: boolean; sentence: string } {
+function riderPresence(
+  delivery: CandidateDelivery,
+  now: number,
+): { stale: boolean; sentence: string } {
   const name = delivery.riderName;
-  if (!delivery.riderOnline) return { stale: true, sentence: `${name} is offline.` };
-  if (delivery.riderLastLocationAt == null) return { stale: true, sentence: `${name} is online but has not shared a location.` };
+  if (!delivery.riderOnline)
+    return { stale: true, sentence: `${name} is offline.` };
+  if (delivery.riderLastLocationAt == null)
+    return {
+      stale: true,
+      sentence: `${name} is online but has not shared a location.`,
+    };
   const age = now - delivery.riderLastLocationAt;
   if (age > T.riderStaleLocation * MINUTE_MS) {
-    return { stale: true, sentence: `${name} is online but their last location is ${formatElapsed(age)} old.` };
+    return {
+      stale: true,
+      sentence: `${name} is online but their last location is ${formatElapsed(age)} old.`,
+    };
   }
-  return { stale: false, sentence: `${name} is online and sharing their location.` };
+  return {
+    stale: false,
+    sentence: `${name} is online and sharing their location.`,
+  };
 }
 
 /** Live `dispatch.offerTtlSeconds`, refreshed at the start of every exceptions load. */
 let liveOfferTtlSeconds = OFFER_TTL_SECONDS;
 
 function noRiderReason(order: CandidateOrder, now: number): string {
-  if (!order.shopHasLocation) return "The shop has no location on file, so no rider can be matched to it.";
+  if (!order.shopHasLocation)
+    return "The shop has no location on file, so no rider can be matched to it.";
   const delivery = order.delivery;
   if (!delivery) return "No rider has been offered this order yet.";
   if (delivery.status === "OFFERED" && delivery.offeredAt != null) {
     const expiresAt = delivery.offeredAt + liveOfferTtlSeconds * 1000;
-    if (now <= expiresAt) return `Offered to ${delivery.riderName} ${ago(delivery.offeredAt, now)}; waiting for an answer.`;
+    if (now <= expiresAt)
+      return `Offered to ${delivery.riderName} ${ago(delivery.offeredAt, now)}; waiting for an answer.`;
     if (now <= expiresAt + T.dispatchSweepIntervalSeconds * 1000) {
       return `The offer to ${delivery.riderName} ran out ${ago(expiresAt, now)}; the next dispatch sweep will re-offer it.`;
     }
@@ -413,34 +452,52 @@ const DETECTORS: Record<OpsExceptionCategory, Detector> = {
     if (order.source === "SUBSCRIPTION") {
       if (waited <= T.shopAcceptSubscriptionHours * HOUR_MS) return null;
       return {
-        severity: waited > T.shopAcceptSubscriptionCriticalHours * HOUR_MS ? "CRITICAL" : "WARNING",
+        severity:
+          waited > T.shopAcceptSubscriptionCriticalHours * HOUR_MS
+            ? "CRITICAL"
+            : "WARNING",
         since: order.enteredAt,
         clockLabel: "waiting for the shop to accept",
         detail: `This subscription delivery was confirmed ${ago(order.enteredAt, now)} and the shop has not accepted it. The customer's delivery for the day is at risk.`,
       };
     }
-    const limit = order.deliveryWindow === "EXPRESS_30" ? T.shopAcceptExpress : T.shopAcceptOther;
+    const limit =
+      order.deliveryWindow === "EXPRESS_30"
+        ? T.shopAcceptExpress
+        : T.shopAcceptOther;
     if (waited <= limit * MINUTE_MS) return null;
     const cannotMakePromise =
-      order.promisedByAt != null && now > order.promisedByAt - order.preparationMinutes * MINUTE_MS;
-    const kind = (order.deliveryWindow && WINDOW_PHRASES[order.deliveryWindow]) || "order";
+      order.promisedByAt != null &&
+      now > order.promisedByAt - order.preparationMinutes * MINUTE_MS;
+    const kind =
+      (order.deliveryWindow && WINDOW_PHRASES[order.deliveryWindow]) || "order";
     return {
-      severity: waited > T.shopAcceptCritical * MINUTE_MS || cannotMakePromise ? "CRITICAL" : "WARNING",
+      severity:
+        waited > T.shopAcceptCritical * MINUTE_MS || cannotMakePromise
+          ? "CRITICAL"
+          : "WARNING",
       since: order.enteredAt,
       clockLabel: "waiting for the shop to accept",
       detail:
         `The shop has not accepted this ${kind} after ${formatElapsed(waited)}.` +
-        (cannotMakePromise && order.promisedByAt != null && now <= order.promisedByAt
+        (cannotMakePromise &&
+        order.promisedByAt != null &&
+        now <= order.promisedByAt
           ? ` With its ${order.preparationMinutes}-minute preparation time it can no longer be ready by the promised time.`
           : ""),
     };
   },
 
   SHOP_SLOW(order, now) {
-    if (order.status !== "ACCEPTED" && order.status !== "PREPARING") return null;
+    if (order.status !== "ACCEPTED" && order.status !== "PREPARING")
+      return null;
     if (order.substitutionSince != null) return null;
     const start = order.acceptedAt ?? order.enteredAt;
-    if (now <= start + (order.preparationMinutes + T.prepGraceAfterPrepTime) * MINUTE_MS) return null;
+    if (
+      now <=
+      start + (order.preparationMinutes + T.prepGraceAfterPrepTime) * MINUTE_MS
+    )
+      return null;
     return {
       severity: "WARNING",
       since: start,
@@ -453,8 +510,10 @@ const DETECTORS: Record<OpsExceptionCategory, Detector> = {
   },
 
   AWAITING_SUBSTITUTION(order, now) {
-    if (order.status !== "PREPARING" || order.substitutionSince == null) return null;
-    if (now - order.substitutionSince <= T.substitutionWait * MINUTE_MS) return null;
+    if (order.status !== "PREPARING" || order.substitutionSince == null)
+      return null;
+    if (now - order.substitutionSince <= T.substitutionWait * MINUTE_MS)
+      return null;
     return {
       severity: "WARNING",
       since: order.substitutionSince,
@@ -464,11 +523,17 @@ const DETECTORS: Record<OpsExceptionCategory, Detector> = {
   },
 
   NO_RIDER(order, now) {
-    if (order.status !== "READY" || !order.shopDeliveryAvailable || order.isPickup) return null;
+    if (
+      order.status !== "READY" ||
+      !order.shopDeliveryAvailable ||
+      order.isPickup
+    )
+      return null;
     const waited = now - order.enteredAt;
     if (waited <= T.noRiderWarning * MINUTE_MS) return null;
     return {
-      severity: waited >= T.noRiderCritical * MINUTE_MS ? "CRITICAL" : "WARNING",
+      severity:
+        waited >= T.noRiderCritical * MINUTE_MS ? "CRITICAL" : "WARNING",
       since: order.enteredAt,
       clockLabel: "since marked ready",
       detail: noRiderReason(order, now),
@@ -477,7 +542,12 @@ const DETECTORS: Record<OpsExceptionCategory, Detector> = {
 
   SELF_DELIVERY_OVERDUE(order, now) {
     // A pickup order has no address: the customer collects it, so there is no hand-over to chase.
-    if (order.status !== "READY" || order.shopDeliveryAvailable || order.isPickup) return null;
+    if (
+      order.status !== "READY" ||
+      order.shopDeliveryAvailable ||
+      order.isPickup
+    )
+      return null;
     const waited = now - order.enteredAt;
     const pastPromise = order.promisedByAt != null && now > order.promisedByAt;
     if (waited <= T.selfDeliveryReady * MINUTE_MS && !pastPromise) return null;
@@ -491,7 +561,12 @@ const DETECTORS: Record<OpsExceptionCategory, Detector> = {
 
   RIDER_NOT_PICKED_UP(order, now) {
     const delivery = order.delivery;
-    if (order.status !== "ASSIGNED" || delivery?.status !== "ACCEPTED" || delivery.acceptedAt == null) return null;
+    if (
+      order.status !== "ASSIGNED" ||
+      delivery?.status !== "ACCEPTED" ||
+      delivery.acceptedAt == null
+    )
+      return null;
     if (now - delivery.acceptedAt <= T.riderPickupWait * MINUTE_MS) return null;
     const presence = riderPresence(delivery, now);
     return {
@@ -505,8 +580,14 @@ const DETECTORS: Record<OpsExceptionCategory, Detector> = {
   STUCK_AFTER_PICKUP(order, now) {
     const delivery = order.delivery;
     if (order.status === "PICKED_UP") {
-      if (delivery?.status !== "PICKED_UP" || delivery.pickedUpAt == null || riderLegStart(delivery) != null) return null;
-      if (now - delivery.pickedUpAt <= T.dropNotStarted * MINUTE_MS) return null;
+      if (
+        delivery?.status !== "PICKED_UP" ||
+        delivery.pickedUpAt == null ||
+        riderLegStart(delivery) != null
+      )
+        return null;
+      if (now - delivery.pickedUpAt <= T.dropNotStarted * MINUTE_MS)
+        return null;
       return {
         severity: "WARNING",
         since: delivery.pickedUpAt,
@@ -520,7 +601,10 @@ const DETECTORS: Record<OpsExceptionCategory, Detector> = {
     const km = knownKm ?? order.serviceRadiusKm;
     const eta = legEtaMinutes(km);
     if (now <= start + (eta + T.outForDeliveryGrace) * MINUTE_MS) return null;
-    const distance = knownKm != null ? `${km.toFixed(1)} km` : `the shop's ${order.serviceRadiusKm} km delivery radius`;
+    const distance =
+      knownKm != null
+        ? `${km.toFixed(1)} km`
+        : `the shop's ${order.serviceRadiusKm} km delivery radius`;
     const expectation = `About ${Math.ceil(eta)} min was expected for ${distance}, plus ${T.outForDeliveryGrace} min grace.`;
     const elapsed = formatElapsed(now - start);
     const carrier =
@@ -541,8 +625,13 @@ const DETECTORS: Record<OpsExceptionCategory, Detector> = {
 
   OTP_LOCKED(order, now) {
     const delivery = order.delivery;
-    if (order.status !== "PICKED_UP" && order.status !== "OUT_FOR_DELIVERY") return null;
-    if (delivery?.status !== "PICKED_UP" || delivery.otpAttempts < T.otpLockAttempts) return null;
+    if (order.status !== "PICKED_UP" && order.status !== "OUT_FOR_DELIVERY")
+      return null;
+    if (
+      delivery?.status !== "PICKED_UP" ||
+      delivery.otpAttempts < T.otpLockAttempts
+    )
+      return null;
     const start = riderLegStart(delivery) ?? order.enteredAt;
     return {
       severity: "CRITICAL",
@@ -555,11 +644,16 @@ const DETECTORS: Record<OpsExceptionCategory, Detector> = {
   FAILED_DELIVERY(order, now) {
     if (order.status !== "FAILED") return null;
     const delivery = order.delivery;
-    const start = delivery?.status === "FAILED" && delivery.failedAt != null ? delivery.failedAt : order.enteredAt;
+    const start =
+      delivery?.status === "FAILED" && delivery.failedAt != null
+        ? delivery.failedAt
+        : order.enteredAt;
     const knownKm = delivery?.distanceKm ?? null;
-    const returnEta = knownKm != null ? legEtaMinutes(knownKm) : T.returnLegFallback;
+    const returnEta =
+      knownKm != null ? legEtaMinutes(knownKm) : T.returnLegFallback;
     const decisionDue = start + (returnEta + T.failedDecisionGrace) * MINUTE_MS;
-    const reason = delivery?.status === "FAILED" ? delivery.failureReason : null;
+    const reason =
+      delivery?.status === "FAILED" ? delivery.failureReason : null;
     const overdue = now > decisionDue;
     return {
       severity: overdue ? "CRITICAL" : "WARNING",
@@ -577,7 +671,8 @@ const DETECTORS: Record<OpsExceptionCategory, Detector> = {
     if (order.status !== "RETURNED") return null;
     const waited = now - order.enteredAt;
     return {
-      severity: waited >= T.returnedDecision * MINUTE_MS ? "CRITICAL" : "WARNING",
+      severity:
+        waited >= T.returnedDecision * MINUTE_MS ? "CRITICAL" : "WARNING",
       since: order.enteredAt,
       clockLabel: "since it was returned",
       detail:
@@ -591,18 +686,26 @@ const DETECTORS: Record<OpsExceptionCategory, Detector> = {
     if (order.status !== "DISPUTED") return null;
     const age = now - order.enteredAt;
     return {
-      severity: age >= T.disputeCriticalHours * HOUR_MS ? "CRITICAL" : "WARNING",
+      severity:
+        age >= T.disputeCriticalHours * HOUR_MS ? "CRITICAL" : "WARNING",
       since: order.enteredAt,
       clockLabel: "under dispute",
       detail:
         `Under dispute for ${formatElapsed(age)}.` +
-        (age > T.disputeWarningHours * HOUR_MS ? ` Open for over ${T.disputeWarningHours} h.` : "") +
+        (age > T.disputeWarningHours * HOUR_MS
+          ? ` Open for over ${T.disputeWarningHours} h.`
+          : "") +
         " Close it with no refund, or refund the customer in full or in part.",
     };
   },
 
   LATE(order, now) {
-    if (!ACTIVE_STATUSES.has(order.status) || order.promisedByAt == null || now <= order.promisedByAt) return null;
+    if (
+      !ACTIVE_STATUSES.has(order.status) ||
+      order.promisedByAt == null ||
+      now <= order.promisedByAt
+    )
+      return null;
     return {
       severity: "CRITICAL",
       since: order.enteredAt,
@@ -612,7 +715,10 @@ const DETECTORS: Record<OpsExceptionCategory, Detector> = {
   },
 };
 
-function classify(order: CandidateOrder, now: number): (Detection & { category: OpsExceptionCategory }) | null {
+function classify(
+  order: CandidateOrder,
+  now: number,
+): (Detection & { category: OpsExceptionCategory }) | null {
   for (const category of OPS_EXCEPTION_PRECEDENCE) {
     const hit = DETECTORS[category](order, now);
     if (hit) return { ...hit, category };
@@ -624,13 +730,20 @@ function riderIsRelevant(order: CandidateOrder): boolean {
   const delivery = order.delivery;
   if (!delivery) return false;
   if (LIVE_DELIVERY_STATUSES.has(delivery.status)) return true;
-  if (delivery.status === "FAILED") return order.status === "FAILED" || order.status === "RETURNED";
+  if (delivery.status === "FAILED")
+    return order.status === "FAILED" || order.status === "RETURNED";
   return delivery.status === "DELIVERED" && order.status === "DISPUTED";
 }
 
-function toRow(order: CandidateOrder, hit: Detection & { category: OpsExceptionCategory }, now: number): OpsExceptionRow {
-  const promiseApplies = ACTIVE_STATUSES.has(order.status) && order.promisedByAt != null;
-  const pastPromise = promiseApplies && order.promisedByAt != null && now > order.promisedByAt;
+function toRow(
+  order: CandidateOrder,
+  hit: Detection & { category: OpsExceptionCategory },
+  now: number,
+): OpsExceptionRow {
+  const promiseApplies =
+    ACTIVE_STATUSES.has(order.status) && order.promisedByAt != null;
+  const pastPromise =
+    promiseApplies && order.promisedByAt != null && now > order.promisedByAt;
   const delivery = order.delivery;
   const showRider = riderIsRelevant(order);
   return {
@@ -646,8 +759,12 @@ function toRow(order: CandidateOrder, hit: Detection & { category: OpsExceptionC
     severity: pastPromise ? "CRITICAL" : hit.severity,
     enteredAt: new Date(hit.since),
     clockLabel: hit.clockLabel,
-    promisedByAt: order.promisedByAt != null ? new Date(order.promisedByAt) : null,
-    lateByMinutes: pastPromise && order.promisedByAt != null ? Math.floor((now - order.promisedByAt) / MINUTE_MS) : null,
+    promisedByAt:
+      order.promisedByAt != null ? new Date(order.promisedByAt) : null,
+    lateByMinutes:
+      pastPromise && order.promisedByAt != null
+        ? Math.floor((now - order.promisedByAt) / MINUTE_MS)
+        : null,
     dueInMinutes:
       promiseApplies && !pastPromise && order.promisedByAt != null
         ? Math.ceil((order.promisedByAt - now) / MINUTE_MS)
@@ -657,13 +774,19 @@ function toRow(order: CandidateOrder, hit: Detection & { category: OpsExceptionC
     isPaid: order.isPaid,
     totalPaise: order.totalPaise,
     deliveryStatus: delivery?.status ?? null,
-    hasActiveRider: delivery != null && LIVE_DELIVERY_STATUSES.has(delivery.status),
+    hasActiveRider:
+      delivery != null && LIVE_DELIVERY_STATUSES.has(delivery.status),
     riderName: showRider && delivery ? delivery.riderName : null,
     riderOnline: showRider && delivery ? delivery.riderOnline : null,
     riderLastLocationAt:
-      showRider && delivery?.riderLastLocationAt != null ? new Date(delivery.riderLastLocationAt) : null,
-    otpLocked: delivery?.status === "PICKED_UP" && delivery.otpAttempts >= T.otpLockAttempts,
-    failureReason: delivery?.status === "FAILED" ? delivery.failureReason : null,
+      showRider && delivery?.riderLastLocationAt != null
+        ? new Date(delivery.riderLastLocationAt)
+        : null,
+    otpLocked:
+      delivery?.status === "PICKED_UP" &&
+      delivery.otpAttempts >= T.otpLockAttempts,
+    failureReason:
+      delivery?.status === "FAILED" ? delivery.failureReason : null,
     openGrievance: null,
     detail: hit.detail,
   };
@@ -679,9 +802,10 @@ const CANDIDATES_QUERY = sql`
     o.payment_method,
     o.total_paise,
     (o.paid_at is not null) as is_paid,
-    (extract(epoch from coalesce(h.entered_at, o.created_at)) * 1000)::float8 as entered_ms,
-    (extract(epoch from o.accepted_at) * 1000)::float8 as accepted_ms,
-    (extract(epoch from o.promised_by_at) * 1000)::float8 as promised_ms,
+    CAST((UNIX_TIMESTAMP(coalesce((select max(x.created_at) from order_status_history x
+      where x.order_id = o.id and x.new_status = o.status), o.created_at)) * 1000) AS DOUBLE) as entered_ms,
+    CAST((UNIX_TIMESTAMP(o.accepted_at) * 1000) AS DOUBLE) as accepted_ms,
+    CAST((UNIX_TIMESTAMP(o.promised_by_at) * 1000) AS DOUBLE) as promised_ms,
     s.id as shop_id,
     s.name as shop_name,
     s.delivery_available,
@@ -690,26 +814,26 @@ const CANDIDATES_QUERY = sql`
     (s.latitude is not null and s.longitude is not null) as shop_has_location,
     u.id as customer_id,
     u.name as customer_name,
-    (o.delivery_address_snapshot is null or jsonb_typeof(o.delivery_address_snapshot) = 'null') as is_pickup,
+    (o.delivery_address_snapshot is null or JSON_TYPE(o.delivery_address_snapshot) = 'NULL') as is_pickup,
     (
-      nullif(o.delivery_address_snapshot ->> 'latitude', '') is not null
-      and nullif(o.delivery_address_snapshot ->> 'longitude', '') is not null
+      nullif(o.delivery_address_snapshot ->> '$.latitude', '') is not null
+      and nullif(o.delivery_address_snapshot ->> '$.longitude', '') is not null
     ) as customer_has_coords,
     d.status as delivery_status,
-    (extract(epoch from d.offered_at) * 1000)::float8 as offered_ms,
-    (extract(epoch from d.accepted_at) * 1000)::float8 as rider_accepted_ms,
-    (extract(epoch from d.picked_up_at) * 1000)::float8 as picked_up_ms,
-    (extract(epoch from d.out_for_delivery_at) * 1000)::float8 as out_for_delivery_ms,
-    (extract(epoch from d.failed_at) * 1000)::float8 as failed_ms,
+    CAST((UNIX_TIMESTAMP(d.offered_at) * 1000) AS DOUBLE) as offered_ms,
+    CAST((UNIX_TIMESTAMP(d.accepted_at) * 1000) AS DOUBLE) as rider_accepted_ms,
+    CAST((UNIX_TIMESTAMP(d.picked_up_at) * 1000) AS DOUBLE) as picked_up_ms,
+    CAST((UNIX_TIMESTAMP(d.out_for_delivery_at) * 1000) AS DOUBLE) as out_for_delivery_ms,
+    CAST((UNIX_TIMESTAMP(d.failed_at) * 1000) AS DOUBLE) as failed_ms,
     d.failure_reason,
     d.distance_km,
     d.delivery_otp_attempts,
-    coalesce(cardinality(d.rejected_partner_ids), 0) as rejected_count,
+    coalesce(JSON_LENGTH(d.rejected_partner_ids), 0) as rejected_count,
     p.full_name as rider_name,
     p.is_online as rider_online,
-    (extract(epoch from p.last_location_at) * 1000)::float8 as rider_location_ms,
+    CAST((UNIX_TIMESTAMP(p.last_location_at) * 1000) AS DOUBLE) as rider_location_ms,
     case when o.status = 'PREPARING' then (
-      select (extract(epoch from min(coalesce(i.fulfilment_updated_at, i.created_at))) * 1000)::float8
+      select CAST((UNIX_TIMESTAMP(min(coalesce(i.fulfilment_updated_at, i.created_at))) * 1000) AS DOUBLE)
       from order_items i
       where i.order_id = o.id and i.fulfilment_status = 'SUBSTITUTION_PROPOSED'
     ) end as substitution_ms
@@ -718,23 +842,24 @@ const CANDIDATES_QUERY = sql`
   join users u on u.id = o.user_id
   left join delivery_orders d on d.order_id = o.id
   left join delivery_partners p on p.id = d.delivery_partner_id
-  left join lateral (
-    select max(x.created_at) as entered_at
-    from order_status_history x
-    where x.order_id = o.id and x.new_status = o.status
-  ) h on true
   where o.status in ('CONFIRMED', 'ACCEPTED', 'PREPARING', 'READY', 'ASSIGNED', 'PICKED_UP', 'OUT_FOR_DELIVERY', 'FAILED', 'RETURNED', 'DISPUTED')
 `;
 
 async function loadDispatchHealth(): Promise<OpsExceptionHealth> {
   const staleAfterSeconds = liveOfferTtlSeconds * 2;
   const [row] = await db
-    .select({ staleOffers: count(), oldestOfferedAt: min(deliveryOrders.offeredAt) })
+    .select({
+      staleOffers: count(),
+      oldestOfferedAt: min(deliveryOrders.offeredAt),
+    })
     .from(deliveryOrders)
     .where(
       and(
         eq(deliveryOrders.status, "OFFERED"),
-        lt(deliveryOrders.offeredAt, sql`now() - make_interval(secs => ${staleAfterSeconds})`),
+        lt(
+          deliveryOrders.offeredAt,
+          sql`now() - interval ${staleAfterSeconds} second`,
+        ),
       ),
     );
   const staleOfferCount = row?.staleOffers ?? 0;
@@ -747,7 +872,9 @@ async function loadDispatchHealth(): Promise<OpsExceptionHealth> {
   };
 }
 
-async function loadOpenGrievances(orderIds: string[]): Promise<Map<string, OpsExceptionGrievance>> {
+async function loadOpenGrievances(
+  orderIds: string[],
+): Promise<Map<string, OpsExceptionGrievance>> {
   const found = new Map<string, OpsExceptionGrievance>();
   if (orderIds.length === 0) return found;
   const rows = await db
@@ -759,11 +886,21 @@ async function loadOpenGrievances(orderIds: string[]): Promise<Map<string, OpsEx
       subject: grievances.subject,
     })
     .from(grievances)
-    .where(and(inArray(grievances.orderId, orderIds), inArray(grievances.status, ["OPEN", "IN_PROGRESS"])))
+    .where(
+      and(
+        inArray(grievances.orderId, orderIds),
+        inArray(grievances.status, ["OPEN", "IN_PROGRESS"]),
+      ),
+    )
     .orderBy(desc(grievances.createdAt));
   for (const row of rows) {
     if (row.orderId && !found.has(row.orderId)) {
-      found.set(row.orderId, { id: row.id, ticketNumber: row.ticketNumber, status: row.status, subject: row.subject });
+      found.set(row.orderId, {
+        id: row.id,
+        ticketNumber: row.ticketNumber,
+        status: row.status,
+        subject: row.subject,
+      });
     }
   }
   return found;
@@ -787,16 +924,18 @@ function emptyCounts(): Record<OpsExceptionCategory, OpsExceptionCounts> {
   };
 }
 
-export async function listOpsExceptions(options: { category?: OpsExceptionCategory } = {}): Promise<OpsExceptionQueue> {
+export async function listOpsExceptions(
+  options: { category?: OpsExceptionCategory } = {},
+): Promise<OpsExceptionQueue> {
   liveOfferTtlSeconds = await getOfferTtlSeconds();
   const [raw, health] = await Promise.all([
-    db.execute<Record<string, unknown>>(CANDIDATES_QUERY),
+    db.execute(CANDIDATES_QUERY),
     loadDispatchHealth(),
   ]);
   const now = Date.now();
 
   const all: OpsExceptionRow[] = [];
-  for (const record of raw) {
+  for (const record of queryRows<Record<string, unknown>>(raw)) {
     const order = parseCandidate(record);
     if (!order) continue;
     const hit = classify(order, now);
@@ -813,7 +952,9 @@ export async function listOpsExceptions(options: { category?: OpsExceptionCatego
     }
   }
 
-  const matching = (options.category ? all.filter((r) => r.category === options.category) : all).sort(
+  const matching = (
+    options.category ? all.filter((r) => r.category === options.category) : all
+  ).sort(
     (a, b) =>
       (a.severity === b.severity ? 0 : a.severity === "CRITICAL" ? -1 : 1) ||
       a.enteredAt.getTime() - b.enteredAt.getTime() ||
@@ -824,7 +965,8 @@ export async function listOpsExceptions(options: { category?: OpsExceptionCatego
   const grievancesByOrder = await loadOpenGrievances(
     rows.filter((r) => r.orderStatus === "DISPUTED").map((r) => r.orderId),
   );
-  for (const row of rows) row.openGrievance = grievancesByOrder.get(row.orderId) ?? null;
+  for (const row of rows)
+    row.openGrievance = grievancesByOrder.get(row.orderId) ?? null;
 
   return {
     generatedAt: new Date(now),

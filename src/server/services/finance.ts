@@ -17,7 +17,13 @@
  */
 import { and, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
-import { addDays, assertIsoDate, isoWeekday, todayIn, type IsoDate } from "@/lib/dates";
+import {
+  addDays,
+  assertIsoDate,
+  isoWeekday,
+  todayIn,
+  type IsoDate,
+} from "@/lib/dates";
 import { getEnv } from "@/lib/env";
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import type { ShopTypeKey } from "@/lib/shop-types";
@@ -54,6 +60,12 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { applyWalletMutation, refundOriginalDebit } from "./wallet";
+import {
+  insertIfNewReturning,
+  insertReturning,
+  keepExisting,
+  updateReturning,
+} from "@/server/db/returning";
 
 interface Actor {
   id: string;
@@ -86,7 +98,11 @@ interface LedgerLine {
 }
 
 /** Append entries to the marketplace journal (Part I). Zero amounts are skipped. */
-export async function postLedger(lines: LedgerLine[], createdBy: string | null, client: DbClient = db): Promise<void> {
+export async function postLedger(
+  lines: LedgerLine[],
+  createdBy: string | null,
+  client: DbClient = db,
+): Promise<void> {
   const rows = lines
     .filter((l) => l.amountPaise !== 0)
     .map((l) => ({
@@ -95,7 +111,12 @@ export async function postLedger(lines: LedgerLine[], createdBy: string | null, 
       entityId: l.entityId ?? null,
       entryType: l.entryType,
       // A negative amount flips the direction so stored amounts stay positive.
-      direction: l.amountPaise > 0 ? l.direction : l.direction === "CREDIT" ? ("DEBIT" as const) : ("CREDIT" as const),
+      direction:
+        l.amountPaise > 0
+          ? l.direction
+          : l.direction === "CREDIT"
+            ? ("DEBIT" as const)
+            : ("CREDIT" as const),
       amountPaise: Math.abs(l.amountPaise),
       sourceType: l.sourceType,
       sourceId: l.sourceId,
@@ -104,14 +125,30 @@ export async function postLedger(lines: LedgerLine[], createdBy: string | null, 
       createdBy,
     }));
   if (rows.length === 0) return;
-  await client.insert(financeLedgerEntries).values(rows).onConflictDoNothing();
+  await client
+    .insert(financeLedgerEntries)
+    .values(rows)
+    .onDuplicateKeyUpdate({ set: keepExisting(financeLedgerEntries) });
 }
 
-export async function listLedgerEntries(options: { orderId?: string; entityType?: FinancialParty; entityId?: string; limit?: number } = {}) {
+export async function listLedgerEntries(
+  options: {
+    orderId?: string;
+    entityType?: FinancialParty;
+    entityId?: string;
+    limit?: number;
+  } = {},
+) {
   const conditions = [
-    options.orderId ? eq(financeLedgerEntries.orderId, options.orderId) : undefined,
-    options.entityType ? eq(financeLedgerEntries.entityType, options.entityType) : undefined,
-    options.entityId ? eq(financeLedgerEntries.entityId, options.entityId) : undefined,
+    options.orderId
+      ? eq(financeLedgerEntries.orderId, options.orderId)
+      : undefined,
+    options.entityType
+      ? eq(financeLedgerEntries.entityType, options.entityType)
+      : undefined,
+    options.entityId
+      ? eq(financeLedgerEntries.entityId, options.entityId)
+      : undefined,
   ].filter(Boolean);
   return db
     .select()
@@ -141,9 +178,13 @@ export async function resolveCommissionRate(
     .orderBy(desc(commissionRates.createdAt));
   const pick =
     active.find((r) => r.scope === "SHOP" && r.shopId === shop.id) ??
-    active.find((r) => r.scope === "SHOP_TYPE" && r.shopType === shop.shopType) ??
+    active.find(
+      (r) => r.scope === "SHOP_TYPE" && r.shopType === shop.shopType,
+    ) ??
     active.find((r) => r.scope === "DEFAULT");
-  return pick ? { rateBp: pick.rateBp, rateId: pick.id, scope: pick.scope } : { rateBp: 0, rateId: null, scope: "NONE" };
+  return pick
+    ? { rateBp: pick.rateBp, rateId: pick.id, scope: pick.scope }
+    : { rateBp: 0, rateId: null, scope: "NONE" };
 }
 
 export function commissionOn(goodsPaise: number, rateBp: number): number {
@@ -155,33 +196,59 @@ export function commissionOn(goodsPaise: number, rateBp: number): number {
  * kept). Delivered orders keep the rate snapshotted on their order_financials.
  */
 export async function setCommissionRate(
-  input: { scope: CommissionScope; shopType?: ShopTypeKey | null; shopId?: string | null; rateBp: number; note?: string | null },
+  input: {
+    scope: CommissionScope;
+    shopType?: ShopTypeKey | null;
+    shopId?: string | null;
+    rateBp: number;
+    note?: string | null;
+  },
   actor: Actor,
 ): Promise<CommissionRate> {
-  if (!Number.isInteger(input.rateBp) || input.rateBp < 0 || input.rateBp > 5000) {
-    throw validationFailed("Commission must be between 0% and 50% (0–5000 basis points).");
+  if (
+    !Number.isInteger(input.rateBp) ||
+    input.rateBp < 0 ||
+    input.rateBp > 5000
+  ) {
+    throw validationFailed(
+      "Commission must be between 0% and 50% (0–5000 basis points).",
+    );
   }
-  const shopType = input.scope === "SHOP_TYPE" ? input.shopType ?? null : null;
-  const shopId = input.scope === "SHOP" ? input.shopId ?? null : null;
-  if (input.scope === "SHOP_TYPE" && !shopType) throw validationFailed("Choose the shop type.");
-  if (input.scope === "SHOP" && !shopId) throw validationFailed("Choose the shop.");
+  const shopType =
+    input.scope === "SHOP_TYPE" ? (input.shopType ?? null) : null;
+  const shopId = input.scope === "SHOP" ? (input.shopId ?? null) : null;
+  if (input.scope === "SHOP_TYPE" && !shopType)
+    throw validationFailed("Choose the shop type.");
+  if (input.scope === "SHOP" && !shopId)
+    throw validationFailed("Choose the shop.");
 
   return db.transaction(async (tx) => {
     const target =
       input.scope === "DEFAULT"
         ? eq(commissionRates.scope, "DEFAULT")
         : input.scope === "SHOP_TYPE"
-          ? and(eq(commissionRates.scope, "SHOP_TYPE"), eq(commissionRates.shopType, shopType!))
-          : and(eq(commissionRates.scope, "SHOP"), eq(commissionRates.shopId, shopId!));
-    const previous = await tx
-      .update(commissionRates)
-      .set({ isActive: false })
-      .where(and(target, eq(commissionRates.isActive, true)))
-      .returning();
-    const [created] = await tx
-      .insert(commissionRates)
-      .values({ scope: input.scope, shopType, shopId, rateBp: input.rateBp, note: input.note ?? null, createdBy: actor.id })
-      .returning();
+          ? and(
+              eq(commissionRates.scope, "SHOP_TYPE"),
+              eq(commissionRates.shopType, shopType!),
+            )
+          : and(
+              eq(commissionRates.scope, "SHOP"),
+              eq(commissionRates.shopId, shopId!),
+            );
+    const previous = await updateReturning(
+      tx,
+      commissionRates,
+      { isActive: false },
+      and(target, eq(commissionRates.isActive, true)),
+    );
+    const [created] = await insertReturning(tx, commissionRates, {
+      scope: input.scope,
+      shopType,
+      shopId,
+      rateBp: input.rateBp,
+      note: input.note ?? null,
+      createdBy: actor.id,
+    });
     await recordAudit(
       {
         actorId: actor.id,
@@ -190,7 +257,12 @@ export async function setCommissionRate(
         entityType: "commission_rate",
         entityId: created.id,
         previousValue: previous.map((p) => ({ id: p.id, rateBp: p.rateBp })),
-        newValue: { scope: input.scope, shopType, shopId, rateBp: input.rateBp },
+        newValue: {
+          scope: input.scope,
+          shopType,
+          shopId,
+          rateBp: input.rateBp,
+        },
       },
       tx,
     );
@@ -198,7 +270,9 @@ export async function setCommissionRate(
   });
 }
 
-export async function listCommissionRates(): Promise<(CommissionRate & { shopName: string | null })[]> {
+export async function listCommissionRates(): Promise<
+  (CommissionRate & { shopName: string | null })[]
+> {
   const rows = await db
     .select({ rate: commissionRates, shopName: shops.name })
     .from(commissionRates)
@@ -215,28 +289,48 @@ export async function listCommissionRates(): Promise<(CommissionRate & { shopNam
  * DELIVERED transition (orders.ts). Idempotent — a second DELIVERED (a
  * dispute resolved in the shop's favour) keeps the first snapshot.
  */
-export async function recordOrderFinancials(orderId: string, client: DbClient = db): Promise<void> {
-  const [order] = await client.select().from(orders).where(eq(orders.id, orderId));
+export async function recordOrderFinancials(
+  orderId: string,
+  client: DbClient = db,
+): Promise<void> {
+  const [order] = await client
+    .select()
+    .from(orders)
+    .where(eq(orders.id, orderId));
   if (!order || order.paidAt == null) return;
-  const [shop] = await client.select().from(shops).where(eq(shops.id, order.shopId));
+  const [shop] = await client
+    .select()
+    .from(shops)
+    .where(eq(shops.id, order.shopId));
   if (!shop) return;
 
   // Part A: the wallet debit that paid for this order (checkout or subscription).
   const [debit] = await client
     .select()
     .from(walletTransactions)
-    .where(and(eq(walletTransactions.orderId, orderId), sql`${walletTransactions.amountPaise} < 0`))
+    .where(
+      and(
+        eq(walletTransactions.orderId, orderId),
+        sql`${walletTransactions.amountPaise} < 0`,
+      ),
+    )
     .orderBy(walletTransactions.createdAt)
     .limit(1);
 
   const rate = await resolveCommissionRate(shop, client);
   const goodsPaise = order.subtotalPaise;
   const commissionPaise = commissionOn(goodsPaise, rate.rateBp);
-  const discountPaise = debit ? Math.min(-debit.promotionalAmountPaise, goodsPaise + order.deliveryFeePaise) : 0;
+  const discountPaise = debit
+    ? Math.min(
+        -debit.promotionalAmountPaise,
+        goodsPaise + order.deliveryFeePaise,
+      )
+    : 0;
 
-  const [snapshot] = await client
-    .insert(orderFinancials)
-    .values({
+  const [snapshot] = await insertIfNewReturning(
+    client,
+    orderFinancials,
+    {
       orderId,
       shopId: order.shopId,
       customerId: order.userId,
@@ -250,20 +344,62 @@ export async function recordOrderFinancials(orderId: string, client: DbClient = 
       commissionPaise,
       shopPayablePaise: goodsPaise - commissionPaise,
       deliveredAt: new Date(),
-    })
-    .onConflictDoNothing()
-    .returning();
+    },
+    eq(orderFinancials.orderId, orderId),
+  );
   if (!snapshot) return;
 
-  const base = { orderId, sourceType: "order_financials", sourceId: orderId, reference: debit?.id ?? null };
+  const base = {
+    orderId,
+    sourceType: "order_financials",
+    sourceId: orderId,
+    reference: debit?.id ?? null,
+  };
   await postLedger(
     [
-      { ...base, entityType: "SHOP", entityId: order.shopId, entryType: "GOODS_SALE", direction: "CREDIT", amountPaise: goodsPaise, key: `order:${orderId}:goods` },
-      { ...base, entityType: "SHOP", entityId: order.shopId, entryType: "COMMISSION", direction: "DEBIT", amountPaise: commissionPaise, key: `order:${orderId}:commission:shop` },
-      { ...base, entityType: "PLATFORM", entryType: "COMMISSION", direction: "CREDIT", amountPaise: commissionPaise, key: `order:${orderId}:commission:platform` },
-      { ...base, entityType: "PLATFORM", entryType: "DELIVERY_FEE", direction: "CREDIT", amountPaise: order.deliveryFeePaise, key: `order:${orderId}:delivery-fee` },
+      {
+        ...base,
+        entityType: "SHOP",
+        entityId: order.shopId,
+        entryType: "GOODS_SALE",
+        direction: "CREDIT",
+        amountPaise: goodsPaise,
+        key: `order:${orderId}:goods`,
+      },
+      {
+        ...base,
+        entityType: "SHOP",
+        entityId: order.shopId,
+        entryType: "COMMISSION",
+        direction: "DEBIT",
+        amountPaise: commissionPaise,
+        key: `order:${orderId}:commission:shop`,
+      },
+      {
+        ...base,
+        entityType: "PLATFORM",
+        entryType: "COMMISSION",
+        direction: "CREDIT",
+        amountPaise: commissionPaise,
+        key: `order:${orderId}:commission:platform`,
+      },
+      {
+        ...base,
+        entityType: "PLATFORM",
+        entryType: "DELIVERY_FEE",
+        direction: "CREDIT",
+        amountPaise: order.deliveryFeePaise,
+        key: `order:${orderId}:delivery-fee`,
+      },
       // Promotional wallet credit spent on the order is a platform-funded discount.
-      { ...base, entityType: "PLATFORM", entryType: "PROMOTIONAL_DISCOUNT", direction: "DEBIT", amountPaise: discountPaise, key: `order:${orderId}:discount` },
+      {
+        ...base,
+        entityType: "PLATFORM",
+        entryType: "PROMOTIONAL_DISCOUNT",
+        direction: "DEBIT",
+        amountPaise: discountPaise,
+        key: `order:${orderId}:discount`,
+      },
     ],
     null,
     client,
@@ -300,12 +436,34 @@ export async function postRetainedDeliveryFee(
 }
 
 /** Journal a rider earning (called where the earning is created — delivery-earnings.ts). */
-export async function postRiderEarning(earning: DeliveryPartnerEarning, orderId: string | null, client: DbClient = db): Promise<void> {
-  const base = { orderId, sourceType: "delivery_partner_earnings", sourceId: earning.id, entryType: "RIDER_EARNING" as const };
+export async function postRiderEarning(
+  earning: DeliveryPartnerEarning,
+  orderId: string | null,
+  client: DbClient = db,
+): Promise<void> {
+  const base = {
+    orderId,
+    sourceType: "delivery_partner_earnings",
+    sourceId: earning.id,
+    entryType: "RIDER_EARNING" as const,
+  };
   await postLedger(
     [
-      { ...base, entityType: "RIDER", entityId: earning.deliveryPartnerId, direction: "CREDIT", amountPaise: earning.totalPaise, key: `earning:${earning.id}:rider` },
-      { ...base, entityType: "PLATFORM", direction: "DEBIT", amountPaise: earning.totalPaise, key: `earning:${earning.id}:platform` },
+      {
+        ...base,
+        entityType: "RIDER",
+        entityId: earning.deliveryPartnerId,
+        direction: "CREDIT",
+        amountPaise: earning.totalPaise,
+        key: `earning:${earning.id}:rider`,
+      },
+      {
+        ...base,
+        entityType: "PLATFORM",
+        direction: "DEBIT",
+        amountPaise: earning.totalPaise,
+        key: `earning:${earning.id}:platform`,
+      },
     ],
     null,
     client,
@@ -331,9 +489,13 @@ export interface RefundDeliveredInput {
  * the delivery fee. Orders delivered before the finance ledger have no
  * snapshot, so their refunds are platform-borne.
  */
-export async function refundDeliveredOrder(input: RefundDeliveredInput, actor: Actor): Promise<FinancialAdjustment> {
+export async function refundDeliveredOrder(
+  input: RefundDeliveredInput,
+  actor: Actor,
+): Promise<FinancialAdjustment> {
   const reason = input.reason.trim();
-  if (reason.length < 3) throw validationFailed("Give a reason for the refund.");
+  if (reason.length < 3)
+    throw validationFailed("Give a reason for the refund.");
   if (!Number.isInteger(input.amountPaise) || input.amountPaise <= 0) {
     throw validationFailed("Refund amount must be more than zero.");
   }
@@ -347,14 +509,20 @@ export async function refundDeliveredOrder(input: RefundDeliveredInput, actor: A
     if (!order) throw notFound("Order");
 
     const key = `refund:order:${order.id}:after-delivery:${input.requestId}`;
-    const existing = await tx.query.financialAdjustments.findFirst({ where: eq(financialAdjustments.idempotencyKey, key) });
+    const existing = await tx.query.financialAdjustments.findFirst({
+      where: eq(financialAdjustments.idempotencyKey, key),
+    });
     if (existing) return { order, adjustment: existing, fullyRefunded: false };
 
     if (order.status !== "DELIVERED" && order.status !== "DISPUTED") {
-      throw conflict("Only a delivered or disputed order can be refunded here — cancel it instead.");
+      throw conflict(
+        "Only a delivered or disputed order can be refunded here — cancel it instead.",
+      );
     }
     if (input.amountPaise > order.totalPaise) {
-      throw validationFailed(`At most ₹${(order.totalPaise / 100).toFixed(2)} can still be refunded on this order.`);
+      throw validationFailed(
+        `At most ₹${(order.totalPaise / 100).toFixed(2)} can still be refunded on this order.`,
+      );
     }
 
     // A cash-on-delivery order has no wallet debit to reverse: its refund is
@@ -387,37 +555,65 @@ export async function refundDeliveredOrder(input: RefundDeliveredInput, actor: A
             tx,
           );
 
-    const snapshot = await tx.query.orderFinancials.findFirst({ where: eq(orderFinancials.orderId, order.id) });
+    const snapshot = await tx.query.orderFinancials.findFirst({
+      where: eq(orderFinancials.orderId, order.id),
+    });
     const chargeShop = input.chargeTo === "SHOP" && snapshot != null;
-    const refundedGoods = chargeShop ? Math.min(input.amountPaise, order.subtotalPaise) : 0;
-    const shopShare = refundedGoods - commissionOn(refundedGoods, snapshot?.commissionRateBp ?? 0);
+    const refundedGoods = chargeShop
+      ? Math.min(input.amountPaise, order.subtotalPaise)
+      : 0;
+    const shopShare =
+      refundedGoods -
+      commissionOn(refundedGoods, snapshot?.commissionRateBp ?? 0);
     const type: AdjustmentType = chargeShop ? "REFUND_SHOP" : "REFUND_PLATFORM";
 
-    const [adjustment] = await tx
-      .insert(financialAdjustments)
-      .values({
-        type,
-        party: chargeShop ? "SHOP" : "PLATFORM",
-        status: chargeShop ? "PENDING" : "RECORDED",
-        shopId: order.shopId,
-        orderId: order.id,
-        walletTransactionId: refund.transaction.id,
-        amountPaise: -shopShare,
-        customerRefundPaise: input.amountPaise,
-        reason,
-        idempotencyKey: key,
-        createdBy: actor.id,
-      })
-      .returning();
+    const [adjustment] = await insertReturning(tx, financialAdjustments, {
+      type,
+      party: chargeShop ? "SHOP" : "PLATFORM",
+      status: chargeShop ? "PENDING" : "RECORDED",
+      shopId: order.shopId,
+      orderId: order.id,
+      walletTransactionId: refund.transaction.id,
+      amountPaise: -shopShare,
+      customerRefundPaise: input.amountPaise,
+      reason,
+      idempotencyKey: key,
+      createdBy: actor.id,
+    });
 
-    const base = { orderId: order.id, sourceType: "financial_adjustments", sourceId: adjustment.id, reference: refund.transaction.id, entryType: "REFUND" as const };
+    const base = {
+      orderId: order.id,
+      sourceType: "financial_adjustments",
+      sourceId: adjustment.id,
+      reference: refund.transaction.id,
+      entryType: "REFUND" as const,
+    };
     await postLedger(
       [
         // The platform holds customer money, so it pays the refund out...
-        { ...base, entityType: "PLATFORM", direction: "DEBIT", amountPaise: input.amountPaise, key: `adj:${adjustment.id}:platform-refund` },
+        {
+          ...base,
+          entityType: "PLATFORM",
+          direction: "DEBIT",
+          amountPaise: input.amountPaise,
+          key: `adj:${adjustment.id}:platform-refund`,
+        },
         // ...and recovers the shop's share from the shop.
-        { ...base, entityType: "SHOP", entityId: order.shopId, direction: "DEBIT", amountPaise: shopShare, key: `adj:${adjustment.id}:shop` },
-        { ...base, entityType: "PLATFORM", direction: "CREDIT", amountPaise: shopShare, key: `adj:${adjustment.id}:platform-recovery` },
+        {
+          ...base,
+          entityType: "SHOP",
+          entityId: order.shopId,
+          direction: "DEBIT",
+          amountPaise: shopShare,
+          key: `adj:${adjustment.id}:shop`,
+        },
+        {
+          ...base,
+          entityType: "PLATFORM",
+          direction: "CREDIT",
+          amountPaise: shopShare,
+          key: `adj:${adjustment.id}:platform-recovery`,
+        },
       ],
       actor.id,
       tx,
@@ -428,7 +624,11 @@ export async function refundDeliveredOrder(input: RefundDeliveredInput, actor: A
       .update(orders)
       .set({
         totalPaise: remaining,
-        subtotalPaise: Math.max(0, order.subtotalPaise - Math.min(input.amountPaise, order.subtotalPaise)),
+        subtotalPaise: Math.max(
+          0,
+          order.subtotalPaise -
+            Math.min(input.amountPaise, order.subtotalPaise),
+        ),
         refundedPaise: order.refundedPaise + input.amountPaise,
         updatedAt: new Date(),
       })
@@ -441,8 +641,17 @@ export async function refundDeliveredOrder(input: RefundDeliveredInput, actor: A
         action: AUDIT_ACTIONS.ORDER_REFUNDED_AFTER_DELIVERY,
         entityType: "order",
         entityId: order.id,
-        previousValue: { totalPaise: order.totalPaise, refundedPaise: order.refundedPaise },
-        newValue: { amountPaise: input.amountPaise, chargeTo: type, shopShare, reason, adjustmentId: adjustment.id },
+        previousValue: {
+          totalPaise: order.totalPaise,
+          refundedPaise: order.refundedPaise,
+        },
+        newValue: {
+          amountPaise: input.amountPaise,
+          chargeTo: type,
+          shopShare,
+          reason,
+          adjustmentId: adjustment.id,
+        },
       },
       tx,
     );
@@ -452,15 +661,31 @@ export async function refundDeliveredOrder(input: RefundDeliveredInput, actor: A
   if (result.fullyRefunded) {
     // Imported lazily: orders.ts imports this module for the DELIVERED hook.
     const { updateOrderStatus } = await import("./orders");
-    await updateOrderStatus(result.order.id, "REFUND_PENDING", actor, "Full refund after delivery");
-    await updateOrderStatus(result.order.id, "REFUNDED", actor, "Wallet refunded");
+    await updateOrderStatus(
+      result.order.id,
+      "REFUND_PENDING",
+      actor,
+      "Full refund after delivery",
+    );
+    await updateOrderStatus(
+      result.order.id,
+      "REFUNDED",
+      actor,
+      "Wallet refunded",
+    );
   }
   return result.adjustment;
 }
 
 // COD cash adjustments are system-recorded only (cod.ts), never entered by hand.
 const ADJUSTMENT_PARTY: Record<
-  Exclude<AdjustmentType, "REFUND_SHOP" | "REFUND_PLATFORM" | "COD_CASH_COLLECTED" | "COD_CASH_DEPOSITED">,
+  Exclude<
+    AdjustmentType,
+    | "REFUND_SHOP"
+    | "REFUND_PLATFORM"
+    | "COD_CASH_COLLECTED"
+    | "COD_CASH_DEPOSITED"
+  >,
   FinancialParty
 > = {
   SHOP_ADJUSTMENT: "SHOP",
@@ -481,51 +706,91 @@ export interface AdjustmentInput {
 }
 
 /** Shop, rider (incl. delivery-related) or marketplace correction; flows into the next batch. */
-export async function recordAdjustment(input: AdjustmentInput, actor: Actor): Promise<FinancialAdjustment> {
+export async function recordAdjustment(
+  input: AdjustmentInput,
+  actor: Actor,
+): Promise<FinancialAdjustment> {
   const reason = input.reason.trim();
-  if (reason.length < 3) throw validationFailed("Give a reason for the adjustment.");
+  if (reason.length < 3)
+    throw validationFailed("Give a reason for the adjustment.");
   if (!Number.isInteger(input.amountPaise) || input.amountPaise === 0) {
-    throw validationFailed("Adjustment amount must be a non-zero number of paise.");
+    throw validationFailed(
+      "Adjustment amount must be a non-zero number of paise.",
+    );
   }
   const party = ADJUSTMENT_PARTY[input.type];
   if (!party) throw validationFailed("Unknown adjustment type.");
-  if (party === "SHOP" && !input.shopId) throw validationFailed("Choose the shop.");
-  if (party === "RIDER" && !input.deliveryPartnerId) throw validationFailed("Choose the delivery partner.");
+  if (party === "SHOP" && !input.shopId)
+    throw validationFailed("Choose the shop.");
+  if (party === "RIDER" && !input.deliveryPartnerId)
+    throw validationFailed("Choose the delivery partner.");
 
   const order = input.orderNumber
-    ? await db.query.orders.findFirst({ where: eq(orders.orderNumber, input.orderNumber.trim()) })
+    ? await db.query.orders.findFirst({
+        where: eq(orders.orderNumber, input.orderNumber.trim()),
+      })
     : null;
   if (input.orderNumber && !order) throw notFound("Order");
 
   const key = `adjustment:${input.type}:${input.requestId}`;
   return db.transaction(async (tx) => {
-    const existing = await tx.query.financialAdjustments.findFirst({ where: eq(financialAdjustments.idempotencyKey, key) });
+    const existing = await tx.query.financialAdjustments.findFirst({
+      where: eq(financialAdjustments.idempotencyKey, key),
+    });
     if (existing) return existing;
 
-    const [row] = await tx
-      .insert(financialAdjustments)
-      .values({
-        type: input.type,
-        party,
-        status: party === "PLATFORM" ? "RECORDED" : "PENDING",
-        shopId: party === "SHOP" ? input.shopId! : order?.shopId ?? null,
-        deliveryPartnerId: party === "RIDER" ? input.deliveryPartnerId! : null,
-        orderId: order?.id ?? null,
-        amountPaise: input.amountPaise,
-        reason,
-        idempotencyKey: key,
-        createdBy: actor.id,
-      })
-      .returning();
+    const [row] = await insertReturning(tx, financialAdjustments, {
+      type: input.type,
+      party,
+      status: party === "PLATFORM" ? "RECORDED" : "PENDING",
+      shopId: party === "SHOP" ? input.shopId! : (order?.shopId ?? null),
+      deliveryPartnerId: party === "RIDER" ? input.deliveryPartnerId! : null,
+      orderId: order?.id ?? null,
+      amountPaise: input.amountPaise,
+      reason,
+      idempotencyKey: key,
+      createdBy: actor.id,
+    });
 
-    const entityId = party === "SHOP" ? row.shopId : party === "RIDER" ? row.deliveryPartnerId : null;
-    const base = { orderId: row.orderId, sourceType: "financial_adjustments", sourceId: row.id, entryType: "ADJUSTMENT" as const };
+    const entityId =
+      party === "SHOP"
+        ? row.shopId
+        : party === "RIDER"
+          ? row.deliveryPartnerId
+          : null;
+    const base = {
+      orderId: row.orderId,
+      sourceType: "financial_adjustments",
+      sourceId: row.id,
+      entryType: "ADJUSTMENT" as const,
+    };
     await postLedger(
       party === "PLATFORM"
-        ? [{ ...base, entityType: "PLATFORM", direction: "CREDIT", amountPaise: input.amountPaise, key: `adj:${row.id}:platform` }]
+        ? [
+            {
+              ...base,
+              entityType: "PLATFORM",
+              direction: "CREDIT",
+              amountPaise: input.amountPaise,
+              key: `adj:${row.id}:platform`,
+            },
+          ]
         : [
-            { ...base, entityType: party, entityId, direction: "CREDIT", amountPaise: input.amountPaise, key: `adj:${row.id}:party` },
-            { ...base, entityType: "PLATFORM", direction: "DEBIT", amountPaise: input.amountPaise, key: `adj:${row.id}:platform` },
+            {
+              ...base,
+              entityType: party,
+              entityId,
+              direction: "CREDIT",
+              amountPaise: input.amountPaise,
+              key: `adj:${row.id}:party`,
+            },
+            {
+              ...base,
+              entityType: "PLATFORM",
+              direction: "DEBIT",
+              amountPaise: input.amountPaise,
+              key: `adj:${row.id}:platform`,
+            },
           ],
       actor.id,
       tx,
@@ -538,7 +803,15 @@ export async function recordAdjustment(input: AdjustmentInput, actor: Actor): Pr
         action: AUDIT_ACTIONS.FINANCIAL_ADJUSTMENT_RECORDED,
         entityType: "financial_adjustment",
         entityId: row.id,
-        newValue: { type: input.type, party, shopId: row.shopId, deliveryPartnerId: row.deliveryPartnerId, orderId: row.orderId, amountPaise: input.amountPaise, reason },
+        newValue: {
+          type: input.type,
+          party,
+          shopId: row.shopId,
+          deliveryPartnerId: row.deliveryPartnerId,
+          orderId: row.orderId,
+          amountPaise: input.amountPaise,
+          reason,
+        },
       },
       tx,
     );
@@ -557,12 +830,17 @@ export function previousWeekStart(now: Date = new Date()): IsoDate {
 
 /** Instant at which `date` begins in the app time zone. */
 function startOf(date: IsoDate) {
-  return sql`((${date})::date::timestamp AT TIME ZONE ${getEnv().APP_TIMEZONE})`;
+  // Postgres read `CAST(date AS DATETIME)` as a local wall-clock time and AT TIME ZONE
+  // resolved it to an instant. CONVERT_TZ does the same with the zones given
+  // explicitly: local midnight in APP_TIMEZONE -> the same instant in UTC,
+  // which is how every timestamp in this schema is stored.
+  return sql`CONVERT_TZ(CAST(${date} AS DATETIME), ${getEnv().APP_TIMEZONE}, '+00:00')`;
 }
 
 function assertMonday(weekStart: string): { start: IsoDate; end: IsoDate } {
   const start = assertIsoDate(weekStart);
-  if (isoWeekday(start) !== 1) throw validationFailed("A settlement week starts on a Monday.");
+  if (isoWeekday(start) !== 1)
+    throw validationFailed("A settlement week starts on a Monday.");
   return { start, end: addDays(start, 7) };
 }
 
@@ -572,7 +850,10 @@ function assertMonday(weekStart: string): { start: IsoDate; end: IsoDate } {
  * and is not disputed / refund-pending, plus every pending shop adjustment.
  * Older unsettled items roll in. Safe to re-run.
  */
-export async function prepareShopSettlements(weekStart: string, actor: SystemOrActor): Promise<ShopSettlement[]> {
+export async function prepareShopSettlements(
+  weekStart: string,
+  actor: SystemOrActor,
+): Promise<ShopSettlement[]> {
   const { start, end } = assertMonday(weekStart);
 
   return db.transaction(async (tx) => {
@@ -584,11 +865,18 @@ export async function prepareShopSettlements(weekStart: string, actor: SystemOrA
         and(
           isNull(orderFinancials.settlementId),
           lt(orderFinancials.deliveredAt, startOf(end)),
-          lt(orderFinancials.deliveredAt, sql`now() - make_interval(days => ${SETTLEMENT_HOLD_DAYS})`),
+          lt(
+            orderFinancials.deliveredAt,
+            sql`now() - interval ${SETTLEMENT_HOLD_DAYS} day`,
+          ),
           inArray(orders.status, ["DELIVERED", "REFUNDED"]),
         ),
       )
-      .for("update", { of: orderFinancials });
+      // Postgres narrowed this to `OF order_financials`. MySQL's own FOR UPDATE
+      // OF is not exposed by drizzle's MySQL builder and MariaDB does not
+      // support it at all, so the lock covers the joined `orders` rows too.
+      // That is strictly more locking, never less, so the guarantee holds.
+      .for("update");
     const eligibleAdjustments = await tx
       .select()
       .from(financialAdjustments)
@@ -608,40 +896,59 @@ export async function prepareShopSettlements(weekStart: string, actor: SystemOrA
     ]);
     const created: ShopSettlement[] = [];
     for (const shopId of shopIds) {
-      const lines = eligibleOrders.filter((r) => r.financial.shopId === shopId).map((r) => r.financial);
-      const adjustments = eligibleAdjustments.filter((a) => a.shopId === shopId);
+      const lines = eligibleOrders
+        .filter((r) => r.financial.shopId === shopId)
+        .map((r) => r.financial);
+      const adjustments = eligibleAdjustments.filter(
+        (a) => a.shopId === shopId,
+      );
       const goodsPaise = lines.reduce((sum, l) => sum + l.goodsPaise, 0);
-      const commissionPaise = lines.reduce((sum, l) => sum + l.commissionPaise, 0);
-      const refundsPaise = adjustments.filter((a) => a.type === "REFUND_SHOP").reduce((sum, a) => sum + a.amountPaise, 0);
-      const adjustmentsPaise = adjustments.filter((a) => a.type !== "REFUND_SHOP").reduce((sum, a) => sum + a.amountPaise, 0);
+      const commissionPaise = lines.reduce(
+        (sum, l) => sum + l.commissionPaise,
+        0,
+      );
+      const refundsPaise = adjustments
+        .filter((a) => a.type === "REFUND_SHOP")
+        .reduce((sum, a) => sum + a.amountPaise, 0);
+      const adjustmentsPaise = adjustments
+        .filter((a) => a.type !== "REFUND_SHOP")
+        .reduce((sum, a) => sum + a.amountPaise, 0);
       if (lines.length === 0 && adjustments.length === 0) continue;
 
-      const [settlement] = await tx
-        .insert(shopSettlements)
-        .values({
-          shopId,
-          periodStart: start,
-          periodEnd: end,
-          orderCount: lines.length,
-          goodsPaise,
-          commissionPaise,
-          refundsPaise,
-          adjustmentsPaise,
-          netPayablePaise: goodsPaise - commissionPaise + refundsPaise + adjustmentsPaise,
-          createdBy: actor.id,
-        })
-        .returning();
+      const [settlement] = await insertReturning(tx, shopSettlements, {
+        shopId,
+        periodStart: start,
+        periodEnd: end,
+        orderCount: lines.length,
+        goodsPaise,
+        commissionPaise,
+        refundsPaise,
+        adjustmentsPaise,
+        netPayablePaise:
+          goodsPaise - commissionPaise + refundsPaise + adjustmentsPaise,
+        createdBy: actor.id,
+      });
       if (lines.length > 0) {
         await tx
           .update(orderFinancials)
           .set({ settlementId: settlement.id })
-          .where(inArray(orderFinancials.orderId, lines.map((l) => l.orderId)));
+          .where(
+            inArray(
+              orderFinancials.orderId,
+              lines.map((l) => l.orderId),
+            ),
+          );
       }
       if (adjustments.length > 0) {
         await tx
           .update(financialAdjustments)
           .set({ settlementId: settlement.id, status: "SETTLED" })
-          .where(inArray(financialAdjustments.id, adjustments.map((a) => a.id)));
+          .where(
+            inArray(
+              financialAdjustments.id,
+              adjustments.map((a) => a.id),
+            ),
+          );
       }
       await recordAudit(
         {
@@ -650,7 +957,12 @@ export async function prepareShopSettlements(weekStart: string, actor: SystemOrA
           action: AUDIT_ACTIONS.SETTLEMENT_PREPARED,
           entityType: "shop_settlement",
           entityId: settlement.id,
-          newValue: { shopId, periodStart: start, netPayablePaise: settlement.netPayablePaise, orders: lines.length },
+          newValue: {
+            shopId,
+            periodStart: start,
+            netPayablePaise: settlement.netPayablePaise,
+            orders: lines.length,
+          },
         },
         tx,
       );
@@ -661,14 +973,22 @@ export async function prepareShopSettlements(weekStart: string, actor: SystemOrA
 }
 
 /** PENDING rider payouts: unpaid earnings and pending rider/delivery adjustments before the week's end. */
-export async function prepareRiderPayouts(weekStart: string, actor: SystemOrActor): Promise<RiderPayout[]> {
+export async function prepareRiderPayouts(
+  weekStart: string,
+  actor: SystemOrActor,
+): Promise<RiderPayout[]> {
   const { start, end } = assertMonday(weekStart);
 
   return db.transaction(async (tx) => {
     const earnings = await tx
       .select()
       .from(deliveryPartnerEarnings)
-      .where(and(isNull(deliveryPartnerEarnings.payoutId), lt(deliveryPartnerEarnings.createdAt, startOf(end))))
+      .where(
+        and(
+          isNull(deliveryPartnerEarnings.payoutId),
+          lt(deliveryPartnerEarnings.createdAt, startOf(end)),
+        ),
+      )
       .for("update");
     const adjustments = await tx
       .select()
@@ -683,37 +1003,52 @@ export async function prepareRiderPayouts(weekStart: string, actor: SystemOrActo
       )
       .for("update");
 
-    const partnerIds = new Set([...earnings.map((e) => e.deliveryPartnerId), ...adjustments.map((a) => a.deliveryPartnerId!)]);
+    const partnerIds = new Set([
+      ...earnings.map((e) => e.deliveryPartnerId),
+      ...adjustments.map((a) => a.deliveryPartnerId!),
+    ]);
     const created: RiderPayout[] = [];
     for (const partnerId of partnerIds) {
       const mine = earnings.filter((e) => e.deliveryPartnerId === partnerId);
-      const myAdjustments = adjustments.filter((a) => a.deliveryPartnerId === partnerId);
+      const myAdjustments = adjustments.filter(
+        (a) => a.deliveryPartnerId === partnerId,
+      );
       const grossPaise = mine.reduce((sum, e) => sum + e.totalPaise, 0);
-      const adjustmentsPaise = myAdjustments.reduce((sum, a) => sum + a.amountPaise, 0);
-      const [payout] = await tx
-        .insert(riderPayouts)
-        .values({
-          deliveryPartnerId: partnerId,
-          periodStart: start,
-          periodEnd: end,
-          earningsCount: mine.length,
-          grossPaise,
-          adjustmentsPaise,
-          amountPaise: grossPaise + adjustmentsPaise,
-          createdBy: actor.id,
-        })
-        .returning();
+      const adjustmentsPaise = myAdjustments.reduce(
+        (sum, a) => sum + a.amountPaise,
+        0,
+      );
+      const [payout] = await insertReturning(tx, riderPayouts, {
+        deliveryPartnerId: partnerId,
+        periodStart: start,
+        periodEnd: end,
+        earningsCount: mine.length,
+        grossPaise,
+        adjustmentsPaise,
+        amountPaise: grossPaise + adjustmentsPaise,
+        createdBy: actor.id,
+      });
       if (mine.length > 0) {
         await tx
           .update(deliveryPartnerEarnings)
           .set({ payoutId: payout.id })
-          .where(inArray(deliveryPartnerEarnings.id, mine.map((e) => e.id)));
+          .where(
+            inArray(
+              deliveryPartnerEarnings.id,
+              mine.map((e) => e.id),
+            ),
+          );
       }
       if (myAdjustments.length > 0) {
         await tx
           .update(financialAdjustments)
           .set({ payoutId: payout.id, status: "SETTLED" })
-          .where(inArray(financialAdjustments.id, myAdjustments.map((a) => a.id)));
+          .where(
+            inArray(
+              financialAdjustments.id,
+              myAdjustments.map((a) => a.id),
+            ),
+          );
       }
       await recordAudit(
         {
@@ -722,7 +1057,11 @@ export async function prepareRiderPayouts(weekStart: string, actor: SystemOrActo
           action: AUDIT_ACTIONS.RIDER_PAYOUT_PREPARED,
           entityType: "rider_payout",
           entityId: payout.id,
-          newValue: { deliveryPartnerId: partnerId, amountPaise: payout.amountPaise, earnings: mine.length },
+          newValue: {
+            deliveryPartnerId: partnerId,
+            amountPaise: payout.amountPaise,
+            earnings: mine.length,
+          },
         },
         tx,
       );
@@ -732,9 +1071,18 @@ export async function prepareRiderPayouts(weekStart: string, actor: SystemOrActo
   });
 }
 
-export type BatchAction = "approve" | "process" | "pay" | "fail" | "reverse" | "cancel";
+export type BatchAction =
+  | "approve"
+  | "process"
+  | "pay"
+  | "fail"
+  | "reverse"
+  | "cancel";
 
-const BATCH_STEPS: Record<BatchAction, { from: PayoutStatus[]; to: PayoutStatus }> = {
+const BATCH_STEPS: Record<
+  BatchAction,
+  { from: PayoutStatus[]; to: PayoutStatus }
+> = {
   approve: { from: ["PENDING"], to: "ELIGIBLE" },
   process: { from: ["ELIGIBLE", "FAILED"], to: "PROCESSING" },
   pay: { from: ["PROCESSING"], to: "PAID" },
@@ -743,7 +1091,11 @@ const BATCH_STEPS: Record<BatchAction, { from: PayoutStatus[]; to: PayoutStatus 
   cancel: { from: ["PENDING", "ELIGIBLE"], to: "CANCELLED" },
 };
 
-function stepFields(action: BatchAction, actor: Actor, note: string | undefined) {
+function stepFields(
+  action: BatchAction,
+  actor: Actor,
+  note: string | undefined,
+) {
   const now = new Date();
   switch (action) {
     case "approve":
@@ -762,8 +1114,10 @@ function stepFields(action: BatchAction, actor: Actor, note: string | undefined)
 }
 
 function assertNote(action: BatchAction, note: string | undefined) {
-  if (action === "pay" && !note) throw validationFailed("Enter the bank / UTR reference of the payment.");
-  if ((action === "fail" || action === "reverse") && !note) throw validationFailed("Say why the bank rejected or reversed it.");
+  if (action === "pay" && !note)
+    throw validationFailed("Enter the bank / UTR reference of the payment.");
+  if ((action === "fail" || action === "reverse") && !note)
+    throw validationFailed("Say why the bank rejected or reversed it.");
 }
 
 /**
@@ -782,35 +1136,72 @@ export async function decideShopSettlement(
   const step = BATCH_STEPS[action];
 
   return db.transaction(async (tx) => {
-    const [current] = await tx.select().from(shopSettlements).where(eq(shopSettlements.id, settlementId)).for("update");
+    const [current] = await tx
+      .select()
+      .from(shopSettlements)
+      .where(eq(shopSettlements.id, settlementId))
+      .for("update");
     if (!current) throw notFound("Settlement");
     if (!step.from.includes(current.status)) {
-      throw conflict(`A ${current.status.toLowerCase()} settlement cannot move to ${step.to.toLowerCase()}.`);
+      throw conflict(
+        `A ${current.status.toLowerCase()} settlement cannot move to ${step.to.toLowerCase()}.`,
+      );
     }
-    const [updated] = await tx
-      .update(shopSettlements)
-      .set({ status: step.to, ...stepFields(action, actor, note), updatedAt: new Date() })
-      .where(eq(shopSettlements.id, settlementId))
-      .returning();
+    const [updated] = await updateReturning(
+      tx,
+      shopSettlements,
+      {
+        status: step.to,
+        ...stepFields(action, actor, note),
+        updatedAt: new Date(),
+      },
+      eq(shopSettlements.id, settlementId),
+    );
 
     if (action === "cancel" || action === "reverse") {
-      await tx.update(orderFinancials).set({ settlementId: null }).where(eq(orderFinancials.settlementId, settlementId));
+      await tx
+        .update(orderFinancials)
+        .set({ settlementId: null })
+        .where(eq(orderFinancials.settlementId, settlementId));
       await tx
         .update(financialAdjustments)
         .set({ settlementId: null, status: "PENDING" })
         .where(eq(financialAdjustments.settlementId, settlementId));
     }
-    const base = { sourceType: "shop_settlements", sourceId: settlementId, entityType: "SHOP" as const, entityId: current.shopId };
+    const base = {
+      sourceType: "shop_settlements",
+      sourceId: settlementId,
+      entityType: "SHOP" as const,
+      entityId: current.shopId,
+    };
     if (action === "pay") {
       await postLedger(
-        [{ ...base, entryType: "SHOP_SETTLEMENT", direction: "DEBIT", amountPaise: current.netPayablePaise, reference: note, key: `settlement:${settlementId}:paid` }],
+        [
+          {
+            ...base,
+            entryType: "SHOP_SETTLEMENT",
+            direction: "DEBIT",
+            amountPaise: current.netPayablePaise,
+            reference: note,
+            key: `settlement:${settlementId}:paid`,
+          },
+        ],
         actor.id,
         tx,
       );
     }
     if (action === "reverse") {
       await postLedger(
-        [{ ...base, entryType: "REVERSAL", direction: "CREDIT", amountPaise: current.netPayablePaise, reference: current.paymentReference, key: `settlement:${settlementId}:reversed` }],
+        [
+          {
+            ...base,
+            entryType: "REVERSAL",
+            direction: "CREDIT",
+            amountPaise: current.netPayablePaise,
+            reference: current.paymentReference,
+            key: `settlement:${settlementId}:reversed`,
+          },
+        ],
         actor.id,
         tx,
       );
@@ -842,35 +1233,72 @@ export async function decideRiderPayout(
   const step = BATCH_STEPS[action];
 
   return db.transaction(async (tx) => {
-    const [current] = await tx.select().from(riderPayouts).where(eq(riderPayouts.id, payoutId)).for("update");
+    const [current] = await tx
+      .select()
+      .from(riderPayouts)
+      .where(eq(riderPayouts.id, payoutId))
+      .for("update");
     if (!current) throw notFound("Payout");
     if (!step.from.includes(current.status)) {
-      throw conflict(`A ${current.status.toLowerCase()} payout cannot move to ${step.to.toLowerCase()}.`);
+      throw conflict(
+        `A ${current.status.toLowerCase()} payout cannot move to ${step.to.toLowerCase()}.`,
+      );
     }
-    const [updated] = await tx
-      .update(riderPayouts)
-      .set({ status: step.to, ...stepFields(action, actor, note), updatedAt: new Date() })
-      .where(eq(riderPayouts.id, payoutId))
-      .returning();
+    const [updated] = await updateReturning(
+      tx,
+      riderPayouts,
+      {
+        status: step.to,
+        ...stepFields(action, actor, note),
+        updatedAt: new Date(),
+      },
+      eq(riderPayouts.id, payoutId),
+    );
 
     if (action === "cancel" || action === "reverse") {
-      await tx.update(deliveryPartnerEarnings).set({ payoutId: null }).where(eq(deliveryPartnerEarnings.payoutId, payoutId));
+      await tx
+        .update(deliveryPartnerEarnings)
+        .set({ payoutId: null })
+        .where(eq(deliveryPartnerEarnings.payoutId, payoutId));
       await tx
         .update(financialAdjustments)
         .set({ payoutId: null, status: "PENDING" })
         .where(eq(financialAdjustments.payoutId, payoutId));
     }
-    const base = { sourceType: "rider_payouts", sourceId: payoutId, entityType: "RIDER" as const, entityId: current.deliveryPartnerId };
+    const base = {
+      sourceType: "rider_payouts",
+      sourceId: payoutId,
+      entityType: "RIDER" as const,
+      entityId: current.deliveryPartnerId,
+    };
     if (action === "pay") {
       await postLedger(
-        [{ ...base, entryType: "RIDER_PAYOUT", direction: "DEBIT", amountPaise: current.amountPaise, reference: note, key: `payout:${payoutId}:paid` }],
+        [
+          {
+            ...base,
+            entryType: "RIDER_PAYOUT",
+            direction: "DEBIT",
+            amountPaise: current.amountPaise,
+            reference: note,
+            key: `payout:${payoutId}:paid`,
+          },
+        ],
         actor.id,
         tx,
       );
     }
     if (action === "reverse") {
       await postLedger(
-        [{ ...base, entryType: "REVERSAL", direction: "CREDIT", amountPaise: current.amountPaise, reference: current.paymentReference, key: `payout:${payoutId}:reversed` }],
+        [
+          {
+            ...base,
+            entryType: "REVERSAL",
+            direction: "CREDIT",
+            amountPaise: current.amountPaise,
+            reference: current.paymentReference,
+            key: `payout:${payoutId}:reversed`,
+          },
+        ],
         actor.id,
         tx,
       );
@@ -893,22 +1321,35 @@ export async function decideRiderPayout(
 
 /* ========================================================= reporting */
 
-export async function listShopSettlements(options: { shopId?: string; limit?: number } = {}) {
+export async function listShopSettlements(
+  options: { shopId?: string; limit?: number } = {},
+) {
   return db
     .select({ settlement: shopSettlements, shopName: shops.name })
     .from(shopSettlements)
     .innerJoin(shops, eq(shopSettlements.shopId, shops.id))
-    .where(options.shopId ? eq(shopSettlements.shopId, options.shopId) : undefined)
+    .where(
+      options.shopId ? eq(shopSettlements.shopId, options.shopId) : undefined,
+    )
     .orderBy(desc(shopSettlements.createdAt))
     .limit(Math.min(options.limit ?? 100, 500));
 }
 
-export async function listRiderPayouts(options: { deliveryPartnerId?: string; limit?: number } = {}) {
+export async function listRiderPayouts(
+  options: { deliveryPartnerId?: string; limit?: number } = {},
+) {
   return db
     .select({ payout: riderPayouts, partnerName: deliveryPartners.fullName })
     .from(riderPayouts)
-    .innerJoin(deliveryPartners, eq(riderPayouts.deliveryPartnerId, deliveryPartners.id))
-    .where(options.deliveryPartnerId ? eq(riderPayouts.deliveryPartnerId, options.deliveryPartnerId) : undefined)
+    .innerJoin(
+      deliveryPartners,
+      eq(riderPayouts.deliveryPartnerId, deliveryPartners.id),
+    )
+    .where(
+      options.deliveryPartnerId
+        ? eq(riderPayouts.deliveryPartnerId, options.deliveryPartnerId)
+        : undefined,
+    )
     .orderBy(desc(riderPayouts.createdAt))
     .limit(Math.min(options.limit ?? 100, 500));
 }
@@ -917,16 +1358,21 @@ export async function listRiderPayouts(options: { deliveryPartnerId?: string; li
 export async function getShopPendingPayable(shopId: string) {
   const [orderTotals] = await db
     .select({
-      orders: sql<number>`count(*)::int`,
-      goods: sql<number>`coalesce(sum(${orderFinancials.goodsPaise}), 0)::bigint`,
-      commission: sql<number>`coalesce(sum(${orderFinancials.commissionPaise}), 0)::bigint`,
+      orders: sql<number>`CAST(count(*) AS SIGNED)`,
+      goods: sql<number>`CAST(coalesce(sum(${orderFinancials.goodsPaise}), 0) AS SIGNED)`,
+      commission: sql<number>`CAST(coalesce(sum(${orderFinancials.commissionPaise}), 0) AS SIGNED)`,
     })
     .from(orderFinancials)
-    .where(and(eq(orderFinancials.shopId, shopId), isNull(orderFinancials.settlementId)));
+    .where(
+      and(
+        eq(orderFinancials.shopId, shopId),
+        isNull(orderFinancials.settlementId),
+      ),
+    );
   const [adjustmentTotals] = await db
     .select({
-      refunds: sql<number>`coalesce(sum(${financialAdjustments.amountPaise}) filter (where ${financialAdjustments.type} = 'REFUND_SHOP'), 0)::bigint`,
-      other: sql<number>`coalesce(sum(${financialAdjustments.amountPaise}) filter (where ${financialAdjustments.type} <> 'REFUND_SHOP'), 0)::bigint`,
+      refunds: sql<number>`CAST(coalesce(sum(case when ${financialAdjustments.type} = 'REFUND_SHOP' then ${financialAdjustments.amountPaise} end), 0) AS SIGNED)`,
+      other: sql<number>`CAST(coalesce(sum(case when ${financialAdjustments.type} <> 'REFUND_SHOP' then ${financialAdjustments.amountPaise} end), 0) AS SIGNED)`,
     })
     .from(financialAdjustments)
     .where(
@@ -952,22 +1398,41 @@ export async function getShopPendingPayable(shopId: string) {
 
 export async function listOrderFinancialsForShop(shopId: string, limit = 50) {
   return db
-    .select({ financial: orderFinancials, orderNumber: orders.orderNumber, settlementStatus: shopSettlements.status })
+    .select({
+      financial: orderFinancials,
+      orderNumber: orders.orderNumber,
+      settlementStatus: shopSettlements.status,
+    })
     .from(orderFinancials)
     .innerJoin(orders, eq(orderFinancials.orderId, orders.id))
-    .leftJoin(shopSettlements, eq(orderFinancials.settlementId, shopSettlements.id))
+    .leftJoin(
+      shopSettlements,
+      eq(orderFinancials.settlementId, shopSettlements.id),
+    )
     .where(eq(orderFinancials.shopId, shopId))
     .orderBy(desc(orderFinancials.deliveredAt))
     .limit(limit);
 }
 
-export async function listAdjustments(options: { shopId?: string; deliveryPartnerId?: string; limit?: number } = {}) {
+export async function listAdjustments(
+  options: { shopId?: string; deliveryPartnerId?: string; limit?: number } = {},
+) {
   const conditions = [
-    options.shopId ? and(eq(financialAdjustments.party, "SHOP"), eq(financialAdjustments.shopId, options.shopId)) : undefined,
-    options.deliveryPartnerId ? eq(financialAdjustments.deliveryPartnerId, options.deliveryPartnerId) : undefined,
+    options.shopId
+      ? and(
+          eq(financialAdjustments.party, "SHOP"),
+          eq(financialAdjustments.shopId, options.shopId),
+        )
+      : undefined,
+    options.deliveryPartnerId
+      ? eq(financialAdjustments.deliveryPartnerId, options.deliveryPartnerId)
+      : undefined,
   ].filter(Boolean);
   return db
-    .select({ adjustment: financialAdjustments, orderNumber: orders.orderNumber })
+    .select({
+      adjustment: financialAdjustments,
+      orderNumber: orders.orderNumber,
+    })
     .from(financialAdjustments)
     .leftJoin(orders, eq(financialAdjustments.orderId, orders.id))
     .where(conditions.length ? and(...conditions) : undefined)
@@ -976,7 +1441,10 @@ export async function listAdjustments(options: { shopId?: string; deliveryPartne
 }
 
 /** Rider view (Part E): each earning with its order, delivery and payout status; pending payable. */
-export async function getRiderEarningsView(deliveryPartnerId: string, limit = 50) {
+export async function getRiderEarningsView(
+  deliveryPartnerId: string,
+  limit = 50,
+) {
   const earnings = await db
     .select({
       earning: deliveryPartnerEarnings,
@@ -986,20 +1454,40 @@ export async function getRiderEarningsView(deliveryPartnerId: string, limit = 50
     })
     .from(deliveryPartnerEarnings)
     // Left joins: a return-pickup earning has no delivery order of its own.
-    .leftJoin(deliveryOrders, eq(deliveryPartnerEarnings.deliveryOrderId, deliveryOrders.id))
+    .leftJoin(
+      deliveryOrders,
+      eq(deliveryPartnerEarnings.deliveryOrderId, deliveryOrders.id),
+    )
     .leftJoin(orders, eq(deliveryOrders.orderId, orders.id))
-    .leftJoin(riderPayouts, eq(deliveryPartnerEarnings.payoutId, riderPayouts.id))
+    .leftJoin(
+      riderPayouts,
+      eq(deliveryPartnerEarnings.payoutId, riderPayouts.id),
+    )
     .where(eq(deliveryPartnerEarnings.deliveryPartnerId, deliveryPartnerId))
     .orderBy(desc(deliveryPartnerEarnings.createdAt))
     .limit(limit);
   const [pendingEarnings] = await db
-    .select({ total: sql<number>`coalesce(sum(${deliveryPartnerEarnings.totalPaise}), 0)::bigint` })
+    .select({
+      total: sql<number>`CAST(coalesce(sum(${deliveryPartnerEarnings.totalPaise}), 0) AS SIGNED)`,
+    })
     .from(deliveryPartnerEarnings)
-    .where(and(eq(deliveryPartnerEarnings.deliveryPartnerId, deliveryPartnerId), isNull(deliveryPartnerEarnings.payoutId)));
+    .where(
+      and(
+        eq(deliveryPartnerEarnings.deliveryPartnerId, deliveryPartnerId),
+        isNull(deliveryPartnerEarnings.payoutId),
+      ),
+    );
   const [pendingAdjustments] = await db
-    .select({ total: sql<number>`coalesce(sum(${financialAdjustments.amountPaise}), 0)::bigint` })
+    .select({
+      total: sql<number>`CAST(coalesce(sum(${financialAdjustments.amountPaise}), 0) AS SIGNED)`,
+    })
     .from(financialAdjustments)
-    .where(and(eq(financialAdjustments.deliveryPartnerId, deliveryPartnerId), eq(financialAdjustments.status, "PENDING")));
+    .where(
+      and(
+        eq(financialAdjustments.deliveryPartnerId, deliveryPartnerId),
+        eq(financialAdjustments.status, "PENDING"),
+      ),
+    );
   return {
     earnings: earnings.map((e) => ({
       ...e.earning,
@@ -1018,8 +1506,8 @@ export async function getPayablesOverview() {
     .select({
       shopId: orderFinancials.shopId,
       shopName: shops.name,
-      orders: sql<number>`count(*)::int`,
-      payable: sql<number>`coalesce(sum(${orderFinancials.shopPayablePaise}), 0)::bigint`,
+      orders: sql<number>`CAST(count(*) AS SIGNED)`,
+      payable: sql<number>`CAST(coalesce(sum(${orderFinancials.shopPayablePaise}), 0) AS SIGNED)`,
     })
     .from(orderFinancials)
     .innerJoin(shops, eq(orderFinancials.shopId, shops.id))
@@ -1029,13 +1517,19 @@ export async function getPayablesOverview() {
     .select({
       deliveryPartnerId: deliveryPartnerEarnings.deliveryPartnerId,
       partnerName: deliveryPartners.fullName,
-      deliveries: sql<number>`count(*)::int`,
-      earnings: sql<number>`coalesce(sum(${deliveryPartnerEarnings.totalPaise}), 0)::bigint`,
+      deliveries: sql<number>`CAST(count(*) AS SIGNED)`,
+      earnings: sql<number>`CAST(coalesce(sum(${deliveryPartnerEarnings.totalPaise}), 0) AS SIGNED)`,
     })
     .from(deliveryPartnerEarnings)
-    .innerJoin(deliveryPartners, eq(deliveryPartnerEarnings.deliveryPartnerId, deliveryPartners.id))
+    .innerJoin(
+      deliveryPartners,
+      eq(deliveryPartnerEarnings.deliveryPartnerId, deliveryPartners.id),
+    )
     .where(isNull(deliveryPartnerEarnings.payoutId))
-    .groupBy(deliveryPartnerEarnings.deliveryPartnerId, deliveryPartners.fullName);
+    .groupBy(
+      deliveryPartnerEarnings.deliveryPartnerId,
+      deliveryPartners.fullName,
+    );
   return {
     shops: shopRows.map((r) => ({ ...r, payable: Number(r.payable) })),
     riders: riderRows.map((r) => ({ ...r, earnings: Number(r.earnings) })),
@@ -1066,47 +1560,64 @@ export interface FinanceSummary {
 }
 
 /** Marketplace figures over [from, to) (Part J). */
-export async function getFinanceSummary(fromDate: string, toDate: string): Promise<FinanceSummary> {
+export async function getFinanceSummary(
+  fromDate: string,
+  toDate: string,
+): Promise<FinanceSummary> {
   const from = assertIsoDate(fromDate);
   const to = assertIsoDate(toDate);
-  if (to <= from) throw validationFailed("The end date must be after the start date.");
-  const inWindow = (column: Parameters<typeof gte>[0]) => and(gte(column, startOf(from)), lt(column, startOf(to)));
+  if (to <= from)
+    throw validationFailed("The end date must be after the start date.");
+  const inWindow = (column: Parameters<typeof gte>[0]) =>
+    and(gte(column, startOf(from)), lt(column, startOf(to)));
 
   const [delivered] = await db
     .select({
-      count: sql<number>`count(*)::int`,
-      gmv: sql<number>`coalesce(sum(${orderFinancials.gmvPaise}), 0)::bigint`,
-      goods: sql<number>`coalesce(sum(${orderFinancials.goodsPaise}), 0)::bigint`,
-      discount: sql<number>`coalesce(sum(${orderFinancials.discountPaise}), 0)::bigint`,
-      commission: sql<number>`coalesce(sum(${orderFinancials.commissionPaise}), 0)::bigint`,
-      fees: sql<number>`coalesce(sum(${orderFinancials.deliveryFeePaise}), 0)::bigint`,
+      count: sql<number>`CAST(count(*) AS SIGNED)`,
+      gmv: sql<number>`CAST(coalesce(sum(${orderFinancials.gmvPaise}), 0) AS SIGNED)`,
+      goods: sql<number>`CAST(coalesce(sum(${orderFinancials.goodsPaise}), 0) AS SIGNED)`,
+      discount: sql<number>`CAST(coalesce(sum(${orderFinancials.discountPaise}), 0) AS SIGNED)`,
+      commission: sql<number>`CAST(coalesce(sum(${orderFinancials.commissionPaise}), 0) AS SIGNED)`,
+      fees: sql<number>`CAST(coalesce(sum(${orderFinancials.deliveryFeePaise}), 0) AS SIGNED)`,
     })
     .from(orderFinancials)
     .where(inWindow(orderFinancials.deliveredAt));
   const [riders] = await db
-    .select({ cost: sql<number>`coalesce(sum(${deliveryPartnerEarnings.totalPaise}), 0)::bigint` })
+    .select({
+      cost: sql<number>`CAST(coalesce(sum(${deliveryPartnerEarnings.totalPaise}), 0) AS SIGNED)`,
+    })
     .from(deliveryPartnerEarnings)
     .where(inWindow(deliveryPartnerEarnings.createdAt));
   const [adjustments] = await db
     .select({
-      refunds: sql<number>`coalesce(sum(${financialAdjustments.customerRefundPaise}), 0)::bigint`,
-      platformRefunds: sql<number>`coalesce(sum(${financialAdjustments.customerRefundPaise}) filter (where ${financialAdjustments.type} = 'REFUND_PLATFORM'), 0)::bigint`,
+      refunds: sql<number>`CAST(coalesce(sum(${financialAdjustments.customerRefundPaise}), 0) AS SIGNED)`,
+      platformRefunds: sql<number>`CAST(coalesce(sum(case when ${financialAdjustments.type} = 'REFUND_PLATFORM' then ${financialAdjustments.customerRefundPaise} end), 0) AS SIGNED)`,
     })
     .from(financialAdjustments)
     .where(inWindow(financialAdjustments.createdAt));
   const [walletRefunds] = await db
-    .select({ total: sql<number>`coalesce(sum(${walletTransactions.amountPaise}), 0)::bigint` })
+    .select({
+      total: sql<number>`CAST(coalesce(sum(${walletTransactions.amountPaise}), 0) AS SIGNED)`,
+    })
     .from(walletTransactions)
-    .where(and(eq(walletTransactions.type, "REFUND"), sql`${walletTransactions.orderId} is not null`, inWindow(walletTransactions.createdAt)));
+    .where(
+      and(
+        eq(walletTransactions.type, "REFUND"),
+        sql`${walletTransactions.orderId} is not null`,
+        inWindow(walletTransactions.createdAt),
+      ),
+    );
   const [gateway] = await db
-    .select({ total: sql<number>`coalesce(sum(${payments.amountPaise}), 0)::bigint` })
+    .select({
+      total: sql<number>`CAST(coalesce(sum(${payments.amountPaise}), 0) AS SIGNED)`,
+    })
     .from(payments)
     .where(and(eq(payments.status, "SUCCESS"), inWindow(payments.createdAt)));
   const [paid] = await db
     .select({
-      count: sql<number>`count(*)::int`,
-      value: sql<number>`coalesce(sum(${orders.totalPaise} + ${orders.refundedPaise}), 0)::bigint`,
-      cancelled: sql<number>`count(*) filter (where ${orders.status} in ('CANCELLED', 'REFUNDED'))::int`,
+      count: sql<number>`CAST(count(*) AS SIGNED)`,
+      value: sql<number>`CAST(coalesce(sum(${orders.totalPaise} + ${orders.refundedPaise}), 0) AS SIGNED)`,
+      cancelled: sql<number>`CAST(count(case when ${orders.status} in ('CANCELLED', 'REFUNDED') then 1 end) AS SIGNED)`,
     })
     .from(orders)
     .where(inWindow(orders.paidAt));
@@ -1168,10 +1679,15 @@ function compare(expected: number, actual: number): CheckResult["status"] {
  *  RIDER   EARNING_PRESENT    — completed/failed/after-pickup deliveries have an earning
  *  SETTLEMENT / PAYOUT TOTAL  — batch totals still equal their linked lines
  */
-export async function runReconciliation(fromDate: string, toDate: string, actor: SystemOrActor) {
+export async function runReconciliation(
+  fromDate: string,
+  toDate: string,
+  actor: SystemOrActor,
+) {
   const from = assertIsoDate(fromDate);
   const to = assertIsoDate(toDate);
-  const inWindow = (column: Parameters<typeof gte>[0]) => and(gte(column, startOf(from)), lt(column, startOf(to)));
+  const inWindow = (column: Parameters<typeof gte>[0]) =>
+    and(gte(column, startOf(from)), lt(column, startOf(to)));
   const results: CheckResult[] = [];
 
   const paidOrders = await db
@@ -1180,17 +1696,18 @@ export async function runReconciliation(fromDate: string, toDate: string, actor:
       orderNumber: orders.orderNumber,
       status: orders.status,
       totalPaise: orders.totalPaise,
-      walletNet: sql<number>`coalesce((select -sum(${walletTransactions.amountPaise}) from ${walletTransactions}
-        where ${walletTransactions.orderId} = ${orders.id} and ${walletTransactions.status} = 'COMPLETED'), 0)::bigint`,
+      walletNet: sql<number>`CAST(coalesce((select -sum(${walletTransactions.amountPaise}) from ${walletTransactions}
+        where ${walletTransactions.orderId} = ${orders.id} and ${walletTransactions.status} = 'COMPLETED'), 0) AS SIGNED)`,
       // GS-030: cash collected at the door for a COD order.
-      codCash: sql<number>`coalesce((select -sum(${financialAdjustments.amountPaise}) from ${financialAdjustments}
-        where ${financialAdjustments.orderId} = ${orders.id} and ${financialAdjustments.type} = 'COD_CASH_COLLECTED'), 0)::bigint`,
+      codCash: sql<number>`CAST(coalesce((select -sum(${financialAdjustments.amountPaise}) from ${financialAdjustments}
+        where ${financialAdjustments.orderId} = ${orders.id} and ${financialAdjustments.type} = 'COD_CASH_COLLECTED'), 0) AS SIGNED)`,
       hasSnapshot: sql<boolean>`exists(select 1 from ${orderFinancials} where ${orderFinancials.orderId} = ${orders.id})`,
     })
     .from(orders)
     .where(inWindow(orders.paidAt));
   for (const o of paidOrders) {
-    const expected = o.status === "CANCELLED" || o.status === "REFUNDED" ? 0 : o.totalPaise;
+    const expected =
+      o.status === "CANCELLED" || o.status === "REFUNDED" ? 0 : o.totalPaise;
     // Wallet net charge plus COD cash (a COD refund is a wallet credit, so it nets here too).
     const actual = Number(o.walletNet) + Number(o.codCash);
     results.push({
@@ -1201,7 +1718,10 @@ export async function runReconciliation(fromDate: string, toDate: string, actor:
       expectedPaise: expected,
       actualPaise: actual,
       status: compare(expected, actual),
-      detail: actual === expected ? null : `Order is ${o.status}; wallet net charge (plus cash collected) differs from what the order holds.`,
+      detail:
+        actual === expected
+          ? null
+          : `Order is ${o.status}; wallet net charge (plus cash collected) differs from what the order holds.`,
     });
     if (o.status === "DELIVERED") {
       results.push({
@@ -1212,7 +1732,9 @@ export async function runReconciliation(fromDate: string, toDate: string, actor:
         expectedPaise: null,
         actualPaise: null,
         status: o.hasSnapshot ? "MATCHED" : "EXCEPTION",
-        detail: o.hasSnapshot ? null : "Delivered but no settlement snapshot (delivered before the finance ledger, or the hook failed).",
+        detail: o.hasSnapshot
+          ? null
+          : "Delivered but no settlement snapshot (delivered before the finance ledger, or the hook failed).",
       });
     }
   }
@@ -1224,8 +1746,8 @@ export async function runReconciliation(fromDate: string, toDate: string, actor:
       status: payments.status,
       amountPaise: payments.amountPaise,
       createdAt: payments.createdAt,
-      credited: sql<number>`coalesce((select sum(${walletTransactions.amountPaise}) from ${walletTransactions}
-        where ${walletTransactions.paymentId} = ${payments.id} and ${walletTransactions.type} = 'TOP_UP'), 0)::bigint`,
+      credited: sql<number>`CAST(coalesce((select sum(${walletTransactions.amountPaise}) from ${walletTransactions}
+        where ${walletTransactions.paymentId} = ${payments.id} and ${walletTransactions.type} = 'TOP_UP'), 0) AS SIGNED)`,
     })
     .from(payments)
     .where(inWindow(payments.createdAt));
@@ -1247,7 +1769,10 @@ export async function runReconciliation(fromDate: string, toDate: string, actor:
               ? "Wallet credited more than the gateway amount (duplicate credit?)."
               : "Gateway reports success but the wallet credit is missing or short.",
       });
-    } else if ((p.status === "CREATED" || p.status === "PENDING") && p.createdAt.getTime() < Date.now() - 30 * 60_000) {
+    } else if (
+      (p.status === "CREATED" || p.status === "PENDING") &&
+      p.createdAt.getTime() < Date.now() - 30 * 60_000
+    ) {
       results.push({
         entityType: "PAYMENT",
         entityId: p.id,
@@ -1256,7 +1781,8 @@ export async function runReconciliation(fromDate: string, toDate: string, actor:
         expectedPaise: p.amountPaise,
         actualPaise: credited,
         status: credited > 0 ? "EXCEPTION" : "UNMATCHED",
-        detail: "Gateway payment still pending after 30 minutes — check the gateway dashboard.",
+        detail:
+          "Gateway payment still pending after 30 minutes — check the gateway dashboard.",
       });
     }
   }
@@ -1275,7 +1801,10 @@ export async function runReconciliation(fromDate: string, toDate: string, actor:
         inWindow(deliveryOrders.updatedAt),
         or(
           inArray(deliveryOrders.status, ["DELIVERED", "FAILED"]),
-          and(eq(deliveryOrders.status, "CANCELLED"), sql`${deliveryOrders.pickedUpAt} is not null`),
+          and(
+            eq(deliveryOrders.status, "CANCELLED"),
+            sql`${deliveryOrders.pickedUpAt} is not null`,
+          ),
         ),
       ),
     );
@@ -1288,7 +1817,9 @@ export async function runReconciliation(fromDate: string, toDate: string, actor:
       expectedPaise: null,
       actualPaise: null,
       status: d.hasEarning ? "MATCHED" : "UNMATCHED",
-      detail: d.hasEarning ? null : `Delivery ${d.status.toLowerCase()} but the rider has no earning recorded.`,
+      detail: d.hasEarning
+        ? null
+        : `Delivery ${d.status.toLowerCase()} but the rider has no earning recorded.`,
     });
   }
 
@@ -1296,13 +1827,23 @@ export async function runReconciliation(fromDate: string, toDate: string, actor:
     .select({
       id: shopSettlements.id,
       net: shopSettlements.netPayablePaise,
-      lines: sql<number>`coalesce((select sum(${orderFinancials.shopPayablePaise}) from ${orderFinancials}
-        where ${orderFinancials.settlementId} = ${shopSettlements.id}), 0)::bigint`,
-      adjustments: sql<number>`coalesce((select sum(${financialAdjustments.amountPaise}) from ${financialAdjustments}
-        where ${financialAdjustments.settlementId} = ${shopSettlements.id}), 0)::bigint`,
+      lines: sql<number>`CAST(coalesce((select sum(${orderFinancials.shopPayablePaise}) from ${orderFinancials}
+        where ${orderFinancials.settlementId} = ${shopSettlements.id}), 0) AS SIGNED)`,
+      adjustments: sql<number>`CAST(coalesce((select sum(${financialAdjustments.amountPaise}) from ${financialAdjustments}
+        where ${financialAdjustments.settlementId} = ${shopSettlements.id}), 0) AS SIGNED)`,
     })
     .from(shopSettlements)
-    .where(and(inArray(shopSettlements.status, ["PENDING", "ELIGIBLE", "PROCESSING", "PAID"]), inWindow(shopSettlements.createdAt)));
+    .where(
+      and(
+        inArray(shopSettlements.status, [
+          "PENDING",
+          "ELIGIBLE",
+          "PROCESSING",
+          "PAID",
+        ]),
+        inWindow(shopSettlements.createdAt),
+      ),
+    );
   for (const s of settlements) {
     const actual = Number(s.lines) + Number(s.adjustments);
     results.push({
@@ -1313,7 +1854,10 @@ export async function runReconciliation(fromDate: string, toDate: string, actor:
       expectedPaise: s.net,
       actualPaise: actual,
       status: actual === s.net ? "MATCHED" : "EXCEPTION",
-      detail: actual === s.net ? null : "Settlement total no longer matches its orders and adjustments.",
+      detail:
+        actual === s.net
+          ? null
+          : "Settlement total no longer matches its orders and adjustments.",
     });
   }
 
@@ -1321,13 +1865,23 @@ export async function runReconciliation(fromDate: string, toDate: string, actor:
     .select({
       id: riderPayouts.id,
       amount: riderPayouts.amountPaise,
-      earnings: sql<number>`coalesce((select sum(${deliveryPartnerEarnings.totalPaise}) from ${deliveryPartnerEarnings}
-        where ${deliveryPartnerEarnings.payoutId} = ${riderPayouts.id}), 0)::bigint`,
-      adjustments: sql<number>`coalesce((select sum(${financialAdjustments.amountPaise}) from ${financialAdjustments}
-        where ${financialAdjustments.payoutId} = ${riderPayouts.id}), 0)::bigint`,
+      earnings: sql<number>`CAST(coalesce((select sum(${deliveryPartnerEarnings.totalPaise}) from ${deliveryPartnerEarnings}
+        where ${deliveryPartnerEarnings.payoutId} = ${riderPayouts.id}), 0) AS SIGNED)`,
+      adjustments: sql<number>`CAST(coalesce((select sum(${financialAdjustments.amountPaise}) from ${financialAdjustments}
+        where ${financialAdjustments.payoutId} = ${riderPayouts.id}), 0) AS SIGNED)`,
     })
     .from(riderPayouts)
-    .where(and(inArray(riderPayouts.status, ["PENDING", "ELIGIBLE", "PROCESSING", "PAID"]), inWindow(riderPayouts.createdAt)));
+    .where(
+      and(
+        inArray(riderPayouts.status, [
+          "PENDING",
+          "ELIGIBLE",
+          "PROCESSING",
+          "PAID",
+        ]),
+        inWindow(riderPayouts.createdAt),
+      ),
+    );
   for (const p of payouts) {
     const actual = Number(p.earnings) + Number(p.adjustments);
     results.push({
@@ -1338,7 +1892,10 @@ export async function runReconciliation(fromDate: string, toDate: string, actor:
       expectedPaise: p.amount,
       actualPaise: actual,
       status: actual === p.amount ? "MATCHED" : "EXCEPTION",
-      detail: actual === p.amount ? null : "Payout total no longer matches its earnings and adjustments.",
+      detail:
+        actual === p.amount
+          ? null
+          : "Payout total no longer matches its earnings and adjustments.",
     });
   }
 
@@ -1346,8 +1903,7 @@ export async function runReconciliation(fromDate: string, toDate: string, actor:
     await db
       .insert(reconciliationRecords)
       .values({ ...r, lastCheckedAt: new Date() })
-      .onConflictDoUpdate({
-        target: [reconciliationRecords.entityType, reconciliationRecords.entityId, reconciliationRecords.checkType],
+      .onDuplicateKeyUpdate({
         set: {
           reference: r.reference,
           expectedPaise: r.expectedPaise,
@@ -1356,7 +1912,7 @@ export async function runReconciliation(fromDate: string, toDate: string, actor:
           lastCheckedAt: new Date(),
           // A person's RECONCILED decision survives re-runs until the figures agree.
           status: sql`case when ${reconciliationRecords.status} = 'RECONCILED' and ${r.status} <> 'MATCHED'
-            then 'RECONCILED'::reconciliation_status else ${r.status}::reconciliation_status end`,
+            then 'RECONCILED' else ${r.status} end`,
         },
       });
   }
@@ -1375,14 +1931,20 @@ export async function runReconciliation(fromDate: string, toDate: string, actor:
   return { from, to, checked: results.length, counts };
 }
 
-export async function listReconciliationRecords(options: {
-  statuses?: ReconciliationStatus[];
-  entityTypes?: ReconciliationEntity[];
-  limit?: number;
-} = {}) {
+export async function listReconciliationRecords(
+  options: {
+    statuses?: ReconciliationStatus[];
+    entityTypes?: ReconciliationEntity[];
+    limit?: number;
+  } = {},
+) {
   const conditions = [
-    options.statuses?.length ? inArray(reconciliationRecords.status, options.statuses) : undefined,
-    options.entityTypes?.length ? inArray(reconciliationRecords.entityType, options.entityTypes) : undefined,
+    options.statuses?.length
+      ? inArray(reconciliationRecords.status, options.statuses)
+      : undefined,
+    options.entityTypes?.length
+      ? inArray(reconciliationRecords.entityType, options.entityTypes)
+      : undefined,
   ].filter(Boolean);
   return db
     .select()
@@ -1392,11 +1954,20 @@ export async function listReconciliationRecords(options: {
     .limit(Math.min(options.limit ?? 200, 1000));
 }
 
-export async function countReconciliationByStatus(entityTypes?: ReconciliationEntity[]): Promise<Record<string, number>> {
+export async function countReconciliationByStatus(
+  entityTypes?: ReconciliationEntity[],
+): Promise<Record<string, number>> {
   const rows = await db
-    .select({ status: reconciliationRecords.status, count: sql<number>`count(*)::int` })
+    .select({
+      status: reconciliationRecords.status,
+      count: sql<number>`CAST(count(*) AS SIGNED)`,
+    })
     .from(reconciliationRecords)
-    .where(entityTypes?.length ? inArray(reconciliationRecords.entityType, entityTypes) : undefined)
+    .where(
+      entityTypes?.length
+        ? inArray(reconciliationRecords.entityType, entityTypes)
+        : undefined,
+    )
     .groupBy(reconciliationRecords.status);
   return Object.fromEntries(rows.map((r) => [r.status, r.count]));
 }
@@ -1409,19 +1980,32 @@ export async function resolveReconciliationRecord(
   allowedEntities?: ReconciliationEntity[],
 ) {
   const trimmed = note.trim();
-  if (trimmed.length < 5) throw validationFailed("Record what was found and done.");
-  const [current] = await db.select().from(reconciliationRecords).where(eq(reconciliationRecords.id, id));
-  if (!current || (allowedEntities && !allowedEntities.includes(current.entityType))) {
+  if (trimmed.length < 5)
+    throw validationFailed("Record what was found and done.");
+  const [current] = await db
+    .select()
+    .from(reconciliationRecords)
+    .where(eq(reconciliationRecords.id, id));
+  if (
+    !current ||
+    (allowedEntities && !allowedEntities.includes(current.entityType))
+  ) {
     throw notFound("Reconciliation record");
   }
   if (current.status === "MATCHED" || current.status === "RECONCILED") {
     throw conflict("This record does not need resolving.");
   }
-  const [updated] = await db
-    .update(reconciliationRecords)
-    .set({ status: "RECONCILED", resolvedBy: actor.id, resolvedAt: new Date(), resolutionNote: trimmed })
-    .where(eq(reconciliationRecords.id, id))
-    .returning();
+  const [updated] = await updateReturning(
+    db,
+    reconciliationRecords,
+    {
+      status: "RECONCILED",
+      resolvedBy: actor.id,
+      resolvedAt: new Date(),
+      resolutionNote: trimmed,
+    },
+    eq(reconciliationRecords.id, id),
+  );
   await recordAudit({
     actorId: actor.id,
     actorRole: actor.role,
@@ -1437,53 +2021,119 @@ export async function resolveReconciliationRecord(
 /* ================================================ exception queues */
 
 /** Entity types an operator may see in reconciliation (no settlement/payout totals). */
-export const OPERATOR_RECONCILIATION_ENTITIES: ReconciliationEntity[] = ["ORDER", "PAYMENT", "RIDER"];
+export const OPERATOR_RECONCILIATION_ENTITIES: ReconciliationEntity[] = [
+  "ORDER",
+  "PAYMENT",
+  "RIDER",
+];
 
 /**
  * Part K/O: operational financial exceptions. `scope: "operator"` leaves out
  * settlement and payout batches (admin-only money); the rest is operational.
  */
 export async function listFinancialExceptions(scope: "operator" | "admin") {
-  const since = sql`now() - interval '14 days'`;
-  const [failedPayments, pendingPayments, refundAttention, recentCancellations, deliveryAdjustments, reconciliation] =
-    await Promise.all([
-      db
-        .select({ id: payments.id, reference: payments.gatewayOrderId, amountPaise: payments.amountPaise, reason: payments.failureReason, at: payments.updatedAt })
-        .from(payments)
-        .where(and(eq(payments.status, "FAILED"), gte(payments.updatedAt, since)))
-        .orderBy(desc(payments.updatedAt))
-        .limit(50),
-      db
-        .select({ id: payments.id, reference: payments.gatewayOrderId, amountPaise: payments.amountPaise, at: payments.createdAt })
-        .from(payments)
-        .where(and(inArray(payments.status, ["CREATED", "PENDING"]), lt(payments.createdAt, sql`now() - interval '30 minutes'`), gte(payments.createdAt, since)))
-        .orderBy(desc(payments.createdAt))
-        .limit(50),
-      db
-        .select({ id: orders.id, orderNumber: orders.orderNumber, status: orders.status, totalPaise: orders.totalPaise, at: orders.updatedAt })
-        .from(orders)
-        .where(inArray(orders.status, ["REFUND_PENDING", "FAILED", "RETURNED", "DISPUTED", "PAYMENT_FAILED", "WALLET_INSUFFICIENT"]))
-        .orderBy(desc(orders.updatedAt))
-        .limit(100),
-      db
-        .select({ id: orders.id, orderNumber: orders.orderNumber, status: orders.status, refundedPaise: orders.refundedPaise, reason: orders.cancellationReason, at: orders.updatedAt })
-        .from(orders)
-        .where(and(inArray(orders.status, ["CANCELLED", "REFUNDED"]), gte(orders.updatedAt, since)))
-        .orderBy(desc(orders.updatedAt))
-        .limit(50),
-      db
-        .select({ adjustment: financialAdjustments, orderNumber: orders.orderNumber })
-        .from(financialAdjustments)
-        .leftJoin(orders, eq(financialAdjustments.orderId, orders.id))
-        .where(and(inArray(financialAdjustments.type, ["DELIVERY_ADJUSTMENT", "RIDER_ADJUSTMENT"]), gte(financialAdjustments.createdAt, since)))
-        .orderBy(desc(financialAdjustments.createdAt))
-        .limit(50),
-      listReconciliationRecords({
-        statuses: ["UNMATCHED", "PARTIAL", "EXCEPTION"],
-        entityTypes: scope === "operator" ? OPERATOR_RECONCILIATION_ENTITIES : undefined,
-        limit: 200,
-      }),
-    ]);
+  const since = sql`now() - interval 14 day`;
+  const [
+    failedPayments,
+    pendingPayments,
+    refundAttention,
+    recentCancellations,
+    deliveryAdjustments,
+    reconciliation,
+  ] = await Promise.all([
+    db
+      .select({
+        id: payments.id,
+        reference: payments.gatewayOrderId,
+        amountPaise: payments.amountPaise,
+        reason: payments.failureReason,
+        at: payments.updatedAt,
+      })
+      .from(payments)
+      .where(and(eq(payments.status, "FAILED"), gte(payments.updatedAt, since)))
+      .orderBy(desc(payments.updatedAt))
+      .limit(50),
+    db
+      .select({
+        id: payments.id,
+        reference: payments.gatewayOrderId,
+        amountPaise: payments.amountPaise,
+        at: payments.createdAt,
+      })
+      .from(payments)
+      .where(
+        and(
+          inArray(payments.status, ["CREATED", "PENDING"]),
+          lt(payments.createdAt, sql`now() - interval 30 minute`),
+          gte(payments.createdAt, since),
+        ),
+      )
+      .orderBy(desc(payments.createdAt))
+      .limit(50),
+    db
+      .select({
+        id: orders.id,
+        orderNumber: orders.orderNumber,
+        status: orders.status,
+        totalPaise: orders.totalPaise,
+        at: orders.updatedAt,
+      })
+      .from(orders)
+      .where(
+        inArray(orders.status, [
+          "REFUND_PENDING",
+          "FAILED",
+          "RETURNED",
+          "DISPUTED",
+          "PAYMENT_FAILED",
+          "WALLET_INSUFFICIENT",
+        ]),
+      )
+      .orderBy(desc(orders.updatedAt))
+      .limit(100),
+    db
+      .select({
+        id: orders.id,
+        orderNumber: orders.orderNumber,
+        status: orders.status,
+        refundedPaise: orders.refundedPaise,
+        reason: orders.cancellationReason,
+        at: orders.updatedAt,
+      })
+      .from(orders)
+      .where(
+        and(
+          inArray(orders.status, ["CANCELLED", "REFUNDED"]),
+          gte(orders.updatedAt, since),
+        ),
+      )
+      .orderBy(desc(orders.updatedAt))
+      .limit(50),
+    db
+      .select({
+        adjustment: financialAdjustments,
+        orderNumber: orders.orderNumber,
+      })
+      .from(financialAdjustments)
+      .leftJoin(orders, eq(financialAdjustments.orderId, orders.id))
+      .where(
+        and(
+          inArray(financialAdjustments.type, [
+            "DELIVERY_ADJUSTMENT",
+            "RIDER_ADJUSTMENT",
+          ]),
+          gte(financialAdjustments.createdAt, since),
+        ),
+      )
+      .orderBy(desc(financialAdjustments.createdAt))
+      .limit(50),
+    listReconciliationRecords({
+      statuses: ["UNMATCHED", "PARTIAL", "EXCEPTION"],
+      entityTypes:
+        scope === "operator" ? OPERATOR_RECONCILIATION_ENTITIES : undefined,
+      limit: 200,
+    }),
+  ]);
 
   const batchProblems =
     scope === "admin"
@@ -1496,19 +2146,35 @@ export async function listFinancialExceptions(scope: "operator" | "admin") {
             .orderBy(desc(shopSettlements.updatedAt))
             .limit(50),
           payouts: await db
-            .select({ payout: riderPayouts, partnerName: deliveryPartners.fullName })
+            .select({
+              payout: riderPayouts,
+              partnerName: deliveryPartners.fullName,
+            })
             .from(riderPayouts)
-            .innerJoin(deliveryPartners, eq(riderPayouts.deliveryPartnerId, deliveryPartners.id))
+            .innerJoin(
+              deliveryPartners,
+              eq(riderPayouts.deliveryPartnerId, deliveryPartners.id),
+            )
             .where(inArray(riderPayouts.status, ["FAILED", "REVERSED"]))
             .orderBy(desc(riderPayouts.updatedAt))
             .limit(50),
           // Delivered well past the hold period but still in no settlement ("settlement missing").
           unsettled: await db
-            .select({ orderId: orderFinancials.orderId, orderNumber: orders.orderNumber, shopName: shops.name, deliveredAt: orderFinancials.deliveredAt })
+            .select({
+              orderId: orderFinancials.orderId,
+              orderNumber: orders.orderNumber,
+              shopName: shops.name,
+              deliveredAt: orderFinancials.deliveredAt,
+            })
             .from(orderFinancials)
             .innerJoin(orders, eq(orderFinancials.orderId, orders.id))
             .innerJoin(shops, eq(orderFinancials.shopId, shops.id))
-            .where(and(isNull(orderFinancials.settlementId), lt(orderFinancials.deliveredAt, sql`now() - interval '9 days'`)))
+            .where(
+              and(
+                isNull(orderFinancials.settlementId),
+                lt(orderFinancials.deliveredAt, sql`now() - interval 9 day`),
+              ),
+            )
             .limit(100),
         }
       : null;
@@ -1518,7 +2184,10 @@ export async function listFinancialExceptions(scope: "operator" | "admin") {
     pendingPayments,
     refundAttention,
     recentCancellations,
-    deliveryAdjustments: deliveryAdjustments.map((d) => ({ ...d.adjustment, orderNumber: d.orderNumber })),
+    deliveryAdjustments: deliveryAdjustments.map((d) => ({
+      ...d.adjustment,
+      orderNumber: d.orderNumber,
+    })),
     reconciliation,
     batchProblems,
   };
@@ -1533,21 +2202,42 @@ export async function listFinancialExceptions(scope: "operator" | "admin") {
  * settlement it went into, the rider's earning, reconciliation results.
  */
 export async function getOrderFinancialTrace(orderNumber: string) {
-  const order = await db.query.orders.findFirst({ where: eq(orders.orderNumber, orderNumber.trim()) });
+  const order = await db.query.orders.findFirst({
+    where: eq(orders.orderNumber, orderNumber.trim()),
+  });
   if (!order) throw notFound("Order");
-  const [walletEntries, snapshot, adjustments, delivery, ledger, recon] = await Promise.all([
-    db.select().from(walletTransactions).where(eq(walletTransactions.orderId, order.id)).orderBy(walletTransactions.createdAt),
-    db.query.orderFinancials.findFirst({ where: eq(orderFinancials.orderId, order.id) }),
-    db.select().from(financialAdjustments).where(eq(financialAdjustments.orderId, order.id)),
-    db.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.orderId, order.id) }),
-    listLedgerEntries({ orderId: order.id }),
-    db.select().from(reconciliationRecords).where(eq(reconciliationRecords.entityId, order.id)),
-  ]);
+  const [walletEntries, snapshot, adjustments, delivery, ledger, recon] =
+    await Promise.all([
+      db
+        .select()
+        .from(walletTransactions)
+        .where(eq(walletTransactions.orderId, order.id))
+        .orderBy(walletTransactions.createdAt),
+      db.query.orderFinancials.findFirst({
+        where: eq(orderFinancials.orderId, order.id),
+      }),
+      db
+        .select()
+        .from(financialAdjustments)
+        .where(eq(financialAdjustments.orderId, order.id)),
+      db.query.deliveryOrders.findFirst({
+        where: eq(deliveryOrders.orderId, order.id),
+      }),
+      listLedgerEntries({ orderId: order.id }),
+      db
+        .select()
+        .from(reconciliationRecords)
+        .where(eq(reconciliationRecords.entityId, order.id)),
+    ]);
   const settlement = snapshot?.settlementId
-    ? await db.query.shopSettlements.findFirst({ where: eq(shopSettlements.id, snapshot.settlementId) })
+    ? await db.query.shopSettlements.findFirst({
+        where: eq(shopSettlements.id, snapshot.settlementId),
+      })
     : null;
   const riderEarning = delivery
-    ? await db.query.deliveryPartnerEarnings.findFirst({ where: eq(deliveryPartnerEarnings.deliveryOrderId, delivery.id) })
+    ? await db.query.deliveryPartnerEarnings.findFirst({
+        where: eq(deliveryPartnerEarnings.deliveryOrderId, delivery.id),
+      })
     : null;
   const debit = walletEntries.find((w) => w.amountPaise < 0);
   return {
@@ -1586,8 +2276,15 @@ export async function getOrderFinancialTrace(orderNumber: string) {
     ledger,
     reconciliation: recon,
     settlement: settlement
-      ? { id: settlement.id, status: settlement.status, periodStart: settlement.periodStart, paymentReference: settlement.paymentReference }
+      ? {
+          id: settlement.id,
+          status: settlement.status,
+          periodStart: settlement.periodStart,
+          paymentReference: settlement.paymentReference,
+        }
       : null,
-    riderEarning: riderEarning ? { totalPaise: riderEarning.totalPaise, payoutId: riderEarning.payoutId } : null,
+    riderEarning: riderEarning
+      ? { totalPaise: riderEarning.totalPaise, payoutId: riderEarning.payoutId }
+      : null,
   };
 }

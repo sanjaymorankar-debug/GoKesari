@@ -21,7 +21,10 @@ import { and, count, desc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 
 import { conflict, validationFailed } from "@/lib/errors";
 import { getEnv } from "@/lib/env";
-import { ChannelUnavailableError, getChannelProvider } from "@/server/notifications/channels";
+import {
+  ChannelUnavailableError,
+  getChannelProvider,
+} from "@/server/notifications/channels";
 import {
   CATEGORIES,
   MANDATORY_CATEGORIES,
@@ -34,7 +37,10 @@ import {
   type Channel,
   type OutboundChannel,
 } from "@/server/notifications/templates";
-import { NOTIFICATION_TYPES, type NotificationType } from "@/server/notifications/types";
+import {
+  NOTIFICATION_TYPES,
+  type NotificationType,
+} from "@/server/notifications/types";
 import { db, type DbClient } from "@/server/db";
 import {
   notificationDeliveries,
@@ -47,6 +53,11 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { getRule } from "./settings";
+import {
+  insertIfNewReturning,
+  insertReturning,
+  updateReturning,
+} from "@/server/db/returning";
 
 export { NOTIFICATION_TYPES, type NotificationType };
 
@@ -73,13 +84,25 @@ export interface NotifyInput {
 
 type PrefMap = Map<string, boolean>; // `${category}:${channel}` -> enabled
 
-async function loadPreferences(userId: string, client: DbClient): Promise<PrefMap> {
-  const rows = await client.select().from(notificationPreferences).where(eq(notificationPreferences.userId, userId));
+async function loadPreferences(
+  userId: string,
+  client: DbClient,
+): Promise<PrefMap> {
+  const rows = await client
+    .select()
+    .from(notificationPreferences)
+    .where(eq(notificationPreferences.userId, userId));
   return new Map(rows.map((r) => [`${r.category}:${r.channel}`, r.enabled]));
 }
 
-function channelEnabled(prefs: PrefMap, category: CategoryKey, channel: Channel, defaultOn: boolean): boolean {
-  if (MANDATORY_CATEGORIES.includes(category)) return channel === "IN_APP" || channel === "EMAIL" ? true : defaultOn;
+function channelEnabled(
+  prefs: PrefMap,
+  category: CategoryKey,
+  channel: Channel,
+  defaultOn: boolean,
+): boolean {
+  if (MANDATORY_CATEGORIES.includes(category))
+    return channel === "IN_APP" || channel === "EMAIL" ? true : defaultOn;
   return prefs.get(`${category}:${channel}`) ?? defaultOn;
 }
 
@@ -89,13 +112,22 @@ function channelEnabled(prefs: PrefMap, category: CategoryKey, channel: Channel,
  * Writes the in-app notification and queues outbound deliveries. Never
  * throws; a duplicate `dedupeKey` is silently dropped.
  */
-export async function notify(input: NotifyInput, client: DbClient = db): Promise<void> {
+export async function notify(
+  input: NotifyInput,
+  client: DbClient = db,
+): Promise<void> {
   try {
-    const rendered = input.vars || !input.title || !input.body ? renderTemplate(input.type, input.vars ?? {}) : null;
+    const rendered =
+      input.vars || !input.title || !input.body
+        ? renderTemplate(input.type, input.vars ?? {})
+        : null;
     const title = input.title ?? rendered?.title;
     const body = input.body ?? rendered?.body;
     if (!title || !body) {
-      console.error("[notifications] no title/body and no template for", input.type);
+      console.error(
+        "[notifications] no title/body and no template for",
+        input.type,
+      );
       return;
     }
     const category = categoryOf(input.type);
@@ -103,40 +135,55 @@ export async function notify(input: NotifyInput, client: DbClient = db): Promise
 
     let notificationId: string | null = null;
     if (channelEnabled(prefs, category, "IN_APP", true)) {
-      const [row] = await client
-        .insert(notifications)
-        .values({
-          userId: input.userId,
-          type: input.type,
-          channel: "IN_APP",
-          title,
-          body,
-          actionUrl: input.actionUrl ?? null,
-          metadata: input.metadata ?? null,
-          dedupeKey: input.dedupeKey ?? null,
-          sentAt: new Date(),
-        })
-        // Relies on the unique index over dedupe_key.
-        .onConflictDoNothing()
-        .returning({ id: notifications.id });
+      const dedupeKey = input.dedupeKey ?? null;
+      const values = {
+        userId: input.userId,
+        type: input.type,
+        channel: "IN_APP" as const,
+        title,
+        body,
+        actionUrl: input.actionUrl ?? null,
+        metadata: input.metadata ?? null,
+        dedupeKey,
+        sentAt: new Date(),
+      };
+      // notifications_dedupe_unique covers dedupe_key alone, and a MySQL unique
+      // index admits any number of NULLs, so a notification sent without a
+      // dedupe key cannot collide. Only the keyed ones take the insert-if-new
+      // path, and so only they can come back empty.
+      const [row] = dedupeKey
+        ? await insertIfNewReturning(
+            client,
+            notifications,
+            values,
+            eq(notifications.dedupeKey, dedupeKey),
+          )
+        : await insertReturning(client, notifications, values);
       // A dropped duplicate suppresses the outbound copies too.
-      if (!row && input.dedupeKey) return;
+      if (!row && dedupeKey) return;
       notificationId = row?.id ?? null;
     }
 
     // Outbound channels: the template's email default plus anything the caller asked for, minus user opt-outs.
     const wanted = new Set<OutboundChannel>();
     if (emailByDefault(input.type)) wanted.add("EMAIL");
-    for (const channel of input.channels ?? []) if (channel !== "IN_APP") wanted.add(channel);
+    for (const channel of input.channels ?? [])
+      if (channel !== "IN_APP") wanted.add(channel);
     // A user who switched a category's channel ON gets it for every event in that category.
-    for (const channel of OUTBOUND_CHANNELS) if (prefs.get(`${category}:${channel}`) === true) wanted.add(channel);
+    for (const channel of OUTBOUND_CHANNELS)
+      if (prefs.get(`${category}:${channel}`) === true) wanted.add(channel);
 
     const outbound = [...wanted].filter((channel) =>
       channelEnabled(prefs, category, channel, wanted.has(channel)),
     );
     if (outbound.length > 0) {
       const rules = await getRule("notifications");
-      const email = renderEmail({ title, body, actionUrl: input.actionUrl, baseUrl: getEnv().AUTH_URL });
+      const email = renderEmail({
+        title,
+        body,
+        actionUrl: input.actionUrl,
+        baseUrl: getEnv().AUTH_URL,
+      });
       await client.insert(notificationDeliveries).values(
         outbound.map((channel) => ({
           notificationId,
@@ -173,7 +220,10 @@ export function notifyEvent(
  * commits, so a quick timer (and the cron sweep) picks them up afterwards.
  */
 function scheduleDelivery(client: DbClient): void {
-  const run = () => void deliverPending().catch((error) => console.error("[notifications] delivery run failed", error));
+  const run = () =>
+    void deliverPending().catch((error) =>
+      console.error("[notifications] delivery run failed", error),
+    );
   if (client === db) run();
   else setTimeout(run, 2_000).unref?.();
 }
@@ -189,7 +239,9 @@ function backoffSeconds(schedule: number[], attempt: number): number {
  * come. Rows are claimed with SKIP LOCKED so overlapping runs never send the
  * same message twice; a row stuck in SENDING (process died) is re-queued.
  */
-export async function deliverPending(options: { limit?: number } = {}): Promise<{
+export async function deliverPending(
+  options: { limit?: number } = {},
+): Promise<{
   sent: number;
   failed: number;
   skipped: number;
@@ -201,11 +253,15 @@ export async function deliverPending(options: { limit?: number } = {}): Promise<
 
   await db
     .update(notificationDeliveries)
-    .set({ status: "FAILED", lastError: "Interrupted while sending", updatedAt: new Date() })
+    .set({
+      status: "FAILED",
+      lastError: "Interrupted while sending",
+      updatedAt: new Date(),
+    })
     .where(
       and(
         eq(notificationDeliveries.status, "SENDING"),
-        lte(notificationDeliveries.updatedAt, sql`now() - interval '10 minutes'`),
+        lte(notificationDeliveries.updatedAt, sql`now() - interval 10 minute`),
       ),
     );
 
@@ -223,11 +279,15 @@ export async function deliverPending(options: { limit?: number } = {}): Promise<
       .limit(limit)
       .for("update", { skipLocked: true });
     if (due.length === 0) return [];
-    return tx
-      .update(notificationDeliveries)
-      .set({ status: "SENDING", updatedAt: new Date() })
-      .where(inArray(notificationDeliveries.id, due.map((d) => d.id)))
-      .returning();
+    return updateReturning(
+      tx,
+      notificationDeliveries,
+      { status: "SENDING", updatedAt: new Date() },
+      inArray(
+        notificationDeliveries.id,
+        due.map((d) => d.id),
+      ),
+    );
   });
 
   for (const delivery of claimed) {
@@ -241,7 +301,9 @@ async function sendOne(
   delivery: NotificationDelivery,
   rules: Awaited<ReturnType<typeof getRule<"notifications">>>,
 ): Promise<"sent" | "failed" | "skipped" | "dead"> {
-  const finish = (fields: Partial<typeof notificationDeliveries.$inferInsert>) =>
+  const finish = (
+    fields: Partial<typeof notificationDeliveries.$inferInsert>,
+  ) =>
     db
       .update(notificationDeliveries)
       .set({ ...fields, updatedAt: new Date() })
@@ -249,7 +311,10 @@ async function sendOne(
 
   const provider = getChannelProvider(delivery.channel as OutboundChannel);
   if (!provider || !provider.isAvailable()) {
-    await finish({ status: "SKIPPED", lastError: "No provider is configured for this channel." });
+    await finish({
+      status: "SKIPPED",
+      lastError: "No provider is configured for this channel.",
+    });
     return "skipped";
   }
   const [user] = await db
@@ -258,7 +323,10 @@ async function sendOne(
     .where(eq(users.id, delivery.userId));
   const to = user ? provider.addressFor(user) : null;
   if (!to) {
-    await finish({ status: "SKIPPED", lastError: "The user has no address for this channel." });
+    await finish({
+      status: "SKIPPED",
+      lastError: "The user has no address for this channel.",
+    });
     return "skipped";
   }
 
@@ -282,17 +350,33 @@ async function sendOne(
     return "sent";
   } catch (error) {
     if (error instanceof ChannelUnavailableError) {
-      await finish({ status: "SKIPPED", attempts, toAddress: to, lastError: error.message });
+      await finish({
+        status: "SKIPPED",
+        attempts,
+        toAddress: to,
+        lastError: error.message,
+      });
       return "skipped";
     }
-    const message = error instanceof Error ? error.message.slice(0, 300) : "Delivery failed.";
+    const message =
+      error instanceof Error ? error.message.slice(0, 300) : "Delivery failed.";
     if (attempts >= delivery.maxAttempts) {
-      await finish({ status: "DEAD", attempts, toAddress: to, lastError: message });
+      await finish({
+        status: "DEAD",
+        attempts,
+        toAddress: to,
+        lastError: message,
+      });
       await recordAudit({
         action: AUDIT_ACTIONS.NOTIFICATION_DELIVERY_DEAD,
         entityType: "notification_delivery",
         entityId: delivery.id,
-        newValue: { type: delivery.type, channel: delivery.channel, attempts, error: message },
+        newValue: {
+          type: delivery.type,
+          channel: delivery.channel,
+          attempts,
+          error: message,
+        },
       });
       return "dead";
     }
@@ -301,7 +385,9 @@ async function sendOne(
       attempts,
       toAddress: to,
       lastError: message,
-      nextAttemptAt: new Date(Date.now() + backoffSeconds(rules.retryBackoffSeconds, attempts) * 1000),
+      nextAttemptAt: new Date(
+        Date.now() + backoffSeconds(rules.retryBackoffSeconds, attempts) * 1000,
+      ),
     });
     return "failed";
   }
@@ -318,7 +404,9 @@ export interface PreferenceRow {
 }
 
 /** The settings matrix for one user: every category × channel with its effective value. */
-export async function getPreferenceMatrix(userId: string): Promise<PreferenceRow[]> {
+export async function getPreferenceMatrix(
+  userId: string,
+): Promise<PreferenceRow[]> {
   const prefs = await loadPreferences(userId, db);
   const channels: Channel[] = ["IN_APP", ...OUTBOUND_CHANNELS];
   return (Object.keys(CATEGORIES) as CategoryKey[]).map((category) => {
@@ -329,11 +417,21 @@ export async function getPreferenceMatrix(userId: string): Promise<PreferenceRow
       description: CATEGORIES[category].description,
       mandatory,
       channels: channels.map((channel) => {
-        const provider = channel === "IN_APP" ? null : getChannelProvider(channel as OutboundChannel);
-        const available = channel === "IN_APP" || Boolean(provider?.isAvailable());
+        const provider =
+          channel === "IN_APP"
+            ? null
+            : getChannelProvider(channel as OutboundChannel);
+        const available =
+          channel === "IN_APP" || Boolean(provider?.isAvailable());
         // Default: in-app on everywhere; email on where events default to it (approximated per category).
-        const defaultOn = channel === "IN_APP" || (channel === "EMAIL" && defaultEmailForCategory(category));
-        return { channel, available, enabled: channelEnabled(prefs, category, channel, defaultOn) };
+        const defaultOn =
+          channel === "IN_APP" ||
+          (channel === "EMAIL" && defaultEmailForCategory(category));
+        return {
+          channel,
+          available,
+          enabled: channelEnabled(prefs, category, channel, defaultOn),
+        };
       }),
     };
   });
@@ -356,10 +454,7 @@ export async function setPreference(
   await db
     .insert(notificationPreferences)
     .values({ userId: actor.id, category, channel, enabled })
-    .onConflictDoUpdate({
-      target: [notificationPreferences.userId, notificationPreferences.category, notificationPreferences.channel],
-      set: { enabled, updatedAt: new Date() },
-    });
+    .onDuplicateKeyUpdate({ set: { enabled, updatedAt: new Date() } });
   await recordAudit({
     actorId: actor.id,
     actorRole: actor.role,
@@ -404,11 +499,19 @@ export async function unreadCount(userId: string): Promise<number> {
   return row?.value ?? 0;
 }
 
-export async function markRead(userId: string, notificationId: string): Promise<void> {
+export async function markRead(
+  userId: string,
+  notificationId: string,
+): Promise<void> {
   await db
     .update(notifications)
     .set({ readAt: new Date() })
-    .where(and(eq(notifications.id, notificationId), eq(notifications.userId, userId)));
+    .where(
+      and(
+        eq(notifications.id, notificationId),
+        eq(notifications.userId, userId),
+      ),
+    );
 }
 
 export async function markAllRead(userId: string): Promise<void> {
@@ -419,22 +522,35 @@ export async function markAllRead(userId: string): Promise<void> {
 }
 
 /** Admin view of outbound deliveries (failures first) and the counts behind the dashboard. */
-export async function listDeliveries(options: { status?: NotificationDelivery["status"]; limit?: number } = {}) {
+export async function listDeliveries(
+  options: { status?: NotificationDelivery["status"]; limit?: number } = {},
+) {
   return db
     .select()
     .from(notificationDeliveries)
-    .where(options.status ? eq(notificationDeliveries.status, options.status) : undefined)
+    .where(
+      options.status
+        ? eq(notificationDeliveries.status, options.status)
+        : undefined,
+    )
     .orderBy(desc(notificationDeliveries.createdAt))
     .limit(Math.min(options.limit ?? 100, 500));
 }
 
 export async function getDeliveryStats(hours = 24) {
   const rows = await db
-    .select({ status: notificationDeliveries.status, n: sql<number>`count(*)::int` })
+    .select({
+      status: notificationDeliveries.status,
+      n: sql<number>`CAST(count(*) AS SIGNED)`,
+    })
     .from(notificationDeliveries)
-    .where(sql`${notificationDeliveries.createdAt} > now() - make_interval(hours => ${hours})`)
+    .where(
+      sql`${notificationDeliveries.createdAt} > now() - interval ${hours} hour`,
+    )
     .groupBy(notificationDeliveries.status);
-  const byStatus = Object.fromEntries(rows.map((r) => [r.status, r.n])) as Partial<Record<NotificationDelivery["status"], number>>;
+  const byStatus = Object.fromEntries(
+    rows.map((r) => [r.status, r.n]),
+  ) as Partial<Record<NotificationDelivery["status"], number>>;
   return {
     sent: byStatus.SENT ?? 0,
     pending: (byStatus.PENDING ?? 0) + (byStatus.SENDING ?? 0),
@@ -445,12 +561,25 @@ export async function getDeliveryStats(hours = 24) {
 }
 
 /** Puts a dead or skipped delivery back in the queue (an operator fixed the cause). */
-export async function requeueDelivery(deliveryId: string, actor: { id: string; role: UserRole }): Promise<void> {
-  const [row] = await db
-    .update(notificationDeliveries)
-    .set({ status: "PENDING", attempts: 0, nextAttemptAt: new Date(), lastError: null, updatedAt: new Date() })
-    .where(and(eq(notificationDeliveries.id, deliveryId), inArray(notificationDeliveries.status, ["DEAD", "SKIPPED", "FAILED"])))
-    .returning({ id: notificationDeliveries.id });
+export async function requeueDelivery(
+  deliveryId: string,
+  actor: { id: string; role: UserRole },
+): Promise<void> {
+  const [row] = await updateReturning(
+    db,
+    notificationDeliveries,
+    {
+      status: "PENDING",
+      attempts: 0,
+      nextAttemptAt: new Date(),
+      lastError: null,
+      updatedAt: new Date(),
+    },
+    and(
+      eq(notificationDeliveries.id, deliveryId),
+      inArray(notificationDeliveries.status, ["DEAD", "SKIPPED", "FAILED"]),
+    ),
+  );
   if (!row) throw conflict("That delivery cannot be retried.");
   await recordAudit({
     actorId: actor.id,

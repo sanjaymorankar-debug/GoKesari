@@ -30,6 +30,7 @@ import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { setMasterMrp, submitMrpCorrection } from "./product-master";
 import { getRule } from "./settings";
+import { insertReturning, updateReturning } from "@/server/db/returning";
 
 interface Actor {
   id: string;
@@ -49,21 +50,36 @@ export async function checkPriceAgainstMrp(
   client: DbClient = db,
 ): Promise<{ enforced: boolean; violations: MrpViolation[] }> {
   const [product] = await client
-    .select({ kind: products.kind, mrpPaise: products.mrpPaise, status: products.mrpVerificationStatus })
+    .select({
+      kind: products.kind,
+      mrpPaise: products.mrpPaise,
+      status: products.mrpVerificationStatus,
+    })
     .from(products)
     .where(eq(products.id, productId));
-  if (!product || product.kind !== "PACKAGED" || product.mrpPaise == null) return { enforced: false, violations: [] };
+  if (!product || product.kind !== "PACKAGED" || product.mrpPaise == null)
+    return { enforced: false, violations: [] };
 
   const rules = await getRule("mrp");
   const limit = product.mrpPaise + rules.tolerancePaise;
   const violations: MrpViolation[] = [];
   if (prices.online != null && prices.online > limit) {
-    violations.push({ channel: "ONLINE", pricePaise: prices.online, mrpPaise: product.mrpPaise });
+    violations.push({
+      channel: "ONLINE",
+      pricePaise: prices.online,
+      mrpPaise: product.mrpPaise,
+    });
   }
   if (prices.offline != null && prices.offline > limit) {
-    violations.push({ channel: "OFFLINE", pricePaise: prices.offline, mrpPaise: product.mrpPaise });
+    violations.push({
+      channel: "OFFLINE",
+      pricePaise: prices.offline,
+      mrpPaise: product.mrpPaise,
+    });
   }
-  const enforced = rules.enforceOn === "ANY" || (rules.enforceOn === "VERIFIED" && product.status === "VERIFIED");
+  const enforced =
+    rules.enforceOn === "ANY" ||
+    (rules.enforceOn === "VERIFIED" && product.status === "VERIFIED");
   return { enforced, violations };
 }
 
@@ -73,12 +89,21 @@ export async function assertPriceWithinMrp(
   prices: { online?: number | null; offline?: number | null },
   client: DbClient = db,
 ): Promise<void> {
-  const { enforced, violations } = await checkPriceAgainstMrp(productId, prices, client);
+  const { enforced, violations } = await checkPriceAgainstMrp(
+    productId,
+    prices,
+    client,
+  );
   if (!enforced || violations.length === 0) return;
   const v = violations[0];
   throw validationFailed(
     `The ${v.channel.toLowerCase()} price ₹${(v.pricePaise / 100).toFixed(2)} is above the MRP of ₹${(v.mrpPaise / 100).toFixed(2)}. A product cannot be sold above its MRP.`,
-    { fields: { [v.channel === "ONLINE" ? "onlinePricePaise" : "offlinePricePaise"]: "Above the MRP" } },
+    {
+      fields: {
+        [v.channel === "ONLINE" ? "onlinePricePaise" : "offlinePricePaise"]:
+          "Above the MRP",
+      },
+    },
   );
 }
 
@@ -94,10 +119,19 @@ export interface SetMrpInput {
  * Sets the master MRP (operations only) and, if it now sits below prices shops
  * already charge, tells those shops. Their prices are never edited here.
  */
-export async function changeMasterMrp(input: SetMrpInput, actor: Actor): Promise<{ product: Product; conflicts: number }> {
+export async function changeMasterMrp(
+  input: SetMrpInput,
+  actor: Actor,
+): Promise<{ product: Product; conflicts: number }> {
   const product = await setMasterMrp(input, actor);
   const rows = await db
-    .select({ id: shopProducts.id, shopId: shopProducts.shopId, ownerId: shops.ownerId, online: shopProducts.onlinePricePaise, offline: shopProducts.offlinePricePaise })
+    .select({
+      id: shopProducts.id,
+      shopId: shopProducts.shopId,
+      ownerId: shops.ownerId,
+      online: shopProducts.onlinePricePaise,
+      offline: shopProducts.offlinePricePaise,
+    })
     .from(shopProducts)
     .innerJoin(shops, eq(shopProducts.shopId, shops.id))
     .where(
@@ -114,7 +148,10 @@ export async function changeMasterMrp(input: SetMrpInput, actor: Actor): Promise
       action: AUDIT_ACTIONS.MRP_CONFLICT_DETECTED,
       entityType: "product",
       entityId: input.productId,
-      newValue: { mrpPaise: input.mrpPaise, shopProductIds: rows.map((r) => r.id) },
+      newValue: {
+        mrpPaise: input.mrpPaise,
+        shopProductIds: rows.map((r) => r.id),
+      },
     });
     for (const row of rows) {
       await notify({
@@ -134,36 +171,62 @@ export async function changeMasterMrp(input: SetMrpInput, actor: Actor): Promise
 
 /** A shop owner disputes the MRP. The claim is stored; the master value is untouched. */
 export async function raiseCorrection(
-  input: { productId: string; shopId?: string | null; claimedMrpPaise: number; note?: string | null },
+  input: {
+    productId: string;
+    shopId?: string | null;
+    claimedMrpPaise: number;
+    note?: string | null;
+  },
   actor: Actor,
 ): Promise<MrpCorrection> {
-  const [product] = await db.select().from(products).where(eq(products.id, input.productId));
+  const [product] = await db
+    .select()
+    .from(products)
+    .where(eq(products.id, input.productId));
   if (!product) throw notFound("Product");
   if (input.shopId) {
-    const [shop] = await db.select({ ownerId: shops.ownerId }).from(shops).where(eq(shops.id, input.shopId));
-    if (!shop || (shop.ownerId !== actor.id && actor.role !== "ADMIN" && actor.role !== "OPERATOR")) {
+    const [shop] = await db
+      .select({ ownerId: shops.ownerId })
+      .from(shops)
+      .where(eq(shops.id, input.shopId));
+    if (
+      !shop ||
+      (shop.ownerId !== actor.id &&
+        actor.role !== "ADMIN" &&
+        actor.role !== "OPERATOR")
+    ) {
       throw forbidden("This shop does not belong to you.");
     }
   }
   const [open] = await db
     .select({ id: mrpCorrections.id })
     .from(mrpCorrections)
-    .where(and(eq(mrpCorrections.productId, input.productId), eq(mrpCorrections.status, "PENDING")));
-  if (open) throw validationFailed("An MRP correction for this product is already waiting for review.");
+    .where(
+      and(
+        eq(mrpCorrections.productId, input.productId),
+        eq(mrpCorrections.status, "PENDING"),
+      ),
+    );
+  if (open)
+    throw validationFailed(
+      "An MRP correction for this product is already waiting for review.",
+    );
 
   // Existing service: validates, marks the product PENDING_VERIFICATION, audits the claim.
-  await submitMrpCorrection(input.productId, input.claimedMrpPaise, actor, input.note ?? undefined);
-  const [row] = await db
-    .insert(mrpCorrections)
-    .values({
-      productId: input.productId,
-      shopId: input.shopId ?? null,
-      claimedMrpPaise: input.claimedMrpPaise,
-      note: input.note?.trim() || null,
-      submittedBy: actor.id,
-      previousVerificationStatus: product.mrpVerificationStatus,
-    })
-    .returning();
+  await submitMrpCorrection(
+    input.productId,
+    input.claimedMrpPaise,
+    actor,
+    input.note ?? undefined,
+  );
+  const [row] = await insertReturning(db, mrpCorrections, {
+    productId: input.productId,
+    shopId: input.shopId ?? null,
+    claimedMrpPaise: input.claimedMrpPaise,
+    note: input.note?.trim() || null,
+    submittedBy: actor.id,
+    previousVerificationStatus: product.mrpVerificationStatus,
+  });
   return row;
 }
 
@@ -174,38 +237,53 @@ export async function decideCorrection(
   actor: Actor,
   mrpPaise?: number,
 ): Promise<MrpCorrection> {
-  if (actor.role !== "ADMIN" && actor.role !== "OPERATOR") throw forbidden("Only operations can decide an MRP correction.");
-  if (note.trim().length < 3) throw validationFailed("Record the reason for the decision.");
-  const [correction] = await db.select().from(mrpCorrections).where(eq(mrpCorrections.id, id));
+  if (actor.role !== "ADMIN" && actor.role !== "OPERATOR")
+    throw forbidden("Only operations can decide an MRP correction.");
+  if (note.trim().length < 3)
+    throw validationFailed("Record the reason for the decision.");
+  const [correction] = await db
+    .select()
+    .from(mrpCorrections)
+    .where(eq(mrpCorrections.id, id));
   if (!correction) throw notFound("MRP correction");
-  if (correction.status !== "PENDING") throw validationFailed("This correction has already been decided.");
+  if (correction.status !== "PENDING")
+    throw validationFailed("This correction has already been decided.");
 
   let applied: number | null = null;
   if (decision === "ACCEPT") {
     applied = mrpPaise ?? correction.claimedMrpPaise;
     await changeMasterMrp(
-      { productId: correction.productId, mrpPaise: applied, source: "ADMIN", reason: `Accepted correction: ${note.trim()}` },
+      {
+        productId: correction.productId,
+        mrpPaise: applied,
+        source: "ADMIN",
+        reason: `Accepted correction: ${note.trim()}`,
+      },
       actor,
     );
   } else {
     await db
       .update(products)
       .set({
-        mrpVerificationStatus: (correction.previousVerificationStatus as Product["mrpVerificationStatus"] | null) ?? "UNVERIFIED",
+        mrpVerificationStatus:
+          (correction.previousVerificationStatus as
+            | Product["mrpVerificationStatus"]
+            | null) ?? "UNVERIFIED",
       })
       .where(eq(products.id, correction.productId));
   }
-  const [row] = await db
-    .update(mrpCorrections)
-    .set({
+  const [row] = await updateReturning(
+    db,
+    mrpCorrections,
+    {
       status: decision === "ACCEPT" ? "ACCEPTED" : "REJECTED",
       decidedBy: actor.id,
       decidedAt: new Date(),
       decisionNote: note.trim(),
       appliedMrpPaise: applied,
-    })
-    .where(eq(mrpCorrections.id, id))
-    .returning();
+    },
+    eq(mrpCorrections.id, id),
+  );
   await recordAudit({
     actorId: actor.id,
     actorRole: actor.role,
@@ -219,7 +297,9 @@ export async function decideCorrection(
 
 /* --------------------------------------------------------------- overview */
 
-export async function listCorrections(status: MrpCorrection["status"] = "PENDING") {
+export async function listCorrections(
+  status: MrpCorrection["status"] = "PENDING",
+) {
   return db
     .select({
       correction: mrpCorrections,
@@ -266,9 +346,15 @@ export async function listMrpViolations(limit = 200) {
 /** Counts by verification status — the headline of the governance page. */
 export async function mrpVerificationSummary() {
   const rows = await db
-    .select({ status: products.mrpVerificationStatus, n: sql<number>`count(*)::int` })
+    .select({
+      status: products.mrpVerificationStatus,
+      n: sql<number>`CAST(count(*) AS SIGNED)`,
+    })
     .from(products)
     .where(and(isNull(products.deletedAt), eq(products.kind, "PACKAGED")))
     .groupBy(products.mrpVerificationStatus);
-  return Object.fromEntries(rows.map((r) => [r.status, r.n])) as Record<string, number>;
+  return Object.fromEntries(rows.map((r) => [r.status, r.n])) as Record<
+    string,
+    number
+  >;
 }

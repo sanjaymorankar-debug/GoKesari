@@ -140,14 +140,55 @@ export function toClientError(error: unknown): {
   };
 }
 
-/** Postgres unique-violation code, used to detect idempotency-key collisions. */
-export const PG_UNIQUE_VIOLATION = "23505";
+/** MySQL's ER_DUP_ENTRY — a write that violated a unique index. */
+export const MYSQL_DUPLICATE_ENTRY = 1062;
+
+interface DriverError {
+  errno?: unknown;
+  code?: unknown;
+  sqlMessage?: unknown;
+  cause?: unknown;
+}
+
+/**
+ * The error and everything on its `cause` chain.
+ *
+ * Drizzle wraps a driver error in a `DrizzleQueryError` and puts the original
+ * under `cause`, so the code is never on the object that was thrown. The
+ * Postgres version of this check read `error.code` directly and would have
+ * matched nothing here.
+ */
+function errorChain(error: unknown): DriverError[] {
+  const chain: DriverError[] = [];
+  let current: unknown = error;
+  for (let depth = 0; current != null && depth < 4; depth += 1) {
+    if (typeof current !== "object") break;
+    const candidate = current as DriverError;
+    chain.push(candidate);
+    current = candidate.cause;
+  }
+  return chain;
+}
 
 export function isUniqueViolation(error: unknown): boolean {
-  return (
-    typeof error === "object" &&
-    error !== null &&
-    "code" in error &&
-    (error as { code?: unknown }).code === PG_UNIQUE_VIOLATION
+  return errorChain(error).some(
+    (e) => e.errno === MYSQL_DUPLICATE_ENTRY || e.code === "ER_DUP_ENTRY",
   );
+}
+
+/**
+ * The name of the unique index a duplicate-key error names, or undefined.
+ *
+ * Postgres reported this as a `constraint_name` field. MySQL only puts it in
+ * the message — "Duplicate entry 'x' for key 'shops.some_index'" — with the
+ * table qualifying the index name on MySQL 8 but not on MariaDB, so both
+ * spellings are accepted.
+ */
+export function violatedUniqueIndex(error: unknown): string | undefined {
+  for (const e of errorChain(error)) {
+    if (e.errno !== MYSQL_DUPLICATE_ENTRY && e.code !== "ER_DUP_ENTRY") continue;
+    const match = /for key '(?:[^'.]+\.)?([^']+)'/.exec(String(e.sqlMessage ?? ""));
+    if (match) return match[1];
+  }
+  return undefined;
 }

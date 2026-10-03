@@ -17,10 +17,21 @@ import { eq, or } from "drizzle-orm";
 
 import { isGstProviderConfigured, isPanProviderConfigured } from "@/lib/env";
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
-import { decryptPan, encryptPan, maskPan, panBlindIndex } from "@/lib/pan-crypto";
+import {
+  decryptPan,
+  encryptPan,
+  maskPan,
+  panBlindIndex,
+} from "@/lib/pan-crypto";
 import { parsePanNumber } from "@/lib/shop-identity";
 import { db } from "@/server/db";
-import { shops, type GstStatus, type PanStatus, type Shop, type UserRole } from "@/server/db/schema";
+import {
+  shops,
+  type GstStatus,
+  type PanStatus,
+  type Shop,
+  type UserRole,
+} from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import {
@@ -32,6 +43,7 @@ import {
   type RegistrationCandidate,
   type ShopIdentity,
 } from "./shop-duplicates";
+import { updateReturning } from "@/server/db/returning";
 
 interface Actor {
   id: string;
@@ -43,7 +55,11 @@ const GSTIN_PATTERN = /^[0-9A-Z]{15}$/;
 async function loadOwnedShop(shopId: string, actor: Actor): Promise<Shop> {
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
   if (!shop) throw notFound("Shop");
-  if (shop.ownerId !== actor.id && actor.role !== "ADMIN" && actor.role !== "OPERATOR") {
+  if (
+    shop.ownerId !== actor.id &&
+    actor.role !== "ADMIN" &&
+    actor.role !== "OPERATOR"
+  ) {
     throw forbidden("This shop does not belong to you.");
   }
   return shop;
@@ -67,7 +83,11 @@ async function lookupPanFromProvider(
 }
 
 /** Shop owner submits their GSTIN. Auto-verified only if a real provider is configured; otherwise queued for admin review. */
-export async function submitGstin(shopId: string, gstin: string, actor: Actor): Promise<Shop> {
+export async function submitGstin(
+  shopId: string,
+  gstin: string,
+  actor: Actor,
+): Promise<Shop> {
   const normalized = gstin.trim().toUpperCase();
   if (!GSTIN_PATTERN.test(normalized)) {
     throw validationFailed("GSTIN must be 15 alphanumeric characters.");
@@ -93,9 +113,10 @@ export async function submitGstin(shopId: string, gstin: string, actor: Actor): 
     }
   }
 
-  const [updated] = await db
-    .update(shops)
-    .set({
+  const [updated] = await updateReturning(
+    db,
+    shops,
+    {
       gstin: normalized,
       gstStatus: status,
       legalBusinessName: legalName,
@@ -104,9 +125,9 @@ export async function submitGstin(shopId: string, gstin: string, actor: Actor): 
       gstVerifiedAt: verifiedAt,
       gstVerifiedBy: verifiedAt ? null : shop.gstVerifiedBy,
       updatedAt: new Date(),
-    })
-    .where(eq(shops.id, shopId))
-    .returning();
+    },
+    eq(shops.id, shopId),
+  );
 
   await recordAudit({
     actorId: actor.id,
@@ -122,12 +143,16 @@ export async function submitGstin(shopId: string, gstin: string, actor: Actor): 
 }
 
 /** Shop owner declares they have no GSTIN. */
-export async function setGstNotRegistered(shopId: string, actor: Actor): Promise<Shop> {
+export async function setGstNotRegistered(
+  shopId: string,
+  actor: Actor,
+): Promise<Shop> {
   const shop = await loadOwnedShop(shopId, actor);
 
-  const [updated] = await db
-    .update(shops)
-    .set({
+  const [updated] = await updateReturning(
+    db,
+    shops,
+    {
       gstStatus: "NOT_REGISTERED",
       gstin: null,
       gstTradeName: null,
@@ -135,9 +160,9 @@ export async function setGstNotRegistered(shopId: string, actor: Actor): Promise
       gstVerifiedAt: null,
       gstVerifiedBy: null,
       updatedAt: new Date(),
-    })
-    .where(eq(shops.id, shopId))
-    .returning();
+    },
+    eq(shops.id, shopId),
+  );
 
   await recordAudit({
     actorId: actor.id,
@@ -161,21 +186,26 @@ export async function adminVerifyGst(
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
   if (!shop) throw notFound("Shop");
   if (!shop.gstin) throw conflict("This shop has not submitted a GSTIN.");
-  if (shop.gstStatus === "REGISTERED") throw conflict("This GSTIN is already verified.");
+  if (shop.gstStatus === "REGISTERED")
+    throw conflict("This GSTIN is already verified.");
 
-  const [updated] = await db
-    .update(shops)
-    .set({
+  const [updated] = await updateReturning(
+    db,
+    shops,
+    {
       gstStatus: "REGISTERED",
       legalBusinessName: correction?.legalName ?? shop.legalBusinessName,
-      gstTradeName: correction?.tradeName !== undefined ? correction.tradeName : shop.gstTradeName,
+      gstTradeName:
+        correction?.tradeName !== undefined
+          ? correction.tradeName
+          : shop.gstTradeName,
       gstVerificationSource: "ADMIN_VERIFIED",
       gstVerifiedAt: new Date(),
       gstVerifiedBy: actor.id,
       updatedAt: new Date(),
-    })
-    .where(eq(shops.id, shopId))
-    .returning();
+    },
+    eq(shops.id, shopId),
+  );
 
   await recordAudit({
     actorId: actor.id,
@@ -198,16 +228,21 @@ export async function adminVerifyGst(
   return updated;
 }
 
-export async function adminRejectGst(shopId: string, reason: string, actor: Actor): Promise<Shop> {
+export async function adminRejectGst(
+  shopId: string,
+  reason: string,
+  actor: Actor,
+): Promise<Shop> {
   if (!reason.trim()) throw validationFailed("A rejection reason is required.");
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
   if (!shop) throw notFound("Shop");
 
-  const [updated] = await db
-    .update(shops)
-    .set({ gstStatus: "VERIFICATION_FAILED", updatedAt: new Date() })
-    .where(eq(shops.id, shopId))
-    .returning();
+  const [updated] = await updateReturning(
+    db,
+    shops,
+    { gstStatus: "VERIFICATION_FAILED", updatedAt: new Date() },
+    eq(shops.id, shopId),
+  );
 
   await recordAudit({
     actorId: actor.id,
@@ -240,7 +275,8 @@ export async function submitPan(
   const parsed = parsePanNumber(panNumber);
   if (!parsed.ok) throw validationFailed(parsed.error);
   const normalized = parsed.value;
-  if (!holderName.trim()) throw validationFailed("Enter the name on the PAN card.");
+  if (!holderName.trim())
+    throw validationFailed("Enter the name on the PAN card.");
 
   const shop = await loadOwnedShop(shopId, actor);
   const encrypted = encryptPan(normalized);
@@ -283,14 +319,19 @@ export async function submitPan(
   };
 
   const outcome = await db.transaction(
-    async (tx): Promise<{ kind: "blocked"; match: DuplicateMatch } | { kind: "saved"; shop: Shop }> => {
+    async (
+      tx,
+    ): Promise<
+      { kind: "blocked"; match: DuplicateMatch } | { kind: "saved"; shop: Shop }
+    > => {
       await lockRegistrationKeys(tx, candidate);
       const { blocking } = await findRegistrationMatches(tx, candidate);
       if (blocking) return { kind: "blocked", match: blocking };
 
-      const [saved] = await tx
-        .update(shops)
-        .set({
+      const [saved] = await updateReturning(
+        tx,
+        shops,
+        {
           panNumberEncrypted: encrypted,
           panLast4: last4,
           panHash,
@@ -300,9 +341,9 @@ export async function submitPan(
           panVerifiedAt: verifiedAt,
           panVerifiedBy: verifiedAt ? null : shop.panVerifiedBy,
           updatedAt: new Date(),
-        })
-        .where(eq(shops.id, shopId))
-        .returning();
+        },
+        eq(shops.id, shopId),
+      );
       return { kind: "saved", shop: saved };
     },
   );
@@ -333,23 +374,29 @@ export async function submitPan(
   return updated;
 }
 
-export async function adminVerifyPan(shopId: string, actor: Actor): Promise<Shop> {
+export async function adminVerifyPan(
+  shopId: string,
+  actor: Actor,
+): Promise<Shop> {
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
   if (!shop) throw notFound("Shop");
-  if (!shop.panNumberEncrypted) throw conflict("This shop has not submitted a PAN.");
-  if (shop.panStatus === "VERIFIED") throw conflict("This PAN is already verified.");
+  if (!shop.panNumberEncrypted)
+    throw conflict("This shop has not submitted a PAN.");
+  if (shop.panStatus === "VERIFIED")
+    throw conflict("This PAN is already verified.");
 
-  const [updated] = await db
-    .update(shops)
-    .set({
+  const [updated] = await updateReturning(
+    db,
+    shops,
+    {
       panStatus: "VERIFIED",
       panVerificationSource: "ADMIN_VERIFIED",
       panVerifiedAt: new Date(),
       panVerifiedBy: actor.id,
       updatedAt: new Date(),
-    })
-    .where(eq(shops.id, shopId))
-    .returning();
+    },
+    eq(shops.id, shopId),
+  );
 
   await recordAudit({
     actorId: actor.id,
@@ -372,16 +419,21 @@ export async function adminVerifyPan(shopId: string, actor: Actor): Promise<Shop
   return updated;
 }
 
-export async function adminRejectPan(shopId: string, reason: string, actor: Actor): Promise<Shop> {
+export async function adminRejectPan(
+  shopId: string,
+  reason: string,
+  actor: Actor,
+): Promise<Shop> {
   if (!reason.trim()) throw validationFailed("A rejection reason is required.");
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
   if (!shop) throw notFound("Shop");
 
-  const [updated] = await db
-    .update(shops)
-    .set({ panStatus: "VERIFICATION_FAILED", updatedAt: new Date() })
-    .where(eq(shops.id, shopId))
-    .returning();
+  const [updated] = await updateReturning(
+    db,
+    shops,
+    { panStatus: "VERIFICATION_FAILED", updatedAt: new Date() },
+    eq(shops.id, shopId),
+  );
 
   await recordAudit({
     actorId: actor.id,
@@ -407,7 +459,10 @@ export async function adminRejectPan(shopId: string, reason: string, actor: Acto
 /** Shops with a self-declared GSTIN or PAN awaiting admin review. */
 export async function listPendingGstPanVerifications(): Promise<Shop[]> {
   return db.query.shops.findMany({
-    where: or(eq(shops.gstStatus, "PENDING_VERIFICATION"), eq(shops.panStatus, "PENDING_VERIFICATION")),
+    where: or(
+      eq(shops.gstStatus, "PENDING_VERIFICATION"),
+      eq(shops.panStatus, "PENDING_VERIFICATION"),
+    ),
     orderBy: (t, { asc }) => asc(t.updatedAt),
     limit: 200,
   });
@@ -423,8 +478,12 @@ export function getMaskedPan(shop: Pick<Shop, "panLast4">): string | null {
  * the one place the full number is ever reconstructed, so it must never be
  * a silent read.
  */
-export async function revealPanForAdmin(shopId: string, actor: Actor): Promise<string> {
-  if (actor.role !== "ADMIN") throw forbidden("Only an administrator may reveal a full PAN.");
+export async function revealPanForAdmin(
+  shopId: string,
+  actor: Actor,
+): Promise<string> {
+  if (actor.role !== "ADMIN")
+    throw forbidden("Only an administrator may reveal a full PAN.");
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
   if (!shop?.panNumberEncrypted) throw notFound("PAN");
 

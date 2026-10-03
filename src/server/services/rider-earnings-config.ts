@@ -16,6 +16,7 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { insertReturning, updateReturning } from "@/server/db/returning";
 
 interface Actor {
   id: string;
@@ -57,37 +58,58 @@ export interface IncentiveInput {
 
 const nonNegative = (value: number | null | undefined, label: string) => {
   if (value != null && (!Number.isInteger(value) || value < 0)) {
-    throw validationFailed(`${label} must be a whole, non-negative amount in paise.`);
+    throw validationFailed(
+      `${label} must be a whole, non-negative amount in paise.`,
+    );
   }
 };
 
 function checkDays(days: number[] | undefined): number[] {
   const unique = [...new Set(days ?? [])];
   if (unique.some((d) => !Number.isInteger(d) || d < 0 || d > 6)) {
-    throw validationFailed("Days must be numbers from 0 (Sunday) to 6 (Saturday).");
+    throw validationFailed(
+      "Days must be numbers from 0 (Sunday) to 6 (Saturday).",
+    );
   }
   return unique.sort();
 }
 
-function checkDates(from: string | null | undefined, to: string | null | undefined): void {
+function checkDates(
+  from: string | null | undefined,
+  to: string | null | undefined,
+): void {
   const iso = /^\d{4}-\d{2}-\d{2}$/;
-  if ((from && !iso.test(from)) || (to && !iso.test(to))) throw validationFailed("Dates must be YYYY-MM-DD.");
-  if (from && to && from > to) throw validationFailed("The end date is before the start date.");
+  if ((from && !iso.test(from)) || (to && !iso.test(to)))
+    throw validationFailed("Dates must be YYYY-MM-DD.");
+  if (from && to && from > to)
+    throw validationFailed("The end date is before the start date.");
 }
 
-function checkWindow(start: string | null | undefined, end: string | null | undefined, required: boolean): void {
+function checkWindow(
+  start: string | null | undefined,
+  end: string | null | undefined,
+  required: boolean,
+): void {
   if (!start && !end && !required) return;
   const s = start ? parseHHMM(start) : null;
   const e = end ? parseHHMM(end) : null;
-  if (s == null || e == null) throw validationFailed("Times must be HH:MM (24-hour).");
+  if (s == null || e == null)
+    throw validationFailed("Times must be HH:MM (24-hour).");
   if (s === e) throw validationFailed("Start and end time cannot be the same.");
 }
 
 export async function listSlots(): Promise<RiderEarningSlot[]> {
-  return db.select().from(riderEarningSlots).orderBy(desc(riderEarningSlots.priority), riderEarningSlots.startTime);
+  return db
+    .select()
+    .from(riderEarningSlots)
+    .orderBy(desc(riderEarningSlots.priority), riderEarningSlots.startTime);
 }
 
-export async function saveSlot(input: SlotInput, actor: Actor, id?: string): Promise<RiderEarningSlot> {
+export async function saveSlot(
+  input: SlotInput,
+  actor: Actor,
+  id?: string,
+): Promise<RiderEarningSlot> {
   const name = input.name.trim();
   if (!name) throw validationFailed("Give the slot a name.");
   checkWindow(input.startTime, input.endTime, true);
@@ -97,8 +119,15 @@ export async function saveSlot(input: SlotInput, actor: Actor, id?: string): Pro
   nonNegative(input.minEarningPaise, "Minimum earning");
   nonNegative(input.orderFeePaise, "Order fee");
   nonNegative(input.peakBonusPaise, "Peak bonus");
-  if (input.orderPercentBp !== undefined && (!Number.isInteger(input.orderPercentBp) || input.orderPercentBp < 0 || input.orderPercentBp > 10_000)) {
-    throw validationFailed("Order share must be between 0 and 10000 basis points (100%).");
+  if (
+    input.orderPercentBp !== undefined &&
+    (!Number.isInteger(input.orderPercentBp) ||
+      input.orderPercentBp < 0 ||
+      input.orderPercentBp > 10_000)
+  ) {
+    throw validationFailed(
+      "Order share must be between 0 and 10000 basis points (100%).",
+    );
   }
 
   const values = {
@@ -120,11 +149,23 @@ export async function saveSlot(input: SlotInput, actor: Actor, id?: string): Pro
     updatedAt: new Date(),
   };
 
-  const previous = id ? await db.query.riderEarningSlots.findFirst({ where: eq(riderEarningSlots.id, id) }) : null;
+  const previous = id
+    ? await db.query.riderEarningSlots.findFirst({
+        where: eq(riderEarningSlots.id, id),
+      })
+    : null;
   if (id && !previous) throw notFound("Earning slot");
   const [saved] = id
-    ? await db.update(riderEarningSlots).set(values).where(eq(riderEarningSlots.id, id)).returning()
-    : await db.insert(riderEarningSlots).values({ ...values, createdBy: actor.id }).returning();
+    ? await updateReturning(
+        db,
+        riderEarningSlots,
+        values,
+        eq(riderEarningSlots.id, id),
+      )
+    : await insertReturning(db, riderEarningSlots, {
+        ...values,
+        createdBy: actor.id,
+      });
 
   await recordAudit({
     actorId: actor.id,
@@ -139,25 +180,43 @@ export async function saveSlot(input: SlotInput, actor: Actor, id?: string): Pro
 }
 
 export async function listIncentives(): Promise<RiderIncentiveRule[]> {
-  return db.select().from(riderIncentiveRules).orderBy(desc(riderIncentiveRules.createdAt));
+  return db
+    .select()
+    .from(riderIncentiveRules)
+    .orderBy(desc(riderIncentiveRules.createdAt));
 }
 
-export async function saveIncentive(input: IncentiveInput, actor: Actor, id?: string): Promise<RiderIncentiveRule> {
+export async function saveIncentive(
+  input: IncentiveInput,
+  actor: Actor,
+  id?: string,
+): Promise<RiderIncentiveRule> {
   const name = input.name.trim();
   if (!name) throw validationFailed("Give the incentive a name.");
   if (!Number.isInteger(input.rewardPaise) || input.rewardPaise <= 0) {
     throw validationFailed("The reward must be more than zero (paise).");
   }
   const threshold = input.thresholdValue ?? 0;
-  if (!Number.isInteger(threshold) || threshold < 0) throw validationFailed("Threshold must be a whole number.");
-  if (["ORDER_COUNT", "DAILY_TARGET", "WEEKLY_TARGET", "DISTANCE"].includes(input.type) && threshold <= 0) {
-    throw validationFailed("This kind of incentive needs a threshold above zero.");
+  if (!Number.isInteger(threshold) || threshold < 0)
+    throw validationFailed("Threshold must be a whole number.");
+  if (
+    ["ORDER_COUNT", "DAILY_TARGET", "WEEKLY_TARGET", "DISTANCE"].includes(
+      input.type,
+    ) &&
+    threshold <= 0
+  ) {
+    throw validationFailed(
+      "This kind of incentive needs a threshold above zero.",
+    );
   }
-  if (input.type === "PEAK_HOUR") checkWindow(input.startTime, input.endTime, true);
+  if (input.type === "PEAK_HOUR")
+    checkWindow(input.startTime, input.endTime, true);
   else checkWindow(input.startTime, input.endTime, false);
   checkDates(input.validFrom, input.validTo);
   if (input.type === "CAMPAIGN" && !input.validFrom && !input.validTo) {
-    throw validationFailed("A campaign needs a start or end date so it cannot run forever.");
+    throw validationFailed(
+      "A campaign needs a start or end date so it cannot run forever.",
+    );
   }
 
   const values = {
@@ -176,11 +235,23 @@ export async function saveIncentive(input: IncentiveInput, actor: Actor, id?: st
     updatedAt: new Date(),
   };
 
-  const previous = id ? await db.query.riderIncentiveRules.findFirst({ where: eq(riderIncentiveRules.id, id) }) : null;
+  const previous = id
+    ? await db.query.riderIncentiveRules.findFirst({
+        where: eq(riderIncentiveRules.id, id),
+      })
+    : null;
   if (id && !previous) throw notFound("Incentive rule");
   const [saved] = id
-    ? await db.update(riderIncentiveRules).set(values).where(eq(riderIncentiveRules.id, id)).returning()
-    : await db.insert(riderIncentiveRules).values({ ...values, createdBy: actor.id }).returning();
+    ? await updateReturning(
+        db,
+        riderIncentiveRules,
+        values,
+        eq(riderIncentiveRules.id, id),
+      )
+    : await insertReturning(db, riderIncentiveRules, {
+        ...values,
+        createdBy: actor.id,
+      });
 
   await recordAudit({
     actorId: actor.id,

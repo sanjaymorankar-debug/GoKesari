@@ -6,7 +6,19 @@
  *   - Kesari/Green classification is writable only by OPERATOR/ADMIN, and every
  *     change is recorded with who/when/why.
  */
-import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, or, sql } from "drizzle-orm";
+import {
+  and,
+  asc,
+  desc,
+  eq,
+  gte,
+  inArray,
+  isNull,
+  like,
+  lte,
+  or,
+  sql,
+} from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import type { ShopTypeKey } from "@/lib/shop-types";
@@ -43,6 +55,8 @@ import {
   type DuplicateMatchReason,
   type RegistrationCandidate,
 } from "./shop-duplicates";
+import { insertReturning, updateReturning } from "@/server/db/returning";
+import { nextSequenceValue } from "@/server/db/sequence";
 
 export interface RegisterShopInput {
   name: string;
@@ -67,7 +81,12 @@ export interface RegisterShopInput {
   categoryIds?: string[];
   logoUrl?: string | null;
   photos?: string[];
-  openingHours?: { day: number; open: string; close: string; closed?: boolean }[];
+  openingHours?: {
+    day: number;
+    open: string;
+    close: string;
+    closed?: boolean;
+  }[];
   deliveryAvailable?: boolean;
   deliveryFeePaise?: number;
   freeDeliveryAbovePaise?: number | null;
@@ -230,7 +249,12 @@ export async function registerShop(
   type Outcome =
     | { kind: "blocked"; match: DuplicateMatch }
     | { kind: "created"; shop: Shop }
-    | { kind: "resubmitted"; shop: Shop; previous: Shop; matchedOn: DuplicateMatchReason };
+    | {
+        kind: "resubmitted";
+        shop: Shop;
+        previous: Shop;
+        matchedOn: DuplicateMatchReason;
+      };
 
   let outcome: Outcome;
   try {
@@ -238,7 +262,10 @@ export async function registerShop(
       // Lock, then look: a simultaneous second submission of the same shop
       // (a double-click, a second tab) waits here, then sees this one.
       await lockRegistrationKeys(tx, candidate);
-      const { blocking, rejectedOwn } = await findRegistrationMatches(tx, candidate);
+      const { blocking, rejectedOwn } = await findRegistrationMatches(
+        tx,
+        candidate,
+      );
       if (blocking) return { kind: "blocked", match: blocking };
 
       if (rejectedOwn) {
@@ -248,45 +275,58 @@ export async function registerShop(
           .where(eq(shops.id, rejectedOwn.shop.id))
           .for("update");
         // Re-sending the PAN already on file must not reset its verification.
-        const samePan = identity.pan !== null && previous.panHash === identity.pan.hash;
-        const [shop] = await tx
-          .update(shops)
-          .set({
+        const samePan =
+          identity.pan !== null && previous.panHash === identity.pan.hash;
+        const [shop] = await updateReturning(
+          tx,
+          shops,
+          {
             ...details,
-            ...shopIdentityColumns(samePan ? { ...identity, pan: null } : identity, panHolderName),
+            ...shopIdentityColumns(
+              samePan ? { ...identity, pan: null } : identity,
+              panHolderName,
+            ),
             // Registration number, fee snapshot, payments and slug stay as
             // they were: this is the same registration going back for review.
             status: "PENDING_APPROVAL",
             rejectionReason: null,
             updatedAt: new Date(),
-          })
-          .where(eq(shops.id, previous.id))
-          .returning();
+          },
+          eq(shops.id, previous.id),
+        );
         await grantRole(ownerId, "SHOP_OWNER", roleGrant, tx);
-        if (input.categoryIds) await applyShopCategories(tx, shop.id, input.categoryIds);
-        return { kind: "resubmitted", shop, previous, matchedOn: rejectedOwn.reason };
+        if (input.categoryIds)
+          await applyShopCategories(tx, shop.id, input.categoryIds);
+        return {
+          kind: "resubmitted",
+          shop,
+          previous,
+          matchedOn: rejectedOwn.reason,
+        };
       }
 
-      const [shop] = await tx
-        .insert(shops)
-        .values({
-          ownerId,
-          registrationDate:
-            (privileged ? input.registrationDate : null) ??
-            new Date().toISOString().slice(0, 10),
-          registrationFeePaise,
-          registrationFeeId: scheduled.feeId,
-          feePaymentStatus: registrationFeePaise > 0 ? "PENDING" : "PAID",
-          slug: uniqueSlug(input.name),
-          ...details,
-          ...shopIdentityColumns(identity, panHolderName),
-          // Status and classification are deliberately NOT taken from input.
-          status: "PENDING_APPROVAL",
-          classification: null,
-        })
-        .returning();
+      const [shop] = await insertReturning(tx, shops, {
+        registrationNumber: await nextSequenceValue(
+          tx,
+          "shop_registration_seq",
+        ),
+        ownerId,
+        registrationDate:
+          (privileged ? input.registrationDate : null) ??
+          new Date().toISOString().slice(0, 10),
+        registrationFeePaise,
+        registrationFeeId: scheduled.feeId,
+        feePaymentStatus: registrationFeePaise > 0 ? "PENDING" : "PAID",
+        slug: uniqueSlug(input.name),
+        ...details,
+        ...shopIdentityColumns(identity, panHolderName),
+        // Status and classification are deliberately NOT taken from input.
+        status: "PENDING_APPROVAL",
+        classification: null,
+      });
       await grantRole(ownerId, "SHOP_OWNER", roleGrant, tx);
-      if (input.categoryIds) await applyShopCategories(tx, shop.id, input.categoryIds);
+      if (input.categoryIds)
+        await applyShopCategories(tx, shop.id, input.categoryIds);
       return { kind: "created", shop };
     });
   } catch (error) {
@@ -296,7 +336,9 @@ export async function registerShop(
     if (!isShopActUniqueViolation(error)) throw error;
     const { blocking } = await findRegistrationMatches(db, candidate);
     if (!blocking) {
-      throw conflict("This Shop Act licence number is already registered to another shop.");
+      throw conflict(
+        "This Shop Act licence number is already registered to another shop.",
+      );
     }
     outcome = { kind: "blocked", match: blocking };
   }
@@ -385,9 +427,10 @@ export async function updateShopRegistration(
     throw validationFailed("Registration fee must be a whole number of paise.");
   }
 
-  const [updated] = await db
-    .update(shops)
-    .set({
+  const [updated] = await updateReturning(
+    db,
+    shops,
+    {
       ...(patch.registrationFeePaise !== undefined
         ? { registrationFeePaise: patch.registrationFeePaise }
         : {}),
@@ -398,9 +441,9 @@ export async function updateShopRegistration(
         ? { feePaymentStatus: patch.feePaymentStatus }
         : {}),
       updatedAt: new Date(),
-    })
-    .where(eq(shops.id, shopId))
-    .returning();
+    },
+    eq(shops.id, shopId),
+  );
 
   if (patch.referralCode) {
     await attributeShopToCode(shopId, patch.referralCode, actor);
@@ -457,9 +500,10 @@ export async function updateShopCompliance(
     throw validationFailed("GSTIN must be 15 alphanumeric characters.");
   }
 
-  const [updated] = await db
-    .update(shops)
-    .set({
+  const [updated] = await updateReturning(
+    db,
+    shops,
+    {
       ...(patch.legalBusinessName !== undefined
         ? { legalBusinessName: patch.legalBusinessName }
         : {}),
@@ -471,9 +515,9 @@ export async function updateShopCompliance(
         ? { returnPolicyText: patch.returnPolicyText }
         : {}),
       updatedAt: new Date(),
-    })
-    .where(eq(shops.id, shopId))
-    .returning();
+    },
+    eq(shops.id, shopId),
+  );
 
   await recordAudit({
     actorId: actor.id,
@@ -544,18 +588,19 @@ function approveShopTransaction(
       throw conflict("This shop is already approved.");
     }
 
-    const [updated] = await tx
-      .update(shops)
-      .set({
+    const [updated] = await updateReturning(
+      tx,
+      shops,
+      {
         status: "APPROVED",
         classification: input.classification,
         approvedAt: new Date(),
         approvedBy: actor.id,
         rejectionReason: null,
         updatedAt: new Date(),
-      })
-      .where(eq(shops.id, shopId))
-      .returning();
+      },
+      eq(shops.id, shopId),
+    );
 
     await tx.insert(shopClassificationHistory).values({
       shopId,
@@ -589,11 +634,12 @@ export async function rejectShop(
   if (!reason.trim()) {
     throw validationFailed("A rejection reason is required.");
   }
-  const [updated] = await db
-    .update(shops)
-    .set({ status: "REJECTED", rejectionReason: reason, updatedAt: new Date() })
-    .where(eq(shops.id, shopId))
-    .returning();
+  const [updated] = await updateReturning(
+    db,
+    shops,
+    { status: "REJECTED", rejectionReason: reason, updatedAt: new Date() },
+    eq(shops.id, shopId),
+  );
   if (!updated) throw notFound("Shop");
 
   await recordAudit({
@@ -623,11 +669,12 @@ export async function setShopStatus(
 ): Promise<Shop> {
   let updated: Shop | undefined;
   try {
-    [updated] = await db
-      .update(shops)
-      .set({ status, updatedAt: new Date() })
-      .where(eq(shops.id, shopId))
-      .returning();
+    [updated] = await updateReturning(
+      db,
+      shops,
+      { status, updatedAt: new Date() },
+      eq(shops.id, shopId),
+    );
   } catch (error) {
     if (isShopActUniqueViolation(error)) throw conflict(SHOP_ACT_TAKEN_MESSAGE);
     throw error;
@@ -684,7 +731,12 @@ export interface UpdateShopInput {
   shopType?: ShopTypeKey;
   logoUrl?: string | null;
   photos?: string[];
-  openingHours?: { day: number; open: string; close: string; closed?: boolean }[];
+  openingHours?: {
+    day: number;
+    open: string;
+    close: string;
+    closed?: boolean;
+  }[];
   deliveryAvailable?: boolean;
   deliveryFeePaise?: number;
   freeDeliveryAbovePaise?: number | null;
@@ -715,18 +767,32 @@ export async function updateShop(
   }
   if (
     input.serviceRadiusKm !== undefined &&
-    (!Number.isInteger(input.serviceRadiusKm) || input.serviceRadiusKm < 1 || input.serviceRadiusKm > 50)
+    (!Number.isInteger(input.serviceRadiusKm) ||
+      input.serviceRadiusKm < 1 ||
+      input.serviceRadiusKm > 50)
   ) {
-    throw validationFailed("Delivery radius must be a whole number of km between 1 and 50.");
+    throw validationFailed(
+      "Delivery radius must be a whole number of km between 1 and 50.",
+    );
   }
   if (input.deliveryPincodes) {
-    if (input.deliveryPincodes.length > 50 || input.deliveryPincodes.some((p) => !/^\d{6}$/.test(p))) {
-      throw validationFailed("Delivery zones must be up to 50 six-digit PIN codes.");
+    if (
+      input.deliveryPincodes.length > 50 ||
+      input.deliveryPincodes.some((p) => !/^\d{6}$/.test(p))
+    ) {
+      throw validationFailed(
+        "Delivery zones must be up to 50 six-digit PIN codes.",
+      );
     }
     input.deliveryPincodes = [...new Set(input.deliveryPincodes)];
   }
-  if (input.minOrderPaise !== undefined && (!Number.isInteger(input.minOrderPaise) || input.minOrderPaise < 0)) {
-    throw validationFailed("Minimum order must be a whole, non-negative amount.");
+  if (
+    input.minOrderPaise !== undefined &&
+    (!Number.isInteger(input.minOrderPaise) || input.minOrderPaise < 0)
+  ) {
+    throw validationFailed(
+      "Minimum order must be a whole, non-negative amount.",
+    );
   }
 
   const [current] = await db
@@ -743,7 +809,8 @@ export async function updateShop(
   const coordinatesChanged =
     input.latitude !== undefined &&
     input.longitude !== undefined &&
-    (input.latitude !== current.latitude || input.longitude !== current.longitude);
+    (input.latitude !== current.latitude ||
+      input.longitude !== current.longitude);
   const verification = coordinatesChanged
     ? await resolveLocationVerification(
         input.latitude != null ? Number(input.latitude) : null,
@@ -754,15 +821,16 @@ export async function updateShop(
       )
     : null;
 
-  const [updated] = await db
-    .update(shops)
-    .set({
+  const [updated] = await updateReturning(
+    db,
+    shops,
+    {
       ...input,
       ...(verification ?? {}),
       updatedAt: new Date(),
-    })
-    .where(eq(shops.id, shopId))
-    .returning();
+    },
+    eq(shops.id, shopId),
+  );
 
   await recordAudit({
     actorId: actor.id,
@@ -779,7 +847,11 @@ export async function updateShop(
       ordersPaused: current.ordersPaused,
       codEnabled: current.codEnabled,
       ...(coordinatesChanged
-        ? { latitude: current.latitude, longitude: current.longitude, locationVerified: current.locationVerified }
+        ? {
+            latitude: current.latitude,
+            longitude: current.longitude,
+            locationVerified: current.locationVerified,
+          }
         : {}),
     },
     newValue: {
@@ -791,7 +863,11 @@ export async function updateShop(
       ordersPaused: updated.ordersPaused,
       codEnabled: updated.codEnabled,
       ...(coordinatesChanged
-        ? { latitude: updated.latitude, longitude: updated.longitude, locationVerified: updated.locationVerified }
+        ? {
+            latitude: updated.latitude,
+            longitude: updated.longitude,
+            locationVerified: updated.locationVerified,
+          }
         : {}),
     },
   });
@@ -817,7 +893,9 @@ export async function changeClassification(
     throw forbidden("Only an operator or administrator can change this.");
   }
   if (!reason.trim()) {
-    throw validationFailed("A reason is required when changing classification.");
+    throw validationFailed(
+      "A reason is required when changing classification.",
+    );
   }
 
   return db.transaction(async (tx) => {
@@ -831,11 +909,12 @@ export async function changeClassification(
       throw conflict(`This shop is already classified as ${newValue}.`);
     }
 
-    const [updated] = await tx
-      .update(shops)
-      .set({ classification: newValue, updatedAt: new Date() })
-      .where(eq(shops.id, shopId))
-      .returning();
+    const [updated] = await updateReturning(
+      tx,
+      shops,
+      { classification: newValue, updatedAt: new Date() },
+      eq(shops.id, shopId),
+    );
 
     await tx.insert(shopClassificationHistory).values({
       shopId,
@@ -927,23 +1006,20 @@ export async function searchShops(
   filters: ShopSearchFilters = {},
 ): Promise<Shop[]> {
   if (filters.ids && filters.ids.length === 0) return [];
-  const conditions = [
-    eq(shops.status, "APPROVED"),
-    isNull(shops.deletedAt),
-  ];
+  const conditions = [eq(shops.status, "APPROVED"), isNull(shops.deletedAt)];
   if (filters.ids) conditions.push(inArray(shops.id, [...filters.ids]));
 
   if (filters.query) {
     const term = `%${filters.query}%`;
     conditions.push(
       or(
-        ilike(shops.name, term),
-        ilike(shops.area, term),
-        ilike(shops.city, term),
-        ilike(shops.description, term),
+        like(shops.name, term),
+        like(shops.area, term),
+        like(shops.city, term),
+        like(shops.description, term),
         // A shop's categories also make it findable ("dairy" finds a shop tagged Dairy).
         sql`exists (select 1 from shop_category_mapping m join shop_categories c on c.id = m.category_id
-          where m.shop_id = ${shops.id} and c.status = 'ACTIVE' and c.name ilike ${term})`,
+          where m.shop_id = ${shops.id} and c.status = 'ACTIVE' and c.name like ${term})`,
       )!,
     );
   }
@@ -952,8 +1028,8 @@ export async function searchShops(
       sql`exists (select 1 from shop_category_mapping m where m.shop_id = ${shops.id} and m.category_id = ${filters.categoryId})`,
     );
   }
-  if (filters.city) conditions.push(ilike(shops.city, `%${filters.city}%`));
-  if (filters.area) conditions.push(ilike(shops.area, `%${filters.area}%`));
+  if (filters.city) conditions.push(like(shops.city, `%${filters.city}%`));
+  if (filters.area) conditions.push(like(shops.area, `%${filters.area}%`));
   if (filters.pincode) conditions.push(eq(shops.pincode, filters.pincode));
   if (filters.classification) {
     conditions.push(eq(shops.classification, filters.classification));
@@ -1001,20 +1077,20 @@ export interface AdminShopFilters {
  * and exposes financial columns, so it is reachable only behind
  * REPORT_VIEW_OPERATIONAL / SHOP_REGISTRATION_MANAGE.
  */
-export async function searchShopsAdmin(filters: AdminShopFilters = {}): Promise<
-  (Shop & { referralCode: string | null })[]
-> {
+export async function searchShopsAdmin(
+  filters: AdminShopFilters = {},
+): Promise<(Shop & { referralCode: string | null })[]> {
   const conditions = [isNull(shops.deletedAt)];
 
   if (filters.query) {
     const term = `%${filters.query}%`;
     conditions.push(
       or(
-        ilike(shops.name, term),
-        ilike(shops.ownerName, term),
-        ilike(shops.phone, term),
-        ilike(shops.registrationNumber, term),
-        ilike(shops.city, term),
+        like(shops.name, term),
+        like(shops.ownerName, term),
+        like(shops.phone, term),
+        like(shops.registrationNumber, term),
+        like(shops.city, term),
       )!,
     );
   }
@@ -1027,7 +1103,9 @@ export async function searchShopsAdmin(filters: AdminShopFilters = {}): Promise<
     conditions.push(eq(shops.feePaymentStatus, filters.feePaymentStatus));
   }
   if (filters.registrationFeePaise !== undefined) {
-    conditions.push(eq(shops.registrationFeePaise, filters.registrationFeePaise));
+    conditions.push(
+      eq(shops.registrationFeePaise, filters.registrationFeePaise),
+    );
   }
   if (filters.registrationFeeMinPaise !== undefined) {
     conditions.push(
@@ -1051,7 +1129,7 @@ export async function searchShopsAdmin(filters: AdminShopFilters = {}): Promise<
     conditions.push(lte(shops.registrationDate, filters.registeredTo));
   }
   if (filters.referralCode) {
-    conditions.push(ilike(referralCodes.code, filters.referralCode));
+    conditions.push(like(referralCodes.code, filters.referralCode));
   }
 
   const rows = await db
@@ -1079,7 +1157,10 @@ export { isShopOpenNow } from "@/lib/shop-hours";
 
 export async function countShopsByStatus(): Promise<Record<string, number>> {
   const rows = await db
-    .select({ status: shops.status, count: sql<number>`count(*)::int` })
+    .select({
+      status: shops.status,
+      count: sql<number>`CAST(count(*) AS SIGNED)`,
+    })
     .from(shops)
     .where(isNull(shops.deletedAt))
     .groupBy(shops.status);

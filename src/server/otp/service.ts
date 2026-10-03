@@ -12,7 +12,12 @@
  *    (same status, same message, same throttling) — no account enumeration
  *  - every request / success / failure / block is audited (numbers masked)
  */
-import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
+import {
+  createHmac,
+  randomBytes,
+  randomInt,
+  timingSafeEqual,
+} from "node:crypto";
 
 import { and, desc, eq, gt, isNull, sql } from "drizzle-orm";
 
@@ -21,15 +26,24 @@ import { getEnv } from "@/lib/env";
 import { maskPhone, parsePhone } from "@/lib/phone";
 import { db } from "@/server/db";
 import { loginOtps, users, type User } from "@/server/db/schema";
-import { AUDIT_ACTIONS, recordAudit, type AuditAction } from "@/server/services/audit";
-import { NOTIFICATION_TYPES, notifyEvent } from "@/server/services/notifications";
+import {
+  AUDIT_ACTIONS,
+  recordAudit,
+  type AuditAction,
+} from "@/server/services/audit";
+import {
+  NOTIFICATION_TYPES,
+  notifyEvent,
+} from "@/server/services/notifications";
 import { getRule } from "@/server/services/settings";
 import { getProvider, type OtpChannel } from "./providers";
+import { insertReturning, updateReturning } from "@/server/db/returning";
 
 /** Same words for every outcome the caller must not be able to tell apart. */
 export const OTP_REQUEST_ACK =
   "If that mobile number is registered, a code has been sent to the email address on the account.";
-export const OTP_INVALID = "That code is invalid or has expired. Request a new one.";
+export const OTP_INVALID =
+  "That code is invalid or has expired. Request a new one.";
 
 export interface OtpRequestResult {
   message: string;
@@ -39,7 +53,9 @@ export interface OtpRequestResult {
 }
 
 function hashCode(salt: string, phone: string, code: string): string {
-  const mac = createHmac("sha256", getEnv().AUTH_SECRET).update(`${salt}:${phone}:${code}`).digest("hex");
+  const mac = createHmac("sha256", getEnv().AUTH_SECRET)
+    .update(`${salt}:${phone}:${code}`)
+    .digest("hex");
   return `${salt}:${mac}`;
 }
 
@@ -69,8 +85,13 @@ export async function requestLoginOtp(input: {
 
   const rules = await getRule("otp");
   const provider = getProvider(input.channel);
-  if (input.channel === "SMS" && (!rules.smsEnabled || !provider?.isAvailable())) {
-    throw validationFailed("Codes by SMS are not available yet. Please choose email.");
+  if (
+    input.channel === "SMS" &&
+    (!rules.smsEnabled || !provider?.isAvailable())
+  ) {
+    throw validationFailed(
+      "Codes by SMS are not available yet. Please choose email.",
+    );
   }
   const activeProvider = provider ?? getProvider("EMAIL")!;
 
@@ -88,29 +109,43 @@ export async function requestLoginOtp(input: {
   const recent = await db
     .select({ createdAt: loginOtps.createdAt })
     .from(loginOtps)
-    .where(and(eq(loginOtps.phoneE164, phone), gt(loginOtps.createdAt, windowStart)))
+    .where(
+      and(eq(loginOtps.phoneE164, phone), gt(loginOtps.createdAt, windowStart)),
+    )
     .orderBy(desc(loginOtps.createdAt));
 
   const last = recent[0]?.createdAt.getTime();
   if (last !== undefined && now - last < rules.resendCooldownSeconds * 1000) {
-    const wait = Math.ceil((rules.resendCooldownSeconds * 1000 - (now - last)) / 1000);
+    const wait = Math.ceil(
+      (rules.resendCooldownSeconds * 1000 - (now - last)) / 1000,
+    );
     await audit(AUDIT_ACTIONS.OTP_BLOCKED, { reason: "cooldown" });
-    throw new AppError("RATE_LIMITED", `Please wait ${wait} seconds before requesting another code.`, {
-      retryAfterSeconds: wait,
-    });
+    throw new AppError(
+      "RATE_LIMITED",
+      `Please wait ${wait} seconds before requesting another code.`,
+      {
+        retryAfterSeconds: wait,
+      },
+    );
   }
   if (recent.length >= rules.maxResendsPerWindow) {
     await audit(AUDIT_ACTIONS.OTP_BLOCKED, { reason: "window_limit" });
-    throw new AppError("RATE_LIMITED", "Too many code requests for this number. Try again later.", {
-      retryAfterSeconds: rules.resendWindowMinutes * 60,
-    });
+    throw new AppError(
+      "RATE_LIMITED",
+      "Too many code requests for this number. Try again later.",
+      {
+        retryAfterSeconds: rules.resendWindowMinutes * 60,
+      },
+    );
   }
 
   const [user] = await db
     .select()
     .from(users)
     .where(and(eq(users.phoneE164, phone), isNull(users.deletedAt)));
-  const eligible = Boolean(user && user.status === "ACTIVE" && user.emailVerified && user.email);
+  const eligible = Boolean(
+    user && user.status === "ACTIVE" && user.emailVerified && user.email,
+  );
 
   const code = generateCode(rules.length);
   const salt = randomBytes(8).toString("hex");
@@ -119,21 +154,28 @@ export async function requestLoginOtp(input: {
       await tx
         .update(loginOtps)
         .set({ supersededAt: new Date() })
-        .where(and(eq(loginOtps.phoneE164, phone), isNull(loginOtps.consumedAt), isNull(loginOtps.supersededAt)));
+        .where(
+          and(
+            eq(loginOtps.phoneE164, phone),
+            isNull(loginOtps.consumedAt),
+            isNull(loginOtps.supersededAt),
+          ),
+        );
     }
-    const [row] = await tx
-      .insert(loginOtps)
-      .values({
-        userId: eligible ? user!.id : null,
-        phoneE164: phone,
-        channel: activeProvider.channel,
-        // Unknown numbers get a real-looking row that no code can ever match.
-        codeHash: hashCode(salt, phone, eligible ? code : randomBytes(8).toString("hex")),
-        expiresAt: new Date(now + rules.expiryMinutes * 60_000),
-        maxAttempts: rules.maxAttempts,
-        ipAddress: input.ip ?? null,
-      })
-      .returning({ id: loginOtps.id });
+    const [row] = await insertReturning(tx, loginOtps, {
+      userId: eligible ? user!.id : null,
+      phoneE164: phone,
+      channel: activeProvider.channel,
+      // Unknown numbers get a real-looking row that no code can ever match.
+      codeHash: hashCode(
+        salt,
+        phone,
+        eligible ? code : randomBytes(8).toString("hex"),
+      ),
+      expiresAt: new Date(now + rules.expiryMinutes * 60_000),
+      maxAttempts: rules.maxAttempts,
+      ipAddress: input.ip ?? null,
+    });
     return row.id;
   });
 
@@ -142,10 +184,15 @@ export async function requestLoginOtp(input: {
   if (eligible) {
     const to = activeProvider.channel === "EMAIL" ? user!.email : phone;
     // Not awaited: delivery time must not distinguish a known number from an unknown one.
-    void activeProvider.send({ to, code, expiryMinutes: rules.expiryMinutes }).catch((error) => {
-      console.error("[otp] delivery failed", error);
-      void audit(AUDIT_ACTIONS.OTP_FAILED, { reason: "delivery_failed", otpId: id });
-    });
+    void activeProvider
+      .send({ to, code, expiryMinutes: rules.expiryMinutes })
+      .catch((error) => {
+        console.error("[otp] delivery failed", error);
+        void audit(AUDIT_ACTIONS.OTP_FAILED, {
+          reason: "delivery_failed",
+          otpId: id,
+        });
+      });
   }
 
   return {
@@ -171,7 +218,11 @@ export async function verifyLoginOtp(input: {
   const code = input.code.replace(/\s/g, "");
   if (!/^\d{4,8}$/.test(code)) return fail();
 
-  const audit = (action: AuditAction, actorId: string | null, extra: object = {}) =>
+  const audit = (
+    action: AuditAction,
+    actorId: string | null,
+    extra: object = {},
+  ) =>
     recordAudit({
       actorId,
       action,
@@ -183,28 +234,38 @@ export async function verifyLoginOtp(input: {
   const [otp] = await db
     .select()
     .from(loginOtps)
-    .where(and(eq(loginOtps.phoneE164, phone), isNull(loginOtps.consumedAt), isNull(loginOtps.supersededAt)))
+    .where(
+      and(
+        eq(loginOtps.phoneE164, phone),
+        isNull(loginOtps.consumedAt),
+        isNull(loginOtps.supersededAt),
+      ),
+    )
     .orderBy(desc(loginOtps.createdAt))
     .limit(1);
   if (!otp || otp.expiresAt.getTime() <= Date.now()) {
-    await audit(AUDIT_ACTIONS.OTP_FAILED, null, { reason: otp ? "expired" : "none" });
+    await audit(AUDIT_ACTIONS.OTP_FAILED, null, {
+      reason: otp ? "expired" : "none",
+    });
     return fail();
   }
 
   // Count the attempt first, atomically; the cap therefore holds under concurrency.
-  const [counted] = await db
-    .update(loginOtps)
-    .set({ attempts: sql`${loginOtps.attempts} + 1` })
-    .where(
-      and(
-        eq(loginOtps.id, otp.id),
-        isNull(loginOtps.consumedAt),
-        sql`${loginOtps.attempts} < ${loginOtps.maxAttempts}`,
-      ),
-    )
-    .returning({ attempts: loginOtps.attempts });
+  const [counted] = await updateReturning(
+    db,
+    loginOtps,
+    { attempts: sql`${loginOtps.attempts} + 1` },
+    and(
+      eq(loginOtps.id, otp.id),
+      isNull(loginOtps.consumedAt),
+      sql`${loginOtps.attempts} < ${loginOtps.maxAttempts}`,
+    ),
+  );
   if (!counted) {
-    await audit(AUDIT_ACTIONS.OTP_BLOCKED, otp.userId, { reason: "max_attempts", otpId: otp.id });
+    await audit(AUDIT_ACTIONS.OTP_BLOCKED, otp.userId, {
+      reason: "max_attempts",
+      otpId: otp.id,
+    });
     return fail();
   }
 
@@ -218,26 +279,40 @@ export async function verifyLoginOtp(input: {
   }
 
   // Single use: only one concurrent verifier can flip consumed_at.
-  const [used] = await db
-    .update(loginOtps)
-    .set({ consumedAt: new Date() })
-    .where(and(eq(loginOtps.id, otp.id), isNull(loginOtps.consumedAt)))
-    .returning({ id: loginOtps.id });
+  const [used] = await updateReturning(
+    db,
+    loginOtps,
+    { consumedAt: new Date() },
+    and(eq(loginOtps.id, otp.id), isNull(loginOtps.consumedAt)),
+  );
   if (!used) return fail();
 
   const [user] = await db.select().from(users).where(eq(users.id, otp.userId));
   if (!user || user.status !== "ACTIVE" || user.deletedAt) {
-    await audit(AUDIT_ACTIONS.OTP_FAILED, otp.userId, { reason: "inactive_account", otpId: otp.id });
+    await audit(AUDIT_ACTIONS.OTP_FAILED, otp.userId, {
+      reason: "inactive_account",
+      otpId: otp.id,
+    });
     return fail();
   }
 
   // Email-delivered codes prove the mailbox, not the number; only an SMS code proves possession.
   if (otp.channel === "SMS" && !user.phoneVerifiedAt) {
-    await db.update(users).set({ phoneVerifiedAt: new Date() }).where(eq(users.id, user.id));
+    await db
+      .update(users)
+      .set({ phoneVerifiedAt: new Date() })
+      .where(eq(users.id, user.id));
   }
-  await audit(AUDIT_ACTIONS.OTP_VERIFIED, user.id, { channel: otp.channel, otpId: otp.id });
+  await audit(AUDIT_ACTIONS.OTP_VERIFIED, user.id, {
+    channel: otp.channel,
+    otpId: otp.id,
+  });
   await notifyEvent(NOTIFICATION_TYPES.SECURITY_SIGN_IN, user.id, {
-    at: new Date().toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: getEnv().APP_TIMEZONE }),
+    at: new Date().toLocaleString("en-IN", {
+      dateStyle: "medium",
+      timeStyle: "short",
+      timeZone: getEnv().APP_TIMEZONE,
+    }),
   });
   return user;
 }
@@ -255,11 +330,19 @@ export async function linkPhone(
     .from(users)
     .where(and(eq(users.phoneE164, parsed.e164), isNull(users.deletedAt)));
   if (taken && taken.id !== userId) {
-    throw new AppError("CONFLICT", "That mobile number is already linked to another account.");
+    throw new AppError(
+      "CONFLICT",
+      "That mobile number is already linked to another account.",
+    );
   }
   await db
     .update(users)
-    .set({ phoneE164: parsed.e164, phone: parsed.national, phoneVerifiedAt: null, updatedAt: new Date() })
+    .set({
+      phoneE164: parsed.e164,
+      phone: parsed.national,
+      phoneVerifiedAt: null,
+      updatedAt: new Date(),
+    })
     .where(eq(users.id, userId));
   await recordAudit({
     actorId: userId,
@@ -269,11 +352,16 @@ export async function linkPhone(
     entityId: userId,
     newValue: { phone: maskPhone(parsed.e164) },
   });
-  await notifyEvent(NOTIFICATION_TYPES.SECURITY_PHONE_CHANGED, userId, { action: "linked or changed" });
+  await notifyEvent(NOTIFICATION_TYPES.SECURITY_PHONE_CHANGED, userId, {
+    action: "linked or changed",
+  });
   return { phoneE164: parsed.e164 };
 }
 
-export async function unlinkPhone(userId: string, role: User["role"]): Promise<void> {
+export async function unlinkPhone(
+  userId: string,
+  role: User["role"],
+): Promise<void> {
   await db
     .update(users)
     .set({ phoneE164: null, phoneVerifiedAt: null, updatedAt: new Date() })
@@ -286,5 +374,7 @@ export async function unlinkPhone(userId: string, role: User["role"]): Promise<v
     entityId: userId,
     newValue: { phone: null },
   });
-  await notifyEvent(NOTIFICATION_TYPES.SECURITY_PHONE_CHANGED, userId, { action: "removed" });
+  await notifyEvent(NOTIFICATION_TYPES.SECURITY_PHONE_CHANGED, userId, {
+    action: "removed",
+  });
 }

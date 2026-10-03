@@ -17,25 +17,31 @@ import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 
 import { CURRENT_POLICY_VERSION } from "@/lib/legal-docs";
 import { db } from "@/server/db";
-import { userConsents, type ConsentType, type UserConsent } from "@/server/db/schema";
+import {
+  userConsents,
+  type ConsentType,
+  type UserConsent,
+} from "@/server/db/schema";
+import { insertReturning } from "@/server/db/returning";
 
 export { CURRENT_POLICY_VERSION };
 
 export async function recordConsent(
   userId: string,
   consentType: ConsentType,
-  options: { version?: string; ipAddress?: string | null; granted?: boolean } = {},
+  options: {
+    version?: string;
+    ipAddress?: string | null;
+    granted?: boolean;
+  } = {},
 ): Promise<UserConsent> {
-  const [consent] = await db
-    .insert(userConsents)
-    .values({
-      userId,
-      consentType,
-      version: options.version ?? CURRENT_POLICY_VERSION,
-      granted: options.granted ?? true,
-      ipAddress: options.ipAddress ?? null,
-    })
-    .returning();
+  const [consent] = await insertReturning(db, userConsents, {
+    userId,
+    consentType,
+    version: options.version ?? CURRENT_POLICY_VERSION,
+    granted: options.granted ?? true,
+    ipAddress: options.ipAddress ?? null,
+  });
   return consent;
 }
 
@@ -50,7 +56,9 @@ export interface MarketingConsentStatus {
  * latest row, means no marketing may be sent. A grant made against an older
  * policy version still counts until the user is asked again.
  */
-export async function getMarketingConsentStatus(userId: string): Promise<MarketingConsentStatus> {
+export async function getMarketingConsentStatus(
+  userId: string,
+): Promise<MarketingConsentStatus> {
   const latest = await getLatestConsent(userId, "MARKETING_COMMUNICATIONS");
   return {
     granted: latest?.granted ?? false,
@@ -73,7 +81,11 @@ export async function setMarketingConsent(
     action: AUDIT_ACTIONS.CONSENT_RECORDED,
     entityType: "user_consent",
     entityId: consent.id,
-    newValue: { consentType: "MARKETING_COMMUNICATIONS", granted, version: consent.version },
+    newValue: {
+      consentType: "MARKETING_COMMUNICATIONS",
+      granted,
+      version: consent.version,
+    },
     ipAddress: options.ipAddress ?? null,
   });
   return consent;
@@ -84,7 +96,10 @@ export async function getLatestConsent(
   consentType: ConsentType,
 ): Promise<UserConsent | undefined> {
   return db.query.userConsents.findFirst({
-    where: and(eq(userConsents.userId, userId), eq(userConsents.consentType, consentType)),
+    where: and(
+      eq(userConsents.userId, userId),
+      eq(userConsents.consentType, consentType),
+    ),
     orderBy: desc(userConsents.createdAt),
   });
 }
@@ -101,7 +116,9 @@ export async function hasCurrentConsent(
   return latest?.granted === true && latest.version === CURRENT_POLICY_VERSION;
 }
 
-export async function listConsentHistory(userId: string): Promise<UserConsent[]> {
+export async function listConsentHistory(
+  userId: string,
+): Promise<UserConsent[]> {
   return db
     .select()
     .from(userConsents)

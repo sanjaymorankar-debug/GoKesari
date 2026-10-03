@@ -28,6 +28,11 @@ import {
   type Wallet,
   type WalletTransaction,
 } from "@/server/db/schema";
+import {
+  insertReturning,
+  keepExisting,
+  updateReturning,
+} from "@/server/db/returning";
 
 export type WalletTxnType =
   | "TOP_UP"
@@ -93,7 +98,10 @@ export async function getOrCreateWallet(
   });
   if (existing) return existing;
 
-  await client.insert(wallets).values({ userId }).onConflictDoNothing();
+  await client
+    .insert(wallets)
+    .values({ userId })
+    .onDuplicateKeyUpdate({ set: keepExisting(wallets) });
 
   const created = await client.query.wallets.findFirst({
     where: eq(wallets.userId, userId),
@@ -126,14 +134,14 @@ export async function listTransactions(
 export async function todaysDeductionPaise(userId: string): Promise<number> {
   const [row] = await db
     .select({
-      total: sql<number>`COALESCE(-SUM(${walletTransactions.amountPaise}), 0)::bigint`,
+      total: sql<number>`CAST(COALESCE(-SUM(${walletTransactions.amountPaise}), 0) AS SIGNED)`,
     })
     .from(walletTransactions)
     .where(
       and(
         eq(walletTransactions.userId, userId),
         sql`${walletTransactions.amountPaise} < 0`,
-        sql`${walletTransactions.createdAt} >= date_trunc('day', now())`,
+        sql`${walletTransactions.createdAt} >= CURDATE()`,
       ),
     );
   return Number(row?.total ?? 0);
@@ -183,7 +191,9 @@ export async function applyWalletMutation(
     }
 
     const isCredit = CREDIT_TYPES.has(mutation.type);
-    const signedAmount = isCredit ? mutation.amountPaise : -mutation.amountPaise;
+    const signedAmount = isCredit
+      ? mutation.amountPaise
+      : -mutation.amountPaise;
     const previousBalance = locked.balancePaise;
     const newBalance = previousBalance + signedAmount;
 
@@ -219,7 +229,9 @@ export async function applyWalletMutation(
     if (newPromotionalBalance < 0 || newPromotionalBalance > newBalance) {
       // Should be unreachable given the checks above; a hard stop is safer
       // than silently persisting an inconsistent split.
-      throw validationFailed("Promotional balance calculation is inconsistent.");
+      throw validationFailed(
+        "Promotional balance calculation is inconsistent.",
+      );
     }
 
     // 5. Move the money and record it. Both statements share this transaction.
@@ -232,25 +244,22 @@ export async function applyWalletMutation(
       })
       .where(eq(wallets.id, locked.id));
 
-    const [transaction] = await tx
-      .insert(walletTransactions)
-      .values({
-        walletId: locked.id,
-        userId: mutation.userId,
-        type: mutation.type,
-        amountPaise: signedAmount,
-        promotionalAmountPaise: signedPromotionalAmount,
-        previousBalancePaise: previousBalance,
-        newBalancePaise: newBalance,
-        orderId: mutation.orderId ?? null,
-        subscriptionId: mutation.subscriptionId ?? null,
-        paymentId: mutation.paymentId ?? null,
-        voucherRedemptionId: mutation.voucherRedemptionId ?? null,
-        idempotencyKey: mutation.idempotencyKey,
-        description: mutation.description,
-        createdBy: mutation.createdBy ?? null,
-      })
-      .returning();
+    const [transaction] = await insertReturning(tx, walletTransactions, {
+      walletId: locked.id,
+      userId: mutation.userId,
+      type: mutation.type,
+      amountPaise: signedAmount,
+      promotionalAmountPaise: signedPromotionalAmount,
+      previousBalancePaise: previousBalance,
+      newBalancePaise: newBalance,
+      orderId: mutation.orderId ?? null,
+      subscriptionId: mutation.subscriptionId ?? null,
+      paymentId: mutation.paymentId ?? null,
+      voucherRedemptionId: mutation.voucherRedemptionId ?? null,
+      idempotencyKey: mutation.idempotencyKey,
+      description: mutation.description,
+      createdBy: mutation.createdBy ?? null,
+    });
 
     return {
       transaction,
@@ -349,11 +358,12 @@ export async function updateWalletSettings(
     );
   }
 
-  const [updated] = await db
-    .update(wallets)
-    .set({ ...settings, updatedAt: new Date() })
-    .where(eq(wallets.userId, userId))
-    .returning();
+  const [updated] = await updateReturning(
+    db,
+    wallets,
+    { ...settings, updatedAt: new Date() },
+    eq(wallets.userId, userId),
+  );
 
   if (!updated) throw notFound("Wallet");
   return updated;
@@ -420,7 +430,9 @@ export async function refundOriginalDebit(
 
   const refundAmountPaise = input.amountPaise ?? fullRefundAmountPaise;
   if (!Number.isInteger(refundAmountPaise) || refundAmountPaise <= 0) {
-    throw validationFailed("Refund amount must be a positive whole number of paise.");
+    throw validationFailed(
+      "Refund amount must be a positive whole number of paise.",
+    );
   }
   if (refundAmountPaise > fullRefundAmountPaise) {
     throw validationFailed("Refund amount cannot exceed the original debit.");
@@ -428,7 +440,10 @@ export async function refundOriginalDebit(
   const promotionalToRestore =
     refundAmountPaise === fullRefundAmountPaise
       ? fullPromotionalToRestore
-      : Math.round(fullPromotionalToRestore * (refundAmountPaise / fullRefundAmountPaise));
+      : Math.round(
+          fullPromotionalToRestore *
+            (refundAmountPaise / fullRefundAmountPaise),
+        );
 
   return applyWalletMutation(
     {
@@ -437,8 +452,12 @@ export async function refundOriginalDebit(
       type: "REFUND",
       idempotencyKey: input.idempotencyKey,
       description: input.description,
-      orderId: input.referenceType === "orderId" ? input.referenceId : undefined,
-      subscriptionId: input.referenceType === "subscriptionId" ? input.referenceId : undefined,
+      orderId:
+        input.referenceType === "orderId" ? input.referenceId : undefined,
+      subscriptionId:
+        input.referenceType === "subscriptionId"
+          ? input.referenceId
+          : undefined,
       createdBy: input.createdBy ?? null,
       promotionalAmountPaise: promotionalToRestore,
     },

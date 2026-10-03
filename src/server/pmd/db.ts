@@ -72,13 +72,32 @@ export function createSql(url: string, opts: { max?: number; applicationName?: s
 const globalForPmd = globalThis as unknown as { __pmdSql?: Sql };
 
 /**
- * The application's own PMD connection (API routes, dashboard). Bound to
- * DATABASE_URL - the app's database - and reused across dev hot reloads.
+ * The application's own PMD connection (API routes, dashboard), reused across
+ * dev hot reloads.
+ *
+ * Bound to PMD_DATABASE_URL, not DATABASE_URL. This layer is still PostgreSQL
+ * (it speaks to postgres.js directly and the SQL throughout is Postgres-only -
+ * `pmd.` schema namespacing, sequences, generate_series, ts_rank), while the
+ * rest of the app has moved to MySQL. Handing a mysql:// URL to postgres.js
+ * fails at the wire protocol with nothing that names the real cause, so the
+ * scheme is checked here and reported instead.
  */
 export function appSql(): Sql {
   if (!globalForPmd.__pmdSql) {
-    const url = process.env.DATABASE_URL;
-    if (!url) throw new Error("DATABASE_URL is not set");
+    const url = process.env.PMD_DATABASE_URL;
+    if (!url) {
+      throw new Error(
+        "PMD_DATABASE_URL is not set. The product-master layer is still PostgreSQL " +
+          "and needs its own connection string now that DATABASE_URL points at MySQL " +
+          "(see docs/MYSQL_REQUIREMENTS.md section 5).",
+      );
+    }
+    if (/^mysql(2)?:/i.test(url)) {
+      throw new Error(
+        "PMD_DATABASE_URL points at MySQL, but the product-master layer requires " +
+          "PostgreSQL. Point it at the retained Postgres database, or leave PMD disabled.",
+      );
+    }
     globalForPmd.__pmdSql = createSql(url, { max: 5, applicationName: "gokesari-pmd-app" });
   }
   return globalForPmd.__pmdSql;

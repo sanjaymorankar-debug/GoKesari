@@ -32,6 +32,11 @@ import { emailProvider } from "@/server/auth-email";
 import { verifyLoginOtp } from "@/server/otp/service";
 import { recordConsent } from "@/server/services/consents";
 import { grantRole } from "@/server/services/roles";
+import {
+  insertReturning,
+  keepExisting,
+  updateReturning,
+} from "@/server/db/returning";
 
 declare module "next-auth" {
   interface Session {
@@ -55,7 +60,9 @@ const testCredentialsProvider = Credentials({
   credentials: { email: { label: "Email", type: "email" } },
   async authorize(raw) {
     if (env.NODE_ENV === "production") return null;
-    const email = String(raw?.email ?? "").toLowerCase().trim();
+    const email = String(raw?.email ?? "")
+      .toLowerCase()
+      .trim();
     if (!email) return null;
 
     const existing = await db.query.users.findFirst({
@@ -72,8 +79,9 @@ const testCredentialsProvider = Credentials({
     const role: UserRole = bootstrapAdminEmails().includes(email)
       ? "ADMIN"
       : "CUSTOMER";
-    const [created] = await db.insert(users).values({ email, role }).returning();
-    if (role === "ADMIN") await grantRole(created.id, "ADMIN", { source: "BOOTSTRAP" });
+    const [created] = await insertReturning(db, users, { email, role });
+    if (role === "ADMIN")
+      await grantRole(created.id, "ADMIN", { source: "BOOTSTRAP" });
     await ensureWallet(created.id);
     return { id: created.id, email: created.email, name: created.name };
   },
@@ -94,16 +102,25 @@ const mobileOtpProvider = Credentials({
     code: { label: "Code", type: "text" },
   },
   async authorize(raw, request) {
-    const ip = request?.headers?.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
+    const ip =
+      request?.headers?.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
     try {
-      enforceRateLimit(`otp-verify:${ip ?? "unknown"}`, { limit: 30, windowMs: 10 * 60_000 });
+      enforceRateLimit(`otp-verify:${ip ?? "unknown"}`, {
+        limit: 30,
+        windowMs: 10 * 60_000,
+      });
       const user = await verifyLoginOtp({
         countryCode: String(raw?.countryCode ?? ""),
         mobile: String(raw?.mobile ?? ""),
         code: String(raw?.code ?? ""),
         ip,
       });
-      return { id: user.id, email: user.email, name: user.name, image: user.image };
+      return {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+        image: user.image,
+      };
     } catch {
       // Every failure looks the same to the caller (no enumeration); details are audited.
       return null;
@@ -183,11 +200,12 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         record.role !== "ADMIN" &&
         permanentBootstrapAdminEmails().includes(record.email.toLowerCase())
       ) {
-        [record] = await db
-          .update(users)
-          .set({ role: "ADMIN", updatedAt: new Date() })
-          .where(eq(users.id, record.id))
-          .returning();
+        [record] = await updateReturning(
+          db,
+          users,
+          { role: "ADMIN", updatedAt: new Date() },
+          eq(users.id, record.id),
+        );
         await grantRole(record.id, "ADMIN", { source: "BOOTSTRAP" });
       }
 
@@ -216,7 +234,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
         : "CUSTOMER";
 
       await db.update(users).set({ role }).where(eq(users.id, user.id));
-      if (role === "ADMIN") await grantRole(user.id, "ADMIN", { source: "BOOTSTRAP" });
+      if (role === "ADMIN")
+        await grantRole(user.id, "ADMIN", { source: "BOOTSTRAP" });
       await ensureWallet(user.id);
 
       // The sign-in page requires ticking "I agree to Terms & Privacy
@@ -234,5 +253,8 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
 
 /** Idempotent: a user has exactly one wallet, guaranteed by a unique index. */
 async function ensureWallet(userId: string): Promise<void> {
-  await db.insert(wallets).values({ userId }).onConflictDoNothing();
+  await db
+    .insert(wallets)
+    .values({ userId })
+    .onDuplicateKeyUpdate({ set: keepExisting(wallets) });
 }

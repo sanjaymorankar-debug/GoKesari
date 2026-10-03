@@ -16,8 +16,15 @@ import { and, asc, eq, inArray } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { db, type DbClient } from "@/server/db";
-import { userRoleEnum, userRoleGrants, users, type UserRole, type UserRoleGrant } from "@/server/db/schema";
+import {
+  userRoleEnum,
+  userRoleGrants,
+  users,
+  type UserRole,
+  type UserRoleGrant,
+} from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { keepExisting, updateReturning } from "@/server/db/returning";
 
 /** Roles only an admin can grant; changing someone's staff role replaces the previous one. */
 export const STAFF_ROLES: readonly UserRole[] = ["OPERATOR", "ADMIN"];
@@ -35,25 +42,41 @@ interface Actor {
 }
 
 /** Active roles of a user, CUSTOMER first. */
-export async function listUserRoles(userId: string, client: DbClient = db): Promise<UserRole[]> {
+export async function listUserRoles(
+  userId: string,
+  client: DbClient = db,
+): Promise<UserRole[]> {
   const rows = await client
     .select({ role: userRoleGrants.role })
     .from(userRoleGrants)
-    .where(and(eq(userRoleGrants.userId, userId), eq(userRoleGrants.status, "ACTIVE")))
+    .where(
+      and(
+        eq(userRoleGrants.userId, userId),
+        eq(userRoleGrants.status, "ACTIVE"),
+      ),
+    )
     .orderBy(asc(userRoleGrants.grantedAt));
   const roles = new Set<UserRole>(["CUSTOMER", ...rows.map((r) => r.role)]);
   return [...roles];
 }
 
 /** Active granted roles for many users at once (admin user list). */
-export async function listRolesForUsers(userIds: string[]): Promise<Map<string, UserRole[]>> {
+export async function listRolesForUsers(
+  userIds: string[],
+): Promise<Map<string, UserRole[]>> {
   const map = new Map<string, UserRole[]>();
   if (userIds.length === 0) return map;
   const rows = await db
     .select({ userId: userRoleGrants.userId, role: userRoleGrants.role })
     .from(userRoleGrants)
-    .where(and(inArray(userRoleGrants.userId, userIds), eq(userRoleGrants.status, "ACTIVE")));
-  for (const r of rows) map.set(r.userId, [...(map.get(r.userId) ?? []), r.role]);
+    .where(
+      and(
+        inArray(userRoleGrants.userId, userIds),
+        eq(userRoleGrants.status, "ACTIVE"),
+      ),
+    );
+  for (const r of rows)
+    map.set(r.userId, [...(map.get(r.userId) ?? []), r.role]);
   return map;
 }
 
@@ -73,19 +96,30 @@ export async function listRoleGrants(userId: string): Promise<UserRoleGrant[]> {
 export async function grantRole(
   userId: string,
   role: UserRole,
-  options: { source: RoleGrantSource; grantedBy?: string | null; activateIfCustomer?: boolean },
+  options: {
+    source: RoleGrantSource;
+    grantedBy?: string | null;
+    activateIfCustomer?: boolean;
+  },
   client: DbClient = db,
 ): Promise<void> {
   if (role === "CUSTOMER") return;
   const [existing] = await client
     .select()
     .from(userRoleGrants)
-    .where(and(eq(userRoleGrants.userId, userId), eq(userRoleGrants.role, role)));
+    .where(
+      and(eq(userRoleGrants.userId, userId), eq(userRoleGrants.role, role)),
+    );
   if (!existing) {
     await client
       .insert(userRoleGrants)
-      .values({ userId, role, source: options.source, grantedBy: options.grantedBy ?? null })
-      .onConflictDoNothing();
+      .values({
+        userId,
+        role,
+        source: options.source,
+        grantedBy: options.grantedBy ?? null,
+      })
+      .onDuplicateKeyUpdate({ set: keepExisting(userRoleGrants) });
   } else if (existing.status !== "ACTIVE") {
     await client
       .update(userRoleGrants)
@@ -100,11 +134,13 @@ export async function grantRole(
       .where(eq(userRoleGrants.id, existing.id));
   } else {
     // Already held — nothing to record.
-    if (options.activateIfCustomer) await activateIfCustomer(userId, role, client);
+    if (options.activateIfCustomer)
+      await activateIfCustomer(userId, role, client);
     return;
   }
 
-  if (options.activateIfCustomer) await activateIfCustomer(userId, role, client);
+  if (options.activateIfCustomer)
+    await activateIfCustomer(userId, role, client);
   await recordAudit(
     {
       actorId: options.grantedBy ?? userId,
@@ -117,7 +153,11 @@ export async function grantRole(
   );
 }
 
-async function activateIfCustomer(userId: string, role: UserRole, client: DbClient): Promise<void> {
+async function activateIfCustomer(
+  userId: string,
+  role: UserRole,
+  client: DbClient,
+): Promise<void> {
   await client
     .update(users)
     .set({ role, updatedAt: new Date() })
@@ -125,18 +165,27 @@ async function activateIfCustomer(userId: string, role: UserRole, client: DbClie
 }
 
 /** The user switches their active role to one they hold (header role switcher). */
-export async function switchActiveRole(userId: string, role: UserRole): Promise<UserRole> {
+export async function switchActiveRole(
+  userId: string,
+  role: UserRole,
+): Promise<UserRole> {
   if (!(userRoleEnum.enumValues as readonly string[]).includes(role)) {
     throw validationFailed("Not a recognised role.");
   }
   const held = await listUserRoles(userId);
   if (!held.includes(role)) throw forbidden("You do not hold that role.");
 
-  const [current] = await db.select({ role: users.role }).from(users).where(eq(users.id, userId));
+  const [current] = await db
+    .select({ role: users.role })
+    .from(users)
+    .where(eq(users.id, userId));
   if (!current) throw notFound("User");
   if (current.role === role) return role;
 
-  await db.update(users).set({ role, updatedAt: new Date() }).where(eq(users.id, userId));
+  await db
+    .update(users)
+    .set({ role, updatedAt: new Date() })
+    .where(eq(users.id, userId));
   await recordAudit({
     actorId: userId,
     actorRole: current.role,
@@ -153,16 +202,26 @@ export async function switchActiveRole(userId: string, role: UserRole): Promise<
  * Admin revokes one role. If it was the active role the user falls back to
  * CUSTOMER. An admin cannot revoke their own roles (no self-lockout).
  */
-export async function revokeRole(userId: string, role: UserRole, actor: Actor): Promise<void> {
-  if (role === "CUSTOMER") throw validationFailed("Every account keeps the customer role.");
+export async function revokeRole(
+  userId: string,
+  role: UserRole,
+  actor: Actor,
+): Promise<void> {
+  if (role === "CUSTOMER")
+    throw validationFailed("Every account keeps the customer role.");
   if (userId === actor.id) throw forbidden("You cannot change your own roles.");
 
   await db.transaction(async (tx) => {
-    const [grant] = await tx
-      .update(userRoleGrants)
-      .set({ status: "REVOKED", revokedBy: actor.id, revokedAt: new Date() })
-      .where(and(eq(userRoleGrants.userId, userId), eq(userRoleGrants.role, role), eq(userRoleGrants.status, "ACTIVE")))
-      .returning();
+    const [grant] = await updateReturning(
+      tx,
+      userRoleGrants,
+      { status: "REVOKED", revokedBy: actor.id, revokedAt: new Date() },
+      and(
+        eq(userRoleGrants.userId, userId),
+        eq(userRoleGrants.role, role),
+        eq(userRoleGrants.status, "ACTIVE"),
+      ),
+    );
     if (!grant) throw conflict("That user does not hold this role.");
 
     await tx
@@ -190,13 +249,29 @@ export async function revokeRole(userId: string, role: UserRole, actor: Actor): 
  * ADMIN and vice versa, and setting any non-staff role removes both, so a
  * demotion cannot be undone by switching back.
  */
-export async function assignRoleByAdmin(userId: string, role: UserRole, actor: Actor, client: DbClient = db): Promise<void> {
+export async function assignRoleByAdmin(
+  userId: string,
+  role: UserRole,
+  actor: Actor,
+  client: DbClient = db,
+): Promise<void> {
   for (const staff of STAFF_ROLES) {
     if (staff === role) continue;
     await client
       .update(userRoleGrants)
       .set({ status: "REVOKED", revokedBy: actor.id, revokedAt: new Date() })
-      .where(and(eq(userRoleGrants.userId, userId), eq(userRoleGrants.role, staff), eq(userRoleGrants.status, "ACTIVE")));
+      .where(
+        and(
+          eq(userRoleGrants.userId, userId),
+          eq(userRoleGrants.role, staff),
+          eq(userRoleGrants.status, "ACTIVE"),
+        ),
+      );
   }
-  await grantRole(userId, role, { source: "ADMIN", grantedBy: actor.id }, client);
+  await grantRole(
+    userId,
+    role,
+    { source: "ADMIN", grantedBy: actor.id },
+    client,
+  );
 }

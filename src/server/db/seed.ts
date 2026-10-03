@@ -30,34 +30,130 @@ import {
   ROLE_PERMISSIONS,
 } from "../authz/permissions";
 import { SHOP_TYPES } from "@/lib/shop-types";
+import { keepExisting, upsertReturning } from "./returning";
+import { nextSequenceValue } from "./sequence";
 
 /** Requirement §7 — the starting catalogue. */
 const DAIRY_CATALOGUE = [
-  { category: "Milk", unit: "L", subscribable: true, items: ["Cow Milk", "Buffalo Milk", "Toned Milk", "Full Cream Milk"] },
-  { category: "Curd", unit: "kg", subscribable: true, items: ["Fresh Curd", "Greek Curd"] },
-  { category: "Buttermilk", unit: "L", subscribable: true, items: ["Masala Buttermilk", "Plain Buttermilk"] },
-  { category: "Paneer", unit: "kg", subscribable: false, items: ["Fresh Paneer", "Malai Paneer"] },
-  { category: "Cheese", unit: "kg", subscribable: false, items: ["Processed Cheese", "Mozzarella"] },
-  { category: "Butter", unit: "kg", subscribable: false, items: ["Salted Butter", "White Butter"] },
-  { category: "Ghee", unit: "L", subscribable: false, items: ["Cow Ghee", "Buffalo Ghee"] },
-  { category: "Flavoured Milk", unit: "ml", subscribable: true, items: ["Rose Milk", "Badam Milk", "Chocolate Milk"] },
-  { category: "Lassi", unit: "ml", subscribable: true, items: ["Sweet Lassi", "Mango Lassi"] },
+  {
+    category: "Milk",
+    unit: "L",
+    subscribable: true,
+    items: ["Cow Milk", "Buffalo Milk", "Toned Milk", "Full Cream Milk"],
+  },
+  {
+    category: "Curd",
+    unit: "kg",
+    subscribable: true,
+    items: ["Fresh Curd", "Greek Curd"],
+  },
+  {
+    category: "Buttermilk",
+    unit: "L",
+    subscribable: true,
+    items: ["Masala Buttermilk", "Plain Buttermilk"],
+  },
+  {
+    category: "Paneer",
+    unit: "kg",
+    subscribable: false,
+    items: ["Fresh Paneer", "Malai Paneer"],
+  },
+  {
+    category: "Cheese",
+    unit: "kg",
+    subscribable: false,
+    items: ["Processed Cheese", "Mozzarella"],
+  },
+  {
+    category: "Butter",
+    unit: "kg",
+    subscribable: false,
+    items: ["Salted Butter", "White Butter"],
+  },
+  {
+    category: "Ghee",
+    unit: "L",
+    subscribable: false,
+    items: ["Cow Ghee", "Buffalo Ghee"],
+  },
+  {
+    category: "Flavoured Milk",
+    unit: "ml",
+    subscribable: true,
+    items: ["Rose Milk", "Badam Milk", "Chocolate Milk"],
+  },
+  {
+    category: "Lassi",
+    unit: "ml",
+    subscribable: true,
+    items: ["Sweet Lassi", "Mango Lassi"],
+  },
 ] as const;
 
 const BAKERY_CATALOGUE = [
-  { category: "Bread", unit: "piece", subscribable: true, items: ["White Bread", "Brown Bread", "Multigrain Bread"] },
-  { category: "Buns", unit: "piece", subscribable: true, items: ["Pav", "Burger Bun"] },
-  { category: "Cakes", unit: "piece", subscribable: false, items: ["Vanilla Sponge", "Chocolate Truffle"] },
-  { category: "Pastries", unit: "piece", subscribable: false, items: ["Chocolate Pastry", "Pineapple Pastry"] },
-  { category: "Cookies", unit: "g", subscribable: false, items: ["Butter Cookies", "Choco Chip Cookies"] },
-  { category: "Biscuits", unit: "g", subscribable: false, items: ["Nankhatai", "Salted Biscuits"] },
-  { category: "Khari", unit: "g", subscribable: false, items: ["Butter Khari", "Masala Khari"] },
-  { category: "Puffs", unit: "piece", subscribable: false, items: ["Veg Puff", "Paneer Puff"] },
-  { category: "Donuts", unit: "piece", subscribable: false, items: ["Glazed Donut", "Choco Donut"] },
+  {
+    category: "Bread",
+    unit: "piece",
+    subscribable: true,
+    items: ["White Bread", "Brown Bread", "Multigrain Bread"],
+  },
+  {
+    category: "Buns",
+    unit: "piece",
+    subscribable: true,
+    items: ["Pav", "Burger Bun"],
+  },
+  {
+    category: "Cakes",
+    unit: "piece",
+    subscribable: false,
+    items: ["Vanilla Sponge", "Chocolate Truffle"],
+  },
+  {
+    category: "Pastries",
+    unit: "piece",
+    subscribable: false,
+    items: ["Chocolate Pastry", "Pineapple Pastry"],
+  },
+  {
+    category: "Cookies",
+    unit: "g",
+    subscribable: false,
+    items: ["Butter Cookies", "Choco Chip Cookies"],
+  },
+  {
+    category: "Biscuits",
+    unit: "g",
+    subscribable: false,
+    items: ["Nankhatai", "Salted Biscuits"],
+  },
+  {
+    category: "Khari",
+    unit: "g",
+    subscribable: false,
+    items: ["Butter Khari", "Masala Khari"],
+  },
+  {
+    category: "Puffs",
+    unit: "piece",
+    subscribable: false,
+    items: ["Veg Puff", "Paneer Puff"],
+  },
+  {
+    category: "Donuts",
+    unit: "piece",
+    subscribable: false,
+    items: ["Glazed Donut", "Choco Donut"],
+  },
 ] as const;
 
 function slugify(value: string): string {
-  return value.toLowerCase().trim().replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "");
+  return value
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
 }
 
 async function seedRolesAndPermissions(): Promise<void> {
@@ -65,14 +161,14 @@ async function seedRolesAndPermissions(): Promise<void> {
     await db
       .insert(roles)
       .values({ key: key as keyof typeof ROLE_LABELS, label })
-      .onConflictDoUpdate({ target: roles.key, set: { label } });
+      .onDuplicateKeyUpdate({ set: { label } });
   }
 
   for (const [key, description] of Object.entries(PERMISSION_DESCRIPTIONS)) {
     await db
       .insert(permissionsTable)
       .values({ key, description })
-      .onConflictDoUpdate({ target: permissionsTable.key, set: { description } });
+      .onDuplicateKeyUpdate({ set: { description } });
   }
 
   // Mirror the in-code matrix so permissions are reportable from SQL.
@@ -82,7 +178,7 @@ async function seedRolesAndPermissions(): Promise<void> {
       await db
         .insert(rolePermissions)
         .values({ roleKey: roleKey as keyof typeof ROLE_LABELS, permissionKey })
-        .onConflictDoNothing();
+        .onDuplicateKeyUpdate({ set: keepExisting(rolePermissions) });
     }
   }
   console.log("  roles & permissions seeded");
@@ -100,25 +196,25 @@ async function seedCatalogue(): Promise<void> {
   for (const group of groups) {
     for (const [index, entry] of group.entries.entries()) {
       const categorySlug = slugify(`${group.department}-${entry.category}`);
-      const [category] = await db
-        .insert(productCategories)
-        .values({
+      const [category] = await upsertReturning(
+        db,
+        productCategories,
+        {
           department: group.department,
           name: entry.category,
           slug: categorySlug,
           sortOrder: index,
-        })
-        .onConflictDoUpdate({
-          target: productCategories.slug,
-          set: { name: entry.category, sortOrder: index },
-        })
-        .returning();
+        },
+        { name: entry.category, sortOrder: index },
+        eq(productCategories.slug, categorySlug),
+      );
       categoryCount += 1;
 
       for (const item of entry.items) {
         await db
           .insert(products)
           .values({
+            code: await nextSequenceValue(db, "product_code_seq"),
             categoryId: category.id,
             name: item,
             slug: slugify(item),
@@ -126,15 +222,16 @@ async function seedCatalogue(): Promise<void> {
             unitSizeMilli: 1000,
             subscribable: entry.subscribable,
           })
-          .onConflictDoUpdate({
-            target: products.slug,
+          .onDuplicateKeyUpdate({
             set: { categoryId: category.id, subscribable: entry.subscribable },
           });
         productCount += 1;
       }
     }
   }
-  console.log(`  catalogue seeded: ${categoryCount} categories, ${productCount} products`);
+  console.log(
+    `  catalogue seeded: ${categoryCount} categories, ${productCount} products`,
+  );
 }
 
 /**
@@ -158,20 +255,19 @@ async function seedGeneralCatalogue(): Promise<void> {
     if (excluded.has(shopType.key)) continue;
 
     const categorySlug = slugify(shopType.label);
-    const [category] = await db
-      .insert(productCategories)
-      .values({
+    const [category] = await upsertReturning(
+      db,
+      productCategories,
+      {
         department: shopType.key,
         name: shopType.label,
         slug: categorySlug,
         description: `Standard goods for a ${shopType.label.toLowerCase()}.`,
         sortOrder: 0,
-      })
-      .onConflictDoUpdate({
-        target: productCategories.slug,
-        set: { name: shopType.label, department: shopType.key },
-      })
-      .returning();
+      },
+      { name: shopType.label, department: shopType.key },
+      eq(productCategories.slug, categorySlug),
+    );
     categoryCount += 1;
 
     for (const good of shopType.standardGoods) {
@@ -179,6 +275,7 @@ async function seedGeneralCatalogue(): Promise<void> {
       await db
         .insert(products)
         .values({
+          code: await nextSequenceValue(db, "product_code_seq"),
           categoryId: category.id,
           name: good,
           slug: productSlug,
@@ -188,10 +285,7 @@ async function seedGeneralCatalogue(): Promise<void> {
           // general goods are not offered as subscriptions.
           subscribable: false,
         })
-        .onConflictDoUpdate({
-          target: products.slug,
-          set: { categoryId: category.id, name: good },
-        });
+        .onDuplicateKeyUpdate({ set: { categoryId: category.id, name: good } });
       productCount += 1;
     }
   }
@@ -210,7 +304,14 @@ async function seedDemoMarketplace(): Promise<void> {
       classification: "KESARI" as const,
       area: "Kothrud",
       pincode: "411038",
-      picks: ["cow-milk", "buffalo-milk", "fresh-curd", "masala-buttermilk", "fresh-paneer", "cow-ghee"],
+      picks: [
+        "cow-milk",
+        "buffalo-milk",
+        "fresh-curd",
+        "masala-buttermilk",
+        "fresh-paneer",
+        "cow-ghee",
+      ],
     },
     {
       email: "green.dairy@example.com",
@@ -219,7 +320,13 @@ async function seedDemoMarketplace(): Promise<void> {
       classification: "GREEN" as const,
       area: "Baner",
       pincode: "411045",
-      picks: ["toned-milk", "full-cream-milk", "greek-curd", "salted-butter", "rose-milk"],
+      picks: [
+        "toned-milk",
+        "full-cream-milk",
+        "greek-curd",
+        "salted-butter",
+        "rose-milk",
+      ],
     },
     {
       email: "sunrise.bakery@example.com",
@@ -228,7 +335,14 @@ async function seedDemoMarketplace(): Promise<void> {
       classification: "GREEN" as const,
       area: "Deccan",
       pincode: "411004",
-      picks: ["white-bread", "brown-bread", "pav", "veg-puff", "butter-khari", "chocolate-pastry"],
+      picks: [
+        "white-bread",
+        "brown-bread",
+        "pav",
+        "veg-puff",
+        "butter-khari",
+        "chocolate-pastry",
+      ],
     },
     {
       email: "anand.combo@example.com",
@@ -239,7 +353,14 @@ async function seedDemoMarketplace(): Promise<void> {
       classification: "KESARI" as const,
       area: "Viman Nagar",
       pincode: "411014",
-      picks: ["cow-milk", "fresh-curd", "white-bread", "burger-bun", "glazed-donut", "vanilla-sponge"],
+      picks: [
+        "cow-milk",
+        "fresh-curd",
+        "white-bread",
+        "burger-bun",
+        "glazed-donut",
+        "vanilla-sponge",
+      ],
     },
     {
       email: "pending.shop@example.com",
@@ -278,18 +399,32 @@ async function seedDemoMarketplace(): Promise<void> {
   };
 
   for (const demo of demoShops) {
-    const [owner] = await db
-      .insert(users)
-      .values({ email: demo.email, name: `${demo.name} Owner`, role: "SHOP_OWNER" })
-      .onConflictDoUpdate({ target: users.email, set: { role: "SHOP_OWNER" } })
-      .returning();
-    await db.insert(wallets).values({ userId: owner.id }).onConflictDoNothing();
+    const [owner] = await upsertReturning(
+      db,
+      users,
+      {
+        email: demo.email,
+        name: `${demo.name} Owner`,
+        role: "SHOP_OWNER",
+      },
+      { role: "SHOP_OWNER" },
+      eq(users.email, demo.email),
+    );
+    await db
+      .insert(wallets)
+      .values({ userId: owner.id })
+      .onDuplicateKeyUpdate({ set: keepExisting(wallets) });
 
     const slug = slugify(demo.name);
     const status = demo.status ?? "APPROVED";
-    const [shop] = await db
-      .insert(shops)
-      .values({
+    const [shop] = await upsertReturning(
+      db,
+      shops,
+      {
+        registrationNumber: await nextSequenceValue(
+          db,
+          "shop_registration_seq",
+        ),
         ownerId: owner.id,
         name: demo.name,
         slug,
@@ -314,12 +449,10 @@ async function seedDemoMarketplace(): Promise<void> {
           close: "22:00",
         })),
         approvedAt: status === "APPROVED" ? new Date() : null,
-      })
-      .onConflictDoUpdate({
-        target: shops.slug,
-        set: { status, classification: demo.classification },
-      })
-      .returning();
+      },
+      { status, classification: demo.classification },
+      eq(shops.slug, slug),
+    );
 
     for (const productSlug of demo.picks) {
       const product = await db.query.products.findFirst({
@@ -343,8 +476,7 @@ async function seedDemoMarketplace(): Promise<void> {
           isActive: true,
           isAvailable: true,
         })
-        .onConflictDoUpdate({
-          target: [shopProducts.shopId, shopProducts.productId],
+        .onDuplicateKeyUpdate({
           set: {
             onlinePricePaise: price.online,
             offlinePricePaise: price.offline,
@@ -375,8 +507,7 @@ async function seedDemoMarketplace(): Promise<void> {
         isActive: true,
         isAvailable: true,
       })
-      .onConflictDoUpdate({
-        target: [shopProducts.shopId, shopProducts.productId],
+      .onDuplicateKeyUpdate({
         set: { onlineSaleEnabled: false, onlinePricePaise: null },
       });
   }
@@ -394,7 +525,7 @@ async function main() {
   if (!minimal) await seedDemoMarketplace();
 
   const [{ count }] = await db
-    .select({ count: sql<number>`count(*)::int` })
+    .select({ count: sql<number>`CAST(count(*) AS SIGNED)` })
     .from(products);
   console.log(`Done. ${count} products in catalogue.`);
   process.exit(0);

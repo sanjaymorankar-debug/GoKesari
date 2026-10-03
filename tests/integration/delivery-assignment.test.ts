@@ -18,7 +18,12 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 vi.setConfig({ testTimeout: 150_000, hookTimeout: 90_000 });
 
 import { db } from "@/server/db";
-import { deliveryEarningsConfig, deliveryOrders, orders, type Order } from "@/server/db/schema";
+import {
+  deliveryEarningsConfig,
+  deliveryOrders,
+  orders,
+  type Order,
+} from "@/server/db/schema";
 import {
   acceptDeliveryOffer,
   assignNearestPartner,
@@ -49,6 +54,7 @@ import {
   createUserWithWallet,
   resetDatabase,
 } from "../helpers/fixtures";
+import { insertReturning, updateReturning } from "@/server/db/returning";
 
 beforeEach(resetDatabase);
 
@@ -57,14 +63,26 @@ const SHOP_LNG = 73.85;
 /** ~1 degree latitude is ~111 km — used to place a partner a known distance from the shop. */
 const kmToLatDegrees = (km: number) => km / 111;
 
-async function setupReadyOrder(options: {
-  preparationTimeMinutes?: number;
-  customerCoords?: { latitude: number; longitude: number } | null;
-} = {}): Promise<{ order: Order; ownerId: string; customerId: string; shopId: string }> {
-  const { user: customer } = await createUserWithWallet({ balancePaise: 500_000 });
+async function setupReadyOrder(
+  options: {
+    preparationTimeMinutes?: number;
+    customerCoords?: { latitude: number; longitude: number } | null;
+  } = {},
+): Promise<{
+  order: Order;
+  ownerId: string;
+  customerId: string;
+  shopId: string;
+}> {
+  const { user: customer } = await createUserWithWallet({
+    balancePaise: 500_000,
+  });
   const owner = await createUser({ role: "SHOP_OWNER" });
   const category = await createCategory({ department: "DAIRY", name: "Milk" });
-  const product = await createProduct(category.id, { name: "Cow Milk", unit: "L" });
+  const product = await createProduct(category.id, {
+    name: "Cow Milk",
+    unit: "L",
+  });
   const shop = await createShop(owner.id, {
     status: "APPROVED",
     latitude: SHOP_LAT,
@@ -85,10 +103,14 @@ async function setupReadyOrder(options: {
   let order = created[0];
 
   if (options.customerCoords !== null) {
-    const coords = options.customerCoords ?? { latitude: SHOP_LAT, longitude: SHOP_LNG };
-    [order] = await db
-      .update(orders)
-      .set({
+    const coords = options.customerCoords ?? {
+      latitude: SHOP_LAT,
+      longitude: SHOP_LNG,
+    };
+    [order] = await updateReturning(
+      db,
+      orders,
+      {
         deliveryAddressSnapshot: {
           line1: "1 Test Road",
           city: "Pune",
@@ -96,9 +118,9 @@ async function setupReadyOrder(options: {
           latitude: String(coords.latitude),
           longitude: String(coords.longitude),
         },
-      })
-      .where(eq(orders.id, order.id))
-      .returning();
+      },
+      eq(orders.id, order.id),
+    );
   }
 
   const actor = { id: owner.id, role: "SHOP_OWNER" as const };
@@ -111,7 +133,10 @@ async function setupReadyOrder(options: {
 describe("getFeasibleDeliveryWindows", () => {
   it("offers only SCHEDULED when nobody is online", async () => {
     const owner = await createUser({ role: "SHOP_OWNER" });
-    const shop = await createShop(owner.id, { latitude: SHOP_LAT, longitude: SHOP_LNG });
+    const shop = await createShop(owner.id, {
+      latitude: SHOP_LAT,
+      longitude: SHOP_LNG,
+    });
 
     const result = await getFeasibleDeliveryWindows(shop.id);
     expect(result).toEqual({
@@ -170,7 +195,10 @@ describe("getFeasibleDeliveryWindows", () => {
 
   it("excludes a partner outside their own operating radius", async () => {
     const owner = await createUser({ role: "SHOP_OWNER" });
-    const shop = await createShop(owner.id, { latitude: SHOP_LAT, longitude: SHOP_LNG });
+    const shop = await createShop(owner.id, {
+      latitude: SHOP_LAT,
+      longitude: SHOP_LNG,
+    });
     const riderUser = await createUser({ role: "DELIVERY_PARTNER" });
     await createDeliveryPartner(riderUser.id, {
       status: "APPROVED",
@@ -205,26 +233,29 @@ describe("assignNearestPartner", () => {
       operatingRadiusKm: 20,
     });
 
-    const assignment = await assignNearestPartner(order.id, { id: ownerId, role: "SHOP_OWNER" });
+    const assignment = await assignNearestPartner(order.id, {
+      id: ownerId,
+      role: "SHOP_OWNER",
+    });
     expect(assignment.status).toBe("OFFERED");
     expect(assignment.deliveryPartnerId).toBe(nearPartner.id);
   });
 
   it("throws when the order is not READY", async () => {
     const owner = await createUser({ role: "SHOP_OWNER" });
-    const shop = await createShop(owner.id, { latitude: SHOP_LAT, longitude: SHOP_LNG });
+    const shop = await createShop(owner.id, {
+      latitude: SHOP_LAT,
+      longitude: SHOP_LNG,
+    });
     const customer = await createUser({ role: "CUSTOMER" });
-    const [order] = await db
-      .insert(orders)
-      .values({
-        orderNumber: "TEST-0001",
-        userId: customer.id,
-        shopId: shop.id,
-        status: "CONFIRMED",
-        subtotalPaise: 1000,
-        totalPaise: 1000,
-      })
-      .returning();
+    const [order] = await insertReturning(db, orders, {
+      orderNumber: "TEST-0001",
+      userId: customer.id,
+      shopId: shop.id,
+      status: "CONFIRMED",
+      subtotalPaise: 1000,
+      totalPaise: 1000,
+    });
 
     await expect(
       assignNearestPartner(order.id, { id: owner.id, role: "SHOP_OWNER" }),
@@ -285,7 +316,10 @@ describe("assignNearestPartner", () => {
 
     // The rider holds exactly one active assignment afterward, not two.
     const active = await db.query.deliveryOrders.findMany({
-      where: and(eq(deliveryOrders.deliveryPartnerId, rider.id), eq(deliveryOrders.status, "OFFERED")),
+      where: and(
+        eq(deliveryOrders.deliveryPartnerId, rider.id),
+        eq(deliveryOrders.status, "OFFERED"),
+      ),
     });
     expect(active).toHaveLength(1);
   });
@@ -294,7 +328,10 @@ describe("assignNearestPartner", () => {
 describe("full delivery lifecycle", () => {
   it("moves offer -> accept -> pickup -> deliver, updating the order and crediting earnings exactly once", async () => {
     const { order, ownerId } = await setupReadyOrder({
-      customerCoords: { latitude: SHOP_LAT + kmToLatDegrees(4), longitude: SHOP_LNG },
+      customerCoords: {
+        latitude: SHOP_LAT + kmToLatDegrees(4),
+        longitude: SHOP_LNG,
+      },
     });
     const riderUser = await createUser({ role: "DELIVERY_PARTNER" });
     await createDeliveryPartner(riderUser.id, {
@@ -304,43 +341,80 @@ describe("full delivery lifecycle", () => {
       operatingRadiusKm: 20,
     });
 
-    const offer = await assignNearestPartner(order.id, { id: ownerId, role: "SHOP_OWNER" });
+    const offer = await assignNearestPartner(order.id, {
+      id: ownerId,
+      role: "SHOP_OWNER",
+    });
 
     // Wrong user cannot act on someone else's offer.
     const stranger = await createUser({ role: "DELIVERY_PARTNER" });
-    await expect(acceptDeliveryOffer(offer.id, stranger.id)).rejects.toMatchObject({
+    await expect(
+      acceptDeliveryOffer(offer.id, stranger.id),
+    ).rejects.toMatchObject({
       code: "FORBIDDEN",
     });
 
     const accepted = await acceptDeliveryOffer(offer.id, riderUser.id);
     expect(accepted.status).toBe("ACCEPTED");
-    const [orderAfterAccept] = await db.select().from(orders).where(eq(orders.id, order.id));
+    const [orderAfterAccept] = await db
+      .select()
+      .from(orders)
+      .where(eq(orders.id, order.id));
     expect(orderAfterAccept.status).toBe("ASSIGNED");
 
     const actor = { id: riderUser.id, role: "DELIVERY_PARTNER" as const };
     // Slice 4 handover: the shop reads out the pickup code issued on accept.
-    const [afterAccept] = await db.select().from(deliveryOrders).where(eq(deliveryOrders.id, offer.id));
+    const [afterAccept] = await db
+      .select()
+      .from(deliveryOrders)
+      .where(eq(deliveryOrders.id, offer.id));
     expect(afterAccept.pickupCode).toMatch(/^\d{4}$/);
-    await expect(markPickedUp(offer.id, actor, "0000" === afterAccept.pickupCode ? "1111" : "0000")).rejects.toMatchObject({
+    await expect(
+      markPickedUp(
+        offer.id,
+        actor,
+        "0000" === afterAccept.pickupCode ? "1111" : "0000",
+      ),
+    ).rejects.toMatchObject({
       code: "VALIDATION_FAILED",
     });
-    const pickedUp = await markPickedUp(offer.id, actor, afterAccept.pickupCode!);
+    const pickedUp = await markPickedUp(
+      offer.id,
+      actor,
+      afterAccept.pickupCode!,
+    );
     expect(pickedUp.status).toBe("PICKED_UP");
 
-    const [orderAfterPickup] = await db.select().from(orders).where(eq(orders.id, order.id));
+    const [orderAfterPickup] = await db
+      .select()
+      .from(orders)
+      .where(eq(orders.id, order.id));
     expect(orderAfterPickup.status).toBe("PICKED_UP");
 
     // Starting the drop issues the customer's OTP and moves the order on.
     await startDelivery(offer.id, actor);
-    const [orderOutForDelivery] = await db.select().from(orders).where(eq(orders.id, order.id));
+    const [orderOutForDelivery] = await db
+      .select()
+      .from(orders)
+      .where(eq(orders.id, order.id));
     expect(orderOutForDelivery.status).toBe("OUT_FOR_DELIVERY");
-    const [afterStart] = await db.select().from(deliveryOrders).where(eq(deliveryOrders.id, offer.id));
+    const [afterStart] = await db
+      .select()
+      .from(deliveryOrders)
+      .where(eq(deliveryOrders.id, offer.id));
     expect(afterStart.deliveryOtp).toMatch(/^\d{4}$/);
 
-    const delivered = await markDelivered(offer.id, actor, afterStart.deliveryOtp!);
+    const delivered = await markDelivered(
+      offer.id,
+      actor,
+      afterStart.deliveryOtp!,
+    );
     expect(delivered.status).toBe("DELIVERED");
 
-    const [orderAfterDelivery] = await db.select().from(orders).where(eq(orders.id, order.id));
+    const [orderAfterDelivery] = await db
+      .select()
+      .from(orders)
+      .where(eq(orders.id, order.id));
     expect(orderAfterDelivery.status).toBe("DELIVERED");
 
     const config = await getActiveEarningsConfig();
@@ -352,7 +426,9 @@ describe("full delivery lifecycle", () => {
 
     // Re-crediting the same delivery must not pay out twice.
     const again = await creditDeliveryEarnings(offer.id);
-    const summaryAfter = await getPartnerEarningsSummary(delivered.deliveryPartnerId);
+    const summaryAfter = await getPartnerEarningsSummary(
+      delivered.deliveryPartnerId,
+    );
     expect(summaryAfter.deliveryCount).toBe(1);
     expect(summaryAfter.totalPaise).toBe(again.totalPaise);
   });
@@ -371,7 +447,10 @@ describe("full delivery lifecycle", () => {
       operatingRadiusKm: 20,
     });
 
-    const offer = await assignNearestPartner(order.id, { id: ownerId, role: "SHOP_OWNER" });
+    const offer = await assignNearestPartner(order.id, {
+      id: ownerId,
+      role: "SHOP_OWNER",
+    });
     expect(offer.deliveryPartnerId).not.toBeNull();
     const rejected = await rejectDeliveryOffer(offer.id, riderA.id, "Too far");
     expect(rejected.status).toBe("REJECTED");
@@ -384,7 +463,11 @@ describe("full delivery lifecycle", () => {
       operatingRadiusKm: 20,
     });
 
-    const reassigned = await reassignOrder(order.id, { id: ownerId, role: "SHOP_OWNER" }, "retry");
+    const reassigned = await reassignOrder(
+      order.id,
+      { id: ownerId, role: "SHOP_OWNER" },
+      "retry",
+    );
     expect(reassigned.status).toBe("OFFERED");
     expect(reassigned.deliveryPartnerId).toBe(riderBPartner.id);
   });
@@ -419,7 +502,10 @@ describe("delivery earnings config", () => {
   it("rejects a negative fee", async () => {
     const admin = await createUser({ role: "ADMIN" });
     await expect(
-      setEarningsConfig({ baseFeePaise: -1, perKmFeePaise: 100 }, { id: admin.id, role: "ADMIN" }),
+      setEarningsConfig(
+        { baseFeePaise: -1, perKmFeePaise: 100 },
+        { id: admin.id, role: "ADMIN" },
+      ),
     ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
   });
 });
@@ -429,6 +515,8 @@ describe("delivery-partner online status", () => {
     const user = await createUser({ role: "DELIVERY_PARTNER" });
     await createDeliveryPartner(user.id, { status: "REGISTERED" });
 
-    await expect(goOnline(user.id, SHOP_LAT, SHOP_LNG)).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(goOnline(user.id, SHOP_LAT, SHOP_LNG)).rejects.toMatchObject({
+      code: "CONFLICT",
+    });
   });
 });

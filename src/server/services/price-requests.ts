@@ -31,6 +31,7 @@ import {
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { updateShopProduct } from "./catalogue";
+import { insertReturning } from "@/server/db/returning";
 
 interface Actor {
   id: string;
@@ -61,10 +62,7 @@ function sourceForRole(role: UserRole): PriceRequestSource {
  * An owner editing their own shop is the whole point of §10's "becomes live
  * according to the configured business rule"; an admin can always override.
  */
-export function appliesImmediately(
-  actor: Actor,
-  shopOwnerId: string,
-): boolean {
+export function appliesImmediately(actor: Actor, shopOwnerId: string): boolean {
   if (actor.id === shopOwnerId) return true;
   return can(actor.role, PERMISSIONS.PRICE_REQUEST_OVERRIDE);
 }
@@ -120,17 +118,14 @@ export async function submitPriceRequests(
 
     const source = sourceForRole(actor.role);
 
-    const [batch] = await tx
-      .insert(priceUpdateBatches)
-      .values({
-        shopId: input.shopId,
-        source,
-        submittedBy: actor.id,
-        excelUploadId: input.excelUploadId ?? null,
-        status: "PENDING",
-        note: input.note ?? null,
-      })
-      .returning();
+    const [batch] = await insertReturning(tx, priceUpdateBatches, {
+      shopId: input.shopId,
+      source,
+      submittedBy: actor.id,
+      excelUploadId: input.excelUploadId ?? null,
+      status: "PENDING",
+      note: input.note ?? null,
+    });
 
     const created: PriceUpdateRequest[] = [];
 
@@ -155,8 +150,8 @@ export async function submitPriceRequests(
 
       const previous =
         change.priceType === "ONLINE"
-          ? current?.onlinePricePaise ?? null
-          : current?.offlinePricePaise ?? null;
+          ? (current?.onlinePricePaise ?? null)
+          : (current?.offlinePricePaise ?? null);
 
       // Retire any older pending proposal for the same target.
       await tx
@@ -170,20 +165,17 @@ export async function submitPriceRequests(
           ),
         );
 
-      const [request] = await tx
-        .insert(priceUpdateRequests)
-        .values({
-          batchId: batch.id,
-          shopId: input.shopId,
-          shopProductId: change.shopProductId,
-          priceType: change.priceType,
-          previousPricePaise: previous,
-          proposedPricePaise: change.proposedPricePaise,
-          status: "PENDING",
-          source,
-          submittedBy: actor.id,
-        })
-        .returning();
+      const [request] = await insertReturning(tx, priceUpdateRequests, {
+        batchId: batch.id,
+        shopId: input.shopId,
+        shopProductId: change.shopProductId,
+        priceType: change.priceType,
+        previousPricePaise: previous,
+        proposedPricePaise: change.proposedPricePaise,
+        status: "PENDING",
+        source,
+        submittedBy: actor.id,
+      });
       created.push(request);
     }
 
@@ -306,7 +298,9 @@ export async function decideRequests(
           decidedBy: actor.id,
           decidedAt: new Date(),
           rejectionReason:
-            input.decision === "REJECTED" ? input.rejectionReason ?? null : null,
+            input.decision === "REJECTED"
+              ? (input.rejectionReason ?? null)
+              : null,
           appliedAt: input.decision === "APPROVED" ? new Date() : null,
         })
         .where(eq(priceUpdateRequests.id, request.id));
@@ -494,7 +488,10 @@ export async function listPendingForShop(
       shopName: shops.name,
     })
     .from(priceUpdateRequests)
-    .innerJoin(shopProducts, eq(shopProducts.id, priceUpdateRequests.shopProductId))
+    .innerJoin(
+      shopProducts,
+      eq(shopProducts.id, priceUpdateRequests.shopProductId),
+    )
     .innerJoin(products, eq(products.id, shopProducts.productId))
     .innerJoin(shops, eq(shops.id, priceUpdateRequests.shopId))
     .where(
@@ -524,7 +521,9 @@ export async function listPendingForShop(
 }
 
 /** Every pending request across all shops — the admin approvals queue (§11). */
-export async function listAllPending(limit = 200): Promise<PendingRequestRow[]> {
+export async function listAllPending(
+  limit = 200,
+): Promise<PendingRequestRow[]> {
   const rows = await db
     .select({
       request: priceUpdateRequests,
@@ -534,7 +533,10 @@ export async function listAllPending(limit = 200): Promise<PendingRequestRow[]> 
       shopName: shops.name,
     })
     .from(priceUpdateRequests)
-    .innerJoin(shopProducts, eq(shopProducts.id, priceUpdateRequests.shopProductId))
+    .innerJoin(
+      shopProducts,
+      eq(shopProducts.id, priceUpdateRequests.shopProductId),
+    )
     .innerJoin(products, eq(products.id, shopProducts.productId))
     .innerJoin(shops, eq(shops.id, priceUpdateRequests.shopId))
     .where(eq(priceUpdateRequests.status, "PENDING"))
@@ -568,7 +570,10 @@ export async function listDecidedForShop(shopId: string, limit = 100) {
       unit: products.unit,
     })
     .from(priceUpdateRequests)
-    .innerJoin(shopProducts, eq(shopProducts.id, priceUpdateRequests.shopProductId))
+    .innerJoin(
+      shopProducts,
+      eq(shopProducts.id, priceUpdateRequests.shopProductId),
+    )
     .innerJoin(products, eq(products.id, shopProducts.productId))
     .where(
       and(

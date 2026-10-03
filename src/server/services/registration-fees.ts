@@ -21,6 +21,7 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { insertReturning } from "@/server/db/returning";
 
 interface Actor {
   id: string;
@@ -35,7 +36,10 @@ export async function getActiveFee(
     .select()
     .from(registrationFees)
     .where(eq(registrationFees.isActive, true))
-    .orderBy(desc(registrationFees.effectiveFrom), desc(registrationFees.createdAt))
+    .orderBy(
+      desc(registrationFees.effectiveFrom),
+      desc(registrationFees.createdAt),
+    )
     .limit(1);
   return fee;
 }
@@ -56,7 +60,10 @@ export async function getFeeEffectiveOn(
     .select()
     .from(registrationFees)
     .where(lte(registrationFees.effectiveFrom, date))
-    .orderBy(desc(registrationFees.effectiveFrom), desc(registrationFees.createdAt))
+    .orderBy(
+      desc(registrationFees.effectiveFrom),
+      desc(registrationFees.createdAt),
+    )
     .limit(1);
   return fee;
 }
@@ -73,7 +80,10 @@ export async function listFees(limit = 100): Promise<RegistrationFee[]> {
   return db
     .select()
     .from(registrationFees)
-    .orderBy(desc(registrationFees.effectiveFrom), desc(registrationFees.createdAt))
+    .orderBy(
+      desc(registrationFees.effectiveFrom),
+      desc(registrationFees.createdAt),
+    )
     .limit(limit);
 }
 
@@ -97,10 +107,13 @@ export async function setRegistrationFee(
   actor: Actor,
 ): Promise<RegistrationFee> {
   if (!Number.isInteger(input.amountPaise) || input.amountPaise < 0) {
-    throw validationFailed("Registration fee must be a whole number of paise, zero or more.");
+    throw validationFailed(
+      "Registration fee must be a whole number of paise, zero or more.",
+    );
   }
 
-  const effectiveFrom = input.effectiveFrom ?? new Date().toISOString().slice(0, 10);
+  const effectiveFrom =
+    input.effectiveFrom ?? new Date().toISOString().slice(0, 10);
   if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveFrom)) {
     throw validationFailed("Effective date must be an ISO date (YYYY-MM-DD).");
   }
@@ -115,16 +128,13 @@ export async function setRegistrationFee(
         .where(eq(registrationFees.id, previous.id));
     }
 
-    const [created] = await tx
-      .insert(registrationFees)
-      .values({
-        amountPaise: input.amountPaise,
-        effectiveFrom,
-        isActive: true,
-        note: input.note ?? null,
-        createdBy: actor.id,
-      })
-      .returning();
+    const [created] = await insertReturning(tx, registrationFees, {
+      amountPaise: input.amountPaise,
+      effectiveFrom,
+      isActive: true,
+      note: input.note ?? null,
+      createdBy: actor.id,
+    });
 
     await tx.insert(registrationFeeHistory).values({
       registrationFeeId: created.id,

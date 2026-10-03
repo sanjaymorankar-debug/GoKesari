@@ -7,7 +7,12 @@
  *  - Financial rows (wallet_transactions, order_items) are immutable once written.
  */
 import { sql } from "drizzle-orm";
-import { RETURN_CONDITIONS, RETURN_REASONS, RETURN_STATUSES, PICKUP_STATUSES } from "@/lib/return-states";
+import {
+  RETURN_CONDITIONS,
+  RETURN_REASONS,
+  RETURN_STATUSES,
+  PICKUP_STATUSES,
+} from "@/lib/return-states";
 import { SHOP_TYPE_KEYS } from "@/lib/shop-types";
 import {
   bigint,
@@ -15,17 +20,19 @@ import {
   check,
   customType,
   date,
+  datetime,
+  foreignKey,
   index,
-  integer,
-  jsonb,
-  pgEnum,
-  pgTable,
+  int,
+  json,
+  mysqlEnum,
+  mysqlTable,
   primaryKey,
   text,
   timestamp,
   uniqueIndex,
-  uuid,
-} from "drizzle-orm/pg-core";
+  varchar,
+} from "drizzle-orm/mysql-core";
 
 /* ----------------------------------------------------------- primary keys */
 
@@ -47,15 +54,58 @@ import {
  * never a UUID. Doing this first, while still on Postgres, keeps that change
  * separate from the dialect switch.
  */
+/**
+ * Every timestamp column carries `fsp: 3` — millisecond precision — and every
+ * server-side default is `CURRENT_TIMESTAMP(3)` to match.
+ *
+ * MySQL's `datetime` keeps whole seconds unless a precision is given, where the
+ * Postgres `timestamptz` these were ported from kept microseconds. Without this
+ * every row written in the same second shares one `created_at`, so
+ * `order by created_at desc` stops being a total order and "the latest row"
+ * queries — consent checks, fee history, MRP history — return an arbitrary one
+ * of them. Three integration tests caught it.
+ *
+ * 3 rather than 6 because a JavaScript `Date` only has millisecond resolution,
+ * so anything finer would be false precision.
+ */
 const uuidPk = () =>
-  uuid("id")
+  varchar("id", { length: 36 })
     .primaryKey()
-    .defaultRandom()
     .$defaultFn(() => crypto.randomUUID());
+
+/**
+ * mysql-core has no `blob` helper (only `binary` / `varbinary`, both length-capped),
+ * so the column type is declared here -- the same thing the PostgreSQL schema did
+ * for `bytea`. LONGBLOB because stored images are not bounded by a row limit.
+ */
+const blob = customType<{ data: Buffer; default: false }>({
+  dataType() {
+    return "longblob";
+  },
+});
 
 /* ------------------------------------------------------------------ enums */
 
-export const userRoleEnum = pgEnum("user_role", [
+/**
+ * `pgEnum` returned a reusable object; `mysqlEnum(name, values)` is per-column.
+ * But `.enumValues` is public API of this module -- 62 uses, including
+ * `users.ts`, `roles.ts`, `ops-exceptions.ts` and ~50 exported type aliases of
+ * the form `(typeof xEnum.enumValues)[number]`. So the shim is callable like the
+ * old enum object AND still carries `.enumValues`, which is why 67 declarations
+ * change here and 112 usages elsewhere do not change at all.
+ *
+ * MySQL has no `CREATE TYPE`, so the Postgres type name is dropped: the allowed
+ * values live inline on each column instead.
+ */
+function mysqlEnumType<const T extends readonly [string, ...string[]]>(
+  values: T,
+) {
+  return Object.assign((name: string) => mysqlEnum(name, values), {
+    enumValues: values,
+  });
+}
+
+export const userRoleEnum = mysqlEnumType([
   "CUSTOMER",
   "SHOP_OWNER",
   "OPERATOR",
@@ -66,13 +116,9 @@ export const userRoleEnum = pgEnum("user_role", [
   "SOCIETY_ADMIN",
 ]);
 
-export const userStatusEnum = pgEnum("user_status", [
-  "ACTIVE",
-  "SUSPENDED",
-  "DELETED",
-]);
+export const userStatusEnum = mysqlEnumType(["ACTIVE", "SUSPENDED", "DELETED"]);
 
-export const shopStatusEnum = pgEnum("shop_status", [
+export const shopStatusEnum = mysqlEnumType([
   "PENDING_APPROVAL",
   "APPROVED",
   "REJECTED",
@@ -85,13 +131,10 @@ export const shopStatusEnum = pgEnum("shop_status", [
  * (grocery, dairy, bakery, pharmacy, jewellery, ...). Source of truth is
  * `src/lib/shop-types.ts`; add new types there, not here.
  */
-export const shopTypeEnum = pgEnum("shop_type", SHOP_TYPE_KEYS);
+export const shopTypeEnum = mysqlEnumType(SHOP_TYPE_KEYS);
 
 /** Operator/Admin-controlled quality classification. Shop owners cannot change this. */
-export const classificationEnum = pgEnum("shop_classification", [
-  "KESARI",
-  "GREEN",
-]);
+export const classificationEnum = mysqlEnumType(["KESARI", "GREEN"]);
 
 /**
  * GST registration status (marketplace GST-readiness follow-up). Not every
@@ -102,7 +145,7 @@ export const classificationEnum = pgEnum("shop_classification", [
  * (see gst-pan-verification.ts) — this is never silently treated as
  * REGISTERED.
  */
-export const gstStatusEnum = pgEnum("gst_status", [
+export const gstStatusEnum = mysqlEnumType([
   "UNKNOWN",
   "NOT_REGISTERED",
   "PENDING_VERIFICATION",
@@ -112,7 +155,7 @@ export const gstStatusEnum = pgEnum("gst_status", [
 ]);
 
 /** Mirrors gstStatusEnum's verification states for PAN — a separate credential, verified independently. */
-export const panStatusEnum = pgEnum("pan_status", [
+export const panStatusEnum = mysqlEnumType([
   "UNKNOWN",
   "PENDING_VERIFICATION",
   "VERIFIED",
@@ -120,7 +163,7 @@ export const panStatusEnum = pgEnum("pan_status", [
 ]);
 
 /** Provenance for a GST/PAN status — same shape as shops.locationSource, for the same audit reason. */
-export const identityVerificationSourceEnum = pgEnum("identity_verification_source", [
+export const identityVerificationSourceEnum = mysqlEnumType([
   "PROVIDER_VERIFIED",
   "SELF_DECLARED",
   "ADMIN_VERIFIED",
@@ -131,7 +174,7 @@ export const identityVerificationSourceEnum = pgEnum("identity_verification_sour
  * shopTypeEnum: a catalogue category is always scoped to one shop type (e.g.
  * "Milk" → DAIRY, "Rice" → GROCERY_KIRANA).
  */
-export const departmentEnum = pgEnum("department", SHOP_TYPE_KEYS);
+export const departmentEnum = mysqlEnumType(SHOP_TYPE_KEYS);
 
 /**
  * Order lifecycle. Mapping to the approved state machine (workbook "State
@@ -146,7 +189,7 @@ export const departmentEnum = pgEnum("department", SHOP_TYPE_KEYS);
  * Transitions live in services/orders.ts ALLOWED_TRANSITIONS; values added
  * after the first release are appended at the end (Postgres enum order).
  */
-export const orderStatusEnum = pgEnum("order_status", [
+export const orderStatusEnum = mysqlEnumType([
   "PENDING",
   "CONFIRMED",
   "PREPARING",
@@ -171,7 +214,7 @@ export const orderStatusEnum = pgEnum("order_status", [
  * the shop cannot supply a line. SUBSTITUTION_PROPOSED waits for the
  * customer; REMOVED lines are refunded to the wallet.
  */
-export const orderItemFulfilmentEnum = pgEnum("order_item_fulfilment", [
+export const orderItemFulfilmentEnum = mysqlEnumType([
   "PENDING",
   "PICKED",
   "SUBSTITUTION_PROPOSED",
@@ -179,10 +222,7 @@ export const orderItemFulfilmentEnum = pgEnum("order_item_fulfilment", [
   "REMOVED",
 ]);
 
-export const orderSourceEnum = pgEnum("order_source", [
-  "DIRECT",
-  "SUBSCRIPTION",
-]);
+export const orderSourceEnum = mysqlEnumType(["DIRECT", "SUBSCRIPTION"]);
 
 /**
  * Who the order is for (Wave 1, RBAC-002 decision): a person buying for
@@ -190,27 +230,27 @@ export const orderSourceEnum = pgEnum("order_source", [
  * flows — B2B needs ORDER_PLACE_B2B and a `buyerShopId`, and is listed apart
  * from personal orders.
  */
-export const orderTypeEnum = pgEnum("order_type", ["PERSONAL", "B2B"]);
+export const orderTypeEnum = mysqlEnumType(["PERSONAL", "B2B"]);
 
 /**
  * How an order is paid (GS-030). WALLET is charged at checkout; COD is
  * collected in cash at the door (by the rider, or the shop when it delivers
  * itself) and only then counts as paid.
  */
-export const paymentMethodEnum = pgEnum("payment_method", ["WALLET", "COD"]);
+export const paymentMethodEnum = mysqlEnumType(["WALLET", "COD"]);
 
 /* -------------------------------------------------------- delivery windows
  * (delivery-system Part 58 follow-up, Slice C). Fixed set for Phase 1 per
  * the brief ("initially support 30/60/scheduled") — true admin-defined
  * custom windows are Phase 2/3. Nullable on `orders`: existing orders and
  * any checkout that doesn't pick a window are unaffected. */
-export const deliveryWindowEnum = pgEnum("delivery_window", [
+export const deliveryWindowEnum = mysqlEnumType([
   "EXPRESS_30",
   "STANDARD_60",
   "SCHEDULED",
 ]);
 
-export const paymentStatusEnum = pgEnum("payment_status", [
+export const paymentStatusEnum = mysqlEnumType([
   "CREATED",
   "PENDING",
   "SUCCESS",
@@ -218,7 +258,7 @@ export const paymentStatusEnum = pgEnum("payment_status", [
   "REFUNDED",
 ]);
 
-export const walletTxnTypeEnum = pgEnum("wallet_txn_type", [
+export const walletTxnTypeEnum = mysqlEnumType([
   "TOP_UP",
   "PRODUCT_PURCHASE",
   "SUBSCRIPTION_DEDUCTION",
@@ -229,12 +269,9 @@ export const walletTxnTypeEnum = pgEnum("wallet_txn_type", [
   "REVERSAL",
 ]);
 
-export const walletTxnStatusEnum = pgEnum("wallet_txn_status", [
-  "COMPLETED",
-  "REVERSED",
-]);
+export const walletTxnStatusEnum = mysqlEnumType(["COMPLETED", "REVERSED"]);
 
-export const subscriptionStatusEnum = pgEnum("subscription_status", [
+export const subscriptionStatusEnum = mysqlEnumType([
   "ACTIVE",
   "PAUSED",
   "CANCELLED",
@@ -242,15 +279,12 @@ export const subscriptionStatusEnum = pgEnum("subscription_status", [
   "PAYMENT_PENDING",
 ]);
 
-export const subscriptionFrequencyEnum = pgEnum("subscription_frequency", [
-  "DAILY",
-  "WEEKLY",
-]);
+export const subscriptionFrequencyEnum = mysqlEnumType(["DAILY", "WEEKLY"]);
 
 /** A per-date deviation from the standing subscription quantity. */
-export const overrideTypeEnum = pgEnum("override_type", ["QUANTITY", "SKIP"]);
+export const overrideTypeEnum = mysqlEnumType(["QUANTITY", "SKIP"]);
 
-export const notificationChannelEnum = pgEnum("notification_channel", [
+export const notificationChannelEnum = mysqlEnumType([
   "IN_APP",
   "EMAIL",
   "SMS",
@@ -265,7 +299,7 @@ export const notificationChannelEnum = pgEnum("notification_channel", [
  * change that needs someone else's consent — an owner editing their own price
  * writes straight through and never lands here.
  */
-export const priceRequestStatusEnum = pgEnum("price_request_status", [
+export const priceRequestStatusEnum = mysqlEnumType([
   "PENDING",
   "APPROVED",
   "REJECTED",
@@ -275,22 +309,19 @@ export const priceRequestStatusEnum = pgEnum("price_request_status", [
 ]);
 
 /** Who originated a price change, for audit and for the owner's review screen. */
-export const priceRequestSourceEnum = pgEnum("price_request_source", [
+export const priceRequestSourceEnum = mysqlEnumType([
   "SHOP_OWNER",
   "OPERATOR",
   "ADMIN",
 ]);
 
-export const excelUploadTypeEnum = pgEnum("excel_upload_type", [
-  "GOODS",
-  "PRICES",
-]);
+export const excelUploadTypeEnum = mysqlEnumType(["GOODS", "PRICES"]);
 
 /**
  * An upload is VALIDATED (parsed, previewed, nothing written) before it can be
  * APPLIED. This two-step is what stops a bad sheet corrupting live prices (§21).
  */
-export const excelUploadStatusEnum = pgEnum("excel_upload_status", [
+export const excelUploadStatusEnum = mysqlEnumType([
   "VALIDATED",
   "APPLIED",
   "CANCELLED",
@@ -298,7 +329,7 @@ export const excelUploadStatusEnum = pgEnum("excel_upload_status", [
 ]);
 
 /** Per-row verdict from Excel validation. Only VALID/NO_CHANGE rows are applied. */
-export const excelRowStatusEnum = pgEnum("excel_row_status", [
+export const excelRowStatusEnum = mysqlEnumType([
   "VALID",
   "NO_CHANGE",
   "INVALID_PRICE",
@@ -310,7 +341,7 @@ export const excelRowStatusEnum = pgEnum("excel_row_status", [
 ]);
 
 /** Registration-fee settlement state for one shop (§4.2). */
-export const feePaymentStatusEnum = pgEnum("fee_payment_status", [
+export const feePaymentStatusEnum = mysqlEnumType([
   "PENDING",
   "PARTIALLY_PAID",
   "PAID",
@@ -318,7 +349,7 @@ export const feePaymentStatusEnum = pgEnum("fee_payment_status", [
   "CANCELLED",
 ]);
 
-export const shopPaymentTypeEnum = pgEnum("shop_payment_type", [
+export const shopPaymentTypeEnum = mysqlEnumType([
   "REGISTRATION_FEE",
   "RENEWAL",
   "ADJUSTMENT",
@@ -326,7 +357,7 @@ export const shopPaymentTypeEnum = pgEnum("shop_payment_type", [
   "REVERSAL",
 ]);
 
-export const shopPaymentMethodEnum = pgEnum("shop_payment_method", [
+export const shopPaymentMethodEnum = mysqlEnumType([
   "CASH",
   "UPI",
   "BANK_TRANSFER",
@@ -336,7 +367,7 @@ export const shopPaymentMethodEnum = pgEnum("shop_payment_method", [
   "OTHER",
 ]);
 
-export const referralStatusEnum = pgEnum("referral_status", [
+export const referralStatusEnum = mysqlEnumType([
   "ACTIVE",
   "INACTIVE",
   "EXPIRED",
@@ -348,7 +379,7 @@ export const referralStatusEnum = pgEnum("referral_status", [
  * soft-delete, so this enum covers only the approval dimension — mirrors the
  * PENDING_APPROVAL/APPROVED/REJECTED vocabulary `shops.status` already uses.
  */
-export const productApprovalStatusEnum = pgEnum("product_approval_status", [
+export const productApprovalStatusEnum = mysqlEnumType([
   "PENDING_APPROVAL",
   "APPROVED",
   "REJECTED",
@@ -361,10 +392,10 @@ export const productApprovalStatusEnum = pgEnum("product_approval_status", [
  * difference explicit rather than leaving every identity field
  * mysteriously null: LOOSE legitimately has no GTIN, brand or MRP, so the
  * service layer only demands an MRP for PACKAGED. */
-export const productKindEnum = pgEnum("product_kind", ["PACKAGED", "LOOSE"]);
+export const productKindEnum = mysqlEnumType(["PACKAGED", "LOOSE"]);
 
 /** Where a master MRP came from. Provenance matters because §13 forbids a shop owner silently overwriting a verified value. */
-export const mrpSourceEnum = pgEnum("mrp_source", [
+export const mrpSourceEnum = mysqlEnumType([
   "GS1",
   "BRAND",
   "ADMIN",
@@ -373,7 +404,7 @@ export const mrpSourceEnum = pgEnum("mrp_source", [
   "SELLER_SUBMITTED",
 ]);
 
-export const mrpVerificationStatusEnum = pgEnum("mrp_verification_status", [
+export const mrpVerificationStatusEnum = mysqlEnumType([
   "UNVERIFIED",
   "PENDING_VERIFICATION",
   "VERIFIED",
@@ -381,13 +412,13 @@ export const mrpVerificationStatusEnum = pgEnum("mrp_verification_status", [
 ]);
 
 /** Raised against a shop_product when stock crosses its own configured threshold. */
-export const stockAlertTypeEnum = pgEnum("stock_alert_type", [
+export const stockAlertTypeEnum = mysqlEnumType([
   "LOW_STOCK",
   "OUT_OF_STOCK",
   "REORDER",
 ]);
 
-export const stockAlertStatusEnum = pgEnum("stock_alert_status", [
+export const stockAlertStatusEnum = mysqlEnumType([
   "OPEN",
   "ACKNOWLEDGED",
   "RESOLVED",
@@ -400,7 +431,7 @@ export const stockAlertStatusEnum = pgEnum("stock_alert_status", [
  * derived from `end_date` at read time so a voucher is never "deleted",
  * matching §21's "maintain historical records".
  */
-export const voucherStatusEnum = pgEnum("voucher_status", [
+export const voucherStatusEnum = mysqlEnumType([
   "DRAFT",
   "ACTIVE",
   "PAUSED",
@@ -408,25 +439,22 @@ export const voucherStatusEnum = pgEnum("voucher_status", [
   "BUDGET_EXHAUSTED",
 ]);
 
-export const voucherApplyModeEnum = pgEnum("voucher_apply_mode", [
-  "CODE",
-  "AUTO_APPLY",
-]);
+export const voucherApplyModeEnum = mysqlEnumType(["CODE", "AUTO_APPLY"]);
 
-export const voucherRedemptionStatusEnum = pgEnum("voucher_redemption_status", [
+export const voucherRedemptionStatusEnum = mysqlEnumType([
   "PENDING",
   "APPLIED",
   "REVERSED",
   "REJECTED",
 ]);
 
-export const voucherUploadStatusEnum = pgEnum("voucher_upload_status", [
+export const voucherUploadStatusEnum = mysqlEnumType([
   "VALIDATED",
   "APPLIED",
   "CANCELLED",
 ]);
 
-export const voucherUploadRowStatusEnum = pgEnum("voucher_upload_row_status", [
+export const voucherUploadRowStatusEnum = mysqlEnumType([
   "VALID",
   "DUPLICATE_IN_FILE",
   "DUPLICATE_EXISTING",
@@ -440,14 +468,14 @@ export const voucherUploadRowStatusEnum = pgEnum("voucher_upload_row_status", [
  * generic support-ticket system — this table's whole purpose is to be the
  * thing a Grievance Officer can point to as their compliance record.
  */
-export const grievanceStatusEnum = pgEnum("grievance_status", [
+export const grievanceStatusEnum = mysqlEnumType([
   "OPEN",
   "IN_PROGRESS",
   "RESOLVED",
   "CLOSED",
 ]);
 
-export const grievanceCategoryEnum = pgEnum("grievance_category", [
+export const grievanceCategoryEnum = mysqlEnumType([
   "PAYMENT",
   "WALLET",
   "ORDER",
@@ -459,20 +487,57 @@ export const grievanceCategoryEnum = pgEnum("grievance_category", [
 ]);
 
 /** What a user consented to, and to which version — the DPDPA-relevant trail. */
-export const consentTypeEnum = pgEnum("consent_type", [
+export const consentTypeEnum = mysqlEnumType([
   "TERMS_AND_PRIVACY",
   "MARKETING_COMMUNICATIONS",
 ]);
 
+/* ------------------------------------------------- counters (sequences) */
+
+/**
+ * Stands in for the three Postgres sequences the port had to drop:
+ * `shop_registration_seq`, `product_code_seq` and `grievance_ticket_seq`.
+ *
+ * MySQL has no `CREATE SEQUENCE`, and `AUTO_INCREMENT` cannot be used here
+ * because these are formatted strings on tables that already have a primary
+ * key (`BKS-000001`, `P00001`, `GRV-000123`). One row per counter, incremented
+ * by `nextSequenceValue()` in src/server/db/sequence.ts — see that file for why
+ * the increment is atomic without a `SELECT ... FOR UPDATE`.
+ */
+export const counters = mysqlTable("counters", {
+  name: varchar("name", { length: 64 }).primaryKey(),
+  value: bigint("value", { mode: "number" }).notNull().default(0),
+});
+
+/**
+ * One row per registration identifier being checked, so two concurrent
+ * registrations of the same shop serialise on it.
+ *
+ * Replaces `pg_advisory_xact_lock`. MySQL's nearest equivalent, `GET_LOCK`, is
+ * scoped to the *session* rather than the transaction: it would survive the
+ * commit and have to be released by hand, and a forgotten release would wedge
+ * every later registration. An InnoDB row lock is released at commit or
+ * rollback, which is exactly the lifetime the Postgres version had.
+ */
+export const registrationLocks = mysqlTable("registration_locks", {
+  name: varchar("name", { length: 191 }).primaryKey(),
+});
+
 /* ------------------------------------------------- auth (Auth.js managed) */
 
-export const users = pgTable(
+export const users = mysqlTable(
   "users",
   {
     id: uuidPk(),
     name: text("name"),
-    email: text("email").notNull(),
-    emailVerified: timestamp("email_verified", { withTimezone: true }),
+    email: varchar("email", { length: 255 }).notNull(),
+    /**
+     * `timestamp`, not `datetime` like the rest of the schema: @auth/drizzle-adapter
+     * types this column as `MySqlTimestamp` and will not accept anything else.
+     * The 2038 ceiling that ruled TIMESTAMP out elsewhere does not bite here —
+     * this records when verification happened, which is always in the past.
+     */
+    emailVerified: timestamp("email_verified", { mode: "date", fsp: 3 }),
     image: text("image"),
     phone: text("phone"),
     /**
@@ -480,24 +545,36 @@ export const users = pgTable(
      * `phoneVerifiedAt` is set only when possession of the number is proven
      * (an SMS code); an email-OTP login never sets it.
      */
-    phoneE164: text("phone_e164"),
-    phoneVerifiedAt: timestamp("phone_verified_at", { withTimezone: true }),
+    phoneE164: varchar("phone_e164", { length: 255 }),
+    phoneVerifiedAt: datetime("phone_verified_at", { mode: "date", fsp: 3 }),
     // Role is server-owned. It is never read from a request body.
     role: userRoleEnum("role").notNull().default("CUSTOMER"),
     status: userStatusEnum("status").notNull().default("ACTIVE"),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
-    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    deletedAt: datetime("deleted_at", { mode: "date", fsp: 3 }),
+    /**
+     * MySQL has no partial indexes, so the predicate of the old PostgreSQL
+     * partial UNIQUE index lives in this STORED generated column: it is NULL
+     * when the predicate is false, and MySQL's UNIQUE ignores NULLs. Verified
+     * against a real server -- a second matching row is rejected with a
+     * duplicate-key error, non-matching rows are unconstrained, and leaving the
+     * predicate frees the slot again.
+     */
+    activePhoneKey: varchar("active_phone_key", {
+      length: 255,
+    }).generatedAlwaysAs(
+      sql`CASE WHEN phone_e164 IS NOT NULL AND deleted_at IS NULL THEN phone_e164 END`,
+      { mode: "stored" },
+    ),
   },
   (t) => [
     uniqueIndex("users_email_unique").on(t.email),
-    uniqueIndex("users_phone_e164_unique")
-      .on(t.phoneE164)
-      .where(sql`${t.phoneE164} IS NOT NULL AND ${t.deletedAt} IS NULL`),
+    uniqueIndex("users_phone_e164_unique").on(t.activePhoneKey),
   ],
 );
 
@@ -507,11 +584,13 @@ export const users = pgTable(
  * carries the defaults, so an absent row simply means "use the default".
  * Every change is audited (services/settings.ts).
  */
-export const platformSettings = pgTable("platform_settings", {
-  key: text("key").primaryKey(),
-  value: jsonb("value").$type<unknown>().notNull(),
-  updatedBy: uuid("updated_by").references(() => users.id),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+export const platformSettings = mysqlTable("platform_settings", {
+  key: varchar("key", { length: 255 }).primaryKey(),
+  value: json("value").$type<unknown>().notNull(),
+  updatedBy: varchar("updated_by", { length: 36 }).references(() => users.id),
+  updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP(3)`),
 });
 
 /**
@@ -520,22 +599,26 @@ export const platformSettings = pgTable("platform_settings", {
  * behaves identically from the outside (no account enumeration) but nothing
  * is ever sent for it.
  */
-export const loginOtps = pgTable(
+export const loginOtps = mysqlTable(
   "login_otps",
   {
     id: uuidPk(),
-    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
-    phoneE164: text("phone_e164").notNull(),
+    userId: varchar("user_id", { length: 36 }).references(() => users.id, {
+      onDelete: "cascade",
+    }),
+    phoneE164: varchar("phone_e164", { length: 255 }).notNull(),
     channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
     codeHash: text("code_hash").notNull(),
-    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
-    attempts: integer("attempts").notNull().default(0),
-    maxAttempts: integer("max_attempts").notNull(),
+    expiresAt: datetime("expires_at", { mode: "date", fsp: 3 }).notNull(),
+    attempts: int("attempts").notNull().default(0),
+    maxAttempts: int("max_attempts").notNull(),
     /** Set when the code was used, or when a newer code replaced it. */
-    consumedAt: timestamp("consumed_at", { withTimezone: true }),
-    supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    consumedAt: datetime("consumed_at", { mode: "date", fsp: 3 }),
+    supersededAt: datetime("superseded_at", { mode: "date", fsp: 3 }),
     ipAddress: text("ip_address"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     index("login_otps_phone_created_idx").on(t.phoneE164, t.createdAt),
@@ -543,18 +626,20 @@ export const loginOtps = pgTable(
   ],
 );
 
-export const accounts = pgTable(
+export const accounts = mysqlTable(
   "accounts",
   {
-    userId: uuid("user_id")
+    userId: varchar("user_id", { length: 36 })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     type: text("type").notNull(),
-    provider: text("provider").notNull(),
-    providerAccountId: text("provider_account_id").notNull(),
+    provider: varchar("provider", { length: 255 }).notNull(),
+    providerAccountId: varchar("provider_account_id", {
+      length: 255,
+    }).notNull(),
     refresh_token: text("refresh_token"),
     access_token: text("access_token"),
-    expires_at: integer("expires_at"),
+    expires_at: int("expires_at"),
     token_type: text("token_type"),
     scope: text("scope"),
     id_token: text("id_token"),
@@ -566,24 +651,28 @@ export const accounts = pgTable(
   ],
 );
 
-export const sessions = pgTable(
+export const sessions = mysqlTable(
   "sessions",
   {
-    sessionToken: text("session_token").primaryKey(),
-    userId: uuid("user_id")
+    sessionToken: varchar("session_token", { length: 255 }).primaryKey(),
+    userId: varchar("user_id", { length: 36 })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    expires: timestamp("expires", { withTimezone: true }).notNull(),
+    // `timestamp` for the adapter's sake, as with users.emailVerified above.
+    // A session/token expiry is always near-term, so 2038 is not a concern.
+    expires: timestamp("expires", { mode: "date", fsp: 3 }).notNull(),
   },
   (t) => [index("sessions_user_idx").on(t.userId)],
 );
 
-export const verificationTokens = pgTable(
+export const verificationTokens = mysqlTable(
   "verification_tokens",
   {
-    identifier: text("identifier").notNull(),
-    token: text("token").notNull(),
-    expires: timestamp("expires", { withTimezone: true }).notNull(),
+    identifier: varchar("identifier", { length: 255 }).notNull(),
+    token: varchar("token", { length: 255 }).notNull(),
+    // `timestamp` for the adapter's sake, as with users.emailVerified above.
+    // A session/token expiry is always near-term, so 2038 is not a concern.
+    expires: timestamp("expires", { mode: "date", fsp: 3 }).notNull(),
   },
   (t) => [primaryKey({ columns: [t.identifier, t.token] })],
 );
@@ -595,24 +684,24 @@ export const verificationTokens = pgTable(
  * and so future per-user grants can be layered on without a schema change.
  */
 
-export const roles = pgTable("roles", {
+export const roles = mysqlTable("roles", {
   key: userRoleEnum("key").primaryKey(),
   label: text("label").notNull(),
   description: text("description"),
 });
 
-export const permissions = pgTable("permissions", {
-  key: text("key").primaryKey(),
+export const permissions = mysqlTable("permissions", {
+  key: varchar("key", { length: 255 }).primaryKey(),
   description: text("description").notNull(),
 });
 
-export const rolePermissions = pgTable(
+export const rolePermissions = mysqlTable(
   "role_permissions",
   {
     roleKey: userRoleEnum("role_key")
       .notNull()
       .references(() => roles.key, { onDelete: "cascade" }),
-    permissionKey: text("permission_key")
+    permissionKey: varchar("permission_key", { length: 255 })
       .notNull()
       .references(() => permissions.key, { onDelete: "cascade" }),
   },
@@ -621,18 +710,21 @@ export const rolePermissions = pgTable(
 
 /* ------------------------------------------------------------ addresses */
 
-export const addresses = pgTable(
+export const addresses = mysqlTable(
   "addresses",
   {
     id: uuidPk(),
-    userId: uuid("user_id")
+    userId: varchar("user_id", { length: 36 })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     label: text("label"),
     /** Who receives the delivery, when not the account holder. */
     recipientName: text("recipient_name"),
     recipientPhone: text("recipient_phone"),
-    addressType: text("address_type", { enum: ["HOME", "WORK", "OTHER"] })
+    addressType: varchar("address_type", {
+      length: 255,
+      enum: ["HOME", "WORK", "OTHER"],
+    })
       .notNull()
       .default("OTHER"),
     line1: text("line1").notNull(),
@@ -640,24 +732,30 @@ export const addresses = pgTable(
     area: text("area"),
     city: text("city").notNull(),
     state: text("state"),
-    pincode: text("pincode").notNull(),
+    pincode: varchar("pincode", { length: 255 }).notNull(),
     latitude: text("latitude"),
     longitude: text("longitude"),
     landmark: text("landmark"),
     deliveryInstructions: text("delivery_instructions"),
     /** Set when the address is inside a verified society the user belongs to (GS-005). */
-    societyId: uuid("society_id").references(() => societies.id, { onDelete: "set null" }),
+    societyId: varchar("society_id", { length: 36 }).references(
+      () => societies.id,
+      { onDelete: "set null" },
+    ),
     isDefault: boolean("is_default").notNull().default(false),
     /** Same provenance/verification pattern as shops — see schema.ts's shops table comment. */
     locationVerified: boolean("location_verified").notNull().default(false),
-    locationVerifiedAt: timestamp("location_verified_at", { withTimezone: true }),
+    locationVerifiedAt: datetime("location_verified_at", {
+      mode: "date",
+      fsp: 3,
+    }),
     locationSource: text("location_source", {
       enum: ["GOOGLE_VERIFIED", "MANUAL_ENTRY"],
     }),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
-    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    deletedAt: datetime("deleted_at", { mode: "date", fsp: 3 }),
   },
   (t) => [
     index("addresses_user_idx").on(t.userId),
@@ -667,24 +765,24 @@ export const addresses = pgTable(
 
 /* ---------------------------------------------------------------- shops */
 
-export const shops = pgTable(
+export const shops = mysqlTable(
   "shops",
   {
     id: uuidPk(),
-    ownerId: uuid("owner_id")
+    ownerId: varchar("owner_id", { length: 36 })
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
     name: text("name").notNull(),
-    slug: text("slug").notNull(),
+    slug: varchar("slug", { length: 255 }).notNull(),
     ownerName: text("owner_name").notNull(),
     phone: text("phone").notNull(),
     email: text("email"),
     addressLine1: text("address_line1").notNull(),
     addressLine2: text("address_line2"),
     area: text("area"),
-    city: text("city").notNull(),
+    city: varchar("city", { length: 255 }).notNull(),
     state: text("state"),
-    pincode: text("pincode").notNull(),
+    pincode: varchar("pincode", { length: 255 }).notNull(),
     latitude: text("latitude"),
     longitude: text("longitude"),
     shopType: shopTypeEnum("shop_type").notNull(),
@@ -692,12 +790,10 @@ export const shops = pgTable(
     // Only OPERATOR/ADMIN may write this column (enforced in the service layer).
     classification: classificationEnum("classification"),
     logoUrl: text("logo_url"),
-    photos: jsonb("photos").$type<string[]>().notNull().default([]),
+    photos: json("photos").$type<string[]>().notNull().default([]),
     /** [{ day: 0-6, open: "06:00", close: "22:00", closed?: boolean }] */
-    openingHours: jsonb("opening_hours")
-      .$type<
-        { day: number; open: string; close: string; closed?: boolean }[]
-      >()
+    openingHours: json("opening_hours")
+      .$type<{ day: number; open: string; close: string; closed?: boolean }[]>()
       .notNull()
       .default([]),
     deliveryAvailable: boolean("delivery_available").notNull().default(false),
@@ -709,26 +805,33 @@ export const shops = pgTable(
      * on purpose for Phase 1 — it needs no map drawing and matches how the
      * delivery partner's `operatingRadiusKm` already works.
      */
-    serviceRadiusKm: integer("service_radius_km").notNull().default(5),
+    serviceRadiusKm: int("service_radius_km").notNull().default(5),
     /**
      * Extra delivery zones: PIN codes the shop delivers to in addition to its
      * radius (e.g. a neighbouring locality just outside it).
      */
-    deliveryPincodes: jsonb("delivery_pincodes").$type<string[]>().notNull().default([]),
+    deliveryPincodes: json("delivery_pincodes")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
     /**
      * Stock-alert defaults for every listing of this shop that does not set its
      * own (see services/inventory-alerts.ts resolveThresholds). 0 / null = none.
      */
-    defaultLowStockThreshold: integer("default_low_stock_threshold").notNull().default(0),
-    defaultReorderLevel: integer("default_reorder_level"),
-    defaultReorderQuantity: integer("default_reorder_quantity"),
+    defaultLowStockThreshold: int("default_low_stock_threshold")
+      .notNull()
+      .default(0),
+    defaultReorderLevel: int("default_reorder_level"),
+    defaultReorderQuantity: int("default_reorder_quantity"),
     /** Orders below this subtotal are refused at checkout; 0 = no minimum. */
-    minOrderPaise: bigint("min_order_paise", { mode: "number" }).notNull().default(0),
+    minOrderPaise: bigint("min_order_paise", { mode: "number" })
+      .notNull()
+      .default(0),
     /** Owner switch: the shop keeps its listing but takes no new orders for now. */
     ordersPaused: boolean("orders_paused").notNull().default(false),
     /** Rating aggregate (GS-059), maintained from visible order_ratings. Average × 100. */
-    ratingAvgX100: integer("rating_avg_x100").notNull().default(0),
-    ratingCount: integer("rating_count").notNull().default(0),
+    ratingAvgX100: int("rating_avg_x100").notNull().default(0),
+    ratingCount: int("rating_count").notNull().default(0),
     deliveryFeePaise: bigint("delivery_fee_paise", { mode: "number" })
       .notNull()
       .default(0),
@@ -739,23 +842,25 @@ export const shops = pgTable(
     /** Feeds the delivery-window feasibility check (Part 58 §14) — never
      * promise a 30-minute delivery without accounting for how long this shop
      * actually takes to prepare an order. */
-    preparationTimeMinutes: integer("preparation_time_minutes")
+    preparationTimeMinutes: int("preparation_time_minutes")
       .notNull()
       .default(15),
     description: text("description"),
     rejectionReason: text("rejection_reason"),
-    approvedAt: timestamp("approved_at", { withTimezone: true }),
-    approvedBy: uuid("approved_by").references(() => users.id),
+    approvedAt: datetime("approved_at", { mode: "date", fsp: 3 }),
+    approvedBy: varchar("approved_by", { length: 36 }).references(
+      () => users.id,
+    ),
 
     /* --------------------------------------------- registration & fee (§4.1) */
     /**
      * Human-readable registration id shown to the owner, e.g. BKS-000123.
      * Allocated by a sequence so concurrent registrations cannot collide.
      */
-    registrationNumber: text("registration_number")
-      .notNull()
-      .default(sql`'BKS-' || lpad(nextval('shop_registration_seq')::text, 6, '0')`),
-    registrationDate: date("registration_date"),
+    registrationNumber: varchar("registration_number", {
+      length: 255,
+    }).notNull(),
+    registrationDate: date("registration_date", { mode: "string" }),
     /**
      * SNAPSHOT of the fee that applied when this shop registered (§12).
      * Deliberately a copy, not a join: changing the current registration fee
@@ -763,8 +868,8 @@ export const shops = pgTable(
      */
     registrationFeePaise: bigint("registration_fee_paise", { mode: "number" }),
     /** Which fee row was in force at registration — provenance for the snapshot. */
-    registrationFeeId: uuid("registration_fee_id"),
-    referralCodeId: uuid("referral_code_id"),
+    registrationFeeId: varchar("registration_fee_id", { length: 36 }),
+    referralCodeId: varchar("referral_code_id", { length: 36 }),
     feePaymentStatus: feePaymentStatusEnum("fee_payment_status")
       .notNull()
       .default("PENDING"),
@@ -800,9 +905,13 @@ export const shops = pgTable(
      * what's actually displayed to buyers. */
     gstStatus: gstStatusEnum("gst_status").notNull().default("UNKNOWN"),
     gstTradeName: text("gst_trade_name"),
-    gstVerificationSource: identityVerificationSourceEnum("gst_verification_source"),
-    gstVerifiedAt: timestamp("gst_verified_at", { withTimezone: true }),
-    gstVerifiedBy: uuid("gst_verified_by").references(() => users.id),
+    gstVerificationSource: identityVerificationSourceEnum(
+      "gst_verification_source",
+    ),
+    gstVerifiedAt: datetime("gst_verified_at", { mode: "date", fsp: 3 }),
+    gstVerifiedBy: varchar("gst_verified_by", { length: 36 }).references(
+      () => users.id,
+    ),
 
     panStatus: panStatusEnum("pan_status").notNull().default("UNKNOWN"),
     /** AES-256-GCM ciphertext, base64 — see gst-pan-verification.ts. Never stored or logged in plaintext. */
@@ -810,15 +919,19 @@ export const shops = pgTable(
     /** Last 4 characters only, plaintext — enough for a masked "XXXXXX1234F" display without decrypting. */
     panLast4: text("pan_last4"),
     panHolderName: text("pan_holder_name"),
-    panVerificationSource: identityVerificationSourceEnum("pan_verification_source"),
-    panVerifiedAt: timestamp("pan_verified_at", { withTimezone: true }),
-    panVerifiedBy: uuid("pan_verified_by").references(() => users.id),
+    panVerificationSource: identityVerificationSourceEnum(
+      "pan_verification_source",
+    ),
+    panVerifiedAt: datetime("pan_verified_at", { mode: "date", fsp: 3 }),
+    panVerifiedBy: varchar("pan_verified_by", { length: 36 }).references(
+      () => users.id,
+    ),
     /**
      * HMAC-SHA256 blind index of the normalised PAN (lib/pan-crypto.ts
      * panBlindIndex) — lets the duplicate-registration check find the same
      * PAN on another shop without the PAN ever being stored in plaintext.
      */
-    panHash: text("pan_hash"),
+    panHash: varchar("pan_hash", { length: 255 }),
 
     /* ---------------------------------------- duplicate-registration guard.
      * Business identifiers checked before a shop is registered, so the same
@@ -829,9 +942,9 @@ export const shops = pgTable(
     /** Shop Act / Gumasta licence number as entered — trimmed, uppercased — for display. */
     shopActNumber: text("shop_act_number"),
     /** shopActNumber reduced to letters and digits: the matching key. */
-    shopActKey: text("shop_act_key"),
+    shopActKey: varchar("shop_act_key", { length: 255 }),
     /** Udyam number as UDYAM-XX-00-0000000, or an old Udyog Aadhaar number (MH26A0012345). */
-    udyamNumber: text("udyam_number"),
+    udyamNumber: varchar("udyam_number", { length: 255 }),
     /**
      * Shop-specific return/refund terms shown to buyers before purchase. Null
      * means the platform default (Refund & Cancellation Policy) applies.
@@ -850,19 +963,36 @@ export const shops = pgTable(
     pickupInstructions: text("pickup_instructions"),
     landmark: text("landmark"),
     locationVerified: boolean("location_verified").notNull().default(false),
-    locationVerifiedAt: timestamp("location_verified_at", { withTimezone: true }),
+    locationVerifiedAt: datetime("location_verified_at", {
+      mode: "date",
+      fsp: 3,
+    }),
     /** How `latitude`/`longitude` were obtained — provenance for the compliance/audit trail. */
     locationSource: text("location_source", {
       enum: ["GOOGLE_VERIFIED", "MANUAL_ENTRY"],
     }),
 
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
-    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    deletedAt: datetime("deleted_at", { mode: "date", fsp: 3 }),
+    /**
+     * MySQL has no partial indexes, so the predicate of the old PostgreSQL
+     * partial UNIQUE index lives in this STORED generated column: it is NULL
+     * when the predicate is false, and MySQL's UNIQUE ignores NULLs. Verified
+     * against a real server -- a second matching row is rejected with a
+     * duplicate-key error, non-matching rows are unconstrained, and leaving the
+     * predicate frees the slot again.
+     */
+    shopActActiveKey: varchar("shop_act_active_key", {
+      length: 255,
+    }).generatedAlwaysAs(
+      sql`CASE WHEN shop_act_key IS NOT NULL AND deleted_at IS NULL AND status <> 'REJECTED' THEN shop_act_key END`,
+      { mode: "stored" },
+    ),
   },
   (t) => [
     uniqueIndex("shops_slug_unique").on(t.slug),
@@ -879,25 +1009,14 @@ export const shops = pgTable(
     // are excluded so a rejected applicant's record never blocks the real
     // owner. PAN and Udyam are deliberately NOT unique: one owner's PAN or
     // one enterprise's Udyam number legitimately covers several branches.
-    uniqueIndex("shops_shop_act_key_active_unique")
-      .on(t.shopActKey)
-      .where(
-        sql`${t.shopActKey} IS NOT NULL AND ${t.deletedAt} IS NULL AND ${t.status} <> 'REJECTED'`,
-      ),
-    index("shops_pan_hash_idx")
-      .on(t.panHash)
-      .where(sql`${t.panHash} IS NOT NULL`),
-    index("shops_udyam_number_idx")
-      .on(t.udyamNumber)
-      .where(sql`${t.udyamNumber} IS NOT NULL`),
+    uniqueIndex("shops_shop_act_key_active_unique").on(t.shopActActiveKey),
+    index("shops_pan_hash_idx").on(t.panHash),
+    index("shops_udyam_number_idx").on(t.udyamNumber),
     check(
       "shops_shop_act_key_with_number",
       sql`(${t.shopActNumber} IS NULL) = (${t.shopActKey} IS NULL)`,
     ),
-    check(
-      "shops_delivery_fee_non_negative",
-      sql`${t.deliveryFeePaise} >= 0`,
-    ),
+    check("shops_delivery_fee_non_negative", sql`${t.deliveryFeePaise} >= 0`),
     check("shops_min_order_non_negative", sql`${t.minOrderPaise} >= 0`),
     check(
       "shops_service_radius_range",
@@ -919,36 +1038,49 @@ export const shops = pgTable(
  *   - `shops.classification` (Kesari / Green), set by staff.
  * Customers do not browse by these; search and reporting use them internally.
  */
-export const shopCategories = pgTable(
+export const shopCategories = mysqlTable(
   "shop_categories",
   {
     id: uuidPk(),
-    name: text("name").notNull(),
-    slug: text("slug").notNull(),
+    name: varchar("name", { length: 255 }).notNull(),
+    slug: varchar("slug", { length: 255 }).notNull(),
     description: text("description"),
-    status: text("status", { enum: ["ACTIVE", "INACTIVE"] }).notNull().default("ACTIVE"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    status: varchar("status", { length: 255, enum: ["ACTIVE", "INACTIVE"] })
+      .notNull()
+      .default("ACTIVE"),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     uniqueIndex("shop_categories_slug_unique").on(t.slug),
-    uniqueIndex("shop_categories_name_unique").on(sql`lower(${t.name})`),
+    // PostgreSQL needed lower() here because its default collation is
+    // case-sensitive. MySQL's utf8mb4_unicode_ci is not, so a plain unique
+    // index already rejects "Dairy" against "dairy" -- verified on the server.
+    uniqueIndex("shop_categories_name_unique").on(t.name),
   ],
 );
 
 /** Many-to-many: one shop, many categories; one category, many shops. */
-export const shopCategoryMapping = pgTable(
+export const shopCategoryMapping = mysqlTable(
   "shop_category_mapping",
   {
     id: uuidPk(),
-    shopId: uuid("shop_id")
+    shopId: varchar("shop_id", { length: 36 })
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
-    categoryId: uuid("category_id")
+    categoryId: varchar("category_id", { length: 36 })
       .notNull()
       .references(() => shopCategories.id, { onDelete: "restrict" }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     uniqueIndex("shop_category_mapping_unique").on(t.shopId, t.categoryId),
@@ -957,22 +1089,22 @@ export const shopCategoryMapping = pgTable(
 );
 
 /** Immutable audit trail of Kesari/Green changes (requirement §10). */
-export const shopClassificationHistory = pgTable(
+export const shopClassificationHistory = mysqlTable(
   "shop_classification_history",
   {
     id: uuidPk(),
-    shopId: uuid("shop_id")
+    shopId: varchar("shop_id", { length: 36 })
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
     previousValue: classificationEnum("previous_value"),
     newValue: classificationEnum("new_value").notNull(),
-    changedBy: uuid("changed_by")
+    changedBy: varchar("changed_by", { length: 36 })
       .notNull()
       .references(() => users.id),
     reason: text("reason"),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [index("shop_class_hist_shop_idx").on(t.shopId)],
 );
@@ -984,7 +1116,7 @@ export const shopClassificationHistory = pgTable(
  * to. Mirrors the shop registration/approval pattern: self-service create,
  * admin-gated status transitions, every transition audited. */
 
-export const deliveryPartnerStatusEnum = pgEnum("delivery_partner_status", [
+export const deliveryPartnerStatusEnum = mysqlEnumType([
   "REGISTERED",
   "UNDER_REVIEW",
   "APPROVED",
@@ -993,11 +1125,11 @@ export const deliveryPartnerStatusEnum = pgEnum("delivery_partner_status", [
   "DEACTIVATED",
 ]);
 
-export const deliveryPartners = pgTable(
+export const deliveryPartners = mysqlTable(
   "delivery_partners",
   {
     id: uuidPk(),
-    userId: uuid("user_id")
+    userId: varchar("user_id", { length: 36 })
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
 
@@ -1005,7 +1137,7 @@ export const deliveryPartners = pgTable(
     fullName: text("full_name").notNull(),
     mobile: text("mobile").notNull(),
     email: text("email"),
-    dateOfBirth: date("date_of_birth"),
+    dateOfBirth: date("date_of_birth", { mode: "string" }),
     profilePhotoUrl: text("profile_photo_url"),
 
     /* --------------------------------------------------- KYC — deliberately
@@ -1051,12 +1183,15 @@ export const deliveryPartners = pgTable(
      * routine reads. */
     latitude: text("latitude"),
     longitude: text("longitude"),
-    operatingRadiusKm: integer("operating_radius_km").notNull().default(5),
+    operatingRadiusKm: int("operating_radius_km").notNull().default(5),
     /** Rating aggregate (GS-060), maintained from visible order_ratings. Average × 100. */
-    ratingAvgX100: integer("rating_avg_x100").notNull().default(0),
-    ratingCount: integer("rating_count").notNull().default(0),
+    ratingAvgX100: int("rating_avg_x100").notNull().default(0),
+    ratingCount: int("rating_count").notNull().default(0),
     locationVerified: boolean("location_verified").notNull().default(false),
-    locationVerifiedAt: timestamp("location_verified_at", { withTimezone: true }),
+    locationVerifiedAt: datetime("location_verified_at", {
+      mode: "date",
+      fsp: 3,
+    }),
     locationSource: text("location_source", {
       enum: ["GOOGLE_VERIFIED", "MANUAL_ENTRY"],
     }),
@@ -1065,8 +1200,10 @@ export const deliveryPartners = pgTable(
     status: deliveryPartnerStatusEnum("status").notNull().default("REGISTERED"),
     reviewNotes: text("review_notes"),
     rejectionReason: text("rejection_reason"),
-    reviewedBy: uuid("reviewed_by").references(() => users.id),
-    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewedBy: varchar("reviewed_by", { length: 36 }).references(
+      () => users.id,
+    ),
+    reviewedAt: datetime("reviewed_at", { mode: "date", fsp: 3 }),
 
     /* --------------------------------------------------- online status (Slice
      * C). Written only while online, from the browser's native geolocation —
@@ -1075,15 +1212,15 @@ export const deliveryPartners = pgTable(
     isOnline: boolean("is_online").notNull().default(false),
     lastLocationLatitude: text("last_location_latitude"),
     lastLocationLongitude: text("last_location_longitude"),
-    lastLocationAt: timestamp("last_location_at", { withTimezone: true }),
+    lastLocationAt: datetime("last_location_at", { mode: "date", fsp: 3 }),
 
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
-    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    deletedAt: datetime("deleted_at", { mode: "date", fsp: 3 }),
   },
   (t) => [
     // One delivery-partner profile per user account.
@@ -1099,42 +1236,45 @@ export const deliveryPartners = pgTable(
  * goods and generic staples have no brand, and forcing one would mean
  * inventing fake brands for half a kirana's catalogue.
  */
-export const brands = pgTable(
+export const brands = mysqlTable(
   "brands",
   {
     id: uuidPk(),
-    name: text("name").notNull(),
-    slug: text("slug").notNull(),
+    name: varchar("name", { length: 255 }).notNull(),
+    slug: varchar("slug", { length: 255 }).notNull(),
     description: text("description"),
     logoUrl: text("logo_url"),
     isActive: boolean("is_active").notNull().default(true),
-    createdBy: uuid("created_by").references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdBy: varchar("created_by", { length: 36 }).references(() => users.id),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
-    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    deletedAt: datetime("deleted_at", { mode: "date", fsp: 3 }),
   },
-  (t) => [uniqueIndex("brands_slug_unique").on(t.slug), index("brands_name_idx").on(t.name)],
+  (t) => [
+    uniqueIndex("brands_slug_unique").on(t.slug),
+    index("brands_name_idx").on(t.name),
+  ],
 );
 
-export const productCategories = pgTable(
+export const productCategories = mysqlTable(
   "product_categories",
   {
     id: uuidPk(),
     department: departmentEnum("department").notNull(),
     name: text("name").notNull(),
-    slug: text("slug").notNull(),
+    slug: varchar("slug", { length: 255 }).notNull(),
     description: text("description"),
     imageUrl: text("image_url"),
-    sortOrder: integer("sort_order").notNull().default(0),
+    sortOrder: int("sort_order").notNull().default(0),
     isActive: boolean("is_active").notNull().default(true),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
-    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    deletedAt: datetime("deleted_at", { mode: "date", fsp: 3 }),
   },
   (t) => [
     uniqueIndex("product_categories_slug_unique").on(t.slug),
@@ -1147,21 +1287,21 @@ export const productCategories = pgTable(
  * the freeform `products.subCategory` text column, which stays in place
  * untouched so nothing reading it breaks; new code should use this FK.
  */
-export const productSubcategories = pgTable(
+export const productSubcategories = mysqlTable(
   "product_subcategories",
   {
     id: uuidPk(),
-    categoryId: uuid("category_id")
+    categoryId: varchar("category_id", { length: 36 })
       .notNull()
       .references(() => productCategories.id, { onDelete: "restrict" }),
     name: text("name").notNull(),
-    slug: text("slug").notNull(),
-    sortOrder: integer("sort_order").notNull().default(0),
+    slug: varchar("slug", { length: 255 }).notNull(),
+    sortOrder: int("sort_order").notNull().default(0),
     isActive: boolean("is_active").notNull().default(true),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
-    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    deletedAt: datetime("deleted_at", { mode: "date", fsp: 3 }),
   },
   (t) => [
     uniqueIndex("product_subcategories_slug_unique").on(t.slug),
@@ -1173,11 +1313,11 @@ export const productSubcategories = pgTable(
  * Master catalogue entry (e.g. "Cow Milk 1 L"). Shops attach to these via
  * shop_products, so the same product is comparable across shops.
  */
-export const products = pgTable(
+export const products = mysqlTable(
   "products",
   {
     id: uuidPk(),
-    categoryId: uuid("category_id")
+    categoryId: varchar("category_id", { length: 36 })
       .notNull()
       .references(() => productCategories.id, { onDelete: "restrict" }),
     /**
@@ -1188,18 +1328,18 @@ export const products = pgTable(
      * Allocated by a database sequence so callers never have to supply one and
      * two concurrent inserts cannot collide.
      */
-    code: text("code")
-      .notNull()
-      .default(sql`'P' || lpad(nextval('product_code_seq')::text, 5, '0')`),
-    name: text("name").notNull(),
-    slug: text("slug").notNull(),
+    code: varchar("code", { length: 255 }).notNull(),
+    name: varchar("name", { length: 255 }).notNull(),
+    slug: varchar("slug", { length: 255 }).notNull(),
     description: text("description"),
     /** Structured spec sheet (bullet points), distinct from prose description. */
     specifications: text("specifications"),
     /** @deprecated Legacy freeform text. Prefer `subcategoryId`; kept so existing rows/readers are untouched. */
     subCategory: text("sub_category"),
-    subcategoryId: uuid("subcategory_id").references(() => productSubcategories.id),
-    brandId: uuid("brand_id").references(() => brands.id),
+    subcategoryId: varchar("subcategory_id", { length: 36 }).references(
+      () => productSubcategories.id,
+    ),
+    brandId: varchar("brand_id", { length: 36 }).references(() => brands.id),
     imageUrl: text("image_url"),
 
     /* ------------------------------------------- product identity (Product
@@ -1213,9 +1353,9 @@ export const products = pgTable(
      * `ean`/`upc` columns that would inevitably drift apart. Unique when
      * present — see the partial index below.
      */
-    gtin: text("gtin"),
+    gtin: varchar("gtin", { length: 255 }),
     /** Shop-local or legacy barcode that is NOT a GTIN. Deliberately not unique. */
-    barcode: text("barcode"),
+    barcode: varchar("barcode", { length: 255 }),
     /** Distinguishes otherwise-identical products (§11's duplicate key). Covers flavour/colour/size. */
     variant: text("variant"),
 
@@ -1226,36 +1366,36 @@ export const products = pgTable(
      * NOT NULL constraint that would make loose goods unrepresentable. */
     mrpPaise: bigint("mrp_paise", { mode: "number" }),
     mrpSource: mrpSourceEnum("mrp_source"),
-    mrpEffectiveFrom: date("mrp_effective_from"),
+    mrpEffectiveFrom: date("mrp_effective_from", { mode: "string" }),
     mrpVerificationStatus: mrpVerificationStatusEnum("mrp_verification_status")
       .notNull()
       .default("UNVERIFIED"),
-    mrpUpdatedAt: timestamp("mrp_updated_at", { withTimezone: true }),
+    mrpUpdatedAt: datetime("mrp_updated_at", { mode: "date", fsp: 3 }),
 
     /* ---------------------------------------------------- tax (§3, GST-ready).
      * Rate in basis points (18% → 1800), matching this schema's integer-only
      * money/quantity discipline — no floats anywhere near tax maths. */
     hsnCode: text("hsn_code"),
-    gstRateBp: integer("gst_rate_bp"),
+    gstRateBp: int("gst_rate_bp"),
 
     /* Stock-alert defaults for this product in every shop, set by catalogue
      * staff (a milk packet needs a higher mark than a slow-moving line).
      * Outranked by a listing's own values, outranks the shop default. */
-    defaultLowStockThreshold: integer("default_low_stock_threshold"),
-    defaultReorderLevel: integer("default_reorder_level"),
-    defaultReorderQuantity: integer("default_reorder_quantity"),
+    defaultLowStockThreshold: int("default_low_stock_threshold"),
+    defaultReorderLevel: int("default_reorder_level"),
+    defaultReorderQuantity: int("default_reorder_quantity"),
 
     /* ------------------------------------------- manufacturer & packaging */
     manufacturerName: text("manufacturer_name"),
     manufacturerAddress: text("manufacturer_address"),
     countryOfOrigin: text("country_of_origin"),
     /** Printed net quantity, e.g. 500 with `netQuantityUnit` = "g". Distinct from unitSizeMilli, which drives subscription maths. */
-    netQuantity: integer("net_quantity"),
+    netQuantity: int("net_quantity"),
     netQuantityUnit: text("net_quantity_unit"),
     /** Display unit: L, ml, kg, g, piece, pack. */
     unit: text("unit").notNull(),
     /** Size of one sellable unit in milli-units (1 L → 1000). */
-    unitSizeMilli: integer("unit_size_milli").notNull().default(1000),
+    unitSizeMilli: int("unit_size_milli").notNull().default(1000),
     /** Whether this product can be sold as a recurring daily subscription. */
     subscribable: boolean("subscribable").notNull().default(false),
     isActive: boolean("is_active").notNull().default(true),
@@ -1270,14 +1410,16 @@ export const products = pgTable(
       .notNull()
       .default("APPROVED"),
     /** Who created this product row. Null for seeded/reference catalogue rows. */
-    createdBy: uuid("created_by").references(() => users.id),
-    approvedBy: uuid("approved_by").references(() => users.id),
-    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    createdBy: varchar("created_by", { length: 36 }).references(() => users.id),
+    approvedBy: varchar("approved_by", { length: 36 }).references(
+      () => users.id,
+    ),
+    approvedAt: datetime("approved_at", { mode: "date", fsp: 3 }),
     rejectionReason: text("rejection_reason"),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
-    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    deletedAt: datetime("deleted_at", { mode: "date", fsp: 3 }),
   },
   (t) => [
     uniqueIndex("products_slug_unique").on(t.slug),
@@ -1286,9 +1428,7 @@ export const products = pgTable(
     index("products_approval_status_idx").on(t.approvalStatus),
     // Partial unique: one master row per GTIN (§11's primary duplicate key),
     // while any number of LOOSE/generic products legitimately have none.
-    uniqueIndex("products_gtin_unique")
-      .on(t.gtin)
-      .where(sql`${t.gtin} IS NOT NULL`),
+    uniqueIndex("products_gtin_unique").on(t.gtin),
     index("products_barcode_idx").on(t.barcode),
     index("products_brand_idx").on(t.brandId),
     index("products_subcategory_idx").on(t.subcategoryId),
@@ -1309,22 +1449,22 @@ export const products = pgTable(
  * tracks a *shop's* selling price — this one tracks the master MRP and is
  * never deleted, so a disputed price can always be traced to its source.
  */
-export const productMrpHistory = pgTable(
+export const productMrpHistory = mysqlTable(
   "product_mrp_history",
   {
     id: uuidPk(),
-    productId: uuid("product_id")
+    productId: varchar("product_id", { length: 36 })
       .notNull()
       .references(() => products.id, { onDelete: "cascade" }),
     previousMrpPaise: bigint("previous_mrp_paise", { mode: "number" }),
     newMrpPaise: bigint("new_mrp_paise", { mode: "number" }).notNull(),
     source: mrpSourceEnum("source").notNull(),
-    effectiveFrom: date("effective_from"),
+    effectiveFrom: date("effective_from", { mode: "string" }),
     reason: text("reason"),
-    changedBy: uuid("changed_by").references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    changedBy: varchar("changed_by", { length: 36 }).references(() => users.id),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [index("product_mrp_history_product_idx").on(t.productId)],
 );
@@ -1337,33 +1477,63 @@ export const productMrpHistory = pgTable(
  * working. New images point at `stored_images` (services/product-images.ts);
  * older rows may carry only an external `url`.
  */
-export const productImages = pgTable(
+export const productImages = mysqlTable(
   "product_images",
   {
     id: uuidPk(),
-    productId: uuid("product_id")
+    productId: varchar("product_id", { length: 36 })
       .notNull()
       .references(() => products.id, { onDelete: "cascade" }),
-    shopProductId: uuid("shop_product_id").references(() => shopProducts.id, { onDelete: "cascade" }),
-    storedImageId: uuid("stored_image_id").references(() => storedImages.id, { onDelete: "set null" }),
+    shopProductId: varchar("shop_product_id", { length: 36 }).references(
+      () => shopProducts.id,
+      { onDelete: "cascade" },
+    ),
+    storedImageId: varchar("stored_image_id", { length: 36 }).references(
+      () => storedImages.id,
+      { onDelete: "set null" },
+    ),
     url: text("url").notNull(),
     altText: text("alt_text"),
     isPrimary: boolean("is_primary").notNull().default(false),
-    sortOrder: integer("sort_order").notNull().default(0),
-    createdBy: uuid("created_by").references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    sortOrder: int("sort_order").notNull().default(0),
+    createdBy: varchar("created_by", { length: 36 }).references(() => users.id),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    /**
+     * MySQL has no partial indexes, so the predicate of the old PostgreSQL
+     * partial UNIQUE index lives in this STORED generated column: it is NULL
+     * when the predicate is false, and MySQL's UNIQUE ignores NULLs. Verified
+     * against a real server -- a second matching row is rejected with a
+     * duplicate-key error, non-matching rows are unconstrained, and leaving the
+     * predicate frees the slot again.
+     */
+    primaryProductKey: varchar("primary_product_key", {
+      length: 36,
+    }).generatedAlwaysAs(
+      sql`CASE WHEN is_primary AND shop_product_id IS NULL THEN product_id END`,
+      { mode: "stored" },
+    ),
+    /**
+     * MySQL has no partial indexes, so the predicate of the old PostgreSQL
+     * partial UNIQUE index lives in this STORED generated column: it is NULL
+     * when the predicate is false, and MySQL's UNIQUE ignores NULLs. Verified
+     * against a real server -- a second matching row is rejected with a
+     * duplicate-key error, non-matching rows are unconstrained, and leaving the
+     * predicate frees the slot again.
+     */
+    primaryListingKey: varchar("primary_listing_key", {
+      length: 36,
+    }).generatedAlwaysAs(
+      sql`CASE WHEN is_primary AND shop_product_id IS NOT NULL THEN shop_product_id END`,
+      { mode: "stored" },
+    ),
   },
   (t) => [
     index("product_images_product_idx").on(t.productId),
     index("product_images_shop_product_idx").on(t.shopProductId),
-    uniqueIndex("product_images_one_primary_product")
-      .on(t.productId)
-      .where(sql`${t.isPrimary} AND ${t.shopProductId} IS NULL`),
-    uniqueIndex("product_images_one_primary_listing")
-      .on(t.shopProductId)
-      .where(sql`${t.isPrimary} AND ${t.shopProductId} IS NOT NULL`),
+    uniqueIndex("product_images_one_primary_product").on(t.primaryProductKey),
+    uniqueIndex("product_images_one_primary_listing").on(t.primaryListingKey),
   ],
 );
 
@@ -1371,14 +1541,14 @@ export const productImages = pgTable(
  * A shop's offering of a master product: independent online/offline
  * availability, pricing and stock (requirements §11–§14).
  */
-export const shopProducts = pgTable(
+export const shopProducts = mysqlTable(
   "shop_products",
   {
     id: uuidPk(),
-    shopId: uuid("shop_id")
+    shopId: varchar("shop_id", { length: 36 })
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
-    productId: uuid("product_id")
+    productId: varchar("product_id", { length: 36 })
       .notNull()
       .references(() => products.id, { onDelete: "restrict" }),
     description: text("description"),
@@ -1392,31 +1562,33 @@ export const shopProducts = pgTable(
       .notNull()
       .default(false),
     trackInventory: boolean("track_inventory").notNull().default(true),
-    onlineStock: integer("online_stock").notNull().default(0),
-    offlineStock: integer("offline_stock").notNull().default(0),
+    onlineStock: int("online_stock").notNull().default(0),
+    offlineStock: int("offline_stock").notNull().default(0),
 
     /* ------------------------------------------ per-shop stock thresholds
      * (Product Master / Inventory brief §15–§18). Deliberately per-shop,
      * never global: a shop selling 200 packets of milk a day and one
      * selling 5 need completely different "low" marks. 0 disables the
      * alert entirely for shops that don't want to be nagged. */
-    lowStockThreshold: integer("low_stock_threshold").notNull().default(0),
-    reorderLevel: integer("reorder_level"),
-    reorderQuantity: integer("reorder_quantity"),
-    minimumOrderQuantity: integer("minimum_order_quantity").notNull().default(1),
-    maximumOrderQuantity: integer("maximum_order_quantity"),
+    lowStockThreshold: int("low_stock_threshold").notNull().default(0),
+    reorderLevel: int("reorder_level"),
+    reorderQuantity: int("reorder_quantity"),
+    minimumOrderQuantity: int("minimum_order_quantity").notNull().default(1),
+    maximumOrderQuantity: int("maximum_order_quantity"),
     /** The owner opted this listing out of every stock alert (explicit, unlike a 0 threshold that just inherits). */
-    stockAlertsDisabled: boolean("stock_alerts_disabled").notNull().default(false),
+    stockAlertsDisabled: boolean("stock_alerts_disabled")
+      .notNull()
+      .default(false),
     isActive: boolean("is_active").notNull().default(true),
     /** Temporary availability toggle (e.g. sold out today) distinct from isActive. */
     isAvailable: boolean("is_available").notNull().default(true),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
-    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    deletedAt: datetime("deleted_at", { mode: "date", fsp: 3 }),
   },
   (t) => [
     uniqueIndex("shop_products_shop_product_unique").on(t.shopId, t.productId),
@@ -1458,120 +1630,132 @@ export const shopProducts = pgTable(
  * (§16–§18). Rows are kept after resolution rather than deleted, so a shop
  * can see how often a line actually runs dry.
  */
-export const stockAlerts = pgTable(
+export const stockAlerts = mysqlTable(
   "stock_alerts",
   {
     id: uuidPk(),
-    shopProductId: uuid("shop_product_id")
+    shopProductId: varchar("shop_product_id", { length: 36 })
       .notNull()
       .references(() => shopProducts.id, { onDelete: "cascade" }),
-    shopId: uuid("shop_id")
+    shopId: varchar("shop_id", { length: 36 })
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
     alertType: stockAlertTypeEnum("alert_type").notNull(),
     status: stockAlertStatusEnum("status").notNull().default("OPEN"),
-    stockAtAlert: integer("stock_at_alert").notNull(),
-    thresholdAtAlert: integer("threshold_at_alert").notNull(),
-    acknowledgedBy: uuid("acknowledged_by").references(() => users.id),
-    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
-    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    stockAtAlert: int("stock_at_alert").notNull(),
+    thresholdAtAlert: int("threshold_at_alert").notNull(),
+    acknowledgedBy: varchar("acknowledged_by", { length: 36 }).references(
+      () => users.id,
+    ),
+    acknowledgedAt: datetime("acknowledged_at", { mode: "date", fsp: 3 }),
+    resolvedAt: datetime("resolved_at", { mode: "date", fsp: 3 }),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    /**
+     * MySQL has no partial indexes, so the predicate of the old PostgreSQL
+     * partial UNIQUE index lives in this STORED generated column: it is NULL
+     * when the predicate is false, and MySQL's UNIQUE ignores NULLs. Verified
+     * against a real server -- a second matching row is rejected with a
+     * duplicate-key error, non-matching rows are unconstrained, and leaving the
+     * predicate frees the slot again.
+     */
+    openAlertKey: varchar("open_alert_key", { length: 600 }).generatedAlwaysAs(
+      sql`CASE WHEN status = 'OPEN' THEN CONCAT(shop_product_id,':',alert_type) END`,
+      { mode: "stored" },
+    ),
   },
   (t) => [
     index("stock_alerts_shop_status_idx").on(t.shopId, t.status),
     index("stock_alerts_shop_product_idx").on(t.shopProductId),
     // At most one OPEN alert of a given type per shop-product, so a stock
     // change that stays below the threshold doesn't pile up duplicates.
-    uniqueIndex("stock_alerts_open_unique")
-      .on(t.shopProductId, t.alertType)
-      .where(sql`${t.status} = 'OPEN'`),
+    uniqueIndex("stock_alerts_open_unique").on(t.openAlertKey),
   ],
 );
 
 /** Immutable price-change trail (§13). */
-export const productPriceHistory = pgTable(
+export const productPriceHistory = mysqlTable(
   "product_price_history",
   {
     id: uuidPk(),
-    shopProductId: uuid("shop_product_id")
+    shopProductId: varchar("shop_product_id", { length: 36 })
       .notNull()
       .references(() => shopProducts.id, { onDelete: "cascade" }),
     priceType: text("price_type", { enum: ["ONLINE", "OFFLINE"] }).notNull(),
     previousPricePaise: bigint("previous_price_paise", { mode: "number" }),
     newPricePaise: bigint("new_price_paise", { mode: "number" }).notNull(),
-    changedBy: uuid("changed_by")
+    changedBy: varchar("changed_by", { length: 36 })
       .notNull()
       .references(() => users.id),
     reason: text("reason"),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [index("price_history_shop_product_idx").on(t.shopProductId)],
 );
 
 /** Append-only stock ledger; shop_products holds the running balance. */
-export const inventoryMovements = pgTable(
+export const inventoryMovements = mysqlTable(
   "inventory_movements",
   {
     id: uuidPk(),
-    shopProductId: uuid("shop_product_id")
+    shopProductId: varchar("shop_product_id", { length: 36 })
       .notNull()
       .references(() => shopProducts.id, { onDelete: "cascade" }),
     channel: text("channel", { enum: ["ONLINE", "OFFLINE"] }).notNull(),
     /** Negative for consumption, positive for restock. */
-    deltaUnits: integer("delta_units").notNull(),
-    previousUnits: integer("previous_units").notNull(),
-    newUnits: integer("new_units").notNull(),
+    deltaUnits: int("delta_units").notNull(),
+    previousUnits: int("previous_units").notNull(),
+    newUnits: int("new_units").notNull(),
     reason: text("reason").notNull(),
-    orderId: uuid("order_id"),
-    createdBy: uuid("created_by").references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    orderId: varchar("order_id", { length: 36 }),
+    createdBy: varchar("created_by", { length: 36 }).references(() => users.id),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [index("inventory_movements_sp_idx").on(t.shopProductId)],
 );
 
 /* ----------------------------------------------------------------- cart */
 
-export const carts = pgTable(
+export const carts = mysqlTable(
   "carts",
   {
     id: uuidPk(),
-    userId: uuid("user_id")
+    userId: varchar("user_id", { length: 36 })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [uniqueIndex("carts_user_unique").on(t.userId)],
 );
 
-export const cartItems = pgTable(
+export const cartItems = mysqlTable(
   "cart_items",
   {
     id: uuidPk(),
-    cartId: uuid("cart_id")
+    cartId: varchar("cart_id", { length: 36 })
       .notNull()
       .references(() => carts.id, { onDelete: "cascade" }),
-    shopProductId: uuid("shop_product_id")
+    shopProductId: varchar("shop_product_id", { length: 36 })
       .notNull()
       .references(() => shopProducts.id, { onDelete: "cascade" }),
     /** Number of sellable units (not milli-units) — carts sell whole units. */
-    quantity: integer("quantity").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    quantity: int("quantity").notNull(),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     uniqueIndex("cart_items_cart_product_unique").on(t.cartId, t.shopProductId),
@@ -1582,20 +1766,22 @@ export const cartItems = pgTable(
 
 /* --------------------------------------------------------------- orders */
 
-export const orders = pgTable(
+export const orders = mysqlTable(
   "orders",
   {
     id: uuidPk(),
-    orderNumber: text("order_number").notNull(),
-    userId: uuid("user_id")
+    orderNumber: varchar("order_number", { length: 255 }).notNull(),
+    userId: varchar("user_id", { length: 36 })
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
-    shopId: uuid("shop_id")
+    shopId: varchar("shop_id", { length: 36 })
       .notNull()
       .references(() => shops.id, { onDelete: "restrict" }),
-    addressId: uuid("address_id").references(() => addresses.id),
+    addressId: varchar("address_id", { length: 36 }).references(
+      () => addresses.id,
+    ),
     /** Address is snapshotted so later edits never rewrite delivery history. */
-    deliveryAddressSnapshot: jsonb("delivery_address_snapshot").$type<{
+    deliveryAddressSnapshot: json("delivery_address_snapshot").$type<{
       line1: string;
       line2?: string | null;
       area?: string | null;
@@ -1612,26 +1798,37 @@ export const orders = pgTable(
     status: orderStatusEnum("status").notNull().default("PENDING"),
     source: orderSourceEnum("source").notNull().default("DIRECT"),
     orderType: orderTypeEnum("order_type").notNull().default("PERSONAL"),
-    paymentMethod: paymentMethodEnum("payment_method").notNull().default("WALLET"),
+    paymentMethod: paymentMethodEnum("payment_method")
+      .notNull()
+      .default("WALLET"),
     /**
      * `checkout:<userId>:<requestId>:<shopId>` — the per-shop idempotency key of
      * the checkout that created the order. Replays of a COD checkout (which has
      * no wallet debit to find) are recognised through it. Null for older and
      * subscription orders.
      */
-    checkoutKey: text("checkout_key"),
+    checkoutKey: varchar("checkout_key", { length: 255 }),
     /** COD: when the cash was collected (the order counts as paid from then). */
-    codCollectedAt: timestamp("cod_collected_at", { withTimezone: true }),
+    codCollectedAt: datetime("cod_collected_at", { mode: "date", fsp: 3 }),
     /** Placed after the customer confirmed the shop was closed: processed once it opens. */
     placedWhileClosed: boolean("placed_while_closed").notNull().default(false),
     /** When the shop was expected to open, at the time of ordering (informational). */
-    expectedOpenAt: timestamp("expected_open_at", { withTimezone: true }),
+    expectedOpenAt: datetime("expected_open_at", { mode: "date", fsp: 3 }),
     /** Set when the "shop is open, orders are waiting" alert has been sent (one alert only). */
-    shopOpenAlertSentAt: timestamp("shop_open_alert_sent_at", { withTimezone: true }),
+    shopOpenAlertSentAt: datetime("shop_open_alert_sent_at", {
+      mode: "date",
+      fsp: 3,
+    }),
     /** Society of the delivery address (society rider rules, security, society visibility). */
-    societyId: uuid("society_id").references(() => societies.id, { onDelete: "set null" }),
+    societyId: varchar("society_id", { length: 36 }).references(
+      () => societies.id,
+      { onDelete: "set null" },
+    ),
     /** B2B only: the approved shop buying for its business. Null for PERSONAL. */
-    buyerShopId: uuid("buyer_shop_id").references(() => shops.id, { onDelete: "restrict" }),
+    buyerShopId: varchar("buyer_shop_id", { length: 36 }).references(
+      () => shops.id,
+      { onDelete: "restrict" },
+    ),
     subtotalPaise: bigint("subtotal_paise", { mode: "number" }).notNull(),
     deliveryFeePaise: bigint("delivery_fee_paise", { mode: "number" })
       .notNull()
@@ -1639,8 +1836,8 @@ export const orders = pgTable(
     taxPaise: bigint("tax_paise", { mode: "number" }).notNull().default(0),
     totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
     /** Set once the wallet deduction has actually completed. */
-    paidAt: timestamp("paid_at", { withTimezone: true }),
-    deliveryDate: date("delivery_date"),
+    paidAt: datetime("paid_at", { mode: "date", fsp: 3 }),
+    deliveryDate: date("delivery_date", { mode: "string" }),
     notes: text("notes"),
     cancellationReason: text("cancellation_reason"),
     /** Chosen at checkout, when set — see delivery-feasibility.ts. Null for
@@ -1648,23 +1845,25 @@ export const orders = pgTable(
     deliveryWindow: deliveryWindowEnum("delivery_window"),
     /** The deadline promised for `deliveryWindow`. Never set unless the
      * system determined it was actually achievable at checkout time. */
-    promisedByAt: timestamp("promised_by_at", { withTimezone: true }),
+    promisedByAt: datetime("promised_by_at", { mode: "date", fsp: 3 }),
     /** When the shop accepted the order (CONFIRMED → ACCEPTED). */
-    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
+    acceptedAt: datetime("accepted_at", { mode: "date", fsp: 3 }),
     /** When the shop finished packing (→ READY). */
-    packedAt: timestamp("packed_at", { withTimezone: true }),
+    packedAt: datetime("packed_at", { mode: "date", fsp: 3 }),
     /**
      * Paise already refunded while the order continued (removed or cheaper
      * substituted lines). `totalPaise` is reduced by the same amount, so a
      * later cancellation refunds only what is still held.
      */
-    refundedPaise: bigint("refunded_paise", { mode: "number" }).notNull().default(0),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    refundedPaise: bigint("refunded_paise", { mode: "number" })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .default(0),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     uniqueIndex("orders_number_unique").on(t.orderNumber),
@@ -1674,9 +1873,7 @@ export const orders = pgTable(
     index("orders_created_idx").on(t.createdAt),
     index("orders_buyer_shop_idx").on(t.buyerShopId),
     index("orders_society_idx").on(t.societyId),
-    index("orders_open_alert_pending_idx")
-      .on(t.shopId)
-      .where(sql`${t.placedWhileClosed} AND ${t.shopOpenAlertSentAt} IS NULL`),
+    index("orders_open_alert_pending_idx").on(t.shopId),
     uniqueIndex("orders_checkout_key_unique").on(t.checkoutKey),
     check(
       "orders_totals_non_negative",
@@ -1693,39 +1890,48 @@ export const orders = pgTable(
  * Immutable line items. Price and product name are snapshotted at order time so a
  * later price change can never rewrite the value of a completed order (§13, §34).
  */
-export const orderItems = pgTable(
+export const orderItems = mysqlTable(
   "order_items",
   {
     id: uuidPk(),
-    orderId: uuid("order_id")
+    orderId: varchar("order_id", { length: 36 })
       .notNull()
       .references(() => orders.id, { onDelete: "cascade" }),
-    shopProductId: uuid("shop_product_id")
+    shopProductId: varchar("shop_product_id", { length: 36 })
       .notNull()
       .references(() => shopProducts.id, { onDelete: "restrict" }),
     productNameSnapshot: text("product_name_snapshot").notNull(),
     unitSnapshot: text("unit_snapshot").notNull(),
     unitPricePaise: bigint("unit_price_paise", { mode: "number" }).notNull(),
     /** Milli-units, so 2.5 L is exactly 2500. */
-    quantityMilli: integer("quantity_milli").notNull(),
+    quantityMilli: int("quantity_milli").notNull(),
     lineTotalPaise: bigint("line_total_paise", { mode: "number" }).notNull(),
     /* ------------------------------------------ fulfilment (Slice 3) —
      * the original snapshot above is never rewritten; a substitute is
      * recorded alongside it so the order keeps its history. */
-    fulfilmentStatus: orderItemFulfilmentEnum("fulfilment_status").notNull().default("PENDING"),
-    substituteShopProductId: uuid("substitute_shop_product_id").references(() => shopProducts.id, {
+    fulfilmentStatus: orderItemFulfilmentEnum("fulfilment_status")
+      .notNull()
+      .default("PENDING"),
+    substituteShopProductId: varchar("substitute_shop_product_id", {
+      length: 36,
+    }).references(() => shopProducts.id, {
       onDelete: "restrict",
     }),
     substituteNameSnapshot: text("substitute_name_snapshot"),
     substituteUnitSnapshot: text("substitute_unit_snapshot"),
-    substituteQuantityMilli: integer("substitute_quantity_milli"),
+    substituteQuantityMilli: int("substitute_quantity_milli"),
     /** What the customer pays for the substitute — never more than the original line. */
-    substituteLineTotalPaise: bigint("substitute_line_total_paise", { mode: "number" }),
+    substituteLineTotalPaise: bigint("substitute_line_total_paise", {
+      mode: "number",
+    }),
     fulfilmentNote: text("fulfilment_note"),
-    fulfilmentUpdatedAt: timestamp("fulfilment_updated_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    fulfilmentUpdatedAt: datetime("fulfilment_updated_at", {
+      mode: "date",
+      fsp: 3,
+    }),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     index("order_items_order_idx").on(t.orderId),
@@ -1737,20 +1943,20 @@ export const orderItems = pgTable(
   ],
 );
 
-export const orderStatusHistory = pgTable(
+export const orderStatusHistory = mysqlTable(
   "order_status_history",
   {
     id: uuidPk(),
-    orderId: uuid("order_id")
+    orderId: varchar("order_id", { length: 36 })
       .notNull()
       .references(() => orders.id, { onDelete: "cascade" }),
     previousStatus: orderStatusEnum("previous_status"),
     newStatus: orderStatusEnum("new_status").notNull(),
-    changedBy: uuid("changed_by").references(() => users.id),
+    changedBy: varchar("changed_by", { length: 36 }).references(() => users.id),
     note: text("note"),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [index("order_status_history_order_idx").on(t.orderId)],
 );
@@ -1760,7 +1966,7 @@ export const orderStatusHistory = pgTable(
  * multi-order batching (Phase 2) would attach several deliveryOrders to a
  * shared route/batch, not change this table's shape. */
 
-export const deliveryOrderStatusEnum = pgEnum("delivery_order_status", [
+export const deliveryOrderStatusEnum = mysqlEnumType([
   "OFFERED",
   "ACCEPTED",
   "REJECTED",
@@ -1771,50 +1977,56 @@ export const deliveryOrderStatusEnum = pgEnum("delivery_order_status", [
   "FAILED",
 ]);
 
-export const deliveryOrders = pgTable(
+export const deliveryOrders = mysqlTable(
   "delivery_orders",
   {
     id: uuidPk(),
-    orderId: uuid("order_id")
+    orderId: varchar("order_id", { length: 36 })
       .notNull()
       .references(() => orders.id, { onDelete: "restrict" }),
-    deliveryPartnerId: uuid("delivery_partner_id")
+    deliveryPartnerId: varchar("delivery_partner_id", { length: 36 })
       .notNull()
       .references(() => deliveryPartners.id, { onDelete: "restrict" }),
     status: deliveryOrderStatusEnum("status").notNull().default("OFFERED"),
     /** Haversine straight-line distance, shop → customer, at assignment time — not a road-distance API call (see haversine.ts). */
     distanceKm: text("distance_km"),
-    offeredAt: timestamp("offered_at", { withTimezone: true })
+    offeredAt: datetime("offered_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
-    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
-    pickedUpAt: timestamp("picked_up_at", { withTimezone: true }),
-    deliveredAt: timestamp("delivered_at", { withTimezone: true }),
-    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    acceptedAt: datetime("accepted_at", { mode: "date", fsp: 3 }),
+    pickedUpAt: datetime("picked_up_at", { mode: "date", fsp: 3 }),
+    deliveredAt: datetime("delivered_at", { mode: "date", fsp: 3 }),
+    cancelledAt: datetime("cancelled_at", { mode: "date", fsp: 3 }),
     cancellationReason: text("cancellation_reason"),
     /* ---------------------------------------- handover (Slice 4, GS-041/043) */
     /** 4-digit code the shop reads to the rider at pickup; set when the rider accepts. */
     pickupCode: text("pickup_code"),
     /** 4-digit code only the customer sees; set when the rider starts the drop. */
     deliveryOtp: text("delivery_otp"),
-    deliveryOtpAttempts: integer("delivery_otp_attempts").notNull().default(0),
-    outForDeliveryAt: timestamp("out_for_delivery_at", { withTimezone: true }),
+    deliveryOtpAttempts: int("delivery_otp_attempts").notNull().default(0),
+    outForDeliveryAt: datetime("out_for_delivery_at", { mode: "date", fsp: 3 }),
     /** Rider checkpoints (no status change): reached the shop / reached the customer's door or gate. */
-    arrivedAtShopAt: timestamp("arrived_at_shop_at", { withTimezone: true }),
-    arrivedAtCustomerAt: timestamp("arrived_at_customer_at", { withTimezone: true }),
-    failedAt: timestamp("failed_at", { withTimezone: true }),
+    arrivedAtShopAt: datetime("arrived_at_shop_at", { mode: "date", fsp: 3 }),
+    arrivedAtCustomerAt: datetime("arrived_at_customer_at", {
+      mode: "date",
+      fsp: 3,
+    }),
+    failedAt: datetime("failed_at", { mode: "date", fsp: 3 }),
     failureReason: text("failure_reason"),
     /** How delivery was confirmed: CUSTOMER_OTP, or OPERATOR_OVERRIDE (proof note required). */
     deliveryConfirmation: text("delivery_confirmation"),
     proofNote: text("proof_note"),
     /** Riders who declined or let this order's offer expire — never re-offered it (GA-009 fallback). */
-    rejectedPartnerIds: uuid("rejected_partner_ids").array().notNull().default(sql`'{}'::uuid[]`),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    rejectedPartnerIds: json("rejected_partner_ids")
+      .$type<string[]>()
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .default([]),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     // One active delivery assignment per order, pre-batching.
@@ -1829,14 +2041,19 @@ export const deliveryOrders = pgTable(
  * Tracks how long and how often the platform has tried to match a rider so
  * retries are bounded by configurable rules rather than looping forever.
  */
-export const riderSearches = pgTable(
+export const riderSearches = mysqlTable(
   "rider_searches",
   {
     id: uuidPk(),
-    orderId: uuid("order_id")
+    orderId: varchar("order_id", { length: 36 })
       .notNull()
       .references(() => orders.id, { onDelete: "cascade" }),
-    status: text("status", { enum: ["SEARCHING", "ASSIGNED", "STOPPED"] }).notNull().default("SEARCHING"),
+    status: varchar("status", {
+      length: 255,
+      enum: ["SEARCHING", "ASSIGNED", "STOPPED"],
+    })
+      .notNull()
+      .default("SEARCHING"),
     stopReason: text("stop_reason", {
       enum: [
         "RIDER_ACCEPTED",
@@ -1848,16 +2065,22 @@ export const riderSearches = pgTable(
         "STOPPED_BY_SHOP",
       ],
     }),
-    attempts: integer("attempts").notNull().default(0),
+    attempts: int("attempts").notNull().default(0),
     /** Rule values in force when the search (re)started, so a later rule change never moves the goalposts. */
-    maxAttempts: integer("max_attempts").notNull(),
-    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
-    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
-    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
-    stoppedAt: timestamp("stopped_at", { withTimezone: true }),
-    startedBy: uuid("started_by").references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    maxAttempts: int("max_attempts").notNull(),
+    startedAt: datetime("started_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    lastAttemptAt: datetime("last_attempt_at", { mode: "date", fsp: 3 }),
+    nextAttemptAt: datetime("next_attempt_at", { mode: "date", fsp: 3 }),
+    stoppedAt: datetime("stopped_at", { mode: "date", fsp: 3 }),
+    startedBy: varchar("started_by", { length: 36 }).references(() => users.id),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     uniqueIndex("rider_searches_order_unique").on(t.orderId),
@@ -1866,21 +2089,36 @@ export const riderSearches = pgTable(
 );
 
 /** One row per matching attempt — who triggered it, and what came of it. */
-export const dispatchAttempts = pgTable(
+export const dispatchAttempts = mysqlTable(
   "dispatch_attempts",
   {
     id: uuidPk(),
-    orderId: uuid("order_id")
+    orderId: varchar("order_id", { length: 36 })
       .notNull()
       .references(() => orders.id, { onDelete: "cascade" }),
-    searchId: uuid("search_id").references(() => riderSearches.id, { onDelete: "set null" }),
-    attemptNo: integer("attempt_no").notNull(),
-    trigger: text("trigger", { enum: ["SHOP_MANUAL", "AUTO_READY", "SWEEP", "REOFFER"] }).notNull(),
-    outcome: text("outcome", { enum: ["OFFERED", "NO_RIDER", "STOPPED", "ERROR"] }).notNull(),
-    deliveryOrderId: uuid("delivery_order_id").references(() => deliveryOrders.id, { onDelete: "set null" }),
-    deliveryPartnerId: uuid("delivery_partner_id").references(() => deliveryPartners.id, { onDelete: "set null" }),
+    searchId: varchar("search_id", { length: 36 }).references(
+      () => riderSearches.id,
+      { onDelete: "set null" },
+    ),
+    attemptNo: int("attempt_no").notNull(),
+    trigger: text("trigger", {
+      enum: ["SHOP_MANUAL", "AUTO_READY", "SWEEP", "REOFFER"],
+    }).notNull(),
+    outcome: varchar("outcome", {
+      length: 255,
+      enum: ["OFFERED", "NO_RIDER", "STOPPED", "ERROR"],
+    }).notNull(),
+    deliveryOrderId: varchar("delivery_order_id", { length: 36 }).references(
+      () => deliveryOrders.id,
+      { onDelete: "set null" },
+    ),
+    deliveryPartnerId: varchar("delivery_partner_id", {
+      length: 36,
+    }).references(() => deliveryPartners.id, { onDelete: "set null" }),
     detail: text("detail"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [index("dispatch_attempts_order_idx").on(t.orderId, t.createdAt)],
 );
@@ -1891,7 +2129,7 @@ export const dispatchAttempts = pgTable(
  * dedicated history table: lower-stakes than the registration fee, which
  * has direct legal/billing weight.
  */
-export const deliveryEarningsConfig = pgTable(
+export const deliveryEarningsConfig = mysqlTable(
   "delivery_earnings_config",
   {
     id: uuidPk(),
@@ -1899,49 +2137,78 @@ export const deliveryEarningsConfig = pgTable(
     perKmFeePaise: bigint("per_km_fee_paise", { mode: "number" }).notNull(),
     isActive: boolean("is_active").notNull().default(true),
     note: text("note"),
-    createdBy: uuid("created_by").references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdBy: varchar("created_by", { length: 36 }).references(() => users.id),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
-    check("delivery_earnings_config_non_negative", sql`${t.baseFeePaise} >= 0 AND ${t.perKmFeePaise} >= 0`),
+    check(
+      "delivery_earnings_config_non_negative",
+      sql`${t.baseFeePaise} >= 0 AND ${t.perKmFeePaise} >= 0`,
+    ),
   ],
 );
 
 /** One row per completed delivery — the "transparent, delivery-wise earnings statement" the brief calls for. Idempotent on deliveryOrderId. */
-export const deliveryPartnerEarnings = pgTable(
+export const deliveryPartnerEarnings = mysqlTable(
   "delivery_partner_earnings",
   {
     id: uuidPk(),
-    deliveryPartnerId: uuid("delivery_partner_id")
-      .notNull()
-      .references(() => deliveryPartners.id, { onDelete: "restrict" }),
+    deliveryPartnerId: varchar("delivery_partner_id", { length: 36 }).notNull(),
     /** Null for a return-pickup earning (see returnPickupId). */
-    deliveryOrderId: uuid("delivery_order_id").references(() => deliveryOrders.id, { onDelete: "restrict" }),
+    deliveryOrderId: varchar("delivery_order_id", { length: 36 }),
     /** Set for the flat fee a rider earns for collecting a customer return. */
-    returnPickupId: uuid("return_pickup_id"),
+    returnPickupId: varchar("return_pickup_id", { length: 36 }),
     basePaise: bigint("base_paise", { mode: "number" }).notNull(),
     distancePaise: bigint("distance_paise", { mode: "number" }).notNull(),
     /* Breakdown added with the slot/incentive engine. `totalPaise` is the net
      * the rider is paid: base + distance + order component + slot incentive +
      * minimum top-up + order incentive + other incentive − deductions. */
-    orderComponentPaise: bigint("order_component_paise", { mode: "number" }).notNull().default(0),
-    slotIncentivePaise: bigint("slot_incentive_paise", { mode: "number" }).notNull().default(0),
-    minTopUpPaise: bigint("min_top_up_paise", { mode: "number" }).notNull().default(0),
-    orderIncentivePaise: bigint("order_incentive_paise", { mode: "number" }).notNull().default(0),
-    otherIncentivePaise: bigint("other_incentive_paise", { mode: "number" }).notNull().default(0),
-    deductionsPaise: bigint("deductions_paise", { mode: "number" }).notNull().default(0),
+    orderComponentPaise: bigint("order_component_paise", { mode: "number" })
+      .notNull()
+      .default(0),
+    slotIncentivePaise: bigint("slot_incentive_paise", { mode: "number" })
+      .notNull()
+      .default(0),
+    minTopUpPaise: bigint("min_top_up_paise", { mode: "number" })
+      .notNull()
+      .default(0),
+    orderIncentivePaise: bigint("order_incentive_paise", { mode: "number" })
+      .notNull()
+      .default(0),
+    otherIncentivePaise: bigint("other_incentive_paise", { mode: "number" })
+      .notNull()
+      .default(0),
+    deductionsPaise: bigint("deductions_paise", { mode: "number" })
+      .notNull()
+      .default(0),
     /** The slot whose rates applied (null when none matched and the default rates were used). */
-    slotId: uuid("slot_id"),
+    slotId: varchar("slot_id", { length: 36 }),
     totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
     /** Set when this earning is included in a rider payout batch (GS-064). */
-    payoutId: uuid("payout_id"),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    payoutId: varchar("payout_id", { length: 36 }),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
+    // Named explicitly: Drizzle's auto-generated name for this foreign key is
+    // longer than MySQL's 64-character identifier limit, which MySQL rejects
+    // outright (PostgreSQL silently truncated it).
+    foreignKey({
+      columns: [t.deliveryOrderId],
+      foreignColumns: [deliveryOrders.id],
+      name: "dp_earnings_order_fk",
+    }).onDelete("restrict"),
+    // Named explicitly: Drizzle's auto-generated name for this foreign key is
+    // longer than MySQL's 64-character identifier limit, which MySQL rejects
+    // outright (PostgreSQL silently truncated it).
+    foreignKey({
+      columns: [t.deliveryPartnerId],
+      foreignColumns: [deliveryPartners.id],
+      name: "dp_earnings_partner_fk",
+    }).onDelete("restrict"),
     uniqueIndex("delivery_partner_earnings_order_unique").on(t.deliveryOrderId),
     uniqueIndex("delivery_partner_earnings_return_unique").on(t.returnPickupId),
     index("delivery_partner_earnings_payout_idx").on(t.payoutId),
@@ -1954,51 +2221,86 @@ export const deliveryPartnerEarnings = pgTable(
  * moment, so operations can see the impact and resolve the orders that need a
  * decision (services/shop-suspension.ts).
  */
-export const shopSuspensions = pgTable(
+export const shopSuspensions = mysqlTable(
   "shop_suspensions",
   {
     id: uuidPk(),
-    shopId: uuid("shop_id")
+    shopId: varchar("shop_id", { length: 36 })
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
     reason: text("reason").notNull(),
     /** What the owner is expected to do (shown in the notice), e.g. "Upload a valid FSSAI licence". */
     expectedAction: text("expected_action").notNull(),
-    suspendedBy: uuid("suspended_by").references(() => users.id),
-    effectiveAt: timestamp("effective_at", { withTimezone: true }).notNull().defaultNow(),
-    status: text("status", { enum: ["ACTIVE", "LIFTED"] }).notNull().default("ACTIVE"),
-    liftedAt: timestamp("lifted_at", { withTimezone: true }),
-    liftedBy: uuid("lifted_by").references(() => users.id),
+    suspendedBy: varchar("suspended_by", { length: 36 }).references(
+      () => users.id,
+    ),
+    effectiveAt: datetime("effective_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    status: varchar("status", { length: 255, enum: ["ACTIVE", "LIFTED"] })
+      .notNull()
+      .default("ACTIVE"),
+    liftedAt: datetime("lifted_at", { mode: "date", fsp: 3 }),
+    liftedBy: varchar("lifted_by", { length: 36 }).references(() => users.id),
     liftNote: text("lift_note"),
     /** Policy in force and the counts it produced — a snapshot, not a live view. */
-    policy: jsonb("policy").$type<Record<string, string>>().notNull().default({}),
-    impact: jsonb("impact").$type<Record<string, number>>().notNull().default({}),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    policy: json("policy")
+      .$type<Record<string, string>>()
+      .notNull()
+      .default({}),
+    impact: json("impact")
+      .$type<Record<string, number>>()
+      .notNull()
+      .default({}),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    /**
+     * MySQL has no partial indexes, so the predicate of the old PostgreSQL
+     * partial UNIQUE index lives in this STORED generated column: it is NULL
+     * when the predicate is false, and MySQL's UNIQUE ignores NULLs. Verified
+     * against a real server -- a second matching row is rejected with a
+     * duplicate-key error, non-matching rows are unconstrained, and leaving the
+     * predicate frees the slot again.
+     */
+    activeShopKey: varchar("active_shop_key", { length: 36 }).generatedAlwaysAs(
+      sql`CASE WHEN status = 'ACTIVE' THEN shop_id END`,
+      { mode: "stored" },
+    ),
   },
   (t) => [
     index("shop_suspensions_shop_idx").on(t.shopId, t.createdAt),
-    uniqueIndex("shop_suspensions_one_active").on(t.shopId).where(sql`${t.status} = 'ACTIVE'`),
+    uniqueIndex("shop_suspensions_one_active").on(t.activeShopKey),
   ],
 );
 
-export const shopSuspensionOrders = pgTable(
+export const shopSuspensionOrders = mysqlTable(
   "shop_suspension_orders",
   {
     id: uuidPk(),
-    suspensionId: uuid("suspension_id")
+    suspensionId: varchar("suspension_id", { length: 36 })
       .notNull()
       .references(() => shopSuspensions.id, { onDelete: "cascade" }),
-    orderId: uuid("order_id")
+    orderId: varchar("order_id", { length: 36 })
       .notNull()
       .references(() => orders.id, { onDelete: "cascade" }),
     statusAtSuspension: text("status_at_suspension").notNull(),
-    plannedAction: text("planned_action", { enum: ["CANCEL_REFUND", "CONTINUE", "REVIEW"] }).notNull(),
+    plannedAction: text("planned_action", {
+      enum: ["CANCEL_REFUND", "CONTINUE", "REVIEW"],
+    }).notNull(),
     /** CANCELLED: refunded and closed. CONTINUING: the shop finishes it. AWAITING_REVIEW: an operator decides. FAILED: the automatic action could not run — an operator must act. */
-    outcome: text("outcome", { enum: ["CANCELLED", "CONTINUING", "AWAITING_REVIEW", "FAILED"] }).notNull(),
+    outcome: varchar("outcome", {
+      length: 255,
+      enum: ["CANCELLED", "CONTINUING", "AWAITING_REVIEW", "FAILED"],
+    }).notNull(),
     note: text("note"),
-    resolvedBy: uuid("resolved_by").references(() => users.id),
-    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    resolvedBy: varchar("resolved_by", { length: 36 }).references(
+      () => users.id,
+    ),
+    resolvedAt: datetime("resolved_at", { mode: "date", fsp: 3 }),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     uniqueIndex("shop_suspension_orders_unique").on(t.suspensionId, t.orderId),
@@ -2013,18 +2315,25 @@ export const shopSuspensionOrders = pgTable(
  * MRP, and nothing here writes to either (services/price-references.ts).
  * Changes are appended to the history table.
  */
-export const externalPriceReferences = pgTable(
+export const externalPriceReferences = mysqlTable(
   "external_price_references",
   {
     id: uuidPk(),
-    productId: uuid("product_id")
+    productId: varchar("product_id", { length: 36 })
       .notNull()
       .references(() => products.id, { onDelete: "cascade" }),
     pricePaise: bigint("price_paise", { mode: "number" }).notNull(),
     /** What the price is for, e.g. "per 500 g pack" or "per kg, loose". */
     unitBasis: text("unit_basis"),
     sourceType: text("source_type", {
-      enum: ["MARKET_SURVEY", "MANUFACTURER", "GOVT_MANDI", "PARTNER_FEED", "PMD_IMPORT", "OTHER"],
+      enum: [
+        "MARKET_SURVEY",
+        "MANUFACTURER",
+        "GOVT_MANDI",
+        "PARTNER_FEED",
+        "PMD_IMPORT",
+        "OTHER",
+      ],
     }).notNull(),
     sourceName: text("source_name").notNull(),
     /** The source's own identifier for the listing or record, where it has one. */
@@ -2034,15 +2343,22 @@ export const externalPriceReferences = pgTable(
     marketLocation: text("market_location"),
     pincode: text("pincode"),
     /** When the price was observed at the source (not when it was entered). */
-    referencedAt: timestamp("referenced_at", { withTimezone: true }).notNull(),
-    verificationStatus: text("verification_status", { enum: ["UNVERIFIED", "VERIFIED", "REJECTED"] })
+    referencedAt: datetime("referenced_at", { mode: "date", fsp: 3 }).notNull(),
+    verificationStatus: varchar("verification_status", {
+      length: 255,
+      enum: ["UNVERIFIED", "VERIFIED", "REJECTED"],
+    })
       .notNull()
       .default("UNVERIFIED"),
-    verifiedBy: uuid("verified_by").references(() => users.id),
-    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    verifiedBy: varchar("verified_by", { length: 36 }).references(
+      () => users.id,
+    ),
+    verifiedAt: datetime("verified_at", { mode: "date", fsp: 3 }),
     verificationNote: text("verification_note"),
-    createdBy: uuid("created_by").references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdBy: varchar("created_by", { length: 36 }).references(() => users.id),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     index("external_price_refs_product_idx").on(t.productId, t.referencedAt),
@@ -2050,49 +2366,70 @@ export const externalPriceReferences = pgTable(
   ],
 );
 
-export const externalPriceReferenceHistory = pgTable(
+export const externalPriceReferenceHistory = mysqlTable(
   "external_price_reference_history",
   {
     id: uuidPk(),
-    referenceId: uuid("reference_id")
-      .notNull()
-      .references(() => externalPriceReferences.id, { onDelete: "cascade" }),
-    action: text("action", { enum: ["CREATED", "EDITED", "VERIFIED", "REJECTED", "REOPENED"] }).notNull(),
-    previous: jsonb("previous").$type<Record<string, unknown> | null>(),
-    next: jsonb("next").$type<Record<string, unknown>>().notNull(),
+    referenceId: varchar("reference_id", { length: 36 }).notNull(),
+    action: text("action", {
+      enum: ["CREATED", "EDITED", "VERIFIED", "REJECTED", "REOPENED"],
+    }).notNull(),
+    previous: json("previous").$type<Record<string, unknown> | null>(),
+    next: json("next").$type<Record<string, unknown>>().notNull(),
     note: text("note"),
-    actorId: uuid("actor_id").references(() => users.id),
+    actorId: varchar("actor_id", { length: 36 }).references(() => users.id),
     actorRole: text("actor_role"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
-  (t) => [index("external_price_ref_history_idx").on(t.referenceId, t.createdAt)],
+  (t) => [
+    // Named explicitly: Drizzle's auto-generated name for this foreign key is
+    // longer than MySQL's 64-character identifier limit, which MySQL rejects
+    // outright (PostgreSQL silently truncated it).
+    foreignKey({
+      columns: [t.referenceId],
+      foreignColumns: [externalPriceReferences.id],
+      name: "eprh_reference_fk",
+    }).onDelete("cascade"),
+    index("external_price_ref_history_idx").on(t.referenceId, t.createdAt),
+  ],
 );
 
 /**
  * A shop owner's claim that the master MRP is wrong. The claimed figure lives
  * here until an operator decides; it never reaches products.mrp_paise on its own.
  */
-export const mrpCorrections = pgTable(
+export const mrpCorrections = mysqlTable(
   "mrp_corrections",
   {
     id: uuidPk(),
-    productId: uuid("product_id")
+    productId: varchar("product_id", { length: 36 })
       .notNull()
       .references(() => products.id, { onDelete: "cascade" }),
-    shopId: uuid("shop_id").references(() => shops.id, { onDelete: "set null" }),
+    shopId: varchar("shop_id", { length: 36 }).references(() => shops.id, {
+      onDelete: "set null",
+    }),
     claimedMrpPaise: bigint("claimed_mrp_paise", { mode: "number" }).notNull(),
     note: text("note"),
-    submittedBy: uuid("submitted_by")
+    submittedBy: varchar("submitted_by", { length: 36 })
       .notNull()
       .references(() => users.id),
-    status: text("status", { enum: ["PENDING", "ACCEPTED", "REJECTED"] }).notNull().default("PENDING"),
+    status: varchar("status", {
+      length: 255,
+      enum: ["PENDING", "ACCEPTED", "REJECTED"],
+    })
+      .notNull()
+      .default("PENDING"),
     /** The product's verification status before the dispute, restored if the claim is rejected. */
     previousVerificationStatus: text("previous_verification_status"),
-    decidedBy: uuid("decided_by").references(() => users.id),
-    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decidedBy: varchar("decided_by", { length: 36 }).references(() => users.id),
+    decidedAt: datetime("decided_at", { mode: "date", fsp: 3 }),
     decisionNote: text("decision_note"),
     appliedMrpPaise: bigint("applied_mrp_paise", { mode: "number" }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     index("mrp_corrections_status_idx").on(t.status, t.createdAt),
@@ -2107,96 +2444,114 @@ export const mrpCorrections = pgTable(
  * shrinks them before upload (components/image-uploader.tsx) and the server
  * re-validates type, size and dimensions (services/image-store.ts).
  */
-const bytea = customType<{ data: Buffer; default: false }>({
-  dataType() {
-    return "bytea";
-  },
-});
-
-export const storedImages = pgTable(
+export const storedImages = mysqlTable(
   "stored_images",
   {
     id: uuidPk(),
-    ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
-    purpose: text("purpose", { enum: ["PRODUCT", "RETURN_EVIDENCE"] }).notNull(),
+    ownerId: varchar("owner_id", { length: 36 }).references(() => users.id, {
+      onDelete: "set null",
+    }),
+    purpose: text("purpose", {
+      enum: ["PRODUCT", "RETURN_EVIDENCE"],
+    }).notNull(),
     contentType: text("content_type").notNull(),
-    sizeBytes: integer("size_bytes").notNull(),
-    width: integer("width").notNull(),
-    height: integer("height").notNull(),
-    sha256: text("sha256").notNull(),
-    data: bytea("data").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    sizeBytes: int("size_bytes").notNull(),
+    width: int("width").notNull(),
+    height: int("height").notNull(),
+    sha256: varchar("sha256", { length: 255 }).notNull(),
+    data: blob("data").notNull(),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
-  (t) => [index("stored_images_owner_idx").on(t.ownerId), index("stored_images_sha_idx").on(t.sha256)],
+  (t) => [
+    index("stored_images_owner_idx").on(t.ownerId),
+    index("stored_images_sha_idx").on(t.sha256),
+  ],
 );
 
 /* ------------------------------------------------------------- returns
  * Request → validation → approval → pickup → inspection → refund
  * (lib/return-states.ts has the state machine; services/returns.ts drives it).
  */
-export const returnRequests = pgTable(
+export const returnRequests = mysqlTable(
   "return_requests",
   {
     id: uuidPk(),
-    returnNumber: text("return_number").notNull(),
-    orderId: uuid("order_id")
+    returnNumber: varchar("return_number", { length: 255 }).notNull(),
+    orderId: varchar("order_id", { length: 36 })
       .notNull()
       .references(() => orders.id, { onDelete: "restrict" }),
-    userId: uuid("user_id")
+    userId: varchar("user_id", { length: 36 })
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
-    shopId: uuid("shop_id")
+    shopId: varchar("shop_id", { length: 36 })
       .notNull()
       .references(() => shops.id, { onDelete: "restrict" }),
-    status: text("status", { enum: RETURN_STATUSES }).notNull().default("RETURN_REQUESTED"),
+    status: varchar("status", { length: 255, enum: RETURN_STATUSES })
+      .notNull()
+      .default("RETURN_REQUESTED"),
     reason: text("reason", { enum: RETURN_REASONS }).notNull(),
     comment: text("comment"),
     /** Goods-only value of the requested items, worked out at request time. */
-    refundAmountPaise: bigint("refund_amount_paise", { mode: "number" }).notNull(),
+    refundAmountPaise: bigint("refund_amount_paise", {
+      mode: "number",
+    }).notNull(),
     /** Who bears the refund, decided by the reason's policy when the request is made. */
     chargeTo: text("charge_to", { enum: ["SHOP", "PLATFORM"] }).notNull(),
     /** True when a rider collects the goods; false when the customer hands them to the shop. */
     pickupRequired: boolean("pickup_required").notNull().default(true),
-    pickupAddress: jsonb("pickup_address").$type<Record<string, unknown>>(),
+    pickupAddress: json("pickup_address").$type<Record<string, unknown>>(),
     /** Set once the refund has actually been paid; the amount may be lower than requested after inspection. */
     refundedPaise: bigint("refunded_paise", { mode: "number" }),
-    refundAdjustmentId: uuid("refund_adjustment_id"),
-    decidedBy: uuid("decided_by").references(() => users.id),
-    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    refundAdjustmentId: varchar("refund_adjustment_id", { length: 36 }),
+    decidedBy: varchar("decided_by", { length: 36 }).references(() => users.id),
+    decidedAt: datetime("decided_at", { mode: "date", fsp: 3 }),
     decisionNote: text("decision_note"),
-    inspectedBy: uuid("inspected_by").references(() => users.id),
-    inspectedAt: timestamp("inspected_at", { withTimezone: true }),
+    inspectedBy: varchar("inspected_by", { length: 36 }).references(
+      () => users.id,
+    ),
+    inspectedAt: datetime("inspected_at", { mode: "date", fsp: 3 }),
     inspectionNote: text("inspection_note"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     uniqueIndex("return_requests_number_unique").on(t.returnNumber),
     index("return_requests_order_idx").on(t.orderId),
     index("return_requests_user_idx").on(t.userId, t.createdAt),
     index("return_requests_shop_status_idx").on(t.shopId, t.status),
-    check("return_requests_refund_non_negative", sql`${t.refundAmountPaise} >= 0`),
+    check(
+      "return_requests_refund_non_negative",
+      sql`${t.refundAmountPaise} >= 0`,
+    ),
   ],
 );
 
-export const returnItems = pgTable(
+export const returnItems = mysqlTable(
   "return_items",
   {
     id: uuidPk(),
-    returnId: uuid("return_id")
+    returnId: varchar("return_id", { length: 36 })
       .notNull()
       .references(() => returnRequests.id, { onDelete: "cascade" }),
-    orderItemId: uuid("order_item_id")
+    orderItemId: varchar("order_item_id", { length: 36 })
       .notNull()
       .references(() => orderItems.id, { onDelete: "restrict" }),
     /** Milli-units being returned (same scale as order_items.quantity_milli). */
-    quantityMilli: integer("quantity_milli").notNull(),
+    quantityMilli: int("quantity_milli").notNull(),
     condition: text("condition", { enum: RETURN_CONDITIONS }).notNull(),
     comment: text("comment"),
     /** stored_images ids showing the item. */
-    imageIds: jsonb("image_ids").$type<string[]>().notNull().default([]),
+    imageIds: json("image_ids").$type<string[]>().notNull().default([]),
     refundPaise: bigint("refund_paise", { mode: "number" }).notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     index("return_items_return_idx").on(t.returnId),
@@ -2205,57 +2560,82 @@ export const returnItems = pgTable(
   ],
 );
 
-export const returnStatusHistory = pgTable(
+export const returnStatusHistory = mysqlTable(
   "return_status_history",
   {
     id: uuidPk(),
-    returnId: uuid("return_id")
+    returnId: varchar("return_id", { length: 36 })
       .notNull()
       .references(() => returnRequests.id, { onDelete: "cascade" }),
     fromStatus: text("from_status", { enum: RETURN_STATUSES }),
     toStatus: text("to_status", { enum: RETURN_STATUSES }).notNull(),
-    changedBy: uuid("changed_by").references(() => users.id),
+    changedBy: varchar("changed_by", { length: 36 }).references(() => users.id),
     changedByRole: text("changed_by_role"),
     note: text("note"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
-  (t) => [index("return_status_history_return_idx").on(t.returnId, t.createdAt)],
+  (t) => [
+    index("return_status_history_return_idx").on(t.returnId, t.createdAt),
+  ],
 );
 
 /** A rider's collection of returned goods from the customer, back to the shop. */
-export const returnPickups = pgTable(
+export const returnPickups = mysqlTable(
   "return_pickups",
   {
     id: uuidPk(),
-    returnId: uuid("return_id")
+    returnId: varchar("return_id", { length: 36 })
       .notNull()
       .references(() => returnRequests.id, { onDelete: "cascade" }),
-    deliveryPartnerId: uuid("delivery_partner_id").references(() => deliveryPartners.id, { onDelete: "restrict" }),
-    status: text("status", { enum: PICKUP_STATUSES }).notNull().default("PENDING"),
+    deliveryPartnerId: varchar("delivery_partner_id", {
+      length: 36,
+    }).references(() => deliveryPartners.id, { onDelete: "restrict" }),
+    status: varchar("status", { length: 255, enum: PICKUP_STATUSES })
+      .notNull()
+      .default("PENDING"),
     /** Window the customer is asked to be ready in (start); the rider sees it. */
-    scheduledFor: timestamp("scheduled_for", { withTimezone: true }),
+    scheduledFor: datetime("scheduled_for", { mode: "date", fsp: 3 }),
     /** Read out by the customer at handover; the rider must enter it. Never sent to the rider. */
     handoverCode: text("handover_code").notNull(),
-    handoverAttempts: integer("handover_attempts").notNull().default(0),
-    offeredAt: timestamp("offered_at", { withTimezone: true }),
-    acceptedAt: timestamp("accepted_at", { withTimezone: true }),
-    enRouteAt: timestamp("en_route_at", { withTimezone: true }),
-    pickedUpAt: timestamp("picked_up_at", { withTimezone: true }),
-    failedAt: timestamp("failed_at", { withTimezone: true }),
+    handoverAttempts: int("handover_attempts").notNull().default(0),
+    offeredAt: datetime("offered_at", { mode: "date", fsp: 3 }),
+    acceptedAt: datetime("accepted_at", { mode: "date", fsp: 3 }),
+    enRouteAt: datetime("en_route_at", { mode: "date", fsp: 3 }),
+    pickedUpAt: datetime("picked_up_at", { mode: "date", fsp: 3 }),
+    failedAt: datetime("failed_at", { mode: "date", fsp: 3 }),
     failureReason: text("failure_reason"),
     /** Riders who declined or let the offer lapse — never re-offered this pickup. */
-    rejectedPartnerIds: uuid("rejected_partner_ids").array().notNull().default(sql`'{}'::uuid[]`),
-    attempts: integer("attempts").notNull().default(0),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    rejectedPartnerIds: json("rejected_partner_ids")
+      .$type<string[]>()
+      .notNull()
+      .default([]),
+    attempts: int("attempts").notNull().default(0),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    /**
+     * MySQL has no partial indexes, so the predicate of the old PostgreSQL
+     * partial UNIQUE index lives in this STORED generated column: it is NULL
+     * when the predicate is false, and MySQL's UNIQUE ignores NULLs. Verified
+     * against a real server -- a second matching row is rejected with a
+     * duplicate-key error, non-matching rows are unconstrained, and leaving the
+     * predicate frees the slot again.
+     */
+    liveReturnKey: varchar("live_return_key", { length: 36 }).generatedAlwaysAs(
+      sql`CASE WHEN status IN ('PENDING','OFFERED','ACCEPTED','EN_ROUTE') THEN return_id END`,
+      { mode: "stored" },
+    ),
   },
   (t) => [
     index("return_pickups_return_idx").on(t.returnId),
     index("return_pickups_partner_idx").on(t.deliveryPartnerId, t.status),
     // One live pickup per return.
-    uniqueIndex("return_pickups_one_live")
-      .on(t.returnId)
-      .where(sql`${t.status} IN ('PENDING','OFFERED','ACCEPTED','EN_ROUTE')`),
+    uniqueIndex("return_pickups_one_live").on(t.liveReturnKey),
   ],
 );
 
@@ -2267,7 +2647,7 @@ export const returnPickups = pgTable(
  */
 
 /** Local-time window (APP_TIMEZONE) with its own earning rates. NULL rates fall back to the default config. */
-export const riderEarningSlots = pgTable(
+export const riderEarningSlots = mysqlTable(
   "rider_earning_slots",
   {
     id: uuidPk(),
@@ -2276,28 +2656,39 @@ export const riderEarningSlots = pgTable(
     startTime: text("start_time").notNull(),
     endTime: text("end_time").notNull(),
     /** Weekdays (0 = Sunday .. 6) the slot applies to; empty = every day. */
-    daysOfWeek: jsonb("days_of_week").$type<number[]>().notNull().default([]),
+    daysOfWeek: json("days_of_week").$type<number[]>().notNull().default([]),
     baseFeePaise: bigint("base_fee_paise", { mode: "number" }),
     perKmFeePaise: bigint("per_km_fee_paise", { mode: "number" }),
     /** Floor for one order's earning in this slot (before incentives). */
     minEarningPaise: bigint("min_earning_paise", { mode: "number" }),
     /** Order-based component: flat amount plus a share of the order subtotal (basis points). */
-    orderFeePaise: bigint("order_fee_paise", { mode: "number" }).notNull().default(0),
-    orderPercentBp: integer("order_percent_bp").notNull().default(0),
+    orderFeePaise: bigint("order_fee_paise", { mode: "number" })
+      .notNull()
+      .default(0),
+    orderPercentBp: int("order_percent_bp").notNull().default(0),
     /** Peak-period component paid on top in this slot. */
-    peakBonusPaise: bigint("peak_bonus_paise", { mode: "number" }).notNull().default(0),
+    peakBonusPaise: bigint("peak_bonus_paise", { mode: "number" })
+      .notNull()
+      .default(0),
     isPeak: boolean("is_peak").notNull().default(false),
     /** The highest-priority active slot containing the delivery time wins. */
-    priority: integer("priority").notNull().default(0),
-    validFrom: date("valid_from"),
-    validTo: date("valid_to"),
+    priority: int("priority").notNull().default(0),
+    validFrom: date("valid_from", { mode: "string" }),
+    validTo: date("valid_to", { mode: "string" }),
     isActive: boolean("is_active").notNull().default(true),
-    createdBy: uuid("created_by").references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdBy: varchar("created_by", { length: 36 }).references(() => users.id),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
-    check("rider_slots_percent_range", sql`${t.orderPercentBp} BETWEEN 0 AND 10000`),
+    check(
+      "rider_slots_percent_range",
+      sql`${t.orderPercentBp} BETWEEN 0 AND 10000`,
+    ),
     check(
       "rider_slots_amounts_non_negative",
       sql`${t.orderFeePaise} >= 0 AND ${t.peakBonusPaise} >= 0
@@ -2318,64 +2709,100 @@ export const riderEarningSlots = pgTable(
  *  PEAK_HOUR     — reward on a delivery inside the rule's own time window
  *  CAMPAIGN      — reward on every delivery while the campaign window is live
  */
-export const riderIncentiveRules = pgTable(
+export const riderIncentiveRules = mysqlTable(
   "rider_incentive_rules",
   {
     id: uuidPk(),
     name: text("name").notNull(),
     description: text("description"),
     type: text("type", {
-      enum: ["ORDER_COUNT", "DAILY_TARGET", "WEEKLY_TARGET", "DISTANCE", "PEAK_HOUR", "CAMPAIGN"],
+      enum: [
+        "ORDER_COUNT",
+        "DAILY_TARGET",
+        "WEEKLY_TARGET",
+        "DISTANCE",
+        "PEAK_HOUR",
+        "CAMPAIGN",
+      ],
     }).notNull(),
-    thresholdValue: integer("threshold_value").notNull().default(0),
+    thresholdValue: int("threshold_value").notNull().default(0),
     rewardPaise: bigint("reward_paise", { mode: "number" }).notNull(),
     /** ORDER_COUNT counts deliveries per DAY or per WEEK. */
-    period: text("period", { enum: ["DAY", "WEEK"] }).notNull().default("DAY"),
+    period: varchar("period", { length: 255, enum: ["DAY", "WEEK"] })
+      .notNull()
+      .default("DAY"),
     startTime: text("start_time"),
     endTime: text("end_time"),
-    daysOfWeek: jsonb("days_of_week").$type<number[]>().notNull().default([]),
-    validFrom: date("valid_from"),
-    validTo: date("valid_to"),
+    daysOfWeek: json("days_of_week").$type<number[]>().notNull().default([]),
+    validFrom: date("valid_from", { mode: "string" }),
+    validTo: date("valid_to", { mode: "string" }),
     isActive: boolean("is_active").notNull().default(true),
-    createdBy: uuid("created_by").references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdBy: varchar("created_by", { length: 36 }).references(() => users.id),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [check("rider_incentive_reward_positive", sql`${t.rewardPaise} > 0`)],
 );
 
 /** One row per incentive actually paid; the unique key stops a target being paid twice for the same period. */
-export const riderIncentiveAwards = pgTable(
+export const riderIncentiveAwards = mysqlTable(
   "rider_incentive_awards",
   {
     id: uuidPk(),
-    ruleId: uuid("rule_id")
+    ruleId: varchar("rule_id", { length: 36 })
       .notNull()
       .references(() => riderIncentiveRules.id, { onDelete: "restrict" }),
-    deliveryPartnerId: uuid("delivery_partner_id")
-      .notNull()
-      .references(() => deliveryPartners.id, { onDelete: "restrict" }),
-    earningId: uuid("earning_id").references(() => deliveryPartnerEarnings.id, { onDelete: "set null" }),
+    deliveryPartnerId: varchar("delivery_partner_id", { length: 36 }).notNull(),
+    earningId: varchar("earning_id", { length: 36 }),
     /** Day key, ISO-week key, or the delivery order id for per-order rewards. */
-    periodKey: text("period_key").notNull(),
+    periodKey: varchar("period_key", { length: 255 }).notNull(),
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
-  (t) => [uniqueIndex("rider_incentive_awards_unique").on(t.ruleId, t.deliveryPartnerId, t.periodKey)],
+  (t) => [
+    // Named explicitly: Drizzle's auto-generated name for this foreign key is
+    // longer than MySQL's 64-character identifier limit, which MySQL rejects
+    // outright (PostgreSQL silently truncated it).
+    foreignKey({
+      columns: [t.earningId],
+      foreignColumns: [deliveryPartnerEarnings.id],
+      name: "incentive_awards_earning_fk",
+    }).onDelete("set null"),
+    // Named explicitly: Drizzle's auto-generated name for this foreign key is
+    // longer than MySQL's 64-character identifier limit, which MySQL rejects
+    // outright (PostgreSQL silently truncated it).
+    foreignKey({
+      columns: [t.deliveryPartnerId],
+      foreignColumns: [deliveryPartners.id],
+      name: "incentive_awards_partner_fk",
+    }).onDelete("restrict"),
+    uniqueIndex("rider_incentive_awards_unique").on(
+      t.ruleId,
+      t.deliveryPartnerId,
+      t.periodKey,
+    ),
+  ],
 );
 
 /** Append-only audit lines behind every earning: the components sum to the earning's net total. */
-export const riderEarningsLedger = pgTable(
+export const riderEarningsLedger = mysqlTable(
   "rider_earnings_ledger",
   {
     id: uuidPk(),
-    deliveryPartnerId: uuid("delivery_partner_id")
-      .notNull()
-      .references(() => deliveryPartners.id, { onDelete: "restrict" }),
-    earningId: uuid("earning_id")
+    deliveryPartnerId: varchar("delivery_partner_id", { length: 36 }).notNull(),
+    earningId: varchar("earning_id", { length: 36 })
       .notNull()
       .references(() => deliveryPartnerEarnings.id, { onDelete: "cascade" }),
-    deliveryOrderId: uuid("delivery_order_id").references(() => deliveryOrders.id, { onDelete: "set null" }),
+    deliveryOrderId: varchar("delivery_order_id", { length: 36 }).references(
+      () => deliveryOrders.id,
+      { onDelete: "set null" },
+    ),
     component: text("component", {
       enum: [
         "BASE",
@@ -2391,34 +2818,50 @@ export const riderEarningsLedger = pgTable(
     /** Signed: deductions are negative. */
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
     description: text("description").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
-  (t) => [index("rider_earnings_ledger_earning_idx").on(t.earningId), index("rider_earnings_ledger_partner_idx").on(t.deliveryPartnerId, t.createdAt)],
+  (t) => [
+    // Named explicitly: Drizzle's auto-generated name for this foreign key is
+    // longer than MySQL's 64-character identifier limit, which MySQL rejects
+    // outright (PostgreSQL silently truncated it).
+    foreignKey({
+      columns: [t.deliveryPartnerId],
+      foreignColumns: [deliveryPartners.id],
+      name: "earnings_ledger_partner_fk",
+    }).onDelete("restrict"),
+    index("rider_earnings_ledger_earning_idx").on(t.earningId),
+    index("rider_earnings_ledger_partner_idx").on(
+      t.deliveryPartnerId,
+      t.createdAt,
+    ),
+  ],
 );
 
 /* ------------------------------------------------------------- payments */
 
-export const payments = pgTable(
+export const payments = mysqlTable(
   "payments",
   {
     id: uuidPk(),
-    userId: uuid("user_id")
+    userId: varchar("user_id", { length: 36 })
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
-    gateway: text("gateway").notNull().default("CASHFREE"),
+    gateway: varchar("gateway", { length: 255 }).notNull().default("CASHFREE"),
     /** Cashfree order id — unique so one intent cannot be created twice. */
-    gatewayOrderId: text("gateway_order_id").notNull(),
+    gatewayOrderId: varchar("gateway_order_id", { length: 255 }).notNull(),
     /** Cashfree payment id (cf_payment_id) — UNIQUE, which is what blocks replayed callbacks. */
-    gatewayPaymentId: text("gateway_payment_id"),
+    gatewayPaymentId: varchar("gateway_payment_id", { length: 255 }),
     gatewaySignature: text("gateway_signature"),
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
-    currency: text("currency").notNull().default("INR"),
+    currency: varchar("currency", { length: 255 }).notNull().default("INR"),
     status: paymentStatusEnum("status").notNull().default("CREATED"),
-    purpose: text("purpose", { enum: ["WALLET_TOPUP"] })
+    purpose: varchar("purpose", { length: 255, enum: ["WALLET_TOPUP"] })
       .notNull()
       .default("WALLET_TOPUP"),
     failureReason: text("failure_reason"),
-    rawPayload: jsonb("raw_payload"),
+    rawPayload: json("raw_payload"),
     /**
      * The voucher code committed to at order-creation time (§19, §32) — read
      * back at verification rather than re-accepted from the client, so a
@@ -2426,13 +2869,13 @@ export const payments = pgTable(
      * already fixed. Null when no voucher was applied.
      */
     voucherCode: text("voucher_code"),
-    verifiedAt: timestamp("verified_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    verifiedAt: datetime("verified_at", { mode: "date", fsp: 3 }),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     uniqueIndex("payments_gateway_order_unique").on(t.gatewayOrderId),
@@ -2444,11 +2887,11 @@ export const payments = pgTable(
 
 /* --------------------------------------------------------------- wallet */
 
-export const wallets = pgTable(
+export const wallets = mysqlTable(
   "wallets",
   {
     id: uuidPk(),
-    userId: uuid("user_id")
+    userId: varchar("user_id", { length: 36 })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     balancePaise: bigint("balance_paise", { mode: "number" })
@@ -2468,7 +2911,7 @@ export const wallets = pgTable(
     })
       .notNull()
       .default(0),
-    currency: text("currency").notNull().default("INR"),
+    currency: varchar("currency", { length: 255 }).notNull().default("INR"),
     lowBalanceThresholdPaise: bigint("low_balance_threshold_paise", {
       mode: "number",
     })
@@ -2483,18 +2926,19 @@ export const wallets = pgTable(
     autoRechargeAmountPaise: bigint("auto_recharge_amount_paise", {
       mode: "number",
     }),
-    status: text("status", { enum: ["ACTIVE", "FROZEN"] })
+    status: varchar("status", { length: 255, enum: ["ACTIVE", "FROZEN"] })
       .notNull()
       .default("ACTIVE"),
-    lowBalanceNotifiedAt: timestamp("low_balance_notified_at", {
-      withTimezone: true,
+    lowBalanceNotifiedAt: datetime("low_balance_notified_at", {
+      mode: "date",
+      fsp: 3,
     }),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     uniqueIndex("wallets_user_unique").on(t.userId),
@@ -2511,14 +2955,14 @@ export const wallets = pgTable(
  * Immutable ledger. Never UPDATE or DELETE a row here — corrections are written
  * as a new REVERSAL entry.
  */
-export const walletTransactions = pgTable(
+export const walletTransactions = mysqlTable(
   "wallet_transactions",
   {
     id: uuidPk(),
-    walletId: uuid("wallet_id")
+    walletId: varchar("wallet_id", { length: 36 })
       .notNull()
       .references(() => wallets.id, { onDelete: "restrict" }),
-    userId: uuid("user_id")
+    userId: varchar("user_id", { length: 36 })
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
     type: walletTxnTypeEnum("type").notNull(),
@@ -2541,27 +2985,29 @@ export const walletTransactions = pgTable(
     })
       .notNull()
       .default(0),
-    orderId: uuid("order_id").references(() => orders.id),
-    subscriptionId: uuid("subscription_id"),
-    paymentId: uuid("payment_id").references(() => payments.id),
-    reversalOfId: uuid("reversal_of_id"),
+    orderId: varchar("order_id", { length: 36 }).references(() => orders.id),
+    subscriptionId: varchar("subscription_id", { length: 36 }),
+    paymentId: varchar("payment_id", { length: 36 }).references(
+      () => payments.id,
+    ),
+    reversalOfId: varchar("reversal_of_id", { length: 36 }),
     /**
      * voucher_redemptions.id — a plain uuid rather than .references() because
      * voucher_redemptions is declared later in this file (same rationale as
      * shops.registration_fee_id above); the FK constraint is added via raw
      * SQL in the migration once that table exists.
      */
-    voucherRedemptionId: uuid("voucher_redemption_id"),
+    voucherRedemptionId: varchar("voucher_redemption_id", { length: 36 }),
     /**
      * UNIQUE. This single index is what makes every wallet mutation safely
      * retryable: a duplicate attempt collides here instead of double-charging.
      */
-    idempotencyKey: text("idempotency_key").notNull(),
+    idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull(),
     description: text("description").notNull(),
-    createdBy: uuid("created_by").references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdBy: varchar("created_by", { length: 36 }).references(() => users.id),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     uniqueIndex("wallet_txn_idempotency_unique").on(t.idempotencyKey),
@@ -2599,13 +3045,13 @@ export const walletTransactions = pgTable(
  * (services/vouchers.ts) recomputes everything server-side and never trusts a
  * client-supplied bonus amount (§32).
  */
-export const vouchers = pgTable(
+export const vouchers = mysqlTable(
   "vouchers",
   {
     id: uuidPk(),
     name: text("name").notNull(),
     /** Stored upper-cased; NULL when applyMode is AUTO_APPLY. */
-    code: text("code"),
+    code: varchar("code", { length: 255 }),
     description: text("description"),
     termsAndConditions: text("terms_and_conditions"),
     applyMode: voucherApplyModeEnum("apply_mode").notNull().default("CODE"),
@@ -2615,30 +3061,30 @@ export const vouchers = pgTable(
       .notNull()
       .default(0),
     maximumBonusPaise: bigint("maximum_bonus_paise", { mode: "number" }),
-    startDate: date("start_date").notNull(),
-    endDate: date("end_date").notNull(),
+    startDate: date("start_date", { mode: "string" }).notNull(),
+    endDate: date("end_date", { mode: "string" }).notNull(),
     /** NULL = unlimited. */
-    usageLimit: integer("usage_limit"),
-    perCustomerLimit: integer("per_customer_limit").notNull().default(1),
+    usageLimit: int("usage_limit"),
+    perCustomerLimit: int("per_customer_limit").notNull().default(1),
     /** NULL = unlimited promotional liability. */
     totalBudgetPaise: bigint("total_budget_paise", { mode: "number" }),
     /** Running total of bonus paise issued — maintained atomically with every redemption. */
     budgetUsedPaise: bigint("budget_used_paise", { mode: "number" })
       .notNull()
       .default(0),
-    redemptionCount: integer("redemption_count").notNull().default(0),
+    redemptionCount: int("redemption_count").notNull().default(0),
     status: voucherStatusEnum("status").notNull().default("DRAFT"),
     /** Free-text scope hook for §26 (category/shop restriction) — unused by
      *  the engine in this first implementation, which applies vouchers to any
      *  eligible top-up per the brief's explicit "for the first implementation" scope. */
     applicableScope: text("applicable_scope"),
-    createdBy: uuid("created_by").references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdBy: varchar("created_by", { length: 36 }).references(() => users.id),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     uniqueIndex("vouchers_code_unique").on(t.code),
@@ -2651,7 +3097,10 @@ export const vouchers = pgTable(
       "vouchers_bonus_percent_range",
       sql`${t.bonusPercent} > 0 AND ${t.bonusPercent} <= 100`,
     ),
-    check("vouchers_minimum_topup_non_negative", sql`${t.minimumTopupPaise} >= 0`),
+    check(
+      "vouchers_minimum_topup_non_negative",
+      sql`${t.minimumTopupPaise} >= 0`,
+    ),
     check(
       "vouchers_maximum_bonus_non_negative",
       sql`${t.maximumBonusPaise} IS NULL OR ${t.maximumBonusPaise} >= 0`,
@@ -2661,7 +3110,10 @@ export const vouchers = pgTable(
       "vouchers_usage_limit_positive",
       sql`${t.usageLimit} IS NULL OR ${t.usageLimit} > 0`,
     ),
-    check("vouchers_per_customer_limit_positive", sql`${t.perCustomerLimit} > 0`),
+    check(
+      "vouchers_per_customer_limit_positive",
+      sql`${t.perCustomerLimit} > 0`,
+    ),
     check(
       "vouchers_budget_non_negative",
       sql`(${t.totalBudgetPaise} IS NULL OR ${t.totalBudgetPaise} >= 0) AND ${t.budgetUsedPaise} >= 0`,
@@ -2676,82 +3128,94 @@ export const vouchers = pgTable(
  * in the redemption engine — is what makes "prevent duplicate use even under
  * concurrent requests" (§22) true rather than aspirational.
  */
-export const voucherRedemptions = pgTable(
+export const voucherRedemptions = mysqlTable(
   "voucher_redemptions",
   {
     id: uuidPk(),
-    voucherId: uuid("voucher_id")
+    voucherId: varchar("voucher_id", { length: 36 })
       .notNull()
       .references(() => vouchers.id, { onDelete: "restrict" }),
-    userId: uuid("user_id")
+    userId: varchar("user_id", { length: 36 })
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
-    walletId: uuid("wallet_id")
+    walletId: varchar("wallet_id", { length: 36 })
       .notNull()
       .references(() => wallets.id, { onDelete: "restrict" }),
-    paymentId: uuid("payment_id").references(() => payments.id),
-    topupAmountPaise: bigint("topup_amount_paise", { mode: "number" }).notNull(),
+    paymentId: varchar("payment_id", { length: 36 }).references(
+      () => payments.id,
+    ),
+    topupAmountPaise: bigint("topup_amount_paise", {
+      mode: "number",
+    }).notNull(),
     bonusPercent: bigint("bonus_percent", { mode: "number" }).notNull(),
-    bonusAmountPaise: bigint("bonus_amount_paise", { mode: "number" }).notNull(),
+    bonusAmountPaise: bigint("bonus_amount_paise", {
+      mode: "number",
+    }).notNull(),
     status: voucherRedemptionStatusEnum("status").notNull().default("PENDING"),
     /**
      * Idempotency anchor: one redemption per payment. A retried/duplicate
      * verify call for the same payment can never double-apply the bonus.
      */
-    idempotencyKey: text("idempotency_key").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull(),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     uniqueIndex("voucher_redemptions_idempotency_unique").on(t.idempotencyKey),
     index("voucher_redemptions_voucher_idx").on(t.voucherId),
     index("voucher_redemptions_user_idx").on(t.userId),
-    check("voucher_redemptions_amounts_non_negative", sql`${t.topupAmountPaise} >= 0 AND ${t.bonusAmountPaise} >= 0`),
+    check(
+      "voucher_redemptions_amounts_non_negative",
+      sql`${t.topupAmountPaise} >= 0 AND ${t.bonusAmountPaise} >= 0`,
+    ),
   ],
 );
 
 /** One uploaded voucher spreadsheet (§16), mirroring excel_uploads' two-phase shape. */
-export const voucherUploads = pgTable(
+export const voucherUploads = mysqlTable(
   "voucher_uploads",
   {
     id: uuidPk(),
-    uploadedBy: uuid("uploaded_by")
+    uploadedBy: varchar("uploaded_by", { length: 36 })
       .notNull()
       .references(() => users.id),
     fileName: text("file_name").notNull(),
     status: voucherUploadStatusEnum("status").notNull().default("VALIDATED"),
-    totalRecords: integer("total_records").notNull().default(0),
-    successfulRecords: integer("successful_records").notNull().default(0),
-    failedRecords: integer("failed_records").notNull().default(0),
-    summary: jsonb("summary").$type<Record<string, unknown>>(),
-    appliedAt: timestamp("applied_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    totalRecords: int("total_records").notNull().default(0),
+    successfulRecords: int("successful_records").notNull().default(0),
+    failedRecords: int("failed_records").notNull().default(0),
+    summary: json("summary").$type<Record<string, unknown>>(),
+    appliedAt: datetime("applied_at", { mode: "date", fsp: 3 }),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [index("voucher_uploads_uploader_idx").on(t.uploadedBy)],
 );
 
-export const voucherUploadItems = pgTable(
+export const voucherUploadItems = mysqlTable(
   "voucher_upload_items",
   {
     id: uuidPk(),
-    uploadId: uuid("upload_id")
+    uploadId: varchar("upload_id", { length: 36 })
       .notNull()
       .references(() => voucherUploads.id, { onDelete: "cascade" }),
-    rowNumber: integer("row_number").notNull(),
-    rawData: jsonb("raw_data").$type<Record<string, unknown>>(),
+    rowNumber: int("row_number").notNull(),
+    rawData: json("raw_data").$type<Record<string, unknown>>(),
     voucherName: text("voucher_name"),
     voucherCode: text("voucher_code"),
     status: voucherUploadRowStatusEnum("status").notNull(),
     errorMessage: text("error_message"),
-    createdVoucherId: uuid("created_voucher_id").references(() => vouchers.id, {
-      onDelete: "set null",
-    }),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdVoucherId: varchar("created_voucher_id", { length: 36 }).references(
+      () => vouchers.id,
+      {
+        onDelete: "set null",
+      },
+    ),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     uniqueIndex("voucher_upload_items_row_unique").on(t.uploadId, t.rowNumber),
@@ -2761,39 +3225,43 @@ export const voucherUploadItems = pgTable(
 
 /* --------------------------------------------------------- subscriptions */
 
-export const subscriptions = pgTable(
+export const subscriptions = mysqlTable(
   "subscriptions",
   {
     id: uuidPk(),
-    userId: uuid("user_id")
+    userId: varchar("user_id", { length: 36 })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    shopId: uuid("shop_id")
+    shopId: varchar("shop_id", { length: 36 })
       .notNull()
       .references(() => shops.id, { onDelete: "restrict" }),
-    shopProductId: uuid("shop_product_id")
+    shopProductId: varchar("shop_product_id", { length: 36 })
       .notNull()
       .references(() => shopProducts.id, { onDelete: "restrict" }),
-    addressId: uuid("address_id").references(() => addresses.id),
+    addressId: varchar("address_id", { length: 36 }).references(
+      () => addresses.id,
+    ),
     /** Standing quantity per delivery, in milli-units (2 L/day → 2000). */
-    quantityMilli: integer("quantity_milli").notNull(),
-    frequency: subscriptionFrequencyEnum("frequency").notNull().default("DAILY"),
+    quantityMilli: int("quantity_milli").notNull(),
+    frequency: subscriptionFrequencyEnum("frequency")
+      .notNull()
+      .default("DAILY"),
     /** For WEEKLY: ISO weekdays 1-7 the delivery occurs on. */
-    weekdays: jsonb("weekdays").$type<number[]>().notNull().default([]),
-    startDate: date("start_date").notNull(),
-    endDate: date("end_date"),
-    nextDeliveryDate: date("next_delivery_date"),
+    weekdays: json("weekdays").$type<number[]>().notNull().default([]),
+    startDate: date("start_date", { mode: "string" }).notNull(),
+    endDate: date("end_date", { mode: "string" }),
+    nextDeliveryDate: date("next_delivery_date", { mode: "string" }),
     status: subscriptionStatusEnum("status").notNull().default("ACTIVE"),
-    pauseFrom: date("pause_from"),
-    pauseUntil: date("pause_until"),
-    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    pauseFrom: date("pause_from", { mode: "string" }),
+    pauseUntil: date("pause_until", { mode: "string" }),
+    cancelledAt: datetime("cancelled_at", { mode: "date", fsp: 3 }),
     cancellationReason: text("cancellation_reason"),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     index("subscriptions_user_idx").on(t.userId),
@@ -2813,24 +3281,24 @@ export const subscriptions = pgTable(
  * Per-date deviation (§28–§30). Because a row is scoped to exactly one date, the
  * schedule reverts to the standing quantity automatically the following day.
  */
-export const subscriptionDailyOverrides = pgTable(
+export const subscriptionDailyOverrides = mysqlTable(
   "subscription_daily_overrides",
   {
     id: uuidPk(),
-    subscriptionId: uuid("subscription_id")
+    subscriptionId: varchar("subscription_id", { length: 36 })
       .notNull()
       .references(() => subscriptions.id, { onDelete: "cascade" }),
-    deliveryDate: date("delivery_date").notNull(),
+    deliveryDate: date("delivery_date", { mode: "string" }).notNull(),
     type: overrideTypeEnum("type").notNull(),
     /** NULL when type = SKIP. */
-    quantityMilli: integer("quantity_milli"),
-    createdBy: uuid("created_by").references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    quantityMilli: int("quantity_milli"),
+    createdBy: varchar("created_by", { length: 36 }).references(() => users.id),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     uniqueIndex("sub_override_sub_date_unique").on(
@@ -2849,23 +3317,23 @@ export const subscriptionDailyOverrides = pgTable(
  * One materialised delivery for one date. The UNIQUE(subscription_id, delivery_date)
  * index is the mechanism that makes the daily generation job idempotent (§33).
  */
-export const subscriptionOrders = pgTable(
+export const subscriptionOrders = mysqlTable(
   "subscription_orders",
   {
     id: uuidPk(),
-    subscriptionId: uuid("subscription_id")
+    subscriptionId: varchar("subscription_id", { length: 36 })
       .notNull()
       .references(() => subscriptions.id, { onDelete: "cascade" }),
-    orderId: uuid("order_id").references(() => orders.id),
-    deliveryDate: date("delivery_date").notNull(),
-    quantityMilli: integer("quantity_milli").notNull(),
+    orderId: varchar("order_id", { length: 36 }).references(() => orders.id),
+    deliveryDate: date("delivery_date", { mode: "string" }).notNull(),
+    quantityMilli: int("quantity_milli").notNull(),
     unitPricePaise: bigint("unit_price_paise", { mode: "number" }).notNull(),
     totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
     status: orderStatusEnum("status").notNull().default("PENDING"),
     failureReason: text("failure_reason"),
-    generatedAt: timestamp("generated_at", { withTimezone: true })
+    generatedAt: datetime("generated_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     // Running the daily job twice cannot create a second delivery for a date.
@@ -2880,11 +3348,11 @@ export const subscriptionOrders = pgTable(
 
 /* -------------------------------------------------------- notifications */
 
-export const notifications = pgTable(
+export const notifications = mysqlTable(
   "notifications",
   {
     id: uuidPk(),
-    userId: uuid("user_id")
+    userId: varchar("user_id", { length: 36 })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     type: text("type").notNull(),
@@ -2893,14 +3361,14 @@ export const notifications = pgTable(
     body: text("body").notNull(),
     /** Deep link into the app, e.g. /wallet or /subscriptions/:id. */
     actionUrl: text("action_url"),
-    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
-    readAt: timestamp("read_at", { withTimezone: true }),
-    sentAt: timestamp("sent_at", { withTimezone: true }),
+    metadata: json("metadata").$type<Record<string, unknown>>(),
+    readAt: datetime("read_at", { mode: "date", fsp: 3 }),
+    sentAt: datetime("sent_at", { mode: "date", fsp: 3 }),
     /** Set for notifications that must not repeat (e.g. one low-balance alert). */
-    dedupeKey: text("dedupe_key"),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    dedupeKey: varchar("dedupe_key", { length: 255 }),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     index("notifications_user_idx").on(t.userId),
@@ -2913,19 +3381,27 @@ export const notifications = pgTable(
  * A user's choice per notification category and channel. No row = the
  * template's default applies. Security notices ignore these (always sent).
  */
-export const notificationPreferences = pgTable(
+export const notificationPreferences = mysqlTable(
   "notification_preferences",
   {
     id: uuidPk(),
-    userId: uuid("user_id")
+    userId: varchar("user_id", { length: 36 })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    category: text("category").notNull(),
+    category: varchar("category", { length: 255 }).notNull(),
     channel: notificationChannelEnum("channel").notNull(),
     enabled: boolean("enabled").notNull(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
-  (t) => [uniqueIndex("notification_preferences_unique").on(t.userId, t.category, t.channel)],
+  (t) => [
+    uniqueIndex("notification_preferences_unique").on(
+      t.userId,
+      t.category,
+      t.channel,
+    ),
+  ],
 );
 
 /**
@@ -2934,23 +3410,31 @@ export const notificationPreferences = pgTable(
  * then marked DEAD; SKIPPED means the channel had nowhere to send (no provider,
  * no address). The in-app inbox stays in `notifications`.
  */
-export const notificationDeliveries = pgTable(
+export const notificationDeliveries = mysqlTable(
   "notification_deliveries",
   {
     id: uuidPk(),
-    notificationId: uuid("notification_id").references(() => notifications.id, { onDelete: "set null" }),
-    userId: uuid("user_id")
+    notificationId: varchar("notification_id", { length: 36 }).references(
+      () => notifications.id,
+      { onDelete: "set null" },
+    ),
+    userId: varchar("user_id", { length: 36 })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     type: text("type").notNull(),
     category: text("category").notNull(),
     channel: notificationChannelEnum("channel").notNull(),
-    status: text("status", { enum: ["PENDING", "SENDING", "SENT", "FAILED", "SKIPPED", "DEAD"] })
+    status: varchar("status", {
+      length: 255,
+      enum: ["PENDING", "SENDING", "SENT", "FAILED", "SKIPPED", "DEAD"],
+    })
       .notNull()
       .default("PENDING"),
-    attempts: integer("attempts").notNull().default(0),
-    maxAttempts: integer("max_attempts").notNull().default(4),
-    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    attempts: int("attempts").notNull().default(0),
+    maxAttempts: int("max_attempts").notNull().default(4),
+    nextAttemptAt: datetime("next_attempt_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
     lastError: text("last_error"),
     providerRef: text("provider_ref"),
     toAddress: text("to_address"),
@@ -2958,9 +3442,13 @@ export const notificationDeliveries = pgTable(
     body: text("body").notNull(),
     html: text("html"),
     actionUrl: text("action_url"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    sentAt: timestamp("sent_at", { withTimezone: true }),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    sentAt: datetime("sent_at", { mode: "date", fsp: 3 }),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     index("notification_deliveries_due_idx").on(t.status, t.nextAttemptAt),
@@ -2975,20 +3463,20 @@ export const notificationDeliveries = pgTable(
  * inserts a new row and deactivates the previous one, so the amount in force on
  * any past date stays recoverable.
  */
-export const registrationFees = pgTable(
+export const registrationFees = mysqlTable(
   "registration_fees",
   {
     id: uuidPk(),
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
-    currency: text("currency").notNull().default("INR"),
-    effectiveFrom: date("effective_from").notNull(),
+    currency: varchar("currency", { length: 255 }).notNull().default("INR"),
+    effectiveFrom: date("effective_from", { mode: "string" }).notNull(),
     /** Exactly one row is active at a time; enforced by a partial unique index. */
     isActive: boolean("is_active").notNull().default(true),
     note: text("note"),
-    createdBy: uuid("created_by").references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdBy: varchar("created_by", { length: 36 }).references(() => users.id),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     index("registration_fees_effective_idx").on(t.effectiveFrom),
@@ -2997,51 +3485,61 @@ export const registrationFees = pgTable(
 );
 
 /** Immutable trail of fee changes (§12). Never updated, never deleted. */
-export const registrationFeeHistory = pgTable(
+export const registrationFeeHistory = mysqlTable(
   "registration_fee_history",
   {
     id: uuidPk(),
-    registrationFeeId: uuid("registration_fee_id")
-      .notNull()
-      .references(() => registrationFees.id, { onDelete: "restrict" }),
+    registrationFeeId: varchar("registration_fee_id", { length: 36 }).notNull(),
     previousAmountPaise: bigint("previous_amount_paise", { mode: "number" }),
     newAmountPaise: bigint("new_amount_paise", { mode: "number" }).notNull(),
-    effectiveFrom: date("effective_from").notNull(),
-    changedBy: uuid("changed_by")
+    effectiveFrom: date("effective_from", { mode: "string" }).notNull(),
+    changedBy: varchar("changed_by", { length: 36 })
       .notNull()
       .references(() => users.id),
     reason: text("reason"),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
-  (t) => [index("registration_fee_history_created_idx").on(t.createdAt)],
+  (t) => [
+    // Named explicitly: Drizzle's auto-generated name for this foreign key is
+    // longer than MySQL's 64-character identifier limit, which MySQL rejects
+    // outright (PostgreSQL silently truncated it).
+    foreignKey({
+      columns: [t.registrationFeeId],
+      foreignColumns: [registrationFees.id],
+      name: "reg_fee_history_fee_fk",
+    }).onDelete("restrict"),
+    index("registration_fee_history_created_idx").on(t.createdAt),
+  ],
 );
 
 /* -------------------------------------------------------- referral codes */
 
-export const referralCodes = pgTable(
+export const referralCodes = mysqlTable(
   "referral_codes",
   {
     id: uuidPk(),
     /** Stored upper-cased; matching is case-insensitive at the service layer. */
-    code: text("code").notNull(),
+    code: varchar("code", { length: 255 }).notNull(),
     label: text("label"),
     /** Optional: the person or partner the referral is credited to. */
     referrerName: text("referrer_name"),
-    referrerUserId: uuid("referrer_user_id").references(() => users.id),
+    referrerUserId: varchar("referrer_user_id", { length: 36 }).references(
+      () => users.id,
+    ),
     status: referralStatusEnum("status").notNull().default("ACTIVE"),
-    expiresAt: date("expires_at"),
+    expiresAt: date("expires_at", { mode: "string" }),
     note: text("note"),
-    createdBy: uuid("created_by")
+    createdBy: varchar("created_by", { length: 36 })
       .notNull()
       .references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     uniqueIndex("referral_codes_code_unique").on(t.code),
@@ -3050,21 +3548,23 @@ export const referralCodes = pgTable(
 );
 
 /** One row per shop that registered under a referral code. */
-export const referralRedemptions = pgTable(
+export const referralRedemptions = mysqlTable(
   "referral_redemptions",
   {
     id: uuidPk(),
-    referralCodeId: uuid("referral_code_id")
+    referralCodeId: varchar("referral_code_id", { length: 36 })
       .notNull()
       .references(() => referralCodes.id, { onDelete: "restrict" }),
-    shopId: uuid("shop_id")
+    shopId: varchar("shop_id", { length: 36 })
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
     registrationFeePaise: bigint("registration_fee_paise", { mode: "number" }),
-    redeemedBy: uuid("redeemed_by").references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    redeemedBy: varchar("redeemed_by", { length: 36 }).references(
+      () => users.id,
+    ),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     // A shop is attributed to at most one referral code.
@@ -3080,40 +3580,40 @@ export const referralRedemptions = pgTable(
  * new REVERSAL/REFUND row pointing at the original, never an UPDATE or DELETE —
  * the same discipline wallet_transactions uses.
  */
-export const shopPayments = pgTable(
+export const shopPayments = mysqlTable(
   "shop_payments",
   {
     id: uuidPk(),
     /** Human-readable receipt id shown to the owner, e.g. PAY-2026-000045. */
-    reference: text("reference").notNull(),
-    shopId: uuid("shop_id")
+    reference: varchar("reference", { length: 255 }).notNull(),
+    shopId: varchar("shop_id", { length: 36 })
       .notNull()
       .references(() => shops.id, { onDelete: "restrict" }),
-    ownerId: uuid("owner_id")
+    ownerId: varchar("owner_id", { length: 36 })
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
     paymentType: shopPaymentTypeEnum("payment_type").notNull(),
     /** Signed: positive for receipts, negative for refunds/reversals. */
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
-    currency: text("currency").notNull().default("INR"),
+    currency: varchar("currency", { length: 255 }).notNull().default("INR"),
     method: shopPaymentMethodEnum("method").notNull().default("CASH"),
     /** Bank/UPI/gateway reference supplied by the operator. */
     transactionId: text("transaction_id"),
     /** The fee this payment was settling — snapshot for reconciliation. */
     feeSnapshotPaise: bigint("fee_snapshot_paise", { mode: "number" }),
-    paidAt: timestamp("paid_at", { withTimezone: true })
+    paidAt: datetime("paid_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
     note: text("note"),
     receiptUrl: text("receipt_url"),
     /** Set on a REVERSAL/REFUND row to point at the payment being corrected. */
-    reversalOfId: uuid("reversal_of_id"),
-    recordedBy: uuid("recorded_by")
+    reversalOfId: varchar("reversal_of_id", { length: 36 }),
+    recordedBy: varchar("recorded_by", { length: 36 })
       .notNull()
       .references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     uniqueIndex("shop_payments_reference_unique").on(t.reference),
@@ -3130,33 +3630,33 @@ export const shopPayments = pgTable(
  * One uploaded spreadsheet. Rows land in excel_upload_items first and nothing
  * touches live prices until the upload is explicitly applied (§8, §24).
  */
-export const excelUploads = pgTable(
+export const excelUploads = mysqlTable(
   "excel_uploads",
   {
     id: uuidPk(),
-    shopId: uuid("shop_id")
+    shopId: varchar("shop_id", { length: 36 })
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
-    uploadedBy: uuid("uploaded_by")
+    uploadedBy: varchar("uploaded_by", { length: 36 })
       .notNull()
       .references(() => users.id),
     uploadType: excelUploadTypeEnum("upload_type").notNull().default("PRICES"),
     status: excelUploadStatusEnum("status").notNull().default("VALIDATED"),
     fileName: text("file_name").notNull(),
-    fileSizeBytes: integer("file_size_bytes").notNull().default(0),
-    totalRows: integer("total_rows").notNull().default(0),
-    validRows: integer("valid_rows").notNull().default(0),
-    invalidRows: integer("invalid_rows").notNull().default(0),
-    unchangedRows: integer("unchanged_rows").notNull().default(0),
-    duplicateRows: integer("duplicate_rows").notNull().default(0),
-    notFoundRows: integer("not_found_rows").notNull().default(0),
+    fileSizeBytes: int("file_size_bytes").notNull().default(0),
+    totalRows: int("total_rows").notNull().default(0),
+    validRows: int("valid_rows").notNull().default(0),
+    invalidRows: int("invalid_rows").notNull().default(0),
+    unchangedRows: int("unchanged_rows").notNull().default(0),
+    duplicateRows: int("duplicate_rows").notNull().default(0),
+    notFoundRows: int("not_found_rows").notNull().default(0),
     /** Counts and headline diffs, rendered on the preview screen. */
-    summary: jsonb("summary").$type<Record<string, unknown>>(),
+    summary: json("summary").$type<Record<string, unknown>>(),
     errorMessage: text("error_message"),
-    appliedAt: timestamp("applied_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    appliedAt: datetime("applied_at", { mode: "date", fsp: 3 }),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     index("excel_uploads_shop_idx").on(t.shopId),
@@ -3166,47 +3666,48 @@ export const excelUploads = pgTable(
 );
 
 /** One parsed spreadsheet row, with its validation verdict. */
-export const excelUploadItems = pgTable(
+export const excelUploadItems = mysqlTable(
   "excel_upload_items",
   {
     id: uuidPk(),
-    uploadId: uuid("upload_id")
+    uploadId: varchar("upload_id", { length: 36 })
       .notNull()
       .references(() => excelUploads.id, { onDelete: "cascade" }),
-    rowNumber: integer("row_number").notNull(),
+    rowNumber: int("row_number").notNull(),
     /** Verbatim cell values, so an operator can see exactly what they sent. */
-    rawData: jsonb("raw_data").$type<Record<string, unknown>>(),
+    rawData: json("raw_data").$type<Record<string, unknown>>(),
     productCode: text("product_code"),
     productName: text("product_name"),
     unit: text("unit"),
     parsedPricePaise: bigint("parsed_price_paise", { mode: "number" }),
     previousPricePaise: bigint("previous_price_paise", { mode: "number" }),
-    matchedShopProductId: uuid("matched_shop_product_id").references(
-      () => shopProducts.id,
-      { onDelete: "set null" },
-    ),
+    matchedShopProductId: varchar("matched_shop_product_id", {
+      length: 36,
+    }).references(() => shopProducts.id, { onDelete: "set null" }),
     /**
      * GOODS upload only: the row matched a product in the CENTRAL catalogue
      * that this shop does not yet carry — apply() attaches it via
      * createShopProduct rather than creating a new products row.
      */
-    matchedProductId: uuid("matched_product_id").references(() => products.id, {
-      onDelete: "set null",
-    }),
+    matchedProductId: varchar("matched_product_id", { length: 36 }).references(
+      () => products.id,
+      {
+        onDelete: "set null",
+      },
+    ),
     /**
      * GOODS upload only: set when a NEW_PRODUCT row's name is close to an
      * existing product, so the preview can warn "this looks like X" without
      * blocking the row (§ "flag it for review").
      */
-    possibleDuplicateProductId: uuid("possible_duplicate_product_id").references(
-      () => products.id,
-      { onDelete: "set null" },
-    ),
+    possibleDuplicateProductId: varchar("possible_duplicate_product_id", {
+      length: 36,
+    }).references(() => products.id, { onDelete: "set null" }),
     status: excelRowStatusEnum("status").notNull(),
     errorMessage: text("error_message"),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     uniqueIndex("excel_upload_items_row_unique").on(t.uploadId, t.rowNumber),
@@ -3220,27 +3721,30 @@ export const excelUploadItems = pgTable(
  * A group of proposed price changes submitted together (§2.4, §7). Batching is
  * what makes "Approve all" / "Reject all" a single decision.
  */
-export const priceUpdateBatches = pgTable(
+export const priceUpdateBatches = mysqlTable(
   "price_update_batches",
   {
     id: uuidPk(),
-    shopId: uuid("shop_id")
+    shopId: varchar("shop_id", { length: 36 })
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
     source: priceRequestSourceEnum("source").notNull(),
-    submittedBy: uuid("submitted_by")
+    submittedBy: varchar("submitted_by", { length: 36 })
       .notNull()
       .references(() => users.id),
-    excelUploadId: uuid("excel_upload_id").references(() => excelUploads.id, {
-      onDelete: "set null",
-    }),
+    excelUploadId: varchar("excel_upload_id", { length: 36 }).references(
+      () => excelUploads.id,
+      {
+        onDelete: "set null",
+      },
+    ),
     status: priceRequestStatusEnum("status").notNull().default("PENDING"),
     note: text("note"),
-    decidedBy: uuid("decided_by").references(() => users.id),
-    decidedAt: timestamp("decided_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    decidedBy: varchar("decided_by", { length: 36 }).references(() => users.id),
+    decidedAt: datetime("decided_at", { mode: "date", fsp: 3 }),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     index("price_update_batches_shop_idx").on(t.shopId),
@@ -3252,17 +3756,17 @@ export const priceUpdateBatches = pgTable(
  * One proposed price for one channel of one shop product. The live price in
  * shop_products is untouched until this row reaches APPROVED (§10).
  */
-export const priceUpdateRequests = pgTable(
+export const priceUpdateRequests = mysqlTable(
   "price_update_requests",
   {
     id: uuidPk(),
-    batchId: uuid("batch_id")
+    batchId: varchar("batch_id", { length: 36 })
       .notNull()
       .references(() => priceUpdateBatches.id, { onDelete: "cascade" }),
-    shopId: uuid("shop_id")
+    shopId: varchar("shop_id", { length: 36 })
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
-    shopProductId: uuid("shop_product_id")
+    shopProductId: varchar("shop_product_id", { length: 36 })
       .notNull()
       .references(() => shopProducts.id, { onDelete: "cascade" }),
     priceType: text("price_type", { enum: ["ONLINE", "OFFLINE"] }).notNull(),
@@ -3272,16 +3776,16 @@ export const priceUpdateRequests = pgTable(
     }).notNull(),
     status: priceRequestStatusEnum("status").notNull().default("PENDING"),
     source: priceRequestSourceEnum("source").notNull(),
-    submittedBy: uuid("submitted_by")
+    submittedBy: varchar("submitted_by", { length: 36 })
       .notNull()
       .references(() => users.id),
-    decidedBy: uuid("decided_by").references(() => users.id),
-    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decidedBy: varchar("decided_by", { length: 36 }).references(() => users.id),
+    decidedAt: datetime("decided_at", { mode: "date", fsp: 3 }),
     rejectionReason: text("rejection_reason"),
-    appliedAt: timestamp("applied_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    appliedAt: datetime("applied_at", { mode: "date", fsp: 3 }),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     index("price_update_requests_batch_idx").on(t.batchId),
@@ -3303,37 +3807,42 @@ export const priceUpdateRequests = pgTable(
  * (`submittedByUserId` nullable, `email` always required) — a grievance
  * about being unable to sign in must not itself require signing in.
  */
-export const grievances = pgTable(
+export const grievances = mysqlTable(
   "grievances",
   {
     id: uuidPk(),
     /** Human-readable reference, e.g. GRV-000123 — what the complainant quotes back. */
-    ticketNumber: text("ticket_number")
-      .notNull()
-      .default(sql`'GRV-' || lpad(nextval('grievance_ticket_seq')::text, 6, '0')`),
-    submittedByUserId: uuid("submitted_by_user_id").references(() => users.id, {
+    ticketNumber: varchar("ticket_number", { length: 255 }).notNull(),
+    submittedByUserId: varchar("submitted_by_user_id", {
+      length: 36,
+    }).references(() => users.id, {
       onDelete: "set null",
     }),
     /** The order a customer reported a problem with (GS-056 / WF-007). */
-    orderId: uuid("order_id").references(() => orders.id, { onDelete: "set null" }),
+    orderId: varchar("order_id", { length: 36 }).references(() => orders.id, {
+      onDelete: "set null",
+    }),
     name: text("name").notNull(),
-    email: text("email").notNull(),
+    email: varchar("email", { length: 255 }).notNull(),
     phone: text("phone"),
     category: grievanceCategoryEnum("category").notNull().default("OTHER"),
     subject: text("subject").notNull(),
     description: text("description").notNull(),
     status: grievanceStatusEnum("status").notNull().default("OPEN"),
-    assignedToUserId: uuid("assigned_to_user_id").references(() => users.id, {
-      onDelete: "set null",
-    }),
+    assignedToUserId: varchar("assigned_to_user_id", { length: 36 }).references(
+      () => users.id,
+      {
+        onDelete: "set null",
+      },
+    ),
     resolutionNotes: text("resolution_notes"),
-    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    resolvedAt: datetime("resolved_at", { mode: "date", fsp: 3 }),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true })
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     uniqueIndex("grievances_ticket_number_unique").on(t.ticketNumber),
@@ -3344,11 +3853,11 @@ export const grievances = pgTable(
 );
 
 /** Append-only — a consent is never edited or deleted, only superseded by a newer row. */
-export const userConsents = pgTable(
+export const userConsents = mysqlTable(
   "user_consents",
   {
     id: uuidPk(),
-    userId: uuid("user_id")
+    userId: varchar("user_id", { length: 36 })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     consentType: consentTypeEnum("consent_type").notNull(),
@@ -3357,9 +3866,9 @@ export const userConsents = pgTable(
     /** false = a withdrawal (DPDPA §6(4)). Every existing row was a grant. */
     granted: boolean("granted").notNull().default(true),
     ipAddress: text("ip_address"),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     index("user_consents_user_idx").on(t.userId),
@@ -3369,22 +3878,22 @@ export const userConsents = pgTable(
 
 /* ----------------------------------------------------------- audit logs */
 
-export const auditLogs = pgTable(
+export const auditLogs = mysqlTable(
   "audit_logs",
   {
     id: uuidPk(),
-    actorId: uuid("actor_id").references(() => users.id),
+    actorId: varchar("actor_id", { length: 36 }).references(() => users.id),
     actorRole: userRoleEnum("actor_role"),
     action: text("action").notNull(),
-    entityType: text("entity_type").notNull(),
-    entityId: text("entity_id"),
-    previousValue: jsonb("previous_value"),
-    newValue: jsonb("new_value"),
+    entityType: varchar("entity_type", { length: 255 }).notNull(),
+    entityId: varchar("entity_id", { length: 255 }),
+    previousValue: json("previous_value"),
+    newValue: json("new_value"),
     ipAddress: text("ip_address"),
     userAgent: text("user_agent"),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     index("audit_logs_actor_idx").on(t.actorId),
@@ -3400,20 +3909,20 @@ export const auditLogs = pgTable(
  * or map render — those never touch the server. Lets an admin see whether
  * "call Google exactly once per location" is actually being honoured.
  */
-export const mapsApiCallLog = pgTable(
+export const mapsApiCallLog = mysqlTable(
   "maps_api_call_log",
   {
     id: uuidPk(),
-    service: text("service", { enum: ["GEOCODING"] }).notNull(),
+    service: varchar("service", { length: 255, enum: ["GEOCODING"] }).notNull(),
     purpose: text("purpose").notNull(),
-    entityType: text("entity_type"),
-    entityId: text("entity_id"),
+    entityType: varchar("entity_type", { length: 255 }),
+    entityId: varchar("entity_id", { length: 255 }),
     success: boolean("success").notNull(),
-    responseTimeMs: integer("response_time_ms"),
+    responseTimeMs: int("response_time_ms"),
     errorMessage: text("error_message"),
-    createdAt: timestamp("created_at", { withTimezone: true })
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
       .notNull()
-      .defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     index("maps_api_call_log_service_idx").on(t.service),
@@ -3424,7 +3933,6 @@ export const mapsApiCallLog = pgTable(
 
 /* ------------------------------------------------------------ inference */
 
-
 /* ============================================================ society (Phase 2)
  * GS-005, GS-044..047, GA-001/002. A society is a verified residential
  * community. Roles are SCOPED to a society through society_members
@@ -3434,37 +3942,53 @@ export const mapsApiCallLog = pgTable(
  * navigation hint for people who administer at least one society.
  */
 
-export const societyStatusEnum = pgEnum("society_status", ["APPLIED", "VERIFIED", "REJECTED", "SUSPENDED"]);
-export const societyMemberRoleEnum = pgEnum("society_member_role", ["ADMIN", "OPERATOR", "RESIDENT"]);
-export const societyMemberStatusEnum = pgEnum("society_member_status", ["PENDING", "ACTIVE", "REMOVED"]);
-export const societyLinkStatusEnum = pgEnum("society_link_status", ["ACTIVE", "REVOKED"]);
+export const societyStatusEnum = mysqlEnumType([
+  "APPLIED",
+  "VERIFIED",
+  "REJECTED",
+  "SUSPENDED",
+]);
+export const societyMemberRoleEnum = mysqlEnumType([
+  "ADMIN",
+  "OPERATOR",
+  "RESIDENT",
+]);
+export const societyMemberStatusEnum = mysqlEnumType([
+  "PENDING",
+  "ACTIVE",
+  "REMOVED",
+]);
+export const societyLinkStatusEnum = mysqlEnumType(["ACTIVE", "REVOKED"]);
 
-export const societies = pgTable(
+export const societies = mysqlTable(
   "societies",
   {
     id: uuidPk(),
     name: text("name").notNull(),
-    slug: text("slug").notNull(),
+    slug: varchar("slug", { length: 255 }).notNull(),
     addressLine1: text("address_line1").notNull(),
     area: text("area"),
     city: text("city").notNull(),
-    pincode: text("pincode").notNull(),
+    pincode: varchar("pincode", { length: 255 }).notNull(),
     latitude: text("latitude"),
     longitude: text("longitude"),
     /** Addresses within this distance of the society pin are treated as inside it. */
-    boundaryRadiusMeters: integer("boundary_radius_meters").notNull().default(300),
+    boundaryRadiusMeters: int("boundary_radius_meters").notNull().default(300),
     status: societyStatusEnum("status").notNull().default("APPLIED"),
     /** Gate / parking / access notes shown only to the rider on an active job (GS-047). */
     deliveryInstructions: text("delivery_instructions"),
     /** Notify society admins/operators when a rider is assigned to a society order (GS-046). */
-    securityNotifyEnabled: boolean("security_notify_enabled").notNull().default(false),
+    securityNotifyEnabled: boolean("security_notify_enabled")
+      .notNull()
+      .default(false),
     /**
      * Gate-access workflow. OPEN: riders walk in. CALL_RESIDENT: the gate calls
      * the resident before letting the rider in. PRE_APPROVAL: the resident
      * approves the rider ahead of arrival. DROP_AT_GATE: goods are handed over
      * at the gate.
      */
-    gateEntryMode: text("gate_entry_mode", {
+    gateEntryMode: varchar("gate_entry_mode", {
+      length: 255,
       enum: ["OPEN", "CALL_RESIDENT", "PRE_APPROVAL", "DROP_AT_GATE"],
     })
       .notNull()
@@ -3472,45 +3996,66 @@ export const societies = pgTable(
     /** Security desk contact; shown to a rider only when `shareGateContactWithRider` is on. */
     gateContactName: text("gate_contact_name"),
     gateContactPhone: text("gate_contact_phone"),
-    shareGateContactWithRider: boolean("share_gate_contact_with_rider").notNull().default(false),
+    shareGateContactWithRider: boolean("share_gate_contact_with_rider")
+      .notNull()
+      .default(false),
     /** Tell the customer when the rider reaches the gate, with what the gate will ask of them. */
-    notifyCustomerAtGate: boolean("notify_customer_at_gate").notNull().default(true),
+    notifyCustomerAtGate: boolean("notify_customer_at_gate")
+      .notNull()
+      .default(true),
     /** GA-001: when true and the rider list is non-empty, only listed riders may deliver here. */
     exclusiveRiders: boolean("exclusive_riders").notNull().default(false),
-    registeredBy: uuid("registered_by").references(() => users.id),
-    verifiedBy: uuid("verified_by").references(() => users.id),
-    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    registeredBy: varchar("registered_by", { length: 36 }).references(
+      () => users.id,
+    ),
+    verifiedBy: varchar("verified_by", { length: 36 }).references(
+      () => users.id,
+    ),
+    verifiedAt: datetime("verified_at", { mode: "date", fsp: 3 }),
     rejectionReason: text("rejection_reason"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    deletedAt: datetime("deleted_at", { mode: "date", fsp: 3 }),
   },
   (t) => [
     uniqueIndex("societies_slug_unique").on(t.slug),
     index("societies_status_idx").on(t.status),
     index("societies_pincode_idx").on(t.pincode),
-    check("societies_boundary_range", sql`${t.boundaryRadiusMeters} BETWEEN 50 AND 3000`),
+    check(
+      "societies_boundary_range",
+      sql`${t.boundaryRadiusMeters} BETWEEN 50 AND 3000`,
+    ),
   ],
 );
 
-export const societyMembers = pgTable(
+export const societyMembers = mysqlTable(
   "society_members",
   {
     id: uuidPk(),
-    societyId: uuid("society_id")
+    societyId: varchar("society_id", { length: 36 })
       .notNull()
       .references(() => societies.id, { onDelete: "cascade" }),
-    userId: uuid("user_id")
+    userId: varchar("user_id", { length: 36 })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     role: societyMemberRoleEnum("role").notNull().default("RESIDENT"),
     status: societyMemberStatusEnum("status").notNull().default("PENDING"),
     /** Flat / house / tower label as the resident gave it, e.g. "B-1204". */
     unitLabel: text("unit_label"),
-    approvedBy: uuid("approved_by").references(() => users.id),
-    approvedAt: timestamp("approved_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    approvedBy: varchar("approved_by", { length: 36 }).references(
+      () => users.id,
+    ),
+    approvedAt: datetime("approved_at", { mode: "date", fsp: 3 }),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     uniqueIndex("society_members_unique").on(t.societyId, t.userId),
@@ -3519,23 +4064,27 @@ export const societyMembers = pgTable(
 );
 
 /** GS-045 authorised rider list; `preferred` = GA-002 preferred partner. */
-export const societyRiders = pgTable(
+export const societyRiders = mysqlTable(
   "society_riders",
   {
     id: uuidPk(),
-    societyId: uuid("society_id")
+    societyId: varchar("society_id", { length: 36 })
       .notNull()
       .references(() => societies.id, { onDelete: "cascade" }),
-    deliveryPartnerId: uuid("delivery_partner_id")
+    deliveryPartnerId: varchar("delivery_partner_id", { length: 36 })
       .notNull()
       .references(() => deliveryPartners.id, { onDelete: "cascade" }),
     status: societyLinkStatusEnum("status").notNull().default("ACTIVE"),
     preferred: boolean("preferred").notNull().default(false),
-    addedBy: uuid("added_by").references(() => users.id),
-    revokedBy: uuid("revoked_by").references(() => users.id),
-    revokedAt: timestamp("revoked_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    addedBy: varchar("added_by", { length: 36 }).references(() => users.id),
+    revokedBy: varchar("revoked_by", { length: 36 }).references(() => users.id),
+    revokedAt: datetime("revoked_at", { mode: "date", fsp: 3 }),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     uniqueIndex("society_riders_unique").on(t.societyId, t.deliveryPartnerId),
@@ -3544,20 +4093,24 @@ export const societyRiders = pgTable(
 );
 
 /** Shops a society lists for its residents (society-aware discovery). */
-export const societyShops = pgTable(
+export const societyShops = mysqlTable(
   "society_shops",
   {
     id: uuidPk(),
-    societyId: uuid("society_id")
+    societyId: varchar("society_id", { length: 36 })
       .notNull()
       .references(() => societies.id, { onDelete: "cascade" }),
-    shopId: uuid("shop_id")
+    shopId: varchar("shop_id", { length: 36 })
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
     status: societyLinkStatusEnum("status").notNull().default("ACTIVE"),
-    addedBy: uuid("added_by").references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    addedBy: varchar("added_by", { length: 36 }).references(() => users.id),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [uniqueIndex("society_shops_unique").on(t.societyId, t.shopId)],
 );
@@ -3569,34 +4122,43 @@ export const societyShops = pgTable(
  * shops / delivery_partners and are recomputed from VISIBLE rows.
  */
 
-export const ratingTargetEnum = pgEnum("rating_target", ["SHOP", "DELIVERY_PARTNER"]);
-export const ratingStatusEnum = pgEnum("rating_status", ["VISIBLE", "HIDDEN"]);
+export const ratingTargetEnum = mysqlEnumType(["SHOP", "DELIVERY_PARTNER"]);
+export const ratingStatusEnum = mysqlEnumType(["VISIBLE", "HIDDEN"]);
 
-export const orderRatings = pgTable(
+export const orderRatings = mysqlTable(
   "order_ratings",
   {
     id: uuidPk(),
-    orderId: uuid("order_id")
+    orderId: varchar("order_id", { length: 36 })
       .notNull()
       .references(() => orders.id, { onDelete: "cascade" }),
     targetType: ratingTargetEnum("target_type").notNull(),
-    customerId: uuid("customer_id")
+    customerId: varchar("customer_id", { length: 36 })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
-    shopId: uuid("shop_id")
+    shopId: varchar("shop_id", { length: 36 })
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
-    deliveryPartnerId: uuid("delivery_partner_id").references(() => deliveryPartners.id, { onDelete: "cascade" }),
-    score: integer("score").notNull(),
+    deliveryPartnerId: varchar("delivery_partner_id", {
+      length: 36,
+    }).references(() => deliveryPartners.id, { onDelete: "cascade" }),
+    score: int("score").notNull(),
     comment: text("comment"),
     status: ratingStatusEnum("status").notNull().default("VISIBLE"),
-    moderatedBy: uuid("moderated_by").references(() => users.id),
-    moderatedAt: timestamp("moderated_at", { withTimezone: true }),
+    moderatedBy: varchar("moderated_by", { length: 36 }).references(
+      () => users.id,
+    ),
+    moderatedAt: datetime("moderated_at", { mode: "date", fsp: 3 }),
     moderationReason: text("moderation_reason"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
-    uniqueIndex("order_ratings_order_target_unique").on(t.orderId, t.targetType),
+    uniqueIndex("order_ratings_order_target_unique").on(
+      t.orderId,
+      t.targetType,
+    ),
     index("order_ratings_shop_idx").on(t.shopId),
     index("order_ratings_partner_idx").on(t.deliveryPartnerId),
     check("order_ratings_score_range", sql`${t.score} BETWEEN 1 AND 5`),
@@ -3610,19 +4172,21 @@ export const orderRatings = pgTable(
 /* ================================================ subscription history (Phase 2) */
 
 /** Append-only lifecycle history of a subscription (created, paused, resumed, skipped, cancelled, payment failed). */
-export const subscriptionEvents = pgTable(
+export const subscriptionEvents = mysqlTable(
   "subscription_events",
   {
     id: uuidPk(),
-    subscriptionId: uuid("subscription_id")
+    subscriptionId: varchar("subscription_id", { length: 36 })
       .notNull()
       .references(() => subscriptions.id, { onDelete: "cascade" }),
     action: text("action").notNull(),
     fromStatus: subscriptionStatusEnum("from_status"),
     toStatus: subscriptionStatusEnum("to_status"),
     note: text("note"),
-    actorId: uuid("actor_id").references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    actorId: varchar("actor_id", { length: 36 }).references(() => users.id),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [index("subscription_events_subscription_idx").on(t.subscriptionId)],
 );
@@ -3647,9 +4211,13 @@ export const subscriptionEvents = pgTable(
  * earnings are a platform cost (D6).
  */
 
-export const commissionScopeEnum = pgEnum("commission_scope", ["DEFAULT", "SHOP_TYPE", "SHOP"]);
+export const commissionScopeEnum = mysqlEnumType([
+  "DEFAULT",
+  "SHOP_TYPE",
+  "SHOP",
+]);
 
-export const commissionRates = pgTable(
+export const commissionRates = mysqlTable(
   "commission_rates",
   {
     id: uuidPk(),
@@ -3657,13 +4225,17 @@ export const commissionRates = pgTable(
     /** Set for SHOP_TYPE. */
     shopType: shopTypeEnum("shop_type"),
     /** Set for SHOP. */
-    shopId: uuid("shop_id").references(() => shops.id, { onDelete: "restrict" }),
+    shopId: varchar("shop_id", { length: 36 }).references(() => shops.id, {
+      onDelete: "restrict",
+    }),
     /** Basis points: 500 = 5.00%. */
-    rateBp: integer("rate_bp").notNull(),
+    rateBp: int("rate_bp").notNull(),
     isActive: boolean("is_active").notNull().default(true),
     note: text("note"),
-    createdBy: uuid("created_by").references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdBy: varchar("created_by", { length: 36 }).references(() => users.id),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     index("commission_rates_lookup_idx").on(t.scope, t.shopType, t.shopId),
@@ -3684,7 +4256,7 @@ export const commissionRates = pgTable(
  * PAID → REVERSED (returned by the bank; items become payable again).
  * PENDING/ELIGIBLE → CANCELLED (items released to the next batch).
  */
-export const payoutStatusEnum = pgEnum("payout_status", [
+export const payoutStatusEnum = mysqlEnumType([
   "PENDING",
   "ELIGIBLE",
   "PROCESSING",
@@ -3700,29 +4272,33 @@ const payoutLifecycleColumns = () => ({
   paymentReference: text("payment_reference"),
   /** Why the bank rejected or reversed it. */
   failureReason: text("failure_reason"),
-  approvedBy: uuid("approved_by").references(() => users.id),
-  approvedAt: timestamp("approved_at", { withTimezone: true }),
-  processingAt: timestamp("processing_at", { withTimezone: true }),
-  paidBy: uuid("paid_by").references(() => users.id),
-  paidAt: timestamp("paid_at", { withTimezone: true }),
-  failedAt: timestamp("failed_at", { withTimezone: true }),
-  reversedAt: timestamp("reversed_at", { withTimezone: true }),
-  createdBy: uuid("created_by").references(() => users.id),
-  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  approvedBy: varchar("approved_by", { length: 36 }).references(() => users.id),
+  approvedAt: datetime("approved_at", { mode: "date", fsp: 3 }),
+  processingAt: datetime("processing_at", { mode: "date", fsp: 3 }),
+  paidBy: varchar("paid_by", { length: 36 }).references(() => users.id),
+  paidAt: datetime("paid_at", { mode: "date", fsp: 3 }),
+  failedAt: datetime("failed_at", { mode: "date", fsp: 3 }),
+  reversedAt: datetime("reversed_at", { mode: "date", fsp: 3 }),
+  createdBy: varchar("created_by", { length: 36 }).references(() => users.id),
+  createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP(3)`),
+  updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
+    .notNull()
+    .default(sql`CURRENT_TIMESTAMP(3)`),
 });
 
-export const shopSettlements = pgTable(
+export const shopSettlements = mysqlTable(
   "shop_settlements",
   {
     id: uuidPk(),
-    shopId: uuid("shop_id")
+    shopId: varchar("shop_id", { length: 36 })
       .notNull()
       .references(() => shops.id, { onDelete: "restrict" }),
     /** Inclusive start / exclusive end of the settlement week (app-time-zone dates). */
-    periodStart: date("period_start").notNull(),
-    periodEnd: date("period_end").notNull(),
-    orderCount: integer("order_count").notNull(),
+    periodStart: date("period_start", { mode: "string" }).notNull(),
+    periodEnd: date("period_end", { mode: "string" }).notNull(),
+    orderCount: int("order_count").notNull(),
     /** Gross goods value of the settled orders. */
     goodsPaise: bigint("goods_paise", { mode: "number" }).notNull(),
     commissionPaise: bigint("commission_paise", { mode: "number" }).notNull(),
@@ -3741,16 +4317,16 @@ export const shopSettlements = pgTable(
   ],
 );
 
-export const riderPayouts = pgTable(
+export const riderPayouts = mysqlTable(
   "rider_payouts",
   {
     id: uuidPk(),
-    deliveryPartnerId: uuid("delivery_partner_id")
+    deliveryPartnerId: varchar("delivery_partner_id", { length: 36 })
       .notNull()
       .references(() => deliveryPartners.id, { onDelete: "restrict" }),
-    periodStart: date("period_start").notNull(),
-    periodEnd: date("period_end").notNull(),
-    earningsCount: integer("earnings_count").notNull(),
+    periodStart: date("period_start", { mode: "string" }).notNull(),
+    periodEnd: date("period_end", { mode: "string" }).notNull(),
+    earningsCount: int("earnings_count").notNull(),
     /** Sum of the batched earnings. */
     grossPaise: bigint("gross_paise", { mode: "number" }).notNull(),
     /** Rider / delivery adjustments (±). */
@@ -3765,37 +4341,49 @@ export const riderPayouts = pgTable(
   ],
 );
 
-export const orderFinancials = pgTable(
+export const orderFinancials = mysqlTable(
   "order_financials",
   {
-    orderId: uuid("order_id")
+    orderId: varchar("order_id", { length: 36 })
       .primaryKey()
       .references(() => orders.id, { onDelete: "restrict" }),
-    shopId: uuid("shop_id")
+    shopId: varchar("shop_id", { length: 36 })
       .notNull()
       .references(() => shops.id, { onDelete: "restrict" }),
-    customerId: uuid("customer_id")
+    customerId: varchar("customer_id", { length: 36 })
       .notNull()
       .references(() => users.id, { onDelete: "restrict" }),
     /** The customer's wallet debit that paid for the order (Part A payment link). */
-    paymentTransactionId: uuid("payment_transaction_id"),
+    paymentTransactionId: varchar("payment_transaction_id", { length: 36 }),
     /** Goods actually sold (order subtotal after removed/substituted lines). */
     goodsPaise: bigint("goods_paise", { mode: "number" }).notNull(),
     /** Part of the payment funded by promotional wallet credit — a platform-funded discount. */
-    discountPaise: bigint("discount_paise", { mode: "number" }).notNull().default(0),
+    discountPaise: bigint("discount_paise", { mode: "number" })
+      .notNull()
+      .default(0),
     /** Delivery fee the customer paid — platform revenue (D6). */
-    deliveryFeePaise: bigint("delivery_fee_paise", { mode: "number" }).notNull(),
+    deliveryFeePaise: bigint("delivery_fee_paise", {
+      mode: "number",
+    }).notNull(),
     /** GMV of this order: goods + delivery fee as delivered. */
     gmvPaise: bigint("gmv_paise", { mode: "number" }).notNull(),
     /** Rate applied, snapshotted — later rate changes never rewrite it. */
-    commissionRateBp: integer("commission_rate_bp").notNull(),
-    commissionRateId: uuid("commission_rate_id").references(() => commissionRates.id),
+    commissionRateBp: int("commission_rate_bp").notNull(),
+    commissionRateId: varchar("commission_rate_id", { length: 36 }).references(
+      () => commissionRates.id,
+    ),
     commissionPaise: bigint("commission_paise", { mode: "number" }).notNull(),
     /** goods − commission; owed to the shop for this order before refunds/adjustments. */
-    shopPayablePaise: bigint("shop_payable_paise", { mode: "number" }).notNull(),
-    deliveredAt: timestamp("delivered_at", { withTimezone: true }).notNull(),
-    settlementId: uuid("settlement_id").references(() => shopSettlements.id),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    shopPayablePaise: bigint("shop_payable_paise", {
+      mode: "number",
+    }).notNull(),
+    deliveredAt: datetime("delivered_at", { mode: "date", fsp: 3 }).notNull(),
+    settlementId: varchar("settlement_id", { length: 36 }).references(
+      () => shopSettlements.id,
+    ),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     index("order_financials_shop_idx").on(t.shopId),
@@ -3804,9 +4392,9 @@ export const orderFinancials = pgTable(
   ],
 );
 
-export const financialPartyEnum = pgEnum("financial_party", ["SHOP", "RIDER", "PLATFORM"]);
+export const financialPartyEnum = mysqlEnumType(["SHOP", "RIDER", "PLATFORM"]);
 
-export const adjustmentTypeEnum = pgEnum("financial_adjustment_type", [
+export const adjustmentTypeEnum = mysqlEnumType([
   /** Refund to the customer after delivery; the shop bears its share. */
   "REFUND_SHOP",
   /** Refund to the customer after delivery; the platform bears it. */
@@ -3825,7 +4413,7 @@ export const adjustmentTypeEnum = pgEnum("financial_adjustment_type", [
   "COD_CASH_DEPOSITED",
 ]);
 
-export const adjustmentStatusEnum = pgEnum("financial_adjustment_status", [
+export const adjustmentStatusEnum = mysqlEnumType([
   /** Waiting for the next settlement/payout batch. */
   "PENDING",
   /** Included in a batch. */
@@ -3834,33 +4422,53 @@ export const adjustmentStatusEnum = pgEnum("financial_adjustment_status", [
   "RECORDED",
 ]);
 
-export const financialAdjustments = pgTable(
+export const financialAdjustments = mysqlTable(
   "financial_adjustments",
   {
     id: uuidPk(),
     type: adjustmentTypeEnum("type").notNull(),
     party: financialPartyEnum("party").notNull(),
     status: adjustmentStatusEnum("status").notNull().default("PENDING"),
-    shopId: uuid("shop_id").references(() => shops.id, { onDelete: "restrict" }),
-    deliveryPartnerId: uuid("delivery_partner_id").references(() => deliveryPartners.id, {
+    shopId: varchar("shop_id", { length: 36 }).references(() => shops.id, {
       onDelete: "restrict",
     }),
-    orderId: uuid("order_id").references(() => orders.id, { onDelete: "restrict" }),
+    deliveryPartnerId: varchar("delivery_partner_id", { length: 36 }),
+    orderId: varchar("order_id", { length: 36 }).references(() => orders.id, {
+      onDelete: "restrict",
+    }),
     /** The wallet ledger row of a customer refund (the refund's payment reference). */
-    walletTransactionId: uuid("wallet_transaction_id"),
+    walletTransactionId: varchar("wallet_transaction_id", { length: 36 }),
     /** Effect on the party: + owed to it, − recovered from it. */
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
     /** What the customer got back (refunds), for reporting and reconciliation. */
-    customerRefundPaise: bigint("customer_refund_paise", { mode: "number" }).notNull().default(0),
+    customerRefundPaise: bigint("customer_refund_paise", { mode: "number" })
+      .notNull()
+      .default(0),
     reason: text("reason").notNull(),
-    settlementId: uuid("settlement_id").references(() => shopSettlements.id),
-    payoutId: uuid("payout_id").references(() => riderPayouts.id),
-    idempotencyKey: text("idempotency_key").notNull(),
-    createdBy: uuid("created_by").references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    settlementId: varchar("settlement_id", { length: 36 }).references(
+      () => shopSettlements.id,
+    ),
+    payoutId: varchar("payout_id", { length: 36 }).references(
+      () => riderPayouts.id,
+    ),
+    idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull(),
+    createdBy: varchar("created_by", { length: 36 }).references(() => users.id),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
-    uniqueIndex("financial_adjustments_idempotency_unique").on(t.idempotencyKey),
+    // Named explicitly: Drizzle's auto-generated name for this foreign key is
+    // longer than MySQL's 64-character identifier limit, which MySQL rejects
+    // outright (PostgreSQL silently truncated it).
+    foreignKey({
+      columns: [t.deliveryPartnerId],
+      foreignColumns: [deliveryPartners.id],
+      name: "fin_adjustments_partner_fk",
+    }).onDelete("restrict"),
+    uniqueIndex("financial_adjustments_idempotency_unique").on(
+      t.idempotencyKey,
+    ),
     index("financial_adjustments_shop_idx").on(t.shopId),
     index("financial_adjustments_partner_idx").on(t.deliveryPartnerId),
     index("financial_adjustments_order_idx").on(t.orderId),
@@ -3873,7 +4481,7 @@ export const financialAdjustments = pgTable(
   ],
 );
 
-export const ledgerEntryTypeEnum = pgEnum("ledger_entry_type", [
+export const ledgerEntryTypeEnum = mysqlEnumType([
   "GOODS_SALE",
   "COMMISSION",
   "DELIVERY_FEE",
@@ -3888,7 +4496,7 @@ export const ledgerEntryTypeEnum = pgEnum("ledger_entry_type", [
   "COD_CASH",
 ]);
 
-export const ledgerDirectionEnum = pgEnum("ledger_direction", ["CREDIT", "DEBIT"]);
+export const ledgerDirectionEnum = mysqlEnumType(["CREDIT", "DEBIT"]);
 
 /**
  * Append-only marketplace journal (Part I). CREDIT = the entity is owed /
@@ -3896,27 +4504,31 @@ export const ledgerDirectionEnum = pgEnum("ledger_direction", ["CREDIT", "DEBIT"
  * entries under the same idempotency prefix. Customer money stays in the
  * wallet ledger — referenced here, never duplicated.
  */
-export const financeLedgerEntries = pgTable(
+export const financeLedgerEntries = mysqlTable(
   "finance_ledger_entries",
   {
     id: uuidPk(),
-    orderId: uuid("order_id").references(() => orders.id, { onDelete: "restrict" }),
+    orderId: varchar("order_id", { length: 36 }).references(() => orders.id, {
+      onDelete: "restrict",
+    }),
     entityType: financialPartyEnum("entity_type").notNull(),
     /** Shop id, delivery partner id, or null for the platform. */
-    entityId: uuid("entity_id"),
+    entityId: varchar("entity_id", { length: 36 }),
     entryType: ledgerEntryTypeEnum("entry_type").notNull(),
     direction: ledgerDirectionEnum("direction").notNull(),
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
-    currency: text("currency").notNull().default("INR"),
+    currency: varchar("currency", { length: 255 }).notNull().default("INR"),
     /** The record this entry came from: order_financials, adjustment, settlement, payout, earning. */
     sourceType: text("source_type").notNull(),
     sourceId: text("source_id").notNull(),
     /** Payment/bank reference where one exists. */
     reference: text("reference"),
-    status: text("status").notNull().default("POSTED"),
-    idempotencyKey: text("idempotency_key").notNull(),
-    createdBy: uuid("created_by").references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    status: varchar("status", { length: 255 }).notNull().default("POSTED"),
+    idempotencyKey: varchar("idempotency_key", { length: 255 }).notNull(),
+    createdBy: varchar("created_by", { length: 36 }).references(() => users.id),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     uniqueIndex("finance_ledger_idempotency_unique").on(t.idempotencyKey),
@@ -3927,7 +4539,7 @@ export const financeLedgerEntries = pgTable(
   ],
 );
 
-export const reconciliationEntityEnum = pgEnum("reconciliation_entity", [
+export const reconciliationEntityEnum = mysqlEnumType([
   "PAYMENT",
   "ORDER",
   "SHOP",
@@ -3936,7 +4548,7 @@ export const reconciliationEntityEnum = pgEnum("reconciliation_entity", [
   "PAYOUT",
 ]);
 
-export const reconciliationStatusEnum = pgEnum("reconciliation_status", [
+export const reconciliationStatusEnum = mysqlEnumType([
   "UNMATCHED",
   "MATCHED",
   "PARTIAL",
@@ -3945,27 +4557,37 @@ export const reconciliationStatusEnum = pgEnum("reconciliation_status", [
 ]);
 
 /** Latest reconciliation result per entity (Part H); RECONCILED once a person resolves it. */
-export const reconciliationRecords = pgTable(
+export const reconciliationRecords = mysqlTable(
   "reconciliation_records",
   {
     id: uuidPk(),
     entityType: reconciliationEntityEnum("entity_type").notNull(),
-    entityId: text("entity_id").notNull(),
+    entityId: varchar("entity_id", { length: 255 }).notNull(),
     /** Human reference: order number, gateway order id, settlement id. */
     reference: text("reference").notNull(),
-    checkType: text("check_type").notNull(),
+    checkType: varchar("check_type", { length: 255 }).notNull(),
     expectedPaise: bigint("expected_paise", { mode: "number" }),
     actualPaise: bigint("actual_paise", { mode: "number" }),
     status: reconciliationStatusEnum("status").notNull(),
     detail: text("detail"),
-    lastCheckedAt: timestamp("last_checked_at", { withTimezone: true }).notNull().defaultNow(),
-    resolvedBy: uuid("resolved_by").references(() => users.id),
-    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    lastCheckedAt: datetime("last_checked_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    resolvedBy: varchar("resolved_by", { length: 36 }).references(
+      () => users.id,
+    ),
+    resolvedAt: datetime("resolved_at", { mode: "date", fsp: 3 }),
     resolutionNote: text("resolution_note"),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
-    uniqueIndex("reconciliation_entity_check_unique").on(t.entityType, t.entityId, t.checkType),
+    uniqueIndex("reconciliation_entity_check_unique").on(
+      t.entityType,
+      t.entityId,
+      t.checkType,
+    ),
     index("reconciliation_status_idx").on(t.status),
   ],
 );
@@ -3975,7 +4597,7 @@ export const reconciliationRecords = pgTable(
  * segments and shop campaigns (GS-052/053, WF-009, KPI-015), fraud / risk
  * rules (GS-068). */
 
-export const roleGrantStatusEnum = pgEnum("role_grant_status", ["ACTIVE", "REVOKED"]);
+export const roleGrantStatusEnum = mysqlEnumType(["ACTIVE", "REVOKED"]);
 
 /**
  * Roles a user holds (GS-003). `users.role` is the ACTIVE role — the one the
@@ -3983,21 +4605,23 @@ export const roleGrantStatusEnum = pgEnum("role_grant_status", ["ACTIVE", "REVOK
  * granted here. CUSTOMER is implicit for everyone. Business approval stays
  * with each role's own flow (shop approval, rider KYC, society verification).
  */
-export const userRoleGrants = pgTable(
+export const userRoleGrants = mysqlTable(
   "user_role_grants",
   {
     id: uuidPk(),
-    userId: uuid("user_id")
+    userId: varchar("user_id", { length: 36 })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     role: userRoleEnum("role").notNull(),
     status: roleGrantStatusEnum("status").notNull().default("ACTIVE"),
     /** SHOP_REGISTRATION, DELIVERY_PARTNER_APPLICATION, SOCIETY, ADMIN, BOOTSTRAP, BACKFILL. */
     source: text("source").notNull(),
-    grantedBy: uuid("granted_by").references(() => users.id),
-    grantedAt: timestamp("granted_at", { withTimezone: true }).notNull().defaultNow(),
-    revokedBy: uuid("revoked_by").references(() => users.id),
-    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    grantedBy: varchar("granted_by", { length: 36 }).references(() => users.id),
+    grantedAt: datetime("granted_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    revokedBy: varchar("revoked_by", { length: 36 }).references(() => users.id),
+    revokedAt: datetime("revoked_at", { mode: "date", fsp: 3 }),
   },
   (t) => [
     uniqueIndex("user_role_grants_user_role_unique").on(t.userId, t.role),
@@ -4006,18 +4630,26 @@ export const userRoleGrants = pgTable(
 );
 
 /** One row per online stretch of a rider (KPI-013 utilisation). */
-export const deliveryPartnerSessions = pgTable(
+export const deliveryPartnerSessions = mysqlTable(
   "delivery_partner_sessions",
   {
     id: uuidPk(),
-    deliveryPartnerId: uuid("delivery_partner_id")
+    deliveryPartnerId: varchar("delivery_partner_id", { length: 36 }).notNull(),
+    startedAt: datetime("started_at", { mode: "date", fsp: 3 })
       .notNull()
-      .references(() => deliveryPartners.id, { onDelete: "cascade" }),
-    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+      .default(sql`CURRENT_TIMESTAMP(3)`),
     /** Null while online. */
-    endedAt: timestamp("ended_at", { withTimezone: true }),
+    endedAt: datetime("ended_at", { mode: "date", fsp: 3 }),
   },
   (t) => [
+    // Named explicitly: Drizzle's auto-generated name for this foreign key is
+    // longer than MySQL's 64-character identifier limit, which MySQL rejects
+    // outright (PostgreSQL silently truncated it).
+    foreignKey({
+      columns: [t.deliveryPartnerId],
+      foreignColumns: [deliveryPartners.id],
+      name: "dp_sessions_partner_fk",
+    }).onDelete("cascade"),
     index("delivery_partner_sessions_partner_idx").on(t.deliveryPartnerId),
     index("delivery_partner_sessions_started_idx").on(t.startedAt),
   ],
@@ -4042,24 +4674,28 @@ export interface SegmentRules {
   minSpendPaise?: number;
 }
 
-export const customerSegments = pgTable(
+export const customerSegments = mysqlTable(
   "customer_segments",
   {
     id: uuidPk(),
-    shopId: uuid("shop_id")
+    shopId: varchar("shop_id", { length: 36 })
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
-    rules: jsonb("rules").$type<SegmentRules>().notNull(),
-    createdBy: uuid("created_by").references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
-    deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    rules: json("rules").$type<SegmentRules>().notNull(),
+    createdBy: varchar("created_by", { length: 36 }).references(() => users.id),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    deletedAt: datetime("deleted_at", { mode: "date", fsp: 3 }),
   },
   (t) => [index("customer_segments_shop_idx").on(t.shopId)],
 );
 
-export const campaignStatusEnum = pgEnum("campaign_status", [
+export const campaignStatusEnum = mysqlEnumType([
   "DRAFT",
   "SUBMITTED",
   "APPROVED",
@@ -4073,57 +4709,69 @@ export const campaignStatusEnum = pgEnum("campaign_status", [
  * DRAFT → SUBMITTED → APPROVED (operations) → SENT, or REJECTED / CANCELLED.
  * `maxRecipients` is the campaign's budget; frequency caps protect customers.
  */
-export const marketingCampaigns = pgTable(
+export const marketingCampaigns = mysqlTable(
   "marketing_campaigns",
   {
     id: uuidPk(),
-    shopId: uuid("shop_id")
+    shopId: varchar("shop_id", { length: 36 })
       .notNull()
       .references(() => shops.id, { onDelete: "cascade" }),
-    segmentId: uuid("segment_id")
+    segmentId: varchar("segment_id", { length: 36 })
       .notNull()
       .references(() => customerSegments.id, { onDelete: "restrict" }),
     title: text("title").notNull(),
     message: text("message").notNull(),
     /** Optional offer line shown with the message (e.g. "10% off vegetables this week"). */
     offerText: text("offer_text"),
-    maxRecipients: integer("max_recipients").notNull(),
+    maxRecipients: int("max_recipients").notNull(),
     /** Days after sending during which a recipient's order counts as a conversion. */
-    attributionDays: integer("attribution_days").notNull().default(7),
+    attributionDays: int("attribution_days").notNull().default(7),
     status: campaignStatusEnum("status").notNull().default("DRAFT"),
-    submittedAt: timestamp("submitted_at", { withTimezone: true }),
-    decidedBy: uuid("decided_by").references(() => users.id),
-    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    submittedAt: datetime("submitted_at", { mode: "date", fsp: 3 }),
+    decidedBy: varchar("decided_by", { length: 36 }).references(() => users.id),
+    decidedAt: datetime("decided_at", { mode: "date", fsp: 3 }),
     rejectionReason: text("rejection_reason"),
-    sentAt: timestamp("sent_at", { withTimezone: true }),
-    sentCount: integer("sent_count").notNull().default(0),
+    sentAt: datetime("sent_at", { mode: "date", fsp: 3 }),
+    sentCount: int("sent_count").notNull().default(0),
     /** Matched but skipped by the frequency caps or the budget. */
-    suppressedCount: integer("suppressed_count").notNull().default(0),
-    createdBy: uuid("created_by").references(() => users.id),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    suppressedCount: int("suppressed_count").notNull().default(0),
+    createdBy: varchar("created_by", { length: 36 }).references(() => users.id),
+    createdAt: datetime("created_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    updatedAt: datetime("updated_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     index("marketing_campaigns_shop_idx").on(t.shopId),
     index("marketing_campaigns_status_idx").on(t.status),
-    check("marketing_campaigns_max_recipients", sql`${t.maxRecipients} BETWEEN 1 AND 5000`),
-    check("marketing_campaigns_attribution_days", sql`${t.attributionDays} BETWEEN 1 AND 30`),
+    check(
+      "marketing_campaigns_max_recipients",
+      sql`${t.maxRecipients} BETWEEN 1 AND 5000`,
+    ),
+    check(
+      "marketing_campaigns_attribution_days",
+      sql`${t.attributionDays} BETWEEN 1 AND 30`,
+    ),
   ],
 );
 
-export const campaignRecipients = pgTable(
+export const campaignRecipients = mysqlTable(
   "campaign_recipients",
   {
     id: uuidPk(),
-    campaignId: uuid("campaign_id")
+    campaignId: varchar("campaign_id", { length: 36 })
       .notNull()
       .references(() => marketingCampaigns.id, { onDelete: "cascade" }),
-    userId: uuid("user_id")
+    userId: varchar("user_id", { length: 36 })
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     /** The in-app notification's dedupe key — its read_at is the "opened" signal. */
     notificationKey: text("notification_key").notNull(),
-    sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+    sentAt: datetime("sent_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
   },
   (t) => [
     uniqueIndex("campaign_recipients_unique").on(t.campaignId, t.userId),
@@ -4131,37 +4779,61 @@ export const campaignRecipients = pgTable(
   ],
 );
 
-export const riskSubjectEnum = pgEnum("risk_subject", ["USER", "SHOP", "DELIVERY_PARTNER"]);
-export const riskSeverityEnum = pgEnum("risk_severity", ["LOW", "MEDIUM", "HIGH"]);
-export const riskFlagStatusEnum = pgEnum("risk_flag_status", ["OPEN", "DISMISSED", "ACTIONED"]);
+export const riskSubjectEnum = mysqlEnumType([
+  "USER",
+  "SHOP",
+  "DELIVERY_PARTNER",
+]);
+export const riskSeverityEnum = mysqlEnumType(["LOW", "MEDIUM", "HIGH"]);
+export const riskFlagStatusEnum = mysqlEnumType([
+  "OPEN",
+  "DISMISSED",
+  "ACTIONED",
+]);
 
 /**
  * A fraud / risk rule hit awaiting review (GS-068). One OPEN flag per
  * subject and rule; a re-detection updates it. An OPEN HIGH flag on a
  * customer blocks cash on delivery.
  */
-export const riskFlags = pgTable(
+export const riskFlags = mysqlTable(
   "risk_flags",
   {
     id: uuidPk(),
     subjectType: riskSubjectEnum("subject_type").notNull(),
-    subjectId: uuid("subject_id").notNull(),
-    ruleCode: text("rule_code").notNull(),
+    subjectId: varchar("subject_id", { length: 36 }).notNull(),
+    ruleCode: varchar("rule_code", { length: 255 }).notNull(),
     severity: riskSeverityEnum("severity").notNull(),
     status: riskFlagStatusEnum("status").notNull().default("OPEN"),
     summary: text("summary").notNull(),
-    details: jsonb("details").$type<Record<string, unknown>>(),
-    occurrences: integer("occurrences").notNull().default(1),
-    firstDetectedAt: timestamp("first_detected_at", { withTimezone: true }).notNull().defaultNow(),
-    lastDetectedAt: timestamp("last_detected_at", { withTimezone: true }).notNull().defaultNow(),
-    reviewedBy: uuid("reviewed_by").references(() => users.id),
-    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    details: json("details").$type<Record<string, unknown>>(),
+    occurrences: int("occurrences").notNull().default(1),
+    firstDetectedAt: datetime("first_detected_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    lastDetectedAt: datetime("last_detected_at", { mode: "date", fsp: 3 })
+      .notNull()
+      .default(sql`CURRENT_TIMESTAMP(3)`),
+    reviewedBy: varchar("reviewed_by", { length: 36 }).references(
+      () => users.id,
+    ),
+    reviewedAt: datetime("reviewed_at", { mode: "date", fsp: 3 }),
     reviewNote: text("review_note"),
+    /**
+     * MySQL has no partial indexes, so the predicate of the old PostgreSQL
+     * partial UNIQUE index lives in this STORED generated column: it is NULL
+     * when the predicate is false, and MySQL's UNIQUE ignores NULLs. Verified
+     * against a real server -- a second matching row is rejected with a
+     * duplicate-key error, non-matching rows are unconstrained, and leaving the
+     * predicate frees the slot again.
+     */
+    openFlagKey: varchar("open_flag_key", { length: 600 }).generatedAlwaysAs(
+      sql`CASE WHEN status = 'OPEN' THEN CONCAT(subject_type,':',subject_id,':',rule_code) END`,
+      { mode: "stored" },
+    ),
   },
   (t) => [
-    uniqueIndex("risk_flags_open_unique")
-      .on(t.subjectType, t.subjectId, t.ruleCode)
-      .where(sql`${t.status} = 'OPEN'`),
+    uniqueIndex("risk_flags_open_unique").on(t.openFlagKey),
     index("risk_flags_status_idx").on(t.status, t.severity),
     index("risk_flags_subject_idx").on(t.subjectType, t.subjectId),
   ],
@@ -4171,7 +4843,8 @@ export type User = typeof users.$inferSelect;
 export type Shop = typeof shops.$inferSelect;
 export type GstStatus = (typeof gstStatusEnum.enumValues)[number];
 export type PanStatus = (typeof panStatusEnum.enumValues)[number];
-export type IdentityVerificationSource = (typeof identityVerificationSourceEnum.enumValues)[number];
+export type IdentityVerificationSource =
+  (typeof identityVerificationSourceEnum.enumValues)[number];
 export type ProductCategory = typeof productCategories.$inferSelect;
 export type Product = typeof products.$inferSelect;
 export type Brand = typeof brands.$inferSelect;
@@ -4181,7 +4854,8 @@ export type ProductImage = typeof productImages.$inferSelect;
 export type StockAlert = typeof stockAlerts.$inferSelect;
 export type ProductKind = (typeof productKindEnum.enumValues)[number];
 export type MrpSource = (typeof mrpSourceEnum.enumValues)[number];
-export type MrpVerificationStatus = (typeof mrpVerificationStatusEnum.enumValues)[number];
+export type MrpVerificationStatus =
+  (typeof mrpVerificationStatusEnum.enumValues)[number];
 export type StockAlertType = (typeof stockAlertTypeEnum.enumValues)[number];
 export type StockAlertStatus = (typeof stockAlertStatusEnum.enumValues)[number];
 export type ShopProduct = typeof shopProducts.$inferSelect;
@@ -4199,7 +4873,8 @@ export type VoucherRedemptionStatus =
   (typeof voucherRedemptionStatusEnum.enumValues)[number];
 export type Grievance = typeof grievances.$inferSelect;
 export type GrievanceStatus = (typeof grievanceStatusEnum.enumValues)[number];
-export type GrievanceCategory = (typeof grievanceCategoryEnum.enumValues)[number];
+export type GrievanceCategory =
+  (typeof grievanceCategoryEnum.enumValues)[number];
 export type UserConsent = typeof userConsents.$inferSelect;
 export type ConsentType = (typeof consentTypeEnum.enumValues)[number];
 export type Subscription = typeof subscriptions.$inferSelect;
@@ -4209,12 +4884,15 @@ export type SubscriptionOrder = typeof subscriptionOrders.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type Address = typeof addresses.$inferSelect;
 export type DeliveryPartner = typeof deliveryPartners.$inferSelect;
-export type DeliveryPartnerStatus = (typeof deliveryPartnerStatusEnum.enumValues)[number];
+export type DeliveryPartnerStatus =
+  (typeof deliveryPartnerStatusEnum.enumValues)[number];
 export type DeliveryOrder = typeof deliveryOrders.$inferSelect;
-export type DeliveryOrderStatus = (typeof deliveryOrderStatusEnum.enumValues)[number];
+export type DeliveryOrderStatus =
+  (typeof deliveryOrderStatusEnum.enumValues)[number];
 export type DeliveryWindow = (typeof deliveryWindowEnum.enumValues)[number];
 export type DeliveryEarningsConfig = typeof deliveryEarningsConfig.$inferSelect;
-export type DeliveryPartnerEarning = typeof deliveryPartnerEarnings.$inferSelect;
+export type DeliveryPartnerEarning =
+  typeof deliveryPartnerEarnings.$inferSelect;
 export type MapsApiCallLog = typeof mapsApiCallLog.$inferSelect;
 export type Notification = typeof notifications.$inferSelect;
 export type RegistrationFee = typeof registrationFees.$inferSelect;
@@ -4242,7 +4920,8 @@ export type OrderStatus = (typeof orderStatusEnum.enumValues)[number];
 export type OrderType = (typeof orderTypeEnum.enumValues)[number];
 export type Society = typeof societies.$inferSelect;
 export type SocietyMember = typeof societyMembers.$inferSelect;
-export type SocietyMemberRole = (typeof societyMemberRoleEnum.enumValues)[number];
+export type SocietyMemberRole =
+  (typeof societyMemberRoleEnum.enumValues)[number];
 export type SocietyStatus = (typeof societyStatusEnum.enumValues)[number];
 export type OrderRating = typeof orderRatings.$inferSelect;
 export type RatingTarget = (typeof ratingTargetEnum.enumValues)[number];
@@ -4252,8 +4931,10 @@ export type PayoutStatus = (typeof payoutStatusEnum.enumValues)[number];
 export type AdjustmentType = (typeof adjustmentTypeEnum.enumValues)[number];
 export type FinancialParty = (typeof financialPartyEnum.enumValues)[number];
 export type LedgerEntryType = (typeof ledgerEntryTypeEnum.enumValues)[number];
-export type ReconciliationStatus = (typeof reconciliationStatusEnum.enumValues)[number];
-export type ReconciliationEntity = (typeof reconciliationEntityEnum.enumValues)[number];
+export type ReconciliationStatus =
+  (typeof reconciliationStatusEnum.enumValues)[number];
+export type ReconciliationEntity =
+  (typeof reconciliationEntityEnum.enumValues)[number];
 export type CommissionRate = typeof commissionRates.$inferSelect;
 export type ShopSettlement = typeof shopSettlements.$inferSelect;
 export type RiderPayout = typeof riderPayouts.$inferSelect;
@@ -4261,7 +4942,8 @@ export type OrderFinancial = typeof orderFinancials.$inferSelect;
 export type FinancialAdjustment = typeof financialAdjustments.$inferSelect;
 export type FinanceLedgerEntry = typeof financeLedgerEntries.$inferSelect;
 export type ReconciliationRecord = typeof reconciliationRecords.$inferSelect;
-export type OrderItemFulfilment = (typeof orderItemFulfilmentEnum.enumValues)[number];
+export type OrderItemFulfilment =
+  (typeof orderItemFulfilmentEnum.enumValues)[number];
 export type ShopStatus = (typeof shopStatusEnum.enumValues)[number];
 export type Classification = (typeof classificationEnum.enumValues)[number];
 export type Department = (typeof departmentEnum.enumValues)[number];
@@ -4285,12 +4967,15 @@ export type ReturnRequest = typeof returnRequests.$inferSelect;
 export type ReturnItem = typeof returnItems.$inferSelect;
 export type ReturnStatusHistoryRow = typeof returnStatusHistory.$inferSelect;
 export type ReturnPickup = typeof returnPickups.$inferSelect;
-export type NotificationPreference = typeof notificationPreferences.$inferSelect;
+export type NotificationPreference =
+  typeof notificationPreferences.$inferSelect;
 export type NotificationDelivery = typeof notificationDeliveries.$inferSelect;
 export type ShopSuspension = typeof shopSuspensions.$inferSelect;
 export type ShopSuspensionOrder = typeof shopSuspensionOrders.$inferSelect;
-export type ExternalPriceReference = typeof externalPriceReferences.$inferSelect;
-export type ExternalPriceReferenceHistoryRow = typeof externalPriceReferenceHistory.$inferSelect;
+export type ExternalPriceReference =
+  typeof externalPriceReferences.$inferSelect;
+export type ExternalPriceReferenceHistoryRow =
+  typeof externalPriceReferenceHistory.$inferSelect;
 export type MrpCorrection = typeof mrpCorrections.$inferSelect;
 export type ShopCategory = typeof shopCategories.$inferSelect;
 export type ShopCategoryMapping = typeof shopCategoryMapping.$inferSelect;
