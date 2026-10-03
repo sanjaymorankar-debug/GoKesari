@@ -29,6 +29,11 @@ export const PUT = route(async (request: NextRequest, context: RouteContext<{ id
   const { id } = await context.params;
   const { user } = await requireShopAccess(id, { anyPermission: PERMISSIONS.SHOP_UPDATE_ANY });
   const { categoryIds } = await parseBody(request, schema);
-  const categories = await setShopCategories(id, categoryIds, user);
-  return ok({ categories: categories.map((c) => ({ id: c.id, name: c.name, status: c.status })) });
+  const saved = await setShopCategories(id, categoryIds, user);
+  return ok({
+    categories: saved.categories.map((c) => ({ id: c.id, name: c.name, status: c.status })),
+    // Names, so the editor's confirmation can say what actually changed.
+    added: saved.added,
+    removed: saved.removed,
+  });
 });

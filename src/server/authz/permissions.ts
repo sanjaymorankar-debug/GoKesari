@@ -67,6 +67,12 @@ export const PERMISSIONS = {
   USER_VIEW_ANY: "user:view:any",
   USER_SET_ROLE: "user:set-role",
   USER_SUSPEND: "user:suspend",
+  /**
+   * Edit another account's profile (name, phone, status) from the admin user
+   * screen. Admin only: it is deliberately absent from OPERATOR_PERMISSIONS,
+   * so an operator can still view accounts but not alter them.
+   */
+  USER_EDIT_PROFILE: "user:edit-profile",
   SYSTEM_CONFIG: "system:config",
   AUDIT_LOG_VIEW: "audit-log:view",
 
@@ -439,6 +445,7 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.USER_VIEW_ANY]: "View user records",
   [PERMISSIONS.USER_SET_ROLE]: "Change a user's role",
   [PERMISSIONS.USER_SUSPEND]: "Suspend a user",
+  [PERMISSIONS.USER_EDIT_PROFILE]: "Edit a user's profile details",
   [PERMISSIONS.SYSTEM_CONFIG]: "Change system configuration",
   [PERMISSIONS.AUDIT_LOG_VIEW]: "View audit logs",
   [PERMISSIONS.REPORT_VIEW_SHOP]: "View own shop reports",
