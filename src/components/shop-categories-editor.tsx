@@ -1,46 +1,61 @@
 "use client";
 
+/**
+ * Screen 1, reassign half — move a shop between categories, with an explicit
+ * Save.
+ *
+ * This already had a Save button, but it had no notion of "unchanged": the
+ * button was always live, a success banner never cleared, and leaving with
+ * edits in the picker lost them silently. It now shares `SaveChangesBar` with
+ * the rest of the admin save screens, so the button is dead until something
+ * changes, the confirmation names the categories added and removed, and a
+ * half-finished edit warns before the page is left.
+ */
+
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { SaveChangesBar, postJson, useSaveChanges } from "@/components/save-changes-bar";
 import { ShopCategoryPicker, type PickerCategory } from "@/components/shop-category-picker";
-import { Alert, Button, Card } from "@/components/ui";
+import { Alert, Card } from "@/components/ui";
 
-/** Add, remove or change a shop's categories. Only the category mapping changes — products and orders are untouched. */
 export function ShopCategoriesEditor({
   shopId,
+  shopName,
   current,
   title = "Shop categories",
 }: {
   shopId: string;
+  shopName?: string;
   current: PickerCategory[];
   title?: string;
 }) {
   const router = useRouter();
-  const [ids, setIds] = useState(current.map((c) => c.id));
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [saved, setSaved] = useState(false);
+  const [baseline, setBaseline] = useState<string[]>(current.map((c) => c.id));
+  const [ids, setIds] = useState<string[]>(baseline);
 
-  async function save() {
-    setError(null);
-    setSaved(false);
-    if (ids.length === 0) return setError("Please select at least one shop category.");
-    setBusy(true);
-    const res = await fetch(`/api/shops/${shopId}/categories`, {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ categoryIds: ids }),
-    });
-    const payload = await res.json().catch(() => null);
-    setBusy(false);
-    if (!res.ok) {
-      const fields = payload?.error?.details?.fields as Record<string, string> | undefined;
-      return setError(fields ? Object.values(fields).join(" ") : (payload?.error?.message ?? "Could not save the categories."));
-    }
-    setSaved(true);
-    router.refresh();
-  }
+  const sameSet = (a: readonly string[], b: readonly string[]) =>
+    a.length === b.length && [...a].sort().join(",") === [...b].sort().join(",");
+  const dirty = !sameSet(ids, baseline);
+
+  const clientError = ids.length === 0 ? "Please select at least one shop category." : null;
+
+  const save = useSaveChanges({
+    id: `shop-categories:${shopId}`,
+    dirty: dirty && !clientError,
+    onSave: async () => {
+      const result = await postJson<{ added: string[]; removed: string[] }>(
+        `/api/shops/${shopId}/categories`,
+        "PUT",
+        { categoryIds: ids },
+      );
+      setBaseline(ids);
+      router.refresh();
+      const changes = [...result.added.map((n) => `+${n}`), ...result.removed.map((n) => `−${n}`)];
+      const subject = shopName ? `Categories updated for ${shopName}` : "Categories updated";
+      return changes.length > 0 ? `${subject}: ${changes.join(", ")}` : subject;
+    },
+  });
 
   return (
     <Card className="space-y-3 p-4" data-testid="shop-categories-editor">
@@ -54,11 +69,13 @@ export function ShopCategoriesEditor({
         <Alert tone="warning">No category is set for this shop yet. Please choose at least one.</Alert>
       ) : null}
       <ShopCategoryPicker value={ids} onChange={setIds} retained={current} />
-      {error ? <Alert tone="danger">{error}</Alert> : null}
-      {saved ? <Alert tone="success">Categories saved.</Alert> : null}
-      <Button disabled={busy} onClick={save}>
-        {busy ? "Saving…" : "Save categories"}
-      </Button>
+      {clientError && dirty ? <Alert tone="danger">{clientError}</Alert> : null}
+      <SaveChangesBar
+        state={save}
+        label="Save Changes"
+        dirtyHint="Unsaved category changes — nothing is written yet."
+        testId="shop-categories-save"
+      />
     </Card>
   );
 }

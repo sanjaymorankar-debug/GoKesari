@@ -530,7 +530,7 @@ export async function linkPhone(
 export async function unlinkPhone(userId: string, role: User["role"]): Promise<void> {
   await db
     .update(users)
-    .set({ phoneE164: null, phone: null, phoneVerifiedAt: null, updatedAt: new Date() })
+    .set({ phoneE164: null, phoneVerifiedAt: null, updatedAt: new Date() })
     .where(eq(users.id, userId));
   await recordAudit({
     actorId: userId,

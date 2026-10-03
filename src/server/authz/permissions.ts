@@ -67,6 +67,12 @@ export const PERMISSIONS = {
   USER_VIEW_ANY: "user:view:any",
   USER_SET_ROLE: "user:set-role",
   USER_SUSPEND: "user:suspend",
+  /**
+   * Edit another account's profile (name, phone, status) from the admin user
+   * screen. Admin only: it is deliberately absent from OPERATOR_PERMISSIONS,
+   * so an operator can still view accounts but not alter them.
+   */
+  USER_EDIT_PROFILE: "user:edit-profile",
   SYSTEM_CONFIG: "system:config",
   AUDIT_LOG_VIEW: "audit-log:view",
 
@@ -221,6 +227,14 @@ export const PERMISSIONS = {
   RISK_REVIEW: "risk:review",
   /** Record and verify external reference prices. Operator + admin. */
   PRICE_REFERENCE_MANAGE: "price-reference:manage",
+  /**
+   * Read the consent record — aggregate state, the grant/withdrawal trail and
+   * one person's history (NAV-019, DPDPA §6 "demonstrable"). Operator + admin:
+   * an operator already approves the campaigns consent gates, and answers the
+   * data-principal requests this record exists for. Reading one person's trail
+   * is audited; the stored IP address is never surfaced.
+   */
+  CONSENT_VIEW: "consent:view",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -339,6 +353,7 @@ const OPERATOR_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.COD_CASH_MANAGE,
   PERMISSIONS.RISK_REVIEW,
   PERMISSIONS.PRICE_REFERENCE_MANAGE,
+  PERMISSIONS.CONSENT_VIEW,
   // Deliberately absent (§43 "not unrestricted system access"):
   // USER_SET_ROLE, USER_SUSPEND, WALLET_ADJUST, SYSTEM_CONFIG,
   // AUDIT_LOG_VIEW, REPORT_VIEW_ALL, WALLET_VIEW_ANY.
@@ -439,6 +454,7 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.USER_VIEW_ANY]: "View user records",
   [PERMISSIONS.USER_SET_ROLE]: "Change a user's role",
   [PERMISSIONS.USER_SUSPEND]: "Suspend a user",
+  [PERMISSIONS.USER_EDIT_PROFILE]: "Edit a user's profile details",
   [PERMISSIONS.SYSTEM_CONFIG]: "Change system configuration",
   [PERMISSIONS.AUDIT_LOG_VIEW]: "View audit logs",
   [PERMISSIONS.REPORT_VIEW_SHOP]: "View own shop reports",
@@ -508,4 +524,5 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.COD_CASH_MANAGE]: "Record cash-on-delivery deposits",
   [PERMISSIONS.RISK_REVIEW]: "Review fraud and risk flags",
   [PERMISSIONS.PRICE_REFERENCE_MANAGE]: "Record and verify external reference prices",
+  [PERMISSIONS.CONSENT_VIEW]: "View the consent record",
 };
