@@ -1,8 +1,9 @@
 import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
+import { eq, isNull } from "drizzle-orm";
 
-import { MobileOtpSignIn } from "@/components/mobile-otp-signin";
+import { UnifiedLoginForm } from "@/components/unified-login-form";
 import { Card } from "@/components/ui";
 import { getEnv } from "@/lib/env";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -11,15 +12,15 @@ import { EMAIL_PROVIDER_ID, emailSignInMode } from "@/server/auth-email";
 import { emailMode } from "@/server/email/transport";
 import { getProvider } from "@/server/otp/providers";
 import { getRule } from "@/server/services/settings";
+import { verifyLoginOtp } from "@/server/otp/service";
+import { db } from "@/server/db";
+import { users } from "@/server/db/schema";
 
 export const metadata = { title: "Sign in" };
 export const dynamic = "force-dynamic";
 
 /**
- * Production sign-in methods: Google (§5) and, when an SMTP sender is
- * configured, an emailed one-time link (GS-001). A dev-only email form is
- * rendered outside production so the app is usable locally and in end-to-end
- * tests; it is never available in production.
+ * Production sign-in methods: Google (§5) and OTP-based login (mobile/email).
  */
 export default async function SignInPage({
   searchParams,
@@ -39,16 +40,41 @@ export default async function SignInPage({
   const devLoginEnabled = env.NODE_ENV !== "production";
   const otpRules = await getRule("otp");
   const otpEmailAvailable = emailMode() !== "disabled";
-  const otpSmsAvailable = otpRules.smsEnabled && Boolean(getProvider("SMS")?.isAvailable());
 
-  async function verifyMobileOtp(input: { countryCode: string; mobile: string; code: string }) {
+  async function verifyLoginCode(input: {
+    countryCode?: string;
+    mobile?: string;
+    email?: string;
+    code: string;
+  }) {
     "use server";
     try {
-      await signIn("mobile-otp", { ...input, redirectTo: "/" });
+      const user = await verifyLoginOtp(input);
+
+      // Check if profile is complete
+      if (!user.profileCompletedAt) {
+        // Redirect to profile completion with session
+        await signIn("credentials", {
+          id: user.id,
+          redirectTo: "/onboarding/complete-profile",
+        });
+      } else {
+        // Normal signin
+        if (input.mobile && input.countryCode) {
+          await signIn("mobile-otp", { mobile: input.mobile, countryCode: input.countryCode, redirectTo: "/" });
+        } else if (input.email) {
+          // For email login, we need to create/sign in the user
+          const [existingUser] = await db.select().from(users).where(eq(users.id, user.id));
+          if (existingUser) {
+            // This is a credentials-based signin for email OTP
+            await signIn("credentials", { id: user.id, redirectTo: "/" });
+          }
+        }
+      }
     } catch (error) {
       if (isRedirectError(error)) throw error;
       if (error instanceof AuthError) return { error: "That code is invalid or has expired. Request a new one." };
-      throw error;
+      return { error: (error as Error).message || "Verification failed. Please try again." };
     }
   }
 
@@ -110,11 +136,10 @@ export default async function SignInPage({
           </p>
         )}
 
-        {otpEmailAvailable || otpSmsAvailable ? (
-          <MobileOtpSignIn
-            verify={verifyMobileOtp}
+        {otpEmailAvailable ? (
+          <UnifiedLoginForm
+            verify={verifyLoginCode}
             emailAvailable={otpEmailAvailable}
-            smsAvailable={otpSmsAvailable}
           />
         ) : null}
 

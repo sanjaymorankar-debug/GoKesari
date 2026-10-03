@@ -1,9 +1,9 @@
 /**
- * Request a mobile-login code (GS-001).
+ * Request a login code (mobile or email).
  *
  * POST { countryCode, mobile, channel: "EMAIL" | "SMS" }
- * Always answers 200 with the same body for known and unknown numbers.
- * Verification happens through Auth.js (`signIn("mobile-otp", ...)`).
+ * OR { email, channel: "EMAIL" }
+ * Always answers 200 with the same body for known and unknown identifiers.
  * GET reports which delivery channels are currently available.
  */
 import type { NextRequest } from "next/server";
@@ -18,10 +18,15 @@ import { getRule } from "@/server/services/settings";
 
 export const dynamic = "force-dynamic";
 
-const schema = z.object({
+const schemaPhone = z.object({
   countryCode: z.string().min(2).max(5),
   mobile: z.string().min(6).max(20),
   channel: z.enum(["EMAIL", "SMS"]).default("EMAIL"),
+});
+
+const schemaEmail = z.object({
+  email: z.string().email(),
+  channel: z.enum(["EMAIL", "SMS"]).optional().default("EMAIL"),
 });
 
 export const POST = route(async (request: NextRequest) => {
@@ -30,9 +35,33 @@ export const POST = route(async (request: NextRequest) => {
     limit: rules.maxRequestsPerIpPerWindow,
     windowMs: rules.resendWindowMinutes * 60_000,
   });
-  const body = await parseBody(request, schema);
+
+  let body: any;
+  try {
+    body = await request.json();
+  } catch {
+    return ok({ error: "Invalid JSON" });
+  }
+
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
-  return ok(await requestLoginOtp({ ...body, ip }));
+
+  // Try phone login first
+  if (body.mobile && body.countryCode) {
+    const phoneResult = schemaPhone.safeParse(body);
+    if (phoneResult.success) {
+      return ok(await requestLoginOtp({ ...phoneResult.data, ip }));
+    }
+  }
+
+  // Then try email login
+  if (body.email) {
+    const emailResult = schemaEmail.safeParse(body);
+    if (emailResult.success) {
+      return ok(await requestLoginOtp({ email: emailResult.data.email, channel: emailResult.data.channel, ip }));
+    }
+  }
+
+  return ok({ error: "Either (countryCode and mobile) or email is required" });
 });
 
 export const GET = route(async () => {
