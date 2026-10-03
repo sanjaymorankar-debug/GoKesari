@@ -5,10 +5,11 @@ The rest of GoKesari moved from PostgreSQL to MySQL (see
 postgres.js directly, and its SQL is Postgres-native by design rather than by
 accident. This file is the plan for moving it, and the record of what has moved.
 
-**Status: stage 1 of 5 is done.** The schema exists on MySQL and is applied by
-`npm run pmd:migrate`. **PMD itself does not run on MySQL yet** — every
-repository function still issues postgres.js tagged templates. Nothing is
-wired up until stage 2.
+**Status: stages 1 and 2 of 5 are done.** The schema exists on MySQL and is
+applied by `npm run pmd:migrate`; the driver shim exists and is tested.
+**PMD itself does not run on MySQL yet** — `db.ts` still creates a postgres.js
+client, and the queries still contain Postgres-only SQL. Stage 3 is what
+switches it over.
 
 ---
 
@@ -91,22 +92,39 @@ Reversing this is a one-line change if referential integrity on the price feed
 matters more than archival: drop the `PARTITION BY` clause and restore the
 three `REFERENCES`.
 
-### Stage 2 — the driver seam — next
+### Stage 2 — the driver seam — **done**
 
-PMD's 232 queries are postgres.js tagged templates, and mysql2 has no such API.
-Rewriting all of them into `conn.query(sql, params)` would be a 232-site change
-with no behavioural benefit, so instead a small shim provides a postgres.js-
-shaped `sql` over mysql2. The surface PMD actually uses is narrow — the survey
-found no cursors, no streaming, no `LISTEN`/`NOTIFY`, no `.reserve()`:
+`src/server/pmd/mysql/sql.ts`, tested by
+`tests/integration/product-master-shim.test.ts` (9 tests, in CI).
 
-- the tagged template itself, resolving to an array of rows
+PMD's 232 queries are postgres.js tagged templates and mysql2 has no such API.
+Rewriting them all into `query(text, params)` would be a 232-site change with no
+behavioural benefit and 232 chances to misplace a parameter, so the shim
+provides the part of postgres.js's surface PMD actually uses. That surface is
+narrow — the survey found no cursors, no streaming, no `LISTEN`/`NOTIFY` and no
+`.reserve()`:
+
+- the tagged template, resolving to an array of rows
 - `sql.begin(fn)` and `sql.begin("read only", fn)` — 10 sites
 - `sql.json(v)` — 7 sites
 - `sql.unsafe(s)` — 4 sites
 - `sql.end()` — 11 sites
-- `sql(array)` for list expansion — 3 sites
-- the three type coercions `db.ts` pins today: bigint → number, numeric →
-  number, date → `'YYYY-MM-DD'` string
+- `sql(array)` for `IN` expansion — 3 sites
+- the three type coercions `db.ts` pins: bigint → number, numeric → number,
+  date → `'YYYY-MM-DD'` string (plus `tinyint(1)` → boolean, which postgres.js
+  gave for free)
+
+**Laziness is the load-bearing part.** A postgres.js template does not run when
+it is written, it runs when it is awaited, and that is what lets PMD nest them:
+
+```ts
+sql`SELECT … WHERE 1=1 ${q ? sql`AND name LIKE ${q}` : sql``}`
+```
+
+PMD does this at 8 sites plus two helper fragments, so the shim returns a lazy
+`Fragment` rather than a `Promise`: it compiles to text and parameters, splices
+any Fragment interpolated into it, and executes only when awaited. The test
+asserts a built-but-unawaited `INSERT` does not reach the database.
 
 ### Stage 3 — the queries
 

@@ -33,6 +33,9 @@ jobs:
     env:
       DATABASE_URL: mysql://root:root@127.0.0.1:3306/gokesari_test
       TEST_DATABASE_URL: mysql://root:root@127.0.0.1:3306/gokesari_test
+      # The product-master shim test needs a scratch database of its own; the
+      # rest of PMD is still PostgreSQL and stays excluded from this run.
+      PMD_TEST_MYSQL_URL: mysql://root:root@127.0.0.1:3306/pmd_shim_test
       AUTH_SECRET: ci-only-secret-not-used-in-production
       CRON_SECRET: ci-only-cron-secret
 
@@ -54,7 +57,9 @@ jobs:
         run: |
           mysql -h 127.0.0.1 -P 3306 -uroot -proot -e "
             DROP DATABASE IF EXISTS gokesari_test;
-            CREATE DATABASE gokesari_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
+            CREATE DATABASE gokesari_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+            DROP DATABASE IF EXISTS pmd_shim_test;
+            CREATE DATABASE pmd_shim_test CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;"
 
       # Reporting converts stored UTC timestamps into APP_TIMEZONE with
       # CONVERT_TZ, which returns NULL for a *named* zone until these tables are
@@ -82,6 +87,12 @@ jobs:
 
       - name: Apply migrations
         run: npm run db:migrate
+
+      # Exercises the PMD migration runner and its cross-database foreign keys.
+      # The PMD code is still PostgreSQL, but its MySQL schema is applied here so
+      # a break in it fails the build rather than waiting for the next stage.
+      - name: Apply the product-master schema
+        run: npm run pmd:migrate
 
       - name: Typecheck
         run: npm run typecheck
