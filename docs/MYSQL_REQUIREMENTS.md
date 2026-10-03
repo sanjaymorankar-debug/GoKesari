@@ -105,23 +105,34 @@ MySQL accepts an over-long index prefix by silently truncating it, which is how
 a 768-character prefix index on a `TEXT` column slipped through an earlier
 iteration of this schema.
 
-## 5. What is still on PostgreSQL
+## 5. The product-master layer (PMD)
 
-`src/server/pmd/**` (44 files) talks to postgres.js directly and is **not**
-ported: it pins Postgres type OIDs, uses a `pmd.` schema namespace, sequences,
-`generate_series` and `ts_rank` full-text ranking. Moving it is a redesign with
-a visible change to product search ordering, not a translation — see
-`MYSQL_MIGRATION_ASSESSMENT.md` §2.2.
+`src/server/pmd/**` (44 files) talks to postgres.js directly and was left on
+PostgreSQL when the application moved. **It is now being ported** — see
+`PMD_MYSQL_PORT.md` for the staged plan and what has landed.
 
-It used to read `DATABASE_URL`, which now points at MySQL, so it was given its
-own **`PMD_DATABASE_URL`** (optional, in `src/lib/env.ts`). Point that at the
-retained PostgreSQL database to keep the product-master features working; leave
-it unset and anything touching PMD raises an error naming this file rather than
-failing inside the Postgres wire protocol.
+Where it stands today:
 
-`scripts/pmd/*` and `tests/**/pmd-*.test.ts` likewise need a PostgreSQL URL, and
-the PMD tests are excluded from the MySQL test run:
+- Its MySQL schema exists and is applied by `npm run pmd:migrate`, into a
+  database named **`pmd` on the same server as the application database**. It
+  has to be the same server: `pmd.catalogue_link` has foreign keys into
+  `products` and `users`, which MySQL allows across databases but not across
+  servers.
+- **The PMD code itself does not run on MySQL yet.** Every query is still a
+  postgres.js tagged template, so anything touching PMD needs a PostgreSQL
+  server until that stage lands.
+- `PMD_DATABASE_URL` (optional, in `src/lib/env.ts`) selects PMD's connection.
+  Point it at the retained PostgreSQL database to keep the product-master
+  features working in the meantime; leave it unset and anything touching PMD
+  raises an error naming this file rather than failing inside the Postgres wire
+  protocol. Once the port is finished it can be dropped and PMD will use the
+  application's own connection.
+- `scripts/pmd/*` and the 15 `tests/**/pmd-*.test.ts` files likewise still need
+  a PostgreSQL URL, so the PMD tests are excluded from the MySQL test run:
 
 ```bash
-npx vitest run --exclude 'tests/**/pmd-*.test.ts'
+npm run test:ci        # vitest run --exclude 'tests/**/pmd-*.test.ts'
 ```
+
+Product search ordering will change when stage 4 lands (`ts_rank` has no MySQL
+equivalent). That is the one part of the port that wants a person's sign-off.
