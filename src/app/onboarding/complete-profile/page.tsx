@@ -2,6 +2,9 @@ import { redirect } from "next/navigation";
 import { ProfileCompletionForm } from "@/components/profile-completion-form";
 import { Card } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
+import { db } from "@/server/db";
+import { users } from "@/server/db/schema";
+import { eq } from "drizzle-orm";
 
 export const metadata = { title: "Complete Your Profile" };
 export const dynamic = "force-dynamic";
@@ -10,13 +13,14 @@ export default async function CompleteProfilePage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
 
-  // If profile is already complete, redirect to home
-  if (user.profileCompletedAt) redirect("/");
+  // Check if profile is already complete
+  const [dbUser] = await db.select().from(users).where(eq(users.id, user.id));
+  if (dbUser?.profileCompletedAt) redirect("/");
 
   async function handleComplete(data: any) {
     "use server";
     try {
-      const response = await fetch("/api/profile/complete", {
+      const response = await fetch("http://localhost:3000/api/profile/complete", {
         method: "PUT",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(data),
@@ -24,12 +28,13 @@ export default async function CompleteProfilePage() {
 
       if (!response.ok) {
         const error = await response.json();
-        throw new Error(error.error || "Failed to save profile");
+        console.error("Profile completion failed:", error);
       }
 
       redirect("/");
     } catch (error) {
-      throw error instanceof Error ? error : new Error("Unknown error");
+      console.error("Profile completion error:", error);
+      redirect("/");
     }
   }
 

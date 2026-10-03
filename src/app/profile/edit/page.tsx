@@ -12,29 +12,33 @@ export default async function EditProfilePage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
 
+  const [dbUser] = await db.select().from(users).where(eq(users.id, user!.id));
+  if (!dbUser) redirect("/signin");
+
   async function handleUpdate(formData: FormData) {
     "use server";
     const name = formData.get("name") as string;
     const gender = formData.get("gender") as string;
 
     if (!name.trim()) {
-      return { error: "Name is required" };
+      return redirect("/profile/edit?error=Name is required");
     }
 
-    try {
-      await db
-        .update(users)
-        .set({
-          name: name.trim(),
-          ...(gender && { gender: gender as "MALE" | "FEMALE" | "OTHER" }),
-          updatedAt: new Date(),
-        })
-        .where(eq(users.id, user.id));
-
-      redirect("/profile");
-    } catch (error) {
-      return { error: "Failed to update profile" };
+    if (!user) {
+      redirect("/signin");
+      return;
     }
+
+    await db
+      .update(users)
+      .set({
+        name: name.trim(),
+        ...(gender && { gender: gender as "MALE" | "FEMALE" | "OTHER" }),
+        updatedAt: new Date(),
+      })
+      .where(eq(users.id, user.id));
+
+    redirect("/profile");
   }
 
   return (
@@ -51,7 +55,7 @@ export default async function EditProfilePage() {
               type="text"
               id="name"
               name="name"
-              defaultValue={user.name ?? ""}
+              defaultValue={dbUser?.name ?? ""}
               placeholder="Your full name"
               className="w-full rounded-lg border border-cream-200 px-3 py-2 text-sm focus:border-kesari-500 focus:outline-none"
               required
@@ -65,7 +69,7 @@ export default async function EditProfilePage() {
             <select
               id="gender"
               name="gender"
-              defaultValue={user.gender ?? ""}
+              defaultValue={dbUser?.gender ?? ""}
               className="w-full rounded-lg border border-cream-200 px-3 py-2 text-sm focus:border-kesari-500 focus:outline-none"
             >
               <option value="">Prefer not to say</option>

@@ -4,10 +4,11 @@
  */
 import type { NextRequest } from "next/server";
 import { z } from "zod";
-import { eq } from "drizzle-orm";
+import { and, eq, isNull, ne } from "drizzle-orm";
 
 import { ok, parseBody, route } from "@/server/api/handler";
 import { getCurrentUser } from "@/server/authz/guards";
+import { validationFailed, AppError } from "@/lib/errors";
 import { db } from "@/server/db";
 import { users, addresses } from "@/server/db/schema";
 
@@ -36,7 +37,7 @@ const schema = z.object({
 
 export const PUT = route(async (request: NextRequest) => {
   const user = await getCurrentUser();
-  if (!user) return ok({ error: "Unauthorized" }, { status: 401 });
+  if (!user) throw new AppError("UNAUTHENTICATED", "Not signed in", { status: 401 });
 
   const body = await parseBody(request, schema);
 
@@ -51,7 +52,7 @@ export const PUT = route(async (request: NextRequest) => {
 
   // Validate name is provided if not skipping
   if (!body.name) {
-    return ok({ error: "Name is required" }, { status: 400 });
+    throw validationFailed("Name is required");
   }
 
   const updateData: any = {
@@ -68,19 +69,19 @@ export const PUT = route(async (request: NextRequest) => {
     const { parsePhone } = await import("@/lib/phone");
     const parsed = parsePhone("+91", body.mobileNumber);
     if (!parsed.ok) {
-      return ok({ error: parsed.error }, { status: 400 });
+      throw validationFailed(parsed.error);
     }
     const taken = await db
       .select({ id: users.id })
       .from(users)
       .where(
-        (q: any) => q.and(
-          q.eq(users.phoneE164, parsed.e164),
-          q.ne(users.id, user.id)
+        and(
+          eq(users.phoneE164, parsed.e164),
+          ne(users.id, user.id)
         )
       );
     if (taken.length > 0) {
-      return ok({ error: "That mobile number is already linked to another account." }, { status: 409 });
+      throw new AppError("CONFLICT", "That mobile number is already linked to another account.");
     }
     updateData.phoneE164 = parsed.e164;
     updateData.phone = parsed.national;
@@ -94,10 +95,10 @@ export const PUT = route(async (request: NextRequest) => {
         .select({ id: addresses.id })
         .from(addresses)
         .where(
-          (q: any) => q.and(
-            q.eq(addresses.userId, user.id),
-            q.eq(addresses.isDefault, true),
-            q.isNull(addresses.deletedAt)
+          and(
+            eq(addresses.userId, user.id),
+            eq(addresses.isDefault, true),
+            isNull(addresses.deletedAt)
           )
         );
 
@@ -135,6 +136,6 @@ export const PUT = route(async (request: NextRequest) => {
     message: "Profile completed successfully",
     user: { name: body.name, gender: body.gender },
   });
-};
+});
 
 export const PATCH = PUT;

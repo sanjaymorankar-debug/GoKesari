@@ -154,8 +154,8 @@ export function UnifiedLoginForm({
                 className={inputClass}
               >
                 {COUNTRY_CODES.map((cc) => (
-                  <option key={cc} value={cc}>
-                    {cc}
+                  <option key={cc.code} value={cc.code}>
+                    {cc.label}
                   </option>
                 ))}
               </select>

@@ -12,7 +12,7 @@ import { getPreferenceMatrix, listNotifications } from "@/server/services/notifi
 import { signOut } from "@/server/auth";
 import { db } from "@/server/db";
 import { users, addresses } from "@/server/db/schema";
-import { eq, isNull } from "drizzle-orm";
+import { and, eq, isNull } from "drizzle-orm";
 
 export const metadata = { title: "Profile" };
 export const dynamic = "force-dynamic";
@@ -21,15 +21,17 @@ export default async function ProfilePage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
 
-  const [notifications, marketingConsent, phoneRow, preferences, userAddresses] = await Promise.all([
+  const [notifications, marketingConsent, phoneRow, preferences, dbUser, userAddresses] = await Promise.all([
     listNotifications(user.id, { limit: 20 }),
     getMarketingConsentStatus(user.id),
     db.select({ phoneE164: users.phoneE164 }).from(users).where(eq(users.id, user.id)),
     getPreferenceMatrix(user.id),
-    db.select().from(addresses).where(eq(addresses.userId, user.id), isNull(addresses.deletedAt)),
+    db.select().from(users).where(eq(users.id, user.id)),
+    db.select().from(addresses).where(and(eq(addresses.userId, user.id), isNull(addresses.deletedAt))),
   ]);
 
-  const defaultAddress = userAddresses.find(a => a.isDefault);
+  const defaultAddress = userAddresses.find((a: any) => a.isDefault);
+  const userData = dbUser[0];
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -40,12 +42,12 @@ export default async function ProfilePage() {
         <div className="flex items-start justify-between">
           <div className="flex-1">
             <p className="text-lg font-semibold text-ink-900">
-              {user.name ?? "Complete your profile"}
+              {userData?.name ?? "Complete your profile"}
             </p>
             <p className="text-sm text-ink-500">{user.email}</p>
-            {user.gender && (
+            {userData?.gender && (
               <p className="text-sm text-ink-500 capitalize">
-                {user.gender.toLowerCase()}
+                {userData.gender.toLowerCase()}
               </p>
             )}
             <div className="mt-2">
@@ -157,6 +159,22 @@ export default async function ProfilePage() {
             ))}
           </ul>
         )}
+      </Card>
+
+      <Card className="mt-6 p-6">
+        <form
+          action={async () => {
+            "use server";
+            await signOut({ redirectTo: "/" });
+          }}
+        >
+          <button
+            type="submit"
+            className="rounded-lg border border-cream-200 px-4 py-2 text-sm font-medium text-ink-700 hover:bg-cream-100"
+          >
+            Sign out
+          </button>
+        </form>
       </Card>
     </div>
   );
