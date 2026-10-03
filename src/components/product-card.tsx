@@ -27,6 +27,8 @@ export interface ProductCardData {
   productId?: string;
   /** Distance to the shop when a customer location is set (GS-020). */
   distanceKm?: number | null;
+  /** Current quantity in cart for this product. */
+  cartQuantity?: number;
 }
 
 /**
@@ -46,7 +48,10 @@ export function ProductCard({
   const router = useRouter();
   const [pending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
-  const [added, setAdded] = useState(false);
+  const [quantity, setQuantity] = useState(1);
+  const [inCart, setInCart] = useState(product.cartQuantity ?? 0);
+  const [cartQuantity, setCartQuantity] = useState(product.cartQuantity ?? 0);
+  const [showConfirm, setShowConfirm] = useState(false);
 
   const outOfStock = product.trackInventory && product.onlineStock <= 0;
   const canBuyOnline =
@@ -54,6 +59,9 @@ export function ProductCard({
     product.onlinePricePaise != null &&
     product.isAvailable &&
     !outOfStock;
+
+  const maxQuantity = product.trackInventory ? product.onlineStock : 99;
+  const quantityDisplay = showConfirm ? "✓ Added" : cartQuantity;
 
   async function addToCart() {
     if (!signedIn) {
@@ -66,7 +74,7 @@ export function ProductCard({
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         shopProductId: product.shopProductId,
-        quantity: 1,
+        quantity: quantity,
       }),
     });
 
@@ -75,7 +83,39 @@ export function ProductCard({
       setError(payload?.error?.message ?? "Could not add to cart.");
       return;
     }
-    setAdded(true);
+    setInCart(quantity);
+    setCartQuantity(cartQuantity + quantity);
+    setShowConfirm(true);
+    setTimeout(() => setShowConfirm(false), 1500);
+    startTransition(() => router.refresh());
+  }
+
+  async function updateCartQuantity(newQty: number) {
+    if (newQty < 0) return;
+    setError(null);
+
+    if (newQty === 0) {
+      setCartQuantity(0);
+      setInCart(0);
+      return;
+    }
+
+    const diff = newQty - cartQuantity;
+    const response = await fetch("/api/cart", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        shopProductId: product.shopProductId,
+        quantity: diff,
+      }),
+    });
+
+    if (!response.ok) {
+      const payload = await response.json().catch(() => null);
+      setError(payload?.error?.message ?? "Could not update cart.");
+      return;
+    }
+    setCartQuantity(newQty);
     startTransition(() => router.refresh());
   }
 
@@ -149,24 +189,88 @@ export function ProductCard({
           </p>
         ) : null}
 
-        <div className="mt-3 flex gap-2">
-          {canBuyOnline ? (
-            <Button
-              size="sm"
-              onClick={addToCart}
-              disabled={pending}
-              className="flex-1"
-            >
-              {added ? "Added ✓" : "Add to cart"}
-            </Button>
+        <div className="mt-3 space-y-2">
+          {cartQuantity > 0 ? (
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={pending}
+                  aria-label={`Decrease quantity of ${product.productName}`}
+                  onClick={() => updateCartQuantity(cartQuantity - 1)}
+                >
+                  −
+                </Button>
+                <span className="w-8 text-center text-sm font-medium tabular-nums">
+                  {showConfirm ? "✓" : cartQuantity}
+                </span>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={pending || cartQuantity >= maxQuantity}
+                  aria-label={`Increase quantity of ${product.productName}`}
+                  onClick={() => updateCartQuantity(cartQuantity + 1)}
+                >
+                  +
+                </Button>
+              </div>
+              <Button
+                size="sm"
+                variant="secondary"
+                disabled={pending}
+                onClick={() => updateCartQuantity(0)}
+                className="text-xs"
+              >
+                Remove
+              </Button>
+            </div>
           ) : (
-            <Button size="sm" variant="secondary" disabled className="flex-1">
-              {product.onlinePricePaise == null && product.offlinePricePaise == null
-                ? "Ask shop"
-                : product.offlineSaleEnabled && !product.onlineSaleEnabled
-                  ? "In-shop only"
-                  : "Unavailable"}
-            </Button>
+            <div className="flex gap-2">
+              {canBuyOnline ? (
+                <>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={pending || quantity <= 1}
+                      aria-label={`Decrease quantity`}
+                      onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                    >
+                      −
+                    </Button>
+                    <span className="w-8 text-center text-sm font-medium tabular-nums">
+                      {quantity}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      disabled={pending || quantity >= maxQuantity}
+                      aria-label={`Increase quantity`}
+                      onClick={() => setQuantity(Math.min(maxQuantity, quantity + 1))}
+                    >
+                      +
+                    </Button>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={addToCart}
+                    disabled={pending}
+                    className="flex-1"
+                  >
+                    Add to cart
+                  </Button>
+                </>
+              ) : (
+                <Button size="sm" variant="secondary" disabled className="flex-1">
+                  {product.onlinePricePaise == null && product.offlinePricePaise == null
+                    ? "Ask shop"
+                    : product.offlineSaleEnabled && !product.onlineSaleEnabled
+                      ? "In-shop only"
+                      : "Unavailable"}
+                </Button>
+              )}
+            </div>
           )}
 
           {canBuyOnline && product.subscribable ? (
@@ -176,6 +280,7 @@ export function ProductCard({
               onClick={() =>
                 router.push(`/subscribe/${product.shopProductId}`)
               }
+              className="w-full"
             >
               Subscribe
             </Button>
