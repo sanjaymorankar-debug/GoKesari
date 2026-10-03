@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { ExcelPriceUpload } from "@/components/excel-price-upload";
 import { ShopCategoriesEditor } from "@/components/shop-categories-editor";
+import { UnsavedChangesProvider } from "@/components/unsaved-changes-guard";
 import { ShopDashboardView } from "@/components/shop-dashboard";
 import { PendingPriceApprovals } from "@/components/pending-price-approvals";
 import { RegistrationPanel } from "@/components/registration-panel";
@@ -299,10 +300,13 @@ export default async function ShopDashboardPage() {
       </div>
 
       <div className="mb-8">
-        <ShopCategoriesEditor
-          shopId={shop.id}
-          current={shopCategoryList.map((c) => ({ id: c.id, name: c.name, status: c.status }))}
-        />
+        <UnsavedChangesProvider>
+          <ShopCategoriesEditor
+            shopId={shop.id}
+            shopName={shop.name}
+            current={shopCategoryList.map((c) => ({ id: c.id, name: c.name, status: c.status }))}
+          />
+        </UnsavedChangesProvider>
       </div>
 
       <div className="mb-8">

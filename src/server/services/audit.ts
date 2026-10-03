@@ -33,6 +33,10 @@ export const AUDIT_ACTIONS = {
   USER_ROLE_CHANGED: "user.role_changed",
   USER_SUSPENDED: "user.suspended",
   USER_REINSTATED: "user.reinstated",
+  /** One explicit Save on the admin privileges screen: active role + grants together. */
+  USER_PRIVILEGES_UPDATED: "user.privileges_updated",
+  /** One explicit Save on the admin user profile screen. */
+  USER_PROFILE_UPDATED: "user.profile_updated",
   ORDER_STATUS_CHANGED: "order.status_changed",
   ORDER_PLACED: "order.placed",
   SUBSCRIPTION_CREATED: "subscription.created",
