@@ -3,6 +3,11 @@
  *
  *   DRY RUN (default, READ ONLY — Postgres itself refuses any write):
  *     DATABASE_URL=<target> npx tsx scripts/categorise-products.ts [--out <dir>]
+ *   Options: --fallback <category>  where products with no clear fit go
+ *            (default General), e.g. --fallback Supermarket.
+ *            --from-json <dir>  build the report from read-only exports
+ *            (products.json, categories.json, shop-links.json) instead of a
+ *            database connection — same rules, same CSV, same SHA-256.
  *   writes report.csv + report.xlsx (product ID, name, old → proposed category,
  *   counts per category, categories to create/retire, shop links to add) and
  *   prints the report's SHA-256.
@@ -147,7 +152,7 @@ interface CategoryRow {
   is_system: boolean;
 }
 
-async function buildProposals(sql: Q) {
+async function loadFromDb(sql: Q) {
   const products = await sql<ProductRow[]>`
     SELECT p.id, p.code, p.name, p.description, p.unit, b.name AS brand,
            c.id AS category_id, c.name AS category_name, c.department::text AS category_department,
@@ -159,9 +164,42 @@ async function buildProposals(sql: Q) {
      ORDER BY p.code`;
   const categories = await sql<CategoryRow[]>`
     SELECT id, name, slug, department::text AS department, is_system FROM product_categories WHERE deleted_at IS NULL`;
+  const links = await sql<ShopLinkCount[]>`
+    SELECT l.category_id, count(*)::int AS shops FROM shop_product_categories l
+      JOIN shops s ON s.id = l.shop_id AND s.deleted_at IS NULL
+     GROUP BY l.category_id`;
+  return { products: [...products], categories: [...categories], links: [...links] };
+}
+
+interface ShopLinkCount {
+  category_id: string;
+  shops: number;
+}
+
+/** The SQL behind each --from-json export, for whoever produces them. */
+export const EXPORT_QUERIES = {
+  "products.json": `SELECT p.id, p.code, p.name, p.description, p.unit, b.name AS brand, c.id AS category_id, c.name AS category_name,
+      c.department::text AS category_department, c.is_system AS category_is_system
+    FROM products p JOIN product_categories c ON c.id = p.category_id LEFT JOIN brands b ON b.id = p.brand_id
+    WHERE p.deleted_at IS NULL ORDER BY p.code`,
+  "categories.json": `SELECT id, name, slug, department::text AS department, is_system FROM product_categories WHERE deleted_at IS NULL`,
+  "shop-links.json": `SELECT l.category_id, count(*)::int AS shops FROM shop_product_categories l
+    JOIN shops s ON s.id = l.shop_id AND s.deleted_at IS NULL GROUP BY l.category_id`,
+};
+
+function loadFromJson(dir: string) {
+  const read = <T>(file: string): T[] => JSON.parse(readFileSync(path.join(dir, file), "utf8"));
+  return {
+    products: read<ProductRow>("products.json").sort((a, b) => (a.code < b.code ? -1 : a.code > b.code ? 1 : 0)),
+    categories: read<CategoryRow>("categories.json"),
+    links: read<ShopLinkCount>("shop-links.json").map((l) => ({ ...l, shops: Number(l.shops) })),
+  };
+}
+
+function proposeRows(products: ProductRow[], categories: CategoryRow[], fallback: string | undefined): ReportRow[] {
   const liveByName = new Map(categories.map((c) => [c.name.toLowerCase(), c]));
 
-  const rows: ReportRow[] = products.map((p) => {
+  return products.map((p) => {
     const result = categoriseProduct({
       name: p.name,
       description: p.description,
@@ -170,8 +208,10 @@ async function buildProposals(sql: Q) {
       oldCategoryName: p.category_is_system ? null : p.category_name,
       oldDepartment: p.category_department,
     });
-    const proposed = result.category;
+    const usesFallback = !result.confident && Boolean(fallback);
+    const proposed = usesFallback ? fallback! : result.category;
     const keepsDetail =
+      result.confident &&
       !p.category_is_system &&
       !isShopTypeLabel(cleanCategoryName(p.category_name)) &&
       cleanCategoryName(p.category_name).toLowerCase() !== proposed.toLowerCase() &&
@@ -188,16 +228,15 @@ async function buildProposals(sql: Q) {
       proposed_category: proposed,
       proposed_subcategory: keepsDetail ? subcategoryName(p.category_name) : "",
       new_category: liveByName.has(proposed.toLowerCase()) ? "no" : "yes",
-      decision: result.confident ? "matched" : "general (no clear fit)",
+      decision: result.confident ? "matched" : usesFallback ? `fallback: ${fallback} (no clear fit)` : "general (no clear fit)",
       score: String(result.score),
       reason: result.reason,
     };
   });
-  return { rows, categories };
 }
 
 /** What the apply step will do beyond moving products, for the report. */
-async function planSideEffects(sql: Q, rows: ReportRow[], categories: CategoryRow[]) {
+function planSideEffects(rows: ReportRow[], categories: CategoryRow[], links: ShopLinkCount[]) {
   const proposedNames = new Set(rows.map((r) => r.proposed_category.toLowerCase()));
   const stillUsed = new Set<string>();
   const movedAway = new Map<string, Set<string>>(); // old category id → proposed names
@@ -208,10 +247,6 @@ async function planSideEffects(sql: Q, rows: ReportRow[], categories: CategoryRo
   const retire = categories.filter(
     (c) => !c.is_system && movedAway.has(c.id) && !stillUsed.has(c.id) && !proposedNames.has(c.name.toLowerCase()),
   );
-  const links = await sql<{ category_id: string; shops: number }[]>`
-    SELECT l.category_id, count(*)::int AS shops FROM shop_product_categories l
-      JOIN shops s ON s.id = l.shop_id AND s.deleted_at IS NULL
-     GROUP BY l.category_id`;
   const shopsByCategory = new Map(links.map((l) => [l.category_id, l.shops]));
   const linkPlan = [...movedAway.entries()]
     .filter(([id]) => shopsByCategory.get(id))
@@ -224,13 +259,16 @@ async function planSideEffects(sql: Q, rows: ReportRow[], categories: CategoryRo
 }
 
 async function dryRun() {
-  const { sql, label } = connect();
+  const fallback = arg("--fallback")?.trim() || undefined;
+  if (fallback !== undefined && (fallback.length < 2 || fallback.length > 80)) fail("--fallback needs a category name of 2–80 characters.");
+  const fromJson = arg("--from-json");
+  const conn = fromJson ? null : connect();
+  const label = fromJson ? `exports in ${fromJson}` : conn!.label;
   const outDir = arg("--out") ?? path.join("categorisation-reports", new Date().toISOString().replace(/[:.]/g, "-"));
   try {
-    const { rows, linkPlan, retire } = await sql.begin("read only", async (tx) => {
-      const built = await buildProposals(tx);
-      return { rows: built.rows, ...(await planSideEffects(tx, built.rows, built.categories)) };
-    });
+    const data = fromJson ? loadFromJson(fromJson) : await conn!.sql.begin("read only", (tx) => loadFromDb(tx));
+    const rows = proposeRows(data.products, data.categories, fallback);
+    const { linkPlan, retire } = planSideEffects(rows, data.categories, data.links);
 
     const counts = new Map<string, number>();
     for (const r of rows) counts.set(r.proposed_category, (counts.get(r.proposed_category) ?? 0) + 1);
@@ -250,6 +288,7 @@ async function dryRun() {
       ["Products", rows.length],
       ["Products changing category", rows.filter((r) => r.old_category.toLowerCase() !== r.proposed_category.toLowerCase()).length],
       ["Products going to General", counts.get(GENERAL) ?? 0],
+      ...(fallback ? [[`Products with no clear fit → ${fallback}`, rows.filter((r) => r.decision.startsWith("fallback")).length]] : []),
       ["Report SHA-256 (approve with this)", hash],
       [],
       ["Proposed category", "Products", "New category?"],
@@ -282,7 +321,7 @@ async function dryRun() {
     console.log(`sha256    ${hash}`);
     console.log(`\nTo apply exactly this report after approval:\n  DATABASE_URL=<target> npx tsx scripts/categorise-products.ts --apply --report ${csvPath} --approve ${hash} --actor <email>`);
   } finally {
-    await sql.end();
+    await conn?.sql.end();
   }
 }
 
