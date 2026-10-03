@@ -4,12 +4,15 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Alert, Badge, Button, Card, Field, Money, inputClass } from "@/components/ui";
+import { paiseToRupees, rupeesToPaise } from "@/lib/money";
 
 export interface InventoryRowView {
   shopProductId: string;
   productCode: string;
   productName: string;
   unit: string;
+  /** The shop's own price; null until the owner sets one. */
+  onlinePricePaise: number | null;
   available: number;
   reserved: number;
   onHand: number;
@@ -51,6 +54,58 @@ export function ShopInventoryManager({ shopId, view }: { shopId: string; view: I
   });
   const [editing, setEditing] = useState<string | null>(null);
   const [form, setForm] = useState({ low: "", level: "", qty: "", off: false });
+  // Prices typed in the table, by listing, until "Save prices" sends them.
+  const [priceEdits, setPriceEdits] = useState<Record<string, string>>({});
+  const [priceErrors, setPriceErrors] = useState<Record<string, string>>({});
+  const [priceMessage, setPriceMessage] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
+  const [needsPriceOnly, setNeedsPriceOnly] = useState(false);
+
+  const needsPriceCount = view.rows.filter((r) => r.onlinePricePaise == null).length;
+  const shownRows = needsPriceOnly ? view.rows.filter((r) => r.onlinePricePaise == null) : view.rows;
+
+  async function savePrices() {
+    setPriceMessage(null);
+    const errors: Record<string, string> = {};
+    const prices: { shopProductId: string; pricePaise: number }[] = [];
+    for (const [shopProductId, raw] of Object.entries(priceEdits)) {
+      const row = view.rows.find((r) => r.shopProductId === shopProductId);
+      if (!row) continue;
+      const value = raw.trim();
+      // Clearing a box that had a price is not a change: a price cannot be removed here.
+      if (value === "" && row.onlinePricePaise != null) continue;
+      const rupees = Number(value);
+      if (value === "" || !Number.isFinite(rupees) || rupees <= 0) {
+        errors[shopProductId] = "Enter a price greater than 0.";
+        continue;
+      }
+      const pricePaise = rupeesToPaise(rupees);
+      if (pricePaise !== row.onlinePricePaise) prices.push({ shopProductId, pricePaise });
+    }
+    setPriceErrors(errors);
+    if (Object.keys(errors).length > 0) {
+      setPriceMessage({ tone: "danger", text: "Some prices are not valid — nothing was saved." });
+      return;
+    }
+    if (prices.length === 0) {
+      setPriceMessage({ tone: "danger", text: "No prices were changed." });
+      return;
+    }
+    setBusy(true);
+    const res = await fetch(`/api/shops/${shopId}/prices`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ prices }),
+    }).catch(() => null);
+    const payload = res ? await res.json().catch(() => null) : null;
+    setBusy(false);
+    if (!res?.ok) {
+      setPriceMessage({ tone: "danger", text: payload?.error?.message ?? "Could not save the prices. Nothing was changed." });
+      return;
+    }
+    setPriceEdits({});
+    setPriceMessage({ tone: "success", text: `Saved ${prices.length} price${prices.length === 1 ? "" : "s"}.` });
+    router.refresh();
+  }
 
   async function call(url: string, body: unknown): Promise<boolean> {
     setBusy(true);
@@ -158,13 +213,30 @@ export function ShopInventoryManager({ shopId, view }: { shopId: string; view: I
       </section>
 
       <section>
-        <h2 className="mb-2 text-lg font-semibold text-ink-900">Stock by product</h2>
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="text-lg font-semibold text-ink-900">Stock by product</h2>
+          <div className="flex flex-wrap gap-2">
+            <Button size="sm" variant="secondary" onClick={() => setNeedsPriceOnly((v) => !v)}>
+              {needsPriceOnly ? "Show all products" : `Needs a price (${needsPriceCount})`}
+            </Button>
+            <Button size="sm" disabled={busy} onClick={savePrices}>
+              Save prices
+            </Button>
+          </div>
+        </div>
+        {priceMessage ? (
+          <div className="mb-2">
+            <Alert tone={priceMessage.tone}>{priceMessage.text}</Alert>
+          </div>
+        ) : null}
         <Card className="overflow-x-auto">
           <table className="w-full text-left text-sm" data-testid="inventory-table">
             <thead className="bg-cream-100 text-xs uppercase text-ink-500">
               <tr>
                 <th className="px-3 py-2">Product</th>
+                <th className="px-3 py-2">Unit</th>
                 <th className="px-3 py-2">Available</th>
+                <th className="px-3 py-2">Price (₹)</th>
                 <th className="px-3 py-2">Reserved</th>
                 <th className="px-3 py-2">On hand</th>
                 <th className="px-3 py-2">Low at</th>
@@ -174,7 +246,7 @@ export function ShopInventoryManager({ shopId, view }: { shopId: string; view: I
               </tr>
             </thead>
             <tbody className="divide-y divide-cream-200">
-              {view.rows.map((r) => (
+              {shownRows.map((r) => (
                 <tr key={r.shopProductId} className="align-top">
                   <td className="px-3 py-2">
                     {r.productName} <span className="text-xs text-ink-400">{r.productCode}</span>
@@ -217,7 +289,26 @@ export function ShopInventoryManager({ shopId, view }: { shopId: string; view: I
                       </div>
                     ) : null}
                   </td>
+                  <td className="px-3 py-2">{r.unit}</td>
                   <td className="px-3 py-2 font-medium">{r.available}</td>
+                  <td className="px-3 py-2">
+                    <input
+                      aria-label={`Price of ${r.productName}`}
+                      className={`${inputClass} w-24`}
+                      inputMode="decimal"
+                      placeholder="Enter price"
+                      value={
+                        priceEdits[r.shopProductId] ??
+                        (r.onlinePricePaise != null ? String(paiseToRupees(r.onlinePricePaise)) : "")
+                      }
+                      onChange={(e) => setPriceEdits({ ...priceEdits, [r.shopProductId]: e.target.value })}
+                    />
+                    {priceErrors[r.shopProductId] ? (
+                      <span className="mt-1 block text-xs text-red-600">{priceErrors[r.shopProductId]}</span>
+                    ) : r.onlinePricePaise == null ? (
+                      <span className="mt-1 block text-xs text-ink-500">Needs a price</span>
+                    ) : null}
+                  </td>
                   <td className="px-3 py-2">{r.reserved}</td>
                   <td className="px-3 py-2">{r.onHand}</td>
                   <td className="px-3 py-2">

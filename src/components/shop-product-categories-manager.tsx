@@ -58,10 +58,20 @@ export function ShopProductCategoriesManager({
   const add = () =>
     run(async () => {
       if (!toAdd) throw new Error("Choose a category to add.");
-      const result = await postJson<{ categoryName: string }>(`/api/shops/${shopId}/product-categories`, "POST", { categoryId: toAdd });
+      const result = await postJson<{
+        categoryName: string;
+        addedProducts: number;
+        needsPrice: { productName: string }[];
+      }>(`/api/shops/${shopId}/product-categories`, "POST", { categoryId: toAdd });
       setToAdd("");
       router.refresh();
-      return `Added ${result.categoryName}. Its products are now visible to this shop.`;
+      if (result.addedProducts === 0) {
+        return `Added ${result.categoryName}. Its products are now visible to this shop.`;
+      }
+      const needsPrice = result.needsPrice.length
+        ? ` ${result.needsPrice.length} still need a price — enter it on the Inventory page.`
+        : "";
+      return `Added ${result.categoryName}: ${result.addedProducts} products added to the inventory with stock 100.${needsPrice}`;
     });
 
   const askRemove = (a: AssignedCategory) =>

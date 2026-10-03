@@ -305,7 +305,14 @@ export async function createProductForShop(
   // paused straight away. Done just before each write below, so a refused
   // attempt (a likely duplicate) links nothing.
   const carryCategory = (c: DbClient) =>
-    addCategoryToShop(input.shopId, categoryId, actor, { reason: "product_created" }, c);
+    addCategoryToShop(
+      input.shopId,
+      categoryId,
+      actor,
+      // This flow lists the one product itself, below.
+      { reason: "product_created", fillInventory: false },
+      c,
+    );
 
   validatePricing({
     onlineSaleEnabled: input.onlineSaleEnabled ?? false,
@@ -729,6 +736,51 @@ export async function createShopProduct(
     client,
   );
   return created;
+}
+
+/**
+ * Sets the owner's price for several of their own listings in one go — the
+ * inventory page's "Save". The price is the shop's own (online and in-shop
+ * alike): the master MRP and every other shop's price are untouched. A
+ * listing that had no price yet goes on sale with its first one. All or
+ * nothing: one bad row saves none.
+ */
+export async function setShopPrices(
+  shopId: string,
+  prices: { shopProductId: string; pricePaise: number }[],
+  actor: { id: string; role: "SHOP_OWNER" | "OPERATOR" | "ADMIN" },
+): Promise<{ updated: number }> {
+  for (const p of prices) {
+    if (!Number.isInteger(p.pricePaise) || p.pricePaise <= 0) {
+      throw validationFailed("Price must be a number greater than 0.");
+    }
+  }
+  if (prices.length === 0) return { updated: 0 };
+
+  return db.transaction(async (tx) => {
+    const ids = prices.map((p) => p.shopProductId);
+    const owned = await tx
+      .select({ id: shopProducts.id, onlinePricePaise: shopProducts.onlinePricePaise })
+      .from(shopProducts)
+      .where(and(inArray(shopProducts.id, ids), eq(shopProducts.shopId, shopId), isNull(shopProducts.deletedAt)));
+    if (owned.length !== new Set(ids).size) {
+      throw forbidden("You can only change prices of products in your own shop.");
+    }
+    const unpriced = new Set(owned.filter((r) => r.onlinePricePaise == null).map((r) => r.id));
+    for (const p of prices) {
+      await updateShopProduct(
+        p.shopProductId,
+        {
+          onlinePricePaise: p.pricePaise,
+          offlinePricePaise: p.pricePaise,
+          ...(unpriced.has(p.shopProductId) ? { onlineSaleEnabled: true, offlineSaleEnabled: true } : {}),
+        },
+        actor,
+        tx,
+      );
+    }
+    return { updated: prices.length };
+  });
 }
 
 /**
