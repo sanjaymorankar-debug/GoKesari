@@ -11,13 +11,22 @@
  * (queried by taking the most recent row), it never overwrites it — the
  * history itself is part of what "demonstrable" requires.
  */
-import { and, desc, eq } from "drizzle-orm";
+import { and, desc, eq, isNull, sql } from "drizzle-orm";
 
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 
+import { forbidden } from "@/lib/errors";
 import { CURRENT_POLICY_VERSION } from "@/lib/legal-docs";
+import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
-import { userConsents, type ConsentType, type UserConsent } from "@/server/db/schema";
+import {
+  consentTypeEnum,
+  userConsents,
+  users,
+  type ConsentType,
+  type UserConsent,
+  type UserRole,
+} from "@/server/db/schema";
 
 export { CURRENT_POLICY_VERSION };
 
@@ -107,4 +116,203 @@ export async function listConsentHistory(userId: string): Promise<UserConsent[]>
     .from(userConsents)
     .where(eq(userConsents.userId, userId))
     .orderBy(desc(userConsents.createdAt));
+}
+
+/* ------------------------------------------------------------------ NAV-019
+ * Operations' view of consent.
+ *
+ * DPDPA §6 makes the Data Fiduciary able to *demonstrate* consent; that is
+ * only true if someone other than the data principal can actually read the
+ * record. Until now `user_consents` was written on every sign-up and every
+ * profile toggle and read back only by the customer's own switch and by
+ * marketing's audience filter — nobody in operations could answer "did this
+ * person consent, to what, and when".
+ *
+ * Two deliberate limits:
+ *   - `ip_address` is on the row but is NOT surfaced here. It is collected as
+ *     evidence of the act of consenting, not as something staff browse; a
+ *     lawful request for it can read the table directly.
+ *   - Reading one person's trail is audited (CONSENT_HISTORY_VIEWED), the same
+ *     treatment as revealing a shop's PAN. The aggregate counts are not —
+ *     they identify nobody.
+ */
+
+const LIVE_USER = isNull(users.deletedAt);
+
+/**
+ * The latest row per (user, consent type) — consent is append-only and a later
+ * row supersedes an earlier one, so every question below is about the newest.
+ */
+const latestConsentPerUser = sql`
+  select distinct on (uc.user_id, uc.consent_type)
+         uc.user_id, uc.consent_type, uc.granted, uc.version, uc.created_at
+    from user_consents uc
+   order by uc.user_id, uc.consent_type, uc.created_at desc`;
+
+export interface ConsentTypeSummary {
+  consentType: ConsentType;
+  /** Latest row is a grant for the current policy version. */
+  current: number;
+  /** Latest row is a grant, but against an older policy version. */
+  stale: number;
+  /** Latest row is a withdrawal (DPDPA §6(4)). */
+  withdrawn: number;
+  /** No row of this type at all — never asked, or asked before the record existed. */
+  never: number;
+}
+
+export interface ConsentOverview {
+  policyVersion: string;
+  liveUsers: number;
+  byType: ConsentTypeSummary[];
+}
+
+/** Aggregate consent state across live users. Identifies nobody. */
+export async function getConsentOverview(): Promise<ConsentOverview> {
+  const [[{ total }], rows] = await Promise.all([
+    db.select({ total: sql<number>`count(*)::int` }).from(users).where(LIVE_USER),
+    db.execute(sql`
+      select l.consent_type::text as consent_type,
+             count(*) filter (where l.granted and l.version = ${CURRENT_POLICY_VERSION})::int as current,
+             count(*) filter (where l.granted and l.version <> ${CURRENT_POLICY_VERSION})::int as stale,
+             count(*) filter (where not l.granted)::int as withdrawn
+        from (${latestConsentPerUser}) l
+        join users u on u.id = l.user_id and u.deleted_at is null
+       group by l.consent_type`),
+  ]);
+
+  const liveUsers = Number(total);
+  const seen = new Map<string, { current: number; stale: number; withdrawn: number }>();
+  for (const row of rows as unknown as { consent_type: string; current: number; stale: number; withdrawn: number }[]) {
+    seen.set(row.consent_type, {
+      current: Number(row.current),
+      stale: Number(row.stale),
+      withdrawn: Number(row.withdrawn),
+    });
+  }
+
+  return {
+    policyVersion: CURRENT_POLICY_VERSION,
+    liveUsers,
+    // Every consent type is listed, including ones nobody has a row for —
+    // "nobody has consented to this yet" is itself the answer to a question.
+    byType: consentTypeEnum.enumValues.map((consentType) => {
+      const counts = seen.get(consentType) ?? { current: 0, stale: 0, withdrawn: 0 };
+      const recorded = counts.current + counts.stale + counts.withdrawn;
+      return {
+        consentType,
+        ...counts,
+        never: Math.max(0, liveUsers - recorded),
+      };
+    }),
+  };
+}
+
+export interface ConsentChange {
+  id: string;
+  userId: string;
+  userName: string | null;
+  userEmail: string;
+  consentType: ConsentType;
+  granted: boolean;
+  version: string;
+  createdAt: Date;
+}
+
+export interface ConsentChangeFilters {
+  consentType?: ConsentType;
+  /** true = grants only, false = withdrawals only, undefined = both. */
+  granted?: boolean;
+  limit?: number;
+}
+
+/** The consent trail, newest first — what a grant or withdrawal looked like and when. */
+export async function listConsentChanges(filters: ConsentChangeFilters = {}): Promise<ConsentChange[]> {
+  const conditions = [LIVE_USER];
+  if (filters.consentType) conditions.push(eq(userConsents.consentType, filters.consentType));
+  if (filters.granted !== undefined) conditions.push(eq(userConsents.granted, filters.granted));
+
+  return db
+    .select({
+      id: userConsents.id,
+      userId: userConsents.userId,
+      userName: users.name,
+      userEmail: users.email,
+      consentType: userConsents.consentType,
+      granted: userConsents.granted,
+      version: userConsents.version,
+      createdAt: userConsents.createdAt,
+    })
+    .from(userConsents)
+    .innerJoin(users, eq(users.id, userConsents.userId))
+    .where(and(...conditions))
+    .orderBy(desc(userConsents.createdAt))
+    .limit(Math.min(filters.limit ?? 100, 500));
+}
+
+/**
+ * One consent row as operations sees it — deliberately NOT `UserConsent`,
+ * which carries `ipAddress`. Projecting the columns here means the IP cannot
+ * reach a caller by accident, including a future client component that renders
+ * this trail; today's page is a server component and would not ship it, but
+ * that is a property of the page, not a guarantee. This is the guarantee.
+ */
+export interface ConsentTrailEntry {
+  id: string;
+  consentType: ConsentType;
+  granted: boolean;
+  version: string;
+  createdAt: Date;
+}
+
+export interface UserConsentTrail {
+  user: { id: string; name: string | null; email: string };
+  history: ConsentTrailEntry[];
+}
+
+/**
+ * One person's full consent trail, for answering a data-principal request.
+ *
+ * Audited on every call: who looked at whose consent record, and when. An
+ * operator or admin may read it; nobody else, including the subject (who sees
+ * their own state on their profile instead).
+ */
+export async function getUserConsentTrail(
+  userId: string,
+  actor: { id: string; role: UserRole },
+): Promise<UserConsentTrail | null> {
+  // Gated on the permission, not on a role list, so this and the page it backs
+  // cannot drift apart if CONSENT_VIEW is ever granted somewhere else.
+  if (!can(actor.role, PERMISSIONS.CONSENT_VIEW)) {
+    throw forbidden("You do not have access to the consent record.");
+  }
+
+  const [user] = await db
+    .select({ id: users.id, name: users.name, email: users.email })
+    .from(users)
+    .where(and(eq(users.id, userId), LIVE_USER))
+    .limit(1);
+  if (!user) return null;
+
+  await recordAudit({
+    actorId: actor.id,
+    actorRole: actor.role,
+    action: AUDIT_ACTIONS.CONSENT_HISTORY_VIEWED,
+    entityType: "user",
+    entityId: userId,
+  });
+
+  const history = await db
+    .select({
+      id: userConsents.id,
+      consentType: userConsents.consentType,
+      granted: userConsents.granted,
+      version: userConsents.version,
+      createdAt: userConsents.createdAt,
+    })
+    .from(userConsents)
+    .where(eq(userConsents.userId, userId))
+    .orderBy(desc(userConsents.createdAt));
+
+  return { user, history };
 }

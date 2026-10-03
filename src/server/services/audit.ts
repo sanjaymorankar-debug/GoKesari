@@ -89,6 +89,9 @@ export const AUDIT_ACTIONS = {
 
   /* -------------------------------------------------------------- consent */
   CONSENT_RECORDED: "consent.recorded",
+  /** Operations read one person's consent trail (NAV-019). Access to a
+   *  consent record is itself worth a trail — see getUserConsentTrail(). */
+  CONSENT_HISTORY_VIEWED: "consent.history_viewed",
 
   /* --------------------------------------------- seller/food compliance */
   SHOP_COMPLIANCE_UPDATED: "shop.compliance_updated",
