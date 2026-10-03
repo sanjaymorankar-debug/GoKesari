@@ -376,3 +376,16 @@ describe("product add/edit", () => {
     expect(audit).toBeTruthy();
   });
 });
+
+describe("refused product creation", () => {
+  it("links no category when creation is refused as a likely duplicate", async () => {
+    const owner = await createUser({ role: "SHOP_OWNER" });
+    const shop = await createShop(owner.id);
+    const c = await createCategory({ name: "Snacks", department: "CONVENIENCE_STORE" });
+    await createProduct(c.id, { name: "Potato Chips Classic" });
+    await expect(
+      createProductForShop({ shopId: shop.id, categoryId: c.id, name: "Potato Chips Clasic", unit: "pack" }, actor(owner), true),
+    ).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await db.select().from(shopProductCategories).where(eq(shopProductCategories.shopId, shop.id))).toHaveLength(0);
+  });
+});

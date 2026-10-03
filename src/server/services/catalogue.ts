@@ -302,8 +302,10 @@ export async function createProductForShop(
   }
   // Creating a product in a category is an explicit choice, so the shop starts
   // carrying that category (audited) — otherwise its own new listing would be
-  // paused straight away.
-  await addCategoryToShop(input.shopId, categoryId, actor, { reason: "product_created" }, lookupClient);
+  // paused straight away. Done just before each write below, so a refused
+  // attempt (a likely duplicate) links nothing.
+  const carryCategory = (c: DbClient) =>
+    addCategoryToShop(input.shopId, categoryId, actor, { reason: "product_created" }, c);
 
   validatePricing({
     onlineSaleEnabled: input.onlineSaleEnabled ?? false,
@@ -321,6 +323,7 @@ export async function createProductForShop(
   // An exact name match in the same category IS this product — reuse it
   // rather than create a duplicate row, exactly as item 5 asks.
   if (exact) {
+    await carryCategory(lookupClient);
     const shopProduct = await createShopProduct(
       {
         shopId: input.shopId,
@@ -357,6 +360,7 @@ export async function createProductForShop(
   }
 
   const run = async (tx: DbClient) => {
+    await carryCategory(tx);
     const [product] = await tx
       .insert(products)
       .values({
