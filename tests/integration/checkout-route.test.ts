@@ -43,6 +43,7 @@ import {
   createShopProduct,
   createUser,
   createUserWithWallet,
+  deliveryAddressId,
   resetDatabase,
 } from "../helpers/fixtures";
 
@@ -97,7 +98,7 @@ describe("POST /api/checkout", () => {
 
     const r = await call(checkoutRoute, "/api/checkout", {
       method: "POST",
-      body: { requestId: "req-empty-1" },
+      body: { requestId: "req-empty-1", addressId: await deliveryAddressId(customer.id) },
     });
     expect(r.status).toBe(422);
   });
@@ -110,7 +111,7 @@ describe("POST /api/checkout", () => {
     signInAsUser({ ...customer, role: "CUSTOMER" });
     const r = await call(checkoutRoute, "/api/checkout", {
       method: "POST",
-      body: { requestId: "req-success-1" },
+      body: { requestId: "req-success-1", addressId: await deliveryAddressId(customer.id) },
     });
 
     expect(r.status).toBe(201);
@@ -129,7 +130,7 @@ describe("POST /api/checkout", () => {
     signInAsUser({ ...customer, role: "CUSTOMER" });
     const r = await call(checkoutRoute, "/api/checkout", {
       method: "POST",
-      body: { requestId: "req-shortfall-1" },
+      body: { requestId: "req-shortfall-1", addressId: await deliveryAddressId(customer.id) },
     });
 
     expect(r.status).toBe(402);
@@ -147,7 +148,7 @@ describe("POST /api/checkout", () => {
 
     const first = await call(checkoutRoute, "/api/checkout", {
       method: "POST",
-      body: { requestId: "req-dedup-1" },
+      body: { requestId: "req-dedup-1", addressId: await deliveryAddressId(customer.id) },
     });
     expect(first.status).toBe(201);
     expect(first.body.deduplicated).toBe(false);
@@ -155,7 +156,7 @@ describe("POST /api/checkout", () => {
 
     const second = await call(checkoutRoute, "/api/checkout", {
       method: "POST",
-      body: { requestId: "req-dedup-1" },
+      body: { requestId: "req-dedup-1", addressId: await deliveryAddressId(customer.id) },
     });
     expect(second.status).toBe(201);
     expect(second.body.deduplicated).toBe(true);

@@ -14,7 +14,9 @@
  */
 import { and, desc, eq, ilike, inArray, isNull, ne, notExists, or } from "drizzle-orm";
 
+import { parseIndianMobile } from "@/lib/contact";
 import { permanentBootstrapAdminEmails } from "@/lib/env";
+import { maskPhone } from "@/lib/phone";
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { db } from "@/server/db";
 import { deliveryPartners, userRoleGrants, users, userRoleEnum, type User, type UserRole } from "@/server/db/schema";
@@ -211,4 +213,40 @@ export async function reinstateUser(
   });
   await notifyEvent(NOTIFICATION_TYPES.SECURITY_ACCOUNT_STATUS, userId, { status: "reinstated", detail: "You can sign in again." });
   return updated;
+}
+
+/**
+ * Frees a mobile number from the account holding it (ADMIN only, enforced by
+ * the route guard). Numbers are not verified — codes only go by email — so
+ * someone can enter another person's number; this is how support hands it
+ * back. The holder is notified and must add a number again before ordering.
+ */
+export async function releaseMobileNumber(
+  mobile: string,
+  reason: string,
+  actor: { id: string; role: UserRole },
+): Promise<{ userId: string; email: string }> {
+  const trimmed = reason.trim();
+  if (trimmed.length < 3) throw validationFailed("A reason is required.");
+  const parsed = parseIndianMobile(mobile);
+  if (!parsed.ok) throw validationFailed(parsed.error);
+
+  const [holder] = await db
+    .update(users)
+    .set({ phoneE164: null, phone: null, phoneVerifiedAt: null, updatedAt: new Date() })
+    .where(and(eq(users.phoneE164, parsed.e164), isNull(users.deletedAt)))
+    .returning({ id: users.id, email: users.email });
+  if (!holder) throw notFound("An account with that mobile number");
+
+  await recordAudit({
+    actorId: actor.id,
+    actorRole: actor.role,
+    action: AUDIT_ACTIONS.PHONE_RELEASED,
+    entityType: "user",
+    entityId: holder.id,
+    previousValue: { phone: maskPhone(parsed.e164) },
+    newValue: { phone: null, reason: trimmed },
+  });
+  await notifyEvent(NOTIFICATION_TYPES.SECURITY_PHONE_CHANGED, holder.id, { action: "removed by support" });
+  return { userId: holder.id, email: holder.email };
 }

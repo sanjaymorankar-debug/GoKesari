@@ -1,86 +1,40 @@
 /**
- * Get or update user profile information.
- * GET returns user details
- * PUT updates user details (except email, which requires OTP verification)
+ * The signed-in user's own details.
+ * GET → profile; PATCH { name?, gender?, mobile?, markComplete? } updates it.
+ * The email address changes through /api/profile/email (it needs a fresh code).
  */
 import type { NextRequest } from "next/server";
 import { z } from "zod";
-import { and, eq, isNull, ne } from "drizzle-orm";
 
 import { ok, parseBody, route } from "@/server/api/handler";
-import { getCurrentUser } from "@/server/authz/guards";
-import { AppError, validationFailed } from "@/lib/errors";
-import { db } from "@/server/db";
-import { users } from "@/server/db/schema";
+import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
+import { requireUser } from "@/server/authz/guards";
+import { GENDERS, getProfile, updateProfile } from "@/server/services/profile";
 
 export const dynamic = "force-dynamic";
 
+const schema = z.object({
+  name: z.string().max(100).nullish(),
+  gender: z.enum(GENDERS).nullish(),
+  mobile: z.string().max(20).nullish(),
+  markComplete: z.boolean().optional(),
+});
+
 export const GET = route(async () => {
-  const user = await getCurrentUser();
-  if (!user) throw new AppError("UNAUTHENTICATED", "Not signed in", { status: 401 });
-
-  return ok({
-    id: user.id,
-    name: user.name,
-    email: user.email,
-    image: user.image,
-  });
+  const user = await requireUser();
+  return ok(await getProfile(user.id));
 });
 
-const updateSchema = z.object({
-  name: z.string().min(1).max(255).optional(),
-  gender: z.enum(["MALE", "FEMALE", "OTHER"]).optional(),
-  image: z.string().url().optional(),
-  mobileNumber: z.string().min(10).max(20).optional(),
-});
-
-export const PUT = route(async (request: NextRequest) => {
-  const user = await getCurrentUser();
-  if (!user) throw new AppError("UNAUTHENTICATED", "Not signed in", { status: 401 });
-
-  const body = await parseBody(request, updateSchema);
-  const updateData: Record<string, unknown> = { updatedAt: new Date() };
-
-  if (body.name !== undefined) {
-    updateData.name = body.name;
-  }
-
-  if (body.gender !== undefined) {
-    updateData.gender = body.gender;
-  }
-
-  if (body.image !== undefined) {
-    updateData.image = body.image;
-  }
-
-  if (body.mobileNumber !== undefined) {
-    const { parsePhone } = await import("@/lib/phone");
-    const parsed = parsePhone("+91", body.mobileNumber);
-    if (!parsed.ok) {
-      throw validationFailed(parsed.error);
-    }
-
-    const [taken] = await db
-      .select({ id: users.id })
-      .from(users)
-      .where(
-        and(
-          eq(users.phoneE164, parsed.e164),
-          ne(users.id, user.id),
-          isNull(users.deletedAt)
-        )
-      );
-
-    if (taken) {
-      throw new AppError("CONFLICT", "That mobile number is already linked to another account.");
-    }
-
-    updateData.phoneE164 = parsed.e164;
-    updateData.phone = parsed.national;
-    updateData.phoneVerifiedAt = null; // Reset verification
-  }
-
-  await db.update(users).set(updateData).where(eq(users.id, user.id));
-
-  return ok({ message: "Profile updated successfully" });
+export const PATCH = route(async (request: NextRequest) => {
+  const user = await requireUser();
+  enforceRateLimit(`profile:${user.id}`, RATE_LIMITS.MUTATION);
+  const body = await parseBody(request, schema);
+  return ok(
+    await updateProfile(user.id, user.role, {
+      ...(body.name !== undefined ? { name: body.name } : {}),
+      ...(body.gender !== undefined ? { gender: body.gender } : {}),
+      ...(body.mobile !== undefined ? { mobile: body.mobile } : {}),
+      markComplete: body.markComplete,
+    }),
+  );
 });

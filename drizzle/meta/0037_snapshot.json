@@ -1,5 +1,5 @@
 {
-  "id": "546c8451-b0d7-4bea-987d-d04ed0516a03",
+  "id": "9a70577d-440e-4a02-a760-7398384d4cdc",
   "prevId": "476ec5d8-e97c-44d2-930b-d1f40f44de37",
   "version": "7",
   "dialect": "postgresql",
@@ -3776,6 +3776,13 @@
           "primaryKey": false,
           "notNull": false
         },
+        "purpose": {
+          "name": "purpose",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true,
+          "default": "'LOGIN'"
+        },
         "channel": {
           "name": "channel",
           "type": "text",
@@ -3910,7 +3917,12 @@
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},
       "policies": {},
-      "checkConstraints": {},
+      "checkConstraints": {
+        "login_otps_identifier_present": {
+          "name": "login_otps_identifier_present",
+          "value": "\"login_otps\".\"phone_e164\" IS NOT NULL OR \"login_otps\".\"email\" IS NOT NULL"
+        }
+      },
       "isRLSEnabled": false
     },
     "public.maps_api_call_log": {

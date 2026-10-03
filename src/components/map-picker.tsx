@@ -152,10 +152,34 @@ export function MapPicker({
   }
 
   if (!isMapsAvailable()) {
+    // No map without a Google Maps key, but the device's location can still geo-tag the address.
     return (
-      <Alert tone="info">
-        Map location picking isn&apos;t set up yet — enter your address in the fields below instead.
-      </Alert>
+      <div className="space-y-2">
+        {error ? <Alert tone="danger">{error}</Alert> : null}
+        <Button
+          type="button"
+          variant="secondary"
+          disabled={busy}
+          onClick={async () => {
+            setBusy(true);
+            setError(null);
+            try {
+              const coords = await getCurrentPosition();
+              onConfirm({ latitude: coords.latitude, longitude: coords.longitude, formattedAddress: "" });
+            } catch (caught) {
+              setError(caught instanceof Error ? caught.message : "Could not get your location.");
+            } finally {
+              setBusy(false);
+            }
+          }}
+        >
+          {busy ? "Locating…" : "Use my current location"}
+        </Button>
+        <p className="text-xs text-ink-500">
+          The map isn&apos;t available here — stand at the address and use your current location, then fill in the
+          fields below.
+        </p>
+      </div>
     );
   }
 
@@ -171,7 +195,7 @@ export function MapPicker({
           disabled={!ready}
         />
         <Button type="button" variant="secondary" onClick={useCurrentLocation} disabled={busy || !ready}>
-          Use current location
+          Use my current location
         </Button>
       </div>
       <div ref={mapDivRef} className="h-64 w-full rounded-lg border border-cream-200" />

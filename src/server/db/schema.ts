@@ -457,6 +457,7 @@ export const users = pgTable(
     phoneE164: text("phone_e164"),
     phoneVerifiedAt: timestamp("phone_verified_at", { withTimezone: true }),
     gender: text("gender", { enum: ["MALE", "FEMALE", "OTHER"] }),
+    /** Set when the user saves the first-time details form; until then they are prompted after each sign-in. */
     profileCompletedAt: timestamp("profile_completed_at", { withTimezone: true }),
     // Role is server-owned. It is never read from a request body.
     role: userRoleEnum("role").notNull().default("CUSTOMER"),
@@ -491,18 +492,21 @@ export const platformSettings = pgTable("platform_settings", {
 });
 
 /**
- * One-time codes for mobile and email login. Only a salted HMAC of the code is stored.
- * `userId` is null when the identifier matched no account: the request still
+ * One-time codes for mobile login. Only a salted HMAC of the code is stored.
+ * `userId` is null when the number matched no account: the request still
  * behaves identically from the outside (no account enumeration) but nothing
- * is ever sent for it. Either phoneE164 or email is set, not both.
+ * is ever sent for it.
  */
 export const loginOtps = pgTable(
   "login_otps",
   {
     id: uuid("id").primaryKey().defaultRandom(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    /** Mobile number the code was requested with, if any. */
     phoneE164: text("phone_e164"),
+    /** Address the code was sent to; codes are looked up by it. Null only on rows from before email login. */
     email: text("email"),
+    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE"] }).notNull().default("LOGIN"),
     channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
     codeHash: text("code_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -518,6 +522,7 @@ export const loginOtps = pgTable(
     index("login_otps_phone_created_idx").on(t.phoneE164, t.createdAt),
     index("login_otps_email_created_idx").on(t.email, t.createdAt),
     index("login_otps_user_idx").on(t.userId),
+    check("login_otps_identifier_present", sql`${t.phoneE164} IS NOT NULL OR ${t.email} IS NOT NULL`),
   ],
 );
 

@@ -1,26 +1,29 @@
 import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
-import { eq, isNull } from "drizzle-orm";
 
-import { UnifiedLoginForm } from "@/components/unified-login-form";
+import { OtpLoginForm } from "@/components/otp-login-form";
 import { Card } from "@/components/ui";
 import { getEnv } from "@/lib/env";
 import { getCurrentUser } from "@/server/authz/guards";
-import { signIn } from "@/server/auth";
+import { OTP_TICKET_PROVIDER_ID, signIn } from "@/server/auth";
 import { EMAIL_PROVIDER_ID, emailSignInMode } from "@/server/auth-email";
 import { emailMode } from "@/server/email/transport";
-import { getProvider } from "@/server/otp/providers";
-import { getRule } from "@/server/services/settings";
-import { verifyLoginOtp } from "@/server/otp/service";
-import { db } from "@/server/db";
-import { users } from "@/server/db/schema";
+import { createLoginTicket, verifyLoginOtp } from "@/server/otp/service";
+import { toClientError } from "@/lib/errors";
+import { headers } from "next/headers";
 
 export const metadata = { title: "Sign in" };
 export const dynamic = "force-dynamic";
 
+/** Every sign-in method lands here first: it asks for missing details, then goes home. */
+const AFTER_SIGN_IN = "/onboarding";
+
 /**
- * Production sign-in methods: Google (§5) and OTP-based login (mobile/email).
+ * Production sign-in methods: Google (§5) and, when an SMTP sender is
+ * configured, an emailed one-time link (GS-001). A dev-only email form is
+ * rendered outside production so the app is usable locally and in end-to-end
+ * tests; it is never available in production.
  */
 export default async function SignInPage({
   searchParams,
@@ -38,43 +41,24 @@ export default async function SignInPage({
   // Auth.js sends AccessDenied when the signIn callback refuses: a suspended or closed account.
   const accessDenied = query.error === "AccessDenied";
   const devLoginEnabled = env.NODE_ENV !== "production";
-  const otpRules = await getRule("otp");
   const otpEmailAvailable = emailMode() !== "disabled";
 
-  async function verifyLoginCode(input: {
-    countryCode?: string;
-    mobile?: string;
-    email?: string;
-    code: string;
-  }) {
+  async function verifyLoginCode(input: { mobile: string | null; email: string | null; code: string }) {
     "use server";
+    const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
+    let ticket: string;
     try {
-      const user = await verifyLoginOtp(input);
-
-      // Check if profile is complete
-      if (!user.profileCompletedAt) {
-        // Redirect to profile completion with session
-        await signIn("credentials", {
-          id: user.id,
-          redirectTo: "/onboarding/complete-profile",
-        });
-      } else {
-        // Normal signin
-        if (input.mobile && input.countryCode) {
-          await signIn("mobile-otp", { mobile: input.mobile, countryCode: input.countryCode, redirectTo: "/" });
-        } else if (input.email) {
-          // For email login, we need to create/sign in the user
-          const [existingUser] = await db.select().from(users).where(eq(users.id, user.id));
-          if (existingUser) {
-            // This is a credentials-based signin for email OTP
-            await signIn("credentials", { id: user.id, redirectTo: "/" });
-          }
-        }
-      }
+      const { user } = await verifyLoginOtp({ ...input, ip });
+      ticket = createLoginTicket(user.id);
+    } catch (error) {
+      return { error: toClientError(error).body.error.message };
+    }
+    try {
+      await signIn(OTP_TICKET_PROVIDER_ID, { ticket, redirectTo: AFTER_SIGN_IN });
     } catch (error) {
       if (isRedirectError(error)) throw error;
-      if (error instanceof AuthError) return { error: "That code is invalid or has expired. Request a new one." };
-      return { error: (error as Error).message || "Verification failed. Please try again." };
+      if (error instanceof AuthError) return { error: "Could not sign you in. Please request a new code." };
+      throw error;
     }
   }
 
@@ -105,7 +89,7 @@ export default async function SignInPage({
             className="mt-6"
             action={async () => {
               "use server";
-              await signIn("google", { redirectTo: "/" });
+              await signIn("google", { redirectTo: AFTER_SIGN_IN });
             }}
           >
             <label className="mb-3 flex items-start gap-2 text-xs text-ink-600">
@@ -137,11 +121,12 @@ export default async function SignInPage({
         )}
 
         {otpEmailAvailable ? (
-          <UnifiedLoginForm
-            verify={verifyLoginCode}
-            emailAvailable={otpEmailAvailable}
-          />
-        ) : null}
+          <OtpLoginForm verify={verifyLoginCode} />
+        ) : (
+          <p className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            Sign-in codes cannot be emailed: set <code>AUTH_EMAIL_FROM</code> and <code>AUTH_EMAIL_SERVER</code>.
+          </p>
+        )}
 
         {checkEmail ? (
           <p
@@ -160,7 +145,7 @@ export default async function SignInPage({
               "use server";
               await signIn(EMAIL_PROVIDER_ID, {
                 email: String(formData.get("email") ?? ""),
-                redirectTo: "/",
+                redirectTo: AFTER_SIGN_IN,
               });
             }}
           >
@@ -208,7 +193,7 @@ export default async function SignInPage({
               "use server";
               await signIn("test-credentials", {
                 email: String(formData.get("email") ?? ""),
-                redirectTo: "/",
+                redirectTo: AFTER_SIGN_IN,
               });
             }}
           >

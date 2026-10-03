@@ -8,6 +8,7 @@ import { sql } from "drizzle-orm";
 
 import { db } from "@/server/db";
 import {
+  addresses,
   deliveryPartners,
   orders,
   payments,
@@ -87,22 +88,51 @@ export async function resetDatabase(): Promise<void> {
   }
 }
 
+let mobileCounter = 0;
+/** A unique, valid Indian mobile number per call (buyers need one to check out). */
+export function uniqueMobile(): string {
+  mobileCounter += 1;
+  return `9${String(Date.now() % 1e5).padStart(5, "0")}${String(mobileCounter % 1e4).padStart(4, "0")}`;
+}
+
 export async function createUser(
-  overrides: { email?: string; role?: UserRole; name?: string } = {},
+  overrides: { email?: string; role?: UserRole; name?: string; mobile?: string | null } = {},
 ) {
+  const mobile = overrides.mobile === undefined ? uniqueMobile() : overrides.mobile;
   const [user] = await db
     .insert(users)
     .values({
       email: overrides.email ?? `user-${uniq()}@test.local`,
       name: overrides.name ?? "Test User",
       role: overrides.role ?? "CUSTOMER",
+      phoneE164: mobile ? `+91${mobile}` : null,
+      phone: mobile,
     })
     .returning();
   return user;
 }
 
+/**
+ * The user's default delivery address, created on first use. PIN 411001 is the
+ * test shops' own PIN, so every fixture shop delivers to it. Personal orders
+ * from a shop that delivers need an address (checkout refuses without one).
+ */
+export async function deliveryAddressId(userId: string): Promise<string> {
+  const [existing] = await db
+    .select({ id: addresses.id })
+    .from(addresses)
+    .where(sql`${addresses.userId} = ${userId} AND ${addresses.isDefault} AND ${addresses.deletedAt} IS NULL`)
+    .limit(1);
+  if (existing) return existing.id;
+  const [address] = await db
+    .insert(addresses)
+    .values({ userId, line1: "2 Test Lane", city: "Pune", pincode: "411001", isDefault: true, addressType: "HOME" })
+    .returning({ id: addresses.id });
+  return address.id;
+}
+
 export async function createUserWithWallet(
-  overrides: { email?: string; role?: UserRole; balancePaise?: number } = {},
+  overrides: { email?: string; role?: UserRole; balancePaise?: number; mobile?: string | null } = {},
 ) {
   const user = await createUser(overrides);
   const [wallet] = await db

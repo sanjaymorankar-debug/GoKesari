@@ -3,6 +3,8 @@ import { redirect } from "next/navigation";
 
 import { NotificationPreferences } from "@/components/notification-preferences";
 import { PhoneLinkForm } from "@/components/phone-link-form";
+import { EmailChangeForm, ProfileDetailsForm } from "@/components/profile-forms";
+import type { GenderValue } from "@/components/profile-setup";
 import { MarketingConsentToggle } from "@/components/marketing-consent-toggle";
 import { Badge, Card, PageHeader } from "@/components/ui";
 import { ROLE_LABELS } from "@/server/authz/permissions";
@@ -10,112 +12,90 @@ import { getCurrentUser } from "@/server/authz/guards";
 import { getMarketingConsentStatus } from "@/server/services/consents";
 import { getPreferenceMatrix, listNotifications } from "@/server/services/notifications";
 import { signOut } from "@/server/auth";
-import { db } from "@/server/db";
-import { users, addresses } from "@/server/db/schema";
-import { and, eq, isNull } from "drizzle-orm";
+import { listAddresses } from "@/server/services/addresses";
+import { getProfile } from "@/server/services/profile";
 
-export const metadata = { title: "Profile" };
+export const metadata = { title: "My Profile" };
 export const dynamic = "force-dynamic";
 
 export default async function ProfilePage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
 
-  const [notifications, marketingConsent, phoneRow, preferences, dbUser, userAddresses] = await Promise.all([
+  const [notifications, marketingConsent, profile, preferences, addresses] = await Promise.all([
     listNotifications(user.id, { limit: 20 }),
     getMarketingConsentStatus(user.id),
-    db.select({ phoneE164: users.phoneE164 }).from(users).where(eq(users.id, user.id)),
+    getProfile(user.id),
     getPreferenceMatrix(user.id),
-    db.select().from(users).where(eq(users.id, user.id)),
-    db.select().from(addresses).where(and(eq(addresses.userId, user.id), isNull(addresses.deletedAt))),
+    listAddresses(user.id),
   ]);
-
-  const defaultAddress = userAddresses.find((a) => a.isDefault);
-  const userData = dbUser[0];
+  const defaultAddress = addresses.find((a) => a.isDefault) ?? addresses[0] ?? null;
 
   return (
     <div className="mx-auto max-w-2xl">
-      <PageHeader title="Profile" />
+      <PageHeader title="My Profile" />
 
-      {/* Personal Details Card */}
       <Card className="mb-6 p-6">
-        <div className="flex items-start justify-between">
-          <div className="flex-1">
-            <p className="text-lg font-semibold text-ink-900">
-              {userData?.name ?? "Complete your profile"}
-            </p>
-            <p className="text-sm text-ink-500">{user.email}</p>
-            {userData?.gender && (
-              <p className="text-sm text-ink-500 capitalize">
-                {userData.gender.toLowerCase()}
-              </p>
-            )}
-            <div className="mt-2">
-              <Badge tone="info">{ROLE_LABELS[user.role]}</Badge>
-            </div>
-          </div>
-          <Link
-            href="/profile/edit"
-            className="ml-4 text-sm font-medium text-kesari-600 hover:underline"
-          >
-            Edit
-          </Link>
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-lg font-semibold text-ink-900">{profile.name ?? "Your details"}</p>
+          <Badge tone="info">{ROLE_LABELS[user.role]}</Badge>
         </div>
-
-        <div className="mt-4 border-t border-cream-200 pt-4">
-          <h3 className="text-sm font-medium text-ink-900 mb-3">Contact Information</h3>
-          <div className="space-y-2">
-            <p className="text-sm text-ink-600">
-              <span className="font-medium">Email:</span> {user.email}
-            </p>
-            {phoneRow[0]?.phoneE164 && (
-              <p className="text-sm text-ink-600">
-                <span className="font-medium">Mobile:</span> {phoneRow[0].phoneE164}
-              </p>
-            )}
-          </div>
-
-          <div className="mt-4">
-            <PhoneLinkForm current={phoneRow[0]?.phoneE164 ?? null} />
-          </div>
-        </div>
+        <ProfileDetailsForm initial={{ name: profile.name ?? "", gender: (profile.gender ?? "") as GenderValue | "" }} />
       </Card>
 
-      {/* Addresses Card */}
+      <Card className="mb-6 grid gap-5 p-6">
+        <h2 className="text-base font-semibold text-ink-900">Login &amp; contact</h2>
+        <PhoneLinkForm current={profile.phoneE164} />
+        <EmailChangeForm current={profile.email} />
+      </Card>
+
       <Card className="mb-6 p-6">
-        <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-semibold text-ink-900">Delivery Addresses</h2>
-          <Link
-            href="/profile/addresses"
-            className="text-sm font-medium text-kesari-600 hover:underline"
-          >
-            Manage →
+        <div className="mb-3 flex items-center justify-between">
+          <h2 className="text-base font-semibold text-ink-900">Delivery addresses</h2>
+          <Link href="/profile/addresses" className="text-sm font-medium text-kesari-600 hover:underline">
+            {addresses.length > 0 ? "Manage →" : "Add address →"}
           </Link>
         </div>
-
         {defaultAddress ? (
-          <div className="rounded-lg border border-cream-200 p-4 bg-cream-50">
-            <p className="font-medium text-ink-900">{defaultAddress.label}</p>
-            <p className="text-sm text-ink-600 mt-1">
+          <div className="rounded-lg border border-cream-200 bg-cream-50 p-3 text-sm">
+            <p className="font-medium text-ink-900">
+              {defaultAddress.label ?? (defaultAddress.addressType === "WORK" ? "Work" : defaultAddress.addressType === "HOME" ? "Home" : "Address")}
+              {defaultAddress.isDefault ? " · Default" : ""}
+            </p>
+            <p className="text-ink-700">
               {defaultAddress.line1}
-              {defaultAddress.line2 && `, ${defaultAddress.line2}`}
+              {defaultAddress.line2 ? `, ${defaultAddress.line2}` : ""}
             </p>
-            <p className="text-sm text-ink-600">
-              {defaultAddress.area && `${defaultAddress.area}, `}
-              {defaultAddress.city}, {defaultAddress.state} {defaultAddress.pincode}
+            <p className="text-ink-500">
+              {[defaultAddress.area, defaultAddress.city, defaultAddress.state].filter(Boolean).join(", ")} — {defaultAddress.pincode}
             </p>
+            <p className="mt-1 text-xs text-ink-500">
+              {defaultAddress.latitude && defaultAddress.longitude
+                ? `Geo-tagged at ${Number(defaultAddress.latitude).toFixed(5)}, ${Number(defaultAddress.longitude).toFixed(5)}`
+                : "Not geo-tagged yet — edit it to pin the location."}
+            </p>
+            {addresses.length > 1 ? <p className="mt-1 text-xs text-ink-500">+ {addresses.length - 1} more saved</p> : null}
           </div>
         ) : (
-          <p className="text-sm text-ink-500">
-            No default address set.{" "}
-            <Link
-              href="/profile/addresses"
-              className="text-kesari-600 hover:underline"
-            >
-              Add one
-            </Link>
-          </p>
+          <p className="text-sm text-ink-500">No delivery address yet. You&apos;ll need one before your first delivery order.</p>
         )}
+      </Card>
+
+      <Card className="mb-6 p-6">
+        <form
+          className="mt-5"
+          action={async () => {
+            "use server";
+            await signOut({ redirectTo: "/" });
+          }}
+        >
+          <button
+            type="submit"
+            className="rounded-lg border border-cream-200 px-4 py-2 text-sm font-medium text-ink-700 hover:bg-cream-100"
+          >
+            Sign out
+          </button>
+        </form>
       </Card>
 
       <Card className="mb-6 p-6">
@@ -159,22 +139,6 @@ export default async function ProfilePage() {
             ))}
           </ul>
         )}
-      </Card>
-
-      <Card className="mt-6 p-6">
-        <form
-          action={async () => {
-            "use server";
-            await signOut({ redirectTo: "/" });
-          }}
-        >
-          <button
-            type="submit"
-            className="rounded-lg border border-cream-200 px-4 py-2 text-sm font-medium text-ink-700 hover:bg-cream-100"
-          >
-            Sign out
-          </button>
-        </form>
       </Card>
     </div>
   );
