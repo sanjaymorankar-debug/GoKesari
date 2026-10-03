@@ -31,6 +31,23 @@ const REDISPATCHABLE_DELIVERY_STATUSES: ReadonlySet<DeliveryOrderStatus> = new S
 
 export type TrackingStage = "AWAITING_PICKUP" | "IN_PROGRESS" | "NOT_TRACKED" | "ENDED";
 
+/**
+ * Whether an order is far enough along, and not yet finished, for a tracking
+ * panel to be worth mounting (GS-042/NAV-004).
+ *
+ * Callers use this to decide whether to render the panel at all, so that a
+ * page listing many orders only opens a poll for the ones actually in flight.
+ * It deliberately answers from the order status alone — the panel itself calls
+ * the API, which is the authority on what the viewer may see and resolves the
+ * finer stage (awaiting pickup / in progress / not tracked).
+ */
+export function isTrackableOrderStatus(status: OrderStatus | string): boolean {
+  // Callers include UI rows that carry the status as a plain string; an
+  // unrecognised value is simply not trackable rather than a crash.
+  const phase: OrderPhase | undefined = ORDER_PHASE[status as OrderStatus];
+  return phase === "PRE_PICKUP" || phase === "EN_ROUTE";
+}
+
 interface Coordinates {
   latitude: number;
   longitude: number;

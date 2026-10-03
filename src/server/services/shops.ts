@@ -21,6 +21,7 @@ import {
 } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
+import { formatPaise } from "@/lib/money";
 import type { ShopTypeKey } from "@/lib/shop-types";
 import { db } from "@/server/db";
 import {
@@ -548,6 +549,36 @@ export async function updateShopCompliance(
 const SHOP_ACT_TAKEN_MESSAGE =
   "Another live shop already has this Shop Act licence number. Resolve the duplicate first.";
 
+/**
+ * GS-008: a shop cannot go live until its registration fee is settled.
+ *
+ * `feePaymentStatus` is the single verified signal — it is derived from the
+ * `shop_payments` ledger by `recomputeShopSettlement`, never set by hand, and a
+ * waived fee (snapshot of 0) is already written as PAID at registration. So the
+ * gate is one equality check, and waiving a fee stays the way to let a shop
+ * through without money changing hands.
+ *
+ * Only the PENDING_APPROVAL -> APPROVED transition is gated. Shops approved
+ * before this gate existed keep their status; nothing is retroactively revoked.
+ */
+function assertRegistrationFeeSettled(shop: Shop): void {
+  if (shop.feePaymentStatus === "PAID") return;
+
+  const fee = shop.registrationFeePaise ?? 0;
+  const outstanding = Math.max(0, fee - shop.amountPaidPaise);
+  const detail =
+    shop.feePaymentStatus === "CANCELLED"
+      ? "This registration was cancelled."
+      : shop.feePaymentStatus === "REFUNDED"
+        ? "The registration fee was refunded."
+        : `${formatPaise(shop.amountPaidPaise)} of ${formatPaise(fee)} collected — ${formatPaise(outstanding)} outstanding.`;
+
+  throw conflict(
+    `${shop.name} cannot be approved until its registration fee is settled. ${detail} Record the payment first, or set the fee to zero to waive it.`,
+    { feePaymentStatus: shop.feePaymentStatus, registrationFeePaise: fee, amountPaidPaise: shop.amountPaidPaise },
+  );
+}
+
 export async function approveShop(
   shopId: string,
   input: { classification: Classification },
@@ -587,6 +618,7 @@ function approveShopTransaction(
     if (shop.status === "APPROVED") {
       throw conflict("This shop is already approved.");
     }
+    assertRegistrationFeeSettled(shop);
 
     const [updated] = await updateReturning(
       tx,

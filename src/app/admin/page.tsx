@@ -580,6 +580,11 @@ function serialiseShop(shop: typeof shops.$inferSelect) {
     status: shop.status,
     classification: shop.classification,
     createdAt: shop.createdAt.toISOString(),
+    // GS-008: approval is gated on the fee, so the queue shows it up front
+    // rather than letting the operator find out by being refused.
+    feePaymentStatus: shop.feePaymentStatus,
+    registrationFeePaise: shop.registrationFeePaise,
+    amountPaidPaise: shop.amountPaidPaise,
   };
 }
 

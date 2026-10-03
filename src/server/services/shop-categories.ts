@@ -116,7 +116,22 @@ export async function createShopCategory(
   return row;
 }
 
-/** Rename, describe, or activate/deactivate. A deactivated category stays on the shops that have it but cannot be newly chosen. */
+/** The values a category had before a save, so a confirmation can read "Grocery → Daily Needs". */
+export interface ShopCategorySnapshot {
+  name: string;
+  description: string | null;
+  status: string;
+}
+
+/**
+ * Rename, describe, or activate/deactivate. A deactivated category stays on the
+ * shops that have it but cannot be newly chosen.
+ *
+ * Returns the saved row **plus** `previous`, so the admin screen's confirmation
+ * names the actual change rather than a generic "saved". The row's own fields
+ * stay at the top level, which is what `PATCH /api/shop-categories/{id}`
+ * already returns.
+ */
 export async function updateShopCategory(
   id: string,
   patch: {
@@ -125,7 +140,7 @@ export async function updateShopCategory(
     status?: "ACTIVE" | "INACTIVE";
   },
   actor: Actor,
-): Promise<ShopCategory> {
+): Promise<ShopCategory & { previous: ShopCategorySnapshot }> {
   if (!isStaff(actor.role))
     throw forbidden("Only operations can manage shop categories.");
   const [current] = await db
@@ -181,7 +196,14 @@ export async function updateShopCategory(
       description: row.description,
     },
   });
-  return row;
+  return {
+    ...row,
+    previous: {
+      name: current.name,
+      description: current.description,
+      status: current.status,
+    },
+  };
 }
 
 /* ------------------------------------------------------ a shop's categories */
@@ -281,12 +303,17 @@ export async function applyShopCategories(
   return { added, removed };
 }
 
-/** Owner edits their shop's categories; staff may edit any shop's. */
+/**
+ * Owner edits their shop's categories; staff may edit any shop's.
+ *
+ * Reports the names added and removed alongside the new set, so the reassign
+ * screen's confirmation can read "+ Bakery, − Grocery" instead of just "saved".
+ */
 export async function setShopCategories(
   shopId: string,
   categoryIds: readonly string[],
   actor: Actor,
-): Promise<ShopCategory[]> {
+): Promise<{ categories: ShopCategory[]; added: string[]; removed: string[] }> {
   const [shop] = await db
     .select({ ownerId: shops.ownerId })
     .from(shops)
@@ -295,6 +322,7 @@ export async function setShopCategories(
   if (shop.ownerId !== actor.id && !isStaff(actor.role))
     throw forbidden("This shop does not belong to you.");
 
+  const before = await getShopCategories(shopId);
   const change = await db.transaction((tx) =>
     applyShopCategories(tx, shopId, categoryIds),
   );
@@ -312,7 +340,16 @@ export async function setShopCategories(
       },
     });
   }
-  return getShopCategories(shopId);
+  const categories = await getShopCategories(shopId);
+  return {
+    categories,
+    added: categories
+      .filter((c) => change.added.includes(c.id))
+      .map((c) => c.name),
+    removed: before
+      .filter((c) => change.removed.includes(c.id))
+      .map((c) => c.name),
+  };
 }
 
 /* ------------------------------------------------------------- reporting */

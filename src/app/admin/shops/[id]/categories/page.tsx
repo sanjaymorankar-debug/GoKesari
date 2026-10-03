@@ -2,6 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { and, eq, isNull } from "drizzle-orm";
 
 import { ShopCategoriesEditor } from "@/components/shop-categories-editor";
+import { UnsavedChangesProvider } from "@/components/unsaved-changes-guard";
 import { LinkButton, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { db } from "@/server/db";
@@ -29,7 +30,13 @@ export default async function AdminShopCategoriesPage({ params }: { params: Prom
         description={`${shop.ownerName} · ${shop.city}. Changes here replace the shop's current selection; its products and orders are not affected.`}
         action={<LinkButton href="/admin/shop-categories" variant="secondary">All categories</LinkButton>}
       />
-      <ShopCategoriesEditor shopId={shop.id} current={current.map((c) => ({ id: c.id, name: c.name, status: c.status }))} />
+      <UnsavedChangesProvider>
+        <ShopCategoriesEditor
+          shopId={shop.id}
+          shopName={shop.name}
+          current={current.map((c) => ({ id: c.id, name: c.name, status: c.status }))}
+        />
+      </UnsavedChangesProvider>
     </div>
   );
 }
