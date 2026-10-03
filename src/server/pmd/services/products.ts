@@ -164,11 +164,11 @@ export async function searchProducts(
     const tsquery = tokens.map((t, i) => `${t.replace(/[':&|!()<>]/g, "")}${i === tokens.length - 1 ? ":*" : ""}`).filter(Boolean).join(" & ");
     if (tsquery) {
       const rows = await sql<SummaryRow[]>`
-        SELECT ${SUMMARY_SELECT(sql)}, ts_rank(to_tsvector('simple', pm.search_text), to_tsquery('simple', ${tsquery})) AS rank
+        SELECT ${SUMMARY_SELECT(sql)}, ts_rank(to_tsvector('simple', pm.search_text), to_tsquery('simple', ${tsquery})) AS \`rank\`
         ${SUMMARY_FROM(sql)}
         WHERE pm.record_status = 'ACTIVE' ${f1} ${f2} ${f3} ${f4} ${f5} ${f6}
           AND to_tsvector('simple', pm.search_text) @@ to_tsquery('simple', ${tsquery})
-        ORDER BY rank DESC, pm.data_quality_score DESC NULLS LAST LIMIT ${max}`;
+        ORDER BY \`rank\` DESC, pm.data_quality_score DESC NULLS LAST LIMIT ${max}`;
       add(rows, "KEYWORD", 50);
     }
   }
@@ -180,10 +180,10 @@ export async function searchProducts(
       const out = await sql.begin("read only", async (tx) => {
         await tx`SELECT set_config('pg_trgm.similarity_threshold', '0.3', true)`;
         return tx<SummaryRow[]>`
-          SELECT ${SUMMARY_SELECT(tx as unknown as Sql)}, similarity(pm.search_text, ${norm}) AS rank
+          SELECT ${SUMMARY_SELECT(tx as unknown as Sql)}, similarity(pm.search_text, ${norm}) AS \`rank\`
           ${SUMMARY_FROM(tx as unknown as Sql)}
           WHERE pm.record_status = 'ACTIVE' ${f1} ${f2} ${f3} ${f4} ${f5} ${f6} AND pm.search_text % ${norm}
-          ORDER BY rank DESC LIMIT ${max}`;
+          ORDER BY \`rank\` DESC LIMIT ${max}`;
       });
       add(out, "FUZZY", 0);
     }
@@ -242,7 +242,7 @@ export async function getProduct(sql: Sql, masterProductId: string): Promise<Pro
     sql<{ source_key: string; source_product_id: string; source_url: string | null; data_collection_method: string; match_status: string; match_score: number | null; last_seen_date: string }[]>`
       SELECT s.source_key, ps.source_product_id, ps.source_url, ps.data_collection_method, ps.match_status, ps.match_score, ps.last_seen_date
       FROM pmd.product_source ps JOIN pmd.source s USING (source_id) WHERE ps.product_id = ${id} ORDER BY s.source_key`,
-    sql<{ rank: number; image_url: string; image_source: string; validation_status: string }[]>`SELECT rank, image_url, image_source, validation_status FROM pmd.product_image WHERE product_id = ${id} ORDER BY rank`,
+    sql<{ rank: number; image_url: string; image_source: string; validation_status: string }[]>`SELECT \`rank\`, image_url, image_source, validation_status FROM pmd.product_image WHERE product_id = ${id} ORDER BY \`rank\``,
     sql<{ attribute_key: string; value_1: string; source_1: string; value_2: string; source_2: string; conflict_status: string; resolution: string | null }[]>`
       SELECT attribute_key, value_1, source_1, value_2, source_2, conflict_status, resolution FROM pmd.product_attribute_conflict WHERE product_id = ${id} ORDER BY conflict_id`,
     pm.product_family_id

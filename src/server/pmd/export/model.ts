@@ -167,9 +167,9 @@ const productMaster: SheetDef = {
     FROM pmd.v_product_flat pm
     LEFT JOIN pmd.v_product_price_summary ps ON ps.product_id = pm.product_id
     LEFT JOIN LATERAL (
-      SELECT max(image_url) FILTER (WHERE rank = 0) p0, max(image_url) FILTER (WHERE rank = 1) i1, max(image_url) FILTER (WHERE rank = 2) i2,
-             max(image_url) FILTER (WHERE rank = 3) i3, max(image_url) FILTER (WHERE rank = 4) i4, max(image_url) FILTER (WHERE rank = 5) i5,
-             max(image_source) FILTER (WHERE rank = 0) image_source, max(validation_status) FILTER (WHERE rank = 0) validation_status
+      SELECT max(image_url) FILTER (WHERE \`rank\` = 0) p0, max(image_url) FILTER (WHERE \`rank\` = 1) i1, max(image_url) FILTER (WHERE \`rank\` = 2) i2,
+             max(image_url) FILTER (WHERE \`rank\` = 3) i3, max(image_url) FILTER (WHERE \`rank\` = 4) i4, max(image_url) FILTER (WHERE \`rank\` = 5) i5,
+             max(image_source) FILTER (WHERE \`rank\` = 0) image_source, max(validation_status) FILTER (WHERE \`rank\` = 0) validation_status
       FROM pmd.product_image WHERE product_id = pm.product_id) img ON true
     WHERE pm.record_status = 'ACTIVE' AND ${range("pm.product_id", s)}
     ORDER BY pm.product_id`,

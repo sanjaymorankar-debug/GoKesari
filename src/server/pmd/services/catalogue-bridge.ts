@@ -228,7 +228,7 @@ export async function promoteToCatalogue(
       RETURNING id, code`;
 
     // Images are referenced, not copied.
-    const images = opts.images === false ? [] : await tx<{ image_url: string; rank: number }[]>`SELECT image_url, rank FROM pmd.product_image WHERE product_id = ${m.product_id} ORDER BY rank LIMIT 5`;
+    const images = opts.images === false ? [] : await tx<{ image_url: string; rank: number }[]>`SELECT image_url, \`rank\` FROM pmd.product_image WHERE product_id = ${m.product_id} ORDER BY \`rank\` LIMIT 5`;
     if (images.length) {
       await tx`UPDATE public.products SET image_url = ${images[0].image_url} WHERE id = ${p.id}`;
       for (const [i, img] of images.slice(1).entries()) {

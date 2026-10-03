@@ -413,8 +413,8 @@ async function createInBulk(ctx: LoadContext, candidates: Creatable[]): Promise<
     );
     if (imageRows.length) {
       await tx`
-        INSERT INTO pmd.product_image (product_id, rank, image_url, image_source, source_id, license_note)
-        SELECT product_id, rank, image_url, image_source, source_id, license_note FROM jsonb_populate_recordset(NULL::pmd.product_image, ${json(tx, imageRows)})
+        INSERT INTO pmd.product_image (product_id, \`rank\`, image_url, image_source, source_id, license_note)
+        SELECT product_id, \`rank\`, image_url, image_source, source_id, license_note FROM jsonb_populate_recordset(NULL::pmd.product_image, ${json(tx, imageRows)})
         ON CONFLICT (product_id, image_url) DO NOTHING`;
     }
 

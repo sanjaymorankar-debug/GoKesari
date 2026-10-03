@@ -82,12 +82,12 @@ export async function mergeProducts(
 
     // Images: keep the survivor's, add the retired one's that are new, up to the six-image limit.
     const [{ n: haveImages }] = await tx<{ n: number }[]>`SELECT count(*)::int AS n FROM pmd.product_image WHERE product_id = ${intoProductId}`;
-    const fromImages = await tx<{ image_id: number; image_url: string }[]>`SELECT image_id, image_url FROM pmd.product_image WHERE product_id = ${fromProductId} ORDER BY rank`;
+    const fromImages = await tx<{ image_id: number; image_url: string }[]>`SELECT image_id, image_url FROM pmd.product_image WHERE product_id = ${fromProductId} ORDER BY \`rank\``;
     let rank = haveImages;
     for (const img of fromImages) {
       const dup = await tx`SELECT 1 FROM pmd.product_image WHERE product_id = ${intoProductId} AND image_url = ${img.image_url}`;
       if (dup.length === 0 && rank < 6) {
-        await tx`UPDATE pmd.product_image SET product_id = ${intoProductId}, rank = ${rank++} WHERE image_id = ${img.image_id}`;
+        await tx`UPDATE pmd.product_image SET product_id = ${intoProductId}, \`rank\` = ${rank++} WHERE image_id = ${img.image_id}`;
       } else {
         await tx`DELETE FROM pmd.product_image WHERE image_id = ${img.image_id}`; // a duplicate link, not history
       }

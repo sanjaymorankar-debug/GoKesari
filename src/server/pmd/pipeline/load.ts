@@ -20,6 +20,7 @@ import { createHash } from "node:crypto";
 import type { PmdConfig } from "../config";
 import type { Queryable, Sql, TransactionSql } from "../db";
 import { matchNormalized } from "../match/engine";
+import { insertedNew } from "../mysql/upsert";
 import { toEan13, toUpcA } from "../normalize/identifiers";
 import { normalizeText } from "../normalize/text";
 import type { ReferenceIds } from "../reference-data";
@@ -119,14 +120,21 @@ async function resolveBrand(tx: Queryable, ctx: LoadContext, e: NamedEntity | nu
   let [row] = await tx<{ brand_id: number }[]>`SELECT brand_id FROM pmd.brand WHERE brand_key = ${e.key}`;
   if (!row) [row] = await tx<{ brand_id: number }[]>`SELECT brand_id FROM pmd.brand_alias WHERE alias_key = ${alias}`;
   if (!row) {
-    [row] = await tx<{ brand_id: number }[]>`
+    // Insert, or get the id of the row a concurrent loader just inserted.
+    // `LAST_INSERT_ID(brand_id)` makes the duplicate branch report the existing
+    // key, which is what the Postgres `DO UPDATE SET brand_key =
+    // EXCLUDED.brand_key RETURNING brand_id` was for - an update that changed
+    // nothing, written only so RETURNING would fire.
+    const inserted = await tx`
       INSERT INTO pmd.brand (brand_name, brand_key, source_id) VALUES (${e.display}, ${e.key}, ${ctx.sourceId})
-      ON CONFLICT (brand_key) DO UPDATE SET brand_key = EXCLUDED.brand_key RETURNING brand_id`;
+      ON DUPLICATE KEY UPDATE brand_id = LAST_INSERT_ID(brand_id)`;
+    row = { brand_id: inserted.insertId };
   }
   // Keep every spelling a source used ("Samsung India") pointing at the one brand.
   await tx`
     INSERT INTO pmd.brand_alias (alias_key, brand_id, alias_original, source_id)
-    VALUES (${alias}, ${row.brand_id}, ${e.original}, ${ctx.sourceId}) ON CONFLICT (alias_key) DO NOTHING`;
+    VALUES (${alias}, ${row.brand_id}, ${e.original}, ${ctx.sourceId})
+    ON DUPLICATE KEY UPDATE brand_id = brand_id`;
   (pending ? pending.brands : ctx.brandCache).set(alias, row.brand_id);
   return row.brand_id;
 }
@@ -140,13 +148,17 @@ async function resolveManufacturer(tx: Queryable, ctx: LoadContext, e: NamedEnti
   let [row] = await tx<{ manufacturer_id: number }[]>`SELECT manufacturer_id FROM pmd.manufacturer WHERE manufacturer_key = ${e.key}`;
   if (!row) [row] = await tx<{ manufacturer_id: number }[]>`SELECT manufacturer_id FROM pmd.manufacturer_alias WHERE alias_key = ${alias}`;
   if (!row) {
-    [row] = await tx<{ manufacturer_id: number }[]>`
+    // Insert, or get the id of the row a concurrent loader just inserted - see
+    // resolveBrand above for why LAST_INSERT_ID replaces the no-op DO UPDATE.
+    const inserted = await tx`
       INSERT INTO pmd.manufacturer (manufacturer_name, manufacturer_key, source_id) VALUES (${e.display}, ${e.key}, ${ctx.sourceId})
-      ON CONFLICT (manufacturer_key) DO UPDATE SET manufacturer_key = EXCLUDED.manufacturer_key RETURNING manufacturer_id`;
+      ON DUPLICATE KEY UPDATE manufacturer_id = LAST_INSERT_ID(manufacturer_id)`;
+    row = { manufacturer_id: inserted.insertId };
   }
   await tx`
     INSERT INTO pmd.manufacturer_alias (alias_key, manufacturer_id, alias_original, source_id)
-    VALUES (${alias}, ${row.manufacturer_id}, ${e.original}, ${ctx.sourceId}) ON CONFLICT (alias_key) DO NOTHING`;
+    VALUES (${alias}, ${row.manufacturer_id}, ${e.original}, ${ctx.sourceId})
+    ON DUPLICATE KEY UPDATE manufacturer_id = manufacturer_id`;
   (pending ? pending.manufacturers : ctx.manufacturerCache).set(alias, row.manufacturer_id);
   return row.manufacturer_id;
 }
@@ -200,7 +212,7 @@ async function upsertIdentifiers(tx: TransactionSql, ctx: LoadContext, productId
     await tx`
       INSERT INTO pmd.product_identifier (product_id, id_type, id_value, id_value_original, id_format, scope_brand_id, is_primary, check_digit_valid, source_id)
       VALUES (${productId}, ${i.type}, ${i.value}, ${i.original}, ${i.format ?? null}, ${i.scope ?? null}, ${i.primary ?? false}, ${i.check ?? null}, ${ctx.sourceId})
-      ON CONFLICT DO NOTHING`;
+      ON DUPLICATE KEY UPDATE product_id = product_id`;
     if (i.type === "GTIN" || i.type === "ISBN") {
       // GTIN / ISBN identify exactly one product. If another master owns it, that is a collision, not a merge.
       const [owner] = await tx<{ product_id: number }[]>`SELECT product_id FROM pmd.product_identifier WHERE id_type = ${i.type} AND id_value = ${i.value}`;
@@ -217,11 +229,14 @@ async function upsertImages(tx: TransactionSql, ctx: LoadContext, productId: num
   let rank = n;
   for (const url of urls) {
     if (rank >= 6) break;
-    const [r] = await tx<{ image_id: number }[]>`
-      INSERT INTO pmd.product_image (product_id, rank, image_url, image_source, source_id, license_note)
-      VALUES (${productId}, ${rank}, ${url}, ${ctx.adapter.definition.key}, ${ctx.sourceId}, ${ctx.adapter.imageLicenseNote ?? null})
-      ON CONFLICT (product_id, image_url) DO NOTHING RETURNING image_id`;
-    if (r) rank++;
+    // `DO NOTHING RETURNING image_id` returned a row only on an insert, and
+    // `rank` must advance only then. No MySQL row count can tell an insert from
+    // a duplicate that changed nothing, so the insert is attempted bare and the
+    // duplicate key is caught - see mysql/upsert.ts.
+    const isNew = await insertedNew(tx`
+      INSERT INTO pmd.product_image (product_id, \`rank\`, image_url, image_source, source_id, license_note)
+      VALUES (${productId}, ${rank}, ${url}, ${ctx.adapter.definition.key}, ${ctx.sourceId}, ${ctx.adapter.imageLicenseNote ?? null})`);
+    if (isNew) rank++;
   }
 }
 
@@ -235,12 +250,14 @@ async function ensureFamily(tx: TransactionSql, productId: number, brandId: numb
   let familyId = sibs.find((s) => s.product_family_id != null)?.product_family_id ?? null;
   if (familyId == null) {
     const familyName = n.coreName ? titleCase(n.coreName) : (n.brand?.display ?? "Family");
-    const [f] = await tx<{ family_id: number }[]>`
+    // The conflict target was the expression (COALESCE(brand_id, 0), family_key);
+    // the schema carries it as the generated column family_brand_key, which the
+    // unique key is on, so ON DUPLICATE KEY finds it without naming it.
+    const f = await tx`
       INSERT INTO pmd.product_family (brand_id, family_key, family_name, category_id)
       VALUES (${brandId}, ${n.coreName}, ${familyName}, ${categoryId})
-      ON CONFLICT (COALESCE(brand_id, 0), family_key) DO UPDATE SET family_name = pmd.product_family.family_name
-      RETURNING family_id`;
-    familyId = f.family_id;
+      ON DUPLICATE KEY UPDATE family_id = LAST_INSERT_ID(family_id)`;
+    familyId = f.insertId;
   }
   const members = [...sibs.map((s) => s.product_id), productId];
   await tx`UPDATE pmd.product_master SET product_family_id = ${familyId}
@@ -261,20 +278,39 @@ async function recordCandidates(
       INSERT INTO pmd.match_candidate (product_source_id, candidate_product_id, match_score, match_status, relation, reasons, hard_conflicts, review_status, created_run_id)
       VALUES (${productSourceId}, ${linkedTo}, ${b.score}, ${b.status}, ${b.relation},
               ${tx.json({ rule: b.rule, components: b.components, notes: b.notes } as never)}, ${b.hardConflicts}, 'AUTO_LINKED', ${ctx.runId})
-      ON CONFLICT (product_source_id, candidate_product_id) DO UPDATE SET match_score = EXCLUDED.match_score, match_status = EXCLUDED.match_status,
-        reasons = EXCLUDED.reasons WHERE pmd.match_candidate.review_status IN ('PENDING','AUTO_LINKED')`;
+      ON DUPLICATE KEY UPDATE
+        match_score  = CASE WHEN review_status IN ('PENDING','AUTO_LINKED') THEN ${b.score}  ELSE match_score  END,
+        match_status = CASE WHEN review_status IN ('PENDING','AUTO_LINKED') THEN ${b.status} ELSE match_status END,
+        reasons      = CASE WHEN review_status IN ('PENDING','AUTO_LINKED')
+                            THEN ${tx.json({ rule: b.rule, components: b.components, notes: b.notes } as never)}
+                            ELSE reasons END`;
   }
   for (const c of decision.queue) {
     if (c.productId === linkedTo) continue;
     const r = c.result;
-    const [row] = await tx<{ candidate_id: number }[]>`
+    const upserted = await tx`
       INSERT INTO pmd.match_candidate (product_source_id, candidate_product_id, match_score, match_status, relation, reasons, hard_conflicts, review_status, created_run_id)
       VALUES (${productSourceId}, ${c.productId}, ${r.score}, ${r.status}, ${r.relation},
               ${tx.json({ rule: r.rule, components: r.components, notes: r.notes } as never)}, ${r.hardConflicts}, 'PENDING', ${ctx.runId})
-      ON CONFLICT (product_source_id, candidate_product_id) DO UPDATE SET match_score = EXCLUDED.match_score, match_status = EXCLUDED.match_status,
-        reasons = EXCLUDED.reasons, hard_conflicts = EXCLUDED.hard_conflicts WHERE pmd.match_candidate.review_status = 'PENDING'
-      RETURNING candidate_id`;
-    if (row) queued++;
+      ON DUPLICATE KEY UPDATE
+        candidate_id   = LAST_INSERT_ID(candidate_id),
+        match_score    = CASE WHEN review_status = 'PENDING' THEN ${r.score}         ELSE match_score    END,
+        match_status   = CASE WHEN review_status = 'PENDING' THEN ${r.status}        ELSE match_status   END,
+        reasons        = CASE WHEN review_status = 'PENDING'
+                              THEN ${tx.json({ rule: r.rule, components: r.components, notes: r.notes } as never)}
+                              ELSE reasons END,
+        hard_conflicts = CASE WHEN review_status = 'PENDING' THEN ${r.hardConflicts} ELSE hard_conflicts END`;
+    // Postgres returned a row when the insert happened or the guarded update
+    // applied, and nothing when the guard excluded it; `queued` counted those
+    // rows. No MySQL row count can reproduce that (an insert and a
+    // no-change duplicate both report 1), but the post-state can: this row is
+    // one Postgres would have counted exactly when it is now PENDING - the
+    // insert sets PENDING, the guarded update only fires on PENDING, and any
+    // other review_status is left untouched. The read is by primary key, which
+    // the upsert just put in LAST_INSERT_ID.
+    const [state] = await tx<{ review_status: string }[]>`
+      SELECT review_status FROM pmd.match_candidate WHERE candidate_id = ${upserted.insertId}`;
+    if (state?.review_status === "PENDING") queued++;
   }
   return queued;
 }
@@ -490,31 +526,61 @@ async function upsertSourceRow(tx: TransactionSql, ctx: LoadContext, a: SourceRo
     categoryCode: n.categoryCode,
     issues: n.issues.filter((i) => i.severity !== "INFO").map((i) => i.code),
   };
-  const [row] = await tx<{ product_source_id: number }[]>`
+  // Hoisted so the insert and the refresh can share them. MySQL has no
+  // EXCLUDED: the new row is referenced either through the deprecated
+  // VALUES(col) or through a MySQL-8-only row alias, and neither is wanted
+  // here - VALUES() is slated for removal, and the alias would drop MariaDB
+  // support for the whole deployment, since PMD has to share the application's
+  // server. Naming the values and binding them twice needs neither.
+  const v = {
+    productId: a.productId,
+    sourceProductId: a.raw.sourceProductId,
+    sourceUrl: n.sourceUrl ?? a.raw.url ?? null,
+    sourceCategory: n.categoryRaw.join(" | ").slice(0, 1000) || null,
+    sourceProductName: staged.name ?? null,
+    sourceBrand: staged.brand ?? null,
+    mrpMinor: n.offer?.mrpMinor ?? null,
+    priceMinor: n.offer?.priceMinor ?? null,
+    currency: n.offer?.currency ?? null,
+    rating: staged.rating ?? null,
+    reviewCount: staged.reviewCount ?? null,
+    availability: staged.availability ?? n.offer?.stockStatus ?? null,
+    collectionMethod: ctx.adapter.collectionMethod,
+    confidence: staged.sourceConfidence ?? reliability,
+    matchStatus: a.match.status,
+    matchScore: a.match.score,
+    matchRule: a.match.rule,
+    resolution: a.match.resolution,
+    hash: a.hash,
+    normalized: tx.json(snapshot as never),
+    rawId: a.rawId,
+    runId: ctx.runId,
+  };
+  const upserted = await tx`
     INSERT INTO pmd.product_source
       (product_id, source_id, source_product_id, source_url, source_category, source_product_name, source_brand,
        source_mrp_minor, source_price_minor, source_currency, source_rating, source_review_count, source_availability,
        first_seen_date, last_seen_date, data_collection_date, data_collection_method, data_confidence,
        match_status, match_score, match_rule, resolution, content_hash, normalized, raw_id, last_run_id)
-    VALUES (${a.productId}, ${ctx.sourceId}, ${a.raw.sourceProductId}, ${n.sourceUrl ?? a.raw.url ?? null},
-            ${n.categoryRaw.join(" | ").slice(0, 1000) || null}, ${staged.name ?? null}, ${staged.brand ?? null},
-            ${n.offer?.mrpMinor ?? null}, ${n.offer?.priceMinor ?? null}, ${n.offer?.currency ?? null},
-            ${staged.rating ?? null}, ${staged.reviewCount ?? null}, ${staged.availability ?? n.offer?.stockStatus ?? null},
-            current_date, current_date, current_date, ${ctx.adapter.collectionMethod}, ${staged.sourceConfidence ?? reliability},
-            ${a.match.status}, ${a.match.score}, ${a.match.rule}, ${a.match.resolution}, ${a.hash}, ${tx.json(snapshot as never)}, ${a.rawId}, ${ctx.runId})
-    ON CONFLICT (source_id, source_product_id) DO UPDATE SET
-      product_id = COALESCE(EXCLUDED.product_id, pmd.product_source.product_id),
-      source_url = EXCLUDED.source_url, source_category = EXCLUDED.source_category,
-      source_product_name = EXCLUDED.source_product_name, source_brand = EXCLUDED.source_brand,
-      source_mrp_minor = EXCLUDED.source_mrp_minor, source_price_minor = EXCLUDED.source_price_minor,
-      source_currency = EXCLUDED.source_currency, source_rating = EXCLUDED.source_rating,
-      source_review_count = EXCLUDED.source_review_count, source_availability = EXCLUDED.source_availability,
-      last_seen_date = current_date, data_collection_date = current_date, data_collection_method = EXCLUDED.data_collection_method,
-      data_confidence = EXCLUDED.data_confidence, match_status = EXCLUDED.match_status, match_score = EXCLUDED.match_score,
-      match_rule = EXCLUDED.match_rule, resolution = EXCLUDED.resolution, content_hash = EXCLUDED.content_hash,
-      normalized = EXCLUDED.normalized, raw_id = EXCLUDED.raw_id, last_run_id = EXCLUDED.last_run_id
-    RETURNING product_source_id`;
-  return row.product_source_id;
+    VALUES (${v.productId}, ${ctx.sourceId}, ${v.sourceProductId}, ${v.sourceUrl},
+            ${v.sourceCategory}, ${v.sourceProductName}, ${v.sourceBrand},
+            ${v.mrpMinor}, ${v.priceMinor}, ${v.currency},
+            ${v.rating}, ${v.reviewCount}, ${v.availability},
+            current_date, current_date, current_date, ${v.collectionMethod}, ${v.confidence},
+            ${v.matchStatus}, ${v.matchScore}, ${v.matchRule}, ${v.resolution}, ${v.hash}, ${v.normalized}, ${v.rawId}, ${v.runId})
+    ON DUPLICATE KEY UPDATE
+      product_source_id = LAST_INSERT_ID(product_source_id),
+      product_id = COALESCE(${v.productId}, product_id),
+      source_url = ${v.sourceUrl}, source_category = ${v.sourceCategory},
+      source_product_name = ${v.sourceProductName}, source_brand = ${v.sourceBrand},
+      source_mrp_minor = ${v.mrpMinor}, source_price_minor = ${v.priceMinor},
+      source_currency = ${v.currency}, source_rating = ${v.rating},
+      source_review_count = ${v.reviewCount}, source_availability = ${v.availability},
+      last_seen_date = current_date, data_collection_date = current_date, data_collection_method = ${v.collectionMethod},
+      data_confidence = ${v.confidence}, match_status = ${v.matchStatus}, match_score = ${v.matchScore},
+      match_rule = ${v.matchRule}, resolution = ${v.resolution}, content_hash = ${v.hash},
+      normalized = ${v.normalized}, raw_id = ${v.rawId}, last_run_id = ${v.runId}`;
+  return upserted.insertId;
 }
 
 /* ----------------------------------------------------------------- main */
@@ -580,14 +646,14 @@ async function loadInTransaction(tx: TransactionSql, ctx: LoadContext, input: Lo
   }
 
   // Keep the raw payload (changed content only) for traceability and replay.
-  let [rawRow] = await tx<{ raw_id: number }[]>`
+  // `DO NOTHING RETURNING raw_id` gave nothing back on a conflict, so this
+  // needed a second statement to fetch the existing id. MySQL's
+  // LAST_INSERT_ID idiom reports the existing key on the duplicate branch, so
+  // both cases are one statement and the fallback select is gone.
+  const rawRow = await tx`
     INSERT INTO pmd.raw_record (run_id, source_id, source_product_id, content_hash, payload)
     VALUES (${ctx.runId}, ${sourceId}, ${raw.sourceProductId}, ${hash}, ${tx.json(raw.payload as never)})
-    ON CONFLICT (source_id, source_product_id, content_hash) DO NOTHING RETURNING raw_id`;
-  if (!rawRow) {
-    [rawRow] = await tx<{ raw_id: number }[]>`
-      SELECT raw_id FROM pmd.raw_record WHERE source_id = ${sourceId} AND source_product_id = ${raw.sourceProductId} AND content_hash = ${hash}`;
-  }
+    ON DUPLICATE KEY UPDATE raw_id = LAST_INSERT_ID(raw_id)`;
   ctx.counters.recordsStaged++;
 
   /* ----- resolve brand / manufacturer / category -------------------------- */
@@ -655,7 +721,7 @@ async function loadInTransaction(tx: TransactionSql, ctx: LoadContext, input: Lo
     n,
     raw,
     staged,
-    rawId: rawRow?.raw_id ?? null,
+    rawId: rawRow.insertId,
     hash,
     match,
   });
