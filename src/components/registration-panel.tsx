@@ -81,7 +81,7 @@ export function RegistrationPanel({
               }
             />
             <Field label="Shop name" value={details.shopName} />
-            <Field label="Owner name" value={details.ownerName} />
+            <Field label="Owner name" value={details.ownerName} strong />
             <Field label="Mobile" value={details.phone} />
             <Field label="Email" value={details.email ?? "—"} />
             <Field label="Address" value={details.address} />
@@ -210,11 +210,11 @@ export function RegistrationPanel({
   );
 }
 
-function Field({ label, value }: { label: string; value: string }) {
+function Field({ label, value, strong = false }: { label: string; value: string; strong?: boolean }) {
   return (
     <div>
       <dt className="text-xs text-ink-500">{label}</dt>
-      <dd className="mt-1 text-sm font-medium text-ink-900">{value}</dd>
+      <dd className={`mt-1 text-sm ${strong ? "font-bold" : "font-medium"} text-ink-900`}>{value}</dd>
     </div>
   );
 }

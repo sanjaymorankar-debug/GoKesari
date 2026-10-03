@@ -418,6 +418,7 @@ export interface InventoryRow {
   productName: string;
   unit: string;
   onlinePricePaise: number | null;
+  offlinePricePaise: number | null;
   /** Sellable right now — checkout takes stock the moment an order is placed. */
   available: number;
   /** Units already committed to open orders (placed, not yet delivered). */
@@ -476,6 +477,7 @@ export async function listInventory(shopId: string): Promise<InventoryRow[]> {
       productName: product.name,
       unit: product.unit,
       onlinePricePaise: sp.onlinePricePaise,
+      offlinePricePaise: sp.offlinePricePaise,
       available: sp.onlineStock,
       reserved,
       onHand: sp.onlineStock + reserved,

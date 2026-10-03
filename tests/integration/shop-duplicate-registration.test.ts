@@ -426,16 +426,85 @@ describe("POST /api/shops", () => {
     categoryIds = rows.map((r) => r.id);
   });
 
-  it("requires at least one of Shop Act, PAN or Udyam", async () => {
+  it("requires at least one of Shop Act, PAN, Udyam or GST", async () => {
     const owner = await createUser();
     signIn(owner);
 
     const result = await call(registerRoute, "/api/shops", { method: "POST", body: { ...baseShop, categoryIds } });
     expect(result.status).toBe(422);
-    expect(Object.keys(result.body.error.details.fields)).toEqual(
-      expect.arrayContaining(["shopActNumber", "panNumber", "udyamNumber"]),
-    );
+    expect(result.body.error.details.fields).toEqual({
+      identifiers: "Please enter at least one of PAN, Udyam Aadhaar, GST or Shop Act number.",
+    });
     expect(await shopCount()).toBe(0);
+  });
+
+  it("refuses a shop or owner name that is only spaces", async () => {
+    const owner = await createUser();
+    signIn(owner);
+
+    for (const blank of [{ name: "   " }, { ownerName: "   " }]) {
+      const result = await call(registerRoute, "/api/shops", {
+        method: "POST",
+        body: { ...baseShop, ...blank, categoryIds, shopActNumber: SHOP_ACT },
+      });
+      expect(result.status).toBe(422);
+      expect(Object.keys(result.body.error.details.fields)).toEqual(Object.keys(blank));
+    }
+    expect(await shopCount()).toBe(0);
+  });
+
+  it("accepts a GSTIN alone and stores it uppercased, pending verification", async () => {
+    const owner = await createUser();
+    signIn(owner);
+
+    const result = await call(registerRoute, "/api/shops", {
+      method: "POST",
+      body: { ...baseShop, categoryIds, gstin: " 27abcde1234f1z5 " },
+    });
+    expect(result.status).toBe(201);
+    const [row] = await db.select().from(shops).where(eq(shops.id, result.body.id));
+    expect(row.gstin).toBe("27ABCDE1234F1Z5");
+    expect(row.gstStatus).toBe("PENDING_VERIFICATION");
+    expect(row.gstVerificationSource).toBe("SELF_DECLARED");
+  });
+
+  it("refuses a badly formatted GSTIN even when another identifier is valid", async () => {
+    const owner = await createUser();
+    signIn(owner);
+
+    const result = await call(registerRoute, "/api/shops", {
+      method: "POST",
+      body: { ...baseShop, categoryIds, shopActNumber: SHOP_ACT, gstin: "27ABCDE1234F" },
+    });
+    expect(result.status).toBe(422);
+    expect(Object.keys(result.body.error.details.fields)).toEqual(["gstin"]);
+    expect(await shopCount()).toBe(0);
+  });
+
+  it("refuses a valid GSTIN with an invalid PAN", async () => {
+    const owner = await createUser();
+    signIn(owner);
+
+    const result = await call(registerRoute, "/api/shops", {
+      method: "POST",
+      body: { ...baseShop, categoryIds, gstin: "27ABCDE1234F1Z5", panNumber: "ABCD1234", panHolderName: "Ramesh Patil" },
+    });
+    expect(result.status).toBe(422);
+    expect(Object.keys(result.body.error.details.fields)).toEqual(["panNumber"]);
+    expect(await shopCount()).toBe(0);
+  });
+
+  it("stores a lowercase Udyam number in uppercase", async () => {
+    const owner = await createUser();
+    signIn(owner);
+
+    const result = await call(registerRoute, "/api/shops", {
+      method: "POST",
+      body: { ...baseShop, categoryIds, udyamNumber: "udyam-mh-12-1234567" },
+    });
+    expect(result.status).toBe(201);
+    const [row] = await db.select().from(shops).where(eq(shops.id, result.body.id));
+    expect(row.udyamNumber).toBe("UDYAM-MH-12-1234567");
   });
 
   it("returns 201 for a new shop, 409 for a duplicate, 200 for a resubmission", async () => {

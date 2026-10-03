@@ -8,6 +8,8 @@ import { Alert, Button, Card, Field, inputClass } from "@/components/ui";
 import { MapPicker, type MapPickerResult } from "@/components/map-picker";
 import { rupeesToPaise } from "@/lib/money";
 import {
+  IDENTIFIER_REQUIRED_MESSAGE,
+  parseGstin,
   parsePanNumber,
   parseShopActNumber,
   parseUdyamNumber,
@@ -147,11 +149,27 @@ export function ShopRegisterForm() {
     const get = (key: string) => String(formData.get(key) ?? "").trim();
     const deliveryFee = get("deliveryFee");
 
-    if (!get("shopActNumber") && !get("panNumber") && !get("udyamNumber")) {
-      const message = "Enter at least one of these numbers.";
+    // The same rules the server applies (api/shops/route.ts), checked here
+    // first so every mistake is shown at once, next to its field.
+    const invalid: Record<string, string> = {};
+    if (!get("name")) invalid.name = "Shop name is required.";
+    if (!get("ownerName")) invalid.ownerName = "Shop owner name is required.";
+    if (!get("shopActNumber") && !get("panNumber") && !get("udyamNumber") && !get("gstin")) {
+      invalid.identifiers = IDENTIFIER_REQUIRED_MESSAGE;
+    }
+    for (const field of Object.keys(FORMAT_CHECKS) as ShopIdentifierField[]) {
+      if (!get(field)) continue;
+      const format = FORMAT_CHECKS[field](get(field));
+      if (!format.ok) invalid[field] = format.error;
+    }
+    if (get("gstin")) {
+      const gst = parseGstin(get("gstin"));
+      if (!gst.ok) invalid.gstin = gst.error;
+    }
+    if (Object.keys(invalid).length > 0) {
       setErrorTone("danger");
-      setError("Enter at least one of: Shop Act licence, PAN or Udyam number.");
-      setFieldErrors({ shopActNumber: message, panNumber: message, udyamNumber: message });
+      setError("Please check the highlighted fields.");
+      setFieldErrors(invalid);
       return false;
     }
 
@@ -188,6 +206,7 @@ export function ShopRegisterForm() {
           panNumber: get("panNumber") || null,
           panHolderName: get("panHolderName") || null,
           udyamNumber: get("udyamNumber") || null,
+          gstin: get("gstin") || null,
           deliveryAvailable,
           deliveryFeePaise:
             deliveryAvailable && deliveryFee ? rupeesToPaise(Number(deliveryFee)) : 0,
@@ -252,12 +271,12 @@ export function ShopRegisterForm() {
     <Card className="p-6">
       <form ref={formRef} onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
         <div className="sm:col-span-2">
-          <Field label="Shop name" error={errorFor("name")}>
+          <Field label="Shop name *" error={errorFor("name")}>
             <input name="name" required className={inputClass} />
           </Field>
         </div>
 
-        <Field label="Owner name" error={errorFor("ownerName")}>
+        <Field label="Owner name *" error={errorFor("ownerName")}>
           <input name="ownerName" required className={inputClass} />
         </Field>
 
@@ -358,8 +377,11 @@ export function ShopRegisterForm() {
         <div className="rounded-lg border border-cream-200 p-4 sm:col-span-2">
           <p className="text-sm font-medium text-ink-700">Business registration</p>
           <p className="mb-3 mt-0.5 text-xs text-ink-500">
-            Enter at least one. We use these to make sure each shop is registered only once.
+            Any one of the following is required. We use these to make sure each shop is registered only once.
           </p>
+          {errorFor("identifiers") ? (
+            <p className="mb-3 text-xs text-red-600">{errorFor("identifiers")}</p>
+          ) : null}
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="sm:col-span-2">
               <Field
@@ -406,6 +428,17 @@ export function ShopRegisterForm() {
                   maxLength={40}
                   className={`${inputClass} uppercase`}
                   onBlur={() => void precheck("udyamNumber")}
+                />
+              </Field>
+            </div>
+
+            <div className="sm:col-span-2">
+              <Field label="GST number (GSTIN)" hint="e.g. 27ABCDE1234F1Z5" error={errorFor("gstin")}>
+                <input
+                  name="gstin"
+                  autoComplete="off"
+                  maxLength={20}
+                  className={`${inputClass} uppercase`}
                 />
               </Field>
             </div>

@@ -164,8 +164,10 @@ export default async function ProductComparePage({
                       </p>
                     ) : null}
                   </div>
-                ) : (
+                ) : offer.offlinePricePaise != null ? (
                   <p className="text-xs text-ink-500">In-shop price only</p>
+                ) : (
+                  <p className="text-sm font-medium text-ink-700">Price on request</p>
                 )}
               </div>
             </div>

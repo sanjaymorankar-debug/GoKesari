@@ -2,6 +2,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { IDENTIFIER_REQUIRED_MESSAGE, parseGstin } from "@/lib/shop-identity";
 import { SHOP_TYPE_KEYS, type ShopTypeKey } from "@/lib/shop-types";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
@@ -33,8 +34,8 @@ export const GET = route(async (request: NextRequest) => {
 });
 
 const registerSchema = z.object({
-  name: z.string().min(2).max(120),
-  ownerName: z.string().min(2).max(120),
+  name: z.string().trim().min(1, "Shop name is required.").min(2).max(120),
+  ownerName: z.string().trim().min(1, "Shop owner name is required.").min(2).max(120),
   phone: z.string().regex(/^[6-9]\d{9}$/, "Enter a valid 10-digit mobile number"),
   email: z.string().email().nullish(),
   addressLine1: z.string().min(3).max(200),
@@ -73,7 +74,7 @@ const registerSchema = z.object({
   description: z.string().max(1000).nullish(),
 
   /*
-   * Business identifiers — at least one is required (refinement below) so
+   * Business identifiers (GST included) — at least one is required (refinement below) so
    * every new registration can be checked for duplicates. Format checks and
    * normalisation live in the service (lib/shop-identity.ts), which reports
    * a bad value against its own field.
@@ -82,6 +83,7 @@ const registerSchema = z.object({
   panNumber: z.string().max(20).nullish(),
   panHolderName: z.string().max(120).nullish(),
   udyamNumber: z.string().max(40).nullish(),
+  gstin: z.string().max(20).nullish(),
 
   /*
    * Operator-only fields (§4.1). They are accepted by the schema but only
@@ -101,14 +103,17 @@ const registerSchema = z.object({
   // NOTE: status and classification are intentionally absent — they are
   // server-assigned and cannot be influenced by the applicant (§8, §10).
 }).superRefine((body, ctx) => {
-  if (!body.shopActNumber?.trim() && !body.panNumber?.trim() && !body.udyamNumber?.trim()) {
-    for (const field of ["shopActNumber", "panNumber", "udyamNumber"]) {
-      ctx.addIssue({
-        code: "custom",
-        path: [field],
-        message: "Enter at least one of: Shop Act licence, PAN or Udyam number.",
-      });
-    }
+  if (
+    !body.shopActNumber?.trim() &&
+    !body.panNumber?.trim() &&
+    !body.udyamNumber?.trim() &&
+    !body.gstin?.trim()
+  ) {
+    ctx.addIssue({ code: "custom", path: ["identifiers"], message: IDENTIFIER_REQUIRED_MESSAGE });
+  }
+  if (body.gstin?.trim()) {
+    const gst = parseGstin(body.gstin);
+    if (!gst.ok) ctx.addIssue({ code: "custom", path: ["gstin"], message: gst.error });
   }
 });
 

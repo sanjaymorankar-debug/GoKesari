@@ -95,7 +95,12 @@ export default async function ShopDashboardPage() {
     <>
       <PageHeader
         title={shop.name}
-        description={`${[shop.area, shop.city].filter(Boolean).join(", ")} — ${shop.pincode}`}
+        description={
+          <>
+            Owner: <span className="font-bold text-ink-900">{shop.ownerName}</span>
+            {` · ${[shop.area, shop.city].filter(Boolean).join(", ")} — ${shop.pincode}`}
+          </>
+        }
         action={
           <Link
             href={`/shops/${shop.slug}`}

@@ -95,6 +95,21 @@ export function parsePanNumber(raw: string): ParseResult<string> {
   return { ok: true, value };
 }
 
+const GSTIN_PATTERN = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
+
+/** GSTIN, trimmed and uppercased (27ABCDE1234F1Z5). */
+export function parseGstin(raw: string): ParseResult<string> {
+  const value = raw.trim().toUpperCase();
+  if (!GSTIN_PATTERN.test(value)) {
+    return { ok: false, error: "GST number must be 15 characters, e.g. 27ABCDE1234F1Z5." };
+  }
+  return { ok: true, value };
+}
+
+/** Shown when none of the business identifiers is filled in at registration. */
+export const IDENTIFIER_REQUIRED_MESSAGE =
+  "Please enter at least one of PAN, Udyam Aadhaar, GST or Shop Act number.";
+
 const UDYAM_PATTERN = /^UDYAM([A-Z]{2})(\d{2})(\d{7})$/;
 /** Pre-2020 Udyog Aadhaar Memorandum number: state, district, a letter, 7 digits. */
 const UDYOG_AADHAAR_PATTERN = /^[A-Z]{2}\d{2}[A-Z]\d{7}$/;
