@@ -95,24 +95,57 @@ three `REFERENCES`.
 ### Stage 2 — the driver seam — **done**
 
 `src/server/pmd/mysql/sql.ts`, tested by
-`tests/integration/product-master-shim.test.ts` (9 tests, in CI).
+`tests/integration/product-master-shim.test.ts` (19 tests, in CI).
 
 PMD's 232 queries are postgres.js tagged templates and mysql2 has no such API.
 Rewriting them all into `query(text, params)` would be a 232-site change with no
 behavioural benefit and 232 chances to misplace a parameter, so the shim
-provides the part of postgres.js's surface PMD actually uses. That surface is
-narrow — the survey found no cursors, no streaming, no `LISTEN`/`NOTIFY` and no
-`.reserve()`:
+provides the part of postgres.js's surface PMD actually uses:
 
-- the tagged template, resolving to an array of rows
+- the tagged template. Its type parameter is the **array** type, not the row
+  type — `sql<Foo[]>` yields `Foo[]` — because that is postgres.js's convention
+  and all 64 annotated call sites are written that way
 - `sql.begin(fn)` and `sql.begin("read only", fn)` — 10 sites
 - `sql.json(v)` — 7 sites
 - `sql.unsafe(s)` — 4 sites
 - `sql.end()` — 11 sites
-- `sql(array)` for `IN` expansion — 3 sites
+- `sql.reserve()` — 1 site
+- `result.count` — 3 sites
+- the four non-template `sql(...)` helper forms — 24 sites
 - the three type coercions `db.ts` pins: bigint → number, numeric → number,
   date → `'YYYY-MM-DD'` string (plus `tinyint(1)` → boolean, which postgres.js
   gave for free)
+
+**Three of those the first survey missed, and the typechecker found them when
+`db.ts` was swapped over.** They are recorded here because each would have been
+a silent wrong answer rather than a crash:
+
+- **`result.count`.** `review.ts` reads it off three bare `UPDATE`s to report
+  how many sources, offers and price rows a merge moved. A shim that returned
+  only rows would have made all three permanently `0` — a wrong number in an
+  API response, with nothing failing. It maps to mysql2's `affectedRows`, and
+  because mysql2 enables `CLIENT_FOUND_ROWS` that is the *matched* count, which
+  is what PostgreSQL's `UPDATE` count was too (Postgres updates every matched
+  row even when the new values are identical). A test pins that reading with a
+  deliberately no-op update.
+- **The `sql(...)` helpers are four forms, not one.** The survey recorded only
+  `sql(array)` for `IN`. PMD also uses `sql("pmd.brand")` for a dynamic
+  identifier (15 sites), `sql(columns)` for a bare identifier list, and
+  `sql(rows, ...columns)` for postgres.js's insert helper. Dotted names must
+  split — `` `pmd`.`brand` ``, not the single identifier `` `pmd.brand` ``.
+  An array of strings is `("a","b")` after `IN` and `` `a`, `b` `` after
+  `SELECT`, and the call itself cannot tell which: only the SQL around it can.
+  postgres.js decides by looking at the text immediately before the
+  interpolation, so the shim defers the decision to compile time and does the
+  same — and **throws** where the position settles nothing, because guessing
+  would emit silently wrong SQL. Identifiers containing a backtick are refused.
+- **`.reserve()` is used** — by the review-bridge test, to hold a lock from
+  outside the transaction under test and prove a second promotion queues behind
+  it. The first survey missed it because it excluded PMD's test files, which
+  were already out of CI. The test cannot be written without a second
+  connection, so the shim provides it.
+
+There are still no cursors, no streaming and no `LISTEN`/`NOTIFY`.
 
 **Laziness is the load-bearing part.** A postgres.js template does not run when
 it is written, it runs when it is awaited, and that is what lets PMD nest them:
@@ -128,7 +161,19 @@ asserts a built-but-unawaited `INSERT` does not reach the database.
 
 ### Stage 3 — the queries
 
-The residue once the `pmd.` prefix is free: 28 casts, 10 `ON CONFLICT` with 7
+The residue once the `pmd.` prefix is free, re-counted at the start of stage 3
+(the first pass under-counted because it measured before the `pmd.` rewrite and
+double-counted some lines): 67 casts, 26 `ON CONFLICT` with 57 `EXCLUDED`
+references, 23 `RETURNING`, 21 jsonb operators, 13 `FILTER (WHERE)`, 13
+`= ANY`, 6 `unnest`, 3 advisory locks, 3 `ILIKE`, 2 `LATERAL`, 2 `array_agg`, 2
+`generate_series`, 2 regex `~`, 1 `nextval`, 1 `interval`, 1 `date_trunc`.
+
+One earlier figure was inflated and is corrected here: the jsonb operator count
+was 32, of which 11 were `?|` inside JavaScript **regular expressions**, not
+SQL. The real constructs are 9 `jsonb_populate_recordset`, 6 `#>>`, 2
+`jsonb_to_recordset`, 2 `jsonb_array_elements_text` and 2 `->>`.
+
+The superseded first-pass numbers were: 28 casts, 10 `ON CONFLICT` with 7
 `EXCLUDED`, 6 `RETURNING`, 5 array constructors, 4 `generate_series`, 3
 `LATERAL`, 3 `ILIKE`, 3 jsonb operators, 2 `FILTER (WHERE)`, 2 `= ANY`, plus
 `claim_job`, `refresh_dashboard` and `ensure_price_history_partitions` as

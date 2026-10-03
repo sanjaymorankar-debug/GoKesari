@@ -1,104 +1,82 @@
 /**
- * PostgreSQL access for the platform (postgres.js, plain SQL).
+ * MySQL access for the product-master platform.
  *
- * The pipeline is set-based and batch-oriented - upserts, ON CONFLICT, trigram
- * retrieval - which is what SQL is for, so it talks to postgres.js directly rather
- * than through an ORM row-at-a-time. The application's Drizzle client is used only
- * by the app's own services.
+ * The pipeline is set-based and batch-oriented - bulk upserts, candidate
+ * retrieval, aggregate reports - which is what SQL is for, so it talks to the
+ * driver directly rather than through an ORM row-at-a-time. The application's
+ * Drizzle client is used only by the app's own services.
  *
- * Type handling differs from a default postgres.js client on purpose:
- *   bigint  -> number   (ids and integer minor units are far inside 2^53; verified)
- *   numeric -> number   (scores and canonical quantities; money is bigint, never numeric)
- *   date    -> string   'YYYY-MM-DD', so a date never shifts with the server's timezone
+ * PMD lives in its own MySQL database, `pmd`, on the same server as the
+ * application. PostgreSQL had it as a *schema* inside the application's
+ * database; MySQL has no schema-within-a-database, but `database.table` is the
+ * same two-part name, so a database called `pmd` leaves all 196 `pmd.<table>`
+ * references working verbatim. It has to be the same *server* because
+ * pmd.catalogue_link carries foreign keys into the application's `products`
+ * and `users`, which MySQL permits across databases but not across servers.
+ *
+ * The `sql` tag is not mysql2's API. It is the postgres.js-shaped tag in
+ * ./mysql/sql.ts, which exists so PMD's 232 tagged templates - and the
+ * fragment nesting they rely on - keep working unchanged. Type handling is
+ * pinned there to match what this module pinned on postgres.js, so callers
+ * see the same JavaScript values they saw on PostgreSQL:
+ *   bigint  -> number   (ids and integer minor units are far inside 2^53)
+ *   decimal -> number   (scores and canonical quantities; money is bigint)
+ *   date    -> string   'YYYY-MM-DD', so a date never shifts with the timezone
  */
-import postgres from "postgres";
+import { createSql as createMysqlSql, type PmdSql } from "./mysql/sql";
 
-export type Sql = postgres.Sql;
-export type TransactionSql = postgres.TransactionSql;
+/**
+ * The three names postgres.js distinguished. It separated them because its
+ * `TransactionSql` cannot open a new top-level transaction, and PMD's
+ * signatures used that to say which functions must be given a transaction.
+ * The shim has no such split - `begin` hands back the same callable - so all
+ * three alias one type here, and the 96 annotations across the layer keep
+ * their documentary value without needing to change.
+ */
+export type Sql = PmdSql;
+export type TransactionSql = PmdSql;
 /** Either the pool or a transaction: what repository functions accept. */
-export type Queryable = Sql | TransactionSql;
+export type Queryable = PmdSql;
 
-/** postgres.js widens tagged-template parameters to a union of primitives; JSON goes through sql.json. */
-export type JsonValue = postgres.JSONValue;
+/** What may be handed to `sql.json(...)`. */
+export type JsonValue = null | string | number | boolean | JsonValue[] | { [key: string]: JsonValue };
 
-function resolveSsl(url: string): "require" | false {
-  try {
-    const mode = new URL(url).searchParams.get("sslmode");
-    return !mode || mode === "disable" ? false : "require";
-  } catch {
-    return false;
-  }
-}
-
-const INT8 = 20;
-const NUMERIC = 1700;
-const DATE = 1082;
-
-export function createSql(url: string, opts: { max?: number; applicationName?: string } = {}): Sql {
-  return postgres(url, {
-    max: opts.max ?? 5,
-    idle_timeout: 20,
-    connect_timeout: 30,
-    ssl: resolveSsl(url),
-    onnotice: () => {},
-    connection: { application_name: opts.applicationName ?? "gokesari-pmd" },
-    types: {
-      bigint: {
-        to: INT8,
-        from: [INT8],
-        serialize: (x: unknown) => String(x),
-        parse: (x: string) => {
-          const n = Number(x);
-          if (!Number.isSafeInteger(n)) throw new Error(`bigint ${x} does not fit a JS number`);
-          return n;
-        },
-      },
-      numeric: {
-        to: NUMERIC,
-        from: [NUMERIC],
-        serialize: (x: unknown) => String(x),
-        parse: (x: string) => Number(x),
-      },
-      date: {
-        to: DATE,
-        from: [DATE],
-        serialize: (x: unknown) => (x instanceof Date ? x.toISOString().slice(0, 10) : String(x)),
-        parse: (x: string) => x,
-      },
-    },
-  });
-}
+export { createMysqlSql as createSql };
 
 const globalForPmd = globalThis as unknown as { __pmdSql?: Sql };
 
 /**
+ * The connection URL for PMD. `PMD_DATABASE_URL` is honoured for the case where
+ * PMD is pointed somewhere else on purpose (a read replica, different
+ * credentials, a larger pool), and otherwise it is the application's own URL,
+ * because the two now share a server. `npm run pmd:migrate` resolves it the
+ * same way.
+ */
+function pmdUrl(): string {
+  const url = process.env.PMD_DATABASE_URL ?? process.env.DATABASE_URL;
+  if (!url) {
+    throw new Error(
+      "neither PMD_DATABASE_URL nor DATABASE_URL is set; the product-master " +
+        "layer needs a MySQL connection string (see docs/MYSQL_REQUIREMENTS.md section 5).",
+    );
+  }
+  // Handing a postgres:// URL to mysql2 fails at the wire protocol with nothing
+  // that names the real cause, so it is reported here instead.
+  if (/^postgres(ql)?:/i.test(url)) {
+    throw new Error(
+      "the PMD connection URL is PostgreSQL. PMD has been ported to MySQL; point it " +
+        "at the MySQL server holding the application database, and apply the schema " +
+        "with `npm run pmd:migrate`.",
+    );
+  }
+  return url;
+}
+
+/**
  * The application's own PMD connection (API routes, dashboard), reused across
  * dev hot reloads.
- *
- * Bound to PMD_DATABASE_URL, not DATABASE_URL. This layer is still PostgreSQL
- * (it speaks to postgres.js directly and the SQL throughout is Postgres-only -
- * `pmd.` schema namespacing, sequences, generate_series, ts_rank), while the
- * rest of the app has moved to MySQL. Handing a mysql:// URL to postgres.js
- * fails at the wire protocol with nothing that names the real cause, so the
- * scheme is checked here and reported instead.
  */
 export function appSql(): Sql {
-  if (!globalForPmd.__pmdSql) {
-    const url = process.env.PMD_DATABASE_URL;
-    if (!url) {
-      throw new Error(
-        "PMD_DATABASE_URL is not set. The product-master layer is still PostgreSQL " +
-          "and needs its own connection string now that DATABASE_URL points at MySQL " +
-          "(see docs/MYSQL_REQUIREMENTS.md section 5).",
-      );
-    }
-    if (/^mysql(2)?:/i.test(url)) {
-      throw new Error(
-        "PMD_DATABASE_URL points at MySQL, but the product-master layer requires " +
-          "PostgreSQL. Point it at the retained Postgres database, or leave PMD disabled.",
-      );
-    }
-    globalForPmd.__pmdSql = createSql(url, { max: 5, applicationName: "gokesari-pmd-app" });
-  }
+  globalForPmd.__pmdSql ??= createMysqlSql(pmdUrl(), { max: 5, applicationName: "gokesari-pmd-app" });
   return globalForPmd.__pmdSql;
 }

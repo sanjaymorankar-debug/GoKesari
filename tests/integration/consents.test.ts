@@ -65,7 +65,7 @@ describe("consent recording", () => {
  * NAV-019 — operations' view of the consent record.
  *
  * The overview runs raw SQL (a DISTINCT ON to pick the newest row per user and
- * type), so these exercise it against real PostgreSQL rather than mocking the
+ * type), so these exercise it against a real MySQL server rather than mocking the
  * arithmetic. The point of each case is one claim operations relies on: a
  * withdrawal supersedes a grant, a stale policy version is not a current
  * consent, and a deleted account drops out entirely.

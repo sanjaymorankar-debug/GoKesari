@@ -10,7 +10,7 @@ import "dotenv/config";
 const testUrl = process.env.TEST_DATABASE_URL;
 if (!testUrl) {
   throw new Error(
-    "TEST_DATABASE_URL must be set. Integration tests run against real PostgreSQL.",
+    "TEST_DATABASE_URL must be set. Integration tests run against a real MySQL server.",
   );
 }
 
