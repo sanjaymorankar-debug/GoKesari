@@ -54,7 +54,7 @@ export type Row = Record<string, unknown>;
 export type RowList<T extends readonly unknown[]> = T & { count: number; insertId: number };
 
 /** What `sql.json(v)` produces: a value to be sent as a JSON parameter. */
-class JsonParam {
+export class JsonParam {
   constructor(readonly value: unknown) {}
 }
 
@@ -144,6 +144,23 @@ class Builder {
   }
 }
 
+/**
+ * Pre-compiled SQL that can be interpolated into a template.
+ *
+ * This exists because a Fragment is a full Promise, and anything a Promise
+ * touches gets *adopted*: `return sql`…`` from an `async` function, or an
+ * `await` on a promise resolving to one, resolves the fragment - which runs the
+ * statement. So a helper that has to do asynchronous work before it can build
+ * its SQL (reading column types, say) cannot hand a Fragment back. It hands
+ * back one of these instead, which is inert, and compile() splices it.
+ */
+export class RowSource {
+  constructor(
+    readonly text: string,
+    readonly params: readonly unknown[],
+  ) {}
+}
+
 /** Anything that can run a compiled statement: the pool, or one connection. */
 interface Executor {
   query(text: string, params: unknown[]): Promise<[unknown, unknown]>;
@@ -201,6 +218,9 @@ class Fragment<T extends readonly unknown[] = Row[]> implements Promise<RowList<
         const inner = value.compile();
         parts.push(inner.text);
         params.push(...inner.params);
+      } else if (value instanceof RowSource) {
+        parts.push(value.text);
+        params.push(...value.params);
       } else if (value instanceof Builder) {
         const built = value.build(parts.join(""));
         parts.push(built.text);
@@ -215,6 +235,12 @@ class Fragment<T extends readonly unknown[] = Row[]> implements Promise<RowList<
     }
     params.push(...this.rawParams);
     return { text: parts.join(""), params };
+  }
+
+  /** Compile now and carry the result inertly - see RowSource. */
+  toRowSource(): RowSource {
+    const { text, params } = this.compile();
+    return new RowSource(text, params);
   }
 
   async execute(): Promise<RowList<T>> {
@@ -418,4 +444,4 @@ export function createSql(url: string, opts: { max?: number; applicationName?: s
   return bind(pool as unknown as Executor, pool);
 }
 
-export type { Fragment, JsonParam, Builder };
+export type { Fragment, Builder };

@@ -20,7 +20,8 @@
  * (GTIN, ISBN, brand+MPN, brand+model, same or trigram-similar core name within the brand), at a LOWER similarity
  * threshold than PostgreSQL's, so this path can only defer more, never less, than the reference would have.
  */
-import type { Queryable, TransactionSql } from "../db";
+import { jsonRows, jsonRowsTyped } from "../mysql/json-rows";
+import { nextIds, type PmdSequence } from "../mysql/sequence";
 import { getAttributeDefinition } from "../taxonomy/attributes";
 import type { NamedEntity, NormalizedProduct } from "../types";
 import { UNCATEGORISED_CODE } from "../taxonomy/categories";
@@ -128,9 +129,11 @@ interface EntityTable {
   idCol: string;
   nameCol: string;
   keyCol: string;
+  /** Its key is application-allocated; this is the counter it comes from. */
+  sequence: PmdSequence;
 }
-const BRAND: EntityTable = { table: "pmd.brand", aliasTable: "pmd.brand_alias", idCol: "brand_id", nameCol: "brand_name", keyCol: "brand_key" };
-const MAKER: EntityTable = { table: "pmd.manufacturer", aliasTable: "pmd.manufacturer_alias", idCol: "manufacturer_id", nameCol: "manufacturer_name", keyCol: "manufacturer_key" };
+const BRAND: EntityTable = { table: "pmd.brand", aliasTable: "pmd.brand_alias", idCol: "brand_id", nameCol: "brand_name", keyCol: "brand_key", sequence: "brand_seq" };
+const MAKER: EntityTable = { table: "pmd.manufacturer", aliasTable: "pmd.manufacturer_alias", idCol: "manufacturer_id", nameCol: "manufacturer_name", keyCol: "manufacturer_key", sequence: "manufacturer_seq" };
 
 const compact = compactOriginal;
 
@@ -146,9 +149,10 @@ async function resolveEntities(ctx: LoadContext, t: EntityTable, entities: Named
   const keys = [...new Set([...want.values()].map((e) => e.key))];
   const aliases = [...want.keys()];
   const found = await ctx.sql<{ id: number; k: string | null; a: string | null }[]>`
-    SELECT ${ctx.sql(t.idCol)} AS id, ${ctx.sql(t.keyCol)} AS k, NULL::text AS a FROM ${ctx.sql(t.table)} WHERE ${ctx.sql(t.keyCol)} = ANY(${keys}::text[])
+    SELECT ${ctx.sql(t.idCol)} AS id, ${ctx.sql(t.keyCol)} AS k, CAST(NULL AS CHAR(191)) AS a
+      FROM ${ctx.sql(t.table)} WHERE ${ctx.sql(t.keyCol)} IN ${ctx.sql(keys)}
     UNION ALL
-    SELECT ${ctx.sql(t.idCol)}, NULL, alias_key FROM ${ctx.sql(t.aliasTable)} WHERE alias_key = ANY(${aliases}::text[])`;
+    SELECT ${ctx.sql(t.idCol)}, NULL, alias_key FROM ${ctx.sql(t.aliasTable)} WHERE alias_key IN ${ctx.sql(aliases)}`;
   const byKey = new Map<string, number>();
   const byAlias = new Map<string, number>();
   for (const r of found) {
@@ -160,12 +164,35 @@ async function resolveEntities(ctx: LoadContext, t: EntityTable, entities: Named
   const toCreate = new Map<string, NamedEntity>();
   for (const [alias, e] of want) if (!byKey.has(e.key) && !byAlias.has(alias)) toCreate.set(e.key, e);
   if (toCreate.size) {
-    const rows = [...toCreate.values()].map((e) => ({ name: e.display, key: e.key, source_id: ctx.sourceId }));
+    // These keys are allocated by the application rather than AUTO_INCREMENT,
+    // because brand_code / manufacturer_code are generated from them and MySQL
+    // forbids a generated column that reads an auto-increment column. One
+    // block for the whole batch - see mysql/sequence.ts.
+    const fresh = [...toCreate.values()];
+    const ids = await nextIds(ctx.sql, t.sequence, fresh.length);
+    const rows = fresh.map((e, i) => ({
+      entity_id: ids[i]!,
+      // `key` is a reserved word in MySQL, so the JSON field is named around it.
+      entity_name: e.display,
+      entity_key: e.key,
+      source_id: ctx.sourceId,
+    }));
+    const source = jsonRowsTyped(
+      ctx.sql,
+      { entity_id: "bigint", entity_name: "varchar(255)", entity_key: "varchar(191)", source_id: "smallint" },
+      rows,
+    );
+    await ctx.sql`
+      INSERT INTO ${ctx.sql(t.table)} (${ctx.sql(t.idCol)}, ${ctx.sql(t.nameCol)}, ${ctx.sql(t.keyCol)}, source_id)
+      SELECT entity_id, entity_name, entity_key, source_id FROM ${source}
+      ON DUPLICATE KEY UPDATE ${ctx.sql(t.idCol)} = ${ctx.sql(t.idCol)}`;
+    // RETURNING gave the ids back whether the row was inserted or already
+    // there; the allocated ids only cover the inserted ones, so the keys are
+    // read back. The no-op ON DUPLICATE KEY UPDATE is what makes a row another
+    // loader created a moment ago a no-op rather than an error.
     const created = await ctx.sql<{ id: number; k: string }[]>`
-      INSERT INTO ${ctx.sql(t.table)} (${ctx.sql(t.nameCol)}, ${ctx.sql(t.keyCol)}, source_id)
-      SELECT r.name, r.key, r.source_id FROM jsonb_to_recordset(${ctx.sql.json(rows as never)}) AS r(name text, key text, source_id int)
-      ON CONFLICT (${ctx.sql(t.keyCol)}) DO UPDATE SET ${ctx.sql(t.keyCol)} = EXCLUDED.${ctx.sql(t.keyCol)}
-      RETURNING ${ctx.sql(t.idCol)} AS id, ${ctx.sql(t.keyCol)} AS k`;
+      SELECT ${ctx.sql(t.idCol)} AS id, ${ctx.sql(t.keyCol)} AS k
+      FROM ${ctx.sql(t.table)} WHERE ${ctx.sql(t.keyCol)} IN ${ctx.sql(fresh.map((e) => e.key))}`;
     for (const r of created) byKey.set(r.k, r.id);
   }
 
@@ -177,10 +204,15 @@ async function resolveEntities(ctx: LoadContext, t: EntityTable, entities: Named
     cache.set(alias, id);
   }
   if (aliasRows.length) {
+    const source = jsonRowsTyped(
+      ctx.sql,
+      { alias_key: "varchar(191)", id: "bigint", original: "varchar(255)", source_id: "smallint" },
+      aliasRows,
+    );
     await ctx.sql`
       INSERT INTO ${ctx.sql(t.aliasTable)} (alias_key, ${ctx.sql(t.idCol)}, alias_original, source_id)
-      SELECT r.alias_key, r.id, r.original, r.source_id FROM jsonb_to_recordset(${ctx.sql.json(aliasRows as never)}) AS r(alias_key text, id bigint, original text, source_id int)
-      ON CONFLICT (alias_key) DO NOTHING`;
+      SELECT alias_key, id, original, source_id FROM ${source}
+      ON DUPLICATE KEY UPDATE alias_key = alias_key`;
   }
 }
 
@@ -192,7 +224,6 @@ const chunk = <T>(rows: T[], size: number): T[][] => {
   return out;
 };
 
-const json = (tx: Queryable, rows: unknown[]) => (tx as TransactionSql).json(rows as never);
 
 export async function loadBatch(ctx: LoadContext, inputs: LoadInput[], loadOne: (input: LoadInput) => Promise<void>): Promise<BatchOutcome> {
   const out: BatchOutcome = { bulkCreated: 0, bulkUnchanged: 0, sequential: 0, fellBack: false };
@@ -345,19 +376,33 @@ async function createInBulk(ctx: LoadContext, candidates: Creatable[]): Promise<
     if (fresh.length === 0) return { created: [], deferred: defer, productIds: [], offers: 0 };
 
     /* Ids first, so every child row can name its master without a round trip. */
-    const idRows = await tx<{ id: number }[]>`SELECT nextval('pmd.product_seq')::bigint AS id FROM generate_series(1, ${fresh.length})`;
-    const productIds = idRows.map((r) => r.id);
-    const [{ d: today }] = await tx<{ d: string }[]>`SELECT current_date::text AS d`;
+    // `SELECT nextval('pmd.product_seq') FROM generate_series(1, n)` - MySQL has
+    // neither, and product_id is application-allocated anyway (product_master's
+    // generated master_product_id reads it, and MySQL forbids a generated
+    // column over an auto-increment column). One counter bump reserves the
+    // whole block.
+    const productIds = await nextIds(tx, "product_seq", fresh.length);
+    const [{ d: today }] = await tx<{ d: string }[]>`SELECT CAST(current_date AS CHAR) AS d`;
     const reliability = (ctx.ref.sourceMeta.get(ctx.sourceId)?.reliability ?? 50) as number;
 
     /* raw records */
+    const RAW_COLS = ["run_id", "source_id", "source_product_id", "content_hash", "payload"];
     const rawRows = fresh.map((c) => ({ run_id: ctx.runId, source_id: ctx.sourceId, source_product_id: c.input.raw.sourceProductId, content_hash: c.hash, payload: c.input.raw.payload }));
-    const raws = await tx<{ raw_id: number; source_product_id: string }[]>`
-      INSERT INTO pmd.raw_record (run_id, source_id, source_product_id, content_hash, payload)
-      SELECT run_id, source_id, source_product_id, content_hash, payload FROM jsonb_populate_recordset(NULL::pmd.raw_record, ${json(tx, rawRows)})
-      ON CONFLICT (source_id, source_product_id, content_hash) DO UPDATE SET fetched_at = pmd.raw_record.fetched_at
-      RETURNING raw_id, source_product_id`;
-    const rawId = new Map(raws.map((r) => [r.source_product_id, r.raw_id]));
+    await tx`
+      INSERT INTO pmd.raw_record (${tx(RAW_COLS)})
+      SELECT ${tx(RAW_COLS)} FROM ${await jsonRows(tx, "pmd.raw_record", RAW_COLS, rawRows)}
+      ON DUPLICATE KEY UPDATE fetched_at = fetched_at`;
+    // RETURNING is gone, so the keys are read back. The filter is the indexed
+    // prefix of the unique key (source_id, source_product_id, content_hash) and
+    // the hash is matched here, because one source_product_id can have several
+    // raw_records - one per content version - and only this run's is wanted.
+    const raws = await tx<{ raw_id: number; source_product_id: string; content_hash: string }[]>`
+      SELECT raw_id, source_product_id, content_hash FROM pmd.raw_record
+      WHERE source_id = ${ctx.sourceId} AND source_product_id IN ${tx(rawRows.map((r) => r.source_product_id))}`;
+    const wantedHash = new Map(rawRows.map((r) => [r.source_product_id, r.content_hash]));
+    const rawId = new Map(
+      raws.filter((r) => wantedHash.get(r.source_product_id) === r.content_hash).map((r) => [r.source_product_id, r.raw_id]),
+    );
 
     /* masters */
     const masterRows = fresh.map((c, k) => ({
@@ -365,7 +410,8 @@ async function createInBulk(ctx: LoadContext, candidates: Creatable[]): Promise<
       ...buildMasterRow(ctx, c.input.normalized, { brandId: c.brandId, manufacturerId: c.manufacturerId, categoryId: c.categoryId }, 100),
     }));
     const mcols = Object.keys(masterRows[0]);
-    await tx`INSERT INTO pmd.product_master (${tx(mcols)}) SELECT ${tx(mcols)} FROM jsonb_populate_recordset(NULL::pmd.product_master, ${json(tx, masterRows)})`;
+    await tx`INSERT INTO pmd.product_master (${tx(mcols)})
+             SELECT ${tx(mcols)} FROM ${await jsonRows(tx, "pmd.product_master", mcols, masterRows)}`;
 
     /* identifiers (a GTIN/ISBN that already belongs to someone is a collision: roll back and let the reference loader say so) */
     const identRows = fresh.flatMap((c, k) =>
@@ -375,15 +421,28 @@ async function createInBulk(ctx: LoadContext, candidates: Creatable[]): Promise<
       })),
     );
     if (identRows.length) {
-      const got = await tx<{ product_id: number; id_type: string; id_value: string }[]>`
-        INSERT INTO pmd.product_identifier (product_id, id_type, id_value, id_value_original, id_format, scope_brand_id, is_primary, check_digit_valid, source_id)
-        SELECT product_id, id_type, id_value, id_value_original, id_format, scope_brand_id, is_primary, check_digit_valid, source_id
-        FROM jsonb_populate_recordset(NULL::pmd.product_identifier, ${json(tx, identRows)})
-        ON CONFLICT DO NOTHING RETURNING product_id, id_type, id_value`;
-      const inserted = new Set(got.map((g) => `${g.product_id}|${g.id_type}|${g.id_value}`));
-      for (const r of identRows) {
-        if ((r.id_type === "GTIN" || r.id_type === "ISBN") && !inserted.has(`${r.product_id}|${r.id_type}|${r.id_value}`)) {
-          throw Object.assign(new Error(`${r.id_type} ${r.id_value} already belongs to another product`), { code: "IDENTIFIER_COLLISION" });
+      const IDENT_COLS = ["product_id", "id_type", "id_value", "id_value_original", "id_format", "scope_brand_id", "is_primary", "check_digit_valid", "source_id"];
+      await tx`
+        INSERT INTO pmd.product_identifier (${tx(IDENT_COLS)})
+        SELECT ${tx(IDENT_COLS)} FROM ${await jsonRows(tx, "pmd.product_identifier", IDENT_COLS, identRows)}
+        ON DUPLICATE KEY UPDATE product_id = product_id`;
+      // The Postgres version inferred a collision from which rows RETURNING
+      // did *not* give back. Asking who owns each global identifier says the
+      // same thing more directly, and it is what the one-at-a-time loader in
+      // load.ts already does. A GTIN or ISBN belongs to exactly one master, so
+      // a different owner is a collision, not a merge.
+      const global = identRows.filter((r) => r.id_type === "GTIN" || r.id_type === "ISBN");
+      if (global.length) {
+        const owners = await tx<{ product_id: number; id_type: string; id_value: string }[]>`
+          SELECT product_id, id_type, id_value FROM pmd.product_identifier
+          WHERE id_type IN ${tx([...new Set(global.map((r) => r.id_type))])}
+            AND id_value IN ${tx([...new Set(global.map((r) => r.id_value))])}`;
+        const ownerOf = new Map(owners.map((o) => [`${o.id_type}|${o.id_value}`, o.product_id]));
+        for (const r of global) {
+          const owner = ownerOf.get(`${r.id_type}|${r.id_value}`);
+          if (owner !== r.product_id) {
+            throw Object.assign(new Error(`${r.id_type} ${r.id_value} already belongs to another product`), { code: "IDENTIFIER_COLLISION" });
+          }
         }
       }
     }
@@ -398,11 +457,11 @@ async function createInBulk(ctx: LoadContext, candidates: Creatable[]): Promise<
         confidence: c.input.staged.sourceConfidence ?? null, is_preferred: true,
       })),
     );
+    const SPEC_COLS = ["product_id", "attribute_key", "value_text", "value_num", "value_bool", "unit", "original_value", "source_id", "source_url", "confidence", "is_preferred"];
     for (const part of chunk(specRows, 5000)) {
       await tx`
-        INSERT INTO pmd.product_specification (product_id, attribute_key, value_text, value_num, value_bool, unit, original_value, source_id, source_url, confidence, is_preferred)
-        SELECT product_id, attribute_key, value_text, value_num, value_bool, unit, original_value, source_id, source_url, confidence, is_preferred
-        FROM jsonb_populate_recordset(NULL::pmd.product_specification, ${json(tx, part)})`;
+        INSERT INTO pmd.product_specification (${tx(SPEC_COLS)})
+        SELECT ${tx(SPEC_COLS)} FROM ${await jsonRows(tx, "pmd.product_specification", SPEC_COLS, part)}`;
     }
 
     /* images: first six distinct URLs, ranked in order (the reference loader stops at six too) */
@@ -412,10 +471,11 @@ async function createInBulk(ctx: LoadContext, candidates: Creatable[]): Promise<
       })),
     );
     if (imageRows.length) {
+      const IMAGE_COLS = ["product_id", "rank", "image_url", "image_source", "source_id", "license_note"];
       await tx`
-        INSERT INTO pmd.product_image (product_id, \`rank\`, image_url, image_source, source_id, license_note)
-        SELECT product_id, \`rank\`, image_url, image_source, source_id, license_note FROM jsonb_populate_recordset(NULL::pmd.product_image, ${json(tx, imageRows)})
-        ON CONFLICT (product_id, image_url) DO NOTHING`;
+        INSERT INTO pmd.product_image (${tx(IMAGE_COLS)})
+        SELECT ${tx(IMAGE_COLS)} FROM ${await jsonRows(tx, "pmd.product_image", IMAGE_COLS, imageRows)}
+        ON DUPLICATE KEY UPDATE product_id = product_id`;
     }
 
     /* the source listings */
@@ -439,16 +499,28 @@ async function createInBulk(ctx: LoadContext, candidates: Creatable[]): Promise<
         raw_id: rawId.get(c.input.raw.sourceProductId) ?? null, last_run_id: ctx.runId,
       };
     });
-    const sources = await tx<{ product_source_id: number; source_product_id: string }[]>`
+    // The three dates are parameters rather than row values, as they were, so
+    // they stay in the select list - which is why this uses a JSON_TABLE row
+    // source rather than a plain multi-row VALUES: the shape of the statement
+    // is unchanged and only the row-producing function differs.
+    const SOURCE_COLS = ["product_id", "source_id", "source_product_id", "source_url", "source_category",
+      "source_product_name", "source_brand", "source_mrp_minor", "source_price_minor", "source_currency",
+      "source_rating", "source_review_count", "source_availability", "data_collection_method",
+      "data_confidence", "match_status", "match_score", "match_rule", "resolution", "content_hash",
+      "normalized", "raw_id", "last_run_id"];
+    await tx`
       INSERT INTO pmd.product_source
         (product_id, source_id, source_product_id, source_url, source_category, source_product_name, source_brand, source_mrp_minor, source_price_minor,
          source_currency, source_rating, source_review_count, source_availability, first_seen_date, last_seen_date, data_collection_date,
          data_collection_method, data_confidence, match_status, match_score, match_rule, resolution, content_hash, normalized, raw_id, last_run_id)
       SELECT product_id, source_id, source_product_id, source_url, source_category, source_product_name, source_brand, source_mrp_minor, source_price_minor,
-             source_currency, source_rating, source_review_count, source_availability, ${today}::date, ${today}::date, ${today}::date,
+             source_currency, source_rating, source_review_count, source_availability, ${today}, ${today}, ${today},
              data_collection_method, data_confidence, match_status, match_score, match_rule, resolution, content_hash, normalized, raw_id, last_run_id
-      FROM jsonb_populate_recordset(NULL::pmd.product_source, ${json(tx, sourceRows)})
-      RETURNING product_source_id, source_product_id`;
+      FROM ${await jsonRows(tx, "pmd.product_source", SOURCE_COLS, sourceRows)}`;
+    // Read back on the unique key (source_id, source_product_id).
+    const sources = await tx<{ product_source_id: number; source_product_id: string }[]>`
+      SELECT product_source_id, source_product_id FROM pmd.product_source
+      WHERE source_id = ${ctx.sourceId} AND source_product_id IN ${tx(sourceRows.map((r) => r.source_product_id))}`;
     const sourceId = new Map(sources.map((s) => [s.source_product_id, s.product_source_id]));
 
     /* offers and their first price-history observation */
@@ -467,7 +539,11 @@ async function createInBulk(ctx: LoadContext, candidates: Creatable[]): Promise<
           collected_at: o.collectedAt.toISOString(),
         };
       });
-      const offers = await tx<{ offer_id: number; product_source_id: number }[]>`
+      const OFFER_COLS = ["product_source_id", "product_id", "source_id", "source_product_id", "seller_key",
+        "seller_id", "seller_name", "seller_location", "seller_rating", "price_minor", "mrp_minor",
+        "discount_minor", "discount_pct", "currency", "tax_inclusive", "stock_status",
+        "delivery_information", "source_url", "collection_date", "collected_at"];
+      await tx`
         INSERT INTO pmd.product_offer
           (product_source_id, product_id, source_id, source_product_id, seller_key, seller_id, seller_name, seller_location, seller_rating, price_minor, mrp_minor,
            discount_minor, discount_pct, currency, tax_inclusive, stock_status, delivery_information, source_url, first_seen_at, last_seen_at,
@@ -475,8 +551,12 @@ async function createInBulk(ctx: LoadContext, candidates: Creatable[]): Promise<
         SELECT product_source_id, product_id, source_id, source_product_id, seller_key, seller_id, seller_name, seller_location, seller_rating, price_minor, mrp_minor,
                discount_minor, discount_pct, currency, tax_inclusive, stock_status, delivery_information, source_url, now(), now(),
                collection_date, collected_at, true
-        FROM jsonb_populate_recordset(NULL::pmd.product_offer, ${json(tx, offerRows)})
-        RETURNING offer_id, product_source_id`;
+        FROM ${await jsonRows(tx, "pmd.product_offer", OFFER_COLS, offerRows)}`;
+      // Read back on the unique key (product_source_id, seller_key).
+      const offers = await tx<{ offer_id: number; product_source_id: number }[]>`
+        SELECT offer_id, product_source_id FROM pmd.product_offer
+        WHERE product_source_id IN ${tx(offerRows.map((r) => r.product_source_id))}
+          AND seller_key IN ${tx([...new Set(offerRows.map((r) => r.seller_key))])}`;
       const offerId = new Map(offers.map((o) => [o.product_source_id, o.offer_id]));
       offerCount = offers.length;
       const historyRows = withOffer.map(({ c, k }) => {
@@ -488,13 +568,12 @@ async function createInBulk(ctx: LoadContext, candidates: Creatable[]): Promise<
           stock_status: o.stockStatus, change_reason: "FIRST_SEEN", collection_date: dateOnly(o.collectedAt), collected_at: o.collectedAt.toISOString(), run_id: ctx.runId,
         };
       });
+      const HISTORY_COLS = ["product_id", "offer_id", "source_id", "seller_key", "seller_name", "mrp_minor",
+        "selling_price_minor", "discount_minor", "currency", "stock_status", "change_reason",
+        "collection_date", "collected_at", "run_id"];
       await tx`
-        INSERT INTO pmd.price_history
-          (product_id, offer_id, source_id, seller_key, seller_name, mrp_minor, selling_price_minor, discount_minor, currency, stock_status, change_reason,
-           collection_date, collected_at, run_id)
-        SELECT product_id, offer_id, source_id, seller_key, seller_name, mrp_minor, selling_price_minor, discount_minor, currency, stock_status, change_reason,
-               collection_date, collected_at, run_id
-        FROM jsonb_populate_recordset(NULL::pmd.price_history, ${json(tx, historyRows)})`;
+        INSERT INTO pmd.price_history (${tx(HISTORY_COLS)})
+        SELECT ${tx(HISTORY_COLS)} FROM ${await jsonRows(tx, "pmd.price_history", HISTORY_COLS, historyRows)}`;
     }
 
     /* change log: one "created" entry per master, exactly as the reference loader writes it */
@@ -502,10 +581,11 @@ async function createInBulk(ctx: LoadContext, candidates: Creatable[]): Promise<
       product_id: productIds[k], entity: "product_master", field_name: "created",
       new_value: { name: c.input.normalized.name, brand: c.input.normalized.brand?.display ?? null }, source_id: ctx.sourceId, run_id: ctx.runId,
     }));
+    const LOG_COLS = ["product_id", "entity", "field_name", "new_value", "source_id", "run_id"];
     await tx`
       INSERT INTO pmd.product_change_log (product_id, entity, field_name, old_value, new_value, source_id, run_id, changed_by)
-      SELECT product_id, entity, field_name, 'null'::jsonb, new_value, source_id, run_id, 'pipeline'
-      FROM jsonb_populate_recordset(NULL::pmd.product_change_log, ${json(tx, logRows)})`;
+      SELECT product_id, entity, field_name, CAST('null' AS JSON), new_value, source_id, run_id, 'pipeline'
+      FROM ${await jsonRows(tx, "pmd.product_change_log", LOG_COLS, logRows)}`;
 
     return { created: fresh, deferred: defer, productIds, offers: offerCount };
   });

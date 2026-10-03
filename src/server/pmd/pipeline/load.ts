@@ -20,6 +20,7 @@ import { createHash } from "node:crypto";
 import type { PmdConfig } from "../config";
 import type { Queryable, Sql, TransactionSql } from "../db";
 import { matchNormalized } from "../match/engine";
+import { nextId } from "../mysql/sequence";
 import { insertedNew } from "../mysql/upsert";
 import { toEan13, toUpcA } from "../normalize/identifiers";
 import { normalizeText } from "../normalize/text";
@@ -120,15 +121,20 @@ async function resolveBrand(tx: Queryable, ctx: LoadContext, e: NamedEntity | nu
   let [row] = await tx<{ brand_id: number }[]>`SELECT brand_id FROM pmd.brand WHERE brand_key = ${e.key}`;
   if (!row) [row] = await tx<{ brand_id: number }[]>`SELECT brand_id FROM pmd.brand_alias WHERE alias_key = ${alias}`;
   if (!row) {
-    // Insert, or get the id of the row a concurrent loader just inserted.
-    // `LAST_INSERT_ID(brand_id)` makes the duplicate branch report the existing
-    // key, which is what the Postgres `DO UPDATE SET brand_key =
-    // EXCLUDED.brand_key RETURNING brand_id` was for - an update that changed
-    // nothing, written only so RETURNING would fire.
-    const inserted = await tx`
-      INSERT INTO pmd.brand (brand_name, brand_key, source_id) VALUES (${e.display}, ${e.key}, ${ctx.sourceId})
-      ON DUPLICATE KEY UPDATE brand_id = LAST_INSERT_ID(brand_id)`;
-    row = { brand_id: inserted.insertId };
+    // brand_id is allocated by the application, not AUTO_INCREMENT, because
+    // brand_code is a generated column built from it and MySQL will not let a
+    // generated column read an auto-increment column (see mysql/sequence.ts).
+    // So the key cannot come back from the insert, and the duplicate branch -
+    // a concurrent loader got there first - has to read the existing row.
+    const brandId = await nextId(tx, "brand_seq");
+    const isNew = await insertedNew(tx`
+      INSERT INTO pmd.brand (brand_id, brand_name, brand_key, source_id)
+      VALUES (${brandId}, ${e.display}, ${e.key}, ${ctx.sourceId})`);
+    if (isNew) {
+      row = { brand_id: brandId };
+    } else {
+      [row] = await tx<{ brand_id: number }[]>`SELECT brand_id FROM pmd.brand WHERE brand_key = ${e.key}`;
+    }
   }
   // Keep every spelling a source used ("Samsung India") pointing at the one brand.
   await tx`
@@ -148,12 +154,17 @@ async function resolveManufacturer(tx: Queryable, ctx: LoadContext, e: NamedEnti
   let [row] = await tx<{ manufacturer_id: number }[]>`SELECT manufacturer_id FROM pmd.manufacturer WHERE manufacturer_key = ${e.key}`;
   if (!row) [row] = await tx<{ manufacturer_id: number }[]>`SELECT manufacturer_id FROM pmd.manufacturer_alias WHERE alias_key = ${alias}`;
   if (!row) {
-    // Insert, or get the id of the row a concurrent loader just inserted - see
-    // resolveBrand above for why LAST_INSERT_ID replaces the no-op DO UPDATE.
-    const inserted = await tx`
-      INSERT INTO pmd.manufacturer (manufacturer_name, manufacturer_key, source_id) VALUES (${e.display}, ${e.key}, ${ctx.sourceId})
-      ON DUPLICATE KEY UPDATE manufacturer_id = LAST_INSERT_ID(manufacturer_id)`;
-    row = { manufacturer_id: inserted.insertId };
+    // Application-allocated, like brand_id - see resolveBrand above.
+    const manufacturerId = await nextId(tx, "manufacturer_seq");
+    const isNew = await insertedNew(tx`
+      INSERT INTO pmd.manufacturer (manufacturer_id, manufacturer_name, manufacturer_key, source_id)
+      VALUES (${manufacturerId}, ${e.display}, ${e.key}, ${ctx.sourceId})`);
+    if (isNew) {
+      row = { manufacturer_id: manufacturerId };
+    } else {
+      [row] = await tx<{ manufacturer_id: number }[]>`
+        SELECT manufacturer_id FROM pmd.manufacturer WHERE manufacturer_key = ${e.key}`;
+    }
   }
   await tx`
     INSERT INTO pmd.manufacturer_alias (alias_key, manufacturer_id, alias_original, source_id)
