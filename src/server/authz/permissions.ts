@@ -235,6 +235,13 @@ export const PERMISSIONS = {
    * is audited; the stored IP address is never surfaced.
    */
   CONSENT_VIEW: "consent:view",
+  /**
+   * Work a dispute case: triage, investigate, propose, escalate, resolve
+   * (GS-058). Operator + admin — but an ESCALATED case is additionally
+   * restricted to an administrator inside the service, which is what
+   * escalation means. Resolving with a refund also needs ORDER_REFUND.
+   */
+  DISPUTE_MANAGE: "dispute:manage",
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -354,6 +361,7 @@ const OPERATOR_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.RISK_REVIEW,
   PERMISSIONS.PRICE_REFERENCE_MANAGE,
   PERMISSIONS.CONSENT_VIEW,
+  PERMISSIONS.DISPUTE_MANAGE,
   // Deliberately absent (§43 "not unrestricted system access"):
   // USER_SET_ROLE, USER_SUSPEND, WALLET_ADJUST, SYSTEM_CONFIG,
   // AUDIT_LOG_VIEW, REPORT_VIEW_ALL, WALLET_VIEW_ANY.
@@ -525,4 +533,5 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.RISK_REVIEW]: "Review fraud and risk flags",
   [PERMISSIONS.PRICE_REFERENCE_MANAGE]: "Record and verify external reference prices",
   [PERMISSIONS.CONSENT_VIEW]: "View the consent record",
+  [PERMISSIONS.DISPUTE_MANAGE]: "Work dispute cases",
 };
