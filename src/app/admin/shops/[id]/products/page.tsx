@@ -11,7 +11,7 @@ import { shopTypeLabel } from "@/lib/shop-types";
 import { db } from "@/server/db";
 import { shops } from "@/server/db/schema";
 import { eq } from "drizzle-orm";
-import { listShopProducts, suggestProductsForShopType } from "@/server/services/catalogue";
+import { listShopProducts, suggestProductsForShop } from "@/server/services/catalogue";
 import { appliesImmediately, listPendingForShop } from "@/server/services/price-requests";
 
 export const metadata = { title: "Manage Shop Products" };
@@ -42,7 +42,7 @@ export default async function AdminShopProductsPage({
 
   const [products, suggestions, pending] = await Promise.all([
     listShopProducts(shop.id),
-    suggestProductsForShopType(shop.shopType),
+    suggestProductsForShop(shop.id),
     listPendingForShop(shop.id),
   ]);
 
@@ -63,12 +63,20 @@ export default async function AdminShopProductsPage({
           </span>
         }
         action={
-          <Link
-            href="/admin/shops"
-            className="text-sm font-medium text-kesari-600 hover:underline"
-          >
-            ← All shops
-          </Link>
+          <span className="flex gap-4">
+            <Link
+              href={`/admin/shops/${shop.id}/product-categories`}
+              className="text-sm font-medium text-kesari-600 hover:underline"
+            >
+              Product categories
+            </Link>
+            <Link
+              href="/admin/shops"
+              className="text-sm font-medium text-kesari-600 hover:underline"
+            >
+              ← All shops
+            </Link>
+          </span>
         }
       />
 
@@ -122,6 +130,7 @@ export default async function AdminShopProductsPage({
           trackInventory: p.trackInventory,
           isActive: p.isActive,
           isAvailable: p.isAvailable,
+          paused: p.categoryCarried === false,
         }))}
         suggestions={availableToAdd.map((p) => ({
           id: p.id,

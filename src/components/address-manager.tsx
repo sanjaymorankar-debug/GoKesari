@@ -134,14 +134,19 @@ function AddressCard({
   );
 }
 
-function AddressForm({
+export function AddressForm({
   address,
   onSaved,
   onCancel,
+  cancelLabel = "Cancel",
+  defaultIsDefault = false,
 }: {
   address?: AddressRow;
   onSaved: () => void;
   onCancel: () => void;
+  cancelLabel?: string;
+  /** Pre-ticks "Set as default address" for a new address. */
+  defaultIsDefault?: boolean;
 }) {
   const [label, setLabel] = useState(address?.label ?? "");
   const [recipientName, setRecipientName] = useState(address?.recipientName ?? "");
@@ -157,7 +162,7 @@ function AddressForm({
   const [deliveryInstructions, setDeliveryInstructions] = useState(
     address?.deliveryInstructions ?? "",
   );
-  const [isDefault, setIsDefault] = useState(address?.isDefault ?? false);
+  const [isDefault, setIsDefault] = useState(address?.isDefault ?? defaultIsDefault);
   const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number } | null>(
     address?.latitude && address?.longitude
       ? { latitude: Number(address.latitude), longitude: Number(address.longitude) }
@@ -217,7 +222,7 @@ function AddressForm({
 
       <div>
         <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-ink-500">
-          Pin your location (optional but recommended)
+          Geo-tag this address (optional but recommended)
         </p>
         <MapPicker
           purpose="address_save"
@@ -225,7 +230,9 @@ function AddressForm({
           onConfirm={handleMapConfirm}
         />
         {coordinates ? (
-          <p className="mt-1 text-xs text-leaf-700">Location pinned and confirmed.</p>
+          <p className="mt-1 text-xs text-leaf-700" data-testid="address-geotag">
+            Location pinned: {coordinates.latitude.toFixed(5)}, {coordinates.longitude.toFixed(5)}
+          </p>
         ) : null}
       </div>
 
@@ -333,7 +340,7 @@ function AddressForm({
           {busy ? "Saving…" : "Save address"}
         </Button>
         <Button type="button" variant="secondary" onClick={onCancel}>
-          Cancel
+          {cancelLabel}
         </Button>
       </div>
     </form>

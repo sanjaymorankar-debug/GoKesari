@@ -28,6 +28,7 @@ import {
   createShopProduct,
   createUser,
   createUserWithWallet,
+  deliveryAddressId,
   resetDatabase,
 } from "../helpers/fixtures";
 
@@ -77,7 +78,7 @@ describe("personal and B2B orders are separate flows", () => {
   it("records a normal checkout as PERSONAL with no buyer shop", async () => {
     const { buyer, supplierMilk } = await b2bSetup();
     await addToCart(buyer.id, supplierMilk.id, 1);
-    const { orders: placed } = await checkout({ userId: buyer.id, requestId: "personal-req-1" });
+    const { orders: placed } = await checkout({ userId: buyer.id, requestId: "personal-req-1", addressId: await deliveryAddressId(buyer.id) });
     expect(placed[0].orderType).toBe("PERSONAL");
     expect(placed[0].buyerShopId).toBeNull();
   });

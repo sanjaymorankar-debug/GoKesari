@@ -1,6 +1,6 @@
 /**
  * The signed-in user's login mobile number.
- * PUT { countryCode, mobile } links it; DELETE removes it.
+ * PUT { mobile } links it (10-digit Indian number; not verified — codes go by email); DELETE removes it.
  */
 import type { NextRequest } from "next/server";
 import { z } from "zod";
@@ -12,7 +12,7 @@ import { linkPhone, unlinkPhone } from "@/server/otp/service";
 
 export const dynamic = "force-dynamic";
 
-const schema = z.object({ countryCode: z.string().min(2).max(5), mobile: z.string().min(6).max(20) });
+const schema = z.object({ mobile: z.string().min(10).max(20) });
 
 export const PUT = route(async (request: NextRequest) => {
   const user = await requireUser();

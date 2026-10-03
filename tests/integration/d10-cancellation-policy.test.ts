@@ -45,6 +45,7 @@ import {
   createShopProduct,
   createUser,
   createUserWithWallet,
+  deliveryAddressId,
   resetDatabase,
 } from "../helpers/fixtures";
 
@@ -80,7 +81,7 @@ async function setup(options: { twoLines?: boolean } = {}) {
   const { orders: created } = await checkout({
     userId: customer.id,
     requestId: `req-${customer.id}`,
-    addressId: null,
+    addressId: await deliveryAddressId(customer.id),
   });
   return {
     customer: { id: customer.id, role: "CUSTOMER" as const },

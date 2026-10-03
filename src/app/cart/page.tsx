@@ -1,4 +1,4 @@
-import { inArray } from "drizzle-orm";
+import { eq, inArray } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { CartView } from "@/components/cart-view";
@@ -9,7 +9,7 @@ import { listAddresses } from "@/server/services/addresses";
 import { COD_LIMITS, getCodEligibility } from "@/server/services/cod";
 import { getCart } from "@/server/services/cart";
 import { db } from "@/server/db";
-import { shops } from "@/server/db/schema";
+import { shops, users } from "@/server/db/schema";
 import { getCustomerLocation } from "@/server/location";
 import { validateCartForLocation } from "@/server/services/cart-validation";
 import { listShopsForOwner } from "@/server/services/shops";
@@ -23,12 +23,13 @@ export default async function CartPage() {
   if (!user) redirect("/signin");
 
   const canOrderB2B = can(user.role, PERMISSIONS.ORDER_PLACE_B2B);
-  const [cart, wallet, addresses, ownedShops, codEligibility] = await Promise.all([
+  const [cart, wallet, addresses, ownedShops, codEligibility, [account]] = await Promise.all([
     getCart(user.id),
     getWalletByUserId(user.id),
     listAddresses(user.id),
     canOrderB2B ? listShopsForOwner(user.id) : Promise.resolve([]),
     getCodEligibility(user.id),
+    db.select({ phoneE164: users.phoneE164 }).from(users).where(eq(users.id, user.id)),
   ]);
   // Cart re-validated against the chosen delivery location: shop eligibility,
   // availability, minimum order and delivery charge, each with a suggested
@@ -73,6 +74,7 @@ export default async function CartPage() {
         initialChecks={validation.shops}
         preferredAddressId={preferredAddressId}
         codUnavailableReason={codUnavailableReason}
+        hasMobile={Boolean(account?.phoneE164)}
         addresses={addresses.map((a) => ({
           id: a.id,
           label: a.label,

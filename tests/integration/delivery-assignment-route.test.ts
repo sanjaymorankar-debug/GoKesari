@@ -53,6 +53,7 @@ import {
   createShopProduct,
   createUser,
   createUserWithWallet,
+  deliveryAddressId,
   resetDatabase,
 } from "../helpers/fixtures";
 
@@ -80,7 +81,7 @@ async function setupReadyOrder(): Promise<{ order: Order; owner: { id: string; r
   const shopProduct = await createShopProduct(shop.id, product.id, { onlinePricePaise: 7000 });
 
   await addToCart(customer.id, shopProduct.id, 1);
-  const { orders: created } = await checkout({ userId: customer.id, requestId: `req-${customer.id}`, addressId: null });
+  const { orders: created } = await checkout({ userId: customer.id, requestId: `req-${customer.id}`, addressId: await deliveryAddressId(customer.id) });
   const actor = { id: owner.id, role: "SHOP_OWNER" as const };
   let order = await updateOrderStatus(created[0].id, "PREPARING", actor);
   order = await updateOrderStatus(order.id, "READY", actor);

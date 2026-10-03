@@ -17,6 +17,7 @@ import { ShopApprovalPanel } from "@/components/shop-approval-panel";
 import { ShopComplianceManager } from "@/components/shop-compliance-manager";
 import { ShopFinanceManager } from "@/components/shop-finance-manager";
 import { Card, PageHeader, Section } from "@/components/ui";
+import { ReleaseMobileForm } from "@/components/release-mobile-form";
 import { UserRoleManager } from "@/components/user-role-manager";
 import { VoucherManager } from "@/components/voucher-manager";
 import { VoucherUpload } from "@/components/voucher-upload";
@@ -75,6 +76,7 @@ export default async function AdminPage() {
   const showFinancials = can(user.role, PERMISSIONS.REPORT_VIEW_ALL);
   const canViewUsers = can(user.role, PERMISSIONS.USER_VIEW_ANY);
   const canSetRole = can(user.role, PERMISSIONS.USER_SET_ROLE);
+  const canReleaseMobile = can(user.role, PERMISSIONS.USER_SUSPEND);
   const canManageFee = can(user.role, PERMISSIONS.REGISTRATION_FEE_MANAGE);
   const canRecordPayment = can(user.role, PERMISSIONS.PAYMENT_RECORD);
   const canManageReferrals = can(user.role, PERMISSIONS.REFERRAL_MANAGE);
@@ -509,6 +511,16 @@ export default async function AdminPage() {
             currentUserId={user.id}
             canSetRole={canSetRole}
           />
+        </Section>
+      ) : null}
+
+      {canReleaseMobile ? (
+        <Section title="Release a mobile number">
+          <p className="mb-3 text-sm text-ink-500">
+            Mobile numbers are not SMS-verified. If someone added a number that belongs to another person, release it here
+            so the real owner can add it. The holder is notified and must add a number again before ordering.
+          </p>
+          <ReleaseMobileForm />
         </Section>
       ) : null}
 
