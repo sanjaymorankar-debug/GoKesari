@@ -102,7 +102,14 @@ export const PUT = route(async (request: NextRequest) => {
           )
         );
 
-      const addressData: Record<string, unknown> = {
+      if (existingDefault) {
+        await tx
+          .update(addresses)
+          .set({ isDefault: false })
+          .where(eq(addresses.id, existingDefault.id));
+      }
+
+      await tx.insert(addresses).values({
         userId: user.id,
         label: body.deliveryAddress.label || "Home",
         line1: body.deliveryAddress.line1,
@@ -116,19 +123,10 @@ export const PUT = route(async (request: NextRequest) => {
         landmark: body.deliveryAddress.landmark,
         recipientName: body.deliveryAddress.recipientName,
         recipientPhone: body.deliveryAddress.recipientPhone,
-        addressType: "HOME",
+        addressType: "HOME" as const,
         isDefault: true,
-        locationSource: body.deliveryAddress.latitude ? "MANUAL_ENTRY" : undefined,
-      };
-
-      if (existingDefault) {
-        await tx
-          .update(addresses)
-          .set({ isDefault: false })
-          .where(eq(addresses.id, existingDefault.id));
-      }
-
-      await tx.insert(addresses).values(addressData);
+        locationSource: body.deliveryAddress.latitude ? ("MANUAL_ENTRY" as const) : undefined,
+      });
     }
   });
 
