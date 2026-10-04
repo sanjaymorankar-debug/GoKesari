@@ -1,4 +1,4 @@
-import { test, expect, Page, Browser, chromium } from '@playwright/test';
+import { test, expect, Page, chromium } from '@playwright/test';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -276,6 +276,36 @@ function recordResult(result: TestResult): void {
   console.log(`[${result.status.toUpperCase()}] ${result.tcId}: ${result.name}`);
 }
 
+interface TestSummary {
+  timestamp: string;
+  total: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+  blocked: number;
+  passRate: number;
+  byModule: Record<string, ModuleTestStats>;
+  byPriority: {
+    p0: PriorityTestStats;
+    p1: PriorityTestStats;
+    p2: PriorityTestStats;
+  };
+}
+
+interface ModuleTestStats {
+  total: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+}
+
+interface PriorityTestStats {
+  total: number;
+  passed: number;
+  failed: number;
+  skipped: number;
+}
+
 /**
  * Generate summary report
  */
@@ -287,18 +317,18 @@ export function generateSummaryReport(): void {
     return;
   }
 
-  const lines = fs.readFileSync(resultsFile, 'utf-8').split('\n').filter(l => l);
-  const results: TestResult[] = lines.map(line => JSON.parse(line));
+  const lines = fs.readFileSync(resultsFile, 'utf-8').split('\n').filter((l: string) => l);
+  const results: TestResult[] = lines.map((line: string) => JSON.parse(line) as TestResult);
 
-  const summary = {
+  const summary: TestSummary = {
     timestamp: new Date().toISOString(),
     total: results.length,
-    passed: results.filter(r => r.status === 'pass').length,
-    failed: results.filter(r => r.status === 'fail').length,
-    skipped: results.filter(r => r.status === 'skip').length,
-    blocked: results.filter(r => r.status === 'blocked').length,
+    passed: results.filter((r: TestResult) => r.status === 'pass').length,
+    failed: results.filter((r: TestResult) => r.status === 'fail').length,
+    skipped: results.filter((r: TestResult) => r.status === 'skip').length,
+    blocked: results.filter((r: TestResult) => r.status === 'blocked').length,
     passRate: 0,
-    byModule: {} as any,
+    byModule: {},
     byPriority: {
       p0: { total: 0, passed: 0, failed: 0, skipped: 0 },
       p1: { total: 0, passed: 0, failed: 0, skipped: 0 },
@@ -321,16 +351,17 @@ export function generateSummaryReport(): void {
       };
     }
 
-    summary.byModule[result.module].total++;
-    if (result.status === 'pass') summary.byModule[result.module].passed++;
-    else if (result.status === 'fail') summary.byModule[result.module].failed++;
-    else if (result.status === 'skip') summary.byModule[result.module].skipped++;
+    const moduleStats = summary.byModule[result.module] as ModuleTestStats;
+    moduleStats.total += 1;
+    if (result.status === 'pass') moduleStats.passed += 1;
+    else if (result.status === 'fail') moduleStats.failed += 1;
+    else if (result.status === 'skip') moduleStats.skipped += 1;
 
     const priorityKey = result.priority.toLowerCase() as 'p0' | 'p1' | 'p2';
-    summary.byPriority[priorityKey].total++;
-    if (result.status === 'pass') summary.byPriority[priorityKey].passed++;
-    else if (result.status === 'fail') summary.byPriority[priorityKey].failed++;
-    else if (result.status === 'skip') summary.byPriority[priorityKey].skipped++;
+    summary.byPriority[priorityKey].total += 1;
+    if (result.status === 'pass') summary.byPriority[priorityKey].passed += 1;
+    else if (result.status === 'fail') summary.byPriority[priorityKey].failed += 1;
+    else if (result.status === 'skip') summary.byPriority[priorityKey].skipped += 1;
   }
 
   const summaryFile = path.join(TEST_RESULTS_DIR, 'summary.json');

@@ -39,7 +39,7 @@ interface ParsedTestSuite {
  * Parse test cases from Excel file (requires xlsx module)
  * Note: xlsx is not installed. This is a placeholder implementation.
  */
-export function parseTestCases(filePath: string): ParsedTestSuite {
+export function parseTestCases(): ParsedTestSuite {
   // Placeholder: returns mock data structure
   // In production, this would parse the Excel file using xlsx or exceljs
   const modules = new Map<string, TestModule>();
@@ -50,7 +50,7 @@ export function parseTestCases(filePath: string): ParsedTestSuite {
   };
 
   // Mock data representing the 791 test cases
-  const mockTestCases = [
+  const mockTestCases: Array<{ tcId: string; module: string; priority: 'P0' | 'P1' | 'P2'; description: string }> = [
     { tcId: 'TC-PRE-001', module: 'Preflight & smoke', priority: 'P0', description: 'Test site is reachable' },
     { tcId: 'TC-PRE-002', module: 'Preflight & smoke', priority: 'P0', description: 'Database-backed pages load' },
     // Add more mock cases as needed...
@@ -108,11 +108,16 @@ export function parseTestCases(filePath: string): ParsedTestSuite {
   };
 }
 
+interface FeatureStatus {
+  Item: string;
+  Count: number;
+}
+
 /**
  * Parse open features from Excel file (requires xlsx module)
  * Note: xlsx is not installed. This is a placeholder implementation.
  */
-export function parseOpenFeatures(filePath: string): any {
+export function parseOpenFeatures(): FeatureStatus[] {
   // Placeholder: returns mock data
   // In production, this would parse the Excel file
   return [
@@ -122,14 +127,59 @@ export function parseOpenFeatures(filePath: string): any {
   ];
 }
 
+interface ExecutionReport {
+  timestamp: string;
+  totalCases: number;
+  executed: number;
+  passed: number;
+  failed: number;
+  blocked: number;
+  notRun: number;
+  passRate: number;
+  byModule: Record<string, ModuleStats>;
+  byPriority: {
+    p0: PriorityStats;
+    p1: PriorityStats;
+    p2: PriorityStats;
+  };
+  failedTests: FailedTest[];
+}
+
+interface ModuleStats {
+  total: number;
+  pass: number;
+  fail: number;
+  blocked: number;
+  notRun: number;
+  p0: number;
+  p1: number;
+  p2: number;
+  passRate: number;
+}
+
+interface PriorityStats {
+  total: number;
+  pass: number;
+  fail: number;
+  blocked: number;
+  passRate: number;
+}
+
+interface FailedTest {
+  tcId: string;
+  module: string;
+  priority: 'P0' | 'P1' | 'P2';
+  description: string;
+}
+
 /**
  * Generate test execution report
  */
 export function generateExecutionReport(
   suite: ParsedTestSuite,
   results: Map<string, 'Pass' | 'Fail' | 'Blocked' | 'Not run'>
-): any {
-  const report = {
+): ExecutionReport {
+  const report: ExecutionReport = {
     timestamp: new Date().toISOString(),
     totalCases: suite.totalCases,
     executed: 0,
@@ -138,18 +188,18 @@ export function generateExecutionReport(
     blocked: 0,
     notRun: 0,
     passRate: 0,
-    byModule: {} as any,
+    byModule: {},
     byPriority: {
       p0: { total: 0, pass: 0, fail: 0, blocked: 0, passRate: 0 },
       p1: { total: 0, pass: 0, fail: 0, blocked: 0, passRate: 0 },
       p2: { total: 0, pass: 0, fail: 0, blocked: 0, passRate: 0 },
     },
-    failedTests: [] as any[],
+    failedTests: [],
   };
 
   // Process by module
   for (const [moduleName, moduleData] of suite.modules) {
-    report.byModule[moduleName] = {
+    const moduleStats: ModuleStats = {
       total: moduleData.totalCases,
       pass: 0,
       fail: 0,
@@ -158,53 +208,52 @@ export function generateExecutionReport(
       p0: moduleData.p0Cases,
       p1: moduleData.p1Cases,
       p2: moduleData.p2Cases,
+      passRate: 0,
     };
+    report.byModule[moduleName] = moduleStats;
 
     for (const testCase of moduleData.cases) {
       const status = results.get(testCase.tcId) || 'Not run';
 
       if (status !== 'Not run') {
-        report.executed++;
+        report.executed += 1;
       }
 
       if (status === 'Pass') {
-        report.passed++;
-        report.byModule[moduleName].pass++;
-        if (testCase.priority === 'P0') report.byPriority.p0.pass++;
-        else if (testCase.priority === 'P1') report.byPriority.p1.pass++;
-        else report.byPriority.p2.pass++;
+        report.passed += 1;
+        moduleStats.pass += 1;
+        if (testCase.priority === 'P0') report.byPriority.p0.pass += 1;
+        else if (testCase.priority === 'P1') report.byPriority.p1.pass += 1;
+        else report.byPriority.p2.pass += 1;
       } else if (status === 'Fail') {
-        report.failed++;
-        report.byModule[moduleName].fail++;
+        report.failed += 1;
+        moduleStats.fail += 1;
         report.failedTests.push({
           tcId: testCase.tcId,
           module: testCase.module,
           priority: testCase.priority,
           description: testCase.testCase,
         });
-        if (testCase.priority === 'P0') report.byPriority.p0.fail++;
-        else if (testCase.priority === 'P1') report.byPriority.p1.fail++;
-        else report.byPriority.p2.fail++;
+        if (testCase.priority === 'P0') report.byPriority.p0.fail += 1;
+        else if (testCase.priority === 'P1') report.byPriority.p1.fail += 1;
+        else report.byPriority.p2.fail += 1;
       } else if (status === 'Blocked') {
-        report.blocked++;
-        report.byModule[moduleName].blocked++;
-        if (testCase.priority === 'P0') report.byPriority.p0.blocked++;
-        else if (testCase.priority === 'P1') report.byPriority.p1.blocked++;
-        else report.byPriority.p2.blocked++;
+        report.blocked += 1;
+        moduleStats.blocked += 1;
+        if (testCase.priority === 'P0') report.byPriority.p0.blocked += 1;
+        else if (testCase.priority === 'P1') report.byPriority.p1.blocked += 1;
+        else report.byPriority.p2.blocked += 1;
       } else {
-        report.notRun++;
-        report.byModule[moduleName].notRun++;
+        report.notRun += 1;
+        moduleStats.notRun += 1;
       }
     }
 
     // Calculate pass rate per module
-    if (report.byModule[moduleName].total > 0) {
-      const passable =
-        report.byModule[moduleName].total - report.byModule[moduleName].notRun;
-      report.byModule[moduleName].passRate =
-        passable > 0
-          ? (report.byModule[moduleName].pass / passable) * 100
-          : 0;
+    if (moduleStats.total > 0) {
+      const passable = moduleStats.total - moduleStats.notRun;
+      moduleStats.passRate =
+        passable > 0 ? (moduleStats.pass / passable) * 100 : 0;
     }
   }
 
@@ -229,7 +278,7 @@ export function generateExecutionReport(
 /**
  * Export report to JSON
  */
-export function exportReportJSON(report: any, outputPath: string): void {
+export function exportReportJSON(report: ExecutionReport, outputPath: string): void {
   fs.writeFileSync(outputPath, JSON.stringify(report, null, 2));
   console.log(`Report exported to ${outputPath}`);
 }
@@ -237,7 +286,7 @@ export function exportReportJSON(report: any, outputPath: string): void {
 /**
  * Export report to markdown
  */
-export function exportReportMarkdown(report: any, outputPath: string): void {
+export function exportReportMarkdown(report: ExecutionReport, outputPath: string): void {
   const markdown = `# Test Execution Report
 Generated: ${report.timestamp}
 
@@ -273,7 +322,7 @@ ${
   report.failedTests.length > 0
     ? report.failedTests
         .map(
-          (tc: any) =>
+          (tc: FailedTest) =>
             `- **${tc.tcId}** (${tc.priority}) [${tc.module}]: ${tc.description}`
         )
         .join('\n')
@@ -283,7 +332,7 @@ ${
 ## By Module
 ${Object.entries(report.byModule)
   .map(
-    ([module, stats]: any) =>
+    ([module, stats]: [string, ModuleStats]) =>
       `### ${module}
 - Total: ${stats.total} (P0: ${stats.p0}, P1: ${stats.p1}, P2: ${stats.p2})
 - Passed: ${stats.pass}
