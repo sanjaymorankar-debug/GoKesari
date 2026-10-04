@@ -118,7 +118,12 @@ async function* viaStream(path: string, opts: XlsxOptions, started: { rows: numb
       position,
     };
     seen.push(label(info));
-    if (!isWanted(info, opts)) continue;
+    if (!isWanted(info, opts)) {
+      // Read a skipped sheet through: ExcelJS deletes its temp copy as soon as the reader moves
+      // on, and an unread stream may still be opening it - an unhandled ENOENT.
+      for await (const row of ws) void row;
+      continue;
+    }
     const shaper = new RowShaper(info.name, headerRow);
     for await (const row of ws) {
       const r = shaper.shape(row.number, (row.values as ExcelJS.CellValue[]) ?? []);
