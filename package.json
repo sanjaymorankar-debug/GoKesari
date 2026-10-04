@@ -27,7 +27,15 @@
     "pmd:promote": "tsx scripts/pmd/promote.ts",
     "pmd:bench": "tsx scripts/pmd/bench.ts",
     "pmd:bench-loader": "tsx scripts/pmd/bench-loader.ts",
-    "pmd:test": "vitest run pmd-"
+    "pmd:test": "vitest run pmd-",
+    "test:parse-cases": "tsx tests/test-case-parser.ts",
+    "test:smoke": "playwright test tests/e2e-test-runner.ts -g 'Preflight'",
+    "test:p0": "vitest run --grep P0",
+    "test:p1": "vitest run --grep P1",
+    "test:p2": "vitest run --grep P2",
+    "test:integration": "vitest run tests/integration",
+    "test:full": "npm run test:parse-cases && npm run test:e2e && npm run test:integration",
+    "test:preflight": "npm run test:smoke"
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.3",
