@@ -349,11 +349,8 @@ ${Object.entries(report.byModule)
 // Main execution
 if (require.main === module) {
   try {
-    const testCasesPath = path.join(__dirname, '..', 'test-cases.xlsx');
-    const openFeaturesPath = path.join(__dirname, '..', 'open-features.xlsx');
-
     console.log('Parsing test cases...');
-    const suite = parseTestCases(testCasesPath);
+    const suite = parseTestCases();
 
     console.log(`Found ${suite.totalCases} test cases across ${suite.modules.size} modules`);
     console.log(
@@ -363,7 +360,7 @@ if (require.main === module) {
     );
 
     console.log('\nParsing open features...');
-    const features = parseOpenFeatures(openFeaturesPath);
+    const features = parseOpenFeatures();
     console.log(`Found ${features.length} feature status entries`);
 
     // Export parsed data
