@@ -52,6 +52,7 @@ import { creditDeliveryEarnings } from "./delivery-earnings";
 import { DELIVERY_WINDOW_MINUTES, getFeasibleDeliveryWindows, type DeliveryWindowFeasibility } from "./delivery-feasibility";
 import { reserveSlot, slotFullError } from "./delivery-slots";
 import { getOrCreateOrderGroup, referencesForGroups } from "./order-groups";
+import { quoteCoupon, redeemCouponForOrder } from "./coupons";
 import { getRule } from "./settings";
 import { notifyOpenStockAlerts } from "./inventory-alerts";
 import { postRetainedDeliveryFee, recordOrderFinancials } from "./finance";
@@ -191,6 +192,8 @@ export interface CheckoutInput {
    * warning is enforced server-side, not just shown.
    */
   acknowledgeClosedShopIds?: string[];
+  /** F7: an order-level coupon code. Validated and priced on the server. */
+  couponCode?: string | null;
 }
 
 export interface CheckoutResult {
@@ -350,6 +353,17 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   const created: Order[] = [];
   let anyDeduplicated = false;
 
+  // F7: price the coupon over the whole order (every shop together), split
+  // across shops by goods value. Re-checked under a lock in each order below.
+  const couponQuote = input.couponCode?.trim()
+    ? await quoteCoupon(
+        input.couponCode,
+        input.userId,
+        input.requestId,
+        purchasableGroups.map((g) => ({ shopId: g.shop.id, goodsPaise: g.subtotalPaise })),
+      )
+    : null;
+
   // F6: a cart spanning several shops gets one parent reference over all its orders.
   const orderGroup =
     purchasableGroups.length > 1 && (await getRule("parentOrders")).enabled
@@ -437,7 +451,9 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
         .where(eq(shops.id, group.shop.id));
       const deliveryFeePaise = computeDeliveryFee(shopRow, subtotalPaise);
       const taxPaise = 0;
-      const totalPaise = subtotalPaise + deliveryFeePaise + taxPaise;
+      const couponShare = couponQuote?.shares.find((sh) => sh.shopId === group.shop.id)?.discountPaise ?? 0;
+      const discountPaise = Math.min(couponShare, subtotalPaise);
+      const totalPaise = subtotalPaise + deliveryFeePaise + taxPaise - discountPaise;
       if (paymentMethod === "COD") assertCodAllowedForOrder(shopRow, totalPaise);
 
       // F5: book a place in the window's current slot under a lock; if it filled
@@ -490,9 +506,22 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           promisedByAt,
           deliverySlotKey,
           orderGroupId: orderGroup?.id ?? null,
+          discountPaise,
+          couponCode: couponQuote ? couponQuote.code : null,
           notes: input.notes ?? null,
         })
         .returning();
+
+      if (couponQuote) {
+        await redeemCouponForOrder(tx, {
+          couponId: couponQuote.couponId,
+          userId: input.userId,
+          requestId: input.requestId,
+          orderId: orderRow.id,
+          sharePaise: discountPaise,
+          orderGoodsPaise: subtotalPaise,
+        });
+      }
 
       await tx.insert(orderItems).values(
         lines.map((l) => ({

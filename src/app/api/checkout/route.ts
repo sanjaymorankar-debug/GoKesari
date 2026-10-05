@@ -29,6 +29,8 @@ const schema = z.object({
   paymentMethod: z.enum(["WALLET", "COD"]).optional(),
   /** Shops the customer was warned are closed and chose to order from anyway. */
   acknowledgeClosedShopIds: z.array(z.string().uuid()).max(20).optional(),
+  /** F7: order-level coupon code; validated and priced server-side. */
+  couponCode: z.string().trim().max(32).nullish(),
 });
 
 export const POST = route(async (request: NextRequest) => {
@@ -50,6 +52,7 @@ export const POST = route(async (request: NextRequest) => {
     deliveryWindows: body.deliveryWindows,
     paymentMethod: body.paymentMethod,
     acknowledgeClosedShopIds: body.acknowledgeClosedShopIds,
+    couponCode: body.couponCode ?? null,
   });
 
   return ok(
@@ -65,6 +68,7 @@ export const POST = route(async (request: NextRequest) => {
         buyerShopId: o.buyerShopId,
         deliveryWindow: o.deliveryWindow,
         promisedByAt: o.promisedByAt,
+        ...(o.discountPaise > 0 ? { discountPaise: o.discountPaise, couponCode: o.couponCode } : {}),
       })),
       deduplicated: result.deduplicated,
       // F6: present only for a multi-shop checkout with parent orders on.

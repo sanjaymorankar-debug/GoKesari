@@ -64,6 +64,7 @@ export function CartView({
   preferredAddressId = null,
   codUnavailableReason = null,
   hasMobile = true,
+  couponsEnabled = false,
 }: {
   cart: CartSummary;
   walletBalancePaise: number;
@@ -78,6 +79,8 @@ export function CartView({
   codUnavailableReason?: string | null;
   /** Orders need a mobile number on the account so the delivery partner can call. */
   hasMobile?: boolean;
+  /** F7: show the coupon box (rule "coupons"). */
+  couponsEnabled?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -91,6 +94,10 @@ export function CartView({
   const [feasibility, setFeasibility] = useState<Record<string, Feasibility>>({});
   const [deliveryWindows, setDeliveryWindows] = useState<Record<string, DeliveryWindowKey>>({});
   const [paymentMethod, setPaymentMethod] = useState<"WALLET" | "COD">("WALLET");
+  // F7: an applied coupon is a server-priced preview; checkout re-validates it.
+  const [couponInput, setCouponInput] = useState("");
+  const [coupon, setCoupon] = useState<{ code: string; discountPaise: number; forTotal: number } | null>(null);
+  const [couponError, setCouponError] = useState<string | null>(null);
 
   const [checks, setChecks] = useState<ShopCartCheck[]>(initialChecks);
   // Adopt fresh server data when the prop changes (render-time sync, not an effect).
@@ -170,8 +177,11 @@ export function CartView({
   // Cash on delivery: personal orders to a saved address only.
   const codPossible = codUnavailableReason == null && !buyerShopId && addressId != null;
   const payingCod = paymentMethod === "COD" && codPossible;
-  const affordable = payingCod || walletBalancePaise >= cart.grandTotalPaise;
-  const shortfall = Math.max(0, cart.grandTotalPaise - walletBalancePaise);
+  // A coupon priced for a different cart is dropped (the customer re-applies it).
+  const couponDiscountPaise = coupon && coupon.forTotal === cart.subtotalPaise ? coupon.discountPaise : 0;
+  const payablePaise = cart.grandTotalPaise - couponDiscountPaise;
+  const affordable = payingCod || walletBalancePaise >= payablePaise;
+  const shortfall = Math.max(0, payablePaise - walletBalancePaise);
 
   async function updateQuantity(cartItemId: string, quantity: number) {
     setBusy(true);
@@ -189,6 +199,22 @@ export function CartView({
     router.refresh();
   }
 
+  async function applyCoupon() {
+    setCouponError(null);
+    const response = await fetch("/api/checkout/coupon", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: couponInput, requestId }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      setCoupon(null);
+      setCouponError(payload?.error?.message ?? "That coupon can't be used.");
+      return;
+    }
+    setCoupon({ code: payload.code, discountPaise: payload.discountPaise, forTotal: cart.subtotalPaise });
+  }
+
   async function checkout(acknowledgeClosedShopIds: string[] = []) {
     setConfirmingClosed(false);
     setBusy(true);
@@ -202,6 +228,7 @@ export function CartView({
         deliveryWindows,
         paymentMethod: payingCod ? "COD" : "WALLET",
         acknowledgeClosedShopIds,
+        ...(couponDiscountPaise > 0 && coupon ? { couponCode: coupon.code } : {}),
         ...(buyerShopId ? { orderType: "B2B", buyerShopId } : { orderType: "PERSONAL" }),
       }),
     });
@@ -402,11 +429,43 @@ export function CartView({
             <Row label="Subtotal" paise={cart.subtotalPaise} />
             <Row label="Delivery" paise={cart.deliveryFeePaise} />
             {cart.taxPaise > 0 ? <Row label="Taxes" paise={cart.taxPaise} /> : null}
+            {couponDiscountPaise > 0 && coupon ? (
+              <div className="flex justify-between text-leaf-700" data-testid="coupon-discount">
+                <span>Coupon {coupon.code}</span>
+                <span>
+                  −<Money paise={couponDiscountPaise} />
+                </span>
+              </div>
+            ) : null}
             <div className="mt-2 flex justify-between border-t border-cream-200 pt-2 text-base font-semibold text-ink-900">
               <span>Grand total</span>
-              <Money paise={cart.grandTotalPaise} />
+              <Money paise={payablePaise} />
             </div>
           </div>
+
+          {couponsEnabled ? (
+            <div className="mt-3 space-y-1">
+              <div className="flex gap-2">
+                <input
+                  className={inputClass}
+                  placeholder="Coupon code"
+                  value={couponInput}
+                  onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                  data-testid="coupon-input"
+                />
+                {couponDiscountPaise > 0 ? (
+                  <Button variant="secondary" onClick={() => { setCoupon(null); setCouponInput(""); }}>
+                    Remove
+                  </Button>
+                ) : (
+                  <Button variant="secondary" onClick={() => void applyCoupon()} disabled={!couponInput.trim()}>
+                    Apply
+                  </Button>
+                )}
+              </div>
+              {couponError ? <p className="text-xs text-red-700">{couponError}</p> : null}
+            </div>
+          ) : null}
 
           <div className="mt-4 rounded-lg bg-cream-50 p-3 text-sm">
             <div className="flex justify-between">

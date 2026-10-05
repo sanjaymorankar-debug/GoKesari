@@ -1722,6 +1722,10 @@ export const orders = pgTable(
     deliverySlotKey: text("delivery_slot_key"),
     /** F6: the parent order (one reference for a multi-shop checkout). Null
      * for single-shop orders and for every order placed before F6. */
+    /** F7: order-level coupon discount on this order (its share of a
+     * multi-shop discount). totalPaise is already net of it. 0 = none. */
+    discountPaise: bigint("discount_paise", { mode: "number" }).notNull().default(0),
+    couponCode: text("coupon_code"),
     orderGroupId: uuid("order_group_id").references((): AnyPgColumn => orderGroups.id, { onDelete: "set null" }),
     /** When the shop accepted the order (CONFIRMED → ACCEPTED). */
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
@@ -4782,3 +4786,66 @@ export const orderGroups = pgTable(
   ],
 );
 export type OrderGroup = typeof orderGroups.$inferSelect;
+
+/* ------------------------------------------------ order-level coupons (F7)
+ * A code taking a flat amount or a percentage off the whole order's goods.
+ * Platform-funded: the shop is paid on its full goods value. */
+export const coupons = pgTable(
+  "coupons",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Stored upper-case; matched case-insensitively. */
+    code: text("code").notNull(),
+    description: text("description"),
+    discountType: text("discount_type", { enum: ["FLAT", "PERCENT"] }).notNull(),
+    /** FLAT: paise off. */
+    flatPaise: bigint("flat_paise", { mode: "number" }),
+    /** PERCENT: whole percent off (1–100), optionally capped. */
+    percent: integer("percent"),
+    maxDiscountPaise: bigint("max_discount_paise", { mode: "number" }),
+    minOrderPaise: bigint("min_order_paise", { mode: "number" }).notNull().default(0),
+    startsAt: timestamp("starts_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    /** Total checkouts allowed (null = unlimited). */
+    usageLimit: integer("usage_limit"),
+    /** Checkouts allowed per customer (null = unlimited). */
+    perCustomerLimit: integer("per_customer_limit").default(1),
+    active: boolean("active").notNull().default(true),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("coupons_code_uq").on(t.code),
+    check(
+      "coupons_amount_valid",
+      sql`(${t.discountType} = 'FLAT' AND ${t.flatPaise} > 0) OR (${t.discountType} = 'PERCENT' AND ${t.percent} BETWEEN 1 AND 100)`,
+    ),
+  ],
+);
+export type Coupon = typeof coupons.$inferSelect;
+
+/** One row per order a coupon was applied to; a multi-shop checkout has one per sub-order, same request id. */
+export const couponRedemptions = pgTable(
+  "coupon_redemptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    couponId: uuid("coupon_id")
+      .notNull()
+      .references(() => coupons.id, { onDelete: "restrict" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    /** The checkout request — one "use" of the coupon, however many shops. */
+    requestId: text("request_id").notNull(),
+    discountPaise: bigint("discount_paise", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("coupon_redemptions_order_uq").on(t.orderId),
+    index("coupon_redemptions_coupon_user_idx").on(t.couponId, t.userId),
+  ],
+);

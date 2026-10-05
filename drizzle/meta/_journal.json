@@ -330,6 +330,13 @@
       "when": 1791228993395,
       "tag": "0046_order_groups",
       "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1791229193124,
+      "tag": "0047_coupons",
+      "breakpoints": true
     }
   ]
 }

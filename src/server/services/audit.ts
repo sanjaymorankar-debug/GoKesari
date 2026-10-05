@@ -229,6 +229,10 @@ export const AUDIT_ACTIONS = {
   PMD_MATCH_DECIDED: "pmd.match_decided",
   PMD_PRODUCTS_IMPORTED: "pmd.products_imported",
 
+  /* ------------------------------------------------ promotions (F7, F8) */
+  COUPON_SAVED: "coupon.saved",
+  SHOP_OFFER_SAVED: "shop.offer_saved",
+
   /* ------------------------------------------- platform rules & auth */
   SETTING_CHANGED: "setting.changed",
   OTP_REQUESTED: "auth.otp_requested",

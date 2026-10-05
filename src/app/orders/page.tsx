@@ -114,6 +114,11 @@ export default async function OrdersPage({
                   <span className="text-sm text-ink-500">
                     {order.orderNumber}
                   </span>
+                  {order.discountPaise > 0 ? (
+                    <Badge tone="success">
+                      {order.couponCode ? `${order.couponCode} · ` : ""}saved <Money paise={order.discountPaise} />
+                    </Badge>
+                  ) : null}
                   {order.orderGroupId && groupRefs.get(order.orderGroupId) ? (
                     <Link
                       href={`/orders/group/${groupRefs.get(order.orderGroupId)}`}
