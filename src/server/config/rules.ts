@@ -225,6 +225,26 @@ export const RULES = {
       resolveTargetHours: 120,
     },
   },
+  customerReferrals: {
+    description:
+      "Customer referral rewards. On: every customer gets a referral code and link; when a friend who joined with it has their first order delivered, both get the reward as promotional wallet credit. Off: no codes are shown and nothing is credited.",
+    schema: z.object({
+      enabled: z.boolean(),
+      referrerRewardPaise: int(0, 1_000_000),
+      refereeRewardPaise: int(0, 1_000_000),
+      /** Most rewards one customer can earn by referring. */
+      maxRewardsPerReferrer: int(1, 1000),
+      /** A code can only be applied this many days after joining, before any order. */
+      applyWithinDays: int(1, 365),
+    }),
+    defaults: {
+      enabled: false,
+      referrerRewardPaise: 5000,
+      refereeRewardPaise: 5000,
+      maxRewardsPerReferrer: 20,
+      applyWithinDays: 30,
+    },
+  },
   imageModeration: {
     description:
       "Product photo moderation. Off: shop owners' photos go live at once (the original behaviour). On: photos a shop owner adds or replaces wait in Admin → Image moderation and are shown publicly only once approved; rejected photos carry a reason. Photos already live stay live.",

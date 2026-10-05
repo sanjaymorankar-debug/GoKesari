@@ -4899,3 +4899,54 @@ export const shopOffers = pgTable(
   ],
 );
 export type ShopOffer = typeof shopOffers.$inferSelect;
+
+/* ------------------------------------------------ customer referrals (F11)
+ * Every customer's own code / link. A friend who signs up with it and whose
+ * first order is delivered earns both of them a promotional wallet credit.
+ * (referral_codes above are admin-issued codes attributing shop sign-ups —
+ * a different flow.) */
+export const customerReferralCodes = pgTable(
+  "customer_referral_codes",
+  {
+    userId: uuid("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    code: text("code").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("customer_referral_codes_code_uq").on(t.code)],
+);
+
+export const customerReferrals = pgTable(
+  "customer_referrals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    referrerUserId: uuid("referrer_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    refereeUserId: uuid("referee_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    code: text("code").notNull(),
+    /** PENDING until the friend's first delivered order; then REWARDED, or REJECTED with a reason. */
+    status: text("status", { enum: ["PENDING", "REWARDED", "REJECTED"] }).notNull().default("PENDING"),
+    rejectionReason: text("rejection_reason"),
+    qualifyingOrderId: uuid("qualifying_order_id").references(() => orders.id, { onDelete: "set null" }),
+    referrerRewardPaise: bigint("referrer_reward_paise", { mode: "number" }),
+    refereeRewardPaise: bigint("referee_reward_paise", { mode: "number" }),
+    /** The friend's mobile when rewarded — one reward per mobile number. */
+    refereePhoneE164: text("referee_phone_e164"),
+    rewardedAt: timestamp("rewarded_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // A customer can be referred once.
+    uniqueIndex("customer_referrals_referee_uq").on(t.refereeUserId),
+    index("customer_referrals_referrer_idx").on(t.referrerUserId),
+    uniqueIndex("customer_referrals_rewarded_phone_uq")
+      .on(t.refereePhoneE164)
+      .where(sql`${t.status} = 'REWARDED' AND ${t.refereePhoneE164} IS NOT NULL`),
+    check("customer_referrals_not_self", sql`${t.referrerUserId} <> ${t.refereeUserId}`),
+  ],
+);
+export type CustomerReferral = typeof customerReferrals.$inferSelect;

@@ -68,6 +68,8 @@ export const AUDIT_ACTIONS = {
   REFERRAL_CODE_CREATED: "referral_code.created",
   REFERRAL_CODE_UPDATED: "referral_code.updated",
   REFERRAL_CODE_ASSIGNED: "referral_code.assigned",
+  CUSTOMER_REFERRAL_APPLIED: "customer_referral.applied",
+  CUSTOMER_REFERRAL_DECIDED: "customer_referral.decided",
   PRODUCT_REMOVED: "shop_product.removed",
 
   /* ---------------------------------------------- product creation & approval */

@@ -54,6 +54,7 @@ import { reserveSlot, slotFullError } from "./delivery-slots";
 import { getOrCreateOrderGroup, referencesForGroups } from "./order-groups";
 import { quoteCoupon, redeemCouponForOrder } from "./coupons";
 import { getLiveOffers, priceWithOffers } from "./shop-offers";
+import { rewardReferralOnDelivery } from "./customer-referrals";
 import { getRule } from "./settings";
 import { notifyOpenStockAlerts } from "./inventory-alerts";
 import { postRetainedDeliveryFee, recordOrderFinancials } from "./finance";
@@ -738,6 +739,11 @@ export async function updateOrderStatus(
     // it is delivered, in the same transaction (idempotent).
     if (newStatus === "DELIVERED") {
       await recordOrderFinancials(orderId, tx);
+      // F11: a referred customer's first delivered order rewards both sides.
+      // Under a savepoint, so a problem here can never block the delivery.
+      await tx
+        .transaction((sp) => rewardReferralOnDelivery(orderId, sp))
+        .catch((error) => console.error("[referrals] reward check failed for order", orderId, error));
     }
     // Phase 2: invite the customer to rate the shop and rider (GS-059/060).
     if (newStatus === "DELIVERED") {

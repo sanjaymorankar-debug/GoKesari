@@ -351,6 +351,13 @@
       "when": 1791230038875,
       "tag": "0049_image_moderation",
       "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1791230301119,
+      "tag": "0050_customer_referrals",
+      "breakpoints": true
     }
   ]
 }
