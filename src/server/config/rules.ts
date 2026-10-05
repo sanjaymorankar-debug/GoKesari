@@ -51,6 +51,14 @@ export const RULES = {
       manualCooldownSeconds: int(0, 600),
       /** Tell the shop after this many unsuccessful attempts (then once more when the search stops). */
       notifyShopAfterAttempts: int(1, 20),
+      /**
+       * F3 — off: a rider already holding a delivery is not offered another
+       * (the original rule). On: such riders stay in the pool, ranked after
+       * every free rider, so they are offered only when no free rider is.
+       */
+      busyRidersAsFallback: z.boolean(),
+      /** With busyRidersAsFallback on: most deliveries one rider may hold at once (offered, accepted or picked up). */
+      maxActiveDeliveriesPerRider: int(1, 5),
     }),
     defaults: {
       offerTtlSeconds: 120,
@@ -60,6 +68,8 @@ export const RULES = {
       windowGraceMinutes: 15,
       manualCooldownSeconds: 30,
       notifyShopAfterAttempts: 1,
+      busyRidersAsFallback: false,
+      maxActiveDeliveriesPerRider: 2,
     },
   },
   riderEarnings: {

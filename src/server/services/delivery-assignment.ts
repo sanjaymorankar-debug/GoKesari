@@ -37,7 +37,7 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
-import { ACTIVE_ASSIGNMENT_STATUSES, findEligiblePartnersNearShop } from "./delivery-eligibility";
+import { ACTIVE_ASSIGNMENT_STATUSES, countActiveAssignments, findEligiblePartnersNearShop } from "./delivery-eligibility";
 import { creditDeliveryEarnings } from "./delivery-earnings";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { updateOrderStatus } from "./orders";
@@ -134,7 +134,8 @@ async function rankCandidates(
       (st?.offersToday ?? 0) * DISPATCH_WEIGHTS.perOfferTodayKm
     );
   };
-  return [...pool].sort((a, b) => score(a) - score(b));
+  // F3: a free rider always ranks ahead of a busy one; score orders within each group.
+  return [...pool].sort((a, b) => Number(a.activeCount > 0) - Number(b.activeCount > 0) || score(a) - score(b));
 }
 
 /** 4-digit code; crypto-random so it cannot be predicted from timing. */
@@ -189,8 +190,11 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
     // Nearest-first candidate list, re-evaluated fresh inside the
     // transaction (not carried over from an earlier read) so it reflects
     // whatever earlier concurrent assignments have already committed.
+    // F3: with busyRidersAsFallback on, busy riders stay in, ranked last.
+    const dispatchRule = await getRule("dispatch");
+    const busyCap = dispatchRule.busyRidersAsFallback ? dispatchRule.maxActiveDeliveriesPerRider : 0;
     const candidates = await rankCandidates(
-      await findEligiblePartnersNearShop(shopCoords, tx),
+      await findEligiblePartnersNearShop(shopCoords, tx, busyCap ? { includeBusyUpTo: busyCap } : {}),
       await getSocietyDispatchRules(order.societyId, tx),
       tx,
     );
@@ -212,13 +216,18 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
         .for("update");
       if (!lockedPartner) continue;
 
-      const stillBusy = await tx.query.deliveryOrders.findFirst({
-        where: and(
-          eq(deliveryOrders.deliveryPartnerId, candidate.partner.id),
-          inArray(deliveryOrders.status, ACTIVE_ASSIGNMENT_STATUSES),
-        ),
-      });
-      if (stillBusy) continue; // lost the race for this partner — try the next nearest
+      if (busyCap) {
+        // F3: re-count under the partner lock; a race may have filled them up.
+        if ((await countActiveAssignments(candidate.partner.id, tx)) >= busyCap) continue;
+      } else {
+        const stillBusy = await tx.query.deliveryOrders.findFirst({
+          where: and(
+            eq(deliveryOrders.deliveryPartnerId, candidate.partner.id),
+            inArray(deliveryOrders.status, ACTIVE_ASSIGNMENT_STATUSES),
+          ),
+        });
+        if (stillBusy) continue; // lost the race for this partner — try the next nearest
+      }
 
       const legDistanceKm = customerCoords
         ? haversineDistanceKm(shopCoords, customerCoords)
@@ -1372,9 +1381,43 @@ export async function getMyActiveDeliveryOrder(userId: string): Promise<Delivery
       eq(deliveryOrders.deliveryPartnerId, partner.id),
       inArray(deliveryOrders.status, ACTIVE_ASSIGNMENT_STATUSES),
     ),
-    orderBy: desc(deliveryOrders.offeredAt),
+    // F3: a rider may hold more than one delivery; the one already under way
+    // stays the main card (picked up, then accepted, then offered).
+    orderBy: [
+      sql`CASE ${deliveryOrders.status} WHEN 'PICKED_UP' THEN 0 WHEN 'ACCEPTED' THEN 1 ELSE 2 END`,
+      desc(deliveryOrders.offeredAt),
+    ],
   });
   return row ?? null;
+}
+
+/** F3: the rider's other live deliveries besides the main one — normally none. */
+export async function getMyOtherActiveDeliveries(
+  userId: string,
+): Promise<{ id: string; status: string; orderNumber: string; shopName: string; distanceKm: string | null; offeredAt: Date | null }[]> {
+  const main = await getMyActiveDeliveryOrder(userId);
+  if (!main) return [];
+  const rows = await db
+    .select({
+      id: deliveryOrders.id,
+      status: deliveryOrders.status,
+      orderNumber: orders.orderNumber,
+      shopName: shops.name,
+      distanceKm: deliveryOrders.distanceKm,
+      offeredAt: deliveryOrders.offeredAt,
+    })
+    .from(deliveryOrders)
+    .innerJoin(orders, eq(orders.id, deliveryOrders.orderId))
+    .innerJoin(shops, eq(shops.id, orders.shopId))
+    .where(
+      and(
+        eq(deliveryOrders.deliveryPartnerId, main.deliveryPartnerId),
+        inArray(deliveryOrders.status, ACTIVE_ASSIGNMENT_STATUSES),
+        sql`${deliveryOrders.id} <> ${main.id}`,
+      ),
+    )
+    .orderBy(desc(deliveryOrders.offeredAt));
+  return rows;
 }
 
 export async function listMyDeliveryHistory(userId: string, limit = 30): Promise<DeliveryOrder[]> {
