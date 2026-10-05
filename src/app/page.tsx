@@ -1,10 +1,12 @@
 import Link from "next/link";
 
+import { HomePriceComparison } from "@/components/home-price-comparison";
 import { ShopGrid } from "@/components/shop-grid";
 import { Card, Section } from "@/components/ui";
 import { LocationBar } from "@/components/location-bar";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getCustomerLocation } from "@/server/location";
+import { homePriceComparison } from "@/server/services/price-comparison";
 import { listServiceableShops } from "@/server/services/serviceability";
 import { searchShops } from "@/server/services/shops";
 
@@ -14,11 +16,16 @@ export const dynamic = "force-dynamic";
 export default async function HomePage() {
   const user = await getCurrentUser();
   const location = await getCustomerLocation(user?.id);
-  const [featuredShops, kesariShops, greenShops, nearbyShops] = await Promise.all([
+  const [featuredShops, kesariShops, greenShops, nearbyShops, compared] = await Promise.all([
     searchShops({ limit: 4 }),
     searchShops({ classification: "KESARI", limit: 4 }),
     searchShops({ classification: "GREEN", limit: 4 }),
     location ? listServiceableShops(location, { limit: 8 }) : Promise.resolve([]),
+    // F9: never let the comparison take the home page down.
+    homePriceComparison(location).catch((error) => {
+      console.error("[home] price comparison failed", error);
+      return [];
+    }),
   ]);
 
   return (
@@ -54,6 +61,12 @@ export default async function HomePage() {
       {location ? (
         <Section title="Shops that deliver to you" href="/shops">
           <ShopGrid shops={nearbyShops} />
+        </Section>
+      ) : null}
+
+      {compared.length > 0 ? (
+        <Section title="Compare prices near you">
+          <HomePriceComparison products={compared} />
         </Section>
       ) : null}
 

@@ -225,6 +225,12 @@ export const RULES = {
       resolveTargetHours: 120,
     },
   },
+  homePriceComparison: {
+    description:
+      "Home-page price comparison. On: customers with a location see products sold by two or more of the shops that deliver to them, with each shop's price and the cheapest highlighted (loose goods without a price are skipped). Off: the section is hidden.",
+    schema: z.object({ enabled: z.boolean() }),
+    defaults: { enabled: false },
+  },
   shopOffers: {
     description:
       "Shop offers (a shop's own discount on a product or category, with dates). Off: offers are hidden and prices are the shop's normal online price (the original behaviour). On: live offers show on the shop page and apply to the unit price in the cart and at checkout. Shop-funded.",
