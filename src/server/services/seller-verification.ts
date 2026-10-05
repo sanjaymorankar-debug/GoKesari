@@ -17,7 +17,7 @@
  * Full numbers exist only in memory during a check and as ciphertext at rest.
  * Views, events and logs carry the masked form only.
  */
-import { and, asc, count, eq, gte, inArray, isNotNull, like, or, sql } from "drizzle-orm";
+import { and, asc, count, eq, gte, inArray, isNotNull, like, lt, or, sql } from "drizzle-orm";
 
 import { GST_DECLARATION_VERSION, parseGstEnrolmentNumber, SELLER_VERIFICATION_CONSENT_VERSION } from "@/lib/kyc/consent";
 import {
@@ -965,4 +965,85 @@ export async function recheckVerification(verificationId: string, actor: Actor |
   }
   if (claim.kind === "done") return toView(claim.row);
   return toView(await runCheck(claim, shop, parsed.value, actor, null));
+}
+
+/* --------------------------------------------------- retention & erasure */
+
+/** Shop states in which verification data is no longer needed to keep selling. */
+const CLOSED_STATUSES = ["REJECTED", "INACTIVE"] as const;
+
+/**
+ * Erases every seller-verification record for a shop — numbers, certificates
+ * and history (DPDP Act 2023 s.8(7) / s.12 erasure). Only for a shop that no
+ * longer sells: while it is live the documents are what make it lawful to
+ * list. `actor` null is the retention job. The audit entry keeps counts only.
+ * The vendor's copy is governed by its data processing agreement.
+ */
+export async function eraseShopVerificationData(
+  shopId: string,
+  reason: string,
+  actor: Actor | null,
+): Promise<{ documents: number; files: number; events: number }> {
+  if (actor && actor.role !== "ADMIN") throw forbidden("Only an administrator can erase verification data.");
+  if (reason.trim().length < 3) throw validationFailed("A reason is required.");
+  const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
+  if (!shop) throw notFound("Shop");
+  const closed = Boolean(shop.deletedAt) || (CLOSED_STATUSES as readonly string[]).includes(shop.status);
+  if (!closed) {
+    throw conflict("Verification data can only be erased once the shop has stopped selling (rejected, inactive or deleted).");
+  }
+
+  const counts = await db.transaction(async (tx) => {
+    const [docs] = await tx.select({ n: count() }).from(sellerVerifications).where(eq(sellerVerifications.shopId, shopId));
+    const [files] = await tx.select({ n: count() }).from(sellerVerificationFiles).where(eq(sellerVerificationFiles.shopId, shopId));
+    const [events] = await tx.select({ n: count() }).from(sellerVerificationEvents).where(eq(sellerVerificationEvents.shopId, shopId));
+    // Files and events cascade from their verification row.
+    await tx.delete(sellerVerifications).where(eq(sellerVerifications.shopId, shopId));
+    await tx.delete(sellerVerificationEvents).where(eq(sellerVerificationEvents.shopId, shopId));
+    return { documents: docs.n, files: files.n, events: events.n };
+  });
+
+  await recordAudit({
+    actorId: actor?.id ?? null,
+    actorRole: actor?.role ?? null,
+    action: AUDIT_ACTIONS.SELLER_DOCUMENTS_ERASED,
+    entityType: "shop",
+    entityId: shopId,
+    newValue: { ...counts, reason: reason.trim() },
+  });
+  return counts;
+}
+
+/** Shops whose verification data has outlived the retention period after closing. */
+export async function shopsDueForVerificationErasure(retentionDays: number, now = new Date(), limit = 100): Promise<string[]> {
+  const cutoff = new Date(now.getTime() - retentionDays * 86_400_000);
+  const rows = await db
+    .selectDistinct({ id: shops.id })
+    .from(shops)
+    .innerJoin(sellerVerifications, eq(sellerVerifications.shopId, shops.id))
+    .where(
+      or(
+        and(isNotNull(shops.deletedAt), lt(shops.deletedAt, cutoff)),
+        and(inArray(shops.status, [...CLOSED_STATUSES]), lt(shops.updatedAt, cutoff)),
+      ),
+    )
+    .limit(limit);
+  return rows.map((r) => r.id);
+}
+
+/**
+ * For the public seller-information page (Consumer Protection (E-Commerce)
+ * Rules 2020): which documents were verified against government records,
+ * and when. Never a number — the GSTIN and FSSAI number the page shows come
+ * from the shop's own public fields.
+ */
+export async function getPublicVerifiedDocuments(shopId: string): Promise<{ docType: SellerDocType; label: string; verifiedAt: Date | null }[]> {
+  const rows = await db
+    .select({ docType: sellerVerifications.docType, verifiedAt: sellerVerifications.verifiedAt, details: sellerVerifications.details })
+    .from(sellerVerifications)
+    .where(and(eq(sellerVerifications.shopId, shopId), eq(sellerVerifications.status, "VERIFIED")));
+  return rows
+    .filter((r) => (r.details as Record<string, unknown>)?.declaredNotRegistered !== true)
+    .sort((a, b) => SELLER_DOC_TYPES.indexOf(a.docType) - SELLER_DOC_TYPES.indexOf(b.docType))
+    .map((r) => ({ docType: r.docType, label: SELLER_DOC_LABELS[r.docType], verifiedAt: r.verifiedAt }));
 }

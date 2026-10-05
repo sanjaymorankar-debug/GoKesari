@@ -235,6 +235,12 @@ export const RULES = {
       autoSuspendOnLapse: z.boolean(),
       /** Days after expiry before that suspension, so a renewal in progress isn't cut off at once. */
       suspendGraceDays: int(0, 60),
+      /**
+       * DPDP Act 2023 s.8(7): erase verification data (numbers, certificates,
+       * history) this long after a shop is closed, rejected or deleted.
+       * CONFIRM THE PERIOD WITH A LAWYER/CA against tax and dispute limitation periods.
+       */
+      retentionDaysAfterClosure: int(30, 3650),
     }),
     defaults: {
       nameMatchAutoApprove: 85,
@@ -245,6 +251,7 @@ export const RULES = {
       maxChecksPerShopPerHour: 10,
       autoSuspendOnLapse: true,
       suspendGraceDays: 0,
+      retentionDaysAfterClosure: 1095,
     },
   },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;

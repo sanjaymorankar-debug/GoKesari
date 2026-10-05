@@ -6,7 +6,7 @@
 import { describe, expect, it } from "vitest";
 
 import { getEnv, kycConfigProblem } from "@/lib/env";
-import { gstinCheckChar, parseSellerDocNumber } from "@/lib/kyc/doc-formats";
+import { gstinCheckChar, looksLikeAadhaar, parseSellerDocNumber } from "@/lib/kyc/doc-formats";
 import { parseGridlinesResponse, toIsoDate } from "@/server/kyc/adapters/gridlines";
 import { createMockAdapter } from "@/server/kyc/adapters/mock";
 import { kycPostJson, type KycHttpOptions } from "@/server/kyc/http";
@@ -255,5 +255,17 @@ describe("sandbox / production pairing guard", () => {
 
   it("requires the vendor key", () => {
     expect(kycConfigProblem(env({ KYC_PROVIDER: "gridlines", GRIDLINES_API_KEY: undefined }))).toMatch(/GRIDLINES_API_KEY/);
+  });
+});
+
+describe("Aadhaar guard", () => {
+  it("recognises Aadhaar-shaped numbers by their Verhoeff check digit", () => {
+    expect(looksLikeAadhaar("2341 2341 2346")).toBe(true);
+    expect(looksLikeAadhaar("499118665246")).toBe(true);
+    // Wrong check digit, starts with 1, or not 12 digits: not Aadhaar.
+    expect(looksLikeAadhaar("234123412347")).toBe(false);
+    expect(looksLikeAadhaar("123456789012")).toBe(false);
+    expect(looksLikeAadhaar("11521001000123")).toBe(false);
+    expect(looksLikeAadhaar("PMC 2341 2341 2346")).toBe(false);
   });
 });

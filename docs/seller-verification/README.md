@@ -1,8 +1,14 @@
 # Seller verification (PAN, GSTIN, Udyam, FSSAI, Shop Act)
 
-Status: **Parts 2 and 3 built against a mock vendor** — architecture,
-per-document flows, seller and admin screens, and the daily re-verification
-job. Part 4 (legal/compliance build-in) follows.
+Status: **Parts 1–4 built against a mock vendor** — architecture,
+per-document flows, seller and admin screens, the daily job, and the
+legal/compliance controls.
+
+| Document | Read it for |
+|---|---|
+| `COMPLIANCE.md` | Which laws apply, what the code does about each, and what a lawyer or CA must confirm |
+| `TEST_CASES.md` | Sandbox test cases per document (also run automatically in CI) |
+| `DEPLOY.md` | Step-by-step: test.gokesari.com on the mock, then Gridlines sandbox, then production |
 
 ## Vendor decision (Part 1, approved 5 Oct 2026)
 

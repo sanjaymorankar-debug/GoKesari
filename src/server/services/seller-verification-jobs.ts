@@ -12,6 +12,8 @@
  *      (after `suspendGraceDays`) or been cancelled at source. Open orders
  *      are held for an operator, never auto-refunded (suspendShopWithPolicy
  *      with no actor).
+ *   6. erase verification data of shops closed longer than
+ *      `retentionDaysAfterClosure` (DPDP Act 2023 s.8(7)).
  *
  * Each step is capped per run so a vendor outage can't turn one run into
  * thousands of paid calls.
@@ -22,7 +24,7 @@ import { SELLER_DOC_LABELS } from "@/lib/kyc/doc-formats";
 import { db } from "@/server/db";
 import { sellerVerificationEvents, sellerVerifications, shops } from "@/server/db/schema";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
-import { recheckVerification, shopFacts } from "./seller-verification";
+import { eraseShopVerificationData, recheckVerification, shopFacts, shopsDueForVerificationErasure } from "./seller-verification";
 import { isMandatory } from "./seller-verification-checks";
 import { getRule } from "./settings";
 import { suspendShopWithPolicy } from "./shop-suspension";
@@ -39,6 +41,7 @@ export interface SweepResult {
   expiryWarnings: number;
   expired: number;
   shopsSuspended: number;
+  shopsErased: number;
   errors: string[];
 }
 
@@ -46,7 +49,7 @@ const isoDay = (d: Date) => d.toISOString().slice(0, 10);
 
 export async function runSellerVerificationSweep(now: Date = new Date()): Promise<SweepResult> {
   const rule = await getRule("sellerVerification");
-  const result: SweepResult = { pendingRetried: 0, gstRechecked: 0, expiryWarnings: 0, expired: 0, shopsSuspended: 0, errors: [] };
+  const result: SweepResult = { pendingRetried: 0, gstRechecked: 0, expiryWarnings: 0, expired: 0, shopsSuspended: 0, shopsErased: 0, errors: [] };
   const todayIso = isoDay(now);
 
   const recheckAll = async (ids: string[], counter: "pendingRetried" | "gstRechecked") => {
@@ -203,6 +206,16 @@ export async function runSellerVerificationSweep(now: Date = new Date()): Promis
       } catch (error) {
         result.errors.push(`suspend ${shop.id}: ${(error as Error).message}`);
       }
+    }
+  }
+
+  // 6. Retention period over → erase.
+  for (const shopId of await shopsDueForVerificationErasure(rule.retentionDaysAfterClosure, now)) {
+    try {
+      await eraseShopVerificationData(shopId, `Retention period of ${rule.retentionDaysAfterClosure} days after closing ended.`, null);
+      result.shopsErased += 1;
+    } catch (error) {
+      result.errors.push(`erase ${shopId}: ${(error as Error).message}`);
     }
   }
 

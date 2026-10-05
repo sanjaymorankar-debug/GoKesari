@@ -29,6 +29,8 @@ import {
 import {
   adminDecideVerification,
   declareNoGstin,
+  eraseShopVerificationData,
+  getPublicVerifiedDocuments,
   getShopVerificationSummary,
   getVerificationFile,
   listVerificationReviewQueue,
@@ -289,5 +291,56 @@ describe("scheduled sweep", () => {
     await recheckVerification(view.id!, null);
     const result = await runSellerVerificationSweep();
     expect(result.shopsSuspended).toBe(0);
+  });
+});
+
+describe("Part 4: retention, erasure, disclosure, Aadhaar", () => {
+  it("refuses to erase a live shop's documents, erases a rejected shop's on request", async () => {
+    const { shop, actor, adminActor } = await setup();
+    await submitSellerDocument({ shopId: shop.id, docType: "PAN", number: "ABCPE1234F", consentGiven: true, actor });
+    await uploadShopActCertificate({ shopId: shop.id, number: "PMC/II/12345", file: PDF, consentGiven: true, actor });
+    await expect(eraseShopVerificationData(shop.id, "Seller asked", adminActor)).rejects.toMatchObject({ code: "CONFLICT" });
+    await expect(eraseShopVerificationData(shop.id, "Seller asked", actor)).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    await db.update(shops).set({ status: "REJECTED" }).where(eq(shops.id, shop.id));
+    const counts = await eraseShopVerificationData(shop.id, "Seller asked", adminActor);
+    expect(counts.documents).toBe(2);
+    expect(counts.files).toBe(1);
+    expect(await db.select().from(sellerVerifications).where(eq(sellerVerifications.shopId, shop.id))).toHaveLength(0);
+    expect(await db.select().from(sellerVerificationFiles).where(eq(sellerVerificationFiles.shopId, shop.id))).toHaveLength(0);
+    expect(await db.select().from(sellerVerificationEvents).where(eq(sellerVerificationEvents.shopId, shop.id))).toHaveLength(0);
+    const [entry] = await db.select().from(auditLogs).where(eq(auditLogs.action, "seller_document.erased"));
+    expect(JSON.stringify(entry.newValue)).not.toContain("ABCPE");
+  });
+
+  it("erases a closed shop's data once the retention period has passed", async () => {
+    const { shop, actor } = await setup();
+    await submitSellerDocument({ shopId: shop.id, docType: "PAN", number: "ABCPE1234F", consentGiven: true, actor });
+    await db.update(shops).set({ deletedAt: new Date(Date.now() - 1000 * 86_400_000) }).where(eq(shops.id, shop.id));
+    expect((await runSellerVerificationSweep()).shopsErased).toBe(0); // 1,000 days < 1,095
+    await db.update(shops).set({ deletedAt: new Date(Date.now() - 1100 * 86_400_000) }).where(eq(shops.id, shop.id));
+    expect((await runSellerVerificationSweep()).shopsErased).toBe(1);
+    expect(await db.select().from(sellerVerifications).where(eq(sellerVerifications.shopId, shop.id))).toHaveLength(0);
+  });
+
+  it("lists verified documents for the public seller page, without numbers or declarations", async () => {
+    const { shop, actor } = await setup();
+    await submitSellerDocument({ shopId: shop.id, docType: "PAN", number: "ABCPE1234F", consentGiven: true, actor });
+    await submitSellerDocument({ shopId: shop.id, docType: "UDYAM", number: "UDYAM-MH-26-0007777", consentGiven: true, actor });
+    const list = await getPublicVerifiedDocuments(shop.id);
+    expect(list.map((d) => d.docType)).toEqual(["PAN"]);
+    expect(JSON.stringify(list)).not.toContain("1234");
+  });
+
+  it("never accepts an Aadhaar number in any field", async () => {
+    const { shop, actor } = await setup();
+    for (const docType of ["PAN", "GSTIN", "UDYAM", "FSSAI", "SHOP_ACT"] as const) {
+      await expect(
+        submitSellerDocument({ shopId: shop.id, docType, number: "2341-2341-2346", consentGiven: true, actor }),
+      ).rejects.toMatchObject({ code: "VALIDATION_FAILED", message: expect.stringContaining("Aadhaar") });
+    }
+    await expect(
+      declareNoGstin({ shopId: shop.id, declarationAccepted: true, enrolmentNumber: "234123412346", actor }),
+    ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
   });
 });

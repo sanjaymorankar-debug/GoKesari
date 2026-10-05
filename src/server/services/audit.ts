@@ -125,6 +125,8 @@ export const AUDIT_ACTIONS = {
   SELLER_DOCUMENT_RECHECKED: "seller_document.rechecked",
   /** An admin opened an uploaded certificate — every view is recorded. */
   SELLER_DOCUMENT_FILE_VIEWED: "seller_document.file_viewed",
+  /** All verification data for a closed shop erased (retention period over, or on request). Counts only. */
+  SELLER_DOCUMENTS_ERASED: "seller_document.erased",
 
   /* --------------------------------------------- delivery partners (Part 58) */
   DELIVERY_PARTNER_REGISTERED: "delivery_partner.registered",

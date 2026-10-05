@@ -8,6 +8,8 @@
  * Needs review by a lawyer before production use — see
  * docs/seller-verification/COMPLIANCE.md.
  */
+import { AADHAAR_REFUSED_MESSAGE, looksLikeAadhaar } from "./doc-formats";
+
 export const SELLER_VERIFICATION_CONSENT_VERSION = "2026-10-05";
 
 export const SELLER_VERIFICATION_CONSENT_TEXT =
@@ -32,6 +34,7 @@ export const GST_DECLARATION_TEXT =
  * check here is shape only.
  */
 export function parseGstEnrolmentNumber(raw: string): { ok: true; value: string } | { ok: false; error: string } {
+  if (looksLikeAadhaar(raw)) return { ok: false, error: AADHAAR_REFUSED_MESSAGE };
   const value = raw.replace(/\s+/g, "").toUpperCase();
   if (!/^[0-9A-Z]{15}$/.test(value)) {
     return { ok: false, error: "The GST enrolment number is 15 letters and digits, as shown on the GST portal." };

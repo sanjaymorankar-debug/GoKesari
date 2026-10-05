@@ -210,7 +210,46 @@ const PARSERS: Record<SellerDocType, (raw: string) => ParseResult<ParsedDocNumbe
   SHOP_ACT: parseSellerShopAct,
 };
 
+/* Verhoeff check-digit tables (the scheme Aadhaar numbers use). */
+const VERHOEFF_D = [
+  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], [1, 2, 3, 4, 0, 6, 7, 8, 9, 5], [2, 3, 4, 0, 1, 7, 8, 9, 5, 6],
+  [3, 4, 0, 1, 2, 8, 9, 5, 6, 7], [4, 0, 1, 2, 3, 9, 5, 6, 7, 8], [5, 9, 8, 7, 6, 0, 4, 3, 2, 1],
+  [6, 5, 9, 8, 7, 1, 0, 4, 3, 2], [7, 6, 5, 9, 8, 2, 1, 0, 4, 3], [8, 7, 6, 5, 9, 3, 2, 1, 0, 4],
+  [9, 8, 7, 6, 5, 4, 3, 2, 1, 0],
+];
+const VERHOEFF_P = [
+  [0, 1, 2, 3, 4, 5, 6, 7, 8, 9], [1, 5, 7, 6, 2, 8, 3, 0, 9, 4], [5, 8, 0, 3, 7, 9, 6, 1, 4, 2],
+  [8, 9, 1, 6, 0, 4, 3, 5, 2, 7], [9, 4, 5, 3, 1, 2, 6, 8, 7, 0], [4, 2, 8, 6, 5, 7, 3, 9, 0, 1],
+  [2, 7, 9, 3, 8, 0, 6, 4, 1, 5], [7, 0, 4, 6, 9, 1, 3, 2, 5, 8],
+];
+
+function verhoeffValid(digits: string): boolean {
+  let c = 0;
+  const reversed = digits.split("").reverse();
+  for (let i = 0; i < reversed.length; i += 1) {
+    c = VERHOEFF_D[c][VERHOEFF_P[i % 8][Number(reversed[i])]];
+  }
+  return c === 0;
+}
+
+/**
+ * True when the input is shaped like a personal Aadhaar number: 12 digits
+ * (spaces/hyphens allowed), not starting with 0 or 1, with a valid Verhoeff
+ * check digit. The platform must not collect Aadhaar numbers (Aadhaar Act
+ * 2016 s.29 and the Puttaswamy judgment limit private use to authorised
+ * routes), so such input is refused before it is stored or sent anywhere.
+ */
+export function looksLikeAadhaar(raw: string): boolean {
+  if (!/^[\d\s-]+$/.test(raw)) return false;
+  const digits = raw.replace(/\D/g, "");
+  return /^[2-9]\d{11}$/.test(digits) && verhoeffValid(digits);
+}
+
+export const AADHAAR_REFUSED_MESSAGE =
+  "That looks like an Aadhaar number. Gokesari doesn't collect Aadhaar numbers — please enter the document's own number.";
+
 export function parseSellerDocNumber(docType: SellerDocType, raw: string): ParseResult<ParsedDocNumber> {
   if (!raw || !raw.trim()) return { ok: false, error: `Enter your ${SELLER_DOC_LABELS[docType]} number.` };
+  if (looksLikeAadhaar(raw)) return { ok: false, error: AADHAAR_REFUSED_MESSAGE };
   return PARSERS[docType](raw);
 }
