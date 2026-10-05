@@ -51,6 +51,7 @@ import { COD_LIMITS, assertCodAllowedForOrder, getCodEligibility, recordCodColle
 import { creditDeliveryEarnings } from "./delivery-earnings";
 import { DELIVERY_WINDOW_MINUTES, getFeasibleDeliveryWindows, type DeliveryWindowFeasibility } from "./delivery-feasibility";
 import { reserveSlot, slotFullError } from "./delivery-slots";
+import { getOrCreateOrderGroup, referencesForGroups } from "./order-groups";
 import { getRule } from "./settings";
 import { notifyOpenStockAlerts } from "./inventory-alerts";
 import { postRetainedDeliveryFee, recordOrderFinancials } from "./finance";
@@ -195,6 +196,8 @@ export interface CheckoutInput {
 export interface CheckoutResult {
   orders: Order[];
   deduplicated: boolean;
+  /** F6: one reference for a multi-shop checkout (null when off or single-shop). */
+  parentReference?: string | null;
 }
 
 export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
@@ -207,7 +210,9 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   // told its cart is empty even though its order went through.
   const replayed = await findOrdersForRequest(input.userId, input.requestId);
   if (replayed.length > 0) {
-    return { orders: replayed, deduplicated: true };
+    const refs = await referencesForGroups(replayed.map((o) => o.orderGroupId));
+    const parentReference = replayed.map((o) => (o.orderGroupId ? refs.get(o.orderGroupId) : null)).find(Boolean) ?? null;
+    return { orders: replayed, deduplicated: true, ...(parentReference ? { parentReference } : {}) };
   }
 
   const orderType: OrderType = input.orderType ?? "PERSONAL";
@@ -345,6 +350,12 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   const created: Order[] = [];
   let anyDeduplicated = false;
 
+  // F6: a cart spanning several shops gets one parent reference over all its orders.
+  const orderGroup =
+    purchasableGroups.length > 1 && (await getRule("parentOrders")).enabled
+      ? await getOrCreateOrderGroup(input.userId, input.requestId)
+      : null;
+
   // One transaction per shop: a problem with one shop's order must not roll back
   // a sibling shop's successful order.
   for (const group of purchasableGroups) {
@@ -478,6 +489,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           deliveryWindow,
           promisedByAt,
           deliverySlotKey,
+          orderGroupId: orderGroup?.id ?? null,
           notes: input.notes ?? null,
         })
         .returning();
@@ -609,7 +621,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     await notifyOpenStockAlerts(group.shop.id, shopOwnerId);
   }
 
-  return { orders: created, deduplicated: anyDeduplicated };
+  return { orders: created, deduplicated: anyDeduplicated, ...(orderGroup ? { parentReference: orderGroup.reference } : {}) };
 }
 
 /**

@@ -23,6 +23,7 @@ import {
 } from "@/lib/status-models";
 import { SHOP_TYPE_KEYS } from "@/lib/shop-types";
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
   check,
@@ -1719,6 +1720,9 @@ export const orders = pgTable(
      * an hour, "2026-10-05" for a scheduled day, IST). Null when slot capacity
      * was off or the order has no delivery window. */
     deliverySlotKey: text("delivery_slot_key"),
+    /** F6: the parent order (one reference for a multi-shop checkout). Null
+     * for single-shop orders and for every order placed before F6. */
+    orderGroupId: uuid("order_group_id").references((): AnyPgColumn => orderGroups.id, { onDelete: "set null" }),
     /** When the shop accepted the order (CONFIRMED → ACCEPTED). */
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
     /** When the shop finished packing (→ READY). */
@@ -1745,6 +1749,7 @@ export const orders = pgTable(
     index("orders_buyer_shop_idx").on(t.buyerShopId),
     index("orders_society_idx").on(t.societyId),
     index("orders_delivery_slot_idx").on(t.shopId, t.deliveryWindow, t.deliverySlotKey),
+    index("orders_order_group_idx").on(t.orderGroupId),
     index("orders_open_alert_pending_idx")
       .on(t.shopId)
       .where(sql`${t.placedWhileClosed} AND ${t.shopOpenAlertSentAt} IS NULL`),
@@ -4753,3 +4758,27 @@ export const deliverySlotCapacities = pgTable(
   ],
 );
 export type DeliverySlotCapacity = typeof deliverySlotCapacities.$inferSelect;
+
+/* ------------------------------------------------ parent orders (F6)
+ * One customer-facing reference for a checkout that spans several shops. Each
+ * shop's order (orders.order_group_id) is still its own sub-order, managed by
+ * that shop exactly as before. One group per checkout request. */
+export const orderGroups = pgTable(
+  "order_groups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** "GK-20261005-AB12CD" — distinct from the per-shop "DB-…" order numbers. */
+    reference: text("reference").notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** The checkout request id, so a retried checkout reuses its group. */
+    requestId: text("request_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("order_groups_reference_uq").on(t.reference),
+    uniqueIndex("order_groups_request_uq").on(t.userId, t.requestId),
+  ],
+);
+export type OrderGroup = typeof orderGroups.$inferSelect;

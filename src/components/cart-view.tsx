@@ -212,7 +212,12 @@ export function CartView({
       setError(payload?.error?.message ?? "Checkout failed. Please try again.");
       return;
     }
-    router.push("/orders?placed=1");
+    // F6: a multi-shop order with one parent reference opens that reference.
+    router.push(
+      payload?.parentReference
+        ? `/orders/group/${encodeURIComponent(payload.parentReference)}?placed=1`
+        : "/orders?placed=1",
+    );
     router.refresh();
   }
 

@@ -67,6 +67,8 @@ export const POST = route(async (request: NextRequest) => {
         promisedByAt: o.promisedByAt,
       })),
       deduplicated: result.deduplicated,
+      // F6: present only for a multi-shop checkout with parent orders on.
+      ...(result.parentReference ? { parentReference: result.parentReference } : {}),
     },
     201,
   );

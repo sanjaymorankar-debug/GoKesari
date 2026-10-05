@@ -225,6 +225,12 @@ export const RULES = {
       resolveTargetHours: 120,
     },
   },
+  parentOrders: {
+    description:
+      "One order reference for a multi-shop checkout. Off: one order number per shop only (the original behaviour). On: a cart from several shops also gets a single parent reference (GK-…) covering all of them; each shop still gets and manages its own order.",
+    schema: z.object({ enabled: z.boolean() }),
+    defaults: { enabled: false },
+  },
   deliverySlots: {
     description:
       "Delivery slot capacity. Off: no limit (the original behaviour). On: each delivery window takes at most the set number of orders per hour (express, standard) or per day (scheduled) for a shop; full windows show as unavailable at checkout. Per-shop and per-area limits are set under Admin → Delivery slots; these are the defaults (empty = unlimited).",
