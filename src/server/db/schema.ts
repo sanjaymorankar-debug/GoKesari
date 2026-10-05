@@ -3664,6 +3664,10 @@ export const sellerVerificationEvents = pgTable(
         "RECHECK_REQUESTED",
         "EXPIRED",
         "DECLARED_NOT_APPLICABLE",
+        "FILE_UPLOADED",
+        "CHECKS_APPLIED",
+        "EXPIRY_WARNING",
+        "SHOP_SUSPENDED",
       ],
     }).notNull(),
     fromStatus: sellerVerificationStatusEnum("from_status"),
@@ -3681,6 +3685,37 @@ export const sellerVerificationEvents = pgTable(
   (t) => [
     index("seller_verification_events_verification_idx").on(t.verificationId, t.createdAt),
     index("seller_verification_events_shop_idx").on(t.shopId, t.createdAt),
+  ],
+);
+
+/**
+ * Certificates a seller uploads where no vendor can check the document — in
+ * practice the Maharashtra Shop Act certificate or Form G intimation receipt.
+ * Bytes are AES-256-GCM encrypted (pan-crypto encryptBytes) because a
+ * certificate carries personal details; only the owner and reviewers can
+ * fetch one, and every reviewer view is audited. Deleted with the
+ * verification row.
+ */
+export const sellerVerificationFiles = pgTable(
+  "seller_verification_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    verificationId: uuid("verification_id")
+      .notNull()
+      .references(() => sellerVerifications.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id").notNull(),
+    contentType: text("content_type", { enum: ["application/pdf", "image/jpeg", "image/png", "image/webp"] }).notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    /** Of the plaintext, to spot the same certificate uploaded for two shops. */
+    sha256: text("sha256").notNull(),
+    dataEncrypted: bytea("data_encrypted").notNull(),
+    uploadedBy: uuid("uploaded_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("seller_verification_files_verification_idx").on(t.verificationId, t.createdAt),
+    index("seller_verification_files_sha_idx").on(t.sha256),
+    check("seller_verification_files_size", sql`${t.sizeBytes} > 0 AND ${t.sizeBytes} <= 5000000`),
   ],
 );
 
@@ -4462,6 +4497,7 @@ export type User = typeof users.$inferSelect;
 export type Shop = typeof shops.$inferSelect;
 export type SellerVerification = typeof sellerVerifications.$inferSelect;
 export type SellerVerificationEvent = typeof sellerVerificationEvents.$inferSelect;
+export type SellerVerificationFile = typeof sellerVerificationFiles.$inferSelect;
 export type GstStatus = (typeof gstStatusEnum.enumValues)[number];
 export type PanStatus = (typeof panStatusEnum.enumValues)[number];
 export type IdentityVerificationSource = (typeof identityVerificationSourceEnum.enumValues)[number];

@@ -215,6 +215,38 @@ export const RULES = {
       resolveTargetHours: 120,
     },
   },
+  sellerVerification: {
+    description:
+      "Seller document verification (PAN, GSTIN, Udyam, FSSAI, Shop Act): when a vendor result is accepted without a person, how often documents are re-checked, and when a lapsed document takes a shop offline.",
+    schema: z.object({
+      /** A record name scoring at least this against the seller's names (0–100) passes the name check. */
+      nameMatchAutoApprove: int(50, 100),
+      /** Cross-document consistency score (0–100) needed to verify without an admin. */
+      consistencyAutoApprove: int(0, 100),
+      /** Re-check a verified GSTIN with the vendor this often (cancellations show up here). */
+      gstRecheckDays: int(1, 365),
+      /** Warn the seller this many days before an FSSAI or Shop Act document expires. */
+      expiryWarningDays: int(1, 180),
+      /** A document left PENDING because the vendor was down is retried after this long. */
+      pendingRetryMinutes: int(5, 1440),
+      /** Paid verification calls one shop may trigger per hour. */
+      maxChecksPerShopPerHour: int(1, 100),
+      /** Take an approved shop offline when a mandatory document expires or is cancelled. */
+      autoSuspendOnLapse: z.boolean(),
+      /** Days after expiry before that suspension, so a renewal in progress isn't cut off at once. */
+      suspendGraceDays: int(0, 60),
+    }),
+    defaults: {
+      nameMatchAutoApprove: 85,
+      consistencyAutoApprove: 80,
+      gstRecheckDays: 30,
+      expiryWarningDays: 30,
+      pendingRetryMinutes: 15,
+      maxChecksPerShopPerHour: 10,
+      autoSuspendOnLapse: true,
+      suspendGraceDays: 0,
+    },
+  },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;

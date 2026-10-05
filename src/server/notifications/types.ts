@@ -87,6 +87,12 @@ export const NOTIFICATION_TYPES = {
   SHOP_GST_REJECTED: "shop.gst_rejected",
   SHOP_PAN_VERIFIED: "shop.pan_verified",
   SHOP_PAN_REJECTED: "shop.pan_rejected",
+  /** Seller verification: a document checked out. */
+  SHOP_DOCUMENT_VERIFIED: "shop.document_verified",
+  /** Seller verification: a document failed, needs re-upload, or was rejected by an admin. */
+  SHOP_DOCUMENT_ATTENTION: "shop.document_attention",
+  /** Seller verification: an FSSAI or Shop Act document expires soon. */
+  SHOP_DOCUMENT_EXPIRING: "shop.document_expiring",
   STOCK_LOW: "inventory.stock_low",
   /* ------------------------------------------------ framework additions */
   ORDER_PICKED_UP: "order.picked_up",

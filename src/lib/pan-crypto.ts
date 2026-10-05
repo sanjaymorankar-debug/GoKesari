@@ -44,6 +44,22 @@ export function encryptSecret(plaintext: string): string {
 
 export const encryptPan = encryptSecret;
 
+/** Same scheme for binary data (uploaded certificates): iv || authTag || ciphertext. */
+export function encryptBytes(plaintext: Buffer): Buffer {
+  const key = getKey();
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
+  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), ciphertext]);
+}
+
+export function decryptBytes(raw: Buffer): Buffer {
+  const key = getKey();
+  const decipher = crypto.createDecipheriv(ALGORITHM, key, raw.subarray(0, IV_LENGTH));
+  decipher.setAuthTag(raw.subarray(IV_LENGTH, IV_LENGTH + 16));
+  return Buffer.concat([decipher.update(raw.subarray(IV_LENGTH + 16)), decipher.final()]);
+}
+
 export function decryptSecret(encoded: string): string {
   const key = getKey();
   const raw = Buffer.from(encoded, "base64");

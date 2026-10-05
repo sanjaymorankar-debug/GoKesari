@@ -56,6 +56,8 @@ export const RATE_LIMITS = {
    * checks, not for trying numbers in bulk.
    */
   SHOP_IDENTITY_CHECK: { limit: 20, windowMs: 60_000 },
+  /** Seller document uploads — files are large, and each may trigger a paid check. */
+  SELLER_DOCUMENT_UPLOAD: { limit: 10, windowMs: 600_000 },
 } as const satisfies Record<string, RateLimitOptions>;
 
 /**

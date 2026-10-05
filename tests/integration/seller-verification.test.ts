@@ -85,11 +85,13 @@ describe("submitSellerDocument", () => {
     ).resolves.toMatchObject({ status: "MANUAL_REVIEW", lastErrorCode: "vendor_unsupported" });
   });
 
-  it("checks the GSTIN's PAN against what the source returns", async () => {
+  it("checks the GSTIN's embedded PAN against the shop's PAN", async () => {
     const { shop, actor } = await setup();
+    await submitSellerDocument({ shopId: shop.id, docType: "PAN", number: "AAPFU0939F", consentGiven: true, actor });
     const view = await submitSellerDocument({ shopId: shop.id, docType: "GSTIN", number: "27AAPFU0939F1ZV", consentGiven: true, actor });
     expect(view.status).toBe("VERIFIED");
-    expect(view.details).toMatchObject({ linkedPanMatchesGstin: true, stateCode: "27" });
+    expect(view.details).toMatchObject({ panLinked: true, stateMatch: true });
+    expect(view.details).not.toHaveProperty("embeddedPanHash");
   });
 
   it("does not pay again for a number already verified", async () => {
