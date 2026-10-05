@@ -196,6 +196,7 @@ export const AUDIT_ACTIONS = {
   MRP_CORRECTION_DECIDED: "product.mrp_correction_decided",
   MRP_CONFLICT_DETECTED: "product.mrp_conflict_detected",
   PRODUCT_IMAGE_CHANGED: "product_image.changed",
+  PRODUCT_IMAGE_MODERATED: "product_image.moderated",
   SHOP_CATEGORY_SAVED: "shop_category.saved",
   SHOP_CATEGORIES_CHANGED: "shop.categories_changed",
   /* Category master and shop ↔ product-category links. */

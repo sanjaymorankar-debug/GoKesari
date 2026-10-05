@@ -1421,9 +1421,16 @@ export const productImages = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /** F10: shop owners' uploads wait for admin approval before anyone else
+     * sees them. Every photo that existed before F10 is APPROVED (stays live). */
+    moderationStatus: text("moderation_status", { enum: ["PENDING", "APPROVED", "REJECTED"] }).notNull().default("APPROVED"),
+    rejectionReason: text("rejection_reason"),
+    moderatedBy: uuid("moderated_by").references(() => users.id),
+    moderatedAt: timestamp("moderated_at", { withTimezone: true }),
   },
   (t) => [
     index("product_images_product_idx").on(t.productId),
+    index("product_images_moderation_idx").on(t.moderationStatus, t.createdAt),
     index("product_images_shop_product_idx").on(t.shopProductId),
     uniqueIndex("product_images_one_primary_product")
       .on(t.productId)

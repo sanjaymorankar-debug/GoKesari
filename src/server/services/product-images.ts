@@ -10,6 +10,11 @@
  *
  * Files themselves are validated and stored by image-store.ts (type, size,
  * pixel limits); this module never touches file bytes.
+ *
+ * F10 moderation: with rule "imageModeration" on, a photo a shop owner adds or
+ * replaces is PENDING until an admin approves it. Only APPROVED photos are
+ * shown publicly or mirrored to the image_url columns; staff uploads and every
+ * photo from before F10 are APPROVED.
  */
 import { and, asc, eq, isNull, sql } from "drizzle-orm";
 
@@ -26,6 +31,7 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { imageUrl } from "./image-store";
+import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { getRule } from "./settings";
 
 interface Actor {
@@ -40,26 +46,48 @@ const scopeWhere = (productId: string, shopProductId: string | null) =>
     ? and(eq(productImages.productId, productId), eq(productImages.shopProductId, shopProductId))
     : and(eq(productImages.productId, productId), isNull(productImages.shopProductId));
 
-/** Photos in one scope, primary first then by order. */
+/** Photos in one scope, primary first then by order (with `approvedOnly`, only publicly visible ones). */
 export async function listImages(
   productId: string,
   shopProductId: string | null = null,
   client: DbClient = db,
+  options: { approvedOnly?: boolean } = {},
 ): Promise<ProductImage[]> {
   return client
     .select()
     .from(productImages)
-    .where(scopeWhere(productId, shopProductId))
+    .where(
+      options.approvedOnly
+        ? and(scopeWhere(productId, shopProductId), eq(productImages.moderationStatus, "APPROVED"))
+        : scopeWhere(productId, shopProductId),
+    )
     .orderBy(sql`${productImages.isPrimary} DESC`, asc(productImages.sortOrder), asc(productImages.createdAt));
 }
 
-/** What a page shows: the listing's own photos if it has any, else the product's. */
+/** What a page shows: the listing's own approved photos if it has any, else the product's. */
 export async function galleryFor(productId: string, shopProductId?: string | null): Promise<ProductImage[]> {
   if (shopProductId) {
-    const own = await listImages(productId, shopProductId);
+    const own = await listImages(productId, shopProductId, db, { approvedOnly: true });
     if (own.length > 0) return own;
   }
-  return listImages(productId, null);
+  return listImages(productId, null, db, { approvedOnly: true });
+}
+
+/** Whether `actor` may manage (and so see unapproved) photos in this scope. */
+export async function canManageImages(actor: Actor | null, productId: string, shopProductId: string | null): Promise<boolean> {
+  if (!actor) return false;
+  try {
+    await assertMayManage(actor, productId, shopProductId);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** PENDING when moderation is on and a non-staff user adds or replaces a photo. */
+async function initialStatus(actor: Actor): Promise<"PENDING" | "APPROVED"> {
+  if (isStaff(actor.role)) return "APPROVED";
+  return (await getRule("imageModeration")).enabled ? "PENDING" : "APPROVED";
 }
 
 async function assertMayManage(actor: Actor, productId: string, shopProductId: string | null): Promise<void> {
@@ -80,12 +108,13 @@ async function assertMayManage(actor: Actor, productId: string, shopProductId: s
   }
 }
 
-/** Keeps products.image_url / shop_products.image_url equal to the primary photo. */
+/**
+ * Keeps products.image_url / shop_products.image_url equal to the primary
+ * photo — the primary approved one (F10), else the next approved in order.
+ * Without moderation every photo is approved, so this is the primary as before.
+ */
 async function syncPrimary(tx: DbClient, productId: string, shopProductId: string | null): Promise<void> {
-  const [primary] = await tx
-    .select({ url: productImages.url })
-    .from(productImages)
-    .where(and(scopeWhere(productId, shopProductId), eq(productImages.isPrimary, true)));
+  const [primary] = await listImages(productId, shopProductId, tx, { approvedOnly: true });
   if (shopProductId) {
     await tx.update(shopProducts).set({ imageUrl: primary?.url ?? null, updatedAt: new Date() }).where(eq(shopProducts.id, shopProductId));
   } else {
@@ -118,6 +147,7 @@ export async function addImage(
   const shopProductId = input.shopProductId ?? null;
   await assertMayManage(actor, input.productId, shopProductId);
   const limits = await getRule("images");
+  const moderationStatus = await initialStatus(actor);
 
   return db.transaction(async (tx) => {
     const img = await loadUploaded(tx, input.storedImageId, actor);
@@ -139,6 +169,7 @@ export async function addImage(
         isPrimary: existing.length === 0,
         sortOrder: existing.length === 0 ? 0 : Math.max(...existing.map((e) => e.sortOrder)) + 1,
         createdBy: actor.id,
+        moderationStatus,
       })
       .returning();
     await syncPrimary(tx, input.productId, shopProductId);
@@ -149,7 +180,7 @@ export async function addImage(
         action: AUDIT_ACTIONS.PRODUCT_IMAGE_CHANGED,
         entityType: "product_image",
         entityId: row.id,
-        newValue: { change: "added", productId: input.productId, shopProductId, primary: row.isPrimary },
+        newValue: { change: "added", productId: input.productId, shopProductId, primary: row.isPrimary, moderationStatus },
       },
       tx,
     );
@@ -236,9 +267,18 @@ export async function replaceImage(
   return db.transaction(async (tx) => {
     const row = await loadImage(tx, imageId, productId);
     const img = await loadUploaded(tx, storedImageId, actor);
+    // F10: a replaced photo is a new photo — it waits for review like one.
+    const moderationStatus = await initialStatus(actor);
     const [updated] = await tx
       .update(productImages)
-      .set({ storedImageId: img.id, url: imageUrl(img.id) })
+      .set({
+        storedImageId: img.id,
+        url: imageUrl(img.id),
+        moderationStatus,
+        rejectionReason: null,
+        moderatedBy: moderationStatus === "APPROVED" ? row.moderatedBy : null,
+        moderatedAt: moderationStatus === "APPROVED" ? row.moderatedAt : null,
+      })
       .where(eq(productImages.id, imageId))
       .returning();
     await dropIfOrphaned(tx, row.storedImageId);
@@ -294,3 +334,98 @@ export async function deleteImage(productId: string, imageId: string, actor: Act
     );
   });
 }
+
+/* ------------------------------------------------------- moderation (F10) */
+
+/** Photos waiting for review, oldest first, with where they would appear. */
+export async function listPendingImages(limit = 100) {
+  return db
+    .select({
+      id: productImages.id,
+      url: productImages.url,
+      altText: productImages.altText,
+      productId: productImages.productId,
+      productName: products.name,
+      shopProductId: productImages.shopProductId,
+      shopName: shops.name,
+      createdBy: productImages.createdBy,
+      createdAt: productImages.createdAt,
+    })
+    .from(productImages)
+    .innerJoin(products, eq(products.id, productImages.productId))
+    .leftJoin(shopProducts, eq(shopProducts.id, productImages.shopProductId))
+    .leftJoin(shops, eq(shops.id, shopProducts.shopId))
+    .where(eq(productImages.moderationStatus, "PENDING"))
+    .orderBy(asc(productImages.createdAt))
+    .limit(limit);
+}
+
+/** Approve (goes live) or reject (with a reason the uploader sees). Staff only. */
+export async function moderateImage(
+  imageId: string,
+  input: { decision: "approve" | "reject"; reason?: string | null },
+  actor: Actor,
+): Promise<ProductImage> {
+  if (!isStaff(actor.role)) throw forbidden("Only GoKesari staff can review photos.");
+  const reason = input.reason?.trim() || null;
+  if (input.decision === "reject" && (!reason || reason.length < 3)) {
+    throw validationFailed("Give the shop a reason for rejecting the photo.");
+  }
+  const updated = await db.transaction(async (tx) => {
+    const [row] = await tx.select().from(productImages).where(eq(productImages.id, imageId)).for("update");
+    if (!row) throw notFound("Photo");
+    if (row.moderationStatus !== "PENDING") throw conflict("This photo has already been reviewed.");
+    const [next] = await tx
+      .update(productImages)
+      .set({
+        moderationStatus: input.decision === "approve" ? "APPROVED" : "REJECTED",
+        rejectionReason: input.decision === "reject" ? reason : null,
+        moderatedBy: actor.id,
+        moderatedAt: new Date(),
+      })
+      .where(eq(productImages.id, imageId))
+      .returning();
+    await syncPrimary(tx, row.productId, row.shopProductId);
+    await recordAudit(
+      {
+        actorId: actor.id,
+        actorRole: actor.role,
+        action: AUDIT_ACTIONS.PRODUCT_IMAGE_MODERATED,
+        entityType: "product_image",
+        entityId: imageId,
+        newValue: { decision: input.decision, reason },
+      },
+      tx,
+    );
+    return next;
+  });
+  if (updated.createdBy) {
+    const [product] = await db.select({ name: products.name }).from(products).where(eq(products.id, updated.productId));
+    await notify({
+      userId: updated.createdBy,
+      type: NOTIFICATION_TYPES.SHOP_PRODUCT_IMAGE_DECIDED,
+      title: input.decision === "approve" ? "Photo approved" : "Photo not approved",
+      body:
+        input.decision === "approve"
+          ? `Your photo for ${product?.name ?? "a product"} is now live.`
+          : `Your photo for ${product?.name ?? "a product"} was not approved: ${reason}`,
+      actionUrl: updated.shopProductId ? `/shop/products/${updated.shopProductId}/images` : "/shop/products",
+    }).catch((error) => console.error("[image-moderation] notify failed", error));
+  }
+  return updated;
+}
+
+/**
+ * True when a stored file is used only by photos not (yet) approved — the
+ * file is then served to its uploader and staff only (F10). Files used by an
+ * approved photo, or by no photo at all, are unaffected.
+ */
+export async function isHiddenProductFile(storedImageId: string): Promise<boolean> {
+  const refs = await db
+    .select({ status: productImages.moderationStatus })
+    .from(productImages)
+    .where(eq(productImages.storedImageId, storedImageId));
+  return refs.length > 0 && refs.every((r) => r.status !== "APPROVED");
+}
+
+export { isStaff as isImageStaff };
