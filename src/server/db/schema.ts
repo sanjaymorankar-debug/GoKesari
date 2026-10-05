@@ -1850,6 +1850,12 @@ export const deliveryOrders = pgTable(
     status: deliveryOrderStatusEnum("status").notNull().default("OFFERED"),
     /** Haversine straight-line distance, shop → customer, at assignment time — not a road-distance API call (see haversine.ts). */
     distanceKm: text("distance_km"),
+    /** F4: "ROAD" when distanceKm and the durations came from a routing service, "STRAIGHT_LINE" for the fallback; null before F4. */
+    routeSource: text("route_source", { enum: ["ROAD", "STRAIGHT_LINE"] }),
+    /** F4: expected shop → customer travel time, seconds. */
+    legDurationSeconds: integer("leg_duration_seconds"),
+    /** F4: expected rider → shop travel time when the offer was made, seconds. */
+    pickupDurationSeconds: integer("pickup_duration_seconds"),
     offeredAt: timestamp("offered_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -3817,7 +3823,7 @@ export const mapsApiCallLog = pgTable(
   "maps_api_call_log",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    service: text("service", { enum: ["GEOCODING"] }).notNull(),
+    service: text("service", { enum: ["GEOCODING", "ROUTES"] }).notNull(),
     purpose: text("purpose").notNull(),
     entityType: text("entity_type"),
     entityId: text("entity_id"),

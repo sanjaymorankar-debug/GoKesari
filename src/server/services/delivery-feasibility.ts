@@ -16,6 +16,7 @@ import { parseCoordinates } from "@/lib/geo/haversine";
 import { db } from "@/server/db";
 import { shops } from "@/server/db/schema";
 import { findEligiblePartnersNearShop } from "./delivery-eligibility";
+import { getRoute } from "./routing";
 
 /** Phase 1 placeholder for real travel-time estimation — see file header. */
 const ASSUMED_AVERAGE_SPEED_KMH = 20;
@@ -61,7 +62,13 @@ export async function getFeasibleDeliveryWindows(shopId: string): Promise<Delive
   }
 
   const nearestKm = available[0].distanceToShopKm;
-  const travelMinutes = (nearestKm / ASSUMED_AVERAGE_SPEED_KMH) * 60;
+  // F4: road travel time from the nearest rider when routing is on;
+  // straight-line at the assumed speed otherwise (identical to before).
+  const riderCoords = parseCoordinates(available[0].partner.lastLocationLatitude, available[0].partner.lastLocationLongitude);
+  const travelMinutes = riderCoords
+    ? (await getRoute(riderCoords, shopCoords, { purpose: "delivery_window_estimate", entityType: "shop", entityId: shop.id }))
+        .durationSeconds / 60
+    : (nearestKm / ASSUMED_AVERAGE_SPEED_KMH) * 60;
   const totalMinutes = shop.preparationTimeMinutes + travelMinutes;
 
   return {

@@ -41,6 +41,7 @@ import { ACTIVE_ASSIGNMENT_STATUSES, countActiveAssignments, findEligiblePartner
 import { creditDeliveryEarnings } from "./delivery-earnings";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { updateOrderStatus } from "./orders";
+import { getRoute } from "./routing";
 import { getRule } from "./settings";
 import { suspensionRecordFor } from "./shop-suspension-guard";
 import {
@@ -177,7 +178,14 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
     order.deliveryAddressSnapshot?.longitude ?? null,
   );
 
-  return db.transaction(async (tx) => {
+  // F4: shop → customer road route, fetched before the transaction so no
+  // network call happens while rows are locked. Straight-line when routing is
+  // off or fails — the same distance as before.
+  const legRoute = customerCoords
+    ? await getRoute(shopCoords, customerCoords, { purpose: "delivery_leg", entityType: "order", entityId: orderId })
+    : null;
+
+  const offered = await db.transaction(async (tx) => {
     const [existing] = await tx
       .select()
       .from(deliveryOrders)
@@ -229,9 +237,7 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
         if (stillBusy) continue; // lost the race for this partner — try the next nearest
       }
 
-      const legDistanceKm = customerCoords
-        ? haversineDistanceKm(shopCoords, customerCoords)
-        : candidate.distanceToShopKm;
+      const legDistanceKm = legRoute ? legRoute.distanceKm : candidate.distanceToShopKm;
 
       const values = {
         deliveryPartnerId: candidate.partner.id,
@@ -244,6 +250,9 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
         cancelledAt: null,
         cancellationReason: null,
         updatedAt: new Date(),
+        routeSource: legRoute?.source ?? null,
+        legDurationSeconds: legRoute ? Math.round(legRoute.durationSeconds) : null,
+        pickupDurationSeconds: null,
       };
 
       const [deliveryOrder] = existing
@@ -289,6 +298,24 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
         : "No delivery partner is currently available for this order.",
     );
   });
+
+  // F4: rider → shop travel time for the rider's and customer's estimates.
+  // Best effort, after commit; a failure here never undoes the offer.
+  const rider = await db.query.deliveryPartners.findFirst({ where: eq(deliveryPartners.id, offered.deliveryPartnerId) });
+  const riderCoords = rider ? parseCoordinates(rider.lastLocationLatitude, rider.lastLocationLongitude) : null;
+  if (!riderCoords) return offered;
+  try {
+    const pickup = await getRoute(riderCoords, shopCoords, { purpose: "delivery_pickup", entityType: "order", entityId: orderId });
+    const [withPickup] = await db
+      .update(deliveryOrders)
+      .set({ pickupDurationSeconds: Math.round(pickup.durationSeconds) })
+      .where(and(eq(deliveryOrders.id, offered.id), eq(deliveryOrders.deliveryPartnerId, offered.deliveryPartnerId)))
+      .returning();
+    return withPickup ?? offered;
+  } catch (error) {
+    console.error("[dispatch] pickup estimate failed", error);
+    return offered;
+  }
 }
 
 /** Cancels any in-flight assignment (if present) and re-runs assignment. Admin/operator manual override. */

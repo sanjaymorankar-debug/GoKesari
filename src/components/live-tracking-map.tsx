@@ -53,7 +53,10 @@ export function LiveTrackingMap({ orderId }: { orderId: string }) {
     );
   }
 
-  const { riderLocation, etaMinutes, distanceToDestinationKm } = tracking;
+  const { riderLocation, etaMinutes, distanceToDestinationKm, etaSource, estimatedArrivalAt } = tracking;
+  const arrival = estimatedArrivalAt
+    ? new Date(estimatedArrivalAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })
+    : null;
 
   return (
     <Card className="space-y-3 p-5">
@@ -65,7 +68,14 @@ export function LiveTrackingMap({ orderId }: { orderId: string }) {
       {tracking.stage === "ENDED" ? (
         <p className="text-sm text-ink-600">Tracking has ended for this order.</p>
       ) : tracking.stage === "AWAITING_PICKUP" ? (
-        <p className="text-sm text-ink-600">The rider&apos;s location appears here once they pick up the order.</p>
+        <div className="space-y-1">
+          {arrival ? (
+            <p className="text-sm text-ink-700" data-testid="estimated-arrival">
+              Estimated arrival around <span className="font-semibold">{arrival}</span>
+            </p>
+          ) : null}
+          <p className="text-sm text-ink-600">The rider&apos;s location appears here once they pick up the order.</p>
+        </div>
       ) : tracking.stage === "NOT_TRACKED" ? (
         <p className="text-sm text-ink-600">Live rider tracking isn&apos;t available for this order.</p>
       ) : !riderLocation ? (
@@ -75,7 +85,8 @@ export function LiveTrackingMap({ orderId }: { orderId: string }) {
           {etaMinutes !== null && distanceToDestinationKm !== null ? (
             <p className="text-sm text-ink-700">
               About <span className="font-semibold">{etaMinutes} min</span> away ·{" "}
-              {distanceToDestinationKm} km in a straight line
+              {distanceToDestinationKm} km {etaSource === "ROAD" ? "by road" : "in a straight line"}
+              {arrival ? <> · arriving around <span className="font-semibold">{arrival}</span></> : null}
             </p>
           ) : null}
           <p className="text-xs text-ink-500">

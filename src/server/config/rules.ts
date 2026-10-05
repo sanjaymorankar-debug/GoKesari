@@ -225,6 +225,28 @@ export const RULES = {
       resolveTargetHours: 120,
     },
   },
+  routing: {
+    description:
+      "Road routing for delivery distance and arrival-time estimates. Off: straight-line distance at the assumed average speed (the original calculation). On: a routing service, falling back to straight-line whenever it fails.",
+    schema: z.object({
+      enabled: z.boolean(),
+      /** google: Routes API with GOOGLE_MAPS_SERVER_API_KEY. osrm: an OSRM server (free / self-hosted). */
+      provider: z.enum(["google", "osrm"]),
+      /** Base URL of the OSRM server. The public demo server is rate-limited and not for production. */
+      osrmBaseUrl: z.string().url(),
+      /** Give up on the routing call after this long and use straight-line. */
+      timeoutMs: int(500, 10_000),
+      /** Reuse a route between nearby points (~100 m) for this long. */
+      cacheSeconds: int(0, 3600),
+    }),
+    defaults: {
+      enabled: false,
+      provider: "google",
+      osrmBaseUrl: "https://router.project-osrm.org",
+      timeoutMs: 3000,
+      cacheSeconds: 60,
+    },
+  },
   statusModels: {
     description:
       "Lifecycle status models for shops, riders and subscriptions: when enforcement is on, the database refuses a status change that is not in the allowed-transition table (it is always logged).",
