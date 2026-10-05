@@ -316,6 +316,13 @@
       "when": 1791228186443,
       "tag": "0044_delivery_routes",
       "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1791228687754,
+      "tag": "0045_delivery_slots",
+      "breakpoints": true
     }
   ]
 }

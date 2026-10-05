@@ -225,6 +225,22 @@ export const RULES = {
       resolveTargetHours: 120,
     },
   },
+  deliverySlots: {
+    description:
+      "Delivery slot capacity. Off: no limit (the original behaviour). On: each delivery window takes at most the set number of orders per hour (express, standard) or per day (scheduled) for a shop; full windows show as unavailable at checkout. Per-shop and per-area limits are set under Admin → Delivery slots; these are the defaults (empty = unlimited).",
+    schema: z.object({
+      enabled: z.boolean(),
+      defaultExpressPerHour: int(0, 10_000).nullable(),
+      defaultStandardPerHour: int(0, 10_000).nullable(),
+      defaultScheduledPerDay: int(0, 100_000).nullable(),
+    }),
+    defaults: {
+      enabled: false,
+      defaultExpressPerHour: null,
+      defaultStandardPerHour: null,
+      defaultScheduledPerDay: null,
+    },
+  },
   routing: {
     description:
       "Road routing for delivery distance and arrival-time estimates. Off: straight-line distance at the assumed average speed (the original calculation). On: a routing service, falling back to straight-line whenever it fails.",

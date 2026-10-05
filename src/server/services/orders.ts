@@ -49,7 +49,9 @@ import { clearCartForShop, computeDeliveryFee, getCart } from "./cart";
 import { consumeOnlineStock, loadPurchasableShopProduct, restockOnline } from "./catalogue";
 import { COD_LIMITS, assertCodAllowedForOrder, getCodEligibility, recordCodCollection } from "./cod";
 import { creditDeliveryEarnings } from "./delivery-earnings";
-import { DELIVERY_WINDOW_MINUTES, getFeasibleDeliveryWindows } from "./delivery-feasibility";
+import { DELIVERY_WINDOW_MINUTES, getFeasibleDeliveryWindows, type DeliveryWindowFeasibility } from "./delivery-feasibility";
+import { reserveSlot, slotFullError } from "./delivery-slots";
+import { getRule } from "./settings";
 import { notifyOpenStockAlerts } from "./inventory-alerts";
 import { postRetainedDeliveryFee, recordOrderFinancials } from "./finance";
 import { shopServiceability, societyPartnerShopIds } from "./serviceability";
@@ -370,10 +372,15 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       }
     }
 
-    const requestedWindow = input.deliveryWindows?.[group.shop.id];
-    const { deliveryWindow, promisedByAt } = requestedWindow
+    // F5: with slot capacity on, every delivered order is booked into a slot,
+    // so one placed without a chosen window gets the best open one.
+    const slotsOn = addressSnapshot != null && (await getRule("deliverySlots")).enabled && (await shopDelivers(group.shop.id));
+    const requestedWindow = input.deliveryWindows?.[group.shop.id] ?? (slotsOn ? "EXPRESS_30" : undefined);
+    const resolvedWindow = requestedWindow
       ? await resolvePromisedWindow(group.shop.id, requestedWindow)
-      : { deliveryWindow: null, promisedByAt: null };
+      : { deliveryWindow: null, promisedByAt: null, feasibility: null };
+    let { deliveryWindow, promisedByAt } = resolvedWindow;
+    let deliverySlotKey: string | null = null;
 
     const { order, shopOwnerId } = await db.transaction(async (tx) => {
       const lines: {
@@ -422,6 +429,31 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       const totalPaise = subtotalPaise + deliveryFeePaise + taxPaise;
       if (paymentMethod === "COD") assertCodAllowedForOrder(shopRow, totalPaise);
 
+      // F5: book a place in the window's current slot under a lock; if it filled
+      // up since the customer looked, move to the next open window, else refuse.
+      if (slotsOn) {
+        const feasibility = resolvedWindow.feasibility;
+        if (!deliveryWindow && feasibility?.full && Object.values(feasibility.full).some(Boolean)) {
+          throw slotFullError(shopRow.name);
+        }
+        if (deliveryWindow) {
+          const order = [deliveryWindow, ...WINDOW_PREFERENCE.filter((w) => w !== deliveryWindow && feasibility?.[w])];
+          let booked = false;
+          for (const w of order) {
+            const slot = await reserveSlot(tx, group.shop.id, w);
+            if (!slot) continue;
+            if (w !== deliveryWindow) {
+              deliveryWindow = w;
+              promisedByAt = w === "SCHEDULED" ? null : new Date(Date.now() + DELIVERY_WINDOW_MINUTES[w] * 60_000);
+            }
+            deliverySlotKey = slot.slotKey;
+            booked = true;
+            break;
+          }
+          if (!booked) throw slotFullError(shopRow.name);
+        }
+      }
+
       const [orderRow] = await tx
         .insert(orders)
         .values({
@@ -445,6 +477,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           totalPaise,
           deliveryWindow,
           promisedByAt,
+          deliverySlotKey,
           notes: input.notes ?? null,
         })
         .returning();
@@ -1126,7 +1159,7 @@ export function generateOrderNumber(now: Date = new Date()): string {
 async function resolvePromisedWindow(
   shopId: string,
   requested: DeliveryWindow,
-): Promise<{ deliveryWindow: DeliveryWindow | null; promisedByAt: Date | null }> {
+): Promise<{ deliveryWindow: DeliveryWindow | null; promisedByAt: Date | null; feasibility: DeliveryWindowFeasibility }> {
   const feasibility = await getFeasibleDeliveryWindows(shopId);
   const actual: DeliveryWindow | null = feasibility[requested]
     ? requested
@@ -1139,10 +1172,17 @@ async function resolvePromisedWindow(
           : null;
 
   if (!actual || actual === "SCHEDULED") {
-    return { deliveryWindow: actual, promisedByAt: null };
+    return { deliveryWindow: actual, promisedByAt: null, feasibility };
   }
   const minutes = DELIVERY_WINDOW_MINUTES[actual];
-  return { deliveryWindow: actual, promisedByAt: new Date(Date.now() + minutes * 60_000) };
+  return { deliveryWindow: actual, promisedByAt: new Date(Date.now() + minutes * 60_000), feasibility };
+}
+
+const WINDOW_PREFERENCE: DeliveryWindow[] = ["EXPRESS_30", "STANDARD_60", "SCHEDULED"];
+
+async function shopDelivers(shopId: string): Promise<boolean> {
+  const [row] = await db.select({ deliveryAvailable: shops.deliveryAvailable }).from(shops).where(eq(shops.id, shopId));
+  return row?.deliveryAvailable ?? false;
 }
 
 async function loadAddressSnapshot(

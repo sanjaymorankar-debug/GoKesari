@@ -1715,6 +1715,10 @@ export const orders = pgTable(
     /** The deadline promised for `deliveryWindow`. Never set unless the
      * system determined it was actually achievable at checkout time. */
     promisedByAt: timestamp("promised_by_at", { withTimezone: true }),
+    /** F5: the capacity slot this order was booked into ("2026-10-05T14" for
+     * an hour, "2026-10-05" for a scheduled day, IST). Null when slot capacity
+     * was off or the order has no delivery window. */
+    deliverySlotKey: text("delivery_slot_key"),
     /** When the shop accepted the order (CONFIRMED → ACCEPTED). */
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
     /** When the shop finished packing (→ READY). */
@@ -1740,6 +1744,7 @@ export const orders = pgTable(
     index("orders_created_idx").on(t.createdAt),
     index("orders_buyer_shop_idx").on(t.buyerShopId),
     index("orders_society_idx").on(t.societyId),
+    index("orders_delivery_slot_idx").on(t.shopId, t.deliveryWindow, t.deliverySlotKey),
     index("orders_open_alert_pending_idx")
       .on(t.shopId)
       .where(sql`${t.placedWhileClosed} AND ${t.shopOpenAlertSentAt} IS NULL`),
@@ -4721,3 +4726,30 @@ export type ExternalPriceReferenceHistoryRow = typeof externalPriceReferenceHist
 export type MrpCorrection = typeof mrpCorrections.$inferSelect;
 export type ShopCategory = typeof shopCategories.$inferSelect;
 export type ShopCategoryMapping = typeof shopCategoryMapping.$inferSelect;
+
+/* ------------------------------------------------ delivery slot capacity (F5)
+ * Maximum orders per delivery slot, for one shop or one area (PIN code).
+ * A shop row wins over its area's row, which wins over the platform default
+ * (rule "deliverySlots"). A null limit means unlimited. */
+export const deliverySlotCapacities = pgTable(
+  "delivery_slot_capacities",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").references(() => shops.id, { onDelete: "cascade" }),
+    pincode: text("pincode"),
+    /** Express (30 min) orders per hour. */
+    expressPerHour: integer("express_per_hour"),
+    /** Standard (60 min) orders per hour. */
+    standardPerHour: integer("standard_per_hour"),
+    /** Scheduled orders per day. */
+    scheduledPerDay: integer("scheduled_per_day"),
+    updatedBy: uuid("updated_by").references(() => users.id),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("delivery_slot_capacities_shop_uq").on(t.shopId).where(sql`${t.shopId} IS NOT NULL`),
+    uniqueIndex("delivery_slot_capacities_pincode_uq").on(t.pincode).where(sql`${t.pincode} IS NOT NULL`),
+    check("delivery_slot_capacities_one_scope", sql`(${t.shopId} IS NULL) <> (${t.pincode} IS NULL)`),
+  ],
+);
+export type DeliverySlotCapacity = typeof deliverySlotCapacities.$inferSelect;

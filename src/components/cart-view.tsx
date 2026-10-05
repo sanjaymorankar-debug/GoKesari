@@ -29,6 +29,8 @@ interface Feasibility {
   STANDARD_60: boolean;
   SCHEDULED: boolean;
   estimatedMinutes: number | null;
+  /** F5: windows whose current slot is full (slot capacity on). */
+  full?: Partial<Record<DeliveryWindowKey, boolean>>;
 }
 
 const WINDOW_LABEL: Record<DeliveryWindowKey, string> = {
@@ -352,8 +354,18 @@ export function CartView({
                 <p className="mb-2 text-xs font-medium text-ink-500">Delivery time</p>
                 <div className="flex flex-wrap gap-2">
                   {(["EXPRESS_30", "STANDARD_60", "SCHEDULED"] as const)
-                    .filter((key) => feasibility[group.shop.id][key])
-                    .map((key) => (
+                    .filter((key) => feasibility[group.shop.id][key] || feasibility[group.shop.id].full?.[key])
+                    .map((key) =>
+                      feasibility[group.shop.id].full?.[key] ? (
+                        <span
+                          key={key}
+                          aria-disabled="true"
+                          data-testid={`slot-full-${key}`}
+                          className="cursor-not-allowed rounded-full border border-cream-200 px-3 py-1.5 text-xs font-medium text-ink-400 line-through"
+                        >
+                          {WINDOW_LABEL[key]} · Full
+                        </span>
+                      ) : (
                       <button
                         key={key}
                         type="button"
@@ -368,7 +380,8 @@ export function CartView({
                       >
                         {WINDOW_LABEL[key]}
                       </button>
-                    ))}
+                      ),
+                    )}
                 </div>
               </div>
             ) : null}

@@ -16,6 +16,7 @@ import { parseCoordinates } from "@/lib/geo/haversine";
 import { db } from "@/server/db";
 import { shops } from "@/server/db/schema";
 import { findEligiblePartnersNearShop } from "./delivery-eligibility";
+import { getSlotAvailability } from "./delivery-slots";
 import { getRoute } from "./routing";
 
 /** Phase 1 placeholder for real travel-time estimation — see file header. */
@@ -28,6 +29,11 @@ export interface DeliveryWindowFeasibility {
   SCHEDULED: boolean;
   nearestPartnerDistanceKm: number | null;
   estimatedMinutes: number | null;
+  /**
+   * F5: windows whose current delivery slot is full (only present when slot
+   * capacity is on). A full window is also reported as not feasible above.
+   */
+  full?: Partial<Record<"EXPRESS_30" | "STANDARD_60" | "SCHEDULED", boolean>>;
 }
 
 const INFEASIBLE_NO_SCHEDULE: DeliveryWindowFeasibility = {
@@ -39,6 +45,27 @@ const INFEASIBLE_NO_SCHEDULE: DeliveryWindowFeasibility = {
 };
 
 export async function getFeasibleDeliveryWindows(shopId: string): Promise<DeliveryWindowFeasibility> {
+  const feasibility = await liveFeasibility(shopId);
+  // F5: a window whose current slot is full is not offered. With slot
+  // capacity off this returns the live result unchanged.
+  if (!feasibility.EXPRESS_30 && !feasibility.STANDARD_60 && !feasibility.SCHEDULED) return feasibility;
+  const availability = await getSlotAvailability(shopId);
+  if (!availability.enabled) return feasibility;
+  const full = {
+    EXPRESS_30: availability.slots.EXPRESS_30.full,
+    STANDARD_60: availability.slots.STANDARD_60.full,
+    SCHEDULED: availability.slots.SCHEDULED.full,
+  };
+  return {
+    ...feasibility,
+    EXPRESS_30: feasibility.EXPRESS_30 && !full.EXPRESS_30,
+    STANDARD_60: feasibility.STANDARD_60 && !full.STANDARD_60,
+    SCHEDULED: feasibility.SCHEDULED && !full.SCHEDULED,
+    full,
+  };
+}
+
+async function liveFeasibility(shopId: string): Promise<DeliveryWindowFeasibility> {
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
   if (!shop || !shop.deliveryAvailable) return INFEASIBLE_NO_SCHEDULE;
 
