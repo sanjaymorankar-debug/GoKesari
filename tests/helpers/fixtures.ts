@@ -73,6 +73,7 @@ export async function resetDatabase(): Promise<void> {
           stock_alerts, inventory_movements, product_price_history, shop_products,
           product_images, product_mrp_history, products,
           product_subcategories, product_categories, brands,
+          seller_verification_files, seller_verification_events, seller_verifications,
           shop_classification_history, shops,
           addresses,
           sessions, accounts, users

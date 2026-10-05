@@ -492,6 +492,43 @@ A past or already-processed date cannot be modified.
 
 ---
 
+## Seller verification
+
+PAN, GSTIN, Udyam, FSSAI and Shop Act checks through the KYC vendor (see
+`docs/seller-verification/README.md`). Numbers are returned masked only.
+
+### `GET /api/shops/{id}/verifications`
+Owner or reviewer. All five documents with status, masked number, name on
+record, expiry, requirement (`required`, `required_or_declaration`,
+`optional`), uploaded files, the consistency score and `missing`.
+
+### `POST /api/shops/{id}/verifications`
+`{ "docType": "PAN|GSTIN|UDYAM|FSSAI|SHOP_ACT", "number": "...", "consent": true }`.
+Format-checked first (422 on a typo, no vendor call). Returns the document's
+new state. 429 after 10 seller-triggered paid checks per shop per hour.
+
+### `POST /api/shops/{id}/verifications/gst-declaration`
+`{ "declaration": true, "enrolmentNumber": "optional" }` — the shop is not
+GST-registered; goes to admin review.
+
+### `POST /api/shops/{id}/verifications/shop-act-certificate`
+Multipart: `file` (PDF/JPEG/PNG/WebP, ≤ 5 MB, checked from the bytes),
+`number`, `consent=true`. Stored encrypted.
+
+### `GET /api/seller-verifications/files/{fileId}`
+The uploaded certificate — its shop's owner or a reviewer only. Reviewer
+views are audited.
+
+### `GET /api/admin/seller-verifications`
+Reviewer. Documents waiting for a decision, oldest first.
+
+### `POST /api/admin/seller-verifications/{id}/decision`
+`{ "decision": "approve|reject", "reason": "..." }` — a reason is required to
+reject and is shown to the seller.
+
+### `POST /api/admin/seller-verifications/{id}/recheck`
+Ask the vendor again with the number on file.
+
 ## Cron
 
 ### `POST /api/cron/daily-orders`
@@ -514,6 +551,11 @@ Idempotent per `(subscription, date)`. `GET` with the same header is a health
 probe that generates nothing.
 
 ---
+
+### `POST /api/cron/seller-verification`
+Daily seller verification sweep: retries, GSTIN re-check, expiry warnings,
+expiry, suspension when a mandatory document lapses. Bearer `CRON_SECRET`.
+Returns `{ pendingRetried, gstRechecked, expiryWarnings, expired, shopsSuspended, errors }`.
 
 ## Rate limits
 

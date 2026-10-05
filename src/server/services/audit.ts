@@ -119,6 +119,15 @@ export const AUDIT_ACTIONS = {
   /** Every full-PAN decrypt is audited — see revealPanForAdmin(). */
   SHOP_PAN_REVEALED: "shop.pan_revealed",
 
+  /* --------------------------------------------- seller document verification */
+  SELLER_DOCUMENT_APPROVED: "seller_document.approved",
+  SELLER_DOCUMENT_REJECTED: "seller_document.rejected",
+  SELLER_DOCUMENT_RECHECKED: "seller_document.rechecked",
+  /** An admin opened an uploaded certificate — every view is recorded. */
+  SELLER_DOCUMENT_FILE_VIEWED: "seller_document.file_viewed",
+  /** All verification data for a closed shop erased (retention period over, or on request). Counts only. */
+  SELLER_DOCUMENTS_ERASED: "seller_document.erased",
+
   /* --------------------------------------------- delivery partners (Part 58) */
   DELIVERY_PARTNER_REGISTERED: "delivery_partner.registered",
   DELIVERY_PARTNER_STATUS_CHANGED: "delivery_partner.status_changed",

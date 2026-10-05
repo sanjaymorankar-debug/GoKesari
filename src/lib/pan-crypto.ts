@@ -44,6 +44,22 @@ export function encryptSecret(plaintext: string): string {
 
 export const encryptPan = encryptSecret;
 
+/** Same scheme for binary data (uploaded certificates): iv || authTag || ciphertext. */
+export function encryptBytes(plaintext: Buffer): Buffer {
+  const key = getKey();
+  const iv = crypto.randomBytes(IV_LENGTH);
+  const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
+  const ciphertext = Buffer.concat([cipher.update(plaintext), cipher.final()]);
+  return Buffer.concat([iv, cipher.getAuthTag(), ciphertext]);
+}
+
+export function decryptBytes(raw: Buffer): Buffer {
+  const key = getKey();
+  const decipher = crypto.createDecipheriv(ALGORITHM, key, raw.subarray(0, IV_LENGTH));
+  decipher.setAuthTag(raw.subarray(IV_LENGTH, IV_LENGTH + 16));
+  return Buffer.concat([decipher.update(raw.subarray(IV_LENGTH + 16)), decipher.final()]);
+}
+
 export function decryptSecret(encoded: string): string {
   const key = getKey();
   const raw = Buffer.from(encoded, "base64");
@@ -76,4 +92,18 @@ export function panBlindIndex(normalizedPan: string): string {
     crypto.hkdfSync("sha256", getKey(), Buffer.alloc(0), "gokesari:pan-blind-index:v1", 32),
   );
   return crypto.createHmac("sha256", subKey).update(normalizedPan, "utf8").digest("hex");
+}
+
+/**
+ * Blind index for any seller verification document number (seller
+ * verification, Part 2.3): finds the same number on another shop, or a
+ * cached result, without storing it in plaintext. Same construction as
+ * panBlindIndex but its own HKDF sub-key, and the document type is mixed in,
+ * so a PAN and a GSTIN never collide.
+ */
+export function docBlindIndex(docType: string, normalized: string): string {
+  const subKey = Buffer.from(
+    crypto.hkdfSync("sha256", getKey(), Buffer.alloc(0), "gokesari:seller-doc-blind-index:v1", 32),
+  );
+  return crypto.createHmac("sha256", subKey).update(`${docType}:${normalized}`, "utf8").digest("hex");
 }
