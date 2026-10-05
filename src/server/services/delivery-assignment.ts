@@ -21,7 +21,7 @@ import { randomInt } from "node:crypto";
 import { and, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
-import { haversineDistanceKm, parseCoordinates } from "@/lib/geo/haversine";
+import { parseCoordinates } from "@/lib/geo/haversine";
 import { db, type DbClient } from "@/server/db";
 import {
   deliveryOrders,
