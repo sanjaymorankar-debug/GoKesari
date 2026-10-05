@@ -330,6 +330,19 @@ export default async function AdminPage() {
       ) : null}
 
       {canVerifyGstPan ? (
+        <Section title="Seller document verification">
+          <Card className="flex flex-wrap items-center justify-between gap-2 p-4 text-sm" data-testid="seller-verification-link">
+            <span className="text-ink-600">
+              PAN, GSTIN, Udyam, FSSAI and Shop Act checks the automatic verification couldn&apos;t settle.
+            </span>
+            <Link href="/admin/seller-verification" className="font-medium text-kesari-700 underline">
+              Open review queue →
+            </Link>
+          </Card>
+        </Section>
+      ) : null}
+
+      {canVerifyGstPan ? (
         <Section title={`GST & PAN verification (${pendingGstPan.length})`}>
           <GstPanVerificationQueue
             shops={pendingGstPan.map((s) => ({

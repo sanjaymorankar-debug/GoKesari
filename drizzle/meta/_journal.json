@@ -281,6 +281,20 @@
       "when": 1791030174408,
       "tag": "0039_product_category_management",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1791209259334,
+      "tag": "0040_seller_verifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1791210340087,
+      "tag": "0041_seller_verification_files",
+      "breakpoints": true
     }
   ]
 }

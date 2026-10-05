@@ -305,6 +305,20 @@ export default async function ShopDashboardPage() {
       </div>
 
       <div className="mb-8">
+        <Card className="flex flex-wrap items-center justify-between gap-2 p-4 text-sm" data-testid="verification-link">
+          <span>
+            <span className="font-medium text-ink-900">Shop verification</span>
+            <span className="block text-ink-500">
+              PAN, GST, Udyam, FSSAI and Shop Act — checked with the government records.
+            </span>
+          </span>
+          <Link href="/shop/verification" className="font-medium text-kesari-700 underline">
+            Verify documents
+          </Link>
+        </Card>
+      </div>
+
+      <div className="mb-8">
         <Card className="flex flex-wrap items-center justify-between gap-2 p-4 text-sm" data-testid="product-categories-link">
           <span>
             <span className="font-medium text-ink-900">Product categories</span>

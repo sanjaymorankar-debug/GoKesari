@@ -37,6 +37,10 @@ env.GOOGLE_MAPS_SERVER_API_KEY ??= "test-google-maps-key";
 // gst-pan-verification.ts) — never the provider-lookup path.
 env.GST_PROVIDER_API_KEY = "";
 env.PAN_PROVIDER_API_KEY = "";
+// Seller document verification always runs against the in-process mock in
+// tests, whatever a developer's .env says — never a real, billed vendor call.
+env.KYC_PROVIDER = "mock";
+env.KYC_ENV = "sandbox";
 // Fixed test-only AES-256 key (32 bytes, base64) so PAN encryption tests
 // don't depend on a real secret ever landing in .env.
 env.PAN_ENCRYPTION_KEY ??= "VEqrHq1Y8qZmFzw8A9VFcDd+fsBqEXDUOA/9d0ieO+U=";
