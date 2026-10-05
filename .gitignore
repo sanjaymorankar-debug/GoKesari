@@ -47,3 +47,7 @@ next-env.d.ts
 # local database backups
 /backups/
 categorisation-reports/
+
+# Test results
+test-results/
+tests/test-results/
