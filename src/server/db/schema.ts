@@ -15,6 +15,7 @@ import {
   ESCALATION_TRIGGERS,
 } from "@/lib/dispute-states";
 import { RETURN_CONDITIONS, RETURN_REASONS, RETURN_STATUSES, PICKUP_STATUSES } from "@/lib/return-states";
+import { SELLER_DOC_TYPES, SELLER_VERIFICATION_STATUSES } from "@/lib/kyc/doc-formats";
 import { SHOP_TYPE_KEYS } from "@/lib/shop-types";
 import {
   bigint,
@@ -3544,6 +3545,145 @@ export const auditLogs = pgTable(
   ],
 );
 
+/* ------------------------------------------------ seller verification
+ * Legal verification of a shop's PAN, GSTIN, Udyam, FSSAI and Shop Act
+ * documents through a KYC vendor (src/server/kyc) or, where no vendor can
+ * check a document, by an admin. One row per shop per document holds its
+ * current state; seller_verification_events is the history behind it.
+ *
+ * The full document number is stored only as AES-256-GCM ciphertext
+ * (lib/pan-crypto.ts encryptSecret, PAN_ENCRYPTION_KEY) plus a keyed blind
+ * index for duplicate/cache lookups. Only `number_masked` is ever shown or
+ * logged. The vendor's raw response is never stored — only the normalised
+ * fields in `details`. */
+
+export const sellerDocTypeEnum = pgEnum("seller_doc_type", SELLER_DOC_TYPES);
+export const sellerVerificationStatusEnum = pgEnum("seller_verification_status", SELLER_VERIFICATION_STATUSES);
+
+export const sellerVerifications = pgTable(
+  "seller_verifications",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    docType: sellerDocTypeEnum("doc_type").notNull(),
+    status: sellerVerificationStatusEnum("status").notNull().default("NOT_SUBMITTED"),
+
+    /** base64(iv || tag || ciphertext). Never logged, never returned by an API. */
+    numberEncrypted: text("number_encrypted"),
+    /** Display form, e.g. "XXXXXX234F". */
+    numberMasked: text("number_masked"),
+    /** HMAC blind index of the normalised number (pan-crypto docBlindIndex). */
+    numberHash: text("number_hash"),
+
+    /** Name on the government record. */
+    verifiedName: text("verified_name"),
+    /** 0–100 fuzzy match of verifiedName against the shop's owner / business name (Part 3). */
+    nameMatchScore: integer("name_match_score"),
+    /** Normalised source fields (status, trade name, state, pincode, licence type …) — no raw response. */
+    details: jsonb("details").notNull().default({}),
+    /** Last day the document is valid, for documents that expire. */
+    validUntil: date("valid_until"),
+
+    providerId: text("provider_id"),
+    /** Vendor's request/reference id for this check. */
+    providerRef: text("provider_ref"),
+    /** Paid vendor calls made for this document, across re-submissions. */
+    attemptCount: integer("attempt_count").notNull().default(0),
+    lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
+    /** Short machine code for why the status is not VERIFIED (e.g. vendor_timeout, not_found_at_source). */
+    lastErrorCode: text("last_error_code"),
+    /** Key of the current submission; sent to the vendor so a retry is not billed twice. */
+    idempotencyKey: text("idempotency_key"),
+
+    /** DPDP Act 2023: the seller's explicit consent to this check, with the notice version shown. */
+    consentGivenAt: timestamp("consent_given_at", { withTimezone: true }),
+    consentVersion: text("consent_version"),
+
+    submittedBy: uuid("submitted_by").references(() => users.id),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    /** Admin who last approved/rejected by hand, and why. */
+    reviewerId: uuid("reviewer_id").references(() => users.id),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewNote: text("review_note"),
+
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("seller_verifications_shop_doc_unique").on(t.shopId, t.docType),
+    index("seller_verifications_status_idx").on(t.status, t.updatedAt),
+    index("seller_verifications_valid_until_idx")
+      .on(t.validUntil)
+      .where(sql`${t.validUntil} IS NOT NULL`),
+    index("seller_verifications_number_hash_idx")
+      .on(t.docType, t.numberHash)
+      .where(sql`${t.numberHash} IS NOT NULL`),
+    check("seller_verifications_attempts_non_negative", sql`${t.attemptCount} >= 0`),
+    check(
+      "seller_verifications_number_all_or_none",
+      sql`(${t.numberEncrypted} IS NULL) = (${t.numberMasked} IS NULL) AND (${t.numberEncrypted} IS NULL) = (${t.numberHash} IS NULL)`,
+    ),
+    check(
+      "seller_verifications_submitted_has_consent",
+      sql`${t.status} = 'NOT_SUBMITTED' OR ${t.numberEncrypted} IS NULL OR ${t.consentGivenAt} IS NOT NULL`,
+    ),
+    check(
+      "seller_verifications_name_match_range",
+      sql`${t.nameMatchScore} IS NULL OR ${t.nameMatchScore} BETWEEN 0 AND 100`,
+    ),
+  ],
+);
+
+/**
+ * Append-only history of every seller_verifications change: submission,
+ * consent, vendor result, admin decision, re-check, expiry. UPDATE is refused
+ * by a trigger (migration 0040); DELETE is allowed only so the retention job
+ * and a shop's deletion can erase it, as the DPDP Act requires. `details`
+ * holds masked values only.
+ */
+export const sellerVerificationEvents = pgTable(
+  "seller_verification_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    verificationId: uuid("verification_id")
+      .notNull()
+      .references(() => sellerVerifications.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id").notNull(),
+    docType: sellerDocTypeEnum("doc_type").notNull(),
+    eventType: text("event_type", {
+      enum: [
+        "CONSENT_GIVEN",
+        "SUBMITTED",
+        "CACHE_HIT",
+        "VENDOR_RESULT",
+        "ADMIN_APPROVED",
+        "ADMIN_REJECTED",
+        "RECHECK_REQUESTED",
+        "EXPIRED",
+        "DECLARED_NOT_APPLICABLE",
+      ],
+    }).notNull(),
+    fromStatus: sellerVerificationStatusEnum("from_status"),
+    toStatus: sellerVerificationStatusEnum("to_status"),
+    actorId: uuid("actor_id").references(() => users.id),
+    actorRole: userRoleEnum("actor_role"),
+    providerId: text("provider_id"),
+    providerRef: text("provider_ref"),
+    errorCode: text("error_code"),
+    note: text("note"),
+    details: jsonb("details").notNull().default({}),
+    ipAddress: text("ip_address"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("seller_verification_events_verification_idx").on(t.verificationId, t.createdAt),
+    index("seller_verification_events_shop_idx").on(t.shopId, t.createdAt),
+  ],
+);
+
 /**
  * SKU-usage log for Google Maps Platform calls (delivery-system Part 58
  * follow-up — cost-optimization architecture). Written exactly once per
@@ -4320,6 +4460,8 @@ export const riskFlags = pgTable(
 
 export type User = typeof users.$inferSelect;
 export type Shop = typeof shops.$inferSelect;
+export type SellerVerification = typeof sellerVerifications.$inferSelect;
+export type SellerVerificationEvent = typeof sellerVerificationEvents.$inferSelect;
 export type GstStatus = (typeof gstStatusEnum.enumValues)[number];
 export type PanStatus = (typeof panStatusEnum.enumValues)[number];
 export type IdentityVerificationSource = (typeof identityVerificationSourceEnum.enumValues)[number];

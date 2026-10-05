@@ -48,6 +48,13 @@ PAN_ENCRYPTION_KEY=<openssl rand -base64 32>
 
 APP_TIMEZONE=Asia/Kolkata
 SUBSCRIPTION_CUTOFF_HOUR=20
+
+# Seller document verification — see docs/seller-verification/README.md.
+# Sandbox keys on staging, live keys on production only; the app refuses
+# any other pairing.
+KYC_PROVIDER=gridlines
+KYC_ENV=production
+GRIDLINES_API_KEY=<live key>
 ```
 
 Generate secrets properly:

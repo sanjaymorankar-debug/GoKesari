@@ -77,3 +77,17 @@ export function panBlindIndex(normalizedPan: string): string {
   );
   return crypto.createHmac("sha256", subKey).update(normalizedPan, "utf8").digest("hex");
 }
+
+/**
+ * Blind index for any seller verification document number (seller
+ * verification, Part 2.3): finds the same number on another shop, or a
+ * cached result, without storing it in plaintext. Same construction as
+ * panBlindIndex but its own HKDF sub-key, and the document type is mixed in,
+ * so a PAN and a GSTIN never collide.
+ */
+export function docBlindIndex(docType: string, normalized: string): string {
+  const subKey = Buffer.from(
+    crypto.hkdfSync("sha256", getKey(), Buffer.alloc(0), "gokesari:seller-doc-blind-index:v1", 32),
+  );
+  return crypto.createHmac("sha256", subKey).update(`${docType}:${normalized}`, "utf8").digest("hex");
+}
