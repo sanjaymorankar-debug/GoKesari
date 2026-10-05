@@ -295,6 +295,69 @@
       "when": 1791210340087,
       "tag": "0041_seller_verification_files",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1791227382268,
+      "tag": "0042_status_models",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1791227707084,
+      "tag": "0043_rider_change_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1791228186443,
+      "tag": "0044_delivery_routes",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1791228687754,
+      "tag": "0045_delivery_slots",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1791228993395,
+      "tag": "0046_order_groups",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1791229193124,
+      "tag": "0047_coupons",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1791229592590,
+      "tag": "0048_shop_offers",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1791230038875,
+      "tag": "0049_image_moderation",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1791230301119,
+      "tag": "0050_customer_referrals",
+      "breakpoints": true
     }
   ]
 }

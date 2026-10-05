@@ -8,6 +8,7 @@ import { listShopReviews } from "@/server/services/ratings";
 import { shopTypeLabel } from "@/lib/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
 import { listStorefrontProducts } from "@/server/services/catalogue";
+import { getLiveOffers, listLiveOffersForShop, priceWithOffers } from "@/server/services/shop-offers";
 import { getPublicShopBySlug, isShopOpenNow } from "@/server/services/shops";
 
 export const dynamic = "force-dynamic";
@@ -35,10 +36,21 @@ export default async function ShopPage({
   if (!shop) notFound();
 
   const user = await getCurrentUser();
-  const [products, reviews] = await Promise.all([
+  const [listed, reviews, liveOffers, offerRows] = await Promise.all([
     listStorefrontProducts({ shopId: shop.id, limit: 100 }),
     listShopReviews(shop.id, 5),
+    listLiveOffersForShop(shop.id),
+    getLiveOffers([shop.id]),
   ]);
+  // F8: live shop offers lower the online price shown (and charged in the cart).
+  const products = listed.map((p) => {
+    const priced = priceWithOffers(
+      p.onlinePricePaise,
+      { shopId: shop.id, shopProductId: p.shopProductId, categoryId: p.categoryId ?? "" },
+      offerRows,
+    );
+    return priced.offer ? { ...p, offerPricePaise: priced.unitPricePaise, offerTitle: priced.offer.title } : p;
+  });
 
   // Products are grouped by category, per §16 — generic across all 44 shop
   // types rather than assuming dairy/bakery.
@@ -138,6 +150,23 @@ export default async function ShopPage({
         Rules 2020, Rule 5) lives on its own page so this one stays focused
         on browsing and ordering — still one click away before purchase.
       */}
+      {liveOffers.length > 0 ? (
+        <Card className="mb-6 border-leaf-200 bg-leaf-50 p-4" data-testid="shop-offers">
+          <h2 className="mb-2 font-semibold text-ink-900">Offers</h2>
+          <ul className="space-y-1 text-sm text-ink-700">
+            {liveOffers.map((o) => (
+              <li key={o.id}>
+                <span className="font-medium">{o.title}</span> — {o.label} on {o.appliesTo}
+                <span className="text-xs text-ink-500">
+                  {" "}
+                  · until {o.endsAt.toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                </span>
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
+
       <div className="mb-6">
         <Link
           href={`/shops/${shop.slug}/contact`}

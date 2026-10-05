@@ -8,7 +8,11 @@ export function ProductGrid({
   distances,
   compare = true,
 }: {
-  products: Awaited<ReturnType<typeof listStorefrontProducts>>;
+  /** F8: a product may carry a live shop offer's price and title. */
+  products: (Awaited<ReturnType<typeof listStorefrontProducts>>[number] & {
+    offerPricePaise?: number | null;
+    offerTitle?: string | null;
+  })[];
   signedIn: boolean;
   /** shopId -> km, from serviceability.ts, when a customer location is set. */
   distances?: ReadonlyMap<string, number | null>;
@@ -39,6 +43,8 @@ export function ProductGrid({
             shopSlug: p.shopSlug,
             productId: compare ? p.productId : undefined,
             distanceKm: distances?.get(p.shopId) ?? null,
+            offerPricePaise: p.offerPricePaise ?? null,
+            offerTitle: p.offerTitle ?? null,
           }}
         />
       ))}

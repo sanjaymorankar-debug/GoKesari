@@ -9,6 +9,8 @@ import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { getPartnerEarningsSummary } from "@/server/services/delivery-earnings";
 import { getMyDeliveryPartnerProfile } from "@/server/services/delivery-partners";
+import { getMyLatestChangeRequest } from "@/server/services/rider-profile";
+import { RiderProfileEditor } from "@/components/rider-profile-editor";
 
 export const metadata = { title: "My Delivery Profile" };
 export const dynamic = "force-dynamic";
@@ -42,6 +44,7 @@ export default async function GigProfilePage() {
   if (!can(user.role, PERMISSIONS.DELIVERY_PARTNER_VIEW_OWN)) redirect("/delivery-partner");
 
   const earnings = await getPartnerEarningsSummary(profile.id);
+  const latestChange = await getMyLatestChangeRequest(user.id);
   const isApproved = profile.status === "APPROVED";
 
   return (
@@ -120,6 +123,33 @@ export default async function GigProfilePage() {
           </dl>
         </Card>
       </Section>
+      {profile.status !== "DEACTIVATED" ? (
+        <Section title="Update my profile">
+          <RiderProfileEditor
+            rider={{
+              fullName: profile.fullName,
+              mobile: profile.mobile,
+              email: profile.email,
+              dateOfBirth: profile.dateOfBirth,
+              profilePhotoUrl: profile.profilePhotoUrl,
+              vehicleType: profile.vehicleType,
+              vehicleRegistrationNumber: profile.vehicleRegistrationNumber,
+              operatingRadiusKm: profile.operatingRadiusKm,
+            }}
+            latest={
+              latestChange
+                ? {
+                    status: latestChange.status,
+                    fields: latestChange.fields,
+                    masked: latestChange.masked as Record<string, string>,
+                    rejectionReason: latestChange.rejectionReason,
+                    createdAt: latestChange.createdAt.toISOString(),
+                  }
+                : null
+            }
+          />
+        </Section>
+      ) : null}
     </div>
   );
 }

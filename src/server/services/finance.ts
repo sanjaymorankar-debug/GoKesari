@@ -232,7 +232,11 @@ export async function recordOrderFinancials(orderId: string, client: DbClient = 
   const rate = await resolveCommissionRate(shop, client);
   const goodsPaise = order.subtotalPaise;
   const commissionPaise = commissionOn(goodsPaise, rate.rateBp);
-  const discountPaise = debit ? Math.min(-debit.promotionalAmountPaise, goodsPaise + order.deliveryFeePaise) : 0;
+  // Promotional wallet credit spent, plus any order-level coupon (F7) — both platform-funded.
+  const discountPaise = Math.min(
+    (debit ? -debit.promotionalAmountPaise : 0) + (order.discountPaise ?? 0),
+    goodsPaise + order.deliveryFeePaise,
+  );
 
   const [snapshot] = await client
     .insert(orderFinancials)

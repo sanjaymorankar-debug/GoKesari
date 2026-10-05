@@ -16,6 +16,10 @@ export interface ActiveDelivery {
   shopAddress: string;
   customerAddress: string | null;
   distanceKm: string | null;
+  /** F4: estimated minutes to ride to the shop / shop → customer; ROAD when from a routing service. */
+  pickupDurationSeconds?: number | null;
+  legDurationSeconds?: number | null;
+  routeSource?: "ROAD" | "STRAIGHT_LINE" | null;
   /** The shop must give the rider a pickup code (Slice 4). */
   needsPickupCode: boolean;
   /** The customer must give the rider a delivery code. */
@@ -616,7 +620,18 @@ export function DeliveryPartnerDashboard({
               </p>
             ) : null}
             {activeDelivery.distanceKm ? (
-              <p className="text-ink-500">~{Number(activeDelivery.distanceKm).toFixed(1)} km delivery leg</p>
+              <p className="text-ink-500">
+                ~{Number(activeDelivery.distanceKm).toFixed(1)} km delivery leg
+                {activeDelivery.routeSource === "ROAD" ? " by road" : ""}
+              </p>
+            ) : null}
+            {activeDelivery.legDurationSeconds != null ? (
+              <p className="text-ink-500" data-testid="rider-eta">
+                {activeDelivery.pickupDurationSeconds != null && !activeDelivery.outForDeliveryAt
+                  ? `About ${Math.max(1, Math.round(activeDelivery.pickupDurationSeconds / 60))} min to the shop, then `
+                  : "About "}
+                {Math.max(1, Math.round(activeDelivery.legDurationSeconds / 60))} min to the customer
+              </p>
             ) : null}
           </div>
 

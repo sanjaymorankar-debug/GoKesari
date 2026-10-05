@@ -51,6 +51,14 @@ export const RULES = {
       manualCooldownSeconds: int(0, 600),
       /** Tell the shop after this many unsuccessful attempts (then once more when the search stops). */
       notifyShopAfterAttempts: int(1, 20),
+      /**
+       * F3 — off: a rider already holding a delivery is not offered another
+       * (the original rule). On: such riders stay in the pool, ranked after
+       * every free rider, so they are offered only when no free rider is.
+       */
+      busyRidersAsFallback: z.boolean(),
+      /** With busyRidersAsFallback on: most deliveries one rider may hold at once (offered, accepted or picked up). */
+      maxActiveDeliveriesPerRider: int(1, 5),
     }),
     defaults: {
       offerTtlSeconds: 120,
@@ -60,6 +68,8 @@ export const RULES = {
       windowGraceMinutes: 15,
       manualCooldownSeconds: 30,
       notifyShopAfterAttempts: 1,
+      busyRidersAsFallback: false,
+      maxActiveDeliveriesPerRider: 2,
     },
   },
   riderEarnings: {
@@ -214,6 +224,103 @@ export const RULES = {
       escalateAbovePaise: 200_000,
       resolveTargetHours: 120,
     },
+  },
+  customerReferrals: {
+    description:
+      "Customer referral rewards. On: every customer gets a referral code and link; when a friend who joined with it has their first order delivered, both get the reward as promotional wallet credit. Off: no codes are shown and nothing is credited.",
+    schema: z.object({
+      enabled: z.boolean(),
+      referrerRewardPaise: int(0, 1_000_000),
+      refereeRewardPaise: int(0, 1_000_000),
+      /** Most rewards one customer can earn by referring. */
+      maxRewardsPerReferrer: int(1, 1000),
+      /** A code can only be applied this many days after joining, before any order. */
+      applyWithinDays: int(1, 365),
+    }),
+    defaults: {
+      enabled: false,
+      referrerRewardPaise: 5000,
+      refereeRewardPaise: 5000,
+      maxRewardsPerReferrer: 20,
+      applyWithinDays: 30,
+    },
+  },
+  imageModeration: {
+    description:
+      "Product photo moderation. Off: shop owners' photos go live at once (the original behaviour). On: photos a shop owner adds or replaces wait in Admin → Image moderation and are shown publicly only once approved; rejected photos carry a reason. Photos already live stay live.",
+    schema: z.object({ enabled: z.boolean() }),
+    defaults: { enabled: false },
+  },
+  homePriceComparison: {
+    description:
+      "Home-page price comparison. On: customers with a location see products sold by two or more of the shops that deliver to them, with each shop's price and the cheapest highlighted (loose goods without a price are skipped). Off: the section is hidden.",
+    schema: z.object({ enabled: z.boolean() }),
+    defaults: { enabled: false },
+  },
+  shopOffers: {
+    description:
+      "Shop offers (a shop's own discount on a product or category, with dates). Off: offers are hidden and prices are the shop's normal online price (the original behaviour). On: live offers show on the shop page and apply to the unit price in the cart and at checkout. Shop-funded.",
+    schema: z.object({ enabled: z.boolean() }),
+    defaults: { enabled: false },
+  },
+  coupons: {
+    description:
+      "Order-level coupon codes (Admin → Coupons). Off: the coupon box is hidden and codes are refused (the original checkout). On: a valid code takes a flat amount or a percentage off the order's goods, split across shops in proportion to their goods value. Platform-funded — shops are paid on their full goods value.",
+    schema: z.object({ enabled: z.boolean() }),
+    defaults: { enabled: false },
+  },
+  parentOrders: {
+    description:
+      "One order reference for a multi-shop checkout. Off: one order number per shop only (the original behaviour). On: a cart from several shops also gets a single parent reference (GK-…) covering all of them; each shop still gets and manages its own order.",
+    schema: z.object({ enabled: z.boolean() }),
+    defaults: { enabled: false },
+  },
+  deliverySlots: {
+    description:
+      "Delivery slot capacity. Off: no limit (the original behaviour). On: each delivery window takes at most the set number of orders per hour (express, standard) or per day (scheduled) for a shop; full windows show as unavailable at checkout. Per-shop and per-area limits are set under Admin → Delivery slots; these are the defaults (empty = unlimited).",
+    schema: z.object({
+      enabled: z.boolean(),
+      defaultExpressPerHour: int(0, 10_000).nullable(),
+      defaultStandardPerHour: int(0, 10_000).nullable(),
+      defaultScheduledPerDay: int(0, 100_000).nullable(),
+    }),
+    defaults: {
+      enabled: false,
+      defaultExpressPerHour: null,
+      defaultStandardPerHour: null,
+      defaultScheduledPerDay: null,
+    },
+  },
+  routing: {
+    description:
+      "Road routing for delivery distance and arrival-time estimates. Off: straight-line distance at the assumed average speed (the original calculation). On: a routing service, falling back to straight-line whenever it fails.",
+    schema: z.object({
+      enabled: z.boolean(),
+      /** google: Routes API with GOOGLE_MAPS_SERVER_API_KEY. osrm: an OSRM server (free / self-hosted). */
+      provider: z.enum(["google", "osrm"]),
+      /** Base URL of the OSRM server. The public demo server is rate-limited and not for production. */
+      osrmBaseUrl: z.string().url(),
+      /** Give up on the routing call after this long and use straight-line. */
+      timeoutMs: int(500, 10_000),
+      /** Reuse a route between nearby points (~100 m) for this long. */
+      cacheSeconds: int(0, 3600),
+    }),
+    defaults: {
+      enabled: false,
+      provider: "google",
+      osrmBaseUrl: "https://router.project-osrm.org",
+      timeoutMs: 3000,
+      cacheSeconds: 60,
+    },
+  },
+  statusModels: {
+    description:
+      "Lifecycle status models for shops, riders and subscriptions: when enforcement is on, the database refuses a status change that is not in the allowed-transition table (it is always logged).",
+    schema: z.object({
+      /** Read by the database trigger (migration 0042). Off: disallowed changes go through, logged as unenforced. */
+      enforceTransitions: z.boolean(),
+    }),
+    defaults: { enforceTransitions: true },
   },
   sellerVerification: {
     description:
