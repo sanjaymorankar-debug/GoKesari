@@ -43,6 +43,7 @@ import {
   type SubscriptionDailyOverride,
   type UserRole,
 } from "@/server/db/schema";
+import { refreshSubscriptionLifecycles } from "./status-models";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { resolveAddressSociety } from "./societies";
 import { consumeOnlineStock, isOnlinePurchasable } from "./catalogue";
@@ -226,6 +227,7 @@ export async function createSubscription(
       startDate: input.startDate,
       endDate: input.endDate ?? null,
       status: "ACTIVE",
+      statusActorId: input.userId,
     })
     .returning();
 
@@ -500,7 +502,7 @@ export async function pauseSubscription(
   const current = await loadLiveSubscription(subscriptionId);
   const [updated] = await db
     .update(subscriptions)
-    .set({ pauseFrom: from, pauseUntil: until, updatedAt: new Date() })
+    .set({ pauseFrom: from, pauseUntil: until, statusActorId: actor.id, updatedAt: new Date() })
     .where(eq(subscriptions.id, subscriptionId))
     .returning();
   if (!updated) throw notFound("Subscription");
@@ -544,6 +546,7 @@ export async function resumeSubscription(
       pauseFrom: null,
       pauseUntil: null,
       status: "ACTIVE",
+      statusActorId: actor.id,
       updatedAt: new Date(),
     })
     .where(eq(subscriptions.id, subscriptionId))
@@ -587,6 +590,7 @@ export async function cancelSubscription(
     .update(subscriptions)
     .set({
       status: "CANCELLED",
+      statusActorId: actor.id,
       cancelledAt: new Date(),
       cancellationReason: reason,
       nextDeliveryDate: null,
@@ -907,6 +911,11 @@ export async function generateDailyOrders(
 ): Promise<GenerationResult> {
   const env = getEnv();
   const targetDate = date ?? todayIn(env.APP_TIMEZONE);
+  // Lifecycle (F1): pause windows starting or ending today change a
+  // subscription's lifecycle status with no row written. Never blocks the run.
+  await refreshSubscriptionLifecycles().catch((error) =>
+    console.error("[subscriptions] lifecycle refresh failed", error),
+  );
 
   const result: GenerationResult = {
     date: targetDate,

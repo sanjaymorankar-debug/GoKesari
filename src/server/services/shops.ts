@@ -283,6 +283,7 @@ export async function registerShop(
             // Registration number, fee snapshot, payments and slug stay as
             // they were: this is the same registration going back for review.
             status: "PENDING_APPROVAL",
+            statusActorId: ownerId,
             rejectionReason: null,
             updatedAt: new Date(),
           })
@@ -309,6 +310,7 @@ export async function registerShop(
           ...gstColumns,
           // Status and classification are deliberately NOT taken from input.
           status: "PENDING_APPROVAL",
+          statusActorId: ownerId,
           classification: null,
         })
         .returning();
@@ -606,6 +608,7 @@ function approveShopTransaction(
       .update(shops)
       .set({
         status: "APPROVED",
+        statusActorId: actor.id,
         classification: input.classification,
         approvedAt: new Date(),
         approvedBy: actor.id,
@@ -649,7 +652,7 @@ export async function rejectShop(
   }
   const [updated] = await db
     .update(shops)
-    .set({ status: "REJECTED", rejectionReason: reason, updatedAt: new Date() })
+    .set({ status: "REJECTED", rejectionReason: reason, statusActorId: actor.id, updatedAt: new Date() })
     .where(eq(shops.id, shopId))
     .returning();
   if (!updated) throw notFound("Shop");
@@ -683,7 +686,7 @@ export async function setShopStatus(
   try {
     [updated] = await db
       .update(shops)
-      .set({ status, updatedAt: new Date() })
+      .set({ status, statusActorId: actor.id, updatedAt: new Date() })
       .where(eq(shops.id, shopId))
       .returning();
   } catch (error) {
@@ -817,6 +820,7 @@ export async function updateShop(
     .set({
       ...input,
       ...(verification ?? {}),
+      statusActorId: actor.id,
       updatedAt: new Date(),
     })
     .where(eq(shops.id, shopId))

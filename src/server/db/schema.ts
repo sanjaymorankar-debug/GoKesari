@@ -16,6 +16,11 @@ import {
 } from "@/lib/dispute-states";
 import { RETURN_CONDITIONS, RETURN_REASONS, RETURN_STATUSES, PICKUP_STATUSES } from "@/lib/return-states";
 import { SELLER_DOC_TYPES, SELLER_VERIFICATION_STATUSES } from "@/lib/kyc/doc-formats";
+import {
+  RIDER_LIFECYCLE_STATUSES,
+  SHOP_LIFECYCLE_STATUSES,
+  SUBSCRIPTION_LIFECYCLE_STATUSES,
+} from "@/lib/status-models";
 import { SHOP_TYPE_KEYS } from "@/lib/shop-types";
 import {
   bigint,
@@ -47,6 +52,15 @@ export const userRoleEnum = pgEnum("user_role", [
    * entity and its scoped permissions land (Wave 8, decision D5). */
   "SOCIETY_ADMIN",
 ]);
+
+/**
+ * Lifecycle summaries (feature F1, lib/status-models.ts). Derived from the
+ * detailed status columns by a database trigger (migration 0042) — never
+ * written by application code.
+ */
+export const shopLifecycleStatusEnum = pgEnum("shop_lifecycle_status", SHOP_LIFECYCLE_STATUSES);
+export const riderLifecycleStatusEnum = pgEnum("rider_lifecycle_status", RIDER_LIFECYCLE_STATUSES);
+export const subscriptionLifecycleStatusEnum = pgEnum("subscription_lifecycle_status", SUBSCRIPTION_LIFECYCLE_STATUSES);
 
 export const userStatusEnum = pgEnum("user_status", [
   "ACTIVE",
@@ -853,6 +867,10 @@ export const shops = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /** Derived by trigger from status + ordersPaused + deletedAt (F1). */
+    lifecycleStatus: shopLifecycleStatusEnum("lifecycle_status").notNull().default("PENDING"),
+    /** Who is making this status change — read once by the trigger for status_changes, then cleared. */
+    statusActorId: uuid("status_actor_id"),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (t) => [
@@ -1103,6 +1121,9 @@ export const deliveryPartners = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /** Derived by trigger from status + isOnline + live delivery (F1). */
+    lifecycleStatus: riderLifecycleStatusEnum("lifecycle_status").notNull().default("ONBOARDING"),
+    statusActorId: uuid("status_actor_id"),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (t) => [
@@ -2163,7 +2184,7 @@ export const storedImages = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
-    purpose: text("purpose", { enum: ["PRODUCT", "RETURN_EVIDENCE"] }).notNull(),
+    purpose: text("purpose", { enum: ["PRODUCT", "RETURN_EVIDENCE", "PROFILE_PHOTO"] }).notNull(),
     contentType: text("content_type").notNull(),
     sizeBytes: integer("size_bytes").notNull(),
     width: integer("width").notNull(),
@@ -2833,6 +2854,9 @@ export const subscriptions = pgTable(
     pauseUntil: date("pause_until"),
     cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
     cancellationReason: text("cancellation_reason"),
+    /** Derived by trigger from status + pause window (F1). */
+    lifecycleStatus: subscriptionLifecycleStatusEnum("lifecycle_status").notNull().default("ACTIVE"),
+    statusActorId: uuid("status_actor_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -3543,6 +3567,69 @@ export const auditLogs = pgTable(
     index("audit_logs_entity_idx").on(t.entityType, t.entityId),
     index("audit_logs_created_idx").on(t.createdAt),
   ],
+);
+
+/* ------------------------------------------------ rider self-edit (F2)
+ * A rider's change to identity or bank details waits here for an admin: the
+ * new values are one AES-256-GCM blob (pan-crypto encryptSecret of a JSON
+ * object) and are copied into delivery_partners only on approval. Only the
+ * field names and a masked tail are readable. One PENDING request per rider;
+ * a newer request supersedes it. */
+export const deliveryPartnerChangeRequests = pgTable(
+  "delivery_partner_change_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deliveryPartnerId: uuid("delivery_partner_id")
+      .notNull()
+      .references(() => deliveryPartners.id, { onDelete: "cascade" }),
+    fields: text("fields").array().notNull(),
+    payloadEncrypted: text("payload_encrypted").notNull(),
+    /** field → "…1234" for the reviewer; never the full value. */
+    masked: jsonb("masked").notNull().default({}),
+    status: text("status", { enum: ["PENDING", "APPROVED", "REJECTED", "SUPERSEDED"] }).notNull().default("PENDING"),
+    rejectionReason: text("rejection_reason"),
+    requestedBy: uuid("requested_by").references(() => users.id),
+    reviewedBy: uuid("reviewed_by").references(() => users.id),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("delivery_partner_change_requests_one_pending")
+      .on(t.deliveryPartnerId)
+      .where(sql`${t.status} = 'PENDING'`),
+    index("delivery_partner_change_requests_status_idx").on(t.status, t.createdAt),
+  ],
+);
+
+/* ------------------------------------------------ lifecycle status log (F1)
+ * One row per lifecycle change of a shop, rider or subscription, written by
+ * the database trigger that derives the status (migration 0042), so every
+ * code path is logged. actor_id is null for system / automatic changes. */
+export const statusChanges = pgTable(
+  "status_changes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    entityType: text("entity_type", { enum: ["SHOP", "RIDER", "SUBSCRIPTION"] }).notNull(),
+    entityId: uuid("entity_id").notNull(),
+    fromStatus: text("from_status"),
+    toStatus: text("to_status").notNull(),
+    actorId: uuid("actor_id"),
+    /** Detailed fields behind the change, e.g. {"status":"APPROVED","orders_paused":true}. */
+    detail: jsonb("detail").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("status_changes_entity_idx").on(t.entityType, t.entityId, t.createdAt), index("status_changes_created_idx").on(t.createdAt)],
+);
+
+/** Allowed lifecycle transitions, seeded from lib/status-models.ts; the trigger refuses anything else. */
+export const statusTransitionRules = pgTable(
+  "status_transition_rules",
+  {
+    entityType: text("entity_type").notNull(),
+    fromStatus: text("from_status").notNull(),
+    toStatus: text("to_status").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.entityType, t.fromStatus, t.toStatus] })],
 );
 
 /* ------------------------------------------------ seller verification
@@ -4496,6 +4583,8 @@ export const riskFlags = pgTable(
 export type User = typeof users.$inferSelect;
 export type Shop = typeof shops.$inferSelect;
 export type SellerVerification = typeof sellerVerifications.$inferSelect;
+export type StatusChange = typeof statusChanges.$inferSelect;
+export type DeliveryPartnerChangeRequest = typeof deliveryPartnerChangeRequests.$inferSelect;
 export type SellerVerificationEvent = typeof sellerVerificationEvents.$inferSelect;
 export type SellerVerificationFile = typeof sellerVerificationFiles.$inferSelect;
 export type GstStatus = (typeof gstStatusEnum.enumValues)[number];

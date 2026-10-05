@@ -82,6 +82,7 @@ export const NOTIFICATION_TYPES = {
   DELIVERY_PARTNER_APPROVED: "delivery_partner.approved",
   DELIVERY_PARTNER_REJECTED: "delivery_partner.rejected",
   DELIVERY_PARTNER_SUSPENDED: "delivery_partner.suspended",
+  DELIVERY_PARTNER_CHANGE_DECIDED: "delivery_partner.change_decided",
   DELIVERY_OFFERED: "delivery.offered",
   SHOP_GST_VERIFIED: "shop.gst_verified",
   SHOP_GST_REJECTED: "shop.gst_rejected",

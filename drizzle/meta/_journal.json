@@ -295,6 +295,20 @@
       "when": 1791210340087,
       "tag": "0041_seller_verification_files",
       "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1791227382268,
+      "tag": "0042_status_models",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1791227707084,
+      "tag": "0043_rider_change_requests",
+      "breakpoints": true
     }
   ]
 }

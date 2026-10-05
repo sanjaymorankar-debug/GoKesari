@@ -215,6 +215,15 @@ export const RULES = {
       resolveTargetHours: 120,
     },
   },
+  statusModels: {
+    description:
+      "Lifecycle status models for shops, riders and subscriptions: when enforcement is on, the database refuses a status change that is not in the allowed-transition table (it is always logged).",
+    schema: z.object({
+      /** Read by the database trigger (migration 0042). Off: disallowed changes go through, logged as unenforced. */
+      enforceTransitions: z.boolean(),
+    }),
+    defaults: { enforceTransitions: true },
+  },
   sellerVerification: {
     description:
       "Seller document verification (PAN, GSTIN, Udyam, FSSAI, Shop Act): when a vendor result is accepted without a person, how often documents are re-checked, and when a lapsed document takes a shop offline.",

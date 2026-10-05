@@ -132,6 +132,10 @@ export const AUDIT_ACTIONS = {
   DELIVERY_PARTNER_REGISTERED: "delivery_partner.registered",
   DELIVERY_PARTNER_STATUS_CHANGED: "delivery_partner.status_changed",
   DELIVERY_PARTNER_ONLINE_STATUS_CHANGED: "delivery_partner.online_status_changed",
+  /** F2: a rider edited their own profile (field names only — no values). */
+  DELIVERY_PARTNER_PROFILE_UPDATED: "delivery_partner.profile_updated",
+  DELIVERY_PARTNER_CHANGE_REQUESTED: "delivery_partner.change_requested",
+  DELIVERY_PARTNER_CHANGE_DECIDED: "delivery_partner.change_decided",
 
   /* ------------------------------------ delivery assignment (Part 58, Slice C) */
   DELIVERY_ORDER_OFFERED: "delivery_order.offered",
