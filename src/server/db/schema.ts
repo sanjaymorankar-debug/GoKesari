@@ -4849,3 +4849,46 @@ export const couponRedemptions = pgTable(
     index("coupon_redemptions_coupon_user_idx").on(t.couponId, t.userId),
   ],
 );
+
+/* ------------------------------------------------ shop offers (F8)
+ * A shop's own discount on one of its products or on a whole category,
+ * between two dates. Shown on the shop page and applied to the unit price in
+ * the cart and at checkout. Shop-funded: the order is priced at the offer
+ * price. Loose goods with no price are never discounted. */
+export const shopOffers = pgTable(
+  "shop_offers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    targetType: text("target_type", { enum: ["PRODUCT", "CATEGORY"] }).notNull(),
+    shopProductId: uuid("shop_product_id").references(() => shopProducts.id, { onDelete: "cascade" }),
+    categoryId: uuid("category_id").references(() => productCategories.id, { onDelete: "cascade" }),
+    discountType: text("discount_type", { enum: ["PERCENT", "FLAT"] }).notNull(),
+    /** PERCENT: whole percent off the unit price (1–90). */
+    percent: integer("percent"),
+    /** FLAT: paise off each unit. */
+    flatPaise: bigint("flat_paise", { mode: "number" }),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    active: boolean("active").notNull().default(true),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("shop_offers_shop_idx").on(t.shopId, t.endsAt),
+    check(
+      "shop_offers_target_valid",
+      sql`(${t.targetType} = 'PRODUCT' AND ${t.shopProductId} IS NOT NULL) OR (${t.targetType} = 'CATEGORY' AND ${t.categoryId} IS NOT NULL)`,
+    ),
+    check(
+      "shop_offers_amount_valid",
+      sql`(${t.discountType} = 'PERCENT' AND ${t.percent} BETWEEN 1 AND 90) OR (${t.discountType} = 'FLAT' AND ${t.flatPaise} > 0)`,
+    ),
+    check("shop_offers_dates_valid", sql`${t.endsAt} > ${t.startsAt}`),
+  ],
+);
+export type ShopOffer = typeof shopOffers.$inferSelect;

@@ -53,6 +53,7 @@ import { DELIVERY_WINDOW_MINUTES, getFeasibleDeliveryWindows, type DeliveryWindo
 import { reserveSlot, slotFullError } from "./delivery-slots";
 import { getOrCreateOrderGroup, referencesForGroups } from "./order-groups";
 import { quoteCoupon, redeemCouponForOrder } from "./coupons";
+import { getLiveOffers, priceWithOffers } from "./shop-offers";
 import { getRule } from "./settings";
 import { notifyOpenStockAlerts } from "./inventory-alerts";
 import { postRetainedDeliveryFee, recordOrderFinancials } from "./finance";
@@ -420,6 +421,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
 
       // Re-validate and re-price every line inside the transaction. The cart
       // view is a hint; this is the authority.
+      const shopOffersLive = await getLiveOffers([group.shop.id], new Date(), tx);
       for (const line of group.lines) {
         if (!line.purchasable) continue;
 
@@ -429,14 +431,21 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           tx,
         );
         const quantityMilli = line.quantity * loaded.product.unitSizeMilli;
+        // F8: a live shop offer lowers the unit price (the same pricing as the cart).
+        const unitPricePaise =
+          priceWithOffers(
+            loaded.unitPricePaise,
+            { shopId: group.shop.id, shopProductId: loaded.shopProduct.id, categoryId: loaded.product.categoryId },
+            shopOffersLive,
+          ).unitPricePaise ?? loaded.unitPricePaise;
         lines.push({
           shopProductId: loaded.shopProduct.id,
           productName: loaded.product.name,
           unit: loaded.product.unit,
-          unitPricePaise: loaded.unitPricePaise,
+          unitPricePaise,
           quantityUnits: line.quantity,
           quantityMilli,
-          lineTotalPaise: lineTotalPaise(loaded.unitPricePaise, quantityMilli),
+          lineTotalPaise: lineTotalPaise(unitPricePaise, quantityMilli),
         });
       }
 

@@ -323,7 +323,17 @@ export function CartView({
 
                     {line.purchasable ? (
                       <p className="mt-1 text-sm text-ink-600">
+                        {line.listUnitPricePaise ? (
+                          <span className="mr-1 text-ink-400 line-through">
+                            <Money paise={line.listUnitPricePaise} />
+                          </span>
+                        ) : null}
                         <Money paise={line.unitPricePaise} /> × {line.quantity}
+                        {line.offerTitle ? (
+                          <span className="ml-2" data-testid="cart-offer">
+                            <Badge tone="success">{line.offerTitle}</Badge>
+                          </span>
+                        ) : null}
                       </p>
                     ) : (
                       <p className="mt-1">

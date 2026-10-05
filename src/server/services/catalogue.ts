@@ -1015,6 +1015,8 @@ export interface StorefrontProduct {
   shopName: string;
   shopSlug: string;
   shopClassification: "KESARI" | "GREEN" | null;
+  /** F8: the product's category (for shop offers). */
+  categoryId?: string;
 }
 
 /**
@@ -1095,6 +1097,7 @@ export async function listStorefrontProducts(options: {
     productId: r.product.id,
     productName: r.product.name,
     categoryName: r.category.name,
+    categoryId: r.category.id,
     department: r.category.department,
     unit: r.product.unit,
     unitSizeMilli: r.product.unitSizeMilli,

@@ -337,6 +337,13 @@
       "when": 1791229193124,
       "tag": "0047_coupons",
       "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1791229592590,
+      "tag": "0048_shop_offers",
+      "breakpoints": true
     }
   ]
 }

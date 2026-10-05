@@ -225,6 +225,12 @@ export const RULES = {
       resolveTargetHours: 120,
     },
   },
+  shopOffers: {
+    description:
+      "Shop offers (a shop's own discount on a product or category, with dates). Off: offers are hidden and prices are the shop's normal online price (the original behaviour). On: live offers show on the shop page and apply to the unit price in the cart and at checkout. Shop-funded.",
+    schema: z.object({ enabled: z.boolean() }),
+    defaults: { enabled: false },
+  },
   coupons: {
     description:
       "Order-level coupon codes (Admin → Coupons). Off: the coupon box is hidden and codes are refused (the original checkout). On: a valid code takes a flat amount or a percentage off the order's goods, split across shops in proportion to their goods value. Platform-funded — shops are paid on their full goods value.",
