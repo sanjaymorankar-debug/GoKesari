@@ -132,7 +132,7 @@ export async function suspendShopWithPolicy(
     // The APPROVED check is part of the UPDATE, so a concurrent reject or suspend cannot be overwritten or audited twice.
     const [shop] = await tx
       .update(shops)
-      .set({ status: "SUSPENDED", updatedAt: new Date() })
+      .set({ status: "SUSPENDED", statusActorId: actor?.id ?? null, updatedAt: new Date() })
       .where(and(eq(shops.id, shopId), eq(shops.status, "APPROVED"), sql`${shops.deletedAt} IS NULL`))
       .returning();
     if (!shop) return null;
@@ -246,7 +246,7 @@ export async function reactivateShop(shopId: string, note: string, actor: Actor)
   const shop = await db.transaction(async (tx) => {
     const [row] = await tx
       .update(shops)
-      .set({ status: "APPROVED", updatedAt: new Date() })
+      .set({ status: "APPROVED", statusActorId: actor.id, updatedAt: new Date() })
       .where(and(eq(shops.id, shopId), eq(shops.status, "SUSPENDED"), sql`${shops.deletedAt} IS NULL`))
       .returning();
     if (!row) return null;

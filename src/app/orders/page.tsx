@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import {
@@ -20,6 +21,7 @@ import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { getDeliveryOrdersForOrders } from "@/server/services/delivery-assignment";
 import { getLiveDisputesForOrders } from "@/server/services/disputes";
+import { referencesForGroups } from "@/server/services/order-groups";
 import { listOrdersForUser } from "@/server/services/orders";
 import { listMyRatingsByOrder } from "@/server/services/ratings";
 
@@ -49,7 +51,8 @@ export default async function OrdersPage({
   const showBusiness = can(user.role, PERMISSIONS.ORDER_PLACE_B2B);
   const orderType = showBusiness && params.type === "business" ? "B2B" : "PERSONAL";
   const orders = await listOrdersForUser(user.id, { limit: 50, orderType });
-  const [deliveryOrders, myRatings, liveDisputes] = await Promise.all([
+  const [groupRefs, deliveryOrders, myRatings, liveDisputes] = await Promise.all([
+    referencesForGroups(orders.map((o) => o.orderGroupId)),
     getDeliveryOrdersForOrders(orders.map((o) => o.id)),
     listMyRatingsByOrder(user.id, orders.map((o) => o.id)),
     getLiveDisputesForOrders(orders.map((o) => o.id)),
@@ -111,6 +114,20 @@ export default async function OrdersPage({
                   <span className="text-sm text-ink-500">
                     {order.orderNumber}
                   </span>
+                  {order.discountPaise > 0 ? (
+                    <Badge tone="success">
+                      {order.couponCode ? `${order.couponCode} · ` : ""}saved <Money paise={order.discountPaise} />
+                    </Badge>
+                  ) : null}
+                  {order.orderGroupId && groupRefs.get(order.orderGroupId) ? (
+                    <Link
+                      href={`/orders/group/${groupRefs.get(order.orderGroupId)}`}
+                      className="text-xs text-kesari-700 hover:underline"
+                      data-testid="parent-order-ref"
+                    >
+                      Part of {groupRefs.get(order.orderGroupId)}
+                    </Link>
+                  ) : null}
                 </div>
                 <span className="font-semibold text-ink-900">
                   <Money paise={order.totalPaise} />

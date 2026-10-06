@@ -8,6 +8,7 @@ import { NextResponse, type NextRequest } from "next/server";
 import { AppError, toClientError } from "@/lib/errors";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getImage } from "@/server/services/image-store";
+import { isHiddenProductFile, isImageStaff } from "@/server/services/product-images";
 import { canViewReturnImage } from "@/server/services/returns";
 
 export const dynamic = "force-dynamic";
@@ -25,6 +26,13 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
         throw new AppError("NOT_FOUND", "Image not found.");
       }
       cache = "private, max-age=300";
+    } else if (image.purpose === "PRODUCT" && (await isHiddenProductFile(image.id))) {
+      // F10: a photo awaiting (or refused) approval — its uploader and staff only.
+      const user = await getCurrentUser();
+      if (!user || (user.id !== image.ownerId && !isImageStaff(user.role))) {
+        throw new AppError("NOT_FOUND", "Image not found.");
+      }
+      cache = "private, no-store";
     }
     return new NextResponse(new Uint8Array(image.data), {
       headers: {

@@ -110,6 +110,7 @@ export async function registerDeliveryPartner(
     .insert(deliveryPartners)
     .values({
       userId,
+      statusActorId: userId,
       fullName: input.fullName.trim(),
       mobile: input.mobile,
       email: input.email?.trim() || null,
@@ -227,6 +228,7 @@ async function transition(
         ...set,
         ...(takeOffline ? { isOnline: false } : {}),
         reviewedBy: actor.id,
+        statusActorId: actor.id,
         reviewedAt: now,
         updatedAt: now,
       })
@@ -456,6 +458,7 @@ export async function goOnline(
       .update(deliveryPartners)
       .set({
         isOnline: true,
+        statusActorId: userId,
         lastLocationLatitude: String(latitude),
         lastLocationLongitude: String(longitude),
         lastLocationAt: now,
@@ -509,7 +512,7 @@ export async function goOffline(userId: string): Promise<PublicDeliveryPartner> 
     const now = new Date();
     const [updated] = await tx
       .update(deliveryPartners)
-      .set({ isOnline: false, updatedAt: now })
+      .set({ isOnline: false, statusActorId: userId, updatedAt: now })
       .where(eq(deliveryPartners.id, partner.id))
       .returning();
     await closeOpenSessions(tx, partner.id, partner.lastLocationAt, now);

@@ -25,6 +25,7 @@ import {
   type Shop,
 } from "@/server/db/schema";
 import { assertOnlinePurchasable, isOnlinePurchasable } from "./catalogue";
+import { getLiveOffers, priceWithOffers } from "./shop-offers";
 
 export interface CartLine {
   cartItemId: string;
@@ -41,6 +42,9 @@ export interface CartLine {
   /** False when the item can no longer be bought online right now. */
   purchasable: boolean;
   unavailableReason: string | null;
+  /** F8: set only when a shop offer lowered the price — the normal price and the offer's title. */
+  listUnitPricePaise?: number;
+  offerTitle?: string;
 }
 
 export interface CartShopGroup {
@@ -219,6 +223,8 @@ export async function getCart(userId: string): Promise<CartSummary> {
     .where(eq(cartItems.cartId, cart.id));
 
   const byShop = new Map<string, CartShopGroup>();
+  // F8: live shop offers (none unless the rule is on) — checkout prices the same way.
+  const offers = await getLiveOffers(rows.map((r) => r.shop.id));
 
   for (const row of rows) {
     const purchasable = isOnlinePurchasable(
@@ -234,7 +240,12 @@ export async function getCart(userId: string): Promise<CartSummary> {
       row.item.quantity,
     );
 
-    const unitPrice = row.sp.onlinePricePaise ?? 0;
+    const priced = priceWithOffers(
+      row.sp.onlinePricePaise,
+      { shopId: row.shop.id, shopProductId: row.sp.id, categoryId: row.product.categoryId },
+      offers,
+    );
+    const unitPrice = priced.unitPricePaise ?? 0;
     const quantityMilli = row.item.quantity * row.product.unitSizeMilli;
 
     const line: CartLine = {
@@ -253,6 +264,7 @@ export async function getCart(userId: string): Promise<CartSummary> {
       unavailableReason: purchasable
         ? null
         : describeUnavailability(row.shop.status, row.sp),
+      ...(priced.offer ? { listUnitPricePaise: row.sp.onlinePricePaise!, offerTitle: priced.offer.title } : {}),
     };
 
     let group = byShop.get(row.shop.id);

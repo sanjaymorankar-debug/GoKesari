@@ -13,6 +13,7 @@ import { shops, users } from "@/server/db/schema";
 import { getCustomerLocation } from "@/server/location";
 import { validateCartForLocation } from "@/server/services/cart-validation";
 import { listShopsForOwner } from "@/server/services/shops";
+import { getRule } from "@/server/services/settings";
 import { getWalletByUserId } from "@/server/services/wallet";
 
 export const metadata = { title: "Cart" };
@@ -75,6 +76,7 @@ export default async function CartPage() {
         preferredAddressId={preferredAddressId}
         codUnavailableReason={codUnavailableReason}
         hasMobile={Boolean(account?.phoneE164)}
+        couponsEnabled={(await getRule("coupons")).enabled}
         addresses={addresses.map((a) => ({
           id: a.id,
           label: a.label,

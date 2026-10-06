@@ -12,6 +12,9 @@ export interface ManagedImage {
   url: string;
   altText: string | null;
   isPrimary: boolean;
+  /** F10: PENDING / REJECTED photos are not shown to customers. */
+  moderationStatus?: "PENDING" | "APPROVED" | "REJECTED";
+  rejectionReason?: string | null;
 }
 
 /**
@@ -108,8 +111,17 @@ export function ProductImagesManager({
         {images.map((image, index) => (
           <li key={image.id} className="space-y-2 rounded-lg border border-cream-200 p-2" data-testid="managed-image">
             <SafeImage src={image.url} alt={image.altText ?? "Product photo"} className="h-32 w-full rounded object-cover" />
+            {image.moderationStatus === "REJECTED" && image.rejectionReason ? (
+              <p className="text-xs text-red-700" data-testid="image-rejection-reason">
+                {image.rejectionReason}
+              </p>
+            ) : null}
             <div className="flex items-center justify-between">
-              {image.isPrimary ? <Badge tone="success">Primary</Badge> : <span className="text-xs text-ink-400">#{index + 1}</span>}
+              <span className="flex items-center gap-1">
+                {image.isPrimary ? <Badge tone="success">Primary</Badge> : <span className="text-xs text-ink-400">#{index + 1}</span>}
+                {image.moderationStatus === "PENDING" ? <Badge tone="warning">Awaiting approval</Badge> : null}
+                {image.moderationStatus === "REJECTED" ? <Badge tone="danger">Not approved</Badge> : null}
+              </span>
               <span className="flex gap-1">
                 <button type="button" aria-label="Move earlier" disabled={busy || index === 0} onClick={() => move(index, -1)} className="px-1 text-sm disabled:opacity-30">
                   ←

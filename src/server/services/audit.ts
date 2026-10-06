@@ -68,6 +68,8 @@ export const AUDIT_ACTIONS = {
   REFERRAL_CODE_CREATED: "referral_code.created",
   REFERRAL_CODE_UPDATED: "referral_code.updated",
   REFERRAL_CODE_ASSIGNED: "referral_code.assigned",
+  CUSTOMER_REFERRAL_APPLIED: "customer_referral.applied",
+  CUSTOMER_REFERRAL_DECIDED: "customer_referral.decided",
   PRODUCT_REMOVED: "shop_product.removed",
 
   /* ---------------------------------------------- product creation & approval */
@@ -132,6 +134,10 @@ export const AUDIT_ACTIONS = {
   DELIVERY_PARTNER_REGISTERED: "delivery_partner.registered",
   DELIVERY_PARTNER_STATUS_CHANGED: "delivery_partner.status_changed",
   DELIVERY_PARTNER_ONLINE_STATUS_CHANGED: "delivery_partner.online_status_changed",
+  /** F2: a rider edited their own profile (field names only — no values). */
+  DELIVERY_PARTNER_PROFILE_UPDATED: "delivery_partner.profile_updated",
+  DELIVERY_PARTNER_CHANGE_REQUESTED: "delivery_partner.change_requested",
+  DELIVERY_PARTNER_CHANGE_DECIDED: "delivery_partner.change_decided",
 
   /* ------------------------------------ delivery assignment (Part 58, Slice C) */
   DELIVERY_ORDER_OFFERED: "delivery_order.offered",
@@ -192,6 +198,7 @@ export const AUDIT_ACTIONS = {
   MRP_CORRECTION_DECIDED: "product.mrp_correction_decided",
   MRP_CONFLICT_DETECTED: "product.mrp_conflict_detected",
   PRODUCT_IMAGE_CHANGED: "product_image.changed",
+  PRODUCT_IMAGE_MODERATED: "product_image.moderated",
   SHOP_CATEGORY_SAVED: "shop_category.saved",
   SHOP_CATEGORIES_CHANGED: "shop.categories_changed",
   /* Category master and shop ↔ product-category links. */
@@ -224,6 +231,10 @@ export const AUDIT_ACTIONS = {
   PMD_PRODUCT_ADOPTED: "pmd.product_adopted",
   PMD_MATCH_DECIDED: "pmd.match_decided",
   PMD_PRODUCTS_IMPORTED: "pmd.products_imported",
+
+  /* ------------------------------------------------ promotions (F7, F8) */
+  COUPON_SAVED: "coupon.saved",
+  SHOP_OFFER_SAVED: "shop.offer_saved",
 
   /* ------------------------------------------- platform rules & auth */
   SETTING_CHANGED: "setting.changed",

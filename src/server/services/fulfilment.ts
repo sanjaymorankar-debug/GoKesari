@@ -336,6 +336,13 @@ async function refundLine(
   description: string,
 ): Promise<void> {
   if (amountPaise <= 0) return;
+  // F7: a coupon-discounted order never refunds more goods than were paid for —
+  // the discount is used up by the last lines refunded.
+  if (order.discountPaise > 0) {
+    const [latest] = await tx.select().from(orders).where(eq(orders.id, order.id));
+    amountPaise = Math.min(amountPaise, Math.max(0, latest.totalPaise - latest.deliveryFeePaise - latest.taxPaise));
+    if (amountPaise <= 0) return;
+  }
   if (order.paidAt != null) {
     await refundOriginalDebit(
       {

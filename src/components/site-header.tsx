@@ -44,6 +44,7 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/shop/prices", label: "Price Updates" },
     { href: "/shop/finance", label: "Finance" },
     { href: "/shop/marketing", label: "Marketing" },
+    { href: "/shop/offers", label: "Offers" },
     { href: "/shop/analytics", label: "Analytics" },
   ],
   OPERATOR: [
@@ -56,6 +57,7 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin/price-references", label: "Reference prices" },
     { href: "/admin/finance/exceptions", label: "Finance exceptions" },
     { href: "/admin/returns", label: "Returns" },
+    { href: "/admin/image-moderation", label: "Image moderation" },
     { href: "/admin/suspensions", label: "Suspensions" },
     { href: "/admin/societies", label: "Societies" },
     { href: "/admin/ratings", label: "Ratings" },
@@ -87,6 +89,12 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin/consents", label: "Consent" },
     { href: "/admin/disputes", label: "Disputes" },
     { href: "/admin/cod", label: "COD cash" },
+    { href: "/admin/coupons", label: "Coupons" },
+    { href: "/admin/delivery-slots", label: "Delivery slots" },
+    { href: "/admin/image-moderation", label: "Image moderation" },
+    { href: "/admin/rider-changes", label: "Rider profile changes" },
+    { href: "/admin/customer-referrals", label: "Customer referrals" },
+    { href: "/admin/status-changes", label: "Status history" },
   ],
   DELIVERY_PARTNER: [{ href: "/delivery-partner", label: "Delivery Partner" }],
 };

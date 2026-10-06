@@ -1,10 +1,15 @@
+import { cookies } from "next/headers";
 import Link from "next/link";
 
+import { HomePriceComparison } from "@/components/home-price-comparison";
 import { ShopGrid } from "@/components/shop-grid";
-import { Card, Section } from "@/components/ui";
+import { Alert, Card, Section } from "@/components/ui";
+import { REFERRAL_COOKIE } from "@/lib/customer-referrals";
 import { LocationBar } from "@/components/location-bar";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getCustomerLocation } from "@/server/location";
+import { canApplyReferralCode } from "@/server/services/customer-referrals";
+import { homePriceComparison } from "@/server/services/price-comparison";
 import { listServiceableShops } from "@/server/services/serviceability";
 import { searchShops } from "@/server/services/shops";
 
@@ -14,15 +19,35 @@ export const dynamic = "force-dynamic";
 export default async function HomePage() {
   const user = await getCurrentUser();
   const location = await getCustomerLocation(user?.id);
-  const [featuredShops, kesariShops, greenShops, nearbyShops] = await Promise.all([
+  const [featuredShops, kesariShops, greenShops, nearbyShops, compared] = await Promise.all([
     searchShops({ limit: 4 }),
     searchShops({ classification: "KESARI", limit: 4 }),
     searchShops({ classification: "GREEN", limit: 4 }),
     location ? listServiceableShops(location, { limit: 8 }) : Promise.resolve([]),
+    // F9: never let the comparison take the home page down.
+    homePriceComparison(location).catch((error) => {
+      console.error("[home] price comparison failed", error);
+      return [];
+    }),
   ]);
+
+  // F11: arrived through a friend's referral link and not yet applied — prompt once signed in.
+  const referralCode = (await cookies()).get(REFERRAL_COOKIE)?.value;
+  const showReferral =
+    user && referralCode ? await canApplyReferralCode(user.id).catch(() => false) : false;
 
   return (
     <>
+      {showReferral ? (
+        <div className="mb-4" data-testid="referral-banner">
+          <Alert tone="success" title="You were invited by a friend">
+            <Link href="/refer" className="font-medium underline">
+              Apply code {referralCode}
+            </Link>{" "}
+            to get your welcome reward after your first delivered order.
+          </Alert>
+        </div>
+      ) : null}
       <section className="mb-10 overflow-hidden rounded-2xl bg-gradient-to-br from-kesari-50 via-cream-100 to-leaf-50 px-6 py-10 sm:px-10 sm:py-14">
         <h1 className="max-w-2xl text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
           What are you looking for?
@@ -54,6 +79,12 @@ export default async function HomePage() {
       {location ? (
         <Section title="Shops that deliver to you" href="/shops">
           <ShopGrid shops={nearbyShops} />
+        </Section>
+      ) : null}
+
+      {compared.length > 0 ? (
+        <Section title="Compare prices near you">
+          <HomePriceComparison products={compared} />
         </Section>
       ) : null}
 

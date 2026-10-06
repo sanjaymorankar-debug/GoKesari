@@ -16,8 +16,14 @@ import {
 } from "@/lib/dispute-states";
 import { RETURN_CONDITIONS, RETURN_REASONS, RETURN_STATUSES, PICKUP_STATUSES } from "@/lib/return-states";
 import { SELLER_DOC_TYPES, SELLER_VERIFICATION_STATUSES } from "@/lib/kyc/doc-formats";
+import {
+  RIDER_LIFECYCLE_STATUSES,
+  SHOP_LIFECYCLE_STATUSES,
+  SUBSCRIPTION_LIFECYCLE_STATUSES,
+} from "@/lib/status-models";
 import { SHOP_TYPE_KEYS } from "@/lib/shop-types";
 import {
+  type AnyPgColumn,
   bigint,
   boolean,
   check,
@@ -47,6 +53,15 @@ export const userRoleEnum = pgEnum("user_role", [
    * entity and its scoped permissions land (Wave 8, decision D5). */
   "SOCIETY_ADMIN",
 ]);
+
+/**
+ * Lifecycle summaries (feature F1, lib/status-models.ts). Derived from the
+ * detailed status columns by a database trigger (migration 0042) — never
+ * written by application code.
+ */
+export const shopLifecycleStatusEnum = pgEnum("shop_lifecycle_status", SHOP_LIFECYCLE_STATUSES);
+export const riderLifecycleStatusEnum = pgEnum("rider_lifecycle_status", RIDER_LIFECYCLE_STATUSES);
+export const subscriptionLifecycleStatusEnum = pgEnum("subscription_lifecycle_status", SUBSCRIPTION_LIFECYCLE_STATUSES);
 
 export const userStatusEnum = pgEnum("user_status", [
   "ACTIVE",
@@ -853,6 +868,10 @@ export const shops = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /** Derived by trigger from status + ordersPaused + deletedAt (F1). */
+    lifecycleStatus: shopLifecycleStatusEnum("lifecycle_status").notNull().default("PENDING"),
+    /** Who is making this status change — read once by the trigger for status_changes, then cleared. */
+    statusActorId: uuid("status_actor_id"),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (t) => [
@@ -1103,6 +1122,9 @@ export const deliveryPartners = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /** Derived by trigger from status + isOnline + live delivery (F1). */
+    lifecycleStatus: riderLifecycleStatusEnum("lifecycle_status").notNull().default("ONBOARDING"),
+    statusActorId: uuid("status_actor_id"),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
   },
   (t) => [
@@ -1399,9 +1421,16 @@ export const productImages = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /** F10: shop owners' uploads wait for admin approval before anyone else
+     * sees them. Every photo that existed before F10 is APPROVED (stays live). */
+    moderationStatus: text("moderation_status", { enum: ["PENDING", "APPROVED", "REJECTED"] }).notNull().default("APPROVED"),
+    rejectionReason: text("rejection_reason"),
+    moderatedBy: uuid("moderated_by").references(() => users.id),
+    moderatedAt: timestamp("moderated_at", { withTimezone: true }),
   },
   (t) => [
     index("product_images_product_idx").on(t.productId),
+    index("product_images_moderation_idx").on(t.moderationStatus, t.createdAt),
     index("product_images_shop_product_idx").on(t.shopProductId),
     uniqueIndex("product_images_one_primary_product")
       .on(t.productId)
@@ -1694,6 +1723,17 @@ export const orders = pgTable(
     /** The deadline promised for `deliveryWindow`. Never set unless the
      * system determined it was actually achievable at checkout time. */
     promisedByAt: timestamp("promised_by_at", { withTimezone: true }),
+    /** F5: the capacity slot this order was booked into ("2026-10-05T14" for
+     * an hour, "2026-10-05" for a scheduled day, IST). Null when slot capacity
+     * was off or the order has no delivery window. */
+    deliverySlotKey: text("delivery_slot_key"),
+    /** F6: the parent order (one reference for a multi-shop checkout). Null
+     * for single-shop orders and for every order placed before F6. */
+    /** F7: order-level coupon discount on this order (its share of a
+     * multi-shop discount). totalPaise is already net of it. 0 = none. */
+    discountPaise: bigint("discount_paise", { mode: "number" }).notNull().default(0),
+    couponCode: text("coupon_code"),
+    orderGroupId: uuid("order_group_id").references((): AnyPgColumn => orderGroups.id, { onDelete: "set null" }),
     /** When the shop accepted the order (CONFIRMED → ACCEPTED). */
     acceptedAt: timestamp("accepted_at", { withTimezone: true }),
     /** When the shop finished packing (→ READY). */
@@ -1719,6 +1759,8 @@ export const orders = pgTable(
     index("orders_created_idx").on(t.createdAt),
     index("orders_buyer_shop_idx").on(t.buyerShopId),
     index("orders_society_idx").on(t.societyId),
+    index("orders_delivery_slot_idx").on(t.shopId, t.deliveryWindow, t.deliverySlotKey),
+    index("orders_order_group_idx").on(t.orderGroupId),
     index("orders_open_alert_pending_idx")
       .on(t.shopId)
       .where(sql`${t.placedWhileClosed} AND ${t.shopOpenAlertSentAt} IS NULL`),
@@ -1829,6 +1871,12 @@ export const deliveryOrders = pgTable(
     status: deliveryOrderStatusEnum("status").notNull().default("OFFERED"),
     /** Haversine straight-line distance, shop → customer, at assignment time — not a road-distance API call (see haversine.ts). */
     distanceKm: text("distance_km"),
+    /** F4: "ROAD" when distanceKm and the durations came from a routing service, "STRAIGHT_LINE" for the fallback; null before F4. */
+    routeSource: text("route_source", { enum: ["ROAD", "STRAIGHT_LINE"] }),
+    /** F4: expected shop → customer travel time, seconds. */
+    legDurationSeconds: integer("leg_duration_seconds"),
+    /** F4: expected rider → shop travel time when the offer was made, seconds. */
+    pickupDurationSeconds: integer("pickup_duration_seconds"),
     offeredAt: timestamp("offered_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -2163,7 +2211,7 @@ export const storedImages = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
-    purpose: text("purpose", { enum: ["PRODUCT", "RETURN_EVIDENCE"] }).notNull(),
+    purpose: text("purpose", { enum: ["PRODUCT", "RETURN_EVIDENCE", "PROFILE_PHOTO"] }).notNull(),
     contentType: text("content_type").notNull(),
     sizeBytes: integer("size_bytes").notNull(),
     width: integer("width").notNull(),
@@ -2833,6 +2881,9 @@ export const subscriptions = pgTable(
     pauseUntil: date("pause_until"),
     cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
     cancellationReason: text("cancellation_reason"),
+    /** Derived by trigger from status + pause window (F1). */
+    lifecycleStatus: subscriptionLifecycleStatusEnum("lifecycle_status").notNull().default("ACTIVE"),
+    statusActorId: uuid("status_actor_id"),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -3545,6 +3596,69 @@ export const auditLogs = pgTable(
   ],
 );
 
+/* ------------------------------------------------ rider self-edit (F2)
+ * A rider's change to identity or bank details waits here for an admin: the
+ * new values are one AES-256-GCM blob (pan-crypto encryptSecret of a JSON
+ * object) and are copied into delivery_partners only on approval. Only the
+ * field names and a masked tail are readable. One PENDING request per rider;
+ * a newer request supersedes it. */
+export const deliveryPartnerChangeRequests = pgTable(
+  "delivery_partner_change_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deliveryPartnerId: uuid("delivery_partner_id")
+      .notNull()
+      .references(() => deliveryPartners.id, { onDelete: "cascade" }),
+    fields: text("fields").array().notNull(),
+    payloadEncrypted: text("payload_encrypted").notNull(),
+    /** field → "…1234" for the reviewer; never the full value. */
+    masked: jsonb("masked").notNull().default({}),
+    status: text("status", { enum: ["PENDING", "APPROVED", "REJECTED", "SUPERSEDED"] }).notNull().default("PENDING"),
+    rejectionReason: text("rejection_reason"),
+    requestedBy: uuid("requested_by").references(() => users.id),
+    reviewedBy: uuid("reviewed_by").references(() => users.id),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("delivery_partner_change_requests_one_pending")
+      .on(t.deliveryPartnerId)
+      .where(sql`${t.status} = 'PENDING'`),
+    index("delivery_partner_change_requests_status_idx").on(t.status, t.createdAt),
+  ],
+);
+
+/* ------------------------------------------------ lifecycle status log (F1)
+ * One row per lifecycle change of a shop, rider or subscription, written by
+ * the database trigger that derives the status (migration 0042), so every
+ * code path is logged. actor_id is null for system / automatic changes. */
+export const statusChanges = pgTable(
+  "status_changes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    entityType: text("entity_type", { enum: ["SHOP", "RIDER", "SUBSCRIPTION"] }).notNull(),
+    entityId: uuid("entity_id").notNull(),
+    fromStatus: text("from_status"),
+    toStatus: text("to_status").notNull(),
+    actorId: uuid("actor_id"),
+    /** Detailed fields behind the change, e.g. {"status":"APPROVED","orders_paused":true}. */
+    detail: jsonb("detail").notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("status_changes_entity_idx").on(t.entityType, t.entityId, t.createdAt), index("status_changes_created_idx").on(t.createdAt)],
+);
+
+/** Allowed lifecycle transitions, seeded from lib/status-models.ts; the trigger refuses anything else. */
+export const statusTransitionRules = pgTable(
+  "status_transition_rules",
+  {
+    entityType: text("entity_type").notNull(),
+    fromStatus: text("from_status").notNull(),
+    toStatus: text("to_status").notNull(),
+  },
+  (t) => [primaryKey({ columns: [t.entityType, t.fromStatus, t.toStatus] })],
+);
+
 /* ------------------------------------------------ seller verification
  * Legal verification of a shop's PAN, GSTIN, Udyam, FSSAI and Shop Act
  * documents through a KYC vendor (src/server/kyc) or, where no vendor can
@@ -3730,7 +3844,7 @@ export const mapsApiCallLog = pgTable(
   "maps_api_call_log",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    service: text("service", { enum: ["GEOCODING"] }).notNull(),
+    service: text("service", { enum: ["GEOCODING", "ROUTES"] }).notNull(),
     purpose: text("purpose").notNull(),
     entityType: text("entity_type"),
     entityId: text("entity_id"),
@@ -4496,6 +4610,8 @@ export const riskFlags = pgTable(
 export type User = typeof users.$inferSelect;
 export type Shop = typeof shops.$inferSelect;
 export type SellerVerification = typeof sellerVerifications.$inferSelect;
+export type StatusChange = typeof statusChanges.$inferSelect;
+export type DeliveryPartnerChangeRequest = typeof deliveryPartnerChangeRequests.$inferSelect;
 export type SellerVerificationEvent = typeof sellerVerificationEvents.$inferSelect;
 export type SellerVerificationFile = typeof sellerVerificationFiles.$inferSelect;
 export type GstStatus = (typeof gstStatusEnum.enumValues)[number];
@@ -4626,3 +4742,211 @@ export type ExternalPriceReferenceHistoryRow = typeof externalPriceReferenceHist
 export type MrpCorrection = typeof mrpCorrections.$inferSelect;
 export type ShopCategory = typeof shopCategories.$inferSelect;
 export type ShopCategoryMapping = typeof shopCategoryMapping.$inferSelect;
+
+/* ------------------------------------------------ delivery slot capacity (F5)
+ * Maximum orders per delivery slot, for one shop or one area (PIN code).
+ * A shop row wins over its area's row, which wins over the platform default
+ * (rule "deliverySlots"). A null limit means unlimited. */
+export const deliverySlotCapacities = pgTable(
+  "delivery_slot_capacities",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").references(() => shops.id, { onDelete: "cascade" }),
+    pincode: text("pincode"),
+    /** Express (30 min) orders per hour. */
+    expressPerHour: integer("express_per_hour"),
+    /** Standard (60 min) orders per hour. */
+    standardPerHour: integer("standard_per_hour"),
+    /** Scheduled orders per day. */
+    scheduledPerDay: integer("scheduled_per_day"),
+    updatedBy: uuid("updated_by").references(() => users.id),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("delivery_slot_capacities_shop_uq").on(t.shopId).where(sql`${t.shopId} IS NOT NULL`),
+    uniqueIndex("delivery_slot_capacities_pincode_uq").on(t.pincode).where(sql`${t.pincode} IS NOT NULL`),
+    check("delivery_slot_capacities_one_scope", sql`(${t.shopId} IS NULL) <> (${t.pincode} IS NULL)`),
+  ],
+);
+export type DeliverySlotCapacity = typeof deliverySlotCapacities.$inferSelect;
+
+/* ------------------------------------------------ parent orders (F6)
+ * One customer-facing reference for a checkout that spans several shops. Each
+ * shop's order (orders.order_group_id) is still its own sub-order, managed by
+ * that shop exactly as before. One group per checkout request. */
+export const orderGroups = pgTable(
+  "order_groups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** "GK-20261005-AB12CD" — distinct from the per-shop "DB-…" order numbers. */
+    reference: text("reference").notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** The checkout request id, so a retried checkout reuses its group. */
+    requestId: text("request_id").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("order_groups_reference_uq").on(t.reference),
+    uniqueIndex("order_groups_request_uq").on(t.userId, t.requestId),
+  ],
+);
+export type OrderGroup = typeof orderGroups.$inferSelect;
+
+/* ------------------------------------------------ order-level coupons (F7)
+ * A code taking a flat amount or a percentage off the whole order's goods.
+ * Platform-funded: the shop is paid on its full goods value. */
+export const coupons = pgTable(
+  "coupons",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Stored upper-case; matched case-insensitively. */
+    code: text("code").notNull(),
+    description: text("description"),
+    discountType: text("discount_type", { enum: ["FLAT", "PERCENT"] }).notNull(),
+    /** FLAT: paise off. */
+    flatPaise: bigint("flat_paise", { mode: "number" }),
+    /** PERCENT: whole percent off (1–100), optionally capped. */
+    percent: integer("percent"),
+    maxDiscountPaise: bigint("max_discount_paise", { mode: "number" }),
+    minOrderPaise: bigint("min_order_paise", { mode: "number" }).notNull().default(0),
+    startsAt: timestamp("starts_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    /** Total checkouts allowed (null = unlimited). */
+    usageLimit: integer("usage_limit"),
+    /** Checkouts allowed per customer (null = unlimited). */
+    perCustomerLimit: integer("per_customer_limit").default(1),
+    active: boolean("active").notNull().default(true),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("coupons_code_uq").on(t.code),
+    check(
+      "coupons_amount_valid",
+      sql`(${t.discountType} = 'FLAT' AND ${t.flatPaise} > 0) OR (${t.discountType} = 'PERCENT' AND ${t.percent} BETWEEN 1 AND 100)`,
+    ),
+  ],
+);
+export type Coupon = typeof coupons.$inferSelect;
+
+/** One row per order a coupon was applied to; a multi-shop checkout has one per sub-order, same request id. */
+export const couponRedemptions = pgTable(
+  "coupon_redemptions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    couponId: uuid("coupon_id")
+      .notNull()
+      .references(() => coupons.id, { onDelete: "restrict" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    /** The checkout request — one "use" of the coupon, however many shops. */
+    requestId: text("request_id").notNull(),
+    discountPaise: bigint("discount_paise", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("coupon_redemptions_order_uq").on(t.orderId),
+    index("coupon_redemptions_coupon_user_idx").on(t.couponId, t.userId),
+  ],
+);
+
+/* ------------------------------------------------ shop offers (F8)
+ * A shop's own discount on one of its products or on a whole category,
+ * between two dates. Shown on the shop page and applied to the unit price in
+ * the cart and at checkout. Shop-funded: the order is priced at the offer
+ * price. Loose goods with no price are never discounted. */
+export const shopOffers = pgTable(
+  "shop_offers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    title: text("title").notNull(),
+    targetType: text("target_type", { enum: ["PRODUCT", "CATEGORY"] }).notNull(),
+    shopProductId: uuid("shop_product_id").references(() => shopProducts.id, { onDelete: "cascade" }),
+    categoryId: uuid("category_id").references(() => productCategories.id, { onDelete: "cascade" }),
+    discountType: text("discount_type", { enum: ["PERCENT", "FLAT"] }).notNull(),
+    /** PERCENT: whole percent off the unit price (1–90). */
+    percent: integer("percent"),
+    /** FLAT: paise off each unit. */
+    flatPaise: bigint("flat_paise", { mode: "number" }),
+    startsAt: timestamp("starts_at", { withTimezone: true }).notNull(),
+    endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+    active: boolean("active").notNull().default(true),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("shop_offers_shop_idx").on(t.shopId, t.endsAt),
+    check(
+      "shop_offers_target_valid",
+      sql`(${t.targetType} = 'PRODUCT' AND ${t.shopProductId} IS NOT NULL) OR (${t.targetType} = 'CATEGORY' AND ${t.categoryId} IS NOT NULL)`,
+    ),
+    check(
+      "shop_offers_amount_valid",
+      sql`(${t.discountType} = 'PERCENT' AND ${t.percent} BETWEEN 1 AND 90) OR (${t.discountType} = 'FLAT' AND ${t.flatPaise} > 0)`,
+    ),
+    check("shop_offers_dates_valid", sql`${t.endsAt} > ${t.startsAt}`),
+  ],
+);
+export type ShopOffer = typeof shopOffers.$inferSelect;
+
+/* ------------------------------------------------ customer referrals (F11)
+ * Every customer's own code / link. A friend who signs up with it and whose
+ * first order is delivered earns both of them a promotional wallet credit.
+ * (referral_codes above are admin-issued codes attributing shop sign-ups —
+ * a different flow.) */
+export const customerReferralCodes = pgTable(
+  "customer_referral_codes",
+  {
+    userId: uuid("user_id")
+      .primaryKey()
+      .references(() => users.id, { onDelete: "cascade" }),
+    code: text("code").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("customer_referral_codes_code_uq").on(t.code)],
+);
+
+export const customerReferrals = pgTable(
+  "customer_referrals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    referrerUserId: uuid("referrer_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    refereeUserId: uuid("referee_user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    code: text("code").notNull(),
+    /** PENDING until the friend's first delivered order; then REWARDED, or REJECTED with a reason. */
+    status: text("status", { enum: ["PENDING", "REWARDED", "REJECTED"] }).notNull().default("PENDING"),
+    rejectionReason: text("rejection_reason"),
+    qualifyingOrderId: uuid("qualifying_order_id").references(() => orders.id, { onDelete: "set null" }),
+    referrerRewardPaise: bigint("referrer_reward_paise", { mode: "number" }),
+    refereeRewardPaise: bigint("referee_reward_paise", { mode: "number" }),
+    /** The friend's mobile when rewarded — one reward per mobile number. */
+    refereePhoneE164: text("referee_phone_e164"),
+    rewardedAt: timestamp("rewarded_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // A customer can be referred once.
+    uniqueIndex("customer_referrals_referee_uq").on(t.refereeUserId),
+    index("customer_referrals_referrer_idx").on(t.referrerUserId),
+    uniqueIndex("customer_referrals_rewarded_phone_uq")
+      .on(t.refereePhoneE164)
+      .where(sql`${t.status} = 'REWARDED' AND ${t.refereePhoneE164} IS NOT NULL`),
+    check("customer_referrals_not_self", sql`${t.referrerUserId} <> ${t.refereeUserId}`),
+  ],
+);
+export type CustomerReferral = typeof customerReferrals.$inferSelect;
