@@ -57,6 +57,9 @@ async function customerWithCart(spId: string) {
   return user;
 }
 
+// These tests book against the real clock, so after the shop's 20:00 IST close
+// checkout would stop at the "closed right now" prompt. Confirm it the way a
+// customer does; the slot rules under test apply either way.
 async function placeScheduled(userId: string, shopId: string, slotKey: string, requestId: string) {
   return checkout({
     userId,
@@ -64,6 +67,7 @@ async function placeScheduled(userId: string, shopId: string, slotKey: string, r
     requestId,
     deliveryWindows: { [shopId]: "SCHEDULED" },
     scheduledSlots: { [shopId]: slotKey },
+    acknowledgeClosedShopIds: [shopId],
   });
 }
 
@@ -193,6 +197,7 @@ describe("booking a slot at checkout", () => {
       addressId: await deliveryAddressId(a.id),
       requestId: "no-slot",
       deliveryWindows: { [shop.id]: "SCHEDULED" },
+      acknowledgeClosedShopIds: [shop.id],
     });
     expect(placed[0]).toMatchObject({ deliveryWindow: "SCHEDULED", scheduledSlotStart: null, deliveryDate: null, promisedByAt: null });
   });
