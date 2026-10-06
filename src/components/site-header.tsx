@@ -209,9 +209,14 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
     <header className="sticky top-0 z-40 border-b border-cream-200 bg-white/95 backdrop-blur">
       <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6">
         <Link href="/" className="flex shrink-0 items-center gap-2">
-          <span className="grid h-9 w-9 place-items-center rounded-lg bg-kesari-600 text-base font-bold tracking-tight text-white">
-            GK
-          </span>
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/brand/gk-mark.png"
+            alt="GoKesari"
+            width={62}
+            height={36}
+            className="h-9 w-auto rounded-lg"
+          />
           <span className="hidden flex-col sm:flex">
             <span className="text-lg font-bold leading-tight text-ink-900">
               Go<span className="text-kesari-600">Kesari</span>
