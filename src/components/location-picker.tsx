@@ -1,11 +1,18 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { MapPicker, type MapPickerResult } from "@/components/map-picker";
+import type { MapPickerResult } from "@/components/map-picker";
 import { Alert, Button, inputClass } from "@/components/ui";
 import { isMapsAvailable } from "@/lib/geo/provider";
+
+// Only needed once someone opens "Search an address", so the map picker (and
+// the Google Maps loader behind it) stays out of every page's initial bundle.
+const MapPicker = dynamic(() => import("@/components/map-picker").then((m) => m.MapPicker), {
+  ssr: false,
+});
 
 /**
  * "Deliver to" chooser (GS-004). Three ways to set the location discovery

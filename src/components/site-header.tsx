@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
-import { RoleSwitcher } from "@/components/growth-actions";
+import { RoleSwitcher } from "@/components/role-switcher";
 import { formatPaiseCompact } from "@/lib/money";
 import type { UserRole } from "@/server/db/schema";
 import { signOutAction } from "@/server/sign-out-action";
