@@ -61,15 +61,18 @@ export function Section({
   title,
   href,
   linkLabel = "View all",
+  id,
   children,
 }: {
   title: string;
   href?: string;
   linkLabel?: string;
+  /** Anchor for links into the page (e.g. /admin#shop-finance). */
+  id?: string;
   children: ReactNode;
 }) {
   return (
-    <section className="mb-10">
+    <section id={id} className="mb-10">
       <div className="mb-3 flex items-baseline justify-between">
         <h2 className="text-lg font-semibold text-ink-900">{title}</h2>
         {href ? (

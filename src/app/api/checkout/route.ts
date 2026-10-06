@@ -22,6 +22,8 @@ const schema = z.object({
   notes: z.string().max(500).nullish(),
   /** shopId -> requested window. Re-validated against live feasibility server-side. */
   deliveryWindows: z.record(z.string().uuid(), z.enum(["EXPRESS_30", "STANDARD_60", "SCHEDULED"])).optional(),
+  /** GS-027: shopId -> chosen time slot "YYYY-MM-DD@HH:MM" for a SCHEDULED delivery. Re-checked server-side. */
+  scheduledSlots: z.record(z.string().uuid(), z.string().regex(/^\d{4}-\d{2}-\d{2}@\d{2}:\d{2}$/)).optional(),
   /** Personal orders and business (B2B) orders are separate flows. */
   orderType: z.enum(["PERSONAL", "B2B"]).optional(),
   buyerShopId: z.string().uuid().nullish(),
@@ -50,6 +52,7 @@ export const POST = route(async (request: NextRequest) => {
     addressId: body.addressId ?? null,
     notes: body.notes ?? null,
     deliveryWindows: body.deliveryWindows,
+    scheduledSlots: body.scheduledSlots,
     paymentMethod: body.paymentMethod,
     acknowledgeClosedShopIds: body.acknowledgeClosedShopIds,
     couponCode: body.couponCode ?? null,
@@ -68,6 +71,7 @@ export const POST = route(async (request: NextRequest) => {
         buyerShopId: o.buyerShopId,
         deliveryWindow: o.deliveryWindow,
         promisedByAt: o.promisedByAt,
+        ...(o.scheduledSlotStart ? { scheduledSlotStart: o.scheduledSlotStart, scheduledSlotEnd: o.scheduledSlotEnd } : {}),
         ...(o.discountPaise > 0 ? { discountPaise: o.discountPaise, couponCode: o.couponCode } : {}),
       })),
       deduplicated: result.deduplicated,

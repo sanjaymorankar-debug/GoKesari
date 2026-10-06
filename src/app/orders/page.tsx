@@ -24,6 +24,9 @@ import { getLiveDisputesForOrders } from "@/server/services/disputes";
 import { referencesForGroups } from "@/server/services/order-groups";
 import { listOrdersForUser } from "@/server/services/orders";
 import { listMyRatingsByOrder } from "@/server/services/ratings";
+import { formatScheduledSlot } from "@/lib/scheduled-slots";
+import { proofPhotosForOrders } from "@/server/services/delivery-proofs";
+import { getRule } from "@/server/services/settings";
 
 const DELIVERY_STATUS_LABELS: Record<string, string> = {
   OFFERED: "Finding a rider",
@@ -56,6 +59,11 @@ export default async function OrdersPage({
     getDeliveryOrdersForOrders(orders.map((o) => o.id)),
     listMyRatingsByOrder(user.id, orders.map((o) => o.id)),
     getLiveDisputesForOrders(orders.map((o) => o.id)),
+  ]);
+  // NEW-007: delivery photo and invoice links on delivered orders.
+  const [proofPhotos, invoicingRule] = await Promise.all([
+    proofPhotosForOrders(orders.filter((o) => o.status === "DELIVERED").map((o) => o.id)),
+    getRule("invoicing"),
   ]);
 
   return (
@@ -140,8 +148,27 @@ export default async function OrdersPage({
                   dateStyle: "medium",
                   timeStyle: "short",
                 })}
-                {order.deliveryDate ? ` · for ${order.deliveryDate}` : ""}
+                {order.deliveryDate && !order.scheduledSlotStart ? ` · for ${order.deliveryDate}` : ""}
               </p>
+              {order.status === "DELIVERED" && (invoicingRule.enabled || proofPhotos.has(order.id)) ? (
+                <p className="mt-1 flex flex-wrap gap-3 text-xs" data-testid="order-documents">
+                  {invoicingRule.enabled ? (
+                    <a href={`/api/orders/${order.id}/invoice`} className="font-medium text-kesari-700 hover:underline">
+                      Tax invoice
+                    </a>
+                  ) : null}
+                  {proofPhotos.has(order.id) ? (
+                    <a href={proofPhotos.get(order.id)!.url} target="_blank" rel="noreferrer" className="font-medium text-kesari-700 hover:underline">
+                      Photo at delivery
+                    </a>
+                  ) : null}
+                </p>
+              ) : null}
+              {order.scheduledSlotStart && order.scheduledSlotEnd ? (
+                <p className="text-xs font-medium text-kesari-700" data-testid="order-scheduled-slot">
+                  Delivery {formatScheduledSlot(order.scheduledSlotStart, order.scheduledSlotEnd)}
+                </p>
+              ) : null}
 
               <ul className="mt-3 space-y-1 text-sm text-ink-600">
                 {order.items.map((item) => (

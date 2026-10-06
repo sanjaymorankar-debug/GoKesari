@@ -1,4 +1,5 @@
--- Switches features F3–F11 back off (the original behaviour). F1 status
+-- Switches features F3–F11, GS-027 scheduled slots, GA-005 batching and
+-- NEW-007 back off (the original behaviour). F1 status
 -- enforcement is controlled separately by the 'statusModels' rule.
 INSERT INTO platform_settings (key, value) VALUES
   ('dispatch',            '{"busyRidersAsFallback": false}'),
@@ -9,5 +10,10 @@ INSERT INTO platform_settings (key, value) VALUES
   ('shopOffers',          '{"enabled": false}'),
   ('homePriceComparison', '{"enabled": false}'),
   ('imageModeration',     '{"enabled": false}'),
-  ('customerReferrals',   '{"enabled": false}')
+  ('customerReferrals',   '{"enabled": false}'),
+  ('scheduledSlots',      '{"enabled": false}'),
+  ('batching',            '{"enabled": false}'),
+  ('shopAcceptance',      '{"enabled": false}'),
+  ('deliveryProof',       '{"photoRequired": false}'),
+  ('invoicing',           '{"enabled": false}')
 ON CONFLICT (key) DO UPDATE SET value = platform_settings.value || EXCLUDED.value, updated_at = now();
