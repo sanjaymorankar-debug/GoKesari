@@ -53,21 +53,21 @@ export default async function BecomeDeliveryPartnerPage() {
         {existing ? (
           <Link
             href="/delivery-partner"
-            className="inline-block rounded-lg bg-kesari-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-kesari-700"
+            className="inline-block rounded-lg bg-kesari-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-kesari-800"
           >
             View my application status →
           </Link>
         ) : user ? (
           <Link
             href="/delivery-partner/register"
-            className="inline-block rounded-lg bg-kesari-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-kesari-700"
+            className="inline-block rounded-lg bg-kesari-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-kesari-800"
           >
             Start my application →
           </Link>
         ) : (
           <Link
             href="/signin"
-            className="inline-block rounded-lg bg-kesari-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-kesari-700"
+            className="inline-block rounded-lg bg-kesari-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-kesari-800"
           >
             Sign in to apply →
           </Link>

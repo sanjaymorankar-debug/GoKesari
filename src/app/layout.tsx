@@ -65,21 +65,21 @@ export default async function RootLayout({
               {LEGAL_ENTITY.legalName} · GSTIN: {LEGAL_ENTITY.gstin}
             </p>
             <nav className="flex flex-wrap gap-x-4 gap-y-1">
-              <Link href="/about" className="hover:text-ink-700 hover:underline">
+              <Link href="/about" className="py-1 hover:text-ink-700 hover:underline">
                 About Us
               </Link>
-              <Link href="/contact" className="hover:text-ink-700 hover:underline">
+              <Link href="/contact" className="py-1 hover:text-ink-700 hover:underline">
                 Contact Us
               </Link>
-              <Link href="/delivery-partner/apply" className="hover:text-ink-700 hover:underline">
+              <Link href="/delivery-partner/apply" className="py-1 hover:text-ink-700 hover:underline">
                 Become a Delivery Partner
               </Link>
               {LEGAL_DOCS.map((doc) => (
-                <Link key={doc.slug} href={`/legal/${doc.slug}`} className="hover:text-ink-700 hover:underline">
+                <Link key={doc.slug} href={`/legal/${doc.slug}`} className="py-1 hover:text-ink-700 hover:underline">
                   {doc.shortLabel}
                 </Link>
               ))}
-              <Link href="/grievance" className="hover:text-ink-700 hover:underline">
+              <Link href="/grievance" className="py-1 hover:text-ink-700 hover:underline">
                 File a complaint
               </Link>
             </nav>

@@ -44,6 +44,8 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { refreshSubscriptionLifecycles } from "./status-models";
+import { evaluateRenewals } from "./subscription-renewal";
+import { markDeliveryUnavailable, syncSubscriptionSchedule } from "./subscription-schedule";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { resolveAddressSociety } from "./societies";
 import { consumeOnlineStock, isOnlinePurchasable } from "./catalogue";
@@ -52,6 +54,15 @@ import { generateOrderNumber } from "./orders";
 import { applyWalletMutation } from "./wallet";
 
 /* ------------------------------------------------- pure schedule engine */
+
+/**
+ * Statuses whose deliveries are generated. SM-004: RENEWAL_PENDING still
+ * delivers (renewal is due, the term has not ended); DRAFT does not.
+ */
+export const DELIVERING_STATUSES = ["ACTIVE", "PAYMENT_PENDING", "RENEWAL_PENDING"] as const;
+export function isDeliveringStatus(status: Subscription["status"]): boolean {
+  return (DELIVERING_STATUSES as readonly string[]).includes(status);
+}
 
 export interface ScheduleInput {
   status: Subscription["status"];
@@ -96,7 +107,7 @@ export function resolveDelivery(
   date: IsoDate,
   override?: Pick<SubscriptionDailyOverride, "type" | "quantityMilli"> | null,
 ): DeliveryResolution {
-  if (subscription.status !== "ACTIVE" && subscription.status !== "PAYMENT_PENDING") {
+  if (!isDeliveringStatus(subscription.status)) {
     return { delivers: false, reason: "NOT_ACTIVE" };
   }
   if (date < subscription.startDate) {
@@ -167,6 +178,8 @@ export interface CreateSubscriptionInput {
   startDate: IsoDate;
   endDate?: IsoDate | null;
   addressId?: string | null;
+  /** SM-004: save as DRAFT — nothing is scheduled or charged until activated. */
+  draft?: boolean;
 }
 
 export async function createSubscription(
@@ -179,13 +192,72 @@ export async function createSubscription(
   if (frequency === "WEEKLY" && (input.weekdays ?? []).length === 0) {
     throw validationFailed("Choose at least one delivery day of the week.");
   }
+  const row = await assertSubscribable(input.shopProductId, input.quantityMilli);
 
+  const [subscription] = await db
+    .insert(subscriptions)
+    .values({
+      userId: input.userId,
+      shopId: row.sp.shopId,
+      shopProductId: input.shopProductId,
+      addressId: input.addressId ?? null,
+      quantityMilli: input.quantityMilli,
+      frequency,
+      weekdays: input.weekdays ?? [],
+      startDate: input.startDate,
+      endDate: input.endDate ?? null,
+      status: input.draft ? "DRAFT" : "ACTIVE",
+      statusActorId: input.userId,
+    })
+    .returning();
+
+  const next = input.draft ? null : nextDeliveryDate(toScheduleInput(subscription), input.startDate);
+  const [withNext] = await db
+    .update(subscriptions)
+    .set({ nextDeliveryDate: next })
+    .where(eq(subscriptions.id, subscription.id))
+    .returning();
+
+  await recordAudit({
+    actorId: input.userId,
+    action: AUDIT_ACTIONS.SUBSCRIPTION_CREATED,
+    entityType: "subscription",
+    entityId: subscription.id,
+    newValue: {
+      quantityMilli: input.quantityMilli,
+      frequency,
+      startDate: input.startDate,
+      ...(input.draft ? { draft: true } : {}),
+    },
+  });
+
+  if (input.draft) {
+    await recordSubscriptionEvent({ subscriptionId: subscription.id, action: "DRAFT_SAVED", toStatus: "DRAFT", actorId: input.userId });
+    return withNext;
+  }
+
+  await notify({
+    userId: input.userId,
+    type: NOTIFICATION_TYPES.SUBSCRIPTION_CREATED,
+    title: "Subscription created",
+    body: `Your ${row.product.name} subscription starts on ${input.startDate}.`,
+    actionUrl: `/subscriptions/${subscription.id}`,
+  });
+  await afterScheduleChange(subscription.id);
+  return withNext;
+}
+
+/**
+ * The product checks a new or activated subscription must pass: subscribable,
+ * and online-purchasable right now (stock is checked per delivery).
+ */
+async function assertSubscribable(shopProductId: string, quantityMilli: number) {
   const [row] = await db
     .select({ sp: shopProducts, product: products, shopStatus: shops.status })
     .from(shopProducts)
     .innerJoin(products, eq(shopProducts.productId, products.id))
     .innerJoin(shops, eq(shopProducts.shopId, shops.id))
-    .where(eq(shopProducts.id, input.shopProductId))
+    .where(eq(shopProducts.id, shopProductId))
     .limit(1);
   if (!row) throw notFound("Product");
 
@@ -195,7 +267,7 @@ export async function createSubscription(
   // A subscription is a promise of repeated online purchases, so the product
   // must be online-purchasable at the moment it is set up.
   const unitsPerDelivery = Math.ceil(
-    input.quantityMilli / row.product.unitSizeMilli,
+    quantityMilli / row.product.unitSizeMilli,
   );
   if (
     !isOnlinePurchasable(
@@ -213,51 +285,67 @@ export async function createSubscription(
   ) {
     throw conflict("This product cannot be subscribed to online right now.");
   }
+  return row;
+}
 
-  const [subscription] = await db
-    .insert(subscriptions)
-    .values({
-      userId: input.userId,
-      shopId: row.sp.shopId,
-      shopProductId: input.shopProductId,
-      addressId: input.addressId ?? null,
-      quantityMilli: input.quantityMilli,
-      frequency,
-      weekdays: input.weekdays ?? [],
-      startDate: input.startDate,
-      endDate: input.endDate ?? null,
-      status: "ACTIVE",
-      statusActorId: input.userId,
-    })
+/**
+ * SM-004: a schedule change re-writes the upcoming per-delivery rows and
+ * re-judges renewal for the customer. Never fails the action itself.
+ */
+async function afterScheduleChange(subscriptionId: string): Promise<void> {
+  try {
+    await syncSubscriptionSchedule(subscriptionId);
+  } catch (error) {
+    console.error("[subscriptions] schedule sync failed", subscriptionId, error);
+  }
+}
+
+/** SM-004: starts a DRAFT subscription. */
+export async function activateSubscription(
+  subscriptionId: string,
+  actor: { id: string; role: UserRole },
+): Promise<Subscription> {
+  const current = await getSubscription(subscriptionId);
+  if (!current) throw notFound("Subscription");
+  if (current.status !== "DRAFT") throw conflict("Only a draft subscription can be activated.");
+  const row = await assertSubscribable(current.shopProductId, current.quantityMilli);
+
+  const today = todayIn(getEnv().APP_TIMEZONE);
+  // A draft saved some days ago starts today rather than in the past.
+  const startDate = current.startDate < today ? today : current.startDate;
+  if (current.endDate && current.endDate < startDate) {
+    throw validationFailed("This draft's end date has passed. Change the end date before activating.");
+  }
+  const [activated] = await db
+    .update(subscriptions)
+    .set({ status: "ACTIVE", startDate, statusActorId: actor.id, updatedAt: new Date() })
+    .where(and(eq(subscriptions.id, subscriptionId), eq(subscriptions.status, "DRAFT")))
     .returning();
-
-  const next = nextDeliveryDate(toScheduleInput(subscription), input.startDate);
+  if (!activated) throw conflict("This draft was already activated or discarded.");
+  const next = nextDeliveryDate(toScheduleInput(activated), startDate);
   const [withNext] = await db
     .update(subscriptions)
     .set({ nextDeliveryDate: next })
-    .where(eq(subscriptions.id, subscription.id))
+    .where(eq(subscriptions.id, subscriptionId))
     .returning();
 
   await recordAudit({
-    actorId: input.userId,
-    action: AUDIT_ACTIONS.SUBSCRIPTION_CREATED,
+    actorId: actor.id,
+    actorRole: actor.role,
+    action: AUDIT_ACTIONS.SUBSCRIPTION_ACTIVATED,
     entityType: "subscription",
-    entityId: subscription.id,
-    newValue: {
-      quantityMilli: input.quantityMilli,
-      frequency,
-      startDate: input.startDate,
-    },
+    entityId: subscriptionId,
+    newValue: { startDate },
   });
-
+  await recordSubscriptionEvent({ subscriptionId, action: "ACTIVATED", fromStatus: "DRAFT", toStatus: "ACTIVE", actorId: actor.id });
   await notify({
-    userId: input.userId,
+    userId: current.userId,
     type: NOTIFICATION_TYPES.SUBSCRIPTION_CREATED,
-    title: "Subscription created",
-    body: `Your ${row.product.name} subscription starts on ${input.startDate}.`,
-    actionUrl: `/subscriptions/${subscription.id}`,
+    title: "Subscription started",
+    body: `Your ${row.product.name} subscription starts on ${startDate}.`,
+    actionUrl: `/subscriptions/${subscriptionId}`,
   });
-
+  await afterScheduleChange(subscriptionId);
   return withNext;
 }
 
@@ -305,6 +393,7 @@ export async function updateSubscription(
     .returning();
 
   await refreshNextDeliveryDate(subscriptionId);
+  await afterScheduleChange(subscriptionId);
 
   await recordAudit({
     actorId: actor.id,
@@ -364,6 +453,7 @@ export async function setDailyOverride(
     entityId: subscriptionId,
     newValue: { date, quantityMilli },
   });
+  await afterScheduleChange(subscriptionId);
   return override;
 }
 
@@ -418,6 +508,7 @@ export async function skipDate(
     body: `Your delivery on ${date} has been skipped. No amount will be deducted.`,
     actionUrl: `/subscriptions/${subscriptionId}`,
   });
+  await afterScheduleChange(subscriptionId);
   return override;
 }
 
@@ -435,12 +526,15 @@ export async function clearOverride(
         eq(subscriptionDailyOverrides.deliveryDate, date),
       ),
     );
+  await afterScheduleChange(subscriptionId);
 }
 
 /* ------------------------------------------------ lifecycle guards & history (Phase 2)
  * Allowed transitions (brief §9):
  *   ACTIVE ⇄ paused window (pause / resume)     ACTIVE → date skipped → ACTIVE
  *   ACTIVE / PAYMENT_PENDING → CANCELLED         CANCELLED / COMPLETED → nothing
+ * SM-004: DRAFT → ACTIVE (activate) or CANCELLED (discard); a draft cannot be
+ * paused or resumed. RENEWAL_PENDING behaves like ACTIVE for every action.
  * Every lifecycle action is written to subscription_events (history).
  */
 
@@ -500,6 +594,7 @@ export async function pauseSubscription(
     throw validationFailed("The pause end date must be on or after the start date.");
   }
   const current = await loadLiveSubscription(subscriptionId);
+  if (current.status === "DRAFT") throw conflict("Activate this draft subscription before pausing it.");
   const [updated] = await db
     .update(subscriptions)
     .set({ pauseFrom: from, pauseUntil: until, statusActorId: actor.id, updatedAt: new Date() })
@@ -508,6 +603,7 @@ export async function pauseSubscription(
   if (!updated) throw notFound("Subscription");
 
   await refreshNextDeliveryDate(subscriptionId);
+  await afterScheduleChange(subscriptionId);
   await recordAudit({
     actorId: actor.id,
     actorRole: actor.role,
@@ -540,12 +636,14 @@ export async function resumeSubscription(
 ): Promise<Subscription> {
   // A cancelled / completed subscription is never revived by "resume".
   const current = await loadLiveSubscription(subscriptionId);
+  if (current.status === "DRAFT") throw conflict("This is a draft — activate it to start deliveries.");
   const [updated] = await db
     .update(subscriptions)
     .set({
       pauseFrom: null,
       pauseUntil: null,
-      status: "ACTIVE",
+      // SM-004: renewal stays due after a pause is lifted.
+      status: current.status === "RENEWAL_PENDING" ? "RENEWAL_PENDING" : "ACTIVE",
       statusActorId: actor.id,
       updatedAt: new Date(),
     })
@@ -554,6 +652,7 @@ export async function resumeSubscription(
   if (!updated) throw notFound("Subscription");
 
   await refreshNextDeliveryDate(subscriptionId);
+  await afterScheduleChange(subscriptionId);
   await recordAudit({
     actorId: actor.id,
     actorRole: actor.role,
@@ -594,11 +693,14 @@ export async function cancelSubscription(
       cancelledAt: new Date(),
       cancellationReason: reason,
       nextDeliveryDate: null,
+      renewalReason: null,
+      renewalDueDate: null,
       updatedAt: new Date(),
     })
     .where(eq(subscriptions.id, subscriptionId))
     .returning();
   if (!updated) throw notFound("Subscription");
+  await afterScheduleChange(subscriptionId);
 
   await recordAudit({
     actorId: actor.id,
@@ -854,9 +956,7 @@ export async function getWalletForecast(
   const balance = wallet?.balancePaise ?? 0;
 
   const subs = await listSubscriptionsForUser(userId);
-  const active = subs.filter(
-    (s) => s.status === "ACTIVE" || s.status === "PAYMENT_PENDING",
-  );
+  const active = subs.filter((s) => isDeliveringStatus(s.status));
 
   const perSubscription: WalletForecast["perSubscription"] = [];
   let total = 0;
@@ -932,7 +1032,7 @@ export async function generateDailyOrders(
     .from(subscriptions)
     .where(
       and(
-        inArray(subscriptions.status, ["ACTIVE", "PAYMENT_PENDING"]),
+        inArray(subscriptions.status, [...DELIVERING_STATUSES]),
         lte(subscriptions.startDate, targetDate),
         or(
           isNull(subscriptions.endDate),
@@ -947,6 +1047,7 @@ export async function generateDailyOrders(
   for (const subscription of due) {
     try {
       const outcome = await generateOneDelivery(subscription, targetDate);
+      await recordDeliveryOutcome(subscription.id, targetDate, outcome);
       switch (outcome) {
         case "GENERATED":
           result.generated += 1;
@@ -976,7 +1077,25 @@ export async function generateDailyOrders(
     }
   }
 
+  // SM-004: renewal due / ended terms, judged after the day's deductions.
+  await evaluateRenewals(targetDate).catch((error) =>
+    console.error("[subscriptions] renewal evaluation failed", error),
+  );
   return result;
+}
+
+/**
+ * SM-004: keeps the per-delivery rows in step after a day is processed — the
+ * schedule for the coming days, and a FAILED day when the product was
+ * unavailable. Never blocks generation.
+ */
+async function recordDeliveryOutcome(subscriptionId: string, date: IsoDate, outcome: DeliveryOutcome): Promise<void> {
+  try {
+    await syncSubscriptionSchedule(subscriptionId, { from: date });
+    if (outcome === "UNAVAILABLE") await markDeliveryUnavailable(subscriptionId, date);
+  } catch (error) {
+    console.error(`[subscriptions] delivery status sync failed for ${subscriptionId}`, error);
+  }
 }
 
 type DeliveryOutcome =
@@ -1170,10 +1289,12 @@ async function generateOneDelivery(
     throw error;
   }
 
+  // A day paid after a failure ends PAYMENT_PENDING. Only that status moves:
+  // RENEWAL_PENDING (SM-004) is judged by evaluateRenewals, not here.
   await db
     .update(subscriptions)
     .set({ status: "ACTIVE", updatedAt: new Date() })
-    .where(eq(subscriptions.id, subscription.id));
+    .where(and(eq(subscriptions.id, subscription.id), eq(subscriptions.status, "PAYMENT_PENDING")));
   await refreshNextDeliveryDate(subscription.id);
 
   await notify({
@@ -1303,7 +1424,7 @@ export async function retryFailedDelivery(
 
 /* ------------------------------------------------------------ helpers */
 
-function toScheduleInput(
+export function toScheduleInput(
   subscription: Pick<
     Subscription,
     | "status"
@@ -1328,7 +1449,7 @@ function toScheduleInput(
   };
 }
 
-async function refreshNextDeliveryDate(subscriptionId: string): Promise<void> {
+export async function refreshNextDeliveryDate(subscriptionId: string): Promise<void> {
   const subscription = await getSubscription(subscriptionId);
   if (!subscription) return;
 
@@ -1440,6 +1561,25 @@ export async function listSubscriptionOrdersForShop(
       ),
     )
     .orderBy(asc(subscriptionOrders.deliveryDate));
+}
+
+/** SM-004 admin list: subscriptions with product, shop and customer, filtered by status. */
+export async function listSubscriptionsAdmin(filter: { status?: Subscription["status"]; limit?: number } = {}) {
+  return db
+    .select({
+      subscription: subscriptions,
+      productName: products.name,
+      unit: products.unit,
+      shopName: shops.name,
+      customerName: sql<string | null>`(SELECT name FROM users WHERE users.id = ${subscriptions.userId})`,
+    })
+    .from(subscriptions)
+    .innerJoin(shopProducts, eq(subscriptions.shopProductId, shopProducts.id))
+    .innerJoin(products, eq(shopProducts.productId, products.id))
+    .innerJoin(shops, eq(subscriptions.shopId, shops.id))
+    .where(filter.status ? eq(subscriptions.status, filter.status) : undefined)
+    .orderBy(desc(subscriptions.updatedAt))
+    .limit(Math.min(filter.limit ?? 200, 500));
 }
 
 export async function countSubscriptionsByStatus(): Promise<

@@ -11,6 +11,7 @@ import {
   SETTLEMENT_HOLD_DAYS,
 } from "@/server/services/finance";
 import { listShopsForOwner } from "@/server/services/shops";
+import { listInvoicesForShop } from "@/server/services/invoices";
 
 export const metadata = { title: "Shop Finance" };
 export const dynamic = "force-dynamic";
@@ -29,11 +30,12 @@ export default async function ShopFinancePage() {
   if (shops.length === 0) redirect("/shop");
   const shop = shops[0];
 
-  const [pending, rate, recent, settlements] = await Promise.all([
+  const [pending, rate, recent, settlements, invoices] = await Promise.all([
     getShopPendingPayable(shop.id),
     resolveCommissionRate(shop),
     listOrderFinancialsForShop(shop.id, 30),
     listShopSettlements({ shopId: shop.id, limit: 30 }),
+    listInvoicesForShop(shop.id, 50),
   ]);
 
   return (
@@ -123,6 +125,34 @@ export default async function ShopFinancePage() {
           </Card>
         )}
       </Section>
+
+      {/* NEW-007: the shop's invoices for delivered orders. */}
+      {invoices.length > 0 ? (
+        <Section title={`Invoices (${invoices.length})`}>
+          <Card className="divide-y divide-cream-200" data-testid="shop-invoices">
+            {invoices.map((inv) => (
+              <div key={inv.id} className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm">
+                <span>
+                  <a href={`/invoices/${inv.id}`} className="font-medium text-kesari-700 hover:underline">
+                    {inv.invoiceNumber}
+                  </a>
+                  <span className="text-ink-500">
+                    {" "}
+                    · {inv.kind === "TAX_INVOICE" ? "tax invoice" : "bill of supply"} ·{" "}
+                    {inv.issuedAt.toLocaleDateString("en-IN", { dateStyle: "medium", timeZone: "Asia/Kolkata" })}
+                  </span>
+                </span>
+                <span className="flex items-center gap-3">
+                  <Money paise={inv.totalPaise} />
+                  <a href={`/api/invoices/${inv.id}/pdf`} className="text-xs font-medium text-kesari-700 hover:underline">
+                    PDF
+                  </a>
+                </span>
+              </div>
+            ))}
+          </Card>
+        </Section>
+      ) : null}
     </>
   );
 }

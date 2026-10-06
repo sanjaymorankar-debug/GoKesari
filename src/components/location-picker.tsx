@@ -1,11 +1,18 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-import { MapPicker, type MapPickerResult } from "@/components/map-picker";
+import type { MapPickerResult } from "@/components/map-picker";
 import { Alert, Button, inputClass } from "@/components/ui";
 import { isMapsAvailable } from "@/lib/geo/provider";
+
+// Only needed once someone opens "Search an address", so the map picker (and
+// the Google Maps loader behind it) stays out of every page's initial bundle.
+const MapPicker = dynamic(() => import("@/components/map-picker").then((m) => m.MapPicker), {
+  ssr: false,
+});
 
 /**
  * "Deliver to" chooser (GS-004). Three ways to set the location discovery
@@ -90,11 +97,11 @@ export function LocationPicker({
         </p>
         <div className="flex gap-2">
           {currentLabel ? (
-            <Button size="sm" variant="ghost" disabled={busy} onClick={() => choose(null)}>
+            <Button size="sm" variant="ghost" className="tap-target" disabled={busy} onClick={() => choose(null)}>
               Clear
             </Button>
           ) : null}
-          <Button size="sm" variant="secondary" onClick={() => setOpen((v) => !v)}>
+          <Button size="sm" variant="secondary" className="tap-target" onClick={() => setOpen((v) => !v)}>
             {open ? "Close" : "Change"}
           </Button>
         </div>
@@ -119,7 +126,8 @@ export function LocationPicker({
           ) : null}
 
           <div className="flex flex-wrap items-center gap-2">
-            <Button size="sm" disabled={busy} onClick={useDevice}>
+            {/* Rows here are 8px apart, so 36px keeps the tap areas apart. */}
+            <Button size="sm" className="tap-target [--tap-h:36px]" disabled={busy} onClick={useDevice}>
               Use my current location
             </Button>
             <form
@@ -140,7 +148,7 @@ export function LocationPicker({
                 value={pincode}
                 onChange={(e) => setPincode(e.target.value.replace(/\D/g, ""))}
               />
-              <Button size="sm" type="submit" variant="secondary" disabled={busy}>
+              <Button size="sm" type="submit" variant="secondary" className="tap-target" disabled={busy}>
                 Use PIN
               </Button>
             </form>
@@ -149,7 +157,7 @@ export function LocationPicker({
           <div>
             {isMapsAvailable() ? (
               <>
-                <Button size="sm" variant="secondary" onClick={() => setSearching((v) => !v)}>
+                <Button size="sm" variant="secondary" className="tap-target [--tap-h:36px]" onClick={() => setSearching((v) => !v)}>
                   {searching ? "Hide address search" : "Search an address"}
                 </Button>
                 {searching ? (

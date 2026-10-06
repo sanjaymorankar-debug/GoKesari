@@ -159,3 +159,7 @@ never failed for it) and the daily job retries them.
 - **The IDfy adapter.** Built only if needed; the flows won't change.
 - **Shop approval.** Verification doesn't approve or reject a shop
   registration by itself; admins see verification status when approving.
+  Since SM-002 (October 2026) an admin can approve only once every mandatory
+  document is VERIFIED (and the registration fee is settled) — the shop is then
+  in the VERIFIED onboarding state. The gate follows
+  `statusModels.enforceTransitions`; see `docs/order-lifecycle-2026-10/README.md`.

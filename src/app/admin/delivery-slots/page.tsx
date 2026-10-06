@@ -38,6 +38,7 @@ export default async function DeliverySlotsPage() {
           expressPerHour: r.expressPerHour,
           standardPerHour: r.standardPerHour,
           scheduledPerDay: r.scheduledPerDay,
+          scheduledPerSlot: r.scheduledPerSlot,
         }))}
       />
     </div>

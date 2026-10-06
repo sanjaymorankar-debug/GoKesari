@@ -28,6 +28,9 @@ Set these in the host's environment-variable UI — never commit them.
 ```bash
 NODE_ENV=production
 DATABASE_URL=postgresql://dairy_app:...@host:5432/dairy_bakery?sslmode=require
+# Optional: seconds an idle DB connection stays open (default 20). Longer keeps
+# the pool warm between visits on a quiet site — see src/lib/env.ts first.
+# DATABASE_IDLE_TIMEOUT_SECONDS=300
 
 AUTH_SECRET=<openssl rand -base64 32>
 AUTH_URL=https://your-domain.com
@@ -231,6 +234,15 @@ warnings, suspension when a mandatory document lapses):
 # Daily at 06:30 IST
 30 6 * * * curl -fsS -X POST https://your-domain.com/api/cron/seller-verification \
   -H "Authorization: Bearer $CRON_SECRET" >> /var/log/seller-verification.log 2>&1
+```
+
+The shop acceptance timeout (rule `shopAcceptance`, NEW-007) needs a sweep
+every minute. It does nothing while the rule is off, so it is safe to schedule
+before switching the rule on:
+
+```bash
+* * * * * curl -fsS -X POST https://your-domain.com/api/cron/shop-acceptance \
+  -H "Authorization: Bearer $CRON_SECRET" >> /var/log/shop-acceptance.log 2>&1
 ```
 
 Any scheduler works — the host's cron panel, GitHub Actions on a schedule, or an

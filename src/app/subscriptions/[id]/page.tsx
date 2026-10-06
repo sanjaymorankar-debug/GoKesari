@@ -4,6 +4,9 @@ import { notFound, redirect } from "next/navigation";
 import { DailyQuantityControl } from "@/components/daily-quantity-control";
 import { SubscriptionCalendar } from "@/components/subscription-calendar";
 import { SubscriptionControls } from "@/components/subscription-controls";
+import { SubscriptionDeliveryList } from "@/components/subscription-delivery-list";
+import { subscriptionStatusLabel, subscriptionStatusTone } from "@/lib/subscription-status-view";
+import { listDeliveriesForSubscription } from "@/server/services/subscription-schedule";
 import { Badge, Card, Money, PageHeader } from "@/components/ui";
 import { addDays, formatDisplayDate, todayIn } from "@/lib/dates";
 import { getEnv } from "@/lib/env";
@@ -42,6 +45,7 @@ export default async function SubscriptionDetailPage({
   const today = todayIn(getEnv().APP_TIMEZONE);
   const tomorrow = addDays(today, 1);
   const calendar = await getCalendar(id, 30, today);
+  const deliveries = await listDeliveriesForSubscription(id, { from: addDays(today, -14), until: addDays(today, 15) });
 
   const tomorrowEntry = calendar.find((d) => d.date === tomorrow);
   const upcomingCost = calendar.reduce((n, d) => n + d.estimatedCostPaise, 0);
@@ -62,17 +66,10 @@ export default async function SubscriptionDetailPage({
       />
 
       <div className="mb-6 flex flex-wrap gap-2">
-        <Badge
-          tone={
-            subscription.status === "ACTIVE"
-              ? "success"
-              : subscription.status === "PAYMENT_PENDING"
-                ? "danger"
-                : "warning"
-          }
-        >
-          {subscription.status.replace(/_/g, " ").toLowerCase()}
+        <Badge tone={subscriptionStatusTone(subscription.status)}>
+          {subscriptionStatusLabel(subscription.status, subscription.renewalReason)}
         </Badge>
+        {subscription.endDate ? <Badge>Ends {formatDisplayDate(subscription.endDate)}</Badge> : null}
         {subscription.currentUnitPricePaise ? (
           <Badge>
             <Money paise={subscription.currentUnitPricePaise} /> per{" "}
@@ -115,6 +112,28 @@ export default async function SubscriptionDetailPage({
             unit={subscription.unit}
             pauseFrom={subscription.pauseFrom}
             pauseUntil={subscription.pauseUntil}
+            endDate={subscription.endDate}
+            renewalReason={subscription.renewalReason}
+            renewalDueDate={subscription.renewalDueDate}
+          />
+
+          <SubscriptionDeliveryList
+            title="Each delivery"
+            description="Every delivery date with its own status — scheduled, skipped, then the order's progress."
+            unit={subscription.unit}
+            rows={deliveries.map((d) => ({
+              id: d.id,
+              deliveryDate: d.deliveryDate,
+              status: d.status,
+              quantityMilli: d.quantityMilli,
+              reason: d.reason,
+              orderNumber: d.orderNumber,
+            }))}
+            emptyText={
+              subscription.status === "DRAFT"
+                ? "Deliveries are scheduled once you activate this subscription."
+                : "No deliveries in the last two weeks or the coming days."
+            }
           />
 
           <Card className="p-5" data-testid="subscription-history">

@@ -19,6 +19,8 @@ const schema = z.object({
   expressPerHour: limit,
   standardPerHour: limit,
   scheduledPerDay: limit,
+  /** GS-027: per chosen time slot. Optional so older clients keep working. */
+  scheduledPerSlot: limit.optional(),
 });
 
 export const GET = route(async () => {

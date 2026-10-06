@@ -1,4 +1,6 @@
--- Switches on features F3–F11 (all default OFF in code). Merges into any
+-- Switches on features F3–F11, plus GS-027 scheduled slots, GA-005 rider
+-- batching and NEW-007 (acceptance timeout, delivery photo, invoices) — all
+-- default OFF in code. Merges into any
 -- existing override, so other settings in the same rule are kept.
 -- Undo: scripts/disable-new-features.sql (or Admin → Business rules → reset).
 -- Run on the TEST database only unless production go-live is intended.
@@ -11,5 +13,10 @@ INSERT INTO platform_settings (key, value) VALUES
   ('shopOffers',          '{"enabled": true}'),
   ('homePriceComparison', '{"enabled": true}'),
   ('imageModeration',     '{"enabled": true}'),
-  ('customerReferrals',   '{"enabled": true, "referrerRewardPaise": 5000, "refereeRewardPaise": 5000, "maxRewardsPerReferrer": 20, "applyWithinDays": 30}')
+  ('customerReferrals',   '{"enabled": true, "referrerRewardPaise": 5000, "refereeRewardPaise": 5000, "maxRewardsPerReferrer": 20, "applyWithinDays": 30}'),
+  ('scheduledSlots',      '{"enabled": true}'),
+  ('batching',            '{"enabled": true, "maxOrdersPerTrip": 2}'),
+  ('shopAcceptance',      '{"enabled": true, "acceptMinutes": 10}'),
+  ('deliveryProof',       '{"photoRequired": true}'),
+  ('invoicing',           '{"enabled": true}')
 ON CONFLICT (key) DO UPDATE SET value = platform_settings.value || EXCLUDED.value, updated_at = now();

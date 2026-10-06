@@ -283,12 +283,100 @@ export const RULES = {
       defaultExpressPerHour: int(0, 10_000).nullable(),
       defaultStandardPerHour: int(0, 10_000).nullable(),
       defaultScheduledPerDay: int(0, 100_000).nullable(),
+      /** GS-027: per chosen time slot of a scheduled delivery (empty = only the day limit). */
+      defaultScheduledPerSlot: int(0, 10_000).nullable(),
     }),
     defaults: {
       enabled: false,
       defaultExpressPerHour: null,
       defaultStandardPerHour: null,
       defaultScheduledPerDay: null,
+      defaultScheduledPerSlot: null,
+    },
+  },
+  shopAcceptance: {
+    description:
+      "Shop acceptance timeout (NEW-007). Off: an order waits for the shop indefinitely (operations sees it in the exceptions queue — the original behaviour). On: a shop must accept a new order within the set minutes — counted from when it opens, for an order placed while closed — or the order is cancelled with a full refund and the customer is told. The shop gets a reminder part-way through. Subscription orders are not affected.",
+    schema: z.object({
+      enabled: z.boolean(),
+      /** Minutes the shop has to accept a new order. */
+      acceptMinutes: int(1, 240),
+      /** Remind the shop when this share of the time has passed (0.5 = half-way). */
+      reminderAtFraction: z.number().min(0.1).max(0.95),
+    }),
+    defaults: { enabled: false, acceptMinutes: 10, reminderAtFraction: 0.5 },
+  },
+  deliveryProof: {
+    description:
+      "Photo proof of delivery (NEW-007). Off: a rider marks an order delivered with the customer's code, as before. On: the rider must also take or upload a photo at the door (JPEG, PNG or WebP, within the image size limit) before the order can be marked delivered. The photo is shown to the customer, the shop and operations only. An operator's override is unchanged.",
+    schema: z.object({
+      photoRequired: z.boolean(),
+    }),
+    defaults: { photoRequired: false },
+  },
+  invoicing: {
+    description:
+      "Tax invoice per order (NEW-007). On: when an order is delivered the shop's invoice is issued — a tax invoice for a shop with a verified GSTIN (CGST+SGST, or IGST across states), otherwise a bill of supply — numbered per shop per financial year, and the customer and the shop can download it. Prices are tax-inclusive; tax is worked out of each line at the product's GST rate. GoKesari's delivery fee is not on the shop's invoice. Confirm rates and wording with a CA before relying on these invoices for filing.",
+    schema: z.object({
+      enabled: z.boolean(),
+      /** GST rate (basis points) for a product with no rate on record — such lines are marked "rate not set". */
+      defaultGstRateBp: int(0, 2800),
+    }),
+    defaults: { enabled: false, defaultGstRateBp: 0 },
+  },
+  batching: {
+    description:
+      "Rider batching (GA-005): one rider carries several orders in one trip. Off: one order per rider at a time (the original behaviour; busy riders only as a fallback when dispatch.busyRidersAsFallback is on). On: a rider whose current orders are all still waiting for pickup can be offered another order when it fits the trip — pickup within the set distance of the trip's pickups, drop in the same direction, and every order still delivered by its promised time. Such a rider is preferred over an idle rider up to the preference distance further away. The rider gets one ordered list of pickups and drops; each order keeps its own status.",
+    schema: z.object({
+      enabled: z.boolean(),
+      /** Orders one rider may carry in one trip. */
+      maxOrdersPerTrip: int(2, 6),
+      /** A new pickup must be this close (km) to every pickup already in the trip. */
+      maxPickupDistanceKm: z.number().min(0).max(10),
+      /** Drop bearings from the pickups may differ by at most this many degrees. */
+      maxDropBearingDegrees: int(0, 180),
+      /** Drops closer than this to the pickups (km) are compatible in any direction. */
+      directionFreeWithinKm: z.number().min(0).max(10),
+      /** Time allowed per stop (pickup or drop), minutes, for the promised-time check. */
+      stopMinutes: int(0, 30),
+      /** A rider on a compatible trip wins over an idle rider who is less than this much (km) further away. */
+      batchPreferenceKm: z.number().min(0).max(10),
+    }),
+    defaults: {
+      enabled: false,
+      maxOrdersPerTrip: 2,
+      maxPickupDistanceKm: 0.5,
+      maxDropBearingDegrees: 45,
+      directionFreeWithinKm: 1,
+      stopMinutes: 3,
+      batchPreferenceKm: 1,
+    },
+  },
+  scheduledSlots: {
+    description:
+      "Scheduled delivery with a chosen date and time (GS-027). Off: 'Scheduled' is a single option with no time (the original behaviour). On: the customer picks a date and a time slot at checkout; only future slots inside the shop's opening hours, after the cut-off and with places left (Delivery slots limits) are offered, and the place is re-checked when the order is placed. A rider is sought for such an order only shortly before its slot.",
+    schema: z.object({
+      enabled: z.boolean(),
+      /** Length of one slot. */
+      slotMinutes: int(30, 480),
+      /** How many days ahead, today included, a customer can book. */
+      daysAhead: int(1, 14),
+      /** A slot must start at least this long after the order (on top of the shop's preparation time). */
+      cutoffMinutes: int(0, 1440),
+      /** Hours used for a shop with no opening hours set ("HH:MM", IST). */
+      defaultOpen: z.string().regex(/^\d{2}:\d{2}$/),
+      defaultClose: z.string().regex(/^\d{2}:\d{2}$/),
+      /** Look for a rider this long before the slot starts. */
+      dispatchLeadMinutes: int(0, 240),
+    }),
+    defaults: {
+      enabled: false,
+      slotMinutes: 120,
+      daysAhead: 3,
+      cutoffMinutes: 60,
+      defaultOpen: "08:00",
+      defaultClose: "20:00",
+      dispatchLeadMinutes: 45,
     },
   },
   routing: {
@@ -321,6 +409,27 @@ export const RULES = {
       enforceTransitions: z.boolean(),
     }),
     defaults: { enforceTransitions: true },
+  },
+  subscriptionRenewal: {
+    description:
+      "Subscription states (SM-004). A subscription with an end date becomes 'renewal pending' this many days before it ends, and one whose wallet will not cover the deliveries in the payment window becomes 'renewal pending' until the customer tops up. Deliveries continue while renewal is pending; a subscription past its end date completes. The schedule horizon is how many days of upcoming deliveries carry their own 'scheduled' / 'skipped' status.",
+    schema: z.object({
+      termEndEnabled: z.boolean(),
+      /** Days before the end date that renewal becomes due (0 = on the end date). */
+      termEndNoticeDays: int(0, 60),
+      paymentDueEnabled: z.boolean(),
+      /** Days of upcoming deliveries the wallet must cover (1 = the next delivery day). */
+      paymentDueDays: int(1, 30),
+      /** Days ahead each scheduled delivery is written with its own status. */
+      scheduleHorizonDays: int(1, 60),
+    }),
+    defaults: {
+      termEndEnabled: true,
+      termEndNoticeDays: 3,
+      paymentDueEnabled: true,
+      paymentDueDays: 1,
+      scheduleHorizonDays: 7,
+    },
   },
   sellerVerification: {
     description:

@@ -17,6 +17,11 @@ export interface MonitoringRow {
   createdAt: Date;
   riderName: string | null;
   deliveryStatus: string | null;
+  /** GA-005: orders sharing a trip show the same short trip code. */
+  tripId?: string | null;
+  /** NEW-007: invoice and delivery-photo links. */
+  invoiceUrl?: string | null;
+  proofPhotoUrl?: string | null;
 }
 
 const LIVE_DELIVERY = new Set(["OFFERED", "ACCEPTED", "PICKED_UP"]);
@@ -132,10 +137,25 @@ export function OrderMonitoringTable({
                         <div>
                           <p className="font-medium">{order.riderName}</p>
                           <p className="text-xs text-gray-500">{order.deliveryStatus?.replace(/_/g, " ").toLowerCase()}</p>
+                          {order.proofPhotoUrl ? (
+                            <a href={order.proofPhotoUrl} target="_blank" rel="noreferrer" className="block text-xs text-kesari-700 hover:underline">
+                              Photo at delivery
+                            </a>
+                          ) : null}
+                          {order.tripId ? (
+                            <p className="text-xs text-kesari-700" data-testid="batched-trip">
+                              Batched trip {order.tripId.slice(0, 6).toUpperCase()}
+                            </p>
+                          ) : null}
                         </div>
                       ) : (
                         <span className="text-gray-400">—</span>
                       )}
+                      {order.invoiceUrl ? (
+                        <a href={order.invoiceUrl} className="block text-xs text-kesari-700 hover:underline">
+                          Tax invoice
+                        </a>
+                      ) : null}
                     </td>
                     <td className="px-4 py-3">
                       {canReassign && canAssign && (

@@ -37,6 +37,8 @@ export function SubscribeForm({
   const [frequency, setFrequency] = useState<"DAILY" | "WEEKLY">("DAILY");
   const [weekdays, setWeekdays] = useState<number[]>([1, 4]);
   const [startDate, setStartDate] = useState(defaultStartDate);
+  /** SM-004: optional term; renewal is asked for shortly before it ends. */
+  const [endDate, setEndDate] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,7 +49,7 @@ export function SubscribeForm({
   const thirtyDay = perDelivery * Math.round((deliveriesPerWeek / 7) * 30);
   const insufficient = walletBalancePaise < thirtyDay;
 
-  async function submit() {
+  async function submit(draft = false) {
     setBusy(true);
     setError(null);
 
@@ -60,6 +62,8 @@ export function SubscribeForm({
         frequency,
         weekdays: frequency === "WEEKLY" ? weekdays : [],
         startDate,
+        endDate: endDate || null,
+        draft,
       }),
     });
     const payload = await response.json().catch(() => null);
@@ -174,6 +178,22 @@ export function SubscribeForm({
         />
       </label>
 
+      <label className="block">
+        <span className="mb-1 block text-sm font-medium text-ink-700">
+          End date <span className="font-normal text-ink-500">(optional)</span>
+        </span>
+        <input
+          type="date"
+          value={endDate}
+          min={startDate}
+          onChange={(e) => setEndDate(e.target.value)}
+          className={inputClass}
+        />
+        <span className="mt-1 block text-xs text-ink-500">
+          Leave empty to keep delivering until you cancel. With an end date we remind you to renew a few days before.
+        </span>
+      </label>
+
       <div className="rounded-lg bg-cream-50 p-4">
         <p className="text-sm font-medium text-ink-700">Estimated cost</p>
         <dl className="mt-2 space-y-1 text-sm">
@@ -215,9 +235,17 @@ export function SubscribeForm({
         className="w-full"
         size="lg"
         disabled={busy || (frequency === "WEEKLY" && weekdays.length === 0)}
-        onClick={submit}
+        onClick={() => submit(false)}
       >
         {busy ? "Creating…" : `Subscribe to ${productName}`}
+      </Button>
+      <Button
+        className="w-full"
+        variant="secondary"
+        disabled={busy || (frequency === "WEEKLY" && weekdays.length === 0)}
+        onClick={() => submit(true)}
+      >
+        Save as draft — start later
       </Button>
     </Card>
   );

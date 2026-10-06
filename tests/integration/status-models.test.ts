@@ -34,6 +34,7 @@ import {
   createStandardMilkSetup,
   createUser,
   resetDatabase,
+  verifySellerDocuments,
 } from "../helpers/fixtures";
 
 beforeEach(async () => {
@@ -62,7 +63,8 @@ describe("shops", () => {
     const admin = await createUser({ role: "ADMIN" });
     const shop = await createShop(owner.id, { status: "PENDING_APPROVAL", registrationFeePaise: 0 });
     await db.update(shops).set({ feePaymentStatus: "PAID" }).where(eq(shops.id, shop.id));
-    expect(shop.lifecycleStatus).toBe("PENDING");
+    expect(shop.lifecycleStatus).toBe("KYC_PENDING");
+    await verifySellerDocuments(shop.id);
 
     const approved = await approveShop(shop.id, { classification: "KESARI" }, { id: admin.id, role: "ADMIN" });
     expect(approved.lifecycleStatus).toBe("ACTIVE");
@@ -75,15 +77,16 @@ describe("shops", () => {
 
     const log = await changesFor(shop.id);
     expect(log.map((c) => [c.fromStatus, c.toStatus])).toEqual([
-      [null, "PENDING"],
-      ["PENDING", "ACTIVE"],
+      [null, "KYC_PENDING"],
+      ["KYC_PENDING", "VERIFIED"],
+      ["VERIFIED", "ACTIVE"],
       ["ACTIVE", "PAUSED"],
       ["PAUSED", "ACTIVE"],
       ["ACTIVE", "SUSPENDED"],
     ]);
-    expect(log[1].actorId).toBe(admin.id);
-    expect(log[2].actorId).toBe(owner.id);
-    expect(log[4].actorId).toBe(admin.id);
+    expect(log[2].actorId).toBe(admin.id);
+    expect(log[3].actorId).toBe(owner.id);
+    expect(log[5].actorId).toBe(admin.id);
     // The actor is a one-shot channel, never left on the row.
     const [row] = await db.select().from(shops).where(eq(shops.id, shop.id));
     expect(row.statusActorId).toBeNull();
@@ -187,14 +190,21 @@ describe("subscriptions", () => {
 });
 
 describe("SQL derivation matches the TypeScript model", () => {
-  it("for every shop status × paused × deleted combination", async () => {
+  it("for every shop status × paused × deleted × fee × KYC combination", async () => {
     for (const status of ["PENDING_APPROVAL", "APPROVED", "REJECTED", "SUSPENDED", "INACTIVE"] as const) {
       for (const paused of [false, true]) {
         for (const deleted of [null, new Date()]) {
-          const [{ v }] = (await db.execute(
-            sql`SELECT lifecycle_shop(${status}::shop_status, ${paused}, ${deleted ? deleted.toISOString() : null}::timestamptz)::text AS v`,
-          )) as unknown as { v: string }[];
-          expect(v).toBe(deriveShopLifecycle({ status, ordersPaused: paused, deletedAt: deleted }));
+          for (const fee of ["PENDING", "PARTIALLY_PAID", "PAID", "REFUNDED", "CANCELLED"] as const) {
+            for (const kyc of [false, true]) {
+              const [{ v }] = (await db.execute(
+                sql`SELECT lifecycle_shop(${status}::shop_status, ${paused}, ${deleted ? deleted.toISOString() : null}::timestamptz,
+                                          ${fee}::fee_payment_status, ${kyc})::text AS v`,
+              )) as unknown as { v: string }[];
+              expect(v).toBe(
+                deriveShopLifecycle({ status, ordersPaused: paused, deletedAt: deleted, feePaymentStatus: fee, kycComplete: kyc }),
+              );
+            }
+          }
         }
       }
     }
@@ -211,6 +221,10 @@ describe("SQL derivation matches the TypeScript model", () => {
       ["PAYMENT_PENDING", null, null],
       ["COMPLETED", null, null],
       ["CANCELLED", null, null],
+      // SM-004
+      ["DRAFT", null, null],
+      ["RENEWAL_PENDING", null, null],
+      ["RENEWAL_PENDING", today, today],
     ];
     for (const [status, from, until] of cases) {
       const [{ v }] = (await db.execute(

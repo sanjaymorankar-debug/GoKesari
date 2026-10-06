@@ -32,6 +32,7 @@ import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { attributeShopToCode } from "./referrals";
 import { applyShopCategories } from "./shop-categories";
 import { resolveFeeForNewRegistration } from "./registration-fees";
+import { onboardingApprovalBlocker } from "./shop-onboarding";
 import {
   duplicateShopError,
   findRegistrationMatches,
@@ -602,6 +603,9 @@ function approveShopTransaction(
     if (shop.status === "APPROVED") {
       throw conflict("This shop is already approved.");
     }
+    // SM-002: documents, then fee — the order of the onboarding stages.
+    const blocker = await onboardingApprovalBlocker(shop, tx);
+    if (blocker) throw conflict(blocker, { lifecycleStatus: shop.lifecycleStatus });
     assertRegistrationFeeSettled(shop);
 
     const [updated] = await tx
@@ -1039,6 +1043,8 @@ export async function searchShops(
 export interface AdminShopFilters {
   query?: string;
   status?: ShopStatus;
+  /** SM-002: lifecycle status, e.g. KYC_PENDING / PAYMENT_PENDING / VERIFIED. */
+  lifecycleStatus?: Shop["lifecycleStatus"];
   shopType?: ShopTypeKey;
   classification?: Classification;
   feePaymentStatus?: FeePaymentStatus;
@@ -1081,6 +1087,7 @@ export async function searchShopsAdmin(filters: AdminShopFilters = {}): Promise<
     );
   }
   if (filters.status) conditions.push(eq(shops.status, filters.status));
+  if (filters.lifecycleStatus) conditions.push(eq(shops.lifecycleStatus, filters.lifecycleStatus));
   if (filters.shopType) conditions.push(eq(shops.shopType, filters.shopType));
   if (filters.classification) {
     conditions.push(eq(shops.classification, filters.classification));
