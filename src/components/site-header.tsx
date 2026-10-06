@@ -213,8 +213,11 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
           <span className="grid h-9 w-9 place-items-center rounded-lg bg-kesari-600 text-base font-bold tracking-tight text-white">
             GK
           </span>
-          <span className="hidden text-base font-semibold text-ink-900 sm:inline">
-            Your Neighbourhood, Delivered
+          <span className="hidden flex-col sm:flex">
+            <span className="text-lg font-bold leading-tight text-ink-900">
+              Go<span className="text-kesari-600">Kesari</span>
+            </span>
+            <span className="text-xs font-medium leading-tight text-ink-500">Your Neighbourhood, Delivered</span>
           </span>
         </Link>
 
