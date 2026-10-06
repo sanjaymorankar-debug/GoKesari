@@ -20,6 +20,17 @@ const serverEnvSchema = z.object({
    */
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
 
+  /**
+   * Seconds an unused pooled connection stays open (0 = until the server
+   * drops it). On a quiet site most visitors arrive after the pool has
+   * emptied and pay for fresh TLS connections before the first query; on
+   * test.gokesari.com that put the home page's origin time at 3-5 s cold
+   * against ~0.5 s warm. Raising it keeps connections ready between visits,
+   * at the cost of holding them open — check the provider's connection limit
+   * and whether open connections stop the database scaling to zero.
+   */
+  DATABASE_IDLE_TIMEOUT_SECONDS: z.coerce.number().int().min(0).max(3600).default(20),
+
   // Auth.js
   AUTH_SECRET: z.string().min(1, "AUTH_SECRET is required"),
   AUTH_URL: z.string().url().optional(),
