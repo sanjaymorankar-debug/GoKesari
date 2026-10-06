@@ -76,11 +76,17 @@ export function Section({
       <div className="mb-3 flex items-baseline justify-between">
         <h2 className="text-lg font-semibold text-ink-900">{title}</h2>
         {href ? (
+          // The tap area grows upwards only, since whatever comes first in the
+          // section (e.g. the shop grid's view toggle) sits just below; 44px
+          // keeps it 8px clear of a control ending just above the section.
           <Link
             href={href}
-            className="text-sm font-medium text-kesari-600 hover:underline"
+            className="tap-target text-sm font-medium text-kesari-600 hover:underline [--tap-dy:-12px] [--tap-h:44px]"
+            // Several sections on a page can each say "View all" for a
+            // different list; the section title tells them apart.
+            aria-label={`${linkLabel}: ${title}`}
           >
-            {linkLabel} →
+            {linkLabel} <span aria-hidden>→</span>
           </Link>
         ) : null}
       </div>
@@ -206,7 +212,7 @@ export function Button({
 }) {
   const variants = {
     primary:
-      "bg-kesari-600 text-white hover:bg-kesari-700 disabled:bg-kesari-300",
+      "bg-kesari-600 text-white hover:bg-kesari-800 disabled:bg-kesari-300",
     secondary:
       "border border-cream-200 bg-white text-ink-700 hover:bg-cream-100 disabled:text-ink-400",
     ghost: "text-ink-600 hover:bg-cream-100",
@@ -251,7 +257,7 @@ export function LinkButton({
       className={clsx(
         "inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
         variant === "primary"
-          ? "bg-kesari-600 text-white hover:bg-kesari-700"
+          ? "bg-kesari-600 text-white hover:bg-kesari-800"
           : "border border-cream-200 bg-white text-ink-700 hover:bg-cream-100",
         className,
       )}
@@ -350,4 +356,4 @@ export function Field({
 }
 
 export const inputClass =
-  "w-full rounded-lg border border-cream-200 bg-white px-3 py-2 text-sm text-ink-900 placeholder:text-ink-400 focus:border-kesari-500 focus:outline-none";
+  "w-full rounded-lg border border-cream-200 bg-white px-3 py-2 text-sm text-ink-900 placeholder:text-ink-500 focus:border-kesari-500 focus:outline-none";

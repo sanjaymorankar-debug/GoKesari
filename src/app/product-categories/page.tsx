@@ -33,7 +33,7 @@ export default async function CategoryMasterPage({ searchParams }: { searchParam
       />
       <form method="get" className="flex gap-2" role="search">
         <input name="q" defaultValue={query} placeholder="Search categories" className={inputClass} />
-        <button type="submit" className="rounded-lg bg-kesari-600 px-4 py-2 text-sm font-medium text-white hover:bg-kesari-700">
+        <button type="submit" className="rounded-lg bg-kesari-600 px-4 py-2 text-sm font-medium text-white hover:bg-kesari-800">
           Search
         </button>
       </form>

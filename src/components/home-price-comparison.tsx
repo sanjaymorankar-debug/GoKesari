@@ -35,7 +35,7 @@ export function HomePriceComparison({ products }: { products: ComparedProduct[] 
                 </Link>
                 <span className="flex shrink-0 items-center gap-1">
                   {price.listPricePaise ? (
-                    <span className="text-xs font-normal text-ink-400 line-through">
+                    <span className="text-xs font-normal text-ink-500 line-through">
                       <Money paise={price.listPricePaise} />
                     </span>
                   ) : null}
@@ -45,8 +45,12 @@ export function HomePriceComparison({ products }: { products: ComparedProduct[] 
               </li>
             ))}
           </ul>
-          <Link href={`/products/${p.productId}`} className="mt-auto pt-3 text-xs font-medium text-kesari-700 hover:underline">
-            Compare all shops →
+          <Link
+            href={`/products/${p.productId}`}
+            aria-label={`Compare all shops: ${p.productName}`}
+            className="mt-auto pt-3 text-xs font-medium text-kesari-700 hover:underline"
+          >
+            Compare all shops <span aria-hidden>→</span>
           </Link>
         </Card>
       ))}

@@ -2,7 +2,7 @@ import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { DeliveryPartnerDashboard } from "@/components/delivery-partner-dashboard";
-import { RoleSwitcher } from "@/components/growth-actions";
+import { RoleSwitcher } from "@/components/role-switcher";
 import { Alert, Card, Money, PageHeader, StatusBadge } from "@/components/ui";
 import { vehicleTypeLabel } from "@/lib/vehicle-types";
 import { getCurrentUser } from "@/server/authz/guards";

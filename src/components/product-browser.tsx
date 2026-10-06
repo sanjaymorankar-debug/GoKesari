@@ -61,7 +61,7 @@ export function ProductBrowser({
             ))}
           </select>
         </label>
-        <button type="submit" className="rounded-lg bg-kesari-600 px-4 py-2 text-sm font-medium text-white hover:bg-kesari-700">
+        <button type="submit" className="rounded-lg bg-kesari-600 px-4 py-2 text-sm font-medium text-white hover:bg-kesari-800">
           Apply
         </button>
       </form>

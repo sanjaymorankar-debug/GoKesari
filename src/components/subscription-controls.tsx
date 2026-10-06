@@ -115,7 +115,7 @@ export function SubscriptionControls({
                 deliveries coming — renewal clears as soon as the balance covers it.
               </p>
               <div className="mt-3 flex flex-wrap gap-2">
-                <Link href="/wallet" className="rounded-lg bg-kesari-600 px-3 py-2 text-sm font-medium text-white hover:bg-kesari-700">
+                <Link href="/wallet" className="rounded-lg bg-kesari-600 px-3 py-2 text-sm font-medium text-white hover:bg-kesari-800">
                   Add money
                 </Link>
                 <Button variant="secondary" disabled={busy} onClick={() => call("renew", {}, "POST", "Renewed.")}>

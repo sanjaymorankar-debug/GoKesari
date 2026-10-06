@@ -2,7 +2,7 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 
 import { ProductGrid } from "@/components/product-grid";
-import { RatingBadge } from "@/components/rating-actions";
+import { RatingBadge } from "@/components/rating-badge";
 import { Badge, Card, ClassificationBadge, EmptyState, PageHeader } from "@/components/ui";
 import { listShopReviews } from "@/server/services/ratings";
 import { shopTypeLabel } from "@/lib/shop-types";

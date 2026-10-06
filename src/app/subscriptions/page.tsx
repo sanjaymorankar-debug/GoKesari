@@ -118,7 +118,7 @@ export default async function SubscriptionsPage() {
 
                 <Link
                   href={`/subscriptions/${s.id}`}
-                  className="mt-4 inline-flex w-full justify-center rounded-lg bg-kesari-600 px-4 py-2 text-sm font-medium text-white hover:bg-kesari-700"
+                  className="mt-4 inline-flex w-full justify-center rounded-lg bg-kesari-600 px-4 py-2 text-sm font-medium text-white hover:bg-kesari-800"
                 >
                   Manage &amp; change quantities
                 </Link>
