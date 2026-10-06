@@ -1,6 +1,6 @@
 import { notFound, redirect } from "next/navigation";
 
-import { RatingBadge } from "@/components/rating-actions";
+import { RatingBadge } from "@/components/rating-badge";
 import {
   AddRiderForm,
   MemberActions,
