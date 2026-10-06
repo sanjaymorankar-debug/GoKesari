@@ -13,8 +13,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "Your Neighbourhood, Now Online",
-    template: "%s · Your Neighbourhood, Now Online",
+    default: "Your Neighbourhood, Delivered",
+    template: "%s · Your Neighbourhood, Delivered",
   },
   description:
     "Every local shop near you, in one directory. Wallet payments and flexible daily subscriptions.",
@@ -58,7 +58,7 @@ export default async function RootLayout({
         <footer className="border-t border-cream-200 bg-white">
           <div className="mx-auto max-w-6xl px-4 py-6 text-xs text-ink-500 sm:px-6">
             <p className="mb-1">
-              Your Neighbourhood, Now Online — every local shop near you, in
+              Your Neighbourhood, Delivered — every local shop near you, in
               one directory.
             </p>
             <p className="mb-3">
