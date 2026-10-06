@@ -1,15 +1,15 @@
 # GoKesari feature status - 6 Oct 2026
 
-Your workbook `Gokesari_Complete_Features_and_Workflows.xlsx` (148 rows + flow diagram) compared with the code on main @579fd42 (6 Oct 2026). Development status from code and tests, not QA sign-off. Full detail: `GOKESARI_FEATURE_STATUS_REPORT_2026-10-06.xlsx`.
+Your workbook `Gokesari_Complete_Features_and_Workflows.xlsx` (148 rows + flow diagram) compared with the code on main @579fd42 plus PR #58 (branch claude/admiring-ritchie-rhs1x8), 6 Oct 2026. Development status from code and tests, not QA sign-off. Full detail: `GOKESARI_FEATURE_STATUS_REPORT_2026-10-06.xlsx`.
 
-Checked on main @579fd42 (6 Oct 2026), fresh PostgreSQL 16 with migrations 0000-0050 applied: typecheck clean, lint 0 errors (4 unused-variable warnings), 1152/1152 tests passed in 83 files (vitest).
+Checked on main @579fd42 plus PR #58 (branch claude/admiring-ritchie-rhs1x8), 6 Oct 2026, fresh PostgreSQL 16 with migrations 0000-0055 applied: typecheck clean, lint 0 errors (4 unused-variable warnings in files PR #58 does not touch), 1214/1214 tests passed in 88 files (vitest), production build passes.
 
 | Status | 3 Oct | 6 Oct |
 |---|---|---|
-| COMPLETED | 132 | 143 |
-| IN PROGRESS | 23 | 4 |
-| BLOCKED | 0 | 10 |
-| YET TO START | 1 | 1 |
+| COMPLETED | 132 | 147 |
+| IN PROGRESS | 23 | 0 |
+| BLOCKED | 0 | 11 |
+| YET TO START | 1 | 0 |
 | UNCLEAR | 1 | 0 |
 | Total | 157 | 158 |
 
@@ -19,10 +19,7 @@ COMPLETED includes features behind a business rule that is off by default (marke
 
 | ID | Feature | Remaining | Blocked on |
 |---|---|---|---|
-| GS-027 | Delivery slot | Customer cannot pick a date or time for a scheduled delivery - a scheduled order is booked against the day it is placed. | - |
-| SM-002 | Shop state machine | APPLIED -> KYC_PENDING -> PAYMENT_PENDING -> VERIFIED are all one PENDING stage; show them as lifecycle stages (the data already exists). | - |
-| SM-004 | Subscription state machine | DRAFT, RENEWAL_PENDING and per-cycle ORDER_CREATED / FULFILLED stages; SKIPPED and PAYMENT_FAILED as named lifecycle states. | - |
-| GA-005 | Current load | Multi-order batching ('unless batching is beneficial') not built. | - |
+| - | None | - | - |
 
 ## Blocked
 
@@ -38,24 +35,25 @@ COMPLETED includes features behind a business rule that is off by default (marke
 | SM-005 | Payment state machine | INITIATED -> AUTHORIZED -> CAPTURED -> RECONCILED; CHARGEBACK. | Per-order online payment go-ahead (GS-028 / NEW-007) |
 | SM-006 | Issue state machine | Either add the four states to grievances or accept the dispute lifecycle as the issue state machine. | Decision: does the dispute lifecycle satisfy SM-006? |
 | NAV-003 | Customer portal - Cart & Checkout | Online payment at checkout. | Needs GS-028 |
+| NEW-007 | Direct per-order payments, tax invoicing, photo POD, accept timeout | Per-order online payment only (the other three parts are done). Invoice rates / HSN / wording to be confirmed by a CA before use for filing. | Per-order online payment go-ahead (GS-028) |
 
 ## Yet To Start
 
 | ID | Feature | Remaining | Blocked on |
 |---|---|---|---|
-| NEW-007 | Direct per-order payments, tax invoicing, photo POD, accept timeout | Per-order online payment (needs the GS-028 go-ahead); tax invoicing (shop invoices goods, platform invoices its fees); photo proof of delivery; auto-cancel with full refund when a shop does not accept in time. The last three do not depend on the payment decision. | Go-ahead to build |
+| - | None | - | - |
 
 ## Completed
 
-**Feature Master** (68): GS-002 Role-based access control; GS-003 Multi-role user account; GS-004 PIN / address selection; GS-005 Society identification; GS-006 Shop registration; GS-007 Business KYC; GS-008 Payment reference verification; GS-009 Shop categories; GS-010 Service radius / delivery zone; GS-011 Product master; GS-012 Shop catalog mapping; GS-013 Bulk product upload; GS-014 Product images/specifications *(off)*; GS-015 MRP / selling price / discount; GS-016 Stock quantity; GS-017 Low-stock threshold; GS-018 Reorder level / quantity; GS-019 Shop search; GS-020 Product search; GS-021 All shops selling product; GS-022 Local price comparison; GS-024 Single-shop cart; GS-025 Multi-shop cart; GS-026 Address validation; GS-029 Wallet; GS-030 COD; GS-031 Payment reconciliation; GS-032 Order creation; GS-033 Shop order split *(off)*; GS-034 Shop accept/reject; GS-035 Substitution approval; GS-036 Pick and pack; GS-037 Gig worker onboarding; GS-038 Online/offline status; GS-039 Job assignment; GS-040 Society priority assignment; GS-041 Pickup OTP/QR; GS-042 Live tracking; GS-043 Delivery OTP/POD; GS-044 Society registration; GS-045 Authorized Gig worker whitelist; GS-046 Security notification; GS-047 Delivery instructions; GS-048 Daily milk subscription; GS-049 Recurring vegetables/daily goods; GS-050 Subscription payment; GS-051 Skip/pause/resume/cancel; GS-052 Customer segmentation; GS-053 Shop promotional campaigns; GS-054 Referral program *(off)*; GS-055 Order notifications; GS-056 Report an issue; GS-057 Returns/refunds; GS-058 Dispute management; GS-059 Shop rating; GS-060 Gig rating; GS-061 Shop commission; GS-062 Shop settlement; GS-063 Gig earnings; GS-064 Gig payout; GS-065 Global dashboard; GS-066 Operator console; GS-067 Audit logs; GS-068 Fraud/risk rules; GS-069 Marketplace KPI dashboard; GS-070 Privacy/consent management; GS-071 Data access controls; GS-072 Maps/navigation *(off)*
+**Feature Master** (69): GS-002 Role-based access control; GS-003 Multi-role user account; GS-004 PIN / address selection; GS-005 Society identification; GS-006 Shop registration; GS-007 Business KYC; GS-008 Payment reference verification; GS-009 Shop categories; GS-010 Service radius / delivery zone; GS-011 Product master; GS-012 Shop catalog mapping; GS-013 Bulk product upload; GS-014 Product images/specifications *(off)*; GS-015 MRP / selling price / discount; GS-016 Stock quantity; GS-017 Low-stock threshold; GS-018 Reorder level / quantity; GS-019 Shop search; GS-020 Product search; GS-021 All shops selling product; GS-022 Local price comparison; GS-024 Single-shop cart; GS-025 Multi-shop cart; GS-026 Address validation; GS-027 Delivery slot *(off)*; GS-029 Wallet; GS-030 COD; GS-031 Payment reconciliation; GS-032 Order creation; GS-033 Shop order split *(off)*; GS-034 Shop accept/reject; GS-035 Substitution approval; GS-036 Pick and pack; GS-037 Gig worker onboarding; GS-038 Online/offline status; GS-039 Job assignment; GS-040 Society priority assignment; GS-041 Pickup OTP/QR; GS-042 Live tracking; GS-043 Delivery OTP/POD; GS-044 Society registration; GS-045 Authorized Gig worker whitelist; GS-046 Security notification; GS-047 Delivery instructions; GS-048 Daily milk subscription; GS-049 Recurring vegetables/daily goods; GS-050 Subscription payment; GS-051 Skip/pause/resume/cancel; GS-052 Customer segmentation; GS-053 Shop promotional campaigns; GS-054 Referral program *(off)*; GS-055 Order notifications; GS-056 Report an issue; GS-057 Returns/refunds; GS-058 Dispute management; GS-059 Shop rating; GS-060 Gig rating; GS-061 Shop commission; GS-062 Shop settlement; GS-063 Gig earnings; GS-064 Gig payout; GS-065 Global dashboard; GS-066 Operator console; GS-067 Audit logs; GS-068 Fraud/risk rules; GS-069 Marketplace KPI dashboard; GS-070 Privacy/consent management; GS-071 Data access controls; GS-072 Maps/navigation *(off)*
 
 **Workflow Master** (9): WF-002 Shop fulfillment; WF-003 Gig assignment; WF-004 Society authorized delivery; WF-005 Delivery; WF-006 Subscription; WF-007 Return/refund; WF-008 Shop onboarding; WF-009 Marketing campaign; WF-010 Settlement
 
 **RBAC Matrix** (14): RBAC-001 Browse/search; RBAC-002 Place order; RBAC-004 Manage catalog; RBAC-005 Upload product lists; RBAC-006 Verify shop; RBAC-007 Assign delivery; RBAC-008 Manage own availability; RBAC-009 Whitelist Gig workers; RBAC-010 View all orders; RBAC-011 Refund approval; RBAC-012 Settlement; RBAC-013 Manage users/roles; RBAC-014 System configuration; RBAC-015 Audit logs
 
-**State Machines** (2): SM-001 Order state machine; SM-003 Gig state machine
+**State Machines** (4): SM-001 Order state machine; SM-002 Shop state machine; SM-003 Gig state machine; SM-004 Subscription state machine
 
-**Gig Assignment Rules** (8): GA-001 Society authorization; GA-002 Society preferred partner; GA-003 Distance; GA-004 Availability; GA-006 Shop readiness; GA-007 Reliability; GA-008 Fairness; GA-009 No worker
+**Gig Assignment Rules** (9): GA-001 Society authorization; GA-002 Society preferred partner; GA-003 Distance; GA-004 Availability; GA-005 Current load *(off)*; GA-006 Shop readiness; GA-007 Reliability; GA-008 Fairness; GA-009 No worker
 
 **Navigation** (18): NAV-001 Customer portal - Home *(off)*; NAV-002 Customer portal - Shop *(off)*; NAV-004 Customer portal - Orders; NAV-005 Customer portal - Subscriptions; NAV-006 Shop portal - Dashboard; NAV-007 Shop portal - Catalog; NAV-008 Shop portal - Orders; NAV-009 Shop portal - Marketing; NAV-010 Shop portal - Finance; NAV-011 Gig portal - Jobs; NAV-012 Gig portal - Earnings; NAV-013 Gig portal - Profile; NAV-014 Society portal - Dashboard; NAV-015 Operator portal - Operations; NAV-016 Operator portal - Orders; NAV-017 Admin portal - Control Tower; NAV-018 Admin portal - Analytics; NAV-019 Admin portal - Security
 
@@ -77,18 +75,18 @@ COMPLETED includes features behind a business rule that is off by default (marke
 | Order engine | Confirm payment | BLOCKED | Gateway confirmation and the payment state machine wait on GS-028. |
 | Order engine | Create fulfillment tasks | COMPLETED | - |
 | Shop owner | Receive order | COMPLETED | SMS / WhatsApp alerts wait on D2. |
-| Shop owner | Accept / reject / substitute | COMPLETED | Auto-cancel on accept timeout is part of NEW-007 (yet to start). |
+| Shop owner | Accept / reject / substitute | COMPLETED | - |
 | Shop owner | Pick + pack | COMPLETED | - |
 | Shop owner | Mark READY | COMPLETED | - |
 | Gig assignment | Check society authorization | COMPLETED | - |
 | Gig assignment | Priority partner rules | COMPLETED | - |
-| Gig assignment | Distance / ETA / load | IN PROGRESS | Multi-order batching not built. |
+| Gig assignment | Distance / ETA / load | COMPLETED | - |
 | Gig assignment | Assign / broadcast | COMPLETED | Sequential offers, not a broadcast; no radius widening. |
 | Delivery partner | Accept job | COMPLETED | - |
 | Delivery partner | Pickup OTP / QR | COMPLETED | Code only - no QR. |
 | Delivery partner | Navigate | COMPLETED | No in-app turn-by-turn. |
 | Delivery partner | Society access | COMPLETED | - |
-| Delivery partner | Customer OTP / POD | COMPLETED | Photo / signature POD is part of NEW-007 (yet to start). |
+| Delivery partner | Customer OTP / POD | COMPLETED | No signature capture. |
 | Society | Whitelist / revoke Gig workers | COMPLETED | - |
 | Society | Delivery instructions | COMPLETED | - |
 | Society | Security notification | COMPLETED | - |
@@ -98,7 +96,7 @@ COMPLETED includes features behind a business rule that is off by default (marke
 | Post-order | Ratings + support | COMPLETED | - |
 | Post-order | Shop settlement + Gig payout | COMPLETED | Bank transfer is manual. |
 | Subscription engine | Milk / vegetables / daily goods | COMPLETED | - |
-| Subscription engine | Schedule | COMPLETED | Extra lifecycle stages (SM-004) in progress. |
+| Subscription engine | Schedule | COMPLETED | - |
 | Subscription engine | Auto-create order | COMPLETED | - |
 | Subscription engine | Payment | COMPLETED | - |
 | Subscription engine | Fulfillment + delivery | COMPLETED | - |
