@@ -37,13 +37,15 @@ export function ShopGridView({ shops }: { shops: ShopCardData[] }) {
 
   return (
     <div>
-      <div className="mb-3 flex justify-end gap-1">
+      {/* 8px apart, with 40px-tall tap areas that stay clear of the section's
+          link above and the first shop below. */}
+      <div className="mb-3 flex justify-end gap-2">
         <button
           type="button"
           onClick={() => setView("grid")}
           aria-pressed={view === "grid"}
           aria-label="Grid view"
-          className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium ${
+          className={`tap-target rounded-lg border px-2.5 py-1.5 text-xs font-medium [--tap-dy:-1px] [--tap-h:40px] ${
             view === "grid"
               ? "border-kesari-300 bg-kesari-50 text-kesari-700"
               : "border-cream-200 text-ink-500 hover:bg-cream-100"
@@ -62,7 +64,7 @@ export function ShopGridView({ shops }: { shops: ShopCardData[] }) {
           onClick={() => setView("list")}
           aria-pressed={view === "list"}
           aria-label="List view"
-          className={`rounded-lg border px-2.5 py-1.5 text-xs font-medium ${
+          className={`tap-target rounded-lg border px-2.5 py-1.5 text-xs font-medium [--tap-dy:-1px] [--tap-h:40px] ${
             view === "list"
               ? "border-kesari-300 bg-kesari-50 text-kesari-700"
               : "border-cream-200 text-ink-500 hover:bg-cream-100"
@@ -140,7 +142,7 @@ function ShopCard({ shop }: { shop: ShopCardData }) {
 
         <Link
           href={`/shops/${shop.slug}`}
-          className="mt-4 inline-flex justify-center rounded-lg border border-cream-200 px-3 py-1.5 text-sm font-medium text-ink-700 hover:bg-cream-100"
+          className="tap-target mt-4 inline-flex justify-center rounded-lg border border-cream-200 px-3 py-1.5 text-sm font-medium text-ink-700 hover:bg-cream-100"
         >
           View Shop
         </Link>

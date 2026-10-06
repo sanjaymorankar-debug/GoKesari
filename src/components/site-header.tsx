@@ -261,11 +261,13 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
           ))}
         </nav>
 
-        <div className="ml-auto flex shrink-0 items-center gap-2">
+        {/* Tap areas sit 4px low: inside the header on one row, and clear of
+            the logo and search box when narrow screens wrap this to a second. */}
+        <div className="ml-auto flex shrink-0 items-center gap-2 [--tap-dy:4px]">
           {balancePaise !== null ? (
             <Link
               href="/wallet"
-              className="hidden rounded-lg bg-leaf-50 px-2.5 py-1.5 text-sm font-semibold text-leaf-700 sm:inline-block"
+              className="tap-target hidden rounded-lg bg-leaf-50 px-2.5 py-1.5 text-sm font-semibold text-leaf-700 sm:inline-block"
             >
               {formatPaiseCompact(balancePaise)}
             </Link>
@@ -273,7 +275,7 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
 
           <Link
             href="/cart"
-            className="relative rounded-lg px-2.5 py-1.5 text-sm font-medium text-ink-600 hover:bg-cream-100"
+            className="tap-target rounded-lg px-2.5 py-1.5 text-sm font-medium text-ink-600 hover:bg-cream-100"
             aria-label={`Cart, ${cartCount} items`}
           >
             Cart
@@ -290,14 +292,16 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
               {dashboardHref ? (
                 <Link
                   href={dashboardHref}
-                  className="hidden rounded-lg border border-cream-200 px-2.5 py-1.5 text-sm font-medium text-ink-700 hover:bg-cream-100 md:inline-block"
+                  className="tap-target hidden rounded-lg border border-cream-200 px-2.5 py-1.5 text-sm font-medium text-ink-700 hover:bg-cream-100 md:inline-block"
                 >
                   Dashboard
                 </Link>
               ) : null}
               <Link
                 href="/profile"
-                className="relative grid h-8 w-8 place-items-center rounded-full bg-kesari-100 text-sm font-semibold text-kesari-700"
+                // Icon-sized and 8px from its neighbours: 36px wide keeps the
+                // tap areas apart.
+                className="tap-target grid h-8 w-8 place-items-center rounded-full bg-kesari-100 text-sm font-semibold text-kesari-700 [--tap-w:36px]"
                 aria-label="My Profile"
                 title="My Profile"
               >
@@ -310,7 +314,7 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
               <form action={signOutAction}>
                 <button
                   type="submit"
-                  className="flex items-center gap-1.5 rounded-lg border border-cream-200 p-1.5 text-sm font-medium text-ink-700 hover:bg-cream-100 sm:px-2.5"
+                  className="tap-target flex items-center gap-1.5 rounded-lg border border-cream-200 p-1.5 text-sm font-medium text-ink-700 hover:bg-cream-100 sm:px-2.5 [--tap-w:36px]"
                   aria-label="Sign out"
                   title="Sign out"
                 >
@@ -330,7 +334,7 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
           ) : (
             <Link
               href="/signin"
-              className="rounded-lg bg-kesari-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-kesari-800"
+              className="tap-target rounded-lg bg-kesari-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-kesari-800"
             >
               Sign in
             </Link>
@@ -339,7 +343,9 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
-            className="rounded-lg p-1.5 text-ink-600 hover:bg-cream-100 xl:hidden"
+            // Last item in the row: the tap area widens to the right, into the
+            // page margin, and stays clear of the control to its left.
+            className="tap-target rounded-lg p-1.5 text-ink-600 hover:bg-cream-100 xl:hidden [--tap-dx:8px]"
             aria-label="Toggle menu"
             aria-expanded={open}
           >

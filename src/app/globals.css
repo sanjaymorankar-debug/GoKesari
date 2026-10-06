@@ -63,6 +63,30 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/*
+ * Touch targets (§51): grows an element's tappable area to at least 48×48px
+ * without changing how it looks. The extra area is an invisible ::after box
+ * centred on the element; taps on it land on the element itself.
+ *
+ * Where neighbours are too close for a full 48px without the extended areas
+ * meeting, cap it with [--tap-w:40px] / [--tap-h:40px], or move it off-centre
+ * with [--tap-dx:8px] / [--tap-dy:-14px] (negative = left / up). Only on
+ * elements whose own ::after is otherwise unused.
+ */
+@utility tap-target {
+  position: relative;
+
+  &::after {
+    content: "";
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    width: max(100%, var(--tap-w, 48px));
+    height: max(100%, var(--tap-h, 48px));
+    transform: translate(calc(-50% + var(--tap-dx, 0px)), calc(-50% + var(--tap-dy, 0px)));
+  }
+}
+
 /* Visible keyboard focus everywhere — accessibility (§51). */
 :focus-visible {
   outline: 2px solid var(--color-kesari-500);

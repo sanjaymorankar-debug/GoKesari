@@ -65,7 +65,7 @@ export default async function HomePage() {
           />
           <button
             type="submit"
-            className="rounded-lg bg-kesari-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-kesari-800"
+            className="tap-target rounded-lg bg-kesari-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-kesari-800"
           >
             Search
           </button>
@@ -142,7 +142,7 @@ async function HomeShopSections({ location }: { location: CustomerLocation | nul
         </div>
         <Link
           href="/shop/register"
-          className="rounded-lg bg-kesari-600 px-4 py-2 text-sm font-medium text-white hover:bg-kesari-800"
+          className="tap-target rounded-lg bg-kesari-600 px-4 py-2 text-sm font-medium text-white hover:bg-kesari-800"
         >
           Add my shop
         </Link>
@@ -160,7 +160,7 @@ async function HomeShopSections({ location }: { location: CustomerLocation | nul
         </div>
         <Link
           href="/delivery-partner/apply"
-          className="rounded-lg border border-kesari-300 bg-white px-4 py-2 text-sm font-medium text-kesari-700 hover:bg-kesari-50"
+          className="tap-target rounded-lg border border-kesari-300 bg-white px-4 py-2 text-sm font-medium text-kesari-700 hover:bg-kesari-50"
         >
           Become a Delivery Partner
         </Link>

@@ -76,9 +76,12 @@ export function Section({
       <div className="mb-3 flex items-baseline justify-between">
         <h2 className="text-lg font-semibold text-ink-900">{title}</h2>
         {href ? (
+          // The tap area grows upwards only, since whatever comes first in the
+          // section (e.g. the shop grid's view toggle) sits just below; 44px
+          // keeps it 8px clear of a control ending just above the section.
           <Link
             href={href}
-            className="text-sm font-medium text-kesari-600 hover:underline"
+            className="tap-target text-sm font-medium text-kesari-600 hover:underline [--tap-dy:-12px] [--tap-h:44px]"
           >
             {linkLabel} →
           </Link>
