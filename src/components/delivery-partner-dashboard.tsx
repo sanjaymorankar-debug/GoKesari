@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useEffectEvent, useState } from "react";
 
 import { Alert, Button, Card, Money } from "@/components/ui";
+import { formatScheduledSlot } from "@/lib/scheduled-slots";
+import { shrinkImage } from "@/components/image-uploader";
 
 export interface ActiveDelivery {
   id: string;
@@ -12,6 +14,11 @@ export interface ActiveDelivery {
   orderTotalPaise: number;
   /** Cash on delivery: the amount to collect at the door (null when prepaid). */
   cashToCollectPaise: number | null;
+  /** GS-027: deliver within this slot (the customer's chosen time). */
+  scheduledSlot?: { start: string; end: string } | null;
+  /** NEW-007: a photo at the door is needed before "Mark delivered". */
+  proofRequired?: boolean;
+  proofUploaded?: boolean;
   shopName: string;
   shopAddress: string;
   customerAddress: string | null;
@@ -558,6 +565,11 @@ export function DeliveryPartnerDashboard({
             {STATUS_LABEL[activeDelivery.status] ?? activeDelivery.status}
           </p>
           <p className="mt-2 font-semibold text-ink-900">{activeDelivery.orderNumber}</p>
+          {activeDelivery.scheduledSlot ? (
+            <p className="mt-1 text-sm font-medium text-kesari-700" data-testid="rider-scheduled-slot">
+              Deliver {formatScheduledSlot(activeDelivery.scheduledSlot.start, activeDelivery.scheduledSlot.end)}
+            </p>
+          ) : null}
           {activeDelivery.status !== "OFFERED" ? <ProgressSteps delivery={activeDelivery} /> : null}
           <div className="mt-3 space-y-2 text-sm">
             <div>
@@ -693,6 +705,12 @@ export function DeliveryPartnerDashboard({
                     onChange={setCode}
                   />
                 ) : null}
+                {activeDelivery.proofRequired ? (
+                  <DeliveryProofCapture
+                    deliveryOrderId={activeDelivery.id}
+                    uploaded={Boolean(activeDelivery.proofUploaded)}
+                  />
+                ) : null}
                 {activeDelivery.cashToCollectPaise != null ? (
                   <label className="flex items-center gap-2 text-sm text-ink-700">
                     <input
@@ -708,7 +726,8 @@ export function DeliveryPartnerDashboard({
                   disabled={
                     busy ||
                     (activeDelivery.needsDeliveryOtp && code.length !== 4) ||
-                    (activeDelivery.cashToCollectPaise != null && !cashCollected)
+                    (activeDelivery.cashToCollectPaise != null && !cashCollected) ||
+                    (Boolean(activeDelivery.proofRequired) && !activeDelivery.proofUploaded)
                   }
                   onClick={() => act("deliver", { otp: code, cashCollected })}
                 >
@@ -889,5 +908,56 @@ function ReturnPickupPanel({ pickup, onDone }: { pickup: ActiveReturnPickupView;
         </div>
       ) : null}
     </Card>
+  );
+}
+
+/**
+ * NEW-007: the photo at the door. Opens the camera on a phone; the image is
+ * shrunk and re-encoded in the browser (which also drops location metadata)
+ * and checked again on the server.
+ */
+function DeliveryProofCapture({ deliveryOrderId, uploaded }: { deliveryOrderId: string; uploaded: boolean }) {
+  const router = useRouter();
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function upload(files: FileList | null) {
+    const file = files?.[0];
+    if (!file) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const body = new FormData();
+      body.append("file", await shrinkImage(file), "delivery.jpg");
+      const response = await fetch(`/api/delivery-orders/${deliveryOrderId}/proof`, { method: "POST", body });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        setError(payload?.error?.message ?? "Could not upload the photo.");
+        return;
+      }
+      router.refresh();
+    } catch {
+      setError("Could not upload the photo. Check your connection and try again.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  return (
+    <div className="space-y-1 text-sm" data-testid="delivery-proof">
+      <label className="block font-medium text-ink-700">
+        {uploaded ? "Photo at the door added ✓ — retake if needed" : "Photo of the order at the door (required)"}
+        <input
+          type="file"
+          accept="image/jpeg,image/png,image/webp"
+          capture="environment"
+          disabled={busy}
+          onChange={(e) => void upload(e.target.files)}
+          className="mt-1 block w-full text-xs"
+        />
+      </label>
+      {busy ? <p className="text-xs text-ink-500">Uploading…</p> : null}
+      {error ? <p className="text-xs text-red-700">{error}</p> : null}
+    </div>
   );
 }

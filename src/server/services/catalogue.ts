@@ -1301,7 +1301,8 @@ export async function restockOnline(
   shopProductId: string,
   units: number,
   reason: string,
-  actorId: string,
+  /** null = the system (e.g. an automatic cancellation). */
+  actorId: string | null,
   client?: DbClient,
 ): Promise<ShopProduct> {
   if (!Number.isInteger(units) || units <= 0) {

@@ -42,6 +42,7 @@ export default async function AdminShopsPage() {
           shopType: s.shopType,
           classification: s.classification,
           status: s.status,
+          stage: s.status === "PENDING_APPROVAL" ? s.lifecycleStatus : null,
           productCount: counts[s.id] ?? 0,
         }))}
       />

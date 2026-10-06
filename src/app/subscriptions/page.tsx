@@ -12,9 +12,11 @@ import {
 } from "@/components/ui";
 import { formatDisplayDate } from "@/lib/dates";
 import { MILLI_PER_UNIT, lineTotalPaise } from "@/lib/money";
+import { subscriptionStatusLabel, subscriptionStatusTone } from "@/lib/subscription-status-view";
 import { getCurrentUser } from "@/server/authz/guards";
 import {
   getWalletForecast,
+  isDeliveringStatus,
   listSubscriptionsForUser,
 } from "@/server/services/subscriptions";
 
@@ -30,9 +32,7 @@ export default async function SubscriptionsPage() {
     getWalletForecast(user.id, 15),
   ]);
 
-  const active = subscriptions.filter(
-    (s) => s.status === "ACTIVE" || s.status === "PAYMENT_PENDING",
-  );
+  const active = subscriptions.filter((s) => isDeliveringStatus(s.status));
 
   return (
     <>
@@ -72,16 +72,8 @@ export default async function SubscriptionsPage() {
             return (
               <Card key={s.id} className="p-5">
                 <div className="mb-2 flex flex-wrap items-center gap-1.5">
-                  <Badge
-                    tone={
-                      s.status === "ACTIVE"
-                        ? "success"
-                        : s.status === "PAYMENT_PENDING"
-                          ? "danger"
-                          : "warning"
-                    }
-                  >
-                    {s.status.replace(/_/g, " ").toLowerCase()}
+                  <Badge tone={subscriptionStatusTone(s.status)}>
+                    {subscriptionStatusLabel(s.status, s.renewalReason)}
                   </Badge>
                   <Badge>{s.frequency.toLowerCase()}</Badge>
                 </div>
@@ -112,6 +104,15 @@ export default async function SubscriptionsPage() {
                 ) : s.status === "ACTIVE" ? (
                   <p className="mt-2 text-sm text-ink-500">
                     No upcoming delivery scheduled
+                  </p>
+                ) : s.status === "DRAFT" ? (
+                  <p className="mt-2 text-sm text-ink-500">Draft — activate it to start deliveries</p>
+                ) : null}
+                {s.status === "RENEWAL_PENDING" ? (
+                  <p className="mt-1 text-sm font-medium text-amber-700">
+                    {s.renewalReason === "PAYMENT_DUE"
+                      ? `Top up your wallet before ${s.renewalDueDate ?? "the next delivery"}`
+                      : `Renew before ${s.renewalDueDate ?? s.endDate}`}
                   </p>
                 ) : null}
 

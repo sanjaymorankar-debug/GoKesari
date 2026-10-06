@@ -76,6 +76,17 @@ export const NOTIFICATION_TYPES = {
   SUBSCRIPTION_ORDER_CREATED: "subscription.order_created",
   SUBSCRIPTION_PAYMENT_FAILED: "subscription.payment_failed",
   SUBSCRIPTION_UPCOMING_REMINDER: "subscription.upcoming_reminder",
+  /** SM-004: the term ends soon, or the wallet will not cover the next delivery. */
+  SUBSCRIPTION_RENEWAL_DUE: "subscription.renewal_due",
+  SUBSCRIPTION_RENEWED: "subscription.renewed",
+  /** SM-004: the end date passed; no further deliveries. */
+  SUBSCRIPTION_COMPLETED: "subscription.completed",
+  /** NEW-007: to the shop — accept this order soon or it is cancelled. */
+  SHOP_ACCEPT_REMINDER: "shop.accept_reminder",
+  /** NEW-007: to the shop — an order was cancelled because it was not accepted in time. */
+  SHOP_ORDER_TIMED_OUT: "shop.order_timed_out",
+  /** NEW-007: the order's tax invoice can be downloaded. */
+  ORDER_INVOICE_READY: "order.invoice_ready",
   PRICE_CHANGED: "product.price_changed",
   GRIEVANCE_ACKNOWLEDGED: "grievance.acknowledged",
   GRIEVANCE_RESOLVED: "grievance.resolved",

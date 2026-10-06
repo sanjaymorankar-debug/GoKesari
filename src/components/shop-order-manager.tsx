@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { Alert, Badge, Button, Card, Money, StatusBadge } from "@/components/ui";
 import { formatQuantity } from "@/lib/money";
+import { formatScheduledSlot } from "@/lib/scheduled-slots";
 
 /**
  * Manual status steps that stay available for shops delivering themselves or
@@ -75,6 +76,13 @@ export interface ShopOrderRow {
   /** GS-030: COD orders are paid in cash at the door (by the rider, or to you if you deliver). */
   paymentMethod?: string;
   cashCollected?: boolean;
+  /** GS-027: the delivery time the customer chose. */
+  scheduledSlot?: { start: string; end: string } | null;
+  /** NEW-007: accept by this time or the order is cancelled automatically. */
+  acceptByAt?: string | null;
+  /** NEW-007: links for a delivered order. */
+  invoiceUrl?: string | null;
+  proofPhotoUrl?: string | null;
 }
 
 export interface SubstituteOption {
@@ -172,12 +180,35 @@ function OrderRow({
             <Badge tone="info">{DELIVERY_STATUS_LABEL[order.deliveryStatus] ?? order.deliveryStatus}</Badge>
           ) : null}
           <span className="text-sm text-ink-500">{order.orderNumber}</span>
+          {order.scheduledSlot ? (
+            <Badge tone="warning">Deliver {formatScheduledSlot(order.scheduledSlot.start, order.scheduledSlot.end)}</Badge>
+          ) : null}
+          {order.acceptByAt && order.status === "CONFIRMED" ? (
+            <Badge tone="danger">
+              Accept by{" "}
+              {new Date(order.acceptByAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })}
+            </Badge>
+          ) : null}
         </div>
         <span className="font-semibold text-ink-900">
           <Money paise={order.totalPaise} />
         </span>
       </div>
 
+      {order.invoiceUrl || order.proofPhotoUrl ? (
+        <p className="mt-2 flex flex-wrap gap-3 text-xs">
+          {order.invoiceUrl ? (
+            <a href={order.invoiceUrl} className="font-medium text-kesari-700 hover:underline">
+              Tax invoice
+            </a>
+          ) : null}
+          {order.proofPhotoUrl ? (
+            <a href={order.proofPhotoUrl} target="_blank" rel="noreferrer" className="font-medium text-kesari-700 hover:underline">
+              Photo at delivery
+            </a>
+          ) : null}
+        </p>
+      ) : null}
       {order.pickupCode && order.status === "ASSIGNED" ? (
         <p className="mt-2 rounded-lg bg-kesari-50 px-3 py-2 text-sm text-kesari-800" data-testid="pickup-code">
           Pickup code for the rider: <span className="font-mono text-lg font-bold tracking-widest">{order.pickupCode}</span>

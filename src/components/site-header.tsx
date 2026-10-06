@@ -95,6 +95,7 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin/rider-changes", label: "Rider profile changes" },
     { href: "/admin/customer-referrals", label: "Customer referrals" },
     { href: "/admin/status-changes", label: "Status history" },
+    { href: "/admin/subscriptions", label: "Subscriptions" },
   ],
   DELIVERY_PARTNER: [{ href: "/delivery-partner", label: "Delivery Partner" }],
 };

@@ -7,6 +7,8 @@ import { getDeliveryOrdersForOrders, getRiderSearchStatus } from "@/server/servi
 import { listShopProducts } from "@/server/services/catalogue";
 import { listOrdersForShop } from "@/server/services/orders";
 import { listShopsForOwner } from "@/server/services/shops";
+import { proofPhotosForOrders } from "@/server/services/delivery-proofs";
+import { getRule } from "@/server/services/settings";
 
 export const metadata = { title: "Shop Orders" };
 export const dynamic = "force-dynamic";
@@ -28,6 +30,9 @@ export default async function ShopOrdersPage() {
     listShopProducts(shop.id, { onlineOnly: true }),
   ]);
   const deliveryOrders = await getDeliveryOrdersForOrders(orders.map((o) => o.id));
+  // NEW-007: invoice and delivery-photo links on delivered orders.
+  const delivered = orders.filter((o) => o.status === "DELIVERED").map((o) => o.id);
+  const [proofPhotos, invoicingRule] = await Promise.all([proofPhotosForOrders(delivered), getRule("invoicing")]);
   // Only READY orders of a delivering shop are waiting for a rider.
   const searchByOrder = new Map(
     shop.deliveryAvailable
@@ -60,6 +65,13 @@ export default async function ShopOrdersPage() {
             orderType: o.orderType,
             paymentMethod: o.paymentMethod,
             cashCollected: o.codCollectedAt != null,
+            acceptByAt: o.acceptByAt ? o.acceptByAt.toISOString() : null,
+            invoiceUrl: o.status === "DELIVERED" && invoicingRule.enabled ? `/api/orders/${o.id}/invoice` : null,
+            proofPhotoUrl: proofPhotos.get(o.id)?.url ?? null,
+            scheduledSlot:
+              o.scheduledSlotStart && o.scheduledSlotEnd
+                ? { start: o.scheduledSlotStart.toISOString(), end: o.scheduledSlotEnd.toISOString() }
+                : null,
             // Explicit fields only — never pass the customer's delivery OTP to the shop.
             items: o.items.map((i) => ({
               id: i.id,
