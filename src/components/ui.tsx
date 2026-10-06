@@ -82,8 +82,11 @@ export function Section({
           <Link
             href={href}
             className="tap-target text-sm font-medium text-kesari-600 hover:underline [--tap-dy:-12px] [--tap-h:44px]"
+            // Several sections on a page can each say "View all" for a
+            // different list; the section title tells them apart.
+            aria-label={`${linkLabel}: ${title}`}
           >
-            {linkLabel} →
+            {linkLabel} <span aria-hidden>→</span>
           </Link>
         ) : null}
       </div>

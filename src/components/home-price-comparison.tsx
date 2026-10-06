@@ -45,8 +45,12 @@ export function HomePriceComparison({ products }: { products: ComparedProduct[] 
               </li>
             ))}
           </ul>
-          <Link href={`/products/${p.productId}`} className="mt-auto pt-3 text-xs font-medium text-kesari-700 hover:underline">
-            Compare all shops →
+          <Link
+            href={`/products/${p.productId}`}
+            aria-label={`Compare all shops: ${p.productName}`}
+            className="mt-auto pt-3 text-xs font-medium text-kesari-700 hover:underline"
+          >
+            Compare all shops <span aria-hidden>→</span>
           </Link>
         </Card>
       ))}

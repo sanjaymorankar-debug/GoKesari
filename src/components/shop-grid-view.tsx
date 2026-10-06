@@ -142,6 +142,7 @@ function ShopCard({ shop }: { shop: ShopCardData }) {
 
         <Link
           href={`/shops/${shop.slug}`}
+          aria-label={`View Shop: ${shop.name}`}
           className="tap-target mt-4 inline-flex justify-center rounded-lg border border-cream-200 px-3 py-1.5 text-sm font-medium text-ink-700 hover:bg-cream-100"
         >
           View Shop
