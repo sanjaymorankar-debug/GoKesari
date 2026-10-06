@@ -221,7 +221,7 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
             <span className="text-lg font-bold leading-tight text-ink-900">
               Go<span className="text-kesari-600">Kesari</span>
             </span>
-            <span className="text-xs font-medium leading-tight text-ink-500">Your Neighbourhood, Delivered</span>
+            <span className="text-xs font-medium leading-tight text-ink-500">Everything for Everyone</span>
           </span>
         </Link>
 
