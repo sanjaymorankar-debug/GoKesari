@@ -209,11 +209,19 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
     <header className="sticky top-0 z-40 border-b border-cream-200 bg-white/95 backdrop-blur">
       <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6">
         <Link href="/" className="flex shrink-0 items-center gap-2">
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-kesari-600 text-lg font-bold text-white">
-            N
-          </span>
-          <span className="hidden text-base font-semibold text-ink-900 sm:inline">
-            Your Neighbourhood, Now Online
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/brand/gk-mark.png"
+            alt="GoKesari"
+            width={62}
+            height={36}
+            className="h-9 w-auto rounded-lg"
+          />
+          <span className="hidden flex-col sm:flex">
+            <span className="text-lg font-bold leading-tight text-ink-900">
+              Go<span className="text-kesari-600">Kesari</span>
+            </span>
+            <span className="text-xs font-medium leading-tight text-ink-500">Everything for Everyone</span>
           </span>
         </Link>
 

@@ -1,5 +1,5 @@
 /**
- * Database schema — Your Neighbourhood, Now Online.
+ * Database schema — Everything for Everyone.
  *
  * Conventions enforced across every table:
  *  - Money is ALWAYS integer paise (bigint). ₹70.00 → 7000. Never a float.
