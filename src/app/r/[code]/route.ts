@@ -12,7 +12,9 @@ export async function GET(request: NextRequest, context: { params: Promise<{ cod
   const { code } = await context.params;
   const clean = normalizeReferralCode(code).slice(0, 16);
   const user = await getCurrentUser();
-  const response = NextResponse.redirect(new URL(user ? "/refer" : "/signin", request.url));
+  // Relative Location: behind the host's proxy request.url carries the
+  // internal address (0.0.0.0:3000), not the public domain.
+  const response = new NextResponse(null, { status: 307, headers: { Location: user ? "/refer" : "/signin" } });
   if (clean) {
     response.cookies.set(REFERRAL_COOKIE, clean, {
       httpOnly: true,
