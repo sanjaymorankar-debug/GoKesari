@@ -209,11 +209,11 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
     <header className="sticky top-0 z-40 border-b border-cream-200 bg-white/95 backdrop-blur">
       <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6">
         <Link href="/" className="flex shrink-0 items-center gap-2">
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-kesari-600 text-lg font-bold text-white">
-            N
+          <span className="grid h-9 w-9 place-items-center rounded-lg bg-kesari-600 text-base font-bold tracking-tight text-white">
+            GK
           </span>
           <span className="hidden text-base font-semibold text-ink-900 sm:inline">
-            Your Neighbourhood, Now Online
+            Your Neighbourhood, Delivered
           </span>
         </Link>
 
