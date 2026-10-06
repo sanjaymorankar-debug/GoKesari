@@ -27,6 +27,8 @@ const createSchema = z.object({
   startDate: z.string(),
   endDate: z.string().nullish(),
   addressId: z.string().uuid().nullish(),
+  /** SM-004: save without starting. */
+  draft: z.boolean().optional(),
 });
 
 export const POST = route(async (request: NextRequest) => {
@@ -42,6 +44,7 @@ export const POST = route(async (request: NextRequest) => {
     startDate: assertIsoDate(body.startDate),
     endDate: body.endDate ? assertIsoDate(body.endDate) : null,
     addressId: body.addressId ?? null,
+    draft: body.draft ?? false,
   });
 
   return ok(subscription, 201);

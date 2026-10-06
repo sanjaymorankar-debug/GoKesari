@@ -233,6 +233,15 @@ warnings, suspension when a mandatory document lapses):
   -H "Authorization: Bearer $CRON_SECRET" >> /var/log/seller-verification.log 2>&1
 ```
 
+The shop acceptance timeout (rule `shopAcceptance`, NEW-007) needs a sweep
+every minute. It does nothing while the rule is off, so it is safe to schedule
+before switching the rule on:
+
+```bash
+* * * * * curl -fsS -X POST https://your-domain.com/api/cron/shop-acceptance \
+  -H "Authorization: Bearer $CRON_SECRET" >> /var/log/shop-acceptance.log 2>&1
+```
+
 Any scheduler works — the host's cron panel, GitHub Actions on a schedule, or an
 external monitor. The job is idempotent, so a duplicate or retried run is
 harmless.

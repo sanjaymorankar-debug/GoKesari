@@ -13,6 +13,8 @@ export interface SlotCapacityRow {
   expressPerHour: number | null;
   standardPerHour: number | null;
   scheduledPerDay: number | null;
+  /** GS-027: per chosen time slot of a scheduled delivery. */
+  scheduledPerSlot?: number | null;
 }
 
 const num = (v: string) => (v.trim() === "" ? null : Number(v));
@@ -34,6 +36,7 @@ export function DeliverySlotCapacityAdmin({
   const [express, setExpress] = useState("");
   const [standard, setStandard] = useState("");
   const [scheduled, setScheduled] = useState("");
+  const [perSlot, setPerSlot] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -59,6 +62,7 @@ export function DeliverySlotCapacityAdmin({
         expressPerHour: num(express),
         standardPerHour: num(standard),
         scheduledPerDay: num(scheduled),
+        scheduledPerSlot: num(perSlot),
       }),
     });
   }
@@ -97,7 +101,7 @@ export function DeliverySlotCapacityAdmin({
             <input className={inputClass} inputMode="numeric" maxLength={6} value={pincode} onChange={(e) => setPincode(e.target.value)} />
           </Field>
         )}
-        <div className="grid gap-3 sm:grid-cols-3">
+        <div className="grid gap-3 sm:grid-cols-4">
           <Field label="Express orders / hour" hint="Empty = no limit">
             <input className={inputClass} type="number" min={0} value={express} onChange={(e) => setExpress(e.target.value)} />
           </Field>
@@ -106,6 +110,9 @@ export function DeliverySlotCapacityAdmin({
           </Field>
           <Field label="Scheduled orders / day" hint="Empty = no limit">
             <input className={inputClass} type="number" min={0} value={scheduled} onChange={(e) => setScheduled(e.target.value)} />
+          </Field>
+          <Field label="Scheduled orders / time slot" hint="Empty = only the day limit">
+            <input className={inputClass} type="number" min={0} value={perSlot} onChange={(e) => setPerSlot(e.target.value)} />
           </Field>
         </div>
         <Button onClick={save} disabled={busy}>
@@ -124,6 +131,7 @@ export function DeliverySlotCapacityAdmin({
                 <th className="p-2">Express / h</th>
                 <th className="p-2">Standard / h</th>
                 <th className="p-2">Scheduled / day</th>
+                <th className="p-2">Scheduled / slot</th>
                 <th className="p-2" />
               </tr>
             </thead>
@@ -134,6 +142,7 @@ export function DeliverySlotCapacityAdmin({
                   <td className="p-2">{show(r.expressPerHour)}</td>
                   <td className="p-2">{show(r.standardPerHour)}</td>
                   <td className="p-2">{show(r.scheduledPerDay)}</td>
+                  <td className="p-2">{show(r.scheduledPerSlot ?? null)}</td>
                   <td className="p-2 text-right">
                     <Button
                       variant="ghost"

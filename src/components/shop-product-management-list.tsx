@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { ShopSuspensionControls } from "@/components/shop-suspension-controls";
 import { Badge, Card, ClassificationBadge, EmptyState, StatusBadge, inputClass } from "@/components/ui";
+import { isOnboardingStage, ONBOARDING_STAGE_LABELS, ONBOARDING_STAGE_TONES } from "@/lib/shop-onboarding";
 
 export interface ShopListRow {
   id: string;
@@ -14,8 +15,13 @@ export interface ShopListRow {
   shopType: string;
   classification: "KESARI" | "GREEN" | null;
   status: string;
+  /** SM-002 onboarding stage while PENDING_APPROVAL (KYC_PENDING / PAYMENT_PENDING / VERIFIED). */
+  stage?: string | null;
   productCount: number;
 }
+
+/** What the list shows and filters on: the onboarding stage for a shop awaiting approval, else its status. */
+const shownStatus = (s: ShopListRow) => s.stage ?? s.status;
 
 /**
  * Admin "Shop Product Management" — select a shop (product management brief).
@@ -30,7 +36,7 @@ export function ShopProductManagementList({ shops, canSuspend = false }: { shops
   const [status, setStatus] = useState("");
 
   const filtered = shops.filter((s) => {
-    if (status && s.status !== status) return false;
+    if (status && shownStatus(s) !== status) return false;
     if (query) {
       const term = query.toLowerCase();
       const haystack = [s.name, s.ownerName, s.registrationNumber].join(" ").toLowerCase();
@@ -39,7 +45,7 @@ export function ShopProductManagementList({ shops, canSuspend = false }: { shops
     return true;
   });
 
-  const statuses = Array.from(new Set(shops.map((s) => s.status)));
+  const statuses = Array.from(new Set(shops.map(shownStatus)));
 
   return (
     <div className="space-y-3">
@@ -58,7 +64,7 @@ export function ShopProductManagementList({ shops, canSuspend = false }: { shops
           <option value="">All statuses</option>
           {statuses.map((s) => (
             <option key={s} value={s}>
-              {s.replace(/_/g, " ")}
+              {isOnboardingStage(s) ? ONBOARDING_STAGE_LABELS[s] : s.replace(/_/g, " ")}
             </option>
           ))}
         </select>
@@ -100,7 +106,11 @@ export function ShopProductManagementList({ shops, canSuspend = false }: { shops
                     <ClassificationBadge value={s.classification} />
                   </td>
                   <td className="px-4 py-2">
-                    <StatusBadge status={s.status} />
+                    {isOnboardingStage(s.stage) ? (
+                      <Badge tone={ONBOARDING_STAGE_TONES[s.stage]}>{ONBOARDING_STAGE_LABELS[s.stage]}</Badge>
+                    ) : (
+                      <StatusBadge status={s.status} />
+                    )}
                   </td>
                   <td className="px-4 py-2">{s.productCount}</td>
                   <td className="px-4 py-2">

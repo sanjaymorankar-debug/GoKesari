@@ -23,7 +23,7 @@ import {
   reversePayment,
 } from "@/server/services/shop-payments";
 import { approveShop, registerShop } from "@/server/services/shops";
-import { createShop, createUser, resetDatabase } from "../helpers/fixtures";
+import { createShop, createUser, resetDatabase, verifySellerDocuments } from "../helpers/fixtures";
 
 const ADMIN = (id: string) => ({ id, role: "ADMIN" as const });
 const OPERATOR = (id: string) => ({ id, role: "OPERATOR" as const });
@@ -263,6 +263,7 @@ describe("registration fee gate on shop approval (GS-008)", () => {
       status: "PENDING_APPROVAL",
       registrationFeePaise: 500_000,
     });
+    await verifySellerDocuments(shop.id); // SM-002: documents first, so the fee gate is what is tested
 
     await expect(
       approveShop(shop.id, { classification: "KESARI" }, ADMIN(admin.id)),
@@ -286,6 +287,7 @@ describe("registration fee gate on shop approval (GS-008)", () => {
       status: "PENDING_APPROVAL",
       registrationFeePaise: 500_000,
     });
+    await verifySellerDocuments(shop.id); // SM-002: documents first, so the fee gate is what is tested
 
     await recordPayment(
       { shopId: shop.id, paymentType: "REGISTRATION_FEE", amountPaise: 200_000 },
@@ -308,6 +310,7 @@ describe("registration fee gate on shop approval (GS-008)", () => {
       status: "PENDING_APPROVAL",
       registrationFeePaise: 500_000,
     });
+    await verifySellerDocuments(shop.id); // SM-002: documents first, so the fee gate is what is tested
 
     await recordPayment(
       { shopId: shop.id, paymentType: "REGISTRATION_FEE", amountPaise: 500_000 },
@@ -327,6 +330,7 @@ describe("registration fee gate on shop approval (GS-008)", () => {
       status: "PENDING_APPROVAL",
       registrationFeePaise: 0,
     });
+    await verifySellerDocuments(shop.id); // SM-002: documents first, so the fee gate is what is tested
     // A zero fee is what a waiver looks like; registerShop writes PAID for it,
     // so set the same thing the fixture's direct insert skips.
     await db.update(shops).set({ feePaymentStatus: "PAID" }).where(eq(shops.id, shop.id));
@@ -345,6 +349,7 @@ describe("registration fee gate on shop approval (GS-008)", () => {
         status: "PENDING_APPROVAL",
         registrationFeePaise: 500_000,
       });
+      await verifySellerDocuments(shop.id); // SM-002: documents first, so the fee gate is what is tested
       await db.update(shops).set({ feePaymentStatus: status }).where(eq(shops.id, shop.id));
 
       await expect(

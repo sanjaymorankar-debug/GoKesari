@@ -46,6 +46,13 @@ export const AUDIT_ACTIONS = {
   SUBSCRIPTION_CANCELLED: "subscription.cancelled",
   SUBSCRIPTION_OVERRIDE_SET: "subscription.override_set",
   SUBSCRIPTION_ORDER_GENERATED: "subscription.order_generated",
+  /** SM-004 */
+  SUBSCRIPTION_ACTIVATED: "subscription.activated",
+  SUBSCRIPTION_RENEWED: "subscription.renewed",
+  /** NEW-007 */
+  ORDER_AUTO_CANCELLED: "order.auto_cancelled_acceptance_timeout",
+  DELIVERY_PROOF_UPLOADED: "delivery.proof_uploaded",
+  INVOICE_ISSUED: "invoice.issued",
 
   /* --------------------------------------------- price approval workflow (§19) */
   PRICE_REQUEST_SUBMITTED: "price_request.submitted",

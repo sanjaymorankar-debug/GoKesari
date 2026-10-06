@@ -14,6 +14,13 @@ import {
   inputClass,
 } from "@/components/ui";
 import { formatPaiseCompact } from "@/lib/money";
+import {
+  adminNextAction,
+  ONBOARDING_STAGE_LABELS,
+  ONBOARDING_STAGE_TONES,
+  SHOP_ONBOARDING_STAGES,
+  type ShopOnboardingStage,
+} from "@/lib/shop-onboarding";
 
 export interface AdminShop {
   id: string;
@@ -31,6 +38,10 @@ export interface AdminShop {
   feePaymentStatus: "PENDING" | "PARTIALLY_PAID" | "PAID" | "REFUNDED" | "CANCELLED";
   registrationFeePaise: number | null;
   amountPaidPaise: number;
+  /** SM-002 stage while awaiting approval; null for shops past onboarding. */
+  onboardingStage: ShopOnboardingStage | null;
+  missingDocuments: string[];
+  feeOutstandingPaise: number;
 }
 
 /**
@@ -58,29 +69,60 @@ function FeeBadge({ shop }: { shop: AdminShop }) {
 }
 
 /** Shop approval queue and classification management (§8, §10, §42, §43). */
+/** SM-002: one badge per onboarding stage. */
+export function OnboardingStageBadge({ stage }: { stage: ShopOnboardingStage }) {
+  return <Badge tone={ONBOARDING_STAGE_TONES[stage]}>{ONBOARDING_STAGE_LABELS[stage]}</Badge>;
+}
+
 export function ShopApprovalPanel({
   pending,
   approved,
   canApprove,
   canClassify,
+  approvalGateOn = true,
 }: {
   pending: AdminShop[];
   approved: AdminShop[];
   canApprove: boolean;
   canClassify: boolean;
+  /** statusModels.enforceTransitions — when off, Approve is offered at any stage. */
+  approvalGateOn?: boolean;
 }) {
+  const [filter, setFilter] = useState<ShopOnboardingStage | "ALL">("ALL");
+  const counts = Object.fromEntries(
+    SHOP_ONBOARDING_STAGES.map((s) => [s, pending.filter((p) => p.onboardingStage === s).length]),
+  ) as Record<ShopOnboardingStage, number>;
+  const shown = filter === "ALL" ? pending : pending.filter((p) => p.onboardingStage === filter);
   return (
     <div className="space-y-8">
-      <section>
+      <section id="shop-approvals">
         <h2 className="mb-3 text-lg font-semibold text-ink-900">
           Pending approvals ({pending.length})
         </h2>
-        {pending.length === 0 ? (
-          <EmptyState title="No shops waiting for approval." />
+        <div className="mb-3 flex flex-wrap gap-2" role="tablist" aria-label="Filter by onboarding stage">
+          {(["ALL", ...SHOP_ONBOARDING_STAGES] as const).map((key) => (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={filter === key}
+              onClick={() => setFilter(key)}
+              className={
+                filter === key
+                  ? "rounded-full bg-kesari-600 px-3 py-1 text-xs font-medium text-white"
+                  : "rounded-full border border-cream-200 px-3 py-1 text-xs text-ink-700 hover:bg-cream-100"
+              }
+            >
+              {key === "ALL" ? `All (${pending.length})` : `${ONBOARDING_STAGE_LABELS[key]} (${counts[key]})`}
+            </button>
+          ))}
+        </div>
+        {shown.length === 0 ? (
+          <EmptyState title={filter === "ALL" ? "No shops waiting for approval." : "No shops at this stage."} />
         ) : (
           <div className="space-y-3">
-            {pending.map((shop) => (
-              <PendingShopRow key={shop.id} shop={shop} canApprove={canApprove} />
+            {shown.map((shop) => (
+              <PendingShopRow key={shop.id} shop={shop} canApprove={canApprove} approvalGateOn={approvalGateOn} />
             ))}
           </div>
         )}
@@ -111,10 +153,17 @@ export function ShopApprovalPanel({
 function PendingShopRow({
   shop,
   canApprove,
+  approvalGateOn,
 }: {
   shop: AdminShop;
   canApprove: boolean;
+  approvalGateOn: boolean;
 }) {
+  const stage = shop.onboardingStage;
+  const next = stage
+    ? adminNextAction({ stage, missingDocuments: shop.missingDocuments, feeOutstandingPaise: shop.feeOutstandingPaise })
+    : null;
+  const approveBlocked = approvalGateOn && stage !== "VERIFIED";
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -154,9 +203,20 @@ function PendingShopRow({
           </p>
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             <Badge>{shop.shopType}</Badge>
-            <Badge tone="warning">pending</Badge>
+            {stage ? <OnboardingStageBadge stage={stage} /> : <Badge tone="warning">pending</Badge>}
             <FeeBadge shop={shop} />
           </div>
+          {next ? (
+            <p className="mt-2 text-sm text-ink-700" data-testid="onboarding-next-action">
+              <span className="font-medium">Next: </span>
+              {next.text}{" "}
+              {stage !== "VERIFIED" ? (
+                <Link href={next.href} className="font-medium text-kesari-600 hover:underline">
+                  {next.linkLabel} →
+                </Link>
+              ) : null}
+            </p>
+          ) : null}
         </div>
 
         {canApprove ? (
@@ -180,7 +240,8 @@ function PendingShopRow({
             <div className="flex gap-2">
               <Button
                 size="sm"
-                disabled={busy}
+                disabled={busy || approveBlocked}
+                title={approveBlocked ? "Only a verified shop can be approved" : undefined}
                 onClick={() => act("approve", { classification })}
               >
                 Approve

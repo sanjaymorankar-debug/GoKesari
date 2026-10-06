@@ -88,11 +88,66 @@ async function bookedIn(shopId: string, window: DeliveryWindow, slotKey: string,
       and(
         eq(orders.shopId, shopId),
         eq(orders.deliveryWindow, window),
-        eq(orders.deliverySlotKey, slotKey),
+        // GS-027: a scheduled day also holds the orders booked into its time
+        // slots ("2026-10-05@14:00"), so the day limit counts both.
+        window === "SCHEDULED"
+          ? sql`(${orders.deliverySlotKey} = ${slotKey} OR ${orders.deliverySlotKey} LIKE ${`${slotKey}@%`})`
+          : eq(orders.deliverySlotKey, slotKey),
         notInArray(orders.status, SLOT_RELEASING_STATUSES),
       ),
     );
   return row?.n ?? 0;
+}
+
+/**
+ * GS-027: the scheduled-delivery limits for a shop — per day (existing) and
+ * per chosen time slot. Null when slot capacity is off (no limits at all).
+ */
+export async function scheduledLimitsFor(
+  shopId: string,
+  client: DbClient = db,
+): Promise<{ perDay: number | null; perSlot: number | null } | null> {
+  const rule = await getRule("deliverySlots");
+  if (!rule.enabled) return null;
+  const [shop] = await client.select({ pincode: shops.pincode }).from(shops).where(eq(shops.id, shopId));
+  if (!shop) return null;
+  const rows = await client
+    .select()
+    .from(deliverySlotCapacities)
+    .where(
+      shop.pincode
+        ? sql`${deliverySlotCapacities.shopId} = ${shopId} OR ${deliverySlotCapacities.pincode} = ${shop.pincode}`
+        : eq(deliverySlotCapacities.shopId, shopId),
+    );
+  const own = rows.find((r) => r.shopId === shopId);
+  const area = rows.find((r) => r.pincode != null);
+  return {
+    perDay: own?.scheduledPerDay ?? area?.scheduledPerDay ?? rule.defaultScheduledPerDay,
+    perSlot: own?.scheduledPerSlot ?? area?.scheduledPerSlot ?? rule.defaultScheduledPerSlot,
+  };
+}
+
+/** GS-027: live scheduled orders per slot key on the given days ("YYYY-MM-DD" and "YYYY-MM-DD@HH:MM" keys). */
+export async function scheduledBookings(shopId: string, days: string[], client: DbClient = db): Promise<Map<string, number>> {
+  if (days.length === 0) return new Map();
+  const rows = await client
+    .select({ key: orders.deliverySlotKey, n: sql<number>`count(*)::int` })
+    .from(orders)
+    .where(
+      and(
+        eq(orders.shopId, shopId),
+        eq(orders.deliveryWindow, "SCHEDULED"),
+        sql`split_part(${orders.deliverySlotKey}, '@', 1) IN (${sql.join(days.map((d) => sql`${d}`), sql`, `)})`,
+        notInArray(orders.status, SLOT_RELEASING_STATUSES),
+      ),
+    )
+    .groupBy(orders.deliverySlotKey);
+  return new Map(rows.filter((r) => r.key).map((r) => [r.key!, r.n]));
+}
+
+/** The advisory lock every booking of a shop's scheduled day takes (day and time-slot bookings alike). */
+export async function lockScheduledDay(tx: DbClient, shopId: string, day: string): Promise<void> {
+  await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`slot:${shopId}:SCHEDULED:${day}`}, 0))`);
 }
 
 export interface SlotAvailability {
@@ -145,6 +200,8 @@ export interface CapacityInput {
   expressPerHour: number | null;
   standardPerHour: number | null;
   scheduledPerDay: number | null;
+  /** GS-027: undefined keeps the stored value. */
+  scheduledPerSlot?: number | null;
 }
 
 export async function listSlotCapacities() {
@@ -157,6 +214,7 @@ export async function listSlotCapacities() {
       expressPerHour: deliverySlotCapacities.expressPerHour,
       standardPerHour: deliverySlotCapacities.standardPerHour,
       scheduledPerDay: deliverySlotCapacities.scheduledPerDay,
+      scheduledPerSlot: deliverySlotCapacities.scheduledPerSlot,
       updatedAt: deliverySlotCapacities.updatedAt,
     })
     .from(deliverySlotCapacities)
@@ -170,7 +228,7 @@ export async function upsertSlotCapacity(input: CapacityInput, actorId: string) 
   const pincode = input.pincode?.trim() || null;
   if ((shopId == null) === (pincode == null)) throw validationFailed("Set limits for either one shop or one PIN code.");
   if (pincode && !/^\d{6}$/.test(pincode)) throw validationFailed("Enter a 6-digit PIN code.");
-  for (const v of [input.expressPerHour, input.standardPerHour, input.scheduledPerDay]) {
+  for (const v of [input.expressPerHour, input.standardPerHour, input.scheduledPerDay, input.scheduledPerSlot ?? null]) {
     if (v != null && (!Number.isInteger(v) || v < 0)) throw validationFailed("Limits must be whole numbers, 0 or more.");
   }
   if (shopId) {
@@ -183,6 +241,7 @@ export async function upsertSlotCapacity(input: CapacityInput, actorId: string) 
     expressPerHour: input.expressPerHour,
     standardPerHour: input.standardPerHour,
     scheduledPerDay: input.scheduledPerDay,
+    ...(input.scheduledPerSlot !== undefined ? { scheduledPerSlot: input.scheduledPerSlot } : {}),
     updatedBy: actorId,
     updatedAt: new Date(),
   };

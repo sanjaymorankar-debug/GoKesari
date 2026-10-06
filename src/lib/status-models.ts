@@ -13,7 +13,24 @@
  * the migration seeds; tests assert the two never drift.
  */
 
-export const SHOP_LIFECYCLE_STATUSES = ["PENDING", "ACTIVE", "PAUSED", "SUSPENDED", "REJECTED", "CLOSED"] as const;
+/**
+ * SM-002: a shop awaiting approval is in one of three onboarding stages, in
+ * this order — KYC_PENDING (a mandatory seller document is not verified),
+ * PAYMENT_PENDING (documents verified, registration fee not settled),
+ * VERIFIED (both done; waiting for an operator to approve). Migration 0051
+ * replaced the single PENDING stage of F1 with these three.
+ */
+export const SHOP_ONBOARDING_STAGES = ["KYC_PENDING", "PAYMENT_PENDING", "VERIFIED"] as const;
+export type ShopOnboardingStage = (typeof SHOP_ONBOARDING_STAGES)[number];
+
+export const SHOP_LIFECYCLE_STATUSES = [
+  ...SHOP_ONBOARDING_STAGES,
+  "ACTIVE",
+  "PAUSED",
+  "SUSPENDED",
+  "REJECTED",
+  "CLOSED",
+] as const;
 export type ShopLifecycleStatus = (typeof SHOP_LIFECYCLE_STATUSES)[number];
 
 export const RIDER_LIFECYCLE_STATUSES = [
@@ -28,19 +45,36 @@ export const RIDER_LIFECYCLE_STATUSES = [
 ] as const;
 export type RiderLifecycleStatus = (typeof RIDER_LIFECYCLE_STATUSES)[number];
 
-export const SUBSCRIPTION_LIFECYCLE_STATUSES = ["ACTIVE", "PAUSED", "CANCELLED", "EXPIRED"] as const;
+/**
+ * SM-004 added DRAFT (saved, not started — nothing is generated or charged)
+ * and RENEWAL_PENDING (the term is about to end, or the wallet will not cover
+ * the next delivery; deliveries continue until the end date). Migration 0052.
+ */
+export const SUBSCRIPTION_LIFECYCLE_STATUSES = ["DRAFT", "ACTIVE", "PAUSED", "RENEWAL_PENDING", "CANCELLED", "EXPIRED"] as const;
 export type SubscriptionLifecycleStatus = (typeof SUBSCRIPTION_LIFECYCLE_STATUSES)[number];
 
 export type StatusEntity = "SHOP" | "RIDER" | "SUBSCRIPTION";
 
 /** Allowed moves. Anything not listed is refused by the database trigger. */
+/*
+ * Shops: the onboarding stages move freely among themselves (a document can
+ * expire, a fee can be refunded), but only VERIFIED can go live — approval
+ * from KYC_PENDING or PAYMENT_PENDING is refused here and in approveShop().
+ * Every other move is the F1 set with PENDING read as "any onboarding stage";
+ * REJECTED → ACTIVE stays (approving a rejected shop directly, as before), and
+ * approveShop() checks documents and fee for that path too.
+ */
+const ONBOARDING = SHOP_ONBOARDING_STAGES;
+const otherStages = (s: ShopOnboardingStage) => ONBOARDING.filter((x) => x !== s);
 export const SHOP_TRANSITIONS: Record<ShopLifecycleStatus, readonly ShopLifecycleStatus[]> = {
-  PENDING: ["ACTIVE", "PAUSED", "REJECTED", "SUSPENDED", "CLOSED"],
-  ACTIVE: ["PAUSED", "SUSPENDED", "CLOSED", "PENDING", "REJECTED"],
-  PAUSED: ["ACTIVE", "SUSPENDED", "CLOSED", "PENDING", "REJECTED"],
-  SUSPENDED: ["ACTIVE", "PAUSED", "CLOSED", "PENDING", "REJECTED"],
-  REJECTED: ["PENDING", "ACTIVE", "PAUSED", "CLOSED"],
-  CLOSED: ["PENDING", "ACTIVE", "PAUSED"],
+  KYC_PENDING: [...otherStages("KYC_PENDING"), "REJECTED", "SUSPENDED", "CLOSED"],
+  PAYMENT_PENDING: [...otherStages("PAYMENT_PENDING"), "REJECTED", "SUSPENDED", "CLOSED"],
+  VERIFIED: [...otherStages("VERIFIED"), "ACTIVE", "PAUSED", "REJECTED", "SUSPENDED", "CLOSED"],
+  ACTIVE: ["PAUSED", "SUSPENDED", "CLOSED", ...ONBOARDING, "REJECTED"],
+  PAUSED: ["ACTIVE", "SUSPENDED", "CLOSED", ...ONBOARDING, "REJECTED"],
+  SUSPENDED: ["ACTIVE", "PAUSED", "CLOSED", ...ONBOARDING, "REJECTED"],
+  REJECTED: [...ONBOARDING, "ACTIVE", "PAUSED", "CLOSED"],
+  CLOSED: [...ONBOARDING, "ACTIVE", "PAUSED"],
 };
 
 export const RIDER_TRANSITIONS: Record<RiderLifecycleStatus, readonly RiderLifecycleStatus[]> = {
@@ -54,10 +88,12 @@ export const RIDER_TRANSITIONS: Record<RiderLifecycleStatus, readonly RiderLifec
   INACTIVE: ["OFFLINE", "ONBOARDING", "SUSPENDED"],
 };
 
-/** CANCELLED and EXPIRED are final. */
+/** CANCELLED and EXPIRED are final; nothing returns to DRAFT. */
 export const SUBSCRIPTION_TRANSITIONS: Record<SubscriptionLifecycleStatus, readonly SubscriptionLifecycleStatus[]> = {
-  ACTIVE: ["PAUSED", "CANCELLED", "EXPIRED"],
-  PAUSED: ["ACTIVE", "CANCELLED", "EXPIRED"],
+  DRAFT: ["ACTIVE", "PAUSED", "RENEWAL_PENDING", "CANCELLED"],
+  ACTIVE: ["PAUSED", "RENEWAL_PENDING", "CANCELLED", "EXPIRED"],
+  PAUSED: ["ACTIVE", "RENEWAL_PENDING", "CANCELLED", "EXPIRED"],
+  RENEWAL_PENDING: ["ACTIVE", "PAUSED", "CANCELLED", "EXPIRED"],
   CANCELLED: [],
   EXPIRED: [],
 };
@@ -76,15 +112,28 @@ export function isAllowedTransition(entity: StatusEntity, from: string | null, t
 /* ------------------------------------------------------------- derivation
  * Mirrors the SQL functions in migration 0042 exactly (tests check both). */
 
+/**
+ * The onboarding stage of a shop awaiting approval: documents first, then the
+ * fee. `kycComplete` = every mandatory seller document VERIFIED (see
+ * seller-verification-checks.ts requirementFor; SQL: shop_kyc_complete).
+ */
+export function deriveShopOnboardingStage(shop: { feePaymentStatus: string; kycComplete: boolean }): ShopOnboardingStage {
+  if (!shop.kycComplete) return "KYC_PENDING";
+  if (shop.feePaymentStatus !== "PAID") return "PAYMENT_PENDING";
+  return "VERIFIED";
+}
+
 export function deriveShopLifecycle(shop: {
   status: string;
   ordersPaused: boolean;
   deletedAt: Date | null;
+  feePaymentStatus: string;
+  kycComplete: boolean;
 }): ShopLifecycleStatus {
   if (shop.deletedAt) return "CLOSED";
   switch (shop.status) {
     case "PENDING_APPROVAL":
-      return "PENDING";
+      return deriveShopOnboardingStage(shop);
     case "APPROVED":
       return shop.ordersPaused ? "PAUSED" : "ACTIVE";
     case "SUSPENDED":
@@ -117,15 +166,21 @@ export function deriveSubscriptionLifecycle(
   sub: { status: string; pauseFrom: string | null; pauseUntil: string | null },
   today: string,
 ): SubscriptionLifecycleStatus {
+  if (sub.status === "DRAFT") return "DRAFT";
   if (sub.status === "CANCELLED") return "CANCELLED";
   if (sub.status === "COMPLETED") return "EXPIRED";
   if (sub.status === "PAUSED") return "PAUSED";
   if (sub.pauseFrom && sub.pauseFrom <= today && (!sub.pauseUntil || sub.pauseUntil >= today)) return "PAUSED";
+  if (sub.status === "RENEWAL_PENDING") return "RENEWAL_PENDING";
   return "ACTIVE";
 }
 
 export const LIFECYCLE_LABELS: Record<string, string> = {
+  /** Shops before migration 0051 (still in the change log). */
   PENDING: "Pending approval",
+  KYC_PENDING: "KYC pending",
+  PAYMENT_PENDING: "Payment pending",
+  VERIFIED: "Verified — awaiting approval",
   ACTIVE: "Active",
   PAUSED: "Paused",
   SUSPENDED: "Suspended",
@@ -139,4 +194,6 @@ export const LIFECYCLE_LABELS: Record<string, string> = {
   INACTIVE: "Inactive",
   CANCELLED: "Cancelled",
   EXPIRED: "Expired",
+  DRAFT: "Draft",
+  RENEWAL_PENDING: "Renewal pending",
 };

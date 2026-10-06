@@ -57,6 +57,15 @@ export function addDays(date: IsoDate, days: number): IsoDate {
   return dt.toISOString().slice(0, 10);
 }
 
+/** Whole days from `a` to `b` (negative when `b` is earlier). */
+export function daysBetween(a: IsoDate, b: IsoDate): number {
+  const toUtc = (d: IsoDate) => {
+    const [y, m, day] = assertIsoDate(d).split("-").map(Number);
+    return Date.UTC(y, m - 1, day);
+  };
+  return Math.round((toUtc(b) - toUtc(a)) / 86_400_000);
+}
+
 export function compareDates(a: IsoDate, b: IsoDate): number {
   // Lexicographic comparison is chronological for zero-padded ISO dates.
   return a < b ? -1 : a > b ? 1 : 0;

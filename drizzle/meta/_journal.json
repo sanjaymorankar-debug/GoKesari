@@ -358,6 +358,41 @@
       "when": 1791230301119,
       "tag": "0050_customer_referrals",
       "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1791260635942,
+      "tag": "0051_shop_onboarding_states",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1791261411743,
+      "tag": "0052_subscription_states",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1791262236007,
+      "tag": "0053_scheduled_slots",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1791262790527,
+      "tag": "0054_delivery_trips",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1791263322912,
+      "tag": "0055_order_completion",
+      "breakpoints": true
     }
   ]
 }

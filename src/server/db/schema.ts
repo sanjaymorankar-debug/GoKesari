@@ -1,5 +1,5 @@
 /**
- * Database schema — Your Neighbourhood, Now Online.
+ * Database schema — Everything for Everyone.
  *
  * Conventions enforced across every table:
  *  - Money is ALWAYS integer paise (bigint). ₹70.00 → 7000. Never a float.
@@ -22,6 +22,7 @@ import {
   SUBSCRIPTION_LIFECYCLE_STATUSES,
 } from "@/lib/status-models";
 import { SHOP_TYPE_KEYS } from "@/lib/shop-types";
+import { SUBSCRIPTION_DELIVERY_STATUSES } from "@/lib/subscription-deliveries";
 import {
   type AnyPgColumn,
   bigint,
@@ -237,7 +238,14 @@ export const subscriptionStatusEnum = pgEnum("subscription_status", [
   "CANCELLED",
   "COMPLETED",
   "PAYMENT_PENDING",
+  /** SM-004: saved but not started — nothing generated or charged. */
+  "DRAFT",
+  /** SM-004: term about to end, or the wallet will not cover the next delivery. */
+  "RENEWAL_PENDING",
 ]);
+
+/** SM-004 per-delivery status: SCHEDULED / SKIPPED, then the day's order status (lib/subscription-deliveries.ts). */
+export const subscriptionDeliveryStatusEnum = pgEnum("subscription_delivery_status", SUBSCRIPTION_DELIVERY_STATUSES);
 
 export const subscriptionFrequencyEnum = pgEnum("subscription_frequency", [
   "DAILY",
@@ -868,8 +876,8 @@ export const shops = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
-    /** Derived by trigger from status + ordersPaused + deletedAt (F1). */
-    lifecycleStatus: shopLifecycleStatusEnum("lifecycle_status").notNull().default("PENDING"),
+    /** Derived by trigger from status + ordersPaused + deletedAt (F1), and while awaiting approval from seller documents + fee (SM-002). */
+    lifecycleStatus: shopLifecycleStatusEnum("lifecycle_status").notNull().default("KYC_PENDING"),
     /** Who is making this status change — read once by the trigger for status_changes, then cleared. */
     statusActorId: uuid("status_actor_id"),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
@@ -1727,6 +1735,20 @@ export const orders = pgTable(
      * an hour, "2026-10-05" for a scheduled day, IST). Null when slot capacity
      * was off or the order has no delivery window. */
     deliverySlotKey: text("delivery_slot_key"),
+    /**
+     * GS-027: the time slot the customer chose for a SCHEDULED delivery
+     * (delivery_slot_key is then "YYYY-MM-DD@HH:MM"). Null for "deliver now"
+     * and for scheduled orders placed without a time.
+     */
+    scheduledSlotStart: timestamp("scheduled_slot_start", { withTimezone: true }),
+    scheduledSlotEnd: timestamp("scheduled_slot_end", { withTimezone: true }),
+    /**
+     * NEW-007: the shop must accept by this time or the order is cancelled
+     * with a full refund (rule shopAcceptance). Set at checkout for direct
+     * orders while the rule is on; null otherwise.
+     */
+    acceptByAt: timestamp("accept_by_at", { withTimezone: true }),
+    acceptReminderSentAt: timestamp("accept_reminder_sent_at", { withTimezone: true }),
     /** F6: the parent order (one reference for a multi-shop checkout). Null
      * for single-shop orders and for every order placed before F6. */
     /** F7: order-level coupon discount on this order (its share of a
@@ -1902,6 +1924,8 @@ export const deliveryOrders = pgTable(
     proofNote: text("proof_note"),
     /** Riders who declined or let this order's offer expire — never re-offered it (GA-009 fallback). */
     rejectedPartnerIds: uuid("rejected_partner_ids").array().notNull().default(sql`'{}'::uuid[]`),
+    /** GA-005: the trip this delivery is batched into with the rider's other orders; null = carried alone. */
+    tripId: uuid("trip_id").references((): AnyPgColumn => deliveryTrips.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1914,8 +1938,119 @@ export const deliveryOrders = pgTable(
     uniqueIndex("delivery_orders_order_id_unique").on(t.orderId),
     index("delivery_orders_partner_idx").on(t.deliveryPartnerId),
     index("delivery_orders_status_idx").on(t.status),
+    index("delivery_orders_trip_idx").on(t.tripId),
   ],
 );
+
+/** NEW-007: a shop's acceptance-timeout record — reminders sent and orders missed (30-day miss rate). */
+export const shopSlaEvents = pgTable(
+  "shop_sla_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: ["REMINDER", "MISSED"] }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("shop_sla_events_shop_idx").on(t.shopId, t.createdAt),
+    uniqueIndex("shop_sla_events_order_kind_unique").on(t.orderId, t.kind),
+  ],
+);
+
+/** NEW-007: the rider's photo at the door, stored in stored_images (purpose DELIVERY_PROOF). */
+export const deliveryProofs = pgTable(
+  "delivery_proofs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deliveryOrderId: uuid("delivery_order_id")
+      .notNull()
+      .references(() => deliveryOrders.id, { onDelete: "cascade" }),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    storedImageId: uuid("stored_image_id")
+      .notNull()
+      .references(() => storedImages.id, { onDelete: "restrict" }),
+    uploadedBy: uuid("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("delivery_proofs_delivery_idx").on(t.deliveryOrderId), index("delivery_proofs_order_idx").on(t.orderId)],
+);
+
+/**
+ * NEW-007: the shop's tax invoice (or bill of supply, for a shop without a
+ * verified GSTIN) for one delivered order. Immutable: `snapshot` holds
+ * everything printed. Numbered per shop per financial year without gaps
+ * (invoice_counters, row-locked).
+ */
+export const taxInvoices = pgTable(
+  "tax_invoices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "restrict" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    invoiceNumber: text("invoice_number").notNull(),
+    /** "2026-27" (April–March). */
+    financialYear: text("financial_year").notNull(),
+    sequence: integer("sequence").notNull(),
+    kind: text("kind", { enum: ["TAX_INVOICE", "BILL_OF_SUPPLY"] }).notNull(),
+    supplyType: text("supply_type", { enum: ["INTRA", "INTER"] }).notNull(),
+    taxablePaise: bigint("taxable_paise", { mode: "number" }).notNull(),
+    cgstPaise: bigint("cgst_paise", { mode: "number" }).notNull(),
+    sgstPaise: bigint("sgst_paise", { mode: "number" }).notNull(),
+    igstPaise: bigint("igst_paise", { mode: "number" }).notNull(),
+    totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
+    snapshot: jsonb("snapshot").$type<Record<string, unknown>>().notNull(),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("tax_invoices_order_unique").on(t.orderId),
+    uniqueIndex("tax_invoices_number_unique").on(t.invoiceNumber),
+    uniqueIndex("tax_invoices_shop_seq_unique").on(t.shopId, t.financialYear, t.sequence),
+  ],
+);
+
+export const invoiceCounters = pgTable(
+  "invoice_counters",
+  {
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    financialYear: text("financial_year").notNull(),
+    lastNumber: integer("last_number").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.shopId, t.financialYear] })],
+);
+
+/**
+ * GA-005: a rider's trip carrying several orders. Only membership is stored
+ * (delivery_orders.trip_id); the pickup-and-drop sequence and arrival
+ * estimates are worked out from the members' current statuses whenever they
+ * are read (delivery-trips.ts), so they can never go stale.
+ */
+export const deliveryTrips = pgTable(
+  "delivery_trips",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deliveryPartnerId: uuid("delivery_partner_id")
+      .notNull()
+      .references(() => deliveryPartners.id, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("delivery_trips_partner_idx").on(t.deliveryPartnerId)],
+);
+export type DeliveryTrip = typeof deliveryTrips.$inferSelect;
+export type DeliveryProof = typeof deliveryProofs.$inferSelect;
+export type TaxInvoice = typeof taxInvoices.$inferSelect;
 
 /**
  * "Find rider" search state, one row per order (see delivery-assignment.ts).
@@ -2211,7 +2346,8 @@ export const storedImages = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
-    purpose: text("purpose", { enum: ["PRODUCT", "RETURN_EVIDENCE", "PROFILE_PHOTO"] }).notNull(),
+    /** DELIVERY_PROOF (NEW-007): the rider's photo at the door — private to the order's people. */
+    purpose: text("purpose", { enum: ["PRODUCT", "RETURN_EVIDENCE", "PROFILE_PHOTO", "DELIVERY_PROOF"] }).notNull(),
     contentType: text("content_type").notNull(),
     sizeBytes: integer("size_bytes").notNull(),
     width: integer("width").notNull(),
@@ -2881,6 +3017,14 @@ export const subscriptions = pgTable(
     pauseUntil: date("pause_until"),
     cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
     cancellationReason: text("cancellation_reason"),
+    /**
+     * SM-004: why the subscription is RENEWAL_PENDING — TERM_END (the end date
+     * is within the notice period) or PAYMENT_DUE (the wallet will not cover
+     * the next delivery). Null otherwise.
+     */
+    renewalReason: text("renewal_reason", { enum: ["TERM_END", "PAYMENT_DUE"] }),
+    /** SM-004: the date renewal is due — the end date, or the first delivery the wallet cannot cover. */
+    renewalDueDate: date("renewal_due_date"),
     /** Derived by trigger from status + pause window (F1). */
     lifecycleStatus: subscriptionLifecycleStatusEnum("lifecycle_status").notNull().default("ACTIVE"),
     statusActorId: uuid("status_actor_id"),
@@ -2971,6 +3115,40 @@ export const subscriptionOrders = pgTable(
     ),
     index("subscription_orders_date_idx").on(t.deliveryDate),
     index("subscription_orders_status_idx").on(t.status),
+  ],
+);
+
+/**
+ * SM-004: one row per delivery date of a subscription, carrying that
+ * delivery's own status. SCHEDULED/SKIPPED rows are kept for the next few
+ * days by the schedule sync (subscription-schedule.ts); once the day's order
+ * exists the row follows it — a trigger copies subscription_orders (and,
+ * through it, orders) status here. subscription_orders stays the money/order
+ * record and the idempotency claim; this table is the per-delivery timeline.
+ */
+export const subscriptionDeliveries = pgTable(
+  "subscription_deliveries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    subscriptionId: uuid("subscription_id")
+      .notNull()
+      .references(() => subscriptions.id, { onDelete: "cascade" }),
+    deliveryDate: date("delivery_date").notNull(),
+    status: subscriptionDeliveryStatusEnum("status").notNull().default("SCHEDULED"),
+    /** Planned quantity (milli-units); the order's quantity once generated. */
+    quantityMilli: integer("quantity_milli"),
+    /** SKIPPED_BY_CUSTOMER / PAUSED / UNAVAILABLE (lib/subscription-deliveries.ts). */
+    reason: text("reason"),
+    subscriptionOrderId: uuid("subscription_order_id").references(() => subscriptionOrders.id, { onDelete: "set null" }),
+    orderId: uuid("order_id").references(() => orders.id, { onDelete: "set null" }),
+    statusChangedAt: timestamp("status_changed_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("subscription_deliveries_sub_date_unique").on(t.subscriptionId, t.deliveryDate),
+    index("subscription_deliveries_date_idx").on(t.deliveryDate),
+    index("subscription_deliveries_order_idx").on(t.orderId),
   ],
 );
 
@@ -4652,6 +4830,7 @@ export type Subscription = typeof subscriptions.$inferSelect;
 export type SubscriptionDailyOverride =
   typeof subscriptionDailyOverrides.$inferSelect;
 export type SubscriptionOrder = typeof subscriptionOrders.$inferSelect;
+export type SubscriptionDelivery = typeof subscriptionDeliveries.$inferSelect;
 export type Payment = typeof payments.$inferSelect;
 export type Address = typeof addresses.$inferSelect;
 export type DeliveryPartner = typeof deliveryPartners.$inferSelect;
@@ -4759,6 +4938,8 @@ export const deliverySlotCapacities = pgTable(
     standardPerHour: integer("standard_per_hour"),
     /** Scheduled orders per day. */
     scheduledPerDay: integer("scheduled_per_day"),
+    /** GS-027: scheduled orders per customer-chosen time slot (null = only the day limit). */
+    scheduledPerSlot: integer("scheduled_per_slot"),
     updatedBy: uuid("updated_by").references(() => users.id),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
