@@ -61,11 +61,11 @@ export default async function HomePage() {
             name="q"
             placeholder="Search for a product, e.g. milk, paracetamol, screws"
             aria-label="Search"
-            className="min-w-0 flex-1 rounded-lg border border-cream-200 bg-white px-4 py-2.5 text-sm focus:border-kesari-500 focus:outline-none"
+            className="min-w-0 flex-1 rounded-lg border border-cream-200 bg-white px-4 py-2.5 text-sm placeholder:text-ink-500 focus:border-kesari-500 focus:outline-none"
           />
           <button
             type="submit"
-            className="rounded-lg bg-kesari-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-kesari-700"
+            className="rounded-lg bg-kesari-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-kesari-800"
           >
             Search
           </button>
@@ -142,7 +142,7 @@ async function HomeShopSections({ location }: { location: CustomerLocation | nul
         </div>
         <Link
           href="/shop/register"
-          className="rounded-lg bg-kesari-600 px-4 py-2 text-sm font-medium text-white hover:bg-kesari-700"
+          className="rounded-lg bg-kesari-600 px-4 py-2 text-sm font-medium text-white hover:bg-kesari-800"
         >
           Add my shop
         </Link>

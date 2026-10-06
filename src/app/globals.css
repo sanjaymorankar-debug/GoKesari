@@ -15,8 +15,14 @@
   --color-kesari-100: #ffedd5;
   --color-kesari-300: #fdba74;
   --color-kesari-500: #f97316;
-  --color-kesari-600: #ea580c;
+  /* Was #ea580c (3.56:1 under white text, 3.49:1 as text on cream-50). This
+     is the lightest shade of the same orange that reaches WCAG AA 4.5:1 for
+     normal-size text on white, cream-50/100 and kesari-50. */
+  --color-kesari-600: #c9450c;
   --color-kesari-700: #c2410c;
+  /* Hover/pressed step for filled kesari-600 buttons — 700 is now too close
+     to 600 to show a change. */
+  --color-kesari-800: #9a3412;
 
   --color-leaf-50: #f0fdf4;
   --color-leaf-100: #dcfce7;

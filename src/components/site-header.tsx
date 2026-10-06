@@ -232,7 +232,7 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
             name="q"
             placeholder="Search products, shops, area or PIN code"
             aria-label="Search products, shops, area or PIN code"
-            className="w-full rounded-lg border border-cream-200 bg-cream-50 px-3 py-2 text-sm placeholder:text-ink-400 focus:border-kesari-500 focus:outline-none"
+            className="w-full rounded-lg border border-cream-200 bg-cream-50 px-3 py-2 text-sm placeholder:text-ink-500 focus:border-kesari-500 focus:outline-none"
           />
         </form>
 
@@ -330,7 +330,7 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
           ) : (
             <Link
               href="/signin"
-              className="rounded-lg bg-kesari-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-kesari-700"
+              className="rounded-lg bg-kesari-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-kesari-800"
             >
               Sign in
             </Link>

@@ -35,7 +35,7 @@ export function HomePriceComparison({ products }: { products: ComparedProduct[] 
                 </Link>
                 <span className="flex shrink-0 items-center gap-1">
                   {price.listPricePaise ? (
-                    <span className="text-xs font-normal text-ink-400 line-through">
+                    <span className="text-xs font-normal text-ink-500 line-through">
                       <Money paise={price.listPricePaise} />
                     </span>
                   ) : null}
