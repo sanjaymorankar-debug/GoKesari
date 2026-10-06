@@ -13,8 +13,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "Your Neighbourhood, Delivered",
-    template: "%s · Your Neighbourhood, Delivered",
+    default: "GoKesari — Your Neighbourhood, Delivered",
+    template: "%s · GoKesari",
   },
   description:
     "Every local shop near you, in one directory. Wallet payments and flexible daily subscriptions.",
