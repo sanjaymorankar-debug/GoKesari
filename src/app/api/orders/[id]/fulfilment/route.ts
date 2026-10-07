@@ -29,6 +29,7 @@ import {
   removeItem,
   startPicking,
 } from "@/server/services/fulfilment";
+import { toOrderStatusView } from "@/server/services/orders";
 
 const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("accept") }),
@@ -60,11 +61,11 @@ export const POST = route(async (request: NextRequest, context: RouteContext<{ i
 
   switch (body.action) {
     case "accept":
-      return ok(await acceptOrder(id, user));
+      return ok(toOrderStatusView(await acceptOrder(id, user)));
     case "reject":
-      return ok(await rejectOrder(id, user, body.reason));
+      return ok(toOrderStatusView(await rejectOrder(id, user, body.reason)));
     case "start":
-      return ok(await startPicking(id, user));
+      return ok(toOrderStatusView(await startPicking(id, user)));
     case "pick":
       await pickItem(id, body.itemId, user);
       return ok({ ok: true });
@@ -75,6 +76,6 @@ export const POST = route(async (request: NextRequest, context: RouteContext<{ i
       await removeItem(id, body.itemId, user, body.reason);
       return ok({ ok: true });
     case "ready":
-      return ok(await markOrderReady(id, user));
+      return ok(toOrderStatusView(await markOrderReady(id, user)));
   }
 });

@@ -37,7 +37,7 @@ vi.mock("@/server/auth", () => ({
   signOut: async () => {},
 }));
 
-import { POST as assignRoute } from "@/app/api/orders/[id]/assign/route";
+import { GET as assignGet, POST as assignRoute } from "@/app/api/orders/[id]/assign/route";
 import { PATCH as deliveryOrderRoute } from "@/app/api/delivery-orders/[id]/route";
 import { db } from "@/server/db";
 import { deliveryOrders, orders, type Order } from "@/server/db/schema";
@@ -124,6 +124,30 @@ describe("POST /api/orders/[id]/assign", () => {
     });
     expect(r.status).toBe(200);
     expect(r.body.status).toBe("OFFERED");
+  });
+
+  it("answers with the offer's state only — not the rider offered, earlier decliners or handover codes", async () => {
+    const { order, owner } = await setupReadyOrder();
+    const { partner } = await onlinePartner();
+    signInAsUser({ ...owner });
+
+    const r = await call(assignRoute, `/api/orders/${order.id}/assign`, {
+      method: "POST",
+      params: { id: order.id },
+      body: {},
+    });
+    expect(r.status).toBe(200);
+    expect(Object.keys(r.body).sort()).toEqual(["id", "offeredAt", "status"]);
+    expect(JSON.stringify(r.body)).not.toContain(partner.id);
+
+    // The search status lists the attempts without the rider each one offered.
+    const search = await call(assignGet, `/api/orders/${order.id}/assign`, { params: { id: order.id } });
+    expect(search.status).toBe(200);
+    expect(search.body.state).toBe("OFFERED");
+    expect(search.body.log).toHaveLength(1);
+    expect(Object.keys(search.body.log[0]).sort()).toEqual(["attemptNo", "createdAt", "detail", "outcome", "trigger"]);
+    expect(search.body.log[0].outcome).toBe("OFFERED");
+    expect(JSON.stringify(search.body)).not.toContain(partner.id);
   });
 
   it("returns 409 when no delivery partner is available", async () => {
