@@ -3,6 +3,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 
 import { HomePriceComparison } from "@/components/home-price-comparison";
+import { HomeShopsBoundary } from "@/components/home-shops-boundary";
 import { ShopGrid } from "@/components/shop-grid";
 import { Alert, Card, Section } from "@/components/ui";
 import { REFERRAL_COOKIE } from "@/lib/customer-referrals";
@@ -74,9 +75,13 @@ export default async function HomePage() {
 
       <LocationBar userId={user?.id ?? null} location={location} />
 
-      <Suspense fallback={<HomeShopsSkeleton />}>
-        <HomeShopSections location={location} />
-      </Suspense>
+      {/* If the lists fail or their part of the stream is cut off, the
+          boundary shows a retry card in their place, not an error page. */}
+      <HomeShopsBoundary>
+        <Suspense fallback={<HomeShopsSkeleton />}>
+          <HomeShopSections location={location} />
+        </Suspense>
+      </HomeShopsBoundary>
     </>
   );
 }
