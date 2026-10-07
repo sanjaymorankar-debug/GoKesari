@@ -14,7 +14,7 @@ export type VerifyLoginCode = (input: {
 const inputClass =
   "min-w-0 rounded-lg border border-cream-200 px-3 py-2 text-sm focus:border-kesari-500 focus:outline-none";
 const buttonClass =
-  "rounded-lg bg-kesari-600 px-4 py-2 text-sm font-medium text-white hover:bg-kesari-700 disabled:opacity-50";
+  "rounded-lg bg-kesari-600 px-4 py-2 text-sm font-medium text-white hover:bg-kesari-800 disabled:opacity-50";
 
 /**
  * Mobile number or email → (email, if the number is new) → code from email.

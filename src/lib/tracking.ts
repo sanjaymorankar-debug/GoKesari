@@ -61,6 +61,10 @@ export interface OrderTracking {
   riderLocation: (Coordinates & { recordedAt: string }) | null;
   distanceToDestinationKm: number | null;
   etaMinutes: number | null;
+  /** F4: how distance/ETA were worked out — by road, or straight-line at the assumed speed. */
+  etaSource: "ROAD" | "STRAIGHT_LINE" | null;
+  /** F4: expected arrival at the customer (ISO), when it can be estimated. */
+  estimatedArrivalAt: string | null;
 }
 
 function trackingStage(
@@ -92,6 +96,13 @@ export function buildOrderTracking(input: {
   riderFix: (Coordinates & { recordedAt: Date }) | null;
   destination: Coordinates | null;
   now: Date;
+  /** F4: road route from the rider's fix to the destination, when routing is on. */
+  route?: { distanceKm: number; durationSeconds: number; source: "ROAD" | "STRAIGHT_LINE" } | null;
+  /**
+   * F4: before pickup — expected seconds from offer to arrival
+   * (rider → shop + shop → customer) and when the offer was made.
+   */
+  plannedTrip?: { offeredAt: Date; totalSeconds: number; source: "ROAD" | "STRAIGHT_LINE" } | null;
 }): OrderTracking {
   const { delivery, riderFix, destination, now } = input;
   const deliveryStatus = delivery?.status ?? null;
@@ -102,10 +113,25 @@ export function buildOrderTracking(input: {
 
   let distanceToDestinationKm: number | null = null;
   let etaMinutes: number | null = null;
+  let etaSource: OrderTracking["etaSource"] = null;
+  let estimatedArrivalAt: string | null = null;
   if (fix && destination && now.getTime() - fix.recordedAt.getTime() <= LIVE_LOCATION_MAX_AGE_MS) {
-    const km = haversineDistanceKm(fix, destination);
-    distanceToDestinationKm = Math.round(km * 10) / 10;
-    etaMinutes = Math.max(1, Math.ceil((km / ASSUMED_AVERAGE_SPEED_KMH) * 60));
+    if (input.route) {
+      distanceToDestinationKm = Math.round(input.route.distanceKm * 10) / 10;
+      etaMinutes = Math.max(1, Math.ceil(input.route.durationSeconds / 60));
+      etaSource = input.route.source;
+    } else {
+      const km = haversineDistanceKm(fix, destination);
+      distanceToDestinationKm = Math.round(km * 10) / 10;
+      etaMinutes = Math.max(1, Math.ceil((km / ASSUMED_AVERAGE_SPEED_KMH) * 60));
+      etaSource = "STRAIGHT_LINE";
+    }
+    estimatedArrivalAt = new Date(now.getTime() + etaMinutes * 60_000).toISOString();
+  } else if (stage === "AWAITING_PICKUP" && input.plannedTrip) {
+    const at = input.plannedTrip.offeredAt.getTime() + input.plannedTrip.totalSeconds * 1000;
+    // Never promise a time already past: then the best estimate is "shortly".
+    estimatedArrivalAt = new Date(Math.max(at, now.getTime() + 60_000)).toISOString();
+    etaSource = input.plannedTrip.source;
   }
 
   return {
@@ -118,5 +144,7 @@ export function buildOrderTracking(input: {
       : null,
     distanceToDestinationKm,
     etaMinutes,
+    etaSource,
+    estimatedArrivalAt,
   };
 }

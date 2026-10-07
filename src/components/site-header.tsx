@@ -5,7 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
-import { RoleSwitcher } from "@/components/growth-actions";
+import { RoleSwitcher } from "@/components/role-switcher";
 import { formatPaiseCompact } from "@/lib/money";
 import type { UserRole } from "@/server/db/schema";
 import { signOutAction } from "@/server/sign-out-action";
@@ -44,6 +44,7 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/shop/prices", label: "Price Updates" },
     { href: "/shop/finance", label: "Finance" },
     { href: "/shop/marketing", label: "Marketing" },
+    { href: "/shop/offers", label: "Offers" },
     { href: "/shop/analytics", label: "Analytics" },
   ],
   OPERATOR: [
@@ -56,6 +57,7 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin/price-references", label: "Reference prices" },
     { href: "/admin/finance/exceptions", label: "Finance exceptions" },
     { href: "/admin/returns", label: "Returns" },
+    { href: "/admin/image-moderation", label: "Image moderation" },
     { href: "/admin/suspensions", label: "Suspensions" },
     { href: "/admin/societies", label: "Societies" },
     { href: "/admin/ratings", label: "Ratings" },
@@ -87,6 +89,13 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin/consents", label: "Consent" },
     { href: "/admin/disputes", label: "Disputes" },
     { href: "/admin/cod", label: "COD cash" },
+    { href: "/admin/coupons", label: "Coupons" },
+    { href: "/admin/delivery-slots", label: "Delivery slots" },
+    { href: "/admin/image-moderation", label: "Image moderation" },
+    { href: "/admin/rider-changes", label: "Rider profile changes" },
+    { href: "/admin/customer-referrals", label: "Customer referrals" },
+    { href: "/admin/status-changes", label: "Status history" },
+    { href: "/admin/subscriptions", label: "Subscriptions" },
   ],
   DELIVERY_PARTNER: [{ href: "/delivery-partner", label: "Delivery Partner" }],
 };
@@ -201,11 +210,19 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
     <header className="sticky top-0 z-40 border-b border-cream-200 bg-white/95 backdrop-blur">
       <div className="mx-auto flex w-full max-w-6xl items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6">
         <Link href="/" className="flex shrink-0 items-center gap-2">
-          <span className="grid h-8 w-8 place-items-center rounded-lg bg-kesari-600 text-lg font-bold text-white">
-            N
-          </span>
-          <span className="hidden text-base font-semibold text-ink-900 sm:inline">
-            Your Neighbourhood, Now Online
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img
+            src="/brand/gk-mark.png"
+            alt="GoKesari"
+            width={62}
+            height={36}
+            className="h-9 w-auto rounded-lg"
+          />
+          <span className="hidden flex-col sm:flex">
+            <span className="text-lg font-bold leading-tight text-ink-900">
+              Go<span className="text-kesari-600">Kesari</span>
+            </span>
+            <span className="text-xs font-medium leading-tight text-ink-500">Everything for Everyone</span>
           </span>
         </Link>
 
@@ -234,11 +251,13 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
           ))}
         </nav>
 
-        <div className="ml-auto flex shrink-0 items-center gap-2">
+        {/* Tap areas sit 4px low: inside the header on one row, and clear of
+            the logo and search box when narrow screens wrap this to a second. */}
+        <div className="ml-auto flex shrink-0 items-center gap-2 [--tap-dy:4px]">
           {balancePaise !== null ? (
             <Link
               href="/wallet"
-              className="hidden rounded-lg bg-leaf-50 px-2.5 py-1.5 text-sm font-semibold text-leaf-700 sm:inline-block"
+              className="tap-target hidden rounded-lg bg-leaf-50 px-2.5 py-1.5 text-sm font-semibold text-leaf-700 sm:inline-block"
             >
               {formatPaiseCompact(balancePaise)}
             </Link>
@@ -246,7 +265,7 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
 
           <Link
             href="/cart"
-            className="relative rounded-lg px-2.5 py-1.5 text-sm font-medium text-ink-600 hover:bg-cream-100"
+            className="tap-target rounded-lg px-2.5 py-1.5 text-sm font-medium text-ink-600 hover:bg-cream-100"
             aria-label={`Cart, ${cartCount} items`}
           >
             Cart
@@ -263,14 +282,16 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
               {dashboardHref ? (
                 <Link
                   href={dashboardHref}
-                  className="hidden rounded-lg border border-cream-200 px-2.5 py-1.5 text-sm font-medium text-ink-700 hover:bg-cream-100 md:inline-block"
+                  className="tap-target hidden rounded-lg border border-cream-200 px-2.5 py-1.5 text-sm font-medium text-ink-700 hover:bg-cream-100 md:inline-block"
                 >
                   Dashboard
                 </Link>
               ) : null}
               <Link
                 href="/profile"
-                className="relative grid h-8 w-8 place-items-center rounded-full bg-kesari-100 text-sm font-semibold text-kesari-700"
+                // Icon-sized and 8px from its neighbours: 36px wide keeps the
+                // tap areas apart.
+                className="tap-target grid h-8 w-8 place-items-center rounded-full bg-kesari-100 text-sm font-semibold text-kesari-700 [--tap-w:36px]"
                 aria-label="My Profile"
                 title="My Profile"
               >
@@ -283,7 +304,7 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
               <form action={signOutAction}>
                 <button
                   type="submit"
-                  className="flex items-center gap-1.5 rounded-lg border border-cream-200 p-1.5 text-sm font-medium text-ink-700 hover:bg-cream-100 sm:px-2.5"
+                  className="tap-target flex items-center gap-1.5 rounded-lg border border-cream-200 p-1.5 text-sm font-medium text-ink-700 hover:bg-cream-100 sm:px-2.5 [--tap-w:36px]"
                   aria-label="Sign out"
                   title="Sign out"
                 >
@@ -303,7 +324,7 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
           ) : (
             <Link
               href="/signin"
-              className="rounded-lg bg-kesari-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-kesari-700"
+              className="tap-target rounded-lg bg-kesari-600 px-3 py-1.5 text-sm font-medium text-white hover:bg-kesari-800"
             >
               Sign in
             </Link>
@@ -312,7 +333,9 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
           <button
             type="button"
             onClick={() => setOpen((v) => !v)}
-            className="rounded-lg p-1.5 text-ink-600 hover:bg-cream-100 xl:hidden"
+            // Last item in the row: the tap area widens to the right, into the
+            // page margin, and stays clear of the control to its left.
+            className="tap-target rounded-lg p-1.5 text-ink-600 hover:bg-cream-100 xl:hidden [--tap-dx:8px]"
             aria-label="Toggle menu"
             aria-expanded={open}
           >

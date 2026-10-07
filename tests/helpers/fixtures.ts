@@ -24,6 +24,7 @@ import {
   type Department,
   type OrderStatus,
   type UserRole,
+  sellerVerifications,
 } from "@/server/db/schema";
 import type { ShopTypeKey } from "@/lib/shop-types";
 import type { VehicleTypeKey } from "@/lib/vehicle-types";
@@ -66,13 +67,14 @@ export async function resetDatabase(): Promise<void> {
           shop_payments, referral_redemptions, referral_codes,
           registration_fee_history, registration_fees,
           voucher_redemptions, voucher_upload_items, voucher_uploads, vouchers,
-          subscription_orders, subscription_daily_overrides, subscriptions,
+          subscription_deliveries, subscription_orders, subscription_daily_overrides, subscriptions, delivery_trips,
           wallet_transactions, wallets, payments,
           order_status_history, order_items, orders,
           cart_items, carts,
           stock_alerts, inventory_movements, product_price_history, shop_products,
           product_images, product_mrp_history, products,
           product_subcategories, product_categories, brands,
+          delivery_partner_change_requests, delivery_slot_capacities, order_groups, coupon_redemptions, coupons, shop_offers, customer_referrals, customer_referral_codes, status_changes, seller_verification_files, seller_verification_events, seller_verifications,
           shop_classification_history, shops,
           addresses,
           sessions, accounts, users
@@ -302,6 +304,26 @@ export async function createDeliveryPartner(
     })
     .returning();
   return partner;
+}
+
+/**
+ * SM-002: marks a shop's seller documents VERIFIED (default: every document a
+ * food shop needs), so a PENDING_APPROVAL shop reaches PAYMENT_PENDING /
+ * VERIFIED and can be approved.
+ */
+export async function verifySellerDocuments(
+  shopId: string,
+  docTypes: ("PAN" | "GSTIN" | "UDYAM" | "FSSAI" | "SHOP_ACT")[] = ["PAN", "GSTIN", "SHOP_ACT", "FSSAI"],
+) {
+  for (const docType of docTypes) {
+    await db
+      .insert(sellerVerifications)
+      .values({ shopId, docType, status: "VERIFIED", verifiedAt: new Date() })
+      .onConflictDoUpdate({
+        target: [sellerVerifications.shopId, sellerVerifications.docType],
+        set: { status: "VERIFIED", verifiedAt: new Date() },
+      });
+  }
 }
 
 export async function createShopProduct(

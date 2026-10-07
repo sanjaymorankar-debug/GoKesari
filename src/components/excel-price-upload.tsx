@@ -177,7 +177,7 @@ export function ExcelPriceUpload({
               const file = e.target.files?.[0];
               if (file) void upload(file);
             }}
-            className="block w-full text-sm text-ink-600 file:mr-3 file:rounded-lg file:border-0 file:bg-kesari-600 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-kesari-700"
+            className="block w-full text-sm text-ink-600 file:mr-3 file:rounded-lg file:border-0 file:bg-kesari-600 file:px-4 file:py-2 file:text-sm file:font-medium file:text-white hover:file:bg-kesari-800"
           />
           {busy ? (
             <p className="mt-2 text-sm text-ink-500">Validating…</p>

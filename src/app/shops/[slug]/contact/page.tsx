@@ -3,6 +3,7 @@ import Link from "next/link";
 
 import { Card, PageHeader } from "@/components/ui";
 import { isFoodBusinessShopType } from "@/lib/shop-types";
+import { getPublicVerifiedDocuments } from "@/server/services/seller-verification";
 import { getPublicShopBySlug } from "@/server/services/shops";
 
 export async function generateMetadata({
@@ -30,6 +31,7 @@ export default async function ShopContactPage({
   const { slug } = await params;
   const shop = await getPublicShopBySlug(slug);
   if (!shop) notFound();
+  const verified = await getPublicVerifiedDocuments(shop.id);
 
   return (
     <>
@@ -86,6 +88,14 @@ export default async function ShopContactPage({
               </dd>
             </div>
           ) : null}
+          <div className="sm:col-span-2" data-testid="verified-documents">
+            <dt className="font-medium text-ink-700">Verified by Gokesari</dt>
+            <dd className="text-ink-500">
+              {verified.length
+                ? `${verified.map((v) => v.label).join(", ")} — checked against government records.`
+                : "No documents verified yet."}
+            </dd>
+          </div>
           <div className="sm:col-span-2">
             <dt className="font-medium text-ink-700">Return &amp; refund</dt>
             <dd className="text-ink-500">

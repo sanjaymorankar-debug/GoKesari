@@ -20,6 +20,17 @@ const serverEnvSchema = z.object({
    */
   DATABASE_POOL_MAX: z.coerce.number().int().min(1).max(100).default(10),
 
+  /**
+   * Seconds an unused pooled connection stays open (0 = until the server
+   * drops it). On a quiet site most visitors arrive after the pool has
+   * emptied and pay for fresh TLS connections before the first query; on
+   * test.gokesari.com that put the home page's origin time at 3-5 s cold
+   * against ~0.5 s warm. Raising it keeps connections ready between visits,
+   * at the cost of holding them open — check the provider's connection limit
+   * and whether open connections stop the database scaling to zero.
+   */
+  DATABASE_IDLE_TIMEOUT_SECONDS: z.coerce.number().int().min(0).max(3600).default(20),
+
   // Auth.js
   AUTH_SECRET: z.string().min(1, "AUTH_SECRET is required"),
   AUTH_URL: z.string().url().optional(),
@@ -56,6 +67,26 @@ const serverEnvSchema = z.object({
    */
   GST_PROVIDER_API_KEY: z.string().optional(),
   PAN_PROVIDER_API_KEY: z.string().optional(),
+
+  /**
+   * Seller document verification (PAN, GSTIN, Udyam, FSSAI, Shop Act) — see
+   * src/server/kyc/. `mock` makes no network call and is the default for
+   * local development and CI. test.gokesari.com runs the vendor's sandbox,
+   * gokesari.com its live keys; kycConfigProblem() below refuses any other
+   * pairing, so a live key on test or a sandbox key on production fails
+   * loudly instead of quietly mis-verifying sellers.
+   */
+  KYC_PROVIDER: z.enum(["mock", "gridlines", "idfy"]).default("mock"),
+  KYC_ENV: z.enum(["sandbox", "production"]).default("sandbox"),
+  /** The one host allowed to use KYC_ENV=production (compared with AUTH_URL's host). */
+  KYC_PRODUCTION_HOST: z.string().default("gokesari.com"),
+  KYC_TIMEOUT_MS: z.coerce.number().int().min(1000).max(60_000).default(8000),
+  GRIDLINES_API_KEY: z.string().optional(),
+  /** Only to point at a sandbox host if Gridlines gives one; defaults to the live API host. */
+  GRIDLINES_BASE_URL: z.string().url().optional(),
+  /** IDfy, the backup vendor. Its adapter is added if Gridlines is replaced or needs a fallback. */
+  IDFY_ACCOUNT_ID: z.string().optional(),
+  IDFY_API_KEY: z.string().optional(),
 
   /**
    * Base64-encoded 32-byte AES-256-GCM key for encrypting PAN numbers at
@@ -139,6 +170,40 @@ export function isGstProviderConfigured(): boolean {
 
 export function isPanProviderConfigured(): boolean {
   return Boolean(getEnv().PAN_PROVIDER_API_KEY);
+}
+
+/**
+ * Why seller-document verification must not run with the current settings,
+ * or null when it may. Checked on every verification call rather than at
+ * boot, so a KYC misconfiguration stops verification (documents wait in
+ * PENDING) without taking the whole site down.
+ */
+export function kycConfigProblem(env: ServerEnv = getEnv()): string | null {
+  let host = "";
+  try {
+    host = env.AUTH_URL ? new URL(env.AUTH_URL).hostname.toLowerCase() : "";
+  } catch {
+    host = "";
+  }
+  const prodHost = env.KYC_PRODUCTION_HOST.toLowerCase();
+  const isProductionHost = host === prodHost || host === `www.${prodHost}`;
+
+  if (isProductionHost && env.KYC_PROVIDER === "mock") {
+    return "KYC_PROVIDER=mock is not allowed on the production site.";
+  }
+  if (isProductionHost && env.KYC_ENV !== "production") {
+    return "The production site must use KYC_ENV=production (live vendor keys).";
+  }
+  if (!isProductionHost && env.KYC_ENV === "production") {
+    return `KYC_ENV=production is only allowed on ${prodHost}; this host (${host || "no AUTH_URL"}) must use sandbox keys.`;
+  }
+  if (env.KYC_PROVIDER === "gridlines" && !env.GRIDLINES_API_KEY) {
+    return "KYC_PROVIDER=gridlines needs GRIDLINES_API_KEY.";
+  }
+  if (env.KYC_PROVIDER === "idfy" && !(env.IDFY_ACCOUNT_ID && env.IDFY_API_KEY)) {
+    return "KYC_PROVIDER=idfy needs IDFY_ACCOUNT_ID and IDFY_API_KEY.";
+  }
+  return null;
 }
 
 export function isPanEncryptionConfigured(): boolean {

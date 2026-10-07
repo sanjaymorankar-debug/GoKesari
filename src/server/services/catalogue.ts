@@ -1015,6 +1015,8 @@ export interface StorefrontProduct {
   shopName: string;
   shopSlug: string;
   shopClassification: "KESARI" | "GREEN" | null;
+  /** F8: the product's category (for shop offers). */
+  categoryId?: string;
 }
 
 /**
@@ -1095,6 +1097,7 @@ export async function listStorefrontProducts(options: {
     productId: r.product.id,
     productName: r.product.name,
     categoryName: r.category.name,
+    categoryId: r.category.id,
     department: r.category.department,
     unit: r.product.unit,
     unitSizeMilli: r.product.unitSizeMilli,
@@ -1298,7 +1301,8 @@ export async function restockOnline(
   shopProductId: string,
   units: number,
   reason: string,
-  actorId: string,
+  /** null = the system (e.g. an automatic cancellation). */
+  actorId: string | null,
   client?: DbClient,
 ): Promise<ShopProduct> {
   if (!Number.isInteger(units) || units <= 0) {

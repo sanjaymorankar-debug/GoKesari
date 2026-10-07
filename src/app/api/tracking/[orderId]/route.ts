@@ -5,6 +5,7 @@ import { z } from "zod";
 import { forbidden, notFound } from "@/lib/errors";
 import { parseCoordinates } from "@/lib/geo/haversine";
 import { buildOrderTracking } from "@/lib/tracking";
+import { getRoute } from "@/server/services/routing";
 import { ok, route, type RouteContext } from "@/server/api/handler";
 import { requireUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
@@ -42,6 +43,10 @@ export const GET = route(
         shopDeliveryAvailable: shops.deliveryAvailable,
         deliveryStatus: deliveryOrders.status,
         pickedUpAt: deliveryOrders.pickedUpAt,
+        offeredAt: deliveryOrders.offeredAt,
+        routeSource: deliveryOrders.routeSource,
+        legDurationSeconds: deliveryOrders.legDurationSeconds,
+        pickupDurationSeconds: deliveryOrders.pickupDurationSeconds,
         riderUserId: deliveryPartners.userId,
         riderLatitude: deliveryPartners.lastLocationLatitude,
         riderLongitude: deliveryPartners.lastLocationLongitude,
@@ -67,6 +72,28 @@ export const GET = route(
     if (!allowed) throw forbidden("You do not have access to this order.");
 
     const riderCoords = parseCoordinates(row.riderLatitude, row.riderLongitude);
+    const destination = parseCoordinates(row.deliveryAddress?.latitude, row.deliveryAddress?.longitude);
+
+    // F4: road ETA from the rider's latest fix while the order is on its way
+    // (cached per ~100 m by getRoute, so polling stays cheap). Straight-line
+    // when routing is off or unavailable — the original estimate.
+    const fresh =
+      row.deliveryStatus === "PICKED_UP" &&
+      riderCoords &&
+      row.riderLocationAt &&
+      Date.now() - row.riderLocationAt.getTime() <= 5 * 60_000;
+    const routeEstimate =
+      fresh && riderCoords && destination
+        ? await getRoute(riderCoords, destination, { purpose: "tracking_eta", entityType: "order", entityId: orderId })
+        : null;
+    const plannedTrip =
+      row.offeredAt && row.legDurationSeconds != null && row.routeSource
+        ? {
+            offeredAt: row.offeredAt,
+            totalSeconds: row.legDurationSeconds + (row.pickupDurationSeconds ?? 0),
+            source: row.routeSource,
+          }
+        : null;
 
     return ok(
       buildOrderTracking({
@@ -75,8 +102,10 @@ export const GET = route(
         shopDispatchesRiders: row.shopDeliveryAvailable,
         delivery: row.deliveryStatus ? { status: row.deliveryStatus, pickedUpAt: row.pickedUpAt } : null,
         riderFix: riderCoords && row.riderLocationAt ? { ...riderCoords, recordedAt: row.riderLocationAt } : null,
-        destination: parseCoordinates(row.deliveryAddress?.latitude, row.deliveryAddress?.longitude),
+        destination,
         now: new Date(),
+        route: routeEstimate,
+        plannedTrip,
       }),
     );
   },

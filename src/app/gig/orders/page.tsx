@@ -14,6 +14,7 @@ import {
 } from "@/server/services/delivery-assignment";
 import { listPartnerEarnings } from "@/server/services/delivery-earnings";
 import { getMyDeliveryPartnerProfile } from "@/server/services/delivery-partners";
+import { formatScheduledSlot } from "@/lib/scheduled-slots";
 
 export const metadata = { title: "My Deliveries" };
 export const dynamic = "force-dynamic";
@@ -106,6 +107,11 @@ export default async function GigOrdersPage() {
               <StatusBadge status={active.status} />
             </div>
             <p className="mt-2 font-semibold text-ink-900">{active.orderNumber}</p>
+            {active.scheduledSlot ? (
+              <p className="mt-1 text-sm font-medium text-kesari-700">
+                Deliver {formatScheduledSlot(active.scheduledSlot.start, active.scheduledSlot.end)}
+              </p>
+            ) : null}
             <dl className="mt-3 space-y-2 text-sm">
               <div>
                 <dt className="font-medium text-ink-700">Pickup</dt>

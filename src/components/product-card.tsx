@@ -29,6 +29,9 @@ export interface ProductCardData {
   distanceKm?: number | null;
   /** Current quantity in cart for this product. */
   cartQuantity?: number;
+  /** F8: a live shop offer's online price and title, when one applies. */
+  offerPricePaise?: number | null;
+  offerTitle?: string | null;
 }
 
 /**
@@ -154,9 +157,14 @@ export function ProductCard({
 
       <div className="mt-auto">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+          {product.onlinePricePaise != null && product.offerPricePaise != null ? (
+            <span className="text-xs text-ink-400 line-through" data-testid="offer-list-price">
+              <Money paise={product.onlinePricePaise} />
+            </span>
+          ) : null}
           {product.onlinePricePaise != null ? (
             <span className="text-base font-semibold text-ink-900">
-              <Money paise={product.onlinePricePaise} />
+              <Money paise={product.offerPricePaise ?? product.onlinePricePaise} />
               <span className="text-xs font-normal text-ink-500">
                 {" "}
                 / {product.unit} online
@@ -173,6 +181,11 @@ export function ProductCard({
             <span className="text-sm font-medium text-ink-700">Price on request</span>
           ) : null}
         </div>
+        {product.offerTitle ? (
+          <p className="mt-0.5 text-xs font-medium text-leaf-700" data-testid="product-offer">
+            {product.offerTitle}
+          </p>
+        ) : null}
 
         {product.productId ? (
           <Link

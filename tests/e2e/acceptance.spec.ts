@@ -13,9 +13,11 @@ const CRON_SECRET = process.env.CRON_SECRET ?? "dev-cron-secret-change-me";
 /** Signs in through the development credentials provider. */
 async function signIn(page: Page, email: string) {
   await page.goto("/signin");
-  await page.getByPlaceholder("you@example.com").fill(email);
-  await page.getByRole("button", { name: "Continue" }).click();
-  await page.waitForURL("/");
+  // The dev form is the last one on the page; an email sign-in form may share its placeholder.
+  await page.getByPlaceholder("you@example.com").last().fill(email);
+  await page.getByRole("button", { name: "Continue", exact: true }).click();
+  // New accounts land on /onboarding, returning ones elsewhere: anywhere but /signin.
+  await page.waitForURL((url) => !url.pathname.startsWith("/signin"));
 }
 
 /** Reads the wallet balance from the wallet page, in paise. */
@@ -44,7 +46,10 @@ test.describe("customer journey", () => {
 
     // ---- Add ₹5,000 to the wallet (§20) --------------------------------
     await page.goto("/wallet");
+    // The amount button fills the amount; "Proceed to payment" pays it (settled at once in
+    // mock mode, i.e. without live gateway credentials).
     await page.getByRole("button", { name: "₹5,000", exact: true }).click();
+    await page.getByRole("button", { name: "Proceed to payment" }).click();
     await expect(page.getByText("added to your wallet")).toBeVisible();
     expect(await walletBalancePaise(page)).toBe(500_000);
 

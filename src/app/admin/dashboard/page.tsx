@@ -14,7 +14,7 @@ import {
 import { ORDER_STATUS_LABELS } from "@/server/services/orders";
 import { countDisputes } from "@/server/services/disputes";
 import { countOpenRiskFlags } from "@/server/services/risk";
-import { countShopsByStatus } from "@/server/services/shops";
+import { countShopsByLifecycle } from "@/server/services/shop-onboarding";
 import { getAdminDashboard } from "@/server/services/dashboards";
 
 export const metadata = { title: "Admin Dashboard" };
@@ -38,7 +38,7 @@ export default async function AdminDashboardPage() {
   const [kpis, live, shopCounts, riskCounts, disputeCounts] = await Promise.all([
     getMarketplaceKpis(today),
     getLiveOperations(),
-    countShopsByStatus(),
+    countShopsByLifecycle(),
     canReviewRisk ? countOpenRiskFlags() : Promise.resolve(null),
     canWorkDisputes ? countDisputes() : Promise.resolve(null),
   ]);
@@ -61,7 +61,7 @@ export default async function AdminDashboardPage() {
   }));
 
   const ops = await getAdminDashboard();
-  const pendingShops = shopCounts.PENDING_APPROVAL ?? 0;
+  const pendingShops = shopCounts.KYC_PENDING + shopCounts.PAYMENT_PENDING + shopCounts.VERIFIED;
   const openRiskTotal = riskCounts ? riskCounts.HIGH + riskCounts.MEDIUM + riskCounts.LOW : 0;
 
   return (
@@ -134,6 +134,7 @@ export default async function AdminDashboardPage() {
           <KPICard
             title="Shops awaiting approval"
             value={pendingShops}
+            subtitle={`${shopCounts.KYC_PENDING} KYC pending · ${shopCounts.PAYMENT_PENDING} payment pending · ${shopCounts.VERIFIED} verified`}
             color={pendingShops > 0 ? "orange" : "purple"}
           />
           {riskCounts ? (
@@ -181,7 +182,7 @@ export default async function AdminDashboardPage() {
           <KPICard
             title="Shops"
             value={ops.shops.byStatus.APPROVED ?? 0}
-            subtitle={`approved · ${ops.shops.byStatus.PENDING_APPROVAL ?? 0} pending · ${ops.shops.byStatus.SUSPENDED ?? 0} suspended`}
+            subtitle={`approved · ${pendingShops} pending · ${ops.shops.byStatus.SUSPENDED ?? 0} suspended`}
             color="green"
           />
           <KPICard title="Riders" value={ops.riders.online} subtitle={`online · ${ops.riders.busy} busy · ${ops.riders.pendingApproval} awaiting approval`} color="green" />

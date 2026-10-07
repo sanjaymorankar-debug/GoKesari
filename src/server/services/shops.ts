@@ -32,6 +32,7 @@ import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { attributeShopToCode } from "./referrals";
 import { applyShopCategories } from "./shop-categories";
 import { resolveFeeForNewRegistration } from "./registration-fees";
+import { onboardingApprovalBlocker } from "./shop-onboarding";
 import {
   duplicateShopError,
   findRegistrationMatches,
@@ -283,6 +284,7 @@ export async function registerShop(
             // Registration number, fee snapshot, payments and slug stay as
             // they were: this is the same registration going back for review.
             status: "PENDING_APPROVAL",
+            statusActorId: ownerId,
             rejectionReason: null,
             updatedAt: new Date(),
           })
@@ -309,6 +311,7 @@ export async function registerShop(
           ...gstColumns,
           // Status and classification are deliberately NOT taken from input.
           status: "PENDING_APPROVAL",
+          statusActorId: ownerId,
           classification: null,
         })
         .returning();
@@ -600,12 +603,16 @@ function approveShopTransaction(
     if (shop.status === "APPROVED") {
       throw conflict("This shop is already approved.");
     }
+    // SM-002: documents, then fee — the order of the onboarding stages.
+    const blocker = await onboardingApprovalBlocker(shop, tx);
+    if (blocker) throw conflict(blocker, { lifecycleStatus: shop.lifecycleStatus });
     assertRegistrationFeeSettled(shop);
 
     const [updated] = await tx
       .update(shops)
       .set({
         status: "APPROVED",
+        statusActorId: actor.id,
         classification: input.classification,
         approvedAt: new Date(),
         approvedBy: actor.id,
@@ -649,7 +656,7 @@ export async function rejectShop(
   }
   const [updated] = await db
     .update(shops)
-    .set({ status: "REJECTED", rejectionReason: reason, updatedAt: new Date() })
+    .set({ status: "REJECTED", rejectionReason: reason, statusActorId: actor.id, updatedAt: new Date() })
     .where(eq(shops.id, shopId))
     .returning();
   if (!updated) throw notFound("Shop");
@@ -683,7 +690,7 @@ export async function setShopStatus(
   try {
     [updated] = await db
       .update(shops)
-      .set({ status, updatedAt: new Date() })
+      .set({ status, statusActorId: actor.id, updatedAt: new Date() })
       .where(eq(shops.id, shopId))
       .returning();
   } catch (error) {
@@ -817,6 +824,7 @@ export async function updateShop(
     .set({
       ...input,
       ...(verification ?? {}),
+      statusActorId: actor.id,
       updatedAt: new Date(),
     })
     .where(eq(shops.id, shopId))
@@ -1035,6 +1043,8 @@ export async function searchShops(
 export interface AdminShopFilters {
   query?: string;
   status?: ShopStatus;
+  /** SM-002: lifecycle status, e.g. KYC_PENDING / PAYMENT_PENDING / VERIFIED. */
+  lifecycleStatus?: Shop["lifecycleStatus"];
   shopType?: ShopTypeKey;
   classification?: Classification;
   feePaymentStatus?: FeePaymentStatus;
@@ -1077,6 +1087,7 @@ export async function searchShopsAdmin(filters: AdminShopFilters = {}): Promise<
     );
   }
   if (filters.status) conditions.push(eq(shops.status, filters.status));
+  if (filters.lifecycleStatus) conditions.push(eq(shops.lifecycleStatus, filters.lifecycleStatus));
   if (filters.shopType) conditions.push(eq(shops.shopType, filters.shopType));
   if (filters.classification) {
     conditions.push(eq(shops.classification, filters.classification));

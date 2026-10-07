@@ -21,7 +21,7 @@ import { randomInt } from "node:crypto";
 import { and, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
-import { haversineDistanceKm, parseCoordinates } from "@/lib/geo/haversine";
+import { parseCoordinates } from "@/lib/geo/haversine";
 import { db, type DbClient } from "@/server/db";
 import {
   deliveryOrders,
@@ -37,10 +37,14 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
-import { ACTIVE_ASSIGNMENT_STATUSES, findEligiblePartnersNearShop } from "./delivery-eligibility";
+import { ACTIVE_ASSIGNMENT_STATUSES, countActiveAssignments, findEligiblePartnersNearShop } from "./delivery-eligibility";
 import { creditDeliveryEarnings } from "./delivery-earnings";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { updateOrderStatus } from "./orders";
+import { assertDeliveryProof, hasDeliveryProof, isDeliveryProofRequired } from "./delivery-proofs";
+import { checkBatchCompatibility, joinTrip, loadRiderMembers, nextTripDeliveryId, toMember } from "./delivery-trips";
+import { getRoute } from "./routing";
+import { scheduledDispatchFrom } from "./scheduled-slots";
 import { getRule } from "./settings";
 import { suspensionRecordFor } from "./shop-suspension-guard";
 import {
@@ -99,6 +103,8 @@ async function rankCandidates(
   candidates: Candidate[],
   rules: Awaited<ReturnType<typeof getSocietyDispatchRules>>,
   client: DbClient,
+  /** GA-005: busy riders whose trip this order fits, and how much nearer that makes them. */
+  batch: { compatible: Set<string>; preferenceKm: number } = { compatible: new Set(), preferenceKm: 0 },
 ): Promise<Candidate[]> {
   const pool = rules?.exclusive ? candidates.filter((c) => rules.riders.has(c.partner.id)) : candidates;
   if (pool.length <= 1) return pool;
@@ -134,7 +140,12 @@ async function rankCandidates(
       (st?.offersToday ?? 0) * DISPATCH_WEIGHTS.perOfferTodayKm
     );
   };
-  return [...pool].sort((a, b) => score(a) - score(b));
+  // F3: a free rider always ranks ahead of a busy one; score orders within each group.
+  // GA-005: a busy rider on a trip this order fits counts as free, and is
+  // preferred over a free rider up to batch.preferenceKm further away.
+  const busy = (c: Candidate) => c.activeCount > 0 && !batch.compatible.has(c.partner.id);
+  const batchScore = (c: Candidate) => score(c) - (batch.compatible.has(c.partner.id) ? batch.preferenceKm : 0);
+  return [...pool].sort((a, b) => Number(busy(a)) - Number(busy(b)) || batchScore(a) - batchScore(b));
 }
 
 /** 4-digit code; crypto-random so it cannot be predicted from timing. */
@@ -176,7 +187,14 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
     order.deliveryAddressSnapshot?.longitude ?? null,
   );
 
-  return db.transaction(async (tx) => {
+  // F4: shop → customer road route, fetched before the transaction so no
+  // network call happens while rows are locked. Straight-line when routing is
+  // off or fails — the same distance as before.
+  const legRoute = customerCoords
+    ? await getRoute(shopCoords, customerCoords, { purpose: "delivery_leg", entityType: "order", entityId: orderId })
+    : null;
+
+  const offered = await db.transaction(async (tx) => {
     const [existing] = await tx
       .select()
       .from(deliveryOrders)
@@ -189,11 +207,32 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
     // Nearest-first candidate list, re-evaluated fresh inside the
     // transaction (not carried over from an earlier read) so it reflects
     // whatever earlier concurrent assignments have already committed.
-    const candidates = await rankCandidates(
-      await findEligiblePartnersNearShop(shopCoords, tx),
-      await getSocietyDispatchRules(order.societyId, tx),
-      tx,
+    // F3: with busyRidersAsFallback on, busy riders stay in, ranked last.
+    const dispatchRule = await getRule("dispatch");
+    const busyCap = dispatchRule.busyRidersAsFallback ? dispatchRule.maxActiveDeliveriesPerRider : 0;
+    // GA-005: with batching on, riders with room on a trip are looked at too.
+    const batching = await getRule("batching");
+    const batchCap = batching.enabled ? batching.maxOrdersPerTrip : 0;
+    const includeBusyUpTo = Math.max(busyCap, batchCap);
+    const eligible = await findEligiblePartnersNearShop(shopCoords, tx, includeBusyUpTo ? { includeBusyUpTo } : {});
+    const newMember = batchCap ? toMember("new", "OFFERED", order, shop) : null;
+    const compatible = new Set<string>();
+    if (newMember) {
+      for (const c of eligible) {
+        if (c.activeCount === 0) continue;
+        const members = await loadRiderMembers(c.partner.id, tx);
+        const start = parseCoordinates(c.partner.lastLocationLatitude, c.partner.lastLocationLongitude);
+        if (checkBatchCompatibility(members, newMember, batching, { start, now: new Date() }).ok) compatible.add(c.partner.id);
+      }
+    }
+    // A busy rider stays a candidate only for a trip this order fits, or as the F3 fallback.
+    const pool = eligible.filter(
+      (c) => c.activeCount === 0 || compatible.has(c.partner.id) || (busyCap > 0 && c.activeCount < busyCap),
     );
+    const candidates = await rankCandidates(pool, await getSocietyDispatchRules(order.societyId, tx), tx, {
+      compatible,
+      preferenceKm: batching.batchPreferenceKm,
+    });
     // GA-009 fallback: a rider who declined this order, or let the offer
     // expire, is never offered it again.
     const declined = new Set(existing?.rejectedPartnerIds ?? []);
@@ -212,17 +251,26 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
         .for("update");
       if (!lockedPartner) continue;
 
-      const stillBusy = await tx.query.deliveryOrders.findFirst({
-        where: and(
-          eq(deliveryOrders.deliveryPartnerId, candidate.partner.id),
-          inArray(deliveryOrders.status, ACTIVE_ASSIGNMENT_STATUSES),
-        ),
-      });
-      if (stillBusy) continue; // lost the race for this partner — try the next nearest
+      // GA-005: re-check the trip fit under the rider's lock with fresh data.
+      let tripMembers: Awaited<ReturnType<typeof loadRiderMembers>> | null = null;
+      if (compatible.has(candidate.partner.id) && newMember) {
+        tripMembers = await loadRiderMembers(candidate.partner.id, tx);
+        const start = parseCoordinates(candidate.partner.lastLocationLatitude, candidate.partner.lastLocationLongitude);
+        if (!checkBatchCompatibility(tripMembers, newMember, batching, { start, now: new Date() }).ok) continue;
+      } else if (busyCap) {
+        // F3: re-count under the partner lock; a race may have filled them up.
+        if ((await countActiveAssignments(candidate.partner.id, tx)) >= busyCap) continue;
+      } else {
+        const stillBusy = await tx.query.deliveryOrders.findFirst({
+          where: and(
+            eq(deliveryOrders.deliveryPartnerId, candidate.partner.id),
+            inArray(deliveryOrders.status, ACTIVE_ASSIGNMENT_STATUSES),
+          ),
+        });
+        if (stillBusy) continue; // lost the race for this partner — try the next nearest
+      }
 
-      const legDistanceKm = customerCoords
-        ? haversineDistanceKm(shopCoords, customerCoords)
-        : candidate.distanceToShopKm;
+      const legDistanceKm = legRoute ? legRoute.distanceKm : candidate.distanceToShopKm;
 
       const values = {
         deliveryPartnerId: candidate.partner.id,
@@ -235,9 +283,14 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
         cancelledAt: null,
         cancellationReason: null,
         updatedAt: new Date(),
+        routeSource: legRoute?.source ?? null,
+        legDurationSeconds: legRoute ? Math.round(legRoute.durationSeconds) : null,
+        pickupDurationSeconds: null,
+        // GA-005: a re-offer starts outside any earlier rider's trip.
+        tripId: null,
       };
 
-      const [deliveryOrder] = existing
+      let [deliveryOrder] = existing
         ? await tx
             .update(deliveryOrders)
             .set(values)
@@ -247,6 +300,10 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
             .insert(deliveryOrders)
             .values({ orderId, ...values })
             .returning();
+      if (tripMembers) {
+        const tripId = await joinTrip(tx, candidate.partner.id, deliveryOrder.id, tripMembers);
+        deliveryOrder = { ...deliveryOrder, tripId };
+      }
 
       await recordAudit(
         {
@@ -255,7 +312,12 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
           action: AUDIT_ACTIONS.DELIVERY_ORDER_OFFERED,
           entityType: "delivery_order",
           entityId: deliveryOrder.id,
-          newValue: { orderId, deliveryPartnerId: candidate.partner.id, distanceKm: legDistanceKm },
+          newValue: {
+            orderId,
+            deliveryPartnerId: candidate.partner.id,
+            distanceKm: legDistanceKm,
+            ...(deliveryOrder.tripId ? { tripId: deliveryOrder.tripId, batched: true } : {}),
+          },
         },
         tx,
       );
@@ -264,8 +326,10 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
         {
           userId: candidate.partner.userId,
           type: NOTIFICATION_TYPES.DELIVERY_OFFERED,
-          title: "New delivery offer",
-          body: `A delivery is available near you (~${legDistanceKm.toFixed(1)} km).`,
+          title: deliveryOrder.tripId ? "Add a delivery to your trip" : "New delivery offer",
+          body: deliveryOrder.tripId
+            ? `Another order fits your current trip (~${legDistanceKm.toFixed(1)} km from its pickup).`
+            : `A delivery is available near you (~${legDistanceKm.toFixed(1)} km).`,
           actionUrl: "/delivery-partner",
         },
         tx,
@@ -280,6 +344,24 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
         : "No delivery partner is currently available for this order.",
     );
   });
+
+  // F4: rider → shop travel time for the rider's and customer's estimates.
+  // Best effort, after commit; a failure here never undoes the offer.
+  const rider = await db.query.deliveryPartners.findFirst({ where: eq(deliveryPartners.id, offered.deliveryPartnerId) });
+  const riderCoords = rider ? parseCoordinates(rider.lastLocationLatitude, rider.lastLocationLongitude) : null;
+  if (!riderCoords) return offered;
+  try {
+    const pickup = await getRoute(riderCoords, shopCoords, { purpose: "delivery_pickup", entityType: "order", entityId: orderId });
+    const [withPickup] = await db
+      .update(deliveryOrders)
+      .set({ pickupDurationSeconds: Math.round(pickup.durationSeconds) })
+      .where(and(eq(deliveryOrders.id, offered.id), eq(deliveryOrders.deliveryPartnerId, offered.deliveryPartnerId)))
+      .returning();
+    return withPickup ?? offered;
+  } catch (error) {
+    console.error("[dispatch] pickup estimate failed", error);
+    return offered;
+  }
 }
 
 /** Cancels any in-flight assignment (if present) and re-runs assignment. Admin/operator manual override. */
@@ -496,6 +578,8 @@ export async function markDelivered(
 ): Promise<DeliveryOrder> {
   const row = await loadOwnDeliveryOrder(deliveryOrderId, actor.id); // ownership check
   await assertCashConfirmed(row.orderId, cashCollected);
+  // NEW-007: with photo proof on, a photo at the door comes first.
+  if (row.status === "PICKED_UP") await assertDeliveryProof(deliveryOrderId);
 
   // GS-043: the customer's OTP confirms the drop. A delivery picked up
   // before OTPs existed (no code, no start-of-drop time) keeps the old flow.
@@ -977,6 +1061,13 @@ export async function dispatchReadyOrder(
 
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, order.shopId) });
   if (!shop?.deliveryAvailable) return null; // pickup-only / shop hands over itself
+  // GS-027: an order for a chosen delivery time looks for a rider only shortly
+  // before its slot (the dispatch sweep tries again); the shop's own "Find
+  // rider now" goes straight through.
+  if (trigger !== "SHOP_MANUAL") {
+    const from = await scheduledDispatchFrom(order);
+    if (from && Date.now() < from.getTime()) return null;
+  }
   // An order the suspension policy holds for review is not sent to a rider until an operator decides.
   const held = await suspensionRecordFor(db, order.shopId, order.id);
   if (held.record?.outcome === "AWAITING_REVIEW") return null;
@@ -1257,6 +1348,11 @@ export interface ActiveDeliveryDetail
   orderTotalPaise: number;
   /** GS-030: cash to collect at the door (null when the order is prepaid). */
   cashToCollectPaise: number | null;
+  /** GS-027: the delivery time the customer chose (IST slot), or null for "deliver now". */
+  scheduledSlot: { start: string; end: string } | null;
+  /** NEW-007: a photo at the door is needed before "Mark delivered", and whether one is in. */
+  proofRequired: boolean;
+  proofUploaded: boolean;
   shopName: string;
   shopAddress: string;
   customerAddress: string | null;
@@ -1292,6 +1388,8 @@ export async function getMyActiveDeliveryDetail(userId: string): Promise<ActiveD
       orderNumber: orders.orderNumber,
       orderTotalPaise: orders.totalPaise,
       paymentMethod: orders.paymentMethod,
+      scheduledSlotStart: orders.scheduledSlotStart,
+      scheduledSlotEnd: orders.scheduledSlotEnd,
       deliveryAddressSnapshot: orders.deliveryAddressSnapshot,
       societyId: orders.societyId,
       shopName: shops.name,
@@ -1336,6 +1434,12 @@ export async function getMyActiveDeliveryDetail(userId: string): Promise<ActiveD
     orderNumber: row.orderNumber,
     orderTotalPaise: row.orderTotalPaise,
     cashToCollectPaise: row.paymentMethod === "COD" ? row.orderTotalPaise : null,
+    scheduledSlot:
+      row.scheduledSlotStart && row.scheduledSlotEnd
+        ? { start: row.scheduledSlotStart.toISOString(), end: row.scheduledSlotEnd.toISOString() }
+        : null,
+    proofRequired: await isDeliveryProofRequired(),
+    proofUploaded: await hasDeliveryProof(active.id),
     shopName: row.shopName,
     shopAddress,
     customerAddress,
@@ -1367,14 +1471,56 @@ export async function getMyActiveDeliveryOrder(userId: string): Promise<Delivery
   const partner = await db.query.deliveryPartners.findFirst({ where: eq(deliveryPartners.userId, userId) });
   if (!partner) return null;
 
+  // GA-005: on a batched trip the main card follows the trip's stop order
+  // (every pickup first, then the drops), not simply the furthest-along job.
+  const nextInTrip = await nextTripDeliveryId(partner.id);
+  if (nextInTrip) {
+    const row = await db.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.id, nextInTrip) });
+    if (row) return row;
+  }
+
   const row = await db.query.deliveryOrders.findFirst({
     where: and(
       eq(deliveryOrders.deliveryPartnerId, partner.id),
       inArray(deliveryOrders.status, ACTIVE_ASSIGNMENT_STATUSES),
     ),
-    orderBy: desc(deliveryOrders.offeredAt),
+    // F3: a rider may hold more than one delivery; the one already under way
+    // stays the main card (picked up, then accepted, then offered).
+    orderBy: [
+      sql`CASE ${deliveryOrders.status} WHEN 'PICKED_UP' THEN 0 WHEN 'ACCEPTED' THEN 1 ELSE 2 END`,
+      desc(deliveryOrders.offeredAt),
+    ],
   });
   return row ?? null;
+}
+
+/** F3: the rider's other live deliveries besides the main one — normally none. */
+export async function getMyOtherActiveDeliveries(
+  userId: string,
+): Promise<{ id: string; status: string; orderNumber: string; shopName: string; distanceKm: string | null; offeredAt: Date | null }[]> {
+  const main = await getMyActiveDeliveryOrder(userId);
+  if (!main) return [];
+  const rows = await db
+    .select({
+      id: deliveryOrders.id,
+      status: deliveryOrders.status,
+      orderNumber: orders.orderNumber,
+      shopName: shops.name,
+      distanceKm: deliveryOrders.distanceKm,
+      offeredAt: deliveryOrders.offeredAt,
+    })
+    .from(deliveryOrders)
+    .innerJoin(orders, eq(orders.id, deliveryOrders.orderId))
+    .innerJoin(shops, eq(shops.id, orders.shopId))
+    .where(
+      and(
+        eq(deliveryOrders.deliveryPartnerId, main.deliveryPartnerId),
+        inArray(deliveryOrders.status, ACTIVE_ASSIGNMENT_STATUSES),
+        sql`${deliveryOrders.id} <> ${main.id}`,
+      ),
+    )
+    .orderBy(desc(deliveryOrders.offeredAt));
+  return rows;
 }
 
 export async function listMyDeliveryHistory(userId: string, limit = 30): Promise<DeliveryOrder[]> {

@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import {
@@ -20,8 +21,12 @@ import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { getDeliveryOrdersForOrders } from "@/server/services/delivery-assignment";
 import { getLiveDisputesForOrders } from "@/server/services/disputes";
+import { referencesForGroups } from "@/server/services/order-groups";
 import { listOrdersForUser } from "@/server/services/orders";
 import { listMyRatingsByOrder } from "@/server/services/ratings";
+import { formatScheduledSlot } from "@/lib/scheduled-slots";
+import { proofPhotosForOrders } from "@/server/services/delivery-proofs";
+import { getRule } from "@/server/services/settings";
 
 const DELIVERY_STATUS_LABELS: Record<string, string> = {
   OFFERED: "Finding a rider",
@@ -49,10 +54,16 @@ export default async function OrdersPage({
   const showBusiness = can(user.role, PERMISSIONS.ORDER_PLACE_B2B);
   const orderType = showBusiness && params.type === "business" ? "B2B" : "PERSONAL";
   const orders = await listOrdersForUser(user.id, { limit: 50, orderType });
-  const [deliveryOrders, myRatings, liveDisputes] = await Promise.all([
+  const [groupRefs, deliveryOrders, myRatings, liveDisputes] = await Promise.all([
+    referencesForGroups(orders.map((o) => o.orderGroupId)),
     getDeliveryOrdersForOrders(orders.map((o) => o.id)),
     listMyRatingsByOrder(user.id, orders.map((o) => o.id)),
     getLiveDisputesForOrders(orders.map((o) => o.id)),
+  ]);
+  // NEW-007: delivery photo and invoice links on delivered orders.
+  const [proofPhotos, invoicingRule] = await Promise.all([
+    proofPhotosForOrders(orders.filter((o) => o.status === "DELIVERED").map((o) => o.id)),
+    getRule("invoicing"),
   ]);
 
   return (
@@ -111,6 +122,20 @@ export default async function OrdersPage({
                   <span className="text-sm text-ink-500">
                     {order.orderNumber}
                   </span>
+                  {order.discountPaise > 0 ? (
+                    <Badge tone="success">
+                      {order.couponCode ? `${order.couponCode} · ` : ""}saved <Money paise={order.discountPaise} />
+                    </Badge>
+                  ) : null}
+                  {order.orderGroupId && groupRefs.get(order.orderGroupId) ? (
+                    <Link
+                      href={`/orders/group/${groupRefs.get(order.orderGroupId)}`}
+                      className="text-xs text-kesari-700 hover:underline"
+                      data-testid="parent-order-ref"
+                    >
+                      Part of {groupRefs.get(order.orderGroupId)}
+                    </Link>
+                  ) : null}
                 </div>
                 <span className="font-semibold text-ink-900">
                   <Money paise={order.totalPaise} />
@@ -123,8 +148,27 @@ export default async function OrdersPage({
                   dateStyle: "medium",
                   timeStyle: "short",
                 })}
-                {order.deliveryDate ? ` · for ${order.deliveryDate}` : ""}
+                {order.deliveryDate && !order.scheduledSlotStart ? ` · for ${order.deliveryDate}` : ""}
               </p>
+              {order.status === "DELIVERED" && (invoicingRule.enabled || proofPhotos.has(order.id)) ? (
+                <p className="mt-1 flex flex-wrap gap-3 text-xs" data-testid="order-documents">
+                  {invoicingRule.enabled ? (
+                    <a href={`/api/orders/${order.id}/invoice`} className="font-medium text-kesari-700 hover:underline">
+                      Tax invoice
+                    </a>
+                  ) : null}
+                  {proofPhotos.has(order.id) ? (
+                    <a href={proofPhotos.get(order.id)!.url} target="_blank" rel="noreferrer" className="font-medium text-kesari-700 hover:underline">
+                      Photo at delivery
+                    </a>
+                  ) : null}
+                </p>
+              ) : null}
+              {order.scheduledSlotStart && order.scheduledSlotEnd ? (
+                <p className="text-xs font-medium text-kesari-700" data-testid="order-scheduled-slot">
+                  Delivery {formatScheduledSlot(order.scheduledSlotStart, order.scheduledSlotEnd)}
+                </p>
+              ) : null}
 
               <ul className="mt-3 space-y-1 text-sm text-ink-600">
                 {order.items.map((item) => (

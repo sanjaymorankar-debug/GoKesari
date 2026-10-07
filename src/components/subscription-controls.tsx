@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -14,6 +15,9 @@ export function SubscriptionControls({
   unit,
   pauseFrom,
   pauseUntil,
+  endDate = null,
+  renewalReason = null,
+  renewalDueDate = null,
 }: {
   subscriptionId: string;
   status: string;
@@ -21,6 +25,10 @@ export function SubscriptionControls({
   unit: string;
   pauseFrom: string | null;
   pauseUntil: string | null;
+  /** SM-004 */
+  endDate?: string | null;
+  renewalReason?: "TERM_END" | "PAYMENT_DUE" | null;
+  renewalDueDate?: string | null;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -32,6 +40,7 @@ export function SubscriptionControls({
   const [from, setFrom] = useState(pauseFrom ?? "");
   const [until, setUntil] = useState(pauseUntil ?? "");
   const [confirmingCancel, setConfirmingCancel] = useState(false);
+  const [renewUntil, setRenewUntil] = useState("");
 
   const isPaused = Boolean(pauseFrom && pauseUntil);
   const cancelled = status === "CANCELLED";
@@ -73,9 +82,78 @@ export function SubscriptionControls({
       </Card>
     );
   }
+  if (status === "COMPLETED") {
+    return (
+      <Card className="p-5">
+        <Alert tone="info">This subscription ended{endDate ? ` on ${endDate}` : ""}. No further deliveries.</Alert>
+      </Card>
+    );
+  }
+  const isDraft = status === "DRAFT";
 
   return (
     <Card className="space-y-5 p-5">
+      {isDraft ? (
+        <div data-testid="subscription-draft">
+          <h2 className="text-base font-semibold text-ink-900">Draft — not started</h2>
+          <p className="mt-1 text-sm text-ink-500">
+            Nothing is delivered or charged until you activate it. Deliveries start on the start date (today if that has passed).
+          </p>
+          <Button className="mt-3" disabled={busy} onClick={() => call("activate", {}, "POST", "Subscription activated.")}>
+            Activate subscription
+          </Button>
+        </div>
+      ) : null}
+
+      {status === "RENEWAL_PENDING" ? (
+        <div data-testid="subscription-renewal" className="rounded-lg border border-amber-200 bg-amber-50 p-3">
+          <h2 className="text-base font-semibold text-ink-900">Renewal due</h2>
+          {renewalReason === "PAYMENT_DUE" ? (
+            <>
+              <p className="mt-1 text-sm text-ink-700">
+                Your wallet does not cover the delivery{renewalDueDate ? ` on ${renewalDueDate}` : ""}. Add money to keep
+                deliveries coming — renewal clears as soon as the balance covers it.
+              </p>
+              <div className="mt-3 flex flex-wrap gap-2">
+                <Link href="/wallet" className="rounded-lg bg-kesari-600 px-3 py-2 text-sm font-medium text-white hover:bg-kesari-800">
+                  Add money
+                </Link>
+                <Button variant="secondary" disabled={busy} onClick={() => call("renew", {}, "POST", "Renewed.")}>
+                  I&apos;ve topped up — renew
+                </Button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="mt-1 text-sm text-ink-700">
+                Deliveries stop after {renewalDueDate ?? endDate}. Renew to keep them coming.
+              </p>
+              <div className="mt-3 flex flex-wrap items-end gap-2">
+                <label className="text-xs text-ink-500">
+                  New end date
+                  <input
+                    type="date"
+                    value={renewUntil}
+                    min={endDate ?? undefined}
+                    onChange={(e) => setRenewUntil(e.target.value)}
+                    className={inputClass}
+                  />
+                </label>
+                <Button
+                  disabled={busy}
+                  onClick={() => call("renew", renewUntil ? { endDate: renewUntil } : {}, "POST", "Renewed.")}
+                >
+                  {renewUntil ? "Renew until this date" : "Renew for another term"}
+                </Button>
+                <Button variant="secondary" disabled={busy} onClick={() => call("renew", { endDate: null }, "POST", "Renewed with no end date.")}>
+                  Keep going, no end date
+                </Button>
+              </div>
+            </>
+          )}
+        </div>
+      ) : null}
+
       <div>
         <h2 className="text-base font-semibold text-ink-900">
           Change permanently
@@ -111,6 +189,7 @@ export function SubscriptionControls({
         </div>
       </div>
 
+      {isDraft ? null : (
       <div className="border-t border-cream-200 pt-4">
         <h2 className="text-base font-semibold text-ink-900">
           {isPaused ? "Paused" : "Pause deliveries"}
@@ -164,6 +243,7 @@ export function SubscriptionControls({
           </>
         )}
       </div>
+      )}
 
       {/* Two-step confirmation rather than window.confirm: a native dialog
           blocks the event loop and is awkward to drive in automated tests. */}
@@ -171,7 +251,7 @@ export function SubscriptionControls({
         {confirmingCancel ? (
           <div className="space-y-2">
             <p className="text-sm text-ink-700">
-              Cancel this subscription? Future deliveries will stop.
+              {isDraft ? "Discard this draft?" : "Cancel this subscription? Future deliveries will stop."}
             </p>
             <div className="flex gap-2">
               <Button
@@ -186,7 +266,7 @@ export function SubscriptionControls({
                   )
                 }
               >
-                Yes, cancel it
+                {isDraft ? "Yes, discard it" : "Yes, cancel it"}
               </Button>
               <Button
                 variant="secondary"
@@ -203,7 +283,7 @@ export function SubscriptionControls({
             disabled={busy}
             onClick={() => setConfirmingCancel(true)}
           >
-            Cancel subscription
+            {isDraft ? "Discard draft" : "Cancel subscription"}
           </Button>
         )}
       </div>

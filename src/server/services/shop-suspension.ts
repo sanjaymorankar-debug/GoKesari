@@ -106,29 +106,40 @@ export interface SuspensionResult {
   impact: { cancelled: number; continuing: number; awaitingReview: number; failed: number };
 }
 
+/**
+ * `actor` null means an automated suspension (seller verification: a
+ * mandatory document lapsed). The shop goes offline the same way, but
+ * nothing is cancelled or refunded without a person: orders the policy would
+ * cancel are held for review instead.
+ */
 export async function suspendShopWithPolicy(
   shopId: string,
   input: { reason: string; expectedAction?: string | null },
-  actor: Actor,
+  actor: Actor | null,
 ): Promise<SuspensionResult> {
   const reason = input.reason.trim();
   if (reason.length < 3) throw validationFailed("A suspension reason is required.");
   const rule = await getRule("suspension");
-  const actions = await policyActions();
+  const configured = await policyActions();
+  const actions: Record<string, Action> = actor
+    ? configured
+    : Object.fromEntries(
+        Object.entries(configured).map(([status, a]) => [status, a === "CANCEL_REFUND" ? "REVIEW" : a]),
+      );
   const expectedAction = input.expectedAction?.trim() || rule.defaultExpectedAction;
 
   const started = await db.transaction(async (tx) => {
     // The APPROVED check is part of the UPDATE, so a concurrent reject or suspend cannot be overwritten or audited twice.
     const [shop] = await tx
       .update(shops)
-      .set({ status: "SUSPENDED", updatedAt: new Date() })
+      .set({ status: "SUSPENDED", statusActorId: actor?.id ?? null, updatedAt: new Date() })
       .where(and(eq(shops.id, shopId), eq(shops.status, "APPROVED"), sql`${shops.deletedAt} IS NULL`))
       .returning();
     if (!shop) return null;
 
     const [suspension] = await tx
       .insert(shopSuspensions)
-      .values({ shopId, reason, expectedAction, suspendedBy: actor.id, policy: actions })
+      .values({ shopId, reason, expectedAction, suspendedBy: actor?.id ?? null, policy: actions })
       .returning();
 
     const open = await tx
@@ -169,6 +180,8 @@ export async function suspendShopWithPolicy(
   let failed = 0;
   for (const p of started.planned.filter((x) => x.action === "CANCEL_REFUND")) {
     try {
+      // Unreachable for an automated suspension: CANCEL_REFUND was mapped to REVIEW above.
+      if (!actor) throw new Error("Automated suspensions do not cancel orders.");
       await cancelOrder(p.orderId, actor, `The shop was suspended: ${reason}`);
       await db
         .update(shopSuspensionOrders)
@@ -193,8 +206,8 @@ export async function suspendShopWithPolicy(
   await db.update(shopSuspensions).set({ impact }).where(eq(shopSuspensions.id, started.suspension.id));
 
   await recordAudit({
-    actorId: actor.id,
-    actorRole: actor.role,
+    actorId: actor?.id ?? null,
+    actorRole: actor?.role ?? null,
     action: AUDIT_ACTIONS.SHOP_SUSPENDED,
     entityType: "shop",
     entityId: shopId,
@@ -233,7 +246,7 @@ export async function reactivateShop(shopId: string, note: string, actor: Actor)
   const shop = await db.transaction(async (tx) => {
     const [row] = await tx
       .update(shops)
-      .set({ status: "APPROVED", updatedAt: new Date() })
+      .set({ status: "APPROVED", statusActorId: actor.id, updatedAt: new Date() })
       .where(and(eq(shops.id, shopId), eq(shops.status, "SUSPENDED"), sql`${shops.deletedAt} IS NULL`))
       .returning();
     if (!row) return null;

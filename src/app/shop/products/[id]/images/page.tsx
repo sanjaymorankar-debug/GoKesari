@@ -39,7 +39,14 @@ export default async function ListingImagesPage({ params }: { params: Promise<{ 
     listImages(row.product.id, null),
     getRule("images"),
   ]);
-  const view = (i: (typeof listing)[number]) => ({ id: i.id, url: i.url, altText: i.altText, isPrimary: i.isPrimary });
+  const view = (i: (typeof listing)[number]) => ({
+    id: i.id,
+    url: i.url,
+    altText: i.altText,
+    isPrimary: i.isPrimary,
+    moderationStatus: i.moderationStatus,
+    rejectionReason: i.rejectionReason,
+  });
 
   return (
     <div className="mx-auto max-w-3xl space-y-6">

@@ -11,6 +11,8 @@ import {
   listShopOptions,
   orderStatusOptions,
 } from "@/server/services/orders";
+import { proofPhotosForOrders } from "@/server/services/delivery-proofs";
+import { getRule } from "@/server/services/settings";
 
 export const metadata = { title: "Order Monitoring" };
 export const dynamic = "force-dynamic";
@@ -26,10 +28,18 @@ export default async function OrdersMonitoringPage({
   }
 
   const params = await searchParams;
-  const [orders, shops] = await Promise.all([
+  const [rawOrders, shops, invoicingRule] = await Promise.all([
     listOrdersForMonitoring(params),
     listShopOptions(),
+    getRule("invoicing"),
   ]);
+  // NEW-007: delivery photo and invoice links for delivered orders.
+  const proofPhotos = await proofPhotosForOrders(rawOrders.filter((o) => o.status === "DELIVERED").map((o) => o.id));
+  const orders = rawOrders.map((o) => ({
+    ...o,
+    proofPhotoUrl: proofPhotos.get(o.id)?.url ?? null,
+    invoiceUrl: o.status === "DELIVERED" && invoicingRule.enabled ? `/api/orders/${o.id}/invoice` : null,
+  }));
 
   return (
     <div className="space-y-8 pb-10">

@@ -44,6 +44,29 @@ export default function SellerTermsPage() {
         the app — contact the platform to update it.
       </p>
 
+      <h2>Document verification</h2>
+      <p>
+        Before your shop sells, the platform verifies your documents against
+        government records through a verification partner, with your
+        consent each time: PAN; GSTIN, or a declaration that you are not
+        GST-registered (with your GST enrolment number where the law requires
+        one); FSSAI licence or registration if you sell food; and your Shops
+        &amp; Establishments registration certificate or intimation receipt.
+        Udyam registration is optional. Documents that cannot be checked
+        automatically are reviewed by the platform&apos;s team.
+      </p>
+      <ul>
+        <li>Never enter or upload your Aadhaar number; mask it on any certificate you upload.</li>
+        <li>
+          Keep your documents valid. You will be reminded 30 days before an
+          FSSAI licence or Shops &amp; Establishments certificate expires. If a
+          required document expires or is cancelled, your shop is taken
+          offline until a valid one is verified; open orders are reviewed by
+          the platform&apos;s team.
+        </li>
+        <li>Tell the platform promptly if any registration changes, is suspended or is cancelled.</li>
+      </ul>
+
       <h2>Pricing and changes</h2>
       <p>
         Price changes go through the platform&apos;s review workflow before

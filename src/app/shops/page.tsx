@@ -121,7 +121,7 @@ export default async function ShopsPage({
 
           <button
             type="submit"
-            className="rounded-lg bg-kesari-600 px-4 py-2 text-sm font-medium text-white hover:bg-kesari-700 sm:col-span-1"
+            className="rounded-lg bg-kesari-600 px-4 py-2 text-sm font-medium text-white hover:bg-kesari-800 sm:col-span-1"
           >
             Apply filters
           </button>

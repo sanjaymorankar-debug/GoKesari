@@ -22,7 +22,7 @@ import {
   PageHeader,
   StatusBadge,
 } from "@/components/ui";
-import { todayIn } from "@/lib/dates";
+import { addDays, todayIn } from "@/lib/dates";
 import { getEnv } from "@/lib/env";
 import { formatQuantity } from "@/lib/money";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -39,6 +39,18 @@ import { getShopDashboard } from "@/server/services/dashboards";
 import { getShopCategories } from "@/server/services/shop-categories";
 import { getActiveSuspension } from "@/server/services/shop-suspension";
 import { listShopsForOwner } from "@/server/services/shops";
+import { getShopOnboarding } from "@/server/services/shop-onboarding";
+import { listSubscriptionDeliveries } from "@/server/services/subscription-schedule";
+import { getRule } from "@/server/services/settings";
+import { missedAcceptances30d } from "@/server/services/shop-acceptance";
+import { DeliveryStatusBadge, SubscriptionDeliveryList } from "@/components/subscription-delivery-list";
+import {
+  ONBOARDING_STAGE_LABELS,
+  ONBOARDING_STAGE_TONES,
+  ownerNextAction,
+  SHOP_ONBOARDING_STAGES,
+  type ShopOnboardingStage,
+} from "@/lib/shop-onboarding";
 import { listSubscriptionOrdersForShop } from "@/server/services/subscriptions";
 
 export const metadata = { title: "My Shop" };
@@ -66,6 +78,9 @@ export default async function ShopDashboardPage() {
   const shop = shops[0];
   const today = todayIn(getEnv().APP_TIMEZONE);
   const suspension = shop.status === "SUSPENDED" ? await getActiveSuspension(shop.id) : null;
+  // SM-002: which onboarding stage the shop is at and what the owner does next.
+  const onboarding = shop.status === "PENDING_APPROVAL" ? (await getShopOnboarding([shop.id])).get(shop.id) : undefined;
+  const nextStep = onboarding ? ownerNextAction(onboarding) : null;
   const shopCategoryList = await getShopCategories(shop.id);
   // Live figures for the operator's day — only for a shop that trades.
   const dashboard = shop.status === "APPROVED" || shop.status === "SUSPENDED" ? await getShopDashboard(shop.id, user.id) : null;
@@ -87,6 +102,13 @@ export default async function ShopDashboardPage() {
     listPaymentsForShop(shop.id),
     shop.referralCodeId ? getReferralCodeById(shop.referralCodeId) : null,
   ]);
+  // NEW-007: the acceptance timeout and how often this shop has let it run out.
+  const [acceptanceRule, missedAcceptances] = await Promise.all([getRule("shopAcceptance"), missedAcceptances30d(shop.id)]);
+  const upcomingDeliveries = await listSubscriptionDeliveries({
+    shopId: shop.id,
+    from: addDays(today, 1),
+    until: addDays(today, 8),
+  });
 
   const alreadyListed = new Set(products.map((p) => p.productId));
   const availableToAdd = suggestions.filter((p) => !alreadyListed.has(p.id));
@@ -112,16 +134,34 @@ export default async function ShopDashboardPage() {
       />
 
       <div className="mb-6 flex flex-wrap gap-2">
-        <StatusBadge status={shop.status} />
+        {onboarding ? (
+          <Badge tone={ONBOARDING_STAGE_TONES[onboarding.stage]}>{ONBOARDING_STAGE_LABELS[onboarding.stage]}</Badge>
+        ) : (
+          <StatusBadge status={shop.status} />
+        )}
         <ClassificationBadge value={shop.classification} />
         <Badge>{shop.shopType}</Badge>
       </div>
 
       {shop.status === "PENDING_APPROVAL" ? (
-        <div className="mb-6">
-          <Alert tone="warning" title="Awaiting approval">
-            Your shop is being reviewed by an operator. You can add products now
-            — they go live as soon as the shop is approved.
+        <div className="mb-6" data-testid="onboarding-stage">
+          <Alert
+            tone={onboarding?.stage === "VERIFIED" ? "success" : "warning"}
+            title={onboarding ? `Awaiting approval — ${ONBOARDING_STAGE_LABELS[onboarding.stage].toLowerCase()}` : "Awaiting approval"}
+          >
+            <OnboardingSteps current={onboarding?.stage ?? "KYC_PENDING"} />
+            {nextStep ? (
+              <span className="mt-2 block">
+                <span className="font-medium">Next: </span>
+                {nextStep.text}{" "}
+                <Link href={nextStep.href} className="font-medium underline">
+                  {nextStep.linkLabel}
+                </Link>
+              </span>
+            ) : null}
+            <span className="mt-2 block">
+              You can add products now — they go live as soon as the shop is approved.
+            </span>
           </Alert>
         </div>
       ) : null}
@@ -155,6 +195,17 @@ export default async function ShopDashboardPage() {
         </div>
       ) : null}
 
+      {acceptanceRule.enabled && shop.status === "APPROVED" ? (
+        <p className="mb-4 text-sm text-ink-600" data-testid="missed-acceptances">
+          New orders must be accepted within {acceptanceRule.acceptMinutes} min or they are cancelled automatically.{" "}
+          {missedAcceptances > 0 ? (
+            <strong className="text-red-700">{missedAcceptances} missed in the last 30 days.</strong>
+          ) : (
+            "None missed in the last 30 days."
+          )}
+        </p>
+      ) : null}
+
       {dashboard ? <ShopDashboardView data={dashboard} /> : null}
 
       {/* Subscription orders are separated from normal orders per §40. */}
@@ -185,7 +236,7 @@ export default async function ShopDashboardPage() {
                   </p>
                 </div>
                 <div className="flex items-center gap-2">
-                  <StatusBadge status={row.subscriptionOrder.status} />
+                  <DeliveryStatusBadge status={row.subscriptionOrder.status} />
                   <Money paise={row.subscriptionOrder.totalPaise} />
                 </div>
               </div>
@@ -193,6 +244,27 @@ export default async function ShopDashboardPage() {
           </Card>
         )}
       </section>
+
+      {/* SM-004: what the coming days hold, each delivery with its own status. */}
+      {upcomingDeliveries.length > 0 ? (
+        <section className="mb-8">
+          <SubscriptionDeliveryList
+            title={`Upcoming subscription deliveries (${upcomingDeliveries.filter((d) => d.delivery.status === "SCHEDULED").length} scheduled)`}
+            description="The next seven days. Skipped days are shown so you can plan stock."
+            showCustomer
+            rows={upcomingDeliveries.map((d) => ({
+              id: d.delivery.id,
+              deliveryDate: d.delivery.deliveryDate,
+              status: d.delivery.status,
+              quantityMilli: d.delivery.quantityMilli,
+              reason: d.delivery.reason,
+              orderNumber: d.orderNumber,
+              customerName: d.customerName,
+              productName: `${d.productName}${d.delivery.quantityMilli ? ` · ${formatQuantity(d.delivery.quantityMilli, d.unit)}` : ""}`,
+            }))}
+          />
+        </section>
+      ) : null}
 
       <section className="mb-8">
         <h2 className="mb-3 text-lg font-semibold text-ink-900">
@@ -250,7 +322,7 @@ export default async function ShopDashboardPage() {
         </section>
       ) : null}
 
-      <div className="mb-8">
+      <div className="mb-8" id="registration">
         <RegistrationPanel
           details={{
             registrationNumber: shop.registrationNumber,
@@ -302,6 +374,20 @@ export default async function ShopDashboardPage() {
             panMasked: getMaskedPan(shop),
           }}
         />
+      </div>
+
+      <div className="mb-8">
+        <Card className="flex flex-wrap items-center justify-between gap-2 p-4 text-sm" data-testid="verification-link">
+          <span>
+            <span className="font-medium text-ink-900">Shop verification</span>
+            <span className="block text-ink-500">
+              PAN, GST, Udyam, FSSAI and Shop Act — checked with the government records.
+            </span>
+          </span>
+          <Link href="/shop/verification" className="font-medium text-kesari-700 underline">
+            Verify documents
+          </Link>
+        </Card>
       </div>
 
       <div className="mb-8">
@@ -373,5 +459,21 @@ export default async function ShopDashboardPage() {
         }))}
       />
     </>
+  );
+}
+
+/** SM-002: the three onboarding steps, the current one highlighted, earlier ones ticked. */
+function OnboardingSteps({ current }: { current: ShopOnboardingStage }) {
+  const at = SHOP_ONBOARDING_STAGES.indexOf(current);
+  const steps = ["Documents verified (KYC)", "Registration fee paid", "Approved by GoKesari"];
+  return (
+    <ol className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm">
+      {steps.map((label, i) => (
+        <li key={label} className={i === at ? "font-semibold" : "text-ink-500"}>
+          {i < at ? "✓ " : `${i + 1}. `}
+          {label}
+        </li>
+      ))}
+    </ol>
   );
 }
