@@ -208,7 +208,7 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
 
   return (
     <header className="sticky top-0 z-40 border-b border-cream-200 bg-white/95 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-6xl items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6">
+      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6">
         <Link href="/" className="flex shrink-0 items-center gap-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -252,7 +252,7 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
         </nav>
 
         {/* Tap areas sit 4px low: inside the header on one row, and clear of
-            the logo and search box when narrow screens wrap this to a second. */}
+            the logo when a narrow screen wraps this to a second. */}
         <div className="ml-auto flex shrink-0 items-center gap-2 [--tap-dy:4px]">
           {balancePaise !== null ? (
             <Link

@@ -6,6 +6,7 @@ import { useState, useTransition } from "react";
 
 import { SafeImage } from "@/components/safe-image";
 import { AvailabilityBadge, Button, Card, Money } from "@/components/ui";
+import type { CartSummary } from "@/server/services/cart";
 
 export interface ProductCardData {
   shopProductId: string;
@@ -27,8 +28,6 @@ export interface ProductCardData {
   productId?: string;
   /** Distance to the shop when a customer location is set (GS-020). */
   distanceKm?: number | null;
-  /** Current quantity in cart for this product. */
-  cartQuantity?: number;
   /** F8: a live shop offer's online price and title, when one applies. */
   offerPricePaise?: number | null;
   offerTitle?: string | null;
@@ -50,11 +49,13 @@ export function ProductCard({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** How many to add, chosen before the item is in the cart. */
   const [quantity, setQuantity] = useState(1);
-  const [inCart, setInCart] = useState(product.cartQuantity ?? 0);
-  const [cartQuantity, setCartQuantity] = useState(product.cartQuantity ?? 0);
-  const [showConfirm, setShowConfirm] = useState(false);
+  /** This product's cart line once added here, as the server reports it. */
+  const [line, setLine] = useState<{ id: string; quantity: number } | null>(null);
+  const [justAdded, setJustAdded] = useState(false);
 
   const outOfStock = product.trackInventory && product.onlineStock <= 0;
   const canBuyOnline =
@@ -63,63 +64,66 @@ export function ProductCard({
     product.isAvailable &&
     !outOfStock;
 
-  const maxQuantity = product.trackInventory ? product.onlineStock : 99;
-  const quantityDisplay = showConfirm ? "✓ Added" : cartQuantity;
+  // The cart API takes at most 99 of a line.
+  const maxQuantity = Math.min(99, product.trackInventory ? product.onlineStock : 99);
+  const disabled = busy || pending;
+
+  /**
+   * Sends one cart request and keeps this product's line from the cart the
+   * server returns, so the count shown is always the cart's real quantity.
+   */
+  async function updateCart(url: string, init: RequestInit, failure: string): Promise<boolean> {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(url, {
+        ...init,
+        headers: { "Content-Type": "application/json" },
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        setError(payload?.error?.message ?? failure);
+        return false;
+      }
+      const found = (payload as CartSummary | null)?.groups
+        .flatMap((group) => group.lines)
+        .find((l) => l.shopProductId === product.shopProductId);
+      setLine(found ? { id: found.cartItemId, quantity: found.quantity } : null);
+      startTransition(() => router.refresh());
+      return true;
+    } catch {
+      setError(failure);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
 
   async function addToCart() {
     if (!signedIn) {
       router.push("/signin");
       return;
     }
-    setError(null);
-    const response = await fetch("/api/cart", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        shopProductId: product.shopProductId,
-        quantity: quantity,
-      }),
-    });
-
-    if (!response.ok) {
-      const payload = await response.json().catch(() => null);
-      setError(payload?.error?.message ?? "Could not add to cart.");
-      return;
+    const added = await updateCart(
+      "/api/cart",
+      { method: "POST", body: JSON.stringify({ shopProductId: product.shopProductId, quantity }) },
+      "Could not add to cart.",
+    );
+    if (added) {
+      setQuantity(1);
+      setJustAdded(true);
+      setTimeout(() => setJustAdded(false), 1500);
     }
-    setInCart(quantity);
-    setCartQuantity(cartQuantity + quantity);
-    setShowConfirm(true);
-    setTimeout(() => setShowConfirm(false), 1500);
-    startTransition(() => router.refresh());
   }
 
-  async function updateCartQuantity(newQty: number) {
-    if (newQty < 0) return;
-    setError(null);
-
-    if (newQty === 0) {
-      setCartQuantity(0);
-      setInCart(0);
-      return;
-    }
-
-    const diff = newQty - cartQuantity;
-    const response = await fetch("/api/cart", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        shopProductId: product.shopProductId,
-        quantity: diff,
-      }),
-    });
-
-    if (!response.ok) {
-      const payload = await response.json().catch(() => null);
-      setError(payload?.error?.message ?? "Could not update cart.");
-      return;
-    }
-    setCartQuantity(newQty);
-    startTransition(() => router.refresh());
+  /** Sets the line's quantity; 0 removes it (PATCH /api/cart/items/:id). */
+  function setCartQuantity(next: number) {
+    if (!line) return;
+    void updateCart(
+      `/api/cart/items/${line.id}`,
+      { method: "PATCH", body: JSON.stringify({ quantity: next }) },
+      "Could not update your cart.",
+    );
   }
 
   return (
@@ -202,28 +206,38 @@ export function ProductCard({
           </p>
         ) : null}
 
+        {/* Buttons here are 8px apart, so tap areas are capped at 36px to
+            keep them from meeting. */}
         <div className="mt-3 space-y-2">
-          {cartQuantity > 0 ? (
+          {justAdded ? (
+            <div className="flex">
+              <Button size="sm" disabled className="flex-1">
+                Added ✓
+              </Button>
+            </div>
+          ) : line ? (
             <div className="flex items-center justify-between gap-2">
               <div className="flex items-center gap-1">
                 <Button
                   size="sm"
                   variant="secondary"
-                  disabled={pending}
-                  aria-label={`Decrease quantity of ${product.productName}`}
-                  onClick={() => updateCartQuantity(cartQuantity - 1)}
+                  className="tap-target [--tap-h:36px] [--tap-w:36px]"
+                  disabled={disabled}
+                  aria-label={`Decrease quantity of ${product.productName} in cart`}
+                  onClick={() => setCartQuantity(line.quantity - 1)}
                 >
                   −
                 </Button>
-                <span className="w-8 text-center text-sm font-medium tabular-nums">
-                  {showConfirm ? "✓" : cartQuantity}
+                <span className="w-8 text-center text-sm font-medium tabular-nums" aria-live="polite">
+                  {line.quantity}
                 </span>
                 <Button
                   size="sm"
                   variant="secondary"
-                  disabled={pending || cartQuantity >= maxQuantity}
-                  aria-label={`Increase quantity of ${product.productName}`}
-                  onClick={() => updateCartQuantity(cartQuantity + 1)}
+                  className="tap-target [--tap-h:36px] [--tap-w:36px]"
+                  disabled={disabled || line.quantity >= maxQuantity}
+                  aria-label={`Increase quantity of ${product.productName} in cart`}
+                  onClick={() => setCartQuantity(line.quantity + 1)}
                 >
                   +
                 </Button>
@@ -231,9 +245,10 @@ export function ProductCard({
               <Button
                 size="sm"
                 variant="secondary"
-                disabled={pending}
-                onClick={() => updateCartQuantity(0)}
-                className="text-xs"
+                className="tap-target [--tap-h:36px]"
+                disabled={disabled}
+                aria-label={`Remove ${product.productName} from cart`}
+                onClick={() => setCartQuantity(0)}
               >
                 Remove
               </Button>
@@ -246,20 +261,22 @@ export function ProductCard({
                     <Button
                       size="sm"
                       variant="secondary"
-                      disabled={pending || quantity <= 1}
-                      aria-label={`Decrease quantity`}
+                      className="tap-target [--tap-h:36px] [--tap-w:36px]"
+                      disabled={disabled || quantity <= 1}
+                      aria-label={`Decrease quantity of ${product.productName} to add`}
                       onClick={() => setQuantity(Math.max(1, quantity - 1))}
                     >
                       −
                     </Button>
-                    <span className="w-8 text-center text-sm font-medium tabular-nums">
+                    <span className="w-8 text-center text-sm font-medium tabular-nums" aria-live="polite">
                       {quantity}
                     </span>
                     <Button
                       size="sm"
                       variant="secondary"
-                      disabled={pending || quantity >= maxQuantity}
-                      aria-label={`Increase quantity`}
+                      className="tap-target [--tap-h:36px] [--tap-w:36px]"
+                      disabled={disabled || quantity >= maxQuantity}
+                      aria-label={`Increase quantity of ${product.productName} to add`}
                       onClick={() => setQuantity(Math.min(maxQuantity, quantity + 1))}
                     >
                       +
@@ -268,8 +285,8 @@ export function ProductCard({
                   <Button
                     size="sm"
                     onClick={addToCart}
-                    disabled={pending}
-                    className="flex-1"
+                    disabled={disabled}
+                    className="tap-target flex-1 [--tap-h:36px]"
                   >
                     Add to cart
                   </Button>
@@ -293,7 +310,7 @@ export function ProductCard({
               onClick={() =>
                 router.push(`/subscribe/${product.shopProductId}`)
               }
-              className="w-full"
+              className="tap-target w-full [--tap-h:36px]"
             >
               Subscribe
             </Button>
