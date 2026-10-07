@@ -1,13 +1,15 @@
 /**
  * Request a sign-in code. Codes are always emailed.
  *
- * POST { mobile }          → { status: "SENT", maskedEmail } when the number is registered,
- *                            { status: "EMAIL_REQUIRED" } when it is not
- * POST { mobile, email }   → unregistered number: code sent to that email
- * POST { email }           → code sent to that email
+ * POST { mobile }          → { status: "SENT_IF_REGISTERED" }, the same reply whether or not
+ *                            the number is registered; a registered number's code goes to its
+ *                            account's email, sent after the response
+ * POST { mobile, email }   → { status: "SENT", maskedEmail }: code sent to that email (sign-up
+ *                            with a new number, linked on sign-in if it is free)
+ * POST { email }           → { status: "SENT", maskedEmail }: code sent to that email
  * GET reports whether email codes can be sent at all.
  */
-import type { NextRequest } from "next/server";
+import { after, type NextRequest } from "next/server";
 import { z } from "zod";
 
 import { ok, parseBody, route } from "@/server/api/handler";
@@ -33,7 +35,7 @@ export const POST = route(async (request: NextRequest) => {
   });
   const body = await parseBody(request, schema);
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
-  return ok(await requestLoginOtp({ mobile: body.mobile, email: body.email, ip }));
+  return ok(await requestLoginOtp({ mobile: body.mobile, email: body.email, ip, defer: after }));
 });
 
 export const GET = route(async () => {
