@@ -486,6 +486,14 @@ export const RULES = {
     }),
     defaults: { customerVisible: "SHOP_CONTACT" },
   },
+  societyRiders: {
+    description:
+      "Society rider lists (C2). On: only a society Gokesari has verified can add riders to its list or mark one preferred, and only riders Gokesari has approved can be added — enforced by the server for every caller, platform staff included. Removing a rider is always allowed. Off: the original behaviour (any society admin could add an approved rider, verified or not).",
+    schema: z.object({
+      requireVerifiedSociety: z.boolean(),
+    }),
+    defaults: { requireVerifiedSociety: true },
+  },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;
