@@ -391,6 +391,20 @@ export default async function ShopDashboardPage() {
       </div>
 
       <div className="mb-8">
+        <Card className="flex flex-wrap items-center justify-between gap-2 p-4 text-sm" data-testid="photo-catalogue-link">
+          <span>
+            <span className="font-medium text-ink-900">Photo catalogue</span>
+            <span className="block text-ink-500">
+              Every product with its photo and price, as customers see them. Add photos and set prices in one place.
+            </span>
+          </span>
+          <Link href="/shop/catalogue" className="font-medium text-kesari-700 underline">
+            Open photo catalogue
+          </Link>
+        </Card>
+      </div>
+
+      <div className="mb-8">
         <Card className="flex flex-wrap items-center justify-between gap-2 p-4 text-sm" data-testid="product-categories-link">
           <span>
             <span className="font-medium text-ink-900">Product categories</span>
@@ -440,6 +454,8 @@ export default async function ShopDashboardPage() {
           productName: p.product.name,
           categoryName: p.category.name,
           unit: p.product.unit,
+          // The photo customers see, as the storefront picks it.
+          imageUrl: p.imageUrl ?? p.product.imageUrl,
           onlinePricePaise: p.onlinePricePaise,
           offlinePricePaise: p.offlinePricePaise,
           onlineSaleEnabled: p.onlineSaleEnabled,

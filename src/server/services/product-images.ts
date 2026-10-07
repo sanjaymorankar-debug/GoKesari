@@ -16,7 +16,7 @@
  * shown publicly or mirrored to the image_url columns; staff uploads and every
  * photo from before F10 are APPROVED.
  */
-import { and, asc, eq, isNull, sql } from "drizzle-orm";
+import { and, asc, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { db, type DbClient } from "@/server/db";
@@ -30,6 +30,7 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { listShopProducts } from "./catalogue";
 import { imageUrl } from "./image-store";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { getRule } from "./settings";
@@ -332,6 +333,90 @@ export async function deleteImage(productId: string, imageId: string, actor: Act
       },
       tx,
     );
+  });
+}
+
+/* ------------------------------------------------- shop photo catalogue */
+
+/** One tile of a shop's photo catalogue: a listing, the photo customers see, and its prices. */
+export interface ShopCatalogueTile {
+  shopProductId: string;
+  productId: string;
+  productName: string;
+  categoryName: string;
+  unit: string;
+  onlinePricePaise: number | null;
+  offlinePricePaise: number | null;
+  onlineSaleEnabled: boolean;
+  offlineSaleEnabled: boolean;
+  isAvailable: boolean;
+  trackInventory: boolean;
+  onlineStock: number;
+  /** The shop no longer carries the product's category, so customers do not see it. */
+  paused: boolean;
+  /** The photo customers see — the same one the storefront shows; null when there is none. */
+  liveImageUrl: string | null;
+  /** LISTING: this shop's own photo. PRODUCT: the catalogue photo every shop shares. */
+  liveImageSource: "LISTING" | "PRODUCT" | null;
+  /** The listing's own primary photo in any review state — what "Change photo" replaces. */
+  ownPrimary: Pick<ProductImage, "id" | "url" | "moderationStatus" | "rejectionReason"> | null;
+  ownPhotoCount: number;
+  pendingCount: number;
+}
+
+/**
+ * Every listing of a shop with its photo and prices, for the owner's photo
+ * catalogue. Two queries whatever the size of the shop: the listings, then
+ * all of their own photos. The live photo is read from the image_url mirrors
+ * exactly as the storefront reads it, so the tile and the shop page agree.
+ */
+export async function listShopPhotoCatalogue(shopId: string): Promise<ShopCatalogueTile[]> {
+  const listings = await listShopProducts(shopId);
+  if (listings.length === 0) return [];
+
+  const own = await db
+    .select()
+    .from(productImages)
+    .where(inArray(productImages.shopProductId, listings.map((l) => l.id)))
+    .orderBy(sql`${productImages.isPrimary} DESC`, asc(productImages.sortOrder), asc(productImages.createdAt));
+  const byListing = new Map<string, ProductImage[]>();
+  for (const image of own) {
+    const key = image.shopProductId as string;
+    const group = byListing.get(key);
+    if (group) group.push(image);
+    else byListing.set(key, [image]);
+  }
+
+  return listings.map((l) => {
+    const images = byListing.get(l.id) ?? [];
+    const primary = images[0];
+    return {
+      shopProductId: l.id,
+      productId: l.productId,
+      productName: l.product.name,
+      categoryName: l.category.name,
+      unit: l.product.unit,
+      onlinePricePaise: l.onlinePricePaise,
+      offlinePricePaise: l.offlinePricePaise,
+      onlineSaleEnabled: l.onlineSaleEnabled,
+      offlineSaleEnabled: l.offlineSaleEnabled,
+      isAvailable: l.isAvailable,
+      trackInventory: l.trackInventory,
+      onlineStock: l.onlineStock,
+      paused: l.categoryCarried === false,
+      liveImageUrl: l.imageUrl ?? l.product.imageUrl,
+      liveImageSource: l.imageUrl ? "LISTING" : l.product.imageUrl ? "PRODUCT" : null,
+      ownPrimary: primary
+        ? {
+            id: primary.id,
+            url: primary.url,
+            moderationStatus: primary.moderationStatus,
+            rejectionReason: primary.rejectionReason,
+          }
+        : null,
+      ownPhotoCount: images.length,
+      pendingCount: images.filter((i) => i.moderationStatus === "PENDING").length,
+    };
   });
 }
 
