@@ -15,5 +15,9 @@ export const dynamic = "force-dynamic";
 
 export const GET = route(async (request: NextRequest) => {
   const { shopId } = parseQuery(request, schema);
-  return ok(await getFeasibleDeliveryWindows(shopId));
+  // Only the windows. The distance to the nearest online rider, and the
+  // estimate built from it, would let anyone who asks about a few shops
+  // place that rider; checkout reads neither.
+  const { EXPRESS_30, STANDARD_60, SCHEDULED, full } = await getFeasibleDeliveryWindows(shopId);
+  return ok({ EXPRESS_30, STANDARD_60, SCHEDULED, ...(full ? { full } : {}) });
 });

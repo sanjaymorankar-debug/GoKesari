@@ -7,6 +7,7 @@ import { Badge, Card, ClassificationBadge, EmptyState, PageHeader } from "@/comp
 import { listShopReviews } from "@/server/services/ratings";
 import { shopTypeLabel } from "@/lib/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
+import { getCartLineQuantities } from "@/server/services/cart";
 import { listStorefrontProducts } from "@/server/services/catalogue";
 import { getLiveOffers, listLiveOffersForShop, priceWithOffers } from "@/server/services/shop-offers";
 import { getPublicShopBySlug, isShopOpenNow } from "@/server/services/shops";
@@ -36,11 +37,12 @@ export default async function ShopPage({
   if (!shop) notFound();
 
   const user = await getCurrentUser();
-  const [listed, reviews, liveOffers, offerRows] = await Promise.all([
+  const [listed, reviews, liveOffers, offerRows, cartLines] = await Promise.all([
     listStorefrontProducts({ shopId: shop.id, limit: 100 }),
     listShopReviews(shop.id, 5),
     listLiveOffersForShop(shop.id),
     getLiveOffers([shop.id]),
+    user ? getCartLineQuantities(user.id) : null,
   ]);
   // F8: live shop offers lower the online price shown (and charged in the cart).
   const products = listed.map((p) => {
@@ -179,7 +181,7 @@ export default async function ShopPage({
       {Array.from(byCategory.entries()).map(([categoryName, items]) => (
         <section key={categoryName} className="mb-8">
           <PageHeader title={categoryName} />
-          <ProductGrid products={items} signedIn={Boolean(user)} />
+          <ProductGrid products={items} signedIn={Boolean(user)} cartLines={cartLines} />
         </section>
       ))}
 

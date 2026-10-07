@@ -4,6 +4,7 @@ import { ProductGrid } from "@/components/product-grid";
 import { EmptyState, PageHeader } from "@/components/ui";
 import { SHOP_TYPES, type ShopTypeKey } from "@/lib/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
+import { getCartLineQuantities } from "@/server/services/cart";
 import { listStorefrontProducts } from "@/server/services/catalogue";
 
 export const dynamic = "force-dynamic";
@@ -32,10 +33,13 @@ export default async function CategoryPage({
   if (!shopType) notFound();
 
   const user = await getCurrentUser();
-  const products = await listStorefrontProducts({
-    department: type as ShopTypeKey,
-    limit: 60,
-  });
+  const [products, cartLines] = await Promise.all([
+    listStorefrontProducts({
+      department: type as ShopTypeKey,
+      limit: 60,
+    }),
+    user ? getCartLineQuantities(user.id) : null,
+  ]);
 
   return (
     <>
@@ -46,7 +50,7 @@ export default async function CategoryPage({
       {products.length === 0 ? (
         <EmptyState title={`No ${shopType.label.toLowerCase()} products listed yet.`} />
       ) : (
-        <ProductGrid products={products} signedIn={Boolean(user)} />
+        <ProductGrid products={products} signedIn={Boolean(user)} cartLines={cartLines} />
       )}
     </>
   );

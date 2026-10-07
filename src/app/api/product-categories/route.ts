@@ -20,11 +20,11 @@ import {
 export const dynamic = "force-dynamic";
 
 export const GET = route(async (request: NextRequest) => {
-  await requirePermission(PERMISSIONS.CATALOGUE_BROWSE);
+  const user = await requirePermission(PERMISSIONS.CATALOGUE_BROWSE);
   const p = new URL(request.url).searchParams;
   if (p.get("selectable") === "1") return ok({ categories: await listSelectableCategories() });
   return ok({
-    categories: await listCategoryMaster({ query: p.get("q") ?? undefined, includeInactive: p.get("all") === "1" }),
+    categories: await listCategoryMaster(user, { query: p.get("q") ?? undefined, includeInactive: p.get("all") === "1" }),
   });
 });
 

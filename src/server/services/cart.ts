@@ -9,7 +9,7 @@
  * A cart may span several shops. Totals are therefore always computed *per
  * shop*, and checkout produces one order per shop (§17).
  */
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { notFound, validationFailed } from "@/lib/errors";
 import { lineTotalPaise, sumPaise } from "@/lib/money";
@@ -197,6 +197,48 @@ export async function clearCartForShop(
   for (const row of rows) {
     await client.delete(cartItems).where(eq(cartItems.id, row.id));
   }
+}
+
+/** A cart line as a product card needs it: which line, and how many. */
+export interface CartLineQuantity {
+  cartItemId: string;
+  quantity: number;
+}
+
+/**
+ * The user's cart quantities keyed by shop product, so a product card can
+ * show its in-cart controls on first render rather than "Add to cart" for
+ * something already in the cart. Read-only: unlike getCart, it never creates
+ * a cart.
+ */
+export async function getCartLineQuantities(
+  userId: string,
+): Promise<Map<string, CartLineQuantity>> {
+  const rows = await db
+    .select({
+      cartItemId: cartItems.id,
+      shopProductId: cartItems.shopProductId,
+      quantity: cartItems.quantity,
+    })
+    .from(cartItems)
+    .innerJoin(carts, eq(cartItems.cartId, carts.id))
+    .where(eq(carts.userId, userId));
+  return new Map(
+    rows.map((r) => [r.shopProductId, { cartItemId: r.cartItemId, quantity: r.quantity }]),
+  );
+}
+
+/**
+ * Units in the user's cart (getCart's itemCount) for the header badge: one
+ * query rather than the full priced cart on every page. Never creates a cart.
+ */
+export async function getCartItemCount(userId: string): Promise<number> {
+  const [row] = await db
+    .select({ units: sql<number>`coalesce(sum(${cartItems.quantity}), 0)`.mapWith(Number) })
+    .from(cartItems)
+    .innerJoin(carts, eq(cartItems.cartId, carts.id))
+    .where(eq(carts.userId, userId));
+  return row?.units ?? 0;
 }
 
 /**

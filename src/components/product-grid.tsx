@@ -1,10 +1,12 @@
 import { ProductCard } from "@/components/product-card";
+import type { CartLineQuantity } from "@/server/services/cart";
 import type { listStorefrontProducts } from "@/server/services/catalogue";
 
 /** Product cards grid shared by home, search, category, shop and product pages. */
 export function ProductGrid({
   products,
   signedIn,
+  cartLines,
   distances,
   compare = true,
 }: {
@@ -14,6 +16,12 @@ export function ProductGrid({
     offerTitle?: string | null;
   })[];
   signedIn: boolean;
+  /**
+   * shopProductId -> the viewer's cart line (getCartLineQuantities), so a card
+   * for something already in the cart opens on its in-cart controls; null when
+   * signed out.
+   */
+  cartLines: ReadonlyMap<string, CartLineQuantity> | null;
   /** shopId -> km, from serviceability.ts, when a customer location is set. */
   distances?: ReadonlyMap<string, number | null>;
   /** Show the "Compare prices" link (off on the comparison page itself). */
@@ -25,6 +33,7 @@ export function ProductGrid({
         <ProductCard
           key={p.shopProductId}
           signedIn={signedIn}
+          cartLine={cartLines?.get(p.shopProductId) ?? null}
           product={{
             shopProductId: p.shopProductId,
             productName: p.productName,

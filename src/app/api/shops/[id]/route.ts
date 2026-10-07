@@ -8,17 +8,26 @@ import { z } from "zod";
 
 import { SHOP_TYPE_KEYS } from "@/lib/shop-types";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
-import { requireShopAccess } from "@/server/authz/guards";
+import { getShopAccess, requireShopAccess } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
-import { getShopById, updateShop } from "@/server/services/shops";
+import { getPublicShopById, getShopById, toShopView, updateShop } from "@/server/services/shops";
 import { notFound } from "@/lib/errors";
 
 export const dynamic = "force-dynamic";
 
+/**
+ * The owner and staff who may edit the shop get its details in any status;
+ * everyone else gets an APPROVED shop's public card fields, and a 404 for a
+ * shop that is not live.
+ */
 export const GET = route(
   async (_request: NextRequest, context: RouteContext<{ id: string }>) => {
     const { id } = await context.params;
-    const shop = await getShopById(id);
+    if (await getShopAccess(id, { anyPermission: PERMISSIONS.SHOP_UPDATE_ANY })) {
+      const shop = await getShopById(id);
+      if (shop) return ok(toShopView(shop));
+    }
+    const shop = await getPublicShopById(id);
     if (!shop) throw notFound("Shop");
     return ok(shop);
   },
@@ -77,6 +86,6 @@ export const PATCH = route(
       anyPermission: PERMISSIONS.SHOP_UPDATE_ANY,
     });
     const body = await parseBody(request, schema);
-    return ok(await updateShop(id, body, user));
+    return ok(toShopView(await updateShop(id, body, user)));
   },
 );

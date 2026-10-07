@@ -1146,7 +1146,8 @@ export interface RiderSearchStatus {
   message: string;
   /** True when pressing "Find rider now" would do something useful. */
   canRetry: boolean;
-  log: DispatchAttempt[];
+  /** Latest attempts, without the rider or delivery each one offered. */
+  log: Pick<DispatchAttempt, "attemptNo" | "trigger" | "outcome" | "detail" | "createdAt">[];
 }
 
 /** What the shop operator sees for an order that needs a rider. */
@@ -1154,7 +1155,13 @@ export async function getRiderSearchStatus(orderId: string): Promise<RiderSearch
   const [search] = await db.select().from(riderSearches).where(eq(riderSearches.orderId, orderId));
   const delivery = await db.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.orderId, orderId) });
   const log = await db
-    .select()
+    .select({
+      attemptNo: dispatchAttempts.attemptNo,
+      trigger: dispatchAttempts.trigger,
+      outcome: dispatchAttempts.outcome,
+      detail: dispatchAttempts.detail,
+      createdAt: dispatchAttempts.createdAt,
+    })
     .from(dispatchAttempts)
     .where(eq(dispatchAttempts.orderId, orderId))
     .orderBy(desc(dispatchAttempts.createdAt))
@@ -1318,6 +1325,15 @@ export function toRiderView(row: DeliveryOrder): RiderDeliveryView {
   const { pickupCode, deliveryOtp, rejectedPartnerIds: _rejected, ...safe } = row;
   void _rejected;
   return { ...safe, needsPickupCode: pickupCode != null, needsDeliveryOtp: deliveryOtp != null };
+}
+
+/**
+ * What the shop or operations get back from a rider request: the offer's
+ * state only — not which rider was offered it, who declined before, or the
+ * handover codes. The shop reads its pickup code from its order list.
+ */
+export function toAssignmentView(row: DeliveryOrder): Pick<DeliveryOrder, "id" | "status" | "offeredAt"> {
+  return { id: row.id, status: row.status, offeredAt: row.offeredAt };
 }
 
 /**

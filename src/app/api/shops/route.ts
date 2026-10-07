@@ -7,14 +7,15 @@ import { SHOP_TYPE_KEYS, type ShopTypeKey } from "@/lib/shop-types";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
-import { registerShop, searchShops } from "@/server/services/shops";
+import { registerShop, searchShops, toShopView } from "@/server/services/shops";
 
 export const dynamic = "force-dynamic";
 
 export const GET = route(async (request: NextRequest) => {
   const p = new URL(request.url).searchParams;
   const type = p.get("type");
-  // Search is public: only APPROVED shops are ever returned by the service.
+  // Search is public: the service returns only APPROVED shops, and only
+  // their public card columns.
   return ok(
     await searchShops({
       query: p.get("q") ?? undefined,
@@ -129,5 +130,5 @@ export const POST = route(async (request: NextRequest) => {
 
   const privileged = can(user.role, PERMISSIONS.SHOP_REGISTRATION_MANAGE);
   const result = await registerShop(body, user, { privileged });
-  return ok(result, result.resubmitted ? 200 : 201);
+  return ok(toShopView(result), result.resubmitted ? 200 : 201);
 });

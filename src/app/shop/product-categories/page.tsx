@@ -56,6 +56,7 @@ export default async function OwnerShopCategoriesPage({
       ) : null}
       <ShopProductCategoriesView
         shopId={shop.id}
+        viewer={user}
         basePath="/shop/product-categories"
         hidden={shops.length > 1 ? { shop: shop.id } : {}}
         params={params}

@@ -614,13 +614,49 @@ export async function setSocietyShop(societyId: string, shopId: string, active: 
 
 /* ======================================================= reading */
 
-export async function listMySocieties(userId: string) {
-  return db
-    .select({ membership: societyMembers, society: societies })
+export interface MySociety {
+  membership: Pick<SocietyMember, "id" | "role" | "status" | "unitLabel" | "createdAt">;
+  society: Pick<Society, "id" | "name" | "area" | "city" | "pincode" | "status"> &
+    Partial<Pick<Society, "gateContactName" | "gateContactPhone">>;
+}
+
+/**
+ * The user's memberships, any status but REMOVED. Anyone can hold a PENDING
+ * request for any verified society, so the society is described as the
+ * search shows it; the gate contact only to the society's own active staff.
+ */
+export async function listMySocieties(userId: string): Promise<MySociety[]> {
+  const rows = await db
+    .select({
+      membership: {
+        id: societyMembers.id,
+        role: societyMembers.role,
+        status: societyMembers.status,
+        unitLabel: societyMembers.unitLabel,
+        createdAt: societyMembers.createdAt,
+      },
+      society: {
+        id: societies.id,
+        name: societies.name,
+        area: societies.area,
+        city: societies.city,
+        pincode: societies.pincode,
+        status: societies.status,
+        gateContactName: societies.gateContactName,
+        gateContactPhone: societies.gateContactPhone,
+      },
+    })
     .from(societyMembers)
     .innerJoin(societies, eq(societyMembers.societyId, societies.id))
     .where(and(eq(societyMembers.userId, userId), ne(societyMembers.status, "REMOVED"), isNull(societies.deletedAt)))
     .orderBy(desc(societyMembers.createdAt));
+  return rows.map(({ membership, society: { gateContactName, gateContactPhone, ...society } }) => ({
+    membership,
+    society:
+      membership.status === "ACTIVE" && (membership.role === "ADMIN" || membership.role === "OPERATOR")
+        ? { ...society, gateContactName, gateContactPhone }
+        : society,
+  }));
 }
 
 /** Verified societies to join, by name / area / PIN. */

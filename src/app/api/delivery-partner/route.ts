@@ -7,6 +7,7 @@ import { ok, parseBody, route } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
+import { toStaffPartnerView } from "@/server/services/delivery-partner-kyc";
 import {
   countDeliveryPartnersByStatus,
   listDeliveryPartners,
@@ -53,9 +54,8 @@ export const GET = route(async (request: NextRequest) => {
   if (p.get("dashboard") === "1") {
     return ok(await countDeliveryPartnersByStatus());
   }
-  return ok({
-    partners: await listDeliveryPartners({
-      status: (p.get("status") as never) ?? undefined,
-    }),
+  const partners = await listDeliveryPartners({
+    status: (p.get("status") as never) ?? undefined,
   });
+  return ok({ partners: partners.map(toStaffPartnerView) });
 });
