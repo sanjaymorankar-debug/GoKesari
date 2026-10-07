@@ -13,6 +13,7 @@ import { shops, users } from "@/server/db/schema";
 import { getCustomerLocation } from "@/server/location";
 import { validateCartForLocation } from "@/server/services/cart-validation";
 import { listShopsForOwner } from "@/server/services/shops";
+import { listOpenOrdersForCheckout } from "@/server/services/orders";
 import { getRule } from "@/server/services/settings";
 import { getWalletByUserId } from "@/server/services/wallet";
 
@@ -40,6 +41,8 @@ export default async function CartPage() {
   const cartShops =
     cartShopIds.length > 0 ? await db.select().from(shops).where(inArray(shops.id, cartShopIds)) : [];
   const validation = await validateCartForLocation(user.id, location);
+  // C3: open orders the customer is asked about before paying (rule openOrderCheck).
+  const openOrders = cart.groups.length > 0 ? await listOpenOrdersForCheckout(user.id, cartShopIds) : [];
   // GS-030: why cash on delivery is unavailable for this cart, if it is.
   const tooLarge = cart.groups.find((g) => g.totalPaise > codEligibility.maxOrderPaise);
   const noCodShop = cartShops.find((s) => !s.codEnabled || !s.deliveryAvailable);
@@ -77,6 +80,16 @@ export default async function CartPage() {
         codUnavailableReason={codUnavailableReason}
         hasMobile={Boolean(account?.phoneE164)}
         couponsEnabled={(await getRule("coupons")).enabled}
+        openOrders={openOrders.map((o) => ({
+          id: o.id,
+          orderNumber: o.orderNumber,
+          shopName: o.shopName,
+          orderType: o.orderType,
+          status: o.status,
+          statusLabel: o.statusLabel,
+          totalPaise: o.totalPaise,
+          customerMayCancel: o.customerMayCancel,
+        }))}
         addresses={addresses.map((a) => ({
           id: a.id,
           label: a.label,

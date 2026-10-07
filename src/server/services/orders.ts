@@ -1178,6 +1178,78 @@ export async function getOrder(orderId: string): Promise<OrderDetail | undefined
   };
 }
 
+/** C3: placed directly and not yet delivered, cancelled or refunded. */
+const OPEN_ORDER_STATUSES: readonly OrderStatus[] = [
+  "CONFIRMED",
+  "ACCEPTED",
+  "PREPARING",
+  "READY",
+  "ASSIGNED",
+  "PICKED_UP",
+  "OUT_FOR_DELIVERY",
+];
+
+export interface OpenOrderForCheckout {
+  id: string;
+  orderNumber: string;
+  shopId: string;
+  shopName: string;
+  orderType: OrderType;
+  status: OrderStatus;
+  statusLabel: string;
+  totalPaise: number;
+  createdAt: Date;
+  /** The customer may cancel it themselves now (D10 + rule cancellation); otherwise they contact the shop. */
+  customerMayCancel: boolean;
+}
+
+/**
+ * C3 (rule openOrderCheck): the customer's open orders to show before they
+ * pay for a new one. Empty when the rule is off. Subscription orders are left
+ * out — they recur by design.
+ */
+export async function listOpenOrdersForCheckout(
+  userId: string,
+  cartShopIds: readonly string[],
+): Promise<OpenOrderForCheckout[]> {
+  const rule = await getRule("openOrderCheck");
+  if (!rule.enabled) return [];
+  if (rule.scope === "SAME_SHOP" && cartShopIds.length === 0) return [];
+  const { customerMayCancelUntil } = await getRule("cancellation");
+  const cancellable: readonly OrderStatus[] =
+    customerMayCancelUntil === "PREPARING"
+      ? ["CONFIRMED", "ACCEPTED", "PREPARING", "PICKED_UP", "OUT_FOR_DELIVERY"]
+      : ["CONFIRMED", "PICKED_UP", "OUT_FOR_DELIVERY"];
+  const rows = await db
+    .select({
+      id: orders.id,
+      orderNumber: orders.orderNumber,
+      shopId: orders.shopId,
+      shopName: shops.name,
+      orderType: orders.orderType,
+      status: orders.status,
+      totalPaise: orders.totalPaise,
+      createdAt: orders.createdAt,
+    })
+    .from(orders)
+    .innerJoin(shops, eq(orders.shopId, shops.id))
+    .where(
+      and(
+        eq(orders.userId, userId),
+        eq(orders.source, "DIRECT"),
+        inArray(orders.status, [...OPEN_ORDER_STATUSES]),
+        ...(rule.scope === "SAME_SHOP" ? [inArray(orders.shopId, [...cartShopIds])] : []),
+      ),
+    )
+    .orderBy(desc(orders.createdAt))
+    .limit(10);
+  return rows.map((r) => ({
+    ...r,
+    statusLabel: ORDER_STATUS_LABELS[r.status],
+    customerMayCancel: cancellable.includes(r.status),
+  }));
+}
+
 export async function listOrdersForUser(
   userId: string,
   options: { limit?: number; offset?: number; orderType?: OrderType } = {},

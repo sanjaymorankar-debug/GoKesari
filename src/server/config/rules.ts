@@ -494,6 +494,15 @@ export const RULES = {
     }),
     defaults: { requireVerifiedSociety: true },
   },
+  openOrderCheck: {
+    description:
+      "Existing open order prompt at checkout (C3). On: before paying, a customer who already has an open order (placed directly, not yet delivered or cancelled) sees its status and chooses to cancel it (where they may cancel it themselves) or to ignore it and continue. ANY_SHOP: any open order; SAME_SHOP: only an open order from a shop in the cart. Off: no prompt (the original behaviour). Checkout itself is unchanged either way.",
+    schema: z.object({
+      enabled: z.boolean(),
+      scope: z.enum(["ANY_SHOP", "SAME_SHOP"]),
+    }),
+    defaults: { enabled: true, scope: "ANY_SHOP" },
+  },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;
