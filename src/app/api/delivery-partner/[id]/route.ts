@@ -5,6 +5,7 @@ import { z } from "zod";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
+import { toStaffPartnerView } from "@/server/services/delivery-partner-kyc";
 import {
   approveDeliveryPartner,
   deactivateDeliveryPartner,
@@ -28,7 +29,7 @@ export const GET = route(
   async (_request: NextRequest, context: RouteContext<{ id: string }>) => {
     await requirePermission(PERMISSIONS.DELIVERY_PARTNER_MANAGE);
     const { id } = await context.params;
-    return ok(await getDeliveryPartnerById(id));
+    return ok(toStaffPartnerView(await getDeliveryPartnerById(id)));
   },
 );
 
@@ -40,17 +41,17 @@ export const PATCH = route(
 
     switch (body.action) {
       case "start_review":
-        return ok(await startDeliveryPartnerReview(id, user, body.notes));
+        return ok(toStaffPartnerView(await startDeliveryPartnerReview(id, user, body.notes)));
       case "approve":
-        return ok(await approveDeliveryPartner(id, user, body.notes));
+        return ok(toStaffPartnerView(await approveDeliveryPartner(id, user, body.notes)));
       case "reject":
-        return ok(await rejectDeliveryPartner(id, body.reason, user));
+        return ok(toStaffPartnerView(await rejectDeliveryPartner(id, body.reason, user)));
       case "suspend":
-        return ok(await suspendDeliveryPartner(id, body.reason, user));
+        return ok(toStaffPartnerView(await suspendDeliveryPartner(id, body.reason, user)));
       case "reactivate":
-        return ok(await reactivateDeliveryPartner(id, user));
+        return ok(toStaffPartnerView(await reactivateDeliveryPartner(id, user)));
       case "deactivate":
-        return ok(await deactivateDeliveryPartner(id, body.reason, user));
+        return ok(toStaffPartnerView(await deactivateDeliveryPartner(id, body.reason, user)));
     }
   },
 );
