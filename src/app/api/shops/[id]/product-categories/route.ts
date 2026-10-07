@@ -23,7 +23,7 @@ export const GET = route(async (_request: NextRequest, context: RouteContext<{ i
   const { id } = await context.params;
   z.string().uuid().parse(id);
   await assertCanManageShopCategories(id, user);
-  return ok({ categories: await listShopProductCategories(id) });
+  return ok({ categories: await listShopProductCategories(id, user) });
 });
 
 const schema = z.object({ categoryId: z.string().uuid() });

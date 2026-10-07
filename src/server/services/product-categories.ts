@@ -37,6 +37,7 @@ import {
 } from "@/server/db/schema";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { STAFF_ROLES } from "./roles";
 
 export interface CategoryActor {
   id: string;
@@ -70,6 +71,26 @@ export function shopCarriesProductCategory(shopId: AnyPgColumn | string, categor
 
 function qualified(column: AnyPgColumn): SQL {
   return sql.raw(`"${getTableName(column.table)}"."${column.name}"`);
+}
+
+const STAFF_LABEL = "the GoKesari team";
+const SHOP_OWNER_LABEL = "a shop owner";
+
+/**
+ * Who added a category, or linked it to a shop, as the viewer is told: a
+ * name, never an email — these lists go to every shop owner. Staff show as
+ * the GoKesari team except to other staff; someone with no name, by role.
+ * `userIdColumn` is written fully qualified (see shopCarriesProductCategory).
+ */
+function addedByLabel(userIdColumn: SQL, viewer: { role: UserRole }): SQL<string | null> {
+  // A staff member may be acting as a customer or shop owner, so the grant
+  // counts as well as the active role.
+  const isStaff = sql`(u.role IN ('OPERATOR', 'ADMIN') OR EXISTS (SELECT 1 FROM user_role_grants g
+    WHERE g.user_id = u.id AND g.status = 'ACTIVE' AND g.role IN ('OPERATOR', 'ADMIN')))`;
+  const label = STAFF_ROLES.includes(viewer.role)
+    ? sql`coalesce(u.name, CASE WHEN ${isStaff} THEN ${STAFF_LABEL} ELSE ${SHOP_OWNER_LABEL} END)`
+    : sql`CASE WHEN ${isStaff} THEN ${STAFF_LABEL} ELSE coalesce(u.name, ${SHOP_OWNER_LABEL}) END`;
+  return sql<string | null>`(SELECT ${label} FROM users u WHERE u.id = ${userIdColumn})`;
 }
 
 /* ---------------------------------------------------------------- General */
@@ -131,20 +152,23 @@ export interface CategoryMasterRow {
   department: Department;
   isActive: boolean;
   isSystem: boolean;
-  createdBy: string | null;
+  /** See addedByLabel. */
   createdByName: string | null;
   createdAt: Date;
   productCount: number;
   shopCount: number;
+  /** The viewer may edit or remove it; every change is checked again on the server. */
+  canManage: boolean;
 }
 
 export async function listCategoryMaster(
+  viewer: CategoryActor,
   options: { query?: string; includeInactive?: boolean } = {},
   client: DbClient = db,
 ): Promise<CategoryMasterRow[]> {
   await ensureGeneralCategory(client);
   const q = options.query?.trim();
-  return client
+  const rows = await client
     .select({
       id: productCategories.id,
       name: productCategories.name,
@@ -155,7 +179,7 @@ export async function listCategoryMaster(
       createdBy: productCategories.createdBy,
       // Subqueries name their columns explicitly: drizzle renders a lone
       // table's columns unqualified, which would bind to the inner table.
-      createdByName: sql<string | null>`(SELECT coalesce(u.name, u.email) FROM users u WHERE u.id = product_categories.created_by)`,
+      createdByName: addedByLabel(sql`product_categories.created_by`, viewer),
       createdAt: productCategories.createdAt,
       productCount: sql<number>`(SELECT count(*)::int FROM products p
         WHERE p.category_id = product_categories.id AND p.deleted_at IS NULL)`,
@@ -171,6 +195,14 @@ export async function listCategoryMaster(
       ),
     )
     .orderBy(sql`${productCategories.isSystem} DESC`, asc(productCategories.name));
+  // Shop owners: only what they created. assertCanManageCategory also refuses
+  // a category another owner's shop now carries. The creator's id stays here.
+  const manageAny = can(viewer.role, PERMISSIONS.PRODUCT_CATEGORY_MANAGE_ANY);
+  const manageOwn = can(viewer.role, PERMISSIONS.PRODUCT_CATEGORY_MANAGE_OWN);
+  return rows.map(({ createdBy, ...row }) => ({
+    ...row,
+    canManage: !row.isSystem && (manageAny || (manageOwn && createdBy === viewer.id)),
+  }));
 }
 
 async function loadLiveCategory(id: string, client: DbClient = db): Promise<ProductCategory> {
@@ -468,10 +500,15 @@ export interface ShopCategoryLink {
   isSystem: boolean;
   productCount: number;
   addedAt: Date;
+  /** See addedByLabel. */
   addedByName: string | null;
 }
 
-export async function listShopProductCategories(shopId: string, client: DbClient = db): Promise<ShopCategoryLink[]> {
+export async function listShopProductCategories(
+  shopId: string,
+  viewer: { role: UserRole },
+  client: DbClient = db,
+): Promise<ShopCategoryLink[]> {
   return client
     .select({
       categoryId: productCategories.id,
@@ -482,7 +519,7 @@ export async function listShopProductCategories(shopId: string, client: DbClient
         WHERE p.category_id = product_categories.id AND p.deleted_at IS NULL
           AND p.is_active AND p.approval_status = 'APPROVED')`,
       addedAt: shopProductCategories.createdAt,
-      addedByName: sql<string | null>`(SELECT coalesce(u.name, u.email) FROM users u WHERE u.id = shop_product_categories.added_by)`,
+      addedByName: addedByLabel(sql`shop_product_categories.added_by`, viewer),
     })
     .from(shopProductCategories)
     .innerJoin(productCategories, eq(productCategories.id, shopProductCategories.categoryId))

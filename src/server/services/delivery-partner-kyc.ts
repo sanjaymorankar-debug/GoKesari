@@ -41,22 +41,52 @@ export type KycEncryptedKey = `${KycField}Encrypted`;
 
 const encryptedKey = (field: KycField): KycEncryptedKey => `${field}Encrypted`;
 
-/** Every column that must never leave the service layer: legacy plaintext and ciphertext alike. */
+/** Ids of the staff who reviewed the partner or last changed their status: no screen shows them. */
+const STAFF_ID_KEYS = ["reviewedBy", "statusActorId"] as const;
+
+/** Every column that must never leave the service layer: legacy plaintext and ciphertext alike, and staff ids. */
 const SENSITIVE_KEYS: ReadonlySet<string> = new Set<string>([
   ...KYC_FIELDS,
   ...KYC_FIELDS.map(encryptedKey),
+  ...STAFF_ID_KEYS,
 ]);
 
-export type PublicDeliveryPartner = Omit<DeliveryPartner, KycField | KycEncryptedKey>;
+export type PublicDeliveryPartner = Omit<DeliveryPartner, KycField | KycEncryptedKey | (typeof STAFF_ID_KEYS)[number]>;
 
 /**
  * The only shape of a partner row that may be returned to a caller. Applied
  * to legacy plaintext columns too, so a row not yet backfilled cannot leak.
+ * Staff API routes narrow it further with `toStaffPartnerView`.
  */
 export function toPublicPartner(row: DeliveryPartner): PublicDeliveryPartner {
   return Object.fromEntries(
     Object.entries(row).filter(([key]) => !SENSITIVE_KEYS.has(key)),
   ) as PublicDeliveryPartner;
+}
+
+/**
+ * A partner as the staff API returns it: what the verification queue shows.
+ * Date of birth and the home and live coordinates stay on the server: the
+ * queue never shows them, and the list would otherwise carry the live
+ * position of every online rider.
+ */
+export function toStaffPartnerView(partner: PublicDeliveryPartner) {
+  return {
+    id: partner.id,
+    fullName: partner.fullName,
+    mobile: partner.mobile,
+    email: partner.email,
+    vehicleType: partner.vehicleType,
+    vehicleRegistrationNumber: partner.vehicleRegistrationNumber,
+    operatingRadiusKm: partner.operatingRadiusKm,
+    locationVerified: partner.locationVerified,
+    status: partner.status,
+    isOnline: partner.isOnline,
+    reviewNotes: partner.reviewNotes,
+    rejectionReason: partner.rejectionReason,
+    reviewedAt: partner.reviewedAt,
+    createdAt: partner.createdAt,
+  };
 }
 
 function clean(value: string | null | undefined): string | null {

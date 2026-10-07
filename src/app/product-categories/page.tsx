@@ -17,8 +17,7 @@ export default async function CategoryMasterPage({ searchParams }: { searchParam
   if (!can(user.role, PERMISSIONS.CATALOGUE_BROWSE)) redirect("/");
   const { q, all } = await searchParams;
   const query = (q ?? "").trim().slice(0, 100);
-  const canManageAny = can(user.role, PERMISSIONS.PRODUCT_CATEGORY_MANAGE_ANY);
-  const categories = await listCategoryMaster({ query, includeInactive: all !== "0" });
+  const categories = await listCategoryMaster(user, { query, includeInactive: all !== "0" });
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">
@@ -38,8 +37,6 @@ export default async function CategoryMasterPage({ searchParams }: { searchParam
         </button>
       </form>
       <CategoryMaster
-        actorId={user.id}
-        canManageAny={canManageAny}
         categories={categories.map((c) => ({ ...c, createdAt: c.createdAt.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata", day: "numeric", month: "short", year: "numeric" }) }))}
       />
     </div>
