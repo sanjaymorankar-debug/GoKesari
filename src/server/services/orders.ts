@@ -348,12 +348,14 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   // GS-030: cash on delivery — personal orders to a delivery address, for a
   // customer within the COD limits. Shop opt-in and amount are checked per order.
   const paymentMethod: PaymentMethod = input.paymentMethod ?? "WALLET";
+  let codMaxOrderPaise: number = COD_LIMITS.maxOrderPaise;
   if (paymentMethod === "COD") {
     if (orderType !== "PERSONAL") throw validationFailed("Business orders are paid from the wallet.");
     if (!addressSnapshot) throw validationFailed("Choose a delivery address to pay cash on delivery.");
     const eligibility = await getCodEligibility(input.userId);
     if (!eligibility.allowed) throw conflict(eligibility.reason ?? "Cash on delivery is not available.");
-    const codOrdersAllowed = COD_LIMITS.maxOpenOrders - eligibility.openOrders;
+    codMaxOrderPaise = eligibility.maxOrderPaise;
+    const codOrdersAllowed = eligibility.maxOpenOrders - eligibility.openOrders;
     if (purchasableGroups.length > codOrdersAllowed) {
       throw conflict(
         `Cash on delivery allows ${codOrdersAllowed} more open order${codOrdersAllowed === 1 ? "" : "s"} — this cart would create ${purchasableGroups.length}. Pay from your wallet instead.`,
@@ -485,7 +487,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       const couponShare = couponQuote?.shares.find((sh) => sh.shopId === group.shop.id)?.discountPaise ?? 0;
       const discountPaise = Math.min(couponShare, subtotalPaise);
       const totalPaise = subtotalPaise + deliveryFeePaise + taxPaise - discountPaise;
-      if (paymentMethod === "COD") assertCodAllowedForOrder(shopRow, totalPaise);
+      if (paymentMethod === "COD") assertCodAllowedForOrder(shopRow, totalPaise, codMaxOrderPaise);
 
       // GS-027: the customer's chosen time slot, re-checked under the day's lock.
       if (chosenSlotKey) {

@@ -2,13 +2,13 @@ import { redirect } from "next/navigation";
 
 import { Card, EmptyState, Money, PageHeader, Section, StatusBadge } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
+import { getRule } from "@/server/services/settings";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import {
   getShopPendingPayable,
   listOrderFinancialsForShop,
   listShopSettlements,
   resolveCommissionRate,
-  SETTLEMENT_HOLD_DAYS,
 } from "@/server/services/finance";
 import { listShopsForOwner } from "@/server/services/shops";
 import { listInvoicesForShop } from "@/server/services/invoices";
@@ -29,6 +29,8 @@ export default async function ShopFinancePage() {
   const shops = await listShopsForOwner(user.id);
   if (shops.length === 0) redirect("/shop");
   const shop = shops[0];
+  // Item B: live settlement hold (rule settlement.holdDays).
+  const settlementHoldDays = (await getRule("settlement")).holdDays;
 
   const [pending, rate, recent, settlements, invoices] = await Promise.all([
     getShopPendingPayable(shop.id),
@@ -72,7 +74,7 @@ export default async function ShopFinancePage() {
 
       <Section title="Settlements">
         <p className="mb-3 text-xs text-ink-500">
-          Prepared weekly for orders delivered at least {SETTLEMENT_HOLD_DAYS} days earlier, then paid to your bank account.
+          Prepared weekly for orders delivered at least {settlementHoldDays} days earlier, then paid to your bank account.
         </p>
         {settlements.length === 0 ? (
           <EmptyState title="No settlements yet." />

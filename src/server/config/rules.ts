@@ -513,6 +513,183 @@ export const RULES = {
     }),
     defaults: { protectPhotos: true, kycDocuments: true, idCard: true },
   },
+  /* ---------------------------------------------------------------------
+   * Item B (7 Oct 2026): business limits that used to be fixed in code. Each
+   * default is the value the code used, so nothing changes until an admin
+   * edits one.
+   * ------------------------------------------------------------------- */
+  cod: {
+    description:
+      "Cash on delivery limits (GS-030): largest COD order, open COD orders a customer may have at once, and how many failed or returned COD deliveries in how many days pause COD for that customer.",
+    schema: z.object({
+      maxOrderPaise: int(100, 100_000_000),
+      maxOpenOrders: int(1, 50),
+      failureWindowDays: int(1, 365),
+      maxFailures: int(1, 50),
+    }),
+    defaults: { maxOrderPaise: 200_000, maxOpenOrders: 2, failureWindowDays: 90, maxFailures: 2 },
+  },
+  walletTopup: {
+    description: "Wallet top-up: smallest and largest single top-up (paise).",
+    schema: z
+      .object({
+        minPaise: int(100, 10_000_000),
+        maxPaise: int(100, 100_000_000),
+      })
+      .refine((v) => v.minPaise <= v.maxPaise, { message: "The minimum cannot be above the maximum.", path: ["minPaise"] }),
+    defaults: { minPaise: 100, maxPaise: 10_000_000 },
+  },
+  ratings: {
+    description: "Ratings (GS-059/060): how many days after delivery a customer may rate the shop and the rider.",
+    schema: z.object({ windowDays: int(1, 365) }),
+    defaults: { windowDays: 30 },
+  },
+  marketing: {
+    description:
+      "Shop marketing campaigns: campaigns a shop may send a week, messages a customer may get from one shop and in total a week, and the largest audience per campaign.",
+    schema: z.object({
+      shopCampaignsPerWeek: int(0, 50),
+      perShopPerCustomerPerWeek: int(0, 50),
+      totalPerCustomerPerWeek: int(0, 100),
+      maxRecipients: int(1, 1_000_000),
+    }),
+    defaults: { shopCampaignsPerWeek: 2, perShopPerCustomerPerWeek: 1, totalPerCustomerPerWeek: 3, maxRecipients: 5000 },
+  },
+  vouchers: {
+    description: "Wallet vouchers: the highest bonus percentage a voucher may give.",
+    schema: z.object({ maxBonusPercent: int(1, 100) }),
+    defaults: { maxBonusPercent: 100 },
+  },
+  settlement: {
+    description:
+      "Shop settlement: days a delivered order is held before it can join a settlement batch, and days after delivery an order with no settlement is flagged as missing one.",
+    schema: z.object({
+      holdDays: int(0, 60),
+      missingAlertDays: int(1, 120),
+    }),
+    defaults: { holdDays: 2, missingAlertDays: 9 },
+  },
+  deliveryOtp: {
+    description:
+      "Customer delivery code (GS-043): wrong attempts a rider may make before only operations can confirm the drop. Also used by the exceptions queue and the OTP_LOCKOUTS risk rule.",
+    schema: z.object({ maxAttempts: int(1, 20) }),
+    defaults: { maxAttempts: 5 },
+  },
+  returnPickup: {
+    description: "Return pickups: how many days ahead a customer may schedule the pickup.",
+    schema: z.object({ scheduleWithinDays: int(1, 30) }),
+    defaults: { scheduleWithinDays: 3 },
+  },
+  grievances: {
+    description: "Grievances: days after which an open grievance counts as overdue on the dashboard (consumer-rules redressal period).",
+    schema: z.object({ overdueAfterDays: int(1, 90) }),
+    defaults: { overdueAfterDays: 15 },
+  },
+  discovery: {
+    description: "Shop discovery: distance (km) within which a shop is shown as nearby.",
+    schema: z.object({ nearbyRadiusKm: z.number().min(0.5).max(50) }),
+    defaults: { nearbyRadiusKm: 5 },
+  },
+  catalogue: {
+    description: "Shop catalogue: stock given to each product when a shop adds a whole category and its inventory is filled in.",
+    schema: z.object({ categoryFillStock: int(0, 100_000) }),
+    defaults: { categoryFillStock: 100 },
+  },
+  uploads: {
+    description:
+      "File upload limits: spreadsheet size and rows (product, price and voucher sheets) and seller document size, in bytes.",
+    schema: z.object({
+      spreadsheetMaxBytes: int(100_000, 50_000_000),
+      spreadsheetMaxRows: int(10, 100_000),
+      sellerDocumentMaxBytes: int(100_000, 50_000_000),
+    }),
+    defaults: { spreadsheetMaxBytes: 2 * 1024 * 1024, spreadsheetMaxRows: 5_000, sellerDocumentMaxBytes: 5_000_000 },
+  },
+  opsExceptions: {
+    description:
+      "Operations exceptions queue: minutes / hours before an order is flagged (and when it becomes critical) at each stage. A dispute becomes critical after the settlement hold; the delivery-code lockout follows deliveryOtp.",
+    schema: z.object({
+      shopAcceptExpress: int(1, 240),
+      shopAcceptOther: int(1, 240),
+      shopAcceptCritical: int(1, 1440),
+      shopAcceptSubscriptionHours: int(1, 72),
+      shopAcceptSubscriptionCriticalHours: int(1, 72),
+      prepGraceAfterPrepTime: int(0, 240),
+      substitutionWait: int(1, 240),
+      noRiderWarning: int(1, 240),
+      noRiderCritical: int(1, 480),
+      selfDeliveryReady: int(1, 480),
+      riderPickupWait: int(1, 240),
+      riderStaleLocation: int(1, 120),
+      dropNotStarted: int(1, 240),
+      outForDeliveryGrace: int(0, 240),
+      failedDecisionGrace: int(0, 240),
+      returnLegFallback: int(1, 240),
+      returnedDecision: int(1, 1440),
+      disputeWarningHours: int(1, 720),
+      dispatchSweepIntervalSeconds: int(10, 3600),
+      legSpeedKmh: int(5, 80),
+    }),
+    defaults: {
+      shopAcceptExpress: 5,
+      shopAcceptOther: 10,
+      shopAcceptCritical: 30,
+      shopAcceptSubscriptionHours: 4,
+      shopAcceptSubscriptionCriticalHours: 8,
+      prepGraceAfterPrepTime: 10,
+      substitutionWait: 10,
+      noRiderWarning: 5,
+      noRiderCritical: 10,
+      selfDeliveryReady: 30,
+      riderPickupWait: 20,
+      riderStaleLocation: 5,
+      dropNotStarted: 10,
+      outForDeliveryGrace: 10,
+      failedDecisionGrace: 15,
+      returnLegFallback: 15,
+      returnedDecision: 60,
+      disputeWarningHours: 24,
+      dispatchSweepIntervalSeconds: 60,
+      legSpeedKmh: 20,
+    },
+  },
+  riskRules: {
+    description:
+      "Fraud / risk flags (GS-068): the counts, windows and amounts at which each rule raises a flag. Flags never act on their own except a HIGH flag pausing cash on delivery.",
+    schema: z.object({
+      codRefusals: z.object({ count: int(1, 100), days: int(1, 365) }),
+      highRefundRate: z.object({ count: int(1, 100), days: int(1, 365), minPercent: int(1, 100) }),
+      repeatedDisputes: z.object({ count: int(1, 100), days: int(1, 365) }),
+      topupFailures: z.object({ count: int(1, 100), hours: int(1, 720) }),
+      sharedPhone: z.object({ accounts: int(2, 100) }),
+      highValueOutlier: z.object({
+        recentDays: int(1, 90),
+        minPaise: int(0, 100_000_000),
+        multiple: int(2, 100),
+        baselineDays: int(1, 365),
+        minPriorOrders: int(1, 100),
+        newCustomerPaise: int(0, 1_000_000_000),
+      }),
+      otpOverrides: z.object({ count: int(1, 100), days: int(1, 365) }),
+      otpLockouts: z.object({ count: int(1, 100), days: int(1, 365) }),
+      failedDeliveries: z.object({ count: int(1, 100), days: int(1, 365) }),
+      codCashOverdueDays: int(1, 90),
+      highRejection: z.object({ minOrders: int(1, 1000), percent: int(1, 100), days: int(1, 365) }),
+    }),
+    defaults: {
+      codRefusals: { count: 2, days: 90 },
+      highRefundRate: { count: 3, days: 30, minPercent: 50 },
+      repeatedDisputes: { count: 2, days: 30 },
+      topupFailures: { count: 5, hours: 24 },
+      sharedPhone: { accounts: 2 },
+      highValueOutlier: { recentDays: 7, minPaise: 200_000, multiple: 5, baselineDays: 90, minPriorOrders: 3, newCustomerPaise: 1_000_000 },
+      otpOverrides: { count: 3, days: 30 },
+      otpLockouts: { count: 2, days: 30 },
+      failedDeliveries: { count: 3, days: 7 },
+      codCashOverdueDays: 7,
+      highRejection: { minOrders: 10, percent: 30, days: 30 },
+    },
+  },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;

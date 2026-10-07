@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { listAddresses } from "@/server/services/addresses";
-import { COD_LIMITS, getCodEligibility } from "@/server/services/cod";
+import { getCodEligibility } from "@/server/services/cod";
 import { getCart } from "@/server/services/cart";
 import { db } from "@/server/db";
 import { shops, users } from "@/server/db/schema";
@@ -52,7 +52,7 @@ export default async function CartPage() {
       ? `${noCodShop.name} does not accept cash on delivery.`
       : tooLarge
         ? `Cash on delivery is available up to ₹${(codEligibility.maxOrderPaise / 100).toFixed(0)} per shop order.`
-        : cart.groups.length > COD_LIMITS.maxOpenOrders - codEligibility.openOrders
+        : cart.groups.length > codEligibility.maxOpenOrders - codEligibility.openOrders
           ? "Too many cash-on-delivery orders open — pay from your wallet."
           : null;
   const preferredAddressId =
