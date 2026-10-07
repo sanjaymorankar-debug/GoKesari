@@ -919,8 +919,16 @@ export async function cancelOrder(
     // actively assembling it — there is no clean undo for picked/packed work,
     // so only the shop or an operator may cancel from here. Does not apply to
     // a shop/operator-privileged cancel, which stays unrestricted.
+    // Rule `cancellation.customerMayCancelUntil` = PREPARING opens ACCEPTED and
+    // PREPARING (before packing) to the customer too, with the same full refund.
+    const beforePacking = (["ACCEPTED", "PREPARING"] as OrderStatus[]).includes(order.status);
+    const customerCancelBeforePacking =
+      Boolean(options.selfService) &&
+      beforePacking &&
+      (await getRule("cancellation")).customerMayCancelUntil === "PREPARING";
     if (
       options.selfService &&
+      !customerCancelBeforePacking &&
       (["ACCEPTED", "PREPARING", "READY", "ASSIGNED"] as OrderStatus[]).includes(order.status)
     ) {
       throw conflict(
@@ -976,6 +984,22 @@ export async function cancelOrder(
         },
         tx,
       );
+    }
+    // The shop has already accepted or started picking: tell it to stop.
+    if (customerCancelBeforePacking) {
+      const [shop] = await tx.select({ ownerId: shops.ownerId }).from(shops).where(eq(shops.id, order.shopId));
+      if (shop) {
+        await notify(
+          {
+            userId: shop.ownerId,
+            type: NOTIFICATION_TYPES.ORDER_CANCELLED,
+            title: "Order cancelled by the customer",
+            body: `Order ${order.orderNumber} was cancelled by the customer before packing: ${reason}. Put the items back on the shelf.`,
+            actionUrl: "/shop/orders",
+          },
+          tx,
+        );
+      }
     }
 
     // DEF-01: every cancellation restores the stock checkout() consumed —

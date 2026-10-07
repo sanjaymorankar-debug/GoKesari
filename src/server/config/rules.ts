@@ -470,6 +470,14 @@ export const RULES = {
       retentionDaysAfterClosure: 1095,
     },
   },
+  cancellation: {
+    description:
+      "Customer cancellation of their own order (D10 / D6). Any cancellation before the order is packed refunds the full amount, delivery fee included; after pickup a customer's own cancellation refunds the goods only (unchanged). CONFIRMED: a customer may cancel only until the shop accepts the order (the original D10 rule). PREPARING: a customer may cancel at any time before the order is packed (accepted or being picked); the shop is told.",
+    schema: z.object({
+      customerMayCancelUntil: z.enum(["CONFIRMED", "PREPARING"]),
+    }),
+    defaults: { customerMayCancelUntil: "CONFIRMED" },
+  },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;
