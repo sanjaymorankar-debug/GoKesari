@@ -271,6 +271,37 @@ describe("PATCH /api/orders/[id]/status", () => {
     });
   });
 
+  describe("response", () => {
+    // The order row carries the customer's delivery address (coordinates
+    // included), user/address ids and a checkout key embedding the user id.
+    it("gives the shop only the order's new state", async () => {
+      const { customer, owner, order } = await paidOrderSetup();
+      signInAsUser({ ...owner, role: "SHOP_OWNER" });
+
+      const r = await call(statusRoute, `/api/orders/${order.id}/status`, {
+        method: "PATCH",
+        params: { id: order.id },
+        body: { status: "PREPARING" },
+      });
+      expect(r.status).toBe(200);
+      expect(r.body).toEqual({ id: order.id, orderNumber: order.orderNumber, status: "PREPARING" });
+      expect(JSON.stringify(r.body)).not.toContain(customer.id);
+    });
+
+    it("gives a cancelling customer the same minimal view", async () => {
+      const { customer, order } = await paidOrderSetup();
+      signInAsUser({ ...customer, role: "CUSTOMER" });
+
+      const r = await call(statusRoute, `/api/orders/${order.id}/status`, {
+        method: "PATCH",
+        params: { id: order.id },
+        body: { status: "CANCELLED" },
+      });
+      expect(r.status).toBe(200);
+      expect(r.body).toEqual({ id: order.id, orderNumber: order.orderNumber, status: "REFUNDED" });
+    });
+  });
+
   describe("validation", () => {
     it("rejects an invalid status value with 422", async () => {
       const { owner, order } = await paidOrderSetup();

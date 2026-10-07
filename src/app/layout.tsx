@@ -6,7 +6,7 @@ import { SiteHeader } from "@/components/site-header";
 import { SearchBar } from "@/components/search-bar";
 import { LEGAL_DOCS, LEGAL_ENTITY } from "@/lib/legal-docs";
 import { getCurrentUser } from "@/server/authz/guards";
-import { getCart } from "@/server/services/cart";
+import { getCartItemCount } from "@/server/services/cart";
 import { unreadCount } from "@/server/services/notifications";
 import { listUserRoles } from "@/server/services/roles";
 import { getWalletByUserId } from "@/server/services/wallet";
@@ -33,15 +33,15 @@ export default async function RootLayout({
   // Header state is resolved server-side so the cart count and balance are
   // always authoritative rather than optimistic client state.
   const user = await getCurrentUser();
-  const [cart, wallet, unread, roles] = user
+  const [cartCount, wallet, unread, roles] = user
     ? await Promise.all([
-        getCart(user.id).catch(() => null),
+        getCartItemCount(user.id).catch(() => 0),
         getWalletByUserId(user.id).catch(() => null),
         unreadCount(user.id).catch(() => 0),
         // GS-003: roles the user can switch between.
         listUserRoles(user.id).catch(() => [user.role]),
       ])
-    : [null, null, 0, []];
+    : [0, null, 0, []];
 
   return (
     <html lang="en">
@@ -49,7 +49,7 @@ export default async function RootLayout({
         <SiteHeader
           user={user}
           roles={roles}
-          cartCount={cart?.itemCount ?? 0}
+          cartCount={cartCount}
           balancePaise={wallet?.balancePaise ?? null}
           unreadCount={unread}
         />

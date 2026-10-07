@@ -6,7 +6,7 @@ import { useState, useTransition } from "react";
 
 import { SafeImage } from "@/components/safe-image";
 import { AvailabilityBadge, Button, Card, Money } from "@/components/ui";
-import type { CartSummary } from "@/server/services/cart";
+import type { CartLineQuantity, CartSummary } from "@/server/services/cart";
 
 export interface ProductCardData {
   shopProductId: string;
@@ -43,9 +43,12 @@ export interface ProductCardData {
 export function ProductCard({
   product,
   signedIn,
+  cartLine = null,
 }: {
   product: ProductCardData;
   signedIn: boolean;
+  /** This product's line in the viewer's cart when the page was rendered. */
+  cartLine?: CartLineQuantity | null;
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
@@ -53,8 +56,15 @@ export function ProductCard({
   const [error, setError] = useState<string | null>(null);
   /** How many to add, chosen before the item is in the cart. */
   const [quantity, setQuantity] = useState(1);
-  /** This product's cart line once added here, as the server reports it. */
-  const [line, setLine] = useState<{ id: string; quantity: number } | null>(null);
+  /** This product's cart line, as the server last reported it. */
+  const [line, setLine] = useState<CartLineQuantity | null>(cartLine);
+  // router.refresh() re-renders the page with the cart as the server now has
+  // it; adopt that line in place of the one this card last saw.
+  const [renderedCartLine, setRenderedCartLine] = useState(cartLine);
+  if (!sameCartLine(cartLine, renderedCartLine)) {
+    setRenderedCartLine(cartLine);
+    setLine(cartLine);
+  }
   const [justAdded, setJustAdded] = useState(false);
 
   const outOfStock = product.trackInventory && product.onlineStock <= 0;
@@ -88,7 +98,7 @@ export function ProductCard({
       const found = (payload as CartSummary | null)?.groups
         .flatMap((group) => group.lines)
         .find((l) => l.shopProductId === product.shopProductId);
-      setLine(found ? { id: found.cartItemId, quantity: found.quantity } : null);
+      setLine(found ? { cartItemId: found.cartItemId, quantity: found.quantity } : null);
       startTransition(() => router.refresh());
       return true;
     } catch {
@@ -120,7 +130,7 @@ export function ProductCard({
   function setCartQuantity(next: number) {
     if (!line) return;
     void updateCart(
-      `/api/cart/items/${line.id}`,
+      `/api/cart/items/${line.cartItemId}`,
       { method: "PATCH", body: JSON.stringify({ quantity: next }) },
       "Could not update your cart.",
     );
@@ -319,4 +329,8 @@ export function ProductCard({
       </div>
     </Card>
   );
+}
+
+function sameCartLine(a: CartLineQuantity | null, b: CartLineQuantity | null): boolean {
+  return a?.cartItemId === b?.cartItemId && a?.quantity === b?.quantity;
 }

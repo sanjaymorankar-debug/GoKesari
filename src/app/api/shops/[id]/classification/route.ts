@@ -10,7 +10,7 @@ import { z } from "zod";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
-import { changeClassification, getClassificationHistory } from "@/server/services/shops";
+import { changeClassification, getClassificationHistory, toShopView } from "@/server/services/shops";
 
 const schema = z.object({
   classification: z.enum(["KESARI", "GREEN"]),
@@ -30,6 +30,6 @@ export const POST = route(
     const user = await requirePermission(PERMISSIONS.SHOP_SET_CLASSIFICATION);
     const { id } = await context.params;
     const body = await parseBody(request, schema);
-    return ok(await changeClassification(id, body.classification, body.reason, user));
+    return ok(toShopView(await changeClassification(id, body.classification, body.reason, user)));
   },
 );

@@ -7,6 +7,7 @@ import { ShopGrid } from "@/components/shop-grid";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getCustomerLocation } from "@/server/location";
 import { serviceableShopIds } from "@/server/services/serviceability";
+import { getCartLineQuantities } from "@/server/services/cart";
 import { listStorefrontProducts } from "@/server/services/catalogue";
 import { searchShops } from "@/server/services/shops";
 
@@ -44,9 +45,10 @@ export default async function SearchPage({
 
   const distances = location ? await serviceableShopIds(location) : undefined;
   const shopIds = nearOnly && distances ? [...distances.keys()] : undefined;
-  const [products, foundShops] = await Promise.all([
+  const [products, foundShops, cartLines] = await Promise.all([
     listStorefrontProducts({ query, shopIds, limit: 40 }),
     searchShops({ query, ids: shopIds, limit: 12 }),
+    user ? getCartLineQuantities(user.id) : null,
   ]);
   const byDistance = (a: string, b: string) =>
     (distances?.get(a) ?? Number.POSITIVE_INFINITY) - (distances?.get(b) ?? Number.POSITIVE_INFINITY);
@@ -83,7 +85,7 @@ export default async function SearchPage({
 
       {products.length > 0 ? (
         <Section title="Products">
-          <ProductGrid products={products} signedIn={Boolean(user)} distances={distances} />
+          <ProductGrid products={products} signedIn={Boolean(user)} cartLines={cartLines} distances={distances} />
         </Section>
       ) : null}
 

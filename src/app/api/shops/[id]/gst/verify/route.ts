@@ -6,6 +6,7 @@ import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { adminVerifyGst } from "@/server/services/gst-pan-verification";
+import { toShopView } from "@/server/services/shops";
 
 const schema = z.object({
   legalName: z.string().trim().min(1).max(200).optional(),
@@ -17,6 +18,6 @@ export const POST = route(
     const user = await requirePermission(PERMISSIONS.SHOP_GST_PAN_VERIFY);
     const { id } = await context.params;
     const body = await parseBody(request, schema);
-    return ok(await adminVerifyGst(id, user, body));
+    return ok(toShopView(await adminVerifyGst(id, user, body)));
   },
 );

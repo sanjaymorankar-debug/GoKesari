@@ -2,7 +2,9 @@
  * SEC-02 (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): delivery-partner
  * KYC and bank details are encrypted at rest, and no route or service
  * returns them — plaintext or ciphertext — to a caller. Route-level tests
- * cover the wire responses, which is where the exposure actually was.
+ * cover the wire responses, which is where the exposure actually was. The
+ * same responses also leave out staff ids, and staff ones the rider's date
+ * of birth and coordinates.
  */
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
@@ -40,7 +42,7 @@ vi.mock("@/lib/env", async (importOriginal) => {
 });
 
 import { GET as detailRoute, PATCH as transitionRoute } from "@/app/api/delivery-partner/[id]/route";
-import { GET as meRoute } from "@/app/api/delivery-partner/me/route";
+import { GET as meRoute, PATCH as meEditRoute } from "@/app/api/delivery-partner/me/route";
 import { GET as listRoute, POST as registerRoute } from "@/app/api/delivery-partner/route";
 import { PATCH as statusRoute } from "@/app/api/delivery-partner/status/route";
 import { decryptSecret, encryptSecret } from "@/lib/pan-crypto";
@@ -285,6 +287,80 @@ describe("no route returns KYC", () => {
     });
     expect(offline.status).toBe(200);
     expectNoKyc(offline.body);
+  });
+});
+
+describe("beyond KYC: staff ids, date of birth and coordinates", () => {
+  const DOB = "1994-05-17";
+  const HOME = { latitude: "18.5204", longitude: "73.8567" };
+  const LIVE = { latitude: 18.5311, longitude: 73.8446 };
+  const STAFF_IDS = ["reviewedBy", "statusActorId"];
+
+  it("staff routes return what the verification queue shows: no date of birth, coordinates or staff ids", async () => {
+    const riderUser = await createUser({ role: "CUSTOMER" });
+    const admin = await createUser({ role: "ADMIN" });
+    const partner = await registerDeliveryPartner(riderUser.id, { ...baseInput, email: "ravi@test.local", dateOfBirth: DOB });
+    await db.update(deliveryPartners).set(HOME).where(eq(deliveryPartners.id, partner.id));
+
+    signInAs(admin, "ADMIN");
+    const act = (body: Record<string, unknown>) =>
+      call(transitionRoute, `/api/delivery-partner/${partner.id}`, { method: "PATCH", params: { id: partner.id }, body });
+    const approved = await act({ action: "approve", notes: "documents checked" });
+    await goOnline(riderUser.id, LIVE.latitude, LIVE.longitude); // a live position on the row from here on
+    const suspended = await act({ action: "suspend", reason: "policy check" });
+    const reactivated = await act({ action: "reactivate" });
+    const detail = await call(detailRoute, `/api/delivery-partner/${partner.id}`, { params: { id: partner.id } });
+    const list = await call(listRoute, "/api/delivery-partner");
+
+    for (const res of [approved, suspended, reactivated, detail, list]) expect(res.status).toBe(200);
+    const views = [approved.body, suspended.body, reactivated.body, detail.body, list.body.partners[0]];
+    for (const view of views) {
+      // What the queue shows is all there...
+      expect(view).toMatchObject({
+        id: partner.id,
+        fullName: "Ravi Kumar",
+        mobile: "9876543210",
+        email: "ravi@test.local",
+        vehicleType: "MOTORCYCLE",
+        operatingRadiusKm: 5,
+        locationVerified: false,
+      });
+      // ...and nothing it does not.
+      for (const key of [...STAFF_IDS, "userId", "dateOfBirth", "latitude", "longitude", "lastLocationLatitude", "lastLocationLongitude", "lastLocationAt"]) {
+        expect(view).not.toHaveProperty(key);
+      }
+      const text = JSON.stringify(view);
+      for (const value of [DOB, admin.id, riderUser.id, HOME.latitude, HOME.longitude, String(LIVE.latitude), String(LIVE.longitude)]) {
+        expect(text).not.toContain(value);
+      }
+    }
+    expect(approved.body).toMatchObject({ status: "APPROVED", reviewNotes: "documents checked" });
+    expect(suspended.body).toMatchObject({ status: "SUSPENDED", rejectionReason: "policy check", isOnline: false });
+    expect(reactivated.body).toMatchObject({ status: "APPROVED", rejectionReason: null });
+  });
+
+  it("the rider's own responses keep their details, with no staff ids", async () => {
+    const riderUser = await createUser({ role: "CUSTOMER" });
+    const admin = await createUser({ role: "ADMIN" });
+
+    signInAs(riderUser, "CUSTOMER");
+    const registered = await call(registerRoute, "/api/delivery-partner", { method: "POST", body: { ...baseInput, dateOfBirth: DOB } });
+    expect(registered.status).toBe(201);
+    await approveDeliveryPartner(registered.body.id, ADMIN(admin.id), "documents checked");
+
+    signInAs(riderUser, "DELIVERY_PARTNER");
+    const online = await call(statusRoute, "/api/delivery-partner/status", { method: "PATCH", body: { action: "online", ...LIVE } });
+    const me = await call(meRoute, "/api/delivery-partner/me");
+    const edited = await call(meEditRoute, "/api/delivery-partner/me", { method: "PATCH", body: { vehicleRegistrationNumber: "MH12AB1234" } });
+
+    for (const res of [online, me, edited]) expect(res.status).toBe(200);
+    for (const res of [registered, online, me, edited]) {
+      for (const key of STAFF_IDS) expect(res.body).not.toHaveProperty(key);
+      expect(JSON.stringify(res.body)).not.toContain(admin.id);
+    }
+    // Their own details, as the profile pages read them, are still theirs.
+    expect(me.body).toMatchObject({ dateOfBirth: DOB, status: "APPROVED", reviewNotes: "documents checked", isOnline: true });
+    expect(edited.body).toMatchObject({ dateOfBirth: DOB, vehicleRegistrationNumber: "MH12AB1234" });
   });
 });
 

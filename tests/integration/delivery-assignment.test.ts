@@ -17,6 +17,7 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 // file, which is what failed here.
 vi.setConfig({ testTimeout: 150_000, hookTimeout: 90_000 });
 
+import { GET as deliveryWindowsGet } from "@/app/api/checkout/delivery-windows/route";
 import { db } from "@/server/db";
 import { deliveryEarningsConfig, deliveryOrders, orders, type Order } from "@/server/db/schema";
 import {
@@ -39,6 +40,7 @@ import { getFeasibleDeliveryWindows } from "@/server/services/delivery-feasibili
 import { goOnline } from "@/server/services/delivery-partners";
 import { addToCart } from "@/server/services/cart";
 import { checkout, updateOrderStatus } from "@/server/services/orders";
+import { call } from "../helpers/http";
 import {
   createCategory,
   createDeliveryPartner,
@@ -185,6 +187,25 @@ describe("getFeasibleDeliveryWindows", () => {
     expect(result.EXPRESS_30).toBe(false);
     expect(result.STANDARD_60).toBe(false);
     expect(result.nearestPartnerDistanceKm).toBeNull();
+  });
+
+  it("GET /api/checkout/delivery-windows gives the windows, not how far away the nearest rider is", async () => {
+    const owner = await createUser({ role: "SHOP_OWNER" });
+    const shop = await createShop(owner.id, { latitude: SHOP_LAT, longitude: SHOP_LNG, preparationTimeMinutes: 15 });
+    const riderUser = await createUser({ role: "DELIVERY_PARTNER" });
+    await createDeliveryPartner(riderUser.id, {
+      status: "APPROVED",
+      isOnline: true,
+      latitude: SHOP_LAT + kmToLatDegrees(13.3),
+      longitude: SHOP_LNG,
+      operatingRadiusKm: 50,
+    });
+    // The service still knows the distance; it just does not leave the server.
+    expect((await getFeasibleDeliveryWindows(shop.id)).nearestPartnerDistanceKm).toBeCloseTo(13.3, 0);
+
+    const res = await call(deliveryWindowsGet, `/api/checkout/delivery-windows?shopId=${shop.id}`);
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ EXPRESS_30: false, STANDARD_60: true, SCHEDULED: true });
   });
 });
 

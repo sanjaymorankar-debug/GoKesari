@@ -28,10 +28,10 @@ vi.mock("@/server/auth", () => ({
 
 import { POST as categoriesPost, GET as categoriesGet } from "@/app/api/product-categories/route";
 import { DELETE as categoryDelete } from "@/app/api/product-categories/[id]/route";
-import { POST as shopCategoryPost } from "@/app/api/shops/[id]/product-categories/route";
+import { GET as shopCategoriesGet, POST as shopCategoryPost } from "@/app/api/shops/[id]/product-categories/route";
 import { DELETE as shopCategoryDelete } from "@/app/api/shops/[id]/product-categories/[categoryId]/route";
 import { db } from "@/server/db";
-import { auditLogs, orderItems, orders, productCategories, products, shopProductCategories } from "@/server/db/schema";
+import { auditLogs, orderItems, orders, productCategories, products, shopProductCategories, users } from "@/server/db/schema";
 import {
   createProductForShop,
   createShopProduct as listProductInShop,
@@ -185,10 +185,10 @@ describe("category master", () => {
     await createProduct(b.id, { name: "B1" });
     await addCategoryToShop(shop.id, a.id, actor(owner));
 
-    const rows = await listCategoryMaster();
+    const rows = await listCategoryMaster(actor(owner));
     expect(rows.find((r) => r.name === "Alpha")).toMatchObject({ productCount: 2, shopCount: 1, createdByName: "Asha" });
     expect(rows.find((r) => r.name === "Beta")).toMatchObject({ productCount: 1, shopCount: 0, createdByName: null });
-    expect(await listShopProductCategories(shop.id)).toEqual([
+    expect(await listShopProductCategories(shop.id, actor(owner))).toEqual([
       expect.objectContaining({ name: "Alpha", productCount: 2, addedByName: "Asha" }),
     ]);
   });
@@ -211,6 +211,85 @@ describe("category master", () => {
     await expect(removeProductCategory(shared.id, actor(ownerA))).rejects.toMatchObject({ code: "FORBIDDEN" });
     await expect(removeProductCategory(mine.id, actor(ownerA))).resolves.toMatchObject({ unlinkedShops: 1 });
     await expect(removeProductCategory(shared.id, actor(operator))).resolves.toMatchObject({ unlinkedShops: 1 });
+  });
+});
+
+describe("who added a category, as other people see it", () => {
+  async function withoutName<T extends { id: string }>(user: T): Promise<T> {
+    await db.update(users).set({ name: null }).where(eq(users.id, user.id));
+    return user;
+  }
+
+  it("the category master never shows an email or the creator's id, and says who may manage each row", async () => {
+    const creator = await withoutName(await createUser({ role: "SHOP_OWNER", email: "nameless-owner@test.local" }));
+    const viewer = await createUser({ role: "SHOP_OWNER" });
+    const operator = await createUser({ role: "OPERATOR", name: "Priya Ops" });
+    const namelessOperator = await withoutName(await createUser({ role: "OPERATOR", email: "nameless-ops@test.local" }));
+    const admin = await createUser({ role: "ADMIN" });
+    await createProductCategory({ name: "Owner Made" }, actor(creator));
+    await createProductCategory({ name: "Staff Made" }, actor(operator));
+    await createProductCategory({ name: "Quiet Staff Made" }, actor(namelessOperator));
+
+    const listAs = async (user: Parameters<typeof signIn>[0]) => {
+      signIn(user);
+      const res = await call(categoriesGet, "/api/product-categories");
+      expect(res.status).toBe(200);
+      return res.body.categories as Record<string, unknown>[];
+    };
+
+    const seenByOwner = await listAs(viewer);
+    const text = JSON.stringify(seenByOwner);
+    expect(text).not.toContain("nameless-owner@test.local");
+    expect(text).not.toContain("nameless-ops@test.local");
+    expect(text).not.toContain(creator.id);
+    expect(text).not.toContain(operator.id);
+    for (const row of seenByOwner) expect(row).not.toHaveProperty("createdBy");
+    const byName = (rows: Record<string, unknown>[], name: string) => rows.find((r) => r.name === name);
+    expect(byName(seenByOwner, "Owner Made")).toMatchObject({ createdByName: "a shop owner", canManage: false });
+    // Staff are the GoKesari team to shop owners, named or not.
+    expect(byName(seenByOwner, "Staff Made")).toMatchObject({ createdByName: "the GoKesari team", canManage: false });
+    expect(byName(seenByOwner, "Quiet Staff Made")).toMatchObject({ createdByName: "the GoKesari team", canManage: false });
+    expect(byName(seenByOwner, "General")).toMatchObject({ canManage: false });
+
+    // The creator may manage their own category; nothing else changed for them.
+    const seenByCreator = await listAs(creator);
+    expect(byName(seenByCreator, "Owner Made")).toMatchObject({ canManage: true });
+    expect(byName(seenByCreator, "Staff Made")).toMatchObject({ canManage: false });
+
+    // Staff still see each other's names, and manage everything but General.
+    const seenByAdmin = await listAs(admin);
+    expect(JSON.stringify(seenByAdmin)).not.toContain("@test.local");
+    expect(byName(seenByAdmin, "Staff Made")).toMatchObject({ createdByName: "Priya Ops", canManage: true });
+    expect(byName(seenByAdmin, "Quiet Staff Made")).toMatchObject({ createdByName: "the GoKesari team", canManage: true });
+    expect(byName(seenByAdmin, "Owner Made")).toMatchObject({ createdByName: "a shop owner", canManage: true });
+    expect(byName(seenByAdmin, "General")).toMatchObject({ canManage: false });
+  });
+
+  it("a shop's categories show staff as the GoKesari team to the owner, never an email", async () => {
+    const owner = await withoutName(await createUser({ role: "SHOP_OWNER", email: "nameless-shop@test.local" }));
+    const operator = await createUser({ role: "OPERATOR", name: "Priya Ops", email: "priya-ops@test.local" });
+    const admin = await createUser({ role: "ADMIN" });
+    const shop = await createShop(owner.id);
+    const mine = await createCategory({ name: "Mine" });
+    const theirs = await createCategory({ name: "Theirs" });
+    await addCategoryToShop(shop.id, mine.id, actor(owner));
+    await addCategoryToShop(shop.id, theirs.id, actor(operator));
+
+    signIn(owner);
+    const res = await call(shopCategoriesGet, `/api/shops/${shop.id}/product-categories`, { params: { id: shop.id } });
+    expect(res.status).toBe(200);
+    expect(JSON.stringify(res.body)).not.toContain("@test.local");
+    expect(JSON.stringify(res.body)).not.toContain("Priya Ops");
+    expect(res.body.categories).toEqual([
+      expect.objectContaining({ name: "Mine", addedByName: "a shop owner" }),
+      expect.objectContaining({ name: "Theirs", addedByName: "the GoKesari team" }),
+    ]);
+
+    // The operations page keeps the staff member's name.
+    expect(await listShopProductCategories(shop.id, actor(admin))).toEqual([
+      expect.objectContaining({ name: "Mine", addedByName: "a shop owner" }),
+      expect.objectContaining({ name: "Theirs", addedByName: "Priya Ops" }),
+    ]);
   });
 });
 

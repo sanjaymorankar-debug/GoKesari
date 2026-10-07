@@ -24,12 +24,13 @@ export interface CategoryMasterItem {
   department: string;
   isActive: boolean;
   isSystem: boolean;
-  createdBy: string | null;
   createdByName: string | null;
   /** Already formatted on the server, so server and browser render the same text. */
   createdAt: string;
   productCount: number;
   shopCount: number;
+  /** Decided on the server for this viewer. */
+  canManage: boolean;
 }
 
 interface Impact {
@@ -42,15 +43,7 @@ interface Impact {
 
 const aisleLabel = (key: string) => SHOP_TYPES.find((t) => t.key === key)?.label ?? key;
 
-export function CategoryMaster({
-  categories,
-  actorId,
-  canManageAny,
-}: {
-  categories: CategoryMasterItem[];
-  actorId: string;
-  canManageAny: boolean;
-}) {
+export function CategoryMaster({ categories }: { categories: CategoryMasterItem[] }) {
   return (
     <div className="space-y-8">
       <AddCategory />
@@ -58,13 +51,7 @@ export function CategoryMaster({
         <h2 className="mb-2 text-lg font-semibold text-ink-900">Categories ({categories.length})</h2>
         <Card className="divide-y divide-cream-100" data-testid="category-list">
           {categories.map((c) => (
-            <CategoryRow
-              key={c.id}
-              category={c}
-              // Shop owners: only what they created. The server also refuses a
-              // category another owner's shop now carries.
-              canManage={!c.isSystem && (canManageAny || c.createdBy === actorId)}
-            />
+            <CategoryRow key={c.id} category={c} />
           ))}
         </Card>
       </section>
@@ -134,7 +121,7 @@ function AddCategory() {
   );
 }
 
-function CategoryRow({ category, canManage }: { category: CategoryMasterItem; canManage: boolean }) {
+function CategoryRow({ category }: { category: CategoryMasterItem }) {
   const router = useRouter();
   const [mode, setMode] = useState<"view" | "edit" | "remove">("view");
   const [name, setName] = useState(category.name);
@@ -208,7 +195,7 @@ function CategoryRow({ category, canManage }: { category: CategoryMasterItem; ca
           >
             View products
           </Link>
-          {canManage && mode === "view" ? (
+          {category.canManage && mode === "view" ? (
             <>
               <Button size="sm" variant="secondary" disabled={busy} onClick={() => setMode("edit")}>
                 Edit

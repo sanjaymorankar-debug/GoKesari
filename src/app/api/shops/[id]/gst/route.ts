@@ -6,6 +6,7 @@ import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { requireShopAccess } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { setGstNotRegistered, submitGstin } from "@/server/services/gst-pan-verification";
+import { toShopView } from "@/server/services/shops";
 
 const schema = z.union([
   z.object({ gstin: z.string().trim().length(15) }),
@@ -19,8 +20,8 @@ export const POST = route(
     const body = await parseBody(request, schema);
 
     if ("notRegistered" in body) {
-      return ok(await setGstNotRegistered(id, user));
+      return ok(toShopView(await setGstNotRegistered(id, user)));
     }
-    return ok(await submitGstin(id, body.gstin, user));
+    return ok(toShopView(await submitGstin(id, body.gstin, user)));
   },
 );

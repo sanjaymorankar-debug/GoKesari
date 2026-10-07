@@ -100,6 +100,30 @@ export async function requireShopAccess(
   throw forbidden("This shop does not belong to you.");
 }
 
+/**
+ * requireShopAccess without the throw, for public reads that show a shop's
+ * owner and staff more than everyone else. Null for anyone who would be
+ * refused — signed out, another owner, staff without the capability — and
+ * for a shop that does not exist.
+ */
+export async function getShopAccess(
+  shopId: string,
+  options: { anyPermission: Permission },
+): Promise<{ user: AuthenticatedUser; isPrivileged: boolean } | null> {
+  const user = await getCurrentUser();
+  if (!user) return null;
+
+  const shop = await db.query.shops.findFirst({
+    where: and(eq(shops.id, shopId), isNull(shops.deletedAt)),
+    columns: { id: true, ownerId: true },
+  });
+  if (!shop) return null;
+
+  if (shop.ownerId === user.id) return { user, isPrivileged: false };
+  if (can(user.role, options.anyPermission)) return { user, isPrivileged: true };
+  return null;
+}
+
 /** Ownership check for subscription-scoped operations. */
 export async function requireSubscriptionAccess(
   subscriptionId: string,
