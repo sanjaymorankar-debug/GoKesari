@@ -188,3 +188,135 @@ export async function serviceableShopIds(location: CustomerLocation): Promise<Ma
   const served = await listServiceableShops(location, { limit: 500 });
   return new Map(served.map((shop) => [shop.id, shop.distanceKm]));
 }
+
+/* ------------------------------------------------------------ nearby shops */
+
+/**
+ * How close a shop must be to count as "near" when it does not deliver to the
+ * customer (a pickup-only shop, or one whose delivery radius stops short).
+ * Roughly a short ride. A shop that does deliver is near whatever its distance.
+ */
+export const NEARBY_RADIUS_KM = 5;
+
+/** A shop card's fields, plus how the shop relates to the customer's location. */
+export type NearbyShop = Pick<
+  Shop,
+  | "id"
+  | "slug"
+  | "name"
+  | "logoUrl"
+  | "ownerName"
+  | "area"
+  | "city"
+  | "pincode"
+  | "shopType"
+  | "deliveryAvailable"
+  | "openingHours"
+  | "ratingAvgX100"
+  | "ratingCount"
+  | "preparationTimeMinutes"
+  | "createdAt"
+> & {
+  /** Home delivery of ordinary orders reaches this location. */
+  deliversHere: boolean;
+  distanceKm: number | null;
+  /** The shop has products customers can subscribe to (delivered daily). */
+  subscriptionDelivery: boolean;
+};
+
+/**
+ * Approved shops near `location`, whether or not they deliver there: every
+ * shop that delivers to it, plus pickup-only and out-of-radius shops within
+ * NEARBY_RADIUS_KM (or, without coordinates on either side, in the same PIN
+ * code). Each says whether it delivers here, so a screen can list "shops
+ * near you" and offer "delivers to me" as a filter instead of hiding the
+ * pickup-only shops altogether.
+ *
+ * Delivering shops first (society partners, then nearest), then the rest
+ * nearest first.
+ */
+export async function listNearbyShops(
+  location: CustomerLocation,
+  options: { limit?: number } = {},
+): Promise<NearbyShop[]> {
+  const near: SQL[] = [];
+  if (location.latitude != null && location.longitude != null) {
+    const latDelta = MAX_SERVICE_RADIUS_KM / 111;
+    const lonDelta =
+      MAX_SERVICE_RADIUS_KM / (111 * Math.max(Math.cos((location.latitude * Math.PI) / 180), 0.01));
+    near.push(
+      sql`(${shops.latitude} ~ '^-?[0-9.]+$' AND ${shops.longitude} ~ '^-?[0-9.]+$'
+        AND ${shops.latitude}::double precision BETWEEN ${location.latitude - latDelta} AND ${location.latitude + latDelta}
+        AND ${shops.longitude}::double precision BETWEEN ${location.longitude - lonDelta} AND ${location.longitude + lonDelta})`,
+    );
+  }
+  if (location.pincode) {
+    near.push(sql`${shops.pincode} = ${location.pincode}`);
+    near.push(sql`${shops.deliveryPincodes} @> ${JSON.stringify([location.pincode])}::jsonb`);
+  }
+  const partners = await societyPartnerShopIds(location.societyId);
+  if (partners.size > 0) near.push(inArray(shops.id, [...partners]));
+  if (near.length === 0) return [];
+
+  const candidates = await db
+    .select({
+      shop: shops,
+      // Raw names throughout: in a select list Drizzle writes a bare "id",
+      // which is ambiguous inside this subquery.
+      subscriptionDelivery: sql<boolean>`exists (
+        select 1 from shop_products sp join products p on p.id = sp.product_id
+        where sp.shop_id = shops.id and sp.deleted_at is null
+          and p.subscribable and sp.is_active and sp.is_available and sp.online_sale_enabled)`,
+    })
+    .from(shops)
+    .where(and(eq(shops.status, "APPROVED"), isNull(shops.deletedAt), or(...near)))
+    .limit(1000);
+
+  return candidates
+    .map(({ shop, subscriptionDelivery }) => {
+      const check = shopServiceability(shop, location);
+      const partner = partners.has(shop.id);
+      const samePin = Boolean(location.pincode) && location.pincode === shop.pincode;
+      return {
+        shop,
+        subscriptionDelivery,
+        partner,
+        deliversHere: partner || check.deliversHere,
+        distanceKm: check.distanceKm,
+        near:
+          partner ||
+          check.deliversHere ||
+          (check.distanceKm != null ? check.distanceKm <= NEARBY_RADIUS_KM : samePin),
+      };
+    })
+    .filter((row) => row.near)
+    .sort(
+      (a, b) =>
+        Number(b.deliversHere) - Number(a.deliversHere) ||
+        Number(b.partner) - Number(a.partner) ||
+        (a.distanceKm ?? Number.POSITIVE_INFINITY) - (b.distanceKm ?? Number.POSITIVE_INFINITY) ||
+        a.shop.name.localeCompare(b.shop.name),
+    )
+    .slice(0, Math.min(options.limit ?? 200, 500))
+    // Card fields only: the full row (owner phone, fee, tax details) stops here.
+    .map(({ shop, subscriptionDelivery, deliversHere, distanceKm }) => ({
+      id: shop.id,
+      slug: shop.slug,
+      name: shop.name,
+      logoUrl: shop.logoUrl,
+      ownerName: shop.ownerName,
+      area: shop.area,
+      city: shop.city,
+      pincode: shop.pincode,
+      shopType: shop.shopType,
+      deliveryAvailable: shop.deliveryAvailable,
+      openingHours: shop.openingHours,
+      ratingAvgX100: shop.ratingAvgX100,
+      ratingCount: shop.ratingCount,
+      preparationTimeMinutes: shop.preparationTimeMinutes,
+      createdAt: shop.createdAt,
+      deliversHere,
+      distanceKm,
+      subscriptionDelivery,
+    }));
+}

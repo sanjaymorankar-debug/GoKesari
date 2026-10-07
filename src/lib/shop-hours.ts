@@ -78,3 +78,25 @@ export function formatShopTime(date: Date): string {
   const hour12 = h % 12 === 0 ? 12 : h % 12;
   return `${WEEKDAYS[shifted.getUTCDay()]} ${hour12}:${m} ${h < 12 ? "AM" : "PM"}`;
 }
+
+/** "10 PM" / "9:30 PM" in IST, from an "HH:MM" opening-hours value. */
+function formatClock(hhmm: string): string {
+  const [h, m] = hhmm.split(":").map(Number);
+  const hour12 = h % 12 === 0 ? 12 : h % 12;
+  return `${hour12}${m ? `:${String(m).padStart(2, "0")}` : ""} ${h < 12 ? "AM" : "PM"}`;
+}
+
+/**
+ * The shop's open/closed line for a card: "Open till 10 PM", "Open" (no
+ * hours set, so always open), "Closed · opens Fri 9:00 AM" or "Closed".
+ */
+export function shopHoursLabel(shop: Pick<Shop, "openingHours">, now: Date = new Date()): string {
+  const hours = shop.openingHours;
+  if (!hours || hours.length === 0) return "Open";
+  if (isShopOpenNow(shop, now)) {
+    const today = hours.find((h) => h.day === istClock(now).day);
+    return today ? `Open till ${formatClock(today.close)}` : "Open";
+  }
+  const next = nextOpeningAt(shop, now);
+  return next ? `Closed · opens ${formatShopTime(next)}` : "Closed";
+}
