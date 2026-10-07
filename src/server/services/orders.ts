@@ -722,6 +722,15 @@ async function resolveBuyerShop(input: CheckoutInput): Promise<string> {
 
 /* --------------------------------------------------------- transitions */
 
+/**
+ * What a status or fulfilment action answers with: the order's new state.
+ * The row itself carries the customer's delivery address, ids and checkout
+ * key, which the shop or operator acting on it never needs back.
+ */
+export function toOrderStatusView(order: Order): Pick<Order, "id" | "orderNumber" | "status"> {
+  return { id: order.id, orderNumber: order.orderNumber, status: order.status };
+}
+
 export async function updateOrderStatus(
   orderId: string,
   newStatus: OrderStatus,

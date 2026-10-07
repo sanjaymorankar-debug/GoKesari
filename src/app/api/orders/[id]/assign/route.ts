@@ -19,6 +19,7 @@ import {
   getRiderSearchStatus,
   reassignOrder,
   stopRiderSearch,
+  toAssignmentView,
 } from "@/server/services/delivery-assignment";
 
 const schema = z.object({
@@ -56,7 +57,7 @@ export const POST = route(
     // "Find rider now": restarts a stopped search and tries immediately; the
     // automatic retries (configurable, see the `dispatch` rule) then continue.
     const result = body.reassign ? await reassignOrder(id, user, body.reason) : await findRiderNow(id, user);
-    return ok(result);
+    return ok(toAssignmentView(result));
   },
 );
 

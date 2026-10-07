@@ -22,7 +22,7 @@ import { db } from "@/server/db";
 import { orders } from "@/server/db/schema";
 import { eq } from "drizzle-orm";
 import { markOrderReady } from "@/server/services/fulfilment";
-import { cancelOrder, updateOrderStatus } from "@/server/services/orders";
+import { cancelOrder, toOrderStatusView, updateOrderStatus } from "@/server/services/orders";
 
 const schema = z.object({
   status: z.enum([
@@ -68,9 +68,11 @@ export const PATCH = route(
         });
       }
       return ok(
-        await cancelOrder(id, user, body.note ?? "Cancelled", {
-          selfService: isOwnOrder,
-        }),
+        toOrderStatusView(
+          await cancelOrder(id, user, body.note ?? "Cancelled", {
+            selfService: isOwnOrder,
+          }),
+        ),
       );
     }
 
@@ -82,7 +84,7 @@ export const PATCH = route(
     }
     // READY goes through fulfilment so pending substitutions block it and a
     // rider is requested automatically (Slice 3/4).
-    if (body.status === "READY") return ok(await markOrderReady(id, user));
-    return ok(await updateOrderStatus(id, body.status, user, body.note));
+    if (body.status === "READY") return ok(toOrderStatusView(await markOrderReady(id, user)));
+    return ok(toOrderStatusView(await updateOrderStatus(id, body.status, user, body.note)));
   },
 );
