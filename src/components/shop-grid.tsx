@@ -4,8 +4,27 @@ import { isShopOpenNow } from "@/lib/shop-hours";
 import { shopTypeLabel } from "@/lib/shop-types";
 import type { Shop } from "@/server/db/schema";
 
-/** `distanceKm` is present when discovery ran against a customer location (GS-019). */
-type GridShop = Shop & { distanceKm?: number | null };
+/**
+ * Only the columns a card is built from, so public search (searchShops) can
+ * select just those. `distanceKm` is present when discovery ran against a
+ * customer location (GS-019).
+ */
+type GridShop = Pick<
+  Shop,
+  | "id"
+  | "slug"
+  | "name"
+  | "logoUrl"
+  | "ownerName"
+  | "area"
+  | "city"
+  | "pincode"
+  | "deliveryAvailable"
+  | "ratingAvgX100"
+  | "ratingCount"
+  | "shopType"
+  | "openingHours"
+> & { distanceKm?: number | null };
 
 /**
  * Shop grid/list (requirement §15). Classification is deliberately not shown

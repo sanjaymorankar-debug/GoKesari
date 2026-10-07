@@ -111,6 +111,60 @@ export interface RegisterShopInput {
 export type RegisterShopResult = Shop & { resubmitted: boolean };
 
 /**
+ * Columns a shop row carries for the platform's own use: the PAN ciphertext
+ * and its blind index, the Shop Act matching key, and staff and internal ids.
+ * No API response sends them, not even to the shop's owner or staff — their
+ * screens show the masked PAN (`panLast4`) and the statuses instead.
+ */
+const INTERNAL_SHOP_KEYS = [
+  "panNumberEncrypted",
+  "panHash",
+  "shopActKey",
+  "approvedBy",
+  "gstVerifiedBy",
+  "panVerifiedBy",
+  "statusActorId",
+  "registrationFeeId",
+  "referralCodeId",
+] as const;
+const INTERNAL_SHOP_KEY_SET: ReadonlySet<string> = new Set(INTERNAL_SHOP_KEYS);
+
+/** A shop as its owner and staff receive it from the API. */
+export type ShopView<T extends Shop = Shop> = Omit<T, (typeof INTERNAL_SHOP_KEYS)[number]>;
+
+/** Every route that returns a shop row to its owner or staff maps it through this. */
+export function toShopView<T extends Shop>(shop: T): ShopView<T> {
+  return Object.fromEntries(
+    Object.entries(shop).filter(([key]) => !INTERNAL_SHOP_KEY_SET.has(key)),
+  ) as ShopView<T>;
+}
+
+/**
+ * What anyone may see of a shop: the fields a shop card shows. Public
+ * listings select only these, so the owner's contact details, address, fee
+ * and tax details never leave the database for a storefront page or the
+ * public API.
+ */
+const publicShopColumns = {
+  id: shops.id,
+  slug: shops.slug,
+  name: shops.name,
+  logoUrl: shops.logoUrl,
+  ownerName: shops.ownerName,
+  area: shops.area,
+  city: shops.city,
+  pincode: shops.pincode,
+  shopType: shops.shopType,
+  classification: shops.classification,
+  deliveryAvailable: shops.deliveryAvailable,
+  openingHours: shops.openingHours,
+  ratingAvgX100: shops.ratingAvgX100,
+  ratingCount: shops.ratingCount,
+};
+
+export type PublicShop = Pick<Shop, keyof typeof publicShopColumns>;
+
+/**
  * Submits a shop registration. Always lands in PENDING_APPROVAL — the caller
  * cannot choose a status, and classification is left null for an operator to
  * assign at approval time (§8, §10).
@@ -952,6 +1006,16 @@ export async function getShopById(shopId: string): Promise<Shop | undefined> {
   });
 }
 
+/** An APPROVED shop's public columns — what GET /api/shops/[id] shows anyone. */
+export async function getPublicShopById(shopId: string): Promise<PublicShop | undefined> {
+  const [shop] = await db
+    .select(publicShopColumns)
+    .from(shops)
+    .where(and(eq(shops.id, shopId), eq(shops.status, "APPROVED"), isNull(shops.deletedAt)))
+    .limit(1);
+  return shop;
+}
+
 export async function getPublicShopBySlug(
   slug: string,
 ): Promise<Shop | undefined> {
@@ -988,10 +1052,13 @@ export interface ShopSearchFilters {
   offset?: number;
 }
 
-/** Public shop search (§15). Only APPROVED shops are ever returned. */
+/**
+ * Public shop search (§15). Only APPROVED shops are ever returned, and only
+ * their public columns. Staff screens that need more use searchShopsAdmin.
+ */
 export async function searchShops(
   filters: ShopSearchFilters = {},
-): Promise<Shop[]> {
+): Promise<PublicShop[]> {
   if (filters.ids && filters.ids.length === 0) return [];
   const conditions = [
     eq(shops.status, "APPROVED"),
@@ -1032,7 +1099,7 @@ export async function searchShops(
   }
 
   return db
-    .select()
+    .select(publicShopColumns)
     .from(shops)
     .where(and(...conditions))
     .orderBy(asc(shops.name))

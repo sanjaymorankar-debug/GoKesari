@@ -50,11 +50,7 @@ import {
 import { getRegistrationFeeReport } from "@/server/services/shop-payments";
 import { countShopsByLifecycle, getShopOnboarding, type ShopOnboarding } from "@/server/services/shop-onboarding";
 import { getRule } from "@/server/services/settings";
-import {
-  listShopsByStatus,
-  searchShops,
-  searchShopsAdmin,
-} from "@/server/services/shops";
+import { listShopsByStatus, searchShopsAdmin } from "@/server/services/shops";
 import { countSubscriptionsByStatus } from "@/server/services/subscriptions";
 import { listRolesForUsers } from "@/server/services/roles";
 import { listUsers } from "@/server/services/users";
@@ -108,7 +104,11 @@ export default async function AdminPage() {
     userList,
   ] = await Promise.all([
     listShopsByStatus("PENDING_APPROVAL"),
-    searchShops({ limit: 100 }),
+    // The staff search, not the public one: that returns only card columns
+    // and this list shows phone and fee. Sorted by name, as before.
+    searchShopsAdmin({ status: "APPROVED", limit: 100 }).then((rows) =>
+      rows.sort((a, b) => a.name.localeCompare(b.name)),
+    ),
     countShopsByLifecycle(),
     countSubscriptionsByStatus(),
     db.select({ value: count() }).from(users),
