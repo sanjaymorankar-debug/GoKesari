@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { AddProductPanel } from "@/components/add-product-panel";
+import { SafeImage } from "@/components/safe-image";
 import {
   Alert,
   AvailabilityBadge,
@@ -21,6 +22,8 @@ interface ManagedProduct {
   productName: string;
   categoryName: string;
   unit: string;
+  /** The photo customers see; a placeholder when absent. */
+  imageUrl?: string | null;
   onlinePricePaise: number | null;
   offlinePricePaise: number | null;
   onlineSaleEnabled: boolean;
@@ -192,14 +195,23 @@ function ProductRow({ product }: { product: ManagedProduct }) {
   return (
     <Card className="p-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <div>
-          <p className="font-medium text-ink-900">{product.productName}</p>
-          <p className="text-xs text-ink-500">{product.categoryName}</p>
-          {product.paused ? (
-            <p className="mt-1 text-xs font-medium text-amber-700" data-testid="listing-paused">
-              Paused — this shop no longer carries {product.categoryName}. Add the category back to sell it again.
-            </p>
-          ) : null}
+        <div className="flex items-center gap-3">
+          <a href={`/shop/products/${product.id}/images`} aria-label={`Photos of ${product.productName}`} className="shrink-0">
+            <SafeImage
+              src={product.imageUrl}
+              alt=""
+              className="h-12 w-12 rounded-lg border border-cream-200 bg-cream-100 object-cover"
+            />
+          </a>
+          <div>
+            <p className="font-medium text-ink-900">{product.productName}</p>
+            <p className="text-xs text-ink-500">{product.categoryName}</p>
+            {product.paused ? (
+              <p className="mt-1 text-xs font-medium text-amber-700" data-testid="listing-paused">
+                Paused — this shop no longer carries {product.categoryName}. Add the category back to sell it again.
+              </p>
+            ) : null}
+          </div>
         </div>
 
         <div className="flex flex-wrap items-center gap-2">

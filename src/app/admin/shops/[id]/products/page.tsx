@@ -122,6 +122,7 @@ export default async function AdminShopProductsPage({
           productName: p.product.name,
           categoryName: p.category.name,
           unit: p.product.unit,
+          imageUrl: p.imageUrl ?? p.product.imageUrl,
           onlinePricePaise: p.onlinePricePaise,
           offlinePricePaise: p.offlinePricePaise,
           onlineSaleEnabled: p.onlineSaleEnabled,
