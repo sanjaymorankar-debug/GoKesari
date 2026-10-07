@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 
+import { ImageUploader, type UploadedImage } from "@/components/image-uploader";
 import { Alert, Button, Card, inputClass } from "@/components/ui";
 import { rupeesToPaise } from "@/lib/money";
 
@@ -227,10 +228,13 @@ function NewProductForm({
   const [offlinePrice, setOfflinePrice] = useState("");
   const [onlineEnabled, setOnlineEnabled] = useState(true);
   const [offlineEnabled, setOfflineEnabled] = useState(false);
+  const [photos, setPhotos] = useState<UploadedImage[]>([]);
   const [busy, setBusy] = useState(false);
+  const [created, setCreated] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [similarWarning, setSimilarWarning] = useState<string[] | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  const [photoWarning, setPhotoWarning] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -300,16 +304,28 @@ function NewProductForm({
       }),
     });
     const payload = await response.json().catch(() => null);
-    setBusy(false);
 
     if (response.status === 409 && !confirmDuplicate) {
+      setBusy(false);
       // The server's message lists the similar names; surface it as an
       // explicit "create anyway" step rather than a dead-end error.
       setSimilarWarning([payload?.error?.message ?? "A similar product exists."]);
       return;
     }
     if (!response.ok) {
+      setBusy(false);
       setError(payload?.error?.message ?? "Could not create the product.");
+      return;
+    }
+
+    setCreated(true);
+    // Photos picked on the form become the new listing's own photos, the first one primary.
+    const photoFailure = await attachPhotos(payload.product.id, payload.shopProduct.id, photos);
+    setBusy(false);
+    if (photoFailure) {
+      // Left open so the owner reads it; the product itself was created.
+      setPhotoWarning(photoFailure);
+      router.refresh();
       return;
     }
 
@@ -328,6 +344,11 @@ function NewProductForm({
     <div className="space-y-3">
       {error ? <Alert tone="danger">{error}</Alert> : null}
       {notice ? <Alert tone="success">{notice}</Alert> : null}
+      {photoWarning ? (
+        <Alert tone="warning" title="Product created, but a photo was not added">
+          {photoWarning} Add it with the product&apos;s Photos button in the list below.
+        </Alert>
+      ) : null}
       {similarWarning ? (
         <Alert tone="warning" title="This looks like a duplicate">
           {similarWarning[0]}
@@ -410,6 +431,14 @@ function NewProductForm({
         </label>
         <div />
 
+        <div className="text-sm text-ink-700 sm:col-span-2">
+          Photos (optional)
+          <span className="block text-xs text-ink-500">
+            The first photo is the one customers see first, with the price.
+          </span>
+          <ImageUploader purpose="PRODUCT" value={photos} onChange={setPhotos} max={4} label="Add photos" />
+        </div>
+
         <label className="flex items-center gap-2 text-sm text-ink-700">
           <input
             type="checkbox"
@@ -460,9 +489,29 @@ function NewProductForm({
         </p>
       ) : null}
 
-      <Button disabled={busy} onClick={() => submit(false)}>
-        {busy ? "Creating…" : "Create product"}
+      <Button disabled={busy || created} onClick={() => submit(false)}>
+        {busy ? "Creating…" : created ? "Created" : "Create product"}
       </Button>
     </div>
   );
+}
+
+/** Attaches uploaded photos to a new listing in order; the first failure's message, or null. */
+async function attachPhotos(productId: string, shopProductId: string, photos: UploadedImage[]): Promise<string | null> {
+  for (const photo of photos) {
+    try {
+      const response = await fetch(`/api/products/${productId}/images`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ storedImageId: photo.id, shopProductId }),
+      });
+      if (!response.ok) {
+        const payload = await response.json().catch(() => null);
+        return payload?.error?.message ?? "Could not add the photo.";
+      }
+    } catch {
+      return "Could not add the photo.";
+    }
+  }
+  return null;
 }

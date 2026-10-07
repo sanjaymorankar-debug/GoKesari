@@ -53,7 +53,12 @@ export default async function ListingImagesPage({ params }: { params: Promise<{ 
       <PageHeader
         title={`Photos — ${row.product.name}`}
         description={`${row.shop.name}. A photo set on this listing is what your customers see; without one, the product's own photos are used.`}
-        action={<LinkButton href="/shop" variant="secondary">Back to my shop</LinkButton>}
+        action={
+          <div className="flex flex-wrap gap-2">
+            <LinkButton href="/shop/catalogue" variant="secondary">Photo catalogue</LinkButton>
+            <LinkButton href="/shop" variant="secondary">Back to my shop</LinkButton>
+          </div>
+        }
       />
       <ProductImagesManager
         productId={row.product.id}
