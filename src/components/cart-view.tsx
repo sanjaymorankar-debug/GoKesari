@@ -28,7 +28,6 @@ interface Feasibility {
   EXPRESS_30: boolean;
   STANDARD_60: boolean;
   SCHEDULED: boolean;
-  estimatedMinutes: number | null;
   /** F5: windows whose current slot is full (slot capacity on). */
   full?: Partial<Record<DeliveryWindowKey, boolean>>;
 }
