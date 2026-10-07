@@ -6,6 +6,7 @@ import { useState, useTransition } from "react";
 
 import { SafeImage } from "@/components/safe-image";
 import { AvailabilityBadge, Button, Card, Money } from "@/components/ui";
+import type { CartSummary } from "@/server/services/cart";
 
 export interface ProductCardData {
   shopProductId: string;
@@ -48,8 +49,13 @@ export function ProductCard({
 }) {
   const router = useRouter();
   const [pending, startTransition] = useTransition();
+  const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [added, setAdded] = useState(false);
+  /** How many to add, chosen before the item is in the cart. */
+  const [quantity, setQuantity] = useState(1);
+  /** This product's cart line once added here, as the server reports it. */
+  const [line, setLine] = useState<{ id: string; quantity: number } | null>(null);
+  const [justAdded, setJustAdded] = useState(false);
 
   const outOfStock = product.trackInventory && product.onlineStock <= 0;
   const canBuyOnline =
@@ -58,28 +64,66 @@ export function ProductCard({
     product.isAvailable &&
     !outOfStock;
 
+  // The cart API takes at most 99 of a line.
+  const maxQuantity = Math.min(99, product.trackInventory ? product.onlineStock : 99);
+  const disabled = busy || pending;
+
+  /**
+   * Sends one cart request and keeps this product's line from the cart the
+   * server returns, so the count shown is always the cart's real quantity.
+   */
+  async function updateCart(url: string, init: RequestInit, failure: string): Promise<boolean> {
+    setBusy(true);
+    setError(null);
+    try {
+      const response = await fetch(url, {
+        ...init,
+        headers: { "Content-Type": "application/json" },
+      });
+      const payload = await response.json().catch(() => null);
+      if (!response.ok) {
+        setError(payload?.error?.message ?? failure);
+        return false;
+      }
+      const found = (payload as CartSummary | null)?.groups
+        .flatMap((group) => group.lines)
+        .find((l) => l.shopProductId === product.shopProductId);
+      setLine(found ? { id: found.cartItemId, quantity: found.quantity } : null);
+      startTransition(() => router.refresh());
+      return true;
+    } catch {
+      setError(failure);
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  }
+
   async function addToCart() {
     if (!signedIn) {
       router.push("/signin");
       return;
     }
-    setError(null);
-    const response = await fetch("/api/cart", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        shopProductId: product.shopProductId,
-        quantity: 1,
-      }),
-    });
-
-    if (!response.ok) {
-      const payload = await response.json().catch(() => null);
-      setError(payload?.error?.message ?? "Could not add to cart.");
-      return;
+    const added = await updateCart(
+      "/api/cart",
+      { method: "POST", body: JSON.stringify({ shopProductId: product.shopProductId, quantity }) },
+      "Could not add to cart.",
+    );
+    if (added) {
+      setQuantity(1);
+      setJustAdded(true);
+      setTimeout(() => setJustAdded(false), 1500);
     }
-    setAdded(true);
-    startTransition(() => router.refresh());
+  }
+
+  /** Sets the line's quantity; 0 removes it (PATCH /api/cart/items/:id). */
+  function setCartQuantity(next: number) {
+    if (!line) return;
+    void updateCart(
+      `/api/cart/items/${line.id}`,
+      { method: "PATCH", body: JSON.stringify({ quantity: next }) },
+      "Could not update your cart.",
+    );
   }
 
   return (
@@ -162,24 +206,101 @@ export function ProductCard({
           </p>
         ) : null}
 
-        <div className="mt-3 flex gap-2">
-          {canBuyOnline ? (
-            <Button
-              size="sm"
-              onClick={addToCart}
-              disabled={pending}
-              className="flex-1"
-            >
-              {added ? "Added ✓" : "Add to cart"}
-            </Button>
+        {/* Buttons here are 8px apart, so tap areas are capped at 36px to
+            keep them from meeting. */}
+        <div className="mt-3 space-y-2">
+          {justAdded ? (
+            <div className="flex">
+              <Button size="sm" disabled className="flex-1">
+                Added ✓
+              </Button>
+            </div>
+          ) : line ? (
+            <div className="flex items-center justify-between gap-2">
+              <div className="flex items-center gap-1">
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="tap-target [--tap-h:36px] [--tap-w:36px]"
+                  disabled={disabled}
+                  aria-label={`Decrease quantity of ${product.productName} in cart`}
+                  onClick={() => setCartQuantity(line.quantity - 1)}
+                >
+                  −
+                </Button>
+                <span className="w-8 text-center text-sm font-medium tabular-nums" aria-live="polite">
+                  {line.quantity}
+                </span>
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  className="tap-target [--tap-h:36px] [--tap-w:36px]"
+                  disabled={disabled || line.quantity >= maxQuantity}
+                  aria-label={`Increase quantity of ${product.productName} in cart`}
+                  onClick={() => setCartQuantity(line.quantity + 1)}
+                >
+                  +
+                </Button>
+              </div>
+              <Button
+                size="sm"
+                variant="secondary"
+                className="tap-target [--tap-h:36px]"
+                disabled={disabled}
+                aria-label={`Remove ${product.productName} from cart`}
+                onClick={() => setCartQuantity(0)}
+              >
+                Remove
+              </Button>
+            </div>
           ) : (
-            <Button size="sm" variant="secondary" disabled className="flex-1">
-              {product.onlinePricePaise == null && product.offlinePricePaise == null
-                ? "Ask shop"
-                : product.offlineSaleEnabled && !product.onlineSaleEnabled
-                  ? "In-shop only"
-                  : "Unavailable"}
-            </Button>
+            <div className="flex gap-2">
+              {canBuyOnline ? (
+                <>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="tap-target [--tap-h:36px] [--tap-w:36px]"
+                      disabled={disabled || quantity <= 1}
+                      aria-label={`Decrease quantity of ${product.productName} to add`}
+                      onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                    >
+                      −
+                    </Button>
+                    <span className="w-8 text-center text-sm font-medium tabular-nums" aria-live="polite">
+                      {quantity}
+                    </span>
+                    <Button
+                      size="sm"
+                      variant="secondary"
+                      className="tap-target [--tap-h:36px] [--tap-w:36px]"
+                      disabled={disabled || quantity >= maxQuantity}
+                      aria-label={`Increase quantity of ${product.productName} to add`}
+                      onClick={() => setQuantity(Math.min(maxQuantity, quantity + 1))}
+                    >
+                      +
+                    </Button>
+                  </div>
+                  <Button
+                    size="sm"
+                    onClick={addToCart}
+                    disabled={disabled}
+                    className="tap-target flex-1 [--tap-h:36px]"
+                  >
+                    Add to cart
+                  </Button>
+                </>
+              ) : (
+                <Button size="sm" variant="secondary" disabled className="flex-1">
+                  {product.onlinePricePaise == null && product.offlinePricePaise == null
+                    ? "Ask shop"
+                    : product.offlineSaleEnabled && !product.onlineSaleEnabled
+                      ? "In-shop only"
+                      : "Unavailable"}
+                </Button>
+              )}
+            </div>
           )}
 
           {canBuyOnline && product.subscribable ? (
@@ -189,6 +310,7 @@ export function ProductCard({
               onClick={() =>
                 router.push(`/subscribe/${product.shopProductId}`)
               }
+              className="tap-target w-full [--tap-h:36px]"
             >
               Subscribe
             </Button>

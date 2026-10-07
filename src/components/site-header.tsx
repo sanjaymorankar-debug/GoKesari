@@ -226,16 +226,6 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
           </span>
         </Link>
 
-        <form action="/search" className="ml-2 min-w-0 max-w-xl flex-1">
-          <input
-            type="search"
-            name="q"
-            placeholder="Search products, shops, area or PIN code"
-            aria-label="Search products, shops, area or PIN code"
-            className="w-full rounded-lg border border-cream-200 bg-cream-50 px-3 py-2 text-sm placeholder:text-ink-500 focus:border-kesari-500 focus:outline-none"
-          />
-        </form>
-
         <nav className="hidden items-center gap-1 xl:flex" aria-label="Main">
           {user && (ROLE_NAV[user.role] ?? []).length > 0 ? (
             <NavMenu
@@ -262,7 +252,7 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
         </nav>
 
         {/* Tap areas sit 4px low: inside the header on one row, and clear of
-            the logo and search box when narrow screens wrap this to a second. */}
+            the logo when a narrow screen wraps this to a second. */}
         <div className="ml-auto flex shrink-0 items-center gap-2 [--tap-dy:4px]">
           {balancePaise !== null ? (
             <Link
