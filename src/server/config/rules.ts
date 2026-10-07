@@ -478,6 +478,14 @@ export const RULES = {
     }),
     defaults: { customerMayCancelUntil: "CONFIRMED" },
   },
+  shopContact: {
+    description:
+      "Shop phone numbers shown to customers (C1). SHOP_CONTACT: customers see only the contact phone and WhatsApp number the shopkeeper entered for the shop (My shop → details); with neither entered they see GoKesari customer care instead. The registration phone and the owner's login number are never shown. REGISTERED_PHONE: the original behaviour — the registration phone is shown as the shop's customer care number.",
+    schema: z.object({
+      customerVisible: z.enum(["SHOP_CONTACT", "REGISTERED_PHONE"]),
+    }),
+    defaults: { customerVisible: "SHOP_CONTACT" },
+  },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;

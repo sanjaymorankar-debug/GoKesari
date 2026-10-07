@@ -691,8 +691,13 @@ export const shops = pgTable(
     name: text("name").notNull(),
     slug: text("slug").notNull(),
     ownerName: text("owner_name").notNull(),
+    /** Registration / owner contact — operations only; never shown to customers under rule shopContact. */
     phone: text("phone").notNull(),
     email: text("email"),
+    /** C1: the shop's own customer contact number, entered by the shopkeeper for customers to see. */
+    contactPhone: text("contact_phone"),
+    /** C1: the shop's WhatsApp number for customers (shown with a wa.me link). */
+    whatsappNumber: text("whatsapp_number"),
     addressLine1: text("address_line1").notNull(),
     addressLine2: text("address_line2"),
     area: text("area"),
