@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 
 import { RatingBadge } from "@/components/rating-badge";
+import { SafeImage } from "@/components/safe-image";
 import {
   AddRiderForm,
   MemberActions,
@@ -15,6 +16,7 @@ import { getCurrentUser } from "@/server/authz/guards";
 import { getSocietyDashboard } from "@/server/services/societies";
 import { searchShops } from "@/server/services/shops";
 import { getRule } from "@/server/services/settings";
+import { riderDisplayId, uploadedPhotoId } from "@/server/services/rider-files";
 
 export const metadata = { title: "Society dashboard" };
 export const dynamic = "force-dynamic";
@@ -126,9 +128,17 @@ export default async function SocietyDashboardPage({ params }: { params: Promise
           <Card className="divide-y divide-cream-100">
             {riders.map((r) => (
               <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 p-3 text-sm">
-                <span>
-                  {r.name} <span className="text-xs text-ink-500">· {r.vehicleType}</span> {r.preferred ? <StatusBadge status="PREFERRED" /> : null}{" "}
-                  <RatingBadge avgX100={r.ratingAvgX100} count={r.ratingCount} />
+                <span className="flex items-center gap-3">
+                  <SafeImage
+                    src={uploadedPhotoId(r.profilePhotoUrl) ? r.profilePhotoUrl : null}
+                    alt={`Photo of ${r.name}`}
+                    className="h-10 w-10 flex-none rounded-full object-cover"
+                  />
+                  <span>
+                    {r.name} <span className="font-mono text-xs text-ink-500">{riderDisplayId(r.deliveryPartnerId)}</span>{" "}
+                    <span className="text-xs text-ink-500">· {r.vehicleType}</span> {r.preferred ? <StatusBadge status="PREFERRED" /> : null}{" "}
+                    <RatingBadge avgX100={r.ratingAvgX100} count={r.ratingCount} />
+                  </span>
                 </span>
                 {isAdmin ? <RiderLinkActions linkId={r.id} status={r.status} preferred={r.preferred} /> : <StatusBadge status={r.status} />}
               </div>

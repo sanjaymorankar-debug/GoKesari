@@ -735,6 +735,9 @@ export async function getSocietyDashboard(societyId: string, actor: Actor) {
         vehicleType: deliveryPartners.vehicleType,
         ratingAvgX100: deliveryPartners.ratingAvgX100,
         ratingCount: deliveryPartners.ratingCount,
+        // C5: so the gate can match the rider's ID card (photo link is access-checked).
+        deliveryPartnerId: deliveryPartners.id,
+        profilePhotoUrl: deliveryPartners.profilePhotoUrl,
       })
       .from(societyRiders)
       .innerJoin(deliveryPartners, eq(societyRiders.deliveryPartnerId, deliveryPartners.id))

@@ -503,6 +503,16 @@ export const RULES = {
     }),
     defaults: { enabled: true, scope: "ANY_SHOP" },
   },
+  riderFiles: {
+    description:
+      "Rider photos, identity documents and ID card (C5). protectPhotos — on: a rider's photo opens only for the rider, Gokesari staff who manage riders, and the staff of a verified society that lists the rider, through a signed-in, access-checked link; a new photo must be uploaded (outside links are refused). Off: the original behaviour (anyone with the photo link can open it). kycDocuments — riders can upload photos of their identity documents; only an admin can open them (always, whatever this switch). idCard — approved riders get a digital ID card with their photo, name, rider ID and the verified societies that list them, to show at the society gate.",
+    schema: z.object({
+      protectPhotos: z.boolean(),
+      kycDocuments: z.boolean(),
+      idCard: z.boolean(),
+    }),
+    defaults: { protectPhotos: true, kycDocuments: true, idCard: true },
+  },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;

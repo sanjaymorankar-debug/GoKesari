@@ -1,7 +1,7 @@
 /**
  * Serves a stored image. Product photos are public and cacheable; return
  * evidence only goes to the customer who uploaded it, the shop the return is
- * for, and staff.
+ * for, and staff. Rider photos and identity documents are access-checked (C5).
  */
 import { NextResponse, type NextRequest } from "next/server";
 
@@ -11,6 +11,8 @@ import { getImage } from "@/server/services/image-store";
 import { isHiddenProductFile, isImageStaff } from "@/server/services/product-images";
 import { canViewReturnImage } from "@/server/services/returns";
 import { canViewDeliveryProof } from "@/server/services/delivery-proofs";
+import { canViewRiderKycFile, canViewRiderPhoto } from "@/server/services/rider-files";
+import { getRule } from "@/server/services/settings";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +33,20 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
       // NEW-007: the order's customer and shop, the rider who took it, operations.
       const user = await getCurrentUser();
       if (!user || !(await canViewDeliveryProof(image.id, user))) {
+        throw new AppError("NOT_FOUND", "Image not found.");
+      }
+      cache = "private, max-age=300";
+    } else if (image.purpose === "RIDER_KYC_DOC") {
+      // C5: a rider's identity document — admins only, always (each opening audited).
+      const user = await getCurrentUser();
+      if (!user || !(await canViewRiderKycFile(image.id, user))) {
+        throw new AppError("NOT_FOUND", "Image not found.");
+      }
+      cache = "private, no-store";
+    } else if (image.purpose === "PROFILE_PHOTO" && (await getRule("riderFiles")).protectPhotos) {
+      // C5: a rider's photo — the rider, rider staff, and staff of a verified society listing the rider.
+      const user = await getCurrentUser();
+      if (!user || !(await canViewRiderPhoto(image, user))) {
         throw new AppError("NOT_FOUND", "Image not found.");
       }
       cache = "private, max-age=300";
