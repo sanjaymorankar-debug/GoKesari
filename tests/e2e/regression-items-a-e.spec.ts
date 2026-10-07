@@ -703,6 +703,10 @@ test("D6 all five on together (the end state on test): accepted in time, packed,
 /* ===================================================== crons, access */
 
 test("every cron answers with the secret and refuses without it", async ({ request }) => {
+  // The cron endpoints share a rate limit (RATE_LIMITS.CRON: 30 a minute per
+  // client, fixed window). Earlier tests and the other browser project call
+  // them too, so start this test's 14 calls in a fresh window.
+  await new Promise((resolve) => setTimeout(resolve, 61_000));
   for (const path of ["daily-orders", "delivery-dispatch", "notifications", "risk-rules", "dispute-escalation", "shop-acceptance", "seller-verification"]) {
     expect((await request.post(`/api/cron/${path}`)).status(), path).toBe(403);
     const ok = await request.post(`/api/cron/${path}`, { headers: { Authorization: `Bearer ${CRON_SECRET}` } });
