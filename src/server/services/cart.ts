@@ -9,7 +9,7 @@
  * A cart may span several shops. Totals are therefore always computed *per
  * shop*, and checkout produces one order per shop (§17).
  */
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { notFound, validationFailed } from "@/lib/errors";
 import { lineTotalPaise, sumPaise } from "@/lib/money";
@@ -226,6 +226,19 @@ export async function getCartLineQuantities(
   return new Map(
     rows.map((r) => [r.shopProductId, { cartItemId: r.cartItemId, quantity: r.quantity }]),
   );
+}
+
+/**
+ * Units in the user's cart (getCart's itemCount) for the header badge: one
+ * query rather than the full priced cart on every page. Never creates a cart.
+ */
+export async function getCartItemCount(userId: string): Promise<number> {
+  const [row] = await db
+    .select({ units: sql<number>`coalesce(sum(${cartItems.quantity}), 0)`.mapWith(Number) })
+    .from(cartItems)
+    .innerJoin(carts, eq(cartItems.cartId, carts.id))
+    .where(eq(carts.userId, userId));
+  return row?.units ?? 0;
 }
 
 /**

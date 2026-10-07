@@ -9,6 +9,7 @@ import { carts } from "@/server/db/schema";
 import {
   addToCart,
   getCart,
+  getCartItemCount,
   getCartLineQuantities,
   removeCartItem,
 } from "@/server/services/cart";
@@ -70,6 +71,24 @@ describe("getCartLineQuantities", () => {
     const customer = await createUser();
 
     expect((await getCartLineQuantities(customer.id)).size).toBe(0);
+    expect(await db.select().from(carts)).toHaveLength(0);
+  });
+});
+
+describe("getCartItemCount", () => {
+  it("counts units across lines, as getCart's itemCount does", async () => {
+    const { customer, milkSp, curdSp } = await setup();
+    await addToCart(customer.id, milkSp.id, 2);
+    await addToCart(customer.id, curdSp.id, 3);
+
+    expect(await getCartItemCount(customer.id)).toBe(5);
+    expect(await getCartItemCount(customer.id)).toBe((await getCart(customer.id)).itemCount);
+  });
+
+  it("is zero for a user with no cart, without creating one", async () => {
+    const customer = await createUser();
+
+    expect(await getCartItemCount(customer.id)).toBe(0);
     expect(await db.select().from(carts)).toHaveLength(0);
   });
 });
