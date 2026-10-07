@@ -31,8 +31,10 @@ Authentication is a session cookie from Auth.js. Sign in at `/signin`.
 ## Catalogue (public)
 
 ### `GET /api/catalogue`
-Query: `department` (`DAIRY`|`BAKERY`), `categoryId`, `subscribable=true`
-→ `{ categories: [...], products: [...] }`
+Query: `department` (`DAIRY`|`BAKERY`), `categoryId`, `subscribable=true`,
+`limit` (1–100, default 100), `offset`
+→ `{ categories: [...], products: [...] }` — public columns only (no creator,
+approver or review notes). Products are paged; categories come whole.
 
 ### `GET /api/shops`
 Public shop search. Only `APPROVED` shops are ever returned, with the fields a
@@ -49,7 +51,11 @@ status. Anyone else: an `APPROVED` shop's card fields (as in `GET /api/shops`);
 404 for a shop that is not live.
 
 ### `GET /api/shops/{id}/products`
-Query: `onlineOnly=true` to restrict to online-purchasable offerings.
+The shop's owner, or staff with `shop-product:manage:any`: every listing with
+its stock settings; `onlineOnly=true` to restrict to online-purchasable
+offerings. Anyone else: an `APPROVED` shop's active online listings as the
+storefront shows them, `limit` (1–100, default 100) and `offset`; 404 for a
+shop that is not live.
 
 ---
 

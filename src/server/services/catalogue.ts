@@ -44,11 +44,25 @@ import {
 
 /* ------------------------------------------------------------ categories */
 
+/** Category columns anyone may see — not who created the category. */
+const publicCategoryColumns = {
+  id: productCategories.id,
+  department: productCategories.department,
+  name: productCategories.name,
+  slug: productCategories.slug,
+  description: productCategories.description,
+  imageUrl: productCategories.imageUrl,
+  sortOrder: productCategories.sortOrder,
+};
+
+export type PublicCategory = Pick<ProductCategory, keyof typeof publicCategoryColumns>;
+
+/** Active categories, for the public catalogue (GET /api/catalogue). */
 export async function listCategories(
   department?: Department,
-): Promise<ProductCategory[]> {
+): Promise<PublicCategory[]> {
   return db
-    .select()
+    .select(publicCategoryColumns)
     .from(productCategories)
     .where(
       and(
@@ -94,6 +108,34 @@ export async function createCategory(
 
 /* -------------------------------------------------- master catalogue */
 
+/**
+ * Master-product columns anyone may see: what is printed on the pack and how
+ * it is sold. Not who created or approved it, review notes or stock-alert
+ * defaults.
+ */
+const publicProductColumns = {
+  id: products.id,
+  categoryId: products.categoryId,
+  name: products.name,
+  slug: products.slug,
+  description: products.description,
+  specifications: products.specifications,
+  imageUrl: products.imageUrl,
+  kind: products.kind,
+  variant: products.variant,
+  mrpPaise: products.mrpPaise,
+  manufacturerName: products.manufacturerName,
+  countryOfOrigin: products.countryOfOrigin,
+  netQuantity: products.netQuantity,
+  netQuantityUnit: products.netQuantityUnit,
+  unit: products.unit,
+  unitSizeMilli: products.unitSizeMilli,
+  subscribable: products.subscribable,
+};
+
+export type PublicProduct = Pick<Product, keyof typeof publicProductColumns>;
+
+/** The public master catalogue (GET /api/catalogue), at most 100 per page. */
 export async function listProducts(options: {
   department?: Department;
   categoryId?: string;
@@ -105,9 +147,11 @@ export async function listProducts(options: {
    * only the admin approval queue passes "PENDING_APPROVAL" explicitly.
    */
   approvalStatus?: ProductApprovalStatus;
-}): Promise<(Product & { category: ProductCategory })[]> {
+  limit?: number;
+  offset?: number;
+}): Promise<(PublicProduct & { category: PublicCategory })[]> {
   const rows = await db
-    .select({ product: products, category: productCategories })
+    .select({ product: publicProductColumns, category: publicCategoryColumns })
     .from(products)
     .innerJoin(
       productCategories,
@@ -125,7 +169,10 @@ export async function listProducts(options: {
         options.subscribableOnly ? eq(products.subscribable, true) : undefined,
       ),
     )
-    .orderBy(asc(products.name));
+    // Tie-break on id so pages never overlap or skip a product.
+    .orderBy(asc(products.name), asc(products.id))
+    .limit(Math.min(options.limit ?? 100, 100))
+    .offset(options.offset ?? 0);
 
   return rows.map((r) => ({ ...r.product, category: r.category }));
 }

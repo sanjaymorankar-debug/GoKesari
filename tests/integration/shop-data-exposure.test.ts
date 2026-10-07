@@ -1,9 +1,10 @@
 /**
- * What the shop APIs send back, by viewer.
+ * What the shop and catalogue APIs send back, by viewer.
  *
- * The public reads (GET /api/shops, /api/shops/[id]) give anyone only what a
- * shop card shows: no owner phone, email or address, no tax or fee details,
- * nothing about a shop that is not live. The owner's and staff's action routes return the shop without the
+ * The public reads (GET /api/shops, /api/shops/[id], /api/shops/[id]/products,
+ * /api/catalogue) give anyone only what a storefront shows: no owner phone,
+ * email or address, no tax or fee details, nothing about a shop that is not
+ * live. The owner's and staff's action routes return the shop without the
  * PAN ciphertext, its blind index, the Shop Act matching key or staff ids.
  */
 import { eq } from "drizzle-orm";
@@ -31,6 +32,7 @@ vi.mock("@/server/auth", () => ({
   signOut: async () => {},
 }));
 
+import { GET as catalogueGet } from "@/app/api/catalogue/route";
 import { POST as approvePost } from "@/app/api/shops/[id]/approve/route";
 import { POST as classificationPost } from "@/app/api/shops/[id]/classification/route";
 import { PATCH as compliancePatch } from "@/app/api/shops/[id]/compliance/route";
@@ -40,13 +42,22 @@ import { POST as gstVerifyPost } from "@/app/api/shops/[id]/gst/verify/route";
 import { POST as panRejectPost } from "@/app/api/shops/[id]/pan/reject/route";
 import { POST as panPost } from "@/app/api/shops/[id]/pan/route";
 import { POST as panVerifyPost } from "@/app/api/shops/[id]/pan/verify/route";
+import { GET as shopProductsGet } from "@/app/api/shops/[id]/products/route";
 import { POST as rejectPost } from "@/app/api/shops/[id]/reject/route";
 import { GET as shopGet, PATCH as shopPatch } from "@/app/api/shops/[id]/route";
 import { GET as shopsGet, POST as shopsPost } from "@/app/api/shops/route";
 import { encryptPan, panBlindIndex } from "@/lib/pan-crypto";
 import { db } from "@/server/db";
-import { shopCategories, shops } from "@/server/db/schema";
-import { createShop, createUser, resetDatabase, verifySellerDocuments } from "../helpers/fixtures";
+import { productCategories, products, shopCategories, shopProducts, shops } from "@/server/db/schema";
+import {
+  createCategory,
+  createProduct,
+  createShop,
+  createShopProduct,
+  createUser,
+  resetDatabase,
+  verifySellerDocuments,
+} from "../helpers/fixtures";
 import { call } from "../helpers/http";
 
 const PAN = "ABCDE1234F";
@@ -391,5 +402,128 @@ describe("staff action responses", () => {
     expect(rejected.body).toMatchObject({ status: "REJECTED", rejectionReason: "Licence photo unreadable" });
     expectNoInternals(rejected.body, shop);
     expect(JSON.stringify(rejected.body)).not.toContain(operator.id);
+  });
+});
+
+describe("GET /api/shops/[id]/products", () => {
+  async function listingSetup(status: "APPROVED" | "PENDING_APPROVAL" = "APPROVED") {
+    const owner = await createUser({ role: "SHOP_OWNER" });
+    const admin = await createUser({ role: "ADMIN" });
+    const shop = await createShop(owner.id, { status });
+    const category = await createCategory({ department: "DAIRY", name: "Milk" });
+    const milk = await createProduct(category.id, { name: "Cow Milk" });
+    const curd = await createProduct(category.id, { name: "Curd" });
+    const ghee = await createProduct(category.id, { name: "Ghee" });
+    await db
+      .update(products)
+      .set({ createdBy: owner.id, approvedBy: admin.id, rejectionReason: "First draft refused" })
+      .where(eq(products.id, milk.id));
+    const online = await createShopProduct(shop.id, milk.id, { onlinePricePaise: 7000 });
+    await db
+      .update(shopProducts)
+      .set({ offlineStock: 37, lowStockThreshold: 5, reorderLevel: 9, reorderQuantity: 40 })
+      .where(eq(shopProducts.id, online.id));
+    const offlineOnly = await createShopProduct(shop.id, curd.id, {
+      onlineSaleEnabled: false,
+      offlineSaleEnabled: true,
+    });
+    const inactive = await createShopProduct(shop.id, ghee.id, { isActive: false });
+    return { owner, admin, shop, online, offlineOnly, inactive };
+  }
+
+  it("shows anyone an approved shop's active online listings, storefront fields only", async () => {
+    const { owner, admin, shop, online } = await listingSetup();
+
+    const res = await call(shopProductsGet, `/api/shops/${shop.id}/products`, { params: { id: shop.id } });
+    expect(res.status).toBe(200);
+    expect(res.body.map((l: { shopProductId: string }) => l.shopProductId)).toEqual([online.id]);
+    const [listing] = res.body;
+    expect(listing).toMatchObject({
+      productName: "Cow Milk",
+      categoryName: "Milk",
+      onlinePricePaise: 7000,
+      onlineSaleEnabled: true,
+      shopId: shop.id,
+      shopSlug: shop.slug,
+    });
+    for (const key of ["offlineStock", "lowStockThreshold", "reorderLevel", "reorderQuantity", "product"]) {
+      expect(listing).not.toHaveProperty(key);
+    }
+    const text = JSON.stringify(res.body);
+    expect(text).not.toContain(owner.id);
+    expect(text).not.toContain(admin.id);
+    expect(text).not.toContain("First draft refused");
+    expect(text).not.toContain(OWNER_PHONE);
+  });
+
+  it("404s a shop that is not live, unless the owner or staff ask", async () => {
+    const { owner, shop } = await listingSetup("PENDING_APPROVAL");
+    const params = { id: shop.id };
+    expect((await call(shopProductsGet, `/api/shops/${shop.id}/products`, { params })).status).toBe(404);
+
+    signIn(owner);
+    const own = await call(shopProductsGet, `/api/shops/${shop.id}/products`, { params });
+    expect(own.status).toBe(200);
+    expect(own.body).toHaveLength(3);
+  });
+
+  it("gives the owner and staff every listing with its stock settings, as before", async () => {
+    const { owner, shop, online, offlineOnly, inactive } = await listingSetup();
+    const operator = await createUser({ role: "OPERATOR" });
+    const params = { id: shop.id };
+
+    for (const viewer of [owner, operator]) {
+      signIn(viewer);
+      const all = await call(shopProductsGet, `/api/shops/${shop.id}/products`, { params });
+      expect(all.status).toBe(200);
+      expect(all.body.map((l: { id: string }) => l.id).sort()).toEqual(
+        [online.id, offlineOnly.id, inactive.id].sort(),
+      );
+      const milk = all.body.find((l: { id: string }) => l.id === online.id);
+      expect(milk).toMatchObject({ offlineStock: 37, lowStockThreshold: 5, reorderLevel: 9 });
+      expect(milk.product.name).toBe("Cow Milk");
+
+      const onlineOnly = await call(shopProductsGet, `/api/shops/${shop.id}/products?onlineOnly=true`, { params });
+      expect(onlineOnly.body.map((l: { id: string }) => l.id)).toEqual([online.id]);
+    }
+  });
+});
+
+describe("GET /api/catalogue", () => {
+  it("lists categories and approved products without creator or review details, a page at a time", async () => {
+    const admin = await createUser({ role: "ADMIN" });
+    const category = await createCategory({ department: "DAIRY", name: "Milk" });
+    await db.update(productCategories).set({ createdBy: admin.id }).where(eq(productCategories.id, category.id));
+    const names = ["Buffalo Milk", "Cow Milk", "Toned Milk"];
+    for (const name of names) {
+      const product = await createProduct(category.id, { name });
+      await db
+        .update(products)
+        .set({ createdBy: admin.id, approvedBy: admin.id, rejectionReason: "Refused once", defaultReorderLevel: 12 })
+        .where(eq(products.id, product.id));
+    }
+
+    const res = await call(catalogueGet, "/api/catalogue?department=DAIRY");
+    expect(res.status).toBe(200);
+    expect(res.body.categories).toHaveLength(1);
+    expect(res.body.categories[0]).toMatchObject({ id: category.id, name: "Milk", department: "DAIRY" });
+    expect(res.body.categories[0]).not.toHaveProperty("createdBy");
+    expect(res.body.products.map((p: { name: string }) => p.name)).toEqual(names);
+    const [first] = res.body.products;
+    expect(first).toMatchObject({ unit: "L", unitSizeMilli: 1000, subscribable: true, categoryId: category.id });
+    expect(first.category.name).toBe("Milk");
+    for (const key of ["createdBy", "approvedBy", "approvedAt", "rejectionReason", "defaultReorderLevel"]) {
+      expect(first).not.toHaveProperty(key);
+    }
+    expect(first.category).not.toHaveProperty("createdBy");
+    const text = JSON.stringify(res.body);
+    expect(text).not.toContain(admin.id);
+    expect(text).not.toContain("Refused once");
+
+    const page1 = await call(catalogueGet, "/api/catalogue?limit=2");
+    const page2 = await call(catalogueGet, "/api/catalogue?limit=2&offset=2");
+    expect(page1.body.products.map((p: { name: string }) => p.name)).toEqual(names.slice(0, 2));
+    expect(page2.body.products.map((p: { name: string }) => p.name)).toEqual(names.slice(2));
+    expect((await call(catalogueGet, "/api/catalogue?limit=500")).status).toBe(422);
   });
 });
