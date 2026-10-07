@@ -17,8 +17,10 @@ const buttonClass =
   "rounded-lg bg-kesari-600 px-4 py-2 text-sm font-medium text-white hover:bg-kesari-800 disabled:opacity-50";
 
 /**
- * Mobile number or email → (email, if the number is new) → code from email.
- * Verification is a server action that opens the session.
+ * Mobile number or email → code from email. A mobile number gets the same
+ * reply whether or not it is registered, so a new number signs up from the
+ * code step by giving an email. Verification is a server action that opens
+ * the session.
  */
 export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
   const [step, setStep] = useState<Step>("identify");
@@ -27,7 +29,8 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
   const [mobile, setMobile] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
   const [emailInput, setEmailInput] = useState("");
-  const [maskedEmail, setMaskedEmail] = useState("");
+  /** Where the code went: the email given, masked, or null for "the account's email, if registered". */
+  const [sentTo, setSentTo] = useState<string | null>(null);
   const [code, setCode] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
@@ -57,11 +60,7 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
       }
       setMobile(next.mobile);
       setEmail(next.email);
-      if (body.status === "EMAIL_REQUIRED") {
-        setStep("email");
-        return;
-      }
-      setMaskedEmail(body.maskedEmail);
+      setSentTo(body.status === "SENT" ? body.maskedEmail : null);
       setResendAt(Date.now() + (body.resendAfterSeconds ?? 60) * 1000);
       setNow(Date.now());
       setCode("");
@@ -155,8 +154,7 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
       {step === "email" ? (
         <form onSubmit={submitEmail}>
           <p className="mb-2 text-sm text-ink-600">
-            +91 {mobile} is not registered yet. Enter your email address — we&apos;ll send the code there and
-            link this number to your account.
+            Enter your email address. We&apos;ll send the code there and link +91 {mobile} to your account.
           </p>
           <div className="flex gap-2">
             <input
@@ -182,7 +180,15 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
       {step === "code" ? (
         <form onSubmit={submitCode}>
           <p className="mb-2 text-sm text-ink-600" data-testid="otp-sent-to">
-            We sent a code to <strong>{maskedEmail}</strong>.
+            {sentTo ? (
+              <>
+                We sent a code to <strong>{sentTo}</strong>.
+              </>
+            ) : (
+              <>
+                If +91 {mobile} is registered, we&apos;ve emailed a code to the email address on that account.
+              </>
+            )}
           </p>
           <div className="flex gap-2">
             <input
@@ -213,6 +219,21 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
               Use a different number or email
             </button>
           </div>
+          {sentTo === null ? (
+            <p className="mt-3 text-xs text-ink-600">
+              New to GoKesari, or no email after a minute?{" "}
+              <button
+                type="button"
+                className="font-medium text-kesari-700 underline"
+                onClick={() => {
+                  setError(null);
+                  setStep("email");
+                }}
+              >
+                Sign up with your email
+              </button>
+            </p>
+          ) : null}
         </form>
       ) : null}
 

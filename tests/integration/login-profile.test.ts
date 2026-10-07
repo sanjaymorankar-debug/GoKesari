@@ -23,6 +23,14 @@ vi.mock("@/server/email/transport", () => ({
   EmailUnavailableError: class extends Error {},
 }));
 
+// `after` only works inside a request; here the deferred work just runs in the background.
+vi.mock("next/server", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("next/server")>()),
+  after: (task: () => Promise<void>) => {
+    void task();
+  },
+}));
+
 vi.mock("@/server/auth", () => ({
   auth: async () => state.session,
   handlers: {},
@@ -89,8 +97,8 @@ function signInAs(user: { id: string; email: string; name: string | null; role: 
 }
 
 describe("new user via mobile number", () => {
-  it("asks for an email, sends the code there, and creates the account with the number and a wallet", async () => {
-    expect(await requestLoginOtp({ mobile: "98765 43210" })).toEqual({ status: "EMAIL_REQUIRED" });
+  it("gets the same reply as a registered number, then signs up with an email and gets the number and a wallet", async () => {
+    expect(await requestLoginOtp({ mobile: "98765 43210" })).toMatchObject({ status: "SENT_IF_REGISTERED" });
     expect(state.outbox).toHaveLength(0);
 
     const sent = await requestLoginOtp({ mobile: "9876543210", email: "Sanjay@Example.com" });
@@ -110,10 +118,11 @@ describe("new user via mobile number", () => {
     expect(nextOnboardingStep(await getProfile(user.id))).toBe("DETAILS");
   });
 
-  it("next time, the registered number gets its code at the account's email, shown masked", async () => {
+  it("next time, the registered number gets its code at the account's email without the reply naming it", async () => {
     const existing = await createUser({ email: "priya@gmail.com", mobile: "9123456789" });
     const sent = await requestLoginOtp({ mobile: "+91 91234 56789" });
-    expect(sent).toMatchObject({ status: "SENT", maskedEmail: "pr***@gmail.com" });
+    expect(sent).toMatchObject({ status: "SENT_IF_REGISTERED" });
+    expect(sent).not.toHaveProperty("maskedEmail");
 
     const { user, isNewUser } = await verifyLoginOtp({ mobile: "9123456789", code: lastCodeTo("priya@gmail.com") });
     expect(isNewUser).toBe(false);
@@ -129,11 +138,67 @@ describe("new user via mobile number", () => {
     expect(user.phoneE164).toBe("+919000000001");
   });
 
-  it("refuses an email that already belongs to an account with a different number", async () => {
-    await createUser({ email: "taken@example.com", mobile: "9111111111" });
-    await expect(requestLoginOtp({ mobile: "9222222222", email: "taken@example.com" })).rejects.toThrow(
-      /already registered with a different mobile number/,
-    );
+  it("an email registered with a different number still gets its code, and the account keeps its own number", async () => {
+    const existing = await createUser({ email: "taken@example.com", mobile: "9111111111" });
+    const sent = await requestLoginOtp({ mobile: "9222222222", email: "taken@example.com" });
+    expect(sent).toMatchObject({ status: "SENT", maskedEmail: "ta***@example.com" });
+
+    const { user } = await verifyLoginOtp({ mobile: "9222222222", email: "taken@example.com", code: lastCodeTo("taken@example.com") });
+    expect(user.id).toBe(existing.id);
+    expect(user.phoneE164).toBe("+919111111111");
+  });
+
+  it("a registered number typed with a new email sends the code to that email, and only verifying says the number is taken", async () => {
+    await createUser({ email: "owner@example.com", mobile: "9444444444" });
+    const sent = await requestLoginOtp({ mobile: "9444444444", email: "someone@example.com" });
+    expect(sent).toMatchObject({ status: "SENT", maskedEmail: "so***@example.com" });
+    expect(state.outbox.map((m) => m.to)).toEqual(["someone@example.com"]);
+
+    await expect(
+      verifyLoginOtp({ mobile: "9444444444", email: "someone@example.com", code: lastCodeTo("someone@example.com") }),
+    ).rejects.toThrow(MOBILE_IN_USE);
+    expect(await db.query.users.findFirst({ where: eq(users.email, "someone@example.com") })).toBeUndefined();
+  });
+});
+
+describe("mobile number on its own", () => {
+  it("gives the same reply whether or not the number is registered", async () => {
+    await createUser({ email: "known@example.com", mobile: "9555555555" });
+    const registered = await requestLoginOtp({ mobile: "9555555555" });
+    const unregistered = await requestLoginOtp({ mobile: "9666666666" });
+    expect(registered).toEqual(unregistered);
+    expect(state.outbox.map((m) => m.to)).toEqual(["known@example.com"]);
+  });
+
+  it("runs the lookup's follow-up through defer, so the reply does not wait for the email", async () => {
+    await createUser({ email: "later@example.com", mobile: "9555500000" });
+    const deferred: (() => Promise<void>)[] = [];
+    const reply = await requestLoginOtp({ mobile: "9555500000", defer: (task) => deferred.push(task) });
+    expect(reply).toMatchObject({ status: "SENT_IF_REGISTERED" });
+    expect(state.outbox).toHaveLength(0);
+
+    await Promise.all(deferred.map((task) => task()));
+    expect(lastCodeTo("later@example.com")).toMatch(/^\d+$/);
+  });
+
+  it("rate-limits each number the same way whether or not it is registered", async () => {
+    await createUser({ email: "busy@example.com", mobile: "9555511111" });
+    for (const mobile of ["9555511111", "9666611111"]) {
+      const outcomes: string[] = [];
+      for (let i = 0; i < 10; i += 1) {
+        await expireCooldown("busy@example.com");
+        outcomes.push(await requestLoginOtp({ mobile }).then((r) => r.status, (e: Error) => e.message));
+      }
+      expect(outcomes).toContain("SENT_IF_REGISTERED");
+      expect(outcomes.at(-1)).toMatch(/too many/i);
+    }
+  });
+
+  it("a resend inside the cooldown still gets the same reply", async () => {
+    await createUser({ email: "again@example.com", mobile: "9555522222" });
+    await requestLoginOtp({ mobile: "9555522222" });
+    expect(await requestLoginOtp({ mobile: "9555522222" })).toMatchObject({ status: "SENT_IF_REGISTERED" });
+    expect(state.outbox).toHaveLength(1);
   });
 });
 
@@ -342,16 +407,17 @@ describe("wrong or expired code", () => {
     await expect(requestLoginOtp({ email: "spam@example.com" })).rejects.toThrow(/Please wait \d+ seconds/);
   });
 
-  it("refuses a suspended account", async () => {
+  it("sends no code to a suspended account, with the same reply as any other", async () => {
     const user = await createUser({ email: "bad@example.com", mobile: "9999900000" });
     await db.update(users).set({ status: "SUSPENDED" }).where(eq(users.id, user.id));
-    await expect(requestLoginOtp({ mobile: "9999900000" })).rejects.toThrow(/suspended or closed/);
-    await expect(requestLoginOtp({ email: "bad@example.com" })).rejects.toThrow(/suspended or closed/);
+    expect(await requestLoginOtp({ mobile: "9999900000" })).toEqual(await requestLoginOtp({ mobile: "9999900001" }));
+    expect(await requestLoginOtp({ email: "bad@example.com" })).toMatchObject({ status: "SENT", maskedEmail: "ba***@example.com" });
+    expect(state.outbox).toHaveLength(0);
   });
 });
 
 describe("POST /api/otp/request", () => {
-  it("validates input and reports which step comes next", async () => {
+  it("validates input and gives a mobile number the same reply as an email", async () => {
     expect((await call(otpRequestRoute, "/api/otp/request", { method: "POST", body: {} })).status).toBe(422);
     const badMobile = await call(otpRequestRoute, "/api/otp/request", { method: "POST", body: { mobile: "12345" } });
     expect(badMobile.status).toBe(422);
@@ -359,10 +425,24 @@ describe("POST /api/otp/request", () => {
     expect(badEmail.status).toBe(422);
 
     const unknown = await call(otpRequestRoute, "/api/otp/request", { method: "POST", body: { mobile: "9812345678" } });
-    expect(unknown.body).toEqual({ status: "EMAIL_REQUIRED" });
+    expect(unknown.status).toBe(200);
+    expect(unknown.body).toMatchObject({ status: "SENT_IF_REGISTERED" });
+
+    const byEmail = await call(otpRequestRoute, "/api/otp/request", { method: "POST", body: { email: "route@example.com" } });
+    expect(byEmail.body).toMatchObject({ status: "SENT", maskedEmail: "ro***@example.com" });
 
     const info = await call(otpInfoRoute, "/api/otp/request");
     expect(info.body).toMatchObject({ email: true, codeLength: 6 });
+  });
+
+  it("answers a registered number exactly as an unregistered one, and emails the code after replying", async () => {
+    await createUser({ email: "member@example.com", mobile: "9812300000" });
+    const registered = await call(otpRequestRoute, "/api/otp/request", { method: "POST", body: { mobile: "9812300000" } });
+    const unregistered = await call(otpRequestRoute, "/api/otp/request", { method: "POST", body: { mobile: "9812399999" } });
+    expect(registered.status).toBe(unregistered.status);
+    expect(registered.body).toEqual(unregistered.body);
+
+    await vi.waitFor(() => expect(lastCodeTo("member@example.com")).toMatch(/^\d+$/));
   });
 });
 

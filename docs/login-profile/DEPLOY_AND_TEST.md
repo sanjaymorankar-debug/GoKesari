@@ -6,8 +6,8 @@ Covers migration `0038_login_profile` (numbered `0037` on staging before the mer
 
 | Situation | Behaviour |
 |---|---|
-| Enters a **registered mobile** | Code emailed to the account's email, shown masked (`sa***@gmail.com`). |
-| Enters an **unregistered mobile** | Asked for an email; code sent there. On success the number is saved on the account (new, or an existing email-only account). |
+| Enters a **registered mobile** | Code emailed to the account's email. The screen says "If +91 … is registered, we've emailed a code…" and does not show the address. |
+| Enters an **unregistered mobile** | The same screen and reply as a registered one, so nobody can find out which numbers have accounts. "Sign up with your email" sends a code to the email typed; on success the number is saved on the account (new, or an existing email-only account) if no other account has it. |
 | Enters an **email** | Code sent there. A new account (with wallet) is created on first success. |
 | First sign-in, or details never saved | `/onboarding` shows: name, gender, mobile (email read-only) → delivery address with map pin / "Use my current location". Everything optional; **Fill in later** skips. Shown again on every sign-in until saved once. |
 | Details saved but **no mobile** | "Add your mobile number for faster login next time" popup after each sign-in; **Not now** closes it. |
@@ -64,14 +64,14 @@ Only after every checklist item passes on test:
 Use a real inbox you can read. Codes arrive with the subject "NNNNNN is your Gokesari sign-in code".
 
 **New user via mobile**
-- [ ] Enter an unused 10-digit mobile → "…is not registered yet. Enter your email address".
-- [ ] Enter an unused email → "We sent a code to ab***@…"; the email arrives.
+- [ ] Enter an unused 10-digit mobile → "If +91 … is registered, we've emailed a code…", the same as for a registered number; no email arrives.
+- [ ] Tap "Sign up with your email", enter an unused email → "We sent a code to ab***@…"; the email arrives.
 - [ ] Enter the code → "Tell us about you" with the mobile pre-filled and the email read-only.
 - [ ] Save name + gender → "Delivery address" step. Tap "Use my current location" (and drag the pin if Maps is configured), fill in the fields → Save. Lands on home.
 - [ ] My Profile shows the name, gender, mobile, email and the default address with "Geo-tagged at …". The wallet exists.
 
 **Returning user via mobile**
-- [ ] Sign out, enter the same mobile → the code goes straight to the masked account email; after the code, home opens with no form.
+- [ ] Sign out, enter the same mobile → "If +91 … is registered…" (no address shown) and the code arrives at the account email; after the code, home opens with no form.
 
 **New user via email**
 - [ ] Enter an unused email → code → details form with an empty mobile field.
@@ -96,7 +96,8 @@ Use a real inbox you can read. Codes arrive with the subject "NNNNNN is your Gok
 **Duplicate mobile or email**
 - [ ] Add a mobile already on another account (profile, popup or onboarding) → "This mobile number is already linked to another account…".
 - [ ] Change the email to one another account uses → "This email address is already used by another account."
-- [ ] Unregistered mobile + an email that belongs to an account with a different mobile → "This email is already registered with a different mobile number…".
+- [ ] A mobile + an email that belongs to an account with a different mobile → the code goes to that email; signing in opens that account and it keeps its own mobile.
+- [ ] A mobile already on another account + a new email → the code goes to the new email; entering it shows "This mobile number is already linked to another account…" and no account is created.
 - [ ] Admin → Release a mobile number → the owner can now add it.
 
 **Wrong or expired code, limits**
@@ -105,4 +106,4 @@ Use a real inbox you can read. Codes arrive with the subject "NNNNNN is your Gok
 - [ ] Use the same code twice → the second time is refused. Request a new code → the older one stops working.
 - [ ] "Resend code" is disabled with a countdown for 60 seconds.
 - [ ] Invalid input: `12345`, `5876543210`, `abc@` → a clear validation message, and no email is sent.
-- [ ] A suspended account → "This account is suspended or closed…".
+- [ ] A suspended account → the same reply as any other request, and no code is sent.
