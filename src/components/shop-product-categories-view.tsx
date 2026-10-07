@@ -6,6 +6,7 @@
 import { ProductBrowser, PAGE_SIZE, readBrowseParams } from "@/components/product-browser";
 import { ShopProductCategoriesManager } from "@/components/shop-product-categories-manager";
 import { Section } from "@/components/ui";
+import type { UserRole } from "@/server/db/schema";
 import {
   listProductsVisibleToShop,
   listSelectableCategories,
@@ -14,17 +15,19 @@ import {
 
 export async function ShopProductCategoriesView({
   shopId,
+  viewer,
   basePath,
   hidden = {},
   params,
 }: {
   shopId: string;
+  viewer: { role: UserRole };
   basePath: string;
   hidden?: Record<string, string>;
   params: { q?: string; category?: string; offset?: string };
 }) {
   const { query, categoryId, offset } = readBrowseParams(params);
-  const [assigned, selectable] = await Promise.all([listShopProductCategories(shopId), listSelectableCategories()]);
+  const [assigned, selectable] = await Promise.all([listShopProductCategories(shopId, viewer), listSelectableCategories()]);
   const carried = assigned.map((a) => ({ id: a.categoryId, name: a.name }));
   // Filtering by a category the shop does not carry would show nothing; ignore it.
   const filter = carried.some((c) => c.id === categoryId) ? categoryId : "";

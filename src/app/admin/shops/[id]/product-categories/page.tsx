@@ -38,7 +38,12 @@ export default async function AdminShopProductCategoriesPage({
           </LinkButton>
         }
       />
-      <ShopProductCategoriesView shopId={shop.id} basePath={`/admin/shops/${shop.id}/product-categories`} params={await searchParams} />
+      <ShopProductCategoriesView
+        shopId={shop.id}
+        viewer={user}
+        basePath={`/admin/shops/${shop.id}/product-categories`}
+        params={await searchParams}
+      />
     </div>
   );
 }
