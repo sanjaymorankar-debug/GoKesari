@@ -21,7 +21,6 @@ export const CATEGORIES = {
   WALLET: { label: "Wallet", description: "Top-ups and balance reminders." },
   SUBSCRIPTIONS: { label: "Subscriptions", description: "Upcoming and changed subscription deliveries." },
   COMMUNITY: { label: "Society", description: "Society membership and security notices." },
-  MARKETING: { label: "Offers & campaigns", description: "Promotions from shops you have ordered from." },
   ACCOUNT_SECURITY: { label: "Account & security", description: "Sign-ins, number and role changes. Always sent." },
   GENERAL: { label: "Other updates", description: "Everything else." },
 } as const;
@@ -43,7 +42,10 @@ const PREFIX_CATEGORY: [string, CategoryKey][] = [
   ["subscription.", "SUBSCRIPTIONS"],
   ["society.", "COMMUNITY"],
   ["rating.", "COMMUNITY"],
-  ["marketing.", "MARKETING"],
+  // A campaign's approval or rejection is news for its shop's owner. Shop
+  // promotions themselves are not routed here: sendCampaign messages only
+  // customers who granted marketing consent (the switch on /profile).
+  ["marketing.campaign_decided", "SHOP"],
   ["security.", "ACCOUNT_SECURITY"],
   ["auth.", "ACCOUNT_SECURITY"],
 ];
