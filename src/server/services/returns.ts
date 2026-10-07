@@ -357,26 +357,37 @@ export async function canViewReturnImage(imageId: string, owner: string | null, 
 
 /* -------------------------------------------------------------- reading */
 
-export interface ReturnSummary extends ReturnRequest {
+/** A row of a returns list. Like ReturnDetail, no customer address, user or staff ids. */
+export interface ReturnSummary
+  extends Pick<ReturnRequest, "id" | "returnNumber" | "status" | "refundAmountPaise" | "refundedPaise" | "createdAt"> {
   orderNumber: string;
   shopName: string;
   itemCount: number;
 }
 
-async function summarise(rows: { ret: ReturnRequest; orderNumber: string; shopName: string }[]): Promise<ReturnSummary[]> {
+async function summarise(rows: Omit<ReturnSummary, "itemCount">[]): Promise<ReturnSummary[]> {
   if (rows.length === 0) return [];
   const counts = await db
     .select({ returnId: returnItems.returnId, n: sql<number>`count(*)::int` })
     .from(returnItems)
-    .where(inArray(returnItems.returnId, rows.map((r) => r.ret.id)))
+    .where(inArray(returnItems.returnId, rows.map((r) => r.id)))
     .groupBy(returnItems.returnId);
   const byId = new Map(counts.map((c) => [c.returnId, c.n]));
-  return rows.map((r) => ({ ...r.ret, orderNumber: r.orderNumber, shopName: r.shopName, itemCount: byId.get(r.ret.id) ?? 0 }));
+  return rows.map((r) => ({ ...r, itemCount: byId.get(r.id) ?? 0 }));
 }
 
 const summaryQuery = () =>
   db
-    .select({ ret: returnRequests, orderNumber: orders.orderNumber, shopName: shops.name })
+    .select({
+      id: returnRequests.id,
+      returnNumber: returnRequests.returnNumber,
+      status: returnRequests.status,
+      refundAmountPaise: returnRequests.refundAmountPaise,
+      refundedPaise: returnRequests.refundedPaise,
+      createdAt: returnRequests.createdAt,
+      orderNumber: orders.orderNumber,
+      shopName: shops.name,
+    })
     .from(returnRequests)
     .innerJoin(orders, eq(returnRequests.orderId, orders.id))
     .innerJoin(shops, eq(returnRequests.shopId, shops.id));

@@ -33,6 +33,7 @@ vi.mock("@/server/auth", () => ({
 }));
 
 import { GET as returnGet, PATCH as returnPatch } from "@/app/api/returns/[id]/route";
+import { GET as returnsList } from "@/app/api/returns/route";
 import { db } from "@/server/db";
 import { orderItems, orders, returnPickups } from "@/server/db/schema";
 import { addToCart } from "@/server/services/cart";
@@ -188,6 +189,30 @@ describe("GET /api/returns/[id]", () => {
     expect(r.body.viewer).toBe("STAFF");
     expect(r.body.customerName).toBe(customer.name);
     expect(Object.keys(r.body.pickup).sort()).toEqual(["scheduledFor", "status"]);
+    expectNoRowLeaks(r.body, [customer.id, owner.id]);
+  });
+});
+
+describe("GET /api/returns", () => {
+  it("lists the shop's returns without the customer's address or ids", async () => {
+    const { customer, owner, ret } = await returnUnderReview();
+    signInAs(owner);
+
+    const r = await call(returnsList, `/api/returns?shopId=${ret.shopId}`);
+    expect(r.status).toBe(200);
+    expect(r.body.returns).toHaveLength(1);
+    expect(Object.keys(r.body.returns[0]).sort()).toEqual([
+      "createdAt",
+      "id",
+      "itemCount",
+      "orderNumber",
+      "refundAmountPaise",
+      "refundedPaise",
+      "returnNumber",
+      "shopName",
+      "status",
+    ]);
+    expect(r.body.returns[0]).toMatchObject({ id: ret.id, returnNumber: ret.returnNumber, status: "UNDER_REVIEW", itemCount: 1 });
     expectNoRowLeaks(r.body, [customer.id, owner.id]);
   });
 });
