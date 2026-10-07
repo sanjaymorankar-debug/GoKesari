@@ -26,6 +26,7 @@ import { isValidEmail, maskEmailAddress, normalizeEmail, parseIndianMobile } fro
 import { bootstrapAdminEmails, getEnv } from "@/lib/env";
 import { AppError, conflict, forbidden, isUniqueViolation, validationFailed } from "@/lib/errors";
 import { maskPhone } from "@/lib/phone";
+import { enforceRateLimit } from "@/server/api/rate-limit";
 import { db } from "@/server/db";
 import { loginOtps, users, wallets, type User, type UserRole } from "@/server/db/schema";
 import { sendEmail } from "@/server/email/transport";
@@ -44,9 +45,15 @@ export const EMAIL_IN_USE = "This email address is already used by another accou
 type OtpPurpose = "LOGIN" | "EMAIL_CHANGE";
 
 export type LoginOtpRequestResult =
+  /** Sent to the email in the request. */
   | { status: "SENT"; maskedEmail: string; resendAfterSeconds: number; expiryMinutes: number }
-  /** The mobile number is not registered: ask for an email and request again with both. */
-  | { status: "EMAIL_REQUIRED" };
+  /**
+   * A mobile number on its own gets this same reply whether or not it is
+   * registered, so the form cannot be used to find out. A registered number's
+   * code goes to its account's email; a new number signs up by requesting
+   * again with an email.
+   */
+  | { status: "SENT_IF_REGISTERED"; resendAfterSeconds: number; expiryMinutes: number };
 
 export interface VerifiedLogin {
   user: User;
@@ -271,33 +278,62 @@ export async function requestLoginOtp(input: {
   mobile?: string | null;
   email?: string | null;
   ip?: string | null;
+  /**
+   * Runs a mobile-only request's lookup follow-up (sending the code). The
+   * route passes `after`, so a registered number answers as fast as an
+   * unregistered one; without it the work runs before returning.
+   */
+  defer?: (task: () => Promise<void>) => void;
 }): Promise<LoginOtpRequestResult> {
   const ip = input.ip ?? null;
   const email = input.email?.trim() ? parseEmail(input.email) : null;
 
-  if (input.mobile?.trim()) {
+  if (input.mobile?.trim() && !email) {
     const mobile = parseMobile(input.mobile);
+    const rules = await getRule("otp");
+    // Limited per number whether or not it is registered, so hitting the
+    // limit tells nothing either.
+    enforceRateLimit(`otp-mobile:${mobile.e164}`, {
+      limit: rules.maxResendsPerWindow,
+      windowMs: rules.resendWindowMinutes * 60_000,
+    });
     const owner = await findLiveUserByPhone(mobile.e164);
-    if (owner) {
-      if (owner.status !== "ACTIVE") throw forbidden(ACCOUNT_BLOCKED);
-      const sent = await issueCode({ email: owner.email, purpose: "LOGIN", userId: owner.id, phoneE164: mobile.e164, ip });
-      return { status: "SENT", maskedEmail: maskEmailAddress(owner.email), ...sent };
-    }
-    if (!email) return { status: "EMAIL_REQUIRED" };
-
-    const emailOwner = await findLiveUserByEmail(email);
-    if (emailOwner?.phoneE164 && emailOwner.phoneE164 !== mobile.e164) {
-      throw conflict("This email is already registered with a different mobile number. Sign in with the email, or use that mobile number.");
-    }
-    if (emailOwner && emailOwner.status !== "ACTIVE") throw forbidden(ACCOUNT_BLOCKED);
-    const sent = await issueCode({ email, purpose: "LOGIN", userId: emailOwner?.id ?? null, phoneE164: mobile.e164, ip });
-    return { status: "SENT", maskedEmail: maskEmailAddress(email), ...sent };
+    const followUp = async () => {
+      if (!owner) return;
+      if (owner.status !== "ACTIVE") {
+        await auditOtp(AUDIT_ACTIONS.OTP_BLOCKED, { email: owner.email, phoneE164: mobile.e164, ip, reason: "account_blocked" });
+        return;
+      }
+      await issueCode({ email: owner.email, purpose: "LOGIN", userId: owner.id, phoneE164: mobile.e164, ip }).catch(
+        (error: unknown) => {
+          // Cooldowns and failed sends are audited by issueCode; the reply stays the same.
+          if (!(error instanceof AppError)) console.error("[otp] mobile sign-in code failed", error);
+        },
+      );
+    };
+    if (input.defer) input.defer(followUp);
+    else await followUp();
+    return { status: "SENT_IF_REGISTERED", resendAfterSeconds: rules.resendCooldownSeconds, expiryMinutes: rules.expiryMinutes };
   }
 
   if (!email) throw validationFailed("Enter your mobile number or email address.");
+  // The code goes to the email given, never to the account a number belongs
+  // to: answering with that account's address, or refusing an email that is
+  // registered with another number, would tell anyone which numbers have
+  // accounts. Verifying links the number only if it is free.
+  const phoneE164 = input.mobile?.trim() ? parseMobile(input.mobile).e164 : null;
   const owner = await findLiveUserByEmail(email);
-  if (owner && owner.status !== "ACTIVE") throw forbidden(ACCOUNT_BLOCKED);
-  const sent = await issueCode({ email, purpose: "LOGIN", userId: owner?.id ?? null, phoneE164: null, ip });
+  if (owner && owner.status !== "ACTIVE") {
+    const rules = await getRule("otp");
+    await auditOtp(AUDIT_ACTIONS.OTP_BLOCKED, { email, phoneE164, ip, reason: "account_blocked" });
+    return {
+      status: "SENT",
+      maskedEmail: maskEmailAddress(email),
+      resendAfterSeconds: rules.resendCooldownSeconds,
+      expiryMinutes: rules.expiryMinutes,
+    };
+  }
+  const sent = await issueCode({ email, purpose: "LOGIN", userId: owner?.id ?? null, phoneE164, ip });
   return { status: "SENT", maskedEmail: maskEmailAddress(email), ...sent };
 }
 
