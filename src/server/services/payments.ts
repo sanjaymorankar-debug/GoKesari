@@ -342,6 +342,13 @@ async function finalizeVerifiedPayment(
     actionUrl: "/wallet",
   });
 
+  // SM-004: a top-up that now covers the next deliveries clears "renewal
+  // pending — payment due" at once. Imported lazily (subscriptions → wallet →
+  // payments would otherwise be a cycle); never affects the credit above.
+  await import("./subscription-renewal")
+    .then(({ refreshPaymentDue }) => refreshPaymentDue(payment.userId))
+    .catch((error) => console.error("[subscriptions] payment-due refresh failed", payment.userId, error));
+
   // Voucher bonus is opportunistic, not guaranteed (§19): a voucher that
   // expired or hit its budget in the seconds between checkout and this
   // callback must never claw back or block the real TOP_UP above — the

@@ -207,7 +207,7 @@ function RetryCard({
           type="button"
           onClick={retry}
           disabled={busy}
-          className="rounded-lg bg-kesari-600 px-4 py-2 text-sm font-medium text-white hover:bg-kesari-700 disabled:bg-kesari-300"
+          className="rounded-lg bg-kesari-600 px-4 py-2 text-sm font-medium text-white hover:bg-kesari-800 disabled:bg-kesari-300"
         >
           {busy ? "Retrying…" : "Retry payment"}
         </button>

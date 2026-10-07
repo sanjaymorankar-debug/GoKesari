@@ -100,7 +100,41 @@ export default function PrivacyPolicyPage() {
         </li>
       </ul>
 
-      <h2>5. Data retention</h2>
+      <h2>5. Seller verification (shop owners only)</h2>
+      <p>
+        If you register a shop, we verify its business documents — PAN,
+        GSTIN (or your declaration that you are not GST-registered), Udyam
+        registration (optional), FSSAI licence or registration (for food
+        shops) and Shops &amp; Establishments certificate or intimation
+        receipt — before it can sell. We ask for your consent each time,
+        and use these documents only to verify your shop, to re-check them
+        while it is listed, and to show buyers the seller details the
+        Consumer Protection (E-Commerce) Rules 2020 require.
+      </p>
+      <ul>
+        <li>
+          Document numbers are sent to our verification partner, which
+          checks them against the government record (Income Tax, GSTN,
+          Udyam, FSSAI or the Labour Department) and is bound by contract
+          to use them only for that check.
+        </li>
+        <li>
+          We store numbers and uploaded certificates encrypted, show only a
+          masked form, and record who viewed an uploaded certificate.
+        </li>
+        <li>
+          We never ask for, collect or store your Aadhaar number. If a
+          certificate you upload shows one, please mask it first.
+        </li>
+        <li>
+          After your shop stops selling, verification data is kept for a
+          limited period for legal and dispute purposes and then erased
+          automatically; you can ask for earlier erasure where the law
+          allows.
+        </li>
+      </ul>
+
+      <h2>6. Data retention</h2>
       <p>
         Account and order data is retained for as long as your account is
         active and thereafter as required for tax, accounting, dispute, and
@@ -110,7 +144,7 @@ export default function PrivacyPolicyPage() {
         by law (see &quot;Your rights&quot; below).
       </p>
 
-      <h2>6. Your rights</h2>
+      <h2>7. Your rights</h2>
       <p>Under the DPDPA and applicable law, you have the right to:</p>
       <ul>
         <li>Access the personal data we hold about you.</li>
@@ -123,7 +157,7 @@ export default function PrivacyPolicyPage() {
         <li>Raise a grievance about how your data is handled (see below).</li>
       </ul>
 
-      <h2>7. Consent</h2>
+      <h2>8. Consent</h2>
       <p>
         By creating an account you agree to this Privacy Policy and our{" "}
         <a href="/legal/terms">Terms &amp; Conditions</a>. We record when and
@@ -132,7 +166,7 @@ export default function PrivacyPolicyPage() {
         non-essential communications at any time from your profile settings.
       </p>
 
-      <h2>8. Grievance / privacy contact</h2>
+      <h2>9. Grievance / privacy contact</h2>
       <p>
         For any question or complaint about how your personal data is
         handled, contact our Grievance Officer — see the{" "}

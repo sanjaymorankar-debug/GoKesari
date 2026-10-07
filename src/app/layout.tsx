@@ -13,8 +13,8 @@ import "./globals.css";
 
 export const metadata: Metadata = {
   title: {
-    default: "Your Neighbourhood, Now Online",
-    template: "%s · Your Neighbourhood, Now Online",
+    default: "GoKesari — Everything for Everyone",
+    template: "%s · GoKesari",
   },
   description:
     "Every local shop near you, in one directory. Wallet payments and flexible daily subscriptions.",
@@ -58,28 +58,28 @@ export default async function RootLayout({
         <footer className="border-t border-cream-200 bg-white">
           <div className="mx-auto max-w-6xl px-4 py-6 text-xs text-ink-500 sm:px-6">
             <p className="mb-1">
-              Your Neighbourhood, Now Online — every local shop near you, in
+              Everything for Everyone — every local shop near you, in
               one directory.
             </p>
             <p className="mb-3">
               {LEGAL_ENTITY.legalName} · GSTIN: {LEGAL_ENTITY.gstin}
             </p>
             <nav className="flex flex-wrap gap-x-4 gap-y-1">
-              <Link href="/about" className="hover:text-ink-700 hover:underline">
+              <Link href="/about" className="py-1 hover:text-ink-700 hover:underline">
                 About Us
               </Link>
-              <Link href="/contact" className="hover:text-ink-700 hover:underline">
+              <Link href="/contact" className="py-1 hover:text-ink-700 hover:underline">
                 Contact Us
               </Link>
-              <Link href="/delivery-partner/apply" className="hover:text-ink-700 hover:underline">
+              <Link href="/delivery-partner/apply" className="py-1 hover:text-ink-700 hover:underline">
                 Become a Delivery Partner
               </Link>
               {LEGAL_DOCS.map((doc) => (
-                <Link key={doc.slug} href={`/legal/${doc.slug}`} className="hover:text-ink-700 hover:underline">
+                <Link key={doc.slug} href={`/legal/${doc.slug}`} className="py-1 hover:text-ink-700 hover:underline">
                   {doc.shortLabel}
                 </Link>
               ))}
-              <Link href="/grievance" className="hover:text-ink-700 hover:underline">
+              <Link href="/grievance" className="py-1 hover:text-ink-700 hover:underline">
                 File a complaint
               </Link>
             </nav>

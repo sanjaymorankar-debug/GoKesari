@@ -206,6 +206,25 @@ Re-sending the same `requestId` returns the original orders with
 `deduplicated: true` instead of charging again. Returns `402` with a shortfall
 if the balance is insufficient; nothing is created and no stock is consumed.
 
+`scheduledSlots: { "<shopId>": "YYYY-MM-DD@HH:MM" }` (GS-027, rule
+`scheduledSlots`) books a chosen time slot for that shop's order. The slot is
+re-checked under a lock: a slot that has just filled returns `409`; one that
+is past, inside the cut-off or not offered returns `422`. Shops without a chosen slot keep today's behaviour.
+
+### `GET /api/checkout/scheduled-slots?shopId=`
+GS-027. The slots a customer can choose for one shop: `{ enabled, slots:
+[{ key, date, start, end, label, remaining }] }` (`remaining: null` = no limit). It lists only
+future slots inside the shop's hours, after the cut-off, with places left.
+
+### `GET /api/orders/{id}/invoice` · `POST`
+NEW-007 (rule `invoicing`). Returns the order's invoice, issuing it if a delivered
+order has none yet. Open to the order's customer, its shop's owner and operations.
+`POST` returns the invoice JSON; `GET` redirects (`303`) to `/invoices/{invoiceId}`.
+
+### `GET /api/invoices/{id}/pdf`
+The invoice as a PDF attachment. Anyone other than the customer, the shop owner
+and operations gets `404`.
+
 ### `GET /api/orders`
 
 ### `PATCH /api/orders/{id}/status`
@@ -259,6 +278,13 @@ Marks a picked-up delivery DELIVERED without the customer OTP; audited.
 Responses never contain the pickup code or the OTP (only `needsPickupCode` /
 `needsDeliveryOtp` flags). The shop sees the pickup code on its order list;
 the customer sees the OTP on My Orders while the order is out for delivery.
+
+### `POST /api/delivery-orders/{id}/proof`
+NEW-007 (rule `deliveryProof`). Multipart `file`: the rider's photo at the
+door (JPEG, PNG or WebP, within the image size limits, checked from the
+bytes). Only the rider holding the picked-up delivery may upload. Returns
+`201 { id, url }`. While the rule is on, `{ "action": "deliver" }` returns
+`409` until a photo exists.
 
 ### `POST /api/cron/delivery-dispatch`
 `Authorization: Bearer $CRON_SECRET`. Run every minute. Expires unanswered
@@ -478,6 +504,20 @@ day. `DELETE` with `{ "date": … }` restores the standard quantity.
 Per-date `delivers`, `quantityMilli`, `reason`, `isOverridden`,
 `estimatedCostPaise`, `generatedStatus`.
 
+### `POST /api/subscriptions/{id}/activate`
+SM-004. Starts a `DRAFT` subscription (`POST /api/subscriptions` with
+`"draft": true` saves one without starting it).
+
+### `POST /api/subscriptions/{id}/renew`
+`{ "endDate": "2026-12-31" | null }` — renews a `RENEWAL_PENDING` subscription.
+Omitting `endDate` extends the subscription by the same term length; `null`
+removes the end date. For a payment-due renewal it succeeds once the wallet
+covers the next deliveries.
+
+### `GET /api/subscriptions/{id}/deliveries?from=&days=30`
+SM-004. Each delivery date with its own status: `SCHEDULED`, `SKIPPED`, or the
+order's status once the order exists.
+
 ### `POST /api/subscriptions/{id}/retry`
 `{ "date": "2026-08-20" }` — retries a day that failed for insufficient balance.
 
@@ -491,6 +531,43 @@ A past or already-processed date cannot be modified.
 ### `PATCH /api/notifications` — `{ "id": "uuid" }` or `{ "all": true }`
 
 ---
+
+## Seller verification
+
+PAN, GSTIN, Udyam, FSSAI and Shop Act checks through the KYC vendor (see
+`docs/seller-verification/README.md`). Numbers are returned masked only.
+
+### `GET /api/shops/{id}/verifications`
+Owner or reviewer. All five documents with status, masked number, name on
+record, expiry, requirement (`required`, `required_or_declaration`,
+`optional`), uploaded files, the consistency score and `missing`.
+
+### `POST /api/shops/{id}/verifications`
+`{ "docType": "PAN|GSTIN|UDYAM|FSSAI|SHOP_ACT", "number": "...", "consent": true }`.
+Format-checked first (422 on a typo, no vendor call). Returns the document's
+new state. 429 after 10 seller-triggered paid checks per shop per hour.
+
+### `POST /api/shops/{id}/verifications/gst-declaration`
+`{ "declaration": true, "enrolmentNumber": "optional" }` — the shop is not
+GST-registered; goes to admin review.
+
+### `POST /api/shops/{id}/verifications/shop-act-certificate`
+Multipart: `file` (PDF/JPEG/PNG/WebP, ≤ 5 MB, checked from the bytes),
+`number`, `consent=true`. Stored encrypted.
+
+### `GET /api/seller-verifications/files/{fileId}`
+The uploaded certificate — its shop's owner or a reviewer only. Reviewer
+views are audited.
+
+### `GET /api/admin/seller-verifications`
+Reviewer. Documents waiting for a decision, oldest first.
+
+### `POST /api/admin/seller-verifications/{id}/decision`
+`{ "decision": "approve|reject", "reason": "..." }` — a reason is required to
+reject and is shown to the seller.
+
+### `POST /api/admin/seller-verifications/{id}/recheck`
+Ask the vendor again with the number on file.
 
 ## Cron
 
@@ -514,6 +591,17 @@ Idempotent per `(subscription, date)`. `GET` with the same header is a health
 probe that generates nothing.
 
 ---
+
+### `POST /api/cron/seller-verification`
+Daily seller verification sweep: retries, GSTIN re-check, expiry warnings,
+expiry, suspension when a mandatory document lapses. Bearer `CRON_SECRET`.
+Returns `{ pendingRetried, gstRechecked, expiryWarnings, expired, shopsSuspended, errors }`.
+
+### `POST /api/cron/shop-acceptance`
+NEW-007, every minute. Reminds shops about orders waiting for acceptance and
+cancels, with a full refund, orders not accepted by their accept-by time.
+Bearer `CRON_SECRET`. Returns `{ reminded, cancelled, skipped }`. Does nothing
+while rule `shopAcceptance` is off.
 
 ## Rate limits
 

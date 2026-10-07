@@ -6,12 +6,12 @@
  * judgement call this code cannot make, e.g. "has a lawyer reviewed this
  * policy text"). Existence of a feature is not a legal compliance claim.
  */
-import { isPaymentGatewayLive } from "@/lib/env";
+import { getEnv, isPaymentGatewayLive, kycConfigProblem } from "@/lib/env";
 import { isFoodBusinessShopType } from "@/lib/shop-types";
 import { LEGAL_DOCS, LEGAL_ENTITY } from "@/lib/legal-docs";
 import { db } from "@/server/db";
-import { shops } from "@/server/db/schema";
-import { and, eq, isNull } from "drizzle-orm";
+import { sellerVerifications, shops } from "@/server/db/schema";
+import { and, eq, inArray, isNull } from "drizzle-orm";
 import { getGrievanceDashboard } from "./grievances";
 
 export type ComplianceStatus = "ACTIVE" | "MISSING" | "REVIEW_REQUIRED";
@@ -154,6 +154,57 @@ export async function getComplianceChecklist(): Promise<ComplianceItem[]> {
     area: "Audit logging",
     status: "ACTIVE",
     detail: "Payments, wallet, vouchers, refunds, prices, seller info, subscriptions, grievances, and consent are all audit-logged.",
+  });
+
+  /* ------------------------------------------------ seller verification */
+  const kycProblem = kycConfigProblem();
+  const kycEnv = getEnv();
+  items.push({
+    area: "Seller document verification (KYC vendor)",
+    status: kycProblem ? "MISSING" : kycEnv.KYC_PROVIDER === "mock" ? "REVIEW_REQUIRED" : "ACTIVE",
+    detail: kycProblem
+      ? `Verification is paused: ${kycProblem}`
+      : kycEnv.KYC_PROVIDER === "mock"
+        ? "Running against the mock vendor — no real document is being checked. Expected only before vendor keys are configured."
+        : `Documents are checked with ${kycEnv.KYC_PROVIDER} (${kycEnv.KYC_ENV}).`,
+  });
+
+  const verifiedRows = approvedShops.length
+    ? await db
+        .select({ shopId: sellerVerifications.shopId, docType: sellerVerifications.docType })
+        .from(sellerVerifications)
+        .where(
+          and(
+            eq(sellerVerifications.status, "VERIFIED"),
+            inArray(sellerVerifications.shopId, approvedShops.map((s) => s.id)),
+          ),
+        )
+    : [];
+  const verifiedByShop = new Map<string, Set<string>>();
+  for (const r of verifiedRows) {
+    if (!verifiedByShop.has(r.shopId)) verifiedByShop.set(r.shopId, new Set());
+    verifiedByShop.get(r.shopId)!.add(r.docType);
+  }
+  // Food shops judged by shop type here; the seller screen also counts food categories.
+  const incomplete = approvedShops.filter((s) => {
+    const have = verifiedByShop.get(s.id) ?? new Set<string>();
+    const need = ["PAN", "GSTIN", "SHOP_ACT", ...(isFoodBusinessShopType(s.shopType) ? ["FSSAI"] : [])];
+    return need.some((d) => !have.has(d));
+  }).length;
+  items.push({
+    area: "Seller documents verified (approved shops)",
+    status: incomplete > 0 ? "REVIEW_REQUIRED" : "ACTIVE",
+    detail:
+      incomplete > 0
+        ? `${incomplete} of ${approvedShops.length} approved shop(s) are missing a verified mandatory document (PAN, GSTIN or declaration, Shop Act, FSSAI for food). Shops approved before verification existed need to complete it.`
+        : `All ${approvedShops.length} approved shop(s) have their mandatory documents verified.`,
+  });
+
+  items.push({
+    area: "Seller verification — legal review",
+    status: "REVIEW_REQUIRED",
+    detail:
+      "Consent wording, the GST 'not registered' declaration, the retention period after closing, Shop Act applicability outside Maharashtra and the vendor's data processing agreement need a lawyer/CA's sign-off — see docs/seller-verification/COMPLIANCE.md.",
   });
 
   return items;

@@ -1,8 +1,11 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { WalletView } from "@/components/wallet-view";
-import { PageHeader } from "@/components/ui";
+import { Card, PageHeader } from "@/components/ui";
+import { formatPaise } from "@/lib/money";
 import { getCurrentUser } from "@/server/authz/guards";
+import { getRule } from "@/server/services/settings";
 import { getWalletForecast } from "@/server/services/subscriptions";
 import {
   getOrCreateWallet,
@@ -17,11 +20,12 @@ export default async function WalletPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
 
-  const [wallet, todaysDeduction, forecast, transactions] = await Promise.all([
+  const [wallet, todaysDeduction, forecast, transactions, referrals] = await Promise.all([
     getOrCreateWallet(user.id),
     todaysDeductionPaise(user.id),
     getWalletForecast(user.id, 15),
     listTransactions(user.id, { limit: 30 }),
+    getRule("customerReferrals"),
   ]);
 
   return (
@@ -30,6 +34,16 @@ export default async function WalletPage() {
         title="My Wallet"
         description="Top up once, then orders and subscriptions are paid automatically."
       />
+      {referrals.enabled ? (
+        <Card className="mb-4 flex flex-wrap items-center justify-between gap-2 p-4" data-testid="refer-card">
+          <p className="text-sm text-ink-700">
+            Invite friends — you get {formatPaise(referrals.referrerRewardPaise)} when their first order is delivered.
+          </p>
+          <Link href="/refer" className="text-sm font-medium text-kesari-700 hover:underline">
+            Refer a friend →
+          </Link>
+        </Card>
+      ) : null}
       <WalletView
         balancePaise={wallet.balancePaise}
         promotionalBalancePaise={wallet.promotionalBalancePaise}

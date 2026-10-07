@@ -2,6 +2,7 @@
  * Image upload (multipart form: `file`, `purpose`).
  *   RETURN_EVIDENCE — any signed-in customer, for their own return photos
  *   PRODUCT         — a shop owner or catalogue staff, for product photos
+ *   PROFILE_PHOTO   — a delivery partner, for their own profile photo (F2)
  * The browser shrinks images first; the server validates them again.
  */
 import type { NextRequest } from "next/server";
@@ -24,7 +25,13 @@ export const POST = route(async (request: NextRequest) => {
   const file = form?.get("file");
   const purpose = form?.get("purpose");
   if (!(file instanceof File)) throw validationFailed("Attach an image file.");
-  if (purpose !== "RETURN_EVIDENCE" && purpose !== "PRODUCT") throw validationFailed("Unknown image purpose.");
+  if (purpose !== "RETURN_EVIDENCE" && purpose !== "PRODUCT" && purpose !== "PROFILE_PHOTO") {
+    throw validationFailed("Unknown image purpose.");
+  }
+  // F2: a rider's own profile photo.
+  if (purpose === "PROFILE_PHOTO" && !can(user.role, PERMISSIONS.DELIVERY_PARTNER_VIEW_OWN)) {
+    throw forbidden("You cannot upload a profile photo.");
+  }
   if (
     purpose === "PRODUCT" &&
     !can(user.role, PERMISSIONS.SHOP_PRODUCT_MANAGE_OWN) &&

@@ -28,6 +28,9 @@ Set these in the host's environment-variable UI — never commit them.
 ```bash
 NODE_ENV=production
 DATABASE_URL=postgresql://dairy_app:...@host:5432/dairy_bakery?sslmode=require
+# Optional: seconds an idle DB connection stays open (default 20). Longer keeps
+# the pool warm between visits on a quiet site — see src/lib/env.ts first.
+# DATABASE_IDLE_TIMEOUT_SECONDS=300
 
 AUTH_SECRET=<openssl rand -base64 32>
 AUTH_URL=https://your-domain.com
@@ -48,6 +51,13 @@ PAN_ENCRYPTION_KEY=<openssl rand -base64 32>
 
 APP_TIMEZONE=Asia/Kolkata
 SUBSCRIPTION_CUTOFF_HOUR=20
+
+# Seller document verification — see docs/seller-verification/README.md.
+# Sandbox keys on staging, live keys on production only; the app refuses
+# any other pairing.
+KYC_PROVIDER=gridlines
+KYC_ENV=production
+GRIDLINES_API_KEY=<live key>
 ```
 
 Generate secrets properly:
@@ -191,6 +201,21 @@ working if it is applied first. Staging first:
    Shops registered before this release have no Shop Act or Udyam number, so
    for them only the same-name-and-PIN-code grouping applies.
 
+### Migrations 0040–0041 — seller verification
+
+Both are additive (new tables only), so the previous release ignores them.
+Staging first:
+
+1. Back up the database (§7).
+2. `npm run db:migrate`.
+3. Deploy the release. With no KYC settings the app uses the mock vendor
+   (`KYC_PROVIDER=mock`), which is right for test.gokesari.com until sandbox
+   keys arrive — never for gokesari.com, which the app refuses.
+4. Schedule the daily sweep (see §5) — `POST /api/cron/seller-verification`.
+
+Rollback: `scripts/rollback-0040.sql` (drops both tables — back up first).
+See `docs/seller-verification/README.md` for settings per site.
+
 ## 5. Schedule the daily order engine
 
 This is the step that makes subscriptions work. Without it, no daily orders are
@@ -200,6 +225,24 @@ generated and no wallets are debited.
 # Daily at 05:00 IST
 0 5 * * * curl -fsS -X POST https://your-domain.com/api/cron/daily-orders \
   -H "Authorization: Bearer $CRON_SECRET" >> /var/log/daily-orders.log 2>&1
+```
+
+Seller document verification has its own daily sweep (re-checks, expiry
+warnings, suspension when a mandatory document lapses):
+
+```bash
+# Daily at 06:30 IST
+30 6 * * * curl -fsS -X POST https://your-domain.com/api/cron/seller-verification \
+  -H "Authorization: Bearer $CRON_SECRET" >> /var/log/seller-verification.log 2>&1
+```
+
+The shop acceptance timeout (rule `shopAcceptance`, NEW-007) needs a sweep
+every minute. It does nothing while the rule is off, so it is safe to schedule
+before switching the rule on:
+
+```bash
+* * * * * curl -fsS -X POST https://your-domain.com/api/cron/shop-acceptance \
+  -H "Authorization: Bearer $CRON_SECRET" >> /var/log/shop-acceptance.log 2>&1
 ```
 
 Any scheduler works — the host's cron panel, GitHub Actions on a schedule, or an

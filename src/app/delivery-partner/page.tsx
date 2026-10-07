@@ -2,14 +2,17 @@ import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
 import { DeliveryPartnerDashboard } from "@/components/delivery-partner-dashboard";
-import { RoleSwitcher } from "@/components/growth-actions";
+import { RoleSwitcher } from "@/components/role-switcher";
 import { Alert, Card, Money, PageHeader, StatusBadge } from "@/components/ui";
 import { vehicleTypeLabel } from "@/lib/vehicle-types";
 import { getCurrentUser } from "@/server/authz/guards";
 import { PERMISSIONS, can } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { deliveryPartners, type UserRole } from "@/server/db/schema";
-import { getMyActiveDeliveryDetail } from "@/server/services/delivery-assignment";
+import { getMyActiveDeliveryDetail, getMyOtherActiveDeliveries } from "@/server/services/delivery-assignment";
+import { RiderOtherDeliveries } from "@/components/rider-other-deliveries";
+import { RiderTripCard } from "@/components/rider-trip-card";
+import { getRiderTrip } from "@/server/services/delivery-trips";
 import { getMyActiveReturnPickup } from "@/server/services/return-pickups";
 import { getRiderEarningsView, listAdjustments, listRiderPayouts } from "@/server/services/finance";
 import { getPartnerEarningsSummary } from "@/server/services/delivery-earnings";
@@ -49,6 +52,9 @@ export default async function DeliveryPartnerStatusPage() {
       ? await Promise.all([getMyActiveDeliveryDetail(user.id), getPartnerEarningsSummary(partner.id)])
       : [null, { todayPaise: 0, totalPaise: 0, deliveryCount: 0 }];
   const activeReturnPickup = partner.status === "APPROVED" ? await getMyActiveReturnPickup(user.id) : null;
+  const otherDeliveries = partner.status === "APPROVED" ? await getMyOtherActiveDeliveries(user.id) : [];
+  // GA-005: the stop order when the rider carries several orders in one trip.
+  const trip = partner.status === "APPROVED" ? await getRiderTrip(user.id) : null;
   // Weekly payouts (GS-064) — what has been batched and paid to the rider's bank.
   const [payouts, earningsView, adjustments] =
     partner.status === "APPROVED"
@@ -129,6 +135,10 @@ export default async function DeliveryPartnerStatusPage() {
               earnings={earnings}
               rating={{ avgX100: partnerRating?.ratingAvgX100 ?? 0, count: partnerRating?.ratingCount ?? 0 }}
             />
+          ) : null}
+          {canDeliver && trip ? <RiderTripCard stops={trip.stops} /> : null}
+          {canDeliver ? (
+            <RiderOtherDeliveries deliveries={otherDeliveries} />
           ) : roles.includes("DELIVERY_PARTNER") ? (
             <Alert tone="warning" title="Switch to your Delivery Partner role">
               <p>

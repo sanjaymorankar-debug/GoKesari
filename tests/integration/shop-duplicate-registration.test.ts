@@ -52,7 +52,7 @@ import {
   setShopStatus,
   type RegisterShopInput,
 } from "@/server/services/shops";
-import { createShop, createUser, resetDatabase } from "../helpers/fixtures";
+import { createShop, createUser, resetDatabase, verifySellerDocuments } from "../helpers/fixtures";
 import { call } from "../helpers/http";
 
 const PAN = "ABCDE1234F";
@@ -156,6 +156,7 @@ describe("while the first registration is pending or approved", () => {
     const admin = await createUser({ role: "ADMIN" });
     const first = await createUser();
     const existing = await register(asActor(first), { udyamNumber: UDYAM });
+    await verifySellerDocuments(existing.id);
     await approveShop(existing.id, { classification: "KESARI" }, asActor(admin));
 
     const second = await createUser();
@@ -302,10 +303,11 @@ describe("a previously rejected shop", () => {
     await rejectShop(rejected.id, "Not the owner", asActor(admin));
     const second = await createUser();
     await register(asActor(second), { shopActNumber: SHOP_ACT });
+    await verifySellerDocuments(rejected.id); // documents fine: the licence clash is what refuses
 
     await expect(
       approveShop(rejected.id, { classification: "GREEN" }, asActor(admin)),
-    ).rejects.toMatchObject({ code: "CONFLICT" });
+    ).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("Shop Act") });
   });
 
   it("notifies the owner on rejection and on approval", async () => {
@@ -314,6 +316,7 @@ describe("a previously rejected shop", () => {
     const shop = await register(asActor(owner), { shopActNumber: SHOP_ACT });
     await rejectShop(shop.id, "Licence photo unreadable", asActor(admin));
     await register(asActor(owner), { shopActNumber: SHOP_ACT });
+    await verifySellerDocuments(shop.id);
     await approveShop(shop.id, { classification: "KESARI" }, asActor(admin));
 
     const sent = await db

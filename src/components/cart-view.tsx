@@ -29,6 +29,18 @@ interface Feasibility {
   STANDARD_60: boolean;
   SCHEDULED: boolean;
   estimatedMinutes: number | null;
+  /** F5: windows whose current slot is full (slot capacity on). */
+  full?: Partial<Record<DeliveryWindowKey, boolean>>;
+}
+
+/** GS-027: a delivery time the customer can choose for a scheduled delivery. */
+interface SlotOption {
+  key: string;
+  date: string;
+  start: string;
+  end: string;
+  label: string;
+  remaining: number | null;
 }
 
 const WINDOW_LABEL: Record<DeliveryWindowKey, string> = {
@@ -62,6 +74,7 @@ export function CartView({
   preferredAddressId = null,
   codUnavailableReason = null,
   hasMobile = true,
+  couponsEnabled = false,
 }: {
   cart: CartSummary;
   walletBalancePaise: number;
@@ -76,6 +89,8 @@ export function CartView({
   codUnavailableReason?: string | null;
   /** Orders need a mobile number on the account so the delivery partner can call. */
   hasMobile?: boolean;
+  /** F7: show the coupon box (rule "coupons"). */
+  couponsEnabled?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -88,7 +103,15 @@ export function CartView({
   const [buyerShopId, setBuyerShopId] = useState("");
   const [feasibility, setFeasibility] = useState<Record<string, Feasibility>>({});
   const [deliveryWindows, setDeliveryWindows] = useState<Record<string, DeliveryWindowKey>>({});
+  // GS-027: delivery times offered per shop (null until loaded / when the feature is off) and the one chosen.
+  const [slotOptions, setSlotOptions] = useState<Record<string, SlotOption[] | null>>({});
+  const [scheduledSlots, setScheduledSlots] = useState<Record<string, string>>({});
+  const [slotDay, setSlotDay] = useState<Record<string, string>>({});
   const [paymentMethod, setPaymentMethod] = useState<"WALLET" | "COD">("WALLET");
+  // F7: an applied coupon is a server-priced preview; checkout re-validates it.
+  const [couponInput, setCouponInput] = useState("");
+  const [coupon, setCoupon] = useState<{ code: string; discountPaise: number; forTotal: number } | null>(null);
+  const [couponError, setCouponError] = useState<string | null>(null);
 
   const [checks, setChecks] = useState<ShopCartCheck[]>(initialChecks);
   // Adopt fresh server data when the prop changes (render-time sync, not an effect).
@@ -165,11 +188,39 @@ export function CartView({
     };
   }, [shopIds]);
 
+  // GS-027: load the delivery times of a shop the first time "Scheduled" is picked for it.
+  const scheduledShops = Object.entries(deliveryWindows)
+    .filter(([, w]) => w === "SCHEDULED")
+    .map(([id]) => id)
+    .join(",");
+  useEffect(() => {
+    let cancelled = false;
+    for (const shopId of scheduledShops ? scheduledShops.split(",") : []) {
+      fetch(`/api/checkout/scheduled-slots?shopId=${shopId}`)
+        .then((res) => (res.ok ? res.json() : null))
+        .then((data: { enabled: boolean; slots: SlotOption[] } | null) => {
+          if (cancelled || !data) return;
+          setSlotOptions((prev) => ({ ...prev, [shopId]: data.enabled ? data.slots : null }));
+        })
+        .catch(() => undefined);
+    }
+    return () => {
+      cancelled = true;
+    };
+  }, [scheduledShops]);
+  // A shop on "Scheduled" with delivery times on must have one chosen before paying.
+  const missingSlot = Object.entries(deliveryWindows).some(
+    ([shopId, w]) => w === "SCHEDULED" && Array.isArray(slotOptions[shopId]) && !scheduledSlots[shopId],
+  );
+
   // Cash on delivery: personal orders to a saved address only.
   const codPossible = codUnavailableReason == null && !buyerShopId && addressId != null;
   const payingCod = paymentMethod === "COD" && codPossible;
-  const affordable = payingCod || walletBalancePaise >= cart.grandTotalPaise;
-  const shortfall = Math.max(0, cart.grandTotalPaise - walletBalancePaise);
+  // A coupon priced for a different cart is dropped (the customer re-applies it).
+  const couponDiscountPaise = coupon && coupon.forTotal === cart.subtotalPaise ? coupon.discountPaise : 0;
+  const payablePaise = cart.grandTotalPaise - couponDiscountPaise;
+  const affordable = payingCod || walletBalancePaise >= payablePaise;
+  const shortfall = Math.max(0, payablePaise - walletBalancePaise);
 
   async function updateQuantity(cartItemId: string, quantity: number) {
     setBusy(true);
@@ -187,6 +238,22 @@ export function CartView({
     router.refresh();
   }
 
+  async function applyCoupon() {
+    setCouponError(null);
+    const response = await fetch("/api/checkout/coupon", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ code: couponInput, requestId }),
+    });
+    const payload = await response.json().catch(() => null);
+    if (!response.ok) {
+      setCoupon(null);
+      setCouponError(payload?.error?.message ?? "That coupon can't be used.");
+      return;
+    }
+    setCoupon({ code: payload.code, discountPaise: payload.discountPaise, forTotal: cart.subtotalPaise });
+  }
+
   async function checkout(acknowledgeClosedShopIds: string[] = []) {
     setConfirmingClosed(false);
     setBusy(true);
@@ -198,8 +265,13 @@ export function CartView({
         requestId,
         addressId,
         deliveryWindows,
+        // GS-027: only for shops still on "Scheduled".
+        scheduledSlots: Object.fromEntries(
+          Object.entries(scheduledSlots).filter(([shopId]) => deliveryWindows[shopId] === "SCHEDULED"),
+        ),
         paymentMethod: payingCod ? "COD" : "WALLET",
         acknowledgeClosedShopIds,
+        ...(couponDiscountPaise > 0 && coupon ? { couponCode: coupon.code } : {}),
         ...(buyerShopId ? { orderType: "B2B", buyerShopId } : { orderType: "PERSONAL" }),
       }),
     });
@@ -210,7 +282,12 @@ export function CartView({
       setError(payload?.error?.message ?? "Checkout failed. Please try again.");
       return;
     }
-    router.push("/orders?placed=1");
+    // F6: a multi-shop order with one parent reference opens that reference.
+    router.push(
+      payload?.parentReference
+        ? `/orders/group/${encodeURIComponent(payload.parentReference)}?placed=1`
+        : "/orders?placed=1",
+    );
     router.refresh();
   }
 
@@ -289,7 +366,17 @@ export function CartView({
 
                     {line.purchasable ? (
                       <p className="mt-1 text-sm text-ink-600">
+                        {line.listUnitPricePaise ? (
+                          <span className="mr-1 text-ink-400 line-through">
+                            <Money paise={line.listUnitPricePaise} />
+                          </span>
+                        ) : null}
                         <Money paise={line.unitPricePaise} /> × {line.quantity}
+                        {line.offerTitle ? (
+                          <span className="ml-2" data-testid="cart-offer">
+                            <Badge tone="success">{line.offerTitle}</Badge>
+                          </span>
+                        ) : null}
                       </p>
                     ) : (
                       <p className="mt-1">
@@ -352,8 +439,18 @@ export function CartView({
                 <p className="mb-2 text-xs font-medium text-ink-500">Delivery time</p>
                 <div className="flex flex-wrap gap-2">
                   {(["EXPRESS_30", "STANDARD_60", "SCHEDULED"] as const)
-                    .filter((key) => feasibility[group.shop.id][key])
-                    .map((key) => (
+                    .filter((key) => feasibility[group.shop.id][key] || feasibility[group.shop.id].full?.[key])
+                    .map((key) =>
+                      feasibility[group.shop.id].full?.[key] ? (
+                        <span
+                          key={key}
+                          aria-disabled="true"
+                          data-testid={`slot-full-${key}`}
+                          className="cursor-not-allowed rounded-full border border-cream-200 px-3 py-1.5 text-xs font-medium text-ink-400 line-through"
+                        >
+                          {WINDOW_LABEL[key]} · Full
+                        </span>
+                      ) : (
                       <button
                         key={key}
                         type="button"
@@ -368,8 +465,18 @@ export function CartView({
                       >
                         {WINDOW_LABEL[key]}
                       </button>
-                    ))}
+                      ),
+                    )}
                 </div>
+                {deliveryWindows[group.shop.id] === "SCHEDULED" && Array.isArray(slotOptions[group.shop.id]) ? (
+                  <SlotPicker
+                    slots={slotOptions[group.shop.id]!}
+                    day={slotDay[group.shop.id]}
+                    chosen={scheduledSlots[group.shop.id]}
+                    onDay={(d) => setSlotDay((prev) => ({ ...prev, [group.shop.id]: d }))}
+                    onChoose={(key) => setScheduledSlots((prev) => ({ ...prev, [group.shop.id]: key }))}
+                  />
+                ) : null}
               </div>
             ) : null}
           </Card>
@@ -384,11 +491,43 @@ export function CartView({
             <Row label="Subtotal" paise={cart.subtotalPaise} />
             <Row label="Delivery" paise={cart.deliveryFeePaise} />
             {cart.taxPaise > 0 ? <Row label="Taxes" paise={cart.taxPaise} /> : null}
+            {couponDiscountPaise > 0 && coupon ? (
+              <div className="flex justify-between text-leaf-700" data-testid="coupon-discount">
+                <span>Coupon {coupon.code}</span>
+                <span>
+                  −<Money paise={couponDiscountPaise} />
+                </span>
+              </div>
+            ) : null}
             <div className="mt-2 flex justify-between border-t border-cream-200 pt-2 text-base font-semibold text-ink-900">
               <span>Grand total</span>
-              <Money paise={cart.grandTotalPaise} />
+              <Money paise={payablePaise} />
             </div>
           </div>
+
+          {couponsEnabled ? (
+            <div className="mt-3 space-y-1">
+              <div className="flex gap-2">
+                <input
+                  className={inputClass}
+                  placeholder="Coupon code"
+                  value={couponInput}
+                  onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                  data-testid="coupon-input"
+                />
+                {couponDiscountPaise > 0 ? (
+                  <Button variant="secondary" onClick={() => { setCoupon(null); setCouponInput(""); }}>
+                    Remove
+                  </Button>
+                ) : (
+                  <Button variant="secondary" onClick={() => void applyCoupon()} disabled={!couponInput.trim()}>
+                    Apply
+                  </Button>
+                )}
+              </div>
+              {couponError ? <p className="text-xs text-red-700">{couponError}</p> : null}
+            </div>
+          ) : null}
 
           <div className="mt-4 rounded-lg bg-cream-50 p-3 text-sm">
             <div className="flex justify-between">
@@ -555,7 +694,8 @@ export function CartView({
               <Button
                 className="w-full"
                 size="lg"
-                disabled={busy || cart.grandTotalPaise === 0 || hasBlockingIssue}
+                disabled={busy || cart.grandTotalPaise === 0 || hasBlockingIssue || missingSlot}
+                title={missingSlot ? "Choose a delivery time for your scheduled delivery" : undefined}
                 onClick={() => (closedGroups.length > 0 ? setConfirmingClosed(true) : checkout())}
               >
                 {busy ? "Placing order…" : payingCod ? "Place order — pay cash on delivery" : "Pay from wallet"}
@@ -584,6 +724,68 @@ function Row({ label, paise }: { label: string; paise: number }) {
     <div className="flex justify-between text-ink-600">
       <span>{label}</span>
       {paise === 0 ? <span>Free</span> : <Money paise={paise} />}
+    </div>
+  );
+}
+
+/**
+ * GS-027: choose a day, then a delivery time on that day. Only times with a
+ * place left are listed (the server re-checks when the order is placed).
+ */
+function SlotPicker({
+  slots,
+  day,
+  chosen,
+  onDay,
+  onChoose,
+}: {
+  slots: SlotOption[];
+  day: string | undefined;
+  chosen: string | undefined;
+  onDay: (day: string) => void;
+  onChoose: (key: string) => void;
+}) {
+  if (slots.length === 0) {
+    return (
+      <p className="mt-2 text-xs text-ink-500" data-testid="no-slots">
+        No delivery times are left in the coming days — choose another delivery option.
+      </p>
+    );
+  }
+  const days = [...new Set(slots.map((s) => s.date))];
+  const activeDay = day && days.includes(day) ? day : (slots.find((s) => s.key === chosen)?.date ?? days[0]);
+  const chip = (on: boolean) =>
+    `rounded-full border px-3 py-1.5 text-xs font-medium ${
+      on ? "border-kesari-500 bg-kesari-50 text-kesari-700" : "border-cream-200 text-ink-600 hover:border-kesari-300"
+    }`;
+  return (
+    <div className="mt-3 space-y-2" data-testid="slot-picker">
+      <p className="text-xs font-medium text-ink-500">Choose a day</p>
+      <div className="flex flex-wrap gap-2">
+        {days.map((d) => (
+          <button key={d} type="button" className={chip(d === activeDay)} onClick={() => onDay(d)}>
+            {slots.find((s) => s.date === d)!.label.split(", ")[0]}
+          </button>
+        ))}
+      </div>
+      <p className="text-xs font-medium text-ink-500">Choose a time</p>
+      <div className="flex flex-wrap gap-2">
+        {slots
+          .filter((s) => s.date === activeDay)
+          .map((s) => (
+            <button
+              key={s.key}
+              type="button"
+              data-testid={`slot-${s.key}`}
+              className={chip(s.key === chosen)}
+              onClick={() => onChoose(s.key)}
+            >
+              {s.label.split(", ")[1]}
+              {s.remaining != null && s.remaining <= 3 ? ` · ${s.remaining} left` : ""}
+            </button>
+          ))}
+      </div>
+      {!chosen ? <p className="text-xs text-amber-700">Pick a delivery time to place the order.</p> : null}
     </div>
   );
 }

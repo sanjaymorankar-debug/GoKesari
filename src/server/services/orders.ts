@@ -49,7 +49,16 @@ import { clearCartForShop, computeDeliveryFee, getCart } from "./cart";
 import { consumeOnlineStock, loadPurchasableShopProduct, restockOnline } from "./catalogue";
 import { COD_LIMITS, assertCodAllowedForOrder, getCodEligibility, recordCodCollection } from "./cod";
 import { creditDeliveryEarnings } from "./delivery-earnings";
-import { DELIVERY_WINDOW_MINUTES, getFeasibleDeliveryWindows } from "./delivery-feasibility";
+import { DELIVERY_WINDOW_MINUTES, getFeasibleDeliveryWindows, type DeliveryWindowFeasibility } from "./delivery-feasibility";
+import { reserveSlot, slotFullError } from "./delivery-slots";
+import { reserveScheduledSlot } from "./scheduled-slots";
+import { acceptByFor } from "./shop-acceptance";
+import { issueInvoiceForOrder } from "./invoices";
+import { getOrCreateOrderGroup, referencesForGroups } from "./order-groups";
+import { quoteCoupon, redeemCouponForOrder } from "./coupons";
+import { getLiveOffers, priceWithOffers } from "./shop-offers";
+import { rewardReferralOnDelivery } from "./customer-referrals";
+import { getRule } from "./settings";
 import { notifyOpenStockAlerts } from "./inventory-alerts";
 import { postRetainedDeliveryFee, recordOrderFinancials } from "./finance";
 import { shopServiceability, societyPartnerShopIds } from "./serviceability";
@@ -174,6 +183,12 @@ export interface CheckoutInput {
    * promise a window the system can't actually back).
    */
   deliveryWindows?: Record<string, DeliveryWindow>;
+  /**
+   * GS-027: shopId → chosen time slot ("YYYY-MM-DD@HH:MM") for a SCHEDULED
+   * delivery. Re-checked (hours, cut-off, places left) under a lock when the
+   * order is created; a slot that filled up refuses the checkout.
+   */
+  scheduledSlots?: Record<string, string>;
   /** PERSONAL (default) or B2B. B2B also needs `buyerShopId` and `actorRole`. */
   orderType?: OrderType;
   /** B2B only: the approved shop, owned by the user, that is buying. */
@@ -188,11 +203,15 @@ export interface CheckoutInput {
    * warning is enforced server-side, not just shown.
    */
   acknowledgeClosedShopIds?: string[];
+  /** F7: an order-level coupon code. Validated and priced on the server. */
+  couponCode?: string | null;
 }
 
 export interface CheckoutResult {
   orders: Order[];
   deduplicated: boolean;
+  /** F6: one reference for a multi-shop checkout (null when off or single-shop). */
+  parentReference?: string | null;
 }
 
 export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
@@ -205,7 +224,9 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   // told its cart is empty even though its order went through.
   const replayed = await findOrdersForRequest(input.userId, input.requestId);
   if (replayed.length > 0) {
-    return { orders: replayed, deduplicated: true };
+    const refs = await referencesForGroups(replayed.map((o) => o.orderGroupId));
+    const parentReference = replayed.map((o) => (o.orderGroupId ? refs.get(o.orderGroupId) : null)).find(Boolean) ?? null;
+    return { orders: replayed, deduplicated: true, ...(parentReference ? { parentReference } : {}) };
   }
 
   const orderType: OrderType = input.orderType ?? "PERSONAL";
@@ -343,6 +364,23 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   const created: Order[] = [];
   let anyDeduplicated = false;
 
+  // F7: price the coupon over the whole order (every shop together), split
+  // across shops by goods value. Re-checked under a lock in each order below.
+  const couponQuote = input.couponCode?.trim()
+    ? await quoteCoupon(
+        input.couponCode,
+        input.userId,
+        input.requestId,
+        purchasableGroups.map((g) => ({ shopId: g.shop.id, goodsPaise: g.subtotalPaise })),
+      )
+    : null;
+
+  // F6: a cart spanning several shops gets one parent reference over all its orders.
+  const orderGroup =
+    purchasableGroups.length > 1 && (await getRule("parentOrders")).enabled
+      ? await getOrCreateOrderGroup(input.userId, input.requestId)
+      : null;
+
   // One transaction per shop: a problem with one shop's order must not roll back
   // a sibling shop's successful order.
   for (const group of purchasableGroups) {
@@ -370,10 +408,27 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       }
     }
 
-    const requestedWindow = input.deliveryWindows?.[group.shop.id];
-    const { deliveryWindow, promisedByAt } = requestedWindow
-      ? await resolvePromisedWindow(group.shop.id, requestedWindow)
-      : { deliveryWindow: null, promisedByAt: null };
+    // F5: with slot capacity on, every delivered order is booked into a slot,
+    // so one placed without a chosen window gets the best open one.
+    const slotsOn = addressSnapshot != null && (await getRule("deliverySlots")).enabled && (await shopDelivers(group.shop.id));
+    const requestedWindow = input.deliveryWindows?.[group.shop.id] ?? (slotsOn ? "EXPRESS_30" : undefined);
+    // GS-027: a scheduled delivery with a chosen time is booked into that slot
+    // below; every other choice ("deliver now", scheduled without a time) is
+    // resolved exactly as before.
+    const chosenSlotKey =
+      requestedWindow === "SCHEDULED" && addressSnapshot != null ? input.scheduledSlots?.[group.shop.id] : undefined;
+    if (chosenSlotKey && !(await shopDelivers(group.shop.id))) {
+      throw validationFailed(`${group.shop.name} does not deliver, so a delivery time cannot be chosen.`);
+    }
+    const resolvedWindow = chosenSlotKey
+      ? { deliveryWindow: "SCHEDULED" as DeliveryWindow, promisedByAt: null, feasibility: null }
+      : requestedWindow
+        ? await resolvePromisedWindow(group.shop.id, requestedWindow)
+        : { deliveryWindow: null, promisedByAt: null, feasibility: null };
+    let { deliveryWindow, promisedByAt } = resolvedWindow;
+    let deliverySlotKey: string | null = null;
+    let scheduledSlot: { start: Date; end: Date; date: string } | null = null;
+    const acceptBy = await acceptByFor(new Date(), closedShops.get(group.shop.id) ?? null);
 
     const { order, shopOwnerId } = await db.transaction(async (tx) => {
       const lines: {
@@ -388,6 +443,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
 
       // Re-validate and re-price every line inside the transaction. The cart
       // view is a hint; this is the authority.
+      const shopOffersLive = await getLiveOffers([group.shop.id], new Date(), tx);
       for (const line of group.lines) {
         if (!line.purchasable) continue;
 
@@ -397,14 +453,21 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           tx,
         );
         const quantityMilli = line.quantity * loaded.product.unitSizeMilli;
+        // F8: a live shop offer lowers the unit price (the same pricing as the cart).
+        const unitPricePaise =
+          priceWithOffers(
+            loaded.unitPricePaise,
+            { shopId: group.shop.id, shopProductId: loaded.shopProduct.id, categoryId: loaded.product.categoryId },
+            shopOffersLive,
+          ).unitPricePaise ?? loaded.unitPricePaise;
         lines.push({
           shopProductId: loaded.shopProduct.id,
           productName: loaded.product.name,
           unit: loaded.product.unit,
-          unitPricePaise: loaded.unitPricePaise,
+          unitPricePaise,
           quantityUnits: line.quantity,
           quantityMilli,
-          lineTotalPaise: lineTotalPaise(loaded.unitPricePaise, quantityMilli),
+          lineTotalPaise: lineTotalPaise(unitPricePaise, quantityMilli),
         });
       }
 
@@ -419,8 +482,41 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
         .where(eq(shops.id, group.shop.id));
       const deliveryFeePaise = computeDeliveryFee(shopRow, subtotalPaise);
       const taxPaise = 0;
-      const totalPaise = subtotalPaise + deliveryFeePaise + taxPaise;
+      const couponShare = couponQuote?.shares.find((sh) => sh.shopId === group.shop.id)?.discountPaise ?? 0;
+      const discountPaise = Math.min(couponShare, subtotalPaise);
+      const totalPaise = subtotalPaise + deliveryFeePaise + taxPaise - discountPaise;
       if (paymentMethod === "COD") assertCodAllowedForOrder(shopRow, totalPaise);
+
+      // GS-027: the customer's chosen time slot, re-checked under the day's lock.
+      if (chosenSlotKey) {
+        const booked = await reserveScheduledSlot(tx, group.shop.id, chosenSlotKey);
+        deliverySlotKey = booked.slotKey;
+        promisedByAt = booked.end;
+        scheduledSlot = booked;
+      } else if (slotsOn) {
+        // F5: book a place in the window's current slot under a lock; if it filled
+        // up since the customer looked, move to the next open window, else refuse.
+        const feasibility = resolvedWindow.feasibility;
+        if (!deliveryWindow && feasibility?.full && Object.values(feasibility.full).some(Boolean)) {
+          throw slotFullError(shopRow.name);
+        }
+        if (deliveryWindow) {
+          const order = [deliveryWindow, ...WINDOW_PREFERENCE.filter((w) => w !== deliveryWindow && feasibility?.[w])];
+          let booked = false;
+          for (const w of order) {
+            const slot = await reserveSlot(tx, group.shop.id, w);
+            if (!slot) continue;
+            if (w !== deliveryWindow) {
+              deliveryWindow = w;
+              promisedByAt = w === "SCHEDULED" ? null : new Date(Date.now() + DELIVERY_WINDOW_MINUTES[w] * 60_000);
+            }
+            deliverySlotKey = slot.slotKey;
+            booked = true;
+            break;
+          }
+          if (!booked) throw slotFullError(shopRow.name);
+        }
+      }
 
       const [orderRow] = await tx
         .insert(orders)
@@ -445,9 +541,27 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           totalPaise,
           deliveryWindow,
           promisedByAt,
+          deliverySlotKey,
+          scheduledSlotStart: scheduledSlot?.start ?? null,
+          scheduledSlotEnd: scheduledSlot?.end ?? null,
+          deliveryDate: scheduledSlot?.date ?? null,
+          orderGroupId: orderGroup?.id ?? null,
+          discountPaise,
+          couponCode: couponQuote ? couponQuote.code : null,
           notes: input.notes ?? null,
         })
         .returning();
+
+      if (couponQuote) {
+        await redeemCouponForOrder(tx, {
+          couponId: couponQuote.couponId,
+          userId: input.userId,
+          requestId: input.requestId,
+          orderId: orderRow.id,
+          sharePaise: discountPaise,
+          orderGoodsPaise: subtotalPaise,
+        });
+      }
 
       await tx.insert(orderItems).values(
         lines.map((l) => ({
@@ -490,7 +604,13 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
 
       const [confirmed] = await tx
         .update(orders)
-        .set({ status: "CONFIRMED", paidAt: paymentMethod === "WALLET" ? new Date() : null, updatedAt: new Date() })
+        .set({
+          status: "CONFIRMED",
+          paidAt: paymentMethod === "WALLET" ? new Date() : null,
+          // NEW-007: the shop's accept-by time (null while the rule is off).
+          acceptByAt: acceptBy,
+          updatedAt: new Date(),
+        })
         .where(eq(orders.id, orderRow.id))
         .returning();
 
@@ -576,7 +696,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     await notifyOpenStockAlerts(group.shop.id, shopOwnerId);
   }
 
-  return { orders: created, deduplicated: anyDeduplicated };
+  return { orders: created, deduplicated: anyDeduplicated, ...(orderGroup ? { parentReference: orderGroup.reference } : {}) };
 }
 
 /**
@@ -655,6 +775,16 @@ export async function updateOrderStatus(
     // it is delivered, in the same transaction (idempotent).
     if (newStatus === "DELIVERED") {
       await recordOrderFinancials(orderId, tx);
+      // F11: a referred customer's first delivered order rewards both sides.
+      // Under a savepoint, so a problem here can never block the delivery.
+      await tx
+        .transaction((sp) => rewardReferralOnDelivery(orderId, sp))
+        .catch((error) => console.error("[referrals] reward check failed for order", orderId, error));
+      // NEW-007: the shop's invoice is issued at delivery (rule invoicing).
+      // Its own savepoint, so a problem here never blocks the delivery.
+      await issueInvoiceForOrder(orderId, tx).catch((error) =>
+        console.error("[invoices] issue failed for order", orderId, error),
+      );
     }
     // Phase 2: invite the customer to rate the shop and rider (GS-059/060).
     if (newStatus === "DELIVERED") {
@@ -719,6 +849,12 @@ export async function updateOrderStatus(
 
 export interface CancelOrderOptions {
   /**
+   * NEW-007: cancel only if the order is still in this status (checked under
+   * the row lock) — the acceptance-timeout sweep uses it so a shop accepting
+   * at the same moment always wins.
+   */
+  onlyIfStatus?: OrderStatus;
+  /**
    * True when the actor is the customer cancelling their OWN order through
    * self-service (as opposed to a shop/operator acting with privilege).
    * Governs D10, the resolved cancellation policy — see
@@ -750,7 +886,8 @@ export interface CancelOrderOptions {
  */
 export async function cancelOrder(
   orderId: string,
-  actor: { id: string; role: UserRole },
+  /** null = the system (e.g. the shop-acceptance timeout), recorded without a user. */
+  actor: { id: string; role: UserRole } | null,
   reason: string,
   options: CancelOrderOptions = {},
 ): Promise<Order> {
@@ -762,6 +899,9 @@ export async function cancelOrder(
       .for("update");
     if (!order) throw notFound("Order");
 
+    if (options.onlyIfStatus && order.status !== options.onlyIfStatus) {
+      throw conflict(`This order is now ${ORDER_STATUS_LABELS[order.status].toLowerCase()} and was not cancelled.`);
+    }
     if (!canTransition(order.status, "CANCELLED")) {
       throw invalidTransition(ORDER_STATUS_LABELS[order.status], "Cancelled");
     }
@@ -809,14 +949,14 @@ export async function cancelOrder(
       orderId,
       previousStatus: order.status,
       newStatus: "CANCELLED",
-      changedBy: actor.id,
+      changedBy: actor?.id ?? null,
       note: reason,
     });
 
     // DEF-02: notify the customer their order was cancelled — only when
     // someone OTHER than themselves did it (a shop/operator cancel), since a
     // customer doesn't need to be told about their own action.
-    if (actor.id !== order.userId) {
+    if (actor?.id !== order.userId) {
       await notify(
         {
           userId: order.userId,
@@ -877,7 +1017,7 @@ export async function cancelOrder(
           line.shopProductId,
           quantityUnits,
           `Order ${order.orderNumber} cancelled`,
-          actor.id,
+          actor?.id ?? null,
           tx,
         );
       }
@@ -932,7 +1072,7 @@ export async function cancelOrder(
           description: goodsOnlyRefund
             ? `Goods refund for cancelled order ${order.orderNumber} (delivery fee retained — order was already dispatched)`
             : `Refund for cancelled order ${order.orderNumber}`,
-          createdBy: actor.id,
+          createdBy: actor?.id ?? null,
           amountPaise: refundAmountPaise,
         },
         tx,
@@ -951,7 +1091,7 @@ export async function cancelOrder(
         orderId,
         previousStatus: "CANCELLED",
         newStatus: "REFUNDED",
-        changedBy: actor.id,
+        changedBy: actor?.id ?? null,
         note: goodsOnlyRefund ? "Wallet refunded (goods only; delivery fee retained)" : "Wallet refunded",
       });
       return { ...updated, status: "REFUNDED" as OrderStatus };
@@ -1126,7 +1266,7 @@ export function generateOrderNumber(now: Date = new Date()): string {
 async function resolvePromisedWindow(
   shopId: string,
   requested: DeliveryWindow,
-): Promise<{ deliveryWindow: DeliveryWindow | null; promisedByAt: Date | null }> {
+): Promise<{ deliveryWindow: DeliveryWindow | null; promisedByAt: Date | null; feasibility: DeliveryWindowFeasibility }> {
   const feasibility = await getFeasibleDeliveryWindows(shopId);
   const actual: DeliveryWindow | null = feasibility[requested]
     ? requested
@@ -1139,10 +1279,17 @@ async function resolvePromisedWindow(
           : null;
 
   if (!actual || actual === "SCHEDULED") {
-    return { deliveryWindow: actual, promisedByAt: null };
+    return { deliveryWindow: actual, promisedByAt: null, feasibility };
   }
   const minutes = DELIVERY_WINDOW_MINUTES[actual];
-  return { deliveryWindow: actual, promisedByAt: new Date(Date.now() + minutes * 60_000) };
+  return { deliveryWindow: actual, promisedByAt: new Date(Date.now() + minutes * 60_000), feasibility };
+}
+
+const WINDOW_PREFERENCE: DeliveryWindow[] = ["EXPRESS_30", "STANDARD_60", "SCHEDULED"];
+
+async function shopDelivers(shopId: string): Promise<boolean> {
+  const [row] = await db.select({ deliveryAvailable: shops.deliveryAvailable }).from(shops).where(eq(shops.id, shopId));
+  return row?.deliveryAvailable ?? false;
 }
 
 async function loadAddressSnapshot(
@@ -1200,6 +1347,11 @@ export interface MonitoredOrder {
   createdAt: Date;
   riderName: string | null;
   deliveryStatus: string | null;
+  /** GA-005: set when the rider carries this order in a batched trip. */
+  tripId?: string | null;
+  /** NEW-007: links for a delivered order. */
+  invoiceUrl?: string | null;
+  proofPhotoUrl?: string | null;
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -1246,6 +1398,7 @@ export async function listOrdersForMonitoring(filters: {
       createdAt: orders.createdAt,
       riderName: riderUser.name,
       deliveryStatus: deliveryOrders.status,
+      tripId: deliveryOrders.tripId,
     })
     .from(orders)
     .innerJoin(shops, eq(orders.shopId, shops.id))

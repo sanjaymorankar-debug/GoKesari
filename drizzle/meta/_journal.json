@@ -281,6 +281,118 @@
       "when": 1791030174408,
       "tag": "0039_product_category_management",
       "breakpoints": true
+    },
+    {
+      "idx": 40,
+      "version": "7",
+      "when": 1791209259334,
+      "tag": "0040_seller_verifications",
+      "breakpoints": true
+    },
+    {
+      "idx": 41,
+      "version": "7",
+      "when": 1791210340087,
+      "tag": "0041_seller_verification_files",
+      "breakpoints": true
+    },
+    {
+      "idx": 42,
+      "version": "7",
+      "when": 1791227382268,
+      "tag": "0042_status_models",
+      "breakpoints": true
+    },
+    {
+      "idx": 43,
+      "version": "7",
+      "when": 1791227707084,
+      "tag": "0043_rider_change_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 44,
+      "version": "7",
+      "when": 1791228186443,
+      "tag": "0044_delivery_routes",
+      "breakpoints": true
+    },
+    {
+      "idx": 45,
+      "version": "7",
+      "when": 1791228687754,
+      "tag": "0045_delivery_slots",
+      "breakpoints": true
+    },
+    {
+      "idx": 46,
+      "version": "7",
+      "when": 1791228993395,
+      "tag": "0046_order_groups",
+      "breakpoints": true
+    },
+    {
+      "idx": 47,
+      "version": "7",
+      "when": 1791229193124,
+      "tag": "0047_coupons",
+      "breakpoints": true
+    },
+    {
+      "idx": 48,
+      "version": "7",
+      "when": 1791229592590,
+      "tag": "0048_shop_offers",
+      "breakpoints": true
+    },
+    {
+      "idx": 49,
+      "version": "7",
+      "when": 1791230038875,
+      "tag": "0049_image_moderation",
+      "breakpoints": true
+    },
+    {
+      "idx": 50,
+      "version": "7",
+      "when": 1791230301119,
+      "tag": "0050_customer_referrals",
+      "breakpoints": true
+    },
+    {
+      "idx": 51,
+      "version": "7",
+      "when": 1791260635942,
+      "tag": "0051_shop_onboarding_states",
+      "breakpoints": true
+    },
+    {
+      "idx": 52,
+      "version": "7",
+      "when": 1791261411743,
+      "tag": "0052_subscription_states",
+      "breakpoints": true
+    },
+    {
+      "idx": 53,
+      "version": "7",
+      "when": 1791262236007,
+      "tag": "0053_scheduled_slots",
+      "breakpoints": true
+    },
+    {
+      "idx": 54,
+      "version": "7",
+      "when": 1791262790527,
+      "tag": "0054_delivery_trips",
+      "breakpoints": true
+    },
+    {
+      "idx": 55,
+      "version": "7",
+      "when": 1791263322912,
+      "tag": "0055_order_completion",
+      "breakpoints": true
     }
   ]
 }

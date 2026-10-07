@@ -48,8 +48,9 @@ import {
   listFeeHistory,
 } from "@/server/services/registration-fees";
 import { getRegistrationFeeReport } from "@/server/services/shop-payments";
+import { countShopsByLifecycle, getShopOnboarding, type ShopOnboarding } from "@/server/services/shop-onboarding";
+import { getRule } from "@/server/services/settings";
 import {
-  countShopsByStatus,
   listShopsByStatus,
   searchShops,
   searchShopsAdmin,
@@ -108,7 +109,7 @@ export default async function AdminPage() {
   ] = await Promise.all([
     listShopsByStatus("PENDING_APPROVAL"),
     searchShops({ limit: 100 }),
-    countShopsByStatus(),
+    countShopsByLifecycle(),
     countSubscriptionsByStatus(),
     db.select({ value: count() }).from(users),
     db
@@ -129,6 +130,10 @@ export default async function AdminPage() {
   ]);
   // GS-003: extra roles each listed user can switch to.
   const userRoles = await listRolesForUsers(userList.map((u) => u.id));
+  const [onboarding, statusModelsRule] = await Promise.all([
+    getShopOnboarding(pending.map((s) => s.id)),
+    getRule("statusModels"),
+  ]);
 
   const [
     financeShops,
@@ -226,13 +231,28 @@ export default async function AdminPage() {
         <Stat label="Total users" value={userCount[0].value} />
         <Stat label="Approved shops" value={approved.length} />
         <Stat
-          label="Pending approvals"
-          value={shopCounts.PENDING_APPROVAL ?? 0}
-          tone={pending.length > 0 ? "warning" : "neutral"}
+          label="KYC pending"
+          value={shopCounts.KYC_PENDING}
+          tone={shopCounts.KYC_PENDING > 0 ? "warning" : "neutral"}
+        />
+        <Stat
+          label="Payment pending"
+          value={shopCounts.PAYMENT_PENDING}
+          tone={shopCounts.PAYMENT_PENDING > 0 ? "warning" : "neutral"}
+        />
+        <Stat
+          label="Verified — awaiting approval"
+          value={shopCounts.VERIFIED}
+          tone={shopCounts.VERIFIED > 0 ? "warning" : "neutral"}
         />
         <Stat
           label="Active subscriptions"
           value={subscriptionCounts.ACTIVE ?? 0}
+        />
+        <Stat
+          label="Subscriptions — renewal pending"
+          value={subscriptionCounts.RENEWAL_PENDING ?? 0}
+          tone={(subscriptionCounts.RENEWAL_PENDING ?? 0) > 0 ? "warning" : "neutral"}
         />
         <Stat label="Kesari shops" value={kesari} />
         <Stat label="Green shops" value={green} />
@@ -306,8 +326,9 @@ export default async function AdminPage() {
       ) : null}
 
       <ShopApprovalPanel
-        pending={pending.map(serialiseShop)}
-        approved={approved.map(serialiseShop)}
+        pending={pending.map((s) => serialiseShop(s, onboarding.get(s.id)))}
+        approved={approved.map((s) => serialiseShop(s))}
+        approvalGateOn={statusModelsRule.enforceTransitions}
         canApprove={can(user.role, PERMISSIONS.SHOP_APPROVE)}
         canClassify={can(user.role, PERMISSIONS.SHOP_SET_CLASSIFICATION)}
       />
@@ -326,6 +347,19 @@ export default async function AdminPage() {
               returnPolicyText: s.returnPolicyText,
             }))}
           />
+        </Section>
+      ) : null}
+
+      {canVerifyGstPan ? (
+        <Section title="Seller document verification">
+          <Card className="flex flex-wrap items-center justify-between gap-2 p-4 text-sm" data-testid="seller-verification-link">
+            <span className="text-ink-600">
+              PAN, GSTIN, Udyam, FSSAI and Shop Act checks the automatic verification couldn&apos;t settle.
+            </span>
+            <Link href="/admin/seller-verification" className="font-medium text-kesari-700 underline">
+              Open review queue →
+            </Link>
+          </Card>
         </Section>
       ) : null}
 
@@ -405,7 +439,7 @@ export default async function AdminPage() {
         </Section>
       ) : null}
 
-      <Section title="Registration fees & payments">
+      <Section id="shop-finance" title="Registration fees & payments">
         <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
           <Stat
             label="Fees expected"
@@ -578,7 +612,7 @@ export default async function AdminPage() {
   );
 }
 
-function serialiseShop(shop: typeof shops.$inferSelect) {
+function serialiseShop(shop: typeof shops.$inferSelect, onboarding?: ShopOnboarding) {
   return {
     id: shop.id,
     name: shop.name,
@@ -597,6 +631,10 @@ function serialiseShop(shop: typeof shops.$inferSelect) {
     feePaymentStatus: shop.feePaymentStatus,
     registrationFeePaise: shop.registrationFeePaise,
     amountPaidPaise: shop.amountPaidPaise,
+    // SM-002: stage, missing documents and fee owed drive the badge and "Next".
+    onboardingStage: onboarding?.stage ?? null,
+    missingDocuments: onboarding?.missingDocuments ?? [],
+    feeOutstandingPaise: onboarding?.feeOutstandingPaise ?? 0,
   };
 }
 

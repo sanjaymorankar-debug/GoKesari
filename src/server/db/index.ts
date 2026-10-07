@@ -36,7 +36,7 @@ function createClient() {
     // free tier allows well under 100 — so the ceiling is configurable rather
     // than hard-coded.
     max: env.DATABASE_POOL_MAX,
-    idle_timeout: 20,
+    idle_timeout: env.DATABASE_IDLE_TIMEOUT_SECONDS,
     connect_timeout: 30,
     ssl: resolveSsl(url),
     // Money is bigint in the schema; postgres-js would otherwise hand back
