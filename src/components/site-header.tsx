@@ -49,6 +49,9 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
   ],
   OPERATOR: [
     { href: "/admin", label: "Operator Console" },
+    { href: "/admin/dashboard", label: "Dashboard" },
+    { href: "/admin/orders", label: "Order monitoring" },
+    { href: "/admin/exceptions", label: "Operations exceptions" },
     { href: "/admin/shops", label: "Shop Product Management" },
     { href: "/admin/product-master", label: "Product Master" },
     { href: "/product-categories", label: "Product categories" },
@@ -70,6 +73,9 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
   ],
   ADMIN: [
     { href: "/admin", label: "Admin Console" },
+    { href: "/admin/dashboard", label: "Dashboard" },
+    { href: "/admin/orders", label: "Order monitoring" },
+    { href: "/admin/exceptions", label: "Operations exceptions" },
     { href: "/admin/shops", label: "Shop Product Management" },
     { href: "/admin/product-master", label: "Product Master" },
     { href: "/product-categories", label: "Product categories" },
@@ -97,7 +103,11 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin/status-changes", label: "Status history" },
     { href: "/admin/subscriptions", label: "Subscriptions" },
   ],
-  DELIVERY_PARTNER: [{ href: "/delivery-partner", label: "Delivery Partner" }],
+  DELIVERY_PARTNER: [
+    { href: "/delivery-partner", label: "Delivery Partner" },
+    { href: "/gig/orders", label: "My deliveries" },
+    { href: "/gig/profile", label: "My delivery profile" },
+  ],
 };
 
 /** Label for the role menu that replaces a long inline row of links. */
