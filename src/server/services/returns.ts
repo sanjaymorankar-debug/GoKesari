@@ -403,14 +403,26 @@ export async function listAllReturns(options: { status?: ReturnStatus; limit?: n
   );
 }
 
+/**
+ * One return as its viewer sees it (ReturnCase renders exactly this). Built
+ * field by field: the customer's pickup address, user and staff ids, and the
+ * pickup's rider and attempt counters stay on the server.
+ */
 export interface ReturnDetail {
-  ret: ReturnRequest;
+  ret: Pick<
+    ReturnRequest,
+    "id" | "returnNumber" | "status" | "reason" | "comment" | "refundAmountPaise" | "refundedPaise" | "decisionNote" | "inspectionNote"
+  >;
   orderNumber: string;
   shopName: string;
   customerName: string | null;
-  items: (ReturnItem & { productName: string; unit: string })[];
-  history: (typeof returnStatusHistory.$inferSelect)[];
-  pickup: (Omit<ReturnPickup, "handoverCode" | "rejectedPartnerIds"> & { handoverCode?: string }) | null;
+  items: (Pick<ReturnItem, "id" | "quantityMilli" | "condition" | "comment" | "imageIds" | "refundPaise"> & {
+    productName: string;
+    unit: string;
+  })[];
+  history: Pick<typeof returnStatusHistory.$inferSelect, "id" | "toStatus" | "note" | "createdAt">[];
+  /** `handoverCode` only for the customer, while the pickup is live. */
+  pickup: (Pick<ReturnPickup, "status" | "scheduledFor"> & { handoverCode?: string }) | null;
   viewer: "CUSTOMER" | "SHOP" | "STAFF";
   /** Actions the viewer may take right now — the UI shows exactly these. */
   actions: string[];
@@ -421,17 +433,31 @@ export async function getReturnDetail(returnId: string, actor: Actor): Promise<R
   const [order] = await db.select({ orderNumber: orders.orderNumber }).from(orders).where(eq(orders.id, ret.orderId));
   const [customer] = await db.select({ name: users.name }).from(users).where(eq(users.id, ret.userId));
   const items = await db
-    .select({ item: returnItems, productName: orderItems.productNameSnapshot, unit: orderItems.unitSnapshot })
+    .select({
+      id: returnItems.id,
+      quantityMilli: returnItems.quantityMilli,
+      condition: returnItems.condition,
+      comment: returnItems.comment,
+      imageIds: returnItems.imageIds,
+      refundPaise: returnItems.refundPaise,
+      productName: orderItems.productNameSnapshot,
+      unit: orderItems.unitSnapshot,
+    })
     .from(returnItems)
     .innerJoin(orderItems, eq(returnItems.orderItemId, orderItems.id))
     .where(eq(returnItems.returnId, ret.id));
   const history = await db
-    .select()
+    .select({
+      id: returnStatusHistory.id,
+      toStatus: returnStatusHistory.toStatus,
+      note: returnStatusHistory.note,
+      createdAt: returnStatusHistory.createdAt,
+    })
     .from(returnStatusHistory)
     .where(eq(returnStatusHistory.returnId, ret.id))
     .orderBy(returnStatusHistory.createdAt);
   const [pickup] = await db
-    .select()
+    .select({ status: returnPickups.status, scheduledFor: returnPickups.scheduledFor, handoverCode: returnPickups.handoverCode })
     .from(returnPickups)
     .where(eq(returnPickups.returnId, ret.id))
     .orderBy(desc(returnPickups.createdAt))
@@ -457,18 +483,29 @@ export async function getReturnDetail(returnId: string, actor: Actor): Promise<R
   }
 
   return {
-    ret,
+    ret: {
+      id: ret.id,
+      returnNumber: ret.returnNumber,
+      status: ret.status,
+      reason: ret.reason,
+      comment: ret.comment,
+      refundAmountPaise: ret.refundAmountPaise,
+      refundedPaise: ret.refundedPaise,
+      decisionNote: ret.decisionNote,
+      inspectionNote: ret.inspectionNote,
+    },
     orderNumber: order?.orderNumber ?? "",
     shopName,
     customerName: viewer === "CUSTOMER" ? null : (customer?.name ?? null),
-    items: items.map((r) => ({ ...r.item, productName: r.productName, unit: r.unit })),
+    items,
     history,
     pickup: pickup
-      ? (({ handoverCode, rejectedPartnerIds: _r, ...rest }) => {
-          void _r;
+      ? {
+          status: pickup.status,
+          scheduledFor: pickup.scheduledFor,
           // Only the customer is shown the code the rider must be given.
-          return isCustomer && LIVE_PICKUP_STATUSES.includes(rest.status as never) ? { ...rest, handoverCode } : rest;
-        })(pickup)
+          ...(isCustomer && LIVE_PICKUP_STATUSES.includes(pickup.status as never) ? { handoverCode: pickup.handoverCode } : {}),
+        }
       : null,
     viewer,
     actions,

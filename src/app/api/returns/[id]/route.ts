@@ -3,7 +3,8 @@
  *   customer: cancel, schedule
  *   shop / staff: approve, reject, receive, inspect, issue_refund, retry_pickup
  *   staff: complete_pickup (when the handover code could not be used)
- * The service checks the caller may act and that the move is legal.
+ * The service checks the caller may act and that the move is legal. Every
+ * action answers with the updated case as GET shows it to the caller.
  */
 import type { NextRequest } from "next/server";
 import { z } from "zod";
@@ -54,29 +55,40 @@ export const PATCH = route(async (request: NextRequest, context: RouteContext<{ 
 
   switch (body.action) {
     case "cancel":
-      return ok(await cancelReturn(id, user, body.note));
+      await cancelReturn(id, user, body.note);
+      break;
     case "schedule":
-      return ok(await scheduleReturnPickup(id, user.id, new Date(body.scheduledFor)));
+      await scheduleReturnPickup(id, user.id, new Date(body.scheduledFor));
+      break;
     case "approve":
-      return ok(await approveReturn(id, user, body.note));
+      await approveReturn(id, user, body.note);
+      break;
     case "reject":
-      return ok(await rejectReturn(id, user, body.note));
+      await rejectReturn(id, user, body.note);
+      break;
     case "receive":
-      return ok(await receiveReturn(id, user));
+      await receiveReturn(id, user);
+      break;
     case "inspect":
-      return ok(await inspectReturn(id, user, body));
+      await inspectReturn(id, user, body);
+      break;
     case "issue_refund":
-      return ok(await issueRefund(id, user));
+      await issueRefund(id, user);
+      break;
     case "retry_pickup": {
-      await getReturnDetail(id, user); // view check
       // Managing rights are re-checked by the return service on the next action; here only shop/staff may retry.
-      const detail = await getReturnDetail(id, user);
-      if (detail.viewer === "CUSTOMER") throw forbidden("Only the shop or support can retry a pickup.");
-      return ok(await retryPickup(id));
+      const { viewer } = await getReturnDetail(id, user); // view check
+      if (viewer === "CUSTOMER") throw forbidden("Only the shop or support can retry a pickup.");
+      await retryPickup(id);
+      break;
     }
     case "complete_pickup": {
       if (user.role !== "OPERATOR" && user.role !== "ADMIN") throw forbidden("Only support can complete a pickup.");
-      return ok(await completePickupByOperator(id, user, body.note));
+      await completePickupByOperator(id, user, body.note);
+      break;
     }
   }
+  // The case as this caller sees it (same as GET), never the raw rows: those
+  // carry the customer's address, staff ids and the pickup's handover code.
+  return ok(await getReturnDetail(id, user));
 });
