@@ -50,3 +50,29 @@ export function parseLocation(raw: string | undefined | null): CustomerLocation 
     return null;
   }
 }
+
+/**
+ * The location as the header pill shows it: the place without a saved
+ * address's own name in front ("Home — Kharadi, Pune, 411014" → "Kharadi,
+ * Pune, 411014"). A typed PIN stays "PIN 411014".
+ */
+export function shortLocationLabel(location: Pick<CustomerLocation, "label">): string {
+  const dash = location.label.indexOf(" — ");
+  return dash >= 0 ? location.label.slice(dash + 3) : location.label;
+}
+
+/**
+ * A place name for headings such as "Shops near Kharadi": the first part of
+ * the label that is a name rather than a number. Null when the location is
+ * only a PIN code or the device's position — the heading then says "near
+ * you" instead of repeating a number or "Current location".
+ */
+export function locationAreaName(
+  location: Pick<CustomerLocation, "label" | "source">,
+): string | null {
+  if (location.source === "PINCODE") return null;
+  const short = shortLocationLabel(location);
+  if (short === "Current location") return null;
+  const first = short.split(",")[0]?.trim() ?? "";
+  return first && !/^\d+$/.test(first) && first.length <= 40 ? first : null;
+}
