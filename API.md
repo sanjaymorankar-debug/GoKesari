@@ -35,10 +35,18 @@ Query: `department` (`DAIRY`|`BAKERY`), `categoryId`, `subscribable=true`
 → `{ categories: [...], products: [...] }`
 
 ### `GET /api/shops`
-Public shop search. Only `APPROVED` shops are ever returned.
+Public shop search. Only `APPROVED` shops are ever returned, with the fields a
+shop card shows: `id`, `slug`, `name`, `logoUrl`, `ownerName`, `area`, `city`,
+`pincode`, `shopType`, `classification`, `deliveryAvailable`, `openingHours`,
+`ratingAvgX100`, `ratingCount`.
 
 Query: `q`, `city`, `area`, `pincode`, `type` (`DAIRY`|`BAKERY`|`BOTH`),
 `classification` (`KESARI`|`GREEN`), `delivery=true`, `limit`, `offset`
+
+### `GET /api/shops/{id}`
+The shop's owner, or staff with `shop:update:any`: the shop's details in any
+status. Anyone else: an `APPROVED` shop's card fields (as in `GET /api/shops`);
+404 for a shop that is not live.
 
 ### `GET /api/shops/{id}/products`
 Query: `onlineOnly=true` to restrict to online-purchasable offerings.
@@ -46,6 +54,11 @@ Query: `onlineOnly=true` to restrict to online-purchasable offerings.
 ---
 
 ## Shops
+
+Shops returned by the owner's and staff's routes below never include the PAN
+ciphertext or its hash, the Shop Act matching key, or staff and internal ids
+(`approvedBy`, `gstVerifiedBy`, `panVerifiedBy`, `statusActorId`,
+`registrationFeeId`, `referralCodeId`). The masked PAN is `panLast4`.
 
 ### `POST /api/shops` — register
 Requires `shop:create`. Always creates a shop with status `PENDING_APPROVAL`
