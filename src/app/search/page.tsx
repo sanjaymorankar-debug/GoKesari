@@ -1,7 +1,6 @@
 import Link from "next/link";
 
 import { ProductGrid } from "@/components/product-grid";
-import { LocationBar } from "@/components/location-bar";
 import { EmptyState, PageHeader, Section } from "@/components/ui";
 import { ShopGrid } from "@/components/shop-grid";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -34,7 +33,6 @@ export default async function SearchPage({
     return (
       <>
         <PageHeader title="Search" />
-        <LocationBar userId={user?.id ?? null} location={location} />
         <EmptyState
           title="What are you looking for?"
           description="Search for a product, a shop, an area or a PIN code."
@@ -64,9 +62,8 @@ export default async function SearchPage({
         description={`${products.length} product${products.length === 1 ? "" : "s"} · ${shops.length} shop${shops.length === 1 ? "" : "s"}`}
       />
 
-      <LocationBar userId={user?.id ?? null} location={location} />
       {location ? (
-        <p className="-mt-3 mb-6 text-xs text-ink-500">
+        <p className="mb-6 text-xs text-ink-500">
           {nearOnly ? "Showing only shops that deliver to you. " : "Showing all shops. "}
           <Link
             href={`/search?q=${encodeURIComponent(query)}${nearOnly ? "&all=1" : ""}`}

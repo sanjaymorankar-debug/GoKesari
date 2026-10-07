@@ -1,11 +1,11 @@
 import type { Metadata, Viewport } from "next";
 
-import Link from "next/link";
-
+import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
-import { SearchBar } from "@/components/search-bar";
-import { LEGAL_DOCS, LEGAL_ENTITY } from "@/lib/legal-docs";
+import { shortLocationLabel } from "@/lib/location";
 import { getCurrentUser } from "@/server/authz/guards";
+import { getCustomerLocation } from "@/server/location";
+import { listAddresses } from "@/server/services/addresses";
 import { getCartItemCount } from "@/server/services/cart";
 import { unreadCount } from "@/server/services/notifications";
 import { listUserRoles } from "@/server/services/roles";
@@ -33,15 +33,23 @@ export default async function RootLayout({
   // Header state is resolved server-side so the cart count and balance are
   // always authoritative rather than optimistic client state.
   const user = await getCurrentUser();
-  const [cartCount, wallet, unread, roles] = user
+  const [cartCount, balancePaise, unread, roles, addresses] = user
     ? await Promise.all([
         getCartItemCount(user.id).catch(() => 0),
-        getWalletByUserId(user.id).catch(() => null),
+        // No wallet row yet is a balance of zero; a failed read hides the pill
+        // rather than showing a wrong ₹0.
+        getWalletByUserId(user.id)
+          .then((w) => w?.balancePaise ?? 0)
+          .catch(() => null),
         unreadCount(user.id).catch(() => 0),
         // GS-003: roles the user can switch between.
         listUserRoles(user.id).catch(() => [user.role]),
+        // Offered in the header's "Deliver to" chooser.
+        listAddresses(user.id).catch(() => []),
       ])
-    : [0, null, 0, []];
+    : [0, null, 0, [], []];
+  // The same location every page filters by (cookie, else the default address).
+  const location = await getCustomerLocation(user?.id).catch(() => null);
 
   return (
     <html lang="en">
@@ -50,43 +58,18 @@ export default async function RootLayout({
           user={user}
           roles={roles}
           cartCount={cartCount}
-          balancePaise={wallet?.balancePaise ?? null}
+          balancePaise={balancePaise}
           unreadCount={unread}
+          locationLabel={location ? shortLocationLabel(location) : null}
+          savedAddresses={addresses.map((a) => ({
+            id: a.id,
+            label: `${a.label ? `${a.label} — ` : ""}${a.pincode}`,
+          }))}
         />
-        <SearchBar />
         <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
           {children}
         </main>
-        <footer className="border-t border-cream-200 bg-white">
-          <div className="mx-auto max-w-6xl px-4 py-6 text-xs text-ink-500 sm:px-6">
-            <p className="mb-1">
-              Everything for Everyone — every local shop near you, in
-              one directory.
-            </p>
-            <p className="mb-3">
-              {LEGAL_ENTITY.legalName} · GSTIN: {LEGAL_ENTITY.gstin}
-            </p>
-            <nav className="flex flex-wrap gap-x-4 gap-y-1">
-              <Link href="/about" className="py-1 hover:text-ink-700 hover:underline">
-                About Us
-              </Link>
-              <Link href="/contact" className="py-1 hover:text-ink-700 hover:underline">
-                Contact Us
-              </Link>
-              <Link href="/delivery-partner/apply" className="py-1 hover:text-ink-700 hover:underline">
-                Become a Delivery Partner
-              </Link>
-              {LEGAL_DOCS.map((doc) => (
-                <Link key={doc.slug} href={`/legal/${doc.slug}`} className="py-1 hover:text-ink-700 hover:underline">
-                  {doc.shortLabel}
-                </Link>
-              ))}
-              <Link href="/grievance" className="py-1 hover:text-ink-700 hover:underline">
-                File a complaint
-              </Link>
-            </nav>
-          </div>
-        </footer>
+        <SiteFooter />
       </body>
     </html>
   );

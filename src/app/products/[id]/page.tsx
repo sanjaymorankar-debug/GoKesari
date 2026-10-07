@@ -4,7 +4,6 @@ import { notFound } from "next/navigation";
 import { MrpDisputeForm } from "@/components/mrp-dispute-form";
 import { SafeImage } from "@/components/safe-image";
 import { ProductGrid } from "@/components/product-grid";
-import { LocationBar } from "@/components/location-bar";
 import { Badge, Card, EmptyState, Money, PageHeader, Section } from "@/components/ui";
 import { formatQuantity, lineTotalPaise } from "@/lib/money";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -99,7 +98,6 @@ export default async function ProductComparePage({
         title={product.productName}
         description={`${product.categoryName} · sold by ${offers.length} shop${offers.length === 1 ? "" : "s"}`}
       />
-      <LocationBar userId={user?.id ?? null} location={location} />
 
       <div className="mb-4 flex gap-3 overflow-x-auto" data-testid="product-gallery">
         {gallery.length === 0 ? (

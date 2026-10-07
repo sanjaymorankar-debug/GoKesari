@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
+import { DeliverToPill, LocationPanel, OPEN_LOCATION_EVENT } from "@/components/location-picker";
 import { RoleSwitcher } from "@/components/role-switcher";
 import { formatPaiseCompact } from "@/lib/money";
 import type { UserRole } from "@/server/db/schema";
@@ -17,12 +18,22 @@ interface Props {
   cartCount: number;
   balancePaise: number | null;
   unreadCount: number;
+  /** The chosen delivery location as the pill shows it, or null when none is chosen. */
+  locationLabel: string | null;
+  /** The signed-in user's saved addresses, offered in the location chooser. */
+  savedAddresses: { id: string; label: string }[];
 }
 
+/** The main row. Wallet has its own balance pill; the rest sit in the account menu. */
 const NAV = [
   { href: "/shops", label: "Shops" },
-  { href: "/orders", label: "My Orders" },
-  { href: "/subscriptions", label: "My Subscriptions" },
+  { href: "/orders", label: "Orders" },
+  { href: "/subscriptions", label: "Subscriptions" },
+];
+
+/** Account destinations: the avatar menu on wide screens, the drawer on narrow ones. */
+const ACCOUNT_NAV = [
+  { href: "/profile", label: "My Profile" },
   { href: "/wallet", label: "My Wallet" },
   { href: "/society", label: "My Society" },
 ];
@@ -201,10 +212,78 @@ function NavMenu({
   );
 }
 
-/** Header per requirement §6, collapsing to a drawer on mobile (§52). */
-export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCount }: Props) {
+/** Closes a popover on outside click or Escape. */
+function useDismiss(ref: React.RefObject<HTMLElement | null>, open: boolean, close: () => void) {
+  useEffect(() => {
+    if (!open) return;
+    const onDown = (e: MouseEvent) => {
+      if (!ref.current?.contains(e.target as Node)) close();
+    };
+    const onKey = (e: KeyboardEvent) => e.key === "Escape" && close();
+    document.addEventListener("mousedown", onDown);
+    document.addEventListener("keydown", onKey);
+    return () => {
+      document.removeEventListener("mousedown", onDown);
+      document.removeEventListener("keydown", onKey);
+    };
+  }, [ref, open, close]);
+}
+
+/** Site-wide search: products, shops, area or PIN code. Enter submits. */
+function HeaderSearch({ className }: { className?: string }) {
+  return (
+    <form action="/search" role="search" className={className}>
+      <input
+        type="search"
+        name="q"
+        placeholder="Search products, shops, area or PIN code"
+        aria-label="Search products, shops, area or PIN code"
+        className="w-full rounded-xl border border-cream-200 bg-cream-50 px-3 py-2 text-sm placeholder:text-ink-500 focus:border-kesari-500 focus:outline-none"
+      />
+    </form>
+  );
+}
+
+/**
+ * Header per requirement §6: logo, "Deliver to", search, the three customer
+ * destinations, wallet balance, cart and the account menu. Below `lg` the
+ * links move into a drawer (§52) and the search takes a row of its own.
+ */
+export function SiteHeader({
+  user,
+  roles = [],
+  cartCount,
+  balancePaise,
+  unreadCount,
+  locationLabel,
+  savedAddresses,
+}: Props) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
+  const [locationOpen, setLocationOpen] = useState(false);
+  const [accountOpen, setAccountOpen] = useState(false);
+  const accountRef = useRef<HTMLDivElement>(null);
+  useDismiss(accountRef, accountOpen, () => setAccountOpen(false));
+
+  // Close everything on navigation (render-time sync, not an effect).
+  const [prevPathname, setPrevPathname] = useState(pathname);
+  if (prevPathname !== pathname) {
+    setPrevPathname(pathname);
+    setOpen(false);
+    setAccountOpen(false);
+    setLocationOpen(false);
+  }
+
+  // "Change location" links elsewhere on the page open the chooser here.
+  useEffect(() => {
+    const openLocation = () => {
+      setOpen(false);
+      setLocationOpen(true);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+    };
+    window.addEventListener(OPEN_LOCATION_EVENT, openLocation);
+    return () => window.removeEventListener(OPEN_LOCATION_EVENT, openLocation);
+  }, []);
 
   const dashboardHref =
     user?.role === "ADMIN"
@@ -216,10 +295,11 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
           : user?.role === "DELIVERY_PARTNER"
             ? "/delivery-partner"
             : null;
+  const roleItems = user ? (ROLE_NAV[user.role] ?? []) : [];
 
   return (
     <header className="sticky top-0 z-40 border-b border-cream-200 bg-white/95 backdrop-blur">
-      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-3 gap-y-2 px-4 py-3 sm:px-6">
+      <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 sm:px-6">
         <Link href="/" className="flex shrink-0 items-center gap-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img
@@ -237,11 +317,23 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
           </span>
         </Link>
 
-        <nav className="hidden items-center gap-1 xl:flex" aria-label="Main">
-          {user && (ROLE_NAV[user.role] ?? []).length > 0 ? (
+        <DeliverToPill
+          label={locationLabel}
+          open={locationOpen}
+          onToggle={() => {
+            setOpen(false);
+            setLocationOpen((v) => !v);
+          }}
+        />
+
+        {/* One search box: in the row from md up, on a row of its own below. */}
+        <HeaderSearch className="order-last min-w-0 basis-full md:order-none md:min-w-[10rem] md:flex-1 md:basis-0" />
+
+        <nav className="hidden items-center gap-1 lg:flex" aria-label="Main">
+          {roleItems.length > 0 && user ? (
             <NavMenu
               label={ROLE_MENU_LABEL[user.role] ?? "Menu"}
-              items={ROLE_NAV[user.role] ?? []}
+              items={roleItems}
               pathname={pathname}
               emphasis
             />
@@ -250,6 +342,7 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
             <Link
               key={item.href}
               href={item.href}
+              aria-current={pathname.startsWith(item.href) ? "page" : undefined}
               className={clsx(
                 "whitespace-nowrap rounded-lg px-2.5 py-1.5 text-sm font-medium transition-colors",
                 pathname.startsWith(item.href)
@@ -264,11 +357,14 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
 
         {/* Tap areas sit 4px low: inside the header on one row, and clear of
             the logo when a narrow screen wraps this to a second. */}
-        <div className="ml-auto flex shrink-0 items-center gap-2 [--tap-dy:4px]">
+        <div className="ml-auto flex shrink-0 items-center gap-2 md:ml-0 [--tap-dy:4px]">
           {balancePaise !== null ? (
             <Link
               href="/wallet"
-              className="tap-target hidden rounded-lg bg-leaf-50 px-2.5 py-1.5 text-sm font-semibold text-leaf-700 sm:inline-block"
+              // The same pill on every page: one balance, one colour.
+              className="tap-target rounded-lg bg-kesari-50 px-2.5 py-1.5 text-sm font-semibold tabular-nums text-kesari-700 hover:bg-kesari-100 [--tap-w:44px]"
+              aria-label={`Wallet balance ${formatPaiseCompact(balancePaise)}`}
+              data-testid="header-wallet"
             >
               {formatPaiseCompact(balancePaise)}
             </Link>
@@ -276,10 +372,21 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
 
           <Link
             href="/cart"
-            className="tap-target rounded-lg px-2.5 py-1.5 text-sm font-medium text-ink-600 hover:bg-cream-100"
+            className="tap-target flex items-center gap-1.5 rounded-lg px-2 py-1.5 text-sm font-medium text-ink-700 hover:bg-cream-100 [--tap-w:44px]"
             aria-label={`Cart, ${cartCount} items`}
           >
-            Cart
+            <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden>
+              <path
+                d="M2 3h2.2l2 9.2a1 1 0 0 0 1 .8h7.3a1 1 0 0 0 1-.8L17 6H5.2"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+              <circle cx="8" cy="16.2" r="1.2" fill="currentColor" />
+              <circle cx="14.2" cy="16.2" r="1.2" fill="currentColor" />
+            </svg>
+            <span className="hidden sm:inline">Cart</span>
             {cartCount > 0 ? (
               <span className="absolute -right-1 -top-1 grid h-4 min-w-4 place-items-center rounded-full bg-kesari-600 px-1 text-[10px] font-bold text-white">
                 {cartCount}
@@ -288,49 +395,72 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
           </Link>
 
           {user ? (
-            <div className="flex items-center gap-2">
-              <RoleSwitcher active={user.role} roles={roles} />
-              {dashboardHref ? (
-                <Link
-                  href={dashboardHref}
-                  className="tap-target hidden rounded-lg border border-cream-200 px-2.5 py-1.5 text-sm font-medium text-ink-700 hover:bg-cream-100 md:inline-block"
-                >
-                  Dashboard
-                </Link>
-              ) : null}
-              <Link
-                href="/profile"
-                // Icon-sized and 8px from its neighbours: 36px wide keeps the
-                // tap areas apart.
-                className="tap-target grid h-8 w-8 place-items-center rounded-full bg-kesari-100 text-sm font-semibold text-kesari-700 [--tap-w:36px]"
-                aria-label="My Profile"
-                title="My Profile"
+            <div ref={accountRef} className="relative">
+              <button
+                type="button"
+                onClick={() => setAccountOpen((v) => !v)}
+                aria-haspopup="menu"
+                aria-expanded={accountOpen}
+                aria-label="Account menu"
+                className="tap-target flex items-center gap-1 rounded-full p-0.5 pr-1 hover:bg-cream-100 [--tap-w:44px]"
               >
-                {(user.name ?? user.email).charAt(0).toUpperCase()}
-                {unreadCount > 0 ? (
-                  <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white" />
-                ) : null}
-              </Link>
-              {/* Every role, every page: an icon on phones, labelled from sm up. */}
-              <form action={signOutAction}>
-                <button
-                  type="submit"
-                  className="tap-target flex items-center gap-1.5 rounded-lg border border-cream-200 p-1.5 text-sm font-medium text-ink-700 hover:bg-cream-100 sm:px-2.5 [--tap-w:36px]"
-                  aria-label="Sign out"
-                  title="Sign out"
+                <span className="relative grid h-8 w-8 place-items-center rounded-full bg-kesari-100 text-sm font-semibold text-kesari-700">
+                  {(user.name ?? user.email).charAt(0).toUpperCase()}
+                  {unreadCount > 0 ? (
+                    <span className="absolute -right-0.5 -top-0.5 h-2.5 w-2.5 rounded-full bg-red-500 ring-2 ring-white" />
+                  ) : null}
+                </span>
+                <svg width="12" height="12" viewBox="0 0 12 12" aria-hidden className={clsx("text-ink-600 transition-transform", accountOpen && "rotate-180")}>
+                  <path d="M2 4l4 4 4-4" stroke="currentColor" strokeWidth="1.5" fill="none" strokeLinecap="round" />
+                </svg>
+              </button>
+              {accountOpen ? (
+                <div
+                  role="menu"
+                  data-testid="account-menu"
+                  className="absolute right-0 top-full z-50 mt-1 w-60 max-w-[calc(100vw-1.5rem)] rounded-xl border border-cream-200 bg-white p-1.5 shadow-lg"
                 >
-                  <svg width="18" height="18" viewBox="0 0 20 20" fill="none" aria-hidden>
-                    <path
-                      d="M8 4H5a1 1 0 0 0-1 1v10a1 1 0 0 0 1 1h3M12 6l4 4-4 4M16 10H8"
-                      stroke="currentColor"
-                      strokeWidth="1.75"
-                      strokeLinecap="round"
-                      strokeLinejoin="round"
-                    />
-                  </svg>
-                  <span className="hidden whitespace-nowrap sm:inline">Sign out</span>
-                </button>
-              </form>
+                  <div className="border-b border-cream-200 px-3 pb-2 pt-1.5">
+                    <p className="truncate text-sm font-semibold text-ink-900">{user.name ?? "My account"}</p>
+                    <p className="truncate text-xs text-ink-500">{user.email}</p>
+                  </div>
+                  {roles.length > 1 ? (
+                    <div className="flex items-center justify-between gap-2 border-b border-cream-200 px-3 py-2 text-xs text-ink-500">
+                      Acting as
+                      <RoleSwitcher active={user.role} roles={roles} />
+                    </div>
+                  ) : null}
+                  <div className="py-1">
+                    {dashboardHref ? (
+                      <Link href={dashboardHref} role="menuitem" className="block rounded-lg px-3 py-2 text-sm font-medium text-kesari-700 hover:bg-cream-100">
+                        Dashboard
+                      </Link>
+                    ) : null}
+                    {ACCOUNT_NAV.map((item) => (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        role="menuitem"
+                        className="flex items-center justify-between rounded-lg px-3 py-2 text-sm text-ink-700 hover:bg-cream-100"
+                      >
+                        {item.label}
+                        {item.href === "/profile" && unreadCount > 0 ? (
+                          <span className="rounded-full bg-red-500 px-1.5 text-[10px] font-bold text-white">{unreadCount}</span>
+                        ) : null}
+                      </Link>
+                    ))}
+                  </div>
+                  <form action={signOutAction} className="border-t border-cream-200 pt-1">
+                    <button
+                      type="submit"
+                      role="menuitem"
+                      className="block w-full rounded-lg px-3 py-2 text-left text-sm font-medium text-ink-700 hover:bg-cream-100"
+                    >
+                      Sign out
+                    </button>
+                  </form>
+                </div>
+              ) : null}
             </div>
           ) : (
             <Link
@@ -343,10 +473,13 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
 
           <button
             type="button"
-            onClick={() => setOpen((v) => !v)}
+            onClick={() => {
+              setLocationOpen(false);
+              setOpen((v) => !v);
+            }}
             // Last item in the row: the tap area widens to the right, into the
             // page margin, and stays clear of the control to its left.
-            className="tap-target rounded-lg p-1.5 text-ink-600 hover:bg-cream-100 xl:hidden [--tap-dx:8px]"
+            className="tap-target rounded-lg p-1.5 text-ink-600 hover:bg-cream-100 lg:hidden [--tap-dx:8px] [--tap-w:40px]"
             aria-label="Toggle menu"
             aria-expanded={open}
           >
@@ -362,15 +495,23 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
         </div>
       </div>
 
+      {locationOpen ? (
+        <LocationPanel
+          currentLabel={locationLabel}
+          savedAddresses={savedAddresses}
+          onClose={() => setLocationOpen(false)}
+        />
+      ) : null}
+
       {open ? (
-        <nav className="max-h-[80vh] overflow-y-auto border-t border-cream-200 bg-white px-4 py-2 xl:hidden" aria-label="Menu">
-          {user && (ROLE_NAV[user.role] ?? []).length > 0 ? (
-            <details className="mb-1" open={(ROLE_NAV[user.role] ?? []).some((i) => pathname.startsWith(i.href))}>
+        <nav className="max-h-[80vh] overflow-y-auto border-t border-cream-200 bg-white px-4 py-2 lg:hidden" aria-label="Menu">
+          {roleItems.length > 0 && user ? (
+            <details className="mb-1" open={roleItems.some((i) => pathname.startsWith(i.href))}>
               <summary className="cursor-pointer rounded-lg px-2 py-2 text-sm font-semibold text-kesari-700 hover:bg-cream-100">
                 {ROLE_MENU_LABEL[user.role] ?? "Menu"}
               </summary>
               <div className="ml-2 border-l border-cream-200 pl-2">
-                {(ROLE_NAV[user.role] ?? []).map((item) => (
+                {roleItems.map((item) => (
                   <Link
                     key={item.href}
                     href={item.href}
@@ -383,7 +524,7 @@ export function SiteHeader({ user, roles = [], cartCount, balancePaise, unreadCo
               </div>
             </details>
           ) : null}
-          {NAV.map((item) => (
+          {[...NAV, ...(user ? ACCOUNT_NAV : [])].map((item) => (
             <Link
               key={item.href}
               href={item.href}
