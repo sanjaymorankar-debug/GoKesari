@@ -199,6 +199,35 @@ export async function clearCartForShop(
   }
 }
 
+/** A cart line as a product card needs it: which line, and how many. */
+export interface CartLineQuantity {
+  cartItemId: string;
+  quantity: number;
+}
+
+/**
+ * The user's cart quantities keyed by shop product, so a product card can
+ * show its in-cart controls on first render rather than "Add to cart" for
+ * something already in the cart. Read-only: unlike getCart, it never creates
+ * a cart.
+ */
+export async function getCartLineQuantities(
+  userId: string,
+): Promise<Map<string, CartLineQuantity>> {
+  const rows = await db
+    .select({
+      cartItemId: cartItems.id,
+      shopProductId: cartItems.shopProductId,
+      quantity: cartItems.quantity,
+    })
+    .from(cartItems)
+    .innerJoin(carts, eq(cartItems.cartId, carts.id))
+    .where(eq(carts.userId, userId));
+  return new Map(
+    rows.map((r) => [r.shopProductId, { cartItemId: r.cartItemId, quantity: r.quantity }]),
+  );
+}
+
 /**
  * Builds the full cart view, grouped by shop with live prices and per-shop
  * delivery fees. Unpurchasable lines are retained but flagged, so the customer

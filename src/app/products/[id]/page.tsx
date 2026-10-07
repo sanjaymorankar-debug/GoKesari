@@ -9,6 +9,7 @@ import { Badge, Card, EmptyState, Money, PageHeader, Section } from "@/component
 import { formatQuantity, lineTotalPaise } from "@/lib/money";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getCustomerLocation } from "@/server/location";
+import { getCartLineQuantities } from "@/server/services/cart";
 import { listStorefrontProducts } from "@/server/services/catalogue";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
@@ -40,9 +41,10 @@ export default async function ProductComparePage({
 
   const user = await getCurrentUser();
   const location = await getCustomerLocation(user?.id);
-  const [offers, distances] = await Promise.all([
+  const [offers, distances, cartLines] = await Promise.all([
     listStorefrontProducts({ productId: id, limit: 100 }),
     location ? serviceableShopIds(location) : Promise.resolve(undefined),
+    user ? getCartLineQuantities(user.id) : null,
   ]);
   if (offers.length === 0) notFound();
 
@@ -204,7 +206,7 @@ export default async function ProductComparePage({
 
       {purchasable.length > 0 ? (
         <Section title="Buy from">
-          <ProductGrid products={purchasable} signedIn={Boolean(user)} distances={distances} compare={false} />
+          <ProductGrid products={purchasable} signedIn={Boolean(user)} cartLines={cartLines} distances={distances} compare={false} />
         </Section>
       ) : (
         <EmptyState
