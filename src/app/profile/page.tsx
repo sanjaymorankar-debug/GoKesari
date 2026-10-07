@@ -100,7 +100,7 @@ export default async function ProfilePage() {
 
       <Card className="mb-6 p-6">
         <h2 className="mb-3 text-base font-semibold text-ink-900">
-          Marketing messages
+          Offers and promotions
         </h2>
         <MarketingConsentToggle
           initialGranted={marketingConsent.granted}
