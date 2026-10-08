@@ -19,8 +19,10 @@ INSERT INTO platform_settings (key, value) VALUES
   -- 3. Bank accounts: prompts on; a shop payout waits for a verified account.
   ('bankAccounts', '{"enabled": true, "requireVerifiedForShopPayouts": true}'),
   -- 4. Referral code required on self-service shop registration; requests are
-  --    emailed to referrals@gokesari.com.
-  ('shopReferral', '{"required": true, "notifyEmails": ["referrals@gokesari.com"]}')
+  --    emailed to referrals@gokesari.com. On test only, a copy also goes to a
+  --    plus-alias of the owner's mailbox so the end-to-end pass can read the
+  --    email (remove it in Business rules → shopReferral when testing is done).
+  ('shopReferral', '{"required": true, "notifyEmails": ["referrals@gokesari.com", "sanjaymorankar+gk-referrals@gmail.com"]}')
 ON CONFLICT (key) DO UPDATE SET value = platform_settings.value || EXCLUDED.value, updated_at = now();
 
 -- What is now in force (code defaults fill anything not listed):
