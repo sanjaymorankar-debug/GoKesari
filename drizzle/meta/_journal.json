@@ -435,6 +435,13 @@
       "when": 1791482233194,
       "tag": "0061_legal_documents",
       "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1791483316213,
+      "tag": "0062_bank_accounts",
+      "breakpoints": true
     }
   ]
 }

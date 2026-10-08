@@ -56,6 +56,8 @@ import { listSubscriptionOrdersForShop } from "@/server/services/subscriptions";
 import { ShopWalletBanner } from "@/components/shop-wallet-banner";
 import { LegalDocumentsBanner } from "@/components/legal-documents-banner";
 import { getShopLegalStatus } from "@/server/services/legal-documents";
+import { BankAccountPrompt } from "@/components/bank-account-prompt";
+import { shopBankPrompt } from "@/server/services/bank-accounts";
 import { getShopWalletStatus } from "@/server/services/shop-wallet";
 
 export const metadata = { title: "My Shop" };
@@ -115,6 +117,8 @@ export default async function ShopDashboardPage() {
   ]);
   // Mandatory legal documents (docs/four-features-2026-10): prompt, grace period, expiry reminder.
   const legalStatus = await getShopLegalStatus(shop.id);
+  // Bank accounts (docs/four-features-2026-10): payouts need a verified account — a prompt, not a lockout.
+  const bankPrompt = await shopBankPrompt(shop.id);
   const upcomingDeliveries = await listSubscriptionDeliveries({
     shopId: shop.id,
     from: addDays(today, 1),
@@ -147,6 +151,7 @@ export default async function ShopDashboardPage() {
       {/* Shop wallet: "recharge wallet" while it is low or below the minimum. */}
       <ShopWalletBanner {...wallet} />
       <LegalDocumentsBanner status={legalStatus} />
+      {bankPrompt ? <BankAccountPrompt status={bankPrompt} href="/shop/bank-account" purpose="payouts" /> : null}
 
       <div className="mb-6 flex flex-wrap gap-2">
         {onboarding ? (

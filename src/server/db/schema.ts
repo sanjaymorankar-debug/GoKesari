@@ -5575,3 +5575,104 @@ export const shopLegalDocumentFiles = pgTable(
   ],
 );
 export type ShopLegalDocumentFile = typeof shopLegalDocumentFiles.$inferSelect;
+
+/* ===================================================================
+ * Bank accounts and ₹1 verification (docs/four-features-2026-10, feature 3)
+ * Additive: migration 0062, rollback scripts/rollback-0062.sql.
+ * =================================================================== */
+
+export const BANK_ACCOUNT_STATUSES = ["PENDING", "VERIFIED", "FAILED"] as const;
+export type BankAccountStatus = (typeof BANK_ACCOUNT_STATUSES)[number];
+
+/**
+ * Where a customer's refunds or a shop's payouts go: a bank account (holder
+ * name, account number, IFSC) or a UPI ID, verified with a ₹1 payment through
+ * the payment gateway that is refunded straight away (services/bank-accounts.ts).
+ * The account number and UPI ID are encrypted (PAN_ENCRYPTION_KEY); only the
+ * last 4 digits / a masked UPI ID are kept in clear for display. Changing the
+ * details creates a new row (the old one stops being current), so a change
+ * always needs a fresh verification. No card number is ever stored: card
+ * details stay inside the gateway's checkout.
+ */
+export const bankAccounts = pgTable(
+  "bank_accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Set for a shop's payout account; null for a customer's refund account. */
+    shopId: uuid("shop_id").references(() => shops.id, { onDelete: "cascade" }),
+    holderType: text("holder_type", { enum: ["CUSTOMER", "SHOP"] }).notNull(),
+    method: text("method", { enum: ["BANK_ACCOUNT", "UPI"] }).notNull(),
+    accountHolderName: text("account_holder_name").notNull(),
+    accountNumberEncrypted: text("account_number_encrypted"),
+    accountNumberLast4: text("account_number_last4"),
+    ifsc: text("ifsc"),
+    upiIdEncrypted: text("upi_id_encrypted"),
+    upiIdMasked: text("upi_id_masked"),
+    status: text("status", { enum: BANK_ACCOUNT_STATUSES }).notNull().default("PENDING"),
+    /** The name the verification matched (the gateway's payer name, or the declared name when the gateway gives none). */
+    matchedAccountHolderName: text("matched_account_holder_name"),
+    nameMatchScore: integer("name_match_score"),
+    /** How the match was made: GATEWAY_NAME, GATEWAY_ACCOUNT, GATEWAY_UPI, PAYMENT_ONLY. */
+    matchMethod: text("match_method"),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    /** UPI, DEBIT_CARD, CREDIT_CARD, NET_BANKING (how the ₹1 was paid). */
+    verificationPaymentMethod: text("verification_payment_method"),
+    /** The gateway's payment id for the ₹1 payment that decided the status. */
+    gatewayReference: text("gateway_reference"),
+    failureReason: text("failure_reason"),
+    isCurrent: boolean("is_current").notNull().default(true),
+    supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("bank_accounts_customer_current_uq").on(t.userId).where(sql`${t.shopId} IS NULL AND ${t.isCurrent}`),
+    uniqueIndex("bank_accounts_shop_current_uq").on(t.shopId).where(sql`${t.shopId} IS NOT NULL AND ${t.isCurrent}`),
+    index("bank_accounts_status_idx").on(t.status, t.updatedAt),
+    check(
+      "bank_accounts_details",
+      sql`(${t.method} = 'BANK_ACCOUNT' AND ${t.accountNumberEncrypted} IS NOT NULL AND ${t.ifsc} IS NOT NULL) OR (${t.method} = 'UPI' AND ${t.upiIdEncrypted} IS NOT NULL)`,
+    ),
+  ],
+);
+export type BankAccount = typeof bankAccounts.$inferSelect;
+
+/** One ₹1 verification payment for a bank account, and its automatic refund. */
+export const bankVerificationAttempts = pgTable(
+  "bank_verification_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    bankAccountId: uuid("bank_account_id")
+      .notNull()
+      .references(() => bankAccounts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    gateway: text("gateway", { enum: ["CASHFREE", "SIMULATOR"] }).notNull(),
+    gatewayOrderId: text("gateway_order_id").notNull(),
+    amountPaise: integer("amount_paise").notNull(),
+    status: text("status", { enum: ["CREATED", "SUCCESS", "FAILED"] }).notNull().default("CREATED"),
+    paymentMethod: text("payment_method"),
+    gatewayPaymentId: text("gateway_payment_id"),
+    /** What the gateway said about the payer, masked (name, UPI ID, account last 4, IFSC, card network and bank). */
+    payerDetails: jsonb("payer_details").$type<Record<string, string | null>>(),
+    failureReason: text("failure_reason"),
+    refundStatus: text("refund_status", { enum: ["NOT_REQUIRED", "PENDING", "REFUNDED", "FAILED"] }).notNull().default("NOT_REQUIRED"),
+    refundReference: text("refund_reference"),
+    refundedAt: timestamp("refunded_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("bank_verification_attempts_order_uq").on(t.gatewayOrderId),
+    uniqueIndex("bank_verification_attempts_payment_uq").on(t.gatewayPaymentId),
+    index("bank_verification_attempts_account_idx").on(t.bankAccountId, t.createdAt),
+    index("bank_verification_attempts_user_idx").on(t.userId, t.createdAt),
+    check("bank_verification_attempts_amount", sql`${t.amountPaise} > 0 AND ${t.amountPaise} <= 1000`),
+  ],
+);
+export type BankVerificationAttempt = typeof bankVerificationAttempts.$inferSelect;

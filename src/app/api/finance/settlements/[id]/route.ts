@@ -11,6 +11,7 @@ import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { decideShopSettlement } from "@/server/services/finance";
+import { assertSettlementPayoutAllowed } from "@/server/services/bank-accounts";
 
 const schema = z.object({
   action: z.enum(["approve", "process", "pay", "fail", "reverse", "cancel"]),
@@ -22,5 +23,7 @@ export const PATCH = route(async (request: NextRequest, context: RouteContext<{ 
   const user = await requirePermission(PERMISSIONS.FINANCE_MANAGE);
   const { id } = await context.params;
   const body = await parseBody(request, schema);
+  // Bank accounts (docs/four-features-2026-10): no payout to a shop without a verified account.
+  await assertSettlementPayoutAllowed(id, body.action);
   return ok(await decideShopSettlement(id, body.action, user, body.note));
 });
