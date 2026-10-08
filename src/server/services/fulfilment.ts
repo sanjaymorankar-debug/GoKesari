@@ -35,6 +35,7 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { consumeOnlineStock, loadPurchasableShopProduct } from "./catalogue";
 import { dispatchReadyOrder } from "./delivery-assignment";
+import { assertFulfilmentChosen } from "./fulfilment-guards";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { cancelOrder, updateOrderStatus } from "./orders";
 import { refundOriginalDebit } from "./wallet";
@@ -73,7 +74,16 @@ export async function startPicking(orderId: string, actor: Actor): Promise<Order
  * substitution decision blocks it. Then asks for a rider when the shop
  * delivers through the platform.
  */
-export async function markOrderReady(orderId: string, actor: Actor): Promise<Order> {
+export async function markOrderReady(
+  orderId: string,
+  actor: Actor,
+  /**
+   * Fulfilment options (docs/four-features-2026-10): saves the shop's choice
+   * (pickup / own delivery / GoKesari partner and a time) in the same
+   * transaction, before the order becomes READY.
+   */
+  options: { beforeReady?: (tx: DbClient, order: Order) => Promise<void> } = {},
+): Promise<Order> {
   const ready = await db.transaction(async (tx) => {
     const order = await lockOrder(tx, orderId);
     if (order.status !== "PREPARING") {
@@ -86,6 +96,8 @@ export async function markOrderReady(orderId: string, actor: Actor): Promise<Ord
     if (items.every((i) => i.fulfilmentStatus === "REMOVED")) {
       throw conflict("Every item was removed — reject the order instead.");
     }
+    if (options.beforeReady) await options.beforeReady(tx, order);
+    else await assertFulfilmentChosen(tx, orderId);
     await tx
       .update(orderItems)
       .set({ fulfilmentStatus: "PICKED", fulfilmentUpdatedAt: new Date() })

@@ -4,6 +4,8 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Alert, Badge, Button, Card, Money, StatusBadge } from "@/components/ui";
+import { FulfilmentPlanner, type PlannerPlan, type PlannerStaff } from "@/components/fulfilment-planner";
+import type { SlotDay } from "@/lib/fulfilment-options";
 import { formatQuantity } from "@/lib/money";
 import { formatScheduledSlot } from "@/lib/scheduled-slots";
 
@@ -83,6 +85,18 @@ export interface ShopOrderRow {
   /** NEW-007: links for a delivered order. */
   invoiceUrl?: string | null;
   proofPhotoUrl?: string | null;
+  /** Fulfilment options (docs/four-features-2026-10): the order's pickup / delivery plan. */
+  fulfilmentPlan?: PlannerPlan | null;
+  /** The order has a delivery address (own delivery and GoKesari need one). */
+  hasAddress?: boolean;
+}
+
+/** Fulfilment options switched on: the slots and delivery people the planner offers. */
+export interface ShopFulfilmentSettings {
+  /** Rule fulfilmentOptions on: a PREPARING order is marked ready through the planner. */
+  enabled: boolean;
+  days: SlotDay[];
+  staff: PlannerStaff[];
 }
 
 export interface SubstituteOption {
@@ -95,11 +109,14 @@ export function ShopOrderManager({
   orders,
   deliveryAvailable,
   substitutes = [],
+  fulfilment = null,
 }: {
   orders: ShopOrderRow[];
   deliveryAvailable: boolean;
   /** This shop's online-buyable products, for proposing a substitute. */
   substitutes?: SubstituteOption[];
+  /** Fulfilment options (rule fulfilmentOptions); null while the rule is off. */
+  fulfilment?: ShopFulfilmentSettings | null;
 }) {
   const router = useRouter();
 
@@ -111,6 +128,7 @@ export function ShopOrderManager({
           order={order}
           deliveryAvailable={deliveryAvailable}
           substitutes={substitutes}
+          fulfilment={fulfilment}
           onChanged={() => router.refresh()}
         />
       ))}
@@ -122,11 +140,13 @@ function OrderRow({
   order,
   deliveryAvailable,
   substitutes,
+  fulfilment,
   onChanged,
 }: {
   order: ShopOrderRow;
   deliveryAvailable: boolean;
   substitutes: SubstituteOption[];
+  fulfilment: ShopFulfilmentSettings | null;
   onChanged: () => void;
 }) {
   const [busy, setBusy] = useState(false);
@@ -166,6 +186,9 @@ function OrderRow({
   // A rider is actively on this order (a declined/expired/cancelled offer
   // does not count — the shop can retry or deliver itself).
   const riderActive = ["OFFERED", "ACCEPTED", "PICKED_UP"].includes(order.deliveryStatus ?? "");
+  // Fulfilment options: a planned order is handed over from its plan; riders only for a GoKesari plan.
+  const plan = order.fulfilmentPlan ?? null;
+  const riderPlan = !plan || plan.option === "GOKESARI_PARTNER";
 
   return (
     <Card className="p-4" data-testid="shop-order">
@@ -256,17 +279,17 @@ function OrderRow({
             Start picking
           </Button>
         ) : null}
-        {order.status === "PREPARING" ? (
+        {order.status === "PREPARING" && !fulfilment?.enabled ? (
           <Button size="sm" disabled={busy || waitingOnCustomer} onClick={() => fulfil({ action: "ready" })}>
             Packed — mark ready
           </Button>
         ) : null}
-        {order.status === "READY" && deliveryAvailable && !riderActive ? (
+        {order.status === "READY" && deliveryAvailable && !riderActive && riderPlan ? (
           <Button size="sm" variant="secondary" disabled={busy} onClick={findRider}>
             {order.riderSearch?.state === "STOPPED" ? "Try finding a rider again" : "Find rider now"}
           </Button>
         ) : null}
-        {order.status === "READY" && deliveryAvailable && !riderActive && order.riderSearch?.state === "SEARCHING" ? (
+        {order.status === "READY" && deliveryAvailable && !riderActive && riderPlan && order.riderSearch?.state === "SEARCHING" ? (
           <Button size="sm" variant="ghost" disabled={busy} onClick={stopSearch}>
             Stop searching
           </Button>
@@ -275,6 +298,8 @@ function OrderRow({
           // While a rider holds the order only the rider (with the customer's
           // delivery code) or operations can complete it — the server refuses too.
           .filter(() => !((order.status === "READY" || order.status === "OUT_FOR_DELIVERY") && riderActive))
+          // A planned order goes out / is handed over from its plan (with the customer's code).
+          .filter(() => !((order.status === "READY" || order.status === "OUT_FOR_DELIVERY") && plan))
           .map((step) => (
             <Button key={step.to} size="sm" variant="secondary" disabled={busy} onClick={() => advance(step.to)}>
               {step.label}
@@ -286,6 +311,20 @@ function OrderRow({
           </Button>
         ) : null}
       </div>
+
+      {fulfilment && ((fulfilment.enabled && order.status === "PREPARING") || plan) ? (
+        <FulfilmentPlanner
+          orderId={order.id}
+          status={order.status}
+          plan={plan}
+          days={fulfilment.days}
+          staff={fulfilment.staff}
+          hasAddress={order.hasAddress ?? true}
+          shopDelivers={deliveryAvailable}
+          cashOnDelivery={order.paymentMethod === "COD" && !order.cashCollected}
+          onChanged={onChanged}
+        />
+      ) : null}
 
       {waitingOnCustomer ? (
         <p className="mt-2 text-xs text-ink-500">Waiting for the customer to approve or reject a substitute.</p>

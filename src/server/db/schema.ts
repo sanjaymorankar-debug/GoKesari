@@ -5403,3 +5403,100 @@ export const customerReferrals = pgTable(
   ],
 );
 export type CustomerReferral = typeof customerReferrals.$inferSelect;
+
+/* ===================================================================
+ * Fulfilment options and scheduling (docs/four-features-2026-10, feature 1)
+ * Additive: migration 0060, rollback scripts/rollback-0060.sql.
+ * =================================================================== */
+
+/**
+ * A shop's own delivery people (name and mobile). They have no GoKesari
+ * account: an order assigned to one of them gets a private delivery link the
+ * shop shares with them (services/fulfilment-options.ts). Deactivated, never
+ * deleted, so past orders keep their delivery person.
+ */
+export const shopDeliveryStaff = pgTable(
+  "shop_delivery_staff",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** "+91XXXXXXXXXX". */
+    phoneE164: text("phone_e164").notNull(),
+    isActive: boolean("is_active").notNull().default(true),
+    deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("shop_delivery_staff_shop_phone_uq").on(t.shopId, t.phoneE164),
+    index("shop_delivery_staff_shop_idx").on(t.shopId),
+  ],
+);
+export type ShopDeliveryStaff = typeof shopDeliveryStaff.$inferSelect;
+
+export const FULFILMENT_OPTIONS = ["PICKUP", "SHOP_DELIVERY", "GOKESARI_PARTNER"] as const;
+export type FulfilmentOption = (typeof FULFILMENT_OPTIONS)[number];
+
+/**
+ * How a READY order reaches the customer, chosen by the shop when it marks the
+ * order ready: customer pickup, the shop's own delivery person, or a GoKesari
+ * delivery partner (the existing rider dispatch). One row per order, changed in
+ * place until the order is collected / out for delivery; every change is a
+ * domain event (domain_events) and an audit row.
+ *
+ * Codes: a pickup code is derived from `code_nonce` with the server secret
+ * (HMAC), so it can be shown to the customer at any time without being stored;
+ * an own-delivery code is stored only as a salted HMAC (`code_hash`), exactly
+ * like a rider delivery code. The delivery link for the shop's own delivery
+ * person is likewise derived from `staff_link_nonce` — never stored.
+ */
+export const orderFulfilmentArrangements = pgTable(
+  "order_fulfilment_arrangements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    option: text("option", { enum: FULFILMENT_OPTIONS }).notNull(),
+    scheduledStart: timestamp("scheduled_start", { withTimezone: true }).notNull(),
+    scheduledEnd: timestamp("scheduled_end", { withTimezone: true }).notNull(),
+    staffId: uuid("staff_id").references(() => shopDeliveryStaff.id, { onDelete: "set null" }),
+    staffLinkNonce: text("staff_link_nonce"),
+    /** PICKUP: the code is HMAC(secret, id + nonce); a new nonce = a new code. */
+    codeNonce: text("code_nonce"),
+    /** SHOP_DELIVERY: salted HMAC of the delivery code sent when the order goes out. */
+    codeHash: text("code_hash"),
+    codeSentAt: timestamp("code_sent_at", { withTimezone: true }),
+    codeResends: integer("code_resends").notNull().default(0),
+    codeAttempts: integer("code_attempts").notNull().default(0),
+    codeLockedAt: timestamp("code_locked_at", { withTimezone: true }),
+    outForDeliveryAt: timestamp("out_for_delivery_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    completedVia: text("completed_via", { enum: ["PICKUP_CODE", "DELIVERY_CODE", "OPERATOR"] }),
+    /** 1 when first set; +1 on every change (shown as "updated"). */
+    version: integer("version").notNull().default(1),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("order_fulfilment_arrangements_order_uq").on(t.orderId),
+    index("order_fulfilment_arrangements_shop_idx").on(t.shopId),
+    index("order_fulfilment_arrangements_staff_idx").on(t.staffId),
+    check("order_fulfilment_arrangements_window", sql`${t.scheduledEnd} > ${t.scheduledStart}`),
+    check(
+      "order_fulfilment_arrangements_staff",
+      sql`${t.option} <> 'SHOP_DELIVERY' OR ${t.staffId} IS NOT NULL OR ${t.completedAt} IS NOT NULL`,
+    ),
+    check("order_fulfilment_arrangements_attempts", sql`${t.codeAttempts} >= 0 AND ${t.codeResends} >= 0`),
+  ],
+);
+export type OrderFulfilmentArrangement = typeof orderFulfilmentArrangements.$inferSelect;

@@ -18,7 +18,7 @@ import type { Audience } from "./recipients";
 
 type Vars = Record<string, string | number | null | undefined>;
 
-export type SubjectKind = MachineKind | "shop" | "risk_flag" | "notification" | "seller_review";
+export type SubjectKind = MachineKind | "shop" | "risk_flag" | "notification" | "seller_review" | "bank_account" | "referral_request";
 
 export interface EventMessage {
   /** A user id, an audience, or nothing (skipped — e.g. an order with no rider). */
@@ -137,6 +137,63 @@ export interface DisputeEventPayload {
   why?: string;
   /** dispute.status_changed: which customer template applies. */
   customerTemplate?: "RESOLUTION_PROPOSED" | "REJECTED";
+}
+
+/* ------------------------------------------------- docs/four-features-2026-10 */
+
+/** Fulfilment options (services/fulfilment-options.ts). */
+export interface FulfilmentEventPayload {
+  orderId: string;
+  orderNumber: string;
+  buyerId: string;
+  /** Named apart from OrderEventPayload.shopOwnerId so these are not order status events. */
+  shopOwnerUserId: string | null;
+  shopName: string;
+  /** "Pickup from the shop", "Shop's own delivery", "GoKesari delivery partner". */
+  optionLabel: string;
+  /** "Thu 8 Oct, 5:00–6:00 pm". */
+  whenLabel: string;
+  staffName?: string | null;
+  /** order.fulfilment_changed: what it was before. */
+  previousLabel?: string | null;
+  /** True when support (not the shop) made the change: the shop is told too. */
+  bySupport?: boolean;
+  attempts?: number;
+  ticketNumber?: string | null;
+  codeKind?: "pickup" | "delivery";
+}
+
+/** Mandatory legal documents (services/legal-documents.ts). */
+export interface LegalDocumentEventPayload {
+  shopId: string;
+  shopName: string;
+  ownerId: string;
+  docLabel: string;
+  decision?: "approved" | "rejected";
+  reason?: string | null;
+  graceUntilLabel?: string | null;
+  expiryLabel?: string | null;
+}
+
+/** Bank account verification (services/bank-accounts.ts). */
+export interface BankAccountEventPayload {
+  userId: string;
+  accountLabel: string;
+  reason?: string | null;
+  forShop: boolean;
+}
+
+/** Shop referral-code requests (services/referral-requests.ts). */
+export interface ReferralRequestEventPayload {
+  requestId: string;
+  name: string;
+  city: string;
+  pincode: string;
+  shopTypeLabel: string;
+  requesterUserId?: string | null;
+  decision?: "issued" | "rejected";
+  code?: string | null;
+  reason?: string | null;
 }
 
 /* ------------------------------------------------------------------- helpers */
@@ -608,6 +665,153 @@ export const EVENTS = {
         balance: formatPaise(p.balancePaise),
       },
       actionUrl: SHOP_WALLET,
+    },
+  ]),
+
+  /* ------------------------------------- fulfilment options (four-features-2026-10) */
+  "order.fulfilment_set": define<FulfilmentEventPayload>("order", (p) => [
+    {
+      to: p.buyerId,
+      type: N.ORDER_FULFILMENT_SET,
+      title: p.optionLabel.startsWith("Pickup") ? "Ready for pickup" : "Delivery scheduled",
+      body:
+        `Order ${p.orderNumber} from ${p.shopName}: ${p.optionLabel}${p.staffName ? ` (${p.staffName})` : ""}, ${p.whenLabel}.` +
+        (p.optionLabel.startsWith("Pickup") ? " Show your pickup code from My Orders at the shop." : ""),
+      actionUrl: ORDERS,
+      channels: ["EMAIL"],
+    },
+    ...(p.bySupport
+      ? [{ to: p.shopOwnerUserId, type: N.SHOP_FULFILMENT_CHANGED, title: "Order fulfilment set by support", body: `Order ${p.orderNumber}: ${p.optionLabel}, ${p.whenLabel}.`, actionUrl: SHOP_ORDERS }]
+      : []),
+  ]),
+  "order.fulfilment_changed": define<FulfilmentEventPayload>("order", (p) => [
+    {
+      to: p.buyerId,
+      type: N.ORDER_FULFILMENT_CHANGED,
+      title: "Your order's delivery plan changed",
+      body: `Order ${p.orderNumber} from ${p.shopName} is now: ${p.optionLabel}${p.staffName ? ` (${p.staffName})` : ""}, ${p.whenLabel}.${p.previousLabel ? ` Before: ${p.previousLabel}.` : ""}`,
+      actionUrl: ORDERS,
+      channels: ["EMAIL"],
+    },
+    ...(p.bySupport
+      ? [{ to: p.shopOwnerUserId, type: N.SHOP_FULFILMENT_CHANGED, title: "Order fulfilment changed by support", body: `Order ${p.orderNumber} is now: ${p.optionLabel}, ${p.whenLabel}.`, actionUrl: SHOP_ORDERS }]
+      : []),
+  ]),
+  "order.fulfilment_code_locked": define<FulfilmentEventPayload>("order", (p) => [
+    {
+      to: p.buyerId,
+      type: N.ORDER_FULFILMENT_CODE_LOCKED,
+      title: p.codeKind === "pickup" ? "Pickup on hold" : "Delivery on hold",
+      body: `Too many wrong ${p.codeKind === "pickup" ? "pickup" : "delivery"} codes were entered for order ${p.orderNumber}. Our support team will contact you${p.ticketNumber ? ` (ticket ${p.ticketNumber})` : ""}.`,
+      actionUrl: ORDERS,
+      includeActor: true,
+    },
+    {
+      to: p.shopOwnerUserId,
+      type: N.SHOP_FULFILMENT_CODE_LOCKED,
+      title: "Code locked — support will confirm",
+      body: `Order ${p.orderNumber}: ${p.attempts ?? "too many"} wrong codes. Support will confirm the handover with the customer${p.ticketNumber ? ` (ticket ${p.ticketNumber})` : ""}.`,
+      actionUrl: SHOP_ORDERS,
+      includeActor: true,
+    },
+    {
+      to: "SUPPORT",
+      type: N.SUPPORT_FULFILMENT_CODE_LOCKED,
+      title: "Pickup / own-delivery code locked",
+      body: `Order ${p.orderNumber} (${p.shopName}) is locked after ${p.attempts ?? "too many"} wrong codes${p.ticketNumber ? ` — ticket ${p.ticketNumber}` : ""}. Confirm with the customer from Order monitoring.`,
+      actionUrl: "/admin/orders",
+    },
+  ]),
+
+  /* ------------------------------------- legal documents (four-features-2026-10) */
+  "shop.legal_document_required": define<LegalDocumentEventPayload>("shop", (p) => [
+    {
+      to: p.ownerId,
+      type: N.SHOP_LEGAL_DOCUMENT_REQUIRED,
+      title: `${p.docLabel} required`,
+      body: `${p.shopName} needs a ${p.docLabel} to keep accepting orders.${p.graceUntilLabel ? ` Upload it by ${p.graceUntilLabel}.` : " Upload it to go live."}`,
+      actionUrl: "/shop/legal-documents",
+      channels: ["EMAIL"],
+      includeActor: true,
+    },
+  ]),
+  "shop.legal_document_submitted": define<LegalDocumentEventPayload>("shop", (p) => [
+    {
+      to: "SUPPORT",
+      type: N.SUPPORT_LEGAL_DOCUMENT_SUBMITTED,
+      title: "Legal document to review",
+      body: `${p.shopName} submitted a ${p.docLabel}. Review it in Legal documents.`,
+      actionUrl: "/admin/legal-documents",
+    },
+  ]),
+  "shop.legal_document_decided": define<LegalDocumentEventPayload>("shop", (p) => [
+    {
+      to: p.ownerId,
+      type: N.SHOP_LEGAL_DOCUMENT_DECIDED,
+      title: p.decision === "approved" ? `${p.docLabel} approved` : `${p.docLabel} rejected`,
+      body:
+        p.decision === "approved"
+          ? `The ${p.docLabel} for ${p.shopName} has been approved.`
+          : `The ${p.docLabel} for ${p.shopName} was rejected: ${p.reason ?? "no reason given"}. Upload a corrected copy.`,
+      actionUrl: "/shop/legal-documents",
+      channels: ["EMAIL"],
+    },
+  ]),
+  "shop.legal_document_expiring": define<LegalDocumentEventPayload>("shop", (p) => [
+    {
+      to: p.ownerId,
+      type: N.SHOP_LEGAL_DOCUMENT_EXPIRING,
+      title: `${p.docLabel} expires soon`,
+      body: `The ${p.docLabel} for ${p.shopName} expires on ${p.expiryLabel}. Upload the renewed licence before then to keep accepting orders.`,
+      actionUrl: "/shop/legal-documents",
+      channels: ["EMAIL"],
+      includeActor: true,
+    },
+  ]),
+
+  /* --------------------------------------- bank accounts (four-features-2026-10) */
+  "bank_account.verified": define<BankAccountEventPayload>("bank_account", (p) => [
+    {
+      to: p.userId,
+      type: N.BANK_ACCOUNT_VERIFIED,
+      title: "Bank account verified",
+      body: `${p.accountLabel} is verified. The ₹1 verification payment is being refunded.`,
+      actionUrl: p.forShop ? "/shop/bank-account" : "/profile/bank-account",
+      includeActor: true,
+    },
+  ]),
+  "bank_account.verification_failed": define<BankAccountEventPayload>("bank_account", (p) => [
+    {
+      to: p.userId,
+      type: N.BANK_ACCOUNT_VERIFICATION_FAILED,
+      title: "Bank account not verified",
+      body: `${p.accountLabel} could not be verified: ${p.reason ?? "the payment did not go through"}. You can try again.`,
+      actionUrl: p.forShop ? "/shop/bank-account" : "/profile/bank-account",
+      includeActor: true,
+    },
+  ]),
+
+  /* ------------------------------ shop referral requests (four-features-2026-10) */
+  "referral_request.created": define<ReferralRequestEventPayload>("referral_request", (p) => [
+    {
+      to: "SUPPORT",
+      type: N.SUPPORT_REFERRAL_REQUEST,
+      title: "New referral-code request",
+      body: `${p.name} (${p.shopTypeLabel}, ${p.city} ${p.pincode}) asked for a shop referral code.`,
+      actionUrl: "/admin/referral-requests",
+    },
+  ]),
+  "referral_request.decided": define<ReferralRequestEventPayload>("referral_request", (p) => [
+    {
+      to: p.requesterUserId,
+      type: N.SHOP_REFERRAL_REQUEST_DECIDED,
+      title: p.decision === "issued" ? "Your referral code is ready" : "Referral code request declined",
+      body:
+        p.decision === "issued"
+          ? `Use referral code ${p.code} to register your shop.`
+          : `Your request for a referral code was declined${p.reason ? `: ${p.reason}` : "."}`,
+      actionUrl: "/shop/register",
+      channels: ["EMAIL"],
     },
   ]),
 

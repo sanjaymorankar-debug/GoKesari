@@ -30,6 +30,8 @@ import { listMyRatingsByOrder } from "@/server/services/ratings";
 import { formatScheduledSlot } from "@/lib/scheduled-slots";
 import { proofPhotosForOrders } from "@/server/services/delivery-proofs";
 import { getRule } from "@/server/services/settings";
+import { getBuyerFulfilmentViews } from "@/server/services/fulfilment-options";
+import { OrderFulfilmentCard } from "@/components/order-fulfilment-card";
 
 const DELIVERY_STATUS_LABELS: Record<string, string> = {
   OFFERED: "Finding a rider",
@@ -73,6 +75,8 @@ export default async function OrdersPage({
       )
     ).filter((entry): entry is readonly [string, BuyerDeliveryCodeView] => entry[1] != null && (entry[1].active || entry[1].locked)),
   );
+  // Fulfilment options (docs/four-features-2026-10): pickup / own delivery / GoKesari plan and time.
+  const fulfilmentPlans = await getBuyerFulfilmentViews(orders.map((o) => o.id), user);
   // NEW-007: delivery photo and invoice links on delivered orders.
   const [proofPhotos, invoicingRule] = await Promise.all([
     proofPhotosForOrders(orders.filter((o) => o.status === "DELIVERED").map((o) => o.id)),
@@ -223,6 +227,11 @@ export default async function OrdersPage({
                 <p className="mt-2 text-xs text-ink-500">
                   <Money paise={order.refundedPaise} /> refunded to your wallet for unavailable items.
                 </p>
+              ) : null}
+
+              {fulfilmentPlans.has(order.id) &&
+              !["CANCELLED", "REFUNDED", "REFUND_PENDING"].includes(order.status) ? (
+                <OrderFulfilmentCard orderId={order.id} info={fulfilmentPlans.get(order.id)!} />
               ) : null}
 
               {order.status === "OUT_FOR_DELIVERY" && deliveryCodes.get(order.id) ? (

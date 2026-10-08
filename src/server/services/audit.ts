@@ -273,6 +273,23 @@ export const AUDIT_ACTIONS = {
   PHONE_RELEASED: "auth.phone_released",
   EMAIL_CHANGED: "auth.email_changed",
   PROFILE_UPDATED: "user.profile_updated",
+  /* ------------------------------------------------- docs/four-features-2026-10 */
+  ORDER_FULFILMENT_SET: "order.fulfilment_set",
+  ORDER_FULFILMENT_CHANGED: "order.fulfilment_changed",
+  ORDER_FULFILMENT_COMPLETED: "order.fulfilment_completed",
+  ORDER_FULFILMENT_CODE_WRONG: "order.fulfilment_code_wrong",
+  ORDER_FULFILMENT_CODE_LOCKED: "order.fulfilment_code_locked",
+  ORDER_FULFILMENT_CODE_SENT: "order.fulfilment_code_sent",
+  SHOP_DELIVERY_STAFF_SAVED: "shop.delivery_staff_saved",
+  SHOP_LEGAL_DOCUMENT_SUBMITTED: "shop.legal_document_submitted",
+  SHOP_LEGAL_DOCUMENT_DECIDED: "shop.legal_document_decided",
+  SHOP_LEGAL_DOCUMENT_FILE_VIEWED: "shop.legal_document_file_viewed",
+  BANK_ACCOUNT_SAVED: "bank_account.saved",
+  BANK_ACCOUNT_VERIFIED: "bank_account.verified",
+  BANK_ACCOUNT_VERIFICATION_FAILED: "bank_account.verification_failed",
+  BANK_ACCOUNT_REFUND: "bank_account.verification_refund",
+  REFERRAL_REQUEST_CREATED: "referral_request.created",
+  REFERRAL_REQUEST_DECIDED: "referral_request.decided",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

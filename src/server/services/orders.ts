@@ -65,6 +65,7 @@ import { postRetainedDeliveryFee, recordOrderFinancials } from "./finance";
 import { assertShopMayAcceptOrders, chargeShopWalletForDeliveredOrder, type OrderWalletCharge } from "./shop-wallet";
 import { shopServiceability, societyPartnerShopIds } from "./serviceability";
 import { assertShopMayProgress } from "./shop-suspension-guard";
+import { assertFulfilmentAllowsStatus } from "./fulfilment-guards";
 import { resolveAddressSociety } from "./societies";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { emitEvent } from "@/server/events/emit";
@@ -769,6 +770,8 @@ export async function updateOrderStatus(
         );
       }
     }
+    // Fulfilment options: pickup / own-delivery orders complete only with the customer's code.
+    await assertFulfilmentAllowsStatus(tx, order, newStatus);
     // Shop wallet: a shop below its minimum balance cannot take on a new order
     // (CONFIRMED → ACCEPTED, or straight to PREPARING) until it recharges.
     if (order.status === "CONFIRMED" && (newStatus === "ACCEPTED" || newStatus === "PREPARING")) {

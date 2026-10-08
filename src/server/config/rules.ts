@@ -772,6 +772,80 @@ export const RULES = {
     }),
     defaults: { riderPingSeconds: 5, buyerPollSeconds: 5 },
   },
+  /* -------------------------------- docs/four-features-2026-10 (all off by default) */
+  fulfilmentOptions: {
+    description:
+      "Fulfilment options. When enabled, a shop marking an order ready chooses customer pickup (completed with a pickup code the customer shows), its own delivery person (the existing delivery-code completion) or a GoKesari delivery partner (the existing rider dispatch), with a date and time slot. Slots are slotMinutes long between firstSlotHour and lastSlotHour (IST), up to maxDaysAhead days ahead. A GoKesari delivery scheduled later starts its rider search gokesariLeadMinutes before the slot.",
+    schema: z
+      .object({
+        enabled: z.boolean(),
+        slotMinutes: z.union([z.literal(30), z.literal(60), z.literal(120)]),
+        firstSlotHour: int(0, 23),
+        lastSlotHour: int(1, 24),
+        maxDaysAhead: int(0, 30),
+        gokesariLeadMinutes: int(0, 240),
+      })
+      .refine((v) => v.lastSlotHour > v.firstSlotHour, {
+        message: "The last slot must end after the first one starts.",
+        path: ["lastSlotHour"],
+      }),
+    defaults: { enabled: false, slotMinutes: 60, firstSlotHour: 7, lastSlotHour: 22, maxDaysAhead: 7, gokesariLeadMinutes: 45 },
+  },
+  legalDocuments: {
+    description:
+      "Mandatory legal documents by shop category. When enabled, a shop that sells food needs an FSSAI licence, a pharmacy a drug licence and a doctor / clinic a medical registration (number, expiry or issuing council, and an uploaded copy). A new shop cannot be approved until they are submitted; a live shop gets graceDays to upload before it can no longer accept orders. Owners are reminded expiryReminderDays before a licence expires. The shop types and shop-category slugs that need each document are listed here.",
+    schema: z.object({
+      enabled: z.boolean(),
+      graceDays: int(0, 90),
+      expiryReminderDays: int(1, 120),
+      drugLicenceShopTypes: z.array(z.string().max(60)).max(20),
+      drugLicenceCategorySlugs: z.array(z.string().max(80)).max(50),
+      medicalRegistrationShopTypes: z.array(z.string().max(60)).max(20),
+      medicalRegistrationCategorySlugs: z.array(z.string().max(80)).max(50),
+      /** On top of the food detection seller verification already uses (food shop types and food aisles). */
+      fssaiExtraCategorySlugs: z.array(z.string().max(80)).max(50),
+    }),
+    defaults: {
+      enabled: false,
+      graceDays: 15,
+      expiryReminderDays: 30,
+      drugLicenceShopTypes: ["PHARMACY"],
+      drugLicenceCategorySlugs: ["pharmacy"],
+      medicalRegistrationShopTypes: [],
+      medicalRegistrationCategorySlugs: ["doctor-clinic"],
+      fssaiExtraCategorySlugs: [],
+    },
+  },
+  bankAccounts: {
+    description:
+      "Bank account verification. When enabled, shop owners and customers are prompted to add a bank account (holder name, account number and IFSC, or a UPI ID) and verify it with a payment of verificationAmountPaise through the payment gateway (UPI, debit card, credit card or net banking), refunded automatically. requireVerifiedForShopPayouts stops a shop settlement being sent to the bank or marked paid until the shop has a verified account. nameMatchThreshold is the name-match score (0–100) needed when the gateway reports the payer's name.",
+    schema: z.object({
+      enabled: z.boolean(),
+      verificationAmountPaise: int(100, 1000),
+      requireVerifiedForShopPayouts: z.boolean(),
+      requireVerifiedForBankRefunds: z.boolean(),
+      nameMatchThreshold: int(50, 100),
+      maxAttemptsPerDay: int(1, 20),
+    }),
+    defaults: {
+      enabled: false,
+      verificationAmountPaise: 100,
+      requireVerifiedForShopPayouts: false,
+      requireVerifiedForBankRefunds: true,
+      nameMatchThreshold: 80,
+      maxAttemptsPerDay: 5,
+    },
+  },
+  shopReferral: {
+    description:
+      "Shop registration referral code. When required, a self-service shop registration must carry a valid (active, unexpired) referral code. Owners without one can request a code: the request is saved and emailed to notifyEmails; a second request from the same mobile within duplicateWindowHours is refused.",
+    schema: z.object({
+      required: z.boolean(),
+      duplicateWindowHours: int(1, 720),
+      notifyEmails: z.array(z.string().email()).min(1).max(5),
+    }),
+    defaults: { required: false, duplicateWindowHours: 24, notifyEmails: ["referrals@gokesari.com"] },
+  },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;
