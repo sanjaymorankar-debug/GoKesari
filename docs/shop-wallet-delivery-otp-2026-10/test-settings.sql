@@ -1,9 +1,11 @@
 -- Shop prepaid wallet + delivery code — business-rule values for the TEST site
 -- (test.gokesari.com) ONLY. Do not run against production.
 --
--- NOT applied automatically (unlike docs/event-driven-2026-10/test-settings.sql):
--- run it by hand once migration 0059 is on the test database, when you are
--- ready to switch the shop wallet on:
+-- Applied by the "Test database" workflow whenever this file changes on staging
+-- (after a backup and the migrations), or by hand: Actions → Test database →
+-- Run workflow → shop-wallet-settings (docs/event-driven-2026-10/DB_AUTOMATION.md).
+-- Editing it here is how to change the test values on purpose. It can also be
+-- run directly:
 --   psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f docs/shop-wallet-delivery-otp-2026-10/test-settings.sql
 --
 -- Check you are on the test database first:
