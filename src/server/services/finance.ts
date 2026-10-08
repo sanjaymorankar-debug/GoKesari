@@ -54,7 +54,6 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { applyWalletMutation, refundOriginalDebit } from "./wallet";
-import { getRule } from "./settings";
 
 interface Actor {
   id: string;
@@ -67,10 +66,7 @@ interface SystemOrActor {
   role: UserRole | null;
 }
 
-/**
- * Days after delivery before an order can be settled — room for complaints
- * and refunds. Code default; the live value is rule `settlement.holdDays`.
- */
+/** Days after delivery before an order can be settled — room for complaints and refunds. */
 export const SETTLEMENT_HOLD_DAYS = 2;
 
 /* ============================================================ ledger */
@@ -582,7 +578,6 @@ function assertMonday(weekStart: string): { start: IsoDate; end: IsoDate } {
  */
 export async function prepareShopSettlements(weekStart: string, actor: SystemOrActor): Promise<ShopSettlement[]> {
   const { start, end } = assertMonday(weekStart);
-  const settlementRule = await getRule("settlement");
 
   return db.transaction(async (tx) => {
     const eligibleOrders = await tx
@@ -593,7 +588,7 @@ export async function prepareShopSettlements(weekStart: string, actor: SystemOrA
         and(
           isNull(orderFinancials.settlementId),
           lt(orderFinancials.deliveredAt, startOf(end)),
-          lt(orderFinancials.deliveredAt, sql`now() - make_interval(days => ${settlementRule.holdDays})`),
+          lt(orderFinancials.deliveredAt, sql`now() - make_interval(days => ${SETTLEMENT_HOLD_DAYS})`),
           inArray(orders.status, ["DELIVERED", "REFUNDED"]),
         ),
       )
@@ -1517,7 +1512,7 @@ export async function listFinancialExceptions(scope: "operator" | "admin") {
             .from(orderFinancials)
             .innerJoin(orders, eq(orderFinancials.orderId, orders.id))
             .innerJoin(shops, eq(orderFinancials.shopId, shops.id))
-            .where(and(isNull(orderFinancials.settlementId), lt(orderFinancials.deliveredAt, sql`now() - make_interval(days => ${(await getRule("settlement")).missingAlertDays})`)))
+            .where(and(isNull(orderFinancials.settlementId), lt(orderFinancials.deliveredAt, sql`now() - interval '9 days'`)))
             .limit(100),
         }
       : null;

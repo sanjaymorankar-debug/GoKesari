@@ -32,13 +32,15 @@ import {
   type SegmentRules,
   type UserRole,
 } from "@/server/db/schema";
-import { RULES } from "@/server/config/rules";
 import { AUDIT_ACTIONS, recordAudit, type AuditAction } from "./audit";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
-import { getRule } from "./settings";
 
-/** Code defaults; the live values are rule `marketing` (Admin → Business rules). */
-export const MARKETING_LIMITS = RULES.marketing.defaults;
+export const MARKETING_LIMITS = {
+  shopCampaignsPerWeek: 2,
+  perShopPerCustomerPerWeek: 1,
+  totalPerCustomerPerWeek: 3,
+  maxRecipients: 5000,
+} as const;
 
 interface Actor {
   id: string;
@@ -215,15 +217,15 @@ export interface CampaignInput {
   attributionDays?: number;
 }
 
-function validateCampaign(input: CampaignInput, limits: { maxRecipients: number } = MARKETING_LIMITS) {
+function validateCampaign(input: CampaignInput) {
   const title = input.title.trim();
   const message = input.message.trim();
   if (title.length < 3 || title.length > 80) throw validationFailed("Title must be 3–80 characters.");
   if (message.length < 10 || message.length > 500) throw validationFailed("Message must be 10–500 characters.");
   const offerText = input.offerText?.trim() || null;
   if (offerText && offerText.length > 120) throw validationFailed("Offer line must be at most 120 characters.");
-  if (!Number.isInteger(input.maxRecipients) || input.maxRecipients < 1 || input.maxRecipients > limits.maxRecipients) {
-    throw validationFailed(`Budget must be between 1 and ${limits.maxRecipients} customers.`);
+  if (!Number.isInteger(input.maxRecipients) || input.maxRecipients < 1 || input.maxRecipients > MARKETING_LIMITS.maxRecipients) {
+    throw validationFailed(`Budget must be between 1 and ${MARKETING_LIMITS.maxRecipients} customers.`);
   }
   const attributionDays = input.attributionDays ?? 7;
   if (!Number.isInteger(attributionDays) || attributionDays < 1 || attributionDays > 30) {
@@ -255,7 +257,7 @@ export async function saveCampaign(
   input: CampaignInput & { id?: string | null },
   actor: Actor,
 ): Promise<MarketingCampaign> {
-  const values = validateCampaign(input, await getRule("marketing"));
+  const values = validateCampaign(input);
   const segment = await db.query.customerSegments.findFirst({
     where: and(eq(customerSegments.id, input.segmentId), eq(customerSegments.shopId, shopId), isNull(customerSegments.deletedAt)),
   });
@@ -302,9 +304,8 @@ export async function submitCampaign(shopId: string, campaignId: string, actor: 
   if (current.status !== "DRAFT" && current.status !== "REJECTED") throw conflict("This campaign has already been submitted.");
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
   if (!shop || shop.status !== "APPROVED") throw conflict("Only an approved shop can run campaigns.");
-  const limits = await getRule("marketing");
-  if ((await recentCampaignCount(shopId)) >= limits.shopCampaignsPerWeek) {
-    throw conflict(`A shop can run at most ${limits.shopCampaignsPerWeek} campaigns a week.`);
+  if ((await recentCampaignCount(shopId)) >= MARKETING_LIMITS.shopCampaignsPerWeek) {
+    throw conflict(`A shop can run at most ${MARKETING_LIMITS.shopCampaignsPerWeek} campaigns a week.`);
   }
   const [campaign] = await db
     .update(marketingCampaigns)
@@ -390,16 +391,15 @@ export async function sendCampaign(shopId: string, campaignId: string, actor: Ac
     .returning();
   if (!claimed) throw conflict("This campaign is already being sent.");
 
-  const limits = await getRule("marketing");
   const audience = (await db.execute(sql`
     select a.user_id from ${audienceQuery(shopId, normaliseRules(segment.rules))} a
     where a.consent
       and (select count(*) from campaign_recipients r join marketing_campaigns c on c.id = r.campaign_id
            where r.user_id = a.user_id and c.shop_id = ${shopId} and r.sent_at > now() - interval '7 days')
-          < ${limits.perShopPerCustomerPerWeek}
+          < ${MARKETING_LIMITS.perShopPerCustomerPerWeek}
       and (select count(*) from campaign_recipients r
            where r.user_id = a.user_id and r.sent_at > now() - interval '7 days')
-          < ${limits.totalPerCustomerPerWeek}
+          < ${MARKETING_LIMITS.totalPerCustomerPerWeek}
     order by a.user_id`)) as unknown as { user_id: string }[];
   const [{ matched }] = (await db.execute(sql`
     select count(*)::int as matched from ${audienceQuery(shopId, normaliseRules(segment.rules))} a where a.consent`)) as unknown as {

@@ -29,8 +29,7 @@ import {
   type VoucherStatus,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
-import { sanitiseCell } from "./excel";
-import { getRule } from "./settings";
+import { MAX_UPLOAD_BYTES, sanitiseCell } from "./excel";
 
 interface Actor {
   id: string;
@@ -38,7 +37,6 @@ interface Actor {
 }
 
 /** §17 "bonus percentage within configured maximum" — the platform-wide ceiling. */
-/** Code default; the live cap is rule `vouchers.maxBonusPercent`. */
 export const MAX_VOUCHER_BONUS_PERCENT = 100;
 
 function todayIso(): string {
@@ -306,7 +304,7 @@ export interface VoucherInput {
   totalBudgetPaise?: number | null;
 }
 
-function validateVoucherInput(input: VoucherInput, maxBonusPercent: number = MAX_VOUCHER_BONUS_PERCENT): void {
+function validateVoucherInput(input: VoucherInput): void {
   if (input.name.trim().length < 3) {
     throw validationFailed("Voucher name must be at least 3 characters.");
   }
@@ -316,10 +314,10 @@ function validateVoucherInput(input: VoucherInput, maxBonusPercent: number = MAX
   if (
     !Number.isFinite(input.bonusPercent) ||
     input.bonusPercent <= 0 ||
-    input.bonusPercent > maxBonusPercent
+    input.bonusPercent > MAX_VOUCHER_BONUS_PERCENT
   ) {
     throw validationFailed(
-      `Bonus percentage must be greater than 0 and at most ${maxBonusPercent}%.`,
+      `Bonus percentage must be greater than 0 and at most ${MAX_VOUCHER_BONUS_PERCENT}%.`,
     );
   }
   if ((input.minimumTopupPaise ?? 0) < 0) {
@@ -349,7 +347,7 @@ export async function createVoucher(
   input: VoucherInput,
   actor: Actor,
 ): Promise<Voucher> {
-  validateVoucherInput(input, (await getRule("vouchers")).maxBonusPercent);
+  validateVoucherInput(input);
   const code = input.code ? input.code.trim().toUpperCase() : null;
 
   if (code) {
@@ -417,7 +415,7 @@ export async function updateVoucher(
     totalBudgetPaise:
       input.totalBudgetPaise !== undefined ? input.totalBudgetPaise : current.totalBudgetPaise,
   };
-  validateVoucherInput(merged, (await getRule("vouchers")).maxBonusPercent);
+  validateVoucherInput(merged);
 
   const code = merged.code ? merged.code.trim().toUpperCase() : null;
   if (code && code !== current.code) {
@@ -678,11 +676,9 @@ async function parseVoucherWorkbook(
   if (!fileName.toLowerCase().endsWith(".xlsx") && !fileName.toLowerCase().endsWith(".xlsm")) {
     throw validationFailed("Upload an .xlsx file exported from Excel or Sheets.");
   }
-  const { spreadsheetMaxBytes } = await getRule("uploads");
-  if (buffer.byteLength > spreadsheetMaxBytes) {
-    throw validationFailed(`File is too large. The limit is ${spreadsheetMaxBytes / 1024 / 1024} MB.`);
+  if (buffer.byteLength > MAX_UPLOAD_BYTES) {
+    throw validationFailed(`File is too large. The limit is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`);
   }
-  const { maxBonusPercent } = await getRule("vouchers");
 
   const workbook = new ExcelJS.Workbook();
   try {
@@ -748,11 +744,11 @@ async function parseVoucherWorkbook(
       rows.push({ ...base, status: "DUPLICATE_IN_FILE", errorMessage: `${code} appears more than once in this file.` });
       return;
     }
-    if (bonusPercent == null || bonusPercent <= 0 || bonusPercent > maxBonusPercent) {
+    if (bonusPercent == null || bonusPercent <= 0 || bonusPercent > MAX_VOUCHER_BONUS_PERCENT) {
       rows.push({
         ...base,
         status: "INVALID",
-        errorMessage: `Bonus % must be greater than 0 and at most ${maxBonusPercent}.`,
+        errorMessage: `Bonus % must be greater than 0 and at most ${MAX_VOUCHER_BONUS_PERCENT}.`,
       });
       return;
     }

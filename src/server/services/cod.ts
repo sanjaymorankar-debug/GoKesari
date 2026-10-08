@@ -35,18 +35,15 @@ import {
   type Shop,
   type UserRole,
 } from "@/server/db/schema";
-import { RULES } from "@/server/config/rules";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { postLedger } from "./finance";
-import { getRule } from "./settings";
 
-/** Code defaults; the live values are rule `cod` (Admin → Business rules). */
-export const COD_LIMITS = RULES.cod.defaults;
-
-/** Live COD limits (rule `cod`). */
-export async function getCodLimits() {
-  return getRule("cod");
-}
+export const COD_LIMITS = {
+  maxOrderPaise: 200_000,
+  maxOpenOrders: 2,
+  failureWindowDays: 90,
+  maxFailures: 2,
+} as const;
 
 /** COD order still waiting for its cash. */
 const OPEN_COD_EXCLUDED: OrderStatus[] = ["DELIVERED", "DISPUTED", "CANCELLED", "REFUND_PENDING", "REFUNDED", "RETURNED"];
@@ -61,13 +58,10 @@ export interface CodEligibility {
   reason: string | null;
   maxOrderPaise: number;
   openOrders: number;
-  /** Live rule `cod.maxOpenOrders`. */
-  maxOpenOrders: number;
 }
 
 /** Customer-level COD check (shop and amount are checked per order at checkout). */
 export async function getCodEligibility(userId: string, client: DbClient = db): Promise<CodEligibility> {
-  const limits = await getCodLimits();
   const [open] = await client
     .select({ n: sql<number>`count(*)::int` })
     .from(orders)
@@ -81,7 +75,7 @@ export async function getCodEligibility(userId: string, client: DbClient = db): 
         eq(orders.paymentMethod, "COD"),
         sql`exists (select 1 from order_status_history h where h.order_id = ${orders.id}
               and h.new_status in ('FAILED', 'RETURNED')
-              and h.created_at > now() - make_interval(days => ${limits.failureWindowDays}))`,
+              and h.created_at > now() - make_interval(days => ${COD_LIMITS.failureWindowDays}))`,
       ),
     );
   const [flag] = await client
@@ -97,29 +91,24 @@ export async function getCodEligibility(userId: string, client: DbClient = db): 
     )
     .limit(1);
 
-  const base = { maxOrderPaise: limits.maxOrderPaise, openOrders: open.n, maxOpenOrders: limits.maxOpenOrders };
+  const base = { maxOrderPaise: COD_LIMITS.maxOrderPaise, openOrders: open.n };
   if (flag) return { ...base, allowed: false, reason: "Cash on delivery is not available on this account right now." };
-  if (failures.n >= limits.maxFailures) {
+  if (failures.n >= COD_LIMITS.maxFailures) {
     return { ...base, allowed: false, reason: "Cash on delivery is paused after recent undelivered cash orders. Please pay from your wallet." };
   }
-  if (open.n >= limits.maxOpenOrders) {
+  if (open.n >= COD_LIMITS.maxOpenOrders) {
     return { ...base, allowed: false, reason: `You already have ${open.n} cash-on-delivery orders on the way — pay from your wallet or wait for them to arrive.` };
   }
   return { ...base, allowed: true, reason: null };
 }
 
 /** Shop- and amount-level COD check for one order at checkout. */
-export function assertCodAllowedForOrder(
-  shop: Pick<Shop, "name" | "codEnabled" | "deliveryAvailable">,
-  totalPaise: number,
-  /** Live rule `cod.maxOrderPaise` (getCodEligibility returns it). */
-  maxOrderPaise: number = COD_LIMITS.maxOrderPaise,
-): void {
+export function assertCodAllowedForOrder(shop: Pick<Shop, "name" | "codEnabled" | "deliveryAvailable">, totalPaise: number): void {
   if (!shop.codEnabled) throw validationFailed(`${shop.name} does not accept cash on delivery.`);
   if (!shop.deliveryAvailable) throw validationFailed(`${shop.name} does not deliver, so cash on delivery is not available.`);
-  if (totalPaise > maxOrderPaise) {
+  if (totalPaise > COD_LIMITS.maxOrderPaise) {
     throw validationFailed(
-      `Cash on delivery is available up to ${formatPaise(maxOrderPaise)} per order — ${shop.name}'s order is ${formatPaise(totalPaise)}.`,
+      `Cash on delivery is available up to ${formatPaise(COD_LIMITS.maxOrderPaise)} per order — ${shop.name}'s order is ${formatPaise(totalPaise)}.`,
     );
   }
 }

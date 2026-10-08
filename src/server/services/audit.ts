@@ -145,11 +145,6 @@ export const AUDIT_ACTIONS = {
   DELIVERY_PARTNER_PROFILE_UPDATED: "delivery_partner.profile_updated",
   DELIVERY_PARTNER_CHANGE_REQUESTED: "delivery_partner.change_requested",
   DELIVERY_PARTNER_CHANGE_DECIDED: "delivery_partner.change_decided",
-  /** C5: a rider uploaded an identity document (type only — never the image). */
-  DELIVERY_PARTNER_DOCUMENT_UPLOADED: "delivery_partner.document_uploaded",
-  DELIVERY_PARTNER_DOCUMENT_DECIDED: "delivery_partner.document_decided",
-  /** C5: an admin opened a rider's identity document. */
-  DELIVERY_PARTNER_DOCUMENT_VIEWED: "delivery_partner.document_viewed",
 
   /* ------------------------------------ delivery assignment (Part 58, Slice C) */
   DELIVERY_ORDER_OFFERED: "delivery_order.offered",

@@ -29,7 +29,6 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
-import { assertRiderPhotoUrl } from "./rider-files";
 import { ACTIVE_ASSIGNMENT_STATUSES } from "./delivery-eligibility";
 import { grantRole } from "./roles";
 import { encryptKycInput, toPublicPartner, type PublicDeliveryPartner } from "./delivery-partner-kyc";
@@ -103,8 +102,6 @@ export async function registerDeliveryPartner(
   // SEC-02: KYC and bank details are stored as ciphertext only. Encrypted up
   // front so a missing key fails the application before anything is written.
   const encryptedKyc = encryptKycInput(input);
-  // C5: a photo given at application must be the applicant's own upload.
-  await assertRiderPhotoUrl(input.profilePhotoUrl || null, userId);
 
   const { locationVerified, locationVerifiedAt, locationSource } =
     await resolveLocationVerification(input.latitude, input.longitude, "delivery_partner_registration", "delivery_partner");

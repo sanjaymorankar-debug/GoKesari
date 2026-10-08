@@ -38,7 +38,6 @@ import {
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { STAFF_ROLES } from "./roles";
-import { getRule } from "./settings";
 
 export interface CategoryActor {
   id: string;
@@ -528,7 +527,7 @@ export async function listShopProductCategories(
     .orderBy(asc(productCategories.name));
 }
 
-/** Stock each product starts with when a category fills a shop's inventory — code default; live: rule `catalogue.categoryFillStock`. */
+/** Stock each product starts with when a category fills a shop's inventory. */
 export const CATEGORY_FILL_STOCK = 100;
 const CATEGORY_FILL_BATCH = 500;
 
@@ -569,7 +568,6 @@ async function fillInventoryFromCategory(
       ),
     );
   if (candidates.length === 0) return { addedProducts: 0, needsPrice: [] };
-  const { categoryFillStock } = await getRule("catalogue");
 
   // In batches: one INSERT for a very large category would pass PostgreSQL's
   // limit on bind parameters per statement.
@@ -585,8 +583,8 @@ async function fillInventoryFromCategory(
           offlinePricePaise: c.pricePaise,
           onlineSaleEnabled: c.pricePaise != null,
           offlineSaleEnabled: c.pricePaise != null,
-          onlineStock: categoryFillStock,
-          offlineStock: categoryFillStock,
+          onlineStock: CATEGORY_FILL_STOCK,
+          offlineStock: CATEGORY_FILL_STOCK,
         })),
       )
       .onConflictDoNothing({ target: [shopProducts.shopId, shopProducts.productId] })

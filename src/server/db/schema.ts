@@ -691,13 +691,8 @@ export const shops = pgTable(
     name: text("name").notNull(),
     slug: text("slug").notNull(),
     ownerName: text("owner_name").notNull(),
-    /** Registration / owner contact — operations only; never shown to customers under rule shopContact. */
     phone: text("phone").notNull(),
     email: text("email"),
-    /** C1: the shop's own customer contact number, entered by the shopkeeper for customers to see. */
-    contactPhone: text("contact_phone"),
-    /** C1: the shop's WhatsApp number for customers (shown with a wa.me link). */
-    whatsappNumber: text("whatsapp_number"),
     addressLine1: text("address_line1").notNull(),
     addressLine2: text("address_line2"),
     area: text("area"),
@@ -2352,8 +2347,7 @@ export const storedImages = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
     /** DELIVERY_PROOF (NEW-007): the rider's photo at the door — private to the order's people. */
-    /** RIDER_KYC_DOC (C5): a rider's identity document — served to admins only. */
-    purpose: text("purpose", { enum: ["PRODUCT", "RETURN_EVIDENCE", "PROFILE_PHOTO", "DELIVERY_PROOF", "RIDER_KYC_DOC"] }).notNull(),
+    purpose: text("purpose", { enum: ["PRODUCT", "RETURN_EVIDENCE", "PROFILE_PHOTO", "DELIVERY_PROOF"] }).notNull(),
     contentType: text("content_type").notNull(),
     sizeBytes: integer("size_bytes").notNull(),
     width: integer("width").notNull(),
@@ -2364,38 +2358,6 @@ export const storedImages = pgTable(
   },
   (t) => [index("stored_images_owner_idx").on(t.ownerId), index("stored_images_sha_idx").on(t.sha256)],
 );
-
-/**
- * C5: a rider's identity document (Aadhaar, PAN, driving licence, vehicle RC)
- * as an image in stored_images (purpose RIDER_KYC_DOC). Only an admin can open
- * the file; the rider sees the type, date and review status. A new upload of
- * the same type replaces the previous one (`replacedAt`), kept for the audit.
- */
-export const deliveryPartnerDocuments = pgTable(
-  "delivery_partner_documents",
-  {
-    id: uuid("id").primaryKey().defaultRandom(),
-    deliveryPartnerId: uuid("delivery_partner_id")
-      .notNull()
-      .references(() => deliveryPartners.id, { onDelete: "cascade" }),
-    docType: text("doc_type", { enum: ["AADHAAR", "PAN", "DRIVING_LICENCE", "VEHICLE_RC", "OTHER"] }).notNull(),
-    storedImageId: uuid("stored_image_id")
-      .notNull()
-      .references(() => storedImages.id, { onDelete: "restrict" }),
-    status: text("status", { enum: ["SUBMITTED", "ACCEPTED", "REJECTED"] }).notNull().default("SUBMITTED"),
-    rejectionReason: text("rejection_reason"),
-    uploadedBy: uuid("uploaded_by").references(() => users.id, { onDelete: "set null" }),
-    reviewedBy: uuid("reviewed_by").references(() => users.id, { onDelete: "set null" }),
-    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
-    replacedAt: timestamp("replaced_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
-  },
-  (t) => [
-    index("delivery_partner_documents_partner_idx").on(t.deliveryPartnerId),
-    index("delivery_partner_documents_image_idx").on(t.storedImageId),
-  ],
-);
-export type DeliveryPartnerDocument = typeof deliveryPartnerDocuments.$inferSelect;
 
 /* ------------------------------------------------------------- returns
  * Request → validation → approval → pickup → inspection → refund

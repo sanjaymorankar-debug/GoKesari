@@ -10,9 +10,9 @@ import {
 import { Card, EmptyState, Money, PageHeader, StatusBadge } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
-import { getCodLimits } from "@/server/services/cod";
-import { getRule } from "@/server/services/settings";
+import { COD_LIMITS } from "@/server/services/cod";
 import {
+  MARKETING_LIMITS,
   getShopCustomerOverview,
   listSegments,
   listShopCampaigns,
@@ -44,8 +44,6 @@ export default async function ShopMarketingPage() {
   const shops = await listShopsForOwner(user.id);
   if (shops.length === 0) redirect("/shop");
   const shop = shops[0];
-  // Item B: live limits (rules `marketing` and `cod`).
-  const [MARKETING_LIMITS, COD_LIMITS] = await Promise.all([getRule("marketing"), getCodLimits()]);
 
   const [overview, segments, campaigns] = await Promise.all([
     getShopCustomerOverview(shop.id),

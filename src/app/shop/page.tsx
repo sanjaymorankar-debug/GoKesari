@@ -11,7 +11,6 @@ import { ShopGstPanForm } from "@/components/shop-gst-pan-form";
 import { ShopLocationSettingsForm } from "@/components/shop-location-settings-form";
 import { ShopProductManager } from "@/components/shop-product-manager";
 import { ShopSettingsForm } from "@/components/shop-settings-form";
-import { ShopCustomerContactForm } from "@/components/shop-customer-contact-form";
 import {
   Alert,
   Badge,
@@ -359,13 +358,6 @@ export default async function ShopDashboardPage() {
 
       <div className="mb-8">
         <ExcelPriceUpload shopId={shop.id} appliesImmediately />
-      </div>
-
-      <div className="mb-8">
-        <ShopCustomerContactForm
-          shopId={shop.id}
-          initial={{ contactPhone: shop.contactPhone, whatsappNumber: shop.whatsappNumber }}
-        />
       </div>
 
       <div className="mb-8">

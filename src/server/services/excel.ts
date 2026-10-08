@@ -35,7 +35,6 @@ import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { appliesImmediately, submitPriceRequests } from "./price-requests";
 import { createShopProduct, createProductForShop, findSimilarProducts, updateShopProduct } from "./catalogue";
 import { ensureGeneralCategory, shopCarriesProductCategory } from "./product-categories";
-import { getRule } from "./settings";
 
 interface Actor {
   id: string;
@@ -43,15 +42,8 @@ interface Actor {
 }
 
 /** §21 — bound the upload well below anything that could exhaust memory. */
-/** Code defaults; the live limits are rule `uploads` (spreadsheetMaxBytes, spreadsheetMaxRows). */
 export const MAX_UPLOAD_BYTES = 2 * 1024 * 1024; // 2 MB
 export const MAX_ROWS = 5_000;
-
-/** Live spreadsheet limits (rule `uploads`). */
-export async function getSpreadsheetLimits(): Promise<{ maxBytes: number; maxRows: number }> {
-  const rule = await getRule("uploads");
-  return { maxBytes: rule.spreadsheetMaxBytes, maxRows: rule.spreadsheetMaxRows };
-}
 
 const ACCEPTED_EXTENSIONS = [".xlsx", ".xlsm"];
 
@@ -194,10 +186,9 @@ async function parseWorkbook(
   if (!ACCEPTED_EXTENSIONS.some((ext) => fileName.toLowerCase().endsWith(ext))) {
     throw validationFailed("Upload an .xlsx file exported from Excel or Sheets.");
   }
-  const limits = await getSpreadsheetLimits();
-  if (buffer.byteLength > limits.maxBytes) {
+  if (buffer.byteLength > MAX_UPLOAD_BYTES) {
     throw validationFailed(
-      `File is too large. The limit is ${limits.maxBytes / 1024 / 1024} MB.`,
+      `File is too large. The limit is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`,
     );
   }
 
@@ -236,7 +227,7 @@ async function parseWorkbook(
 
   sheet.eachRow((row, rowNumber) => {
     if (rowNumber === 1) return; // header
-    if (rows.length >= limits.maxRows) return;
+    if (rows.length >= MAX_ROWS) return;
 
     const raw: Record<string, unknown> = {};
     for (const [colNumber, field] of columns) {

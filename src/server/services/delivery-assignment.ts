@@ -78,7 +78,7 @@ export const OFFER_TTL_SECONDS = 120;
 export async function getOfferTtlSeconds(): Promise<number> {
   return (await getRule("dispatch")).offerTtlSeconds;
 }
-/** Wrong delivery-OTP attempts before only an operator can confirm the drop — code default; live: rule `deliveryOtp.maxAttempts`. */
+/** Wrong delivery-OTP attempts before only an operator can confirm the drop. */
 const MAX_OTP_ATTEMPTS = 5;
 
 /**
@@ -587,8 +587,7 @@ export async function markDelivered(
     throw conflict("Start the delivery before marking it delivered.");
   }
   if (row.deliveryOtp) {
-    const maxOtpAttempts = (await getRule("deliveryOtp")).maxAttempts ?? MAX_OTP_ATTEMPTS;
-    if (row.deliveryOtpAttempts >= maxOtpAttempts) {
+    if (row.deliveryOtpAttempts >= MAX_OTP_ATTEMPTS) {
       throw conflict("Too many wrong codes — ask operations to confirm this delivery.");
     }
     if (otp?.trim() !== row.deliveryOtp) {

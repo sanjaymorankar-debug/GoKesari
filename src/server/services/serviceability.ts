@@ -22,7 +22,6 @@ import { haversineDistanceKm, parseCoordinates } from "@/lib/geo/haversine";
 import type { CustomerLocation } from "@/lib/location";
 import { db } from "@/server/db";
 import { shops, societies, societyShops, type Shop } from "@/server/db/schema";
-import { getRule } from "./settings";
 
 /** Upper bound of any shop's radius (the schema CHECK) — used for the SQL pre-filter. */
 const MAX_SERVICE_RADIUS_KM = 50;
@@ -197,7 +196,6 @@ export async function serviceableShopIds(location: CustomerLocation): Promise<Ma
  * customer (a pickup-only shop, or one whose delivery radius stops short).
  * Roughly a short ride. A shop that does deliver is near whatever its distance.
  */
-/** Code default; the live value is rule `discovery.nearbyRadiusKm`. */
 export const NEARBY_RADIUS_KM = 5;
 
 /** A shop card's fields, plus how the shop relates to the customer's location. */
@@ -274,7 +272,6 @@ export async function listNearbyShops(
     .where(and(eq(shops.status, "APPROVED"), isNull(shops.deletedAt), or(...near)))
     .limit(1000);
 
-  const { nearbyRadiusKm } = await getRule("discovery");
   return candidates
     .map(({ shop, subscriptionDelivery }) => {
       const check = shopServiceability(shop, location);
@@ -289,7 +286,7 @@ export async function listNearbyShops(
         near:
           partner ||
           check.deliversHere ||
-          (check.distanceKm != null ? check.distanceKm <= nearbyRadiusKm : samePin),
+          (check.distanceKm != null ? check.distanceKm <= NEARBY_RADIUS_KM : samePin),
       };
     })
     .filter((row) => row.near)

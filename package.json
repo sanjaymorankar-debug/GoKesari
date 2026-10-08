@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --webpack",
-    "build": "node scripts/migrate-on-build.mjs && next build --webpack",
+    "build": "next build --webpack",
     "start": "next start",
     "lint": "eslint",
     "db:generate": "drizzle-kit generate",
@@ -39,7 +39,6 @@
   },
   "dependencies": {
     "@auth/drizzle-adapter": "^1.11.3",
-    "@next/env": "16.3.6",
     "@tailwindcss/postcss": "^4",
     "clsx": "^2.1.1",
     "date-fns": "^4.4.0",
