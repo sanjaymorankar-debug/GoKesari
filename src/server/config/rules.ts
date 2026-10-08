@@ -618,11 +618,13 @@ export const RULES = {
   },
   shopWallet: {
     description:
-      "Shop prepaid wallet. When enabled, a delivered order's commission (rates under Admin → Finance) and deliveryChargePaise (orders a GoKesari rider delivered) are debited from the shop's wallet, and settlement no longer withholds that commission. A shop whose balance is below minBalancePaise cannot accept new orders; the owner is alerted when a charge takes the balance below lowBalanceThresholdPaise. topupMinPaise / topupMaxPaise limit one top-up. Amounts in paise.",
+      "Shop prepaid wallet. When enabled, a delivered order's commission (rates under Admin → Finance) and a delivery charge (orders a GoKesari rider delivered: deliveryChargePaise + deliveryChargePerKmPaise × the shop-to-customer distance, to 0.1 km — the distance the rider is paid for; deliveryChargeUnknownDistancePaise when that distance is not known) are debited from the shop's wallet, and settlement no longer withholds that commission. A refund the shop bears returns the commission on the refunded goods to the wallet. A shop whose balance is below minBalancePaise cannot accept new orders and customers cannot check out from it; the owner is alerted when a charge takes the balance below lowBalanceThresholdPaise. topupMinPaise / topupMaxPaise limit one top-up. Amounts in paise.",
     schema: z
       .object({
         enabled: z.boolean(),
         deliveryChargePaise: int(0, 1_000_000),
+        deliveryChargePerKmPaise: int(0, 100_000),
+        deliveryChargeUnknownDistancePaise: int(0, 1_000_000),
         minBalancePaise: int(0, 100_000_000),
         lowBalanceThresholdPaise: int(0, 100_000_000),
         topupMinPaise: int(100, 10_000_000),
@@ -636,12 +638,15 @@ export const RULES = {
         message: "Alert at or above the minimum balance, so the shop hears before it is blocked.",
         path: ["lowBalanceThresholdPaise"],
       }),
-    // Agreed amounts: ₹25 delivery charge, ₹200 minimum, reminder at ₹300 (so
-    // a shop is warned before it is blocked). Commission (1%) is the platform
-    // rate under Admin → Finance → Commission, not set here.
+    // Agreed amounts: delivery charge ₹5 per km (no flat part; ₹25 when the
+    // distance is unknown), ₹200 minimum, reminder at ₹300 (so a shop is warned
+    // before it is blocked). Commission (1%) is the platform rate under Admin →
+    // Finance → Commission, not set here.
     defaults: {
       enabled: false,
-      deliveryChargePaise: 2_500,
+      deliveryChargePaise: 0,
+      deliveryChargePerKmPaise: 500,
+      deliveryChargeUnknownDistancePaise: 2_500,
       minBalancePaise: 20_000,
       lowBalanceThresholdPaise: 30_000,
       topupMinPaise: 10_000,

@@ -69,6 +69,7 @@ export interface OrderEventPayload {
   walletCharge?: {
     commissionPaise: number;
     deliveryChargePaise: number;
+    deliveryDistanceM?: number | null;
     balancePaise: number;
     belowMinimum: boolean;
   } | null;
@@ -190,7 +191,11 @@ export const EVENTS = {
           title: "Order delivered — wallet charged",
           body:
             `Order ${p.orderNumber} has been delivered. Deducted from your shop wallet: ` +
-            `commission ${formatPaise(p.walletCharge.commissionPaise)}, delivery charge ${formatPaise(p.walletCharge.deliveryChargePaise)}. ` +
+            `commission ${formatPaise(p.walletCharge.commissionPaise)}, delivery charge ${formatPaise(p.walletCharge.deliveryChargePaise)}` +
+            (p.walletCharge.deliveryChargePaise > 0 && p.walletCharge.deliveryDistanceM != null
+              ? ` (${(p.walletCharge.deliveryDistanceM / 1000).toFixed(1)} km)`
+              : "") +
+            ". " +
             `New balance: ${formatPaise(p.walletCharge.balancePaise)}.` +
             (p.walletCharge.belowMinimum ? " Recharge your wallet to keep accepting new orders." : ""),
           actionUrl: SHOP_WALLET,

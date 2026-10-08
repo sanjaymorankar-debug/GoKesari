@@ -7,14 +7,15 @@ Run on the **test site only**. Before starting:
    after a backup; or run `npm run db:migrate` against the test database).
 2. `test-settings.sql` (this folder) applied to the test database (the "Test
    database" workflow does it when the file changes on `staging`) — switches rule
-   `shopWallet` on with the agreed amounts: ₹25 delivery charge, ₹200
-   minimum, reminder below ₹300, 1% platform commission; 5 wrong codes, a
-   new code at most every 60 s and 3 per delivery.
+   `shopWallet` on with the agreed amounts: delivery charge ₹5 per km (₹25 when
+   the distance is not known), ₹200 minimum, reminder below ₹300, 1% platform
+   commission; 5 wrong codes, a new code at most every 60 s and 3 per delivery.
+   Migration **0060** applied too (per-km charge, commission refunds).
 3. SMTP working on test (the delivery code goes by email; sign-in codes already do).
-4. `test-wallet-credits.sql` gave **Kesari Dairy Farm** ₹500 and **Asmy Exports**
-   ₹1,000 ("Credit by GoKesari" in their wallet history), so they can accept
-   orders straight away. Section 0 starts from ₹0, so run it with another shop,
-   or expect that credit row first.
+4. `test-wallet-credits.sql` gave **Asmy Exports** ₹1,000, **QA Test Bakery A**
+   ₹500 and **QA Test Bakery B** ₹500 ("Credit by GoKesari" in their wallet
+   history), so they can accept orders straight away. Section 0 starts from ₹0,
+   so run it with a shop not credited there, or expect that credit row first.
 
 **Accounts:** a customer with wallet money; a shop owner (approved shop,
 delivery on, verified location); two riders (approved, online, near the
@@ -39,14 +40,26 @@ select created_at, type, from_status, to_status, notified from domain_events
 where order_id = '<order id>' order by created_at;
 ```
 
-Amounts below assume one ₹105 item, 1% commission and the ₹25 charge:
-commission ₹1.05 + delivery charge ₹25 = **₹26.05** per rider-delivered order.
+Amounts below assume one ₹105 item, 1% commission and a **2.0 km** drop:
+commission ₹1.05 + delivery charge 2.0 km × ₹5 = ₹10 → **₹11.05** per
+rider-delivered order. The delivery charge is the shop-to-customer distance
+stored when the rider was offered the drop (`delivery_orders.distance_km`,
+straight-line unless road routing is on), rounded to 0.1 km, × ₹5 — the ledger
+reason shows the km used. A customer address with no map location is charged
+₹25 ("distance not known"). Recompute the expected amounts for your drop's
+distance.
+
+```sql
+-- The distance the drop is priced on (null route_source = not known → ₹25)
+select distance_km, route_source from delivery_orders where order_id = '<order id>';
+select shop_delivery_charge_paise, shop_delivery_distance_m from order_financials where order_id = '<order id>';
+```
 
 ## 0. Wallet and recharge
 
 | # | Do | Expected | Pass? |
 |---|---|---|---|
-| 0.1 | Shop owner opens **Wallet** (header menu) | Balance ₹0, minimum ₹200, commission 1%, delivery charge ₹25, "recharge to accept orders" badge, red banner on My Shop and Orders | |
+| 0.1 | Shop owner opens **Wallet** (header menu) | Balance ₹0, minimum ₹200, commission 1%, delivery charge "₹5.00 per km" (₹25 if the distance is not known), "recharge to accept orders" badge, red banner on My Shop and Orders saying customers cannot order | |
 | 0.2 | Recharge ₹500 (Cashfree sandbox) | Balance ₹500; ledger row "Recharge +₹500, balance after ₹500"; owner gets "Shop wallet recharged" ✉; banner gone | |
 | 0.3 | Reload the Cashfree return / press verify again | No second credit (ledger still one recharge row) | |
 | 0.4 | Another shop owner calls `GET /api/shops/<shop id>/wallet` | `403` | |
@@ -60,8 +73,8 @@ commission ₹1.05 + delivery charge ₹25 = **₹26.05** per rider-delivered or
 | 1.1 | Customer orders; shop **Accepts**, packs, **Mark ready**; rider accepts, enters pickup code, **Start delivery** | Order `OUT_FOR_DELIVERY`. Customer gets an email *"#### is your delivery code for order …"*. `delivery_otp_hash` set, `delivery_otp` **null** (no plain code in the database) | |
 | 1.2 | Customer opens **My Orders** | "Your delivery code was emailed to a***@…" and **Get a new code**; the code itself is not on the page | |
 | 1.3 | Rider enters the emailed code, **Mark delivered** | Order `DELIVERED`, delivery `DELIVERED`, `delivery_otp_used_at` set and hash cleared | |
-| 1.4 | Shop wallet ledger | Two new rows linked to the order: **Commission −₹1.05** and **Delivery charge −₹25.00**, each with its balance after; balance ₹473.95 | |
-| 1.5 | Notifications, at once (no cron) | Shop: "Order delivered — wallet charged … commission ₹1.05, delivery charge ₹25.00. New balance: ₹473.95" ✉ · Customer: "Order delivered" ✉ · Rider: "Delivery confirmed" 🔕 | |
+| 1.4 | Shop wallet ledger | Two new rows linked to the order: **Commission −₹1.05** and **Delivery charge (2.0 km) −₹10.00**, each with its balance after; balance ₹488.95 | |
+| 1.5 | Notifications, at once (no cron) | Shop: "Order delivered — wallet charged … commission ₹1.05, delivery charge ₹10.00 (2.0 km). New balance: ₹488.95" ✉ · Customer: "Order delivered" ✉ · Rider: "Delivery confirmed" 🔕 | |
 | 1.6 | Shop → **Finance** | The order's payable is the full ₹105 (commission already paid from the wallet; not withheld again) | |
 
 ## 2. Wrong OTP
@@ -80,7 +93,7 @@ commission ₹1.05 + delivery charge ₹25 = **₹26.05** per rider-delivered or
 | 3.3 | Alerts | Customer: "We're checking your delivery" (ticket number) ✉ · Shop: "Delivery code locked" 🔕 · every operator/admin: "Delivery code locked — confirm the drop" ✉ | |
 | 3.4 | Rider enters the **right** code now | Still refused (locked); no wallet rows | |
 | 3.5 | Customer presses **Get a new code** | Refused — "on hold … support will contact you (ticket …)"; page shows the on-hold note | |
-| 3.6 | Operator confirms the delivery (exceptions queue / `confirm-delivery` with a proof note) | Order `DELIVERED`; wallet charged **once** (₹26.05); rider gets "Delivery confirmed" | |
+| 3.6 | Operator confirms the delivery (exceptions queue / `confirm-delivery` with a proof note) | Order `DELIVERED`; wallet charged **once** (commission + per-km delivery charge); rider gets "Delivery confirmed" | |
 | 3.7 | Change rule `deliveryOtp.maxAttempts` to 3; repeat 3.1 | Locks after 3 | |
 
 ## 4. Resend
@@ -115,11 +128,11 @@ commission ₹1.05 + delivery charge ₹25 = **₹26.05** per rider-delivered or
 
 | # | Do | Expected | Pass? |
 |---|---|---|---|
-| 7.1 | Shop balance ₹150 (below ₹200); a new order arrives; shop presses **Accept** | Refused: "Recharge your shop wallet to accept new orders. Balance ₹150.00, minimum ₹200.00." Order stays `CONFIRMED`. Red "Recharge wallet" banner on Orders | |
-| 7.2 | Same via API `POST /api/orders/<id>/fulfilment {"action":"accept"}` | `402 INSUFFICIENT_BALANCE`, `details.rechargeUrl = /shop/wallet` (server-side, not just UI) | |
-| 7.3 | Recharge ₹500, accept again | Accepted | |
-| 7.4 | Balance ₹320; deliver one order (−₹26.05 → ₹293.95) | Owner gets "Recharge your shop wallet … ₹293.95. Recharge before it falls below ₹200.00, or you will not be able to accept new orders." ✉ **once**; amber "running low" banner, the shop still accepts orders. A second delivery does not repeat it; a recharge back to ₹300 or more re-arms it | |
-| 7.5 | Balance ₹10; an order already accepted earlier is delivered | Delivery completes; balance goes to −₹16.05 (shown in red); shop told "Recharge your wallet to keep accepting new orders"; next accept refused | |
+| 7.1 | Shop balance ₹150 (below ₹200, e.g. Agtci on test at ₹0); a customer adds its items | Cart: "*Shop* is not taking new orders right now. Try again later or remove its items." (nothing about a wallet); the shop is not among the shops that deliver to the customer; **checkout refused** with "*Shop* is not taking new orders right now."; no order created | |
+| 7.2 | An order placed while the balance was fine, after the balance fell below ₹200: shop presses **Accept** | Refused: "Recharge your shop wallet to accept new orders. Balance ₹150.00, minimum ₹200.00." Order stays `CONFIRMED`. Red "Recharge wallet" banner on Orders. Via API `POST /api/orders/<id>/fulfilment {"action":"accept"}`: `402 INSUFFICIENT_BALANCE`, `details.rechargeUrl = /shop/wallet` | |
+| 7.3 | Recharge ₹500 | Customers can order from the shop again (cart, listing, checkout); the shop can accept | |
+| 7.4 | Balance ₹310; deliver one 2.0 km order (−₹11.05 → ₹298.95) | Owner gets "Recharge your shop wallet … ₹298.95. Recharge before it falls below ₹200.00, or you will not be able to accept new orders." ✉ **once**; amber "running low" banner, the shop still accepts orders and can be ordered from. A second delivery does not repeat it; a recharge back to ₹300 or more re-arms it | |
+| 7.5 | Balance ₹10; an order already accepted earlier is delivered (2.0 km) | Delivery completes; balance goes to −₹1.05 (shown in red); shop told "Recharge your wallet to keep accepting new orders"; next accept refused and customers cannot order | |
 | 7.6 | An order already **accepted** while the balance was fine | Can still be packed and delivered after the balance drops (only new acceptances are blocked) | |
 
 ## 8. Cancelled / undelivered
@@ -134,5 +147,16 @@ commission ₹1.05 + delivery charge ₹25 = **₹26.05** per rider-delivered or
 
 | # | Do | Expected | Pass? |
 |---|---|---|---|
-| 9.1 | Admin → Business rules → `shopWallet` → Restore default (off) | Wallet page says "Not switched on yet"; no banner; accept works at any balance | |
+| 9.1 | Admin → Business rules → `shopWallet` → Restore default (off) | Wallet page says "Not switched on yet"; no banner; accept works at any balance and customers can order from any shop | |
 | 9.2 | Deliver an order | No wallet rows; commission withheld at settlement exactly as before; delivery code still hashed and emailed | |
+
+## 10. Refund after delivery (commission back to the wallet)
+
+| # | Do | Expected | Pass? |
+|---|---|---|---|
+| 10.1 | Admin refunds **half** a wallet-paid delivered ₹105 order, charged to the **shop** (Admin → Finance → refund after delivery) | Customer refunded ₹52.50. Shop wallet: **Commission returned +₹0.53** ("Commission returned on ₹52.50 refunded — order …"); owner told "added to your wallet". The shop's next settlement recovers the full ₹52.50 | |
+| 10.2 | Refund the other half | **+₹0.52** (total returned ₹1.05 = the commission charged, never more); order `REFUNDED`; the delivery charge is **not** returned | |
+| 10.3 | Repeat the same refund request (double submit) | Nothing more refunded or credited | |
+| 10.4 | Refund a wallet-paid order with the **platform** bearing it | No wallet entry (the shop keeps its sale and its commission stays) | |
+| 10.5 | Refund an order delivered while the rule was off | As before: the settlement recovers the refunded goods minus their commission; no wallet entry | |
+

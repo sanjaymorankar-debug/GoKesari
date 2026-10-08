@@ -13,7 +13,8 @@ GoKesari's own network).
 real users ships **off** in code and is turned on only on the test database.
 **Base:** branch `staging`, which since this plan was written gained the shop
 prepaid wallet and hashed delivery codes (PR #91, migration `0059`). This
-work's migrations are therefore numbered **0060–0063**, not 0059–0062 as
+work's migrations are therefore numbered **0061–0064** (staging also gained
+`0060_shop_wallet_per_km_refunds`, PR #98), not 0059–0062 as
 first written below. `main` is behind `staging` (release #86 was reverted
 there), so this work cannot start from `main`.
 
@@ -124,7 +125,7 @@ there), so this work cannot start from `main`.
   per-product history list shows who changed what and when.
 - Image moderation (existing rule, off by default) still applies.
 
-### DB — migration `0060_shop_product_media` (additive)
+### DB — migration `0061_shop_product_media` (additive)
 | Change | Columns |
 |---|---|
 | `shop_products` + | `short_description`, `long_description`, `content_updated_at`, `content_updated_by` (the unused legacy `description` stays as is) |
@@ -284,7 +285,7 @@ host-pairing guard as KYC).
     for the CA to fill.
   - All are editable at `/admin/gst-config`.
 
-### 3.6 DB — migrations `0061_integrations`, `0062_gst_compliance` (additive)
+### 3.6 DB — migrations `0062_integrations`, `0063_gst_compliance` (additive)
 | Table / change | Key columns |
 |---|---|
 | **`shop_integrations`** | `shop_id`, `provider`, `status`, `config` (non-secret), `credentials_encrypted`, `key_version`, `last_pull_at`, `last_push_at`, `last_error`; one active per shop |
@@ -384,7 +385,7 @@ connector), `…/mapping`, `…/sync`, `/shop/gst-returns`, `/admin/gst-config`,
 - `/admin/shop-registrations`: pending payments, resend retry link.
 - `/admin/referral-commissions`: report per distributor.
 
-### DB — migration `0063_shop_self_registration` (additive)
+### DB — migration `0064_shop_self_registration` (additive)
 | Table / change | Key columns |
 |---|---|
 | **`distributor_types`** | `code`, `name`, `default_commission_type` (FLAT/PERCENT), `default_commission_value`, `is_active` (admin-managed) |
@@ -448,7 +449,7 @@ switch on only when their keys are set.
   GSTR-1 exported, self-registration approved, distributor/fee-tier changed.
 - **Events:** `shop.self_registered`, `shop_registration.payment_failed`,
   `integration.job_dead`. Each has notices in the catalogue.
-- **Rollback scripts** for 0060–0063 under `scripts/`.
+- **Rollback scripts** for 0061–0064 under `scripts/`.
 - **Test settings:** `test-settings.sql` gets the new switches (media limits,
   invoicing on, GST16 numbering, mock GSP/SMS).
 

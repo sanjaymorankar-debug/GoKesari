@@ -4957,6 +4957,11 @@ export const orderFinancials = pgTable(
       .default("SETTLEMENT"),
     /** Delivery charge debited from the shop wallet for this order (rule shopWallet); 0 otherwise. */
     shopDeliveryChargePaise: bigint("shop_delivery_charge_paise", { mode: "number" }).notNull().default(0),
+    /**
+     * Shop-to-customer distance the delivery charge was priced on, in metres
+     * (rounded to 0.1 km); null when no charge or the distance was not known.
+     */
+    shopDeliveryDistanceM: integer("shop_delivery_distance_m"),
     deliveredAt: timestamp("delivered_at", { withTimezone: true }).notNull(),
     settlementId: uuid("settlement_id").references(() => shopSettlements.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -5153,6 +5158,8 @@ export const shopWalletEntryTypeEnum = pgEnum("shop_wallet_entry_type", [
   "DELIVERY_CHARGE",
   "MANUAL_CREDIT",
   "MANUAL_DEBIT",
+  /** Commission on refunded goods, returned when the shop bears a refund after delivery. */
+  "COMMISSION_REFUND",
 ]);
 
 export const shopWallets = pgTable(
@@ -5215,7 +5222,8 @@ export const shopWalletTransactions = pgTable(
     ),
     check(
       "shop_wallet_txn_direction_matches_type",
-      sql`(${t.type} IN ('TOP_UP', 'MANUAL_CREDIT')) = (${t.direction} = 'CREDIT')`,
+      // Compared as text: 0060 adds COMMISSION_REFUND in the same transaction.
+      sql`(${t.type}::text IN ('TOP_UP', 'MANUAL_CREDIT', 'COMMISSION_REFUND')) = (${t.direction} = 'CREDIT')`,
     ),
     check(
       "shop_wallet_txn_order_charge_has_order",

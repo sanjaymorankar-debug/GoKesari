@@ -1,4 +1,4 @@
--- 0060 Shop product photos and descriptions (docs/three-modules-2026-10, Module 1).
+-- 0061 Shop product photos and descriptions (docs/three-modules-2026-10, Module 1).
 --   shop_products.short_description / long_description   the shop's own text
 --       for a listing; NULL = the master product's description is shown.
 --   shop_products.content_updated_at / _by   last change to photos or text.
@@ -10,7 +10,7 @@
 --   shop_staff   people an owner lets edit the shop's photos and descriptions.
 --   shop_media_imports / _items   bulk ZIP + CSV uploads (checked, then applied).
 -- Additive: every existing row stays storage = 'DB' with its bytes; existing
--- code keeps working. Rollback: scripts/rollback-0060.sql
+-- code keeps working. Rollback: scripts/rollback-0061.sql
 CREATE TABLE "shop_media_import_items" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"import_id" uuid NOT NULL,

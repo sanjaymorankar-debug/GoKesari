@@ -62,7 +62,7 @@ import { getRule } from "./settings";
 import { notifyOpenStockAlerts } from "./inventory-alerts";
 import { postRetainedDeliveryFee, recordOrderFinancials } from "./finance";
 import { assertShopMayAcceptOrders, chargeShopWalletForDeliveredOrder, type OrderWalletCharge } from "./shop-wallet";
-import { shopServiceability, societyPartnerShopIds } from "./serviceability";
+import { shopServiceability, societyPartnerShopIds, withWalletGate } from "./serviceability";
 import { assertShopMayProgress } from "./shop-suspension-guard";
 import { resolveAddressSociety } from "./societies";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
@@ -294,11 +294,15 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
 
   // A paused shop takes no new orders at all, and a delivered order must meet
   // the shop's minimum value (pickup orders are exempt from the minimum).
+  // A shop whose prepaid wallet is below the minimum is paused too (rule
+  // shopWallet): it could not accept the order, so it is never placed.
   {
-    const groupShops = await db
-      .select()
-      .from(shops)
-      .where(inArray(shops.id, purchasableGroups.map((g) => g.shop.id)));
+    const groupShops = await withWalletGate(
+      await db
+        .select()
+        .from(shops)
+        .where(inArray(shops.id, purchasableGroups.map((g) => g.shop.id))),
+    );
     // A personal order from a shop that delivers needs a saved delivery address.
     // Business orders and shops that only offer pickup are unchanged.
     if (orderType === "PERSONAL" && !addressSnapshot && groupShops.some((s) => s.deliveryAvailable)) {
