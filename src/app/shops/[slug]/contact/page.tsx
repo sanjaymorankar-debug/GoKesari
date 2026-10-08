@@ -2,10 +2,9 @@ import { notFound } from "next/navigation";
 import Link from "next/link";
 
 import { Card, PageHeader } from "@/components/ui";
-import { LEGAL_ENTITY } from "@/lib/legal-docs";
 import { isFoodBusinessShopType } from "@/lib/shop-types";
 import { getPublicVerifiedDocuments } from "@/server/services/seller-verification";
-import { getPublicShopBySlug, shopCustomerContact } from "@/server/services/shops";
+import { getPublicShopBySlug } from "@/server/services/shops";
 
 export async function generateMetadata({
   params,
@@ -33,8 +32,6 @@ export default async function ShopContactPage({
   const shop = await getPublicShopBySlug(slug);
   if (!shop) notFound();
   const verified = await getPublicVerifiedDocuments(shop.id);
-  // C1: only the numbers the shopkeeper entered for customers (rule shopContact).
-  const contact = await shopCustomerContact(shop);
 
   return (
     <>
@@ -65,28 +62,10 @@ export default async function ShopContactPage({
               {[shop.area, shop.city].filter(Boolean).join(", ")} — {shop.pincode}
             </dd>
           </div>
-          <div data-testid="shop-customer-care">
+          <div>
             <dt className="font-medium text-ink-700">Customer care</dt>
             <dd className="text-ink-500">
-              {contact.phone ? <a href={`tel:+91${contact.phone}`} className="hover:underline">{contact.phone}</a> : null}
-              {contact.whatsapp ? (
-                <>
-                  {contact.phone ? <br /> : null}
-                  <a
-                    href={`https://wa.me/91${contact.whatsapp}`}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="text-kesari-600 hover:underline"
-                  >
-                    WhatsApp {contact.whatsapp}
-                  </a>
-                </>
-              ) : null}
-              {contact.usePlatformCare ? (
-                <>
-                  GoKesari customer care: {LEGAL_ENTITY.supportEmail}
-                </>
-              ) : null}
+              {shop.phone}
               {shop.email ? (
                 <>
                   <br />

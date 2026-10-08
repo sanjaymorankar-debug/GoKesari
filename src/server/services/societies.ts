@@ -41,7 +41,6 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { grantRole } from "./roles";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
-import { getRule } from "./settings";
 
 interface Actor {
   id: string;
@@ -526,22 +525,9 @@ export async function resolveAddressSociety(userId: string, societyId: string | 
 
 /* ============================================ riders & shops (society admin) */
 
-/**
- * C2 (rule societyRiders): only a society Gokesari has verified may build its
- * rider list. Checked here, in the service, so no route or caller — platform
- * staff included — can add a rider to an unverified society.
- */
-async function assertSocietyMayListRiders(society: Society): Promise<void> {
-  const { requireVerifiedSociety } = await getRule("societyRiders");
-  if (requireVerifiedSociety && society.status !== "VERIFIED") {
-    throw forbidden("Riders can be added once Gokesari has verified this society.");
-  }
-}
-
 /** GS-045: add a rider by their registered mobile number. Effective immediately, audited. */
 export async function addSocietyRider(societyId: string, mobile: string, preferred: boolean, actor: Actor) {
-  const { society } = await requireSocietyRole(societyId, actor, ["ADMIN"]);
-  await assertSocietyMayListRiders(society);
+  await requireSocietyRole(societyId, actor, ["ADMIN"]);
   const digits = mobile.replace(/\D/g, "").slice(-10);
   if (!/^[6-9]\d{9}$/.test(digits)) throw validationFailed("Enter the rider's 10-digit mobile number.");
   const partner = await db.query.deliveryPartners.findFirst({
@@ -580,9 +566,7 @@ export async function updateSocietyRider(
 ) {
   const link = await db.query.societyRiders.findFirst({ where: eq(societyRiders.id, riderLinkId) });
   if (!link) throw notFound("Society rider");
-  const { society } = await requireSocietyRole(link.societyId, actor, ["ADMIN"]);
-  // Revoking is always allowed; changing who is preferred needs a verified society (C2).
-  if (change.preferred !== undefined) await assertSocietyMayListRiders(society);
+  await requireSocietyRole(link.societyId, actor, ["ADMIN"]);
   const [row] = await db
     .update(societyRiders)
     .set({
@@ -735,9 +719,6 @@ export async function getSocietyDashboard(societyId: string, actor: Actor) {
         vehicleType: deliveryPartners.vehicleType,
         ratingAvgX100: deliveryPartners.ratingAvgX100,
         ratingCount: deliveryPartners.ratingCount,
-        // C5: so the gate can match the rider's ID card (photo link is access-checked).
-        deliveryPartnerId: deliveryPartners.id,
-        profilePhotoUrl: deliveryPartners.profilePhotoUrl,
       })
       .from(societyRiders)
       .innerJoin(deliveryPartners, eq(societyRiders.deliveryPartnerId, deliveryPartners.id))

@@ -393,20 +393,6 @@
       "when": 1791263322912,
       "tag": "0055_order_completion",
       "breakpoints": true
-    },
-    {
-      "idx": 56,
-      "version": "7",
-      "when": 1791397053960,
-      "tag": "0056_shop_customer_contact",
-      "breakpoints": true
-    },
-    {
-      "idx": 57,
-      "version": "7",
-      "when": 1791397744411,
-      "tag": "0057_rider_kyc_documents",
-      "breakpoints": true
     }
   ]
 }

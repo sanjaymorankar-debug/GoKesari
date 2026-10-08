@@ -38,10 +38,11 @@ import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { getOrCreateWallet, applyWalletMutation } from "./wallet";
 import { previewVoucher, redeemVoucher } from "./vouchers";
-import { getRule } from "./settings";
 
-/** Minimum / maximum top-up, in paise: live values are rule `walletTopup` (defaults ₹1 and ₹1,00,000). */
-const rupees = (paise: number) => (paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 });
+/** Minimum top-up, in paise. */
+const MIN_TOPUP_PAISE = 100;
+/** Sanity ceiling to blunt fat-finger and abuse cases. */
+const MAX_TOPUP_PAISE = 10_000_000; // ₹1,00,000
 
 export interface CreateTopUpResult {
   payment: Payment;
@@ -71,12 +72,11 @@ export async function createTopUpOrder(
   if (!Number.isInteger(amountPaise)) {
     throw validationFailed("Amount must be a whole number of paise.");
   }
-  const topupLimits = await getRule("walletTopup");
-  if (amountPaise < topupLimits.minPaise) {
-    throw validationFailed(`The minimum top-up is ₹${rupees(topupLimits.minPaise)}.`);
+  if (amountPaise < MIN_TOPUP_PAISE) {
+    throw validationFailed("The minimum top-up is ₹1.");
   }
-  if (amountPaise > topupLimits.maxPaise) {
-    throw validationFailed(`The maximum top-up is ₹${rupees(topupLimits.maxPaise)}.`);
+  if (amountPaise > MAX_TOPUP_PAISE) {
+    throw validationFailed("The maximum top-up is ₹1,00,000.");
   }
 
   // Validated and computed HERE, at order-creation time, then the code (not

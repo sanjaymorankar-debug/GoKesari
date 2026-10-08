@@ -364,10 +364,7 @@ export async function cancelLivePickup(returnId: string, client: DbClient = db):
 export async function scheduleReturnPickup(returnId: string, userId: string, when: Date): Promise<ReturnPickup> {
   const now = Date.now();
   if (when.getTime() < now - 60_000) throw validationFailed("Choose a time in the future.");
-  const { scheduleWithinDays } = await getRule("returnPickup");
-  if (when.getTime() > now + scheduleWithinDays * 24 * 3_600_000) {
-    throw validationFailed(`Choose a time within the next ${scheduleWithinDays} days.`);
-  }
+  if (when.getTime() > now + 3 * 24 * 3_600_000) throw validationFailed("Choose a time within the next 3 days.");
   const [ret] = await db.select().from(returnRequests).where(eq(returnRequests.id, returnId));
   if (!ret) throw notFound("Return");
   if (ret.userId !== userId) throw forbidden("This return does not belong to you.");

@@ -32,7 +32,6 @@ import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { attributeShopToCode } from "./referrals";
 import { applyShopCategories } from "./shop-categories";
 import { resolveFeeForNewRegistration } from "./registration-fees";
-import { getRule } from "./settings";
 import { onboardingApprovalBlocker } from "./shop-onboarding";
 import {
   duplicateShopError,
@@ -789,9 +788,6 @@ export interface UpdateShopInput {
   ownerName?: string;
   phone?: string;
   email?: string | null;
-  /** C1: the shop's customer contact number and WhatsApp number (null clears). */
-  contactPhone?: string | null;
-  whatsappNumber?: string | null;
   addressLine1?: string;
   addressLine2?: string | null;
   area?: string | null;
@@ -835,12 +831,6 @@ export async function updateShop(
   }
   if (input.phone && !/^[6-9]\d{9}$/.test(input.phone)) {
     throw validationFailed("Enter a valid 10-digit Indian mobile number.");
-  }
-  if (input.contactPhone && !/^[6-9]\d{9}$/.test(input.contactPhone)) {
-    throw validationFailed("Enter a valid 10-digit Indian mobile number for the shop's contact phone.");
-  }
-  if (input.whatsappNumber && !/^[6-9]\d{9}$/.test(input.whatsappNumber)) {
-    throw validationFailed("Enter a valid 10-digit Indian mobile number for WhatsApp.");
   }
   if (
     input.serviceRadiusKm !== undefined &&
@@ -908,8 +898,6 @@ export async function updateShop(
       minOrderPaise: current.minOrderPaise,
       ordersPaused: current.ordersPaused,
       codEnabled: current.codEnabled,
-      ...(input.contactPhone !== undefined ? { contactPhone: current.contactPhone } : {}),
-      ...(input.whatsappNumber !== undefined ? { whatsappNumber: current.whatsappNumber } : {}),
       ...(coordinatesChanged
         ? { latitude: current.latitude, longitude: current.longitude, locationVerified: current.locationVerified }
         : {}),
@@ -922,8 +910,6 @@ export async function updateShop(
       minOrderPaise: updated.minOrderPaise,
       ordersPaused: updated.ordersPaused,
       codEnabled: updated.codEnabled,
-      ...(input.contactPhone !== undefined ? { contactPhone: updated.contactPhone } : {}),
-      ...(input.whatsappNumber !== undefined ? { whatsappNumber: updated.whatsappNumber } : {}),
       ...(coordinatesChanged
         ? { latitude: updated.latitude, longitude: updated.longitude, locationVerified: updated.locationVerified }
         : {}),
@@ -1028,25 +1014,6 @@ export async function getPublicShopById(shopId: string): Promise<PublicShop | un
     .where(and(eq(shops.id, shopId), eq(shops.status, "APPROVED"), isNull(shops.deletedAt)))
     .limit(1);
   return shop;
-}
-
-/**
- * C1 (rule shopContact): the phone numbers a customer may see for a shop.
- * SHOP_CONTACT: only the contact phone / WhatsApp number the shopkeeper
- * entered for customers — never the registration phone or the owner's login
- * number; with neither entered, `usePlatformCare` asks the page to show
- * GoKesari customer care instead. REGISTERED_PHONE: the original behaviour.
- */
-export async function shopCustomerContact(
-  shop: Pick<Shop, "phone" | "contactPhone" | "whatsappNumber">,
-): Promise<{ phone: string | null; whatsapp: string | null; usePlatformCare: boolean }> {
-  const { customerVisible } = await getRule("shopContact");
-  if (customerVisible === "REGISTERED_PHONE") {
-    return { phone: shop.phone, whatsapp: null, usePlatformCare: false };
-  }
-  const phone = shop.contactPhone || null;
-  const whatsapp = shop.whatsappNumber || null;
-  return { phone, whatsapp, usePlatformCare: !phone && !whatsapp };
 }
 
 export async function getPublicShopBySlug(

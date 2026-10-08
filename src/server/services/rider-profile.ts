@@ -25,7 +25,6 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { encryptKycInput, toPublicPartner, type KycField, type PublicDeliveryPartner } from "./delivery-partner-kyc";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
-import { assertRiderPhotoUrl } from "./rider-files";
 
 interface Actor {
   id: string;
@@ -105,8 +104,6 @@ export async function updateMyRiderProfile(userId: string, patch: RiderProfilePa
   if (patch.profilePhotoUrl !== undefined) {
     const url = clean(patch.profilePhotoUrl);
     if (url && !/^(https:\/\/|\/api\/images\/)/.test(url)) throw validationFailed("Upload a photo or give an https link.");
-    // C5: only the rider's own uploaded photo (and, with photos protected, never an outside link).
-    if (url !== partner.profilePhotoUrl) await assertRiderPhotoUrl(url, userId);
     set.profilePhotoUrl = url;
   }
   if (patch.vehicleType !== undefined) {

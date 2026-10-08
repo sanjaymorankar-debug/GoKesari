@@ -11,9 +11,6 @@ import { getPartnerEarningsSummary } from "@/server/services/delivery-earnings";
 import { getMyDeliveryPartnerProfile } from "@/server/services/delivery-partners";
 import { getMyLatestChangeRequest } from "@/server/services/rider-profile";
 import { RiderProfileEditor } from "@/components/rider-profile-editor";
-import { RiderDocumentsPanel } from "@/components/rider-documents-panel";
-import { getRule } from "@/server/services/settings";
-import { listMyRiderDocuments } from "@/server/services/rider-files";
 
 export const metadata = { title: "My Delivery Profile" };
 export const dynamic = "force-dynamic";
@@ -49,9 +46,6 @@ export default async function GigProfilePage() {
   const earnings = await getPartnerEarningsSummary(profile.id);
   const latestChange = await getMyLatestChangeRequest(user.id);
   const isApproved = profile.status === "APPROVED";
-  // C5: identity documents and the gate ID card (rule riderFiles).
-  const riderFiles = await getRule("riderFiles");
-  const documents = riderFiles.kycDocuments ? await listMyRiderDocuments(user.id) : [];
 
   return (
     <div className="mx-auto max-w-3xl pb-10">
@@ -129,32 +123,6 @@ export default async function GigProfilePage() {
           </dl>
         </Card>
       </Section>
-      {riderFiles.idCard && isApproved ? (
-        <Section title="Rider ID card">
-          <Card className="flex flex-wrap items-center justify-between gap-3 p-5">
-            <p className="text-sm text-ink-500">
-              Your photo, name, rider ID and the societies that have approved you — show it at the society gate.
-            </p>
-            <LinkButton href="/gig/id-card">Show my ID card</LinkButton>
-          </Card>
-        </Section>
-      ) : null}
-
-      {riderFiles.kycDocuments && profile.status !== "DEACTIVATED" ? (
-        <Section title="Identity documents">
-          <RiderDocumentsPanel
-            documents={documents.map((d) => ({
-              id: d.id,
-              docType: d.docType,
-              label: d.label,
-              status: d.status,
-              rejectionReason: d.rejectionReason,
-              createdAt: d.createdAt.toISOString(),
-            }))}
-          />
-        </Section>
-      ) : null}
-
       {profile.status !== "DEACTIVATED" ? (
         <Section title="Update my profile">
           <RiderProfileEditor

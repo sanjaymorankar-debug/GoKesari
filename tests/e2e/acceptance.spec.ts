@@ -77,8 +77,7 @@ test.describe("customer journey", () => {
     // 7 days = ₹980, 30 days = ₹4,200.
     await expect(page.getByText("₹980", { exact: true }).first()).toBeVisible();
 
-    // The form also has an optional end date (since SM-004), so pick the start date by its label.
-    const startDate = await page.getByLabel("Start date").inputValue();
+    const startDate = await page.locator('input[type="date"]').inputValue();
     await page.getByRole("button", { name: /^Subscribe to/ }).click();
     await page.waitForURL(/\/subscriptions\/[0-9a-f-]{36}/);
 

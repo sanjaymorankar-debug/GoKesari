@@ -4,7 +4,7 @@ import { CodDepositForm } from "@/components/growth-actions";
 import { Card, EmptyState, Money, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
-import { getCodLimits, listCodCashHeld } from "@/server/services/cod";
+import { COD_LIMITS, listCodCashHeld } from "@/server/services/cod";
 
 export const metadata = { title: "Cash on delivery" };
 export const dynamic = "force-dynamic";
@@ -18,7 +18,7 @@ export default async function CodPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
   if (!can(user.role, PERMISSIONS.COD_CASH_MANAGE)) redirect("/");
-  const [holders, codLimits] = await Promise.all([listCodCashHeld(), getCodLimits()]);
+  const holders = await listCodCashHeld();
   const total = holders.reduce((sum, h) => sum + h.heldPaise, 0);
 
   return (
@@ -27,9 +27,9 @@ export default async function CodPage() {
         title="Cash on delivery"
         description={
           <>
-            <Money paise={total} /> held. Limits: <Money paise={codLimits.maxOrderPaise} /> per order,{" "}
-            {codLimits.maxOpenOrders} open COD orders per customer, paused after {codLimits.maxFailures} failed COD deliveries in{" "}
-            {codLimits.failureWindowDays} days.
+            <Money paise={total} /> held. Limits: <Money paise={COD_LIMITS.maxOrderPaise} /> per order,{" "}
+            {COD_LIMITS.maxOpenOrders} open COD orders per customer, paused after {COD_LIMITS.maxFailures} failed COD deliveries in{" "}
+            {COD_LIMITS.failureWindowDays} days.
           </>
         }
       />
