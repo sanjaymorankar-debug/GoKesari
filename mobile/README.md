@@ -78,7 +78,27 @@ Mac, including for the iPhone build.
 
 ## Try it on a phone
 
-Android: an installable APK, no store account needed.
+### Android: download the APK from GitHub (no accounts needed)
+
+Every change to `mobile/` (and every pull request touching it) builds two
+APKs on GitHub (workflow "Android APK"); you can also start it by hand from
+the Actions tab → Android APK → Run workflow.
+
+1. On the phone, open the repository on github.com → **Actions** → the latest
+   **Android APK** run (or the pull request's **Checks** tab).
+2. Under **Artifacts**, download `GoKesari-preview-apk` (test.gokesari.com) or
+   `GoKesari-production-apk` (gokesari.com). It arrives as a .zip.
+3. Open the zip in the Files app and tap the `.apk` inside. Allow installs
+   from that app when Android asks; if Play Protect warns about an
+   unrecognised app, choose **Install anyway**.
+
+A newer APK installs over the older one. These are signed with a shared test
+key, so the Play Store build (below) cannot be installed over them — uninstall
+first when switching.
+
+### Android with EAS
+
+The same through Expo's cloud, signed with your own key:
 
 ```bash
 npx eas-cli@latest build --profile preview --platform android
@@ -87,8 +107,11 @@ npx eas-cli@latest build --profile preview --platform android
 When the build finishes, open the link it prints on the phone, or scan the QR
 code, and install. Android asks once to allow installs from that source.
 
-iPhone: Apple only lets registered devices install test builds. Register the
-iPhone, then build:
+### iPhone
+
+Apple only lets an iPhone install apps signed through an Apple Developer
+account ($99 a year), so there is no download-and-install file like Android's.
+With the account, register the iPhone, then build:
 
 ```bash
 npx eas-cli@latest device:create
