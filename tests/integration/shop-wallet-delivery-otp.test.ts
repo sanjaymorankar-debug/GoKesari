@@ -93,7 +93,7 @@ let admin = { id: "", role: "ADMIN" as const };
 
 /**
  * Rule shopWallet on with its defaults — the agreed amounts: ₹25 delivery
- * charge, ₹200 minimum (and reminder). Commission is the 1% platform rate set
+ * charge, ₹200 minimum, reminder below ₹300. Commission is the 1% platform rate set
  * in beforeEach. One ₹105 order therefore costs the shop ₹1.05 + ₹25 = ₹26.05.
  */
 async function enableWallet(overrides: Record<string, number | boolean> = {}) {
@@ -573,7 +573,12 @@ describe("cancelled order", () => {
 
 describe("wallet integrity and access", () => {
   it("the rule's defaults are the agreed amounts, and it stays off until switched on", () => {
-    expect(RULES.shopWallet.defaults).toMatchObject({ enabled: false, deliveryChargePaise: 2_500, minBalancePaise: 20_000 });
+    expect(RULES.shopWallet.defaults).toMatchObject({
+      enabled: false,
+      deliveryChargePaise: 2_500,
+      minBalancePaise: 20_000,
+      lowBalanceThresholdPaise: 30_000,
+    });
   });
 
   it("the balance can only change through a ledger entry; entries are immutable", async () => {

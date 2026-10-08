@@ -636,13 +636,14 @@ export const RULES = {
         message: "Alert at or above the minimum balance, so the shop hears before it is blocked.",
         path: ["lowBalanceThresholdPaise"],
       }),
-    // Agreed amounts: ₹25 delivery charge, ₹200 minimum. Commission (1%) is
-    // the platform rate under Admin → Finance → Commission, not set here.
+    // Agreed amounts: ₹25 delivery charge, ₹200 minimum, reminder at ₹300 (so
+    // a shop is warned before it is blocked). Commission (1%) is the platform
+    // rate under Admin → Finance → Commission, not set here.
     defaults: {
       enabled: false,
       deliveryChargePaise: 2_500,
       minBalancePaise: 20_000,
-      lowBalanceThresholdPaise: 20_000,
+      lowBalanceThresholdPaise: 30_000,
       topupMinPaise: 10_000,
       topupMaxPaise: 5_000_000,
     },

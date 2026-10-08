@@ -74,14 +74,14 @@ Built on the `staging` branch (the test site), on top of the event layer
 ## 3. Configuration
 
 Agreed amounts (8 Oct 2026): **delivery charge ₹25, minimum balance ₹200,
-commission 1%**. All three stay configurable without a deploy.
+low-balance reminder ₹300, commission 1%**. All stay configurable without a deploy.
 
 | Setting | Where | Default / agreed |
 |---|---|---|
 | Commission rate | Admin → Finance → Commission (`commission_rates`, existing; platform default, per shop type, or per shop) | **1%** — set as the platform default by `test-settings.sql` on test; set it the same way on production (until a rate is set, commission is 0%) |
 | Delivery charge | Admin → Business rules → `shopWallet.deliveryChargePaise` | **₹25** (2500) |
 | Minimum balance to accept orders | `shopWallet.minBalancePaise` | **₹200** (20000) |
-| Low-balance reminder | `shopWallet.lowBalanceThresholdPaise` (≥ minimum) | ₹200 — the reminder then comes with the block; raise it (e.g. ₹300) to warn before the block |
+| Low-balance reminder | `shopWallet.lowBalanceThresholdPaise` (≥ minimum) | **₹300** (30000) — the owner is warned once a charge takes the balance below ₹300, before the ₹200 block |
 | Recharge limits | `shopWallet.topupMinPaise` / `topupMaxPaise` | ₹100 / ₹50,000 |
 | Switch | `shopWallet.enabled` | **off** |
 | Wrong-code limit | `deliveryOtp.maxAttempts` (existing) | 5 |
@@ -154,8 +154,8 @@ Updated for hashed codes: `delivery-assignment`, `delivery-assignment-route`,
 
 **Decisions needed from you**
 
-1. ~~Amounts~~ — decided: ₹25 delivery charge, ₹200 minimum, 1% commission.
-   Still open: the low-balance reminder level (now ₹200, equal to the minimum).
+1. ~~Amounts~~ — decided: ₹25 delivery charge, ₹200 minimum, ₹300 low-balance
+   reminder, 1% commission.
 2. Should a shop below the minimum also be hidden from customers / refuse checkout,
    rather than only being unable to accept?
 3. Should the delivery charge vary (e.g. by distance, or equal the rider's

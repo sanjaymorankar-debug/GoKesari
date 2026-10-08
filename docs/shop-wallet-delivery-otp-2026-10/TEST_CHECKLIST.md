@@ -7,7 +7,7 @@ Run on the **test site only**. Before starting:
    after a backup; or run `npm run db:migrate` against the test database).
 2. `test-settings.sql` (this folder) run on the test database — switches rule
    `shopWallet` on with the agreed amounts: ₹25 delivery charge, ₹200
-   minimum (reminder at ₹200 too), 1% platform commission; 5 wrong codes, a
+   minimum, reminder below ₹300, 1% platform commission; 5 wrong codes, a
    new code at most every 60 s and 3 per delivery.
 3. SMTP working on test (the delivery code goes by email; sign-in codes already do).
 
@@ -113,7 +113,7 @@ commission ₹1.05 + delivery charge ₹25 = **₹26.05** per rider-delivered or
 | 7.1 | Shop balance ₹150 (below ₹200); a new order arrives; shop presses **Accept** | Refused: "Recharge your shop wallet to accept new orders. Balance ₹150.00, minimum ₹200.00." Order stays `CONFIRMED`. Red "Recharge wallet" banner on Orders | |
 | 7.2 | Same via API `POST /api/orders/<id>/fulfilment {"action":"accept"}` | `402 INSUFFICIENT_BALANCE`, `details.rechargeUrl = /shop/wallet` (server-side, not just UI) | |
 | 7.3 | Recharge ₹500, accept again | Accepted | |
-| 7.4 | Balance ₹220; deliver one order (−₹26.05 → ₹193.95) | Owner gets "Recharge your shop wallet … ₹193.95 … You cannot accept new orders until you recharge" ✉ **once**; a second delivery does not repeat it; a recharge back to ₹200 or more re-arms it | |
+| 7.4 | Balance ₹320; deliver one order (−₹26.05 → ₹293.95) | Owner gets "Recharge your shop wallet … ₹293.95. Recharge before it falls below ₹200.00, or you will not be able to accept new orders." ✉ **once**; amber "running low" banner, the shop still accepts orders. A second delivery does not repeat it; a recharge back to ₹300 or more re-arms it | |
 | 7.5 | Balance ₹10; an order already accepted earlier is delivered | Delivery completes; balance goes to −₹16.05 (shown in red); shop told "Recharge your wallet to keep accepting new orders"; next accept refused | |
 | 7.6 | An order already **accepted** while the balance was fine | Can still be packed and delivered after the balance drops (only new acceptances are blocked) | |
 

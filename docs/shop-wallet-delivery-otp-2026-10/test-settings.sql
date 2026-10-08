@@ -10,16 +10,15 @@
 --   select current_database(), inet_server_addr();
 --
 -- Amounts agreed on 8 Oct 2026: delivery charge ₹25, minimum balance ₹200,
--- commission 1%. Every value stays editable — shopWallet in Admin → Business
+-- low-balance reminder ₹300, commission 1%. Every value stays editable — shopWallet in Admin → Business
 -- rules, the commission in Admin → Finance → Commission (both audited; this
 -- script is not). New rule values reach the app within 15 seconds (rule cache).
 -- Undo: Admin → Business rules → shopWallet → "Restore default" (switches it off).
 INSERT INTO platform_settings (key, value) VALUES
   -- Wallet on; ₹25 delivery charge per rider-delivered order; a shop needs ₹200
-  -- to accept new orders and is reminded when a charge takes it below ₹200
-  -- (raise lowBalanceThresholdPaise, e.g. to 30000, to warn before the block);
-  -- recharges ₹100–₹50,000.
-  ('shopWallet',  '{"enabled": true, "deliveryChargePaise": 2500, "minBalancePaise": 20000, "lowBalanceThresholdPaise": 20000, "topupMinPaise": 10000, "topupMaxPaise": 5000000}'),
+  -- to accept new orders and is reminded when a charge takes it below ₹300,
+  -- before it is blocked; recharges ₹100–₹50,000.
+  ('shopWallet',  '{"enabled": true, "deliveryChargePaise": 2500, "minBalancePaise": 20000, "lowBalanceThresholdPaise": 30000, "topupMinPaise": 10000, "topupMaxPaise": 5000000}'),
   -- 5 wrong delivery codes lock the drop; a new code at most every 60 s, 3 per delivery.
   ('deliveryOtp', '{"maxAttempts": 5, "resendCooldownSeconds": 60, "maxResends": 3}')
 ON CONFLICT (key) DO UPDATE SET value = platform_settings.value || EXCLUDED.value, updated_at = now();
