@@ -1,6 +1,10 @@
 -- Event layer (docs/event-driven-2026-10) — business-rule values for the
 -- TEST site (test.gokesari.com) ONLY. Do not run against production.
 --
+-- Applied automatically by the "Test database" workflow whenever this file
+-- changes on staging (DB_AUTOMATION.md); editing it here is how to change the
+-- test values on purpose.
+--
 -- Check you are on the test database first:
 --   select current_database(), inet_server_addr();
 --

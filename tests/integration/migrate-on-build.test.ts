@@ -8,7 +8,7 @@
  * Runs the real script in a child process against a throwaway database, with a
  * clean environment so a developer's own variables cannot leak in.
  */
-import { spawnSync } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import { readFileSync } from "node:fs";
 import postgres from "postgres";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
@@ -35,6 +35,20 @@ function runScript(env: { MIGRATE_ON_BUILD: string; DATABASE_URL: string }) {
     timeout: 120_000,
   });
   return { code: res.status, out: `${res.stdout}${res.stderr}` };
+}
+
+/** The same as runScript, without blocking — to start two migrations at once. */
+function runScriptAsync(env: { MIGRATE_ON_BUILD: string; DATABASE_URL: string }) {
+  return new Promise<{ code: number | null; out: string }>((resolve) => {
+    const child = spawn(process.execPath, ["scripts/migrate-on-build.mjs"], {
+      cwd: process.cwd(),
+      env: { PATH: process.env.PATH, NODE_ENV: "production", ...env },
+    });
+    let out = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.stderr.on("data", (d) => (out += d));
+    child.on("close", (code) => resolve({ code, out }));
+  });
 }
 
 async function withTemp<T>(fn: (sql: postgres.Sql) => Promise<T>): Promise<T> {
@@ -118,6 +132,18 @@ describe("migrate-on-build", () => {
     const second = runScript({ MIGRATE_ON_BUILD: "true", DATABASE_URL: tempUrl.toString() });
     expect(second.code).toBe(0);
     expect(second.out).toContain("applied 0 new migration(s)");
+  });
+
+  it("two migrations started at once (the deploy build and the test-db workflow) both succeed, applying each migration once", async (ctx) => {
+    if (!created) ctx.skip();
+    await withTemp((sql) => sql.unsafe("drop schema if exists drizzle cascade; drop schema if exists pmd cascade; drop schema public cascade; create schema public;"));
+    const env = { MIGRATE_ON_BUILD: "true", DATABASE_URL: tempUrl.toString() };
+    const [a, b] = await Promise.all([runScriptAsync(env), runScriptAsync(env)]);
+    expect([a.code, b.code], `${a.out}\n---\n${b.out}`).toEqual([0, 0]);
+    // One of them applied everything; the other waited for it and found nothing to do.
+    const applied = [a.out, b.out].map((o) => Number(/applied (\d+) new migration/.exec(o)?.[1]));
+    expect(applied.sort((x, y) => x - y)).toEqual([0, journal.entries.length]);
+    expect(await journalCount()).toBe(journal.entries.length);
   });
 
   it("brings a database on 0055 up to date: 0056, 0057 and 0058", async (ctx) => {

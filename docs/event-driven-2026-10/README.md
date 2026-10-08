@@ -11,6 +11,7 @@
 | [crontab.previous.txt](crontab.previous.txt) | The old block, for rollback |
 | [run.sh.example](run.sh.example) | Reference `run.sh` (test-only guard, lock, log) |
 | [test-settings.sql](test-settings.sql) | X = 30, Y = 30, N = 4, SLA = 24 h and the new switches, for the test DB |
+| [DB_AUTOMATION.md](DB_AUTOMATION.md) | The "Test database" GitHub workflow: backup, migrate, settings, verify, rollback |
 
 ## What changed
 
@@ -112,13 +113,17 @@ there on purpose.
 
 ## Deploying to test
 
-1. Back up the test database:
-   `pg_dump "$TEST_DATABASE_URL" -Fc -f gokesari_test_pre_0058_$(date +%F_%H%M).dump`
-2. Migrate it to 0058 — `DATABASE_URL="$TEST_DATABASE_URL" npm run db:migrate`,
-   or set `MIGRATE_ON_BUILD=true` on test.gokesari.com before the deploy
-   (DEPLOYMENT.md §4). Expect one new migration, newest `1791444892056`.
-3. Merge the PR into **`staging`** (Hostinger redeploys test.gokesari.com).
-4. Run `test-settings.sql` against the **test** database.
+Database steps are automated — see [DB_AUTOMATION.md](DB_AUTOMATION.md)
+(one-time GitHub setup: a `test` environment with the `TEST_DATABASE_URL`
+secret and two check variables). The "Test database" workflow backs up the
+test database, migrates it to 0058 and applies `test-settings.sql`, and
+reports the result on the run page.
+
+1. One-time setup from DB_AUTOMATION.md.
+2. Merge into **`staging`** (Hostinger redeploys test.gokesari.com; the
+   workflow does the database work — expect newest migration `1791444892056`).
+3. Check the "Test database" run is green.
+4. (Done by the workflow: `test-settings.sql`.)
 5. Crontab → **Phase A** of `crontab.test.txt` (new jobs alongside the old).
    If your `run.sh` already POSTs `/api/cron/<job>`, it needs no change.
 6. Work through `TEST_CHECKLIST.md`.

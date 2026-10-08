@@ -11,6 +11,11 @@
  *
  * Plain Node, dependencies only (no tsx): the host may build without
  * devDependencies.
+ *
+ * Holds the shared migration lock (a Postgres advisory lock, the same one
+ * src/server/db/migrate.ts takes) while it migrates, so this and the
+ * test-db workflow (.github/workflows/test-db.yml) can start at the same
+ * moment: one applies the migrations, the other waits and finds nothing to do.
  */
 import nextEnv from "@next/env";
 import { drizzle } from "drizzle-orm/postgres-js";
@@ -18,6 +23,8 @@ import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 
 const TAG = "[migrate-on-build]";
+/** Shared with src/server/db/migrate.ts — one migration run per database at a time. */
+const MIGRATION_LOCK = "gokesari-migrations";
 
 // The same .env files and precedence `next build` uses, so this sees exactly
 // the variables the build sees, however the host provides them.
@@ -53,6 +60,12 @@ async function recorded(sql) {
 const client = postgres(url, { max: 1, ssl, onnotice: () => {} });
 try {
   const [{ db }] = await client`select current_database() as db`;
+  const [{ got }] = await client`select pg_try_advisory_lock(hashtext(${MIGRATION_LOCK})) as got`;
+  if (!got) {
+    console.log(`${TAG} another migration is running on "${db}" — waiting for it to finish.`);
+    await client`select pg_advisory_lock(hashtext(${MIGRATION_LOCK}))`;
+  }
+  // Counted under the lock, so a run that waited reports what it applied itself (nothing).
   const before = await recorded(client);
   // Host and database name only — never the connection string (it holds the password).
   console.log(
@@ -69,5 +82,7 @@ try {
   );
   process.exitCode = 1;
 } finally {
+  // Closing the session releases the lock too; unlocking first keeps it short.
+  await client`select pg_advisory_unlock_all()`.catch(() => {});
   await client.end();
 }
