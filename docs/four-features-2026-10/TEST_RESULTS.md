@@ -1,8 +1,8 @@
 # Test results — four features on test.gokesari.com (8–9 Oct 2026)
 
-**Where:** test.gokesari.com, staging build 58bb4c0 (PR #102). Follow-up fixes
-went out as a second PR and were re-checked afterwards (§4). Production
-(gokesari.com) was never touched.
+**Where:** test.gokesari.com, staging build 58bb4c0 (PR #102). The follow-up
+fixes went out as PR #103 (staging 6f3c28f) and were re-checked on test
+afterwards (§4). Production (gokesari.com) was never touched.
 
 **How it was run:**
 - **Browser:** a real browser (Chromium via Playwright) against the live test
@@ -28,15 +28,16 @@ went out as a second PR and were re-checked afterwards (§4). Production
 
 **Orders:** DB-20261008-3BVWQU (pickup), -OGXVZW (own delivery), -2B89V5
 (GoKesari rider), -Q7CDEY (own delivery, code locked), -TRM5R5 (rider
-released), -8QZBEQ (blocked shop), -SPQS44 (cancel / refund).
+released), -8QZBEQ (blocked shop), -SPQS44 (cancel / refund), -NMBAE9 (pickup,
+re-check of the fixes).
 
 ## 1. Summary
 
 | Area | Result |
 |---|---|
-| F1 Delivery options & scheduling | **Pass**: pickup, shop's own delivery and GoKesari partner, each to completion. Also covered: slots, changes with customer notification, held / immediate rider search, rider release, lockout, support override, charges. One bug (a repeated "mark ready" answered 409) was fixed (S-1). |
-| F2 Mandatory legal documents | **Pass**: FSSAI (14-digit and expiry checks, file type), drug licence, medical registration with council. A new shop can't go live without them. Existing live shops get 15 days. Expiry reminder, block after grace, unblock on upload, review approve / reject with reason, file access. One cosmetic fix (S-3). |
-| F3 Bank accounts & ₹1 | **Pass**: ₹1 verified by UPI, credit card, debit card and net banking through Cashfree sandbox, plus a failure and a retry. Also covered: re-verification on change, daily limit, masking, encryption, shop payout account, finance view. Refund status now re-checked (S-2). The payout gate itself was not run on test (no settlement can exist yet; see 3.x). |
+| F1 Delivery options & scheduling | **Pass**: pickup, shop's own delivery and GoKesari partner, each to completion. Also covered: slots, changes with customer notification, held / immediate rider search, rider release, lockout, support override, charges. One bug (a repeated "mark ready" answered 409) was fixed (S-1) and re-checked on test (§4). |
+| F2 Mandatory legal documents | **Pass**: FSSAI (14-digit and expiry checks, file type), drug licence, medical registration with council. A new shop can't go live without them. Existing live shops get 15 days. Expiry reminder, block after grace, unblock on upload, review approve / reject with reason, file access. One cosmetic fix (S-3), re-checked on test (§4). |
+| F3 Bank accounts & ₹1 | **Pass**: ₹1 verified by UPI, credit card, debit card and net banking through Cashfree sandbox, plus a failure and a retry. Also covered: re-verification on change, daily limit, masking, encryption, shop payout account, finance view. Refund status now re-checked (S-2); on test it shows "refunded" (§4). The payout gate itself was not run on test (no settlement can exist yet; see 3.x). |
 | F4 Referral code | **Pass**: valid / invalid / missing code in the form and API, attribution. Request with location shared, unanswered and denied; email to referrals@gokesari.com; duplicate and PIN checks; operator issue / reject; issued code used to register. |
 | Regression | **Pass**: sign-in, onboarding, address, wallet top-up (Cashfree sandbox), checkout, shop accept, rider dispatch / pickup / delivery code / door photo, shop wallet charges, seller verification, registration fee, approval, cancel / refund, notifications. One existing issue on test: map "Confirm location" answers 500 (geocoding; not touched by this work). |
 
@@ -137,4 +138,30 @@ released), -8QZBEQ (blocked shop), -SPQS44 (cancel / refund).
 
 ## 4. Follow-up fixes re-checked on test
 
-(filled in after the follow-up deploy)
+PR #103 merged into staging at 22:08 UTC. Hostinger rebuilt test.gokesari.com
+by 22:13, confirmed by the served legal-documents page chunk carrying the new code.
+
+| Time | Fix | Step | Result |
+|---|---|---|---|
+| 22:13 | S-2 ₹1 refund status | Shop owner opens Bank account (phone): "Verified on 9/10/2026 by UPI · name Ramesh Joshi · ref 1461828618859418624 · ₹1 refund **refunded**". Before the fix it read "pending". Database: the attempt is REFUNDED, refunded_at 22:13:38, recorded when the page was opened. | PASS |
+| 22:18 | S-2 finance view | Admin → Bank accounts: the shop's account "refund refunded". No full account number or UPI ID on the page. Customer GET /api/admin/bank-accounts → 403. | PASS |
+| 22:13 | S-3 casing | Bakery legal page: "FSSAI licence"; no lower-case "fssai" anywhere. Stationery shop (phone): "After that date it cannot accept orders until the FSSAI licence is uploaded." | PASS |
+| 22:14 | S-3 referral error | Registration form filled, no code, Submit → "A referral code is required to register a shop…", no request sent. Typing "E2E" → the error is gone at once and the hint is back. | PASS |
+| 22:16 | S-1 repeated "mark ready" | New order DB-20261008-NMBAE9: shop picks Pickup, Fri 9 Oct 7–8 am, "Packed — mark ready" → 200 READY. The same request sent twice more (a double tap or a retry) → **200, 200** with the same plan. Before the fix: 409. | PASS |
+| 22:16 | S-3 rider-search note | NMBAE9's card (pickup, READY): "Pickup from the shop · Fri 9 Oct, 7–8 am · Change · Customer's pickup code"; rider-search note not shown (0 elements). | PASS |
+| 22:17 | S-1 repeated pickup | Customer's My Orders shows pickup code 2309. Shop enters it → 200 DELIVERED. The same completion sent twice more → **200, 200** DELIVERED. | PASS |
+| 22:18 | S-1 nothing twice | Database for NMBAE9: one `order.fulfilment_set`, one `order.ready`, one `order.delivered`; one COMMISSION (₹0.40) and no DELIVERY_CHARGE in the shop's ledger. | PASS |
+
+### Email delivery on test (S-5)
+
+Some emails reached the test mailboxes late (about 4 minutes) or not at all,
+although the in-app notification was always there. The outbox (newest 40 rows
+for the test accounts, `test-report.sql`) shows the cause. From about 20:58
+UTC the test site's mail host refused messages with `451 4.7.1 Ratelimit
+"hostinger_out_ratelimit" exceeded`, the mailbox's hourly sending cap. The run
+emailed nine test accounts about every step. The existing outbox retried each
+email with back-off, and after 4 attempts it marked a few DEAD and alerted
+support. Emails of every kind were refused, old and new alike (order
+confirmed, rider assigned, seller review, legal documents), so the new
+features are not the cause and no code was changed. The production
+prerequisite is in the README (§5 item 2).

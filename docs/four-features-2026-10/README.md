@@ -283,7 +283,10 @@ Decisions taken without asking, with the reason. Flag any you want changed.
 - **S-2. ₹1 refund status is re-checked.** Cashfree first answers a refund as
   PENDING. The status is now asked again, by our own refund id, whenever the
   account is shown to its holder or to finance, and recorded as REFUNDED (or
-  FAILED when Cashfree cancelled it).
+  FAILED when Cashfree cancelled it). Only the latest attempt of an account
+  that is shown gets re-checked. The ₹1 of an account replaced since then stays
+  PENDING in our records, even though Cashfree refunds it the same way, and
+  Cashfree's dashboard is the place to see it.
 - **S-3. Small UI fixes.** A corrected referral code no longer shows the last
   submit's error. "FSSAI licence" keeps its capitals mid-sentence. The
   rider-search note is hidden on pickup and own-delivery orders.
@@ -291,6 +294,16 @@ Decisions taken without asking, with the reason. Flag any you want changed.
   customer, the shop and support in the app straight away, with the ticket
   number. Emails go only where the event catalogue marks EMAIL (the delivery code
   itself, plan set / changed, decisions on legal documents).
+- **S-5. Some emails on test were late or never sent: the mail host's sending
+  limit.** The test site's mailbox has an hourly cap at Hostinger. During the
+  run, nine test accounts were emailed about every step, and Hostinger began
+  refusing messages: `451 4.7.1 Ratelimit "hostinger_out_ratelimit" exceeded`.
+  The existing outbox did what it is built to do. It kept every in-app
+  notification, retried each email with back-off, and after 4 attempts marked
+  some as DEAD and alerted support (`notifications.maxAttempts`). This hit
+  every kind of email, old and new alike, so no code was changed. The test
+  report lists the outbox for the test accounts (`test-report.sql`). For
+  production, see §5 item 2.
 - **T-1. How the staging run signed in.** Test accounts are plus-aliases of the
   owner's mailbox (sanjaymorankar+gk-*@gmail.com), signing in with the real
   email code. `test-e2e-accounts.sql` gave one of them ADMIN and one OPERATOR on
@@ -390,7 +403,10 @@ Nothing here touches production. When you decide to promote:
    keys production shows "payments are not set up" (no simulator there).
 2. **Email**: `AUTH_EMAIL_FROM` / `AUTH_EMAIL_SERVER` set, and the mailbox
    **referrals@gokesari.com** must exist and receive mail (check spam rules /
-   SPF/DKIM for the sending domain).
+   SPF/DKIM for the sending domain). Check the **hourly sending limit** of the
+   mailbox the site sends from (S-5). A busy day of orders sends more than the
+   test run did, so raise the limit with the host or send through a
+   transactional email service.
 3. **`PAN_ENCRYPTION_KEY`** set (already, for PANs) — bank account numbers and
    licence copies use it.
 4. **Daily cron** `POST /api/cron/seller-verification` (06:30 IST) — it now also
