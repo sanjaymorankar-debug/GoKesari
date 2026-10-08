@@ -75,6 +75,12 @@ SELECT rc.code, rc.status, rc.label, rc.expires_at, rc.created_at,
        (SELECT count(*) FROM shops s WHERE s.referral_code_id = rc.id) AS shops_attributed
   FROM referral_codes rc WHERE rc.code ILIKE 'E2E%' OR rc.code LIKE 'GKS%' OR rc.label ILIKE '%RCR-%' ORDER BY rc.created_at;
 
+\echo '== Email outbox for the E2E accounts (newest 40; addresses are the test aliases)'
+SELECT d.created_at, u.email, d.type, d.status, d.attempts, d.next_attempt_at, d.sent_at, left(d.last_error, 120) AS last_error
+  FROM notification_deliveries d JOIN users u ON u.id = d.user_id
+ WHERE u.email LIKE 'sanjaymorankar+gk-%@gmail.com' AND d.channel = 'EMAIL'
+ ORDER BY d.created_at DESC LIMIT 40;
+
 \echo '== Audit trail of the four features (newest 40)'
 SELECT a.created_at, a.action, a.entity_type, u.email AS actor
   FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_id
