@@ -43,7 +43,8 @@ Built on the `staging` branch (the test site), on top of the event layer
 | `server/services/shop-wallet.ts` **(new)** | Ledger engine (row lock → idempotency → insert; mirrors `wallet.ts`), `chargeShopWalletForDeliveredOrder`, `assertShopMayAcceptOrders`, recharge credit, admin adjustment, low-balance alert (event-driven), views. |
 | `server/services/delivery-otp.ts` **(new)** | Code generation, salted HMAC (same scheme as login OTPs, keyed on `AUTH_SECRET`), direct email to the customer (never queued/stored), customer resend with limits enforced in the UPDATE, atomic wrong-attempt counting, lockout → grievance ticket + event. |
 | `server/services/delivery-assignment.ts` | `startDelivery` stores only the hash and emails the code; `markDelivered` checks the code via `delivery-otp.ts`, spends it in the same UPDATE that marks the drop delivered (only if it is still the checked code), returns the delivered row on a repeated submit; codes cleared on fail/cancel/operator confirm; rider views strip the hash and add `deliveryCodeLocked`; operator confirmation tells the rider too. |
-| `server/services/orders.ts` | `updateOrderStatus`: CONFIRMED → ACCEPTED/PREPARING refused below the minimum balance (server-side); on DELIVERED, after the finance snapshot, the wallet is charged **in the same transaction** and the charge is passed to the order event. Cancel clears the delivery code. |
+| `server/services/orders.ts` | `updateOrderStatus`: CONFIRMED → ACCEPTED/PREPARING refused below the minimum balance (server-side); on DELIVERED, after the finance snapshot, the wallet is charged **in the same transaction** and the charge is passed to the order event. Cancel clears the delivery code. **Gap closed:** a plain status change to DELIVERED (e.g. the shop's "Mark delivered", `PATCH /api/orders/{id}/status`) is refused while a rider holds the order — before, a shop could complete a rider's order without the customer's code, leaving the rider's delivery stuck at PICKED_UP. |
+| `components/shop-order-manager.tsx` | The shop's "Mark delivered" / "Handed to customer" buttons are hidden while a rider holds the order. |
 | `server/services/finance.ts` | Snapshot records the collection mode (shop payable = goods when the wallet pays the commission); settlement and "not yet settled" withhold only commission still owed (`goods − shop payable`); delivery charge counted as platform delivery revenue; reconciliation counts shop-wallet recharges. |
 | `server/services/payments.ts` | `createShopWalletTopUpOrder`, `verifyShopWalletTopUp`; the shared verify/webhook path credits the shop wallet for a shop recharge. |
 | `server/config/rules.ts` | New rule `shopWallet`; `deliveryOtp` gains `resendCooldownSeconds`, `maxResends`. |
@@ -107,10 +108,11 @@ build so they are never confirmed without a code; operations confirm them.
 
 ## 5. Tests
 
-`tests/integration/shop-wallet-delivery-otp.test.ts` (real PostgreSQL, 19
-cases): correct code, wrong code, lockout + ticket + alerts, concurrent wrong
+`tests/integration/shop-wallet-delivery-otp.test.ts` (real PostgreSQL, 20
+cases): correct code (and a pre-0059 plain code), wrong code, lockout + ticket + alerts, concurrent wrong
 codes, resend limits and the old code dying, customer-only resend (route),
-double submit (concurrent and repeated) charged once, the database refusing a
+double submit (concurrent and repeated) charged once, the shop unable to
+complete a rider-carried order, the database refusing a
 second commission, wrong rider (service and route), no code/hash in rider
 responses, low balance blocks acceptance (402) and recharge unblocks it,
 low-balance alert once with the final balance, charging past zero, cancelled

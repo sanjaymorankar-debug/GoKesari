@@ -36,6 +36,7 @@ vi.mock("@/server/auth", () => ({
 
 import { POST as deliveryCodeRoute } from "@/app/api/orders/[id]/delivery-code/route";
 import { PATCH as deliveryOrderRoute } from "@/app/api/delivery-orders/[id]/route";
+import { PATCH as orderStatusRoute } from "@/app/api/orders/[id]/status/route";
 import { POST as shopTopupRoute } from "@/app/api/shops/[id]/wallet/topup/route";
 import { GET as shopWalletRoute } from "@/app/api/shops/[id]/wallet/route";
 import { resetRateLimits } from "@/server/api/rate-limit";
@@ -67,7 +68,7 @@ import { requestNewDeliveryCode } from "@/server/services/delivery-otp";
 import { getShopPendingPayable, setCommissionRate } from "@/server/services/finance";
 import { acceptOrder } from "@/server/services/fulfilment";
 import { NOTIFICATION_TYPES } from "@/server/services/notifications";
-import { cancelOrder, checkout } from "@/server/services/orders";
+import { cancelOrder, checkout, updateOrderStatus } from "@/server/services/orders";
 import { createShopWalletTopUpOrder, settleMockTopUp, signForMock } from "@/server/services/payments";
 import { clearRuleCache, setRule } from "@/server/services/settings";
 import { adjustShopWallet, getShopWalletView } from "@/server/services/shop-wallet";
@@ -457,6 +458,25 @@ describe("wrong delivery partner", () => {
     expect(row.status).toBe("PICKED_UP");
     expect(row.deliveryOtpAttempts).toBe(0);
     expect((await markDelivered(d.deliveryId, d.rider, code)).status).toBe("DELIVERED");
+  });
+
+  it("nobody else completes a rider-carried order without the code — not the shop, not a plain status change", async () => {
+    await enableWallet();
+    const d = await startedDrop({ fundPaise: 50_000 });
+    await expect(updateOrderStatus(d.order.id, "DELIVERED", d.ownerActor)).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: expect.stringContaining("delivery code"),
+    });
+    signIn(d.owner, "SHOP_OWNER");
+    const viaRoute = await call(orderStatusRoute, `/api/orders/${d.order.id}/status`, {
+      method: "PATCH",
+      params: { id: d.order.id },
+      body: { status: "DELIVERED" },
+    });
+    expect(viaRoute.status).toBe(409);
+    const [order] = await db.select().from(orders).where(eq(orders.id, d.order.id));
+    expect(order.status).toBe("OUT_FOR_DELIVERY");
+    expect((await ledger(d.shop.id)).filter((e) => e.orderId)).toHaveLength(0);
   });
 
   it("the rider's API never returns the code or its hash", async () => {

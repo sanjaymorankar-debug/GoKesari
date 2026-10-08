@@ -104,6 +104,7 @@ commission ₹10.50 + delivery charge ₹20 = **₹30.50** per rider-delivered o
 | 6.1 | Second rider (signed in) sends `PATCH /api/delivery-orders/<delivery id>` `{ "action": "deliver", "otp": "<right code>" }` | `403` "This delivery assignment does not belong to you."; attempts unchanged; order not delivered | |
 | 6.2 | The customer sends the same request | `403` (no rider permission) | |
 | 6.3 | The assigned rider's API responses / dashboard | Never contain the code or its hash (`needsDeliveryOtp: true` only) | |
+| 6.4 | While the rider holds the order, the shop looks for "Mark delivered" on Orders, or sends `PATCH /api/orders/<id>/status` `{ "status": "DELIVERED" }` | No button; the API answers `409` "A rider is delivering this order…"; nothing charged | |
 
 ## 7. Low wallet balance
 

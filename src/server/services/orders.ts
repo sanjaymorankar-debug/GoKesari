@@ -754,6 +754,21 @@ export async function updateOrderStatus(
     }
     // Suspended shops cannot take new orders or move orders under review.
     await assertShopMayProgress(tx, order, newStatus, actor);
+    // OTP-confirmed delivery: while a rider holds the order, only the rider's
+    // own flow (the customer's delivery code) or operations' confirmation
+    // (markDelivered / confirmDeliveryByOperator, which mark the delivery
+    // DELIVERED first) can complete it — not a plain status change.
+    if (newStatus === "DELIVERED") {
+      const [riderHolding] = await tx
+        .select({ id: deliveryOrders.id })
+        .from(deliveryOrders)
+        .where(and(eq(deliveryOrders.orderId, orderId), inArray(deliveryOrders.status, ["ACCEPTED", "PICKED_UP"])));
+      if (riderHolding) {
+        throw conflict(
+          "A rider is delivering this order. It is completed when the customer gives the rider their delivery code, or by operations.",
+        );
+      }
+    }
     // Shop wallet: a shop below its minimum balance cannot take on a new order
     // (CONFIRMED → ACCEPTED, or straight to PREPARING) until it recharges.
     if (order.status === "CONFIRMED" && (newStatus === "ACCEPTED" || newStatus === "PREPARING")) {
