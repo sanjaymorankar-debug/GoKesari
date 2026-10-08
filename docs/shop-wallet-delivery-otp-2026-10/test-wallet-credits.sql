@@ -37,7 +37,8 @@ BEGIN
     SELECT * FROM (VALUES
       -- key (never reuse)                    shop name, then fallbacks                          amount (paise)   reason
       ('test-credit-2026-10-08-asmy-exports',     ARRAY['Asmy Exports'],     100000::bigint, 'Test credit (₹1,000) so the shop can accept orders on test'),
-      ('test-credit-2026-10-08-qa-test-bakery-a', ARRAY['QA Test Bakery A'],  50000::bigint, 'Test credit (₹500) so the shop can accept orders on test')
+      ('test-credit-2026-10-08-qa-test-bakery-a', ARRAY['QA Test Bakery A'],  50000::bigint, 'Test credit (₹500) so the shop can accept orders on test'),
+      ('test-credit-2026-10-08-qa-test-bakery-b', ARRAY['QA Test Bakery B'],  50000::bigint, 'Test credit (₹500) so the shop can accept orders on test')
     ) AS t(key, patterns, amount_paise, reason)
   LOOP
     IF EXISTS (SELECT 1 FROM shop_wallet_transactions WHERE idempotency_key = c.key) THEN
