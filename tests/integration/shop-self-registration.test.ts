@@ -175,6 +175,14 @@ describe("referral code is checked before anything else", () => {
     expect(await db.select().from(shopRegistrations)).toHaveLength(1);
   });
 
+  it("the usage limit also holds for a code typed on the manual registration form", async () => {
+    const { resolveUsableCode } = await import("@/server/services/referrals");
+    await code("MANUAL1", { maxUses: 1 });
+    await expect(resolveUsableCode("MANUAL1")).resolves.toMatchObject({ code: "MANUAL1" });
+    await register({ referral: "MANUAL1" }); // holds the only place
+    await expect(resolveUsableCode("manual1")).rejects.toThrow(/maximum number of times/);
+  });
+
   it("needs the right OTP and an offered fee plan", async () => {
     await code("PUNE2026");
     const mobile = uniqueMobile();

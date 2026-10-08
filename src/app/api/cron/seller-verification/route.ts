@@ -14,13 +14,16 @@ import { ok, route } from "@/server/api/handler";
 import { assertCronAuthorized } from "@/server/api/cron-auth";
 import { RATE_LIMITS, clientKey, enforceRateLimit } from "@/server/api/rate-limit";
 import { runSellerVerificationSweep } from "@/server/services/seller-verification-jobs";
+import { runLegalDocumentSweep } from "@/server/services/legal-documents";
 
 export const POST = route(async (request: NextRequest) => {
   enforceRateLimit(clientKey(request, "cron"), RATE_LIMITS.CRON);
   assertCronAuthorized(request);
   const result = await runSellerVerificationSweep();
-  console.info("[cron:seller-verification]", JSON.stringify(result));
-  return ok(result);
+  // Mandatory legal documents (docs/four-features-2026-10): grace periods and expiry reminders.
+  const legalDocuments = await runLegalDocumentSweep().catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
+  console.info("[cron:seller-verification]", JSON.stringify({ ...result, legalDocuments }));
+  return ok({ ...result, legalDocuments });
 });
 
 /** Health probe so a scheduler can verify wiring without running the sweep. */

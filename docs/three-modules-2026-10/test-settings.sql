@@ -2,7 +2,7 @@
 -- values for the TEST site (test.gokesari.com) ONLY. Do not run against production.
 --
 -- Applied by the "Test database" workflow whenever this file changes on staging
--- (after a backup and the migrations — it needs 0064), or by hand: Actions →
+-- (after a backup and the migrations — it needs 0068), or by hand: Actions →
 -- Test database → Run workflow → three-modules-settings
 -- (docs/event-driven-2026-10/DB_AUTOMATION.md). Editing it here is how to change
 -- the test values on purpose. It can also be run directly:

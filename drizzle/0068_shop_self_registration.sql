@@ -1,4 +1,4 @@
--- 0064 Shop self-registration with auto-approval (docs/three-modules-2026-10, Module 3).
+-- 0068 Shop self-registration with auto-approval (docs/three-modules-2026-10, Module 3).
 --   registration_fee_tiers   Basic … Industry; amounts set by an admin; seeded INACTIVE.
 --   distributor_types / distributors   commission default per type, override per distributor.
 --   referral_codes +distributor_id +max_uses.
@@ -8,7 +8,7 @@
 --   outbound_test_messages   SMS/WhatsApp from the MOCK provider (test site only).
 --   shops +onboarding_channel +shop_registration_id +registration_tier_id +auto_approved_at +profile_completed_at.
 --   users +email_placeholder.   shop_payment_method +CASHFREE.
--- Additive. Rollback: scripts/rollback-0064.sql
+-- Additive. Rollback: scripts/rollback-0068.sql
 ALTER TYPE "public"."shop_payment_method" ADD VALUE IF NOT EXISTS 'CASHFREE';--> statement-breakpoint
 CREATE TABLE "distributor_types" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,

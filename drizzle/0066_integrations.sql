@@ -1,4 +1,4 @@
--- 0062 Accounting / inventory integration (docs/three-modules-2026-10, Module 2).
+-- 0066 Accounting / inventory integration (docs/three-modules-2026-10, Module 2).
 --   shop_integrations              one live connection per shop (Tally, Odoo,
 --                                  Zoho Books, myBillBook, Vyapar, generic file);
 --                                  secrets AES-256-GCM encrypted.
@@ -10,7 +10,7 @@
 --   integration_imports / integration_column_mappings   file adapters.
 --   shop_products.hsn_code / gst_rate_bp / cess_bp / external_synced_at
 --                                  the shop's own tax classification from its software.
--- Additive. Rollback: scripts/rollback-0062.sql
+-- Additive. Rollback: scripts/rollback-0066.sql
 CREATE TABLE "integration_column_mappings" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"shop_id" uuid NOT NULL,

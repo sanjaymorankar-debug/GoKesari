@@ -192,19 +192,19 @@ XML, so the connector rarely needs an update.
 
 ## Database
 
-- **0062_integrations**: `shop_integrations` (one live per shop),
+- **0066_integrations**: `shop_integrations` (one live per shop),
   `integration_connector_tokens`, `integration_item_links`,
   `integration_jobs`, `integration_sync_log`, `integration_imports`,
   `integration_column_mappings`; `shop_products` + `hsn_code`, `gst_rate_bp`,
   `cess_bp`, `external_synced_at`.
-- **0063_gst_compliance**: `gst_rules` (seeded), `hsn_tax_rates` (empty),
+- **0067_gst_compliance**: `gst_rules` (seeded), `hsn_tax_rates` (empty),
   `credit_notes`, `credit_note_counters`, `einvoice_records`, `eway_bills`,
   `gstin_lookups`, `gst_return_exports`; `shops` + `einvoice_applicable`,
   `declared_turnover_band`, `turnover_declared_at/by`; invoice-number unique
   index becomes per shop.
-- Both additive. Rollback: `scripts/rollback-0063.sql` (refuses while credit
+- Both additive. Rollback: `scripts/rollback-0067.sql` (refuses while credit
   notes, IRNs or e-way bills exist — tax documents), then
-  `scripts/rollback-0062.sql`; delete the rows from
+  `scripts/rollback-0066.sql`; delete the rows from
   `drizzle.__drizzle_migrations`.
 
 ## Configuration
@@ -244,7 +244,7 @@ New permissions: `integration:manage:own` (shop owners),
   permissions; GST rule dating.
 - `tests/unit/tally-connector.test.ts` (2): the connector program against a
   fake GoKesari and Tally.
-- `migrate-on-build.test.ts` now rolls back and re-applies 0056–0063.
+- `migrate-on-build.test.ts` now rolls back and re-applies 0056 onwards (0066 and 0067 included).
 
 ## Deployment — test.gokesari.com
 
@@ -256,7 +256,7 @@ New permissions: `integration:manage:own` (shop owners),
    redirect URI `https://test.gokesari.com/api/integrations/zoho/callback`;
    set `ZOHO_CLIENT_ID`, `ZOHO_CLIENT_SECRET`.
 3. Merge into `staging`. The "Test database" workflow backs up and applies
-   0062 and 0063; check it is green.
+   0066 and 0067; check it is green.
 4. Add the cron line next to the others:
    `* * * * * curl -fsS -X POST https://test.gokesari.com/api/cron/integration-sync -H "Authorization: Bearer $CRON_SECRET"`
    and check `GET` on the same URL answers `{"status":"ready"}`.
@@ -294,14 +294,14 @@ GSTIN validation (production refuses the mock GSP; GSTIN checks show
 1. A **different** `INTEGRATION_ENCRYPTION_KEY` for production; back it up.
 2. Zoho: a production redirect URI on the same Zoho client (or a separate
    client) — `https://gokesari.com/api/integrations/zoho/callback`.
-3. Back up the database; apply 0062 and 0063 (`npm run db:migrate` or the
+3. Back up the database; apply 0066 and 0067 (`npm run db:migrate` or the
    production database workflow) **before** deploying the code (additive;
    the current build runs on the migrated database).
 4. Deploy; add the cron line for `https://gokesari.com/api/cron/integration-sync`.
 5. Code-sign the connector `.exe` (P6) before giving it to shops.
 6. Decide with the CA before switching `documentNumbering` to GST16 (start
    of a financial year) and before switching on `einvoice` / `ewayBill`.
-7. Rollback: previous build; then the rollback scripts as above (0063 will
+7. Rollback: previous build; then the rollback scripts as above (0067 will
    refuse while credit notes exist — keep the tables in that case).
 
 ## Open questions and pending actions

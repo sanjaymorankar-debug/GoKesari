@@ -1,6 +1,6 @@
 /**
  * Copies product photos kept on disk (MEDIA_DIR, storage = 'DISK') into the
- * database (storage = 'DB'), for rolling back migration 0061 or leaving disk
+ * database (storage = 'DB'), for rolling back migration 0065 or leaving disk
  * storage. DRY RUN unless --apply. Files are not deleted; remove the folder
  * yourself once the app no longer needs it.
  *

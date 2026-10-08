@@ -799,13 +799,69 @@ probe that generates nothing.
 ### `POST /api/cron/seller-verification`
 Daily seller verification sweep: retries, GSTIN re-check, expiry warnings,
 expiry, suspension when a mandatory document lapses. Bearer `CRON_SECRET`.
-Returns `{ pendingRetried, gstRechecked, expiryWarnings, expired, shopsSuspended, errors }`.
+Returns `{ pendingRetried, gstRechecked, expiryWarnings, expired, shopsSuspended, errors }`,
+plus `legalDocuments: { shopsChecked, requirementsStarted, remindersSent }` (the legal-document sweep, below).
 
 ### `POST /api/cron/shop-acceptance`
 NEW-007, every minute. Reminds shops about orders waiting for acceptance and
 cancels, with a full refund, orders not accepted by their accept-by time.
 Bearer `CRON_SECRET`. Returns `{ reminded, cancelled, skipped }`. Does nothing
 while rule `shopAcceptance` is off.
+
+## Four features (October 2026)
+
+Fulfilment options, legal documents, bank accounts and referral codes
+(docs/four-features-2026-10). Each is gated by its business rule, off by
+default: `fulfilmentOptions`, `legalDocuments`, `bankAccounts`, `shopReferral`.
+
+### Fulfilment options
+| Route | Who | Body / answer |
+|---|---|---|
+| `GET /api/orders/{id}/fulfilment-plan` | shop owner, operations | The plan and the slots that can be chosen now |
+| `POST /api/orders/{id}/fulfilment-plan` | shop owner, operations | `{ option: PICKUP \| SHOP_DELIVERY \| GOKESARI_PARTNER, slotKey, staffId?, markReady? }`. Sets or changes the plan of an ACCEPTED, PREPARING, READY or ASSIGNED order. `markReady` marks a PREPARING order ready in the same step |
+| `POST /api/orders/{id}/fulfilment-plan/handover` | shop owner (operations for `confirm`) | `{ action: pickup, code, cashCollected? }` · `{ action: out_for_delivery }` · `{ action: deliver, code, cashCollected? }` · `{ action: confirm, note }` |
+| `POST /api/orders/{id}/fulfilment-plan/code` | the order's customer | A new delivery code for an own-delivery order (limits from rule `deliveryOtp`) |
+| `GET/POST /api/shops/{id}/delivery-staff` | shop owner | List, or `{ name, mobile }` to add |
+| `PATCH /api/shops/{id}/delivery-staff/{staffId}` | shop owner | `{ name?, mobile?, isActive? }` |
+| `GET/POST /api/delivery-link/{token}` | anyone holding the link | `{ action: start }` · `{ action: complete, code, cashCollected? }`. Any other link answers `404` |
+
+With `fulfilmentOptions` on, `POST /api/orders/{id}/fulfilment {"action":"ready"}`
+without a plan answers `409` with `details.needsFulfilmentChoice`.
+
+### Legal documents
+| Route | Who | Body / answer |
+|---|---|---|
+| `GET /api/shops/{id}/legal-documents` | owner, reviewer | What the shop must hold, each state and deadline |
+| `POST /api/shops/{id}/legal-documents` | owner | multipart: `docType` (FSSAI \| DRUG_LICENCE \| MEDICAL_REGISTRATION), `number`, `expiryDate` or `issuingCouncil`, `file` (PDF / JPEG / PNG / WebP, up to 5 MB) |
+| `GET /api/legal-documents/files/{fileId}` | owner, reviewer (audited) | The copy. Anyone else gets `404` |
+| `GET /api/admin/legal-documents?filter=` | `SHOP_GST_PAN_VERIFY` | `to_review` · `rejected` · `approved` · `missing` · `expiring` · `all` |
+| `POST /api/admin/legal-documents/{id}/decision` | `SHOP_GST_PAN_VERIFY` | `{ decision: approve \| reject, reason? }` (a rejection needs a reason) |
+| `POST /api/admin/legal-documents/sweep` | `SHOP_GST_PAN_VERIFY` | Starts grace periods and sends due expiry reminders now |
+
+### Bank accounts and ₹1 verification
+| Route | Who | Body / answer |
+|---|---|---|
+| `GET/PUT /api/bank-account` | signed-in customer | `{ method: BANK_ACCOUNT \| UPI, accountHolderName, accountNumber?, confirmAccountNumber?, ifsc?, upiId? }`. Answers are masked, with `gateway: CASHFREE \| SIMULATOR \| UNAVAILABLE` |
+| `GET/PUT /api/shops/{id}/bank-account` | owner (PUT), owner or finance (GET) | Same body, for the shop's payout account |
+| `POST /api/bank-account/verification` | account holder | `{ accountId }` → the ₹1 gateway order (Cashfree session, or the test simulator) |
+| `POST /api/bank-account/verification/confirm` | account holder | `{ gatewayOrderId }`. The server asks Cashfree, then records verified / failed and refunds the ₹1 |
+| `POST /api/bank-account/verification/simulate` | account holder | Test simulator only (no gateway keys; never on gokesari.com) |
+| `GET /api/admin/bank-accounts` | `FINANCE_VIEW` | All accounts, masked (`status`, `holderType` filters) |
+
+`PATCH /api/finance/settlements/{id}` with `process` or `pay` answers `409` when
+the shop has no verified bank account (rule `bankAccounts.requireVerifiedForShopPayouts`).
+
+### Referral codes
+| Route | Who | Body / answer |
+|---|---|---|
+| `POST /api/referral-requests` | anyone (5 per 10 min per IP) | `{ name, mobile, shopType, area, city, pincode, latitude?, longitude?, accuracyM? }` → `{ reference, mobileMasked, locationShared }`. A second request from the same mobile within 24 h answers `429` with the first reference |
+| `GET /api/referral-codes/check?code=` | signed in | `{ valid, message }` |
+| `GET /api/admin/referral-requests?status=` | `REFERRAL_MANAGE` | `NEW` · `CODE_ISSUED` · `REJECTED` |
+| `POST /api/admin/referral-requests/{id}` | `REFERRAL_MANAGE` | `{ action: issue, code? }` · `{ action: reject, reason }` · `{ action: resend_email }` |
+
+`POST /api/shops` (self-service registration) needs `referralCode` when
+`shopReferral.required` is on: an empty or invalid code answers `400` with
+`details.fields.referralCode`.
 
 ## Rate limits
 

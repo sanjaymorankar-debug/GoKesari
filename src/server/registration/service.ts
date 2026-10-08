@@ -56,6 +56,7 @@ import { uniqueSlug } from "@/server/services/catalogue";
 import { recordConsent } from "@/server/services/consents";
 import { grantRole } from "@/server/services/roles";
 import { getRule } from "@/server/services/settings";
+import { referralCodeUses } from "@/server/services/referrals";
 import { nextReference } from "@/server/services/shop-payments";
 import { getOrCreateShopWallet } from "@/server/services/shop-wallet";
 import { verifyRegistrationOtp } from "./otp";
@@ -96,15 +97,6 @@ export async function activeTiers(client: DbClient = db): Promise<TierView[]> {
 }
 
 /** Shops registered with the code plus unpaid registrations still holding a slot. */
-async function codeUsage(codeId: string, client: DbClient): Promise<number> {
-  const [{ redeemed }] = await client.select({ redeemed: count() }).from(referralRedemptions).where(eq(referralRedemptions.referralCodeId, codeId));
-  const [{ held }] = await client
-    .select({ held: count() })
-    .from(shopRegistrations)
-    .where(and(eq(shopRegistrations.referralCodeId, codeId), eq(shopRegistrations.status, "PENDING_PAYMENT"), gt(shopRegistrations.holdExpiresAt, new Date())));
-  return Number(redeemed) + Number(held);
-}
-
 export type ReferralProblem = "NOT_FOUND" | "INACTIVE" | "EXPIRED" | "LIMIT_REACHED";
 
 const REFERRAL_MESSAGES: Record<ReferralProblem, string> = {
@@ -120,7 +112,7 @@ async function referralProblem(code: ReferralCode | undefined, client: DbClient,
   if (code.status !== "ACTIVE") return code.status === "EXPIRED" ? "EXPIRED" : "INACTIVE";
   if (code.expiresAt && code.expiresAt < today()) return "EXPIRED";
   if (code.maxUses != null) {
-    let used = await codeUsage(code.id, client);
+    let used = await referralCodeUses(code.id, client);
     if (ignoreRegistrationId) {
       const [own] = await client
         .select({ id: shopRegistrations.id })

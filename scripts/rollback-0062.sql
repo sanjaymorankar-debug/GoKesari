@@ -1,18 +1,9 @@
--- Reverses drizzle/0062_integrations.sql (Module 2: accounting integration).
--- Deploy the previous build first. Back up first: this drops every shop's
--- connection, item mapping, sync log and the sync queue. The shops' own
--- HSN/rate overrides on shop_products are dropped too.
--- Afterwards delete the 0062 row from drizzle.__drizzle_migrations.
-BEGIN;
-DROP TABLE IF EXISTS integration_column_mappings;
-DROP TABLE IF EXISTS integration_imports;
-DROP TABLE IF EXISTS integration_sync_log;
-DROP TABLE IF EXISTS integration_jobs;
-DROP TABLE IF EXISTS integration_item_links;
-DROP TABLE IF EXISTS integration_connector_tokens;
-DROP TABLE IF EXISTS shop_integrations;
-ALTER TABLE shop_products DROP COLUMN IF EXISTS external_synced_at;
-ALTER TABLE shop_products DROP COLUMN IF EXISTS cess_bp;
-ALTER TABLE shop_products DROP COLUMN IF EXISTS gst_rate_bp;
-ALTER TABLE shop_products DROP COLUMN IF EXISTS hsn_code;
-COMMIT;
+-- Rollback for 0062_legal_documents (docs/four-features-2026-10, feature 2).
+-- Run only after the previous code is live, then delete the 0062 row from
+-- drizzle.__drizzle_migrations. Uploaded licences are lost — back up first.
+-- The "Doctor / Clinic" shop category is removed only while no shop uses it.
+DROP TABLE IF EXISTS "shop_legal_document_files";
+DROP TABLE IF EXISTS "shop_legal_documents";
+DELETE FROM "shop_categories" c
+ WHERE c."slug" = 'doctor-clinic'
+   AND NOT EXISTS (SELECT 1 FROM "shop_category_mapping" m WHERE m."category_id" = c."id");

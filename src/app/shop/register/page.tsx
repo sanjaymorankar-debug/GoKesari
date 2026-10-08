@@ -18,6 +18,8 @@ export default async function RegisterShopPage() {
   const ownShops = await listShopsForOwner(user.id);
   const pending = ownShops.filter((s) => s.status === "PENDING_APPROVAL");
   const rejected = ownShops.find((s) => s.status === "REJECTED");
+  // docs/four-features-2026-10, feature 4: the referral code is mandatory while this rule is on.
+  const referralRule = await getRule("shopReferral");
   // Module 3: with a referral code a shop can register and pay online, approved on payment.
   const selfService = (await getRule("selfRegistration")).enabled;
 
@@ -60,7 +62,7 @@ export default async function RegisterShopPage() {
           chosen here.
         </Alert>
       </div>
-      <ShopRegisterForm />
+      <ShopRegisterForm referralRequired={referralRule.required} />
     </div>
   );
 }

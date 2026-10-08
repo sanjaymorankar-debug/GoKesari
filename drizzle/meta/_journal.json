@@ -432,29 +432,57 @@
     {
       "idx": 61,
       "version": "7",
-      "when": 1791482431082,
-      "tag": "0061_shop_product_media",
+      "when": 1791481189640,
+      "tag": "0061_fulfilment_options",
       "breakpoints": true
     },
     {
       "idx": 62,
       "version": "7",
-      "when": 1791482432082,
-      "tag": "0062_integrations",
+      "when": 1791482233194,
+      "tag": "0062_legal_documents",
       "breakpoints": true
     },
     {
       "idx": 63,
       "version": "7",
-      "when": 1791482433082,
-      "tag": "0063_gst_compliance",
+      "when": 1791483316213,
+      "tag": "0063_bank_accounts",
       "breakpoints": true
     },
     {
       "idx": 64,
       "version": "7",
-      "when": 1791482959637,
-      "tag": "0064_shop_self_registration",
+      "when": 1791483795086,
+      "tag": "0064_referral_code_requests",
+      "breakpoints": true
+    },
+    {
+      "idx": 65,
+      "version": "7",
+      "when": 1791483796086,
+      "tag": "0065_shop_product_media",
+      "breakpoints": true
+    },
+    {
+      "idx": 66,
+      "version": "7",
+      "when": 1791483797086,
+      "tag": "0066_integrations",
+      "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1791483798086,
+      "tag": "0067_gst_compliance",
+      "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1791483799086,
+      "tag": "0068_shop_self_registration",
       "breakpoints": true
     }
   ]

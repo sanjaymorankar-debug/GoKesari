@@ -1,7 +1,7 @@
 # Module 1 — shop product photos and descriptions
 
 **Site:** test.gokesari.com (`staging`). Production is not touched.
-**Migration:** `0061_shop_product_media` (additive) · rollback `scripts/rollback-0061.sql`
+**Migration:** `0065_shop_product_media` (additive) · rollback `scripts/rollback-0065.sql`
 **Plan:** [PLAN.md](PLAN.md) §2
 
 ## What a shop owner (or their staff) can do
@@ -77,7 +77,7 @@ changed: staff access exists only on these routes.
 
 Rate limits: 60 photo uploads / 10 min, 10 bulk uploads / hour, 20 staff additions / hour per user.
 
-## Database (0061)
+## Database (0065)
 
 `shop_products` + `short_description`, `long_description`, `content_updated_at`, `content_updated_by` ·
 `stored_images` + `storage` (`DB`/`DISK`), `storage_key`, `data` nullable (CHECK: one of them) ·
@@ -110,7 +110,7 @@ Notifications: `shop.staff_added`, `shop.staff_removed`, `shop.media_import_fini
 
 1. **Hostinger media folder.** In hPanel → File Manager (or SSH) create a folder in the account's home, **outside** `public_html` and outside the app's deploy directory, e.g. `/home/<user>/gokesari-media-test`. Note its absolute path.
 2. hPanel → the test site's Node.js app → Environment variables: add `MEDIA_DIR=/home/<user>/gokesari-media-test`. (Leave it unset to keep photos in the database.)
-3. Merge the PR into `staging`. The "Test database" workflow backs up and applies 0061 (it watches `drizzle/**`); check its run is green and the newest migration matches the journal.
+3. Merge the PR into `staging`. The "Test database" workflow backs up and applies 0065 (it watches `drizzle/**`); check its run is green and the newest migration matches the journal.
 4. Hostinger rebuilds: `npm ci` installs `sharp` (a prebuilt binary for Linux x64). If the build log shows a sharp install error, stop and tell me.
 5. Smoke test on a phone:
    - `/shop/catalogue` → a product → **Photos & description** → **Take photo** → photo appears as *Main photo*.
@@ -128,9 +128,9 @@ Do not start until test step 6 has passed.
 
 1. Create the production media folder (separate from test), e.g. `/home/<user>/gokesari-media`, outside `public_html` and the deploy directory; include it in backups.
 2. Set `MEDIA_DIR` on the production app.
-3. Back up the database. **Apply 0061 before deploying the code** (`npm run db:migrate`, or the production database workflow), then deploy. 0061 is additive: the current production build keeps working on a migrated database.
+3. Back up the database. **Apply 0065 before deploying the code** (`npm run db:migrate`, or the production database workflow), then deploy. 0065 is additive: the current production build keeps working on a migrated database.
 4. Smoke test as in test step 5 with a real shop that has agreed to help.
-5. Rollback: deploy the previous build; if photos were stored on disk, run `DATABASE_URL=… MEDIA_DIR=… npx tsx scripts/media-to-db.ts --apply` (copies them into the database), then `scripts/rollback-0061.sql`, then delete the 0061 row from `drizzle.__drizzle_migrations`.
+5. Rollback: deploy the previous build; if photos were stored on disk, run `DATABASE_URL=… MEDIA_DIR=… npx tsx scripts/media-to-db.ts --apply` (copies them into the database), then `scripts/rollback-0065.sql`, then delete the 0065 row from `drizzle.__drizzle_migrations`.
 
 ## Assumptions
 

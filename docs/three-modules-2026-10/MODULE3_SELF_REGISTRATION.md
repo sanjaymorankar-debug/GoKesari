@@ -155,7 +155,7 @@ Permissions are the existing ones:
 
 See [API.md → Shop self-registration (Module 3)](../../API.md#shop-self-registration-module-3).
 
-## Database: migration `0064_shop_self_registration` (additive)
+## Database: migration `0068_shop_self_registration` (additive)
 
 | Table / change | Purpose |
 |---|---|
@@ -170,7 +170,7 @@ See [API.md → Shop self-registration (Module 3)](../../API.md#shop-self-regist
 | `users` + `email_placeholder` | |
 | `shop_payment_method` + `CASHFREE`; `login_otps.purpose` + `SHOP_REGISTRATION` | |
 
-Rollback: `scripts/rollback-0064.sql`. It refuses while any registration
+Rollback: `scripts/rollback-0068.sql`. It refuses while any registration
 payment succeeded, because those are money records. Shops created by
 self-registration stay, as ordinary approved shops.
 
@@ -221,7 +221,7 @@ PostgreSQL):
 - **Admin rules**: an offered plan needs an amount, commission moves forward
   only, and the switch closes registration.
 
-`tests/integration/migrate-on-build.test.ts` covers 0056 → 0064 and the
+`tests/integration/migrate-on-build.test.ts` covers 0056 → 0068 and the
 rollback.
 
 Checked by hand in a phone-sized browser (mock payment and SMS):
@@ -240,7 +240,7 @@ Checked by hand in a phone-sized browser (mock payment and SMS):
    `https://test.gokesari.com/api/webhooks/cashfree` is registered, as for
    wallet top-ups. Registration orders also carry it as `notify_url`.
 3. Merge into `staging`. The "Test database" workflow backs up, applies
-   **0064**, then applies `test-settings.sql` (self-registration on, test fee
+   **0068**, then applies `test-settings.sql` (self-registration on, test fee
    amounts, invoicing on). Check the run is green and its summary shows the
    five plans active.
 4. Admin → **Self-registration**:
@@ -279,7 +279,7 @@ Do not start before all of these:
 
 Then:
 
-1. Back up the database. Apply **0064** before the code (additive; the
+1. Back up the database. Apply **0068** before the code (additive; the
    current build runs on a migrated database).
 2. Deploy. Set the real `SMS_PROVIDER` / `WHATSAPP_PROVIDER` and check
    Cashfree is **production**, with the webhook registered for
@@ -290,7 +290,7 @@ Then:
    small test plan, then refund it from the Cashfree dashboard and suspend
    the shop.
 5. Rollback: switch the rule off (stops new registrations at once). If
-   needed, deploy the previous build, then `scripts/rollback-0064.sql`. It
+   needed, deploy the previous build, then `scripts/rollback-0068.sql`. It
    refuses once real payments exist; keep the tables then.
 
 ## Open questions and pending actions
@@ -321,6 +321,11 @@ are implemented on assumptions.
   by an admin.
 - A self-registered shop gets the rule's classification (Green). Operators
   can change it as for any shop.
+- /shop/join always needs a referral code. The `shopReferral.required` rule
+  from PR #102 only decides whether the manual form (/shop/register) needs
+  one. A code's usage limit (`max_uses`) counts shops from both forms plus
+  unpaid self-registrations still holding a place, and both forms refuse a
+  code that has reached it.
 
 ## Changes from the plan
 

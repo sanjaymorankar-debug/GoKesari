@@ -174,6 +174,29 @@ export const NOTIFICATION_TYPES = {
   ORDER_DELIVERY_CODE_LOCKED: "order.delivery_code_locked",
   SHOP_DELIVERY_CODE_LOCKED: "shop.delivery_code_locked",
   SUPPORT_DELIVERY_CODE_LOCKED: "support.delivery_code_locked",
+  /* ------------------------------------------------- docs/four-features-2026-10 */
+  /** To the customer: the shop chose pickup / own delivery / GoKesari partner and a time. */
+  ORDER_FULFILMENT_SET: "order.fulfilment_set",
+  /** To the customer: the option, the delivery person or the time changed. */
+  ORDER_FULFILMENT_CHANGED: "order.fulfilment_changed",
+  /** To the shop: support changed how one of its orders is fulfilled. */
+  SHOP_FULFILMENT_CHANGED: "shop.fulfilment_changed",
+  /** To the customer and the shop: too many wrong pickup / delivery codes. */
+  ORDER_FULFILMENT_CODE_LOCKED: "order.fulfilment_code_locked",
+  SHOP_FULFILMENT_CODE_LOCKED: "shop.fulfilment_code_locked",
+  SUPPORT_FULFILMENT_CODE_LOCKED: "support.fulfilment_code_locked",
+  /** To the shop owner: a licence is required (grace period started) / decided / expiring. */
+  SHOP_LEGAL_DOCUMENT_REQUIRED: "shop.legal_document_required",
+  SHOP_LEGAL_DOCUMENT_DECIDED: "shop.legal_document_decided",
+  SHOP_LEGAL_DOCUMENT_EXPIRING: "shop.legal_document_expiring",
+  SUPPORT_LEGAL_DOCUMENT_SUBMITTED: "support.legal_document_submitted",
+  /** To the account holder: the ₹1 verification of a bank account succeeded / failed. */
+  BANK_ACCOUNT_VERIFIED: "wallet.bank_account_verified",
+  BANK_ACCOUNT_VERIFICATION_FAILED: "wallet.bank_account_verification_failed",
+  /** To support: someone asked for a shop referral code. */
+  SUPPORT_REFERRAL_REQUEST: "support.referral_request",
+  /** To the requester (when signed in): a referral code was issued, or the request declined. */
+  SHOP_REFERRAL_REQUEST_DECIDED: "shop.referral_request_decided",
 } as const;
 
 export type NotificationType =

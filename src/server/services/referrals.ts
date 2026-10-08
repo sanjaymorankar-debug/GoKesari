@@ -6,13 +6,14 @@
  * so a shop can never be double-attributed — the database refuses it rather than
  * relying on a service-layer check.
  */
-import { and, desc, eq, ilike, isNull, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, ilike, isNull, sql } from "drizzle-orm";
 
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { db, type DbClient } from "@/server/db";
 import {
   referralCodes,
   referralRedemptions,
+  shopRegistrations,
   shops,
   type ReferralCode,
   type ReferralStatus,
@@ -125,6 +126,20 @@ export async function updateReferralCode(
  * expired codes rather than silently ignoring them, so a mistyped code is
  * visible to the operator instead of quietly losing the attribution.
  */
+/**
+ * How many times a code is used: shops attributed to it, plus unpaid
+ * self-registrations still holding a place on it (Module 3). Compared with
+ * the code's usage limit (max_uses) on every path that takes a code.
+ */
+export async function referralCodeUses(codeId: string, client: DbClient = db): Promise<number> {
+  const [{ redeemed }] = await client.select({ redeemed: count() }).from(referralRedemptions).where(eq(referralRedemptions.referralCodeId, codeId));
+  const [{ held }] = await client
+    .select({ held: count() })
+    .from(shopRegistrations)
+    .where(and(eq(shopRegistrations.referralCodeId, codeId), eq(shopRegistrations.status, "PENDING_PAYMENT"), gt(shopRegistrations.holdExpiresAt, new Date())));
+  return Number(redeemed) + Number(held);
+}
+
 export async function resolveUsableCode(
   rawCode: string,
   client: DbClient = db,
@@ -142,6 +157,9 @@ export async function resolveUsableCode(
   }
   if (found.expiresAt && found.expiresAt < new Date().toISOString().slice(0, 10)) {
     throw validationFailed(`Referral code ${code} expired on ${found.expiresAt}.`);
+  }
+  if (found.maxUses != null && (await referralCodeUses(found.id, client)) >= found.maxUses) {
+    throw validationFailed(`Referral code ${code} has already been used the maximum number of times.`);
   }
   return found;
 }

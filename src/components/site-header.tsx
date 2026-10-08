@@ -38,6 +38,7 @@ const ACCOUNT_NAV = [
   { href: "/profile", label: "My Profile" },
   { href: "/wallet", label: "My Wallet" },
   { href: "/society", label: "My Society" },
+  { href: "/profile/bank-account", label: "Bank account" },
 ];
 
 /**
@@ -61,6 +62,9 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/shop/prices", label: "Price Updates" },
     { href: "/shop/finance", label: "Finance" },
     { href: "/shop/wallet", label: "Wallet" },
+    { href: "/shop/delivery-staff", label: "Delivery staff" },
+    { href: "/shop/legal-documents", label: "Legal documents" },
+    { href: "/shop/bank-account", label: "Payout bank account" },
     { href: "/shop/settings/integrations", label: "Accounting software" },
     { href: "/shop/gst-returns", label: "GST returns" },
     { href: "/shop/marketing", label: "Marketing" },
@@ -90,6 +94,8 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin/consents", label: "Consent" },
     { href: "/admin/disputes", label: "Disputes" },
     { href: "/admin/cod", label: "COD cash" },
+    { href: "/admin/legal-documents", label: "Legal documents" },
+    { href: "/admin/referral-requests", label: "Referral requests" },
     { href: "/admin/integrations", label: "Accounting sync" },
     { href: "/admin/self-registration", label: "Self-registration" },
   ],
@@ -129,6 +135,9 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin/customer-referrals", label: "Customer referrals" },
     { href: "/admin/status-changes", label: "Status history" },
     { href: "/admin/subscriptions", label: "Subscriptions" },
+    { href: "/admin/legal-documents", label: "Legal documents" },
+    { href: "/admin/referral-requests", label: "Referral requests" },
+    { href: "/admin/bank-accounts", label: "Bank accounts" },
   ],
   DELIVERY_PARTNER: [
     { href: "/delivery-partner", label: "Delivery Partner" },
