@@ -1,12 +1,39 @@
 # Plan: shop product media, accounting integration, self-registration
 
-**Status:** plan only, awaiting approval. No code has been written.
+**Status:** approved with the decisions below (8 Oct 2026); in progress,
+module by module.
 **Scope:** test site only (`staging` → test.gokesari.com). Production
 (gokesari.com, `main`) is not touched. Every switch that changes behaviour for
 real users ships **off** in code and is turned on only on the test database.
-**Base:** branch `staging` at `d936eac`, which is on migration `0058` (event
-layer). `main` is behind it (release #86 was reverted there), so this work
-cannot start from `main` without clashing migration numbers.
+**Base:** branch `staging`, which since this plan was written gained the shop
+prepaid wallet and hashed delivery codes (PR #91, migration `0059`). This
+work's migrations are therefore numbered **0060–0063**, not 0059–0062 as
+first written below. `main` is behind `staging` (release #86 was reverted
+there), so this work cannot start from `main`.
+
+## Decisions (owner, 8 Oct 2026)
+
+| Topic | Decision |
+|---|---|
+| Fee tiers | **Five tiers: Basic, Silver, Gold, Platinum, Industry.** The applicant picks one at registration; each tier's amount is set by the admin (test values in `test-settings.sql`). The webhook amount must equal the chosen tier's fee snapshot. |
+| Distributor commission | **Set per distributor type, configurable per distributor.** Admin adds distributor types (each with a default commission, flat ₹ or % of the fee), adds distributors, and can set a distributor's own commission, which overrides the type default. Recorded only (nothing paid out). |
+| Photo storage | **On Hostinger disk**, in a folder outside the web root (`MEDIA_DIR`), random file names, served through `/api/images/{id}` with long cache headers. Postgres remains the fallback when `MEDIA_DIR` is unset (local development, tests). |
+| Odoo | **Odoo 19 and later only** (JSON-2). |
+| Tally | **Push is event-driven**: an invoice or credit note for the shop is queued the moment it happens and the connector picks it up at once (held long-poll). Only the item/stock check inside Tally on the shop PC runs every 2 minutes, because Tally has no webhooks. |
+| Shop wallet | **Exists now** (PR #91: `shop_wallets` + ledger). Self-registration creates the shop's wallet at approval through that code; §1 item 3 below no longer applies. |
+| GST portal | GSTN gives no direct API to private applications; bills and tax reach the government through a licensed **GSP**: e-invoice (IRN) for eligible B2B invoices, and the GSTR-1 data the shop or CA uploads. The integration is built behind a provider-agnostic GSP interface with a sandbox-shaped mock until a GSP is chosen. |
+
+## Pending actions (owner)
+
+| # | Item | Until then |
+|---|---|---|
+| P1 | Sample export files from **myBillBook** and **Vyapar** (items, and invoices if the app can import them) | Their presets are marked "unconfirmed"; the generic column mapper works for any file |
+| P2 | **SMS and WhatsApp provider** (DLT sender ID + templates for SMS; Meta Cloud API or a BSP for WhatsApp) | Mock providers on test; messages readable by admins at `/admin/test-messages` |
+| P3 | **GSP** choice and sandbox keys | Mock GSP |
+| P4 | **Fee amounts** for the five tiers | Test values on the test site |
+| P5 | **FSSAI** for food shops that go live through self-registration: block ordering until verified, or remind only | Remind only |
+| P6 | Code-signing certificate for the Tally connector | Unsigned build (Windows SmartScreen warning) |
+| P7 | The CA questions in §9 | Not implemented |
 
 ---
 
@@ -37,7 +64,7 @@ cannot start from `main` without clashing migration numbers.
    price* is per shop. I read your rule "an MRP changed by a shop owner applies
    only to that shop" as that per-shop price, which stays as is. A price pulled
    from shop software goes into that shop's listing only.
-3. **No shop wallet exists.** Customers have wallets; shops are paid through
+3. ~~**No shop wallet exists.**~~ *Superseded: PR #91 added one; it is reused.* Customers have wallets; shops are paid through
    settlements/ledger. → Add a `shop_wallets` account (zero balance) at
    approval; nothing flows into it yet. Tell me what it should hold.
 4. **No SMS or WhatsApp provider exists.** Every OTP and notice goes by email.
@@ -91,7 +118,7 @@ cannot start from `main` without clashing migration numbers.
   per-product history list shows who changed what and when.
 - Image moderation (existing rule, off by default) still applies.
 
-### DB — migration `0059_shop_product_media` (additive)
+### DB — migration `0060_shop_product_media` (additive)
 | Change | Columns |
 |---|---|
 | `shop_products` + | `short_description`, `long_description`, `content_updated_at`, `content_updated_by` (the unused legacy `description` stays as is) |
@@ -251,7 +278,7 @@ host-pairing guard as KYC).
     for the CA to fill.
   - All are editable at `/admin/gst-config`.
 
-### 3.6 DB — migrations `0060_integrations`, `0061_gst_compliance` (additive)
+### 3.6 DB — migrations `0061_integrations`, `0062_gst_compliance` (additive)
 | Table / change | Key columns |
 |---|---|
 | **`shop_integrations`** | `shop_id`, `provider`, `status`, `config` (non-secret), `credentials_encrypted`, `key_version`, `last_pull_at`, `last_push_at`, `last_error`; one active per shop |
@@ -351,15 +378,17 @@ connector), `…/mapping`, `…/sync`, `/shop/gst-returns`, `/admin/gst-config`,
 - `/admin/shop-registrations`: pending payments, resend retry link.
 - `/admin/referral-commissions`: report per distributor.
 
-### DB — migration `0062_shop_self_registration` (additive)
+### DB — migration `0063_shop_self_registration` (additive)
 | Table / change | Key columns |
 |---|---|
-| **`distributors`** | `name`, `user_id`, `district`, `state`, `phone`, `status`, `commission_type` (FLAT/PERCENT), `commission_value` |
-| `referral_codes` + | `distributor_id`, `max_uses` (null = unlimited), `fee_tier_id`, `commission_type`, `commission_value` |
-| **`registration_fee_tiers`** | `code`, `label`, `amount_paise`, `is_active`; a code without a tier uses today's active registration fee |
+| **`distributor_types`** | `code`, `name`, `default_commission_type` (FLAT/PERCENT), `default_commission_value`, `is_active` (admin-managed) |
+| **`distributors`** | `distributor_type_id`, `name`, `user_id`, `district`, `state`, `phone`, `status`, `commission_type`, `commission_value` (both nullable = use the type's default) |
+| `referral_codes` + | `distributor_id`, `max_uses` (null = unlimited) |
+| **`registration_fee_tiers`** | `code` (BASIC, SILVER, GOLD, PLATINUM, INDUSTRY — seeded inactive), `label`, `amount_paise`, `is_active`, `sort_order`; the applicant picks an active tier |
+| `shops` + (tier) | `registration_tier_id` |
 | **`shop_registrations`** | `token_hash`, `status` (PENDING_PAYMENT/APPROVED/EXPIRED/CANCELLED), `shop_name`, `mobile_e164`, `mobile_verified_at`, `referral_code_id`, `distributor_id`, `fee_tier_id`, `fee_paise` snapshot, `hold_expires_at`, `owner_user_id`, `shop_id` UNIQUE, `approved_at` |
 | **`registration_payments`** | `shop_registration_id`, `gateway_order_id` UNIQUE, `gateway_payment_id` UNIQUE, `amount_paise`, `status` (CREATED/PENDING/SUCCESS/FAILED/MISMATCH), `webhook_payload`, `verified_at` — separate from wallet `payments`, so wallet code is untouched |
-| **`shop_wallets`** + **`shop_wallet_transactions`** | Per-shop account, balance ≥ 0, immutable ledger with unique idempotency key (no flows yet) |
+| `shop_wallets` (existing, PR #91) | The shop's wallet row is created at approval through `shop-wallet.ts`; no new wallet table |
 | **`referral_commissions`** | `shop_registration_id` UNIQUE, `shop_id`, `referral_code_id`, `distributor_id`, `referrer_user_id`, `base_paise`, `type`, `value`, `amount_paise`, `status` (ACCRUED/APPROVED/PAID/REVERSED) |
 | `shops` + | `onboarding_channel` (MANUAL/SELF_SERVICE), `shop_registration_id`, `auto_approved_at`, `profile_completed_at` |
 | `users` + | `email_placeholder` |
@@ -413,7 +442,7 @@ switch on only when their keys are set.
   GSTR-1 exported, self-registration approved, distributor/fee-tier changed.
 - **Events:** `shop.self_registered`, `shop_registration.payment_failed`,
   `integration.job_dead`. Each has notices in the catalogue.
-- **Rollback scripts** for 0059–0062 under `scripts/`.
+- **Rollback scripts** for 0060–0063 under `scripts/`.
 - **Test settings:** `test-settings.sql` gets the new switches (media limits,
   invoicing on, GST16 numbering, mock GSP/SMS).
 
