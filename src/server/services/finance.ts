@@ -21,6 +21,7 @@ import { addDays, assertIsoDate, isoWeekday, todayIn, type IsoDate } from "@/lib
 import { getEnv } from "@/lib/env";
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import type { ShopTypeKey } from "@/lib/shop-types";
+import type { RuleValue } from "@/server/config/rules";
 import { db, type DbClient } from "@/server/db";
 import {
   commissionRates,
@@ -265,6 +266,7 @@ export async function recordOrderFinancials(orderId: string, client: DbClient = 
       shopPayablePaise: viaWallet ? goodsPaise : goodsPaise - commissionPaise,
       commissionCollection: collection.commissionCollection,
       shopDeliveryChargePaise: collection.shopDeliveryChargePaise,
+      shopDeliveryDistanceM: collection.shopDeliveryDistanceM,
       deliveredAt: new Date(),
     })
     .onConflictDoNothing()
@@ -286,26 +288,51 @@ export async function recordOrderFinancials(orderId: string, client: DbClient = 
   );
 }
 
+export interface WalletCollection {
+  commissionCollection: "SETTLEMENT" | "SHOP_WALLET";
+  shopDeliveryChargePaise: number;
+  /** Distance the charge was priced on, metres (0.1 km steps); null when none or not known. */
+  shopDeliveryDistanceM: number | null;
+}
+
+/**
+ * The shop's delivery charge for one rider delivery: rule shopWallet's flat
+ * part plus its rate per km × the shop-to-customer distance, to 0.1 km — the
+ * distance stored when the rider was offered the drop, which the rider's own
+ * per-km pay uses too. A distance without a route source is not shop-to-customer
+ * (the customer had no map location and dispatch fell back to the rider's
+ * distance to the shop), so it counts as unknown and the unknown-distance
+ * charge applies.
+ */
+export function shopDeliveryChargeFor(
+  leg: { distanceKm: string | null; routeSource: string | null },
+  rules: Pick<RuleValue<"shopWallet">, "deliveryChargePaise" | "deliveryChargePerKmPaise" | "deliveryChargeUnknownDistancePaise">,
+): { chargePaise: number; distanceM: number | null } {
+  const km = leg.distanceKm != null && leg.routeSource != null ? Number(leg.distanceKm) : NaN;
+  if (!Number.isFinite(km) || km < 0) return { chargePaise: rules.deliveryChargeUnknownDistancePaise, distanceM: null };
+  const tenths = Math.round(km * 10);
+  return {
+    chargePaise: rules.deliveryChargePaise + Math.round((tenths * rules.deliveryChargePerKmPaise) / 10),
+    distanceM: tenths * 100,
+  };
+}
+
 /**
  * How a newly delivered order's commission is collected. With rule shopWallet
  * on, from the shop's prepaid wallet — plus the delivery charge when a
  * GoKesari rider delivered the order (the delivery row is already DELIVERED in
  * the rider's transaction). Otherwise withheld at settlement, as before.
  */
-export async function walletCollectionFor(
-  orderId: string,
-  client: DbClient = db,
-): Promise<{ commissionCollection: "SETTLEMENT" | "SHOP_WALLET"; shopDeliveryChargePaise: number }> {
+export async function walletCollectionFor(orderId: string, client: DbClient = db): Promise<WalletCollection> {
   const rules = await getRule("shopWallet");
-  if (!rules.enabled) return { commissionCollection: "SETTLEMENT", shopDeliveryChargePaise: 0 };
+  if (!rules.enabled) return { commissionCollection: "SETTLEMENT", shopDeliveryChargePaise: 0, shopDeliveryDistanceM: null };
   const [riderDelivered] = await client
-    .select({ id: deliveryOrders.id })
+    .select({ distanceKm: deliveryOrders.distanceKm, routeSource: deliveryOrders.routeSource })
     .from(deliveryOrders)
     .where(and(eq(deliveryOrders.orderId, orderId), eq(deliveryOrders.status, "DELIVERED")));
-  return {
-    commissionCollection: "SHOP_WALLET",
-    shopDeliveryChargePaise: riderDelivered ? rules.deliveryChargePaise : 0,
-  };
+  if (!riderDelivered) return { commissionCollection: "SHOP_WALLET", shopDeliveryChargePaise: 0, shopDeliveryDistanceM: null };
+  const charge = shopDeliveryChargeFor(riderDelivered, rules);
+  return { commissionCollection: "SHOP_WALLET", shopDeliveryChargePaise: charge.chargePaise, shopDeliveryDistanceM: charge.distanceM };
 }
 
 /**
@@ -428,7 +455,16 @@ export async function refundDeliveredOrder(input: RefundDeliveredInput, actor: A
     const snapshot = await tx.query.orderFinancials.findFirst({ where: eq(orderFinancials.orderId, order.id) });
     const chargeShop = input.chargeTo === "SHOP" && snapshot != null;
     const refundedGoods = chargeShop ? Math.min(input.amountPaise, order.subtotalPaise) : 0;
-    const shopShare = refundedGoods - commissionOn(refundedGoods, snapshot?.commissionRateBp ?? 0);
+    const commissionOnRefund = commissionOn(refundedGoods, snapshot?.commissionRateBp ?? 0);
+    // The shop does not pay commission on goods it refunds. Withheld at
+    // settlement (SETTLEMENT): the recovery is net of it. Paid from the shop
+    // wallet (SHOP_WALLET): it goes back to the wallet, in proportion and
+    // never more than was charged, and the settlement recovers the refunded
+    // goods in full.
+    const { creditShopWalletCommissionRefund, returnableShopWalletCommission } = await import("./shop-wallet");
+    const viaWallet = chargeShop && snapshot.commissionCollection === "SHOP_WALLET";
+    const walletCommissionBack = viaWallet ? await returnableShopWalletCommission(order.id, commissionOnRefund, tx) : 0;
+    const shopShare = viaWallet ? refundedGoods : refundedGoods - commissionOnRefund;
     const type: AdjustmentType = chargeShop ? "REFUND_SHOP" : "REFUND_PLATFORM";
 
     const [adjustment] = await tx
@@ -461,6 +497,31 @@ export async function refundDeliveredOrder(input: RefundDeliveredInput, actor: A
       tx,
     );
 
+    if (walletCommissionBack > 0) {
+      const back = await creditShopWalletCommissionRefund(
+        {
+          shopId: order.shopId,
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          adjustmentId: adjustment.id,
+          amountPaise: walletCommissionBack,
+          refundedGoodsPaise: refundedGoods,
+        },
+        actor,
+        tx,
+      );
+      // The commission journaled at delivery, reversed for the refunded goods.
+      const commissionBase = { ...base, entryType: "COMMISSION" as const, sourceType: "shop_wallet_transactions", sourceId: back?.transaction.id ?? adjustment.id };
+      await postLedger(
+        [
+          { ...commissionBase, entityType: "SHOP", entityId: order.shopId, direction: "CREDIT", amountPaise: walletCommissionBack, key: `adj:${adjustment.id}:commission-back:shop` },
+          { ...commissionBase, entityType: "PLATFORM", direction: "DEBIT", amountPaise: walletCommissionBack, key: `adj:${adjustment.id}:commission-back:platform` },
+        ],
+        actor.id,
+        tx,
+      );
+    }
+
     const remaining = order.totalPaise - input.amountPaise;
     await tx
       .update(orders)
@@ -480,7 +541,7 @@ export async function refundDeliveredOrder(input: RefundDeliveredInput, actor: A
         entityType: "order",
         entityId: order.id,
         previousValue: { totalPaise: order.totalPaise, refundedPaise: order.refundedPaise },
-        newValue: { amountPaise: input.amountPaise, chargeTo: type, shopShare, reason, adjustmentId: adjustment.id },
+        newValue: { amountPaise: input.amountPaise, chargeTo: type, shopShare, walletCommissionBack, reason, adjustmentId: adjustment.id },
       },
       tx,
     );

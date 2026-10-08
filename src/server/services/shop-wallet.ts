@@ -4,6 +4,9 @@
  *   owner tops up (Cashfree, payments.ts)          → TOP_UP        credit
  *   order DELIVERED (orders.ts updateOrderStatus)  → COMMISSION    debit  ┐ same transaction
  *                                                  → DELIVERY_CHARGE debit ┘ as the delivery
+ *     (per km of the shop-to-customer distance, finance.ts shopDeliveryChargeFor)
+ *   refund after delivery the shop bears (finance.ts refundDeliveredOrder)
+ *                                                  → COMMISSION_REFUND credit
  *   admin correction                               → MANUAL_CREDIT / MANUAL_DEBIT
  *
  * The same three mechanisms as the customer wallet (wallet.ts), plus the
@@ -48,7 +51,7 @@ interface Actor {
   role: UserRole;
 }
 
-const CREDIT_TYPES: ReadonlySet<ShopWalletEntryType> = new Set(["TOP_UP", "MANUAL_CREDIT"]);
+const CREDIT_TYPES: ReadonlySet<ShopWalletEntryType> = new Set(["TOP_UP", "MANUAL_CREDIT", "COMMISSION_REFUND"]);
 const ORDER_CHARGE_TYPES: ReadonlySet<ShopWalletEntryType> = new Set(["COMMISSION", "DELIVERY_CHARGE"]);
 
 export const SHOP_WALLET_URL = "/shop/wallet";
@@ -98,7 +101,10 @@ export interface ShopWalletStatus {
   canAcceptOrders: boolean;
   lowBalance: boolean;
   commissionRateBp: number;
+  /** Delivery charge per rider delivery: flat part + per km × distance; the unknown-distance amount otherwise. */
   deliveryChargePaise: number;
+  deliveryChargePerKmPaise: number;
+  deliveryChargeUnknownDistancePaise: number;
   topupMinPaise: number;
   topupMaxPaise: number;
 }
@@ -127,6 +133,8 @@ export async function getShopWalletStatus(shopId: string): Promise<ShopWalletSta
     lowBalance: rules.enabled && balancePaise < rules.lowBalanceThresholdPaise,
     commissionRateBp: rate.rateBp,
     deliveryChargePaise: rules.deliveryChargePaise,
+    deliveryChargePerKmPaise: rules.deliveryChargePerKmPaise,
+    deliveryChargeUnknownDistancePaise: rules.deliveryChargeUnknownDistancePaise,
     topupMinPaise: rules.topupMinPaise,
     topupMaxPaise: rules.topupMaxPaise,
   };
@@ -334,9 +342,16 @@ export async function assertShopMayAcceptOrders(shopId: string, client: DbClient
 
 /* --------------------------------------------------- order completion */
 
+/** "2.4 km", or "distance not known" (the unknown-distance charge applied). */
+export function distanceLabel(distanceM: number | null): string {
+  return distanceM == null ? "distance not known" : `${(distanceM / 1000).toFixed(1)} km`;
+}
+
 export interface OrderWalletCharge {
   commissionPaise: number;
   deliveryChargePaise: number;
+  /** Distance the delivery charge was priced on, metres; null when not known or no charge. */
+  deliveryDistanceM: number | null;
   balancePaise: number;
   /** The new balance is below the minimum: the shop cannot accept new orders. */
   belowMinimum: boolean;
@@ -370,7 +385,11 @@ export async function chargeShopWalletForDeliveredOrder(
       amountPaise: snapshot.commissionPaise,
       reason: `Commission ${(snapshot.commissionRateBp / 100).toFixed(2)}% on ${formatPaise(snapshot.goodsPaise)} — order ${orderNumber}`,
     },
-    { type: "DELIVERY_CHARGE", amountPaise: snapshot.shopDeliveryChargePaise, reason: `Delivery charge — order ${orderNumber}` },
+    {
+      type: "DELIVERY_CHARGE",
+      amountPaise: snapshot.shopDeliveryChargePaise,
+      reason: `Delivery charge (${distanceLabel(snapshot.shopDeliveryDistanceM)}) — order ${orderNumber}`,
+    },
   ];
 
   let last: ShopWalletEntryResult | null = null;
@@ -434,9 +453,100 @@ export async function chargeShopWalletForDeliveredOrder(
   return {
     commissionPaise: amounts.COMMISSION,
     deliveryChargePaise: amounts.DELIVERY_CHARGE,
+    deliveryDistanceM: amounts.DELIVERY_CHARGE > 0 ? snapshot.shopDeliveryDistanceM : null,
     balancePaise: last.balancePaise,
     belowMinimum: last.balancePaise < rules.minBalancePaise,
   };
+}
+
+/* ------------------------------------------------- refunds after delivery */
+
+/**
+ * How much of `wantedPaise` (the commission on goods being refunded) can go
+ * back to the shop's wallet: never more than the order's COMMISSION debit
+ * minus what earlier refunds already returned. Call inside the refund's
+ * transaction, which holds the order row locked, so refunds of one order
+ * take turns.
+ */
+export async function returnableShopWalletCommission(orderId: string, wantedPaise: number, client: DbClient): Promise<number> {
+  if (wantedPaise <= 0) return 0;
+  const [row] = await client
+    .select({
+      charged: sql<number>`coalesce(sum(case when ${shopWalletTransactions.type} = 'COMMISSION' then ${shopWalletTransactions.amountPaise} end), 0)::bigint`,
+      returned: sql<number>`coalesce(sum(case when ${shopWalletTransactions.type} = 'COMMISSION_REFUND' then ${shopWalletTransactions.amountPaise} end), 0)::bigint`,
+    })
+    .from(shopWalletTransactions)
+    .where(eq(shopWalletTransactions.orderId, orderId));
+  const left = Number(row?.charged ?? 0) - Number(row?.returned ?? 0);
+  return Math.max(0, Math.min(wantedPaise, left));
+}
+
+/**
+ * A refund after delivery that the shop bears (finance.ts refundDeliveredOrder):
+ * the commission on the refunded goods goes back to the wallet it was paid
+ * from, as one COMMISSION_REFUND credit keyed on the refund's adjustment. The
+ * delivery charge is not returned — the rider still made the trip.
+ */
+export async function creditShopWalletCommissionRefund(
+  input: {
+    shopId: string;
+    orderId: string;
+    orderNumber: string;
+    adjustmentId: string;
+    amountPaise: number;
+    refundedGoodsPaise: number;
+  },
+  actor: Actor,
+  client: DbClient,
+): Promise<ShopWalletEntryResult | null> {
+  if (input.amountPaise <= 0) return null;
+  const shop = await shopFacts(input.shopId, client);
+  const reason = `Commission returned on ${formatPaise(input.refundedGoodsPaise)} refunded — order ${input.orderNumber}`;
+  const key = `shop-wallet:refund:${input.adjustmentId}:commission`;
+  const result = await applyShopWalletEntry(
+    {
+      shopId: input.shopId,
+      type: "COMMISSION_REFUND",
+      amountPaise: input.amountPaise,
+      reason,
+      orderId: input.orderId,
+      idempotencyKey: key,
+      createdBy: actor.id,
+    },
+    client,
+  );
+  if (result.deduplicated) return result;
+  await refreshLowBalanceAlert(shop, result, client);
+  await recordAudit(
+    {
+      actorId: actor.id,
+      actorRole: actor.role,
+      action: AUDIT_ACTIONS.SHOP_WALLET_ADJUSTED,
+      entityType: "shop_wallet",
+      entityId: result.transaction.walletId,
+      newValue: { direction: "CREDIT", type: "COMMISSION_REFUND", amountPaise: input.amountPaise, reason, orderId: input.orderId, adjustmentId: input.adjustmentId, balancePaise: result.balancePaise },
+    },
+    client,
+  );
+  await emitEvent(
+    {
+      type: "shop_wallet.adjusted",
+      subjectId: shop.id,
+      actor,
+      payload: {
+        shopId: shop.id,
+        shopName: shop.name,
+        ownerId: shop.ownerId,
+        amountPaise: input.amountPaise,
+        balancePaise: result.balancePaise,
+        direction: "CREDIT",
+        reason,
+      },
+      idempotencyKey: key,
+    },
+    client,
+  );
+  return result;
 }
 
 /* ------------------------------------------------------------ top-ups */

@@ -547,19 +547,27 @@ nothing is credited.
 ### Shop wallet (rule `shopWallet`, docs/shop-wallet-delivery-otp-2026-10)
 
 A shop's prepaid wallet. When the rule is on, a delivered order's commission
-(rates from `commission_rates`) and `shopWallet.deliveryChargePaise` (orders a
-GoKesari rider delivered) are debited from it in the delivery's own
+(rates from `commission_rates`) and a delivery charge (orders a GoKesari rider
+delivered: `deliveryChargePaise` + `deliveryChargePerKmPaise` × the
+shop-to-customer distance to 0.1 km, or `deliveryChargeUnknownDistancePaise`
+when that distance is not known) are debited from it in the delivery's own
 transaction, as two ledger entries linked to the order, and settlement no
 longer withholds that commission. Below `minBalancePaise` the shop cannot
 accept a new order: `POST /api/orders/{id}/fulfilment {action:"accept"}`
 returns `402 INSUFFICIENT_BALANCE` with
-`details: { balancePaise, minBalancePaise, rechargeUrl: "/shop/wallet" }`.
+`details: { balancePaise, minBalancePaise, rechargeUrl: "/shop/wallet" }`;
+and customers cannot order from it — the cart check reports `ORDERS_PAUSED`
+and `POST /api/checkout` returns `409` "… is not taking new orders right now",
+exactly as for a shop that paused its orders. A refund after delivery the shop
+bears (`POST /api/finance/refunds`, `chargeTo: SHOP`) credits the commission on
+the refunded goods back (`COMMISSION_REFUND`), capped at what was charged.
 The balance changes only through ledger entries (enforced by the database).
 
 #### `GET /api/shops/{id}/wallet?limit=50&offset=0`
 The shop's owner, or finance staff. `{ enabled, balancePaise, minBalancePaise,
 lowBalanceThresholdPaise, canAcceptOrders, lowBalance, commissionRateBp,
-deliveryChargePaise, topupMinPaise, topupMaxPaise, transactions[] }` — each
+deliveryChargePaise, deliveryChargePerKmPaise, deliveryChargeUnknownDistancePaise,
+topupMinPaise, topupMaxPaise, transactions[] }` — each
 entry `{ type, direction, amountPaise, balanceBeforePaise, balanceAfterPaise,
 orderId, orderNumber, reason, createdAt }`.
 
