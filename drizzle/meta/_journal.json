@@ -442,6 +442,13 @@
       "when": 1791483316213,
       "tag": "0062_bank_accounts",
       "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1791483795086,
+      "tag": "0063_referral_code_requests",
+      "breakpoints": true
     }
   ]
 }

@@ -86,9 +86,14 @@ const eventLayerExists = () =>
     return t !== null;
   });
 
+/** Migrations newer than 0055 in this checkout (0056 onwards). */
+const after0055 = () => journal.entries.filter((e) => e.when > whenOf("0055_")).length;
+
 /** Puts the database back on 0055 with the releases' own rollback scripts. */
 const backToMigration0055 = () =>
   withTemp(async (sql) => {
+    // docs/four-features-2026-10 (0060–0063), newest first.
+    for (const n of ["0063", "0062", "0061", "0060"]) await sql.unsafe(readFileSync(`scripts/rollback-${n}.sql`, "utf8"));
     await sql.unsafe(readFileSync("scripts/rollback-0059.sql", "utf8"));
     await sql.unsafe(readFileSync("scripts/rollback-0058.sql", "utf8"));
     await sql.unsafe(readFileSync("scripts/rollback-0057.sql", "utf8"));
@@ -153,7 +158,7 @@ describe("migrate-on-build", () => {
     expect(await journalCount()).toBe(journal.entries.length);
   });
 
-  it("brings a database on 0055 up to date: 0056, 0057, 0058 and 0059", async (ctx) => {
+  it("brings a database on 0055 up to date: 0056, 0057, 0058, 0059 and every later migration", async (ctx) => {
     if (!created) ctx.skip();
     await backToMigration0055();
     const before = await journalCount();
@@ -163,9 +168,9 @@ describe("migrate-on-build", () => {
 
     const res = runScript({ MIGRATE_ON_BUILD: "1", DATABASE_URL: tempUrl.toString() });
     expect(res.code).toBe(0);
-    expect(res.out).toContain(`applied 4 new migration(s)`);
-    expect(res.out).toContain(`newest ${whenOf("0059_")}`);
-    expect(await journalCount()).toBe(before + 4);
+    expect(res.out).toContain(`applied ${after0055()} new migration(s)`);
+    expect(res.out).toContain(`newest ${journal.entries.at(-1)!.when}`);
+    expect(await journalCount()).toBe(before + after0055());
     expect(await kycTableExists()).toBe(true);
     expect(await eventLayerExists()).toBe(true);
     expect(await shopWalletExists()).toBe(true);

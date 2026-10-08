@@ -8,6 +8,7 @@ import { ok, parseBody, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { registerShop, searchShops, toShopView } from "@/server/services/shops";
+import { assertRegistrationReferralCode, attributeRegistrationReferral } from "@/server/services/referral-requests";
 
 export const dynamic = "force-dynamic";
 
@@ -129,6 +130,10 @@ export const POST = route(async (request: NextRequest) => {
   const body = await parseBody(request, registerSchema);
 
   const privileged = can(user.role, PERMISSIONS.SHOP_REGISTRATION_MANAGE);
+  // Referral code (docs/four-features-2026-10): with rule shopReferral.required a
+  // self-service registration needs a valid code — checked before anything is saved.
+  const referralCode = privileged ? null : await assertRegistrationReferralCode(body.referralCode);
   const result = await registerShop(body, user, { privileged });
+  if (referralCode) await attributeRegistrationReferral(result, referralCode, user);
   return ok(toShopView(result), result.resubmitted ? 200 : 201);
 });

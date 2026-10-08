@@ -4,6 +4,7 @@ import { ShopRegisterForm } from "@/components/shop-register-form";
 import { Alert, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { listShopsForOwner } from "@/server/services/shops";
+import { getRule } from "@/server/services/settings";
 
 export const metadata = { title: "Add my shop" };
 export const dynamic = "force-dynamic";
@@ -16,6 +17,8 @@ export default async function RegisterShopPage() {
   const ownShops = await listShopsForOwner(user.id);
   const pending = ownShops.filter((s) => s.status === "PENDING_APPROVAL");
   const rejected = ownShops.find((s) => s.status === "REJECTED");
+  // docs/four-features-2026-10, feature 4: the referral code is mandatory while this rule is on.
+  const referralRule = await getRule("shopReferral");
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -49,7 +52,7 @@ export default async function RegisterShopPage() {
           chosen here.
         </Alert>
       </div>
-      <ShopRegisterForm />
+      <ShopRegisterForm referralRequired={referralRule.required} />
     </div>
   );
 }

@@ -5676,3 +5676,55 @@ export const bankVerificationAttempts = pgTable(
   ],
 );
 export type BankVerificationAttempt = typeof bankVerificationAttempts.$inferSelect;
+
+/* ===================================================================
+ * Shop referral-code requests (docs/four-features-2026-10, feature 4)
+ * Additive: migration 0063, rollback scripts/rollback-0063.sql.
+ * =================================================================== */
+
+export const REFERRAL_REQUEST_STATUSES = ["NEW", "CODE_ISSUED", "REJECTED"] as const;
+export type ReferralRequestStatus = (typeof REFERRAL_REQUEST_STATUSES)[number];
+
+/**
+ * "Request a referral code" from the shop registration form
+ * (services/referral-requests.ts): who is asking, where (browser location
+ * when the person allowed it — otherwise just the address they typed), and
+ * what happened to the request. Emailed to the referrals team on arrival.
+ */
+export const referralCodeRequests = pgTable(
+  "referral_code_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Signed-in requester, if any (the request also works signed out). */
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    mobileE164: text("mobile_e164").notNull(),
+    /** A shop type key (lib/shop-types.ts). */
+    shopType: text("shop_type").notNull(),
+    area: text("area").notNull(),
+    city: text("city").notNull(),
+    pincode: text("pincode").notNull(),
+    latitude: text("latitude"),
+    longitude: text("longitude"),
+    locationAccuracyM: integer("location_accuracy_m"),
+    mapsUrl: text("maps_url"),
+    locationStatus: text("location_status", { enum: ["SHARED", "NOT_SHARED"] }).notNull(),
+    status: text("status", { enum: REFERRAL_REQUEST_STATUSES }).notNull().default("NEW"),
+    issuedCodeId: uuid("issued_code_id").references(() => referralCodes.id, { onDelete: "set null" }),
+    issuedCode: text("issued_code"),
+    decisionNote: text("decision_note"),
+    decidedBy: uuid("decided_by").references(() => users.id, { onDelete: "set null" }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    emailStatus: text("email_status", { enum: ["SENT", "FAILED", "NOT_CONFIGURED"] }),
+    emailError: text("email_error"),
+    emailSentAt: timestamp("email_sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("referral_code_requests_mobile_idx").on(t.mobileE164, t.createdAt),
+    index("referral_code_requests_status_idx").on(t.status, t.createdAt),
+    check("referral_code_requests_pincode", sql`${t.pincode} ~ '^[1-9][0-9]{5}$'`),
+  ],
+);
+export type ReferralCodeRequest = typeof referralCodeRequests.$inferSelect;
