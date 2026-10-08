@@ -122,6 +122,10 @@ export const TEMPLATES: Record<string, Template> = {
     "{{ownerName}} added you to {{shopName}}: you can add and change its product photos and descriptions.",
   ),
   [T.SHOP_STAFF_REMOVED]: t("Shop access removed", "You can no longer edit product photos and descriptions for {{shopName}}.", false),
+  [T.SHOP_SELF_REGISTERED]: t(
+    "Your shop is live on GoKesari",
+    "{{shopName}} is approved — shop no. {{registrationNumber}}. Sign in with your mobile number {{mobile}} to complete your profile and add products. Fee receipt {{receiptNumber}}.",
+  ),
   [T.INTEGRATION_SYNC_FAILED]: t(
     "Could not send to your accounting software",
     "{{shopName}}: {{what}} — {{reason}} {{fix}}",
@@ -193,6 +197,16 @@ export const TEMPLATES: Record<string, Template> = {
     "{{count}} seller document(s) have waited more than {{hours}} hours for review — oldest: {{oldest}}.",
   ),
   [T.SUPPORT_SELLER_DECIDED]: t("Seller document decided", "{{shopName}}'s {{docLabel}} was {{decision}} by {{by}}. {{reason}}", false),
+  [T.SUPPORT_SHOP_SELF_REGISTERED]: t(
+    "New self-registered shop",
+    "{{shopName}} ({{registrationNumber}}) registered with code {{referralCode}} and paid {{fee}}. It is live; its profile is not complete yet.",
+    false,
+  ),
+  [T.SUPPORT_REGISTRATION_PAYMENT_MISMATCH]: t(
+    "Registration payment needs attention",
+    "{{problem}} Shop: {{shopName}}; paid {{paid}} against a fee of {{fee}} (order {{orderId}}). Check it in Admin → Shop registrations.",
+    false,
+  ),
   [T.SUPPORT_SHOP_AUTO_APPROVED]: t(
     "Shop approved automatically",
     "{{shopName}} was approved automatically: every mandatory document is verified and nothing else was outstanding.",

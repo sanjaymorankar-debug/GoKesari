@@ -104,6 +104,8 @@ export const NOTIFICATION_TYPES = {
   /* ------------------------------- Module 2: accounting integration */
   /** To the owner: an invoice / credit note / sync could not be sent to their accounting software. */
   INTEGRATION_SYNC_FAILED: "shop.integration_sync_failed",
+  /** Module 3: a self-registered shop is approved (to the owner: SMS, WhatsApp, email when there is one). */
+  SHOP_SELF_REGISTERED: "shop.self_registered",
   REFERRAL_REWARDED: "referral.rewarded",
   DELIVERY_OFFERED: "delivery.offered",
   SHOP_GST_VERIFIED: "shop.gst_verified",
@@ -157,6 +159,8 @@ export const NOTIFICATION_TYPES = {
   SUPPORT_SELLER_REVIEW_REMINDER: "support.seller_review_reminder",
   SUPPORT_SELLER_DECIDED: "support.seller_decided",
   SUPPORT_SHOP_AUTO_APPROVED: "support.shop_auto_approved",
+  SUPPORT_SHOP_SELF_REGISTERED: "support.shop_self_registered",
+  SUPPORT_REGISTRATION_PAYMENT_MISMATCH: "support.registration_payment_mismatch",
   SUPPORT_DISPUTE_OPENED: "support.dispute_opened",
   SUPPORT_DISPUTE_UPDATED: "support.dispute_updated",
   SUPPORT_DISPUTE_ESCALATED: "support.dispute_escalated",

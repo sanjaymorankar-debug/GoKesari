@@ -123,6 +123,14 @@ const serverEnvSchema = z.object({
    * as KYC.
    */
   GSP_PROVIDER: z.enum(["mock"]).default("mock"),
+  /**
+   * Module 3: SMS and WhatsApp. `none` (default) = not sent. `mock` = written
+   * to outbound_test_messages for testers to read at /admin/test-messages
+   * (test site only; refused on the production site). Real providers (MSG91
+   * DLT for SMS, Meta Cloud API for WhatsApp) are added when chosen.
+   */
+  SMS_PROVIDER: z.enum(["none", "mock"]).default("none"),
+  WHATSAPP_PROVIDER: z.enum(["none", "mock"]).default("none"),
   GSP_ENV: z.enum(["sandbox", "production"]).default("sandbox"),
 
   // Shared bearer token guarding the daily-order cron endpoint.
@@ -250,6 +258,22 @@ export function gspConfigProblem(env: ServerEnv = getEnv()): string | null {
   if (isProductionHost && env.GSP_ENV !== "production") return "The production site must use GSP_ENV=production.";
   if (!isProductionHost && env.GSP_ENV === "production") {
     return `GSP_ENV=production is only allowed on ${prodHost}; this host (${host || "no AUTH_URL"}) must use the GSP sandbox.`;
+  }
+  return null;
+}
+
+/** Why SMS / WhatsApp must not send with these settings, or null. The mock never runs on the production site. */
+export function messagingConfigProblem(env: ServerEnv = getEnv()): string | null {
+  let host = "";
+  try {
+    host = env.AUTH_URL ? new URL(env.AUTH_URL).hostname.toLowerCase() : "";
+  } catch {
+    host = "";
+  }
+  const prodHost = env.KYC_PRODUCTION_HOST.toLowerCase();
+  const isProductionHost = host === prodHost || host === `www.${prodHost}`;
+  if (isProductionHost && (env.SMS_PROVIDER === "mock" || env.WHATSAPP_PROVIDER === "mock")) {
+    return "SMS_PROVIDER / WHATSAPP_PROVIDER=mock is not allowed on the production site.";
   }
   return null;
 }

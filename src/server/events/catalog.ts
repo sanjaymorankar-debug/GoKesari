@@ -622,6 +622,41 @@ export const EVENTS = {
   ]),
   /* ----------------------------- Module 2: accounting integration */
   // A sync entry gave up (or needs the owner): the owner hears at once, by email too.
+  /* ------------------------------------------------- Module 3: self-registration */
+  "shop.self_registered": define<{
+    shopId: string;
+    shopName: string;
+    ownerId: string;
+    registrationNumber: string;
+    mobile: string;
+    receiptNumber: string;
+    referralCode: string;
+    feePaise: number;
+  }>("shop", (p) => [
+    {
+      to: p.ownerId,
+      type: N.SHOP_SELF_REGISTERED,
+      vars: { shopName: p.shopName, registrationNumber: p.registrationNumber, mobile: p.mobile, receiptNumber: p.receiptNumber },
+      actionUrl: "/shop/profile-setup",
+      channels: ["SMS", "WHATSAPP"],
+      includeActor: true,
+    },
+    {
+      to: "SUPPORT",
+      type: N.SUPPORT_SHOP_SELF_REGISTERED,
+      vars: { shopName: p.shopName, registrationNumber: p.registrationNumber, referralCode: p.referralCode, fee: formatPaise(p.feePaise) },
+      actionUrl: "/admin/shops/auto-approved",
+    },
+  ]),
+  "registration.payment_mismatch": define<{ shopName: string; paidPaise: number; feePaise: number; orderId: string; problem: string }>("shop_registration", (p) => [
+    {
+      to: "SUPPORT",
+      type: N.SUPPORT_REGISTRATION_PAYMENT_MISMATCH,
+      vars: { shopName: p.shopName, paid: formatPaise(p.paidPaise), fee: formatPaise(p.feePaise), orderId: p.orderId, problem: p.problem },
+      actionUrl: "/admin/shop-registrations",
+    },
+  ]),
+
   "integration.job_dead": define<{ shopName: string; ownerId: string; what: string; reason: string; fix: string }>(
     "integration_job",
     (p) => [

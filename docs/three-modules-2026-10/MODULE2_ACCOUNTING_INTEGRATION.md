@@ -260,8 +260,10 @@ New permissions: `integration:manage:own` (shop owners),
 4. Add the cron line next to the others:
    `* * * * * curl -fsS -X POST https://test.gokesari.com/api/cron/integration-sync -H "Authorization: Bearer $CRON_SECRET"`
    and check `GET` on the same URL answers `{"status":"ready"}`.
-5. Admin → **Business rules** → `invoicing.enabled = true` (shops with a
-   connection get invoices regardless).
+5. `invoicing.enabled = true`: applied by
+   [test-settings.sql](test-settings.sql) when it lands on `staging`, or by
+   hand in Admin → **Business rules** (shops with a connection get invoices
+   regardless).
 6. Smoke test:
    - A test shop → **Accounting software** → **Other software (Excel/CSV)** →
      upload an item export with a known barcode → columns guessed → Apply →

@@ -339,6 +339,8 @@ export const shopPaymentMethodEnum = pgEnum("shop_payment_method", [
   "CHEQUE",
   "RAZORPAY",
   "OTHER",
+  /** Module 3: the fee paid online at self-registration (Cashfree, webhook-confirmed). */
+  "CASHFREE",
 ]);
 
 export const referralStatusEnum = pgEnum("referral_status", [
@@ -490,6 +492,12 @@ export const users = pgTable(
     gender: text("gender", { enum: ["MALE", "FEMALE", "OTHER"] }),
     /** Set when the user saves the first-time details form; until then they are prompted after each sign-in. */
     profileCompletedAt: timestamp("profile_completed_at", { withTimezone: true }),
+    /**
+     * Module 3: the account was created at shop self-registration from a
+     * mobile number alone, so `email` is a placeholder no mail can reach
+     * (sign-in codes go by SMS instead) until the owner adds a real one.
+     */
+    emailPlaceholder: boolean("email_placeholder").notNull().default(false),
     // Role is server-owned. It is never read from a request body.
     role: userRoleEnum("role").notNull().default("CUSTOMER"),
     status: userStatusEnum("status").notNull().default("ACTIVE"),
@@ -537,7 +545,7 @@ export const loginOtps = pgTable(
     phoneE164: text("phone_e164"),
     /** Address the code was sent to; codes are looked up by it. Null only on rows from before email login. */
     email: text("email"),
-    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE"] }).notNull().default("LOGIN"),
+    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION"] }).notNull().default("LOGIN"),
     channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
     codeHash: text("code_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -784,6 +792,17 @@ export const shops = pgTable(
     /** Which fee row was in force at registration — provenance for the snapshot. */
     registrationFeeId: uuid("registration_fee_id"),
     referralCodeId: uuid("referral_code_id"),
+    /**
+     * Module 3 (docs/three-modules-2026-10): how the shop came in. SELF_SERVICE
+     * shops registered at /shop/join with a referral code and paid online;
+     * they are approved by the payment webhook and complete their profile after.
+     */
+    onboardingChannel: text("onboarding_channel", { enum: ["MANUAL", "SELF_SERVICE"] }).notNull().default("MANUAL"),
+    shopRegistrationId: uuid("shop_registration_id").references((): AnyPgColumn => shopRegistrations.id, { onDelete: "set null" }),
+    registrationTierId: uuid("registration_tier_id").references((): AnyPgColumn => registrationFeeTiers.id, { onDelete: "set null" }),
+    autoApprovedAt: timestamp("auto_approved_at", { withTimezone: true }),
+    /** Owner details, address and shop type filled in after self-registration. */
+    profileCompletedAt: timestamp("profile_completed_at", { withTimezone: true }),
     feePaymentStatus: feePaymentStatusEnum("fee_payment_status")
       .notNull()
       .default("PENDING"),
@@ -3661,6 +3680,10 @@ export const referralCodes = pgTable(
     referrerUserId: uuid("referrer_user_id").references(() => users.id),
     status: referralStatusEnum("status").notNull().default("ACTIVE"),
     expiresAt: date("expires_at"),
+    /** Module 3: the distributor this code credits (commission at self-registration). */
+    distributorId: uuid("distributor_id").references((): AnyPgColumn => distributors.id, { onDelete: "set null" }),
+    /** Module 3: shops that may register with this code; null = unlimited. Pending payments hold a slot for a while. */
+    maxUses: integer("max_uses"),
     note: text("note"),
     createdBy: uuid("created_by")
       .notNull()
@@ -3675,6 +3698,7 @@ export const referralCodes = pgTable(
   (t) => [
     uniqueIndex("referral_codes_code_unique").on(t.code),
     index("referral_codes_status_idx").on(t.status),
+    check("referral_codes_max_uses_positive", sql`${t.maxUses} IS NULL OR ${t.maxUses} > 0`),
   ],
 );
 
@@ -5720,6 +5744,220 @@ export const integrationColumnMappings = pgTable(
 export type ShopIntegration = typeof shopIntegrations.$inferSelect;
 export type IntegrationJob = typeof integrationJobs.$inferSelect;
 export type IntegrationItemLink = typeof integrationItemLinks.$inferSelect;
+
+
+/* ============================================== Module 3: shop self-registration
+ * docs/three-modules-2026-10/MODULE3_SELF_REGISTRATION.md. A shop registers at
+ * /shop/join with its name, an OTP-verified mobile and a referral code, picks a
+ * fee tier and pays online. The payment webhook — never the browser — approves
+ * it, in one transaction, after checking the signature and that the amount is
+ * exactly the fee.
+ */
+
+/** The fee tiers an applicant chooses from (Basic … Industry). Amounts are set by an admin; a tier is offered only while active. */
+export const registrationFeeTiers = pgTable(
+  "registration_fee_tiers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    code: text("code").notNull(),
+    label: text("label").notNull(),
+    description: text("description"),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull().default(0),
+    isActive: boolean("is_active").notNull().default(false),
+    sortOrder: integer("sort_order").notNull().default(0),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("registration_fee_tiers_code_unique").on(t.code),
+    check("registration_fee_tiers_amount", sql`${t.amountPaise} >= 0 AND (NOT ${t.isActive} OR ${t.amountPaise} > 0)`),
+  ],
+);
+
+export const COMMISSION_TYPES = ["FLAT", "PERCENT"] as const;
+
+/** Kinds of distributor, each with a default commission: FLAT in paise, PERCENT in basis points of the fee. */
+export const distributorTypes = pgTable(
+  "distributor_types",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    code: text("code").notNull(),
+    name: text("name").notNull(),
+    commissionType: text("commission_type", { enum: COMMISSION_TYPES }).notNull(),
+    commissionValue: integer("commission_value").notNull(),
+    isActive: boolean("is_active").notNull().default(true),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("distributor_types_code_unique").on(t.code),
+    check("distributor_types_commission", sql`${t.commissionValue} >= 0 AND (${t.commissionType} <> 'PERCENT' OR ${t.commissionValue} <= 10000)`),
+  ],
+);
+
+/** A distributor; its own commission (both columns set) overrides its type's default. */
+export const distributors = pgTable(
+  "distributors",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    distributorTypeId: uuid("distributor_type_id")
+      .notNull()
+      .references(() => distributorTypes.id, { onDelete: "restrict" }),
+    name: text("name").notNull(),
+    phoneE164: text("phone_e164"),
+    email: text("email"),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    district: text("district"),
+    state: text("state"),
+    status: text("status", { enum: ["ACTIVE", "INACTIVE"] }).notNull().default("ACTIVE"),
+    commissionType: text("commission_type", { enum: COMMISSION_TYPES }),
+    commissionValue: integer("commission_value"),
+    note: text("note"),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("distributors_type_idx").on(t.distributorTypeId),
+    check("distributors_commission_pair", sql`(${t.commissionType} IS NULL) = (${t.commissionValue} IS NULL)`),
+    check(
+      "distributors_commission",
+      sql`${t.commissionValue} IS NULL OR (${t.commissionValue} >= 0 AND (${t.commissionType} <> 'PERCENT' OR ${t.commissionValue} <= 10000))`,
+    ),
+  ],
+);
+
+/**
+ * One self-registration. The private link /shop/join/{token} (token stored
+ * hashed) shows its status and lets the applicant pay or pay again.
+ * PENDING_PAYMENT holds a slot on the referral code's usage limit until
+ * `hold_expires_at`; a valid payment approves it even after that.
+ */
+export const shopRegistrations = pgTable(
+  "shop_registrations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    tokenHash: text("token_hash").notNull(),
+    status: text("status", { enum: ["PENDING_PAYMENT", "APPROVED", "EXPIRED", "CANCELLED"] }).notNull().default("PENDING_PAYMENT"),
+    shopName: text("shop_name").notNull(),
+    mobileE164: text("mobile_e164").notNull(),
+    mobileVerifiedAt: timestamp("mobile_verified_at", { withTimezone: true }).notNull(),
+    referralCodeId: uuid("referral_code_id")
+      .notNull()
+      .references(() => referralCodes.id, { onDelete: "restrict" }),
+    distributorId: uuid("distributor_id").references(() => distributors.id, { onDelete: "set null" }),
+    feeTierId: uuid("fee_tier_id")
+      .notNull()
+      .references(() => registrationFeeTiers.id, { onDelete: "restrict" }),
+    /** The fee as offered when the registration was made; the payment must equal it. */
+    feePaise: bigint("fee_paise", { mode: "number" }).notNull(),
+    holdExpiresAt: timestamp("hold_expires_at", { withTimezone: true }).notNull(),
+    ownerUserId: uuid("owner_user_id").references(() => users.id, { onDelete: "set null" }),
+    shopId: uuid("shop_id").references((): AnyPgColumn => shops.id, { onDelete: "set null" }),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    lastLinkSentAt: timestamp("last_link_sent_at", { withTimezone: true }),
+    ipAddress: text("ip_address"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("shop_registrations_token_unique").on(t.tokenHash),
+    uniqueIndex("shop_registrations_shop_unique").on(t.shopId),
+    index("shop_registrations_code_status_idx").on(t.referralCodeId, t.status),
+    index("shop_registrations_mobile_idx").on(t.mobileE164, t.createdAt),
+    index("shop_registrations_status_idx").on(t.status, t.createdAt),
+    check("shop_registrations_fee_positive", sql`${t.feePaise} > 0`),
+  ],
+);
+
+/** Gateway orders for a registration's fee (separate from wallet payments). One row per attempt. */
+export const registrationPayments = pgTable(
+  "registration_payments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopRegistrationId: uuid("shop_registration_id")
+      .notNull()
+      .references(() => shopRegistrations.id, { onDelete: "cascade" }),
+    gateway: text("gateway", { enum: ["CASHFREE", "MOCK"] }).notNull(),
+    gatewayOrderId: text("gateway_order_id").notNull(),
+    gatewayPaymentId: text("gateway_payment_id"),
+    paymentSessionId: text("payment_session_id"),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    currency: text("currency").notNull().default("INR"),
+    status: text("status", { enum: ["CREATED", "SUCCESS", "FAILED", "MISMATCH"] }).notNull().default("CREATED"),
+    failureReason: text("failure_reason"),
+    /** The verified webhook body that settled it (support evidence). */
+    webhookPayload: jsonb("webhook_payload").$type<Record<string, unknown>>(),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("registration_payments_order_unique").on(t.gatewayOrderId),
+    uniqueIndex("registration_payments_payment_unique").on(t.gatewayPaymentId),
+    index("registration_payments_registration_idx").on(t.shopRegistrationId),
+  ],
+);
+
+/** The distributor's commission on a self-registration: recorded (ACCRUED) at approval, once. Nothing is paid out by the system. */
+export const referralCommissions = pgTable(
+  "referral_commissions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopRegistrationId: uuid("shop_registration_id")
+      .notNull()
+      .references(() => shopRegistrations.id, { onDelete: "restrict" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    referralCodeId: uuid("referral_code_id")
+      .notNull()
+      .references(() => referralCodes.id, { onDelete: "restrict" }),
+    distributorId: uuid("distributor_id").references(() => distributors.id, { onDelete: "set null" }),
+    referrerUserId: uuid("referrer_user_id").references(() => users.id, { onDelete: "set null" }),
+    basePaise: bigint("base_paise", { mode: "number" }).notNull(),
+    commissionType: text("commission_type", { enum: COMMISSION_TYPES }).notNull(),
+    commissionValue: integer("commission_value").notNull(),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    status: text("status", { enum: ["ACCRUED", "APPROVED", "PAID", "REVERSED"] }).notNull().default("ACCRUED"),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("referral_commissions_registration_unique").on(t.shopRegistrationId),
+    index("referral_commissions_distributor_idx").on(t.distributorId, t.createdAt),
+    check("referral_commissions_amount", sql`${t.amountPaise} >= 0`),
+  ],
+);
+
+/**
+ * SMS / WhatsApp sent through the MOCK provider (test site, development):
+ * what would have been sent, so testers can read OTPs and links at
+ * /admin/test-messages. The mock is refused on the production site.
+ */
+export const outboundTestMessages = pgTable(
+  "outbound_test_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    channel: text("channel", { enum: ["SMS", "WHATSAPP"] }).notNull(),
+    toAddress: text("to_address").notNull(),
+    body: text("body").notNull(),
+    purpose: text("purpose"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("outbound_test_messages_created_idx").on(t.createdAt), index("outbound_test_messages_to_idx").on(t.toAddress, t.createdAt)],
+);
+
+export type RegistrationFeeTier = typeof registrationFeeTiers.$inferSelect;
+export type DistributorType = typeof distributorTypes.$inferSelect;
+export type Distributor = typeof distributors.$inferSelect;
+export type ShopRegistration = typeof shopRegistrations.$inferSelect;
+export type RegistrationPayment = typeof registrationPayments.$inferSelect;
+export type ReferralCommission = typeof referralCommissions.$inferSelect;
 
 export type ShopStaff = typeof shopStaff.$inferSelect;
 export type ShopMediaImport = typeof shopMediaImports.$inferSelect;

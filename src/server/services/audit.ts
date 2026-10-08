@@ -44,6 +44,17 @@ export const AUDIT_ACTIONS = {
   GST_RETURN_EXPORTED: "gst_return.exported",
   GST_CONFIG_CHANGED: "gst_config.changed",
   SHOP_EINVOICE_DECLARED: "shop.einvoice_declared",
+  // Module 3: shop self-registration.
+  SHOP_SELF_REGISTRATION_STARTED: "shop_registration.started",
+  SHOP_SELF_REGISTERED: "shop.self_registered",
+  SHOP_REGISTRATION_PAYMENT_MISMATCH: "shop_registration.payment_mismatch",
+  SHOP_REGISTRATION_PAYMENT_FAILED: "shop_registration.payment_failed",
+  SHOP_REGISTRATION_LINK_RESENT: "shop_registration.link_resent",
+  SHOP_PROFILE_COMPLETED: "shop.profile_completed",
+  REGISTRATION_FEE_TIER_CHANGED: "registration_fee_tier.changed",
+  DISTRIBUTOR_TYPE_SAVED: "distributor_type.saved",
+  DISTRIBUTOR_SAVED: "distributor.saved",
+  REFERRAL_COMMISSION_STATUS_CHANGED: "referral_commission.status_changed",
   SHOP_CLASSIFICATION_CHANGED: "shop.classification_changed",
   /** A rejected registration submitted again — the same row goes back to PENDING_APPROVAL. */
   SHOP_RESUBMITTED: "shop.resubmitted",

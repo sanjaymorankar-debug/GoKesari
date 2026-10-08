@@ -668,6 +668,17 @@ export const RULES = {
     schema: z.object({ nearbyRadiusKm: z.number().min(0.5).max(50) }),
     defaults: { nearbyRadiusKm: 5 },
   },
+  selfRegistration: {
+    description:
+      "Shop self-registration (Module 3, /shop/join): a shop registers with its name, an OTP-verified mobile and a referral code, picks a fee tier and pays online; the payment webhook approves it. enabled: the page accepts registrations. holdHours: how long an unpaid registration keeps its place on a referral code's usage limit. maxPendingPerMobile: unpaid registrations one mobile may have at once. classification: Kesari/Green given to a self-registered shop (operators can change it).",
+    schema: z.object({
+      enabled: z.boolean(),
+      holdHours: int(1, 168),
+      maxPendingPerMobile: int(1, 20),
+      classification: z.enum(["KESARI", "GREEN"]),
+    }),
+    defaults: { enabled: false, holdHours: 24, maxPendingPerMobile: 3, classification: "GREEN" },
+  },
   shopProductMedia: {
     description:
       "Shop product photos and descriptions (Module 1): photos per shop listing, upload size, the three WebP sizes made from every photo, description lengths, and bulk ZIP/CSV limits. The first photo of a listing is its main photo; a listing with none shows the master product's photos.",

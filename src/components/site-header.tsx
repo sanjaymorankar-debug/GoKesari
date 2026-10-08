@@ -91,6 +91,7 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin/disputes", label: "Disputes" },
     { href: "/admin/cod", label: "COD cash" },
     { href: "/admin/integrations", label: "Accounting sync" },
+    { href: "/admin/self-registration", label: "Self-registration" },
   ],
   ADMIN: [
     { href: "/admin", label: "Admin Console" },
@@ -111,6 +112,7 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin/settings", label: "Business rules" },
     { href: "/admin/gst-config", label: "GST settings" },
     { href: "/admin/integrations", label: "Accounting sync" },
+    { href: "/admin/self-registration", label: "Self-registration" },
     { href: "/admin/societies", label: "Societies" },
     { href: "/admin/ratings", label: "Ratings" },
     { href: "/admin/analytics", label: "Analytics" },

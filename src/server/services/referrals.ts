@@ -37,6 +37,9 @@ export interface CreateReferralInput {
   referrerUserId?: string | null;
   expiresAt?: string | null;
   note?: string | null;
+  /** Module 3: the distributor credited, and how many shops may use the code (null = unlimited). */
+  distributorId?: string | null;
+  maxUses?: number | null;
 }
 
 export async function createReferralCode(
@@ -65,6 +68,8 @@ export async function createReferralCode(
       referrerUserId: input.referrerUserId ?? null,
       expiresAt: input.expiresAt ?? null,
       note: input.note ?? null,
+      distributorId: input.distributorId ?? null,
+      maxUses: input.maxUses ?? null,
       createdBy: actor.id,
     })
     .returning();
@@ -75,14 +80,21 @@ export async function createReferralCode(
     action: AUDIT_ACTIONS.REFERRAL_CODE_CREATED,
     entityType: "referral_code",
     entityId: created.id,
-    newValue: { code: created.code, label: created.label },
+    newValue: { code: created.code, label: created.label, distributorId: created.distributorId, maxUses: created.maxUses },
   });
   return created;
 }
 
 export async function updateReferralCode(
   id: string,
-  patch: { status?: ReferralStatus; label?: string | null; note?: string | null },
+  patch: {
+    status?: ReferralStatus;
+    label?: string | null;
+    note?: string | null;
+    expiresAt?: string | null;
+    distributorId?: string | null;
+    maxUses?: number | null;
+  },
   actor: Actor,
 ): Promise<ReferralCode> {
   const current = await db.query.referralCodes.findFirst({
@@ -102,8 +114,8 @@ export async function updateReferralCode(
     action: AUDIT_ACTIONS.REFERRAL_CODE_UPDATED,
     entityType: "referral_code",
     entityId: id,
-    previousValue: { status: current.status, label: current.label },
-    newValue: { status: updated.status, label: updated.label },
+    previousValue: { status: current.status, label: current.label, distributorId: current.distributorId, maxUses: current.maxUses, expiresAt: current.expiresAt },
+    newValue: { status: updated.status, label: updated.label, distributorId: updated.distributorId, maxUses: updated.maxUses, expiresAt: updated.expiresAt },
   });
   return updated;
 }

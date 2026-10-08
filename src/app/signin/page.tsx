@@ -9,6 +9,7 @@ import { getCurrentUser } from "@/server/authz/guards";
 import { OTP_TICKET_PROVIDER_ID, signIn } from "@/server/auth";
 import { EMAIL_PROVIDER_ID, emailSignInMode } from "@/server/auth-email";
 import { emailMode } from "@/server/email/transport";
+import { isTextChannelAvailable } from "@/server/messaging/sms-whatsapp";
 import { createLoginTicket, verifyLoginOtp } from "@/server/otp/service";
 import { toClientError } from "@/lib/errors";
 import { headers } from "next/headers";
@@ -41,7 +42,8 @@ export default async function SignInPage({
   // Auth.js sends AccessDenied when the signIn callback refuses: a suspended or closed account.
   const accessDenied = query.error === "AccessDenied";
   const devLoginEnabled = env.NODE_ENV !== "production";
-  const otpEmailAvailable = emailMode() !== "disabled";
+  // Module 3: with SMS set up, shops registered with a mobile number alone sign in by SMS code.
+  const otpEmailAvailable = emailMode() !== "disabled" || isTextChannelAvailable("SMS");
 
   async function verifyLoginCode(input: { mobile: string | null; email: string | null; code: string }) {
     "use server";

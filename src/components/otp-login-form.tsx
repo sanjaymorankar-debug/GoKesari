@@ -95,7 +95,7 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
 
   async function submitCode(event: React.FormEvent) {
     event.preventDefault();
-    if (!/^\d{4,8}$/.test(code.trim())) return setError("Enter the code from the email.");
+    if (!/^\d{4,8}$/.test(code.trim())) return setError("Enter the code we sent you.");
     setBusy(true);
     setError(null);
     const result = await verify({ mobile, email, code: code.trim() });
@@ -147,7 +147,7 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
               .
             </span>
           </label>
-          <p className="mt-1 text-xs text-ink-500">The sign-in code is always sent to your email.</p>
+          <p className="mt-1 text-xs text-ink-500">The sign-in code is sent to your email (by SMS for shops registered with a mobile number only).</p>
         </form>
       ) : null}
 
@@ -186,7 +186,7 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
               </>
             ) : (
               <>
-                If +91 {mobile} is registered, we&apos;ve emailed a code to the email address on that account.
+                If +91 {mobile} is registered, we&apos;ve sent a code to the email address on that account — or by SMS, for a shop registered with its mobile number only.
               </>
             )}
           </p>

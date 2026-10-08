@@ -37,7 +37,7 @@ interface Actor {
  * low-volume and the count-based form is human-meaningful; the UNIQUE index on
  * `reference` is the real guarantee, and a collision retries.
  */
-async function nextReference(tx: DbClient): Promise<string> {
+export async function nextReference(tx: DbClient): Promise<string> {
   const year = new Date().getFullYear();
   const [{ n }] = await tx
     .select({ n: sql<number>`COUNT(*)::int` })

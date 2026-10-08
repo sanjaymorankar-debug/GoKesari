@@ -51,3 +51,6 @@ env.INTEGRATION_ENCRYPTION_KEY ??= "q3dxbCpVZ2ZKc1RzQkx6dE1vVnJ3WG5qY0hQa0x0a0E=
 env.INTEGRATION_AUTODISPATCH = "off";
 env.GSP_PROVIDER = "mock";
 env.GSP_ENV = "sandbox";
+// Module 3: SMS / WhatsApp go to the mock outbox (outbound_test_messages).
+env.SMS_PROVIDER = "mock";
+env.WHATSAPP_PROVIDER = "mock";
