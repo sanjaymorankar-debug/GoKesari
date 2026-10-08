@@ -3,6 +3,34 @@
 **Scope:** promoting the Phases A–J release plus dispute cases, login by
 mobile/email and the product category master (migrations `0025`–`0039`) to an environment that is still on `0024`. Written 3 Oct 2026.
 
+> ### Read this before using any number below — 8 Oct 2026
+>
+> **That release is done.** The test database is on `0057`
+> ([ITEMS_A_E_2026-10-07.md](ITEMS_A_E_2026-10-07.md) §3) and the head of
+> `main` is `0057` — 58 migration files, 18 past this runbook's `0039`.
+>
+> §0 is still true and still the reason to migrate before deploying: it is
+> reasoning about additive schema changes, not about a particular release.
+> **The absolute numbers are not.** Taken literally, "40 rows = fully
+> migrated" passes a database 18 migrations behind — the precise mistake §0
+> exists to prevent, arrived at by following the runbook.
+>
+> So:
+> * for **"is this database up to date"**, use the count-free check in §1,
+>   which reads the answer out of the checkout instead of out of this file;
+> * for **the current release's steps**, use that release's own report —
+>   today [ITEMS_A_E_2026-10-07.md](ITEMS_A_E_2026-10-07.md) §3 (test) and
+>   §3a (production). Its §4 is rollback, not promotion;
+> * do not split this file by section number — the useful line runs through
+>   it. The **order of operations and the reasoning for it** are standing
+>   (migrate, back up, deploy, schedule crons, smoke test, how to roll back).
+>   Anything naming a **migration number, a row count, an environment
+>   variable, a cron, a behaviour change or a default** (§§3–4 and 8–11 in
+>   particular) describes the 3 Oct release and must be re-derived for yours.
+>
+> A reader who needs only one line: **never conclude a database is migrated
+> from a row count written down in the past.**
+
 This is the step-by-step companion to [DEPLOYMENT.md](../../DEPLOYMENT.md), which
 remains the reference for environment variables, Cashfree setup, backups and
 monitoring. Where the two disagree, DEPLOYMENT.md is the authority on *what* and
@@ -50,10 +78,48 @@ So: **migrate first, deploy second.** Always.
 # Confirm which environment you are pointed at. Do this every time.
 psql "$DATABASE_URL" -c "select current_database(), inet_server_addr();"
 
-# What is already applied? 25 rows = on 0024. 40 rows = fully migrated
-# (42 on the test database: see "0038 and 0039 run twice on test" below).
+# What is already applied, and is it everything THIS CHECKOUT needs?
+# Compare the database against the files you are about to deploy. Do not
+# compare it against a number from a previous release — that is how a
+# database 18 migrations behind gets called "fully migrated".
+ls drizzle/*.sql | wc -l                      # files in this checkout (58 on 0057)
 psql "$DATABASE_URL" -c "select count(*) from drizzle.__drizzle_migrations;"
 ```
+
+Equal: fully migrated for this checkout. Fewer: that many still to apply. The
+test database reads **two higher** than the file count, for the reason in
+"`0038` and `0039` run twice on test" below — so on test, expect
+`files + 2`.
+
+The check that does not drift at all is the newest timestamp, since drizzle
+runs every journal entry newer than the newest `created_at` recorded:
+
+```bash
+node -e "const e=require('./drizzle/meta/_journal.json').entries.at(-1); console.log(e.tag, e.when)"
+psql "$DATABASE_URL" -c "select max(created_at) from drizzle.__drizzle_migrations;"
+```
+
+The two must match. They do not depend on how many migrations either side has,
+so this stays correct for every future release.
+
+`npm run db:migrate` is safe to re-run — on an up-to-date database it adds no
+rows (verified: a database at `0057` re-run stayed at 58). But **its output
+does not tell you that.** It prints `Migrations applied.` either way, and
+PostgreSQL `NOTICE` lines about objects that already exist are normal on a
+re-run, not errors. So re-run it freely; just do not read "Migrations applied."
+as "something needed applying".
+
+The build-time script does report the number. `npm run build` runs
+`scripts/migrate-on-build.mjs` first, which logs one of:
+
+```
+[migrate-on-build] applied 2 new migration(s); 58 recorded, newest 1791397744411.
+[migrate-on-build] applied 0 new migration(s); 58 recorded, newest 1791397744411.
+[migrate-on-build] skipped: MIGRATE_ON_BUILD is not "true". Migrations are applied by hand (npm run db:migrate).
+```
+
+A failure prints `[migrate-on-build] FAILED: …` and stops the build before any
+new code is built, which is the behaviour §0 wants (see DEPLOYMENT.md §4).
 
 Staging and production have **separate databases** (DEPLOYMENT.md §3). Running
 this against the wrong one is the most expensive mistake available here, and the
@@ -126,13 +192,15 @@ journal entry whose `when` is later than the newest `created_at` in
   shop-category links) run only in the run that creates the column or table,
   so links an admin has removed since are not restored.
 
-The test database therefore ends with 42 rows rather than 40; the newest
-`created_at` is `1791030174408` on every fully migrated database.
+The test database therefore ends two rows ahead of the file count — 42 against
+this release's 40, and 60 against `0057`'s 58. The extra pair is the only
+legitimate reason for a database to hold more rows than the checkout has files.
 
-Verify:
+Verify (`1791030174408` is this release's newest `created_at`; for a later
+checkout read the expected value out of the journal as §1 shows):
 
 ```bash
-psql "$DATABASE_URL" -c "select count(*), max(created_at) from drizzle.__drizzle_migrations;"   # 40 (42 on test), 1791030174408
+psql "$DATABASE_URL" -c "select count(*), max(created_at) from drizzle.__drizzle_migrations;"   # files (+2 on test), newest journal `when`
 psql "$DATABASE_URL" -c "\d platform_settings"                                 # exists
 psql "$DATABASE_URL" -c "select unnest(enum_range(null::notification_channel));"  # includes WHATSAPP
 psql "$DATABASE_URL" -c "select sequencename from pg_sequences where sequencename='dispute_case_seq';"  # one row
