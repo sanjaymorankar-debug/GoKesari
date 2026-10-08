@@ -48,6 +48,18 @@ const WINDOW_LABEL: Record<DeliveryWindowKey, string> = {
   SCHEDULED: "Scheduled",
 };
 
+/** C3: an open order shown before paying for a new one (rule openOrderCheck). */
+export interface OpenOrderNotice {
+  id: string;
+  orderNumber: string;
+  shopName: string;
+  orderType: "PERSONAL" | "B2B";
+  status: string;
+  statusLabel: string;
+  totalPaise: number;
+  customerMayCancel: boolean;
+}
+
 export interface CheckoutAddress {
   id: string;
   label: string | null;
@@ -74,6 +86,7 @@ export function CartView({
   codUnavailableReason = null,
   hasMobile = true,
   couponsEnabled = false,
+  openOrders = [],
 }: {
   cart: CartSummary;
   walletBalancePaise: number;
@@ -90,6 +103,8 @@ export function CartView({
   hasMobile?: boolean;
   /** F7: show the coupon box (rule "coupons"). */
   couponsEnabled?: boolean;
+  /** C3: the customer's open orders; empty when rule openOrderCheck is off. */
+  openOrders?: OpenOrderNotice[];
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -139,6 +154,12 @@ export function CartView({
     (g) => g.lines.some((l) => l.purchasable) && !isShopOpenNow(g.shop),
   );
   const [confirmingClosed, setConfirmingClosed] = useState(false);
+  // C3: an existing open order must be acknowledged (or cancelled) before paying.
+  const relevantOpenOrders = openOrders.filter((o) => o.orderType === (buyerShopId ? "B2B" : "PERSONAL"));
+  const [confirmingOpenOrders, setConfirmingOpenOrders] = useState(false);
+  const [openOrdersAcknowledged, setOpenOrdersAcknowledged] = useState(false);
+  const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
+  const [openOrderMessage, setOpenOrderMessage] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
   const hasBlockingIssue = checks.some((c) => c.issues.some((i) => i.blocking));
   // Checkout enforces both server-side; shown here so the customer can fix them first.
   const needsAddress = !buyerShopId && !addressId && cart.groups.some((g) => g.shop.deliveryAvailable);
@@ -251,6 +272,39 @@ export function CartView({
       return;
     }
     setCoupon({ code: payload.code, discountPaise: payload.discountPaise, forTotal: cart.subtotalPaise });
+  }
+
+  /** Next step of "Pay": the closed-shop confirmation, or the order itself. */
+  function proceedToPay() {
+    if (closedGroups.length > 0) setConfirmingClosed(true);
+    else void checkout();
+  }
+
+  function startPay() {
+    if (relevantOpenOrders.length > 0 && !openOrdersAcknowledged) {
+      setOpenOrderMessage(null);
+      setConfirmingOpenOrders(true);
+      return;
+    }
+    proceedToPay();
+  }
+
+  async function cancelOpenOrder(order: OpenOrderNotice) {
+    setCancellingOrderId(order.id);
+    setOpenOrderMessage(null);
+    const response = await fetch(`/api/orders/${order.id}/status`, {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status: "CANCELLED", note: "Cancelled by the customer before placing a new order" }),
+    });
+    const payload = await response.json().catch(() => null);
+    setCancellingOrderId(null);
+    if (!response.ok) {
+      setOpenOrderMessage({ tone: "danger", text: payload?.error?.message ?? "Could not cancel that order." });
+      return;
+    }
+    setOpenOrderMessage({ tone: "success", text: `Order ${order.orderNumber} cancelled. Any refund goes to your wallet.` });
+    router.refresh();
   }
 
   async function checkout(acknowledgeClosedShopIds: string[] = []) {
@@ -643,7 +697,66 @@ export function CartView({
           ) : null}
 
           <div className="mt-4 space-y-2">
-            {affordable && confirmingClosed ? (
+            {openOrderMessage && !(confirmingOpenOrders && relevantOpenOrders.length > 0) ? (
+              <Alert tone={openOrderMessage.tone}>{openOrderMessage.text}</Alert>
+            ) : null}
+            {affordable && confirmingOpenOrders && relevantOpenOrders.length > 0 ? (
+              <div className="space-y-2" data-testid="open-order-confirm">
+                <Alert tone="warning" title="You already have an open order">
+                  <ul className="mt-1 space-y-2">
+                    {relevantOpenOrders.map((o) => (
+                      <li key={o.id} className="flex flex-wrap items-center justify-between gap-2" data-testid="open-order">
+                        <span>
+                          <Link href="/orders" className="font-medium underline">
+                            {o.orderNumber}
+                          </Link>{" "}
+                          · {o.shopName} — <strong>{o.statusLabel}</strong> · <Money paise={o.totalPaise} />
+                        </span>
+                        {o.customerMayCancel ? (
+                          <Button
+                            size="sm"
+                            variant="danger"
+                            disabled={busy || cancellingOrderId !== null}
+                            onClick={() => cancelOpenOrder(o)}
+                          >
+                            {cancellingOrderId === o.id ? "Cancelling…" : "Cancel this order"}
+                          </Button>
+                        ) : (
+                          <span className="text-xs">Being prepared — contact the shop to cancel it.</span>
+                        )}
+                        {o.customerMayCancel && (o.status === "PICKED_UP" || o.status === "OUT_FOR_DELIVERY") ? (
+                          <span className="w-full text-xs">
+                            Already on its way: cancelling refunds the goods, not the delivery fee.
+                          </span>
+                        ) : null}
+                      </li>
+                    ))}
+                  </ul>
+                </Alert>
+                {openOrderMessage ? <Alert tone={openOrderMessage.tone}>{openOrderMessage.text}</Alert> : null}
+                <div className="flex gap-2">
+                  <Button
+                    className="flex-1"
+                    disabled={busy || cancellingOrderId !== null}
+                    onClick={() => {
+                      setOpenOrdersAcknowledged(true);
+                      setConfirmingOpenOrders(false);
+                      proceedToPay();
+                    }}
+                  >
+                    Ignore and continue
+                  </Button>
+                  <Button
+                    className="flex-1"
+                    variant="secondary"
+                    disabled={busy || cancellingOrderId !== null}
+                    onClick={() => setConfirmingOpenOrders(false)}
+                  >
+                    Go back
+                  </Button>
+                </div>
+              </div>
+            ) : affordable && confirmingClosed ? (
               <div className="space-y-2" data-testid="shop-closed-confirm">
                 <Alert tone="warning">
                   <span>
@@ -695,7 +808,7 @@ export function CartView({
                 size="lg"
                 disabled={busy || cart.grandTotalPaise === 0 || hasBlockingIssue || missingSlot}
                 title={missingSlot ? "Choose a delivery time for your scheduled delivery" : undefined}
-                onClick={() => (closedGroups.length > 0 ? setConfirmingClosed(true) : checkout())}
+                onClick={startPay}
               >
                 {busy ? "Placing order…" : payingCod ? "Place order — pay cash on delivery" : "Pay from wallet"}
               </Button>
