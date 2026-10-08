@@ -28,6 +28,12 @@ export const PERMISSIONS = {
   PRODUCT_MANAGE: "product:manage",
   SHOP_PRODUCT_MANAGE_OWN: "shop-product:manage:own",
   SHOP_PRODUCT_MANAGE_ANY: "shop-product:manage:any",
+  /**
+   * Module 1: add or remove the people allowed to edit the own shop's product
+   * photos and descriptions (shop_staff). Staff need no role of their own —
+   * the shop_staff row is their access, to that shop only.
+   */
+  SHOP_STAFF_MANAGE_OWN: "shop-staff:manage:own",
   /** Create a brand-new master product and attach it to the actor's own shop. */
   PRODUCT_CREATE_OWN: "product:create:own",
   /** Create a brand-new master product and attach it to any shop. */
@@ -294,6 +300,7 @@ const SHOP_OWNER_PERMISSIONS: readonly Permission[] = [
   // Buying for the shop's business is a separate flow from personal orders.
   PERMISSIONS.ORDER_PLACE_B2B,
   PERMISSIONS.SHOP_PRODUCT_MANAGE_OWN,
+  PERMISSIONS.SHOP_STAFF_MANAGE_OWN,
   PERMISSIONS.PRODUCT_CREATE_OWN,
   PERMISSIONS.ORDER_VIEW_SHOP,
   PERMISSIONS.ORDER_UPDATE_STATUS_SHOP,
@@ -472,6 +479,7 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.SHOP_PRODUCT_CATEGORY_MANAGE_ANY]: "Add or remove categories on any shop",
   [PERMISSIONS.SHOP_PRODUCT_MANAGE_OWN]: "Manage own shop's products",
   [PERMISSIONS.SHOP_PRODUCT_MANAGE_ANY]: "Manage any shop's products",
+  [PERMISSIONS.SHOP_STAFF_MANAGE_OWN]: "Choose who may edit the own shop's product photos and descriptions",
   [PERMISSIONS.PRODUCT_CREATE_OWN]: "Create a new product for own shop",
   [PERMISSIONS.PRODUCT_CREATE_ANY]: "Create a new product for any shop",
   [PERMISSIONS.PRODUCT_APPROVE]:

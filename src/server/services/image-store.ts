@@ -4,16 +4,20 @@
  * The browser downsizes and re-encodes before upload; the server does not
  * trust that and re-checks everything: real file type from the bytes (never
  * the filename or declared type), size, and pixel dimensions. Accepted:
- * JPEG, PNG, WebP. Images live in the database (stored_images) and are served
- * by GET /api/images/{id}.
+ * JPEG, PNG, WebP. Images are recorded in stored_images and served by
+ * GET /api/images/{id}. Their bytes are in the row (storage DB) or, for
+ * product photos processed by Module 1, in a file under MEDIA_DIR
+ * (storage DISK) — see server/media/blob-store.ts.
  */
 import { createHash } from "node:crypto";
 
-import { eq } from "drizzle-orm";
+import { and, eq, getTableColumns } from "drizzle-orm";
 
 import { notFound, validationFailed } from "@/lib/errors";
 import { db, type DbClient } from "@/server/db";
-import { storedImages, type StoredImage } from "@/server/db/schema";
+import { storedImageVariants, storedImages, type StoredImage } from "@/server/db/schema";
+import { putBlob, discardBlobs, readBlob, type StoredBlob } from "@/server/media/blob-store";
+import type { ProcessedPhoto } from "@/server/media/photo-pipeline";
 import { getRule } from "./settings";
 
 export type ImagePurpose = StoredImage["purpose"];
@@ -107,6 +111,140 @@ export async function getImage(id: string): Promise<StoredImage> {
   const [row] = await db.select().from(storedImages).where(eq(storedImages.id, id));
   if (!row) throw notFound("Image");
   return row;
+}
+
+/* ------------------------------------------- Module 1: processed photos */
+
+const { data: _data, ...metaColumns } = getTableColumns(storedImages);
+export type StoredImageMeta = Omit<StoredImage, "data">;
+
+/** An image's record without its bytes (for access checks before reading anything). */
+export async function getImageMeta(id: string): Promise<StoredImageMeta> {
+  const [row] = await db.select(metaColumns).from(storedImages).where(eq(storedImages.id, id));
+  if (!row) throw notFound("Image");
+  return row;
+}
+
+export type ImageSize = "thumb" | "medium" | "large";
+
+export interface ServableImage {
+  bytes: Buffer;
+  contentType: string;
+  /** Strong validator for conditional requests: the file's hash plus the size served. */
+  etag: string;
+}
+
+/**
+ * The bytes to serve for an image at a size. THUMB/MEDIUM come from the
+ * variants a processed photo has; anything without variants (older uploads,
+ * return photos) is served at its only size.
+ */
+export async function readImageBytes(meta: StoredImageMeta, size: ImageSize | null): Promise<ServableImage> {
+  if (size === "thumb" || size === "medium") {
+    const [variant] = await db
+      .select()
+      .from(storedImageVariants)
+      .where(and(eq(storedImageVariants.storedImageId, meta.id), eq(storedImageVariants.variant, size === "thumb" ? "THUMB" : "MEDIUM")));
+    if (variant) {
+      return { bytes: await readBlob(variant), contentType: variant.contentType, etag: `"${meta.sha256.slice(0, 32)}-${size}"` };
+    }
+  }
+  let blob: StoredBlob = { storage: meta.storage, storageKey: meta.storageKey, data: null };
+  if (meta.storage === "DB") {
+    const [row] = await db.select({ data: storedImages.data }).from(storedImages).where(eq(storedImages.id, meta.id));
+    blob = { ...blob, data: row?.data ?? null };
+  }
+  return { bytes: await readBlob(blob), contentType: meta.contentType, etag: `"${meta.sha256.slice(0, 32)}"` };
+}
+
+export interface StoredPhotoBlobs {
+  large: StoredBlob;
+  medium: StoredBlob;
+  thumb: StoredBlob;
+}
+
+/** Writes a processed photo's three files to the media store (before any transaction). */
+export async function storePhotoBlobs(photo: ProcessedPhoto): Promise<StoredPhotoBlobs> {
+  const written: StoredBlob[] = [];
+  try {
+    const large = await putBlob(photo.large.data, "webp");
+    written.push(large);
+    const medium = await putBlob(photo.medium.data, "webp");
+    written.push(medium);
+    const thumb = await putBlob(photo.thumb.data, "webp");
+    written.push(thumb);
+    return { large, medium, thumb };
+  } catch (error) {
+    await discardBlobs(written);
+    throw error;
+  }
+}
+
+/** Removes files written by storePhotoBlobs when the rows for them were never committed. */
+export async function discardPhotoBlobs(blobs: StoredPhotoBlobs): Promise<void> {
+  await discardBlobs([blobs.large, blobs.medium, blobs.thumb]);
+}
+
+/** Records a processed photo (LARGE as the image, THUMB and MEDIUM as variants). */
+export async function insertProcessedPhoto(
+  photo: ProcessedPhoto,
+  blobs: StoredPhotoBlobs,
+  ownerId: string,
+  client: DbClient,
+): Promise<StoredImageMeta> {
+  const [row] = await client
+    .insert(storedImages)
+    .values({
+      ownerId,
+      purpose: "PRODUCT",
+      contentType: "image/webp",
+      sizeBytes: photo.large.sizeBytes,
+      width: photo.large.width,
+      height: photo.large.height,
+      sha256: photo.sha256,
+      storage: blobs.large.storage,
+      storageKey: blobs.large.storageKey,
+      data: blobs.large.data,
+    })
+    .returning(metaColumns);
+  await client.insert(storedImageVariants).values([
+    {
+      storedImageId: row.id,
+      variant: "MEDIUM",
+      contentType: "image/webp",
+      sizeBytes: photo.medium.sizeBytes,
+      width: photo.medium.width,
+      height: photo.medium.height,
+      storage: blobs.medium.storage,
+      storageKey: blobs.medium.storageKey,
+      data: blobs.medium.data,
+    },
+    {
+      storedImageId: row.id,
+      variant: "THUMB",
+      contentType: "image/webp",
+      sizeBytes: photo.thumb.sizeBytes,
+      width: photo.thumb.width,
+      height: photo.thumb.height,
+      storage: blobs.thumb.storage,
+      storageKey: blobs.thumb.storageKey,
+      data: blobs.thumb.data,
+    },
+  ]);
+  return row;
+}
+
+/** Disk keys of an image and its variants, read before the rows are deleted. */
+export async function storageKeysOf(storedImageId: string, client: DbClient = db): Promise<string[]> {
+  const [image] = await client
+    .select({ key: storedImages.storageKey })
+    .from(storedImages)
+    .where(eq(storedImages.id, storedImageId));
+  const variants = await client
+    .select({ key: storedImageVariants.storageKey })
+    .from(storedImageVariants)
+    .where(eq(storedImageVariants.storedImageId, storedImageId));
+  return [image?.key, ...variants.map((v) => v.key)].filter((k): k is string => Boolean(k));
 }
 
 /** URL a page uses to show a stored image. */

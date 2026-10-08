@@ -95,6 +95,15 @@ const serverEnvSchema = z.object({
    */
   PAN_ENCRYPTION_KEY: z.string().optional(),
 
+  /**
+   * Module 1: absolute path of a folder OUTSIDE the web root where product
+   * photos are written (random file names, served only through
+   * /api/images/{id}). Unset: photos are kept in the database, as before.
+   * On Hostinger use a folder in the account's home that a redeploy does not
+   * replace, and back it up with the database.
+   */
+  MEDIA_DIR: z.string().optional(),
+
   // Shared bearer token guarding the daily-order cron endpoint.
   CRON_SECRET: z.string().min(1, "CRON_SECRET is required"),
 

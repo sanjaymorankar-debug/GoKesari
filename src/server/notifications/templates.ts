@@ -117,6 +117,16 @@ export const TEMPLATES: Record<string, Template> = {
   [T.SECURITY_ACCOUNT_STATUS]: t("Account status changed", "Your account was {{status}}. {{detail}}"),
   [T.SHOP_APPROVED]: t("Shop approved", "{{shopName}} is approved and can start selling."),
   [T.SHOP_REJECTED]: t("Shop not approved", "{{shopName}} was not approved: {{reason}}"),
+  [T.SHOP_STAFF_ADDED]: t(
+    "You can now edit a shop's products",
+    "{{ownerName}} added you to {{shopName}}: you can add and change its product photos and descriptions.",
+  ),
+  [T.SHOP_STAFF_REMOVED]: t("Shop access removed", "You can no longer edit product photos and descriptions for {{shopName}}.", false),
+  [T.SHOP_MEDIA_IMPORT_FINISHED]: t(
+    "Bulk photo upload finished",
+    "{{shopName}}: {{applied}} applied, {{failed}} could not be applied. Open the upload for details.",
+    false,
+  ),
   [T.GRIEVANCE_RESOLVED]: t("Your complaint was resolved", "Ticket {{ticket}} has been resolved."),
   /* ------------------------------------- event layer (docs/event-driven-2026-10) */
   [T.ORDER_READY]: t("Order packed", "Your order {{orderNumber}} is packed and ready.", false),

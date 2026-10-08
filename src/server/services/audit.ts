@@ -18,6 +18,13 @@ export const AUDIT_ACTIONS = {
   SHOP_REACTIVATED: "shop.reactivated",
   SHOP_SUSPENSION_ORDER_RESOLVED: "shop.suspension_order_resolved",
   SHOP_UPDATED: "shop.updated",
+
+  /* --------------------------- Module 1: shop product photos & descriptions */
+  SHOP_PRODUCT_MEDIA_CHANGED: "shop_product.media_changed",
+  SHOP_PRODUCT_DESCRIPTION_CHANGED: "shop_product.description_changed",
+  SHOP_MEDIA_IMPORT_APPLIED: "shop_media_import.applied",
+  SHOP_STAFF_ADDED: "shop_staff.added",
+  SHOP_STAFF_REMOVED: "shop_staff.removed",
   SHOP_CLASSIFICATION_CHANGED: "shop.classification_changed",
   /** A rejected registration submitted again — the same row goes back to PENDING_APPROVAL. */
   SHOP_RESUBMITTED: "shop.resubmitted",

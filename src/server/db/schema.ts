@@ -1470,6 +1470,17 @@ export const shopProducts = pgTable(
       .references(() => products.id, { onDelete: "restrict" }),
     description: text("description"),
     imageUrl: text("image_url"),
+    /**
+     * Module 1 (docs/three-modules-2026-10): the shop's own short and long
+     * description of this product. NULL = show the master product's
+     * description. The older `description` column above is not shown anywhere
+     * and is left as it was.
+     */
+    shortDescription: text("short_description"),
+    longDescription: text("long_description"),
+    /** Who last changed this listing's photos or descriptions, and when. */
+    contentUpdatedAt: timestamp("content_updated_at", { withTimezone: true }),
+    contentUpdatedBy: uuid("content_updated_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
     onlinePricePaise: bigint("online_price_paise", { mode: "number" }),
     offlinePricePaise: bigint("offline_price_paise", { mode: "number" }),
     // Both channels default OFF: a shop must explicitly enable each one and
@@ -2392,11 +2403,59 @@ export const storedImages = pgTable(
     width: integer("width").notNull(),
     height: integer("height").notNull(),
     sha256: text("sha256").notNull(),
-    data: bytea("data").notNull(),
+    /**
+     * Where the bytes are (Module 1). DB: in `data`, as before. DISK: a file
+     * under MEDIA_DIR (outside the web root) named by `storage_key`, a random
+     * name — never a path a user chose. Served only through /api/images/{id}.
+     */
+    storage: text("storage", { enum: ["DB", "DISK"] }).notNull().default("DB"),
+    storageKey: text("storage_key"),
+    data: bytea("data"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
-  (t) => [index("stored_images_owner_idx").on(t.ownerId), index("stored_images_sha_idx").on(t.sha256)],
+  (t) => [
+    index("stored_images_owner_idx").on(t.ownerId),
+    index("stored_images_sha_idx").on(t.sha256),
+    check(
+      "stored_images_bytes_present",
+      sql`(${t.storage} = 'DB' AND ${t.data} IS NOT NULL) OR (${t.storage} = 'DISK' AND ${t.storageKey} IS NOT NULL)`,
+    ),
+  ],
 );
+
+/**
+ * Module 1: smaller copies of a processed product photo. The stored_images row
+ * itself is the LARGE WebP; THUMB and MEDIUM live here, stored the same way.
+ * GET /api/images/{id}?size=thumb|medium serves them (falls back to the
+ * stored_images row when a photo has no variants, e.g. older uploads).
+ */
+export const storedImageVariants = pgTable(
+  "stored_image_variants",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    storedImageId: uuid("stored_image_id")
+      .notNull()
+      .references(() => storedImages.id, { onDelete: "cascade" }),
+    variant: text("variant", { enum: ["THUMB", "MEDIUM"] }).notNull(),
+    contentType: text("content_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    width: integer("width").notNull(),
+    height: integer("height").notNull(),
+    storage: text("storage", { enum: ["DB", "DISK"] }).notNull().default("DB"),
+    storageKey: text("storage_key"),
+    data: bytea("data"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("stored_image_variants_unique").on(t.storedImageId, t.variant),
+    check(
+      "stored_image_variants_bytes_present",
+      sql`(${t.storage} = 'DB' AND ${t.data} IS NOT NULL) OR (${t.storage} = 'DISK' AND ${t.storageKey} IS NOT NULL)`,
+    ),
+  ],
+);
+
+export type StoredImageVariant = typeof storedImageVariants.$inferSelect;
 
 /**
  * C5: a rider's identity document (Aadhaar, PAN, driving licence, vehicle RC)
@@ -3562,6 +3621,97 @@ export const excelUploadItems = pgTable(
     uniqueIndex("excel_upload_items_row_unique").on(t.uploadId, t.rowNumber),
     index("excel_upload_items_upload_idx").on(t.uploadId),
   ],
+);
+
+/* ------------------------------------------------ Module 1: shop staff
+ * People a shop owner lets edit the shop's product photos and descriptions
+ * (scope CATALOGUE). A staff member keeps their own account and role; this
+ * row is the only thing that grants them access, and only to this shop.
+ * Revoked rows are kept for the audit trail.
+ */
+export const shopStaff = pgTable(
+  "shop_staff",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    scope: text("scope", { enum: ["CATALOGUE"] }).notNull().default("CATALOGUE"),
+    status: text("status", { enum: ["ACTIVE", "REVOKED"] }).notNull().default("ACTIVE"),
+    addedBy: uuid("added_by").references(() => users.id, { onDelete: "set null" }),
+    addedAt: timestamp("added_at", { withTimezone: true }).notNull().defaultNow(),
+    revokedBy: uuid("revoked_by").references(() => users.id, { onDelete: "set null" }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("shop_staff_one_active").on(t.shopId, t.userId).where(sql`${t.status} = 'ACTIVE'`),
+    index("shop_staff_user_idx").on(t.userId),
+  ],
+);
+
+/* ------------------------------------- Module 1: bulk photo/description upload
+ * A ZIP of photos named by SKU or barcode and/or a CSV of descriptions.
+ * Two phases like Excel uploads: the upload is checked and matched (nothing
+ * live changes), then applied. The archive is kept only until it is applied
+ * or cancelled.
+ */
+export const shopMediaImports = pgTable(
+  "shop_media_imports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    uploadedBy: uuid("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+    status: text("status", { enum: ["VALIDATED", "APPLYING", "APPLIED", "PARTIAL", "CANCELLED", "FAILED"] })
+      .notNull()
+      .default("VALIDATED"),
+    /** REPLACE: the ZIP's photos become the listing's photos. ADD: appended, up to the limit. */
+    photoMode: text("photo_mode", { enum: ["REPLACE", "ADD"] }).notNull().default("REPLACE"),
+    archiveName: text("archive_name"),
+    archiveBytes: integer("archive_bytes"),
+    archiveStorage: text("archive_storage", { enum: ["DB", "DISK"] }),
+    archiveKey: text("archive_key"),
+    archiveData: bytea("archive_data"),
+    csvName: text("csv_name"),
+    totals: jsonb("totals").$type<Record<string, number>>().notNull().default({}),
+    lastProgressAt: timestamp("last_progress_at", { withTimezone: true }),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("shop_media_imports_shop_idx").on(t.shopId, t.createdAt)],
+);
+
+export const shopMediaImportItems = pgTable(
+  "shop_media_import_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    importId: uuid("import_id")
+      .notNull()
+      .references(() => shopMediaImports.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: ["PHOTO", "DESCRIPTION"] }).notNull(),
+    /** The ZIP entry name, or "row N" of the CSV. */
+    sourceName: text("source_name").notNull(),
+    matchKey: text("match_key"),
+    matchMethod: text("match_method", { enum: ["SKU", "GTIN", "BARCODE"] }),
+    shopProductId: uuid("shop_product_id").references(() => shopProducts.id, { onDelete: "set null" }),
+    /** PHOTO: 1–5 when the file name gave one (KEY_2.jpg), else null (in name order). */
+    position: integer("position"),
+    status: text("status", {
+      enum: ["MATCHED", "UNMATCHED", "INVALID", "DUPLICATE", "APPLIED", "FAILED", "SKIPPED"],
+    }).notNull(),
+    message: text("message"),
+    productImageId: uuid("product_image_id"),
+    /** DESCRIPTION: { shortDescription?, longDescription? } */
+    payload: jsonb("payload").$type<Record<string, string | null>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("shop_media_import_items_import_idx").on(t.importId, t.status)],
 );
 
 /* ------------------------------------------------- price update workflow */
@@ -5113,6 +5263,9 @@ export type ReferralCode = typeof referralCodes.$inferSelect;
 export type ShopPayment = typeof shopPayments.$inferSelect;
 export type ExcelUpload = typeof excelUploads.$inferSelect;
 export type ExcelUploadItem = typeof excelUploadItems.$inferSelect;
+export type ShopStaff = typeof shopStaff.$inferSelect;
+export type ShopMediaImport = typeof shopMediaImports.$inferSelect;
+export type ShopMediaImportItem = typeof shopMediaImportItems.$inferSelect;
 export type PriceUpdateBatch = typeof priceUpdateBatches.$inferSelect;
 export type PriceUpdateRequest = typeof priceUpdateRequests.$inferSelect;
 export type UserRole = (typeof userRoleEnum.enumValues)[number];
