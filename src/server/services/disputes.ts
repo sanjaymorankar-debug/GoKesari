@@ -20,11 +20,22 @@
  *   - It does not touch the order's own status. An operator marking an order
  *     DISPUTED and a dispute case existing are related but separate facts, and
  *     collapsing them would make the order state machine depend on this one.
+ *
+ * Event layer (docs/event-driven-2026-10): the case is a conversation between
+ * three parties — the customer, the shop and support. Opening it gives the
+ * customer the case number at once and tells the shop and support; every
+ * comment and every status change notifies the other parties (emitEvent).
+ * The shop may comment and propose a resolution; money decisions stay with
+ * support. `awaiting_response_since` is the response clock the hourly SLA
+ * check escalates on.
  */
-import { and, desc, eq, inArray, lte, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, lte, or, sql } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import {
+  DISPUTE_OUTCOME_LABELS,
+  DISPUTE_REASON_LABELS,
+  DISPUTE_STATUS_LABELS,
   canMoveDispute,
   isDisputeTerminal,
   outcomeRequiresRefund,
@@ -38,18 +49,24 @@ import { formatPaise } from "@/lib/money";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db, type DbClient } from "@/server/db";
 import {
+  disputeAttachments,
+  disputeComments,
   disputeEvents,
   grievances,
   orderDisputes,
   orders,
+  shops,
+  storedImages,
   users,
   type DisputeEvent,
   type OrderDispute,
   type UserRole,
 } from "@/server/db/schema";
+import type { DisputeEventPayload, EventType } from "@/server/events/catalog";
+import { emitEvent } from "@/server/events/emit";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { refundDeliveredOrder } from "./finance";
-import { NOTIFICATION_TYPES, notify } from "./notifications";
+import { imageUrl } from "./image-store";
 import { getRule } from "./settings";
 
 interface Actor {
@@ -70,6 +87,106 @@ function assertMayWork(dispute: Pick<OrderDispute, "level">, actor: Actor): void
   if (dispute.level === "L2" && actor.role !== "ADMIN") {
     throw forbidden("This case is escalated — only an administrator can take it forward.");
   }
+}
+
+export type DisputeParty = "CUSTOMER" | "SHOP" | "SUPPORT";
+
+/** The people on a case: the order's customer and the shop's owner. */
+async function disputeParties(
+  client: DbClient,
+  dispute: Pick<OrderDispute, "orderId" | "shopId">,
+): Promise<{ orderNumber: string; buyerId: string; shopOwnerId: string; shopName: string }> {
+  const [row] = await client
+    .select({ orderNumber: orders.orderNumber, buyerId: orders.userId, shopOwnerId: shops.ownerId, shopName: shops.name })
+    .from(orders)
+    .innerJoin(shops, eq(shops.id, orders.shopId))
+    .where(eq(orders.id, dispute.orderId));
+  if (!row) throw notFound("Order");
+  return row;
+}
+
+/** Which side of the case the actor is on, or null when they are not on it. Staff count as support. */
+function partyOf(
+  actor: Actor,
+  parties: { buyerId: string; shopOwnerId: string },
+  dispute: Pick<OrderDispute, "raisedByUserId">,
+): DisputeParty | null {
+  if (isStaff(actor.role)) return "SUPPORT";
+  if (actor.id === parties.buyerId || actor.id === dispute.raisedByUserId) return "CUSTOMER";
+  if (actor.id === parties.shopOwnerId) return "SHOP";
+  return null;
+}
+
+function disputePayload(
+  dispute: OrderDispute,
+  parties: { orderNumber: string; buyerId: string; shopOwnerId: string },
+  extra: Partial<DisputeEventPayload> = {},
+): DisputeEventPayload {
+  return {
+    disputeId: dispute.id,
+    caseNumber: dispute.caseNumber,
+    orderNumber: parties.orderNumber,
+    buyerId: parties.buyerId,
+    shopOwnerId: parties.shopOwnerId,
+    level: dispute.level,
+    statusLabel: DISPUTE_STATUS_LABELS[dispute.status],
+    reasonLabel: DISPUTE_REASON_LABELS[dispute.reason],
+    amountPaise: dispute.disputedAmountPaise,
+    ...extra,
+  };
+}
+
+async function emitDisputeEvent(
+  tx: DbClient,
+  type: Extract<EventType, `dispute.${string}`>,
+  dispute: OrderDispute,
+  from: DisputeStatus | null,
+  actor: Actor | null,
+  extra: Partial<DisputeEventPayload> = {},
+): Promise<void> {
+  const parties = await disputeParties(tx, dispute);
+  await emitEvent(
+    {
+      type,
+      subjectId: dispute.id,
+      orderId: dispute.orderId,
+      transition: from === dispute.status ? null : { from, to: dispute.status },
+      actor: actor ?? { id: null, role: null },
+      payload: disputePayload(dispute, parties, extra),
+    },
+    tx,
+  );
+}
+
+/** Photos the actor uploaded for a case and has not attached anywhere yet. */
+async function attachImages(
+  tx: DbClient,
+  disputeId: string,
+  commentId: string | null,
+  imageIds: readonly string[] | undefined,
+  actor: Actor,
+): Promise<number> {
+  const ids = [...new Set(imageIds ?? [])];
+  if (ids.length === 0) return 0;
+  if (ids.length > 6) throw validationFailed("Attach at most 6 photos at a time.");
+  const owned = await tx
+    .select({ id: storedImages.id })
+    .from(storedImages)
+    .where(
+      and(
+        inArray(storedImages.id, ids),
+        eq(storedImages.ownerId, actor.id),
+        eq(storedImages.purpose, "DISPUTE_EVIDENCE"),
+      ),
+    );
+  if (owned.length !== ids.length) throw validationFailed("Attach only photos you uploaded for this dispute.");
+  const inserted = await tx
+    .insert(disputeAttachments)
+    .values(ids.map((storedImageId) => ({ disputeId, commentId, storedImageId, uploadedBy: actor.id })))
+    .onConflictDoNothing()
+    .returning({ id: disputeAttachments.id });
+  if (inserted.length !== ids.length) throw conflict("A photo is already attached to a dispute.");
+  return inserted.length;
 }
 
 async function appendEvent(
@@ -104,6 +221,8 @@ export interface OpenDisputeInput {
   disputedAmountPaise: number;
   /** The complaint this case came from, when it came from one. */
   grievanceId?: string | null;
+  /** Photos uploaded first through /api/images (purpose DISPUTE_EVIDENCE). */
+  imageIds?: string[];
 }
 
 /**
@@ -197,8 +316,11 @@ export async function openDispute(input: OpenDisputeInput, actor: Actor): Promis
         escalationNote: escalateNow
           ? `Opened at ${formatPaise(input.disputedAmountPaise)}, at or above the ${formatPaise(rules.escalateAbovePaise)} review limit.`
           : null,
+        // The response clock starts now: the shop or support has to answer.
+        awaitingResponseSince: new Date(),
       })
       .returning();
+    await attachImages(tx, dispute.id, null, input.imageIds, actor);
 
     await appendEvent(tx, {
       disputeId: dispute.id,
@@ -229,15 +351,8 @@ export async function openDispute(input: OpenDisputeInput, actor: Actor): Promis
       tx,
     );
 
-    await notify(
-      {
-        userId: order.userId,
-        type: NOTIFICATION_TYPES.DISPUTE_OPENED,
-        vars: { caseNumber: dispute.caseNumber, orderNumber: order.orderNumber },
-        actionUrl: "/orders",
-      },
-      tx,
-    );
+    // The customer gets the case number now; the shop and support are told.
+    await emitDisputeEvent(tx, "dispute.opened", dispute, null, actor);
 
     return dispute;
   });
@@ -269,7 +384,15 @@ export async function advanceDispute(
 
   return db.transaction(async (tx) => {
     const dispute = await lockDispute(tx, disputeId);
-    assertMayWork(dispute, actor);
+    const parties = await disputeParties(tx, dispute);
+    const party = partyOf(actor, parties, dispute);
+    // The shop may answer a case with an offer of its own; anything else is support's.
+    if (party === "SHOP") {
+      if (input.to !== "RESOLUTION_PROPOSED") throw forbidden("A shop can only propose a resolution.");
+      if (dispute.level === "L2") throw forbidden("This case is with a senior reviewer — reply with a comment instead.");
+    } else {
+      assertMayWork(dispute, actor);
+    }
     if (isDisputeTerminal(dispute.status)) {
       throw conflict(`Dispute ${dispute.caseNumber} is already closed.`);
     }
@@ -280,9 +403,11 @@ export async function advanceDispute(
       throw validationFailed("Say what is being proposed — the customer is told.");
     }
 
+    const now = new Date();
     const [updated] = await tx
       .update(orderDisputes)
-      .set({ status: input.to, updatedAt: new Date() })
+      // Moving the case on is an answer: the response clock stops.
+      .set({ status: input.to, awaitingResponseSince: null, lastResponseAt: now, updatedAt: now })
       .where(eq(orderDisputes.id, dispute.id))
       .returning();
 
@@ -309,18 +434,19 @@ export async function advanceDispute(
       tx,
     );
 
-    if (input.to === "RESOLUTION_PROPOSED") {
-      await notifyRaiser(tx, dispute, NOTIFICATION_TYPES.DISPUTE_RESOLUTION_PROPOSED, {
-        caseNumber: dispute.caseNumber,
-        proposal: input.proposal!.trim(),
-      });
-    }
-    if (input.to === "REJECTED") {
-      await notifyRaiser(tx, dispute, NOTIFICATION_TYPES.DISPUTE_REJECTED, {
-        caseNumber: dispute.caseNumber,
-        reason: input.note?.trim() || "after review",
-      });
-    }
+    // Everyone on the case hears; only a proposal or a rejection reason is
+    // customer-facing text — other notes stay internal.
+    await emitDisputeEvent(tx, "dispute.status_changed", updated, dispute.status, actor, {
+      customerTemplate:
+        input.to === "RESOLUTION_PROPOSED" ? "RESOLUTION_PROPOSED" : input.to === "REJECTED" ? "REJECTED" : undefined,
+      proposal: input.proposal?.trim() ?? null,
+      detail:
+        input.to === "RESOLUTION_PROPOSED"
+          ? `Proposed${party === "SHOP" ? " by the shop" : ""}: ${input.proposal!.trim()}`
+          : input.to === "REJECTED"
+            ? input.note?.trim() || "after review"
+            : null,
+    });
 
     return updated;
   });
@@ -389,11 +515,95 @@ export async function escalateDispute(
       },
       tx,
     );
+    // The administrators get the reason; the customer and the shop get fixed wording.
+    await emitDisputeEvent(tx, "dispute.escalated", updated, dispute.status, actor, { why: input.note });
 
     return updated;
   };
 
   return client ? run(client) : db.transaction(run);
+}
+
+export interface AddCommentInput {
+  body: string;
+  /** Support only: a note for colleagues, never shown to the customer or the shop. */
+  internal?: boolean;
+  imageIds?: string[];
+  /** Client-generated per "Send", so a double tap or a retry posts once. */
+  clientRequestId: string;
+}
+
+/**
+ * Event layer: someone on the case writes on it. The customer, the shop and
+ * support may all comment (support may also leave an internal note); the
+ * other parties are notified at once. A reply from the shop or support stops
+ * the response clock; a customer's message starts it if it was not running.
+ */
+export async function addDisputeComment(disputeId: string, input: AddCommentInput, actor: Actor) {
+  const body = input.body.trim();
+  if (body.length < 2) throw validationFailed("Write a message.");
+  if (body.length > 2000) throw validationFailed("Keep the message under 2,000 characters.");
+
+  return db.transaction(async (tx) => {
+    const dispute = await lockDispute(tx, disputeId);
+    const parties = await disputeParties(tx, dispute);
+    const party = partyOf(actor, parties, dispute);
+    if (!party) throw forbidden("You do not have access to this dispute.");
+    if (isDisputeTerminal(dispute.status)) throw conflict(`Dispute ${dispute.caseNumber} is closed.`);
+    const internal = Boolean(input.internal);
+    if (internal && party !== "SUPPORT") throw forbidden("Only support can leave an internal note.");
+
+    const [comment] = await tx
+      .insert(disputeComments)
+      .values({
+        disputeId,
+        authorId: actor.id,
+        authorParty: party,
+        body,
+        internal,
+        clientRequestId: input.clientRequestId,
+      })
+      .onConflictDoNothing()
+      .returning();
+    if (!comment) {
+      // The same "Send" again: hand back what was posted, notify nobody.
+      const [existing] = await tx
+        .select()
+        .from(disputeComments)
+        .where(and(eq(disputeComments.disputeId, disputeId), eq(disputeComments.clientRequestId, input.clientRequestId)));
+      return existing;
+    }
+    await attachImages(tx, disputeId, comment.id, input.imageIds, actor);
+
+    const now = new Date();
+    if (!internal) {
+      await tx
+        .update(orderDisputes)
+        .set(
+          party === "CUSTOMER"
+            ? { awaitingResponseSince: dispute.awaitingResponseSince ?? now, updatedAt: now }
+            : { awaitingResponseSince: null, lastResponseAt: now, updatedAt: now },
+        )
+        .where(eq(orderDisputes.id, disputeId));
+    }
+    await recordAudit(
+      {
+        actorId: actor.id,
+        actorRole: actor.role,
+        action: AUDIT_ACTIONS.DISPUTE_COMMENTED,
+        entityType: "order_dispute",
+        entityId: disputeId,
+        newValue: { commentId: comment.id, party, internal },
+      },
+      tx,
+    );
+    await emitDisputeEvent(tx, "dispute.comment_added", dispute, dispute.status, actor, {
+      author: party === "CUSTOMER" ? "The customer" : party === "SHOP" ? parties.shopName : "GoKesari support",
+      excerpt: body.length > 140 ? `${body.slice(0, 137)}…` : body,
+      internal,
+    });
+    return comment;
+  });
 }
 
 export interface ResolveDisputeInput {
@@ -494,6 +704,8 @@ export async function resolveDispute(
         resolutionNotes: notes,
         resolvedBy: actor.id,
         resolvedAt: new Date(),
+        awaitingResponseSince: null,
+        lastResponseAt: new Date(),
         updatedAt: new Date(),
       })
       .where(eq(orderDisputes.id, locked.id))
@@ -527,9 +739,10 @@ export async function resolveDispute(
       tx,
     );
 
-    await notifyRaiser(tx, locked, NOTIFICATION_TYPES.DISPUTE_RESOLVED, {
-      caseNumber: locked.caseNumber,
-      outcome: refundedPaise ? `${formatPaise(refundedPaise)} has been refunded.` : notes,
+    await emitDisputeEvent(tx, "dispute.resolved", updated, locked.status, actor, {
+      outcome: refundedPaise
+        ? `${formatPaise(refundedPaise)} has been refunded.`
+        : `${DISPUTE_OUTCOME_LABELS[input.outcome]}. ${notes}`,
     });
 
     return updated;
@@ -537,7 +750,12 @@ export async function resolveDispute(
 }
 
 /**
- * Escalates every live L1 case older than the age threshold.
+ * The hourly dispute check (safety net): escalates to an administrator every
+ * live L1 case that
+ *   - has waited for a reply from the shop or support longer than
+ *     `responseSlaHours` (the SLA — trigger SLA), or
+ *   - is older than `escalateAfterHours` however busy it is (trigger AGE).
+ * Either is off at 0.
  *
  * Idempotent by construction: it only selects L1 cases, and escalating moves
  * them to L2, so a second run in the same minute finds nothing. One case
@@ -549,33 +767,39 @@ export async function runDisputeEscalationSweep(now = new Date()): Promise<{
   failed: number;
 }> {
   const rules = await getRule("disputes");
-  if (rules.escalateAfterHours <= 0) return { considered: 0, escalated: 0, failed: 0 };
+  const conditions = [];
+  const slaCutoff = new Date(now.getTime() - rules.responseSlaHours * 3_600_000);
+  const ageCutoff = new Date(now.getTime() - rules.escalateAfterHours * 3_600_000);
+  if (rules.responseSlaHours > 0) conditions.push(lte(orderDisputes.awaitingResponseSince, slaCutoff));
+  if (rules.escalateAfterHours > 0) conditions.push(lte(orderDisputes.createdAt, ageCutoff));
+  if (conditions.length === 0) return { considered: 0, escalated: 0, failed: 0 };
 
-  const cutoff = new Date(now.getTime() - rules.escalateAfterHours * 60 * 60 * 1000);
   const stale = await db
-    .select({ id: orderDisputes.id, caseNumber: orderDisputes.caseNumber, createdAt: orderDisputes.createdAt })
+    .select({
+      id: orderDisputes.id,
+      caseNumber: orderDisputes.caseNumber,
+      createdAt: orderDisputes.createdAt,
+      awaitingResponseSince: orderDisputes.awaitingResponseSince,
+    })
     .from(orderDisputes)
-    .where(
-      and(
-        eq(orderDisputes.level, "L1"),
-        inArray(orderDisputes.status, LIVE_STATUSES),
-        lte(orderDisputes.createdAt, cutoff),
-      ),
-    )
+    .where(and(eq(orderDisputes.level, "L1"), inArray(orderDisputes.status, LIVE_STATUSES), or(...conditions)))
     .orderBy(orderDisputes.createdAt)
     .limit(200);
 
   let escalated = 0;
   let failed = 0;
   for (const row of stale) {
-    const hours = Math.floor((now.getTime() - row.createdAt.getTime()) / 3_600_000);
+    const overdue =
+      rules.responseSlaHours > 0 && row.awaitingResponseSince !== null && row.awaitingResponseSince <= slaCutoff;
+    const hours = Math.floor(
+      (now.getTime() - (overdue ? row.awaitingResponseSince! : row.createdAt).getTime()) / 3_600_000,
+    );
     try {
       await escalateDispute(
         row.id,
-        {
-          trigger: "AGE",
-          note: `Open ${hours} h, past the ${rules.escalateAfterHours} h review limit.`,
-        },
+        overdue
+          ? { trigger: "SLA", note: `No reply for ${hours} h, past the ${rules.responseSlaHours} h response time.` }
+          : { trigger: "AGE", note: `Open ${hours} h, past the ${rules.escalateAfterHours} h review limit.` },
         null,
       );
       escalated += 1;
@@ -658,12 +882,28 @@ export async function listDisputes(filters: DisputeFilters = {}): Promise<Disput
  */
 export type CustomerVisibleEvent = Omit<DisputeEvent, "note" | "actorId" | "actorRole">;
 
+export interface DisputeCommentView {
+  id: string;
+  authorParty: DisputeParty;
+  /** "You", the shop's name, "Customer" or "GoKesari support" — never a staff member's name. */
+  authorLabel: string;
+  body: string;
+  internal: boolean;
+  createdAt: Date;
+  images: { id: string; url: string }[];
+}
+
 export interface DisputeDetail {
   dispute: OrderDispute;
   orderNumber: string;
   events: DisputeEvent[] | CustomerVisibleEvent[];
-  /** False when the caller is the customer: notes and reviewer identities are withheld. */
+  /** False when the caller is the customer or the shop: notes and reviewer identities are withheld. */
   internal: boolean;
+  /** Event layer: which side the viewer is on, the conversation, and photos on the case itself. */
+  viewerParty: DisputeParty;
+  shopName: string;
+  comments: DisputeCommentView[];
+  images: { id: string; url: string }[];
 }
 
 /**
@@ -683,18 +923,20 @@ export async function getDispute(disputeId: string, actor: Actor): Promise<Dispu
     .limit(1);
   if (!row) return null;
 
-  if (row.dispute.raisedByUserId !== actor.id && !isStaff(actor.role)) {
-    throw forbidden("You do not have access to this dispute.");
-  }
+  const parties = await disputeParties(db, row.dispute);
+  const viewerParty = partyOf(actor, parties, row.dispute);
+  if (!viewerParty) throw forbidden("You do not have access to this dispute.");
 
   const events = await db
     .select()
     .from(disputeEvents)
     .where(eq(disputeEvents.disputeId, disputeId))
     .orderBy(disputeEvents.createdAt);
+  const { comments, images } = await loadConversation(disputeId, viewerParty, actor.id, parties.shopName);
+  const shared = { viewerParty, shopName: parties.shopName, comments, images };
 
-  if (isStaff(actor.role)) {
-    return { dispute: row.dispute, orderNumber: row.orderNumber, events, internal: true };
+  if (viewerParty === "SUPPORT") {
+    return { dispute: row.dispute, orderNumber: row.orderNumber, events, internal: true, ...shared };
   }
 
   // The customer's own view. `resolutionNotes` stays: it is the answer to their
@@ -722,16 +964,83 @@ export async function getDispute(disputeId: string, actor: Actor): Promise<Dispu
       createdAt: e.createdAt,
     })),
     internal: false,
+    ...shared,
   };
+}
+
+/** The case's comments and photos as this viewer may see them (internal notes: support only). */
+async function loadConversation(disputeId: string, viewer: DisputeParty, viewerId: string, shopName: string) {
+  const rows = await db
+    .select()
+    .from(disputeComments)
+    .where(
+      and(eq(disputeComments.disputeId, disputeId), viewer === "SUPPORT" ? undefined : eq(disputeComments.internal, false)),
+    )
+    .orderBy(asc(disputeComments.createdAt));
+  const files = await db
+    .select({ commentId: disputeAttachments.commentId, imageId: disputeAttachments.storedImageId })
+    .from(disputeAttachments)
+    .where(eq(disputeAttachments.disputeId, disputeId))
+    .orderBy(asc(disputeAttachments.createdAt));
+  const label = (c: (typeof rows)[number]) =>
+    c.authorId === viewerId
+      ? "You"
+      : c.authorParty === "SHOP"
+        ? shopName
+        : c.authorParty === "CUSTOMER"
+          ? "Customer"
+          : "GoKesari support";
+  return {
+    comments: rows.map<DisputeCommentView>((c) => ({
+      id: c.id,
+      authorParty: c.authorParty,
+      authorLabel: label(c),
+      body: c.body,
+      internal: c.internal,
+      createdAt: c.createdAt,
+      images: files.filter((f) => f.commentId === c.id).map((f) => ({ id: f.imageId, url: imageUrl(f.imageId) })),
+    })),
+    // Photos attached when the case was opened; a comment's photos travel with
+    // it, so those on an internal note stay with support.
+    images: files.filter((f) => f.commentId === null).map((f) => ({ id: f.imageId, url: imageUrl(f.imageId) })),
+  };
+}
+
+/**
+ * Who may open a dispute photo: whoever uploaded it, support, and — once it is
+ * on a case — that case's customer and shop. Photos on an internal note stay
+ * with support.
+ */
+export async function canViewDisputeImage(imageId: string, ownerId: string | null, user: Actor): Promise<boolean> {
+  if (isStaff(user.role) || (ownerId !== null && ownerId === user.id)) return true;
+  const [row] = await db
+    .select({ dispute: orderDisputes, internal: disputeComments.internal })
+    .from(disputeAttachments)
+    .innerJoin(orderDisputes, eq(orderDisputes.id, disputeAttachments.disputeId))
+    .leftJoin(disputeComments, eq(disputeComments.id, disputeAttachments.commentId))
+    .where(eq(disputeAttachments.storedImageId, imageId))
+    .limit(1);
+  if (!row || row.internal) return false;
+  const parties = await disputeParties(db, row.dispute);
+  return partyOf(user, parties, row.dispute) !== null;
+}
+
+/** Event layer: the cases on a shop owner's orders, newest first (the shop's dispute list). */
+export async function listDisputesForShopOwner(ownerId: string): Promise<DisputeListRow[]> {
+  const owned = await db.select({ id: shops.id }).from(shops).where(eq(shops.ownerId, ownerId));
+  if (owned.length === 0) return [];
+  const rows = await Promise.all(owned.map((s) => listDisputes({ shopId: s.id, limit: 100 })));
+  return rows.flat().sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime());
 }
 
 /** Live cases on a set of orders, for showing state on an order list. */
 export async function getLiveDisputesForOrders(
   orderIds: readonly string[],
-): Promise<Map<string, { caseNumber: string; status: DisputeStatus; level: DisputeLevel }>> {
+): Promise<Map<string, { id: string; caseNumber: string; status: DisputeStatus; level: DisputeLevel }>> {
   if (orderIds.length === 0) return new Map();
   const rows = await db
     .select({
+      id: orderDisputes.id,
       orderId: orderDisputes.orderId,
       caseNumber: orderDisputes.caseNumber,
       status: orderDisputes.status,
@@ -741,7 +1050,7 @@ export async function getLiveDisputesForOrders(
     .where(
       and(inArray(orderDisputes.orderId, [...orderIds]), inArray(orderDisputes.status, LIVE_STATUSES)),
     );
-  return new Map(rows.map((r) => [r.orderId, { caseNumber: r.caseNumber, status: r.status, level: r.level }]));
+  return new Map(rows.map((r) => [r.orderId, { id: r.id, caseNumber: r.caseNumber, status: r.status, level: r.level }]));
 }
 
 export interface DisputeCounts {
@@ -784,14 +1093,4 @@ async function getDisputeRow(disputeId: string): Promise<OrderDispute> {
   const [dispute] = await db.select().from(orderDisputes).where(eq(orderDisputes.id, disputeId)).limit(1);
   if (!dispute) throw notFound("Dispute");
   return dispute;
-}
-
-async function notifyRaiser(
-  tx: DbClient,
-  dispute: Pick<OrderDispute, "raisedByUserId">,
-  type: (typeof NOTIFICATION_TYPES)[keyof typeof NOTIFICATION_TYPES],
-  vars: Record<string, string>,
-): Promise<void> {
-  if (!dispute.raisedByUserId) return;
-  await notify({ userId: dispute.raisedByUserId, type, vars, actionUrl: "/orders" }, tx);
 }

@@ -1,6 +1,8 @@
 /**
- * One dispute case (GS-058). GET is readable by the customer who raised it and
- * by staff. PATCH is the staff-only lifecycle: advance, escalate or resolve.
+ * One dispute case (GS-058). GET is readable by the case's customer, its shop
+ * and staff (each sees what is theirs to see). PATCH is the lifecycle:
+ * advance (staff; the shop may only propose a resolution), escalate or
+ * resolve (staff). Every change notifies the other parties at once.
  */
 import type { NextRequest } from "next/server";
 import { z } from "zod";
@@ -8,6 +10,7 @@ import { z } from "zod";
 import { notFound } from "@/lib/errors";
 import { DISPUTE_OUTCOMES, DISPUTE_STATUSES } from "@/lib/dispute-states";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
+import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
 import { requirePermission, requireUser } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { advanceDispute, escalateDispute, getDispute, resolveDispute } from "@/server/services/disputes";
@@ -43,16 +46,20 @@ const patchSchema = z.discriminatedUnion("action", [
 ]);
 
 export const PATCH = route(async (request: NextRequest, context: RouteContext<{ id: string }>) => {
-  const user = await requirePermission(PERMISSIONS.DISPUTE_MANAGE);
+  const user = await requireUser();
+  enforceRateLimit(`dispute-update:${user.id}`, RATE_LIMITS.MUTATION);
   const { id } = await context.params;
   const body = await parseBody(request, patchSchema);
 
   switch (body.action) {
     case "advance":
+      // The service decides who may make which move (a shop: only a proposal).
       return ok(await advanceDispute(id, { to: body.to, note: body.note, proposal: body.proposal }, user));
     case "escalate":
+      await requirePermission(PERMISSIONS.DISPUTE_MANAGE);
       return ok(await escalateDispute(id, { trigger: "MANUAL", note: body.note }, user));
     case "resolve":
+      await requirePermission(PERMISSIONS.DISPUTE_MANAGE);
       return ok(
         await resolveDispute(
           id,

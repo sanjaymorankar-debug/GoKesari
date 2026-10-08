@@ -1,7 +1,7 @@
 /**
  * Serves a stored image. Product photos are public and cacheable; return
  * evidence only goes to the customer who uploaded it, the shop the return is
- * for, and staff. Rider photos and identity documents are access-checked (C5).
+ * for, and staff; dispute photos only to the case's customer, shop and staff. Rider photos and identity documents are access-checked (C5).
  */
 import { NextResponse, type NextRequest } from "next/server";
 
@@ -11,6 +11,7 @@ import { getImage } from "@/server/services/image-store";
 import { isHiddenProductFile, isImageStaff } from "@/server/services/product-images";
 import { canViewReturnImage } from "@/server/services/returns";
 import { canViewDeliveryProof } from "@/server/services/delivery-proofs";
+import { canViewDisputeImage } from "@/server/services/disputes";
 import { canViewRiderKycFile, canViewRiderPhoto } from "@/server/services/rider-files";
 import { getRule } from "@/server/services/settings";
 
@@ -33,6 +34,13 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
       // NEW-007: the order's customer and shop, the rider who took it, operations.
       const user = await getCurrentUser();
       if (!user || !(await canViewDeliveryProof(image.id, user))) {
+        throw new AppError("NOT_FOUND", "Image not found.");
+      }
+      cache = "private, max-age=300";
+    } else if (image.purpose === "DISPUTE_EVIDENCE") {
+      // Event layer: the uploader, support, and the case's customer and shop.
+      const user = await getCurrentUser();
+      if (!user || !(await canViewDisputeImage(image.id, image.ownerId, user))) {
         throw new AppError("NOT_FOUND", "Image not found.");
       }
       cache = "private, max-age=300";

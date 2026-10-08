@@ -13,7 +13,13 @@
  *      are held for an operator, never auto-refunded (suspendShopWithPolicy
  *      with no actor).
  *   6. erase verification data of shops closed longer than
- *      `retentionDaysAfterClosure` (DPDP Act 2023 s.8(7)).
+ *      `retentionDaysAfterClosure` (DPDP Act 2023 s.8(7));
+ *   7. remind support of documents waiting in manual review longer than
+ *      `manualReviewReminderHours` (event layer) — one reminder a day.
+ *
+ * Checking a submitted document is NOT done here: that happens in the
+ * seller's own request (seller-verification.ts), and its result is announced
+ * at once. This job is only for what depends on time passing.
  *
  * Each step is capped per run so a vendor outage can't turn one run into
  * thousands of paid calls.
@@ -23,6 +29,7 @@ import { and, eq, inArray, isNotNull, lt, lte, gte, sql } from "drizzle-orm";
 import { SELLER_DOC_LABELS } from "@/lib/kyc/doc-formats";
 import { db } from "@/server/db";
 import { sellerVerificationEvents, sellerVerifications, shops } from "@/server/db/schema";
+import { emitEvent } from "@/server/events/emit";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { eraseShopVerificationData, recheckVerification, shopFacts, shopsDueForVerificationErasure } from "./seller-verification";
 import { isMandatory } from "./seller-verification-checks";
@@ -36,6 +43,7 @@ const DAY_MS = 86_400_000;
 const LAPSED_AT_SOURCE = ["document_cancelled", "document_suspended", "document_inactive"];
 
 export interface SweepResult {
+  reviewReminders: number;
   pendingRetried: number;
   gstRechecked: number;
   expiryWarnings: number;
@@ -49,7 +57,16 @@ const isoDay = (d: Date) => d.toISOString().slice(0, 10);
 
 export async function runSellerVerificationSweep(now: Date = new Date()): Promise<SweepResult> {
   const rule = await getRule("sellerVerification");
-  const result: SweepResult = { pendingRetried: 0, gstRechecked: 0, expiryWarnings: 0, expired: 0, shopsSuspended: 0, shopsErased: 0, errors: [] };
+  const result: SweepResult = {
+    reviewReminders: 0,
+    pendingRetried: 0,
+    gstRechecked: 0,
+    expiryWarnings: 0,
+    expired: 0,
+    shopsSuspended: 0,
+    shopsErased: 0,
+    errors: [],
+  };
   const todayIso = isoDay(now);
 
   const recheckAll = async (ids: string[], counter: "pendingRetried" | "gstRechecked") => {
@@ -219,5 +236,38 @@ export async function runSellerVerificationSweep(now: Date = new Date()): Promis
     }
   }
 
+  // 7. Waiting in manual review too long → remind support (once a day).
+  try {
+    result.reviewReminders = await remindStuckReviews(now, rule.manualReviewReminderHours);
+  } catch (error) {
+    result.errors.push(`review reminder: ${(error as Error).message}`);
+  }
+
   return result;
 }
+
+/** Event layer: one reminder to support listing how many documents have waited past the limit. */
+export async function remindStuckReviews(now: Date, hours: number): Promise<number> {
+  const cutoff = new Date(now.getTime() - hours * 3_600_000);
+  const stuck = await db
+    .select({ docType: sellerVerifications.docType, shopName: shops.name, since: sellerVerifications.updatedAt })
+    .from(sellerVerifications)
+    .innerJoin(shops, eq(shops.id, sellerVerifications.shopId))
+    .where(and(eq(sellerVerifications.status, "MANUAL_REVIEW"), lt(sellerVerifications.updatedAt, cutoff)))
+    .orderBy(sellerVerifications.updatedAt);
+  if (stuck.length === 0) return 0;
+  const oldest = stuck[0];
+  const { duplicate } = await emitEvent({
+    type: "seller_document.review_reminder",
+    subjectId: todayKey(now),
+    payload: {
+      count: stuck.length,
+      hours,
+      oldest: `${oldest.shopName}'s ${SELLER_DOC_LABELS[oldest.docType]}, waiting since ${isoDay(oldest.since)}`,
+    },
+    idempotencyKey: `seller-review-reminder:${todayKey(now)}`,
+  });
+  return duplicate ? 0 : 1;
+}
+
+const todayKey = (d: Date) => d.toISOString().slice(0, 10);

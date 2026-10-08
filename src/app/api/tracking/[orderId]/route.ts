@@ -6,6 +6,7 @@ import { forbidden, notFound } from "@/lib/errors";
 import { parseCoordinates } from "@/lib/geo/haversine";
 import { buildOrderTracking } from "@/lib/tracking";
 import { getRoute } from "@/server/services/routing";
+import { getRule } from "@/server/services/settings";
 import { ok, route, type RouteContext } from "@/server/api/handler";
 import { requireUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
@@ -43,6 +44,7 @@ export const GET = route(
         shopDeliveryAvailable: shops.deliveryAvailable,
         deliveryStatus: deliveryOrders.status,
         pickedUpAt: deliveryOrders.pickedUpAt,
+        startedAt: deliveryOrders.outForDeliveryAt,
         offeredAt: deliveryOrders.offeredAt,
         routeSource: deliveryOrders.routeSource,
         legDurationSeconds: deliveryOrders.legDurationSeconds,
@@ -79,6 +81,7 @@ export const GET = route(
     // when routing is off or unavailable — the original estimate.
     const fresh =
       row.deliveryStatus === "PICKED_UP" &&
+      row.orderStatus === "OUT_FOR_DELIVERY" &&
       riderCoords &&
       row.riderLocationAt &&
       Date.now() - row.riderLocationAt.getTime() <= 5 * 60_000;
@@ -95,18 +98,22 @@ export const GET = route(
           }
         : null;
 
-    return ok(
-      buildOrderTracking({
+    const { buyerPollSeconds } = await getRule("tracking");
+    return ok({
+      ...buildOrderTracking({
         orderId,
         orderStatus: row.orderStatus,
         shopDispatchesRiders: row.shopDeliveryAvailable,
-        delivery: row.deliveryStatus ? { status: row.deliveryStatus, pickedUpAt: row.pickedUpAt } : null,
+        delivery: row.deliveryStatus
+          ? { status: row.deliveryStatus, pickedUpAt: row.pickedUpAt, startedAt: row.startedAt }
+          : null,
         riderFix: riderCoords && row.riderLocationAt ? { ...riderCoords, recordedAt: row.riderLocationAt } : null,
         destination,
         now: new Date(),
         route: routeEstimate,
         plannedTrip,
       }),
-    );
+      pollSeconds: buyerPollSeconds,
+    });
   },
 );

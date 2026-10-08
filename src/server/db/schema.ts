@@ -141,7 +141,7 @@ export const departmentEnum = pgEnum("department", SHOP_TYPE_KEYS);
  *   → PICKED_UP → OUT_FOR_DELIVERY → DELIVERED
  *   exceptions: CANCELLED, FAILED (delivery failed), RETURNED (back at the
  *   shop), REFUND_PENDING/REFUNDED, DISPUTED.
- * Transitions live in services/orders.ts ALLOWED_TRANSITIONS; values added
+ * Transitions live in lib/state-machines.ts ORDER_TRANSITIONS; values added
  * after the first release are appended at the end (Postgres enum order).
  */
 export const orderStatusEnum = pgEnum("order_status", [
@@ -1754,6 +1754,12 @@ export const orders = pgTable(
      */
     acceptByAt: timestamp("accept_by_at", { withTimezone: true }),
     acceptReminderSentAt: timestamp("accept_reminder_sent_at", { withTimezone: true }),
+    /**
+     * Event layer: with rule shopAcceptance.onTimeout = ESCALATE, when support
+     * was alerted that the shop let the accept-by time pass (the order is then
+     * left for an operator instead of being cancelled). Stamped once.
+     */
+    acceptEscalatedAt: timestamp("accept_escalated_at", { withTimezone: true }),
     /** F6: the parent order (one reference for a multi-shop checkout). Null
      * for single-shop orders and for every order placed before F6. */
     /** F7: order-level coupon discount on this order (its share of a
@@ -2088,6 +2094,8 @@ export const riderSearches = pgTable(
     lastAttemptAt: timestamp("last_attempt_at", { withTimezone: true }),
     nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
     stoppedAt: timestamp("stopped_at", { withTimezone: true }),
+    /** Event layer: when support was told no rider had accepted within rule dispatch.alertSupportAfterMinutes. Once per search. */
+    supportAlertedAt: timestamp("support_alerted_at", { withTimezone: true }),
     startedBy: uuid("started_by").references(() => users.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -2353,7 +2361,10 @@ export const storedImages = pgTable(
     ownerId: uuid("owner_id").references(() => users.id, { onDelete: "set null" }),
     /** DELIVERY_PROOF (NEW-007): the rider's photo at the door — private to the order's people. */
     /** RIDER_KYC_DOC (C5): a rider's identity document — served to admins only. */
-    purpose: text("purpose", { enum: ["PRODUCT", "RETURN_EVIDENCE", "PROFILE_PHOTO", "DELIVERY_PROOF", "RIDER_KYC_DOC"] }).notNull(),
+    /** DISPUTE_EVIDENCE (event layer): a photo on a dispute case — its customer, shop and support only. */
+    purpose: text("purpose", {
+      enum: ["PRODUCT", "RETURN_EVIDENCE", "PROFILE_PHOTO", "DELIVERY_PROOF", "RIDER_KYC_DOC", "DISPUTE_EVIDENCE"],
+    }).notNull(),
     contentType: text("content_type").notNull(),
     sizeBytes: integer("size_bytes").notNull(),
     width: integer("width").notNull(),
@@ -3709,6 +3720,14 @@ export const orderDisputes = pgTable(
     escalationTrigger: text("escalation_trigger", { enum: ESCALATION_TRIGGERS }),
     escalationNote: text("escalation_note"),
 
+    /* --------------------------------------------------- response SLA (event layer)
+     * Set when the case opens and whenever the customer writes; cleared when the
+     * shop or support replies or moves the case. A live L1 case whose clock is
+     * older than rule disputes.responseSlaHours is escalated by the hourly
+     * SLA check. Null = nobody is waiting for an answer. */
+    awaitingResponseSince: timestamp("awaiting_response_since", { withTimezone: true }),
+    lastResponseAt: timestamp("last_response_at", { withTimezone: true }),
+
     /* -------------------------------------------------------------- outcome */
     outcome: text("outcome", { enum: DISPUTE_OUTCOMES }),
     /** What was actually refunded, from the finance adjustment — not what was asked for. */
@@ -3738,6 +3757,54 @@ export const orderDisputes = pgTable(
       "order_disputes_refund_non_negative",
       sql`${t.refundedPaise} IS NULL OR ${t.refundedPaise} >= 0`,
     ),
+  ],
+);
+
+/**
+ * Event layer: the conversation on a dispute case — the customer, the shop and
+ * support each write here. Append-only. `clientRequestId` makes a double-tapped
+ * "Send" one comment, not two. `internal` notes are written by support for
+ * support and are never shown to the customer or the shop.
+ */
+export const disputeComments = pgTable(
+  "dispute_comments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    disputeId: uuid("dispute_id")
+      .notNull()
+      .references(() => orderDisputes.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+    /** Which side wrote it, fixed at the time of writing. */
+    authorParty: text("author_party", { enum: ["CUSTOMER", "SHOP", "SUPPORT"] }).notNull(),
+    body: text("body").notNull(),
+    internal: boolean("internal").notNull().default(false),
+    clientRequestId: text("client_request_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("dispute_comments_dispute_idx").on(t.disputeId, t.createdAt),
+    uniqueIndex("dispute_comments_request_unique").on(t.disputeId, t.clientRequestId),
+  ],
+);
+
+/** Event layer: a photo on a dispute case (stored_images, purpose DISPUTE_EVIDENCE), optionally on one comment. */
+export const disputeAttachments = pgTable(
+  "dispute_attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    disputeId: uuid("dispute_id")
+      .notNull()
+      .references(() => orderDisputes.id, { onDelete: "cascade" }),
+    commentId: uuid("comment_id").references(() => disputeComments.id, { onDelete: "set null" }),
+    storedImageId: uuid("stored_image_id")
+      .notNull()
+      .references(() => storedImages.id, { onDelete: "restrict" }),
+    uploadedBy: uuid("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("dispute_attachments_dispute_idx").on(t.disputeId),
+    uniqueIndex("dispute_attachments_image_unique").on(t.storedImageId),
   ],
 );
 
@@ -3809,6 +3876,39 @@ export const auditLogs = pgTable(
     index("audit_logs_actor_idx").on(t.actorId),
     index("audit_logs_entity_idx").on(t.entityType, t.entityId),
     index("audit_logs_created_idx").on(t.createdAt),
+  ],
+);
+
+/* ------------------------------------------------------- domain events
+ * Event layer (docs/event-driven-2026-10): one append-only row per business
+ * event — an order, delivery, seller document or dispute changing status, or a
+ * timeout firing — written by emitEvent() in the same transaction as the
+ * change itself. `idempotencyKey`, when given, makes the event (and so its
+ * notifications) happen at most once: a retried sweep or a repeated request
+ * finds the row and stops. No foreign keys: the log outlives what it records. */
+export const domainEvents = pgTable(
+  "domain_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    type: text("type").notNull(),
+    subjectType: text("subject_type").notNull(),
+    subjectId: text("subject_id").notNull(),
+    orderId: uuid("order_id"),
+    fromStatus: text("from_status"),
+    toStatus: text("to_status"),
+    actorId: uuid("actor_id"),
+    actorRole: userRoleEnum("actor_role"),
+    payload: jsonb("payload").notNull().default(sql`'{}'::jsonb`),
+    idempotencyKey: text("idempotency_key"),
+    /** How many people the event notified (in-app rows written). */
+    notified: integer("notified").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("domain_events_idempotency_unique").on(t.idempotencyKey),
+    index("domain_events_subject_idx").on(t.subjectType, t.subjectId, t.createdAt),
+    index("domain_events_order_idx").on(t.orderId, t.createdAt),
+    index("domain_events_type_idx").on(t.type, t.createdAt),
   ],
 );
 
@@ -4949,6 +5049,9 @@ export type ReturnItem = typeof returnItems.$inferSelect;
 export type ReturnStatusHistoryRow = typeof returnStatusHistory.$inferSelect;
 export type OrderDispute = typeof orderDisputes.$inferSelect;
 export type DisputeEvent = typeof disputeEvents.$inferSelect;
+export type DisputeComment = typeof disputeComments.$inferSelect;
+export type DisputeAttachment = typeof disputeAttachments.$inferSelect;
+export type DomainEvent = typeof domainEvents.$inferSelect;
 export type ReturnPickup = typeof returnPickups.$inferSelect;
 export type NotificationPreference = typeof notificationPreferences.$inferSelect;
 export type NotificationDelivery = typeof notificationDeliveries.$inferSelect;

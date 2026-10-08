@@ -407,6 +407,13 @@
       "when": 1791397744411,
       "tag": "0057_rider_kyc_documents",
       "breakpoints": true
+    },
+    {
+      "idx": 58,
+      "version": "7",
+      "when": 1791444892056,
+      "tag": "0058_event_layer",
+      "breakpoints": true
     }
   ]
 }

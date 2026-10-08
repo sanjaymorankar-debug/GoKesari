@@ -4,7 +4,9 @@
  *
  * Retries documents a vendor outage left PENDING, re-checks GSTINs, warns
  * sellers before FSSAI / Shop Act expiry, marks expired documents and takes a
- * shop offline when a mandatory document has lapsed. Idempotent.
+ * shop offline when a mandatory document has lapsed, and reminds support of
+ * documents stuck in manual review (event layer). Checking a submitted
+ * document happens in the seller's own request, not here. Idempotent.
  */
 import type { NextRequest } from "next/server";
 

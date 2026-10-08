@@ -51,6 +51,13 @@ export const AUDIT_ACTIONS = {
   SUBSCRIPTION_RENEWED: "subscription.renewed",
   /** NEW-007 */
   ORDER_AUTO_CANCELLED: "order.auto_cancelled_acceptance_timeout",
+  /** Event layer: the accept-by time passed and support was alerted (shopAcceptance.onTimeout = ESCALATE). */
+  ORDER_ACCEPT_ESCALATED: "order.accept_escalated",
+  /** Event layer: no rider accepted within dispatch.alertSupportAfterMinutes; support alerted. */
+  RIDER_SEARCH_SUPPORT_ALERTED: "delivery.rider_search_support_alerted",
+  DISPUTE_COMMENTED: "dispute.commented",
+  /** Event layer: a pending shop approved without a person, once its documents were verified. */
+  SHOP_AUTO_APPROVED: "shop.auto_approved",
   DELIVERY_PROOF_UPLOADED: "delivery.proof_uploaded",
   INVOICE_ISSUED: "invoice.issued",
 

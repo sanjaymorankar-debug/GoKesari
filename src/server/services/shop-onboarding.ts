@@ -90,6 +90,15 @@ export async function countShopsByLifecycle(): Promise<Record<ShopLifecycleStatu
 export async function onboardingApprovalBlocker(shop: Shop, client: DbClient = db): Promise<string | null> {
   const rule = await getRule("statusModels");
   if (!rule.enforceTransitions) return null;
+  const missing = await missingMandatoryDocuments(shop, client);
+  if (missing.length === 0) return null;
+  return `${shop.name} cannot be approved until its seller documents are verified. Not yet verified: ${missing
+    .map((d) => SELLER_DOC_LABELS[d])
+    .join(", ")}.`;
+}
+
+/** Mandatory seller documents not yet VERIFIED for this shop (whatever the statusModels rule says). */
+export async function missingMandatoryDocuments(shop: Pick<Shop, "id" | "shopType">, client: DbClient = db) {
   const [row] = await client
     .select({ sellsFood: sql<boolean>`shop_sells_food(${shop.id}, ${shop.shopType}::text)` })
     .from(shops)
@@ -99,9 +108,5 @@ export async function onboardingApprovalBlocker(shop: Shop, client: DbClient = d
     .from(sellerVerifications)
     .where(and(eq(sellerVerifications.shopId, shop.id), eq(sellerVerifications.status, "VERIFIED")));
   const have = new Set(verified.map((v) => v.docType));
-  const missing = SELLER_DOC_TYPES.filter((d) => isMandatory(d, { isFoodBusiness: row?.sellsFood ?? false }) && !have.has(d));
-  if (missing.length === 0) return null;
-  return `${shop.name} cannot be approved until its seller documents are verified. Not yet verified: ${missing
-    .map((d) => SELLER_DOC_LABELS[d])
-    .join(", ")}.`;
+  return SELLER_DOC_TYPES.filter((d) => isMandatory(d, { isFoodBusiness: row?.sellsFood ?? false }) && !have.has(d));
 }

@@ -5,6 +5,10 @@
  * Sends queued outbound notifications (email today) and retries failed ones on
  * the configured backoff. Also queues the one-time "shop is open now" alerts for
  * orders placed while a shop was closed. Safe to overlap — rows are claimed with SKIP LOCKED.
+ *
+ * Event layer: superseded by /api/cron/notification-retry (retries) and
+ * /api/cron/timeout-sweep (shop-open alerts). Kept so the old crontab can be
+ * restored (docs/event-driven-2026-10/ROLLBACK.md).
  */
 import type { NextRequest } from "next/server";
 

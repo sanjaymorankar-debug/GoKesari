@@ -2,7 +2,12 @@
  * Fraud / risk rules and review queue (GS-068).
  *
  * `runRiskRules()` evaluates every rule against recent activity and raises
- * (or refreshes) one OPEN flag per subject and rule. Operations reviews the
+ * (or refreshes) one OPEN flag per subject and rule — the hourly scan for
+ * patterns across orders. Event layer: `checkRiskForUser()` runs the
+ * per-order rules for one customer the moment they place an order
+ * (HIGH_VALUE_OUTLIER) or a wallet payment fails (TOPUP_FAILURES), so a flag —
+ * and the support alert that comes with every new one — does not wait for the
+ * next hour. Operations reviews the
  * queue and DISMISSES a false positive or records the ACTION taken (a
  * suspension, a call, a refund refused...). Flags never act on their own,
  * with one exception: an OPEN HIGH flag on a customer pauses cash on
@@ -48,6 +53,7 @@ import { RULES as RULE_DEFAULTS_ALL, type RuleValue } from "@/server/config/rule
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { getRule } from "./settings";
 import { findAdminUserIds } from "./users";
+import { emitEvent } from "@/server/events/emit";
 
 const RULE_DEFAULTS = { riskRules: RULE_DEFAULTS_ALL.riskRules.defaults, deliveryOtp: RULE_DEFAULTS_ALL.deliveryOtp.defaults };
 
@@ -266,45 +272,57 @@ const RULES: Rule[] = buildRules(RULE_DEFAULTS.riskRules, RULE_DEFAULTS.delivery
 
 export const RISK_RULE_LABELS: Record<string, string> = Object.fromEntries(RULES.map((r) => [r.code, r.label]));
 
+/** Raises a new OPEN flag or refreshes the open one; returns the flags that are new. */
+async function raiseFlags(rule: Rule, rows: Record<string, unknown>[]): Promise<{ raised: RiskFlag[]; refreshed: number }> {
+  const hits: Hit[] = rows
+    .filter((r) => r.subject_id)
+    .map((r) => ({
+      subjectId: String(r.subject_id),
+      detail: Object.fromEntries(Object.entries(r).filter(([k]) => k !== "subject_id").map(([k, v]) => [k, v instanceof Date ? v.toISOString() : v == null ? null : String(v)])),
+      summary: rule.describe(r),
+    }));
+  const raised: RiskFlag[] = [];
+  let refreshed = 0;
+  for (const hit of hits) {
+    const [row] = await db
+      .insert(riskFlags)
+      .values({
+        subjectType: rule.subject,
+        subjectId: hit.subjectId,
+        ruleCode: rule.code,
+        severity: rule.severity,
+        summary: hit.summary,
+        details: hit.detail,
+      })
+      .onConflictDoUpdate({
+        target: [riskFlags.subjectType, riskFlags.subjectId, riskFlags.ruleCode],
+        targetWhere: sql`${riskFlags.status} = 'OPEN'`,
+        set: {
+          summary: hit.summary,
+          details: hit.detail,
+          lastDetectedAt: new Date(),
+          occurrences: sql`${riskFlags.occurrences} + 1`,
+        },
+      })
+      .returning();
+    if (row?.occurrences === 1) raised.push(row);
+    else refreshed += 1;
+  }
+  return { raised, refreshed };
+}
+
 /** Evaluates every rule; raises new flags and refreshes open ones. Safe to re-run. */
 export async function runRiskRules(actor: { id: string | null; role: UserRole | null }) {
   let raised = 0;
   let refreshed = 0;
+  const newFlags: RiskFlag[] = [];
   const [thresholds, deliveryOtp] = await Promise.all([getRule("riskRules"), getRule("deliveryOtp")]);
   for (const rule of buildRules(thresholds, deliveryOtp.maxAttempts)) {
     const rows = (await db.execute(rule.query)) as unknown as Record<string, unknown>[];
-    const hits: Hit[] = rows
-      .filter((r) => r.subject_id)
-      .map((r) => ({
-        subjectId: String(r.subject_id),
-        detail: Object.fromEntries(Object.entries(r).filter(([k]) => k !== "subject_id").map(([k, v]) => [k, v instanceof Date ? v.toISOString() : v == null ? null : String(v)])),
-        summary: rule.describe(r),
-      }));
-    for (const hit of hits) {
-      const [row] = await db
-        .insert(riskFlags)
-        .values({
-          subjectType: rule.subject,
-          subjectId: hit.subjectId,
-          ruleCode: rule.code,
-          severity: rule.severity,
-          summary: hit.summary,
-          details: hit.detail,
-        })
-        .onConflictDoUpdate({
-          target: [riskFlags.subjectType, riskFlags.subjectId, riskFlags.ruleCode],
-          targetWhere: sql`${riskFlags.status} = 'OPEN'`,
-          set: {
-            summary: hit.summary,
-            details: hit.detail,
-            lastDetectedAt: new Date(),
-            occurrences: sql`${riskFlags.occurrences} + 1`,
-          },
-        })
-        .returning({ occurrences: riskFlags.occurrences });
-      if (row?.occurrences === 1) raised += 1;
-      else refreshed += 1;
-    }
+    const outcome = await raiseFlags(rule, rows);
+    raised += outcome.raised.length;
+    refreshed += outcome.refreshed;
+    newFlags.push(...outcome.raised);
   }
   const result = { rules: RULES.length, raised, refreshed };
   await recordAudit({
@@ -314,7 +332,61 @@ export async function runRiskRules(actor: { id: string | null; role: UserRole | 
     entityType: "risk",
     newValue: result,
   });
+  // Event layer: one alert per scan that found something new (not one per flag).
+  if (newFlags.length > 0) {
+    const worst = newFlags.find((f) => f.severity === "HIGH") ?? newFlags[0];
+    await emitEvent({
+      type: "risk.flag_raised",
+      subjectId: worst.id,
+      actor,
+      payload: {
+        severity: worst.severity,
+        label: "Hourly pattern scan",
+        summary: `${newFlags.length} new flag(s) — e.g. ${RISK_RULE_LABELS[worst.ruleCode] ?? worst.ruleCode}: ${worst.summary}`,
+      },
+    });
+  }
   return result;
+}
+
+/** Rules that make sense for one order or one payment, run at that moment for its customer. */
+export const PER_ORDER_RULES = {
+  ORDER_PLACED: ["HIGH_VALUE_OUTLIER"],
+  PAYMENT_FAILED: ["TOPUP_FAILURES"],
+} as const;
+
+/**
+ * Event layer: evaluates the named rules for one customer only, now, and
+ * alerts support for each new flag. Never throws into the caller's flow —
+ * a risk check must not block an order or a payment answer.
+ */
+export async function checkRiskForUser(userId: string, trigger: keyof typeof PER_ORDER_RULES): Promise<number> {
+  try {
+    const [thresholds, deliveryOtp] = await Promise.all([getRule("riskRules"), getRule("deliveryOtp")]);
+    const codes: readonly string[] = PER_ORDER_RULES[trigger];
+    let raised = 0;
+    for (const rule of buildRules(thresholds, deliveryOtp.maxAttempts)) {
+      if (!codes.includes(rule.code) || rule.subject !== "USER") continue;
+      const rows = (await db.execute(
+        sql`select * from (${rule.query}) as scoped where scoped.subject_id::text = ${userId}`,
+      )) as unknown as Record<string, unknown>[];
+      const outcome = await raiseFlags(rule, rows);
+      for (const flag of outcome.raised) {
+        await emitEvent({
+          type: "risk.flag_raised",
+          subjectId: flag.id,
+          actor: { id: null, role: null },
+          payload: { severity: flag.severity, label: rule.label, summary: flag.summary },
+          idempotencyKey: `risk-flag:${flag.id}`,
+        });
+      }
+      raised += outcome.raised.length;
+    }
+    return raised;
+  } catch (error) {
+    console.error("[risk] per-order check failed", trigger, userId, error);
+    return 0;
+  }
 }
 
 export interface RiskFlagView extends RiskFlag {

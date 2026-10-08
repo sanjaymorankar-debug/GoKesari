@@ -61,7 +61,7 @@ export async function resetDatabase(): Promise<void> {
           grievances, user_consents,
           delivery_partner_earnings, delivery_earnings_config, delivery_orders,
           maps_api_call_log, delivery_partners,
-          audit_logs, notifications,
+          audit_logs, notifications, domain_events,
           price_update_requests, price_update_batches,
           excel_upload_items, excel_uploads,
           shop_payments, referral_redemptions, referral_codes,

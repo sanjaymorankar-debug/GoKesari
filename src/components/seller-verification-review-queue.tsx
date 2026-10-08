@@ -3,8 +3,9 @@
 /**
  * Admin review queue for seller documents (Part 3.7). Each item shows what
  * the government record said next to what the seller told us, why it needs a
- * person, and any uploaded certificate. Approve, reject (a reason is
- * required and is shown to the seller), or ask the vendor again.
+ * person, and any uploaded certificate. Approve, ask for more information or
+ * reject (a reason is required and is shown to the seller), or ask the vendor
+ * again. Every decision notifies the seller and the other reviewers at once.
  */
 import { useRouter } from "next/navigation";
 import { useState } from "react";
@@ -53,7 +54,8 @@ function ReviewRow({ item }: { item: QueueItem }) {
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [reason, setReason] = useState("");
-  const [rejecting, setRejecting] = useState(false);
+  // Event layer: "reject" or "more_info" (send back to the seller saying what is missing).
+  const [rejecting, setRejecting] = useState<"reject" | "more_info" | null>(null);
   const d = item.details;
   const declared = d.declaredNotRegistered === true;
 
@@ -71,7 +73,7 @@ function ReviewRow({ item }: { item: QueueItem }) {
       setError(payload?.error?.message ?? "Action failed.");
       return;
     }
-    setRejecting(false);
+    setRejecting(null);
     setReason("");
     router.refresh();
   }
@@ -143,7 +145,20 @@ function ReviewRow({ item }: { item: QueueItem }) {
         <Button size="sm" disabled={busy !== null} onClick={() => post("decision", { decision: "approve", reason })}>
           {declared ? "Accept declaration" : "Approve"}
         </Button>
-        <Button size="sm" variant="secondary" disabled={busy !== null} onClick={() => setRejecting(!rejecting)}>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={busy !== null}
+          onClick={() => setRejecting(rejecting === "more_info" ? null : "more_info")}
+        >
+          Ask for more info
+        </Button>
+        <Button
+          size="sm"
+          variant="secondary"
+          disabled={busy !== null}
+          onClick={() => setRejecting(rejecting === "reject" ? null : "reject")}
+        >
           Reject
         </Button>
         {!declared ? (
@@ -158,15 +173,19 @@ function ReviewRow({ item }: { item: QueueItem }) {
             className={inputClass}
             value={reason}
             onChange={(e) => setReason(e.target.value)}
-            placeholder="Reason shown to the seller (e.g. certificate number doesn't match the upload)"
+            placeholder={
+              rejecting === "more_info"
+                ? "What the seller must send (e.g. a clearer photo of the certificate)"
+                : "Reason shown to the seller (e.g. certificate number doesn't match the upload)"
+            }
           />
           <Button
             size="sm"
-            variant="danger"
+            variant={rejecting === "more_info" ? "primary" : "danger"}
             disabled={busy !== null || reason.trim().length < 3}
-            onClick={() => post("decision", { decision: "reject", reason })}
+            onClick={() => post("decision", { decision: rejecting, reason })}
           >
-            Confirm reject
+            {rejecting === "more_info" ? "Send request" : "Confirm reject"}
           </Button>
         </div>
       ) : null}

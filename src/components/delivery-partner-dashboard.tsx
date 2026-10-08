@@ -115,7 +115,18 @@ const STATUS_LABEL: Record<string, string> = {
 // Customers poll tracking every 15s; idle riders only need to be fresh enough for dispatch.
 const HEARTBEAT_ON_DELIVERY_MS = 15_000;
 const HEARTBEAT_IDLE_MS = 60_000;
-const HEARTBEAT_TICK_MS = 5_000;
+/** Live tracking: once the drop starts; the server's `nextPingSeconds` (rule tracking.riderPingSeconds) replaces it. */
+const TRACKING_PING_DEFAULT_MS = 5_000;
+// Checked every second so a 5-second cadence is kept, not rounded up to the next tick.
+const HEARTBEAT_TICK_MS = 1_000;
+const RIDER_LOCATION_URL = "/api/delivery-partner/location";
+
+interface LocationReply {
+  shared?: boolean;
+  /** Live tracking endpoint only: false once the drop is over — nothing more is stored. */
+  sharing?: boolean;
+  nextPingSeconds?: number;
+}
 const MAX_FIX_AGE_MS = 2 * 60_000;
 const REQUEST_TIMEOUT_MS = 10_000;
 const LOCATION_TIMEOUT_MS = 20_000;
@@ -137,16 +148,24 @@ function isStale(fix: Fix): boolean {
 }
 
 /**
- * Posts the rider's position to /api/delivery-partner/location while online.
- * The server ignores it if the rider is offline, so this never writes location
- * outside an online session.
+ * Posts the rider's position while online: to /api/delivery-partner/location
+ * (for matching), or — once a drop has started — to that delivery's live
+ * tracking endpoint. The server ignores it if the rider is offline, so this
+ * never writes location outside an online session.
  */
-function useLocationHeartbeat(enabled: boolean, intervalMs: number, onServerOffline: () => void): LocationIssue {
+function useLocationHeartbeat(
+  enabled: boolean,
+  intervalMs: number,
+  onServerOffline: () => void,
+  endpoint: string = RIDER_LOCATION_URL,
+  onReply?: (reply: LocationReply) => void,
+): LocationIssue {
   const [blocked, setBlocked] = useState(false);
   const [unauthorized, setUnauthorized] = useState(false);
   const [unavailable, setUnavailable] = useState(false);
   const [arm, setArm] = useState(0);
   const serverOffline = useEffectEvent(onServerOffline);
+  const replied = useEffectEvent((reply: LocationReply) => onReply?.(reply));
 
   // Alerts from a previous online stretch must not resurface when the rider goes online again.
   const [wasEnabled, setWasEnabled] = useState(enabled);
@@ -232,7 +251,7 @@ function useLocationHeartbeat(enabled: boolean, intervalMs: number, onServerOffl
       const timeout = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
       inFlight = controller;
       lastSentAt = performance.now();
-      fetch("/api/delivery-partner/location", {
+      fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ latitude: latest.latitude, longitude: latest.longitude }),
@@ -247,9 +266,10 @@ function useLocationHeartbeat(enabled: boolean, intervalMs: number, onServerOffl
           if (!response.ok) return;
           setUnauthorized(false);
           const body: unknown = await response.json();
-          if (!disposed && typeof body === "object" && body !== null && "shared" in body && body.shared === false) {
-            serverOffline();
-          }
+          if (disposed || typeof body !== "object" || body === null) return;
+          const reply = body as LocationReply;
+          if (reply.shared === false) serverOffline();
+          else replied(reply);
         })
         .catch(() => {})
         .finally(() => {
@@ -297,7 +317,7 @@ function useLocationHeartbeat(enabled: boolean, intervalMs: number, onServerOffl
       inFlight?.abort();
       permission?.removeEventListener("change", onPermissionChange);
     };
-  }, [enabled, intervalMs, arm]);
+  }, [enabled, intervalMs, arm, endpoint]);
 
   if (!enabled) return null;
   if (blocked) return "blocked";
@@ -362,12 +382,23 @@ export function DeliveryPartnerDashboard({
   const [showFail, setShowFail] = useState(false);
   const [cashCollected, setCashCollected] = useState(false);
   const onDelivery = activeDelivery?.status === "PICKED_UP";
+  // Live tracking: from the start of the drop the customer can follow the rider.
+  const dropStarted = onDelivery && Boolean(activeDelivery?.outForDeliveryAt);
+  const [trackingPingMs, setTrackingPingMs] = useState(TRACKING_PING_DEFAULT_MS);
   const locationIssue = useLocationHeartbeat(
     isOnline,
-    onDelivery ? HEARTBEAT_ON_DELIVERY_MS : HEARTBEAT_IDLE_MS,
+    dropStarted ? trackingPingMs : onDelivery ? HEARTBEAT_ON_DELIVERY_MS : HEARTBEAT_IDLE_MS,
     () => {
       setIsOnline(false);
       router.refresh();
+    },
+    dropStarted && activeDelivery ? `/api/delivery-orders/${activeDelivery.id}/location` : RIDER_LOCATION_URL,
+    (reply) => {
+      if (typeof reply.nextPingSeconds === "number" && reply.nextPingSeconds * 1000 !== trackingPingMs) {
+        setTrackingPingMs(reply.nextPingSeconds * 1000);
+      }
+      // The drop is over (delivered or cancelled elsewhere): stop sharing and reload the job.
+      if (reply.sharing === false) router.refresh();
     },
   );
 
