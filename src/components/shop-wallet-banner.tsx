@@ -26,11 +26,12 @@ export function ShopWalletBanner({
           Your shop wallet balance is <Money paise={balancePaise} />.{" "}
           {canAcceptOrders ? (
             <>
-              Below <Money paise={minBalancePaise} /> you cannot accept new orders.
+              Below <Money paise={minBalancePaise} /> you cannot accept new orders and customers cannot order from your shop.
             </>
           ) : (
             <>
-              You need at least <Money paise={minBalancePaise} /> to accept new orders. Orders already accepted carry on as usual.
+              You need at least <Money paise={minBalancePaise} /> to accept new orders. Until then customers see your shop as not
+              taking orders and cannot check out from it. Orders already accepted carry on as usual.
             </>
           )}
         </p>

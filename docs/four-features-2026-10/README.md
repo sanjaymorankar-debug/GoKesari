@@ -176,7 +176,7 @@ Decisions taken without asking, with the reason. Flag any you want changed.
   switched on** (the existing dispatch requirements); own delivery needs an
   address. Orders without an address can only be picked up.
 - **F1-8. Charges (as instructed, logged):** pickup and own-delivery orders are
-  never charged the shop-wallet delivery charge (₹25) — the existing rule
+  never charged the shop-wallet delivery charge (₹5/km on test) — the existing rule
   charges it only when a GoKesari rider delivered. The commission is charged from
   the shop wallet on delivery as for every order. **The customer's delivery fee
   paid at checkout is not changed** by the shop choosing pickup (no money flow

@@ -17,6 +17,7 @@ const ENTRY_LABELS: Record<string, string> = {
   DELIVERY_CHARGE: "Delivery charge",
   MANUAL_CREDIT: "Credit by GoKesari",
   MANUAL_DEBIT: "Debit by GoKesari",
+  COMMISSION_REFUND: "Commission returned",
 };
 
 const dateTime = (d: Date) =>
@@ -78,8 +79,17 @@ export default async function ShopWalletPage() {
         </Card>
         <Card className="p-4">
           <p className="text-xs text-ink-500">Delivery charge</p>
-          <p className="mt-1 text-xl font-bold text-ink-900"><Money paise={wallet.deliveryChargePaise} /></p>
-          <p className="text-xs text-ink-400">per order a GoKesari rider delivers</p>
+          <p className="mt-1 text-xl font-bold text-ink-900">
+            <Money paise={wallet.deliveryChargePerKmPaise} /> <span className="text-sm font-medium text-ink-500">per km</span>
+          </p>
+          <p className="text-xs text-ink-400">
+            {wallet.deliveryChargePaise > 0 ? (
+              <>
+                plus <Money paise={wallet.deliveryChargePaise} /> per order,{" "}
+              </>
+            ) : null}
+            shop to customer, for orders a GoKesari rider delivers (<Money paise={wallet.deliveryChargeUnknownDistancePaise} /> if the distance is not known)
+          </p>
         </Card>
       </section>
 

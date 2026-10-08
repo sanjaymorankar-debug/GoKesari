@@ -92,8 +92,9 @@ const after0055 = () => journal.entries.filter((e) => e.when > whenOf("0055_")).
 /** Puts the database back on 0055 with the releases' own rollback scripts. */
 const backToMigration0055 = () =>
   withTemp(async (sql) => {
-    // docs/four-features-2026-10 (0060–0063), newest first.
-    for (const n of ["0063", "0062", "0061", "0060"]) await sql.unsafe(readFileSync(`scripts/rollback-${n}.sql`, "utf8"));
+    // docs/four-features-2026-10 (0061–0064), newest first.
+    for (const n of ["0064", "0063", "0062", "0061"]) await sql.unsafe(readFileSync(`scripts/rollback-${n}.sql`, "utf8"));
+    await sql.unsafe(readFileSync("scripts/rollback-0060.sql", "utf8"));
     await sql.unsafe(readFileSync("scripts/rollback-0059.sql", "utf8"));
     await sql.unsafe(readFileSync("scripts/rollback-0058.sql", "utf8"));
     await sql.unsafe(readFileSync("scripts/rollback-0057.sql", "utf8"));
@@ -158,7 +159,7 @@ describe("migrate-on-build", () => {
     expect(await journalCount()).toBe(journal.entries.length);
   });
 
-  it("brings a database on 0055 up to date: 0056, 0057, 0058, 0059 and every later migration", async (ctx) => {
+  it("brings a database on 0055 up to date: 0056, 0057, 0058, 0059, 0060 and every later migration", async (ctx) => {
     if (!created) ctx.skip();
     await backToMigration0055();
     const before = await journalCount();
@@ -179,6 +180,14 @@ describe("migrate-on-build", () => {
                    where table_name = 'shops' and column_name in ('contact_phone', 'whatsapp_number')`,
     );
     expect(cols).toHaveLength(2);
+    // 0060 in the same transaction as 0059: the enum value it adds is usable once committed.
+    const [refund] = await withTemp(
+      (sql) => sql`select 'COMMISSION_REFUND'::shop_wallet_entry_type::text as v,
+                          to_regclass('public.order_financials') is not null as t,
+                          exists (select 1 from information_schema.columns
+                                  where table_name = 'order_financials' and column_name = 'shop_delivery_distance_m') as c`,
+    );
+    expect(refund).toEqual({ v: "COMMISSION_REFUND", t: true, c: true });
   });
 
   it("a failed migration stops the build and leaves the database as it was", async (ctx) => {
@@ -192,7 +201,7 @@ describe("migrate-on-build", () => {
     expect(res.code).toBe(1);
     expect(res.out).toContain("[migrate-on-build] FAILED");
     expect(res.out).toContain("Build stopped");
-    // One transaction: none of 0056–0059 was recorded or applied.
+    // One transaction: none of 0056–0060 was recorded or applied.
     expect(await journalCount()).toBe(before);
     expect(await kycTableExists()).toBe(false);
     expect(await eventLayerExists()).toBe(false);
