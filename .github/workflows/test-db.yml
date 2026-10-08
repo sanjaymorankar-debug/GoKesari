@@ -9,10 +9,13 @@
 #                                                    → back up, migrate, apply the shop wallet settings, verify
 #   - docs/shop-wallet-delivery-otp-2026-10/test-wallet-credits.sql changed
 #                                                    → back up, migrate, apply the new shop wallet credits, verify
+#   - docs/four-features-2026-10/test-settings.sql or test-e2e-accounts.sql changed
+#                                                    → back up, migrate, apply the four-features settings and E2E accounts, verify
 #   - this workflow changed                          → back up, migrate, verify (settings are not re-imposed)
 # Every night (once this file is on the default branch): back up.
 # By hand — Actions → "Test database" → Run workflow → branch staging:
-#   migrate | settings | migrate-and-settings | shop-wallet-settings | shop-wallet-credits | backup | verify |
+#   migrate | settings | migrate-and-settings | shop-wallet-settings | shop-wallet-credits | four-features-settings | backup | verify |
+#   four-features-report (read-only: prints docs/four-features-2026-10/test-report.sql) |
 #   rollback-0058 (type ROLLBACK 0058 to confirm)
 #
 # Every change is preceded by a pg_dump backup kept as a workflow artifact for 14 days.
@@ -29,6 +32,8 @@ on:
       - "docs/event-driven-2026-10/test-settings.sql"
       - "docs/shop-wallet-delivery-otp-2026-10/test-settings.sql"
       - "docs/shop-wallet-delivery-otp-2026-10/test-wallet-credits.sql"
+      - "docs/four-features-2026-10/test-settings.sql"
+      - "docs/four-features-2026-10/test-e2e-accounts.sql"
       - ".github/workflows/test-db.yml"
   schedule:
     # 20:47 UTC = 02:17 IST, away from the cron jobs' busy minutes.
@@ -39,7 +44,7 @@ on:
         description: What to do to the TEST database
         type: choice
         default: migrate
-        options: [migrate, settings, migrate-and-settings, shop-wallet-settings, shop-wallet-credits, backup, verify, rollback-0058]
+        options: [migrate, settings, migrate-and-settings, shop-wallet-settings, shop-wallet-credits, four-features-settings, four-features-report, backup, verify, rollback-0058]
       confirm:
         description: "rollback-0058 only: type ROLLBACK 0058"
         required: false
@@ -77,7 +82,7 @@ jobs:
           INPUT_CONFIRM: ${{ inputs.confirm }}
           BEFORE: ${{ github.event.before }}
         run: |
-          migrate=no; settings=no; wallet=no; credits=no; rollback=no; backup=yes
+          migrate=no; settings=no; wallet=no; credits=no; four=no; report=no; rollback=no; backup=yes
           case "$EVENT" in
             schedule) ;;
             workflow_dispatch)
@@ -87,6 +92,8 @@ jobs:
                 migrate-and-settings) migrate=yes; settings=yes ;;
                 shop-wallet-settings) migrate=yes; wallet=yes ;;
                 shop-wallet-credits) migrate=yes; credits=yes ;;
+                four-features-settings) migrate=yes; four=yes ;;
+                four-features-report) report=yes; backup=no ;;
                 backup) ;;
                 verify) backup=no ;;
                 rollback-0058)
@@ -104,17 +111,18 @@ jobs:
               grep -qE '^docs/event-driven-2026-10/test-settings\.sql$' <<<"$changed" && settings=yes
               grep -qE '^docs/shop-wallet-delivery-otp-2026-10/test-settings\.sql$' <<<"$changed" && wallet=yes
               grep -qE '^docs/shop-wallet-delivery-otp-2026-10/test-wallet-credits\.sql$' <<<"$changed" && credits=yes
+              grep -qE '^docs/four-features-2026-10/test-(settings|e2e-accounts)\.sql$' <<<"$changed" && four=yes
               # A settings or data change also migrates first (it may need new columns).
-              [ "$settings$wallet$credits" != nonono ] && migrate=yes ;;
+              [ "$settings$wallet$credits$four" != nononono ] && migrate=yes ;;
           esac
-          [ "$migrate$settings$wallet$credits$rollback" = nonononono ] && [ "$EVENT" = push ] && backup=no
-          { echo "DO_BACKUP=$backup"; echo "DO_MIGRATE=$migrate"; echo "DO_SETTINGS=$settings"; echo "DO_WALLET_SETTINGS=$wallet"; echo "DO_WALLET_CREDITS=$credits"; echo "DO_ROLLBACK=$rollback"; } >> "$GITHUB_ENV"
+          [ "$migrate$settings$wallet$credits$four$rollback" = nononononono ] && [ "$EVENT" = push ] && backup=no
+          { echo "DO_BACKUP=$backup"; echo "DO_MIGRATE=$migrate"; echo "DO_SETTINGS=$settings"; echo "DO_WALLET_SETTINGS=$wallet"; echo "DO_WALLET_CREDITS=$credits"; echo "DO_FOUR_FEATURES=$four"; echo "DO_FOUR_REPORT=$report"; echo "DO_ROLLBACK=$rollback"; } >> "$GITHUB_ENV"
           echo "### Plan" >> "$GITHUB_STEP_SUMMARY"
-          echo "backup=$backup · migrate=$migrate · settings=$settings · shop-wallet-settings=$wallet · shop-wallet-credits=$credits · rollback=$rollback ($EVENT)" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "backup=$backup · migrate=$migrate · settings=$settings · shop-wallet-settings=$wallet · shop-wallet-credits=$credits · four-features-settings=$four · four-features-report=$report · rollback=$rollback ($EVENT)" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Guard — test database only
         env:
-          READ_ONLY: ${{ env.DO_MIGRATE == 'no' && env.DO_SETTINGS == 'no' && env.DO_WALLET_SETTINGS == 'no' && env.DO_WALLET_CREDITS == 'no' && env.DO_ROLLBACK == 'no' }}
+          READ_ONLY: ${{ env.DO_MIGRATE == 'no' && env.DO_SETTINGS == 'no' && env.DO_WALLET_SETTINGS == 'no' && env.DO_WALLET_CREDITS == 'no' && env.DO_FOUR_FEATURES == 'no' && env.DO_ROLLBACK == 'no' }}
         run: scripts/test-db/guard.sh
 
       - name: PostgreSQL client matching the server
@@ -181,6 +189,23 @@ jobs:
           set -o pipefail
           echo "### Shop wallet credits" >> "$GITHUB_STEP_SUMMARY"
           { echo '```'; psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f docs/shop-wallet-delivery-otp-2026-10/test-wallet-credits.sql 2>&1; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply four-features settings
+        if: env.DO_FOUR_FEATURES == 'yes'
+        # Needs migrations 0061–0064; the Migrate step above has run.
+        run: |
+          set -o pipefail
+          echo "### Four-features settings applied" >> "$GITHUB_STEP_SUMMARY"
+          { echo '```'; psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f docs/four-features-2026-10/test-settings.sql; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "### Four-features E2E accounts" >> "$GITHUB_STEP_SUMMARY"
+          { echo '```'; psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f docs/four-features-2026-10/test-e2e-accounts.sql; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Four-features report (read-only)
+        if: env.DO_FOUR_REPORT == 'yes'
+        # Every statement runs in a read-only transaction; nothing can be written.
+        env:
+          PGOPTIONS: "-c default_transaction_read_only=on"
+        run: psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f docs/four-features-2026-10/test-report.sql
 
       - name: Roll back 0058
         if: env.DO_ROLLBACK == 'yes'

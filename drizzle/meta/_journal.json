@@ -428,6 +428,34 @@
       "when": 1791479054744,
       "tag": "0060_shop_wallet_per_km_refunds",
       "breakpoints": true
+    },
+    {
+      "idx": 61,
+      "version": "7",
+      "when": 1791481189640,
+      "tag": "0061_fulfilment_options",
+      "breakpoints": true
+    },
+    {
+      "idx": 62,
+      "version": "7",
+      "when": 1791482233194,
+      "tag": "0062_legal_documents",
+      "breakpoints": true
+    },
+    {
+      "idx": 63,
+      "version": "7",
+      "when": 1791483316213,
+      "tag": "0063_bank_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
+      "when": 1791483795086,
+      "tag": "0064_referral_code_requests",
+      "breakpoints": true
     }
   ]
 }

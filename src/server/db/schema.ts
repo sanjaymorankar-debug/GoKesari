@@ -5411,3 +5411,328 @@ export const customerReferrals = pgTable(
   ],
 );
 export type CustomerReferral = typeof customerReferrals.$inferSelect;
+
+/* ===================================================================
+ * Fulfilment options and scheduling (docs/four-features-2026-10, feature 1)
+ * Additive: migration 0061, rollback scripts/rollback-0061.sql.
+ * =================================================================== */
+
+/**
+ * A shop's own delivery people (name and mobile). They have no GoKesari
+ * account: an order assigned to one of them gets a private delivery link the
+ * shop shares with them (services/fulfilment-options.ts). Deactivated, never
+ * deleted, so past orders keep their delivery person.
+ */
+export const shopDeliveryStaff = pgTable(
+  "shop_delivery_staff",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    /** "+91XXXXXXXXXX". */
+    phoneE164: text("phone_e164").notNull(),
+    isActive: boolean("is_active").notNull().default(true),
+    deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("shop_delivery_staff_shop_phone_uq").on(t.shopId, t.phoneE164),
+    index("shop_delivery_staff_shop_idx").on(t.shopId),
+  ],
+);
+export type ShopDeliveryStaff = typeof shopDeliveryStaff.$inferSelect;
+
+export const FULFILMENT_OPTIONS = ["PICKUP", "SHOP_DELIVERY", "GOKESARI_PARTNER"] as const;
+export type FulfilmentOption = (typeof FULFILMENT_OPTIONS)[number];
+
+/**
+ * How a READY order reaches the customer, chosen by the shop when it marks the
+ * order ready: customer pickup, the shop's own delivery person, or a GoKesari
+ * delivery partner (the existing rider dispatch). One row per order, changed in
+ * place until the order is collected / out for delivery; every change is a
+ * domain event (domain_events) and an audit row.
+ *
+ * Codes: a pickup code is derived from `code_nonce` with the server secret
+ * (HMAC), so it can be shown to the customer at any time without being stored;
+ * an own-delivery code is stored only as a salted HMAC (`code_hash`), exactly
+ * like a rider delivery code. The delivery link for the shop's own delivery
+ * person is likewise derived from `staff_link_nonce` — never stored.
+ */
+export const orderFulfilmentArrangements = pgTable(
+  "order_fulfilment_arrangements",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    option: text("option", { enum: FULFILMENT_OPTIONS }).notNull(),
+    scheduledStart: timestamp("scheduled_start", { withTimezone: true }).notNull(),
+    scheduledEnd: timestamp("scheduled_end", { withTimezone: true }).notNull(),
+    staffId: uuid("staff_id").references(() => shopDeliveryStaff.id, { onDelete: "set null" }),
+    staffLinkNonce: text("staff_link_nonce"),
+    /** PICKUP: the code is HMAC(secret, id + nonce); a new nonce = a new code. */
+    codeNonce: text("code_nonce"),
+    /** SHOP_DELIVERY: salted HMAC of the delivery code sent when the order goes out. */
+    codeHash: text("code_hash"),
+    codeSentAt: timestamp("code_sent_at", { withTimezone: true }),
+    codeResends: integer("code_resends").notNull().default(0),
+    codeAttempts: integer("code_attempts").notNull().default(0),
+    codeLockedAt: timestamp("code_locked_at", { withTimezone: true }),
+    outForDeliveryAt: timestamp("out_for_delivery_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    completedVia: text("completed_via", { enum: ["PICKUP_CODE", "DELIVERY_CODE", "OPERATOR"] }),
+    /** 1 when first set; +1 on every change (shown as "updated"). */
+    version: integer("version").notNull().default(1),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("order_fulfilment_arrangements_order_uq").on(t.orderId),
+    index("order_fulfilment_arrangements_shop_idx").on(t.shopId),
+    index("order_fulfilment_arrangements_staff_idx").on(t.staffId),
+    check("order_fulfilment_arrangements_window", sql`${t.scheduledEnd} > ${t.scheduledStart}`),
+    check(
+      "order_fulfilment_arrangements_staff",
+      sql`${t.option} <> 'SHOP_DELIVERY' OR ${t.staffId} IS NOT NULL OR ${t.completedAt} IS NOT NULL`,
+    ),
+    check("order_fulfilment_arrangements_attempts", sql`${t.codeAttempts} >= 0 AND ${t.codeResends} >= 0`),
+  ],
+);
+export type OrderFulfilmentArrangement = typeof orderFulfilmentArrangements.$inferSelect;
+
+/* ===================================================================
+ * Mandatory legal documents by shop category (docs/four-features-2026-10, feature 2)
+ * Additive: migration 0062, rollback scripts/rollback-0062.sql.
+ * =================================================================== */
+
+export const LEGAL_DOC_TYPES = ["FSSAI", "DRUG_LICENCE", "MEDICAL_REGISTRATION"] as const;
+export type LegalDocType = (typeof LEGAL_DOC_TYPES)[number];
+export const LEGAL_DOC_STATUSES = ["NOT_SUBMITTED", "SUBMITTED", "APPROVED", "REJECTED"] as const;
+export type LegalDocStatus = (typeof LEGAL_DOC_STATUSES)[number];
+
+/**
+ * A licence a shop must hold for what it sells (services/legal-documents.ts):
+ * FSSAI for food, a drug licence for a pharmacy, a medical registration for a
+ * doctor / clinic. One row per shop and document, created when the requirement
+ * is first seen. A shop that was already live then gets `grace_until` to
+ * upload before it stops accepting orders; a new shop gets none (it cannot be
+ * approved without the document). The number is stored encrypted, like a PAN.
+ */
+export const shopLegalDocuments = pgTable(
+  "shop_legal_documents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    docType: text("doc_type", { enum: LEGAL_DOC_TYPES }).notNull(),
+    status: text("status", { enum: LEGAL_DOC_STATUSES }).notNull().default("NOT_SUBMITTED"),
+    numberEncrypted: text("number_encrypted"),
+    numberLast4: text("number_last4"),
+    /** MEDICAL_REGISTRATION: the council that issued it. */
+    issuingCouncil: text("issuing_council"),
+    /** FSSAI and DRUG_LICENCE: the licence's expiry date. */
+    expiryDate: date("expiry_date"),
+    /** A shop already live when the requirement applied: may trade without it until then. */
+    graceUntil: timestamp("grace_until", { withTimezone: true }),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
+    submittedBy: uuid("submitted_by").references(() => users.id, { onDelete: "set null" }),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewedBy: uuid("reviewed_by").references(() => users.id, { onDelete: "set null" }),
+    rejectionReason: text("rejection_reason"),
+    /** The expiry date the 30-days-ahead reminder was last sent for (one reminder per date). */
+    expiryReminderSentFor: date("expiry_reminder_sent_for"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("shop_legal_documents_shop_type_uq").on(t.shopId, t.docType),
+    index("shop_legal_documents_status_idx").on(t.status, t.submittedAt),
+  ],
+);
+export type ShopLegalDocument = typeof shopLegalDocuments.$inferSelect;
+
+/** The uploaded copy of a legal document; bytes encrypted by the app (as seller_verification_files). */
+export const shopLegalDocumentFiles = pgTable(
+  "shop_legal_document_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => shopLegalDocuments.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id").notNull(),
+    contentType: text("content_type", { enum: ["application/pdf", "image/jpeg", "image/png", "image/webp"] }).notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    sha256: text("sha256").notNull(),
+    dataEncrypted: bytea("data_encrypted").notNull(),
+    uploadedBy: uuid("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("shop_legal_document_files_document_idx").on(t.documentId, t.createdAt),
+    check("shop_legal_document_files_size", sql`${t.sizeBytes} > 0 AND ${t.sizeBytes} <= 5000000`),
+  ],
+);
+export type ShopLegalDocumentFile = typeof shopLegalDocumentFiles.$inferSelect;
+
+/* ===================================================================
+ * Bank accounts and ₹1 verification (docs/four-features-2026-10, feature 3)
+ * Additive: migration 0063, rollback scripts/rollback-0063.sql.
+ * =================================================================== */
+
+export const BANK_ACCOUNT_STATUSES = ["PENDING", "VERIFIED", "FAILED"] as const;
+export type BankAccountStatus = (typeof BANK_ACCOUNT_STATUSES)[number];
+
+/**
+ * Where a customer's refunds or a shop's payouts go: a bank account (holder
+ * name, account number, IFSC) or a UPI ID, verified with a ₹1 payment through
+ * the payment gateway that is refunded straight away (services/bank-accounts.ts).
+ * The account number and UPI ID are encrypted (PAN_ENCRYPTION_KEY); only the
+ * last 4 digits / a masked UPI ID are kept in clear for display. Changing the
+ * details creates a new row (the old one stops being current), so a change
+ * always needs a fresh verification. No card number is ever stored: card
+ * details stay inside the gateway's checkout.
+ */
+export const bankAccounts = pgTable(
+  "bank_accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** Set for a shop's payout account; null for a customer's refund account. */
+    shopId: uuid("shop_id").references(() => shops.id, { onDelete: "cascade" }),
+    holderType: text("holder_type", { enum: ["CUSTOMER", "SHOP"] }).notNull(),
+    method: text("method", { enum: ["BANK_ACCOUNT", "UPI"] }).notNull(),
+    accountHolderName: text("account_holder_name").notNull(),
+    accountNumberEncrypted: text("account_number_encrypted"),
+    accountNumberLast4: text("account_number_last4"),
+    ifsc: text("ifsc"),
+    upiIdEncrypted: text("upi_id_encrypted"),
+    upiIdMasked: text("upi_id_masked"),
+    status: text("status", { enum: BANK_ACCOUNT_STATUSES }).notNull().default("PENDING"),
+    /** The name the verification matched (the gateway's payer name, or the declared name when the gateway gives none). */
+    matchedAccountHolderName: text("matched_account_holder_name"),
+    nameMatchScore: integer("name_match_score"),
+    /** How the match was made: GATEWAY_NAME, GATEWAY_ACCOUNT, GATEWAY_UPI, PAYMENT_ONLY. */
+    matchMethod: text("match_method"),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    /** UPI, DEBIT_CARD, CREDIT_CARD, NET_BANKING (how the ₹1 was paid). */
+    verificationPaymentMethod: text("verification_payment_method"),
+    /** The gateway's payment id for the ₹1 payment that decided the status. */
+    gatewayReference: text("gateway_reference"),
+    failureReason: text("failure_reason"),
+    isCurrent: boolean("is_current").notNull().default(true),
+    supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("bank_accounts_customer_current_uq").on(t.userId).where(sql`${t.shopId} IS NULL AND ${t.isCurrent}`),
+    uniqueIndex("bank_accounts_shop_current_uq").on(t.shopId).where(sql`${t.shopId} IS NOT NULL AND ${t.isCurrent}`),
+    index("bank_accounts_status_idx").on(t.status, t.updatedAt),
+    check(
+      "bank_accounts_details",
+      sql`(${t.method} = 'BANK_ACCOUNT' AND ${t.accountNumberEncrypted} IS NOT NULL AND ${t.ifsc} IS NOT NULL) OR (${t.method} = 'UPI' AND ${t.upiIdEncrypted} IS NOT NULL)`,
+    ),
+  ],
+);
+export type BankAccount = typeof bankAccounts.$inferSelect;
+
+/** One ₹1 verification payment for a bank account, and its automatic refund. */
+export const bankVerificationAttempts = pgTable(
+  "bank_verification_attempts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    bankAccountId: uuid("bank_account_id")
+      .notNull()
+      .references(() => bankAccounts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    gateway: text("gateway", { enum: ["CASHFREE", "SIMULATOR"] }).notNull(),
+    gatewayOrderId: text("gateway_order_id").notNull(),
+    amountPaise: integer("amount_paise").notNull(),
+    status: text("status", { enum: ["CREATED", "SUCCESS", "FAILED"] }).notNull().default("CREATED"),
+    paymentMethod: text("payment_method"),
+    gatewayPaymentId: text("gateway_payment_id"),
+    /** What the gateway said about the payer, masked (name, UPI ID, account last 4, IFSC, card network and bank). */
+    payerDetails: jsonb("payer_details").$type<Record<string, string | null>>(),
+    failureReason: text("failure_reason"),
+    refundStatus: text("refund_status", { enum: ["NOT_REQUIRED", "PENDING", "REFUNDED", "FAILED"] }).notNull().default("NOT_REQUIRED"),
+    refundReference: text("refund_reference"),
+    refundedAt: timestamp("refunded_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("bank_verification_attempts_order_uq").on(t.gatewayOrderId),
+    uniqueIndex("bank_verification_attempts_payment_uq").on(t.gatewayPaymentId),
+    index("bank_verification_attempts_account_idx").on(t.bankAccountId, t.createdAt),
+    index("bank_verification_attempts_user_idx").on(t.userId, t.createdAt),
+    check("bank_verification_attempts_amount", sql`${t.amountPaise} > 0 AND ${t.amountPaise} <= 1000`),
+  ],
+);
+export type BankVerificationAttempt = typeof bankVerificationAttempts.$inferSelect;
+
+/* ===================================================================
+ * Shop referral-code requests (docs/four-features-2026-10, feature 4)
+ * Additive: migration 0064, rollback scripts/rollback-0064.sql.
+ * =================================================================== */
+
+export const REFERRAL_REQUEST_STATUSES = ["NEW", "CODE_ISSUED", "REJECTED"] as const;
+export type ReferralRequestStatus = (typeof REFERRAL_REQUEST_STATUSES)[number];
+
+/**
+ * "Request a referral code" from the shop registration form
+ * (services/referral-requests.ts): who is asking, where (browser location
+ * when the person allowed it — otherwise just the address they typed), and
+ * what happened to the request. Emailed to the referrals team on arrival.
+ */
+export const referralCodeRequests = pgTable(
+  "referral_code_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Signed-in requester, if any (the request also works signed out). */
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    name: text("name").notNull(),
+    mobileE164: text("mobile_e164").notNull(),
+    /** A shop type key (lib/shop-types.ts). */
+    shopType: text("shop_type").notNull(),
+    area: text("area").notNull(),
+    city: text("city").notNull(),
+    pincode: text("pincode").notNull(),
+    latitude: text("latitude"),
+    longitude: text("longitude"),
+    locationAccuracyM: integer("location_accuracy_m"),
+    mapsUrl: text("maps_url"),
+    locationStatus: text("location_status", { enum: ["SHARED", "NOT_SHARED"] }).notNull(),
+    status: text("status", { enum: REFERRAL_REQUEST_STATUSES }).notNull().default("NEW"),
+    issuedCodeId: uuid("issued_code_id").references(() => referralCodes.id, { onDelete: "set null" }),
+    issuedCode: text("issued_code"),
+    decisionNote: text("decision_note"),
+    decidedBy: uuid("decided_by").references(() => users.id, { onDelete: "set null" }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    emailStatus: text("email_status", { enum: ["SENT", "FAILED", "NOT_CONFIGURED"] }),
+    emailError: text("email_error"),
+    emailSentAt: timestamp("email_sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("referral_code_requests_mobile_idx").on(t.mobileE164, t.createdAt),
+    index("referral_code_requests_status_idx").on(t.status, t.createdAt),
+    check("referral_code_requests_pincode", sql`${t.pincode} ~ '^[1-9][0-9]{5}$'`),
+  ],
+);
+export type ReferralCodeRequest = typeof referralCodeRequests.$inferSelect;

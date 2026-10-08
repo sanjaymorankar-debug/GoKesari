@@ -16,6 +16,8 @@ import { listShopsForOwner } from "@/server/services/shops";
 import { listOpenOrdersForCheckout } from "@/server/services/orders";
 import { getRule } from "@/server/services/settings";
 import { getWalletByUserId } from "@/server/services/wallet";
+import { BankAccountPrompt } from "@/components/bank-account-prompt";
+import { customerBankPrompt } from "@/server/services/bank-accounts";
 
 export const metadata = { title: "Cart" };
 export const dynamic = "force-dynamic";
@@ -65,12 +67,16 @@ export default async function CartPage() {
     .filter((shop) => shop.status === "APPROVED")
     .map((shop) => ({ id: shop.id, name: shop.name }));
 
+  // Bank accounts (docs/four-features-2026-10): a prompt at the first checkout, never a blocker.
+  const bankPrompt = cart.groups.length > 0 ? await customerBankPrompt(user.id, "checkout") : null;
+
   return (
     <>
       <PageHeader
         title="Your cart"
         description="Items are grouped by shop — each shop becomes its own order."
       />
+      {bankPrompt ? <BankAccountPrompt status={bankPrompt} href="/profile/bank-account" purpose="refunds" /> : null}
       <CartView
         cart={cart}
         walletBalancePaise={wallet?.balancePaise ?? 0}

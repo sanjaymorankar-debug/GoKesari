@@ -51,6 +51,7 @@ import { scheduledDispatchFrom } from "./scheduled-slots";
 import { checkDeliveryCode, freshCodeFields, generateDeliveryCode, needsDeliveryCode, sendDeliveryCodeToBuyer } from "./delivery-otp";
 import { getRule } from "./settings";
 import { suspensionRecordFor } from "./shop-suspension-guard";
+import { holdsRiderDispatch } from "./fulfilment-guards";
 import {
   getSocietyDeliveryNotes,
   getSocietyDispatchRules,
@@ -1258,6 +1259,8 @@ export async function dispatchReadyOrder(
 
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, order.shopId) });
   if (!shop?.deliveryAvailable) return null; // pickup-only / shop hands over itself
+  // Fulfilment options: pickup / own delivery never need a rider; a later GoKesari slot waits.
+  if (await holdsRiderDispatch(orderId, trigger)) return null;
   // GS-027: an order for a chosen delivery time looks for a rider only shortly
   // before its slot (the dispatch sweep tries again); the shop's own "Find
   // rider now" goes straight through.
