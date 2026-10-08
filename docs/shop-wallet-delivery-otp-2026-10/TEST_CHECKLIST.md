@@ -13,9 +13,10 @@ Run on the **test site only**. Before starting:
    Migration **0060** applied too (per-km charge, commission refunds).
 3. SMTP working on test (the delivery code goes by email; sign-in codes already do).
 4. `test-wallet-credits.sql` gave **Asmy Exports** ₹1,000, **QA Test Bakery A**
-   ₹500 and **QA Test Bakery B** ₹500 ("Credit by GoKesari" in their wallet
-   history), so they can accept orders straight away. Section 0 starts from ₹0,
-   so run it with a shop not credited there, or expect that credit row first.
+   ₹500 and **QA Test Bakery B** ₹500, then **₹5,000 to every shop onboarded by
+   8 Oct 2026 17:55 UTC** ("Credit by GoKesari" in their wallet history), so
+   they can accept orders straight away. Section 0 starts from ₹0: run it with a
+   shop approved after that, or expect those credit rows first.
 
 **Accounts:** a customer with wallet money; a shop owner (approved shop,
 delivery on, verified location); two riders (approved, online, near the
