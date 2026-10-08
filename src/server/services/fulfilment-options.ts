@@ -25,7 +25,7 @@
  * walletCollectionFor: only rider-delivered orders) is never applied to them;
  * the commission applies on delivery as for every order.
  */
-import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto";
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
 import { and, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
@@ -66,6 +66,7 @@ import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { dispatchReadyOrder, stopRiderSearch } from "./delivery-assignment";
 import { DELIVERY_CODE_LENGTH, deliveryCodeMatches, generateDeliveryCode, hashDeliveryCode, sendDeliveryCodeToBuyer } from "./delivery-otp";
 import { markOrderReady } from "./fulfilment";
+import { fulfilmentTablesReady } from "./fulfilment-guards";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { updateOrderStatus } from "./orders";
 import { getRule } from "./settings";
@@ -104,6 +105,7 @@ function parseStaffInput(input: { name: string; mobile: string }): { name: strin
 }
 
 export async function listDeliveryStaff(shopId: string, options: { activeOnly?: boolean } = {}): Promise<DeliveryStaffView[]> {
+  if (!(await fulfilmentTablesReady())) return [];
   const rows = await db
     .select()
     .from(shopDeliveryStaff)
@@ -1050,7 +1052,7 @@ export interface ShopFulfilmentView {
 }
 
 export async function getShopFulfilmentViews(orderIds: string[]): Promise<Map<string, ShopFulfilmentView>> {
-  if (orderIds.length === 0) return new Map();
+  if (orderIds.length === 0 || !(await fulfilmentTablesReady())) return new Map();
   const rows = await db
     .select({ plan: orderFulfilmentArrangements, staff: shopDeliveryStaff })
     .from(orderFulfilmentArrangements)
@@ -1094,7 +1096,7 @@ export interface BuyerFulfilmentView {
 }
 
 export async function getBuyerFulfilmentViews(orderIds: string[], buyer: { id: string; email: string }): Promise<Map<string, BuyerFulfilmentView>> {
-  if (orderIds.length === 0) return new Map();
+  if (orderIds.length === 0 || !(await fulfilmentTablesReady())) return new Map();
   const rows = await db
     .select({
       plan: orderFulfilmentArrangements,

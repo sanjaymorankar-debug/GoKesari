@@ -14,11 +14,10 @@ export const dynamic = "force-dynamic";
  */
 export default async function StaffDeliveryPage({ params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  try {
-    const view = await getStaffLinkView(token);
-    return <StaffDeliveryView token={token} initial={view} />;
-  } catch (error) {
-    if (error instanceof AppError && error.code === "NOT_FOUND") notFound();
+  const view = await getStaffLinkView(token).catch((error: unknown) => {
+    if (error instanceof AppError && error.code === "NOT_FOUND") return null;
     throw error;
-  }
+  });
+  if (!view) notFound();
+  return <StaffDeliveryView token={token} initial={view} />;
 }

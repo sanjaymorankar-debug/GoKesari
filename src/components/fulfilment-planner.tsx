@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 
 import { Alert, Badge, Button } from "@/components/ui";
 import {
@@ -404,9 +404,12 @@ function StaffLink({
   staff: PlannerPlan["staff"];
   onCopied: () => void;
 }) {
-  // The absolute link needs the browser's origin; set after mount so server and client render alike.
-  const [origin, setOrigin] = useState("");
-  useEffect(() => setOrigin(window.location.origin), []);
+  // The absolute link needs the browser's origin; the server renders without it.
+  const origin = useSyncExternalStore(
+    () => () => {},
+    () => window.location.origin,
+    () => "",
+  );
   const url = `${origin}${path}`;
   const whatsapp = staff
     ? `https://wa.me/${staff.phoneE164.replace(/^\+/, "")}?text=${encodeURIComponent(`GoKesari delivery: ${url}`)}`

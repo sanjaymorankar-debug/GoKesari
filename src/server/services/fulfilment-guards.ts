@@ -7,14 +7,29 @@
  * Orders without an arrangement (every order placed before the feature, and
  * every order while rule fulfilmentOptions is off) pass every check unchanged.
  */
-import { eq } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 
 import { conflict } from "@/lib/errors";
 import { db, type DbClient } from "@/server/db";
 import { orderFulfilmentArrangements, type Order, type OrderFulfilmentArrangement, type OrderStatus } from "@/server/db/schema";
 import { getRule } from "./settings";
 
+let tableReady = false;
+
+/**
+ * Whether migration 0060 has run. Checked (cheaply, without an error that
+ * would abort the caller's transaction) until it has, so code deployed a
+ * moment before its migration leaves every existing order flow working.
+ */
+export async function fulfilmentTablesReady(client: DbClient = db): Promise<boolean> {
+  if (tableReady) return true;
+  const [row] = await client.execute<{ t: string | null }>(sql`select to_regclass('public.order_fulfilment_arrangements')::text as t`);
+  tableReady = row?.t != null;
+  return tableReady;
+}
+
 export async function arrangementFor(orderId: string, client: DbClient = db): Promise<OrderFulfilmentArrangement | null> {
+  if (!(await fulfilmentTablesReady(client))) return null;
   const [row] = await client.select().from(orderFulfilmentArrangements).where(eq(orderFulfilmentArrangements.orderId, orderId));
   return row ?? null;
 }

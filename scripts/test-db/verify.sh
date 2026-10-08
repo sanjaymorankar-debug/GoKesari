@@ -31,7 +31,7 @@ event_tables=$(psqlq -c "select count(*) from (values ('domain_events'), ('dispu
   echo "### Business rules on this database"
   echo '```'
   psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -c "select key, value from platform_settings
-    where key in ('shopAcceptance','dispatch','notifications','disputes','sellerVerification','tracking','shopWallet','deliveryOtp') order by key"
+    where key in ('shopAcceptance','dispatch','notifications','disputes','sellerVerification','tracking','shopWallet','deliveryOtp','fulfilmentOptions','legalDocuments','bankAccounts','shopReferral') order by key"
   echo '```'
   echo
   echo "### Commission rates in force"
