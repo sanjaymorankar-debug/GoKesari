@@ -5,27 +5,31 @@ workflow **"Test database"** (`.github/workflows/test-db.yml`). Nothing has to
 be run from a laptop, and production (gokesari.com) is never touched — the
 workflow only ever uses the `TEST_DATABASE_URL` secret, and refuses to run if
 that secret points anywhere but the test database you name below.
+Production has its own by-hand workflow: [PROD_DB.md](PROD_DB.md).
 
 ## One-time setup (about 3 minutes, on github.com)
 
-Repository **sanjaymorankar-debug/GoKesari → Settings → Environments → New
-environment** → name it `test` (exactly). Then, inside `test`:
+The repository is private on GitHub Free, where environments are switched
+off, so the values live at **repository** level: **sanjaymorankar-debug/GoKesari
+→ Settings → Secrets and variables → Actions**.
 
-1. **Environment secrets → Add secret**
+1. **Secrets** tab → **New repository secret**
    - Name: `TEST_DATABASE_URL`
    - Value: the test database's connection string — the same value as
      `DATABASE_URL` in hPanel for **test.gokesari.com**.
-   - ⚠ The password shared in chat earlier should be rotated first (Neon →
-     Roles → `neondb_owner` → Reset password); use the new connection string
-     here and in hPanel.
-2. **Environment variables → Add variable** (not secret — these are the
-   safety check):
+   - ⚠ The password shared in chat earlier should be rotated before go-live
+     (Neon → Roles → `neondb_owner` → Reset password); then update it here
+     and in hPanel.
+2. **Variables** tab → **New repository variable** (not secrets — these are
+   the safety check):
    - `TEST_DATABASE_HOST` = the host part of that URL, e.g.
      `ep-…-….c-5.us-east-2.aws.neon.tech`
    - `TEST_DATABASE_NAME` = the database name at the end of the URL, e.g.
      `neondb`
-3. Optional: **Required reviewers** → add yourself, so every database run
-   waits for your click. Without it, runs start on their own.
+
+(The workflow still names an environment, `test`. On GitHub Pro, or with a
+public repository, the same three values can live in that environment instead,
+and it can require an approver.)
 
 Never paste the URL into chat, a commit or an issue — only into the secret.
 
@@ -80,7 +84,7 @@ pg_restore --clean --if-exists --no-owner --no-privileges -d "$TEST_DATABASE_URL
 ```
 
 Backups contain whatever is in the test database (test accounts, addresses).
-They are visible to everyone with access to this repository's Actions.
+They are visible to everyone with access to this (private) repository's Actions.
 
 ## Still manual
 

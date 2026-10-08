@@ -16,9 +16,9 @@ fail() { echo "::error::$1"; exit 1; }
 if [ "${READ_ONLY:-false}" != "true" ]; then
   [ "${GITHUB_REF:-}" = "refs/heads/staging" ] || fail "Changes run only from the staging branch (this run is on ${GITHUB_REF:-unknown})."
 fi
-[ -n "${TEST_DATABASE_URL:-}" ] || fail "Secret TEST_DATABASE_URL is not set (Settings → Environments → test → Secrets)."
-[ -n "${EXPECTED_HOST:-}" ] || fail "Variable TEST_DATABASE_HOST is not set (Settings → Environments → test → Variables)."
-[ -n "${EXPECTED_DB:-}" ] || fail "Variable TEST_DATABASE_NAME is not set (Settings → Environments → test → Variables)."
+[ -n "${TEST_DATABASE_URL:-}" ] || fail "Secret TEST_DATABASE_URL is not set (Settings → Secrets and variables → Actions → Secrets)."
+[ -n "${EXPECTED_HOST:-}" ] || fail "Variable TEST_DATABASE_HOST is not set (Settings → Secrets and variables → Actions → Variables)."
+[ -n "${EXPECTED_DB:-}" ] || fail "Variable TEST_DATABASE_NAME is not set (Settings → Secrets and variables → Actions → Variables)."
 
 read -r host db < <(node -e '
   const u = new URL(process.argv[1]);
