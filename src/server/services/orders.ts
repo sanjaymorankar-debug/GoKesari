@@ -62,6 +62,7 @@ import { rewardReferralOnDelivery } from "./customer-referrals";
 import { getRule } from "./settings";
 import { notifyOpenStockAlerts } from "./inventory-alerts";
 import { postRetainedDeliveryFee, recordOrderFinancials } from "./finance";
+import { assertShopMayAcceptOrders, chargeShopWalletForDeliveredOrder, type OrderWalletCharge } from "./shop-wallet";
 import { shopServiceability, societyPartnerShopIds } from "./serviceability";
 import { assertShopMayProgress } from "./shop-suspension-guard";
 import { resolveAddressSociety } from "./societies";
@@ -753,6 +754,11 @@ export async function updateOrderStatus(
     }
     // Suspended shops cannot take new orders or move orders under review.
     await assertShopMayProgress(tx, order, newStatus, actor);
+    // Shop wallet: a shop below its minimum balance cannot take on a new order
+    // (CONFIRMED → ACCEPTED, or straight to PREPARING) until it recharges.
+    if (order.status === "CONFIRMED" && (newStatus === "ACCEPTED" || newStatus === "PREPARING")) {
+      await assertShopMayAcceptOrders(order.shopId, tx);
+    }
 
     const [updated] = await tx
       .update(orders)
@@ -780,9 +786,13 @@ export async function updateOrderStatus(
       await recordCodCollection(order, actor.id, tx);
     }
     // Slice 6: snapshot the order's GMV / commission / shop payable the moment
-    // it is delivered, in the same transaction (idempotent).
+    // it is delivered, in the same transaction (idempotent). Shop wallet: the
+    // commission and delivery charge are debited from the shop's wallet here
+    // too — completion and charge commit together, once per order.
+    let walletCharge: OrderWalletCharge | null = null;
     if (newStatus === "DELIVERED") {
       await recordOrderFinancials(orderId, tx);
+      walletCharge = await chargeShopWalletForDeliveredOrder(orderId, actor, tx);
       // F11: a referred customer's first delivered order rewards both sides.
       // Under a savepoint, so a problem here can never block the delivery.
       await tx
@@ -846,6 +856,7 @@ export async function updateOrderStatus(
           shopName: shop?.name ?? "the shop",
           reassigned: newStatus === "READY" && order.status === "ASSIGNED",
           reason: note ?? null,
+          walletCharge,
           ...event,
         },
       },
@@ -1054,6 +1065,9 @@ export async function cancelOrder(
           status: "CANCELLED",
           cancelledAt: new Date(),
           cancellationReason: `Order cancelled: ${reason}`,
+          // The customer's delivery code dies with the delivery.
+          deliveryOtpHash: null,
+          deliveryOtp: null,
           updatedAt: new Date(),
         })
         .where(eq(deliveryOrders.id, activeDelivery.id));

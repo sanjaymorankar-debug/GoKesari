@@ -48,6 +48,7 @@ import { assertDeliveryProof, hasDeliveryProof, isDeliveryProofRequired } from "
 import { checkBatchCompatibility, joinTrip, loadRiderMembers, nextTripDeliveryId, toMember } from "./delivery-trips";
 import { getRoute } from "./routing";
 import { scheduledDispatchFrom } from "./scheduled-slots";
+import { checkDeliveryCode, freshCodeFields, generateDeliveryCode, needsDeliveryCode, sendDeliveryCodeToBuyer } from "./delivery-otp";
 import { getRule } from "./settings";
 import { suspensionRecordFor } from "./shop-suspension-guard";
 import {
@@ -81,8 +82,6 @@ export const OFFER_TTL_SECONDS = 120;
 export async function getOfferTtlSeconds(): Promise<number> {
   return (await getRule("dispatch")).offerTtlSeconds;
 }
-/** Wrong delivery-OTP attempts before only an operator can confirm the drop — code default; live: rule `deliveryOtp.maxAttempts`. */
-const MAX_OTP_ATTEMPTS = 5;
 
 /**
  * Candidate ranking (lower score wins). Distance in km is the base; the rest
@@ -680,7 +679,19 @@ export async function markPickedUp(
   });
 }
 
-/** DEF-04 fix — same one-transaction shape as markPickedUp, see above; earnings are credited inside it too, so a rolled-back delivery can never leave a dangling earnings row. */
+/**
+ * DEF-04 fix — same one-transaction shape as markPickedUp, see above; earnings
+ * are credited inside it too, so a rolled-back delivery can never leave a
+ * dangling earnings row. The order's DELIVERED transition (orders.ts) also
+ * debits the shop wallet in this transaction (rule shopWallet).
+ *
+ * Only the rider holding the delivery gets here (loadOwnDeliveryOrder). The
+ * customer's code is checked by delivery-otp.ts (wrong codes counted, the
+ * limit locks the drop and raises a ticket); the code is spent in the same
+ * UPDATE that marks the drop delivered, and only if it is still the code that
+ * was checked. A repeated submit after success returns the delivery as it is —
+ * the order is completed and charged once.
+ */
 export async function markDelivered(
   deliveryOrderId: string,
   actor: Actor,
@@ -689,6 +700,7 @@ export async function markDelivered(
   cashCollected?: boolean,
 ): Promise<DeliveryOrder> {
   const row = await loadOwnDeliveryOrder(deliveryOrderId, actor.id); // ownership check
+  if (row.status === "DELIVERED") return row; // double submit: already done, nothing more to charge
   await assertCashConfirmed(row.orderId, cashCollected);
   // NEW-007: with photo proof on, a photo at the door comes first.
   if (row.status === "PICKED_UP") await assertDeliveryProof(deliveryOrderId);
@@ -698,19 +710,8 @@ export async function markDelivered(
   if (row.status === "PICKED_UP" && row.pickupCode && !row.outForDeliveryAt) {
     throw conflict("Start the delivery before marking it delivered.");
   }
-  if (row.deliveryOtp) {
-    const maxOtpAttempts = (await getRule("deliveryOtp")).maxAttempts ?? MAX_OTP_ATTEMPTS;
-    if (row.deliveryOtpAttempts >= maxOtpAttempts) {
-      throw conflict("Too many wrong codes — ask operations to confirm this delivery.");
-    }
-    if (otp?.trim() !== row.deliveryOtp) {
-      await db
-        .update(deliveryOrders)
-        .set({ deliveryOtpAttempts: sql`${deliveryOrders.deliveryOtpAttempts} + 1`, updatedAt: new Date() })
-        .where(eq(deliveryOrders.id, deliveryOrderId));
-      throw validationFailed("That delivery code does not match. Ask the customer for the code in their order.");
-    }
-  }
+  const withCode = row.status === "PICKED_UP" && needsDeliveryCode(row);
+  if (withCode) await checkDeliveryCode(row, otp, actor);
 
   return db.transaction(async (tx) => {
     const [updated] = await tx
@@ -718,12 +719,37 @@ export async function markDelivered(
       .set({
         status: "DELIVERED",
         deliveredAt: new Date(),
-        deliveryConfirmation: row.deliveryOtp ? "CUSTOMER_OTP" : null,
+        deliveryConfirmation: withCode ? "CUSTOMER_OTP" : null,
+        // The code is spent: it can never confirm anything again.
+        deliveryOtpHash: null,
+        deliveryOtp: null,
+        deliveryOtpUsedAt: withCode ? new Date() : null,
         updatedAt: new Date(),
       })
-      .where(and(eq(deliveryOrders.id, deliveryOrderId), eq(deliveryOrders.status, "PICKED_UP")))
+      .where(
+        and(
+          eq(deliveryOrders.id, deliveryOrderId),
+          eq(deliveryOrders.status, "PICKED_UP"),
+          isNull(deliveryOrders.deliveryOtpLockedAt),
+          // Still the code that was checked — not one the customer replaced meanwhile.
+          withCode
+            ? row.deliveryOtpHash
+              ? eq(deliveryOrders.deliveryOtpHash, row.deliveryOtpHash)
+              : eq(deliveryOrders.deliveryOtp, row.deliveryOtp!)
+            : undefined,
+        ),
+      )
       .returning();
-    if (!updated) throw conflict("This delivery must be picked up before it can be marked delivered.");
+    if (!updated) {
+      const [current] = await tx.select().from(deliveryOrders).where(eq(deliveryOrders.id, deliveryOrderId));
+      // A concurrent submit of the same code won: report its result, charge nothing again.
+      if (current?.status === "DELIVERED") return current;
+      if (current?.deliveryOtpLockedAt) throw conflict("Too many wrong codes — this delivery is locked. Operations will confirm it.");
+      if (current?.status === "PICKED_UP" && withCode) {
+        throw conflict("The customer asked for a new delivery code. Ask them for the latest one.");
+      }
+      throw conflict("This delivery must be picked up before it can be marked delivered.");
+    }
 
     const ctx = await deliveryEventContext(row.orderId, row.deliveryPartnerId, tx);
     await emitEvent(
@@ -762,13 +788,15 @@ export async function markDelivered(
  */
 export async function startDelivery(deliveryOrderId: string, actor: Actor): Promise<DeliveryOrder> {
   const row = await loadOwnDeliveryOrder(deliveryOrderId, actor.id);
-  return db.transaction(async (tx) => {
+  // A fresh code for this drop: only its hash is stored; the code itself is
+  // emailed to the customer once the drop has started (below).
+  const code = generateDeliveryCode();
+  const started = await db.transaction(async (tx) => {
     const [updated] = await tx
       .update(deliveryOrders)
       .set({
         outForDeliveryAt: new Date(),
-        deliveryOtp: fourDigitCode(),
-        deliveryOtpAttempts: 0,
+        ...freshCodeFields(deliveryOrderId, code),
         updatedAt: new Date(),
       })
       .where(
@@ -799,8 +827,22 @@ export async function startDelivery(deliveryOrderId: string, actor: Actor): Prom
       },
       tx,
     );
+    await recordAudit(
+      {
+        actorId: actor.id,
+        actorRole: actor.role,
+        action: AUDIT_ACTIONS.DELIVERY_CODE_SENT,
+        entityType: "delivery_order",
+        entityId: deliveryOrderId,
+        newValue: { reason: "drop_started" },
+      },
+      tx,
+    );
     return updated;
   });
+  // After commit; never fails the start (the customer can get a new code).
+  await sendDeliveryCodeToBuyer(row.orderId, code);
+  return started;
 }
 
 /**
@@ -937,7 +979,15 @@ export async function markDeliveryFailed(
   const result = await db.transaction(async (tx) => {
     const [updated] = await tx
       .update(deliveryOrders)
-      .set({ status: "FAILED", failedAt: new Date(), failureReason: trimmed, updatedAt: new Date() })
+      .set({
+        status: "FAILED",
+        failedAt: new Date(),
+        failureReason: trimmed,
+        // The customer's code dies with the drop.
+        deliveryOtpHash: null,
+        deliveryOtp: null,
+        updatedAt: new Date(),
+      })
       .where(and(eq(deliveryOrders.id, deliveryOrderId), eq(deliveryOrders.status, "PICKED_UP")))
       .returning();
     if (!updated) throw conflict("Only a picked-up delivery can be marked failed.");
@@ -996,12 +1046,15 @@ export async function confirmDeliveryByOperator(
         deliveredAt: new Date(),
         deliveryConfirmation: "OPERATOR_OVERRIDE",
         proofNote: note,
+        deliveryOtpHash: null,
+        deliveryOtp: null,
         updatedAt: new Date(),
       })
       .where(and(eq(deliveryOrders.orderId, orderId), eq(deliveryOrders.status, "PICKED_UP")))
       .returning();
     if (!updated) throw conflict("This order has no picked-up delivery to confirm.");
 
+    const ctx = await deliveryEventContext(orderId, updated.deliveryPartnerId, tx);
     await emitEvent(
       {
         type: "delivery.delivered",
@@ -1009,7 +1062,7 @@ export async function confirmDeliveryByOperator(
         orderId,
         transition: { from: "PICKED_UP", to: "DELIVERED" },
         actor,
-        payload: { ...(await deliveryEventContext(orderId, updated.deliveryPartnerId, tx)), reason: note },
+        payload: { ...ctx, reason: note },
       },
       tx,
     );
@@ -1017,7 +1070,8 @@ export async function confirmDeliveryByOperator(
     if (order?.status === "PICKED_UP") {
       await updateOrderStatus(orderId, "OUT_FOR_DELIVERY", actor, "Operator confirmation", tx);
     }
-    await updateOrderStatus(orderId, "DELIVERED", actor, `Confirmed by operations: ${note}`, tx);
+    // The rider is told the drop is confirmed, as for a code-confirmed one.
+    await updateOrderStatus(orderId, "DELIVERED", actor, `Confirmed by operations: ${note}`, tx, riderFacts(ctx));
     await creditDeliveryEarnings(updated.id, tx);
     await recordAudit(
       {
@@ -1523,10 +1577,28 @@ export async function alertOverdueRiderSearches(now: Date = new Date()): Promise
   return alerted;
 }
 
-export type RiderDeliveryView = Omit<DeliveryOrder, "pickupCode" | "deliveryOtp" | "rejectedPartnerIds"> & {
+/** Delivery-row fields a rider must never see: the handover codes and who declined before. */
+type SecretDeliveryFields = "pickupCode" | "deliveryOtp" | "deliveryOtpHash" | "rejectedPartnerIds";
+
+export type RiderDeliveryView = Omit<DeliveryOrder, SecretDeliveryFields> & {
   needsPickupCode: boolean;
   needsDeliveryOtp: boolean;
+  /** Too many wrong codes: only operations can confirm this drop now. */
+  deliveryCodeLocked: boolean;
 };
+
+function stripSecrets(row: DeliveryOrder): RiderDeliveryView {
+  const { pickupCode, deliveryOtp: _otp, deliveryOtpHash: _hash, rejectedPartnerIds: _rejected, ...safe } = row;
+  void _otp;
+  void _hash;
+  void _rejected;
+  return {
+    ...safe,
+    needsPickupCode: pickupCode != null,
+    needsDeliveryOtp: needsDeliveryCode(row),
+    deliveryCodeLocked: row.deliveryOtpLockedAt != null,
+  };
+}
 
 /**
  * Strips the handover codes from a delivery row before a rider sees it (API
@@ -1534,9 +1606,7 @@ export type RiderDeliveryView = Omit<DeliveryOrder, "pickupCode" | "deliveryOtp"
  * the OTP — a rider who could read either could confirm a handover alone.
  */
 export function toRiderView(row: DeliveryOrder): RiderDeliveryView {
-  const { pickupCode, deliveryOtp, rejectedPartnerIds: _rejected, ...safe } = row;
-  void _rejected;
-  return { ...safe, needsPickupCode: pickupCode != null, needsDeliveryOtp: deliveryOtp != null };
+  return stripSecrets(row);
 }
 
 /**
@@ -1568,10 +1638,7 @@ export interface DeliveryPlace {
   notes: string | null;
 }
 
-export interface ActiveDeliveryDetail
-  extends Omit<DeliveryOrder, "pickupCode" | "deliveryOtp" | "rejectedPartnerIds"> {
-  needsPickupCode: boolean;
-  needsDeliveryOtp: boolean;
+export interface ActiveDeliveryDetail extends RiderDeliveryView {
   orderNumber: string;
   orderTotalPaise: number;
   /** GS-030: cash to collect at the door (null when the order is prepaid). */
@@ -1653,12 +1720,8 @@ export async function getMyActiveDeliveryDetail(userId: string): Promise<ActiveD
   const shopAddress = [row.addressLine1, row.addressLine2, row.city].filter(Boolean).join(", ");
 
   // Strip both codes before this leaves the server (see ActiveDeliveryDetail).
-  const { pickupCode, deliveryOtp, rejectedPartnerIds: _rejected, ...safe } = active;
-  void _rejected;
   return {
-    ...safe,
-    needsPickupCode: pickupCode != null,
-    needsDeliveryOtp: deliveryOtp != null,
+    ...stripSecrets(active),
     orderNumber: row.orderNumber,
     orderTotalPaise: row.orderTotalPaise,
     cashToCollectPaise: row.paymentMethod === "COD" ? row.orderTotalPaise : null,

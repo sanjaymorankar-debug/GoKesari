@@ -608,9 +608,42 @@ export const RULES = {
   },
   deliveryOtp: {
     description:
-      "Customer delivery code (GS-043): wrong attempts a rider may make before only operations can confirm the drop. Also used by the exceptions queue and the OTP_LOCKOUTS risk rule.",
-    schema: z.object({ maxAttempts: int(1, 20) }),
-    defaults: { maxAttempts: 5 },
+      "Customer delivery code (GS-043): wrong attempts a rider may make before the drop is locked (a support ticket is raised and only operations can confirm it), and how often the customer may ask for a new code: seconds between requests and new codes per delivery. Also used by the exceptions queue and the OTP_LOCKOUTS risk rule.",
+    schema: z.object({
+      maxAttempts: int(1, 20),
+      resendCooldownSeconds: int(0, 3600),
+      maxResends: int(0, 20),
+    }),
+    defaults: { maxAttempts: 5, resendCooldownSeconds: 60, maxResends: 3 },
+  },
+  shopWallet: {
+    description:
+      "Shop prepaid wallet. When enabled, a delivered order's commission (rates under Admin → Finance) and deliveryChargePaise (orders a GoKesari rider delivered) are debited from the shop's wallet, and settlement no longer withholds that commission. A shop whose balance is below minBalancePaise cannot accept new orders; the owner is alerted when a charge takes the balance below lowBalanceThresholdPaise. topupMinPaise / topupMaxPaise limit one top-up. Amounts in paise.",
+    schema: z
+      .object({
+        enabled: z.boolean(),
+        deliveryChargePaise: int(0, 1_000_000),
+        minBalancePaise: int(0, 100_000_000),
+        lowBalanceThresholdPaise: int(0, 100_000_000),
+        topupMinPaise: int(100, 10_000_000),
+        topupMaxPaise: int(100, 100_000_000),
+      })
+      .refine((v) => v.topupMinPaise <= v.topupMaxPaise, {
+        message: "The minimum top-up cannot be above the maximum.",
+        path: ["topupMinPaise"],
+      })
+      .refine((v) => v.lowBalanceThresholdPaise >= v.minBalancePaise, {
+        message: "Alert at or above the minimum balance, so the shop hears before it is blocked.",
+        path: ["lowBalanceThresholdPaise"],
+      }),
+    defaults: {
+      enabled: false,
+      deliveryChargePaise: 0,
+      minBalancePaise: 0,
+      lowBalanceThresholdPaise: 20_000,
+      topupMinPaise: 10_000,
+      topupMaxPaise: 5_000_000,
+    },
   },
   returnPickup: {
     description: "Return pickups: how many days ahead a customer may schedule the pickup.",

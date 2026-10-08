@@ -31,6 +31,8 @@ export interface ActiveDelivery {
   needsPickupCode: boolean;
   /** The customer must give the rider a delivery code. */
   needsDeliveryOtp: boolean;
+  /** Too many wrong codes: the drop is locked until operations confirm it. */
+  deliveryCodeLocked?: boolean;
   /** Set once the rider has left the shop for the customer. */
   outForDeliveryAt: Date | string | null;
   /** Landmark / customer's delivery instructions. */
@@ -726,7 +728,16 @@ export function DeliveryPartnerDashboard({
                 I&apos;ve arrived at the customer
               </Button>
             ) : null}
+            {activeDelivery.status === "PICKED_UP" && activeDelivery.deliveryCodeLocked ? (
+              <div className="w-full" data-testid="delivery-code-locked">
+                <Alert tone="warning" title="Delivery locked">
+                  Too many wrong delivery codes. A support ticket has been raised — operations will confirm this
+                  delivery with the customer. Wait here or follow their instructions.
+                </Alert>
+              </div>
+            ) : null}
             {activeDelivery.status === "PICKED_UP" &&
+            !activeDelivery.deliveryCodeLocked &&
             (activeDelivery.outForDeliveryAt || !activeDelivery.needsPickupCode) ? (
               <>
                 {activeDelivery.needsDeliveryOtp ? (

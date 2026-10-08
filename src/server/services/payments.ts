@@ -38,6 +38,7 @@ import { checkRiskForUser } from "./risk";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { getOrCreateWallet, applyWalletMutation } from "./wallet";
+import { creditShopWalletTopUp, getShopWalletBalance } from "./shop-wallet";
 import { previewVoucher, redeemVoucher } from "./vouchers";
 import { getRule } from "./settings";
 
@@ -134,6 +135,74 @@ export async function createTopUpOrder(
   };
 }
 
+/**
+ * A shop owner's wallet recharge (rule shopWallet). The same gateway flow as a
+ * customer top-up: this moves NO money; the shop wallet is credited only by
+ * the verify step / webhook once Cashfree itself confirms the payment.
+ */
+export async function createShopWalletTopUpOrder(
+  shopId: string,
+  userId: string,
+  amountPaise: number,
+): Promise<CreateTopUpResult> {
+  if (!Number.isInteger(amountPaise)) {
+    throw validationFailed("Amount must be a whole number of paise.");
+  }
+  const rules = await getRule("shopWallet");
+  if (!rules.enabled) throw conflict("Shop wallets are not switched on yet.");
+  if (amountPaise < rules.topupMinPaise) {
+    throw validationFailed(`The minimum recharge is ₹${rupees(rules.topupMinPaise)}.`);
+  }
+  if (amountPaise > rules.topupMaxPaise) {
+    throw validationFailed(`The maximum recharge is ₹${rupees(rules.topupMaxPaise)}.`);
+  }
+
+  const live = isPaymentGatewayLive();
+  let gatewayOrderId: string;
+  let paymentSessionId: string | null = null;
+  if (live) {
+    const order = await createCashfreeOrder(amountPaise, userId, "shoptopup");
+    gatewayOrderId = order.gatewayOrderId;
+    paymentSessionId = order.paymentSessionId;
+  } else {
+    gatewayOrderId = `mock_order_${crypto.randomUUID()}`;
+  }
+
+  const [payment] = await db
+    .insert(payments)
+    .values({
+      userId,
+      shopId,
+      gateway: live ? "CASHFREE" : "MOCK",
+      gatewayOrderId,
+      amountPaise,
+      currency: "INR",
+      status: "CREATED",
+      purpose: "SHOP_WALLET_TOPUP",
+    })
+    .returning();
+
+  return {
+    payment,
+    gatewayOrderId,
+    paymentSessionId,
+    cashfreeMode: getEnv().CASHFREE_ENV,
+    amountPaise,
+    currency: "INR",
+    mock: !live,
+    voucherPreview: null,
+  };
+}
+
+/** The balance a settled payment credited: the shop's wallet for a shop recharge, else the payer's. */
+async function settledBalancePaise(payment: Payment): Promise<number> {
+  if (payment.purpose === "SHOP_WALLET_TOPUP" && payment.shopId) return getShopWalletBalance(payment.shopId);
+  const wallet = await db.query.wallets.findFirst({
+    where: (w, { eq: equals }) => equals(w.userId, payment.userId),
+  });
+  return wallet?.balancePaise ?? 0;
+}
+
 export interface VerifyTopUpResult {
   payment: Payment;
   balancePaise: number;
@@ -165,14 +234,11 @@ async function loadVerifiablePayment(
   // Replay: already verified — including by the webhook, which may have won
   // the race. Return the existing state rather than re-crediting.
   if (payment.status === "SUCCESS") {
-    const wallet = await db.query.wallets.findFirst({
-      where: (w, { eq: equals }) => equals(w.userId, userId),
-    });
     return {
       payment,
       alreadySettled: {
         payment,
-        balancePaise: wallet?.balancePaise ?? 0,
+        balancePaise: await settledBalancePaise(payment),
         alreadyProcessed: true,
         voucherBonusPaise: 0,
       },
@@ -304,13 +370,28 @@ async function finalizeVerifiedPayment(
     const settled = await db.query.payments.findFirst({
       where: eq(payments.id, payment.id),
     });
-    const wallet = await db.query.wallets.findFirst({
-      where: (w, { eq: equals }) => equals(w.userId, payment.userId),
-    });
     return {
       payment: settled ?? payment,
-      balancePaise: wallet?.balancePaise ?? 0,
+      balancePaise: await settledBalancePaise(payment),
       alreadyProcessed: true,
+      voucherBonusPaise: 0,
+    };
+  }
+
+  // A shop wallet recharge credits the shop's prepaid wallet — same
+  // guarantees: keyed on the gateway payment id, so it lands once.
+  if (verified.purpose === "SHOP_WALLET_TOPUP" && verified.shopId) {
+    const credited = await creditShopWalletTopUp({
+      shopId: verified.shopId,
+      paymentId: verified.id,
+      gatewayPaymentId: gateway.gatewayPaymentId,
+      amountPaise: verified.amountPaise,
+      userId: verified.userId,
+    });
+    return {
+      payment: verified,
+      balancePaise: credited.balancePaise,
+      alreadyProcessed: credited.deduplicated,
       voucherBonusPaise: 0,
     };
   }
@@ -415,12 +496,9 @@ export async function creditFromWebhook(
   if (!payment) return null; // Not one of ours (or a different purpose) — ignore, not an error.
 
   if (payment.status === "SUCCESS") {
-    const wallet = await db.query.wallets.findFirst({
-      where: (w, { eq: equals }) => equals(w.userId, payment.userId),
-    });
     return {
       payment,
-      balancePaise: wallet?.balancePaise ?? 0,
+      balancePaise: await settledBalancePaise(payment),
       alreadyProcessed: true,
       voucherBonusPaise: 0,
     };
@@ -515,11 +593,12 @@ function cashfreeHeaders(): Record<string, string> {
 async function createCashfreeOrder(
   amountPaise: number,
   userId: string,
+  prefix: "topup" | "shoptopup" = "topup",
 ): Promise<{ gatewayOrderId: string; paymentSessionId: string }> {
   const user = await db.query.users.findFirst({ where: eq(users.id, userId) });
   if (!user) throw notFound("User");
 
-  const orderId = `topup_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
+  const orderId = `${prefix}_${Date.now()}_${crypto.randomBytes(4).toString("hex")}`;
   const response = await fetch(`${cashfreeApiBase()}/orders`, {
     method: "POST",
     headers: cashfreeHeaders(),
@@ -589,4 +668,21 @@ export async function listPayments(userId: string): Promise<Payment[]> {
     .from(payments)
     .where(eq(payments.userId, userId))
     .orderBy(payments.createdAt);
+}
+
+/**
+ * Confirms a shop wallet recharge for the shop it was started for. The
+ * payment must have been started by this user for this shop; Cashfree's own
+ * API is the proof of payment, exactly as for a customer top-up.
+ */
+export async function verifyShopWalletTopUp(input: {
+  userId: string;
+  shopId: string;
+  gatewayOrderId: string;
+}): Promise<VerifyTopUpResult> {
+  const payment = await db.query.payments.findFirst({ where: eq(payments.gatewayOrderId, input.gatewayOrderId) });
+  if (!payment || payment.purpose !== "SHOP_WALLET_TOPUP" || payment.shopId !== input.shopId) {
+    throw notFound("Payment");
+  }
+  return verifyAndCreditTopUp({ userId: input.userId, gatewayOrderId: input.gatewayOrderId });
 }
