@@ -40,6 +40,7 @@ import { PATCH as orderStatusRoute } from "@/app/api/orders/[id]/status/route";
 import { POST as shopTopupRoute } from "@/app/api/shops/[id]/wallet/topup/route";
 import { GET as shopWalletRoute } from "@/app/api/shops/[id]/wallet/route";
 import { resetRateLimits } from "@/server/api/rate-limit";
+import { RULES } from "@/server/config/rules";
 import { db } from "@/server/db";
 import {
   commissionRates,
@@ -90,21 +91,13 @@ const PRICE = 10_500; // ₹105 goods
 const RULE_KEYS = ["shopWallet", "deliveryOtp"];
 let admin = { id: "", role: "ADMIN" as const };
 
-/** Rule shopWallet on, commission 10% (default rate), ₹20 delivery charge. */
+/**
+ * Rule shopWallet on with its defaults — the agreed amounts: ₹25 delivery
+ * charge, ₹200 minimum (and reminder). Commission is the 1% platform rate set
+ * in beforeEach. One ₹105 order therefore costs the shop ₹1.05 + ₹25 = ₹26.05.
+ */
 async function enableWallet(overrides: Record<string, number | boolean> = {}) {
-  await setRule(
-    "shopWallet",
-    {
-      enabled: true,
-      deliveryChargePaise: 2_000,
-      minBalancePaise: 5_000,
-      lowBalanceThresholdPaise: 10_000,
-      topupMinPaise: 10_000,
-      topupMaxPaise: 5_000_000,
-      ...overrides,
-    },
-    admin,
-  );
+  await setRule("shopWallet", { enabled: true, ...overrides }, admin);
 }
 
 beforeEach(async () => {
@@ -117,7 +110,7 @@ beforeEach(async () => {
   state.session = null;
   const a = await createUser({ role: "ADMIN" });
   admin = { id: a.id, role: "ADMIN" };
-  await setCommissionRate({ scope: "DEFAULT", rateBp: 1_000 }, admin);
+  await setCommissionRate({ scope: "DEFAULT", rateBp: 100 }, admin); // agreed 1%
 });
 
 function signIn(user: { id: string; email: string; name: string | null }, role: UserRole) {
@@ -209,16 +202,16 @@ describe("correct delivery code", () => {
     const entries = await ledger(d.shop.id);
     const charges = entries.filter((e) => e.orderId === d.order.id);
     expect(charges.map((e) => [e.type, e.direction, e.amountPaise])).toEqual([
-      ["COMMISSION", "DEBIT", 1_050],
-      ["DELIVERY_CHARGE", "DEBIT", 2_000],
+      ["COMMISSION", "DEBIT", 105],
+      ["DELIVERY_CHARGE", "DEBIT", 2_500],
     ]);
-    expect(charges[0].balanceAfterPaise).toBe(50_000 - 1_050);
-    expect(charges[1].balanceAfterPaise).toBe(50_000 - 3_050);
-    expect(await balance(d.shop.id)).toBe(46_950);
+    expect(charges[0].balanceAfterPaise).toBe(50_000 - 105);
+    expect(charges[1].balanceAfterPaise).toBe(50_000 - 2_605);
+    expect(await balance(d.shop.id)).toBe(47_395);
 
     // Settlement no longer withholds the commission the wallet paid.
     const [snapshot] = await db.select().from(orderFinancials).where(eq(orderFinancials.orderId, d.order.id));
-    expect(snapshot).toMatchObject({ commissionCollection: "SHOP_WALLET", commissionPaise: 1_050, shopPayablePaise: PRICE, shopDeliveryChargePaise: 2_000 });
+    expect(snapshot).toMatchObject({ commissionCollection: "SHOP_WALLET", commissionPaise: 105, shopPayablePaise: PRICE, shopDeliveryChargePaise: 2_500 });
     expect(await getShopPendingPayable(d.shop.id)).toMatchObject({ goodsPaise: PRICE, commissionPaise: 0, netPaise: PRICE });
     const platformFee = await db
       .select()
@@ -228,9 +221,9 @@ describe("correct delivery code", () => {
 
     // Shop: amounts and new balance; buyer: delivered; rider: confirmed — at once.
     const [shopNote] = await notes(d.owner.id, NOTIFICATION_TYPES.SHOP_ORDER_DELIVERED);
-    expect(shopNote.body).toContain("commission ₹10.50");
-    expect(shopNote.body).toContain("delivery charge ₹20.00");
-    expect(shopNote.body).toContain("New balance: ₹469.50");
+    expect(shopNote.body).toContain("commission ₹1.05");
+    expect(shopNote.body).toContain("delivery charge ₹25.00");
+    expect(shopNote.body).toContain("New balance: ₹473.95");
     expect(await notes(d.customer.id, NOTIFICATION_TYPES.ORDER_DELIVERED)).toHaveLength(1);
     expect(await notes(d.riderUser.id, NOTIFICATION_TYPES.DELIVERY_CONFIRMED)).toHaveLength(1);
   });
@@ -240,8 +233,8 @@ describe("correct delivery code", () => {
     await markDelivered(d.deliveryId, d.rider, emailedCode(d.customer.email));
     expect(await ledger(d.shop.id)).toHaveLength(0);
     const [snapshot] = await db.select().from(orderFinancials).where(eq(orderFinancials.orderId, d.order.id));
-    expect(snapshot).toMatchObject({ commissionCollection: "SETTLEMENT", shopPayablePaise: PRICE - 1_050 });
-    expect(await getShopPendingPayable(d.shop.id)).toMatchObject({ commissionPaise: 1_050, netPaise: PRICE - 1_050 });
+    expect(snapshot).toMatchObject({ commissionCollection: "SETTLEMENT", shopPayablePaise: PRICE - 105 });
+    expect(await getShopPendingPayable(d.shop.id)).toMatchObject({ commissionPaise: 105, netPaise: PRICE - 105 });
   });
 
   it("a drop started before 0059 (plain-text code) still completes with its code, which is then cleared", async () => {
@@ -400,7 +393,7 @@ describe("double submission", () => {
 
     const charges = (await ledger(d.shop.id)).filter((e) => e.orderId === d.order.id);
     expect(charges.map((e) => e.type)).toEqual(["COMMISSION", "DELIVERY_CHARGE"]);
-    expect(await balance(d.shop.id)).toBe(50_000 - 3_050);
+    expect(await balance(d.shop.id)).toBe(50_000 - 2_605);
     expect(await db.select().from(orderFinancials).where(eq(orderFinancials.orderId, d.order.id))).toHaveLength(1);
   });
 
@@ -416,9 +409,9 @@ describe("double submission", () => {
         shopId: d.shop.id,
         type: "COMMISSION",
         direction: "DEBIT",
-        amountPaise: 1_050,
+        amountPaise: 105,
         balanceBeforePaise: bal,
-        balanceAfterPaise: bal - 1_050,
+        balanceAfterPaise: bal - 105,
         orderId: d.order.id,
         reason: "duplicate",
         idempotencyKey: "another-key",
@@ -498,14 +491,14 @@ describe("wrong delivery partner", () => {
 
 describe("low wallet balance", () => {
   it("a shop below the minimum cannot accept a new order and is told to recharge; a recharge unblocks it", async () => {
-    await enableWallet({ minBalancePaise: 5_000 });
+    await enableWallet(); // ₹200 minimum
     const { shop, sp, ownerActor, owner } = await shopWithMilk();
     const { order } = await placeOrder(sp.id);
 
     await expect(acceptOrder(order.id, ownerActor)).rejects.toMatchObject({
       code: "INSUFFICIENT_BALANCE",
       message: expect.stringContaining("Recharge your shop wallet"),
-      details: { balancePaise: 0, minBalancePaise: 5_000, rechargeUrl: "/shop/wallet" },
+      details: { balancePaise: 0, minBalancePaise: 20_000, rechargeUrl: "/shop/wallet" },
     });
     const [still] = await db.select().from(orders).where(eq(orders.id, order.id));
     expect(still.status).toBe("CONFIRMED");
@@ -538,20 +531,20 @@ describe("low wallet balance", () => {
     await enableWallet({ minBalancePaise: 0, lowBalanceThresholdPaise: 5_000 });
     const d = await startedDrop({ fundPaise: 6_000 });
     await markDelivered(d.deliveryId, d.rider, emailedCode(d.customer.email));
-    expect(await balance(d.shop.id)).toBe(6_000 - 3_050);
+    expect(await balance(d.shop.id)).toBe(6_000 - 2_605);
     const alerts = await notes(d.owner.id, NOTIFICATION_TYPES.SHOP_WALLET_LOW_BALANCE);
     expect(alerts).toHaveLength(1);
-    expect(alerts[0].body).toContain("₹29.50");
+    expect(alerts[0].body).toContain("₹33.95");
 
     const view = await getShopWalletView(d.shop.id);
-    expect(view).toMatchObject({ enabled: true, balancePaise: 2_950, lowBalance: true, canAcceptOrders: true });
+    expect(view).toMatchObject({ enabled: true, balancePaise: 3_395, lowBalance: true, canAcceptOrders: true });
   });
 
   it("a delivered order is charged even past zero; the shop is then blocked until it recharges", async () => {
     await enableWallet({ minBalancePaise: 0, lowBalanceThresholdPaise: 0 });
     const d = await startedDrop({ fundPaise: 1_000 });
     await markDelivered(d.deliveryId, d.rider, emailedCode(d.customer.email));
-    expect(await balance(d.shop.id)).toBe(1_000 - 3_050);
+    expect(await balance(d.shop.id)).toBe(1_000 - 2_605);
     const [shopNote] = await notes(d.owner.id, NOTIFICATION_TYPES.SHOP_ORDER_DELIVERED);
     expect(shopNote.body).toContain("Recharge your wallet to keep accepting new orders");
     const { order } = await placeOrder(d.sp.id);
@@ -579,6 +572,10 @@ describe("cancelled order", () => {
 /* ------------------------------------------------- wallet integrity & access */
 
 describe("wallet integrity and access", () => {
+  it("the rule's defaults are the agreed amounts, and it stays off until switched on", () => {
+    expect(RULES.shopWallet.defaults).toMatchObject({ enabled: false, deliveryChargePaise: 2_500, minBalancePaise: 20_000 });
+  });
+
   it("the balance can only change through a ledger entry; entries are immutable", async () => {
     const { shop } = await shopWithMilk();
     await fund(shop.id, 10_000);
@@ -614,7 +611,7 @@ describe("wallet integrity and access", () => {
     signIn(owner, "SHOP_OWNER");
     const view = await call(shopWalletRoute, `/api/shops/${shop.id}/wallet`, { params: { id: shop.id } });
     expect(view.status).toBe(200);
-    expect(view.body).toMatchObject({ balancePaise: 0, minBalancePaise: 5_000, commissionRateBp: 1_000, deliveryChargePaise: 2_000 });
+    expect(view.body).toMatchObject({ balancePaise: 0, minBalancePaise: 20_000, commissionRateBp: 100, deliveryChargePaise: 2_500 });
     const tooSmall = await call(shopTopupRoute, `/api/shops/${shop.id}/wallet/topup`, { method: "POST", params: { id: shop.id }, body: { amountPaise: 500 } });
     expect(tooSmall.status).toBe(422);
     const started = await call(shopTopupRoute, `/api/shops/${shop.id}/wallet/topup`, { method: "POST", params: { id: shop.id }, body: { amountPaise: 20_000 } });

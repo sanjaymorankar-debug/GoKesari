@@ -71,14 +71,17 @@ Built on the `staging` branch (the test site), on top of the event layer
 | Rider dashboard | "Delivery locked" instead of the code box after a lockout. |
 | `/shop/finance` | A delivered order whose commission the wallet paid is labelled "(paid from wallet)"; its payable is the full goods value. |
 
-## 3. Configuration (Admin → Business rules)
+## 3. Configuration
 
-| Setting | Rule | Default |
+Agreed amounts (8 Oct 2026): **delivery charge ₹25, minimum balance ₹200,
+commission 1%**. All three stay configurable without a deploy.
+
+| Setting | Where | Default / agreed |
 |---|---|---|
-| Commission rate | Admin → Finance → Commission (`commission_rates`, existing) | none set = 0% |
-| Delivery charge | `shopWallet.deliveryChargePaise` | 0 |
-| Minimum balance to accept orders | `shopWallet.minBalancePaise` | 0 |
-| Low-balance reminder | `shopWallet.lowBalanceThresholdPaise` (≥ minimum) | ₹200 |
+| Commission rate | Admin → Finance → Commission (`commission_rates`, existing; platform default, per shop type, or per shop) | **1%** — set as the platform default by `test-settings.sql` on test; set it the same way on production (until a rate is set, commission is 0%) |
+| Delivery charge | Admin → Business rules → `shopWallet.deliveryChargePaise` | **₹25** (2500) |
+| Minimum balance to accept orders | `shopWallet.minBalancePaise` | **₹200** (20000) |
+| Low-balance reminder | `shopWallet.lowBalanceThresholdPaise` (≥ minimum) | ₹200 — the reminder then comes with the block; raise it (e.g. ₹300) to warn before the block |
 | Recharge limits | `shopWallet.topupMinPaise` / `topupMaxPaise` | ₹100 / ₹50,000 |
 | Switch | `shopWallet.enabled` | **off** |
 | Wrong-code limit | `deliveryOtp.maxAttempts` (existing) | 5 |
@@ -108,8 +111,8 @@ build so they are never confirmed without a code; operations confirm them.
 
 ## 5. Tests
 
-`tests/integration/shop-wallet-delivery-otp.test.ts` (real PostgreSQL, 20
-cases): correct code (and a pre-0059 plain code), wrong code, lockout + ticket + alerts, concurrent wrong
+`tests/integration/shop-wallet-delivery-otp.test.ts` (real PostgreSQL, 21
+cases, run with the agreed amounts): correct code (and a pre-0059 plain code), wrong code, lockout + ticket + alerts, concurrent wrong
 codes, resend limits and the old code dying, customer-only resend (route),
 double submit (concurrent and repeated) charged once, the shop unable to
 complete a rider-carried order, the database refusing a
@@ -151,8 +154,8 @@ Updated for hashed codes: `delivery-assignment`, `delivery-assignment-route`,
 
 **Decisions needed from you**
 
-1. The real amounts: delivery charge, minimum balance, low-balance threshold, and
-   the commission rate(s) — the test script uses ₹20 / ₹100 / ₹200 / 10%.
+1. ~~Amounts~~ — decided: ₹25 delivery charge, ₹200 minimum, 1% commission.
+   Still open: the low-balance reminder level (now ₹200, equal to the minimum).
 2. Should a shop below the minimum also be hidden from customers / refuse checkout,
    rather than only being unable to accept?
 3. Should the delivery charge vary (e.g. by distance, or equal the rider's

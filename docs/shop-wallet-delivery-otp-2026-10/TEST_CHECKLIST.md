@@ -6,9 +6,9 @@ Run on the **test site only**. Before starting:
    `staging` does this automatically through the "Test database" workflow,
    after a backup; or run `npm run db:migrate` against the test database).
 2. `test-settings.sql` (this folder) run on the test database — switches rule
-   `shopWallet` on with test amounts: ₹20 delivery charge, ₹100 minimum,
-   ₹200 low-balance reminder, 10% default commission, 5 wrong codes, a new
-   code at most every 60 s and 3 per delivery.
+   `shopWallet` on with the agreed amounts: ₹25 delivery charge, ₹200
+   minimum (reminder at ₹200 too), 1% platform commission; 5 wrong codes, a
+   new code at most every 60 s and 3 per delivery.
 3. SMTP working on test (the delivery code goes by email; sign-in codes already do).
 
 **Accounts:** a customer with wallet money; a shop owner (approved shop,
@@ -34,14 +34,14 @@ select created_at, type, from_status, to_status, notified from domain_events
 where order_id = '<order id>' order by created_at;
 ```
 
-Amounts below assume one ₹105 item, 10% commission and the ₹20 charge:
-commission ₹10.50 + delivery charge ₹20 = **₹30.50** per rider-delivered order.
+Amounts below assume one ₹105 item, 1% commission and the ₹25 charge:
+commission ₹1.05 + delivery charge ₹25 = **₹26.05** per rider-delivered order.
 
 ## 0. Wallet and recharge
 
 | # | Do | Expected | Pass? |
 |---|---|---|---|
-| 0.1 | Shop owner opens **Wallet** (header menu) | Balance ₹0, minimum ₹100, commission 10%, delivery charge ₹20, "recharge to accept orders" badge, red banner on My Shop and Orders | |
+| 0.1 | Shop owner opens **Wallet** (header menu) | Balance ₹0, minimum ₹200, commission 1%, delivery charge ₹25, "recharge to accept orders" badge, red banner on My Shop and Orders | |
 | 0.2 | Recharge ₹500 (Cashfree sandbox) | Balance ₹500; ledger row "Recharge +₹500, balance after ₹500"; owner gets "Shop wallet recharged" ✉; banner gone | |
 | 0.3 | Reload the Cashfree return / press verify again | No second credit (ledger still one recharge row) | |
 | 0.4 | Another shop owner calls `GET /api/shops/<shop id>/wallet` | `403` | |
@@ -55,8 +55,8 @@ commission ₹10.50 + delivery charge ₹20 = **₹30.50** per rider-delivered o
 | 1.1 | Customer orders; shop **Accepts**, packs, **Mark ready**; rider accepts, enters pickup code, **Start delivery** | Order `OUT_FOR_DELIVERY`. Customer gets an email *"#### is your delivery code for order …"*. `delivery_otp_hash` set, `delivery_otp` **null** (no plain code in the database) | |
 | 1.2 | Customer opens **My Orders** | "Your delivery code was emailed to a***@…" and **Get a new code**; the code itself is not on the page | |
 | 1.3 | Rider enters the emailed code, **Mark delivered** | Order `DELIVERED`, delivery `DELIVERED`, `delivery_otp_used_at` set and hash cleared | |
-| 1.4 | Shop wallet ledger | Two new rows linked to the order: **Commission −₹10.50** and **Delivery charge −₹20.00**, each with its balance after; balance ₹469.50 | |
-| 1.5 | Notifications, at once (no cron) | Shop: "Order delivered — wallet charged … commission ₹10.50, delivery charge ₹20.00. New balance: ₹469.50" ✉ · Customer: "Order delivered" ✉ · Rider: "Delivery confirmed" 🔕 | |
+| 1.4 | Shop wallet ledger | Two new rows linked to the order: **Commission −₹1.05** and **Delivery charge −₹25.00**, each with its balance after; balance ₹473.95 | |
+| 1.5 | Notifications, at once (no cron) | Shop: "Order delivered — wallet charged … commission ₹1.05, delivery charge ₹25.00. New balance: ₹473.95" ✉ · Customer: "Order delivered" ✉ · Rider: "Delivery confirmed" 🔕 | |
 | 1.6 | Shop → **Finance** | The order's payable is the full ₹105 (commission already paid from the wallet; not withheld again) | |
 
 ## 2. Wrong OTP
@@ -75,7 +75,7 @@ commission ₹10.50 + delivery charge ₹20 = **₹30.50** per rider-delivered o
 | 3.3 | Alerts | Customer: "We're checking your delivery" (ticket number) ✉ · Shop: "Delivery code locked" 🔕 · every operator/admin: "Delivery code locked — confirm the drop" ✉ | |
 | 3.4 | Rider enters the **right** code now | Still refused (locked); no wallet rows | |
 | 3.5 | Customer presses **Get a new code** | Refused — "on hold … support will contact you (ticket …)"; page shows the on-hold note | |
-| 3.6 | Operator confirms the delivery (exceptions queue / `confirm-delivery` with a proof note) | Order `DELIVERED`; wallet charged **once** (₹30.50); rider gets "Delivery confirmed" | |
+| 3.6 | Operator confirms the delivery (exceptions queue / `confirm-delivery` with a proof note) | Order `DELIVERED`; wallet charged **once** (₹26.05); rider gets "Delivery confirmed" | |
 | 3.7 | Change rule `deliveryOtp.maxAttempts` to 3; repeat 3.1 | Locks after 3 | |
 
 ## 4. Resend
@@ -110,11 +110,11 @@ commission ₹10.50 + delivery charge ₹20 = **₹30.50** per rider-delivered o
 
 | # | Do | Expected | Pass? |
 |---|---|---|---|
-| 7.1 | Shop balance ₹40 (below ₹100); a new order arrives; shop presses **Accept** | Refused: "Recharge your shop wallet to accept new orders. Balance ₹40.00, minimum ₹100.00." Order stays `CONFIRMED`. Red "Recharge wallet" banner on Orders | |
+| 7.1 | Shop balance ₹150 (below ₹200); a new order arrives; shop presses **Accept** | Refused: "Recharge your shop wallet to accept new orders. Balance ₹150.00, minimum ₹200.00." Order stays `CONFIRMED`. Red "Recharge wallet" banner on Orders | |
 | 7.2 | Same via API `POST /api/orders/<id>/fulfilment {"action":"accept"}` | `402 INSUFFICIENT_BALANCE`, `details.rechargeUrl = /shop/wallet` (server-side, not just UI) | |
 | 7.3 | Recharge ₹500, accept again | Accepted | |
-| 7.4 | Balance ₹220; deliver one order (−₹30.50 → ₹189.50) | Owner gets "Recharge your shop wallet … ₹189.50" ✉ **once**; a second delivery does not repeat it; a recharge back above ₹200 re-arms it | |
-| 7.5 | Balance ₹10; an order already accepted earlier is delivered | Delivery completes; balance goes to −₹20.50 (shown in red); shop told "Recharge your wallet to keep accepting new orders"; next accept refused | |
+| 7.4 | Balance ₹220; deliver one order (−₹26.05 → ₹193.95) | Owner gets "Recharge your shop wallet … ₹193.95 … You cannot accept new orders until you recharge" ✉ **once**; a second delivery does not repeat it; a recharge back to ₹200 or more re-arms it | |
+| 7.5 | Balance ₹10; an order already accepted earlier is delivered | Delivery completes; balance goes to −₹16.05 (shown in red); shop told "Recharge your wallet to keep accepting new orders"; next accept refused | |
 | 7.6 | An order already **accepted** while the balance was fine | Can still be packed and delivered after the balance drops (only new acceptances are blocked) | |
 
 ## 8. Cancelled / undelivered
