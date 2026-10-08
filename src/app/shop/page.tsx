@@ -54,6 +54,8 @@ import {
 } from "@/lib/shop-onboarding";
 import { listSubscriptionOrdersForShop } from "@/server/services/subscriptions";
 import { ShopWalletBanner } from "@/components/shop-wallet-banner";
+import { LegalDocumentsBanner } from "@/components/legal-documents-banner";
+import { getShopLegalStatus } from "@/server/services/legal-documents";
 import { getShopWalletStatus } from "@/server/services/shop-wallet";
 
 export const metadata = { title: "My Shop" };
@@ -111,6 +113,8 @@ export default async function ShopDashboardPage() {
     missedAcceptances30d(shop.id),
     getShopWalletStatus(shop.id),
   ]);
+  // Mandatory legal documents (docs/four-features-2026-10): prompt, grace period, expiry reminder.
+  const legalStatus = await getShopLegalStatus(shop.id);
   const upcomingDeliveries = await listSubscriptionDeliveries({
     shopId: shop.id,
     from: addDays(today, 1),
@@ -142,6 +146,7 @@ export default async function ShopDashboardPage() {
 
       {/* Shop wallet: "recharge wallet" while it is low or below the minimum. */}
       <ShopWalletBanner {...wallet} />
+      <LegalDocumentsBanner status={legalStatus} />
 
       <div className="mb-6 flex flex-wrap gap-2">
         {onboarding ? (

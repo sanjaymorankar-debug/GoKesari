@@ -66,6 +66,7 @@ import { assertShopMayAcceptOrders, chargeShopWalletForDeliveredOrder, type Orde
 import { shopServiceability, societyPartnerShopIds } from "./serviceability";
 import { assertShopMayProgress } from "./shop-suspension-guard";
 import { assertFulfilmentAllowsStatus } from "./fulfilment-guards";
+import { assertLegalDocsAllowOrders } from "./legal-documents";
 import { resolveAddressSociety } from "./societies";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { emitEvent } from "@/server/events/emit";
@@ -311,6 +312,8 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       if (shopRow.ordersPaused) {
         throw conflict(`${shopRow.name} is not taking new orders right now.`);
       }
+      // Mandatory legal documents: a shop past its grace period takes no orders until it uploads them.
+      await assertLegalDocsAllowOrders(shopRow.id);
       if (addressSnapshot && shopRow.deliveryAvailable && group.subtotalPaise < shopRow.minOrderPaise) {
         throw validationFailed(
           `${shopRow.name} needs a minimum order of ₹${(shopRow.minOrderPaise / 100).toFixed(0)}; your items come to ₹${(group.subtotalPaise / 100).toFixed(0)}.`,
@@ -776,6 +779,7 @@ export async function updateOrderStatus(
     // (CONFIRMED → ACCEPTED, or straight to PREPARING) until it recharges.
     if (order.status === "CONFIRMED" && (newStatus === "ACCEPTED" || newStatus === "PREPARING")) {
       await assertShopMayAcceptOrders(order.shopId, tx);
+      await assertLegalDocsAllowOrders(order.shopId);
     }
 
     const [updated] = await tx

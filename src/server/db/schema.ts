@@ -5500,3 +5500,78 @@ export const orderFulfilmentArrangements = pgTable(
   ],
 );
 export type OrderFulfilmentArrangement = typeof orderFulfilmentArrangements.$inferSelect;
+
+/* ===================================================================
+ * Mandatory legal documents by shop category (docs/four-features-2026-10, feature 2)
+ * Additive: migration 0061, rollback scripts/rollback-0061.sql.
+ * =================================================================== */
+
+export const LEGAL_DOC_TYPES = ["FSSAI", "DRUG_LICENCE", "MEDICAL_REGISTRATION"] as const;
+export type LegalDocType = (typeof LEGAL_DOC_TYPES)[number];
+export const LEGAL_DOC_STATUSES = ["NOT_SUBMITTED", "SUBMITTED", "APPROVED", "REJECTED"] as const;
+export type LegalDocStatus = (typeof LEGAL_DOC_STATUSES)[number];
+
+/**
+ * A licence a shop must hold for what it sells (services/legal-documents.ts):
+ * FSSAI for food, a drug licence for a pharmacy, a medical registration for a
+ * doctor / clinic. One row per shop and document, created when the requirement
+ * is first seen. A shop that was already live then gets `grace_until` to
+ * upload before it stops accepting orders; a new shop gets none (it cannot be
+ * approved without the document). The number is stored encrypted, like a PAN.
+ */
+export const shopLegalDocuments = pgTable(
+  "shop_legal_documents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    docType: text("doc_type", { enum: LEGAL_DOC_TYPES }).notNull(),
+    status: text("status", { enum: LEGAL_DOC_STATUSES }).notNull().default("NOT_SUBMITTED"),
+    numberEncrypted: text("number_encrypted"),
+    numberLast4: text("number_last4"),
+    /** MEDICAL_REGISTRATION: the council that issued it. */
+    issuingCouncil: text("issuing_council"),
+    /** FSSAI and DRUG_LICENCE: the licence's expiry date. */
+    expiryDate: date("expiry_date"),
+    /** A shop already live when the requirement applied: may trade without it until then. */
+    graceUntil: timestamp("grace_until", { withTimezone: true }),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
+    submittedBy: uuid("submitted_by").references(() => users.id, { onDelete: "set null" }),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewedBy: uuid("reviewed_by").references(() => users.id, { onDelete: "set null" }),
+    rejectionReason: text("rejection_reason"),
+    /** The expiry date the 30-days-ahead reminder was last sent for (one reminder per date). */
+    expiryReminderSentFor: date("expiry_reminder_sent_for"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("shop_legal_documents_shop_type_uq").on(t.shopId, t.docType),
+    index("shop_legal_documents_status_idx").on(t.status, t.submittedAt),
+  ],
+);
+export type ShopLegalDocument = typeof shopLegalDocuments.$inferSelect;
+
+/** The uploaded copy of a legal document; bytes encrypted by the app (as seller_verification_files). */
+export const shopLegalDocumentFiles = pgTable(
+  "shop_legal_document_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    documentId: uuid("document_id")
+      .notNull()
+      .references(() => shopLegalDocuments.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id").notNull(),
+    contentType: text("content_type", { enum: ["application/pdf", "image/jpeg", "image/png", "image/webp"] }).notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    sha256: text("sha256").notNull(),
+    dataEncrypted: bytea("data_encrypted").notNull(),
+    uploadedBy: uuid("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("shop_legal_document_files_document_idx").on(t.documentId, t.createdAt),
+    check("shop_legal_document_files_size", sql`${t.sizeBytes} > 0 AND ${t.sizeBytes} <= 5000000`),
+  ],
+);
+export type ShopLegalDocumentFile = typeof shopLegalDocumentFiles.$inferSelect;

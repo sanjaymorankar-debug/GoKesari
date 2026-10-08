@@ -34,6 +34,7 @@ import { applyShopCategories } from "./shop-categories";
 import { resolveFeeForNewRegistration } from "./registration-fees";
 import { getRule } from "./settings";
 import { missingMandatoryDocuments, onboardingApprovalBlocker } from "./shop-onboarding";
+import { assertLegalDocsAllowApproval } from "./legal-documents";
 import { emitEvent } from "@/server/events/emit";
 import {
   duplicateShopError,
@@ -712,6 +713,8 @@ function approveShopTransaction(
     const blocker = await onboardingApprovalBlocker(shop, tx);
     if (blocker) throw conflict(blocker, { lifecycleStatus: shop.lifecycleStatus });
     assertRegistrationFeeSettled(shop);
+    // Mandatory legal documents (FSSAI / drug licence / medical registration) are submitted.
+    await assertLegalDocsAllowApproval(shop, tx);
 
     const [updated] = await tx
       .update(shops)
