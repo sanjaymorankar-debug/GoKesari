@@ -18,6 +18,8 @@ const state = vi.hoisted(() => ({
   },
   live: false,
   authUrl: undefined as string | undefined,
+  /** What Cashfree reports when a pending refund is looked up again. */
+  refundLater: undefined as string | undefined,
 }));
 
 vi.mock("@/server/email/transport", () => ({
@@ -84,6 +86,7 @@ beforeEach(async () => {
   state.session = null;
   state.live = false;
   state.authUrl = undefined;
+  state.refundLater = undefined;
   const a = await createUser({ role: "ADMIN" });
   admin = { id: a.id, role: "ADMIN" };
   await setRule("bankAccounts", { enabled: true }, admin);
@@ -252,6 +255,7 @@ describe("₹1 verification through Cashfree (API mocked)", () => {
       if (url.endsWith("/orders") && init?.method === "POST") return new Response(JSON.stringify({ payment_session_id: "session_123" }), { status: 200 });
       if (url.includes("/payments")) return new Response(JSON.stringify(payments), { status: 200 });
       if (url.endsWith("/refunds")) return new Response(JSON.stringify(refund), { status: 200 });
+      if (url.includes("/refunds/")) return new Response(JSON.stringify({ cf_refund_id: refund.cf_refund_id, refund_status: state.refundLater ?? "PENDING" }), { status: 200 });
       return new Response("{}", { status: 404 });
     }) as typeof fetch;
     return calls;
@@ -287,6 +291,27 @@ describe("₹1 verification through Cashfree (API mocked)", () => {
     expect(attempt).toMatchObject({ refundStatus: "PENDING", refundReference: "rf_1" });
     expect(JSON.stringify(attempt.payerDetails)).not.toContain("470613");
     expect(calls.some((c) => c.url.endsWith("/refunds") && (c.body as { refund_amount: number }).refund_amount === 1)).toBe(true);
+  });
+
+  it("a refund Cashfree settles later shows as refunded the next time the account is opened", async () => {
+    state.live = true;
+    const calls = mockCashfree([{ cf_payment_id: 77, payment_status: "SUCCESS", payment_group: "upi", payment_method: { upi: { upi_id: "ravi@okhdfc" } } }]);
+    const customer = await createUser({ name: "Ravi Kumar" });
+    signIn(customer, "CUSTOMER");
+    const saved = await saveMine();
+    const started = await start(saved.body.id);
+    await call(confirmRoute, "/api/bank-account/verification/confirm", { method: "POST", body: { gatewayOrderId: started.body.gatewayOrderId } });
+    expect((await call(myAccountGet, "/api/bank-account")).body.account.lastAttempt.refundStatus).toBe("PENDING");
+
+    state.refundLater = "SUCCESS";
+    const shown = await call(myAccountGet, "/api/bank-account");
+    expect(shown.body.account.lastAttempt.refundStatus).toBe("REFUNDED");
+    const [attempt] = await db.select().from(bankVerificationAttempts).where(eq(bankVerificationAttempts.gatewayOrderId, started.body.gatewayOrderId));
+    expect(attempt.refundedAt).not.toBeNull();
+    // Asked by our own refund id; once REFUNDED, Cashfree is not asked again.
+    const checks = calls.filter((c) => c.url.includes("/refunds/bvr_")).length;
+    await call(myAccountGet, "/api/bank-account");
+    expect(calls.filter((c) => c.url.includes("/refunds/bvr_")).length).toBe(checks);
   });
 
   it("a payment Cashfree reports as failed fails the verification", async () => {
