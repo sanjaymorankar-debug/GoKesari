@@ -7,10 +7,12 @@
 #                                                    → back up, migrate, apply the test settings, verify
 #   - docs/shop-wallet-delivery-otp-2026-10/test-settings.sql changed
 #                                                    → back up, migrate, apply the shop wallet settings, verify
+#   - docs/shop-wallet-delivery-otp-2026-10/test-wallet-credits.sql changed
+#                                                    → back up, migrate, apply the new shop wallet credits, verify
 #   - this workflow changed                          → back up, migrate, verify (settings are not re-imposed)
 # Every night (once this file is on the default branch): back up.
 # By hand — Actions → "Test database" → Run workflow → branch staging:
-#   migrate | settings | migrate-and-settings | shop-wallet-settings | backup | verify |
+#   migrate | settings | migrate-and-settings | shop-wallet-settings | shop-wallet-credits | backup | verify |
 #   rollback-0058 (type ROLLBACK 0058 to confirm)
 #
 # Every change is preceded by a pg_dump backup kept as a workflow artifact for 14 days.
@@ -26,6 +28,7 @@ on:
       - "scripts/test-db/**"
       - "docs/event-driven-2026-10/test-settings.sql"
       - "docs/shop-wallet-delivery-otp-2026-10/test-settings.sql"
+      - "docs/shop-wallet-delivery-otp-2026-10/test-wallet-credits.sql"
       - ".github/workflows/test-db.yml"
   schedule:
     # 20:47 UTC = 02:17 IST, away from the cron jobs' busy minutes.
@@ -36,7 +39,7 @@ on:
         description: What to do to the TEST database
         type: choice
         default: migrate
-        options: [migrate, settings, migrate-and-settings, shop-wallet-settings, backup, verify, rollback-0058]
+        options: [migrate, settings, migrate-and-settings, shop-wallet-settings, shop-wallet-credits, backup, verify, rollback-0058]
       confirm:
         description: "rollback-0058 only: type ROLLBACK 0058"
         required: false
@@ -74,7 +77,7 @@ jobs:
           INPUT_CONFIRM: ${{ inputs.confirm }}
           BEFORE: ${{ github.event.before }}
         run: |
-          migrate=no; settings=no; wallet=no; rollback=no; backup=yes
+          migrate=no; settings=no; wallet=no; credits=no; rollback=no; backup=yes
           case "$EVENT" in
             schedule) ;;
             workflow_dispatch)
@@ -83,6 +86,7 @@ jobs:
                 settings) settings=yes ;;
                 migrate-and-settings) migrate=yes; settings=yes ;;
                 shop-wallet-settings) migrate=yes; wallet=yes ;;
+                shop-wallet-credits) migrate=yes; credits=yes ;;
                 backup) ;;
                 verify) backup=no ;;
                 rollback-0058)
@@ -99,17 +103,18 @@ jobs:
               grep -qE '^(drizzle/|src/server/db/migrate\.ts$|scripts/migrate-on-build\.mjs$|\.github/workflows/test-db\.yml$)' <<<"$changed" && migrate=yes
               grep -qE '^docs/event-driven-2026-10/test-settings\.sql$' <<<"$changed" && settings=yes
               grep -qE '^docs/shop-wallet-delivery-otp-2026-10/test-settings\.sql$' <<<"$changed" && wallet=yes
-              # A settings change also migrates first (the settings may need new columns).
-              [ "$settings$wallet" != nono ] && migrate=yes ;;
+              grep -qE '^docs/shop-wallet-delivery-otp-2026-10/test-wallet-credits\.sql$' <<<"$changed" && credits=yes
+              # A settings or data change also migrates first (it may need new columns).
+              [ "$settings$wallet$credits" != nonono ] && migrate=yes ;;
           esac
-          [ "$migrate$settings$wallet$rollback" = nononono ] && [ "$EVENT" = push ] && backup=no
-          { echo "DO_BACKUP=$backup"; echo "DO_MIGRATE=$migrate"; echo "DO_SETTINGS=$settings"; echo "DO_WALLET_SETTINGS=$wallet"; echo "DO_ROLLBACK=$rollback"; } >> "$GITHUB_ENV"
+          [ "$migrate$settings$wallet$credits$rollback" = nonononono ] && [ "$EVENT" = push ] && backup=no
+          { echo "DO_BACKUP=$backup"; echo "DO_MIGRATE=$migrate"; echo "DO_SETTINGS=$settings"; echo "DO_WALLET_SETTINGS=$wallet"; echo "DO_WALLET_CREDITS=$credits"; echo "DO_ROLLBACK=$rollback"; } >> "$GITHUB_ENV"
           echo "### Plan" >> "$GITHUB_STEP_SUMMARY"
-          echo "backup=$backup · migrate=$migrate · settings=$settings · shop-wallet-settings=$wallet · rollback=$rollback ($EVENT)" | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "backup=$backup · migrate=$migrate · settings=$settings · shop-wallet-settings=$wallet · shop-wallet-credits=$credits · rollback=$rollback ($EVENT)" | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Guard — test database only
         env:
-          READ_ONLY: ${{ env.DO_MIGRATE == 'no' && env.DO_SETTINGS == 'no' && env.DO_WALLET_SETTINGS == 'no' && env.DO_ROLLBACK == 'no' }}
+          READ_ONLY: ${{ env.DO_MIGRATE == 'no' && env.DO_SETTINGS == 'no' && env.DO_WALLET_SETTINGS == 'no' && env.DO_WALLET_CREDITS == 'no' && env.DO_ROLLBACK == 'no' }}
         run: scripts/test-db/guard.sh
 
       - name: PostgreSQL client matching the server
@@ -168,6 +173,14 @@ jobs:
           set -o pipefail
           echo "### Shop wallet settings applied" >> "$GITHUB_STEP_SUMMARY"
           { echo '```'; psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f docs/shop-wallet-delivery-otp-2026-10/test-settings.sql; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply shop wallet credits
+        if: env.DO_WALLET_CREDITS == 'yes'
+        # Ledger credits, each applied once (by key); all or nothing.
+        run: |
+          set -o pipefail
+          echo "### Shop wallet credits" >> "$GITHUB_STEP_SUMMARY"
+          { echo '```'; psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f docs/shop-wallet-delivery-otp-2026-10/test-wallet-credits.sql 2>&1; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Roll back 0058
         if: env.DO_ROLLBACK == 'yes'
