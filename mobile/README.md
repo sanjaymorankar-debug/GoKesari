@@ -107,11 +107,26 @@ npx eas-cli@latest build --profile preview --platform android
 When the build finishes, open the link it prints on the phone, or scan the QR
 code, and install. Android asks once to allow installs from that source.
 
-### iPhone
+### iPhone without an Apple Developer account: the home-screen app
 
 Apple only lets an iPhone install apps signed through an Apple Developer
-account ($99 a year), so there is no download-and-install file like Android's.
-With the account, register the iPhone, then build:
+account ($99 a year), so there is no download-and-install file like
+Android's. Until there is an account, iPhone users add the website itself to
+the home screen, and it then opens full-screen like an app:
+
+1. Open https://gokesari.com in **Safari**.
+2. Tap **Share** (the square with an arrow) → **Add to Home Screen** → **Add**.
+
+It is the website, so every feature works, Google sign-in included. The site
+supplies the name, icon and full-screen mode (`src/app/manifest.ts` and the
+Apple tags in `src/app/layout.tsx`), and adds a Back button to the header,
+because a full-screen home-screen app has no browser toolbar
+(`src/components/standalone-back-button.tsx`). The home-screen app keeps its
+own sign-in, separate from Safari's, so people sign in once more there.
+
+### iPhone with an Apple Developer account
+
+Register the iPhone, then build:
 
 ```bash
 npx eas-cli@latest device:create

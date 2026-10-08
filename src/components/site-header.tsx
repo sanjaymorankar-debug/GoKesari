@@ -7,6 +7,7 @@ import clsx from "clsx";
 
 import { DeliverToPill, LocationPanel, OPEN_LOCATION_EVENT } from "@/components/location-picker";
 import { RoleSwitcher } from "@/components/role-switcher";
+import { StandaloneBackButton } from "@/components/standalone-back-button";
 import { formatPaiseCompact } from "@/lib/money";
 import type { UserRole } from "@/server/db/schema";
 import { signOutAction } from "@/server/sign-out-action";
@@ -300,6 +301,7 @@ export function SiteHeader({
   return (
     <header className="sticky top-0 z-40 border-b border-cream-200 bg-white/95 backdrop-blur">
       <div className="mx-auto flex w-full max-w-6xl flex-wrap items-center gap-x-3 gap-y-2 px-4 py-2.5 sm:px-6">
+        <StandaloneBackButton />
         <Link href="/" className="flex shrink-0 items-center gap-2">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img

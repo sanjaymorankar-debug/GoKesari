@@ -112,4 +112,38 @@ test.describe("mobile app", () => {
     await website.close();
     await app.close();
   });
+
+  test("the site can be added to an iPhone home screen as a full-screen app", async ({ page, request }) => {
+    await page.goto("/");
+    await expect(page.locator('link[rel="manifest"]')).toHaveAttribute("href", "/manifest.webmanifest");
+    await expect(page.locator('meta[name="apple-mobile-web-app-capable"]')).toHaveAttribute("content", "yes");
+    await expect(page.locator('meta[name="apple-mobile-web-app-title"]')).toHaveAttribute("content", "GoKesari");
+
+    const manifest = await (await request.get("/manifest.webmanifest")).json();
+    expect(manifest).toMatchObject({ display: "standalone", start_url: "/" });
+    for (const icon of manifest.icons) expect((await request.get(icon.src)).status()).toBe(200);
+  });
+
+  test("the home-screen app on iPhone gets a Back button; browsers do not", async ({ browser }) => {
+    const website = await browser.newContext();
+    const browserPage = await website.newPage();
+    await browserPage.goto("/about");
+    await expect(browserPage.getByRole("heading").first()).toBeVisible();
+    await expect(browserPage.getByTestId("standalone-back")).toHaveCount(0);
+
+    const homeScreen = await browser.newContext();
+    // Safari sets navigator.standalone only when opened from the home screen.
+    await homeScreen.addInitScript(() => Object.defineProperty(navigator, "standalone", { value: true }));
+    const page = await homeScreen.newPage();
+    await page.goto("/");
+    await expect(page.getByRole("heading").first()).toBeVisible();
+    await expect(page.getByTestId("standalone-back")).toHaveCount(0);
+
+    await page.goto("/about");
+    await page.getByTestId("standalone-back").click();
+    await page.waitForURL((url) => url.pathname === "/");
+
+    await website.close();
+    await homeScreen.close();
+  });
 });
