@@ -421,6 +421,13 @@
       "when": 1791457941164,
       "tag": "0059_shop_wallet_delivery_otp",
       "breakpoints": true
+    },
+    {
+      "idx": 60,
+      "version": "7",
+      "when": 1791479054744,
+      "tag": "0060_shop_wallet_per_km_refunds",
+      "breakpoints": true
     }
   ]
 }
