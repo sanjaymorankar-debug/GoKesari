@@ -693,6 +693,8 @@ export async function issueRefund(returnId: string, actor: Actor): Promise<Retur
       reason: `Return ${working.returnNumber}`,
       chargeTo: working.chargeTo,
       requestId: `return-${working.id}`,
+      // Module 2: a return's credit note; goods picked up go back into the shop's stock.
+      creditNote: { reason: "RETURN", restock: working.pickupRequired },
     },
     actor,
   );

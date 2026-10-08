@@ -200,6 +200,37 @@ Every route below: the shop's owner, its staff (`shop_staff`) or operators/admin
 
 `GET /api/shops/{id}/products` (storefront) items gain `shortDescription` (the shop's, else the master's).
 
+## Accounting software & GST (Module 2)
+
+Details, error codes and checklists: [docs/three-modules-2026-10/MODULE2_ACCOUNTING_INTEGRATION.md](docs/three-modules-2026-10/MODULE2_ACCOUNTING_INTEGRATION.md).
+Shop routes: the shop's owner; operators may view and retry (support); admins may also change a connection. Secrets are write-only — no response ever contains them.
+
+| Method & path | |
+|---|---|
+| `GET /api/shops/{id}/integration` | `{ providers, integration (status, counts, last error with fix; no secrets), ready, canManage }` |
+| `PUT /api/shops/{id}/integration` | `{ provider: TALLY\|ODOO\|ZOHO_BOOKS\|MYBILLBOOK\|VYAPAR\|GENERIC_FILE, config, credentials?, paused? }` — connect or change; `credentials` omitted keeps the stored one; 409 when another software is connected |
+| `POST /api/shops/{id}/integration/test` · `/sync` · `/disconnect` | `{ ok, message, fix? }` · 202 `{ jobId, queued }` (one pull at a time) · 204 |
+| `GET · POST /api/shops/{id}/integration/tokens` · `DELETE …/tokens/{tokenId}` | Tally connector tokens; POST → 201 `{ token }` shown once |
+| `POST /api/shops/{id}/integration/webhook` | 201 `{ url, secret }` for Odoo/Zoho change webhooks (shown once) |
+| `GET /api/shops/{id}/integration/items?status=&q=&page=` | Mapping screen: `{ items, total, pageSize }`; status `MATCHED\|SUGGESTED\|UNMATCHED\|IGNORED\|ISSUE` |
+| `PATCH /api/shops/{id}/integration/items/{linkId}` | `{ action: "match", productId }` (applied at once) \| `{ action: "ignore" }` \| `{ action: "unmatch" }` |
+| `POST …/items/auto-match` · `GET …/items/search?q=` | Re-run matching · products to pick from |
+| `GET · POST /api/shops/{id}/integration/imports` | File sync: list · multipart `file` (.xlsx/.csv ≤ 5 MB) → headings, sample rows, suggested mapping |
+| `GET · DELETE …/imports/{importId}` · `PUT …/{importId}/mapping` · `POST …/{importId}/apply` | Upload state (`running`) · cancel · `{ mapping }` · 202, applied after the response |
+| `GET /api/shops/{id}/integration/exports?kind=invoices\|credit-notes\|stock-out&scope=new\|range&from=&to=&format=xlsx\|csv` | File download; `new` marks what it contains (never repeated) |
+| `GET /api/shops/{id}/integration/jobs?status=DEAD,FAILED` · `POST …/jobs/{jobId}/retry` · `GET …/integration/log` | Sync entries with owner-readable errors · retry (204) · log |
+| `GET /api/integrations/zoho/connect?shopId=` · `GET /api/integrations/zoho/callback` | Zoho Books (India) OAuth; returns to `/shop/settings/integrations?zoho=connected\|error` |
+| `POST /api/integrations/webhooks/{provider}/{integrationId}?key=` | From the software: items changed → pull (202; 401 without the right key) |
+| `POST /api/connector/v1/hello` · `GET /api/connector/v1/jobs?wait=25` · `POST /api/connector/v1/jobs/{jobId}/result` · `POST /api/connector/v1/items` | Tally connector, `Authorization: Bearer gkc_…` |
+| `POST /api/gst/gstin/validate` | `{ gstin }` → `{ ok, found, active, legalName, tradeName, status, stateCode, … }` or `{ ok: false, reason: FORMAT\|UNAVAILABLE }` |
+| `GET /api/credit-notes/{id}/pdf` | As the invoice: customer, shop owner, operations |
+| `POST /api/invoices/{id}/einvoice` · `POST /api/invoices/{id}/eway-bill { distanceKm, vehicleNo? }` | Owner/operations; → `{ einvoice, ewayBill }` |
+| `GET /api/shops/{id}/gst/gstr1?period=YYYY-MM&format=json\|xlsx` | GSTR-1-ready file (nothing is filed) |
+| `PUT /api/shops/{id}/gst/einvoice-declaration` | `{ applicable, turnoverBand }` |
+| `GET · PUT /api/admin/gst-config` · `GET · PUT /api/admin/hsn-tax-rates` · `PATCH …/{rateId}` | Admin: dated GST rules, fallback HSN rates |
+| `GET /api/admin/integrations?provider=&problem=any\|failed\|offline&q=` | Operations: all shops' sync health |
+| `POST /api/cron/integration-sync` | Safety-net sweep (cron secret), every minute |
+
 ## Location (customer)
 
 ### `POST /api/location` · `DELETE /api/location`

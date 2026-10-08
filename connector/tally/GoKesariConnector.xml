@@ -1,0 +1,23 @@
+<!--
+  Windows service definition for the GoKesari Connector, used by WinSW
+  (https://github.com/winsw/winsw, MIT licence), which the build ships as
+  GoKesariConnector.exe next to this file. install.cmd registers the service.
+-->
+<service>
+  <id>GoKesariConnector</id>
+  <name>GoKesari Connector (Tally)</name>
+  <description>Sends GoKesari invoices to TallyPrime and Tally stock and prices to GoKesari. Outbound HTTPS only.</description>
+  <executable>%BASE%\gokesari-connector.exe</executable>
+  <arguments>run</arguments>
+  <workingdirectory>%BASE%</workingdirectory>
+  <startmode>Automatic</startmode>
+  <delayedAutoStart>true</delayedAutoStart>
+  <onfailure action="restart" delay="10 sec"/>
+  <onfailure action="restart" delay="30 sec"/>
+  <onfailure action="restart" delay="60 sec"/>
+  <resetfailure>1 hour</resetfailure>
+  <log mode="roll-by-size">
+    <sizeThreshold>5120</sizeThreshold>
+    <keepFiles>5</keepFiles>
+  </log>
+</service>

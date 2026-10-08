@@ -808,6 +808,15 @@ export const shops = pgTable(
     gstin: text("gstin"),
     /** FSSAI licence/registration number — relevant for food-category shop types. */
     fssaiLicenseNumber: text("fssai_license_number"),
+    /**
+     * Module 2: e-invoicing applies to this shop (its aggregate turnover is
+     * above the threshold in gst_rules). Declared by the shop or its CA —
+     * GoKesari sees only its own share of the shop's sales.
+     */
+    einvoiceApplicable: boolean("einvoice_applicable").notNull().default(false),
+    declaredTurnoverBand: text("declared_turnover_band"),
+    turnoverDeclaredAt: timestamp("turnover_declared_at", { withTimezone: true }),
+    turnoverDeclaredBy: uuid("turnover_declared_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
 
     /* ---------------------------------------------------- GST/PAN self-service
      * verification (marketplace GST-readiness follow-up). Distinct from the
@@ -1481,6 +1490,17 @@ export const shopProducts = pgTable(
     /** Who last changed this listing's photos or descriptions, and when. */
     contentUpdatedAt: timestamp("content_updated_at", { withTimezone: true }),
     contentUpdatedBy: uuid("content_updated_by").references((): AnyPgColumn => users.id, { onDelete: "set null" }),
+    /**
+     * Module 2 (docs/three-modules-2026-10): the shop's own tax classification
+     * of this product, pulled from its accounting software (the shop is the
+     * supplier). NULL = the master product's HSN / rate. Used on this shop's
+     * invoices only.
+     */
+    hsnCode: text("hsn_code"),
+    gstRateBp: integer("gst_rate_bp"),
+    cessBp: integer("cess_bp"),
+    /** Last time the shop's accounting software updated this listing. */
+    externalSyncedAt: timestamp("external_synced_at", { withTimezone: true }),
     onlinePricePaise: bigint("online_price_paise", { mode: "number" }),
     offlinePricePaise: bigint("offline_price_paise", { mode: "number" }),
     // Both channels default OFF: a shop must explicitly enable each one and
@@ -2058,10 +2078,210 @@ export const taxInvoices = pgTable(
   },
   (t) => [
     uniqueIndex("tax_invoices_order_unique").on(t.orderId),
-    uniqueIndex("tax_invoices_number_unique").on(t.invoiceNumber),
+    // Module 2: unique per supplier (shop), as GST requires — the 16-character
+    // GST numbering (GK2627-000001) repeats across shops by design.
+    uniqueIndex("tax_invoices_shop_number_unique").on(t.shopId, t.invoiceNumber),
     uniqueIndex("tax_invoices_shop_seq_unique").on(t.shopId, t.financialYear, t.sequence),
   ],
 );
+
+/* ================================================== Module 2: GST compliance
+ * docs/three-modules-2026-10/MODULE2_ACCOUNTING_INTEGRATION.md §GST.
+ */
+
+/**
+ * GST thresholds and rules as data, dated: the row in force on a document's
+ * date applies (thresholds change — e.g. the B2CL limit). Never hard-coded.
+ */
+export const gstRules = pgTable(
+  "gst_rules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    key: text("key").notNull(),
+    value: jsonb("value").$type<unknown>().notNull(),
+    effectiveFrom: date("effective_from").notNull(),
+    effectiveTo: date("effective_to"),
+    note: text("note"),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("gst_rules_key_from_unique").on(t.key, t.effectiveFrom)],
+);
+
+/** Fallback GST rate by HSN prefix, dated — for products with no rate on record. Filled by the CA, not seeded. */
+export const hsnTaxRates = pgTable(
+  "hsn_tax_rates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    hsnPrefix: text("hsn_prefix").notNull(),
+    rateBp: integer("rate_bp").notNull(),
+    cessBp: integer("cess_bp").notNull().default(0),
+    description: text("description"),
+    effectiveFrom: date("effective_from").notNull(),
+    effectiveTo: date("effective_to"),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("hsn_tax_rates_prefix_from_unique").on(t.hsnPrefix, t.effectiveFrom),
+    check("hsn_tax_rates_rate_range", sql`${t.rateBp} BETWEEN 0 AND 10000 AND ${t.cessBp} BETWEEN 0 AND 100000`),
+  ],
+);
+
+/**
+ * GST credit note issued by the shop when money is refunded on an order it
+ * has invoiced (refund, return). Its own series per shop per financial year.
+ * `source_ref` (the refund adjustment) is unique: one note per refund, ever.
+ */
+export const creditNotes = pgTable(
+  "credit_notes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "restrict" }),
+    taxInvoiceId: uuid("tax_invoice_id")
+      .notNull()
+      .references(() => taxInvoices.id, { onDelete: "restrict" }),
+    creditNoteNumber: text("credit_note_number").notNull(),
+    financialYear: text("financial_year").notNull(),
+    sequence: integer("sequence").notNull(),
+    reason: text("reason", { enum: ["REFUND", "RETURN", "CANCELLATION"] }).notNull(),
+    /** Goods came back to the shop (a return): the shop software's stock goes up. */
+    restock: boolean("restock").notNull().default(false),
+    sourceRef: text("source_ref").notNull(),
+    taxablePaise: bigint("taxable_paise", { mode: "number" }).notNull(),
+    cgstPaise: bigint("cgst_paise", { mode: "number" }).notNull(),
+    sgstPaise: bigint("sgst_paise", { mode: "number" }).notNull(),
+    igstPaise: bigint("igst_paise", { mode: "number" }).notNull(),
+    totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
+    snapshot: jsonb("snapshot").$type<Record<string, unknown>>().notNull(),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("credit_notes_source_unique").on(t.sourceRef),
+    uniqueIndex("credit_notes_shop_number_unique").on(t.shopId, t.creditNoteNumber),
+    uniqueIndex("credit_notes_shop_seq_unique").on(t.shopId, t.financialYear, t.sequence),
+    index("credit_notes_invoice_idx").on(t.taxInvoiceId),
+    check("credit_notes_total_positive", sql`${t.totalPaise} > 0`),
+  ],
+);
+
+export const creditNoteCounters = pgTable(
+  "credit_note_counters",
+  {
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    financialYear: text("financial_year").notNull(),
+    lastNumber: integer("last_number").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.shopId, t.financialYear] })],
+);
+
+/** E-invoice (IRN + signed QR) obtained through the GSP for a B2B tax invoice. */
+export const einvoiceRecords = pgTable(
+  "einvoice_records",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    taxInvoiceId: uuid("tax_invoice_id")
+      .notNull()
+      .references(() => taxInvoices.id, { onDelete: "restrict" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    gsp: text("gsp").notNull(),
+    /** Sent to the GSP so a retried request returns the same IRN. */
+    requestId: text("request_id").notNull(),
+    status: text("status", { enum: ["PENDING", "GENERATED", "FAILED", "CANCELLED"] }).notNull().default("PENDING"),
+    irn: text("irn"),
+    ackNo: text("ack_no"),
+    ackDate: timestamp("ack_date", { withTimezone: true }),
+    signedInvoice: text("signed_invoice"),
+    signedQr: text("signed_qr"),
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    cancelReason: text("cancel_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("einvoice_records_invoice_unique").on(t.taxInvoiceId),
+    uniqueIndex("einvoice_records_request_unique").on(t.requestId),
+    uniqueIndex("einvoice_records_irn_unique").on(t.irn),
+  ],
+);
+
+/** E-way bill through the GSP, when the value and state rules require one. */
+export const ewayBills = pgTable(
+  "eway_bills",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    taxInvoiceId: uuid("tax_invoice_id")
+      .notNull()
+      .references(() => taxInvoices.id, { onDelete: "restrict" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    gsp: text("gsp").notNull(),
+    status: text("status", { enum: ["PENDING", "GENERATED", "FAILED", "CANCELLED"] }).notNull().default("PENDING"),
+    ewbNo: text("ewb_no"),
+    validUpto: timestamp("valid_upto", { withTimezone: true }),
+    distanceKm: integer("distance_km"),
+    vehicleNo: text("vehicle_no"),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("eway_bills_invoice_unique").on(t.taxInvoiceId)],
+);
+
+/** GSTIN look-ups through the GSP (cached; also the evidence of what the portal said). */
+export const gstinLookups = pgTable(
+  "gstin_lookups",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    gstin: text("gstin").notNull(),
+    provider: text("provider").notNull(),
+    found: boolean("found").notNull(),
+    legalName: text("legal_name"),
+    tradeName: text("trade_name"),
+    status: text("status"),
+    stateCode: text("state_code"),
+    taxpayerType: text("taxpayer_type"),
+    registrationDate: date("registration_date"),
+    address: text("address"),
+    raw: jsonb("raw").$type<Record<string, unknown>>(),
+    lookedUpBy: uuid("looked_up_by").references(() => users.id, { onDelete: "set null" }),
+    lookedUpAt: timestamp("looked_up_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("gstin_lookups_gstin_idx").on(t.gstin, t.lookedUpAt)],
+);
+
+/** Who downloaded which shop's GSTR-1-ready export, and what it contained. */
+export const gstReturnExports = pgTable(
+  "gst_return_exports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    period: text("period").notNull(),
+    format: text("format", { enum: ["JSON", "XLSX"] }).notNull(),
+    counts: jsonb("counts").$type<Record<string, number>>().notNull().default({}),
+    checksum: text("checksum").notNull(),
+    generatedBy: uuid("generated_by").references(() => users.id, { onDelete: "set null" }),
+    generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("gst_return_exports_shop_idx").on(t.shopId, t.period)],
+);
+
+export type CreditNote = typeof creditNotes.$inferSelect;
+export type EinvoiceRecord = typeof einvoiceRecords.$inferSelect;
 
 export const invoiceCounters = pgTable(
   "invoice_counters",
@@ -5263,6 +5483,236 @@ export type ReferralCode = typeof referralCodes.$inferSelect;
 export type ShopPayment = typeof shopPayments.$inferSelect;
 export type ExcelUpload = typeof excelUploads.$inferSelect;
 export type ExcelUploadItem = typeof excelUploadItems.$inferSelect;
+/* =========================================== Module 2: accounting integration
+ * One integration layer, one adapter per accounting / inventory software
+ * (docs/three-modules-2026-10/MODULE2_ACCOUNTING_INTEGRATION.md). A shop has at
+ * most one live connection. Credentials are stored encrypted (AES-256-GCM,
+ * INTEGRATION_ENCRYPTION_KEY) and never returned by the API.
+ */
+export const INTEGRATION_PROVIDERS = ["TALLY", "ODOO", "ZOHO_BOOKS", "MYBILLBOOK", "VYAPAR", "GENERIC_FILE"] as const;
+export type IntegrationProvider = (typeof INTEGRATION_PROVIDERS)[number];
+
+export const shopIntegrations = pgTable(
+  "shop_integrations",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    provider: text("provider", { enum: INTEGRATION_PROVIDERS }).notNull(),
+    status: text("status", { enum: ["ACTIVE", "PAUSED", "ERROR", "DISCONNECTED"] }).notNull().default("ACTIVE"),
+    /** Non-secret settings: URLs, company/organisation, ledger names, what to sync. */
+    config: jsonb("config").$type<Record<string, unknown>>().notNull().default({}),
+    /** AES-256-GCM ciphertext of the secret settings (API key, OAuth tokens). */
+    credentialsEncrypted: text("credentials_encrypted"),
+    keyVersion: integer("key_version"),
+    /** sha256 of the secret a software's webhook must present (Odoo/Zoho change notices). */
+    webhookSecretHash: text("webhook_secret_hash"),
+    lastPullAt: timestamp("last_pull_at", { withTimezone: true }),
+    lastPushAt: timestamp("last_push_at", { withTimezone: true }),
+    lastErrorCode: text("last_error_code"),
+    lastErrorAt: timestamp("last_error_at", { withTimezone: true }),
+    /** Last time the Tally connector called in. */
+    connectorSeenAt: timestamp("connector_seen_at", { withTimezone: true }),
+    connectedBy: uuid("connected_by").references(() => users.id, { onDelete: "set null" }),
+    connectedAt: timestamp("connected_at", { withTimezone: true }).notNull().defaultNow(),
+    disconnectedAt: timestamp("disconnected_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("shop_integrations_one_live").on(t.shopId).where(sql`${t.status} <> 'DISCONNECTED'`),
+    index("shop_integrations_shop_idx").on(t.shopId),
+  ],
+);
+
+/** Tokens the Tally connector signs in with: shown once, stored as a hash, revocable. */
+export const integrationConnectorTokens = pgTable(
+  "integration_connector_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    integrationId: uuid("integration_id")
+      .notNull()
+      .references(() => shopIntegrations.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    /** First characters, to tell tokens apart on screen. */
+    prefix: text("prefix").notNull(),
+    label: text("label"),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    lastUsedIp: text("last_used_ip"),
+    lastConnectorVersion: text("last_connector_version"),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("integration_connector_tokens_hash_unique").on(t.tokenHash), index("integration_connector_tokens_integration_idx").on(t.integrationId)],
+);
+
+/** A shop-software item and the GoKesari product it is matched to (the mapping screen). */
+export const integrationItemLinks = pgTable(
+  "integration_item_links",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    integrationId: uuid("integration_id")
+      .notNull()
+      .references(() => shopIntegrations.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    externalId: text("external_id").notNull(),
+    externalName: text("external_name").notNull(),
+    externalSku: text("external_sku"),
+    externalBarcode: text("external_barcode"),
+    externalUnit: text("external_unit"),
+    productId: uuid("product_id").references(() => products.id, { onDelete: "set null" }),
+    shopProductId: uuid("shop_product_id").references(() => shopProducts.id, { onDelete: "set null" }),
+    matchMethod: text("match_method", { enum: ["BARCODE", "SKU", "NAME", "MANUAL"] }),
+    matchStatus: text("match_status", { enum: ["MATCHED", "SUGGESTED", "UNMATCHED", "IGNORED"] }).notNull().default("UNMATCHED"),
+    /** Name-match candidates for the mapping screen: [{ productId, name, score }]. */
+    suggestions: jsonb("suggestions").$type<{ productId: string; name: string; score: number }[]>().notNull().default([]),
+    /** The item as the software last sent it (canonical form). */
+    lastSeen: jsonb("last_seen").$type<Record<string, unknown>>().notNull().default({}),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    lastAppliedAt: timestamp("last_applied_at", { withTimezone: true }),
+    /** Why the last values were not applied (e.g. price above MRP), for the error screen. */
+    lastIssue: text("last_issue"),
+    confirmedBy: uuid("confirmed_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("integration_item_links_external_unique").on(t.integrationId, t.externalId),
+    index("integration_item_links_shop_status_idx").on(t.shopId, t.matchStatus),
+    index("integration_item_links_shop_product_idx").on(t.shopProductId),
+  ],
+);
+
+/**
+ * The sync outbox: one row per thing to send to (or fetch from) a shop's
+ * software. `idempotency_key` is unique, so enqueuing the same invoice twice is
+ * a no-op; every push is also check-then-create in the target, so a retry after
+ * a lost reply never makes a second document. Claimed with a lease.
+ */
+export const integrationJobs = pgTable(
+  "integration_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    integrationId: uuid("integration_id")
+      .notNull()
+      .references(() => shopIntegrations.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: ["PUSH_INVOICE", "PUSH_CREDIT_NOTE", "PULL_ITEMS", "TEST_CONNECTION"] }).notNull(),
+    idempotencyKey: text("idempotency_key").notNull(),
+    subjectType: text("subject_type"),
+    subjectId: text("subject_id"),
+    /** The canonical document or request. */
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    /** Adapter progress between steps (e.g. Tally: checked → creating). */
+    state: jsonb("state").$type<Record<string, unknown>>().notNull().default({}),
+    status: text("status", { enum: ["PENDING", "CLAIMED", "SUCCEEDED", "FAILED", "DEAD", "CANCELLED"] })
+      .notNull()
+      .default("PENDING"),
+    attempts: integer("attempts").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(8),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    /** "server", or the connector token id that holds it. */
+    claimedBy: text("claimed_by"),
+    /** The document's id/number in the shop's software once created or found. */
+    externalRef: text("external_ref"),
+    errorCode: text("error_code"),
+    /** Plain-language reason for the shop owner. */
+    errorMessage: text("error_message"),
+    /** Technical detail for support. */
+    errorDetail: text("error_detail"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("integration_jobs_idempotency_unique").on(t.idempotencyKey),
+    index("integration_jobs_due_idx").on(t.status, t.nextAttemptAt),
+    index("integration_jobs_integration_idx").on(t.integrationId, t.status),
+    index("integration_jobs_shop_idx").on(t.shopId, t.createdAt),
+  ],
+);
+
+/** Per-shop sync log: what happened, in words the shop owner can read. */
+export const integrationSyncLog = pgTable(
+  "integration_sync_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    integrationId: uuid("integration_id")
+      .notNull()
+      .references(() => shopIntegrations.id, { onDelete: "cascade" }),
+    jobId: uuid("job_id").references(() => integrationJobs.id, { onDelete: "set null" }),
+    level: text("level", { enum: ["INFO", "WARN", "ERROR"] }).notNull(),
+    event: text("event").notNull(),
+    message: text("message").notNull(),
+    detail: jsonb("detail").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("integration_sync_log_shop_idx").on(t.shopId, t.createdAt)],
+);
+
+/** File adapters (myBillBook, Vyapar, generic): an uploaded item export and its column mapping. */
+export const integrationImports = pgTable(
+  "integration_imports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    integrationId: uuid("integration_id")
+      .notNull()
+      .references(() => shopIntegrations.id, { onDelete: "cascade" }),
+    uploadedBy: uuid("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+    fileName: text("file_name").notNull(),
+    fileType: text("file_type", { enum: ["CSV", "XLSX"] }).notNull(),
+    status: text("status", { enum: ["UPLOADED", "APPLIED", "CANCELLED"] }).notNull().default("UPLOADED"),
+    headers: jsonb("headers").$type<string[]>().notNull().default([]),
+    sampleRows: jsonb("sample_rows").$type<string[][]>().notNull().default([]),
+    rowCount: integer("row_count").notNull().default(0),
+    /** canonical field → column header */
+    mapping: jsonb("mapping").$type<Record<string, string>>(),
+    fileStorage: text("file_storage", { enum: ["DB", "DISK"] }),
+    fileKey: text("file_key"),
+    fileData: bytea("file_data"),
+    summary: jsonb("summary").$type<Record<string, number>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    appliedAt: timestamp("applied_at", { withTimezone: true }),
+  },
+  (t) => [index("integration_imports_shop_idx").on(t.shopId, t.createdAt)],
+);
+
+/** The column mapping a shop last used for a file layout, offered again next time. */
+export const integrationColumnMappings = pgTable(
+  "integration_column_mappings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    provider: text("provider", { enum: INTEGRATION_PROVIDERS }).notNull(),
+    kind: text("kind", { enum: ["ITEMS"] }).notNull().default("ITEMS"),
+    mapping: jsonb("mapping").$type<Record<string, string>>().notNull(),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("integration_column_mappings_unique").on(t.shopId, t.provider, t.kind)],
+);
+
+export type ShopIntegration = typeof shopIntegrations.$inferSelect;
+export type IntegrationJob = typeof integrationJobs.$inferSelect;
+export type IntegrationItemLink = typeof integrationItemLinks.$inferSelect;
+
 export type ShopStaff = typeof shopStaff.$inferSelect;
 export type ShopMediaImport = typeof shopMediaImports.$inferSelect;
 export type ShopMediaImportItem = typeof shopMediaImportItems.$inferSelect;

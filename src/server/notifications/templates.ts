@@ -122,6 +122,10 @@ export const TEMPLATES: Record<string, Template> = {
     "{{ownerName}} added you to {{shopName}}: you can add and change its product photos and descriptions.",
   ),
   [T.SHOP_STAFF_REMOVED]: t("Shop access removed", "You can no longer edit product photos and descriptions for {{shopName}}.", false),
+  [T.INTEGRATION_SYNC_FAILED]: t(
+    "Could not send to your accounting software",
+    "{{shopName}}: {{what}} — {{reason}} {{fix}}",
+  ),
   [T.SHOP_MEDIA_IMPORT_FINISHED]: t(
     "Bulk photo upload finished",
     "{{shopName}}: {{applied}} applied, {{failed}} could not be applied. Open the upload for details.",

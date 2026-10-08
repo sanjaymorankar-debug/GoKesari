@@ -401,7 +401,7 @@ export async function countOpenAlerts(shopId: string): Promise<number> {
 }
 
 /** Order statuses in which the goods are committed to a customer and not yet handed over. */
-const OPEN_ORDER_STATUSES = [
+export const OPEN_ORDER_STATUSES = [
   "CONFIRMED",
   "ACCEPTED",
   "PREPARING",

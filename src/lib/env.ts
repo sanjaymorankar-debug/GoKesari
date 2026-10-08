@@ -104,6 +104,27 @@ const serverEnvSchema = z.object({
    */
   MEDIA_DIR: z.string().optional(),
 
+  /**
+   * Module 2: base64 of a 32-byte AES-256-GCM key for shops' accounting
+   * software secrets (Odoo API keys, Zoho refresh tokens). Without it no
+   * secret can be saved (never stored in plain text). Separate from
+   * PAN_ENCRYPTION_KEY. Back it up: losing it means every shop reconnects.
+   */
+  INTEGRATION_ENCRYPTION_KEY: z.string().optional(),
+  /** "off" stops running sync jobs straight after commit (tests run the dispatcher themselves). */
+  INTEGRATION_AUTODISPATCH: z.enum(["on", "off"]).default("on"),
+  /** Module 2: GoKesari's Zoho API client (api-console.zoho.in, server-based), redirect URI <AUTH_URL>/api/integrations/zoho/callback. */
+  ZOHO_CLIENT_ID: z.string().optional(),
+  ZOHO_CLIENT_SECRET: z.string().optional(),
+  /**
+   * Module 2: the GST Suvidha Provider for GSTIN look-up, e-invoice (IRN)
+   * and e-way bills. `mock` (sandbox-shaped, no network) until a licensed GSP
+   * is chosen; gspConfigProblem() applies the same production/sandbox pairing
+   * as KYC.
+   */
+  GSP_PROVIDER: z.enum(["mock"]).default("mock"),
+  GSP_ENV: z.enum(["sandbox", "production"]).default("sandbox"),
+
   // Shared bearer token guarding the daily-order cron endpoint.
   CRON_SECRET: z.string().min(1, "CRON_SECRET is required"),
 
@@ -211,6 +232,24 @@ export function kycConfigProblem(env: ServerEnv = getEnv()): string | null {
   }
   if (env.KYC_PROVIDER === "idfy" && !(env.IDFY_ACCOUNT_ID && env.IDFY_API_KEY)) {
     return "KYC_PROVIDER=idfy needs IDFY_ACCOUNT_ID and IDFY_API_KEY.";
+  }
+  return null;
+}
+
+/** Why GST calls through the GSP must not run with these settings, or null. Same host pairing as KYC. */
+export function gspConfigProblem(env: ServerEnv = getEnv()): string | null {
+  let host = "";
+  try {
+    host = env.AUTH_URL ? new URL(env.AUTH_URL).hostname.toLowerCase() : "";
+  } catch {
+    host = "";
+  }
+  const prodHost = env.KYC_PRODUCTION_HOST.toLowerCase();
+  const isProductionHost = host === prodHost || host === `www.${prodHost}`;
+  if (isProductionHost && env.GSP_PROVIDER === "mock") return "GSP_PROVIDER=mock is not allowed on the production site.";
+  if (isProductionHost && env.GSP_ENV !== "production") return "The production site must use GSP_ENV=production.";
+  if (!isProductionHost && env.GSP_ENV === "production") {
+    return `GSP_ENV=production is only allowed on ${prodHost}; this host (${host || "no AUTH_URL"}) must use the GSP sandbox.`;
   }
   return null;
 }

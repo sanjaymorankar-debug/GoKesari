@@ -101,6 +101,9 @@ export const NOTIFICATION_TYPES = {
   SHOP_STAFF_REMOVED: "shop.staff_removed",
   /** To the uploader: a bulk photo/description upload finished applying. */
   SHOP_MEDIA_IMPORT_FINISHED: "shop.media_import_finished",
+  /* ------------------------------- Module 2: accounting integration */
+  /** To the owner: an invoice / credit note / sync could not be sent to their accounting software. */
+  INTEGRATION_SYNC_FAILED: "shop.integration_sync_failed",
   REFERRAL_REWARDED: "referral.rewarded",
   DELIVERY_OFFERED: "delivery.offered",
   SHOP_GST_VERIFIED: "shop.gst_verified",
