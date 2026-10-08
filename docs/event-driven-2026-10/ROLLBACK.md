@@ -65,6 +65,12 @@ on 0058 — level 4 is optional.
 0058 is additive: three new tables (`domain_events`, `dispute_comments`,
 `dispute_attachments`) and four nullable columns. No existing row was changed.
 
+Automated: Actions → **Test database** → Run workflow (branch `staging`) →
+action `rollback-0058`, confirm `ROLLBACK 0058`. It backs up first, runs the
+script, removes the 0058 journal row and reports the result (DB_AUTOMATION.md).
+
+By hand, the same three steps:
+
 1. Back up: `pg_dump "$TEST_DATABASE_URL" -Fc -f gokesari_test_pre_rollback_0058_$(date +%F_%H%M).dump`
 2. `psql "$TEST_DATABASE_URL" -f scripts/rollback-0058.sql`
 3. `DELETE FROM drizzle.__drizzle_migrations WHERE created_at = 1791444892056;` (the 0058 row)
