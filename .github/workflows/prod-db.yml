@@ -1,0 +1,137 @@
+# Production database — gokesari.com. BY HAND ONLY.
+# Setup and use: docs/event-driven-2026-10/PROD_DB.md
+#
+# Actions → "Production database" → Run workflow → branch main:
+#   verify   read-only: which migrations production has, and which of the
+#            release's (staging by default) it still lacks
+#   migrate  applies the release's migrations to production; needs
+#            confirm = MIGRATE PRODUCTION, and refuses any migration the test
+#            database does not already have
+#
+# Run "migrate" from main with source = staging BEFORE merging staging into
+# main: migrations are additive, so the live code keeps working on the new
+# schema, and the new code finds its tables when Hostinger deploys it.
+#
+# There is no push or schedule trigger: nothing here runs on its own.
+# Production data never leaves the database — no dump, no artifact. The run
+# records the exact time and position before migrating; Neon can restore the
+# database to that point (PROD_DB.md).
+name: Production database
+
+on:
+  workflow_dispatch:
+    inputs:
+      action:
+        description: What to do to the PRODUCTION database
+        type: choice
+        default: verify
+        options: [verify, migrate]
+      source:
+        description: Whose migrations — the release branch (normally staging)
+        type: choice
+        default: staging
+        options: [staging, main]
+      confirm:
+        description: "migrate only: type MIGRATE PRODUCTION"
+        required: false
+        default: ""
+
+# One production run at a time; a queued run waits rather than cancelling one mid-migration.
+concurrency:
+  group: prod-db
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+# bash with pipefail, so "migrate | tee" fails when the migration fails.
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  prod-db:
+    # Only the reviewed copy of this file on main may run against production.
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # The production URL is passed only to the steps that need it (never to npm).
+    env:
+      EXPECTED_HOST: ${{ vars.PROD_DATABASE_HOST }}
+      EXPECTED_DB: ${{ vars.PROD_DATABASE_NAME }}
+      TEST_HOST: ${{ vars.TEST_DATABASE_HOST }}
+      ACTION: ${{ inputs.action }}
+      SOURCE: ${{ inputs.source }}
+
+    steps:
+      - name: Check out this workflow's scripts (main)
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.sha }}
+          path: tools
+          persist-credentials: false
+
+      - name: Check out the release (${{ inputs.source }})
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.source }}
+          path: release
+          persist-credentials: false
+
+      - name: Guard — production, by hand, confirmed
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+          CONFIRM: ${{ inputs.confirm }}
+        run: tools/scripts/prod-db/guard.sh
+
+      - name: Tested on the test database first
+        if: inputs.action == 'migrate'
+        env:
+          TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+        run: tools/scripts/prod-db/tested-on-test.sh release/drizzle/meta/_journal.json
+
+      - name: State before
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: tools/scripts/prod-db/state.sh release/drizzle/meta/_journal.json
+
+      - name: Restore point
+        if: inputs.action == 'migrate'
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: |
+          at=$(psql "$PROD_DATABASE_URL" -X -v ON_ERROR_STOP=1 -tAc "select to_char(now() at time zone 'UTC', 'YYYY-MM-DD HH24:MI:SS') || ' UTC'")
+          lsn=$(psql "$PROD_DATABASE_URL" -X -tAc "select pg_current_wal_lsn()" 2>/dev/null || echo "not available")
+          {
+            echo "### Restore point (before migrating)"
+            echo "Time **$at** · LSN \`$lsn\`"
+            echo
+            echo "To undo: Neon console → the production project → Restore → to this time (PROD_DB.md)."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/setup-node@v5
+        if: inputs.action == 'migrate'
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: release/package-lock.json
+
+      - name: Install the migrator (no secrets, no install scripts)
+        if: inputs.action == 'migrate'
+        working-directory: release
+        run: npm ci --omit=dev --ignore-scripts --no-audit --no-fund
+
+      - name: Migrate production
+        if: inputs.action == 'migrate'
+        working-directory: release
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        # The deploy build's migrator with its shared lock: safe even if a
+        # Hostinger build migrates at the same moment.
+        run: MIGRATE_ON_BUILD=true DATABASE_URL="$PROD_DATABASE_URL" node scripts/migrate-on-build.mjs | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: State after
+        if: inputs.action == 'migrate'
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+        run: tools/scripts/prod-db/state.sh release/drizzle/meta/_journal.json --expect-latest
