@@ -104,11 +104,17 @@ describe("delivery assignment", () => {
 });
 
 describe("buildOrderTracking", () => {
+  // A drop under way: the rider's location (and so the ETA) is shared only
+  // once the drop has started (event layer; see tests/unit/tracking.test.ts).
   const base = {
     orderId: "o1",
-    orderStatus: "PICKED_UP" as const,
+    orderStatus: "OUT_FOR_DELIVERY" as const,
     shopDispatchesRiders: false,
-    delivery: { status: "PICKED_UP" as const, pickedUpAt: new Date(Date.now() - 60_000) },
+    delivery: {
+      status: "PICKED_UP" as const,
+      pickedUpAt: new Date(Date.now() - 120_000),
+      startedAt: new Date(Date.now() - 60_000),
+    },
     riderFix: { ...A, recordedAt: new Date() },
     destination: B,
     now: new Date(),
