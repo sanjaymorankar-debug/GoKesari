@@ -15,6 +15,7 @@ import { addDays, isIsoDate, todayIn } from "@/lib/dates";
 import { getEnv } from "@/lib/env";
 import { SHOP_TYPES, shopTypeLabel } from "@/lib/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
+import { getRule } from "@/server/services/settings";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { listDeliveryPartners } from "@/server/services/delivery-partners";
 import {
@@ -27,7 +28,6 @@ import {
   listReconciliationRecords,
   listRiderPayouts,
   listShopSettlements,
-  SETTLEMENT_HOLD_DAYS,
 } from "@/server/services/finance";
 import { searchShopsAdmin } from "@/server/services/shops";
 
@@ -57,6 +57,8 @@ export default async function FinancePage({
   const to = params.to && isIsoDate(params.to) ? params.to : addDays(today, 1);
 
   const canManage = can(user.role, PERMISSIONS.FINANCE_MANAGE);
+  // Item B: live settlement hold (rule settlement.holdDays).
+  const settlementHoldDays = (await getRule("settlement")).holdDays;
   const canPrepare = can(user.role, PERMISSIONS.FINANCE_PREPARE);
   const canRefund = can(user.role, PERMISSIONS.ORDER_REFUND);
 
@@ -183,7 +185,7 @@ export default async function FinancePage({
 
       <Section title="Shop settlements (weekly)">
         <p className="mb-3 text-xs text-ink-500">
-          Delivered orders join a batch once {SETTLEMENT_HOLD_DAYS} days have passed and they are not under dispute.
+          Delivered orders join a batch once {settlementHoldDays} days have passed and they are not under dispute.
           Pending → approved → sent to bank → paid (or failed / reversed).
         </p>
         {canPrepare ? (

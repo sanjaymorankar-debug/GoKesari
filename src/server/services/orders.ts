@@ -348,12 +348,14 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   // GS-030: cash on delivery — personal orders to a delivery address, for a
   // customer within the COD limits. Shop opt-in and amount are checked per order.
   const paymentMethod: PaymentMethod = input.paymentMethod ?? "WALLET";
+  let codMaxOrderPaise: number = COD_LIMITS.maxOrderPaise;
   if (paymentMethod === "COD") {
     if (orderType !== "PERSONAL") throw validationFailed("Business orders are paid from the wallet.");
     if (!addressSnapshot) throw validationFailed("Choose a delivery address to pay cash on delivery.");
     const eligibility = await getCodEligibility(input.userId);
     if (!eligibility.allowed) throw conflict(eligibility.reason ?? "Cash on delivery is not available.");
-    const codOrdersAllowed = COD_LIMITS.maxOpenOrders - eligibility.openOrders;
+    codMaxOrderPaise = eligibility.maxOrderPaise;
+    const codOrdersAllowed = eligibility.maxOpenOrders - eligibility.openOrders;
     if (purchasableGroups.length > codOrdersAllowed) {
       throw conflict(
         `Cash on delivery allows ${codOrdersAllowed} more open order${codOrdersAllowed === 1 ? "" : "s"} — this cart would create ${purchasableGroups.length}. Pay from your wallet instead.`,
@@ -485,7 +487,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       const couponShare = couponQuote?.shares.find((sh) => sh.shopId === group.shop.id)?.discountPaise ?? 0;
       const discountPaise = Math.min(couponShare, subtotalPaise);
       const totalPaise = subtotalPaise + deliveryFeePaise + taxPaise - discountPaise;
-      if (paymentMethod === "COD") assertCodAllowedForOrder(shopRow, totalPaise);
+      if (paymentMethod === "COD") assertCodAllowedForOrder(shopRow, totalPaise, codMaxOrderPaise);
 
       // GS-027: the customer's chosen time slot, re-checked under the day's lock.
       if (chosenSlotKey) {
@@ -919,8 +921,16 @@ export async function cancelOrder(
     // actively assembling it — there is no clean undo for picked/packed work,
     // so only the shop or an operator may cancel from here. Does not apply to
     // a shop/operator-privileged cancel, which stays unrestricted.
+    // Rule `cancellation.customerMayCancelUntil` = PREPARING opens ACCEPTED and
+    // PREPARING (before packing) to the customer too, with the same full refund.
+    const beforePacking = (["ACCEPTED", "PREPARING"] as OrderStatus[]).includes(order.status);
+    const customerCancelBeforePacking =
+      Boolean(options.selfService) &&
+      beforePacking &&
+      (await getRule("cancellation")).customerMayCancelUntil === "PREPARING";
     if (
       options.selfService &&
+      !customerCancelBeforePacking &&
       (["ACCEPTED", "PREPARING", "READY", "ASSIGNED"] as OrderStatus[]).includes(order.status)
     ) {
       throw conflict(
@@ -976,6 +986,22 @@ export async function cancelOrder(
         },
         tx,
       );
+    }
+    // The shop has already accepted or started picking: tell it to stop.
+    if (customerCancelBeforePacking) {
+      const [shop] = await tx.select({ ownerId: shops.ownerId }).from(shops).where(eq(shops.id, order.shopId));
+      if (shop) {
+        await notify(
+          {
+            userId: shop.ownerId,
+            type: NOTIFICATION_TYPES.ORDER_CANCELLED,
+            title: "Order cancelled by the customer",
+            body: `Order ${order.orderNumber} was cancelled by the customer before packing: ${reason}. Put the items back on the shelf.`,
+            actionUrl: "/shop/orders",
+          },
+          tx,
+        );
+      }
     }
 
     // DEF-01: every cancellation restores the stock checkout() consumed —
@@ -1152,6 +1178,78 @@ export async function getOrder(orderId: string): Promise<OrderDetail | undefined
     shopSlug: row.shopSlug,
     items,
   };
+}
+
+/** C3: placed directly and not yet delivered, cancelled or refunded. */
+const OPEN_ORDER_STATUSES: readonly OrderStatus[] = [
+  "CONFIRMED",
+  "ACCEPTED",
+  "PREPARING",
+  "READY",
+  "ASSIGNED",
+  "PICKED_UP",
+  "OUT_FOR_DELIVERY",
+];
+
+export interface OpenOrderForCheckout {
+  id: string;
+  orderNumber: string;
+  shopId: string;
+  shopName: string;
+  orderType: OrderType;
+  status: OrderStatus;
+  statusLabel: string;
+  totalPaise: number;
+  createdAt: Date;
+  /** The customer may cancel it themselves now (D10 + rule cancellation); otherwise they contact the shop. */
+  customerMayCancel: boolean;
+}
+
+/**
+ * C3 (rule openOrderCheck): the customer's open orders to show before they
+ * pay for a new one. Empty when the rule is off. Subscription orders are left
+ * out — they recur by design.
+ */
+export async function listOpenOrdersForCheckout(
+  userId: string,
+  cartShopIds: readonly string[],
+): Promise<OpenOrderForCheckout[]> {
+  const rule = await getRule("openOrderCheck");
+  if (!rule.enabled) return [];
+  if (rule.scope === "SAME_SHOP" && cartShopIds.length === 0) return [];
+  const { customerMayCancelUntil } = await getRule("cancellation");
+  const cancellable: readonly OrderStatus[] =
+    customerMayCancelUntil === "PREPARING"
+      ? ["CONFIRMED", "ACCEPTED", "PREPARING", "PICKED_UP", "OUT_FOR_DELIVERY"]
+      : ["CONFIRMED", "PICKED_UP", "OUT_FOR_DELIVERY"];
+  const rows = await db
+    .select({
+      id: orders.id,
+      orderNumber: orders.orderNumber,
+      shopId: orders.shopId,
+      shopName: shops.name,
+      orderType: orders.orderType,
+      status: orders.status,
+      totalPaise: orders.totalPaise,
+      createdAt: orders.createdAt,
+    })
+    .from(orders)
+    .innerJoin(shops, eq(orders.shopId, shops.id))
+    .where(
+      and(
+        eq(orders.userId, userId),
+        eq(orders.source, "DIRECT"),
+        inArray(orders.status, [...OPEN_ORDER_STATUSES]),
+        ...(rule.scope === "SAME_SHOP" ? [inArray(orders.shopId, [...cartShopIds])] : []),
+      ),
+    )
+    .orderBy(desc(orders.createdAt))
+    .limit(10);
+  return rows.map((r) => ({
+    ...r,
+    statusLabel: ORDER_STATUS_LABELS[r.status],
+    customerMayCancel: cancellable.includes(r.status),
+  }));
 }
 
 export async function listOrdersForUser(

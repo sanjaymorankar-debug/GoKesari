@@ -39,6 +39,9 @@ const schema = z
     ownerName: z.string().min(2).max(120).optional(),
     phone: z.string().regex(/^[6-9]\d{9}$/, "Enter a valid 10-digit mobile number").optional(),
     email: z.string().email().nullish(),
+    /** C1: shown to customers (rule shopContact); null clears. */
+    contactPhone: z.string().regex(/^[6-9]\d{9}$/, "Enter a valid 10-digit mobile number").nullish(),
+    whatsappNumber: z.string().regex(/^[6-9]\d{9}$/, "Enter a valid 10-digit mobile number").nullish(),
     addressLine1: z.string().min(3).max(200).optional(),
     addressLine2: z.string().max(200).nullish(),
     area: z.string().max(120).nullish(),

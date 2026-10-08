@@ -6,7 +6,9 @@
  * queue and DISMISSES a false positive or records the ACTION taken (a
  * suspension, a call, a refund refused...). Flags never act on their own,
  * with one exception: an OPEN HIGH flag on a customer pauses cash on
- * delivery (cod.ts). Thresholds are defaults pending business confirmation.
+ * delivery (cod.ts). Thresholds are defaults pending business confirmation;
+ * each is editable as rule `riskRules` (the delivery-code lockout follows
+ * rule `deliveryOtp`). The figures below are the defaults.
  *
  * Rules
  *  USER              COD_REFUSALS          HIGH    2+ COD orders failed / returned in 90 days
@@ -42,8 +44,12 @@ import {
   type RiskSubject,
   type UserRole,
 } from "@/server/db/schema";
+import { RULES as RULE_DEFAULTS_ALL, type RuleValue } from "@/server/config/rules";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { getRule } from "./settings";
 import { findAdminUserIds } from "./users";
+
+const RULE_DEFAULTS = { riskRules: RULE_DEFAULTS_ALL.riskRules.defaults, deliveryOtp: RULE_DEFAULTS_ALL.deliveryOtp.defaults };
 
 interface Actor {
   id: string;
@@ -65,7 +71,12 @@ interface Rule {
   describe: (row: Record<string, unknown>) => string;
 }
 
-const RULES: Rule[] = [
+/** Thresholds of every rule — rule `riskRules` (Admin → Business rules); the defaults are the original values. */
+type RiskThresholds = RuleValue<"riskRules">;
+
+/** The rules with their thresholds filled in; the SQL takes them as bound parameters. */
+function buildRules(t: RiskThresholds, otpMaxAttempts: number): Rule[] {
+  return [
   {
     code: "COD_REFUSALS",
     subject: "USER",
@@ -73,9 +84,9 @@ const RULES: Rule[] = [
     label: "Refused / failed cash-on-delivery orders",
     query: sql`select o.user_id as subject_id, count(distinct o.id)::int as count
       from orders o join order_status_history h on h.order_id = o.id
-      where o.payment_method = 'COD' and h.new_status in ('FAILED', 'RETURNED') and h.created_at > now() - interval '90 days'
-      group by o.user_id having count(distinct o.id) >= 2`,
-    describe: (r) => `${r.count} cash-on-delivery orders failed or returned in 90 days`,
+      where o.payment_method = 'COD' and h.new_status in ('FAILED', 'RETURNED') and h.created_at > now() - make_interval(days => ${t.codRefusals.days})
+      group by o.user_id having count(distinct o.id) >= ${t.codRefusals.count}`,
+    describe: (r) => `${r.count} cash-on-delivery orders failed or returned in ${t.codRefusals.days} days`,
   },
   {
     code: "HIGH_REFUND_RATE",
@@ -85,12 +96,12 @@ const RULES: Rule[] = [
     query: sql`select o.user_id as subject_id, count(*) filter (where o.refunded_paise > 0 or o.status = 'REFUNDED')::int as count,
         count(*)::int as orders
       from orders o
-      where o.created_at > now() - interval '30 days'
+      where o.created_at > now() - make_interval(days => ${t.highRefundRate.days})
         and exists (select 1 from order_status_history h where h.order_id = o.id and h.new_status = 'CONFIRMED')
       group by o.user_id
-      having count(*) filter (where o.refunded_paise > 0 or o.status = 'REFUNDED') >= 3
-        and count(*) filter (where o.refunded_paise > 0 or o.status = 'REFUNDED') * 2 >= count(*)`,
-    describe: (r) => `${r.count} of ${r.orders} orders refunded in 30 days`,
+      having count(*) filter (where o.refunded_paise > 0 or o.status = 'REFUNDED') >= ${t.highRefundRate.count}
+        and count(*) filter (where o.refunded_paise > 0 or o.status = 'REFUNDED') * 100 >= count(*) * ${t.highRefundRate.minPercent}`,
+    describe: (r) => `${r.count} of ${r.orders} orders refunded in ${t.highRefundRate.days} days`,
   },
   {
     code: "REPEATED_DISPUTES",
@@ -99,9 +110,9 @@ const RULES: Rule[] = [
     label: "Repeated disputes",
     query: sql`select o.user_id as subject_id, count(distinct o.id)::int as count
       from orders o join order_status_history h on h.order_id = o.id
-      where h.new_status = 'DISPUTED' and h.created_at > now() - interval '30 days'
-      group by o.user_id having count(distinct o.id) >= 2`,
-    describe: (r) => `${r.count} orders disputed in 30 days`,
+      where h.new_status = 'DISPUTED' and h.created_at > now() - make_interval(days => ${t.repeatedDisputes.days})
+      group by o.user_id having count(distinct o.id) >= ${t.repeatedDisputes.count}`,
+    describe: (r) => `${r.count} orders disputed in ${t.repeatedDisputes.days} days`,
   },
   {
     code: "TOPUP_FAILURES",
@@ -109,9 +120,9 @@ const RULES: Rule[] = [
     severity: "MEDIUM",
     label: "Repeated failed wallet top-ups",
     query: sql`select p.user_id as subject_id, count(*)::int as count from payments p
-      where p.status = 'FAILED' and p.created_at > now() - interval '24 hours'
-      group by p.user_id having count(*) >= 5`,
-    describe: (r) => `${r.count} failed wallet top-ups in 24 hours`,
+      where p.status = 'FAILED' and p.created_at > now() - make_interval(hours => ${t.topupFailures.hours})
+      group by p.user_id having count(*) >= ${t.topupFailures.count}`,
+    describe: (r) => `${r.count} failed wallet top-ups in ${t.topupFailures.hours} hours`,
   },
   {
     code: "SHARED_PHONE",
@@ -121,7 +132,7 @@ const RULES: Rule[] = [
     query: sql`select u.id as subject_id, x.accounts::int as count from users u
       join (select phone, count(*) as accounts from users
             where phone is not null and status = 'ACTIVE' and deleted_at is null
-            group by phone having count(*) >= 2) x on x.phone = u.phone
+            group by phone having count(*) >= ${t.sharedPhone.accounts}) x on x.phone = u.phone
       where u.status = 'ACTIVE' and u.deleted_at is null`,
     describe: (r) => `Mobile number used by ${r.count} active accounts`,
   },
@@ -133,10 +144,10 @@ const RULES: Rule[] = [
     query: sql`with candidate as (
         select o.id, o.user_id, o.order_number, o.created_at, o.total_paise + o.refunded_paise as value_paise
         from orders o
-        where o.created_at > now() - interval '7 days'
+        where o.created_at > now() - make_interval(days => ${t.highValueOutlier.recentDays})
           and o.order_type = 'PERSONAL' and o.source = 'DIRECT'
           and o.status not in ('PENDING', 'PAYMENT_FAILED', 'WALLET_INSUFFICIENT')
-          and o.total_paise + o.refunded_paise >= 200000
+          and o.total_paise + o.refunded_paise >= ${t.highValueOutlier.minPaise}
           and not exists (
             select 1 from risk_flags f
             where f.subject_type = 'USER' and f.subject_id = o.user_id and f.rule_code = 'HIGH_VALUE_OUTLIER'
@@ -150,7 +161,7 @@ const RULES: Rule[] = [
           select count(*)::int as prior_orders, avg(p.total_paise + p.refunded_paise) as avg_paise
           from orders p
           where p.user_id = c.user_id and p.id <> c.id
-            and p.created_at < c.created_at and p.created_at >= c.created_at - interval '90 days'
+            and p.created_at < c.created_at and p.created_at >= c.created_at - make_interval(days => ${t.highValueOutlier.baselineDays})
             and p.order_type = 'PERSONAL' and p.source = 'DIRECT'
             and p.status not in ('PENDING', 'PAYMENT_FAILED', 'WALLET_INSUFFICIENT')
         ) b
@@ -159,20 +170,20 @@ const RULES: Rule[] = [
         string_agg(
           s.order_number || ' for ₹' || to_char(s.value_paise / 100.0, 'FM999999999990.00') || ' (' ||
             case
-              when s.prior_orders >= 3 then
+              when s.prior_orders >= ${t.highValueOutlier.minPriorOrders} then
                 coalesce(to_char(s.value_paise / nullif(s.avg_paise, 0), 'FM999999999990.0') || '× ', 'far above ') ||
-                'their 90-day average of ₹' || to_char(s.avg_paise / 100.0, 'FM999999999990.00')
-              when s.prior_orders = 0 then 'no earlier orders in 90 days'
-              when s.prior_orders = 1 then 'only 1 earlier order in 90 days'
-              else 'only ' || s.prior_orders::text || ' earlier orders in 90 days'
+                'their ' || ${String(t.highValueOutlier.baselineDays)}::text || '-day average of ₹' || to_char(s.avg_paise / 100.0, 'FM999999999990.00')
+              when s.prior_orders = 0 then 'no earlier orders in ' || ${String(t.highValueOutlier.baselineDays)}::text || ' days'
+              when s.prior_orders = 1 then 'only 1 earlier order in ' || ${String(t.highValueOutlier.baselineDays)}::text || ' days'
+              else 'only ' || s.prior_orders::text || ' earlier orders in ' || ${String(t.highValueOutlier.baselineDays)}::text || ' days'
             end || ')',
           '; ' order by s.created_at desc) as orders
       from scored s
-      where (s.prior_orders >= 3 and s.value_paise >= 5 * s.avg_paise)
-         or (s.prior_orders < 3 and s.value_paise >= 1000000)
+      where (s.prior_orders >= ${t.highValueOutlier.minPriorOrders} and s.value_paise >= ${t.highValueOutlier.multiple} * s.avg_paise)
+         or (s.prior_orders < ${t.highValueOutlier.minPriorOrders} and s.value_paise >= ${t.highValueOutlier.newCustomerPaise})
       group by s.user_id`,
     describe: (r) =>
-      `${Number(r.count) === 1 ? "An order" : `${r.count} orders`} in the last 7 days unusually large for this customer: ${r.orders}`,
+      `${Number(r.count) === 1 ? "An order" : `${r.count} orders`} in the last ${t.highValueOutlier.recentDays} days unusually large for this customer: ${r.orders}`,
   },
   {
     code: "OTP_OVERRIDES",
@@ -180,9 +191,9 @@ const RULES: Rule[] = [
     severity: "MEDIUM",
     label: "Many deliveries confirmed without the customer's code",
     query: sql`select d.delivery_partner_id as subject_id, count(*)::int as count from delivery_orders d
-      where d.delivery_confirmation = 'OPERATOR_OVERRIDE' and d.delivered_at > now() - interval '30 days'
-      group by d.delivery_partner_id having count(*) >= 3`,
-    describe: (r) => `${r.count} deliveries confirmed by operations override in 30 days`,
+      where d.delivery_confirmation = 'OPERATOR_OVERRIDE' and d.delivered_at > now() - make_interval(days => ${t.otpOverrides.days})
+      group by d.delivery_partner_id having count(*) >= ${t.otpOverrides.count}`,
+    describe: (r) => `${r.count} deliveries confirmed by operations override in ${t.otpOverrides.days} days`,
   },
   {
     code: "OTP_LOCKOUTS",
@@ -190,9 +201,9 @@ const RULES: Rule[] = [
     severity: "MEDIUM",
     label: "Delivery codes repeatedly entered wrong",
     query: sql`select d.delivery_partner_id as subject_id, count(*)::int as count from delivery_orders d
-      where d.delivery_otp_attempts >= 5 and d.updated_at > now() - interval '30 days'
-      group by d.delivery_partner_id having count(*) >= 2`,
-    describe: (r) => `${r.count} deliveries with all delivery-code attempts used in 30 days`,
+      where d.delivery_otp_attempts >= ${otpMaxAttempts} and d.updated_at > now() - make_interval(days => ${t.otpLockouts.days})
+      group by d.delivery_partner_id having count(*) >= ${t.otpLockouts.count}`,
+    describe: (r) => `${r.count} deliveries with all delivery-code attempts used in ${t.otpLockouts.days} days`,
   },
   {
     code: "FAILED_DELIVERIES",
@@ -200,9 +211,9 @@ const RULES: Rule[] = [
     severity: "MEDIUM",
     label: "Many failed deliveries",
     query: sql`select d.delivery_partner_id as subject_id, count(*)::int as count from delivery_orders d
-      where d.status = 'FAILED' and d.failed_at > now() - interval '7 days'
-      group by d.delivery_partner_id having count(*) >= 3`,
-    describe: (r) => `${r.count} failed deliveries in 7 days`,
+      where d.status = 'FAILED' and d.failed_at > now() - make_interval(days => ${t.failedDeliveries.days})
+      group by d.delivery_partner_id having count(*) >= ${t.failedDeliveries.count}`,
+    describe: (r) => `${r.count} failed deliveries in ${t.failedDeliveries.days} days`,
   },
   {
     code: "COD_CASH_OVERDUE",
@@ -215,8 +226,8 @@ const RULES: Rule[] = [
       where a.party = 'RIDER' and a.status = 'PENDING' and a.type in ('COD_CASH_COLLECTED', 'COD_CASH_DEPOSITED')
       group by a.delivery_partner_id
       having -sum(a.amount_paise) > 0
-        and min(a.created_at) filter (where a.type = 'COD_CASH_COLLECTED') < now() - interval '7 days'`,
-    describe: (r) => `Holds ₹${(Number(r.held) / 100).toFixed(2)} of cash collected more than 7 days ago`,
+        and min(a.created_at) filter (where a.type = 'COD_CASH_COLLECTED') < now() - make_interval(days => ${t.codCashOverdueDays})`,
+    describe: (r) => `Holds ₹${(Number(r.held) / 100).toFixed(2)} of cash collected more than ${t.codCashOverdueDays} days ago`,
   },
   {
     code: "HIGH_REJECTION",
@@ -227,12 +238,12 @@ const RULES: Rule[] = [
         count(*) filter (where exists (select 1 from order_status_history h
           where h.order_id = o.id and h.new_status = 'CANCELLED' and h.changed_by = s.owner_id))::int as count
       from orders o join shops s on s.id = o.shop_id
-      where o.created_at > now() - interval '30 days'
+      where o.created_at > now() - make_interval(days => ${t.highRejection.days})
         and exists (select 1 from order_status_history h where h.order_id = o.id and h.new_status = 'CONFIRMED')
       group by o.shop_id
-      having count(*) >= 10 and count(*) filter (where exists (select 1 from order_status_history h
-          where h.order_id = o.id and h.new_status = 'CANCELLED' and h.changed_by = s.owner_id)) * 10 >= count(*) * 3`,
-    describe: (r) => `Cancelled ${r.count} of ${r.orders} orders in 30 days`,
+      having count(*) >= ${t.highRejection.minOrders} and count(*) filter (where exists (select 1 from order_status_history h
+          where h.order_id = o.id and h.new_status = 'CANCELLED' and h.changed_by = s.owner_id)) * 100 >= count(*) * ${t.highRejection.percent}`,
+    describe: (r) => `Cancelled ${r.count} of ${r.orders} orders in ${t.highRejection.days} days`,
   },
   {
     code: "COD_CASH_OVERDUE",
@@ -244,10 +255,14 @@ const RULES: Rule[] = [
       where a.party = 'SHOP' and a.status = 'PENDING' and a.type in ('COD_CASH_COLLECTED', 'COD_CASH_DEPOSITED')
       group by a.shop_id
       having -sum(a.amount_paise) > 0
-        and min(a.created_at) filter (where a.type = 'COD_CASH_COLLECTED') < now() - interval '7 days'`,
-    describe: (r) => `Holds ₹${(Number(r.held) / 100).toFixed(2)} of cash collected more than 7 days ago`,
+        and min(a.created_at) filter (where a.type = 'COD_CASH_COLLECTED') < now() - make_interval(days => ${t.codCashOverdueDays})`,
+    describe: (r) => `Holds ₹${(Number(r.held) / 100).toFixed(2)} of cash collected more than ${t.codCashOverdueDays} days ago`,
   },
 ];
+}
+
+/** The rules at their default thresholds — used for the labels. */
+const RULES: Rule[] = buildRules(RULE_DEFAULTS.riskRules, RULE_DEFAULTS.deliveryOtp.maxAttempts);
 
 export const RISK_RULE_LABELS: Record<string, string> = Object.fromEntries(RULES.map((r) => [r.code, r.label]));
 
@@ -255,7 +270,8 @@ export const RISK_RULE_LABELS: Record<string, string> = Object.fromEntries(RULES
 export async function runRiskRules(actor: { id: string | null; role: UserRole | null }) {
   let raised = 0;
   let refreshed = 0;
-  for (const rule of RULES) {
+  const [thresholds, deliveryOtp] = await Promise.all([getRule("riskRules"), getRule("deliveryOtp")]);
+  for (const rule of buildRules(thresholds, deliveryOtp.maxAttempts)) {
     const rows = (await db.execute(rule.query)) as unknown as Record<string, unknown>[];
     const hits: Hit[] = rows
       .filter((r) => r.subject_id)
