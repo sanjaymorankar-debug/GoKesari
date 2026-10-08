@@ -54,6 +54,7 @@ import {
   createUserWithWallet,
   deliveryAddressId,
   resetDatabase,
+  setDeliveryCode,
 } from "../helpers/fixtures";
 
 let admin = { id: "", role: "ADMIN" as const };
@@ -172,8 +173,7 @@ async function pickedUpDelivery() {
   const [accepted] = await db.select().from(deliveryOrders).where(eq(deliveryOrders.id, offer.id));
   await markPickedUp(offer.id, rider, accepted.pickupCode!);
   await startDelivery(offer.id, rider);
-  const [started] = await db.select().from(deliveryOrders).where(eq(deliveryOrders.id, offer.id));
-  return { order, customer, owner, shop, rider, deliveryId: offer.id, otp: started.deliveryOtp! };
+  return { order, customer, owner, shop, rider, deliveryId: offer.id, otp: await setDeliveryCode(offer.id) };
 }
 
 describe("photo proof of delivery", () => {

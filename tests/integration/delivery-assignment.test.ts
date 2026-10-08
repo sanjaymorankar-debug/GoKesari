@@ -51,6 +51,7 @@ import {
   createUserWithWallet,
   deliveryAddressId,
   resetDatabase,
+  setDeliveryCode,
 } from "../helpers/fixtures";
 
 beforeEach(resetDatabase);
@@ -356,10 +357,12 @@ describe("full delivery lifecycle", () => {
     await startDelivery(offer.id, actor);
     const [orderOutForDelivery] = await db.select().from(orders).where(eq(orders.id, order.id));
     expect(orderOutForDelivery.status).toBe("OUT_FOR_DELIVERY");
+    // Stored only as a salted hash (never in plain text); the code goes to the customer.
     const [afterStart] = await db.select().from(deliveryOrders).where(eq(deliveryOrders.id, offer.id));
-    expect(afterStart.deliveryOtp).toMatch(/^\d{4}$/);
+    expect(afterStart.deliveryOtp).toBeNull();
+    expect(afterStart.deliveryOtpHash).toMatch(/^[0-9a-f]{16}:[0-9a-f]{64}$/);
 
-    const delivered = await markDelivered(offer.id, actor, afterStart.deliveryOtp!);
+    const delivered = await markDelivered(offer.id, actor, await setDeliveryCode(offer.id));
     expect(delivered.status).toBe("DELIVERED");
 
     const [orderAfterDelivery] = await db.select().from(orders).where(eq(orders.id, order.id));
