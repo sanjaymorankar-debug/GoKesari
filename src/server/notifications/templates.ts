@@ -48,6 +48,7 @@ const PREFIX_CATEGORY: [string, CategoryKey][] = [
   ["marketing.campaign_decided", "SHOP"],
   ["security.", "ACCOUNT_SECURITY"],
   ["auth.", "ACCOUNT_SECURITY"],
+  // Event layer: support alerts and risk flags are operations news (GENERAL).
 ];
 
 export function categoryOf(type: string): CategoryKey {
@@ -117,6 +118,89 @@ export const TEMPLATES: Record<string, Template> = {
   [T.SHOP_APPROVED]: t("Shop approved", "{{shopName}} is approved and can start selling."),
   [T.SHOP_REJECTED]: t("Shop not approved", "{{shopName}} was not approved: {{reason}}"),
   [T.GRIEVANCE_RESOLVED]: t("Your complaint was resolved", "Ticket {{ticket}} has been resolved."),
+  /* ------------------------------------- event layer (docs/event-driven-2026-10) */
+  [T.ORDER_READY]: t("Order packed", "Your order {{orderNumber}} is packed and ready.", false),
+  [T.ORDER_OUT_FOR_DELIVERY]: t(
+    "Your order is on the way",
+    "Your rider has left with order {{orderNumber}}. Track it live from your orders page and keep your delivery code ready.",
+  ),
+  [T.ORDER_RIDER_SEARCH]: t("Finding a rider", "We are assigning a rider to your order {{orderNumber}}.", false),
+  [T.SHOP_RIDER_SEARCH_STARTED]: t(
+    "Finding a rider",
+    "Order {{orderNumber}}: the offer has gone to a rider near you. You will hear as soon as one accepts.",
+    false,
+  ),
+  [T.SHOP_RIDER_DECLINED]: t(
+    "Rider declined — asking the next one",
+    "Order {{orderNumber}}: a rider {{why}}. We are offering it to the next nearest rider now.",
+    false,
+  ),
+  [T.SHOP_RIDER_ASSIGNED]: t(
+    "Rider on the way to you",
+    "{{riderName}} accepted order {{orderNumber}} and is coming to collect it. Read them the pickup code shown on the order.",
+  ),
+  [T.SHOP_ORDER_PICKED_UP]: t("Order picked up", "Order {{orderNumber}} has been collected by {{riderName}}.", false),
+  [T.SHOP_ORDER_OUT_FOR_DELIVERY]: t("Order on the way", "{{riderName}} is on the way to the customer with order {{orderNumber}}.", false),
+  [T.SHOP_ORDER_DELIVERED]: t("Order delivered", "Order {{orderNumber}} has been delivered to the customer."),
+  [T.SHOP_ACCEPT_ESCALATED]: t(
+    "Order waiting — support will call",
+    "Order {{orderNumber}} was not accepted within {{minutes}} minutes. Our support team has been asked to follow up; accept or reject it now.",
+  ),
+  [T.DELIVERY_CANCELLED]: t("Delivery cancelled", "Order {{orderNumber}} no longer needs you: {{reason}}"),
+  [T.SHOP_DOCUMENT_IN_REVIEW]: t(
+    "{{docLabel}} is being reviewed",
+    "{{shopName}}'s {{docLabel}} needs a quick check by our team. Nothing to do now — we will tell you as soon as it is decided.",
+  ),
+  [T.SHOP_DISPUTE_OPENED]: t(
+    "Dispute opened on an order",
+    "The customer opened dispute {{caseNumber}} on order {{orderNumber}}: {{reason}}. Reply on the case so support has your side.",
+  ),
+  [T.DISPUTE_UPDATED]: t("Dispute {{caseNumber}} updated", "Dispute {{caseNumber}} on order {{orderNumber}} is now {{status}}. {{detail}}"),
+  [T.DISPUTE_COMMENT]: t("New reply on dispute {{caseNumber}}", "{{author}} wrote on dispute {{caseNumber}}: {{excerpt}}"),
+  [T.SUPPORT_ACCEPT_OVERDUE]: t(
+    "Shop has not accepted an order",
+    "Order {{orderNumber}} at {{shopName}} was not accepted within {{minutes}} minutes. Contact the shop, or cancel it with a refund.",
+  ),
+  [T.SUPPORT_RIDER_UNASSIGNED]: t(
+    "No rider for an order",
+    "Order {{orderNumber}} at {{shopName}} has had no rider accept for {{minutes}} minutes ({{attempts}} offers). Assign one by hand or ask the shop to deliver.",
+  ),
+  [T.SUPPORT_NOTIFICATION_DEAD]: t(
+    "Notifications could not be sent",
+    "{{count}} message(s) failed after {{attempts}} attempts and were given up — latest: {{type}} by {{channel}} ({{error}}). Check the channel, then retry them from Notifications.",
+    false,
+  ),
+  [T.SUPPORT_SELLER_REVIEW]: t(
+    "Seller document to review",
+    "{{shopName}}'s {{docLabel}} needs a manual review ({{why}}).",
+  ),
+  [T.SUPPORT_SELLER_REVIEW_REMINDER]: t(
+    "Seller documents waiting for review",
+    "{{count}} seller document(s) have waited more than {{hours}} hours for review — oldest: {{oldest}}.",
+  ),
+  [T.SUPPORT_SELLER_DECIDED]: t("Seller document decided", "{{shopName}}'s {{docLabel}} was {{decision}} by {{by}}. {{reason}}", false),
+  [T.SUPPORT_SHOP_AUTO_APPROVED]: t(
+    "Shop approved automatically",
+    "{{shopName}} was approved automatically: every mandatory document is verified and nothing else was outstanding.",
+    false,
+  ),
+  [T.SUPPORT_DISPUTE_OPENED]: t(
+    "New dispute {{caseNumber}}",
+    "Dispute {{caseNumber}} on order {{orderNumber}} ({{amount}}, {{reason}}) was opened{{level}}.",
+  ),
+  [T.SUPPORT_DISPUTE_UPDATED]: t("Dispute {{caseNumber}} updated", "{{detail}}", false),
+  [T.SUPPORT_DISPUTE_ESCALATED]: t(
+    "Dispute {{caseNumber}} escalated to you",
+    "Dispute {{caseNumber}} on order {{orderNumber}} was escalated: {{why}}",
+  ),
+  [T.RISK_FLAG_RAISED]: t("Risk flag raised", "{{severity}} — {{label}}: {{summary}}", false),
+  // Time-critical for the shop (it has acceptMinutes to act) or the seller (they
+  // must act on the result): emailed by default as well as in the app.
+  [T.SHOP_NEW_ORDER]: t("New order", "Order {{orderNumber}} is waiting for you to accept it."),
+  [T.SHOP_ACCEPT_REMINDER]: t("Accept the new order", "Order {{orderNumber}} is cancelled automatically unless you accept it in the next {{minutes}} min."),
+  [T.SHOP_ORDER_TIMED_OUT]: t("Order cancelled — not accepted in time", "Order {{orderNumber}} was cancelled and the customer refunded because it was not accepted in time."),
+  [T.SHOP_DOCUMENT_VERIFIED]: t("{{docLabel}} verified", "{{shopName}}'s {{docLabel}} has been verified."),
+  [T.SHOP_DOCUMENT_ATTENTION]: t("{{docLabel}} needs your attention", "We couldn't verify {{shopName}}'s {{docLabel}}. {{detail}}"),
 };
 
 /** Fills `{{name}}` placeholders; a missing variable becomes an empty string and extra spaces are tidied. */

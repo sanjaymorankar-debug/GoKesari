@@ -2,9 +2,12 @@
  * Dispute escalation sweep (GS-058). Schedule hourly:
  *   curl -X POST https://<host>/api/cron/dispute-escalation -H "Authorization: Bearer $CRON_SECRET"
  *
- * Escalates live L1 cases past the `disputes.escalateAfterHours` limit. Safe to
- * re-run: escalating moves a case to L2, which the next sweep no longer
- * selects. Hourly is enough — the limit is measured in hours, not minutes.
+ * The dispute SLA check (event layer safety net): escalates to an
+ * administrator every live L1 case left without a reply from the shop or
+ * support for `disputes.responseSlaHours` (SLA), or older than
+ * `disputes.escalateAfterHours` (age). Safe to re-run: escalating moves a
+ * case to L2, which the next sweep no longer selects. Hourly is enough — the
+ * limits are measured in hours, not minutes.
  */
 import type { NextRequest } from "next/server";
 

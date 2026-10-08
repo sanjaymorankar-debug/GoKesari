@@ -165,7 +165,12 @@ export function DisputeQueue({
               return (
                 <Fragment key={row.id}>
                   <tr className="border-b hover:bg-gray-50">
-                    <td className="px-4 py-3 font-mono text-xs">{row.caseNumber}</td>
+                    <td className="px-4 py-3 font-mono text-xs">
+                      {/* Event layer: the case page carries the customer/shop conversation. */}
+                      <Link href={`/disputes/${row.id}`} className="underline">
+                        {row.caseNumber}
+                      </Link>
+                    </td>
                     <td className="px-4 py-3">#{row.orderNumber}</td>
                     <td className="px-4 py-3 text-gray-700">{row.raisedByName ?? "—"}</td>
                     <td className="px-4 py-3 text-gray-700">{DISPUTE_REASON_LABELS[row.reason]}</td>

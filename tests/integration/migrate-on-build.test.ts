@@ -60,9 +60,16 @@ const kycTableExists = () =>
     return t !== null;
   });
 
-/** Puts the database back on 0055 with this release's own rollback scripts. */
+const eventLayerExists = () =>
+  withTemp(async (sql) => {
+    const [{ t }] = await sql`select to_regclass('public.domain_events')::text as t`;
+    return t !== null;
+  });
+
+/** Puts the database back on 0055 with the releases' own rollback scripts. */
 const backToMigration0055 = () =>
   withTemp(async (sql) => {
+    await sql.unsafe(readFileSync("scripts/rollback-0058.sql", "utf8"));
     await sql.unsafe(readFileSync("scripts/rollback-0057.sql", "utf8"));
     await sql.unsafe(readFileSync("scripts/rollback-0056.sql", "utf8"));
     await sql`delete from drizzle.__drizzle_migrations where created_at >= ${whenOf("0056_")}`;
@@ -113,18 +120,20 @@ describe("migrate-on-build", () => {
     expect(second.out).toContain("applied 0 new migration(s)");
   });
 
-  it("brings a database on 0055 (as test.gokesari.com is) up to date: 0056 and 0057", async (ctx) => {
+  it("brings a database on 0055 up to date: 0056, 0057 and 0058", async (ctx) => {
     if (!created) ctx.skip();
     await backToMigration0055();
     const before = await journalCount();
     expect(await kycTableExists()).toBe(false);
+    expect(await eventLayerExists()).toBe(false);
 
     const res = runScript({ MIGRATE_ON_BUILD: "1", DATABASE_URL: tempUrl.toString() });
     expect(res.code).toBe(0);
-    expect(res.out).toContain(`applied 2 new migration(s)`);
-    expect(res.out).toContain(`newest ${whenOf("0057_")}`);
-    expect(await journalCount()).toBe(before + 2);
+    expect(res.out).toContain(`applied 3 new migration(s)`);
+    expect(res.out).toContain(`newest ${whenOf("0058_")}`);
+    expect(await journalCount()).toBe(before + 3);
     expect(await kycTableExists()).toBe(true);
+    expect(await eventLayerExists()).toBe(true);
     const cols = await withTemp(
       (sql) => sql`select column_name from information_schema.columns
                    where table_name = 'shops' and column_name in ('contact_phone', 'whatsapp_number')`,
@@ -143,8 +152,9 @@ describe("migrate-on-build", () => {
     expect(res.code).toBe(1);
     expect(res.out).toContain("[migrate-on-build] FAILED");
     expect(res.out).toContain("Build stopped");
-    // One transaction: neither 0056 nor 0057 was recorded or applied.
+    // One transaction: none of 0056–0058 was recorded or applied.
     expect(await journalCount()).toBe(before);
     expect(await kycTableExists()).toBe(false);
+    expect(await eventLayerExists()).toBe(false);
   });
 });

@@ -34,6 +34,7 @@ import {
 } from "@/lib/errors";
 import { db } from "@/server/db";
 import { payments, users, type Payment } from "@/server/db/schema";
+import { checkRiskForUser } from "./risk";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { getOrCreateWallet, applyWalletMutation } from "./wallet";
@@ -215,6 +216,8 @@ export async function verifyAndCreditTopUp(input: {
         updatedAt: new Date(),
       })
       .where(eq(payments.id, payment.id));
+    // Event layer: a failed payment is checked against the risk rules now.
+    await checkRiskForUser(payment.userId, "PAYMENT_FAILED");
     throw paymentVerificationFailed();
   }
 
@@ -256,6 +259,7 @@ export async function settleMockTopUp(input: {
         updatedAt: new Date(),
       })
       .where(eq(payments.id, payment.id));
+    await checkRiskForUser(payment.userId, "PAYMENT_FAILED");
     throw paymentVerificationFailed();
   }
 

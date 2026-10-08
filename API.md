@@ -305,10 +305,51 @@ bytes). Only the rider holding the picked-up delivery may upload. Returns
 `201 { id, url }`. While the rule is on, `{ "action": "deliver" }` returns
 `409` until a photo exists.
 
+### `POST /api/delivery-orders/{id}/location` — live tracking
+Event layer. `{ latitude, longitude }` from the rider's phone every
+`tracking.riderPingSeconds` (default 5) while the drop is under way. Only the
+rider holding the delivery may post (`403` otherwise). Before the drop starts
+and once it is delivered, failed or cancelled nothing is stored and the answer
+is `{ sharing: false }`; otherwise `{ sharing: true, shared, nextPingSeconds }`.
+
+### `GET /api/tracking/{orderId}`
+The order's tracking panel for its customer, its shop, staff and the rider
+holding it. The rider's location is included only from the start of the drop
+(`stage: IN_PROGRESS`) until the order is delivered or cancelled
+(`stage: ENDED`); `AWAITING_START` means collected but not yet on the way.
+`pollSeconds` (rule `tracking.buyerPollSeconds`, default 5) is how often an
+open map refreshes.
+
 ### `POST /api/cron/delivery-dispatch`
 `Authorization: Bearer $CRON_SECRET`. Run every minute. Expires unanswered
 offers (2 min) and retries a rider for every READY order of a delivering shop
 with nobody working on it. Returns `{ expired, attempted, offered }`.
+**Superseded by `timeout-sweep`** (event layer); kept for rollback.
+
+### `POST /api/cron/timeout-sweep` — event layer safety net
+`Authorization: Bearer $CRON_SECRET`. Run every minute; `GET` is a readiness
+probe. Only what depends on time passing: shop acceptance reminder and timeout
+(X = `shopAcceptance.acceptMinutes`, CANCEL or ESCALATE), unanswered rider
+offers and dispatch retries, the "no rider within Y minutes" support alert
+(`dispatch.alertSupportAfterMinutes`), return pickups, and "shop is open now"
+alerts. Returns `{ shopAcceptance, dispatch, riderSearchAlerts, returnPickups, shopOpening, errors }`.
+
+### `POST /api/cron/notification-retry` — event layer safety net
+`Authorization: Bearer $CRON_SECRET`. Run every minute; `GET` is a readiness
+probe. Retries failed outbound notifications from the outbox
+(`notification_deliveries`) up to N = `notifications.maxAttempts`, then marks
+them DEAD and alerts support in the app. Returns `{ sent, failed, skipped, dead }`.
+
+### Disputes — `POST /api/disputes`, `GET|PATCH /api/disputes/{id}`, `POST /api/disputes/{id}/comments`
+Event layer. Opening (`imageIds` optional — photos uploaded first to
+`POST /api/images` with `purpose=DISPUTE_EVIDENCE`) returns the case with its
+`DSP-` number and notifies the shop and support at once. The case's customer,
+shop and staff may `GET` it and comment
+(`{ body, imageIds?, internal? (staff only), clientRequestId }` — a repeated
+`clientRequestId` posts once). `PATCH { action: "advance" }` is staff's, except
+that the shop may move a triaged case to `RESOLUTION_PROPOSED` with a
+`proposal`; `escalate` and `resolve` are staff-only. Every change notifies the
+other parties.
 
 ---
 

@@ -116,6 +116,41 @@ export const NOTIFICATION_TYPES = {
   SECURITY_PHONE_CHANGED: "security.phone_changed",
   SECURITY_ROLE_CHANGED: "security.role_changed",
   SECURITY_ACCOUNT_STATUS: "security.account_status",
+  /* ------------------------------------- event layer (docs/event-driven-2026-10) */
+  /** To the customer, once per order: the rider search has started. */
+  ORDER_RIDER_SEARCH: "order.rider_search",
+  /** To the shop, once per order: the rider search has started. */
+  SHOP_RIDER_SEARCH_STARTED: "shop.rider_search_started",
+  /** To the shop: a rider declined or let an offer lapse; the next rider is being asked. */
+  SHOP_RIDER_DECLINED: "shop.rider_declined",
+  /** To the shop: a rider accepted and is coming for the pickup. */
+  SHOP_RIDER_ASSIGNED: "shop.rider_assigned",
+  SHOP_ORDER_PICKED_UP: "shop.order_picked_up",
+  SHOP_ORDER_OUT_FOR_DELIVERY: "shop.order_out_for_delivery",
+  SHOP_ORDER_DELIVERED: "shop.order_delivered",
+  /** To the shop: the accept-by time passed and support has been asked to step in. */
+  SHOP_ACCEPT_ESCALATED: "shop.accept_escalated",
+  /** To the rider: an accepted delivery was cancelled or reassigned. */
+  DELIVERY_CANCELLED: "delivery.cancelled",
+  /** To the seller: a document is waiting for a person to review it. */
+  SHOP_DOCUMENT_IN_REVIEW: "shop.document_in_review",
+  /** To the shop: a customer opened a dispute on one of its orders. */
+  SHOP_DISPUTE_OPENED: "shop.dispute_opened",
+  /** To the customer and the shop: a dispute moved on (status, escalation). */
+  DISPUTE_UPDATED: "dispute.updated",
+  /** To the parties of a dispute: someone wrote on the case. */
+  DISPUTE_COMMENT: "dispute.comment",
+  /* Support (operators; administrators for SUPPORT_LEAD alerts). */
+  SUPPORT_ACCEPT_OVERDUE: "support.accept_overdue",
+  SUPPORT_RIDER_UNASSIGNED: "support.rider_unassigned",
+  SUPPORT_NOTIFICATION_DEAD: "support.notification_dead",
+  SUPPORT_SELLER_REVIEW: "support.seller_review",
+  SUPPORT_SELLER_REVIEW_REMINDER: "support.seller_review_reminder",
+  SUPPORT_SELLER_DECIDED: "support.seller_decided",
+  SUPPORT_SHOP_AUTO_APPROVED: "support.shop_auto_approved",
+  SUPPORT_DISPUTE_OPENED: "support.dispute_opened",
+  SUPPORT_DISPUTE_UPDATED: "support.dispute_updated",
+  SUPPORT_DISPUTE_ESCALATED: "support.dispute_escalated",
 } as const;
 
 export type NotificationType =

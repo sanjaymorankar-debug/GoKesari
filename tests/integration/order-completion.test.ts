@@ -97,7 +97,7 @@ describe("shop acceptance timeout", () => {
     const { sp } = await shopWithMilk();
     const { order } = await placeOrder(sp.id, "off");
     expect(order.acceptByAt).toBeNull();
-    expect(await runShopAcceptanceSweep(new Date(Date.now() + 3_600_000))).toEqual({ reminded: 0, cancelled: 0, skipped: 0 });
+    expect(await runShopAcceptanceSweep(new Date(Date.now() + 3_600_000))).toEqual({ reminded: 0, cancelled: 0, escalated: 0, skipped: 0 });
   });
 
   it("reminds the shop half-way, then cancels with a full refund and restock when time runs out", async () => {

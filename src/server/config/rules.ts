@@ -59,6 +59,12 @@ export const RULES = {
       busyRidersAsFallback: z.boolean(),
       /** With busyRidersAsFallback on: most deliveries one rider may hold at once (offered, accepted or picked up). */
       maxActiveDeliveriesPerRider: int(1, 5),
+      /**
+       * Event layer (Y): minutes after the rider search starts with nobody
+       * accepted before support is alerted (once per search) by the
+       * timeout-sweep. Offers keep being retried meanwhile.
+       */
+      alertSupportAfterMinutes: int(1, 720),
     }),
     defaults: {
       offerTtlSeconds: 120,
@@ -70,6 +76,7 @@ export const RULES = {
       notifyShopAfterAttempts: 1,
       busyRidersAsFallback: false,
       maxActiveDeliveriesPerRider: 2,
+      alertSupportAfterMinutes: 30,
     },
   },
   riderEarnings: {
@@ -148,15 +155,18 @@ export const RULES = {
     defaults: { maxBytes: 2_000_000, maxDimensionPx: 4096, minDimensionPx: 100, maxPerProduct: 8 },
   },
   notifications: {
-    description: "Notification delivery: retry schedule and batch size for outbound channels.",
+    description:
+      "Notification delivery: every notification is sent the moment its event happens; a failed send stays in the outbox (notification_deliveries) and the notification-retry job tries again on this schedule. maxAttempts (N) sends, then the message is marked dead and support is alerted in the app.",
     schema: z.object({
-      /** Delivery attempts per outbound notification before it is marked dead. */
+      /** Delivery attempts (N) per outbound notification before it is marked dead. */
       maxAttempts: int(1, 10),
       /** Seconds to wait before attempt 2, 3, ...; the last value repeats. */
       retryBackoffSeconds: z.array(int(10, 86_400)).min(1).max(10),
       batchSize: int(1, 500),
+      /** Event layer: tell support (operators, in the app) when a message is given up on. */
+      alertSupportOnDead: z.boolean(),
     }),
-    defaults: { maxAttempts: 4, retryBackoffSeconds: [60, 300, 1800], batchSize: 50 },
+    defaults: { maxAttempts: 4, retryBackoffSeconds: [60, 300, 1800], batchSize: 50, alertSupportOnDead: true },
   },
   suspension: {
     description:
@@ -215,6 +225,13 @@ export const RULES = {
       escalateAbovePaise: int(0, 100_000_000),
       /** How long a reviewer has to resolve an escalated case before it is flagged as overdue. */
       resolveTargetHours: int(1, 720),
+      /**
+       * Event layer (dispute SLA): a live L1 case left without a reply from
+       * the shop or support for this many hours — since it opened or since
+       * the customer last wrote — is escalated to an administrator by the
+       * hourly SLA check. 0 disables it.
+       */
+      responseSlaHours: int(0, 720),
     }),
     defaults: {
       // 48 h matches the return window, so a dispute and a return on the same
@@ -223,6 +240,7 @@ export const RULES = {
       // ₹2,000. Above this an administrator decides, not operations.
       escalateAbovePaise: 200_000,
       resolveTargetHours: 120,
+      responseSlaHours: 24,
     },
   },
   customerReferrals: {
@@ -296,15 +314,21 @@ export const RULES = {
   },
   shopAcceptance: {
     description:
-      "Shop acceptance timeout (NEW-007). Off: an order waits for the shop indefinitely (operations sees it in the exceptions queue — the original behaviour). On: a shop must accept a new order within the set minutes — counted from when it opens, for an order placed while closed — or the order is cancelled with a full refund and the customer is told. The shop gets a reminder part-way through. Subscription orders are not affected.",
+      "Shop acceptance timeout (NEW-007). Off: an order waits for the shop indefinitely (operations sees it in the exceptions queue — the original behaviour). On: a shop must accept a new order within acceptMinutes (X) — counted from when it opens, for an order placed while closed — or, per onTimeout, the order is cancelled with a full refund (customer and shop told) or escalated to support. The shop gets a reminder part-way through. Subscription orders are not affected.",
     schema: z.object({
       enabled: z.boolean(),
       /** Minutes the shop has to accept a new order. */
       acceptMinutes: int(1, 240),
       /** Remind the shop when this share of the time has passed (0.5 = half-way). */
       reminderAtFraction: z.number().min(0.1).max(0.95),
+      /**
+       * Event layer: what the timeout-sweep does when the time (X) is up.
+       * CANCEL — cancel with a full refund and tell the customer and shop.
+       * ESCALATE — alert support (once) and leave the order for an operator.
+       */
+      onTimeout: z.enum(["CANCEL", "ESCALATE"]),
     }),
-    defaults: { enabled: false, acceptMinutes: 10, reminderAtFraction: 0.5 },
+    defaults: { enabled: false, acceptMinutes: 30, reminderAtFraction: 0.5, onTimeout: "CANCEL" },
   },
   deliveryProof: {
     description:
@@ -457,6 +481,16 @@ export const RULES = {
        * CONFIRM THE PERIOD WITH A LAWYER/CA against tax and dispute limitation periods.
        */
       retentionDaysAfterClosure: int(30, 3650),
+      /**
+       * Event layer: approve a pending shop the moment its last mandatory
+       * document is verified and nothing else blocks approval (registration
+       * fee paid or waived, details complete). Off: an admin approves.
+       */
+      autoApproveShop: z.boolean(),
+      /** The Kesari/Green classification an automatically approved shop gets, unless it already has one. Operators can change it later. */
+      autoApproveClassification: z.enum(["KESARI", "GREEN"]),
+      /** Event layer: remind support (daily job) of documents waiting in manual review longer than this. */
+      manualReviewReminderHours: int(1, 720),
     }),
     defaults: {
       nameMatchAutoApprove: 85,
@@ -468,6 +502,9 @@ export const RULES = {
       autoSuspendOnLapse: true,
       suspendGraceDays: 0,
       retentionDaysAfterClosure: 1095,
+      autoApproveShop: false,
+      autoApproveClassification: "GREEN",
+      manualReviewReminderHours: 24,
     },
   },
   cancellation: {
@@ -689,6 +726,15 @@ export const RULES = {
       codCashOverdueDays: 7,
       highRejection: { minOrders: 10, percent: 30, days: 30 },
     },
+  },
+  tracking: {
+    description:
+      "Live delivery tracking (event layer). Once the rider starts the drop, the rider's phone sends its location every riderPingSeconds and the customer's open tracking map refreshes every buyerPollSeconds. Location is shown only to the order's customer, its shop and support, and is no longer accepted or shown once the order is delivered or cancelled.",
+    schema: z.object({
+      riderPingSeconds: int(5, 60),
+      buyerPollSeconds: int(5, 60),
+    }),
+    defaults: { riderPingSeconds: 5, buyerPollSeconds: 5 },
   },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 

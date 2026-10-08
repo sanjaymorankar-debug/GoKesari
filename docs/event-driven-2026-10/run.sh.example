@@ -1,0 +1,48 @@
+#!/usr/bin/env bash
+# Reference runner for the GoKesari TEST site: run.sh <job>
+#
+# Your existing $HOME/gokesari-cron/run.sh was not available to review. If it
+# already POSTs to /api/cron/<job> with the CRON_SECRET, it needs no change —
+# the two new jobs are just new names (timeout-sweep, notification-retry).
+# Otherwise this is a drop-in version. It refuses to run against production.
+#
+# Expects $HOME/gokesari-cron/.env with:   CRON_SECRET=...   (chmod 600)
+set -euo pipefail
+
+JOB="${1:?usage: run.sh <job>}"
+BASE_URL="${GOKESARI_BASE_URL:-https://test.gokesari.com}"
+CRON_DIR="${GOKESARI_CRON_DIR:-$HOME/gokesari-cron}"
+LOG_DIR="$CRON_DIR/logs"
+mkdir -p "$LOG_DIR"
+LOG="$LOG_DIR/$JOB.log"
+
+case "$BASE_URL" in
+  https://test.gokesari.com|https://test.gokesari.com/) ;;
+  *) echo "$(date -u +%FT%TZ) refusing to call $BASE_URL — this runner is for test.gokesari.com only" >> "$LOG"; exit 2 ;;
+esac
+
+case "$JOB" in
+  timeout-sweep|notification-retry|risk-rules|dispute-escalation|daily-orders|seller-verification|finance-weekly) ;;
+  # Old polling jobs — still accepted so the previous crontab can be restored (ROLLBACK.md).
+  shop-acceptance|delivery-dispatch|notifications) ;;
+  *) echo "$(date -u +%FT%TZ) unknown job '$JOB'" >> "$LOG"; exit 2 ;;
+esac
+
+# shellcheck disable=SC1091
+source "$CRON_DIR/.env"
+: "${CRON_SECRET:?CRON_SECRET missing from $CRON_DIR/.env}"
+
+# One run of a job at a time; a minute job still running is skipped, not stacked.
+if command -v flock >/dev/null 2>&1; then
+  exec 9>"$LOG_DIR/$JOB.lock"
+  if ! flock -n 9; then
+    echo "$(date -u +%FT%TZ) $JOB still running — skipped" >> "$LOG"
+    exit 0
+  fi
+fi
+
+{
+  printf '%s %s ' "$(date -u +%FT%TZ)" "$JOB"
+  curl -sS --max-time 55 -o - -w ' HTTP %{http_code}\n' -X POST "$BASE_URL/api/cron/$JOB" \
+    -H "Authorization: Bearer $CRON_SECRET"
+} >> "$LOG" 2>&1

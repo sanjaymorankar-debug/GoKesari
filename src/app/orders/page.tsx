@@ -11,7 +11,7 @@ import {
   PageHeader,
   StatusBadge,
 } from "@/components/ui";
-import { LiveTrackingMap } from "@/components/live-tracking-map";
+import { TrackDeliveryButton } from "@/components/live-tracking-map";
 import { RateOrderForm, ReportIssueForm } from "@/components/rating-actions";
 import { SubstitutionDecision } from "@/components/substitution-decision";
 import { formatQuantity } from "@/lib/money";
@@ -233,14 +233,14 @@ export default async function OrdersPage({
               ) : null}
 
               {/*
-                GS-042/NAV-004: live tracking, mounted only for an order that
-                has a rider and has not finished — one poll per in-flight order
-                rather than one per card. The panel's own API decides what this
-                viewer may see.
+                GS-042/NAV-004 + event layer: "Track delivery" for an order that
+                has a rider and has not finished. The map and its 5-second poll
+                start only when the customer opens it; the panel's own API
+                decides what this viewer may see.
               */}
               {deliveryOrders.has(order.id) && isTrackableOrderStatus(order.status) ? (
                 <div className="mt-3">
-                  <LiveTrackingMap orderId={order.id} />
+                  <TrackDeliveryButton orderId={order.id} />
                 </div>
               ) : null}
 
@@ -275,10 +275,23 @@ export default async function OrdersPage({
                   <span className="font-medium">
                     {DISPUTE_STATUS_LABELS[liveDisputes.get(order.id)!.status].toLowerCase()}
                   </span>
-                  . We will be in touch.
+                  .{" "}
+                  <Link href={`/disputes/${liveDisputes.get(order.id)!.id}`} className="font-medium underline">
+                    View the case
+                  </Link>
                 </p>
               ) : order.paidAt && order.status !== "PENDING" ? (
-                <ReportIssueForm orderId={order.id} />
+                <>
+                  {/* Event layer: a delivered order can be disputed directly — case number at once. */}
+                  {order.status === "DELIVERED" || order.status === "DISPUTED" ? (
+                    <div className="mt-3">
+                      <LinkButton href={`/orders/${order.id}/dispute`} variant="secondary">
+                        Raise a dispute
+                      </LinkButton>
+                    </div>
+                  ) : null}
+                  <ReportIssueForm orderId={order.id} />
+                </>
               ) : null}
 
               {order.status === "WALLET_INSUFFICIENT" ? (

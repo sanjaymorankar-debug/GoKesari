@@ -39,8 +39,11 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { ACTIVE_ASSIGNMENT_STATUSES, countActiveAssignments, findEligiblePartnersNearShop } from "./delivery-eligibility";
 import { creditDeliveryEarnings } from "./delivery-earnings";
+import { updateMyLocation } from "./delivery-partners";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { updateOrderStatus } from "./orders";
+import { emitEvent } from "@/server/events/emit";
+import type { DeliveryEventPayload } from "@/server/events/catalog";
 import { assertDeliveryProof, hasDeliveryProof, isDeliveryProofRequired } from "./delivery-proofs";
 import { checkBatchCompatibility, joinTrip, loadRiderMembers, nextTripDeliveryId, toMember } from "./delivery-trips";
 import { getRoute } from "./routing";
@@ -322,15 +325,24 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
         tx,
       );
 
-      await notify(
+      // Event layer: the rider gets the offer; the customer and the shop hear
+      // once per order that a rider is being found.
+      await emitEvent(
         {
-          userId: candidate.partner.userId,
-          type: NOTIFICATION_TYPES.DELIVERY_OFFERED,
-          title: deliveryOrder.tripId ? "Add a delivery to your trip" : "New delivery offer",
-          body: deliveryOrder.tripId
-            ? `Another order fits your current trip (~${legDistanceKm.toFixed(1)} km from its pickup).`
-            : `A delivery is available near you (~${legDistanceKm.toFixed(1)} km).`,
-          actionUrl: "/delivery-partner",
+          type: "delivery.offered",
+          subjectId: deliveryOrder.id,
+          orderId,
+          transition: { from: existing?.status ?? null, to: "OFFERED" },
+          actor,
+          payload: {
+            orderId,
+            orderNumber: order.orderNumber,
+            buyerId: order.userId,
+            shopOwnerId: shop.ownerId,
+            riderUserId: candidate.partner.userId,
+            distanceKm: legDistanceKm,
+            batched: Boolean(deliveryOrder.tripId),
+          },
         },
         tx,
       );
@@ -400,6 +412,15 @@ export async function reassignOrder(orderId: string, actor: Actor, reason?: stri
       previousValue: { status: existing.status },
       newValue: { status: "CANCELLED", reason },
     });
+    const ctx = await deliveryEventContext(orderId, existing.deliveryPartnerId);
+    await emitEvent({
+      type: "delivery.cancelled",
+      subjectId: existing.id,
+      orderId,
+      transition: { from: existing.status, to: "CANCELLED" },
+      actor,
+      payload: { ...ctx, reason: reason?.trim() || "The order was given to another rider." },
+    });
   }
 
   return assignNearestPartner(orderId, actor);
@@ -416,6 +437,65 @@ async function loadOwnDeliveryOrder(deliveryOrderId: string, partnerUserId: stri
   }
   return row;
 }
+
+/**
+ * Live tracking (event layer): the rider's phone posts its position for one
+ * delivery while the drop is under way, every `tracking.riderPingSeconds`.
+ * Only the rider holding the delivery may post (403 otherwise). Before the
+ * drop starts, and once it is over — delivered, failed or cancelled — nothing
+ * is stored and the answer says `sharing: false` so the phone stops. Only the
+ * rider's latest position is kept (on their own record, as for matching); no
+ * trail of the trip is stored.
+ */
+export async function recordDeliveryLocation(
+  deliveryOrderId: string,
+  partnerUserId: string,
+  latitude: number,
+  longitude: number,
+): Promise<{ sharing: boolean; shared: boolean; nextPingSeconds: number }> {
+  const row = await loadOwnDeliveryOrder(deliveryOrderId, partnerUserId);
+  const { riderPingSeconds } = await getRule("tracking");
+  if (row.status !== "PICKED_UP" || !row.outForDeliveryAt) {
+    return { sharing: false, shared: true, nextPingSeconds: riderPingSeconds };
+  }
+  // false when the rider is offline on the server: the phone then resyncs.
+  const shared = await updateMyLocation(partnerUserId, latitude, longitude);
+  return { sharing: shared, shared, nextPingSeconds: riderPingSeconds };
+}
+
+/** Event layer: the people an assignment's events concern. */
+async function deliveryEventContext(
+  orderId: string,
+  partnerId: string | null,
+  client: DbClient = db,
+): Promise<Omit<DeliveryEventPayload, "reason"> & { riderName: string | null; shopName: string }> {
+  const [row] = await client
+    .select({ orderNumber: orders.orderNumber, buyerId: orders.userId, shopOwnerId: shops.ownerId, shopName: shops.name })
+    .from(orders)
+    .innerJoin(shops, eq(shops.id, orders.shopId))
+    .where(eq(orders.id, orderId));
+  const [rider] = partnerId
+    ? await client
+        .select({ userId: deliveryPartners.userId, name: deliveryPartners.fullName })
+        .from(deliveryPartners)
+        .where(eq(deliveryPartners.id, partnerId))
+    : [];
+  return {
+    orderId,
+    orderNumber: row?.orderNumber ?? "",
+    buyerId: row?.buyerId ?? "",
+    shopOwnerId: row?.shopOwnerId ?? null,
+    shopName: row?.shopName ?? "the shop",
+    riderUserId: rider?.userId ?? null,
+    riderName: rider?.name ?? null,
+  };
+}
+
+/** Event layer: what the order's own events say about the rider. */
+const riderFacts = (ctx: { riderUserId: string | null; riderName: string | null }) => ({
+  riderUserId: ctx.riderUserId,
+  riderName: ctx.riderName ?? "Your rider",
+});
 
 /**
  * DEF-04 fix: the UPDATE's own WHERE clause enforces `status = 'OFFERED'`
@@ -452,7 +532,19 @@ export async function acceptDeliveryOffer(deliveryOrderId: string, partnerUserId
     if (order?.status !== "READY") {
       throw conflict("This order is no longer waiting for a rider.");
     }
-    await updateOrderStatus(row.orderId, "ASSIGNED", actor, "Rider accepted", tx);
+    const ctx = await deliveryEventContext(row.orderId, row.deliveryPartnerId, tx);
+    await emitEvent(
+      {
+        type: "delivery.accepted",
+        subjectId: deliveryOrderId,
+        orderId: row.orderId,
+        transition: { from: "OFFERED", to: "ACCEPTED" },
+        actor,
+        payload: ctx,
+      },
+      tx,
+    );
+    await updateOrderStatus(row.orderId, "ASSIGNED", actor, "Rider accepted", tx, riderFacts(ctx));
     // The search is over: a rider has the order.
     await tx
       .update(riderSearches)
@@ -507,6 +599,14 @@ export async function rejectDeliveryOffer(
     entityId: deliveryOrderId,
     newValue: { status: "REJECTED", reason },
   });
+  await emitEvent({
+    type: "delivery.rejected",
+    subjectId: deliveryOrderId,
+    orderId: updated.orderId,
+    transition: { from: "OFFERED", to: "REJECTED" },
+    actor: { id: partnerUserId, role: "DELIVERY_PARTNER" },
+    payload: { ...(await deliveryEventContext(updated.orderId, updated.deliveryPartnerId)), reason: reason?.trim() || null },
+  });
 
   // GA-009: move straight on to the next nearest rider.
   await dispatchReadyOrder(updated.orderId, { id: null, role: null }, "REOFFER").catch((error) => {
@@ -545,11 +645,23 @@ export async function markPickedUp(
     // ASSIGNED → PICKED_UP (the rider then starts the drop). An order still
     // READY was accepted before ASSIGNED existed — it keeps the old jump
     // straight to OUT_FOR_DELIVERY.
+    const ctx = await deliveryEventContext(row.orderId, row.deliveryPartnerId, tx);
+    await emitEvent(
+      {
+        type: "delivery.picked_up",
+        subjectId: deliveryOrderId,
+        orderId: row.orderId,
+        transition: { from: "ACCEPTED", to: "PICKED_UP" },
+        actor,
+        payload: ctx,
+      },
+      tx,
+    );
     const [order] = await tx.select({ status: orders.status }).from(orders).where(eq(orders.id, row.orderId));
     if (order?.status === "ASSIGNED") {
-      await updateOrderStatus(row.orderId, "PICKED_UP", actor, "Picked up by rider", tx);
+      await updateOrderStatus(row.orderId, "PICKED_UP", actor, "Picked up by rider", tx, riderFacts(ctx));
     } else {
-      await updateOrderStatus(row.orderId, "OUT_FOR_DELIVERY", actor, undefined, tx);
+      await updateOrderStatus(row.orderId, "OUT_FOR_DELIVERY", actor, undefined, tx, riderFacts(ctx));
     }
 
     await recordAudit(
@@ -613,7 +725,19 @@ export async function markDelivered(
       .returning();
     if (!updated) throw conflict("This delivery must be picked up before it can be marked delivered.");
 
-    await updateOrderStatus(row.orderId, "DELIVERED", actor, undefined, tx);
+    const ctx = await deliveryEventContext(row.orderId, row.deliveryPartnerId, tx);
+    await emitEvent(
+      {
+        type: "delivery.delivered",
+        subjectId: deliveryOrderId,
+        orderId: row.orderId,
+        transition: { from: "PICKED_UP", to: "DELIVERED" },
+        actor,
+        payload: ctx,
+      },
+      tx,
+    );
+    await updateOrderStatus(row.orderId, "DELIVERED", actor, undefined, tx, riderFacts(ctx));
     await creditDeliveryEarnings(deliveryOrderId, tx);
 
     await recordAudit(
@@ -657,7 +781,13 @@ export async function startDelivery(deliveryOrderId: string, actor: Actor): Prom
       .returning();
     if (!updated) throw conflict("This delivery is not waiting to start.");
 
-    await updateOrderStatus(row.orderId, "OUT_FOR_DELIVERY", actor, "On the way to the customer", tx);
+    const ctx = await deliveryEventContext(row.orderId, row.deliveryPartnerId, tx);
+    // Not a delivery status of its own (out_for_delivery_at on a PICKED_UP row); live tracking starts here.
+    await emitEvent(
+      { type: "delivery.started", subjectId: deliveryOrderId, orderId: row.orderId, actor, payload: ctx },
+      tx,
+    );
+    await updateOrderStatus(row.orderId, "OUT_FOR_DELIVERY", actor, "On the way to the customer", tx, riderFacts(ctx));
     await recordAudit(
       {
         actorId: actor.id,
@@ -812,7 +942,20 @@ export async function markDeliveryFailed(
       .returning();
     if (!updated) throw conflict("Only a picked-up delivery can be marked failed.");
 
-    await updateOrderStatus(row.orderId, "FAILED", actor, trimmed, tx);
+    const ctx = await deliveryEventContext(row.orderId, row.deliveryPartnerId, tx);
+    await emitEvent(
+      {
+        type: "delivery.failed",
+        subjectId: deliveryOrderId,
+        orderId: row.orderId,
+        transition: { from: "PICKED_UP", to: "FAILED" },
+        actor,
+        payload: { ...ctx, reason: trimmed },
+      },
+      tx,
+    );
+    // The order event tells the customer and the shop, with the reason.
+    await updateOrderStatus(row.orderId, "FAILED", actor, trimmed, tx, { ...riderFacts(ctx), reason: trimmed });
     await creditDeliveryEarnings(deliveryOrderId, tx);
     await recordAudit(
       {
@@ -827,18 +970,6 @@ export async function markDeliveryFailed(
     );
     return updated;
   });
-
-  const order = await db.query.orders.findFirst({ where: eq(orders.id, row.orderId) });
-  const shop = order ? await db.query.shops.findFirst({ where: eq(shops.id, order.shopId) }) : null;
-  if (order && shop) {
-    await notify({
-      userId: shop.ownerId,
-      type: NOTIFICATION_TYPES.ORDER_DELIVERY_FAILED,
-      title: "Delivery failed",
-      body: `Order ${order.orderNumber} could not be delivered: ${trimmed}. The rider will bring it back.`,
-      actionUrl: "/shop/orders",
-    });
-  }
   return result;
 }
 
@@ -871,6 +1002,17 @@ export async function confirmDeliveryByOperator(
       .returning();
     if (!updated) throw conflict("This order has no picked-up delivery to confirm.");
 
+    await emitEvent(
+      {
+        type: "delivery.delivered",
+        subjectId: updated.id,
+        orderId,
+        transition: { from: "PICKED_UP", to: "DELIVERED" },
+        actor,
+        payload: { ...(await deliveryEventContext(orderId, updated.deliveryPartnerId, tx)), reason: note },
+      },
+      tx,
+    );
     const [order] = await tx.select({ status: orders.status }).from(orders).where(eq(orders.id, orderId));
     if (order?.status === "PICKED_UP") {
       await updateOrderStatus(orderId, "OUT_FOR_DELIVERY", actor, "Operator confirmation", tx);
@@ -1284,6 +1426,14 @@ export async function expireStaleOffers(): Promise<number> {
       entityId: row.id,
       newValue: { deliveryPartnerId: row.deliveryPartnerId },
     });
+    await emitEvent({
+      type: "delivery.offer_expired",
+      subjectId: row.id,
+      orderId: row.orderId,
+      transition: { from: "OFFERED", to: "REJECTED" },
+      actor: { id: null, role: null },
+      payload: await deliveryEventContext(row.orderId, row.deliveryPartnerId),
+    }).catch((error) => console.error("[delivery] offer-expired event failed", row.id, error));
     await dispatchReadyOrder(row.orderId, { id: null, role: null }, "REOFFER").catch((error) => {
       console.error("[delivery] re-offer after expiry failed", row.orderId, error);
     });
@@ -1310,6 +1460,67 @@ export async function runDispatchSweep(): Promise<{ expired: number; attempted: 
     if (result) offered += 1;
   }
   return { expired, attempted: waiting.length, offered };
+}
+
+/**
+ * Event layer (Y): a READY order whose rider search started more than
+ * `dispatch.alertSupportAfterMinutes` ago and still has no rider — searching
+ * or given up — is raised with support, once per search. Offers carry on
+ * meanwhile; this only makes sure a person looks. Run by the timeout-sweep.
+ */
+export async function alertOverdueRiderSearches(now: Date = new Date()): Promise<number> {
+  const rules = await getDispatchRules();
+  const cutoff = new Date(now.getTime() - rules.alertSupportAfterMinutes * 60_000);
+  const overdue = await db
+    .select({ search: riderSearches, order: orders, shop: shops })
+    .from(riderSearches)
+    .innerJoin(orders, eq(orders.id, riderSearches.orderId))
+    .innerJoin(shops, eq(shops.id, orders.shopId))
+    .where(
+      and(
+        isNull(riderSearches.supportAlertedAt),
+        lt(riderSearches.startedAt, cutoff),
+        inArray(riderSearches.status, ["SEARCHING", "STOPPED"]),
+        eq(orders.status, "READY"),
+      ),
+    )
+    .limit(100);
+
+  let alerted = 0;
+  for (const { search, order, shop } of overdue) {
+    const [claimed] = await db
+      .update(riderSearches)
+      .set({ supportAlertedAt: now, updatedAt: now })
+      .where(and(eq(riderSearches.id, search.id), isNull(riderSearches.supportAlertedAt)))
+      .returning({ id: riderSearches.id });
+    if (!claimed) continue;
+    const minutes = Math.floor((now.getTime() - search.startedAt.getTime()) / 60_000);
+    await recordAudit({
+      action: AUDIT_ACTIONS.RIDER_SEARCH_SUPPORT_ALERTED,
+      entityType: "order",
+      entityId: order.id,
+      newValue: { searchId: search.id, minutes, attempts: search.attempts },
+    });
+    await emitEvent({
+      type: "delivery.search_overdue",
+      subjectId: search.id,
+      orderId: order.id,
+      actor: { id: null, role: null },
+      payload: {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        buyerId: order.userId,
+        shopOwnerId: shop.ownerId,
+        shopName: shop.name,
+        riderUserId: null,
+        minutes,
+        attempts: search.attempts,
+      },
+      idempotencyKey: `rider-search-overdue:${search.id}`,
+    });
+    alerted += 1;
+  }
+  return alerted;
 }
 
 export type RiderDeliveryView = Omit<DeliveryOrder, "pickupCode" | "deliveryOtp" | "rejectedPartnerIds"> & {

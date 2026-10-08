@@ -142,3 +142,56 @@ describe("buildOrderTracking", () => {
     expect(tracking.riderLocation).toBeNull();
   });
 });
+
+describe("buildOrderTracking — live tracking starts with the drop (event layer)", () => {
+  const now = new Date("2026-10-02T12:00:00Z");
+  const pickedUpAt = new Date("2026-10-02T11:50:00Z");
+  const startedAt = new Date("2026-10-02T11:55:00Z");
+
+  it("collected but not yet started: AWAITING_START, no location even with a fresh fix", () => {
+    const tracking = buildOrderTracking({
+      orderId: "o1",
+      orderStatus: "PICKED_UP",
+      shopDispatchesRiders: true,
+      delivery: { status: "PICKED_UP", pickedUpAt, startedAt: null },
+      riderFix: { ...NEARBY, recordedAt: new Date("2026-10-02T11:59:00Z") },
+      destination: PUNE,
+      now,
+    });
+    expect(tracking.stage).toBe("AWAITING_START");
+    expect(tracking.riderLocation).toBeNull();
+  });
+
+  it("shares a fix taken after the drop started, withholds one taken between pickup and start", () => {
+    const base = {
+      orderId: "o1",
+      orderStatus: "OUT_FOR_DELIVERY" as const,
+      shopDispatchesRiders: true,
+      delivery: { status: "PICKED_UP" as const, pickedUpAt, startedAt },
+      destination: PUNE,
+      now,
+    };
+    const after = buildOrderTracking({ ...base, riderFix: { ...NEARBY, recordedAt: new Date("2026-10-02T11:58:00Z") } });
+    expect(after.stage).toBe("IN_PROGRESS");
+    expect(after.riderLocation).not.toBeNull();
+
+    const between = buildOrderTracking({ ...base, riderFix: { ...NEARBY, recordedAt: new Date("2026-10-02T11:52:00Z") } });
+    expect(between.riderLocation).toBeNull();
+  });
+
+  it("stops sharing once the order is delivered or cancelled", () => {
+    for (const orderStatus of ["DELIVERED", "CANCELLED"] as const) {
+      const tracking = buildOrderTracking({
+        orderId: "o1",
+        orderStatus,
+        shopDispatchesRiders: true,
+        delivery: { status: orderStatus === "DELIVERED" ? "DELIVERED" : "CANCELLED", pickedUpAt, startedAt },
+        riderFix: { ...NEARBY, recordedAt: new Date("2026-10-02T11:59:00Z") },
+        destination: PUNE,
+        now,
+      });
+      expect(tracking.stage).toBe("ENDED");
+      expect(tracking.riderLocation).toBeNull();
+    }
+  });
+});

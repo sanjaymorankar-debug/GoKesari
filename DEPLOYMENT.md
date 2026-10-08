@@ -262,6 +262,12 @@ warnings, suspension when a mandatory document lapses):
   -H "Authorization: Bearer $CRON_SECRET" >> /var/log/seller-verification.log 2>&1
 ```
 
+> **Event layer (docs/event-driven-2026-10):** status changes and their
+> notifications now happen in the request that causes them; cron is the safety
+> net only. The minute jobs become `timeout-sweep` and `notification-retry` —
+> see `docs/event-driven-2026-10/crontab.test.txt` for the full schedule and
+> `ROLLBACK.md` there to restore the jobs below.
+
 The shop acceptance timeout (rule `shopAcceptance`, NEW-007) needs a sweep
 every minute. It does nothing while the rule is off, so it is safe to schedule
 before switching the rule on:

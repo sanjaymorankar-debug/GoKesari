@@ -1,0 +1,557 @@
+/**
+ * The event catalogue: every business event the event layer knows, what its
+ * subject is, and who hears about it. This is the one place that answers
+ * "who is notified when X happens" — the test checklist in
+ * docs/event-driven-2026-10/TEST_CHECKLIST.md is written from it.
+ *
+ * A message goes to a user id, or to an audience ("SUPPORT" = operators and
+ * administrators, "SUPPORT_LEAD" = administrators). The person who caused the
+ * event is skipped unless a message says `includeActor` — nobody needs to be
+ * told what they just did, but a result (a document verified, a ticket number)
+ * is still worth confirming.
+ */
+import { formatPaise } from "@/lib/money";
+import type { MachineKind } from "@/lib/state-machines";
+import type { Channel } from "@/server/notifications/templates";
+import { NOTIFICATION_TYPES as N, type NotificationType } from "@/server/notifications/types";
+import type { Audience } from "./recipients";
+
+type Vars = Record<string, string | number | null | undefined>;
+
+export type SubjectKind = MachineKind | "shop" | "risk_flag" | "notification" | "seller_review";
+
+export interface EventMessage {
+  /** A user id, an audience, or nothing (skipped — e.g. an order with no rider). */
+  to: string | Audience | null | undefined;
+  type: NotificationType;
+  vars?: Vars;
+  title?: string;
+  body?: string;
+  actionUrl?: string;
+  channels?: Channel[];
+  includeActor?: boolean;
+  /**
+   * The scope of "at most once per person". Defaults to this event; a wider
+   * scope (e.g. `order:<id>:rider-search`) sends once across many events.
+   */
+  dedupe?: string;
+}
+
+interface EventDefinition<P> {
+  subject: SubjectKind;
+  messages: (payload: P) => EventMessage[];
+}
+
+const define = <P>(subject: SubjectKind, messages: EventDefinition<P>["messages"]): EventDefinition<P> => ({
+  subject,
+  messages,
+});
+
+/* ------------------------------------------------------------------ payloads */
+
+export interface OrderEventPayload {
+  orderId: string;
+  orderNumber: string;
+  buyerId: string;
+  shopOwnerId: string | null;
+  shopName: string;
+  riderUserId?: string | null;
+  riderName?: string | null;
+  reason?: string | null;
+  /** For order.ready: READY reached again after a rider was taken off (reassignment). */
+  reassigned?: boolean;
+  /** For order.cancelled: who cancelled, and whether the shop had already started on it. */
+  cancelledBy?: "CUSTOMER" | "SHOP" | "SUPPORT" | "SYSTEM";
+  beforePacking?: boolean;
+  minutes?: number;
+  acceptByLabel?: string;
+}
+
+export interface DeliveryEventPayload {
+  orderId: string;
+  orderNumber: string;
+  buyerId: string;
+  shopOwnerId: string | null;
+  riderUserId: string | null;
+  distanceKm?: number;
+  batched?: boolean;
+  reason?: string | null;
+  shopName?: string;
+  minutes?: number;
+  attempts?: number;
+}
+
+export interface SellerDocumentPayload {
+  shopId: string;
+  shopName: string;
+  ownerId: string;
+  docLabel: string;
+  status: string;
+  numberMasked?: string | null;
+  /** Seller-facing explanation for a failed / expired / more-info result. */
+  message?: string | null;
+  /** Support-facing reason the document needs review. */
+  why?: string | null;
+  decision?: "approved" | "rejected" | "sent back for more information";
+  by?: string | null;
+}
+
+export interface DisputeEventPayload {
+  disputeId: string;
+  caseNumber: string;
+  orderNumber: string;
+  buyerId: string | null;
+  shopOwnerId: string | null;
+  level: "L1" | "L2";
+  statusLabel: string;
+  reasonLabel?: string;
+  amountPaise?: number;
+  detail?: string | null;
+  proposal?: string | null;
+  outcome?: string | null;
+  author?: string;
+  excerpt?: string;
+  internal?: boolean;
+  why?: string;
+  /** dispute.status_changed: which customer template applies. */
+  customerTemplate?: "RESOLUTION_PROPOSED" | "REJECTED";
+}
+
+/* ------------------------------------------------------------------- helpers */
+
+const ORDERS = "/orders";
+const SHOP_ORDERS = "/shop/orders";
+const disputeUrl = (id: string) => `/disputes/${id}`;
+
+const forShop = (p: OrderEventPayload, type: NotificationType, vars: Vars = {}): EventMessage => ({
+  to: p.shopOwnerId,
+  type,
+  vars: { orderNumber: p.orderNumber, riderName: p.riderName ?? "The rider", ...vars },
+  actionUrl: SHOP_ORDERS,
+});
+
+const forBuyer = (p: OrderEventPayload, type: NotificationType, vars: Vars = {}): EventMessage => ({
+  to: p.buyerId,
+  type,
+  vars: { orderNumber: p.orderNumber, shopName: p.shopName, ...vars },
+  actionUrl: ORDERS,
+});
+
+/* ----------------------------------------------------------------- the list */
+
+export const EVENTS = {
+  /* ---------------------------------------------------------------- orders */
+  // Checkout already tells the customer and the shop (orders.ts); the event is the record.
+  "order.placed": define<OrderEventPayload>("order", () => []),
+  "order.accepted": define<OrderEventPayload>("order", (p) => [forBuyer(p, N.ORDER_ACCEPTED)]),
+  "order.preparing": define<OrderEventPayload>("order", () => []),
+  "order.ready": define<OrderEventPayload>("order", (p) => (p.reassigned ? [] : [forBuyer(p, N.ORDER_READY)])),
+  "order.assigned": define<OrderEventPayload>("order", (p) => [
+    forBuyer(p, N.ORDER_ASSIGNED),
+    forShop(p, N.SHOP_RIDER_ASSIGNED),
+  ]),
+  "order.picked_up": define<OrderEventPayload>("order", (p) => [
+    forBuyer(p, N.ORDER_PICKED_UP),
+    forShop(p, N.SHOP_ORDER_PICKED_UP),
+  ]),
+  "order.out_for_delivery": define<OrderEventPayload>("order", (p) => [
+    forBuyer(p, N.ORDER_OUT_FOR_DELIVERY),
+    forShop(p, N.SHOP_ORDER_OUT_FOR_DELIVERY),
+  ]),
+  "order.delivered": define<OrderEventPayload>("order", (p) => [
+    forBuyer(p, N.ORDER_DELIVERED),
+    forShop(p, N.SHOP_ORDER_DELIVERED),
+  ]),
+  "order.failed": define<OrderEventPayload>("order", (p) => [
+    forBuyer(p, N.ORDER_DELIVERY_FAILED, { reason: p.reason }),
+    {
+      ...forShop(p, N.ORDER_DELIVERY_FAILED),
+      title: "Delivery failed",
+      body: `Order ${p.orderNumber} could not be delivered: ${p.reason ?? "no reason given"}. The rider will bring it back.`,
+    },
+  ]),
+  "order.cancelled": define<OrderEventPayload>("order", (p) => {
+    const messages: EventMessage[] = [
+      {
+        ...forBuyer(p, N.ORDER_CANCELLED),
+        title: "Order cancelled",
+        body: `Your order ${p.orderNumber} was cancelled: ${p.reason ?? ""}`.trim(),
+      },
+    ];
+    // The shop is told when someone else took the order off it: support, or
+    // the customer after the shop had started (D6). A customer cancelling an
+    // order the shop has not accepted yet stays silent for the shop (D10); a
+    // system cancel (acceptance timeout) sends its own shop notice.
+    if (p.cancelledBy === "SUPPORT" || (p.cancelledBy === "CUSTOMER" && p.beforePacking)) {
+      messages.push({
+        ...forShop(p, N.ORDER_CANCELLED),
+        title: p.cancelledBy === "CUSTOMER" ? "Order cancelled by the customer" : "Order cancelled by support",
+        body:
+          p.cancelledBy === "CUSTOMER"
+            ? `Order ${p.orderNumber} was cancelled by the customer before packing: ${p.reason}. Put the items back on the shelf.`
+            : `Order ${p.orderNumber} was cancelled by support: ${p.reason}.`,
+      });
+    }
+    if (p.riderUserId) {
+      messages.push({
+        to: p.riderUserId,
+        type: N.DELIVERY_CANCELLED,
+        vars: { orderNumber: p.orderNumber, reason: p.reason },
+        actionUrl: "/delivery-partner",
+      });
+    }
+    return messages;
+  }),
+  // DISPUTED, REFUND_PENDING, REFUNDED, RETURNED and the payment states: recorded, nobody notified here.
+  "order.status_changed": define<OrderEventPayload>("order", () => []),
+  "order.accept_reminder": define<OrderEventPayload>("order", (p) => [
+    {
+      to: p.shopOwnerId,
+      type: N.SHOP_ACCEPT_REMINDER,
+      title: "Accept the new order",
+      body: `Order ${p.orderNumber} is cancelled automatically unless you accept it in the next ${p.minutes} min.`,
+      actionUrl: SHOP_ORDERS,
+    },
+  ]),
+  "order.accept_timed_out": define<OrderEventPayload>("order", (p) => [
+    {
+      to: p.shopOwnerId,
+      type: N.SHOP_ORDER_TIMED_OUT,
+      title: "Order cancelled — not accepted in time",
+      body: `Order ${p.orderNumber} was cancelled and the customer refunded because it was not accepted by ${p.acceptByLabel}.`,
+      actionUrl: SHOP_ORDERS,
+    },
+  ]),
+  "order.accept_escalated": define<OrderEventPayload>("order", (p) => [
+    {
+      to: "SUPPORT",
+      type: N.SUPPORT_ACCEPT_OVERDUE,
+      vars: { orderNumber: p.orderNumber, shopName: p.shopName, minutes: p.minutes },
+      actionUrl: "/admin/exceptions",
+    },
+    forShop(p, N.SHOP_ACCEPT_ESCALATED, { minutes: p.minutes }),
+  ]),
+
+  /* ------------------------------------------------------------ deliveries */
+  "delivery.offered": define<DeliveryEventPayload>("delivery", (p) => [
+    {
+      to: p.riderUserId,
+      type: N.DELIVERY_OFFERED,
+      title: p.batched ? "Add a delivery to your trip" : "New delivery offer",
+      body: p.batched
+        ? `Another order fits your current trip (~${(p.distanceKm ?? 0).toFixed(1)} km from its pickup).`
+        : `A delivery is available near you (~${(p.distanceKm ?? 0).toFixed(1)} km).`,
+      actionUrl: "/delivery-partner",
+    },
+    // Once per order, however many riders are asked.
+    {
+      to: p.buyerId,
+      type: N.ORDER_RIDER_SEARCH,
+      vars: { orderNumber: p.orderNumber },
+      actionUrl: ORDERS,
+      dedupe: `order:${p.orderId}:rider-search`,
+    },
+    {
+      to: p.shopOwnerId,
+      type: N.SHOP_RIDER_SEARCH_STARTED,
+      vars: { orderNumber: p.orderNumber },
+      actionUrl: SHOP_ORDERS,
+      includeActor: true,
+      dedupe: `order:${p.orderId}:rider-search`,
+    },
+  ]),
+  // The order's own ASSIGNED / PICKED_UP / OUT_FOR_DELIVERY / DELIVERED / FAILED
+  // events tell the customer and the shop; these record the rider's side.
+  "delivery.accepted": define<DeliveryEventPayload>("delivery", () => []),
+  "delivery.rejected": define<DeliveryEventPayload>("delivery", (p) => [
+    {
+      to: p.shopOwnerId,
+      type: N.SHOP_RIDER_DECLINED,
+      vars: { orderNumber: p.orderNumber, why: "declined it" },
+      actionUrl: SHOP_ORDERS,
+    },
+  ]),
+  "delivery.offer_expired": define<DeliveryEventPayload>("delivery", (p) => [
+    {
+      to: p.shopOwnerId,
+      type: N.SHOP_RIDER_DECLINED,
+      vars: { orderNumber: p.orderNumber, why: "did not answer in time" },
+      actionUrl: SHOP_ORDERS,
+    },
+  ]),
+  "delivery.picked_up": define<DeliveryEventPayload>("delivery", () => []),
+  "delivery.started": define<DeliveryEventPayload>("delivery", () => []),
+  "delivery.delivered": define<DeliveryEventPayload>("delivery", () => []),
+  "delivery.failed": define<DeliveryEventPayload>("delivery", () => []),
+  "delivery.cancelled": define<DeliveryEventPayload>("delivery", (p) => [
+    {
+      to: p.riderUserId,
+      type: N.DELIVERY_CANCELLED,
+      vars: { orderNumber: p.orderNumber, reason: p.reason },
+      actionUrl: "/delivery-partner",
+    },
+  ]),
+  "delivery.search_overdue": define<DeliveryEventPayload>("delivery", (p) => [
+    {
+      to: "SUPPORT",
+      type: N.SUPPORT_RIDER_UNASSIGNED,
+      vars: { orderNumber: p.orderNumber, shopName: p.shopName, minutes: p.minutes, attempts: p.attempts },
+      actionUrl: "/admin/orders",
+    },
+  ]),
+
+  /* ------------------------------------------------------ seller documents */
+  "seller_document.checked": define<SellerDocumentPayload>("seller_verification", (p) => {
+    const seller = { to: p.ownerId, actionUrl: "/shop/verification", includeActor: true };
+    switch (p.status) {
+      case "VERIFIED":
+        return [
+          {
+            ...seller,
+            type: N.SHOP_DOCUMENT_VERIFIED,
+            title: `${p.docLabel} verified`,
+            body: `${p.shopName}'s ${p.docLabel} (${p.numberMasked ?? "on file"}) has been verified.`,
+          },
+        ];
+      case "FAILED":
+      case "EXPIRED":
+        return [
+          {
+            ...seller,
+            type: N.SHOP_DOCUMENT_ATTENTION,
+            title: `${p.docLabel} needs your attention`,
+            body: p.message ?? `We couldn't verify ${p.shopName}'s ${p.docLabel}.`,
+          },
+        ];
+      case "MANUAL_REVIEW":
+        return [
+          { ...seller, type: N.SHOP_DOCUMENT_IN_REVIEW, vars: { shopName: p.shopName, docLabel: p.docLabel } },
+          {
+            to: "SUPPORT",
+            type: N.SUPPORT_SELLER_REVIEW,
+            vars: { shopName: p.shopName, docLabel: p.docLabel, why: p.why ?? "the automatic check could not decide" },
+            actionUrl: "/admin/seller-verification",
+          },
+        ];
+      default:
+        // PENDING: the vendor did not answer; the daily job retries it.
+        return [];
+    }
+  }),
+  "seller_document.decided": define<SellerDocumentPayload>("seller_verification", (p) => [
+    p.status === "VERIFIED"
+      ? {
+          to: p.ownerId,
+          type: N.SHOP_DOCUMENT_VERIFIED,
+          title: `${p.docLabel} verified`,
+          body: `${p.shopName}'s ${p.docLabel} (${p.numberMasked ?? "on file"}) has been verified.`,
+          actionUrl: "/shop/verification",
+        }
+      : {
+          to: p.ownerId,
+          type: N.SHOP_DOCUMENT_ATTENTION,
+          title:
+            p.decision === "sent back for more information"
+              ? `More information needed for ${p.docLabel}`
+              : `${p.docLabel} needs your attention`,
+          body: p.message ?? `We couldn't verify ${p.shopName}'s ${p.docLabel}.`,
+          actionUrl: "/shop/verification",
+        },
+    {
+      to: "SUPPORT",
+      type: N.SUPPORT_SELLER_DECIDED,
+      vars: { shopName: p.shopName, docLabel: p.docLabel, decision: p.decision, by: p.by ?? "a reviewer", reason: p.message },
+      actionUrl: "/admin/seller-verification",
+    },
+  ]),
+  "seller_document.review_reminder": define<{ count: number; hours: number; oldest: string }>("seller_review", (p) => [
+    {
+      to: "SUPPORT",
+      type: N.SUPPORT_SELLER_REVIEW_REMINDER,
+      vars: { count: p.count, hours: p.hours, oldest: p.oldest },
+      actionUrl: "/admin/seller-verification",
+    },
+  ]),
+  "shop.auto_approved": define<{ shopName: string }>("shop", (p) => [
+    { to: "SUPPORT", type: N.SUPPORT_SHOP_AUTO_APPROVED, vars: { shopName: p.shopName }, actionUrl: "/admin/shops" },
+  ]),
+
+  /* -------------------------------------------------------------- disputes */
+  "dispute.opened": define<DisputeEventPayload>("dispute", (p) => [
+    // The customer is told the ticket number even when they opened the case themselves.
+    {
+      to: p.buyerId,
+      type: N.DISPUTE_OPENED,
+      vars: { caseNumber: p.caseNumber, orderNumber: p.orderNumber },
+      actionUrl: disputeUrl(p.disputeId),
+      includeActor: true,
+    },
+    {
+      to: p.shopOwnerId,
+      type: N.SHOP_DISPUTE_OPENED,
+      vars: { caseNumber: p.caseNumber, orderNumber: p.orderNumber, reason: p.reasonLabel },
+      actionUrl: disputeUrl(p.disputeId),
+    },
+    {
+      to: p.level === "L2" ? "SUPPORT_LEAD" : "SUPPORT",
+      type: N.SUPPORT_DISPUTE_OPENED,
+      vars: {
+        caseNumber: p.caseNumber,
+        orderNumber: p.orderNumber,
+        amount: formatPaise(p.amountPaise ?? 0),
+        reason: p.reasonLabel,
+        level: p.level === "L2" ? " and escalated at once (above the review limit)" : "",
+      },
+      actionUrl: disputeUrl(p.disputeId),
+    },
+  ]),
+  "dispute.comment_added": define<DisputeEventPayload>("dispute", (p) => {
+    const vars = { caseNumber: p.caseNumber, author: p.author, excerpt: p.excerpt };
+    const support: EventMessage = {
+      to: p.level === "L2" ? "SUPPORT_LEAD" : "SUPPORT",
+      type: N.DISPUTE_COMMENT,
+      vars,
+      actionUrl: disputeUrl(p.disputeId),
+    };
+    if (p.internal) return [support];
+    return [
+      { to: p.buyerId, type: N.DISPUTE_COMMENT, vars, actionUrl: disputeUrl(p.disputeId) },
+      { to: p.shopOwnerId, type: N.DISPUTE_COMMENT, vars, actionUrl: disputeUrl(p.disputeId) },
+      support,
+    ];
+  }),
+  "dispute.status_changed": define<DisputeEventPayload>("dispute", (p) => {
+    const updated = {
+      type: N.DISPUTE_UPDATED,
+      vars: { caseNumber: p.caseNumber, orderNumber: p.orderNumber, status: p.statusLabel.toLowerCase(), detail: p.detail },
+      actionUrl: disputeUrl(p.disputeId),
+    };
+    const buyer: EventMessage =
+      p.customerTemplate === "RESOLUTION_PROPOSED"
+        ? {
+            to: p.buyerId,
+            type: N.DISPUTE_RESOLUTION_PROPOSED,
+            vars: { caseNumber: p.caseNumber, proposal: p.proposal ?? "" },
+            actionUrl: disputeUrl(p.disputeId),
+          }
+        : p.customerTemplate === "REJECTED"
+          ? {
+              to: p.buyerId,
+              type: N.DISPUTE_REJECTED,
+              vars: { caseNumber: p.caseNumber, reason: p.detail ?? "" },
+              actionUrl: disputeUrl(p.disputeId),
+            }
+          : { to: p.buyerId, ...updated };
+    return [
+      buyer,
+      { to: p.shopOwnerId, ...updated },
+      {
+        to: p.level === "L2" ? "SUPPORT_LEAD" : "SUPPORT",
+        type: N.SUPPORT_DISPUTE_UPDATED,
+        vars: { caseNumber: p.caseNumber, detail: `Dispute ${p.caseNumber} is now ${p.statusLabel.toLowerCase()}. ${p.detail ?? ""}` },
+        actionUrl: disputeUrl(p.disputeId),
+      },
+    ];
+  }),
+  "dispute.escalated": define<DisputeEventPayload>("dispute", (p) => [
+    {
+      to: "SUPPORT_LEAD",
+      type: N.SUPPORT_DISPUTE_ESCALATED,
+      vars: { caseNumber: p.caseNumber, orderNumber: p.orderNumber, why: p.why },
+      actionUrl: disputeUrl(p.disputeId),
+    },
+    {
+      to: p.buyerId,
+      type: N.DISPUTE_UPDATED,
+      vars: {
+        caseNumber: p.caseNumber,
+        orderNumber: p.orderNumber,
+        status: "with a senior reviewer",
+        detail: "It has been passed to a senior member of our team.",
+      },
+      actionUrl: disputeUrl(p.disputeId),
+    },
+    // The escalation note is written for colleagues; the shop gets fixed wording.
+    {
+      to: p.shopOwnerId,
+      type: N.DISPUTE_UPDATED,
+      vars: {
+        caseNumber: p.caseNumber,
+        orderNumber: p.orderNumber,
+        status: "with a senior reviewer",
+        detail: "It has been passed to a senior member of the GoKesari team.",
+      },
+      actionUrl: disputeUrl(p.disputeId),
+    },
+  ]),
+  "dispute.resolved": define<DisputeEventPayload>("dispute", (p) => [
+    {
+      to: p.buyerId,
+      type: N.DISPUTE_RESOLVED,
+      vars: { caseNumber: p.caseNumber, outcome: p.outcome ?? "" },
+      actionUrl: disputeUrl(p.disputeId),
+    },
+    {
+      to: p.shopOwnerId,
+      type: N.DISPUTE_UPDATED,
+      vars: { caseNumber: p.caseNumber, orderNumber: p.orderNumber, status: "resolved", detail: p.outcome },
+      actionUrl: disputeUrl(p.disputeId),
+    },
+    {
+      to: p.level === "L2" ? "SUPPORT_LEAD" : "SUPPORT",
+      type: N.SUPPORT_DISPUTE_UPDATED,
+      vars: { caseNumber: p.caseNumber, detail: `Dispute ${p.caseNumber} was resolved. ${p.outcome ?? ""}` },
+      actionUrl: disputeUrl(p.disputeId),
+    },
+  ]),
+
+  /* --------------------------------------------------------- risk & system */
+  "risk.flag_raised": define<{ severity: string; label: string; summary: string }>("risk_flag", (p) => [
+    { to: "SUPPORT", type: N.RISK_FLAG_RAISED, vars: p, actionUrl: "/admin/risk" },
+  ]),
+  "notification.dead": define<{
+    count: number;
+    attempts: number;
+    type: string;
+    channel: string;
+    error: string;
+  }>("notification", (p) => [
+    // In the app only: the failing channel may be the one an alert would use.
+    { to: "SUPPORT", type: N.SUPPORT_NOTIFICATION_DEAD, vars: p, actionUrl: "/admin" },
+  ]),
+} as const;
+
+export type EventType = keyof typeof EVENTS;
+export type EventPayload<T extends EventType> = (typeof EVENTS)[T] extends EventDefinition<infer P> ? P : never;
+
+export type OrderEventType = {
+  [K in EventType]: EventPayload<K> extends OrderEventPayload ? K : never;
+}[EventType];
+
+/** The order event for an order status, used by every order status change. */
+export function orderEventFor(status: string): OrderEventType {
+  switch (status) {
+    case "CONFIRMED":
+      return "order.placed";
+    case "ACCEPTED":
+      return "order.accepted";
+    case "PREPARING":
+      return "order.preparing";
+    case "READY":
+      return "order.ready";
+    case "ASSIGNED":
+      return "order.assigned";
+    case "PICKED_UP":
+      return "order.picked_up";
+    case "OUT_FOR_DELIVERY":
+      return "order.out_for_delivery";
+    case "DELIVERED":
+      return "order.delivered";
+    case "FAILED":
+      return "order.failed";
+    case "CANCELLED":
+      return "order.cancelled";
+    default:
+      return "order.status_changed";
+  }
+}

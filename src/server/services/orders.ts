@@ -19,6 +19,7 @@ import { and, desc, eq, gte, lte, inArray, like } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import { conflict, forbidden, invalidTransition, notFound, validationFailed } from "@/lib/errors";
+import { canTransition } from "@/lib/state-machines";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { lineTotalPaise, sumPaise } from "@/lib/money";
 import { formatShopTime, isShopOpenNow, nextOpeningAt } from "@/lib/shop-hours";
@@ -64,8 +65,11 @@ import { postRetainedDeliveryFee, recordOrderFinancials } from "./finance";
 import { shopServiceability, societyPartnerShopIds } from "./serviceability";
 import { assertShopMayProgress } from "./shop-suspension-guard";
 import { resolveAddressSociety } from "./societies";
-import { NOTIFICATION_TYPES, notify, type NotificationType } from "./notifications";
+import { NOTIFICATION_TYPES, notify } from "./notifications";
+import { emitEvent } from "@/server/events/emit";
+import { orderEventFor, type OrderEventPayload } from "@/server/events/catalog";
 import { applyWalletMutation, refundOriginalDebit } from "./wallet";
+import { checkRiskForUser } from "./risk";
 
 /**
  * A delivery assignment is still "in play" — offered, accepted, or already
@@ -79,41 +83,9 @@ const ACTIVE_DELIVERY_ORDER_STATUSES = ["OFFERED", "ACCEPTED", "PICKED_UP"] as c
 
 /* ------------------------------------------------------- state machine */
 
-/**
- * The approved order state machine (see the orderStatusEnum doc comment in
- * schema.ts for the mapping to DRAFT/PAYMENT_PENDING/PAID/SHOP_PENDING).
- *
- * Kept compatible with what already worked:
- *  - CONFIRMED -> PREPARING stays legal (subscription orders and the older
- *    one-click "Start preparing" path); ACCEPTED is the explicit step.
- *  - READY -> OUT_FOR_DELIVERY / DELIVERED stays legal for shops that deliver
- *    themselves or hand over in store. Once a rider accepts (ASSIGNED), only
- *    the rider flow (pickup code -> OTP) can move the order on.
- *  - ASSIGNED -> READY lets a reassignment put the order back in the queue.
- */
-const ALLOWED_TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
-  PENDING: ["CONFIRMED", "CANCELLED", "PAYMENT_FAILED", "WALLET_INSUFFICIENT"],
-  WALLET_INSUFFICIENT: ["CONFIRMED", "CANCELLED"],
-  PAYMENT_FAILED: ["CONFIRMED", "CANCELLED"],
-  CONFIRMED: ["ACCEPTED", "PREPARING", "CANCELLED", "REFUND_PENDING"],
-  ACCEPTED: ["PREPARING", "CANCELLED", "REFUND_PENDING"],
-  PREPARING: ["READY", "CANCELLED", "REFUND_PENDING"],
-  READY: ["ASSIGNED", "OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED", "REFUND_PENDING"],
-  ASSIGNED: ["READY", "PICKED_UP", "CANCELLED", "REFUND_PENDING"],
-  PICKED_UP: ["OUT_FOR_DELIVERY", "FAILED", "CANCELLED", "REFUND_PENDING"],
-  OUT_FOR_DELIVERY: ["DELIVERED", "FAILED", "CANCELLED", "REFUND_PENDING"],
-  FAILED: ["OUT_FOR_DELIVERY", "RETURNED", "CANCELLED", "REFUND_PENDING"],
-  RETURNED: ["CANCELLED", "REFUND_PENDING"],
-  DELIVERED: ["DISPUTED", "REFUND_PENDING"],
-  DISPUTED: ["DELIVERED", "REFUND_PENDING"],
-  CANCELLED: ["REFUND_PENDING"],
-  REFUND_PENDING: ["REFUNDED"],
-  REFUNDED: [],
-};
-
-export function canTransition(from: OrderStatus, to: OrderStatus): boolean {
-  return ALLOWED_TRANSITIONS[from].includes(to);
-}
+// The order state machine lives in the shared registry (lib/state-machines.ts)
+// so the event layer and this service read the same table.
+export { canTransition };
 
 /**
  * Whether the customer has already been charged at each status. A Record,
@@ -634,6 +606,25 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
         },
         tx,
       );
+      // Event layer: the placed order on the event log. The customer and shop
+      // notifications below stay where they are (they depend on opening hours).
+      await emitEvent(
+        {
+          type: "order.placed",
+          subjectId: orderRow.id,
+          orderId: orderRow.id,
+          transition: { from: "PENDING", to: "CONFIRMED" },
+          actor: { id: input.userId, role: input.actorRole ?? "CUSTOMER" },
+          payload: {
+            orderId: orderRow.id,
+            orderNumber: orderRow.orderNumber,
+            buyerId: input.userId,
+            shopOwnerId: shopRow.ownerId,
+            shopName: shopRow.name,
+          },
+        },
+        tx,
+      );
 
       // DEF-02 (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): a paid order
       // previously notified nobody. The customer learns it's confirmed; the
@@ -698,6 +689,10 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     await notifyOpenStockAlerts(group.shop.id, shopOwnerId);
   }
 
+  // Event layer: the per-order risk rules run now, at placement, not at the next
+  // hourly scan. After commit and never throwing — a check must not block an order.
+  if (created.length > 0) await checkRiskForUser(input.userId, "ORDER_PLACED");
+
   return { orders: created, deduplicated: anyDeduplicated, ...(orderGroup ? { parentReference: orderGroup.reference } : {}) };
 }
 
@@ -739,6 +734,8 @@ export async function updateOrderStatus(
   actor: { id: string; role: UserRole },
   note?: string,
   client?: DbClient,
+  /** Event layer: extra facts for the order event's notifications (e.g. the rider's name). */
+  event?: Pick<OrderEventPayload, "riderUserId" | "riderName" | "reason">,
 ): Promise<Order> {
   const run = async (tx: DbClient): Promise<Order> => {
     const [order] = await tx
@@ -825,33 +822,35 @@ export async function updateOrderStatus(
       tx,
     );
 
-    // DEF-02 (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): these
-    // notification types were defined but never emitted. Covers both a
-    // direct shop/operator status change and the same transitions arriving
-    // via delivery-assignment.ts's markPickedUp/markDelivered, since both
-    // paths go through this one function.
-    const CUSTOMER_STATUS_NOTIFICATIONS: Partial<Record<OrderStatus, NotificationType>> = {
-      ACCEPTED: NOTIFICATION_TYPES.ORDER_ACCEPTED,
-      READY: NOTIFICATION_TYPES.ORDER_READY,
-      ASSIGNED: NOTIFICATION_TYPES.ORDER_ASSIGNED,
-      PICKED_UP: NOTIFICATION_TYPES.ORDER_PICKED_UP,
-      FAILED: NOTIFICATION_TYPES.ORDER_DELIVERY_FAILED,
-      OUT_FOR_DELIVERY: NOTIFICATION_TYPES.ORDER_OUT_FOR_DELIVERY,
-      DELIVERED: NOTIFICATION_TYPES.ORDER_DELIVERED,
-    };
-    const notificationType = CUSTOMER_STATUS_NOTIFICATIONS[newStatus];
-    if (notificationType) {
-      await notify(
-        {
-          userId: order.userId,
-          type: notificationType,
-          title: `Order ${ORDER_STATUS_LABELS[newStatus].toLowerCase()}`,
-          body: `Your order ${order.orderNumber} is ${ORDER_STATUS_LABELS[newStatus].toLowerCase()}.`,
-          actionUrl: "/orders",
+    // Event layer: every order status change is one event — checked against
+    // the order state machine, logged in domain_events, and the customer and
+    // shop told now (catalog.ts decides who hears what). Covers a direct
+    // shop/operator change and the rider flow in delivery-assignment.ts alike,
+    // since both come through this function (DEF-02).
+    const [shop] = await tx
+      .select({ ownerId: shops.ownerId, name: shops.name })
+      .from(shops)
+      .where(eq(shops.id, order.shopId));
+    await emitEvent(
+      {
+        type: orderEventFor(newStatus),
+        subjectId: orderId,
+        orderId,
+        transition: { from: order.status, to: newStatus },
+        actor,
+        payload: {
+          orderId,
+          orderNumber: order.orderNumber,
+          buyerId: order.userId,
+          shopOwnerId: shop?.ownerId ?? null,
+          shopName: shop?.name ?? "the shop",
+          reassigned: newStatus === "READY" && order.status === "ASSIGNED",
+          reason: note ?? null,
+          ...event,
         },
-        tx,
-      );
-    }
+      },
+      tx,
+    );
 
     return updated;
   };
@@ -972,38 +971,6 @@ export async function cancelOrder(
       note: reason,
     });
 
-    // DEF-02: notify the customer their order was cancelled — only when
-    // someone OTHER than themselves did it (a shop/operator cancel), since a
-    // customer doesn't need to be told about their own action.
-    if (actor?.id !== order.userId) {
-      await notify(
-        {
-          userId: order.userId,
-          type: NOTIFICATION_TYPES.ORDER_CANCELLED,
-          title: "Order cancelled",
-          body: `Your order ${order.orderNumber} was cancelled: ${reason}`,
-          actionUrl: "/orders",
-        },
-        tx,
-      );
-    }
-    // The shop has already accepted or started picking: tell it to stop.
-    if (customerCancelBeforePacking) {
-      const [shop] = await tx.select({ ownerId: shops.ownerId }).from(shops).where(eq(shops.id, order.shopId));
-      if (shop) {
-        await notify(
-          {
-            userId: shop.ownerId,
-            type: NOTIFICATION_TYPES.ORDER_CANCELLED,
-            title: "Order cancelled by the customer",
-            body: `Order ${order.orderNumber} was cancelled by the customer before packing: ${reason}. Put the items back on the shelf.`,
-            actionUrl: "/shop/orders",
-          },
-          tx,
-        );
-      }
-    }
-
     // DEF-01: every cancellation restores the stock checkout() consumed —
     // previously nothing did, so a cancelled order permanently lost the unit.
     // Restocked regardless of payment status or who cancelled: checkout()
@@ -1073,8 +1040,14 @@ export async function cancelOrder(
           inArray(deliveryOrders.status, ACTIVE_DELIVERY_ORDER_STATUSES),
         ),
       );
+    let cancelledRiderUserId: string | null = null;
     if (activeDelivery) {
       const wasPickedUp = activeDelivery.pickedUpAt != null;
+      const [rider] = await tx
+        .select({ userId: deliveryPartners.userId })
+        .from(deliveryPartners)
+        .where(eq(deliveryPartners.id, activeDelivery.deliveryPartnerId));
+      cancelledRiderUserId = rider?.userId ?? null;
       await tx
         .update(deliveryOrders)
         .set({
@@ -1088,6 +1061,42 @@ export async function cancelOrder(
         await creditDeliveryEarnings(activeDelivery.id, tx);
       }
     }
+
+    // Event layer: the cancellation as one event. The customer hears when
+    // someone else cancelled (DEF-02); the shop when support did, or the
+    // customer after the shop had started (D6); a rider who had the order is
+    // told to stop. A customer cancelling their own order is not told about it.
+    const [shopRow] = await tx
+      .select({ ownerId: shops.ownerId, name: shops.name })
+      .from(shops)
+      .where(eq(shops.id, order.shopId));
+    await emitEvent(
+      {
+        type: "order.cancelled",
+        subjectId: orderId,
+        orderId,
+        transition: { from: order.status, to: "CANCELLED" },
+        actor: actor ?? { id: null, role: null },
+        payload: {
+          orderId,
+          orderNumber: order.orderNumber,
+          buyerId: order.userId,
+          shopOwnerId: shopRow?.ownerId ?? null,
+          shopName: shopRow?.name ?? "the shop",
+          riderUserId: cancelledRiderUserId,
+          reason,
+          cancelledBy: !actor
+            ? "SYSTEM"
+            : actor.id === order.userId
+              ? "CUSTOMER"
+              : actor.role === "OPERATOR" || actor.role === "ADMIN"
+                ? "SUPPORT"
+                : "SHOP",
+          beforePacking: customerCancelBeforePacking,
+        },
+      },
+      tx,
+    );
 
     // Removed / cheaper-substituted lines were already refunded and deducted
     // from totalPaise/subtotalPaise, so these always reflect what is still held.
