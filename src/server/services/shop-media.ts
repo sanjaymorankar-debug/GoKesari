@@ -19,6 +19,7 @@
 import { and, asc, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { notFound, validationFailed } from "@/lib/errors";
+import { effectiveDescriptions, type EffectiveDescriptions } from "@/lib/product-text";
 import { db, type DbClient } from "@/server/db";
 import { auditLogs, productImages, products, shopProducts, users, type ProductImage } from "@/server/db/schema";
 import { processProductPhoto } from "@/server/media/photo-pipeline";
@@ -37,48 +38,12 @@ import { loadShopListing, type CatalogueActor } from "./shop-staff";
 
 /** Collapses runs of spaces, keeps line breaks, drops control characters. */
 function cleanText(value: string, multiline: boolean): string {
-  // eslint-disable-next-line no-control-regex
   let text = value.replace(/\r\n?/g, "\n").replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, "");
   text = multiline ? text.replace(/[ \t]+/g, " ").replace(/\n{3,}/g, "\n\n") : text.replace(/\s+/g, " ");
   return text.trim();
 }
 
-/** The first `max` characters of a text, cut at a word boundary, with an ellipsis when cut. */
-export function summarise(text: string, max: number): string {
-  const flat = text.replace(/\s+/g, " ").trim();
-  if (flat.length <= max) return flat;
-  const cut = flat.slice(0, max - 1);
-  const space = cut.lastIndexOf(" ");
-  return `${(space > max * 0.6 ? cut.slice(0, space) : cut).trimEnd()}…`;
-}
-
-export interface EffectiveDescriptions {
-  shortDescription: string | null;
-  longDescription: string | null;
-  /** Where each came from: the shop's own text or the master product's. */
-  shortSource: "SHOP" | "MASTER" | null;
-  longSource: "SHOP" | "MASTER" | null;
-}
-
-/**
- * What customers see: the shop's own short/long description, else the master
- * product's description (summarised for the short one).
- */
-export function effectiveDescriptions(
-  listing: { shortDescription: string | null; longDescription: string | null },
-  masterDescription: string | null,
-  shortMax = 160,
-): EffectiveDescriptions {
-  const master = masterDescription?.trim() || null;
-  const short = listing.shortDescription ?? (master ? summarise(master, shortMax) : null);
-  const long = listing.longDescription ?? master;
-  return {
-    shortDescription: short,
-    longDescription: long,
-    shortSource: listing.shortDescription ? "SHOP" : short ? "MASTER" : null,
-    longSource: listing.longDescription ? "SHOP" : long ? "MASTER" : null,
-  };
-}
+export { effectiveDescriptions, summarise, type EffectiveDescriptions } from "@/lib/product-text";
 
 /* ------------------------------------------------------------------- view */
 
@@ -262,16 +227,22 @@ async function attachPhoto(
   return { id: row.id, url: row.url, isPrimary: row.isPrimary, moderationStatus: row.moderationStatus };
 }
 
-/** Processes, stores and adds one photo to a listing. */
+/**
+ * Processes, stores and adds one photo to a listing. With `replaceImageId`,
+ * the new photo takes that photo's place (same position, main if it was) and
+ * the old one is removed — the photo catalogue's "Change photo".
+ */
 export async function uploadListingPhoto(
   shopId: string,
   listingId: string,
   bytes: Buffer,
   actor: CatalogueActor,
   extra: Record<string, unknown> = {},
+  replaceImageId: string | null = null,
 ): Promise<AddedPhoto> {
   const listing = await loadShopListing(shopId, listingId);
   const rules = await getRule("shopProductMedia");
+  if (replaceImageId) return replaceListingPhoto(listing, replaceImageId, bytes, actor, rules, extra);
   // Cheap refusal before any image work; re-checked under the lock below.
   const before = await listImages(listing.productId, listing.id);
   if (before.length >= rules.maxPhotos) {
@@ -287,6 +258,63 @@ export async function uploadListingPhoto(
     return await db.transaction(async (tx) => {
       await lockListing(tx, listing.id);
       return attachPhoto(tx, listing, photo, blobs, actor, moderationStatus, rules.maxPhotos, extra);
+    });
+  } catch (error) {
+    await discardPhotoBlobs(blobs);
+    throw error;
+  }
+}
+
+async function replaceListingPhoto(
+  listing: { id: string; productId: string },
+  replaceImageId: string,
+  bytes: Buffer,
+  actor: CatalogueActor,
+  rules: Awaited<ReturnType<typeof getRule<"shopProductMedia">>>,
+  extra: Record<string, unknown>,
+): Promise<AddedPhoto> {
+  const [target] = await db
+    .select({ id: productImages.id })
+    .from(productImages)
+    .where(and(eq(productImages.id, replaceImageId), eq(productImages.shopProductId, listing.id)));
+  if (!target) throw notFound("Photo");
+  const photo = await processProductPhoto(bytes, rules);
+  const blobs = await storePhotoBlobs(photo);
+  const moderationStatus = await initialStatus(actor);
+  try {
+    return await db.transaction(async (tx) => {
+      await lockListing(tx, listing.id);
+      const [old] = await tx
+        .select()
+        .from(productImages)
+        .where(and(eq(productImages.id, replaceImageId), eq(productImages.shopProductId, listing.id)));
+      if (!old) throw notFound("Photo");
+      await tx.delete(productImages).where(eq(productImages.id, old.id));
+      await dropIfOrphaned(tx, old.storedImageId);
+      const stored = await insertProcessedPhoto(photo, blobs, actor.id, tx);
+      const [row] = await tx
+        .insert(productImages)
+        .values({
+          productId: listing.productId,
+          shopProductId: listing.id,
+          storedImageId: stored.id,
+          url: imageUrl(stored.id),
+          isPrimary: old.isPrimary,
+          sortOrder: old.sortOrder,
+          createdBy: actor.id,
+          moderationStatus,
+        })
+        .returning();
+      await syncPrimary(tx, listing.productId, listing.id);
+      await touchContent(tx, listing.id, actor.id);
+      await auditMedia(
+        tx,
+        actor,
+        listing.id,
+        { change: "photo_replaced", imageId: row.id, storedImageId: stored.id, moderationStatus, ...extra },
+        { imageId: old.id, url: old.url, wasMain: old.isPrimary },
+      );
+      return { id: row.id, url: row.url, isPrimary: row.isPrimary, moderationStatus: row.moderationStatus };
     });
   } catch (error) {
     await discardPhotoBlobs(blobs);
@@ -454,6 +482,8 @@ export interface ListingChange {
 const SUMMARIES: Record<string, string> = {
   photo_added: "Added a photo",
   photo_removed: "Removed a photo",
+  photo_replaced: "Replaced a photo",
+  photos_replaced_by_upload: "Replaced the photos",
   photos_reordered: "Changed the photo order",
 };
 

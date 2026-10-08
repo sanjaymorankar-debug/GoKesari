@@ -42,6 +42,12 @@ export default async function ShopCataloguePage() {
                 View my shop page
               </LinkButton>
             ) : null}
+            <LinkButton href="/shop/media-import" variant="secondary">
+              Bulk photos &amp; descriptions
+            </LinkButton>
+            <LinkButton href="/shop/staff" variant="secondary">
+              Shop staff
+            </LinkButton>
             <LinkButton href="/shop" variant="secondary">
               Back to my shop
             </LinkButton>
@@ -55,7 +61,7 @@ export default async function ShopCataloguePage() {
           action={<LinkButton href="/shop">Add products</LinkButton>}
         />
       ) : (
-        <PhotoCatalogue tiles={tiles} />
+        <PhotoCatalogue tiles={tiles} shopId={shop.id} />
       )}
     </div>
   );

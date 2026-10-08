@@ -22,6 +22,8 @@ interface Props {
   locationLabel: string | null;
   /** The signed-in user's saved addresses, offered in the location chooser. */
   savedAddresses: { id: string; label: string }[];
+  /** Module 1: the user is staff of at least one shop (edits its product photos and descriptions). */
+  helpsShops?: boolean;
 }
 
 /** The main row. Wallet has its own balance pill; the rest sit in the account menu. */
@@ -52,6 +54,8 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/shop/disputes", label: "Disputes" },
     { href: "/shop/inventory", label: "Inventory" },
     { href: "/shop/catalogue", label: "Photo catalogue" },
+    { href: "/shop/media-import", label: "Bulk photos & descriptions" },
+    { href: "/shop/staff", label: "Shop staff" },
     { href: "/shop/product-categories", label: "My product categories" },
     { href: "/product-categories", label: "All product categories" },
     { href: "/shop/prices", label: "Price Updates" },
@@ -262,7 +266,9 @@ export function SiteHeader({
   unreadCount,
   locationLabel,
   savedAddresses,
+  helpsShops = false,
 }: Props) {
+  const accountNav = helpsShops ? [...ACCOUNT_NAV, { href: "/shop/staff-access", label: "Shops I help with" }] : ACCOUNT_NAV;
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [locationOpen, setLocationOpen] = useState(false);
@@ -441,7 +447,7 @@ export function SiteHeader({
                         Dashboard
                       </Link>
                     ) : null}
-                    {ACCOUNT_NAV.map((item) => (
+                    {accountNav.map((item) => (
                       <Link
                         key={item.href}
                         href={item.href}
@@ -529,7 +535,7 @@ export function SiteHeader({
               </div>
             </details>
           ) : null}
-          {[...NAV, ...(user ? ACCOUNT_NAV : [])].map((item) => (
+          {[...NAV, ...(user ? accountNav : [])].map((item) => (
             <Link
               key={item.href}
               href={item.href}

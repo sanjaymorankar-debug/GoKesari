@@ -178,6 +178,28 @@ Owner (own shop) or `SHOP_UPDATE_ANY`. Any subset of the editable shop fields.
 New: `serviceRadiusKm` (integer 1–50) — the shop's delivery zone in straight-line
 km from its pin (GS-010). Audit-logged with the previous value.
 
+## Shop product photos & descriptions (Module 1)
+
+Details, limits and error reasons: [docs/three-modules-2026-10/MODULE1_SHOP_PRODUCT_MEDIA.md](docs/three-modules-2026-10/MODULE1_SHOP_PRODUCT_MEDIA.md).
+Every route below: the shop's owner, its staff (`shop_staff`) or operators/admins; anyone else 403, another shop's product 404.
+
+| Method & path | |
+|---|---|
+| `GET /api/shops/{id}/listings/{listingId}/media` | Photos (main first), short/long description, master fallback, what customers see, limits |
+| `PATCH /api/shops/{id}/listings/{listingId}/media` | `{ shortDescription?, longDescription? }`; `null` or `""` clears (master's text shows) |
+| `POST /api/shops/{id}/listings/{listingId}/media/photos` | multipart `file` (JPG/PNG/WebP ≤ 5 MB), optional `replaceImageId` → 201 `{ id, url, isPrimary, moderationStatus }`. 422 `details.reason`: `PHOTO_TOO_LARGE`, `PHOTO_BAD_TYPE`, `PHOTO_UNREADABLE`, `PHOTO_TOO_SMALL`, `PHOTO_TOO_MANY_PIXELS`, `PHOTO_LIMIT` |
+| `PUT /api/shops/{id}/listings/{listingId}/media/photos/order` | `{ imageIds }` — every photo once; the first is the main photo → 204 |
+| `DELETE /api/shops/{id}/listings/{listingId}/media/photos/{imageId}` | → 204; the next photo becomes main if needed |
+| `GET /api/shops/{id}/listings/{listingId}/media/history` | `{ changes: [{ at, summary, actorName, via: OWNER/STAFF/SUPPORT }] }` |
+| `GET /api/shops/{id}/media-imports` · `POST` | List · multipart `zip` and/or `csv`, `photoMode` REPLACE/ADD → 201 preview (nothing applied) |
+| `GET /api/shops/{id}/media-imports/{importId}` · `DELETE` | Preview/progress · cancel before applying |
+| `POST /api/shops/{id}/media-imports/{importId}/apply` | 202; applies right after the response; resumes a stalled apply; 409 while running/finished |
+| `GET /api/shops/{id}/media-imports/template` | CSV template |
+| `GET /api/shops/{id}/staff` · `POST { identifier }` · `DELETE …/staff/{staffId}` | Owner (or support) manages staff by mobile/email |
+| `GET /api/images/{id}?size=thumb\|medium\|large` | Existing route; processed photos' WebP copies, `ETag`/304 |
+
+`GET /api/shops/{id}/products` (storefront) items gain `shortDescription` (the shop's, else the master's).
+
 ## Location (customer)
 
 ### `POST /api/location` · `DELETE /api/location`

@@ -17,6 +17,7 @@ import {
   outOfStock,
   validationFailed,
 } from "@/lib/errors";
+import { effectiveDescriptions } from "@/lib/product-text";
 import { db, type DbClient } from "@/server/db";
 import {
   inventoryMovements,
@@ -1064,6 +1065,8 @@ export interface StorefrontProduct {
   shopClassification: "KESARI" | "GREEN" | null;
   /** F8: the product's category (for shop offers). */
   categoryId?: string;
+  /** Module 1: the shop's own short description, else the master product's (summarised). */
+  shortDescription?: string | null;
 }
 
 /**
@@ -1161,6 +1164,7 @@ export async function listStorefrontProducts(options: {
     shopName: r.shop.name,
     shopSlug: r.shop.slug,
     shopClassification: r.shop.classification,
+    shortDescription: effectiveDescriptions(r.sp, r.product.description).shortDescription,
   }));
 }
 

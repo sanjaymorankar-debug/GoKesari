@@ -251,3 +251,30 @@ export async function listShopsWhereStaff(userId: string) {
     .where(and(eq(shopStaff.userId, userId), eq(shopStaff.status, "ACTIVE"), isNull(shops.deletedAt)))
     .orderBy(shops.name);
 }
+
+/**
+ * The shop a catalogue page works on: `requested` when the user may edit it,
+ * else the user's own (newest) shop, else the only shop they are staff of.
+ */
+export async function resolveCatalogueShop(
+  actor: ActorLike,
+  requested: string | null | undefined,
+): Promise<{ shopId: string; shopName: string; via: CatalogueAccessVia } | null> {
+  if (requested && /^[0-9a-f-]{36}$/i.test(requested)) {
+    const via = await catalogueAccessFor(requested, actor);
+    if (via) {
+      const [shop] = await db.select({ name: shops.name }).from(shops).where(eq(shops.id, requested));
+      return { shopId: requested, shopName: shop?.name ?? "", via };
+    }
+  }
+  const [own] = await db
+    .select({ id: shops.id, name: shops.name })
+    .from(shops)
+    .where(and(eq(shops.ownerId, actor.id), isNull(shops.deletedAt)))
+    .orderBy(desc(shops.createdAt))
+    .limit(1);
+  if (own) return { shopId: own.id, shopName: own.name, via: "OWNER" };
+  const staffOf = await listShopsWhereStaff(actor.id);
+  if (staffOf.length === 1) return { shopId: staffOf[0].shopId, shopName: staffOf[0].shopName, via: "STAFF" };
+  return null;
+}

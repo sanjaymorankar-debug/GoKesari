@@ -2,6 +2,8 @@
 
 import { useState } from "react";
 
+import { sizedImageUrl, type ImageSize } from "@/lib/image-size";
+
 /** Shown when a product has no photo or its photo fails to load. */
 const PLACEHOLDER =
   "data:image/svg+xml;utf8," +
@@ -18,16 +20,20 @@ export function SafeImage({
   src,
   alt,
   className,
+  size,
 }: {
   src: string | null | undefined;
   alt: string;
   className?: string;
+  /** Module 1: ask for a processed photo's smaller copy (ignored for other images). */
+  size?: ImageSize;
 }) {
   const [failed, setFailed] = useState(false);
+  const url = sizedImageUrl(src, size);
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img
-      src={!src || failed ? PLACEHOLDER : src}
+      src={!url || failed ? PLACEHOLDER : url}
       alt={alt}
       loading="lazy"
       decoding="async"

@@ -115,7 +115,11 @@ export async function getImage(id: string): Promise<StoredImage> {
 
 /* ------------------------------------------- Module 1: processed photos */
 
-const { data: _data, ...metaColumns } = getTableColumns(storedImages);
+const metaColumns = (() => {
+  const { data, ...rest } = getTableColumns(storedImages);
+  void data;
+  return rest;
+})();
 export type StoredImageMeta = Omit<StoredImage, "data">;
 
 /** An image's record without its bytes (for access checks before reading anything). */

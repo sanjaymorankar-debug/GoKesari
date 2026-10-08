@@ -1,5 +1,7 @@
 /**
- * Add one photo to a shop product (Module 1). Multipart form, field `file`.
+ * Add one photo to a shop product (Module 1). Multipart form, field `file`;
+ * optional `replaceImageId` puts it in that photo's place (same position,
+ * main if that one was) and removes the old one.
  * JPG, PNG or WebP up to the rule's size (5 MB); the server checks the real
  * type from the bytes, strips EXIF, makes thumbnail/medium/large WebP copies
  * and stores them outside the web root. 422 with details.reason PHOTO_LIMIT
@@ -36,8 +38,15 @@ export const POST = route(async (request: NextRequest, context: RouteContext<{ i
   const form = await request.formData().catch(() => null);
   const file = form?.get("file");
   if (!(file instanceof File)) throw validationFailed("Attach a photo.");
-  const photo = await uploadListingPhoto(id, listingId, Buffer.from(await file.arrayBuffer()), actor, {
-    fileName: file.name.slice(0, 120),
-  });
+  const replace = form?.get("replaceImageId");
+  const replaceImageId = typeof replace === "string" && replace ? z.string().uuid().parse(replace) : null;
+  const photo = await uploadListingPhoto(
+    id,
+    listingId,
+    Buffer.from(await file.arrayBuffer()),
+    actor,
+    { fileName: file.name.slice(0, 120) },
+    replaceImageId,
+  );
   return ok(photo, 201);
 });

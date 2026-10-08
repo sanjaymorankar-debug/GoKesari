@@ -395,11 +395,16 @@ function countItems(items: Pick<NewItem, "kind" | "status">[]): Record<string, n
 
 /* ------------------------------------------------------------------ views */
 
+/** An apply that has made no progress for this long is treated as stopped and may be resumed. */
+const STALLED_AFTER_MS = 2 * 60_000;
+
 export interface MediaImportView {
   import: Omit<ShopMediaImport, "archiveData" | "archiveKey" | "archiveStorage">;
   items: (ShopMediaImportItem & { productName: string | null; productCode: string | null })[];
   /** Products whose own photos REPLACE mode would remove, with how many. */
   replaces: { shopProductId: string; productName: string; photos: number }[];
+  /** An apply that has made no progress for 2 minutes (the server restarted): it may be resumed. */
+  stalled: boolean;
 }
 
 export async function getMediaImport(shopId: string, importId: string): Promise<MediaImportView> {
@@ -432,11 +437,26 @@ export async function getMediaImport(shopId: string, importId: string): Promise<
         .where(inArray(shopProducts.id, photoListings))
     ).filter((r) => r.photos > 0);
   }
-  const { archiveData: _d, archiveKey: _k, archiveStorage: _s, ...rest } = row;
   return {
-    import: rest,
+    import: {
+      id: row.id,
+      shopId: row.shopId,
+      uploadedBy: row.uploadedBy,
+      status: row.status,
+      photoMode: row.photoMode,
+      archiveName: row.archiveName,
+      archiveBytes: row.archiveBytes,
+      csvName: row.csvName,
+      totals: row.totals,
+      lastProgressAt: row.lastProgressAt,
+      appliedAt: row.appliedAt,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    },
     items: items.map((i) => ({ ...i.item, productName: i.productName, productCode: i.productCode })),
     replaces,
+    stalled:
+      row.status === "APPLYING" && (!row.lastProgressAt || Date.now() - row.lastProgressAt.getTime() > STALLED_AFTER_MS),
   };
 }
 
@@ -459,9 +479,6 @@ export async function listMediaImports(shopId: string, limit = 20) {
 }
 
 /* ------------------------------------------------------------------ apply */
-
-/** An apply that has made no progress for this long is treated as stopped and may be resumed. */
-const STALLED_AFTER_MS = 2 * 60_000;
 
 /**
  * Claims the import for applying (VALIDATED → APPLYING, or a stalled APPLYING
