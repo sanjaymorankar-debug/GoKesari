@@ -1,8 +1,8 @@
--- 0063 Shop referral-code requests (docs/four-features-2026-10, feature 4): the
+-- 0064 Shop referral-code requests (docs/four-features-2026-10, feature 4): the
 -- "Request a referral code" form on shop registration — requester, address,
 -- browser location when shared, status (new / code issued / rejected) and
 -- whether the referrals email went out. Additive only (one new table).
--- Rollback: scripts/rollback-0063.sql.
+-- Rollback: scripts/rollback-0064.sql.
 CREATE TABLE "referral_code_requests" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" uuid,

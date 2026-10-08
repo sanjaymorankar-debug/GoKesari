@@ -1,8 +1,8 @@
--- 0061 Mandatory legal documents by shop category (docs/four-features-2026-10,
+-- 0062 Mandatory legal documents by shop category (docs/four-features-2026-10,
 -- feature 2): FSSAI licence, drug licence, medical registration — number,
 -- expiry / issuing council and an uploaded copy, reviewed by operations.
 -- Additive only: two new tables, plus one new shop category ("Doctor / Clinic",
--- only if no category of that name or slug exists). Rollback: scripts/rollback-0061.sql.
+-- only if no category of that name or slug exists). Rollback: scripts/rollback-0062.sql.
 CREATE TABLE "shop_legal_document_files" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"document_id" uuid NOT NULL,

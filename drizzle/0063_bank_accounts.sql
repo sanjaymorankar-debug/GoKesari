@@ -1,7 +1,7 @@
--- 0062 Bank accounts and ₹1 verification (docs/four-features-2026-10, feature 3):
+-- 0063 Bank accounts and ₹1 verification (docs/four-features-2026-10, feature 3):
 -- a customer's refund account / a shop's payout account (account number and UPI
 -- ID encrypted by the app) and each ₹1 verification payment with its refund.
--- Additive only (two new tables). Rollback: scripts/rollback-0062.sql.
+-- Additive only (two new tables). Rollback: scripts/rollback-0063.sql.
 CREATE TABLE "bank_accounts" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" uuid NOT NULL,

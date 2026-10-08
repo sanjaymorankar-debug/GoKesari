@@ -5406,7 +5406,7 @@ export type CustomerReferral = typeof customerReferrals.$inferSelect;
 
 /* ===================================================================
  * Fulfilment options and scheduling (docs/four-features-2026-10, feature 1)
- * Additive: migration 0060, rollback scripts/rollback-0060.sql.
+ * Additive: migration 0061, rollback scripts/rollback-0061.sql.
  * =================================================================== */
 
 /**
@@ -5503,7 +5503,7 @@ export type OrderFulfilmentArrangement = typeof orderFulfilmentArrangements.$inf
 
 /* ===================================================================
  * Mandatory legal documents by shop category (docs/four-features-2026-10, feature 2)
- * Additive: migration 0061, rollback scripts/rollback-0061.sql.
+ * Additive: migration 0062, rollback scripts/rollback-0062.sql.
  * =================================================================== */
 
 export const LEGAL_DOC_TYPES = ["FSSAI", "DRUG_LICENCE", "MEDICAL_REGISTRATION"] as const;
@@ -5578,7 +5578,7 @@ export type ShopLegalDocumentFile = typeof shopLegalDocumentFiles.$inferSelect;
 
 /* ===================================================================
  * Bank accounts and ₹1 verification (docs/four-features-2026-10, feature 3)
- * Additive: migration 0062, rollback scripts/rollback-0062.sql.
+ * Additive: migration 0063, rollback scripts/rollback-0063.sql.
  * =================================================================== */
 
 export const BANK_ACCOUNT_STATUSES = ["PENDING", "VERIFIED", "FAILED"] as const;
@@ -5679,7 +5679,7 @@ export type BankVerificationAttempt = typeof bankVerificationAttempts.$inferSele
 
 /* ===================================================================
  * Shop referral-code requests (docs/four-features-2026-10, feature 4)
- * Additive: migration 0063, rollback scripts/rollback-0063.sql.
+ * Additive: migration 0064, rollback scripts/rollback-0064.sql.
  * =================================================================== */
 
 export const REFERRAL_REQUEST_STATUSES = ["NEW", "CODE_ISSUED", "REJECTED"] as const;

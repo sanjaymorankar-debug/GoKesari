@@ -17,7 +17,7 @@ import { getRule } from "./settings";
 let tableReady = false;
 
 /**
- * Whether migration 0060 has run. Checked (cheaply, without an error that
+ * Whether migration 0061 has run. Checked (cheaply, without an error that
  * would abort the caller's transaction) until it has, so code deployed a
  * moment before its migration leaves every existing order flow working.
  */

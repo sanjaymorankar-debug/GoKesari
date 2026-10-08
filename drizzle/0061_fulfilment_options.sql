@@ -1,6 +1,6 @@
--- 0060 Fulfilment options (docs/four-features-2026-10, feature 1): a shop's own
+-- 0061 Fulfilment options (docs/four-features-2026-10, feature 1): a shop's own
 -- delivery staff, and each order's pickup / own-delivery / GoKesari plan with its
--- time slot. Additive only (two new tables). Rollback: scripts/rollback-0060.sql.
+-- time slot. Additive only (two new tables). Rollback: scripts/rollback-0061.sql.
 CREATE TABLE "order_fulfilment_arrangements" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"order_id" uuid NOT NULL,

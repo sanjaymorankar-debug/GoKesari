@@ -189,7 +189,7 @@ jobs:
 
       - name: Apply four-features settings
         if: env.DO_FOUR_FEATURES == 'yes'
-        # Needs migrations 0060–0063; the Migrate step above has run.
+        # Needs migrations 0061–0064; the Migrate step above has run.
         run: |
           set -o pipefail
           echo "### Four-features settings applied" >> "$GITHUB_STEP_SUMMARY"

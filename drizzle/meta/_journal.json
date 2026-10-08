@@ -423,31 +423,31 @@
       "breakpoints": true
     },
     {
-      "idx": 60,
-      "version": "7",
-      "when": 1791481189640,
-      "tag": "0060_fulfilment_options",
-      "breakpoints": true
-    },
-    {
       "idx": 61,
       "version": "7",
-      "when": 1791482233194,
-      "tag": "0061_legal_documents",
+      "when": 1791481189640,
+      "tag": "0061_fulfilment_options",
       "breakpoints": true
     },
     {
       "idx": 62,
       "version": "7",
-      "when": 1791483316213,
-      "tag": "0062_bank_accounts",
+      "when": 1791482233194,
+      "tag": "0062_legal_documents",
       "breakpoints": true
     },
     {
       "idx": 63,
       "version": "7",
+      "when": 1791483316213,
+      "tag": "0063_bank_accounts",
+      "breakpoints": true
+    },
+    {
+      "idx": 64,
+      "version": "7",
       "when": 1791483795086,
-      "tag": "0063_referral_code_requests",
+      "tag": "0064_referral_code_requests",
       "breakpoints": true
     }
   ]

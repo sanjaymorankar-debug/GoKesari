@@ -10,10 +10,10 @@ before.
 
 | # | Feature | Rule | Migration | Rollback |
 |---|---|---|---|---|
-| 1 | Delivery options and scheduling | `fulfilmentOptions` | `drizzle/0060_fulfilment_options.sql` | `scripts/rollback-0060.sql` |
-| 2 | Mandatory legal documents by shop type | `legalDocuments` | `drizzle/0061_legal_documents.sql` | `scripts/rollback-0061.sql` |
-| 3 | Bank account details + ₹1 verification | `bankAccounts` | `drizzle/0062_bank_accounts.sql` | `scripts/rollback-0062.sql` |
-| 4 | Mandatory referral code + request a code | `shopReferral` | `drizzle/0063_referral_code_requests.sql` | `scripts/rollback-0063.sql` |
+| 1 | Delivery options and scheduling | `fulfilmentOptions` | `drizzle/0061_fulfilment_options.sql` | `scripts/rollback-0061.sql` |
+| 2 | Mandatory legal documents by shop type | `legalDocuments` | `drizzle/0062_legal_documents.sql` | `scripts/rollback-0062.sql` |
+| 3 | Bank account details + ₹1 verification | `bankAccounts` | `drizzle/0063_bank_accounts.sql` | `scripts/rollback-0063.sql` |
+| 4 | Mandatory referral code + request a code | `shopReferral` | `drizzle/0064_referral_code_requests.sql` | `scripts/rollback-0064.sql` |
 
 Test checklist (every flow, every role): [TEST_CHECKLIST.md](TEST_CHECKLIST.md).
 Test results: [TEST_RESULTS.md](TEST_RESULTS.md).
@@ -65,7 +65,7 @@ dashboard prompt) lists what the shop must hold:
 |---|---|---|
 | FSSAI licence | Food shops (food shop type or any food aisle — the detection seller verification already uses) | number (exactly **14 digits**), expiry date, uploaded copy |
 | Drug licence | Pharmacy shop type / "pharmacy" category | number, expiry date, uploaded copy |
-| Medical registration | "Doctor / Clinic" category (added by 0061) | number, issuing council, uploaded copy |
+| Medical registration | "Doctor / Clinic" category (added by 0062) | number, issuing council, uploaded copy |
 
 The mapping (shop types and category slugs) is part of the rule, editable
 without a deploy. A **new shop cannot be approved** (go live) until each
@@ -134,7 +134,7 @@ Decisions taken without asking, with the reason. Flag any you want changed.
   wherever the rules are off, and production needs an explicit switch-on.
 - **G-3. Existing files touched only where a feature hooks in**, each edit
   additive (listed in §4). No rename, refactor or removal.
-- **G-4. Migrations 0060–0063 are additive** (new tables only, plus one new
+- **G-4. Migrations 0061–0064 are additive** (new tables only, plus one new
   shop category row) and each has a tested rollback script (the
   migrate-on-build test rolls all four back and re-applies them).
 - **G-5. Robust to deploy order.** The fulfilment checks on the order path
@@ -281,7 +281,7 @@ All four are additive. **Migrate first, deploy second** (DEPLOY_RUNBOOK §0) —
 although this release tolerates the reverse order (G-5).
 
 **Test (automatic):** merging into `staging` runs the "Test database"
-workflow: back up → migrate 0060–0063 → apply `test-settings.sql` → verify.
+workflow: back up → migrate 0061–0064 → apply `test-settings.sql` → verify.
 Manual alternative: `DATABASE_URL=<test db> npm run db:migrate`, then
 `psql "$TEST_DATABASE_URL" -f docs/four-features-2026-10/test-settings.sql`.
 
@@ -291,10 +291,10 @@ Manual alternative: `DATABASE_URL=<test db> npm run db:migrate`, then
    is then as before (planned orders already in progress still complete through
    their plan; finish them first if you roll back code).
 2. Code: revert the merge on `staging`; Hostinger redeploys.
-3. Schema (only after the old code is live): run `scripts/rollback-0063.sql`,
-   `-0062`, `-0061`, `-0060` (newest first, any subset), then delete their rows:
-   `DELETE FROM drizzle.__drizzle_migrations WHERE created_at >= <0060 when>;`
-   (`node -e "console.log(require('./drizzle/meta/_journal.json').entries.find(e=>e.tag.startsWith('0060_')).when)"`).
+3. Schema (only after the old code is live): run `scripts/rollback-0064.sql`,
+   `-0063`, `-0062`, `-0061` (newest first, any subset), then delete their rows:
+   `DELETE FROM drizzle.__drizzle_migrations WHERE created_at >= <0061 when>;`
+   (`node -e "console.log(require('./drizzle/meta/_journal.json').entries.find(e=>e.tag.startsWith('0061_')).when)"`).
    Back up first — plans, documents, bank accounts and requests are lost.
 
 ---
@@ -303,9 +303,9 @@ Manual alternative: `DATABASE_URL=<test db> npm run db:migrate`, then
 
 New files (all under the paths below):
 
-* Schema/migrations: `drizzle/0060_fulfilment_options.sql`, `0061_legal_documents.sql`,
-  `0062_bank_accounts.sql`, `0063_referral_code_requests.sql` (+ `drizzle/meta`),
-  `scripts/rollback-0060.sql` … `rollback-0063.sql`.
+* Schema/migrations: `drizzle/0061_fulfilment_options.sql`, `0062_legal_documents.sql`,
+  `0063_bank_accounts.sql`, `0064_referral_code_requests.sql` (+ `drizzle/meta`),
+  `scripts/rollback-0061.sql` … `rollback-0064.sql`.
 * Libraries: `src/lib/fulfilment-options.ts`, `legal-documents.ts`, `bank-accounts.ts`, `referral-requests.ts`.
 * Services: `src/server/services/fulfilment-options.ts`, `fulfilment-guards.ts`,
   `legal-documents.ts`, `bank-accounts.ts`, `referral-requests.ts`.
@@ -362,7 +362,7 @@ Nothing here touches production. When you decide to promote:
    licence copies use it.
 4. **Daily cron** `POST /api/cron/seller-verification` (06:30 IST) — it now also
    starts legal-document grace periods and sends expiry reminders.
-5. Migrate 0060–0063 (Production database workflow / `npm run db:migrate`), then
+5. Migrate 0061–0064 (Production database workflow / `npm run db:migrate`), then
    switch each rule on in Admin → Business rules, one at a time.
 6. **Create referral codes** for shop owners before switching `shopReferral.required`
    on, or new registrations will be blocked until codes are issued.
