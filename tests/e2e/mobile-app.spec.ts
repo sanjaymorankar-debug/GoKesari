@@ -29,8 +29,9 @@ async function sessionEmail(context: BrowserContext): Promise<string | null> {
 /** What the system browser ends with: a code for the signed-in user, bound to `verifier`. */
 async function codeFromBrowser(browserContext: BrowserContext, baseURL: string, verifier: string) {
   const challenge = createHash("sha256").update(verifier).digest("base64url");
+  // Exactly what /mobile-auth/start sets (path /mobile-auth, so /complete can delete it).
   await browserContext.addCookies([
-    { name: "gk_mobile_auth", value: `gokesari.${challenge}`, url: `${baseURL}/mobile-auth/` },
+    { name: "gk_mobile_auth", value: `gokesari.${challenge}`, domain: new URL(baseURL).hostname, path: "/mobile-auth" },
   ]);
   const response = await browserContext.request.get("/mobile-auth/complete");
   expect(response.status()).toBe(200);
@@ -70,7 +71,7 @@ test.describe("mobile app", () => {
     const attacker = await browser.newContext({ userAgent: APP_USER_AGENT });
     const page = await attacker.newPage();
     await page.goto(`/mobile-auth/finish#code=${encodeURIComponent(code)}&verifier=${randomBytes(32).toString("base64url")}`);
-    await expect(page.getByRole("alert")).toContainText("This sign-in has expired");
+    await expect(page.getByText("This sign-in has expired")).toBeVisible();
     expect(await sessionEmail(attacker)).toBeNull();
 
     await systemBrowser.close();
