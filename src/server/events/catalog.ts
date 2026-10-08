@@ -65,6 +65,13 @@ export interface OrderEventPayload {
   beforePacking?: boolean;
   minutes?: number;
   acceptByLabel?: string;
+  /** order.delivered with rule shopWallet on: what was debited from the shop wallet, and the balance after. */
+  walletCharge?: {
+    commissionPaise: number;
+    deliveryChargePaise: number;
+    balancePaise: number;
+    belowMinimum: boolean;
+  } | null;
 }
 
 export interface DeliveryEventPayload {
@@ -79,6 +86,21 @@ export interface DeliveryEventPayload {
   shopName?: string;
   minutes?: number;
   attempts?: number;
+  /** delivery.code_locked: the support ticket raised for the lockout. */
+  ticketNumber?: string | null;
+}
+
+/** Shop prepaid wallet events (shop-wallet.ts). */
+export interface ShopWalletEventPayload {
+  shopId: string;
+  shopName: string;
+  ownerId: string;
+  balancePaise: number;
+  amountPaise?: number;
+  minBalancePaise?: number;
+  thresholdPaise?: number;
+  direction?: "CREDIT" | "DEBIT";
+  reason?: string;
 }
 
 export interface SellerDocumentPayload {
@@ -121,6 +143,7 @@ export interface DisputeEventPayload {
 
 const ORDERS = "/orders";
 const SHOP_ORDERS = "/shop/orders";
+const SHOP_WALLET = "/shop/wallet";
 const disputeUrl = (id: string) => `/disputes/${id}`;
 
 const forShop = (p: OrderEventPayload, type: NotificationType, vars: Vars = {}): EventMessage => ({
@@ -160,7 +183,28 @@ export const EVENTS = {
   ]),
   "order.delivered": define<OrderEventPayload>("order", (p) => [
     forBuyer(p, N.ORDER_DELIVERED),
-    forShop(p, N.SHOP_ORDER_DELIVERED),
+    // Shop wallet: the shop hears what was debited and the balance after, at once.
+    p.walletCharge
+      ? {
+          ...forShop(p, N.SHOP_ORDER_DELIVERED),
+          title: "Order delivered — wallet charged",
+          body:
+            `Order ${p.orderNumber} has been delivered. Deducted from your shop wallet: ` +
+            `commission ${formatPaise(p.walletCharge.commissionPaise)}, delivery charge ${formatPaise(p.walletCharge.deliveryChargePaise)}. ` +
+            `New balance: ${formatPaise(p.walletCharge.balancePaise)}.` +
+            (p.walletCharge.belowMinimum ? " Recharge your wallet to keep accepting new orders." : ""),
+          actionUrl: SHOP_WALLET,
+        }
+      : forShop(p, N.SHOP_ORDER_DELIVERED),
+    // The rider who made the drop gets the confirmation, once per order.
+    {
+      to: p.riderUserId,
+      type: N.DELIVERY_CONFIRMED,
+      vars: { orderNumber: p.orderNumber },
+      actionUrl: "/delivery-partner",
+      includeActor: true,
+      dedupe: `order:${p.orderId}:delivered`,
+    },
   ]),
   "order.failed": define<OrderEventPayload>("order", (p) => [
     forBuyer(p, N.ORDER_DELIVERY_FAILED, { reason: p.reason }),
@@ -289,6 +333,27 @@ export const EVENTS = {
       type: N.DELIVERY_CANCELLED,
       vars: { orderNumber: p.orderNumber, reason: p.reason },
       actionUrl: "/delivery-partner",
+    },
+  ]),
+  // Wrong delivery codes reached the limit: the drop is locked and a ticket raised.
+  "delivery.code_locked": define<DeliveryEventPayload>("delivery", (p) => [
+    {
+      to: p.buyerId,
+      type: N.ORDER_DELIVERY_CODE_LOCKED,
+      vars: { orderNumber: p.orderNumber, ticketNumber: p.ticketNumber },
+      actionUrl: ORDERS,
+    },
+    {
+      to: p.shopOwnerId,
+      type: N.SHOP_DELIVERY_CODE_LOCKED,
+      vars: { orderNumber: p.orderNumber, ticketNumber: p.ticketNumber },
+      actionUrl: SHOP_ORDERS,
+    },
+    {
+      to: "SUPPORT",
+      type: N.SUPPORT_DELIVERY_CODE_LOCKED,
+      vars: { orderNumber: p.orderNumber, shopName: p.shopName, attempts: p.attempts, ticketNumber: p.ticketNumber },
+      actionUrl: "/admin/exceptions",
     },
   ]),
   "delivery.search_overdue": define<DeliveryEventPayload>("delivery", (p) => [
@@ -502,6 +567,47 @@ export const EVENTS = {
       type: N.SUPPORT_DISPUTE_UPDATED,
       vars: { caseNumber: p.caseNumber, detail: `Dispute ${p.caseNumber} was resolved. ${p.outcome ?? ""}` },
       actionUrl: disputeUrl(p.disputeId),
+    },
+  ]),
+
+  /* ----------------------------------------------------------- shop wallet */
+  "shop_wallet.topped_up": define<ShopWalletEventPayload>("shop", (p) => [
+    {
+      to: p.ownerId,
+      type: N.SHOP_WALLET_TOPUP_SUCCESS,
+      vars: { shopName: p.shopName, amount: formatPaise(p.amountPaise ?? 0), balance: formatPaise(p.balancePaise) },
+      actionUrl: SHOP_WALLET,
+      includeActor: true,
+    },
+  ]),
+  "shop_wallet.low_balance": define<ShopWalletEventPayload>("shop", (p) => [
+    {
+      to: p.ownerId,
+      type: N.SHOP_WALLET_LOW_BALANCE,
+      vars: {
+        shopName: p.shopName,
+        balance: formatPaise(p.balancePaise),
+        detail:
+          p.balancePaise < (p.minBalancePaise ?? 0)
+            ? "You cannot accept new orders until you recharge."
+            : `Recharge before it falls below ${formatPaise(p.minBalancePaise ?? 0)}, or you will not be able to accept new orders.`,
+      },
+      actionUrl: SHOP_WALLET,
+      includeActor: true,
+    },
+  ]),
+  "shop_wallet.adjusted": define<ShopWalletEventPayload>("shop", (p) => [
+    {
+      to: p.ownerId,
+      type: N.SHOP_WALLET_ADJUSTED,
+      vars: {
+        shopName: p.shopName,
+        amount: formatPaise(p.amountPaise ?? 0),
+        change: p.direction === "CREDIT" ? "added to" : "deducted from",
+        reason: p.reason,
+        balance: formatPaise(p.balancePaise),
+      },
+      actionUrl: SHOP_WALLET,
     },
   ]),
 

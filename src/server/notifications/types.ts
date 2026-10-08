@@ -151,6 +151,16 @@ export const NOTIFICATION_TYPES = {
   SUPPORT_DISPUTE_OPENED: "support.dispute_opened",
   SUPPORT_DISPUTE_UPDATED: "support.dispute_updated",
   SUPPORT_DISPUTE_ESCALATED: "support.dispute_escalated",
+  /* ------------------------- shop wallet & delivery code (docs/shop-wallet-delivery-otp-2026-10) */
+  SHOP_WALLET_TOPUP_SUCCESS: "shop.wallet_topup_success",
+  SHOP_WALLET_LOW_BALANCE: "shop.wallet_low_balance",
+  SHOP_WALLET_ADJUSTED: "shop.wallet_adjusted",
+  /** To the rider: the order they dropped is confirmed delivered. */
+  DELIVERY_CONFIRMED: "delivery.confirmed",
+  /** To the customer: too many wrong delivery codes; support is checking. */
+  ORDER_DELIVERY_CODE_LOCKED: "order.delivery_code_locked",
+  SHOP_DELIVERY_CODE_LOCKED: "shop.delivery_code_locked",
+  SUPPORT_DELIVERY_CODE_LOCKED: "support.delivery_code_locked",
 } as const;
 
 export type NotificationType =

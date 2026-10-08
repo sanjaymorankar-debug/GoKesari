@@ -183,6 +183,14 @@ export const AUDIT_ACTIONS = {
   RIDER_PAYOUT_PREPARED: "finance.rider_payout_prepared",
   RIDER_PAYOUT_STATUS_CHANGED: "finance.rider_payout_status_changed",
   RECONCILIATION_RUN: "finance.reconciliation_run",
+  /* ----------------------------- shop wallet (docs/shop-wallet-delivery-otp-2026-10) */
+  SHOP_WALLET_TOPUP_VERIFIED: "shop_wallet.topup_verified",
+  SHOP_WALLET_ORDER_CHARGED: "shop_wallet.order_charged",
+  SHOP_WALLET_ADJUSTED: "shop_wallet.adjusted",
+  /* ----------------------------------------------------- delivery code */
+  DELIVERY_CODE_SENT: "delivery_order.code_sent",
+  DELIVERY_CODE_WRONG: "delivery_order.code_wrong",
+  DELIVERY_CODE_LOCKED: "delivery_order.code_locked",
   RECONCILIATION_RESOLVED: "finance.reconciliation_resolved",
   /* ------------------------------------------ society / ratings / subscriptions (Phase 2) */
   SOCIETY_REGISTERED: "society.registered",

@@ -272,7 +272,9 @@ function OrderRow({
           </Button>
         ) : null}
         {(MANUAL_STEPS[order.status] ?? [])
-          .filter(() => !(order.status === "READY" && riderActive))
+          // While a rider holds the order only the rider (with the customer's
+          // delivery code) or operations can complete it — the server refuses too.
+          .filter(() => !((order.status === "READY" || order.status === "OUT_FOR_DELIVERY") && riderActive))
           .map((step) => (
             <Button key={step.to} size="sm" variant="secondary" disabled={busy} onClick={() => advance(step.to)}>
               {step.label}
