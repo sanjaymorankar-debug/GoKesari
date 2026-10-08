@@ -39,6 +39,7 @@ import {
   createUserWithWallet,
   deliveryAddressId,
   resetDatabase,
+  setDeliveryCode,
 } from "../helpers/fixtures";
 
 beforeEach(async () => {
@@ -192,8 +193,7 @@ describe("delivery events", () => {
     expect(await notesFor(customer.id, NOTIFICATION_TYPES.ORDER_OUT_FOR_DELIVERY)).toHaveLength(1);
     expect(await notesFor(owner.id, NOTIFICATION_TYPES.SHOP_ORDER_OUT_FOR_DELIVERY)).toHaveLength(1);
 
-    const [started] = await db.select().from(deliveryOrders).where(eq(deliveryOrders.id, offer.id));
-    await markDelivered(offer.id, ravi.actor, started.deliveryOtp!);
+    await markDelivered(offer.id, ravi.actor, await setDeliveryCode(offer.id));
     expect(await notesFor(customer.id, NOTIFICATION_TYPES.ORDER_DELIVERED)).toHaveLength(1);
     expect(await notesFor(owner.id, NOTIFICATION_TYPES.SHOP_ORDER_DELIVERED)).toHaveLength(1);
 
@@ -295,8 +295,7 @@ describe("live tracking", () => {
     expect(await recordDeliveryLocation(offer.id, ravi.user.id, 18.51, 73.85)).toMatchObject({ sharing: true, nextPingSeconds: 5 });
     expect(Number(await lastFix())).toBeCloseTo(18.51, 5);
 
-    const [started] = await db.select().from(deliveryOrders).where(eq(deliveryOrders.id, offer.id));
-    await markDelivered(offer.id, ravi.actor, started.deliveryOtp!);
+    await markDelivered(offer.id, ravi.actor, await setDeliveryCode(offer.id));
     expect(await recordDeliveryLocation(offer.id, ravi.user.id, 18.6, 73.9)).toMatchObject({ sharing: false });
     expect(Number(await lastFix())).toBeCloseTo(18.51, 5);
   });

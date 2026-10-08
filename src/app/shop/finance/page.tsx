@@ -114,6 +114,7 @@ export default async function ShopFinancePage() {
                   <span className="ml-2 text-xs text-ink-500">
                     goods <Money paise={f.goodsPaise} /> · {(f.commissionRateBp / 100).toFixed(2)}% commission{" "}
                     <Money paise={f.commissionPaise} />
+                    {f.commissionCollection === "SHOP_WALLET" ? " (paid from wallet)" : ""}
                   </span>
                 </span>
                 <span className="flex items-center gap-2">

@@ -414,6 +414,13 @@
       "when": 1791444892056,
       "tag": "0058_event_layer",
       "breakpoints": true
+    },
+    {
+      "idx": 59,
+      "version": "7",
+      "when": 1791457941164,
+      "tag": "0059_shop_wallet_delivery_otp",
+      "breakpoints": true
     }
   ]
 }

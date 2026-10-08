@@ -53,6 +53,8 @@ import {
   type ShopOnboardingStage,
 } from "@/lib/shop-onboarding";
 import { listSubscriptionOrdersForShop } from "@/server/services/subscriptions";
+import { ShopWalletBanner } from "@/components/shop-wallet-banner";
+import { getShopWalletStatus } from "@/server/services/shop-wallet";
 
 export const metadata = { title: "My Shop" };
 export const dynamic = "force-dynamic";
@@ -104,7 +106,11 @@ export default async function ShopDashboardPage() {
     shop.referralCodeId ? getReferralCodeById(shop.referralCodeId) : null,
   ]);
   // NEW-007: the acceptance timeout and how often this shop has let it run out.
-  const [acceptanceRule, missedAcceptances] = await Promise.all([getRule("shopAcceptance"), missedAcceptances30d(shop.id)]);
+  const [acceptanceRule, missedAcceptances, wallet] = await Promise.all([
+    getRule("shopAcceptance"),
+    missedAcceptances30d(shop.id),
+    getShopWalletStatus(shop.id),
+  ]);
   const upcomingDeliveries = await listSubscriptionDeliveries({
     shopId: shop.id,
     from: addDays(today, 1),
@@ -133,6 +139,9 @@ export default async function ShopDashboardPage() {
           </Link>
         }
       />
+
+      {/* Shop wallet: "recharge wallet" while it is low or below the minimum. */}
+      <ShopWalletBanner {...wallet} />
 
       <div className="mb-6 flex flex-wrap gap-2">
         {onboarding ? (

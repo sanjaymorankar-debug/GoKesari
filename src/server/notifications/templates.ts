@@ -201,6 +201,24 @@ export const TEMPLATES: Record<string, Template> = {
   [T.SHOP_ORDER_TIMED_OUT]: t("Order cancelled — not accepted in time", "Order {{orderNumber}} was cancelled and the customer refunded because it was not accepted in time."),
   [T.SHOP_DOCUMENT_VERIFIED]: t("{{docLabel}} verified", "{{shopName}}'s {{docLabel}} has been verified."),
   [T.SHOP_DOCUMENT_ATTENTION]: t("{{docLabel}} needs your attention", "We couldn't verify {{shopName}}'s {{docLabel}}. {{detail}}"),
+  /* Shop wallet & delivery code (docs/shop-wallet-delivery-otp-2026-10). */
+  [T.SHOP_WALLET_TOPUP_SUCCESS]: t("Shop wallet recharged", "{{amount}} was added to {{shopName}}'s wallet. New balance: {{balance}}."),
+  [T.SHOP_WALLET_LOW_BALANCE]: t("Recharge your shop wallet", "{{shopName}}'s wallet balance is {{balance}}. {{detail}}"),
+  [T.SHOP_WALLET_ADJUSTED]: t("Shop wallet adjusted", "{{amount}} was {{change}} {{shopName}}'s wallet by GoKesari: {{reason}}. New balance: {{balance}}."),
+  [T.DELIVERY_CONFIRMED]: t("Delivery confirmed", "Order {{orderNumber}} is confirmed as delivered. Thank you!", false),
+  [T.ORDER_DELIVERY_CODE_LOCKED]: t(
+    "We're checking your delivery",
+    "Too many wrong delivery codes were entered for order {{orderNumber}}, so the delivery is on hold. Our support team will contact you (ticket {{ticketNumber}}). Never share your code until you have your order.",
+  ),
+  [T.SHOP_DELIVERY_CODE_LOCKED]: t(
+    "Delivery code locked",
+    "Too many wrong delivery codes were entered for order {{orderNumber}}. Support is confirming the delivery with the customer (ticket {{ticketNumber}}).",
+    false,
+  ),
+  [T.SUPPORT_DELIVERY_CODE_LOCKED]: t(
+    "Delivery code locked — confirm the drop",
+    "Order {{orderNumber}} ({{shopName}}): {{attempts}} wrong delivery codes, so the rider cannot complete it. Ticket {{ticketNumber}}. Call the customer, then confirm the delivery or mark it failed from the exceptions queue.",
+  ),
 };
 
 /** Fills `{{name}}` placeholders; a missing variable becomes an empty string and extra spaces are tidied. */
@@ -253,6 +271,31 @@ export function renderEmail(input: { title: string; body: string; actionUrl?: st
         ? `<p><a href="${escapeHtml(link)}" style="display:inline-block;padding:10px 18px;background:#ea580c;color:#fff;border-radius:8px;text-decoration:none">Open in Gokesari</a></p>`
         : "") +
       `<p style="color:#78716c;font-size:12px">You receive this because of your notification settings on Gokesari.</p></div>`,
+  };
+}
+
+/**
+ * The customer's delivery code email (delivery-otp.ts). Sent directly and never
+ * stored or queued — the database keeps only a hash of the code.
+ */
+export function renderDeliveryCodeEmail(input: {
+  code: string;
+  orderNumber: string;
+  shopName: string;
+}): { subject: string; text: string; html: string } {
+  return {
+    subject: `${input.code} is your delivery code for order ${input.orderNumber}`,
+    text:
+      `Your order ${input.orderNumber} from ${input.shopName} is on the way.\n\n` +
+      `Delivery code: ${input.code}\n\n` +
+      `Give it to the rider only once you have your order in hand. It works once. ` +
+      `You can get a new code from your orders page on Gokesari.\n`,
+    html:
+      `<p>Your order ${escapeHtml(input.orderNumber)} from ${escapeHtml(input.shopName)} is on the way.</p>` +
+      `<p>Delivery code</p>` +
+      `<p style="font-size:28px;letter-spacing:6px;font-weight:600">${escapeHtml(input.code)}</p>` +
+      `<p style="color:#666;font-size:12px">Give it to the rider only once you have your order in hand. It works once. ` +
+      `You can get a new code from your orders page on Gokesari.</p>`,
   };
 }
 

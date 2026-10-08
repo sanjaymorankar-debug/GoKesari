@@ -35,6 +35,7 @@ import {
   reconciliationRecords,
   riderPayouts,
   shopSettlements,
+  shopWalletTransactions,
   shops,
   walletTransactions,
   type AdjustmentType,
@@ -236,6 +237,11 @@ export async function recordOrderFinancials(orderId: string, client: DbClient = 
   const rate = await resolveCommissionRate(shop, client);
   const goodsPaise = order.subtotalPaise;
   const commissionPaise = commissionOn(goodsPaise, rate.rateBp);
+  // Shop wallet (rule shopWallet): the commission is debited from the shop's
+  // prepaid wallet in this same transaction (shop-wallet.ts), so settlement
+  // pays the goods in full instead of withholding it.
+  const collection = await walletCollectionFor(orderId, client);
+  const viaWallet = collection.commissionCollection === "SHOP_WALLET";
   // Promotional wallet credit spent, plus any order-level coupon (F7) — both platform-funded.
   const discountPaise = Math.min(
     (debit ? -debit.promotionalAmountPaise : 0) + (order.discountPaise ?? 0),
@@ -256,7 +262,9 @@ export async function recordOrderFinancials(orderId: string, client: DbClient = 
       commissionRateBp: rate.rateBp,
       commissionRateId: rate.rateId,
       commissionPaise,
-      shopPayablePaise: goodsPaise - commissionPaise,
+      shopPayablePaise: viaWallet ? goodsPaise : goodsPaise - commissionPaise,
+      commissionCollection: collection.commissionCollection,
+      shopDeliveryChargePaise: collection.shopDeliveryChargePaise,
       deliveredAt: new Date(),
     })
     .onConflictDoNothing()
@@ -276,6 +284,28 @@ export async function recordOrderFinancials(orderId: string, client: DbClient = 
     null,
     client,
   );
+}
+
+/**
+ * How a newly delivered order's commission is collected. With rule shopWallet
+ * on, from the shop's prepaid wallet — plus the delivery charge when a
+ * GoKesari rider delivered the order (the delivery row is already DELIVERED in
+ * the rider's transaction). Otherwise withheld at settlement, as before.
+ */
+export async function walletCollectionFor(
+  orderId: string,
+  client: DbClient = db,
+): Promise<{ commissionCollection: "SETTLEMENT" | "SHOP_WALLET"; shopDeliveryChargePaise: number }> {
+  const rules = await getRule("shopWallet");
+  if (!rules.enabled) return { commissionCollection: "SETTLEMENT", shopDeliveryChargePaise: 0 };
+  const [riderDelivered] = await client
+    .select({ id: deliveryOrders.id })
+    .from(deliveryOrders)
+    .where(and(eq(deliveryOrders.orderId, orderId), eq(deliveryOrders.status, "DELIVERED")));
+  return {
+    commissionCollection: "SHOP_WALLET",
+    shopDeliveryChargePaise: riderDelivered ? rules.deliveryChargePaise : 0,
+  };
 }
 
 /**
@@ -620,7 +650,8 @@ export async function prepareShopSettlements(weekStart: string, actor: SystemOrA
       const lines = eligibleOrders.filter((r) => r.financial.shopId === shopId).map((r) => r.financial);
       const adjustments = eligibleAdjustments.filter((a) => a.shopId === shopId);
       const goodsPaise = lines.reduce((sum, l) => sum + l.goodsPaise, 0);
-      const commissionPaise = lines.reduce((sum, l) => sum + l.commissionPaise, 0);
+      // Commission still to withhold: none for orders that paid it from the shop wallet.
+      const commissionPaise = lines.reduce((sum, l) => sum + (l.goodsPaise - l.shopPayablePaise), 0);
       const refundsPaise = adjustments.filter((a) => a.type === "REFUND_SHOP").reduce((sum, a) => sum + a.amountPaise, 0);
       const adjustmentsPaise = adjustments.filter((a) => a.type !== "REFUND_SHOP").reduce((sum, a) => sum + a.amountPaise, 0);
       if (lines.length === 0 && adjustments.length === 0) continue;
@@ -928,7 +959,8 @@ export async function getShopPendingPayable(shopId: string) {
     .select({
       orders: sql<number>`count(*)::int`,
       goods: sql<number>`coalesce(sum(${orderFinancials.goodsPaise}), 0)::bigint`,
-      commission: sql<number>`coalesce(sum(${orderFinancials.commissionPaise}), 0)::bigint`,
+      // Withheld at settlement only — commission paid from the shop wallet is not.
+      commission: sql<number>`coalesce(sum(${orderFinancials.goodsPaise} - ${orderFinancials.shopPayablePaise}), 0)::bigint`,
     })
     .from(orderFinancials)
     .where(and(eq(orderFinancials.shopId, shopId), isNull(orderFinancials.settlementId)));
@@ -1059,6 +1091,7 @@ export interface FinanceSummary {
   goodsPaise: number;
   discountPaise: number;
   commissionPaise: number;
+  /** Customers' delivery fees plus shop-wallet delivery charges. */
   deliveryFeeRevenuePaise: number;
   riderCostPaise: number;
   refundsAfterDeliveryPaise: number;
@@ -1088,7 +1121,8 @@ export async function getFinanceSummary(fromDate: string, toDate: string): Promi
       goods: sql<number>`coalesce(sum(${orderFinancials.goodsPaise}), 0)::bigint`,
       discount: sql<number>`coalesce(sum(${orderFinancials.discountPaise}), 0)::bigint`,
       commission: sql<number>`coalesce(sum(${orderFinancials.commissionPaise}), 0)::bigint`,
-      fees: sql<number>`coalesce(sum(${orderFinancials.deliveryFeePaise}), 0)::bigint`,
+      // The customer's delivery fee plus the delivery charge a shop paid from its wallet.
+      fees: sql<number>`coalesce(sum(${orderFinancials.deliveryFeePaise} + ${orderFinancials.shopDeliveryChargePaise}), 0)::bigint`,
     })
     .from(orderFinancials)
     .where(inWindow(orderFinancials.deliveredAt));
@@ -1233,8 +1267,11 @@ export async function runReconciliation(fromDate: string, toDate: string, actor:
       status: payments.status,
       amountPaise: payments.amountPaise,
       createdAt: payments.createdAt,
-      credited: sql<number>`coalesce((select sum(${walletTransactions.amountPaise}) from ${walletTransactions}
-        where ${walletTransactions.paymentId} = ${payments.id} and ${walletTransactions.type} = 'TOP_UP'), 0)::bigint`,
+      // A shop wallet recharge credits the shop's wallet instead of the customer's.
+      credited: sql<number>`(coalesce((select sum(${walletTransactions.amountPaise}) from ${walletTransactions}
+        where ${walletTransactions.paymentId} = ${payments.id} and ${walletTransactions.type} = 'TOP_UP'), 0)
+        + coalesce((select sum(${shopWalletTransactions.amountPaise}) from ${shopWalletTransactions}
+        where ${shopWalletTransactions.paymentId} = ${payments.id} and ${shopWalletTransactions.type} = 'TOP_UP'), 0))::bigint`,
     })
     .from(payments)
     .where(inWindow(payments.createdAt));

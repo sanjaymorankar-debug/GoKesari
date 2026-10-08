@@ -291,12 +291,33 @@ Marks a picked-up delivery DELIVERED without the customer OTP; audited.
 { "action": "reject", "reason": "optional" }  // rider is never offered this order again
 { "action": "pickup", "pickupCode": "1234" }  // code the shop reads out
 { "action": "start" }                         // leaves the shop; issues the customer OTP
-{ "action": "deliver", "otp": "5678" }        // customer's code; 5 wrong tries max
+{ "action": "deliver", "otp": "5678" }        // customer's code; rule deliveryOtp.maxAttempts wrong tries max
 { "action": "fail", "reason": "Customer not reachable" }
 ```
-Responses never contain the pickup code or the OTP (only `needsPickupCode` /
-`needsDeliveryOtp` flags). The shop sees the pickup code on its order list;
-the customer sees the OTP on My Orders while the order is out for delivery.
+Responses never contain the pickup code, the OTP or its hash (only
+`needsPickupCode` / `needsDeliveryOtp` / `deliveryCodeLocked` flags). The shop
+sees the pickup code on its order list.
+
+Delivery code (docs/shop-wallet-delivery-otp-2026-10): `start` stores only a
+salted HMAC of a new 4-digit code and emails the code to the customer. On
+`deliver`, only the rider holding the delivery may enter it (`403` otherwise).
+A wrong code is `422` with `details.attemptsLeft`; the attempt that reaches
+`deliveryOtp.maxAttempts` locks the drop — `409` with
+`details: { locked: true, ticketNumber }` — raises a support ticket (grievance,
+category ORDER) and alerts the customer, the shop and support; operations then
+confirm it (`POST /api/orders/{id}/confirm-delivery`). A right code completes
+the order and spends the code in one transaction; with rule `shopWallet` on,
+the same transaction debits the shop wallet. Submitting again after success
+returns the delivered row and charges nothing more.
+
+### `POST /api/orders/{id}/delivery-code` — customer: new delivery code
+Only the order's own customer (`404` for anyone else), only while the drop is
+under way and not locked. Issues a fresh code (the previous one stops
+working), emails it, and returns it once:
+`{ code, sentTo, resendsLeft, nextRequestAt }`. Limited by rule `deliveryOtp`:
+`resendCooldownSeconds` (default 60) between requests and `maxResends`
+(default 3) per delivery — `429` with `details.retryAfterSeconds` otherwise.
+The code itself is never stored.
 
 ### `POST /api/delivery-orders/{id}/proof`
 NEW-007 (rule `deliveryProof`). Multipart `file`: the rider's photo at the
@@ -522,6 +543,40 @@ payment, only which order to check. Idempotent on the gateway payment id, so
 a replayed call returns `alreadyProcessed: true` without a second credit. If
 Cashfree does not confirm payment, the payment is marked `FAILED` and
 nothing is credited.
+
+### Shop wallet (rule `shopWallet`, docs/shop-wallet-delivery-otp-2026-10)
+
+A shop's prepaid wallet. When the rule is on, a delivered order's commission
+(rates from `commission_rates`) and `shopWallet.deliveryChargePaise` (orders a
+GoKesari rider delivered) are debited from it in the delivery's own
+transaction, as two ledger entries linked to the order, and settlement no
+longer withholds that commission. Below `minBalancePaise` the shop cannot
+accept a new order: `POST /api/orders/{id}/fulfilment {action:"accept"}`
+returns `402 INSUFFICIENT_BALANCE` with
+`details: { balancePaise, minBalancePaise, rechargeUrl: "/shop/wallet" }`.
+The balance changes only through ledger entries (enforced by the database).
+
+#### `GET /api/shops/{id}/wallet?limit=50&offset=0`
+The shop's owner, or finance staff. `{ enabled, balancePaise, minBalancePaise,
+lowBalanceThresholdPaise, canAcceptOrders, lowBalance, commissionRateBp,
+deliveryChargePaise, topupMinPaise, topupMaxPaise, transactions[] }` — each
+entry `{ type, direction, amountPaise, balanceBeforePaise, balanceAfterPaise,
+orderId, orderNumber, reason, createdAt }`.
+
+#### `POST /api/shops/{id}/wallet/topup` — `{ "amountPaise": 100000 }`
+Shop owner only (staff use `adjust`). Limits `topupMinPaise`/`topupMaxPaise`;
+`409` while the rule is off. Creates a gateway order only — no money moves.
+Returns `{ gatewayOrderId, paymentSessionId, cashfreeMode, amountPaise, mock }`.
+
+#### `POST /api/shops/{id}/wallet/verify` — `{ "gatewayOrderId": "…" }`
+Confirms with Cashfree and credits the shop wallet; idempotent on the gateway
+payment id (the Cashfree webhook credits shop recharges too). In mock mode use
+`POST /api/dev/settle-topup`. Returns `{ success, balancePaise, alreadyProcessed }`.
+
+#### `POST /api/shops/{id}/wallet/adjust` — administrators (`WALLET_ADJUST`)
+`{ direction: "CREDIT" | "DEBIT", amountPaise, reason, requestId }`. A manual
+ledger entry (e.g. a recharge paid in cash); a debit never overdraws; the same
+`requestId` adjusts once. The owner is notified.
 
 ### `PATCH /api/wallet/settings`
 `lowBalanceThresholdPaise`, `autoRechargeEnabled`, `autoRechargeTriggerPaise`,

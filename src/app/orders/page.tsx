@@ -20,6 +20,9 @@ import { isTrackableOrderStatus } from "@/lib/tracking";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { getDeliveryOrdersForOrders } from "@/server/services/delivery-assignment";
+import { buyerDeliveryCodeView, type BuyerDeliveryCodeView } from "@/server/services/delivery-otp";
+import { DeliveryCodePanel } from "@/components/delivery-code-panel";
+import { maskEmailAddress } from "@/lib/contact";
 import { getLiveDisputesForOrders } from "@/server/services/disputes";
 import { referencesForGroups } from "@/server/services/order-groups";
 import { listOrdersForUser } from "@/server/services/orders";
@@ -60,6 +63,16 @@ export default async function OrdersPage({
     listMyRatingsByOrder(user.id, orders.map((o) => o.id)),
     getLiveDisputesForOrders(orders.map((o) => o.id)),
   ]);
+  // The delivery code (stored hashed): emailed / locked / new-code state for drops under way.
+  const deliveryCodes = new Map(
+    (
+      await Promise.all(
+        orders
+          .filter((o) => o.status === "OUT_FOR_DELIVERY" && deliveryOrders.has(o.id))
+          .map(async (o) => [o.id, await buyerDeliveryCodeView(deliveryOrders.get(o.id)!)] as const),
+      )
+    ).filter((entry): entry is readonly [string, BuyerDeliveryCodeView] => entry[1] != null && (entry[1].active || entry[1].locked)),
+  );
   // NEW-007: delivery photo and invoice links on delivered orders.
   const [proofPhotos, invoicingRule] = await Promise.all([
     proofPhotosForOrders(orders.filter((o) => o.status === "DELIVERED").map((o) => o.id)),
@@ -212,17 +225,14 @@ export default async function OrdersPage({
                 </p>
               ) : null}
 
-              {order.status === "OUT_FOR_DELIVERY" && deliveryOrders.get(order.id)?.deliveryOtp ? (
-                <p
-                  className="mt-3 rounded-lg bg-leaf-50 px-3 py-2 text-sm text-leaf-700"
-                  data-testid="delivery-otp"
-                >
-                  Delivery code:{" "}
-                  <span className="font-mono text-lg font-bold tracking-widest">
-                    {deliveryOrders.get(order.id)!.deliveryOtp}
-                  </span>{" "}
-                  — share it with the rider only when you receive your order.
-                </p>
+              {order.status === "OUT_FOR_DELIVERY" && deliveryCodes.get(order.id) ? (
+                <DeliveryCodePanel
+                  orderId={order.id}
+                  maskedEmail={maskEmailAddress(user.email)}
+                  locked={deliveryCodes.get(order.id)!.locked}
+                  ticketNumber={deliveryCodes.get(order.id)!.ticketNumber}
+                  resendsLeft={deliveryCodes.get(order.id)!.resendsLeft}
+                />
               ) : null}
 
               {deliveryOrders.has(order.id) ? (

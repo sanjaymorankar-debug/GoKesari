@@ -1921,9 +1921,31 @@ export const deliveryOrders = pgTable(
     /* ---------------------------------------- handover (Slice 4, GS-041/043) */
     /** 4-digit code the shop reads to the rider at pickup; set when the rider accepts. */
     pickupCode: text("pickup_code"),
-    /** 4-digit code only the customer sees; set when the rider starts the drop. */
+    /**
+     * Legacy: the plain-text customer code written before migration 0059. No
+     * longer written; still accepted for a drop that was under way when 0059
+     * was applied, and cleared once used. Dropped in a later release.
+     */
     deliveryOtp: text("delivery_otp"),
     deliveryOtpAttempts: integer("delivery_otp_attempts").notNull().default(0),
+    /**
+     * The customer's 4-digit delivery code, as a salted HMAC (services/delivery-otp.ts) —
+     * never stored in plain text. Set when the rider starts the drop or the
+     * customer asks for a new code; cleared when the code is used.
+     */
+    deliveryOtpHash: text("delivery_otp_hash"),
+    /** When the current code was sent to the customer (resend cooldown). */
+    deliveryOtpSentAt: timestamp("delivery_otp_sent_at", { withTimezone: true }),
+    /** New codes the customer asked for on this delivery (limit: rule deliveryOtp.maxResends). */
+    deliveryOtpResends: integer("delivery_otp_resends").notNull().default(0),
+    /** When the code was used to confirm the drop; a used code never works again. */
+    deliveryOtpUsedAt: timestamp("delivery_otp_used_at", { withTimezone: true }),
+    /** Set once wrong codes reach rule deliveryOtp.maxAttempts: only operations can confirm the drop. */
+    deliveryOtpLockedAt: timestamp("delivery_otp_locked_at", { withTimezone: true }),
+    /** The support ticket (grievance) raised by the lockout. */
+    deliveryOtpTicketId: uuid("delivery_otp_ticket_id").references((): AnyPgColumn => grievances.id, {
+      onDelete: "set null",
+    }),
     outForDeliveryAt: timestamp("out_for_delivery_at", { withTimezone: true }),
     /** Rider checkpoints (no status change): reached the shop / reached the customer's door or gate. */
     arrivedAtShopAt: timestamp("arrived_at_shop_at", { withTimezone: true }),
@@ -2692,9 +2714,12 @@ export const payments = pgTable(
     amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
     currency: text("currency").notNull().default("INR"),
     status: paymentStatusEnum("status").notNull().default("CREATED"),
-    purpose: text("purpose", { enum: ["WALLET_TOPUP"] })
+    /** WALLET_TOPUP: a customer's wallet. SHOP_WALLET_TOPUP: a shop's prepaid wallet (`shopId`). */
+    purpose: text("purpose", { enum: ["WALLET_TOPUP", "SHOP_WALLET_TOPUP"] })
       .notNull()
       .default("WALLET_TOPUP"),
+    /** The shop whose prepaid wallet a SHOP_WALLET_TOPUP credits; null for a customer top-up. */
+    shopId: uuid("shop_id").references((): AnyPgColumn => shops.id, { onDelete: "restrict" }),
     failureReason: text("failure_reason"),
     rawPayload: jsonb("raw_payload"),
     /**
@@ -2716,7 +2741,9 @@ export const payments = pgTable(
     uniqueIndex("payments_gateway_order_unique").on(t.gatewayOrderId),
     uniqueIndex("payments_gateway_payment_unique").on(t.gatewayPaymentId),
     index("payments_user_idx").on(t.userId),
+    index("payments_shop_idx").on(t.shopId),
     check("payments_amount_positive", sql`${t.amountPaise} > 0`),
+    check("payments_shop_topup_has_shop", sql`(${t.purpose} = 'SHOP_WALLET_TOPUP') = (${t.shopId} IS NOT NULL)`),
   ],
 );
 
@@ -4547,8 +4574,19 @@ export const orderFinancials = pgTable(
     commissionRateBp: integer("commission_rate_bp").notNull(),
     commissionRateId: uuid("commission_rate_id").references(() => commissionRates.id),
     commissionPaise: bigint("commission_paise", { mode: "number" }).notNull(),
-    /** goods − commission; owed to the shop for this order before refunds/adjustments. */
+    /** What the shop is owed for this order before refunds/adjustments: goods − commission, or goods when the commission was paid from the shop wallet. */
     shopPayablePaise: bigint("shop_payable_paise", { mode: "number" }).notNull(),
+    /**
+     * How the commission is collected. SETTLEMENT: withheld from the weekly
+     * settlement (the original model). SHOP_WALLET: debited from the shop's
+     * prepaid wallet at delivery (rule shopWallet), so settlement pays the
+     * goods in full.
+     */
+    commissionCollection: text("commission_collection", { enum: ["SETTLEMENT", "SHOP_WALLET"] })
+      .notNull()
+      .default("SETTLEMENT"),
+    /** Delivery charge debited from the shop wallet for this order (rule shopWallet); 0 otherwise. */
+    shopDeliveryChargePaise: bigint("shop_delivery_charge_paise", { mode: "number" }).notNull().default(0),
     deliveredAt: timestamp("delivered_at", { withTimezone: true }).notNull(),
     settlementId: uuid("settlement_id").references(() => shopSettlements.id),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -4723,6 +4761,96 @@ export const reconciliationRecords = pgTable(
   (t) => [
     uniqueIndex("reconciliation_entity_check_unique").on(t.entityType, t.entityId, t.checkType),
     index("reconciliation_status_idx").on(t.status),
+  ],
+);
+
+/* ------------------------------------------------------- shop wallet
+ * A shop's prepaid wallet (rule shopWallet). The platform's commission and
+ * delivery charge are debited from it when an order is delivered; the owner
+ * tops it up through the payment gateway. Same discipline as the customer
+ * wallet, enforced by the database as well (migration 0059):
+ *  - the balance moves only by inserting a shop_wallet_transactions row — a
+ *    trigger checks the row against the locked wallet and applies it, and any
+ *    other UPDATE of balance_paise is refused;
+ *  - ledger rows are immutable (UPDATE / DELETE refused);
+ *  - one COMMISSION and one DELIVERY_CHARGE per order, ever (unique index).
+ * The balance may go below zero: a delivered order is always charged, and the
+ * shop then cannot accept new orders until it recharges (rule minBalancePaise).
+ */
+export const shopWalletEntryTypeEnum = pgEnum("shop_wallet_entry_type", [
+  "TOP_UP",
+  "COMMISSION",
+  "DELIVERY_CHARGE",
+  "MANUAL_CREDIT",
+  "MANUAL_DEBIT",
+]);
+
+export const shopWallets = pgTable(
+  "shop_wallets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    /** Maintained by the ledger trigger only. */
+    balancePaise: bigint("balance_paise", { mode: "number" }).notNull().default(0),
+    currency: text("currency").notNull().default("INR"),
+    /** Set when the low-balance alert is sent; cleared when the balance is back above the threshold. */
+    lowBalanceNotifiedAt: timestamp("low_balance_notified_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("shop_wallets_shop_unique").on(t.shopId)],
+);
+
+/** Immutable ledger of a shop wallet. Each row carries the balance before and after it. */
+export const shopWalletTransactions = pgTable(
+  "shop_wallet_transactions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Insertion order — several rows written in one transaction share a created_at. */
+    seq: bigint("seq", { mode: "number" }).generatedAlwaysAsIdentity(),
+    walletId: uuid("wallet_id")
+      .notNull()
+      .references(() => shopWallets.id, { onDelete: "restrict" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    type: shopWalletEntryTypeEnum("type").notNull(),
+    direction: ledgerDirectionEnum("direction").notNull(),
+    /** Always positive; `direction` says which way it moved. */
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    balanceBeforePaise: bigint("balance_before_paise", { mode: "number" }).notNull(),
+    balanceAfterPaise: bigint("balance_after_paise", { mode: "number" }).notNull(),
+    orderId: uuid("order_id").references(() => orders.id, { onDelete: "restrict" }),
+    paymentId: uuid("payment_id").references(() => payments.id, { onDelete: "restrict" }),
+    reason: text("reason").notNull(),
+    /** UNIQUE: a retried operation finds its row instead of moving money twice. */
+    idempotencyKey: text("idempotency_key").notNull(),
+    createdBy: uuid("created_by").references(() => users.id),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("shop_wallet_txn_idempotency_unique").on(t.idempotencyKey),
+    // The double-charge guard: an order is charged commission and delivery once.
+    uniqueIndex("shop_wallet_txn_order_charge_unique")
+      .on(t.orderId, t.type)
+      .where(sql`${t.orderId} IS NOT NULL AND ${t.type} IN ('COMMISSION', 'DELIVERY_CHARGE')`),
+    index("shop_wallet_txn_shop_idx").on(t.shopId, t.seq),
+    index("shop_wallet_txn_order_idx").on(t.orderId),
+    check("shop_wallet_txn_amount_positive", sql`${t.amountPaise} > 0`),
+    check(
+      "shop_wallet_txn_arithmetic",
+      sql`${t.balanceAfterPaise} = ${t.balanceBeforePaise} + CASE WHEN ${t.direction} = 'CREDIT' THEN ${t.amountPaise} ELSE -${t.amountPaise} END`,
+    ),
+    check(
+      "shop_wallet_txn_direction_matches_type",
+      sql`(${t.type} IN ('TOP_UP', 'MANUAL_CREDIT')) = (${t.direction} = 'CREDIT')`,
+    ),
+    check(
+      "shop_wallet_txn_order_charge_has_order",
+      sql`${t.type} NOT IN ('COMMISSION', 'DELIVERY_CHARGE') OR ${t.orderId} IS NOT NULL`,
+    ),
   ],
 );
 
@@ -5021,6 +5149,9 @@ export type CommissionRate = typeof commissionRates.$inferSelect;
 export type ShopSettlement = typeof shopSettlements.$inferSelect;
 export type RiderPayout = typeof riderPayouts.$inferSelect;
 export type OrderFinancial = typeof orderFinancials.$inferSelect;
+export type ShopWallet = typeof shopWallets.$inferSelect;
+export type ShopWalletTransaction = typeof shopWalletTransactions.$inferSelect;
+export type ShopWalletEntryType = (typeof shopWalletEntryTypeEnum.enumValues)[number];
 export type FinancialAdjustment = typeof financialAdjustments.$inferSelect;
 export type FinanceLedgerEntry = typeof financeLedgerEntries.$inferSelect;
 export type ReconciliationRecord = typeof reconciliationRecords.$inferSelect;

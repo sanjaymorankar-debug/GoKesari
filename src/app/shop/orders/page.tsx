@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { ShopOrderManager } from "@/components/shop-order-manager";
+import { ShopWalletBanner } from "@/components/shop-wallet-banner";
 import { EmptyState, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getDeliveryOrdersForOrders, getRiderSearchStatus } from "@/server/services/delivery-assignment";
@@ -9,6 +10,7 @@ import { listOrdersForShop } from "@/server/services/orders";
 import { listShopsForOwner } from "@/server/services/shops";
 import { proofPhotosForOrders } from "@/server/services/delivery-proofs";
 import { getRule } from "@/server/services/settings";
+import { getShopWalletStatus } from "@/server/services/shop-wallet";
 
 export const metadata = { title: "Shop Orders" };
 export const dynamic = "force-dynamic";
@@ -25,9 +27,10 @@ export default async function ShopOrdersPage() {
   if (shops.length === 0) redirect("/shop");
   const shop = shops[0];
 
-  const [orders, onlineProducts] = await Promise.all([
+  const [orders, onlineProducts, wallet] = await Promise.all([
     listOrdersForShop(shop.id, { limit: 100 }),
     listShopProducts(shop.id, { onlineOnly: true }),
+    getShopWalletStatus(shop.id),
   ]);
   const deliveryOrders = await getDeliveryOrdersForOrders(orders.map((o) => o.id));
   // NEW-007: invoice and delivery-photo links on delivered orders.
@@ -49,6 +52,8 @@ export default async function ShopOrdersPage() {
   return (
     <>
       <PageHeader title="Orders" description={`${shop.name} — manage and fulfil incoming orders.`} />
+      {/* Shop wallet: below the minimum the shop cannot accept new orders (the server refuses too). */}
+      <ShopWalletBanner {...wallet} />
 
       {orders.length === 0 ? (
         <EmptyState title="No orders yet." />

@@ -12,6 +12,7 @@
 | [run.sh.example](run.sh.example) | Reference `run.sh` (test-only guard, lock, log) |
 | [test-settings.sql](test-settings.sql) | X = 30, Y = 30, N = 4, SLA = 24 h and the new switches, for the test DB |
 | [DB_AUTOMATION.md](DB_AUTOMATION.md) | The "Test database" GitHub workflow: backup, migrate, settings, verify, rollback |
+| [PROD_DB.md](PROD_DB.md) | The "Production database" workflow: by hand, from `main`, typed confirmation; release order |
 
 ## What changed
 
@@ -114,8 +115,8 @@ there on purpose.
 ## Deploying to test
 
 Database steps are automated — see [DB_AUTOMATION.md](DB_AUTOMATION.md)
-(one-time GitHub setup: a `test` environment with the `TEST_DATABASE_URL`
-secret and two check variables). The "Test database" workflow backs up the
+(one-time GitHub setup: the `TEST_DATABASE_URL` repository secret and two
+check variables). The "Test database" workflow backs up the
 test database, migrates it to 0058 and applies `test-settings.sql`, and
 reports the result on the run page.
 
