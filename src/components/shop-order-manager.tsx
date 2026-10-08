@@ -238,7 +238,7 @@ function OrderRow({
         </p>
       ) : null}
 
-      {order.status === "READY" && deliveryAvailable && order.riderSearch ? (
+      {order.status === "READY" && deliveryAvailable && order.riderSearch && riderPlan ? (
         <p
           className="mt-2 rounded-lg bg-cream-100 px-3 py-2 text-sm text-ink-700"
           data-testid="rider-search-status"

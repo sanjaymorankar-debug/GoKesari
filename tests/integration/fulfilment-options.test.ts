@@ -225,12 +225,18 @@ describe("customer pickup", () => {
     expect(res.body.order.status).toBe("READY");
     expect(res.body.plan).toMatchObject({ option: "PICKUP", slotKey: slot, completed: false });
 
+    // The same "mark ready" again (double tap, retried request) answers with what was done.
+    const repeat = await plan(order.id, { option: "PICKUP", slotKey: slot, markReady: true });
+    expect(repeat.status, JSON.stringify(repeat.body)).toBe(200);
+    expect(repeat.body.order.status).toBe("READY");
+
     // No rider is looked for, even with one online next door.
     expect(await db.select().from(deliveryOrders).where(eq(deliveryOrders.orderId, order.id))).toHaveLength(0);
     expect(await db.select().from(riderSearches).where(eq(riderSearches.orderId, order.id))).toHaveLength(0);
 
     // The customer is told at once (in the app; email queued), with the time.
-    const [note] = await notes(customer.id, "order.fulfilment_set");
+    const [note, ...more] = await notes(customer.id, "order.fulfilment_set");
+    expect(more).toHaveLength(0); // the repeat told nobody twice
     expect(note.title).toBe("Ready for pickup");
     expect(note.body).toContain("Pickup from the shop");
 
@@ -261,9 +267,11 @@ describe("customer pickup", () => {
     const charges = await db.select().from(shopWalletTransactions).where(eq(shopWalletTransactions.orderId, order.id));
     expect(charges.map((c) => c.type)).toEqual(["COMMISSION"]);
 
-    // A second submit changes nothing.
+    // A second submit changes nothing and answers with the delivered order.
     const again = await handover(order.id, { action: "pickup", code: view.pickupCode });
-    expect(again.status).toBe(409);
+    expect(again.status).toBe(200);
+    expect(again.body.status).toBe("DELIVERED");
+    expect(await db.select().from(shopWalletTransactions).where(eq(shopWalletTransactions.orderId, order.id))).toHaveLength(1);
   });
 
   it("a cash-on-delivery pickup needs the cash confirmed", async () => {

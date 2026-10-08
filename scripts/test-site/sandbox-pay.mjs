@@ -9,6 +9,8 @@
  *
  *   node scripts/test-site/sandbox-pay.mjs <payment_session_id> <instrument> [card_number]
  *   instrument: upi-success | upi-failure | card-success | card-failure |
+ *               debit-card-success | credit-card-success (the card must be of that type:
+ *               otherwise the attempt is dropped, nothing is paid, and the run fails) |
  *               netbanking-success | netbanking-failure
  */
 const SANDBOX = "https://sandbox.cashfree.com/pg";
@@ -24,7 +26,7 @@ function paymentMethod() {
     // Cashfree's sandbox VPAs: the collect request succeeds / fails by itself.
     return { upi: { channel: "collect", upi_id: outcome === "success" ? "testsuccess@gocash" : "testfailure@gocash" } };
   }
-  if (instrument.startsWith("card-")) {
+  if (instrument.includes("card-")) {
     return {
       card: {
         channel: "link",
@@ -69,18 +71,34 @@ const describe = async (label) => {
   console.log(`${label}: ${new URL(page.url()).host} | ${text}\n  controls: ${JSON.stringify(buttons)}`);
 };
 await describe("authentication page");
-const otp = page.locator("input[type=password], input[name*=otp i], input[id*=otp i]").first();
-if (await otp.count()) {
-  await otp.fill(outcome === "success" ? "111000" : "000000");
+// Cashfree's simulator: an OTP box (the page prints the test OTP), the outcome
+// to send (SUCCESS / PENDING / USER_DROPPED / FAILED) and Submit.
+const shown = (await page.locator("body").innerText().catch(() => "")).match(/OTP\s*-\s*(\d{4,8})/);
+const otp = page.locator("input:not([type=radio]):not([type=checkbox]):not([type=hidden]):not([type=submit])").first();
+if (await otp.count()) await otp.fill(shown?.[1] ?? "111000");
+const wantType = instrument.startsWith("debit-card") ? "Debit Card" : instrument.startsWith("credit-card") ? "Credit Card" : null;
+const pageText = await page.locator("body").innerText().catch(() => "");
+const wrongType = wantType && !pageText.includes(wantType);
+if (wrongType) console.log(`This card is not a ${wantType} here — dropping the attempt (nothing is paid).`);
+const status = wrongType ? "USER_DROPPED" : outcome === "success" ? "SUCCESS" : "FAILED";
+const radio = page.getByLabel(status, { exact: true });
+if (await radio.count()) await radio.first().check({ force: true });
+else await page.getByText(status, { exact: true }).first().click().catch(() => {});
+const failureType = page.locator("select").first();
+if (outcome !== "success" && (await failureType.count())) {
+  const options = await failureType.locator("option").allInnerTexts();
+  if (options.length > 1) await failureType.selectOption({ index: 1 });
 }
-const choice = page.getByRole("button", { name: new RegExp(outcome === "success" ? "success|submit|pay|confirm" : "fail|cancel|decline", "i") }).first();
-if (await choice.count()) {
-  await choice.click();
+await page.waitForTimeout(500);
+const submit = page.getByRole("button", { name: /submit|pay|confirm/i }).first();
+if (await submit.count()) {
+  await submit.click({ timeout: 15000 });
   await page.waitForLoadState("domcontentloaded").catch(() => {});
   await page.waitForTimeout(4000);
-  await describe("after choosing");
+  await describe("after submitting");
+  if (wrongType) process.exitCode = 3;
 } else {
-  console.log("No success/failure control found on the page.");
+  console.log("No submit control found on the page.");
   process.exitCode = 1;
 }
 await browser.close();

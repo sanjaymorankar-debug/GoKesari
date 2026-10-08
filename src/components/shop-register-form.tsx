@@ -352,6 +352,12 @@ export function ShopRegisterForm({
                   onChange={(e) => {
                     setReferralCode(e.target.value.toUpperCase());
                     setReferralCheck(null);
+                    // A corrected code must not keep showing the last submit's error.
+                    setFieldErrors((prev) => {
+                      const next = { ...prev };
+                      delete next.referralCode;
+                      return next;
+                    });
                   }}
                   onBlur={() => void checkReferral()}
                   autoComplete="off"

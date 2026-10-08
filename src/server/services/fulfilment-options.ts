@@ -507,6 +507,20 @@ export async function planFulfilment(
   const current = await db.query.orders.findFirst({ where: eq(orders.id, orderId) });
   if (!current) throw notFound("Order");
 
+  // A repeated "mark ready" (double tap, or a retried request) after the first
+  // one went through answers with what it did, instead of an error.
+  if (input.markReady && current.status !== "PREPARING") {
+    const existing = await db.query.orderFulfilmentArrangements.findFirst({ where: eq(orderFulfilmentArrangements.orderId, orderId) });
+    if (
+      existing &&
+      existing.option === input.option &&
+      slotKeyFor(existing.scheduledStart) === input.slotKey &&
+      (existing.staffId ?? null) === (input.option === "SHOP_DELIVERY" ? (input.staffId ?? null) : null)
+    ) {
+      return { order: { id: current.id, orderNumber: current.orderNumber, status: current.status }, plan: existing };
+    }
+  }
+
   if (input.markReady && current.status === "PREPARING") {
     const ready = await markOrderReady(orderId, actor, {
       beforeReady: async (tx, locked) => {
@@ -727,7 +741,10 @@ export async function completePickup(
 ): Promise<Pick<Order, "id" | "orderNumber" | "status">> {
   const { order, plan } = await loadPlanForOrder(orderId);
   if (plan.option !== "PICKUP") throw conflict("This order is not for pickup.");
-  if (plan.completedAt || order.status === "DELIVERED") throw conflict("This order has already been collected.");
+  if (plan.completedAt || order.status === "DELIVERED") {
+    // A repeated submit after the first one completed it.
+    return { id: order.id, orderNumber: order.orderNumber, status: order.status };
+  }
   if (order.status !== "READY") throw conflict("Mark the order ready before handing it over.");
   await checkCode(plan, input.code, actor);
   assertCash(order, input.cashCollected);
@@ -795,9 +812,13 @@ export async function startOwnDelivery(orderId: string, actor: Actor, by?: strin
       })
       .where(and(eq(orderFulfilmentArrangements.id, plan.id), isNull(orderFulfilmentArrangements.outForDeliveryAt), eq(orderFulfilmentArrangements.option, "SHOP_DELIVERY")))
       .returning();
-    if (!claimed) throw conflict("This order is already out for delivery.");
+    if (!claimed) return null; // a concurrent start already sent it out (and emailed the code)
     return updateOrderStatus(order.id, "OUT_FOR_DELIVERY", actor, by ? `Out for delivery with ${by}` : "Out for delivery (shop's own delivery)", tx);
   });
+  if (!updated) {
+    const [now] = await db.select().from(orders).where(eq(orders.id, order.id));
+    return { id: now.id, orderNumber: now.orderNumber, status: now.status };
+  }
   await recordAudit({
     actorId: actor.id,
     actorRole: actor.role,
