@@ -16,7 +16,7 @@ before.
 | 4 | Mandatory referral code + request a code | `shopReferral` | `drizzle/0064_referral_code_requests.sql` | `scripts/rollback-0064.sql` |
 
 Test checklist (every flow, every role): [TEST_CHECKLIST.md](TEST_CHECKLIST.md).
-Test results: [TEST_RESULTS.md](TEST_RESULTS.md).
+Test results on test.gokesari.com, step by step: [TEST_RESULTS.md](TEST_RESULTS.md).
 
 ---
 
@@ -272,6 +272,39 @@ Decisions taken without asking, with the reason. Flag any you want changed.
 - **F4-6. Issuing a code** creates an ordinary referral code labelled with the
   request reference (typed, or generated as `GKS` + 6 characters); the requester
   is told in the app and by email when they were signed in.
+
+### Found and decided during the staging run (8–9 Oct 2026)
+- **S-1. Repeated requests are harmless.** On test a "Packed — mark ready"
+  was executed twice. A double tap, or the slow test server's edge repeating a
+  long request, could cause it. The second answered 409 although the first had
+  worked. A repeated "mark ready" with the plan already applied, a repeated
+  pickup completion and a concurrent "start delivery" now answer with what was
+  done. Nothing happens twice: one notification, one wallet charge, one code email.
+- **S-2. ₹1 refund status is re-checked.** Cashfree first answers a refund as
+  PENDING. The status is now asked again, by our own refund id, whenever the
+  account is shown to its holder or to finance, and recorded as REFUNDED (or
+  FAILED when Cashfree cancelled it).
+- **S-3. Small UI fixes.** A corrected referral code no longer shows the last
+  submit's error. "FSSAI licence" keeps its capitals mid-sentence. The
+  rider-search note is hidden on pickup and own-delivery orders.
+- **S-4. Lock alerts are in-app.** A locked pickup or own-delivery code tells the
+  customer, the shop and support in the app straight away, with the ticket
+  number. Emails go only where the event catalogue marks EMAIL (the delivery code
+  itself, plan set / changed, decisions on legal documents).
+- **T-1. How the staging run signed in.** Test accounts are plus-aliases of the
+  owner's mailbox (sanjaymorankar+gk-*@gmail.com), signing in with the real
+  email code. `test-e2e-accounts.sql` gave one of them ADMIN and one OPERATOR on
+  the test database. Remove them after testing (commands in that file).
+- **T-2. Readable copy of the referral email.** On test only, `shopReferral.notifyEmails`
+  also lists sanjaymorankar+gk-referrals@gmail.com, so the email's arrival and
+  content could be checked. Remove it in Business rules → shopReferral when done.
+- **T-3. Cashfree sandbox from a GitHub runner.** The session that ran the tests
+  cannot reach Cashfree (its network policy blocks the host). The site itself
+  created each ₹1 order and confirmed and refunded it with Cashfree as normal.
+  Only the "customer pays" step ran on a GitHub runner (`.github/workflows/sandbox-pay.yml`,
+  sandbox only, no secrets), using Cashfree's test instruments: UPI
+  testsuccess@gocash / testfailure@gocash, credit card 4111 1111 1111 1111,
+  debit card 4706 1312 1121 2123, net banking (bank 3003), OTP 111000.
 
 ---
 
