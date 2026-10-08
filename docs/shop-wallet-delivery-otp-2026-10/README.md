@@ -12,7 +12,7 @@ Built on the `staging` branch (the test site), on top of the event layer
 
 - Test checklist: [TEST_CHECKLIST.md](TEST_CHECKLIST.md)
 - Test values: [test-settings.sql](test-settings.sql) — applied to the test database by the "Test database" workflow when it changes on `staging`
-- Test credits: [test-wallet-credits.sql](test-wallet-credits.sql) — wallet credits for named test shops (Asmy Exports ₹1,000, QA Test Bakery A ₹500, QA Test Bakery B ₹500), applied the same way, each once
+- Test credits: [test-wallet-credits.sql](test-wallet-credits.sql) — wallet credits for named test shops (Asmy Exports ₹1,000, QA Test Bakery A ₹500, QA Test Bakery B ₹500) and ₹5,000 for every shop onboarded (approved) by 8 Oct 2026 17:55 UTC, applied the same way, each once
 - Migration: `drizzle/0059_shop_wallet_delivery_otp.sql` · rollback: `scripts/rollback-0059.sql`
 
 ## 1. What existed before (inspection)
