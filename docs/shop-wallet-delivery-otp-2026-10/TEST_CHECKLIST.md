@@ -5,7 +5,8 @@ Run on the **test site only**. Before starting:
 1. Migration **0059** applied to the test database (merging the PR into
    `staging` does this automatically through the "Test database" workflow,
    after a backup; or run `npm run db:migrate` against the test database).
-2. `test-settings.sql` (this folder) run on the test database — switches rule
+2. `test-settings.sql` (this folder) applied to the test database (the "Test
+   database" workflow does it when the file changes on `staging`) — switches rule
    `shopWallet` on with the agreed amounts: ₹25 delivery charge, ₹200
    minimum, reminder below ₹300, 1% platform commission; 5 wrong codes, a
    new code at most every 60 s and 3 per delivery.

@@ -31,7 +31,13 @@ event_tables=$(psqlq -c "select count(*) from (values ('domain_events'), ('dispu
   echo "### Business rules on this database"
   echo '```'
   psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -c "select key, value from platform_settings
-    where key in ('shopAcceptance','dispatch','notifications','disputes','sellerVerification','tracking') order by key"
+    where key in ('shopAcceptance','dispatch','notifications','disputes','sellerVerification','tracking','shopWallet','deliveryOtp') order by key"
+  echo '```'
+  echo
+  echo "### Commission rates in force"
+  echo '```'
+  psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -c "select scope, shop_type, shop_id, rate_bp, round(rate_bp / 100.0, 2) as percent, created_at
+    from commission_rates where is_active order by scope, created_at desc"
   echo '```'
 } | tee -a "${GITHUB_STEP_SUMMARY:-/dev/null}"
 

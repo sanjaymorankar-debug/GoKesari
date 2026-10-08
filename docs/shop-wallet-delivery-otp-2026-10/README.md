@@ -11,7 +11,7 @@ Built on the `staging` branch (the test site), on top of the event layer
 (migration 0058, docs/event-driven-2026-10).
 
 - Test checklist: [TEST_CHECKLIST.md](TEST_CHECKLIST.md)
-- Test values: [test-settings.sql](test-settings.sql) — run by hand on the test database
+- Test values: [test-settings.sql](test-settings.sql) — applied to the test database by the "Test database" workflow when it changes on `staging`
 - Migration: `drizzle/0059_shop_wallet_delivery_otp.sql` · rollback: `scripts/rollback-0059.sql`
 
 ## 1. What existed before (inspection)
@@ -91,8 +91,10 @@ low-balance reminder ₹300, commission 1%**. All stay configurable without a de
 
 **On test:** merging this PR into `staging` runs the "Test database" workflow,
 which backs up the test database and applies 0059 (it watches `drizzle/**`).
-Nothing is charged until you run `test-settings.sql` (or switch `shopWallet`
-on in Business rules). To apply by hand instead: back up, then
+Nothing is charged until `test-settings.sql` is applied (or `shopWallet` is
+switched on in Business rules). The same workflow applies it, after a backup,
+whenever the file changes on `staging`, or by hand with Run workflow →
+`shop-wallet-settings`. To migrate by hand instead: back up, then
 `DATABASE_URL=<test db> npm run db:migrate`.
 
 **Production (later): apply 0059 BEFORE deploying the code.** The new code

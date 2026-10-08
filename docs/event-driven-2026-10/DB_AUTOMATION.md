@@ -38,19 +38,22 @@ Never paste the URL into chat, a commit or an issue — only into the secret.
 | When | What happens |
 |---|---|
 | A PR that adds a migration (`drizzle/**`) is merged into `staging` | Back up → migrate → verify |
-| `docs/event-driven-2026-10/test-settings.sql` or the workflow changes on `staging` | Back up → migrate → apply the test settings → verify |
+| `docs/event-driven-2026-10/test-settings.sql` changes on `staging` | Back up → migrate → apply the test settings → verify |
+| `docs/shop-wallet-delivery-otp-2026-10/test-settings.sql` changes on `staging` | Back up → migrate → apply the shop wallet settings (rule `shopWallet`, `deliveryOtp`, 1% default commission) → verify |
+| The workflow itself changes on `staging` | Back up → migrate → verify (settings are not re-applied) |
 | Every night 02:17 IST | Back up (once the workflow file is on `main` — GitHub only schedules from the default branch) |
-| By hand: Actions → Test database → Run workflow (branch `staging`) | `migrate`, `settings`, `migrate-and-settings`, `backup`, `verify`, or `rollback-0058` (type `ROLLBACK 0058` to confirm) |
+| By hand: Actions → Test database → Run workflow (branch `staging`) | `migrate`, `settings`, `migrate-and-settings`, `shop-wallet-settings`, `backup`, `verify`, or `rollback-0058` (type `ROLLBACK 0058` to confirm) |
 
 GitHub shows the **Run workflow** button only once the file is on the default
 branch (`main`). Until then the automatic runs above cover everything.
 
 Each run's page has a summary: the target database, the backup file, what was
-migrated, the migration the database is on, and the business-rule values.
+migrated, the migration the database is on, the business-rule values and
+the commission rates in force.
 
-**The merge that adds this workflow** changes the workflow file, so it runs
+**The merge that added this workflow** changed the workflow file, so it ran
 back up → migrate (0058) → apply test settings → verify on the test database
-straight away — do the one-time setup first. If it ran before the secret
+straight away (a workflow change no longer re-applies the settings). If it ran before the secret
 existed, it stops at the guard and changes nothing: open that run and press
 **Re-run all jobs** once the setup is done.
 
