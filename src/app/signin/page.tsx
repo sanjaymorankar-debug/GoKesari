@@ -5,6 +5,7 @@ import { isRedirectError } from "next/dist/client/components/redirect-error";
 import { OtpLoginForm } from "@/components/otp-login-form";
 import { Card } from "@/components/ui";
 import { getEnv } from "@/lib/env";
+import { isMobileAppUserAgent } from "@/lib/mobile-app";
 import { getCurrentUser } from "@/server/authz/guards";
 import { OTP_TICKET_PROVIDER_ID, signIn } from "@/server/auth";
 import { EMAIL_PROVIDER_ID, emailSignInMode } from "@/server/auth-email";
@@ -35,7 +36,12 @@ export default async function SignInPage({
 
   const env = getEnv();
   const googleEnabled = Boolean(env.AUTH_GOOGLE_ID && env.AUTH_GOOGLE_SECRET);
-  const emailEnabled = emailSignInMode(env) !== "disabled";
+  // In the mobile app an emailed link opens in the phone's browser and signs
+  // that browser in, not the app — the app offers the emailed code instead.
+  // (Google works in the app: it hands the sign-in to the system browser and
+  // back, see src/server/mobile-auth.ts.)
+  const inMobileApp = isMobileAppUserAgent((await headers()).get("user-agent"));
+  const emailEnabled = emailSignInMode(env) !== "disabled" && !inMobileApp;
   const query = await searchParams;
   const checkEmail = Boolean(query["check-email"]);
   // Auth.js sends AccessDenied when the signIn callback refuses: a suspended or closed account.
