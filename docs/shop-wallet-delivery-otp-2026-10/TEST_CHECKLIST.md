@@ -11,10 +11,9 @@ Run on the **test site only**. Before starting:
    minimum, reminder below ₹300, 1% platform commission; 5 wrong codes, a
    new code at most every 60 s and 3 per delivery.
 3. SMTP working on test (the delivery code goes by email; sign-in codes already do).
-4. `test-wallet-credits.sql` gave **Kesari Dairy Farm** ₹500 and **Asmy Exports**
-   ₹1,000 ("Credit by GoKesari" in their wallet history), so they can accept
-   orders straight away. Section 0 starts from ₹0, so run it with another shop,
-   or expect that credit row first.
+4. `test-wallet-credits.sql` gave **Asmy Exports** ₹1,000 ("Credit by GoKesari"
+   in its wallet history), so it can accept orders straight away. Section 0
+   starts from ₹0, so run it with another shop, or expect that credit row first.
 
 **Accounts:** a customer with wallet money; a shop owner (approved shop,
 delivery on, verified location); two riders (approved, online, near the
