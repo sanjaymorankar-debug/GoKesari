@@ -41,9 +41,10 @@ Never paste the URL into chat, a commit or an issue — only into the secret.
 | `docs/event-driven-2026-10/test-settings.sql` changes on `staging` | Back up → migrate → apply the test settings → verify |
 | `docs/shop-wallet-delivery-otp-2026-10/test-settings.sql` changes on `staging` | Back up → migrate → apply the shop wallet settings (rule `shopWallet`, `deliveryOtp`, 1% default commission) → verify |
 | `docs/shop-wallet-delivery-otp-2026-10/test-wallet-credits.sql` changes on `staging` | Back up → migrate → apply the shop wallet credits not yet applied (each row once, by its key) → verify |
+| `docs/three-modules-2026-10/test-settings.sql` changes on `staging` | Back up → migrate → apply the three-modules settings (rule `selfRegistration` on, `invoicing` on, test amounts for the five fee plans) → verify |
 | The workflow itself changes on `staging` | Back up → migrate → verify (settings are not re-applied) |
 | Every night 02:17 IST | Back up (once the workflow file is on `main` — GitHub only schedules from the default branch) |
-| By hand: Actions → Test database → Run workflow (branch `staging`) | `migrate`, `settings`, `migrate-and-settings`, `shop-wallet-settings`, `shop-wallet-credits`, `backup`, `verify`, or `rollback-0058` (type `ROLLBACK 0058` to confirm) |
+| By hand: Actions → Test database → Run workflow (branch `staging`) | `migrate`, `settings`, `migrate-and-settings`, `shop-wallet-settings`, `shop-wallet-credits`, `three-modules-settings`, `backup`, `verify`, or `rollback-0058` (type `ROLLBACK 0058` to confirm) |
 
 GitHub shows the **Run workflow** button only once the file is on the default
 branch (`main`). Until then the automatic runs above cover everything.

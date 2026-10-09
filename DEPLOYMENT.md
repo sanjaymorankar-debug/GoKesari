@@ -277,6 +277,16 @@ before switching the rule on:
   -H "Authorization: Bearer $CRON_SECRET" >> /var/log/shop-acceptance.log 2>&1
 ```
 
+Accounting integration (Module 2, docs/three-modules-2026-10) — invoices and
+credit notes are sent to the shop's software by the event that creates them;
+this minute sweep only runs retries that came due, re-queues a missed push and
+warns about offline Tally connectors:
+
+```bash
+* * * * * curl -fsS -X POST https://your-domain.com/api/cron/integration-sync \
+  -H "Authorization: Bearer $CRON_SECRET" >> /var/log/integration-sync.log 2>&1
+```
+
 Any scheduler works — the host's cron panel, GitHub Actions on a schedule, or an
 external monitor. The job is idempotent, so a duplicate or retried run is
 harmless.

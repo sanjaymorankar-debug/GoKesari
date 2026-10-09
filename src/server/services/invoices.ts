@@ -29,9 +29,11 @@ import { and, desc, eq, sql } from "drizzle-orm";
 import { conflict, notFound } from "@/lib/errors";
 import { formatPaise, formatQuantity } from "@/lib/money";
 import { PDF_LINE_WIDTH, textPdf, type PdfLine } from "@/lib/pdf";
+import { stateLabel } from "@/lib/gst-states";
 import { db, type DbClient } from "@/server/db";
 import {
   addresses,
+  einvoiceRecords,
   invoiceCounters,
   orderItems,
   orders,
@@ -48,6 +50,8 @@ import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { toStateCode } from "./seller-verification-checks";
 import { getRule } from "./settings";
+import { documentNumbering, formatDocumentNumber, hsnFallbackRate } from "@/server/gst/rules";
+import { uqcFor } from "@/server/integrations/canonical";
 
 export interface InvoiceLine {
   description: string;
@@ -60,6 +64,11 @@ export interface InvoiceLine {
   cgstPaise: number;
   sgstPaise: number;
   igstPaise: number;
+  /** Module 2 (invoices issued from this release on): the listing, numeric quantity, unit and GST unit code. */
+  shopProductId?: string | null;
+  qty?: number;
+  unit?: string;
+  uqc?: string;
 }
 
 export interface InvoiceSnapshot {
@@ -82,6 +91,8 @@ export interface InvoiceSnapshot {
   };
   buyer: { name: string; address: string; gstin: string | null };
   placeOfSupply: string;
+  /** Module 2: Rule 46 — tax payable on reverse charge (never, for these supplies). */
+  reverseCharge?: boolean;
   lines: InvoiceLine[];
   totals: { taxablePaise: number; cgstPaise: number; sgstPaise: number; igstPaise: number; totalPaise: number };
   payment: {
@@ -93,6 +104,8 @@ export interface InvoiceSnapshot {
     paidByCustomerPaise: number;
   };
   notes: string[];
+  /** Module 2: shown when an e-invoice (IRN) exists — added at render time, not stored. */
+  einvoice?: { irn: string; ackNo: string | null; ackDate: string | null };
 }
 
 /** Financial year (April–March) of a moment, in IST: "2026-27". */
@@ -181,21 +194,31 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
     sellerState && buyerState && sellerState !== buyerState ? "INTER" : "INTRA";
 
   const items = await client
-    .select({ item: orderItems, hsn: products.hsnCode, gstRateBp: products.gstRateBp })
+    .select({
+      item: orderItems,
+      hsn: products.hsnCode,
+      gstRateBp: products.gstRateBp,
+      // Module 2: the shop's own classification (from its accounting software) wins.
+      shopHsn: shopProducts.hsnCode,
+      shopGstRateBp: shopProducts.gstRateBp,
+    })
     .from(orderItems)
     .leftJoin(shopProducts, eq(shopProducts.id, orderItems.shopProductId))
     .leftJoin(products, eq(products.id, shopProducts.productId))
     .where(eq(orderItems.orderId, orderId));
 
   const lines: InvoiceLine[] = [];
-  for (const { item, hsn, gstRateBp } of items) {
+  for (const { item, hsn: masterHsn, gstRateBp: masterRate, shopHsn, shopGstRateBp } of items) {
     if (item.fulfilmentStatus === "REMOVED") continue;
+    const hsn = shopHsn ?? masterHsn;
+    // Rate: the shop's, the product's, then the dated HSN table, then the rule default (marked).
+    const gstRateBp = shopGstRateBp ?? masterRate ?? (await hsnFallbackRate(hsn, issuedAt, client))?.rateBp ?? null;
     const substituted = item.fulfilmentStatus === "SUBSTITUTED" && item.substituteLineTotalPaise != null;
     const gross = substituted ? item.substituteLineTotalPaise! : item.lineTotalPaise;
     const name = substituted ? (item.substituteNameSnapshot ?? item.productNameSnapshot) : item.productNameSnapshot;
-    const qty = substituted
-      ? formatQuantity(item.substituteQuantityMilli ?? item.quantityMilli, item.substituteUnitSnapshot ?? item.unitSnapshot)
-      : formatQuantity(item.quantityMilli, item.unitSnapshot);
+    const qtyMilli = substituted ? (item.substituteQuantityMilli ?? item.quantityMilli) : item.quantityMilli;
+    const unit = substituted ? (item.substituteUnitSnapshot ?? item.unitSnapshot) : item.unitSnapshot;
+    const qty = formatQuantity(qtyMilli, unit);
     const rateAssumed = gstRateBp == null;
     const rate = kind === "TAX_INVOICE" ? (gstRateBp ?? rule.defaultGstRateBp) : 0;
     lines.push({
@@ -206,6 +229,10 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
       rateAssumed: kind === "TAX_INVOICE" && rateAssumed,
       grossPaise: gross,
       ...splitInclusive(gross, rate, supplyType),
+      shopProductId: item.shopProductId,
+      qty: qtyMilli / 1000,
+      unit,
+      uqc: uqcFor(unit),
     });
   }
   const sum = (k: keyof Pick<InvoiceLine, "taxablePaise" | "cgstPaise" | "sgstPaise" | "igstPaise" | "grossPaise">) =>
@@ -239,6 +266,7 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
       gstin: buyerShop?.gstin ?? null,
     },
     placeOfSupply: buyerState ?? sellerState ?? "Local",
+    reverseCharge: false,
     lines,
     totals: {
       taxablePaise: sum("taxablePaise"),
@@ -264,13 +292,18 @@ const isUniqueViolation = (error: unknown) =>
 
 /**
  * Issues the order's invoice, or returns the one already issued. Null while
- * the rule is off. `client` lets the DELIVERED transition issue it in its own
- * transaction.
+ * the rule is off — unless `force` (Module 2: the shop has an accounting
+ * connection, which needs a numbered invoice to send). `client` lets the
+ * DELIVERED transition issue it in its own transaction.
  */
-export async function issueInvoiceForOrder(orderId: string, client: DbClient = db): Promise<TaxInvoice | null> {
+export async function issueInvoiceForOrder(
+  orderId: string,
+  client: DbClient = db,
+  options: { force?: boolean } = {},
+): Promise<TaxInvoice | null> {
   const existing = await client.query.taxInvoices.findFirst({ where: eq(taxInvoices.orderId, orderId) });
   if (existing) return existing;
-  if (!(await getRule("invoicing")).enabled) return null;
+  if (!options.force && !(await getRule("invoicing")).enabled) return null;
 
   const issuedAt = new Date();
   const run = async (tx: DbClient) => {
@@ -284,7 +317,14 @@ export async function issueInvoiceForOrder(orderId: string, client: DbClient = d
         set: { lastNumber: sql`${invoiceCounters.lastNumber} + 1` },
       })
       .returning();
-    const invoiceNumber = `${shop.registrationNumber}/${financialYear}/${String(counter.lastNumber).padStart(6, "0")}`;
+    // Module 2: LEGACY (as before) or the 16-character GST format, by dated rule.
+    const invoiceNumber = formatDocumentNumber(
+      await documentNumbering(issuedAt, tx),
+      "INVOICE",
+      shop.registrationNumber,
+      financialYear,
+      counter.lastNumber,
+    );
     const full: InvoiceSnapshot = { ...snapshot, invoiceNumber, financialYear };
     const [invoice] = await tx
       .insert(taxInvoices)
@@ -408,11 +448,19 @@ export function invoiceTextLines(s: InvoiceSnapshot): PdfLine[] {
   );
   add(`GoKesari shop no: ${s.seller.registrationNumber}`);
   add();
+  if (s.seller.stateCode) add(`State: ${stateLabel(s.seller.stateCode) ?? s.seller.stateCode}`);
+  add();
   add("BILL TO / SHIP TO", true);
   wrap(s.buyer.name);
   wrap(s.buyer.address);
   if (s.buyer.gstin) add(`GSTIN: ${s.buyer.gstin}`);
-  add(`Place of supply: ${s.placeOfSupply}   Supply: ${s.supplyType === "INTRA" ? "Intra-state (CGST + SGST)" : "Inter-state (IGST)"}`);
+  wrap(
+    `Place of supply: ${stateLabel(s.placeOfSupply) ?? s.placeOfSupply}   Supply: ${s.supplyType === "INTRA" ? "Intra-state (CGST + SGST)" : "Inter-state (IGST)"}   Reverse charge: No`,
+  );
+  if (s.einvoice) {
+    add(`IRN: ${s.einvoice.irn}`);
+    add(`Ack no: ${s.einvoice.ackNo ?? "-"}   Ack date: ${s.einvoice.ackDate ? fmtDate(s.einvoice.ackDate) : "-"}`);
+  }
   add(rule);
 
   const intra = s.supplyType === "INTRA";
@@ -448,11 +496,24 @@ export function invoiceTextLines(s: InvoiceSnapshot): PdfLine[] {
   pair(`Paid by customer (${s.payment.method === "COD" ? "cash on delivery" : "GoKesari wallet"})`, money(s.payment.paidByCustomerPaise));
   add();
   for (const note of s.notes) wrap(`Note: ${note}`);
+  add();
+  add(`For ${s.seller.legalName}`);
+  add("Authorised signatory (electronically issued)");
   add("This is a computer-generated document issued through GoKesari on behalf of the seller.");
   return out;
 }
 
-export function renderInvoicePdf(invoice: TaxInvoice): Buffer {
-  const s = invoice.snapshot as unknown as InvoiceSnapshot;
+export function renderInvoicePdf(invoice: TaxInvoice, einvoice?: { irn: string; ackNo: string | null; ackDate: string | null } | null): Buffer {
+  const s = { ...(invoice.snapshot as unknown as InvoiceSnapshot), einvoice: einvoice ?? undefined };
   return textPdf(invoiceTextLines(s), { title: `Invoice ${s.invoiceNumber}` });
+}
+
+/** Module 2: the invoice's e-invoice (IRN) when one was generated. */
+export async function einvoiceFor(invoiceId: string) {
+  const [row] = await db
+    .select({ irn: einvoiceRecords.irn, ackNo: einvoiceRecords.ackNo, ackDate: einvoiceRecords.ackDate, signedQr: einvoiceRecords.signedQr, status: einvoiceRecords.status })
+    .from(einvoiceRecords)
+    .where(eq(einvoiceRecords.taxInvoiceId, invoiceId));
+  if (!row || row.status !== "GENERATED" || !row.irn) return null;
+  return { irn: row.irn, ackNo: row.ackNo, ackDate: row.ackDate?.toISOString() ?? null, signedQr: row.signedQr };
 }

@@ -22,7 +22,7 @@ case "$BASE_URL" in
 esac
 
 case "$JOB" in
-  timeout-sweep|notification-retry|risk-rules|dispute-escalation|daily-orders|seller-verification|finance-weekly) ;;
+  timeout-sweep|notification-retry|integration-sync|risk-rules|dispute-escalation|daily-orders|seller-verification|finance-weekly) ;;
   # Old polling jobs — still accepted so the previous crontab can be restored (ROLLBACK.md).
   shop-acceptance|delivery-dispatch|notifications) ;;
   *) echo "$(date -u +%FT%TZ) unknown job '$JOB'" >> "$LOG"; exit 2 ;;

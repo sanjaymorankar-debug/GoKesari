@@ -1,0 +1,56 @@
+name: Tally connector build
+
+# Builds the GoKesari Connector for TallyPrime (connector/tally) into one
+# Windows .exe with Node's single-executable-application support, adds the
+# WinSW service wrapper, and uploads a zip to the run's artifacts. Runs only
+# when the connector changes, or by hand.
+on:
+  push:
+    branches: [main, staging]
+    paths: ["connector/tally/**", ".github/workflows/connector-tally.yml"]
+  pull_request:
+    paths: ["connector/tally/**", ".github/workflows/connector-tally.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: windows-latest
+    defaults:
+      run:
+        working-directory: connector/tally
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+
+      - name: Syntax check and self-test
+        run: |
+          node --check connector.cjs
+          node connector.cjs version
+
+      - name: Build single executable
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force dist | Out-Null
+          node --experimental-sea-config sea-config.json
+          Copy-Item (Get-Command node).Source dist/gokesari-connector.exe
+          npx --yes postject@1.0.0-alpha.6 dist/gokesari-connector.exe NODE_SEA_BLOB dist/sea-prep.blob --sentinel-fuse NODE_SEA_FUSE_fce680ab2cc467b6e072b8b5df1996b2
+          ./dist/gokesari-connector.exe version
+
+      - name: Add the Windows service wrapper (WinSW 2.12.0, MIT)
+        shell: pwsh
+        run: |
+          Invoke-WebRequest -Uri https://github.com/winsw/winsw/releases/download/v2.12.0/WinSW-x64.exe -OutFile dist/GoKesariConnector.exe
+          Copy-Item GoKesariConnector.xml, install.cmd, uninstall.cmd, README.md dist/
+          Remove-Item dist/sea-prep.blob
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: gokesari-connector-windows-x64
+          path: connector/tally/dist/
+          retention-days: 30

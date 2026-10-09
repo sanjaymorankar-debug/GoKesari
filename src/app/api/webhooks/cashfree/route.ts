@@ -26,6 +26,7 @@ import type { NextRequest } from "next/server";
 import { NextResponse } from "next/server";
 
 import { getEnv } from "@/lib/env";
+import { isRegistrationOrder, processRegistrationPaymentEvent } from "@/server/registration/service";
 import { creditFromWebhook, verifyWebhookSignature } from "@/server/services/payments";
 
 export const dynamic = "force-dynamic";
@@ -33,8 +34,8 @@ export const dynamic = "force-dynamic";
 interface CashfreeWebhookPayload {
   type: string;
   data?: {
-    order?: { order_id?: string };
-    payment?: { cf_payment_id?: string; payment_status?: string };
+    order?: { order_id?: string; order_amount?: number; order_currency?: string };
+    payment?: { cf_payment_id?: string | number; payment_status?: string; payment_amount?: number; payment_currency?: string };
   };
 }
 
@@ -66,6 +67,28 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
     return NextResponse.json({ error: "Malformed payload" }, { status: 400 });
   }
 
+  // Module 3: shop self-registration fees (reg_ orders) — approved here and
+  // only here, after the amount is checked against the fee. Failed / dropped
+  // payments are recorded so the applicant can retry.
+  const registrationOrderId = event.data?.order?.order_id;
+  if (registrationOrderId && isRegistrationOrder(registrationOrderId)) {
+    try {
+      const outcome = await processRegistrationPaymentEvent({
+        orderId: registrationOrderId,
+        paymentId: event.data?.payment?.cf_payment_id != null ? String(event.data.payment.cf_payment_id) : null,
+        paymentStatus: event.data?.payment?.payment_status ?? (event.type === "PAYMENT_SUCCESS_WEBHOOK" ? "SUCCESS" : event.type),
+        orderAmount: event.data?.order?.order_amount ?? null,
+        paymentAmount: event.data?.payment?.payment_amount ?? null,
+        currency: event.data?.payment?.payment_currency ?? event.data?.order?.order_currency ?? null,
+        raw: event as unknown as Record<string, unknown>,
+      });
+      return NextResponse.json({ received: true, outcome: outcome.outcome });
+    } catch (error) {
+      console.error("[webhook] registration payment processing failed", error);
+      return NextResponse.json({ error: "Processing failed" }, { status: 500 });
+    }
+  }
+
   // Only a SUCCESS payment actually confirms money moved. Other event types
   // (order-level updates, failed/dropped payments) are acknowledged (2xx, so
   // Cashfree stops retrying) but intentionally not acted on — acting on
@@ -82,7 +105,7 @@ export async function POST(request: NextRequest): Promise<NextResponse> {
   }
 
   try {
-    await creditFromWebhook(gatewayOrderId, gatewayPaymentId);
+    await creditFromWebhook(gatewayOrderId, String(gatewayPaymentId));
   } catch (error) {
     // A genuine processing failure (DB unavailable, etc.) — return non-2xx so
     // Cashfree retries per its documented backoff, rather than silently

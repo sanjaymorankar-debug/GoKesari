@@ -1,0 +1,6 @@
+{
+  "main": "connector.cjs",
+  "output": "dist/sea-prep.blob",
+  "disableExperimentalSEAWarning": true,
+  "useCodeCache": false
+}

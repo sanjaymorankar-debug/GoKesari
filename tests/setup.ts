@@ -44,3 +44,13 @@ env.KYC_ENV = "sandbox";
 // Fixed test-only AES-256 key (32 bytes, base64) so PAN encryption tests
 // don't depend on a real secret ever landing in .env.
 env.PAN_ENCRYPTION_KEY ??= "VEqrHq1Y8qZmFzw8A9VFcDd+fsBqEXDUOA/9d0ieO+U=";
+// Module 2: a fixed test-only key for accounting-software secrets, sync jobs
+// run only when a test runs the dispatcher (never on a timer behind its
+// back), and the GSP is always the in-process mock.
+env.INTEGRATION_ENCRYPTION_KEY ??= "q3dxbCpVZ2ZKc1RzQkx6dE1vVnJ3WG5qY0hQa0x0a0E=";
+env.INTEGRATION_AUTODISPATCH = "off";
+env.GSP_PROVIDER = "mock";
+env.GSP_ENV = "sandbox";
+// Module 3: SMS / WhatsApp go to the mock outbox (outbound_test_messages).
+env.SMS_PROVIDER = "mock";
+env.WHATSAPP_PROVIDER = "mock";

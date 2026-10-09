@@ -74,6 +74,24 @@ const kycTableExists = () =>
     return t !== null;
   });
 
+const shopMediaExists = () =>
+  withTemp(async (sql) => {
+    const [{ t }] = await sql`select to_regclass('public.stored_image_variants')::text as t`;
+    return t !== null;
+  });
+
+const integrationsExist = () =>
+  withTemp(async (sql) => {
+    const [{ a, b }] = await sql`select to_regclass('public.integration_jobs')::text as a, to_regclass('public.credit_notes')::text as b`;
+    return a !== null && b !== null;
+  });
+
+const selfRegistrationExists = () =>
+  withTemp(async (sql) => {
+    const [{ t }] = await sql`select to_regclass('public.shop_registrations')::text as t`;
+    return t !== null;
+  });
+
 const shopWalletExists = () =>
   withTemp(async (sql) => {
     const [{ t }] = await sql`select to_regclass('public.shop_wallets')::text as t`;
@@ -92,8 +110,8 @@ const after0055 = () => journal.entries.filter((e) => e.when > whenOf("0055_")).
 /** Puts the database back on 0055 with the releases' own rollback scripts. */
 const backToMigration0055 = () =>
   withTemp(async (sql) => {
-    // docs/four-features-2026-10 (0061–0067), newest first.
-    for (const n of ["0067", "0066", "0065", "0064", "0063", "0062", "0061"]) await sql.unsafe(readFileSync(`scripts/rollback-${n}.sql`, "utf8"));
+    // docs/three-modules-2026-10 (0068–0071), then docs/four-features-2026-10 (0061–0067), newest first.
+    for (const n of ["0071", "0070", "0069", "0068", "0067", "0066", "0065", "0064", "0063", "0062", "0061"]) await sql.unsafe(readFileSync(`scripts/rollback-${n}.sql`, "utf8"));
     await sql.unsafe(readFileSync("scripts/rollback-0060.sql", "utf8"));
     await sql.unsafe(readFileSync("scripts/rollback-0059.sql", "utf8"));
     await sql.unsafe(readFileSync("scripts/rollback-0058.sql", "utf8"));
@@ -166,15 +184,21 @@ describe("migrate-on-build", () => {
     expect(await kycTableExists()).toBe(false);
     expect(await eventLayerExists()).toBe(false);
     expect(await shopWalletExists()).toBe(false);
+    expect(await shopMediaExists()).toBe(false);
+    expect(await integrationsExist()).toBe(false);
+    expect(await selfRegistrationExists()).toBe(false);
 
     const res = runScript({ MIGRATE_ON_BUILD: "1", DATABASE_URL: tempUrl.toString() });
     expect(res.code).toBe(0);
     expect(res.out).toContain(`applied ${after0055()} new migration(s)`);
     expect(res.out).toContain(`newest ${journal.entries.at(-1)!.when}`);
     expect(await journalCount()).toBe(before + after0055());
+    expect(await integrationsExist()).toBe(true);
+    expect(await selfRegistrationExists()).toBe(true);
     expect(await kycTableExists()).toBe(true);
     expect(await eventLayerExists()).toBe(true);
     expect(await shopWalletExists()).toBe(true);
+    expect(await shopMediaExists()).toBe(true);
     const cols = await withTemp(
       (sql) => sql`select column_name from information_schema.columns
                    where table_name = 'shops' and column_name in ('contact_phone', 'whatsapp_number')`,
@@ -201,10 +225,13 @@ describe("migrate-on-build", () => {
     expect(res.code).toBe(1);
     expect(res.out).toContain("[migrate-on-build] FAILED");
     expect(res.out).toContain("Build stopped");
-    // One transaction: none of 0056–0060 was recorded or applied.
+    // One transaction: none of 0056 onwards was recorded or applied.
     expect(await journalCount()).toBe(before);
     expect(await kycTableExists()).toBe(false);
     expect(await eventLayerExists()).toBe(false);
     expect(await shopWalletExists()).toBe(false);
+    expect(await shopMediaExists()).toBe(false);
+    expect(await integrationsExist()).toBe(false);
+    expect(await selfRegistrationExists()).toBe(false);
   });
 });

@@ -6,13 +6,14 @@
  * so a shop can never be double-attributed — the database refuses it rather than
  * relying on a service-layer check.
  */
-import { and, desc, eq, ilike, isNull, sql } from "drizzle-orm";
+import { and, count, desc, eq, gt, ilike, isNull, sql } from "drizzle-orm";
 
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { db, type DbClient } from "@/server/db";
 import {
   referralCodes,
   referralRedemptions,
+  shopRegistrations,
   shops,
   type ReferralCode,
   type ReferralStatus,
@@ -37,6 +38,9 @@ export interface CreateReferralInput {
   referrerUserId?: string | null;
   expiresAt?: string | null;
   note?: string | null;
+  /** Module 3: the distributor credited, and how many shops may use the code (null = unlimited). */
+  distributorId?: string | null;
+  maxUses?: number | null;
 }
 
 export async function createReferralCode(
@@ -65,6 +69,8 @@ export async function createReferralCode(
       referrerUserId: input.referrerUserId ?? null,
       expiresAt: input.expiresAt ?? null,
       note: input.note ?? null,
+      distributorId: input.distributorId ?? null,
+      maxUses: input.maxUses ?? null,
       createdBy: actor.id,
     })
     .returning();
@@ -75,14 +81,21 @@ export async function createReferralCode(
     action: AUDIT_ACTIONS.REFERRAL_CODE_CREATED,
     entityType: "referral_code",
     entityId: created.id,
-    newValue: { code: created.code, label: created.label },
+    newValue: { code: created.code, label: created.label, distributorId: created.distributorId, maxUses: created.maxUses },
   });
   return created;
 }
 
 export async function updateReferralCode(
   id: string,
-  patch: { status?: ReferralStatus; label?: string | null; note?: string | null },
+  patch: {
+    status?: ReferralStatus;
+    label?: string | null;
+    note?: string | null;
+    expiresAt?: string | null;
+    distributorId?: string | null;
+    maxUses?: number | null;
+  },
   actor: Actor,
 ): Promise<ReferralCode> {
   const current = await db.query.referralCodes.findFirst({
@@ -102,8 +115,8 @@ export async function updateReferralCode(
     action: AUDIT_ACTIONS.REFERRAL_CODE_UPDATED,
     entityType: "referral_code",
     entityId: id,
-    previousValue: { status: current.status, label: current.label },
-    newValue: { status: updated.status, label: updated.label },
+    previousValue: { status: current.status, label: current.label, distributorId: current.distributorId, maxUses: current.maxUses, expiresAt: current.expiresAt },
+    newValue: { status: updated.status, label: updated.label, distributorId: updated.distributorId, maxUses: updated.maxUses, expiresAt: updated.expiresAt },
   });
   return updated;
 }
@@ -113,6 +126,20 @@ export async function updateReferralCode(
  * expired codes rather than silently ignoring them, so a mistyped code is
  * visible to the operator instead of quietly losing the attribution.
  */
+/**
+ * How many times a code is used: shops attributed to it, plus unpaid
+ * self-registrations still holding a place on it (Module 3). Compared with
+ * the code's usage limit (max_uses) on every path that takes a code.
+ */
+export async function referralCodeUses(codeId: string, client: DbClient = db): Promise<number> {
+  const [{ redeemed }] = await client.select({ redeemed: count() }).from(referralRedemptions).where(eq(referralRedemptions.referralCodeId, codeId));
+  const [{ held }] = await client
+    .select({ held: count() })
+    .from(shopRegistrations)
+    .where(and(eq(shopRegistrations.referralCodeId, codeId), eq(shopRegistrations.status, "PENDING_PAYMENT"), gt(shopRegistrations.holdExpiresAt, new Date())));
+  return Number(redeemed) + Number(held);
+}
+
 export async function resolveUsableCode(
   rawCode: string,
   client: DbClient = db,
@@ -135,6 +162,19 @@ export async function resolveUsableCode(
 }
 
 /**
+ * A code a shop registers with: usable (above) and, when the code has a usage
+ * limit (max_uses, Module 3), not used up by shops already. Customer sign-up
+ * codes use resolveUsableCode alone: they take no shop's place.
+ */
+export async function resolveCodeForShop(rawCode: string, client: DbClient = db): Promise<ReferralCode> {
+  const found = await resolveUsableCode(rawCode, client);
+  if (found.maxUses != null && (await referralCodeUses(found.id, client)) >= found.maxUses) {
+    throw validationFailed(`Referral code ${found.code} has already been used the maximum number of times.`);
+  }
+  return found;
+}
+
+/**
  * Attributes a shop to a referral code.
  *
  * Writes both the denormalised pointer on `shops` (so listings can filter
@@ -148,7 +188,7 @@ export async function attributeShopToCode(
   client?: DbClient,
 ): Promise<ReferralCode> {
   const run = async (tx: DbClient) => {
-    const code = await resolveUsableCode(rawCode, tx);
+    const code = await resolveCodeForShop(rawCode, tx);
 
     const [shop] = await tx
       .select({

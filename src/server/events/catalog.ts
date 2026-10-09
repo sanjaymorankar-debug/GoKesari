@@ -18,7 +18,17 @@ import type { Audience } from "./recipients";
 
 type Vars = Record<string, string | number | null | undefined>;
 
-export type SubjectKind = MachineKind | "shop" | "risk_flag" | "notification" | "seller_review" | "bank_account" | "referral_request" | "bank_refund";
+export type SubjectKind =
+  | MachineKind
+  | "shop"
+  | "risk_flag"
+  | "notification"
+  | "seller_review"
+  | "bank_account"
+  | "referral_request"
+  | "integration_job"
+  | "shop_registration"
+  | "bank_refund";
 
 export interface EventMessage {
   /** A user id, an audience, or nothing (skipped — e.g. an order with no rider). */
@@ -881,6 +891,56 @@ export const EVENTS = {
   "risk.flag_raised": define<{ severity: string; label: string; summary: string }>("risk_flag", (p) => [
     { to: "SUPPORT", type: N.RISK_FLAG_RAISED, vars: p, actionUrl: "/admin/risk" },
   ]),
+  /* ----------------------------- Module 2: accounting integration */
+  // A sync entry gave up (or needs the owner): the owner hears at once, by email too.
+  /* ------------------------------------------------- Module 3: self-registration */
+  "shop.self_registered": define<{
+    shopId: string;
+    shopName: string;
+    ownerId: string;
+    registrationNumber: string;
+    mobile: string;
+    receiptNumber: string;
+    referralCode: string;
+    feePaise: number;
+  }>("shop", (p) => [
+    {
+      to: p.ownerId,
+      type: N.SHOP_SELF_REGISTERED,
+      vars: { shopName: p.shopName, registrationNumber: p.registrationNumber, mobile: p.mobile, receiptNumber: p.receiptNumber },
+      actionUrl: "/shop/profile-setup",
+      channels: ["SMS", "WHATSAPP"],
+      includeActor: true,
+    },
+    {
+      to: "SUPPORT",
+      type: N.SUPPORT_SHOP_SELF_REGISTERED,
+      vars: { shopName: p.shopName, registrationNumber: p.registrationNumber, referralCode: p.referralCode, fee: formatPaise(p.feePaise) },
+      actionUrl: "/admin/shops/auto-approved",
+    },
+  ]),
+  "registration.payment_mismatch": define<{ shopName: string; paidPaise: number; feePaise: number; orderId: string; problem: string }>("shop_registration", (p) => [
+    {
+      to: "SUPPORT",
+      type: N.SUPPORT_REGISTRATION_PAYMENT_MISMATCH,
+      vars: { shopName: p.shopName, paid: formatPaise(p.paidPaise), fee: formatPaise(p.feePaise), orderId: p.orderId, problem: p.problem },
+      actionUrl: "/admin/shop-registrations",
+    },
+  ]),
+
+  "integration.job_dead": define<{ shopName: string; ownerId: string; what: string; reason: string; fix: string }>(
+    "integration_job",
+    (p) => [
+      {
+        to: p.ownerId,
+        type: N.INTEGRATION_SYNC_FAILED,
+        vars: { shopName: p.shopName, what: p.what, reason: p.reason, fix: p.fix },
+        actionUrl: "/shop/settings/integrations/sync",
+        includeActor: true,
+      },
+    ],
+  ),
+
   "notification.dead": define<{
     count: number;
     attempts: number;

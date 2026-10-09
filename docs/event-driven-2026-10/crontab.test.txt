@@ -28,6 +28,7 @@
 # every minute — safety net only
 * * * * *   $HOME/gokesari-cron/run.sh timeout-sweep        # shop not accepted in X min → cancel/escalate; rider offers/retries; no rider in Y min → support; return pickups; shop-open alerts
 * * * * *   $HOME/gokesari-cron/run.sh notification-retry   # outbox rows only, max N attempts, then support alerted
+* * * * *   $HOME/gokesari-cron/run.sh integration-sync     # Module 2: accounting sync retries that came due, missed pushes, Tally connector offline, e-invoice retries
 # hourly
 17 * * * *  $HOME/gokesari-cron/run.sh risk-rules           # cross-order pattern scan (per-order checks run at placement/payment)
 23 * * * *  $HOME/gokesari-cron/run.sh dispute-escalation   # dispute SLA check: unanswered beyond SLA → escalate to administrators

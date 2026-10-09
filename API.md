@@ -178,6 +178,87 @@ Owner (own shop) or `SHOP_UPDATE_ANY`. Any subset of the editable shop fields.
 New: `serviceRadiusKm` (integer 1–50) — the shop's delivery zone in straight-line
 km from its pin (GS-010). Audit-logged with the previous value.
 
+## Shop product photos & descriptions (Module 1)
+
+Details, limits and error reasons: [docs/three-modules-2026-10/MODULE1_SHOP_PRODUCT_MEDIA.md](docs/three-modules-2026-10/MODULE1_SHOP_PRODUCT_MEDIA.md).
+Every route below: the shop's owner, its staff (`shop_staff`) or operators/admins; anyone else 403, another shop's product 404.
+
+| Method & path | |
+|---|---|
+| `GET /api/shops/{id}/listings/{listingId}/media` | Photos (main first), short/long description, master fallback, what customers see, limits |
+| `PATCH /api/shops/{id}/listings/{listingId}/media` | `{ shortDescription?, longDescription? }`; `null` or `""` clears (master's text shows) |
+| `POST /api/shops/{id}/listings/{listingId}/media/photos` | multipart `file` (JPG/PNG/WebP ≤ 5 MB), optional `replaceImageId` → 201 `{ id, url, isPrimary, moderationStatus }`. 422 `details.reason`: `PHOTO_TOO_LARGE`, `PHOTO_BAD_TYPE`, `PHOTO_UNREADABLE`, `PHOTO_TOO_SMALL`, `PHOTO_TOO_MANY_PIXELS`, `PHOTO_LIMIT` |
+| `PUT /api/shops/{id}/listings/{listingId}/media/photos/order` | `{ imageIds }` — every photo once; the first is the main photo → 204 |
+| `DELETE /api/shops/{id}/listings/{listingId}/media/photos/{imageId}` | → 204; the next photo becomes main if needed |
+| `GET /api/shops/{id}/listings/{listingId}/media/history` | `{ changes: [{ at, summary, actorName, via: OWNER/STAFF/SUPPORT }] }` |
+| `GET /api/shops/{id}/media-imports` · `POST` | List · multipart `zip` and/or `csv`, `photoMode` REPLACE/ADD → 201 preview (nothing applied) |
+| `GET /api/shops/{id}/media-imports/{importId}` · `DELETE` | Preview/progress · cancel before applying |
+| `POST /api/shops/{id}/media-imports/{importId}/apply` | 202; applies right after the response; resumes a stalled apply; 409 while running/finished |
+| `GET /api/shops/{id}/media-imports/template` | CSV template |
+| `GET /api/shops/{id}/staff` · `POST { identifier }` · `DELETE …/staff/{staffId}` | Owner (or support) manages staff by mobile/email |
+| `GET /api/images/{id}?size=thumb\|medium\|large` | Existing route; processed photos' WebP copies, `ETag`/304 |
+
+`GET /api/shops/{id}/products` (storefront) items gain `shortDescription` (the shop's, else the master's).
+
+## Accounting software & GST (Module 2)
+
+Details, error codes and checklists: [docs/three-modules-2026-10/MODULE2_ACCOUNTING_INTEGRATION.md](docs/three-modules-2026-10/MODULE2_ACCOUNTING_INTEGRATION.md).
+Shop routes: the shop's owner; operators may view and retry (support); admins may also change a connection. Secrets are write-only — no response ever contains them.
+
+| Method & path | |
+|---|---|
+| `GET /api/shops/{id}/integration` | `{ providers, integration (status, counts, last error with fix; no secrets), ready, canManage }` |
+| `PUT /api/shops/{id}/integration` | `{ provider: TALLY\|ODOO\|ZOHO_BOOKS\|MYBILLBOOK\|VYAPAR\|GENERIC_FILE, config, credentials?, paused? }` — connect or change; `credentials` omitted keeps the stored one; 409 when another software is connected |
+| `POST /api/shops/{id}/integration/test` · `/sync` · `/disconnect` | `{ ok, message, fix? }` · 202 `{ jobId, queued }` (one pull at a time) · 204 |
+| `GET · POST /api/shops/{id}/integration/tokens` · `DELETE …/tokens/{tokenId}` | Tally connector tokens; POST → 201 `{ token }` shown once |
+| `POST /api/shops/{id}/integration/webhook` | 201 `{ url, secret }` for Odoo/Zoho change webhooks (shown once) |
+| `GET /api/shops/{id}/integration/items?status=&q=&page=` | Mapping screen: `{ items, total, pageSize }`; status `MATCHED\|SUGGESTED\|UNMATCHED\|IGNORED\|ISSUE` |
+| `PATCH /api/shops/{id}/integration/items/{linkId}` | `{ action: "match", productId }` (applied at once) \| `{ action: "ignore" }` \| `{ action: "unmatch" }` |
+| `POST …/items/auto-match` · `GET …/items/search?q=` | Re-run matching · products to pick from |
+| `GET · POST /api/shops/{id}/integration/imports` | File sync: list · multipart `file` (.xlsx/.csv ≤ 5 MB) → headings, sample rows, suggested mapping |
+| `GET · DELETE …/imports/{importId}` · `PUT …/{importId}/mapping` · `POST …/{importId}/apply` | Upload state (`running`) · cancel · `{ mapping }` · 202, applied after the response |
+| `GET /api/shops/{id}/integration/exports?kind=invoices\|credit-notes\|stock-out&scope=new\|range&from=&to=&format=xlsx\|csv` | File download; `new` marks what it contains (never repeated) |
+| `GET /api/shops/{id}/integration/jobs?status=DEAD,FAILED` · `POST …/jobs/{jobId}/retry` · `GET …/integration/log` | Sync entries with owner-readable errors · retry (204) · log |
+| `GET /api/integrations/zoho/connect?shopId=` · `GET /api/integrations/zoho/callback` | Zoho Books (India) OAuth; returns to `/shop/settings/integrations?zoho=connected\|error` |
+| `POST /api/integrations/webhooks/{provider}/{integrationId}?key=` | From the software: items changed → pull (202; 401 without the right key) |
+| `POST /api/connector/v1/hello` · `GET /api/connector/v1/jobs?wait=25` · `POST /api/connector/v1/jobs/{jobId}/result` · `POST /api/connector/v1/items` | Tally connector, `Authorization: Bearer gkc_…` |
+| `POST /api/gst/gstin/validate` | `{ gstin }` → `{ ok, found, active, legalName, tradeName, status, stateCode, … }` or `{ ok: false, reason: FORMAT\|UNAVAILABLE }` |
+| `GET /api/credit-notes/{id}/pdf` | As the invoice: customer, shop owner, operations |
+| `POST /api/invoices/{id}/einvoice` · `POST /api/invoices/{id}/eway-bill { distanceKm, vehicleNo? }` | Owner/operations; → `{ einvoice, ewayBill }` |
+| `GET /api/shops/{id}/gst/gstr1?period=YYYY-MM&format=json\|xlsx` | GSTR-1-ready file (nothing is filed) |
+| `PUT /api/shops/{id}/gst/einvoice-declaration` | `{ applicable, turnoverBand }` |
+| `GET · PUT /api/admin/gst-config` · `GET · PUT /api/admin/hsn-tax-rates` · `PATCH …/{rateId}` | Admin: dated GST rules, fallback HSN rates |
+| `GET /api/admin/integrations?provider=&problem=any\|failed\|offline&q=` | Operations: all shops' sync health |
+| `POST /api/cron/integration-sync` | Safety-net sweep (cron secret), every minute |
+
+## Shop self-registration (Module 3)
+
+Details, flow and checklists: [docs/three-modules-2026-10/MODULE3_SELF_REGISTRATION.md](docs/three-modules-2026-10/MODULE3_SELF_REGISTRATION.md).
+Applicant routes are public: the private `{token}` (from `POST /api/shop-registrations`, also sent by SMS) is the access, stored only as a hash. All answer 409 while the `selfRegistration` rule is off.
+
+| Method & path | |
+|---|---|
+| `POST /api/shop-registrations/referral-check` | `{ code }` → `{ ok: true, code, label, distributor, tiers: [{ code, label, description, amountPaise }] }` or `{ ok: false, reason: NOT_FOUND\|INACTIVE\|EXPIRED\|LIMIT_REACHED, message }` (same shape for every failure) |
+| `POST /api/shop-registrations/otp` | `{ mobile, referralCode }` → `{ sent, resendAfterSeconds, expiryMinutes }`; an invalid code → 422 and nothing is sent |
+| `POST /api/shop-registrations` | `{ shopName, mobile, referralCode, tierCode, otp, acceptTerms: true }` → 201 `{ token, status: PENDING_PAYMENT, feePaise }`; the code is re-checked under a row lock (the last slot goes to one applicant) |
+| `GET /api/shop-registrations/{token}` | `{ status, shopName, mobile (masked), feePaise, tier, referralCode, holdExpiresAt, lastPayment, shop, receipt, gateway }` for the return / retry page |
+| `POST /api/shop-registrations/{token}/pay` | 201 `{ gateway: CASHFREE\|MOCK, orderId, paymentSessionId, amountPaise, cashfreeMode }` — a new `reg_…` order for exactly the fee snapshot. The browser return never approves |
+| `GET /api/shop-registrations/{token}/receipt` | Fee receipt PDF (`PAY-YYYY-NNNNNN`) once approved |
+| `POST /api/webhooks/cashfree` | Existing route. `reg_…`/`mockreg_…` orders → signature checked, then amount + currency must equal the fee, then approval in one transaction. Outcome `APPROVED\|ALREADY_APPROVED\|FAILED\|MISMATCH\|IGNORED` (always 200 once the signature is good) |
+| `POST /api/dev/settle-registration` | `{ token, outcome?: SUCCESS\|FAILED }` — mock-payment mode only (no gateway keys, not a production build); 404 otherwise |
+| `GET · PATCH /api/shops/{id}/profile-setup` | Owner (or `SHOP_UPDATE_ANY`): `{ shop, categories, missing, fssai }` · `{ ownerName, addressLine1, addressLine2?, city, state?, pincode, shopType, gstin? }` → `{ complete, missing, gstin (GSP check), warnings }`; an invalid, unknown or inactive GSTIN → 422 |
+| `GET /api/admin/shops/auto-approved?code=&distributorId=&from=&to=&profile=complete\|incomplete&q=` | Operations (`SHOP_REGISTRATION_MANAGE`): self-registered shops with fee, code, distributor, commission. Suspend uses the existing `POST /api/shops/{id}/suspend` |
+| `GET /api/admin/shop-registrations?status=PENDING_PAYMENT\|APPROVED\|CANCELLED\|ALL` | `{ registrations, paymentProblems }` (amount mismatches, payments after approval or cancellation — refund due) |
+| `POST /api/admin/shop-registrations/{id}/resend-link` · `/cancel` | New private link by SMS (the old one stops working) · cancel an unpaid registration |
+| `GET /api/admin/registration-fee-tiers` · `PUT …/{code}` | Admin (`REGISTRATION_FEE_MANAGE`): `{ label, description?, amountPaise, isActive, sortOrder? }`; an offered plan needs an amount |
+| `GET · POST /api/admin/distributor-types` · `PATCH …/{id}` | `{ code, name, commissionType: FLAT\|PERCENT, commissionValue (paise \| basis points), isActive }` (`REFERRAL_MANAGE`) |
+| `GET · POST /api/admin/distributors` · `PATCH …/{id}` | `{ distributorTypeId, name, phoneE164?, email?, district?, state?, status, commissionType?, commissionValue? }` — own commission overrides the type's default |
+| `POST /api/referral-codes` · `PATCH /api/referral-codes/{id}` | Existing, plus `distributorId`, `maxUses` (null = unlimited) and `expiresAt` |
+| `GET /api/admin/referral-commissions` · `PATCH …/{id}` | Report per distributor and per shop · admin: `{ status: APPROVED\|PAID\|REVERSED, note? }`, forward only (recorded; nothing is paid out by the system) |
+| `GET /api/admin/test-messages?to=` | SMS/WhatsApp written by the mock provider (test site only), newest first |
+
+Rate limits: referral check 30 / 10 min / client; OTP 10 / 10 min / client plus the `otp` rule per mobile; create 10 / hour / client; pay 20 / 10 min / client.
+
 ## Location (customer)
 
 ### `POST /api/location` · `DELETE /api/location`
