@@ -11,13 +11,18 @@ import {
   PageHeader,
   StatusBadge,
 } from "@/components/ui";
+import { ListTabs, Pager, paginate } from "@/components/board/list-tabs";
 import { TrackDeliveryButton } from "@/components/live-tracking-map";
 import { RateOrderForm, ReportIssueForm } from "@/components/rating-actions";
 import { SubstitutionDecision } from "@/components/substitution-decision";
 import { formatQuantity } from "@/lib/money";
 import { DISPUTE_STATUS_LABELS } from "@/lib/dispute-states";
 import { isTrackableOrderStatus } from "@/lib/tracking";
+import { tr, UI } from "@/lib/board/i18n";
+import { CUSTOMER_MENUS } from "@/lib/board/menus";
+import { IN_PROGRESS_ORDER_STATUSES, pickTab } from "@/lib/board/status-groups";
 import { getCurrentUser } from "@/server/authz/guards";
+import { getBoardLang } from "@/server/board-lang";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { getDeliveryOrdersForOrders } from "@/server/services/delivery-assignment";
 import { buyerDeliveryCodeView, type BuyerDeliveryCodeView } from "@/server/services/delivery-otp";
@@ -49,7 +54,7 @@ export const dynamic = "force-dynamic";
 export default async function OrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ placed?: string; type?: string }>;
+  searchParams: Promise<{ placed?: string; type?: string; tab?: string; page?: string }>;
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
@@ -58,7 +63,15 @@ export default async function OrdersPage({
   // Personal and business (B2B) orders are separate flows, listed apart.
   const showBusiness = can(user.role, PERMISSIONS.ORDER_PLACE_B2B);
   const orderType = showBusiness && params.type === "business" ? "B2B" : "PERSONAL";
-  const orders = await listOrdersForUser(user.id, { limit: 50, orderType });
+  const [allOrders, lang] = await Promise.all([listOrdersForUser(user.id, { limit: 50, orderType }), getBoardLang()]);
+  // Tabs = the board's Orders submenus: Active (on its way) and Past, same statuses as the badges.
+  const active = allOrders.filter((o) => IN_PROGRESS_ORDER_STATUSES.includes(o.status));
+  const past = allOrders.filter((o) => !IN_PROGRESS_ORDER_STATUSES.includes(o.status));
+  const tab = pickTab(params.tab, ["active", "past"] as const, active.length > 0 || past.length === 0 ? "active" : "past");
+  const page = paginate(tab === "active" ? active : past, params.page, 5);
+  const orders = page.rows;
+  const typeParam = orderType === "B2B" ? "&type=business" : "";
+  const tabLabels = Object.fromEntries((CUSTOMER_MENUS.find((m) => m.key === "orders")?.items ?? []).map((i) => [i.key, tr(i.label, lang)]));
   const [groupRefs, deliveryOrders, myRatings, liveDisputes] = await Promise.all([
     referencesForGroups(orders.map((o) => o.orderGroupId)),
     getDeliveryOrdersForOrders(orders.map((o) => o.id)),
@@ -116,7 +129,23 @@ export default async function OrdersPage({
         </div>
       ) : null}
 
-      {orders.length === 0 ? (
+      <ListTabs
+        label={tr(UI.orders, lang)}
+        active={tab}
+        tabs={[
+          { key: "active", label: tabLabels.active ?? "Active", href: `/orders?tab=active${typeParam}`, count: active.length, urgent: true },
+          { key: "past", label: tabLabels.past ?? "Past", href: `/orders?tab=past${typeParam}`, count: past.length },
+          { key: "returns", label: tabLabels.returns ?? "Returns", href: "/returns" },
+        ]}
+      />
+
+      {orders.length === 0 && allOrders.length > 0 ? (
+        <EmptyState
+          title={tab === "active" ? "No order on the way right now" : "No past orders yet"}
+          description={tab === "active" ? "Orders you place appear here until they are delivered." : "Delivered and cancelled orders appear here."}
+          action={<LinkButton href={tab === "active" ? "/orders?tab=past" : "/"}>{tab === "active" ? "See past orders" : "Start shopping"}</LinkButton>}
+        />
+      ) : orders.length === 0 ? (
         <EmptyState
           title="No orders yet"
           description="Your orders and subscription deliveries will appear here."
@@ -325,6 +354,7 @@ export default async function OrdersPage({
           ))}
         </div>
       )}
+      <Pager lang={lang} page={page.page} pageCount={page.pageCount} hrefFor={(n) => `/orders?tab=${tab}${typeParam}&page=${n}`} />
     </>
   );
 }

@@ -94,7 +94,7 @@ function ReviewRow({ item }: { item: QueueItem }) {
 
       <p className="text-sm text-ink-600">
         Why: {reasonText(item.lastErrorCode) ?? item.lastErrorCode ?? "—"}
-        {item.lastErrorCode ? <span className="ml-1 text-xs text-ink-400">({item.lastErrorCode})</span> : null}
+        {item.lastErrorCode ? <span className="ml-1 text-xs text-ink-500">({item.lastErrorCode})</span> : null}
       </p>
 
       <dl className="grid grid-cols-1 gap-x-4 gap-y-1 text-sm sm:grid-cols-2">
@@ -133,7 +133,7 @@ function ReviewRow({ item }: { item: QueueItem }) {
               {f.contentType === "application/pdf" ? "PDF" : "image"} {i + 1}
             </a>
           ))}
-          <span className="text-xs text-ink-400">(opening a file is recorded)</span>
+          <span className="text-xs text-ink-500">(opening a file is recorded)</span>
         </p>
       ) : item.docType === "SHOP_ACT" ? (
         <Alert tone="warning">No certificate uploaded yet.</Alert>

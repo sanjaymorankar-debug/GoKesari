@@ -10,6 +10,7 @@ import { Alert, AvailabilityBadge, Badge, Button, Card, EmptyState, Money, input
 import { paiseToRupees } from "@/lib/money";
 import { buildPricePatch, needsPhoto, needsPrice, tagPrice } from "@/lib/photo-catalogue";
 import type { ShopCatalogueTile } from "@/server/services/product-images";
+import { priceUnitLabel } from "@/lib/board/product-look";
 
 type Filter = "all" | "photo" | "price" | "pending";
 
@@ -225,7 +226,7 @@ function CatalogueTile({ tile, shopId }: { tile: ShopCatalogueTile; shopId: stri
             {tag ? (
               <span className="rounded-md bg-white/95 px-2 py-1 text-sm font-semibold text-ink-900 shadow">
                 <Money paise={tag.pricePaise} />
-                <span className="text-xs font-normal text-ink-500"> / {tile.unit}</span>
+                <span className="text-sm font-normal text-ink-600"> {priceUnitLabel(tile.unit)}</span>
               </span>
             ) : (
               <span className="rounded-md bg-amber-100 px-2 py-1 text-xs font-semibold text-amber-800 shadow">

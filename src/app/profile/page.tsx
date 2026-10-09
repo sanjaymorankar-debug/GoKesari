@@ -6,7 +6,11 @@ import { PhoneLinkForm } from "@/components/phone-link-form";
 import { EmailChangeForm, ProfileDetailsForm } from "@/components/profile-forms";
 import type { GenderValue } from "@/components/profile-setup";
 import { MarketingConsentToggle } from "@/components/marketing-consent-toggle";
+import { Icon } from "@/components/board/icons";
 import { Badge, Card, PageHeader } from "@/components/ui";
+import { tr, UI } from "@/lib/board/i18n";
+import { CUSTOMER_MENUS } from "@/lib/board/menus";
+import { getBoardLang } from "@/server/board-lang";
 import { ROLE_LABELS } from "@/server/authz/permissions";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getMarketingConsentStatus } from "@/server/services/consents";
@@ -33,11 +37,25 @@ export default async function ProfilePage() {
   ]);
   const defaultAddress = addresses.find((a) => a.isDefault) ?? addresses[0] ?? null;
   // Bank accounts (docs/four-features-2026-10): refunds-to-bank account and its verification.
-  const bankStatus = await customerBankPrompt(user.id, "profile");
+  const [bankStatus, lang] = await Promise.all([customerBankPrompt(user.id, "profile"), getBoardLang()]);
 
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeader title="My Profile" />
+
+      {/* The board's Profile submenus, first on the page: one tap each. */}
+      <nav aria-label={tr(UI.myProfile, lang)} className="mb-6 grid grid-cols-2 gap-2 sm:grid-cols-3" data-testid="profile-quick-links">
+        {(CUSTOMER_MENUS.find((m) => m.key === "profile")?.items ?? []).map((item) => (
+          <Link
+            key={item.key}
+            href={item.href}
+            className="flex min-h-12 items-center gap-2 rounded-xl border border-[var(--gk-line)] bg-white px-3 text-sm font-semibold text-ink-900 hover:bg-kesari-50"
+          >
+            {item.icon ? <Icon name={item.icon} size={18} className="shrink-0 text-kesari-700" /> : null}
+            <span className="min-w-0 truncate">{tr(item.label, lang)}</span>
+          </Link>
+        ))}
+      </nav>
 
       <Card className="mb-6 p-6">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
@@ -149,7 +167,7 @@ export default async function ProfilePage() {
                   </div>
                   {!n.readAt ? <Badge tone="info">new</Badge> : null}
                 </div>
-                <p className="mt-1 text-xs text-ink-400">
+                <p className="mt-1 text-xs text-ink-500">
                   {new Date(n.createdAt).toLocaleString("en-IN", {
                     dateStyle: "medium",
                     timeStyle: "short",

@@ -162,7 +162,7 @@ export default async function RiskPage({
                   <span>Admin account — it cannot be suspended from here. Remove its admin role first.</span>
                 ) : null}
               </div>
-              <p className="text-xs text-ink-400">
+              <p className="text-xs text-ink-500">
                 First seen {f.firstDetectedAt.toLocaleString("en-IN")} · last {f.lastDetectedAt.toLocaleString("en-IN")} · detected {f.occurrences}×
               </p>
               {f.reviewNote ? <p className="text-xs text-ink-600">Review: {f.reviewNote}</p> : null}

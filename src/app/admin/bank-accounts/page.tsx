@@ -37,7 +37,7 @@ export default async function AdminBankAccountsPage({ searchParams }: { searchPa
             {s ? BANK_STATUS_LABELS[s] : "All"}
           </Link>
         ))}
-        <span className="px-2 text-ink-400">|</span>
+        <span className="px-2 text-ink-500">|</span>
         {[undefined, "SHOP", "CUSTOMER"].map((h) => (
           <Link key={h ?? "both"} href={link(status, h)} className={h === holderType ? "rounded-full bg-kesari-600 px-3 py-1 text-white" : "rounded-full bg-cream-100 px-3 py-1 text-ink-700"}>
             {h === "SHOP" ? "Shops" : h === "CUSTOMER" ? "Customers" : "Shops and customers"}

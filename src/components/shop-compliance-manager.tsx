@@ -97,7 +97,7 @@ export function ShopComplianceManager({ shops }: { shops: ComplianceShopRow[] })
                       <td className="px-4 py-2">{s.gstin || "—"}</td>
                       <td className="px-4 py-2">
                         {!foodBusiness ? (
-                          <span className="text-ink-400">N/A</span>
+                          <span className="text-ink-500">N/A</span>
                         ) : s.fssaiLicenseNumber ? (
                           s.fssaiLicenseNumber
                         ) : (

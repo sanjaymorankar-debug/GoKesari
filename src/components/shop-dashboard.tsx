@@ -91,7 +91,7 @@ export function ShopDashboardView({ data }: { data: ShopDashboard }) {
           ))}
         </Card>
       </Section>
-      <p className="text-xs text-ink-400">
+      <p className="text-xs text-ink-500">
         Shop status: <Link href="/shop" className="underline">{data.shop.status.replace(/_/g, " ").toLowerCase()}</Link>
         {data.shop.deliveryAvailable ? " · home delivery on" : " · pickup only"}
       </p>

@@ -6,6 +6,7 @@ import { useState } from "react";
 import { formatRupees } from "@/lib/board/format";
 
 import { Icon } from "./icons";
+import { priceUnitLabel } from "@/lib/board/product-look";
 
 export interface BuyAgainRow {
   shopProductId: string;
@@ -80,7 +81,7 @@ export function BuyAgainList({
             </span>
             <span className="shrink-0 text-sm font-bold tabular-nums text-ink-900">
               {formatRupees(item.pricePaise)}
-              <span className="font-medium text-ink-600"> / {item.unit}</span>
+              <span className="font-medium text-ink-600"> {priceUnitLabel(item.unit)}</span>
             </span>
             <button
               type="button"

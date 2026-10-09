@@ -11,7 +11,7 @@ function Tile({ label, value, hint, id }: { label: string; value: React.ReactNod
   return (
     <Card className="p-4" data-kpi={id}>
       <p className="text-xs text-ink-500">
-        {id ? <span className="mr-1 text-ink-400">{id}</span> : null}
+        {id ? <span className="mr-1 text-ink-500">{id}</span> : null}
         {label}
       </p>
       <p className="mt-1 text-lg font-bold text-ink-900">{value}</p>

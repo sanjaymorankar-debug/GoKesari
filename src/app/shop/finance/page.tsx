@@ -51,7 +51,7 @@ export default async function ShopFinancePage() {
         <Card className="p-4">
           <p className="text-xs text-ink-500">Not yet settled</p>
           <p className="mt-1 text-xl font-bold text-ink-900"><Money paise={pending.netPaise} /></p>
-          <p className="text-xs text-ink-400">{pending.orders} delivered orders</p>
+          <p className="text-xs text-ink-500">{pending.orders} delivered orders</p>
         </Card>
         <Card className="p-4">
           <p className="text-xs text-ink-500">Goods value</p>
@@ -66,7 +66,7 @@ export default async function ShopFinancePage() {
           <p className="mt-1 text-xl font-bold text-ink-900">
             <Money paise={pending.refundsPaise + pending.adjustmentsPaise} />
           </p>
-          <p className="text-xs text-ink-400">
+          <p className="text-xs text-ink-500">
             refunds <Money paise={pending.refundsPaise} /> · other <Money paise={pending.adjustmentsPaise} />
           </p>
         </Card>

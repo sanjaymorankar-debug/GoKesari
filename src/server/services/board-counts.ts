@@ -344,31 +344,29 @@ export async function staffCounts(role: "ADMIN" | "OPERATOR"): Promise<Counts> {
     opsExceptions: async () => (await opsQueue()).summary.total,
   } satisfies Partial<Record<keyof Counts, () => Promise<number>>>;
 
-  if (role === "ADMIN") {
-    return gather({
-      ...common,
-      allShops: () => one(db.select({ n: count() }).from(shops).where(isNull(shops.deletedAt))),
-      sellerReviews: () => one(db.select({ n: count() }).from(sellerVerifications).where(eq(sellerVerifications.status, "MANUAL_REVIEW"))),
-      activeSuspensions: () => one(db.select({ n: count() }).from(shopSuspensions).where(eq(shopSuspensions.status, "ACTIVE"))),
-      users: () => one(db.select({ n: count() }).from(users)),
-      customers: () => usersByRole(["CUSTOMER"]),
-      owners: () => usersByRole(["SHOP_OWNER"]),
-      staff: () => usersByRole(["OPERATOR", "ADMIN"]),
-      riders: () => one(db.select({ n: count() }).from(deliveryPartners).where(eq(deliveryPartners.status, "APPROVED"))),
-      shopCategoryCount: () => one(db.select({ n: count() }).from(shopCategories)),
-      productCategories: () => one(db.select({ n: count() }).from(productCategories)),
-      products: () => one(db.select({ n: count() }).from(products)),
-      pendingProducts: () => one(db.select({ n: count() }).from(products).where(eq(products.approvalStatus, "PENDING_APPROVAL"))),
-      mrpCorrections: () => one(db.select({ n: count() }).from(mrpCorrections).where(eq(mrpCorrections.status, "PENDING"))),
-      refPricesToVerify: () =>
-        one(db.select({ n: count() }).from(externalPriceReferences).where(eq(externalPriceReferences.verificationStatus, "UNVERIFIED"))),
-      bankRefunds: () => one(db.select({ n: count() }).from(bankRefundRequests).where(eq(bankRefundRequests.status, "REQUESTED"))),
-      openRisk: () => one(db.select({ n: count() }).from(riskFlags).where(eq(riskFlags.status, "OPEN"))),
-      submittedCampaigns: () => one(db.select({ n: count() }).from(marketingCampaigns).where(eq(marketingCampaigns.status, "SUBMITTED"))),
-    });
-  }
+  // Admin and operator boards and menu pages share the same figures: an entry
+  // a role may not open is filtered out of its menus, so its count never shows.
+  void role;
   return gather({
     ...common,
+    allShops: () => one(db.select({ n: count() }).from(shops).where(isNull(shops.deletedAt))),
+    sellerReviews: () => one(db.select({ n: count() }).from(sellerVerifications).where(eq(sellerVerifications.status, "MANUAL_REVIEW"))),
+    activeSuspensions: () => one(db.select({ n: count() }).from(shopSuspensions).where(eq(shopSuspensions.status, "ACTIVE"))),
+    users: () => one(db.select({ n: count() }).from(users)),
+    customers: () => usersByRole(["CUSTOMER"]),
+    owners: () => usersByRole(["SHOP_OWNER"]),
+    staff: () => usersByRole(["OPERATOR", "ADMIN"]),
+    riders: () => one(db.select({ n: count() }).from(deliveryPartners).where(eq(deliveryPartners.status, "APPROVED"))),
+    shopCategoryCount: () => one(db.select({ n: count() }).from(shopCategories)),
+    productCategories: () => one(db.select({ n: count() }).from(productCategories)),
+    products: () => one(db.select({ n: count() }).from(products)),
+    pendingProducts: () => one(db.select({ n: count() }).from(products).where(eq(products.approvalStatus, "PENDING_APPROVAL"))),
+    mrpCorrections: () => one(db.select({ n: count() }).from(mrpCorrections).where(eq(mrpCorrections.status, "PENDING"))),
+    refPricesToVerify: () =>
+      one(db.select({ n: count() }).from(externalPriceReferences).where(eq(externalPriceReferences.verificationStatus, "UNVERIFIED"))),
+    bankRefunds: () => one(db.select({ n: count() }).from(bankRefundRequests).where(eq(bankRefundRequests.status, "REQUESTED"))),
+    openRisk: () => one(db.select({ n: count() }).from(riskFlags).where(eq(riskFlags.status, "OPEN"))),
+    submittedCampaigns: () => one(db.select({ n: count() }).from(marketingCampaigns).where(eq(marketingCampaigns.status, "SUBMITTED"))),
     legalDocsToReview: () => one(db.select({ n: count() }).from(shopLegalDocuments).where(eq(shopLegalDocuments.status, "SUBMITTED"))),
     ridersOnDuty: () =>
       one(db.select({ n: countDistinct(deliveryPartnerSessions.deliveryPartnerId) }).from(deliveryPartnerSessions).where(isNull(deliveryPartnerSessions.endedAt))),

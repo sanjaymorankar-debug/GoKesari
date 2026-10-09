@@ -96,7 +96,7 @@ export function ShopCategoryPicker({
             return (
               <label
                 key={c.id}
-                className={`flex items-center gap-2 rounded px-2 py-1.5 text-sm ${retired && !selected.has(c.id) ? "text-ink-400" : "text-ink-800 hover:bg-cream-50"}`}
+                className={`flex items-center gap-2 rounded px-2 py-1.5 text-sm ${retired && !selected.has(c.id) ? "text-ink-500" : "text-ink-800 hover:bg-cream-50"}`}
               >
                 <input
                   type="checkbox"
@@ -107,7 +107,7 @@ export function ShopCategoryPicker({
                 />
                 <span>
                   {c.name}
-                  {retired ? <span className="ml-1 text-xs text-ink-400">(retired)</span> : null}
+                  {retired ? <span className="ml-1 text-xs text-ink-500">(retired)</span> : null}
                 </span>
               </label>
             );

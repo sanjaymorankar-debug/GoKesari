@@ -6,7 +6,7 @@ import { LEGAL_DOCS, LEGAL_ENTITY } from "@/lib/legal-docs";
 const COMPANY_SLUGS = ["seller-terms"];
 const PAYMENT_SLUGS = ["subscription-terms", "wallet-terms", "voucher-terms", "grievance-redressal"];
 
-const linkClass = "inline-block py-1 underline decoration-cream-200 underline-offset-2 hover:text-ink-900 hover:decoration-ink-500";
+const linkClass = "inline-flex min-h-11 items-center underline decoration-cream-200 underline-offset-2 hover:text-ink-900 hover:decoration-ink-500";
 
 function Column({ title, links }: { title: string; links: { href: string; label: string }[] }) {
   return (

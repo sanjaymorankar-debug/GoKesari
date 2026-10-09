@@ -1,6 +1,8 @@
+import clsx from "clsx";
+
 import { formatCount } from "@/lib/board/format";
 import { L, LANG_TAG, tr, UI, type Lang } from "@/lib/board/i18n";
-import { ADMIN_DO_NOW, ADMIN_MENUS, OPERATOR_MENUS, visibleItems, visibleMenus } from "@/lib/board/menus";
+import { ADMIN_DO_NOW, ADMIN_MENUS, OPERATOR_DO_NOW, OPERATOR_MENUS, visibleItems, visibleMenus } from "@/lib/board/menus";
 import type { UserRole } from "@/server/db/schema";
 import type { BoardHeaderData } from "@/server/board-header-data";
 import type { StaffBoardData } from "@/server/board-data";
@@ -20,18 +22,21 @@ const LATEST = L("Latest", "नवीनतम", "नवीनतम");
 const REVIEW_NOW = L("Disputes waiting for an administrator", "एडमिन के लिए विवाद", "ॲडमिनसाठी थांबलेले वाद");
 
 /**
- * Admin and operator home board (`/admin`). Admin: the "Do now" strip and
- * nine tiles (3×3). Operator: two alert banners — shown only when there is
- * something to act on — and six tiles (2×3 on phones, 3×2 on wide screens).
+ * Admin and operator home board (`/admin`): the "Do now" strip, then the
+ * tiles — admin nine (3×3), operator seven (2 columns on phones, 4 on wide
+ * screens). On wide screens the operator also sees the two alert banners
+ * (oldest late order, latest escalated ticket) when there is something to
+ * act on; on phones the "Do now" counts carry the same news.
  */
 export function StaffBoard({ lang, user, header, data }: Props) {
   const isAdmin = user.role === "ADMIN";
-  const menus = visibleMenus(isAdmin ? ADMIN_MENUS : OPERATOR_MENUS, user.role);
-  const doNow = isAdmin ? visibleItems(ADMIN_DO_NOW, user.role) : [];
+  const board = isAdmin ? "admin" : "operator";
+  const menus = visibleMenus(isAdmin ? ADMIN_MENUS : OPERATOR_MENUS, user.role, {}, board);
+  const doNow = visibleItems(isAdmin ? ADMIN_DO_NOW : OPERATOR_DO_NOW, user.role);
   const { attention, escalated } = data.alerts;
 
   return (
-    <div data-tile-board={isAdmin ? "admin" : "operator"} lang={LANG_TAG[lang]} className="flex min-h-[100svh] flex-col bg-[#fdf4ea] text-ink-900">
+    <div data-tile-board={board} lang={LANG_TAG[lang]} className="flex min-h-[100svh] flex-col bg-[var(--gk-bg)] text-ink-900 max-lg:h-[100svh]">
       <BoardHeader
         lang={lang}
         user={user}
@@ -44,11 +49,11 @@ export function StaffBoard({ lang, user, header, data }: Props) {
           title: tr(isAdmin ? UI.adminConsole : UI.operatorConsole, lang),
         }}
       />
-      <div className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col gap-2 px-2 py-2 sm:px-3 lg:gap-4 lg:px-6 lg:py-4">
-        {isAdmin ? <DoNowStrip items={doNow} lang={lang} counts={data.counts} /> : null}
+      <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col gap-2 px-2 py-2 sm:px-3 lg:gap-4 lg:px-6 lg:py-4">
+        <DoNowStrip items={doNow} lang={lang} counts={data.counts} />
 
         {!isAdmin && ((attention?.total ?? 0) > 0 || (escalated?.total ?? 0) > 0) ? (
-          <div className="grid gap-1.5 lg:grid-cols-2 lg:gap-3">
+          <div className="hidden gap-3 max-lg:hidden lg:grid lg:grid-cols-2">
             {attention && attention.total > 0 ? (
               <Banner
                 testId="alert-orders"
@@ -78,17 +83,18 @@ export function StaffBoard({ lang, user, header, data }: Props) {
           </div>
         ) : null}
 
-        <div
-          className={
-            isAdmin
-              ? "grid flex-1 grid-cols-3 gap-1 [--chip-gap-x:0.1875rem] [--chip-gap:0.1875rem] [--chip-h:1.625rem] [--chip-px:0.25rem] [--chip-text:0.78125rem] [--tile-pad:0.25rem] [--tile-title:0.8125rem] max-lg:[@media(max-height:760px)]:[--chip-h:1.4375rem] max-lg:[@media(max-height:760px)]:[--chip-gap:0.125rem] lg:gap-4"
-              : "grid flex-1 grid-cols-2 gap-1.5 [--chip-gap:0.25rem] [--chip-h:1.875rem] [--chip-text:0.875rem] [--tile-pad:0.375rem] max-lg:[@media(max-height:760px)]:[--chip-h:1.625rem] lg:grid-cols-3 lg:gap-4"
-          }
-        >
-          {menus.map((menu) => (
-            <Tile key={menu.key} menu={menu} lang={lang} counts={data.counts} />
-          ))}
-        </div>
+        <nav aria-label={tr(UI.board, lang)} className="flex min-h-0 flex-1 flex-col">
+          <div
+            className={clsx(
+              "grid min-h-0 flex-1 gap-1.5 [grid-auto-rows:minmax(0,1fr)] lg:gap-4",
+              isAdmin ? "grid-cols-3" : "grid-cols-2 lg:grid-cols-4",
+            )}
+          >
+            {menus.map((menu) => (
+              <Tile key={menu.key} menu={menu} lang={lang} counts={data.counts} compact={!isAdmin} chipIcons={!isAdmin} tagCounts={isAdmin ? "urgent" : "all"} />
+            ))}
+          </div>
+        </nav>
       </div>
     </div>
   );

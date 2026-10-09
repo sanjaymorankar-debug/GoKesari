@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import { SafeImage } from "@/components/safe-image";
+import { categoryEmoji, priceUnitLabel } from "@/lib/board/product-look";
 import { AvailabilityBadge, Button, Card, Money } from "@/components/ui";
 import type { CartLineQuantity, CartSummary } from "@/server/services/cart";
 
@@ -150,6 +151,7 @@ export function ProductCard({
         src={product.imageUrl}
         size="medium"
         alt={product.productName}
+        fallbackEmoji={categoryEmoji(product.categoryName, product.productName)}
         className="mb-3 h-32 w-full rounded-lg bg-cream-100 object-cover"
       />
       <div className="mb-2 flex items-start justify-between gap-2">
@@ -188,16 +190,17 @@ export function ProductCard({
       <div className="mt-auto">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
           {product.onlinePricePaise != null && product.offerPricePaise != null ? (
-            <span className="text-xs text-ink-400 line-through" data-testid="offer-list-price">
+            <span className="text-xs text-ink-500 line-through" data-testid="offer-list-price">
               <Money paise={product.onlinePricePaise} />
             </span>
           ) : null}
           {product.onlinePricePaise != null ? (
             <span className="text-base font-semibold text-ink-900">
               <Money paise={product.offerPricePaise ?? product.onlinePricePaise} />
-              <span className="text-xs font-normal text-ink-500">
+              <span className="text-sm font-normal text-ink-600">
                 {" "}
-                / {product.unit} online
+                {priceUnitLabel(product.unit)}
+                {product.offlinePricePaise != null && product.offlinePricePaise !== product.onlinePricePaise ? " online" : ""}
               </span>
             </span>
           ) : null}
@@ -220,7 +223,7 @@ export function ProductCard({
         {product.productId ? (
           <Link
             href={`/products/${product.productId}`}
-            className="mt-1 inline-block text-xs font-medium text-kesari-600 hover:underline"
+            className="mt-1 inline-flex min-h-11 items-center text-sm font-medium text-kesari-700 hover:underline"
           >
             Compare prices at other shops →
           </Link>

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { ConsentHint, useSharedConsent } from "@/components/sign-in-consent";
 import { EMAIL_HINT, isValidEmail, parseIndianMobile } from "@/lib/contact";
 
 type Step = "identify" | "email" | "code";
@@ -14,7 +15,7 @@ export type VerifyLoginCode = (input: {
 const inputClass =
   "min-w-0 rounded-lg border border-cream-200 px-3 py-2 text-sm focus:border-kesari-500 focus:outline-none";
 const buttonClass =
-  "rounded-lg bg-kesari-600 px-4 py-2 text-sm font-medium text-white hover:bg-kesari-800 disabled:opacity-50";
+  "min-h-11 rounded-lg bg-kesari-600 px-4 py-2 text-sm font-medium text-white hover:bg-kesari-800 disabled:bg-cream-200 disabled:text-ink-600";
 
 /**
  * Mobile number or email → code from email. A mobile number gets the same
@@ -25,7 +26,10 @@ const buttonClass =
 export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
   const [step, setStep] = useState<Step>("identify");
   const [identifier, setIdentifier] = useState("");
-  const [agreed, setAgreed] = useState(false);
+  const [ownAgreed, setAgreed] = useState(false);
+  // On the sign-in page one shared "I agree" covers every method.
+  const shared = useSharedConsent();
+  const agreed = shared ? shared.agreed : ownAgreed;
   const [mobile, setMobile] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
   const [emailInput, setEmailInput] = useState("");
@@ -115,7 +119,7 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
 
   return (
     <div className="mt-6 border-t border-cream-200 pt-6" data-testid="otp-signin">
-      <p className="mb-2 text-sm font-medium text-ink-700">Login with mobile number or email</p>
+      <p className="mb-2 text-base font-semibold text-ink-900">Sign in with your mobile number or email</p>
 
       {step === "identify" ? (
         <form onSubmit={submitIdentifier}>
@@ -126,14 +130,19 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
               autoComplete="username"
               placeholder="10-digit mobile number or email"
               aria-label="Mobile number or email"
-              className={`${inputClass} flex-1`}
+              className={`${inputClass} min-h-12 flex-1 text-base`}
               required
             />
             <button type="submit" disabled={busy || !agreed} className={buttonClass}>
               {busy ? "Sending…" : "Get code"}
             </button>
           </div>
-          <label className="mt-3 flex items-start gap-2 text-xs text-ink-600">
+          {shared && !agreed ? (
+            <p className="mt-1">
+              <ConsentHint />
+            </p>
+          ) : null}
+          <label className={shared ? "hidden" : "mt-3 flex items-start gap-2 text-xs text-ink-600"}>
             <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5" />
             <span>
               I agree to the{" "}
@@ -147,7 +156,7 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
               .
             </span>
           </label>
-          <p className="mt-1 text-xs text-ink-500">The sign-in code is sent to your email (by SMS for shops registered with a mobile number only).</p>
+          <p className="mt-1 text-sm text-ink-600">The sign-in code is sent to your email (by SMS for shops registered with a mobile number only).</p>
         </form>
       ) : null}
 
