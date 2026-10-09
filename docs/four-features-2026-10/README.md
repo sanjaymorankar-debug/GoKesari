@@ -393,9 +393,48 @@ The owner answered the open questions of §6. What was built:
     `customerReferrals`). It was only linked from My Wallet. The account
     menu now has "Invite friends" whenever that rule is on. A friend's code
     counts as the mandatory referral code (O-5).
-- **O-7. Cashfree's account-verification product: buy it.** Not built yet.
-  It needs the product activated on the Cashfree account and its sandbox
-  keys (§6).
+- **O-7. Cashfree's account-verification product: bought; bank accounts
+  are checked with the bank** (built 9 Oct 2026, after the owner added the
+  Verification Suite keys to the test environment).
+  - **When:** a bank account (account number + IFSC) is saved, by a customer
+    (refunds) or a shop owner (payouts). Cashfree's Bank Account Verification
+    (sync, v2) asks the bank whether the account is valid and whose name it
+    is in. UPI IDs keep the ₹1 check.
+  - **Valid, name matches** (Cashfree's `DIRECT_MATCH` / `GOOD_PARTIAL_MATCH`,
+    or a score at least `bankAccounts.nameMatchThreshold`): **verified at
+    once, no ₹1 payment.** The page says "Verified with your bank", with the
+    bank's name for the holder, the bank and the branch.
+  - **Invalid account / IFSC, blocked, NRE, or a name that does not match**
+    (`POOR_PARTIAL_MATCH`, `NO_MATCH`, or a low score): **failed**, with the
+    reason and the bank's name. The ₹1 payment is then refused for these
+    details (the bank has said no); the holder corrects them and saves again.
+  - **Any error** (keys missing, Cashfree's two-factor check refusing, a
+    timeout, a valid answer with no word on the name): nothing changes. The
+    account waits for the ₹1 check as before, and the holder can press
+    "Check with my bank again".
+  - **Records:** every call in table `bank_account_checks` (`0073`): result,
+    Cashfree's codes, name at bank, bank, branch, name match, HTTP status and
+    any error. Verified/failed accounts get `match_method` `BANK_CHECK`,
+    the bank's name and Cashfree's reference. Audited, and the holder gets
+    an in-app message.
+  - **Rule:** `bankAccountCheck` (`enabled`, off by default;
+    `maxChecksPerDay` 3 per person, since each check costs a fee). On for
+    test.
+  - **Keys** (environment only, never in code): `CASHFREE_VERIFICATION_CLIENT_ID`
+    and `CASHFREE_VERIFICATION_CLIENT_SECRET` (or `CASHFREE_VERIFICATION_APP_ID`
+    and `CASHFREE_VERIFICATION_SECRET_KEY`). `CASHFREE_VERIFICATION_ENV`
+    (`sandbox`/`production`) defaults to `CASHFREE_ENV`.
+  - **Two-factor:** Cashfree requires it even in sandbox. Either whitelist the
+    server's outbound IP in the Cashfree dashboard (Developers → Two-Factor
+    Authentication → IP whitelist), or set `CASHFREE_VERIFICATION_PUBLIC_KEY`
+    to the Secure ID public key (PEM; pasted `\n`s are accepted): each call
+    then carries the `x-cf-signature` header.
+  - **Finance (Admin → Bank accounts):** a card shows whether the rule is on,
+    which variable names the keys were found under (never the values), the
+    two-factor mode, and the latest checks. **Test connection** calls Cashfree
+    with its own sandbox sample account (026291800001191 / YESB0000262,
+    "John Doe"; sandbox keys only) and shows the answer and the server's
+    outbound IP to whitelist.
 - **O-8. Refunds to bank: legal wording approved; the finance lead sends the
   transfers** (answer to §5 item 8, 9 Oct 2026).
   - **Wording:** exactly as proposed in §5 item 8. The owner approved the
@@ -493,7 +532,7 @@ All four are additive. **Migrate first, deploy second** (DEPLOY_RUNBOOK §0) —
 although this release tolerates the reverse order (G-5).
 
 **Test (automatic):** merging into `staging` runs the "Test database"
-workflow: back up → migrate (0061–0067 and 0072 are this work) → apply
+workflow: back up → migrate (0061–0067, 0072 and 0073 are this work) → apply
 `test-settings.sql` → verify.
 Manual alternative: `DATABASE_URL=<test db> npm run db:migrate`, then
 `psql "$TEST_DATABASE_URL" -f docs/four-features-2026-10/test-settings.sql`.
@@ -501,12 +540,14 @@ Manual alternative: `DATABASE_URL=<test db> npm run db:migrate`, then
 **Rollback** (each feature independently):
 1. Switch the feature off: Admin → Business rules → `fulfilmentOptions` /
    `legalDocuments` / `bankAccounts` / `shopReferral` / `bankRefunds` /
-   `customerSignupReferral` → Restore default (or set
+   `customerSignupReferral` / `bankAccountCheck` → Restore default (or set
    `fulfilmentOptions.refundDeliveryFeeOnPickup` to false). The app
    is then as before (planned orders already in progress still complete through
    their plan; finish them first if you roll back code).
 2. Code: revert the merge on `staging`; Hostinger redeploys.
-3. Schema (only after the old code is live): run `scripts/rollback-0072.sql`
+3. Schema (only after the old code is live): run `scripts/rollback-0073.sql`
+   (the bank-check log is lost; accounts keep their status), then
+   `scripts/rollback-0072.sql`
    (customer requests for a code are lost, codes already issued stay), then
    `-0067`, `-0066`, `-0065`, `-0064`, `-0063`, `-0062`, `-0061` (newest first, any
    subset; settle open refunds to bank before 0066). Delete each rolled-back
@@ -576,6 +617,14 @@ Added on 9 Oct 2026, second round (O-4 to O-6):
 
 Added on 9 Oct 2026 (O-8): `tests/integration/bank-refund-legal-pages.test.ts`; the Wallet Terms
 and Refund Policy pages changed (EXISTING_FILE_CHANGES.md).
+
+Added on 9 Oct 2026 (O-7, bank check with Cashfree):
+* Migration: `drizzle/0073_bank_account_checks.sql` (+ `drizzle/meta`), `scripts/rollback-0073.sql`.
+* Service: `src/server/services/bank-account-check.ts`.
+* API: `src/app/api/bank-account/check/route.ts` (holder: check again),
+  `src/app/api/admin/bank-account-check/{route,test/route}.ts` (finance: status, connection test).
+* Component: `src/components/bank-check-admin-card.tsx`.
+* Tests: `tests/integration/bank-account-check.test.ts`.
 
 Existing files touched (additive; exact lines in [EXISTING_FILE_CHANGES.md](EXISTING_FILE_CHANGES.md)):
 `src/server/db/schema.ts` (new tables appended), `src/server/config/rules.ts`
@@ -652,15 +701,24 @@ Nothing here touches production. When you decide to promote:
      customers cannot order until they get a code.
    - **Invite codes:** turn on `customerReferrals` too if friends' invite
      codes should count.
+10. **Bank check with Cashfree (`bankAccountCheck`, O-7)**: the **live**
+    Verification Suite keys in gokesari.com's environment
+    (`CASHFREE_VERIFICATION_CLIENT_ID` / `_CLIENT_SECRET`;
+    `CASHFREE_VERIFICATION_ENV=production` if it differs from `CASHFREE_ENV`),
+    and the production server's IP whitelisted in Cashfree (or the public
+    key). The connection test runs with sandbox keys only; on production,
+    check one real account and watch Admin → Bank accounts → Latest checks.
+    Each check costs a Cashfree fee (`maxChecksPerDay` caps it per person).
 
 ## 6. Decisions needed from you
-All answered and built: O-1 to O-3, O-4 to O-6, and O-8 (refunds to bank:
-wording approved, the finance lead sends the transfers) (§2). Still open:
+All answered and built: O-1 to O-3, O-4 to O-6, O-7 (bank check with
+Cashfree) and O-8 (refunds to bank: wording approved, the finance lead sends
+the transfers) (§2). Still open:
 
-1. **Cashfree's account-verification product (O-7, approved).** To build it:
-   activate "Verification Suite" (bank account verification) on the Cashfree
-   account. Then put its **sandbox** client id and secret in the test
-   environment's settings, the same way as the payment keys; they are never
-   in code. When it is live, every bank account a customer or shop adds is
-   checked with the bank, and the bank's name for the holder is shown and
-   compared with the name given. The ₹1 payment stays as a fallback.
+1. **Cashfree two-factor for the bank check (O-7).** Cashfree accepts a
+   Verification Suite call only from a whitelisted IP or with a signature.
+   Admin → Bank accounts → Test connection shows Cashfree's answer and the
+   server's outbound IP. If it says the IP is not whitelisted: add that IP in
+   Cashfree (Developers → Two-Factor Authentication), or put the Secure ID
+   public key in `CASHFREE_VERIFICATION_PUBLIC_KEY`. For production, the same
+   with the **live** Verification Suite keys, and `bankAccountCheck` on.

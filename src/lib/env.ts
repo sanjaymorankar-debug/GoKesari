@@ -45,6 +45,19 @@ const serverEnvSchema = z.object({
   CASHFREE_APP_ID: z.string().optional(),
   CASHFREE_SECRET_KEY: z.string().optional(),
   CASHFREE_ENV: z.enum(["sandbox", "production"]).default("sandbox"),
+  /**
+   * Cashfree Verification Suite (Secure ID) — bank account check (docs/four-features-2026-10, O-7).
+   * Its own client id / secret, not the payment keys. The *_APP_ID / *_SECRET_KEY spellings are
+   * accepted too, matching the payment keys' names. Optional: without them the ₹1 check is used.
+   */
+  CASHFREE_VERIFICATION_CLIENT_ID: z.string().optional(),
+  CASHFREE_VERIFICATION_CLIENT_SECRET: z.string().optional(),
+  CASHFREE_VERIFICATION_APP_ID: z.string().optional(),
+  CASHFREE_VERIFICATION_SECRET_KEY: z.string().optional(),
+  /** Secure ID public key (PEM) for 2FA by signature; without it Cashfree must have this server's IP whitelisted. */
+  CASHFREE_VERIFICATION_PUBLIC_KEY: z.string().optional(),
+  /** Defaults to CASHFREE_ENV. */
+  CASHFREE_VERIFICATION_ENV: z.enum(["sandbox", "production"]).optional(),
 
   /**
    * Google Maps Platform — server-side Geocoding API key, used exactly once

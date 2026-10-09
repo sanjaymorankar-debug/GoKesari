@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { BankAccountManager } from "@/components/bank-account-manager";
 import { Alert, EmptyState, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
+import { bankCheckOffered } from "@/server/services/bank-account-check";
 import { getBankAccountView, verificationGatewayMode } from "@/server/services/bank-accounts";
 import { getRule } from "@/server/services/settings";
 import { listShopsForOwner } from "@/server/services/shops";
@@ -27,6 +28,7 @@ export default async function ShopBankAccountPage({ searchParams }: { searchPara
   const params = await searchParams;
   const shop = shops.find((s) => s.id === params.shop) ?? shops[0];
   const [account, rules] = await Promise.all([getBankAccountView(user.id, shop.id), getRule("bankAccounts")]);
+  const bankCheck = await bankCheckOffered();
   return (
     <div className="mx-auto max-w-2xl space-y-4">
       <PageHeader
@@ -41,7 +43,7 @@ export default async function ShopBankAccountPage({ searchParams }: { searchPara
       {rules.requireVerifiedForShopPayouts && account?.status !== "VERIFIED" ? (
         <Alert tone="warning" title="Payouts are on hold">Settlements are paid only to a verified bank account.</Alert>
       ) : null}
-      <BankAccountManager account={account} saveUrl={`/api/shops/${shop.id}/bank-account`} gateway={verificationGatewayMode()} purpose="payouts" />
+      <BankAccountManager account={account} saveUrl={`/api/shops/${shop.id}/bank-account`} gateway={verificationGatewayMode()} purpose="payouts" bankCheck={bankCheck} />
     </div>
   );
 }

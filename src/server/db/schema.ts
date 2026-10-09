@@ -6726,3 +6726,54 @@ export const customerReferralRequests = pgTable(
   ],
 );
 export type CustomerReferralRequest = typeof customerReferralRequests.$inferSelect;
+
+/* ------------------------------------------------------------------ */
+/* Bank account check with Cashfree Verification Suite                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One check of a bank account with the bank, through Cashfree's Verification
+ * Suite (docs/four-features-2026-10, the owner's decision O-7). The bank says
+ * whether the account is valid and whose name it is in; a good name match
+ * verifies the account without the ₹1 payment, which stays as the fallback.
+ * Every call is kept, errors included, so finance can see what the bank said.
+ * Additive: migration 0073, rollback scripts/rollback-0073.sql.
+ */
+export const BANK_ACCOUNT_CHECK_RESULTS = ["VALID", "INVALID", "ERROR", "NOT_CONFIGURED"] as const;
+export type BankAccountCheckResult = (typeof BANK_ACCOUNT_CHECK_RESULTS)[number];
+
+export const bankAccountChecks = pgTable(
+  "bank_account_checks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    bankAccountId: uuid("bank_account_id")
+      .notNull()
+      .references(() => bankAccounts.id, { onDelete: "cascade" }),
+    /** Who triggered it (the holder saving the account, or pressing "check again"). */
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    provider: text("provider").notNull().default("CASHFREE_BAV"),
+    result: text("result", { enum: BANK_ACCOUNT_CHECK_RESULTS }).notNull(),
+    /** Cashfree's account_status_code, e.g. ACCOUNT_IS_VALID, INVALID_ACCOUNT_FAIL, INVALID_IFSC_FAIL. */
+    statusCode: text("status_code"),
+    referenceId: text("reference_id"),
+    nameAtBank: text("name_at_bank"),
+    bankName: text("bank_name"),
+    branch: text("branch"),
+    city: text("city"),
+    /** Cashfree's name match (0–100) and its band (DIRECT_MATCH … NO_MATCH). */
+    nameMatchScore: integer("name_match_score"),
+    nameMatchResult: text("name_match_result"),
+    /** True when this check verified the account. */
+    verified: boolean("verified").notNull().default(false),
+    httpStatus: integer("http_status"),
+    errorMessage: text("error_message"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("bank_account_checks_account_idx").on(t.bankAccountId, t.createdAt),
+    index("bank_account_checks_user_idx").on(t.userId, t.createdAt),
+  ],
+);
+export type BankAccountCheck = typeof bankAccountChecks.$inferSelect;

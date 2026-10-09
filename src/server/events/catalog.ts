@@ -836,6 +836,28 @@ export const EVENTS = {
     },
   ]),
 
+  /* ------------------------- bank account check with the bank (Cashfree Verification Suite, O-7) */
+  "bank_account.bank_check_verified": define<BankAccountEventPayload>("bank_account", (p) => [
+    {
+      to: p.userId,
+      type: N.BANK_ACCOUNT_VERIFIED,
+      title: "Bank account verified",
+      body: `${p.accountLabel} is verified: your bank confirmed the account${p.reason ? ` (${p.reason})` : ""}. No ₹1 payment was needed.`,
+      actionUrl: p.forShop ? "/shop/bank-account" : "/profile/bank-account",
+      includeActor: true,
+    },
+  ]),
+  "bank_account.bank_check_failed": define<BankAccountEventPayload>("bank_account", (p) => [
+    {
+      to: p.userId,
+      type: N.BANK_ACCOUNT_VERIFICATION_FAILED,
+      title: "Bank account not verified",
+      body: `${p.accountLabel} could not be verified with your bank: ${p.reason ?? "the bank did not confirm it"}. Check the details, or verify with ₹1 instead.`,
+      actionUrl: p.forShop ? "/shop/bank-account" : "/profile/bank-account",
+      includeActor: true,
+    },
+  ]),
+
   /* ------------------------------------------ refunds to a customer's bank */
   "bank_refund.requested": define<BankRefundEventPayload>("bank_refund", (p) => [
     {

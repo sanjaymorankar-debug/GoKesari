@@ -30,6 +30,15 @@ export interface BankAccountInfo {
   gatewayReference: string | null;
   failureReason: string | null;
   lastAttempt: { status: string; refundStatus: string; paymentMethod: string | null; createdAt: string } | null;
+  /** O-7: how the account was decided (BANK_CHECK = checked with the bank) and the bank's latest answer. */
+  matchMethod?: string | null;
+  bankCheck?: {
+    result: "VALID" | "INVALID" | "ERROR" | "NOT_CONFIGURED";
+    nameAtBank: string | null;
+    bankName: string | null;
+    branch: string | null;
+    checkedAt: string;
+  } | null;
 }
 
 const TONE = { PENDING: "warning", VERIFIED: "success", FAILED: "danger" } as const;
@@ -45,12 +54,15 @@ export function BankAccountManager({
   saveUrl,
   gateway,
   purpose,
+  bankCheck = false,
 }: {
   account: BankAccountInfo | null;
   /** PUT endpoint: /api/bank-account or /api/shops/{id}/bank-account. */
   saveUrl: string;
   gateway: "CASHFREE" | "SIMULATOR" | "UNAVAILABLE";
   purpose: "refunds" | "payouts";
+  /** O-7: a bank account is checked with the bank when saved (rule bankAccountCheck and its keys). */
+  bankCheck?: boolean;
 }) {
   const router = useRouter();
   const [editing, setEditing] = useState(account == null);
@@ -84,7 +96,7 @@ export function BankAccountManager({
     setNotice(null);
     setFieldErrors({});
     try {
-      await request(saveUrl, "PUT", {
+      const saved = await request(saveUrl, "PUT", {
         method,
         accountHolderName: holder,
         ...(method === "BANK_ACCOUNT" ? { accountNumber: number, confirmAccountNumber: confirmNumber, ifsc } : { upiId: upi }),
@@ -93,7 +105,16 @@ export function BankAccountManager({
       setNumber("");
       setConfirmNumber("");
       setUpi("");
-      setNotice("Saved. Now verify it with a ₹1 payment, refunded straight away.");
+      const checked = saved?.matchMethod === "BANK_CHECK";
+      setNotice(
+        checked && saved?.status === "VERIFIED"
+          ? "Saved and verified with your bank — no ₹1 payment needed."
+          : checked && saved?.status === "FAILED"
+            ? null
+            : saved?.bankCheck?.result === "ERROR"
+              ? "Saved. We could not reach your bank just now — verify with ₹1 instead, or check with your bank again."
+              : "Saved. Now verify it with a ₹1 payment, refunded straight away.",
+      );
       router.refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not save.");
@@ -119,6 +140,22 @@ export function BankAccountManager({
       router.refresh();
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : "Could not verify.");
+    } finally {
+      setBusy(false);
+    }
+  }
+
+  async function checkAgain() {
+    if (!account) return;
+    setBusy(true);
+    setError(null);
+    setNotice(null);
+    try {
+      const result = await request("/api/bank-account/check", "POST", { accountId: account.id });
+      setNotice(result?.status === "VERIFIED" ? "Verified with your bank — no ₹1 payment needed." : result?.bankCheck?.result === "ERROR" ? "We still could not reach your bank. Verify with ₹1 instead." : null);
+      router.refresh();
+    } catch (caught) {
+      setError(caught instanceof Error ? caught.message : "Could not check with your bank.");
     } finally {
       setBusy(false);
     }
@@ -157,7 +194,13 @@ export function BankAccountManager({
             </div>
             <Badge tone={TONE[account.status]}>{BANK_STATUS_LABELS[account.status]}</Badge>
           </div>
-          {account.status === "VERIFIED" ? (
+          {account.status === "VERIFIED" && account.matchMethod === "BANK_CHECK" ? (
+            <p className="mt-2 text-xs text-ink-500" data-testid="bank-check-verified">
+              Verified with your bank{account.verifiedAt ? ` on ${new Date(account.verifiedAt).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}` : ""}
+              {account.matchedAccountHolderName ? ` · name at bank ${account.matchedAccountHolderName}` : ""}
+              {account.bankCheck?.bankName ? ` · ${account.bankCheck.bankName}${account.bankCheck.branch ? `, ${account.bankCheck.branch}` : ""}` : ""}
+            </p>
+          ) : account.status === "VERIFIED" ? (
             <p className="mt-2 text-xs text-ink-500">
               Verified{account.verifiedAt ? ` on ${new Date(account.verifiedAt).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}` : ""}
               {account.verificationPaymentMethod ? ` by ${VERIFICATION_METHOD_LABELS[account.verificationPaymentMethod as VerificationMethod] ?? account.verificationPaymentMethod}` : ""}
@@ -167,12 +210,25 @@ export function BankAccountManager({
             </p>
           ) : null}
           {account.status === "FAILED" && account.failureReason ? (
-            <div className="mt-3">
-              <Alert tone="danger" title="Verification failed">{account.failureReason}</Alert>
+            <div className="mt-3" data-testid={account.matchMethod === "BANK_CHECK" ? "bank-check-failed" : undefined}>
+              <Alert tone="danger" title={account.matchMethod === "BANK_CHECK" ? "Your bank did not confirm these details" : "Verification failed"}>
+                {account.failureReason[0].toUpperCase() + account.failureReason.slice(1)}.
+                {account.matchMethod === "BANK_CHECK" ? " Change the details to match your bank exactly, then save." : ""}
+              </Alert>
             </div>
           ) : null}
+          {account.status === "PENDING" && account.bankCheck?.result === "ERROR" ? (
+            <p className="mt-2 text-xs text-amber-800" data-testid="bank-check-error">
+              We could not reach your bank just now to check this account.
+            </p>
+          ) : null}
           <div className="mt-3 flex flex-wrap gap-2">
-            {account.status !== "VERIFIED" ? (
+            {account.status === "PENDING" && account.bankCheck?.result === "ERROR" ? (
+              <Button variant="secondary" disabled={busy} onClick={() => void checkAgain()}>
+                Check with my bank again
+              </Button>
+            ) : null}
+            {account.status !== "VERIFIED" && !(account.status === "FAILED" && account.matchMethod === "BANK_CHECK") ? (
               <Button disabled={busy || gateway === "UNAVAILABLE"} onClick={() => void verify()}>
                 {busy ? "Working…" : account.status === "FAILED" ? "Try again with ₹1" : "Verify with ₹1"}
               </Button>
@@ -223,7 +279,13 @@ export function BankAccountManager({
       {editing ? (
         <Card className="p-5">
           <h2 className="text-base font-semibold text-ink-900">{account ? "Change bank details" : `Add a bank account for ${purpose}`}</h2>
-          {account ? <p className="mt-1 text-xs text-ink-500">New details need a new ₹1 verification.</p> : null}
+          {account ? (
+            <p className="mt-1 text-xs text-ink-500">
+              {bankCheck ? "New bank account details are checked with your bank when you save (a UPI ID is verified with ₹1)." : "New details need a new ₹1 verification."}
+            </p>
+          ) : bankCheck ? (
+            <p className="mt-1 text-xs text-ink-500">A bank account is checked with your bank as soon as you save it — no payment needed.</p>
+          ) : null}
           <div className="mt-3 flex gap-2" role="radiogroup" aria-label="Account type">
             {(["BANK_ACCOUNT", "UPI"] as const).map((m) => (
               <label key={m} className={`cursor-pointer rounded-lg border px-3 py-1.5 text-sm ${method === m ? "border-kesari-500 bg-kesari-50" : "border-cream-200"}`}>
