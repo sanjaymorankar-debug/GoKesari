@@ -1,8 +1,13 @@
 import { CURRENT_POLICY_VERSION } from "@/lib/legal-docs";
+import { getRule } from "@/server/services/settings";
 
 export const metadata = { title: "Wallet Terms" };
+// Refunds to bank (docs/four-features-2026-10, O-2): the wording follows the rule, so it is read per request.
+export const dynamic = "force-dynamic";
 
-export default function WalletTermsPage() {
+export default async function WalletTermsPage() {
+  // The owner's approved wording (9 Oct 2026) shows only while refunds to bank are offered.
+  const bankRefunds = await getRule("bankRefunds").catch(() => null);
   return (
     <>
       <h1>Wallet Terms</h1>
@@ -32,10 +37,19 @@ export default function WalletTermsPage() {
           <strong>It cannot be transferred to another customer.</strong>{" "}
           Wallet balances are not peer-to-peer transferable.
         </li>
-        <li>
-          <strong>It cannot be withdrawn as cash</strong> or transferred to a
-          bank account, UPI ID, or any external payment method.
-        </li>
+        {bankRefunds?.enabled ? (
+          <li>
+            <strong>It cannot be withdrawn as cash.</strong> Money refunded to
+            your wallet (not promotional credit, not top-ups) can be sent to
+            your own verified bank account within {bankRefunds.windowDays} days
+            of the refund; see the <a href="/legal/refund-policy">Refund Policy</a>.
+          </li>
+        ) : (
+          <li>
+            <strong>It cannot be withdrawn as cash</strong> or transferred to a
+            bank account, UPI ID, or any external payment method.
+          </li>
+        )}
         <li>
           It is not interest-bearing and is not insured or guaranteed by any
           bank or deposit-insurance scheme.
