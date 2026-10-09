@@ -69,6 +69,7 @@ export interface Actor {
 
 /** A second identical submission within this window rides on the first instead of paying again. */
 const IN_FLIGHT_WINDOW_MS = 30_000;
+/** Code default; the live limit is rule `uploads.sellerDocumentMaxBytes`. */
 const MAX_FILE_BYTES = 5_000_000;
 
 /* ------------------------------------------------------------------ views */
@@ -662,7 +663,10 @@ export async function uploadShopActCertificate(input: {
   ipAddress?: string | null;
 }): Promise<SellerVerificationView> {
   if (input.file.length === 0) throw validationFailed("The file is empty.");
-  if (input.file.length > MAX_FILE_BYTES) throw validationFailed("The certificate can be at most 5 MB.");
+  const maxFileBytes = (await getRule("uploads")).sellerDocumentMaxBytes ?? MAX_FILE_BYTES;
+  if (input.file.length > maxFileBytes) {
+    throw validationFailed(`The certificate can be at most ${maxFileBytes / 1_000_000} MB.`);
+  }
   const contentType = detectDocumentFile(input.file);
   if (!contentType) throw validationFailed("Upload the certificate as a PDF, JPEG, PNG or WebP file.");
 

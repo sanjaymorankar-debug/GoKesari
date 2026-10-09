@@ -112,6 +112,7 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin/delivery-slots", label: "Delivery slots" },
     { href: "/admin/image-moderation", label: "Image moderation" },
     { href: "/admin/rider-changes", label: "Rider profile changes" },
+    { href: "/admin/rider-kyc", label: "Rider documents" },
     { href: "/admin/customer-referrals", label: "Customer referrals" },
     { href: "/admin/status-changes", label: "Status history" },
     { href: "/admin/subscriptions", label: "Subscriptions" },
@@ -120,6 +121,7 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/delivery-partner", label: "Delivery Partner" },
     { href: "/gig/orders", label: "My deliveries" },
     { href: "/gig/profile", label: "My delivery profile" },
+    { href: "/gig/id-card", label: "My ID card" },
   ],
 };
 

@@ -130,7 +130,8 @@ Cashfree sandbox keys on staging so no real money moves.
 
 ## 4. Run migrations
 
-Migrations are plain SQL under `drizzle/` and are not run automatically.
+Migrations are plain SQL under `drizzle/` and are not run automatically
+unless the environment opts in (below).
 
 ```bash
 npm run db:migrate                 # apply pending migrations
@@ -139,6 +140,31 @@ npm run db:seed -- --minimal       # reference data only — first deploy
 
 Use `--minimal` in production: it seeds roles, permissions and the dairy/bakery
 catalogue, but **not** the demo shops.
+
+### Automatic migration during the build (opt-in, per environment)
+
+`npm run build` first runs `scripts/migrate-on-build.mjs`, then `next build`.
+The script does nothing unless the environment variable
+`MIGRATE_ON_BUILD=true` is set. With it set, every deploy:
+
+1. applies the pending migrations to that environment's `DATABASE_URL`
+   (all pending files in one transaction — a failure applies none of them);
+2. stops the build if the migration fails (non-zero exit), so `next build`
+   never runs and the new code is not built — migrate first, deploy second;
+3. writes to the build log the database name and host, how many migrations
+   were recorded and how many it applied (never the connection string).
+
+Turn it on by adding `MIGRATE_ON_BUILD=true` to the site's environment
+variables in hPanel, **test.gokesari.com first**. Leave production without it
+(migrate by hand, with a backup, as in §7) until it has run cleanly on test
+and the production database has a restore point you trust (Neon point-in-time
+restore window, or a `pg_dump` before each merge to `main`).
+
+It does not take a backup: take one before merging a release that carries
+migrations. After a deploy, check the build log in hPanel for the
+`[migrate-on-build]` lines — `applied N new migration(s)` — and that the site
+still serves; if the build failed, the log says why and nothing was migrated.
+Without the variable the log shows `[migrate-on-build] skipped`.
 
 Migration policy:
 
