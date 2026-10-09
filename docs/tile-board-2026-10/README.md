@@ -130,6 +130,10 @@ gokesari.com. The shell pads the status bar and the bottom system area itself
 and injects only a JavaScript bridge, so the board appears in the app with the
 website. **No app change and no new app build are needed.**
 
+On phones the app's WebView is shorter than the screen (a 360×800 phone gives
+about 360×728). Below 760 px of height, phone-width boards use slightly
+smaller chips and category tiles so the board still fits.
+
 ## Releasing to production
 
 Merge `staging` into `main`. Nothing in this feature needs a migration,
