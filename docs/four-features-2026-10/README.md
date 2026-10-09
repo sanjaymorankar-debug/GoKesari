@@ -429,6 +429,27 @@ The owner answered the open questions of §6. What was built:
   every kind of email, old and new alike, so no code was changed. The test
   report lists the outbox for the test accounts (`test-report.sql`). For
   production, see §5 item 2.
+- **S-6. A repeated "ask for a code" showed an error (fixed, 9 Oct).** On
+  test, the customer's request was saved, but the host's CDN answered the
+  browser's POST with a 307 and the browser sent it again. The repeat hit the
+  one-request rule, so the customer saw "We already have your request"
+  instead of "Request received".
+  - **Fix:** the same request from the same customer within 2 minutes (same
+    contact number, city and PIN) is now answered as the first one: same
+    reference, no second email.
+  - **Other forms:** the CDN can do this to any POST. Checkout and payments
+    already carry a request id, so a repeat is harmless there. The shop
+    owner's "request a code" form would show the same "already have your
+    request" message in that case; the request itself is not lost.
+- **S-7. The shop list called a paused shop "outside its delivery area"
+  (fixed, 9 Oct).** On test, the bakery blocked for a missing document
+  showed as "Pickup · outside its delivery area · 1.1 km". Shops paused by
+  their owner or below their wallet minimum read the same.
+  - **Fix:** a paused shop now reads "Not taking new orders right now"; the
+    cart message was already right. This is the wording option B asked for,
+    and the wallet gate's own design note.
+  - **The shop page** shows no notice for any paused shop (as before); the
+    cart warns as soon as an item is added.
 - **T-1. How the staging run signed in.** Test accounts are plus-aliases of the
   owner's mailbox (sanjaymorankar+gk-*@gmail.com), signing in with the real
   email code. `test-e2e-accounts.sql` gave one of them ADMIN and one OPERATOR on

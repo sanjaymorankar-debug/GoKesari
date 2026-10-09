@@ -191,3 +191,37 @@ served the new build from 05:19.
 All emails for these steps arrived within a minute: no sending-limit delays
 this time.
 
+
+## 6. The owner's second-round decisions (9 Oct 2026), tested on test
+
+PR #109 merged into staging at 09:20 UTC (`6d7f292`). The "Test database"
+workflow backed up, applied 0072 (75 migrations; 0068–0071 are the
+three-modules work merged just before) and set `customerSignupReferral` to
+`{"enabled": true, "required": true, "requiredFrom": "2026-10-09"}`. Hostinger
+served the new build from 09:22.
+
+| Time (UTC) | Flow | Step | Result |
+|---|---|---|---|
+| 08:49 | O-6 · signed out (phone) | Home page search box: "milk" → /search, 15 products listed with prices and shops, no sign-in. "Add to cart" → the sign-in page | PASS |
+| 09:23 | O-5 · new customer (phone) | sanjaymorankar+gk-new3 signs in for the first time. First-time setup: "Referral code — Needed before your first order … No code? Leave it empty and ask us for one next." Name and mobile saved with no code; after the address step's "Fill in later", setup ends on **My referral code** | PASS |
+| 09:23 | O-5 · My referral code | "A referral code is needed before your first order. Browse and search all you like in the meantime." Enter-a-code box, and "No referral code? Ask us for one" with the location captured (18.52043, 73.85674, Google Maps link) and name and contact number prefilled. API: `needsCode: true` | PASS |
+| 09:24 | O-5 · browse and cart | The E2E bakery's page lists 45 products; bread added. Cart: "A referral code is needed for your first order — Enter the code you were given — or ask us for one — in My referral code." Checkout → 409 "Enter your referral code before your first order — or ask us for one in My referral code." (`needsReferralCode: true`) | PASS |
+| 09:25 | O-5 · ask for a code | City Pune, PIN 411001 → request CRR-0423186D saved with the location. Asking again → "We already have your request (CRR-0423186D, …)". **Found:** the first POST came back as a 307 from the host's CDN and was repeated, so the customer saw that message instead of "Request received" (S-6; fixed in PR #110, re-checked below) | PASS with S-6 |
+| 09:25 | O-5 · emails | referrals@gokesari.com list (test copy to the +gk-referrals alias): "Customer referral code request CRR-0423186D — Anil Three, Pune 411001" with name, contact number, email, city, PIN, location shared, coordinates ±20 m, Google Maps link, time in IST. One email only | PASS |
+| 09:25 | O-5 · operations | In-app "Customer asked for a referral code — Anil Three, Pune 411001 (CRR-0423186D)" for operations/admins | PASS |
+| 09:30 | O-5 · issue (desktop) | Admin → Referral requests → "Customers asking for a code": the request with contact number, location and Maps link. "Issue a code" (generated) with a note → Code issued **GKCMUWB6K** | PASS |
+| 09:31 | O-5 · customer told | Email "Your GoKesari referral code — Your referral code is GKCMUWB6K. Enter it in My referral code to start ordering (CRR-0423186D)." and the same in the app. My referral code lists the request with the code and **Use this code** | PASS |
+| 09:31 | O-5 · use the code | "Use this code" → "You're all set — You joined with the referral code GKCMUWB6K (Customer Anil Three (CRR-0423186D))". `needsCode: false`; the cart warning is gone | PASS |
+| 09:49 | O-5 · first order | Address added; ₹100 wallet top-up through the Cashfree sandbox (UPI); order DB-20261009-WXLQQN (₹40 bread + ₹20 delivery) placed from the wallet → CONFIRMED | PASS |
+| 09:51 | O-5 · not stopped | Existing accounts: the customer with orders, a shop owner, a delivery partner, and the 9 Oct customer who joined with E2EANIL1 → `needsCode: false` | PASS |
+| 09:52 | O-5 · decline | sanjaymorankar+gk-new2 asks (CRR-34C3012F, location not shared). Operations rejects "E2E: you already joined with a friend's code" → in-app "We could not give you a referral code this time: E2E: you already joined with a friend's code (CRR-34C3012F)." | PASS |
+| 09:32 | O-6 · menu (phone) | The menu drawer shows **My referral code** and **Invite friends** for a customer, a shop owner and a delivery partner | PASS |
+| 09:33 | O-6 · invite codes | /refer gives each their own code and link: customer GKNY7C2L, shop owner GKYJJAE6, delivery partner GKJ5KLH8, operator GKX46WXM (`customerReferrals` is on for test: ₹50 each after the friend's first delivered order) | PASS |
+| 09:38 | O-4 · baseline | The existing customer (phone): the E2E bakery "Delivers to you · 1.1 km"; bread added to the cart; cart normal | PASS |
+| 09:41 | O-4 · blocked | Grace 0 → the shop re-uploads its FSSAI → operations rejects it ("E2E O-4: licence copy unreadable") → grace back to 15. Cart: "E2E Four Features Bakery is not taking new orders right now. Try again later or remove its items." with "Remove these items". **Found:** the shop list showed the bakery as "Pickup · outside its delivery area · 1.1 km", as it does any paused shop (S-7; fixed in PR #110, re-checked below) | PASS with S-7 |
+| 09:47 | O-4 · reopened | The shop uploads the FSSAI again (under review) → straight away "Delivers to you · 1.1 km" and a normal cart. Operations then approves it | PASS |
+| 09:56 | Regression · rider delivery | Order DB-20261009-WXLQQN: shop accepts, picks, chooses GoKesari partner → offer to the rider → accepted → "Pickup code for the rider: 3393" → PICKED_UP → start → customer emailed "5549 is your delivery code for order DB-20261009-WXLQQN" → door photo + 5549 → DELIVERED. The customer's order shows "delivered", the tax invoice and the delivery photo | PASS |
+
+**Still to re-check on test after PR #110 deploys:** S-6 (the same customer
+request sent twice → one request, "Request received" both times) and S-7
+(a paused shop reads "Not taking new orders right now" in the shop list).

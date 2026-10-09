@@ -52,6 +52,7 @@ import { validateCartForLocation } from "@/server/services/cart-validation";
 import { acceptOrder } from "@/server/services/fulfilment";
 import { getShopLegalStatus, runLegalDocumentSweep } from "@/server/services/legal-documents";
 import { checkout } from "@/server/services/orders";
+import { listNearbyShops } from "@/server/services/serviceability";
 import { clearRuleCache, setRule } from "@/server/services/settings";
 import { approveShop } from "@/server/services/shops";
 import { call } from "../helpers/http";
@@ -205,11 +206,15 @@ describe("a shop already live", () => {
     await expect(tryCheckout(sp.id)).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("not taking new orders right now") });
     await expect(acceptOrder(placed.orders[0].id, { id: owner.id, role: "SHOP_OWNER" })).rejects.toMatchObject({ code: "CONFLICT" });
     expect((await getShopLegalStatus(shop.id)).restricted).toBe(true);
+    // Listed nearby as paused (the shop list says "Not taking new orders right now").
+    const here = { label: "PIN 411001", pincode: "411001", latitude: null, longitude: null, source: "PINCODE" as const, addressId: null, societyId: null };
+    expect((await listNearbyShops(here)).find((s) => s.id === shop.id)).toMatchObject({ deliversHere: false, ordersPaused: true });
 
     signIn(owner, "SHOP_OWNER");
     const res = await upload(shop.id, { docType: "DRUG_LICENCE", number: "MH-PZ1-123456", expiryDate: inDays(400) });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
     expect((await validateCartForLocation(shopper.id, null)).ok).toBe(true);
+    expect((await listNearbyShops(here)).find((s) => s.id === shop.id)).toMatchObject({ ordersPaused: false });
     expect((await tryCheckout(sp.id)).orders).toHaveLength(1);
     await acceptOrder(placed.orders[0].id, { id: owner.id, role: "SHOP_OWNER" });
   });

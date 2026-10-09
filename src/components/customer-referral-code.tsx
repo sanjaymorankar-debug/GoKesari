@@ -233,7 +233,7 @@ export function MyCustomerReferralRequests({ requests, canUse }: { requests: MyC
                 {r.reference} · {r.city} {r.pincode}
               </p>
               <p className="text-xs text-ink-500">
-                {new Date(r.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })} · {REFERRAL_REQUEST_STATUS_LABELS[r.status]}
+                {new Date(r.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })} · {REFERRAL_REQUEST_STATUS_LABELS[r.status]}
                 {r.status === "REJECTED" && r.decisionNote ? ` — ${r.decisionNote}` : ""}
               </p>
             </div>
