@@ -139,7 +139,7 @@ export const UI = {
   backToBoard: L("Back to board", "बोर्ड पर वापस", "बोर्डवर परत"),
   // Customer "Do now" on phones
   trackOrder: L("Track order", "ऑर्डर ट्रैक करें", "ऑर्डर ट्रॅक करा"),
-  noOrderOnWay: L("No order on the way", "कोई ऑर्डर रास्ते में नहीं", "कोणतीही ऑर्डर वाटेत नाही"),
+  noOrderOnWay: L("None now", "अभी कोई नहीं", "आत्ता नाही"),
   tomorrowsDelivery: L("Tomorrow's delivery", "कल की डिलीवरी", "उद्याची डिलिव्हरी"),
   nothingTomorrow: L("Nothing tomorrow", "कल कुछ नहीं", "उद्या काही नाही"),
   applyInvite: L("Apply invite code", "आमंत्रण कोड लगाएँ", "आमंत्रण कोड लावा"),

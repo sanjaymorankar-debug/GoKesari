@@ -5,6 +5,7 @@
  * They answer capability ("may this role?") and ownership ("is this row mine?")
  * as separate checks, both of which must pass.
  */
+import { cache } from "react";
 import { and, eq, isNull } from "drizzle-orm";
 
 import { forbidden, notFound, unauthenticated } from "@/lib/errors";
@@ -21,9 +22,12 @@ export interface AuthenticatedUser {
   role: UserRole;
 }
 
+/** The session for one server render: layout, header, board and page all ask; API routes call straight through. */
+const currentSession = cache(() => auth());
+
 /** Returns the signed-in user, or null. Never throws. */
 export async function getCurrentUser(): Promise<AuthenticatedUser | null> {
-  const session = await auth();
+  const session = await currentSession();
   if (!session?.user?.id) return null;
   if (session.user.status !== "ACTIVE") return null;
   return {

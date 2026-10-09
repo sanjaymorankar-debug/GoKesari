@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { PmdReviewQueue } from "@/components/pmd-review-queue";
@@ -39,11 +38,6 @@ export default async function ProductMasterPage() {
       <PageHeader
         title="Product master"
         description="The universal, multi-source product database that feeds the marketplace catalogue."
-        action={
-          <Link href="/admin" className="text-sm font-medium text-kesari-600 hover:underline">
-            ← Admin console
-          </Link>
-        }
       />
 
       {unavailable ? <Alert tone="danger">{unavailable}</Alert> : null}

@@ -9,6 +9,7 @@
  * A cart may span several shops. Totals are therefore always computed *per
  * shop*, and checkout produces one order per shop (§17).
  */
+import { cache } from "react";
 import { and, eq, sql } from "drizzle-orm";
 
 import { notFound, validationFailed } from "@/lib/errors";
@@ -232,7 +233,7 @@ export async function getCartLineQuantities(
  * Units in the user's cart (getCart's itemCount) for the header badge: one
  * query rather than the full priced cart on every page. Never creates a cart.
  */
-export async function getCartItemCount(userId: string): Promise<number> {
+async function getCartItemCountUncached(userId: string): Promise<number> {
   const [row] = await db
     .select({ units: sql<number>`coalesce(sum(${cartItems.quantity}), 0)`.mapWith(Number) })
     .from(cartItems)
@@ -240,6 +241,9 @@ export async function getCartItemCount(userId: string): Promise<number> {
     .where(eq(carts.userId, userId));
   return row?.units ?? 0;
 }
+
+/** Memoised for one server render (layout, header and board all ask); API routes and actions call straight through. */
+export const getCartItemCount = cache(getCartItemCountUncached);
 
 /**
  * Builds the full cart view, grouped by shop with live prices and per-shop

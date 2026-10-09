@@ -1,9 +1,11 @@
 import Link from "next/link";
 
+import { ListTabs, Pager, paginate } from "@/components/board/list-tabs";
 import { ProductGrid } from "@/components/product-grid";
-import { EmptyState, PageHeader, Section } from "@/components/ui";
+import { EmptyState, PageHeader } from "@/components/ui";
 import { ShopGrid } from "@/components/shop-grid";
 import { getCurrentUser } from "@/server/authz/guards";
+import { getBoardLang } from "@/server/board-lang";
 import { getCustomerLocation } from "@/server/location";
 import { serviceableShopIds } from "@/server/services/serviceability";
 import { getCartLineQuantities } from "@/server/services/cart";
@@ -21,9 +23,9 @@ export const dynamic = "force-dynamic";
 export default async function SearchPage({
   searchParams,
 }: {
-  searchParams: Promise<{ q?: string; all?: string }>;
+  searchParams: Promise<{ q?: string; all?: string; view?: string; page?: string }>;
 }) {
-  const { q, all } = await searchParams;
+  const { q, all, view, page: pageParam } = await searchParams;
   const query = (q ?? "").trim();
   const user = await getCurrentUser();
   const location = await getCustomerLocation(user?.id);
@@ -54,6 +56,11 @@ export default async function SearchPage({
     .map((shop) => ({ ...shop, distanceKm: distances?.get(shop.id) ?? null }))
     .sort((a, b) => byDistance(a.id, b.id));
   if (nearOnly) products.sort((a, b) => byDistance(a.shopId, b.shopId));
+  const tab = view === "shops" && shops.length > 0 ? "shops" : products.length > 0 ? "products" : "shops";
+  const productPage = paginate(products, tab === "products" ? pageParam : 1, 6);
+  const shopPage = paginate(shops, tab === "shops" ? pageParam : 1, 6);
+  const base = `/search?q=${encodeURIComponent(query)}${all === "1" ? "&all=1" : ""}`;
+  const lang = await getBoardLang();
 
   return (
     <>
@@ -74,16 +81,30 @@ export default async function SearchPage({
         </p>
       ) : null}
 
-      {shops.length > 0 ? (
-        <Section title="Shops">
-          <ShopGrid shops={shops} />
-        </Section>
-      ) : null}
-
-      {products.length > 0 ? (
-        <Section title="Products">
-          <ProductGrid products={products} signedIn={Boolean(user)} cartLines={cartLines} distances={distances} />
-        </Section>
+      {products.length > 0 || shops.length > 0 ? (
+        <>
+          {/* Products or shops, six at a time: the results used to run to several phone screens. */}
+          <h2 className="sr-only">{tab === "products" ? "Products" : "Shops"}</h2>
+          <ListTabs
+            label="Results"
+            active={tab}
+            tabs={[
+              ...(products.length > 0 ? [{ key: "products", label: "Products", href: `${base}&view=products`, count: products.length }] : []),
+              ...(shops.length > 0 ? [{ key: "shops", label: "Shops", href: `${base}&view=shops`, count: shops.length }] : []),
+            ]}
+          />
+          {tab === "products" ? (
+            <ProductGrid products={productPage.rows} signedIn={Boolean(user)} cartLines={cartLines} distances={distances} />
+          ) : (
+            <ShopGrid shops={shopPage.rows} />
+          )}
+          <Pager
+            lang={lang}
+            page={tab === "products" ? productPage.page : shopPage.page}
+            pageCount={tab === "products" ? productPage.pageCount : shopPage.pageCount}
+            hrefFor={(n) => `${base}&view=${tab}&page=${n}`}
+          />
+        </>
       ) : null}
 
       {products.length === 0 && shops.length === 0 ? (

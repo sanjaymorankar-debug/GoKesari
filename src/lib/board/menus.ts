@@ -472,7 +472,7 @@ export const OPERATOR_DO_NOW: readonly BoardItem[] = [
 
 export const OPERATOR_MENUS: readonly BoardMenu[] = [
   {
-    key: "onboarding", label: L("Shop onboarding", "दुकान ऑनबोर्डिंग", "दुकान नोंदणी"), short: L("Onboarding", "ऑनबोर्डिंग", "नोंदणी"), icon: "clipboard-check", tone: "kesari", href: "/admin/console/shops", count: "pendingShops", opens: "hub",
+    key: "onboarding", label: L("Shop onboarding", "दुकान ऑनबोर्डिंग", "दुकान नोंदणी"), short: L("Shops", "दुकानें", "नोंदणी"), icon: "clipboard-check", tone: "kesari", href: "/admin/console/shops", count: "pendingShops", opens: "hub",
     items: [
       { key: "applications", label: L("Applications", "आवेदन", "अर्ज"), icon: "user-plus", href: "/admin/console/shops", count: "pendingShops", permission: PERMISSIONS.SHOP_APPROVE },
       { key: "documents", label: L("Documents", "दस्तावेज़", "कागदपत्रे"), icon: "file-check", href: "/admin/legal-documents", count: "legalDocsToReview", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
