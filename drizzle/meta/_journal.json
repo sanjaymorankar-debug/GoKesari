@@ -505,6 +505,13 @@
       "when": 1791520801909,
       "tag": "0071_shop_self_registration",
       "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1791536012190,
+      "tag": "0072_customer_referral_requests",
+      "breakpoints": true
     }
   ]
 }

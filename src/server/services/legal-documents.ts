@@ -259,6 +259,34 @@ function listLabels(labels: string[]): string {
 }
 
 /**
+ * The shops among `shopIds` that are past a legal-document deadline (the
+ * owner's decision B, 9 Oct 2026). Customers see them as "not taking new
+ * orders right now", like a paused shop or one below its wallet minimum
+ * (serviceability.ts withWalletGate). Listings show them as not delivering,
+ * and the cart warns before checkout instead of checkout failing. Empty with
+ * the rule off. Fast for a listing: one query for the document rows; the
+ * shop's requirements are checked only for shops with a blocking row.
+ */
+export async function legallyBlockedShopIds(shopIds: string[]): Promise<Set<string>> {
+  if (shopIds.length === 0) return new Set();
+  const rule = await getRule("legalDocuments");
+  if (!rule.enabled) return new Set();
+  const now = new Date();
+  const rows = await db.select().from(shopLegalDocuments).where(inArray(shopLegalDocuments.shopId, shopIds));
+  const blockingTypes = new Map<string, LegalDocType[]>();
+  for (const row of rows) {
+    if (evaluateLegalDoc(row, rule, now).blocking) blockingTypes.set(row.shopId, [...(blockingTypes.get(row.shopId) ?? []), row.docType]);
+  }
+  if (blockingTypes.size === 0) return new Set();
+  const blocked = new Set<string>();
+  for (const shop of await db.select().from(shops).where(inArray(shops.id, [...blockingTypes.keys()]))) {
+    const required = await requiredLegalDocTypes(shop);
+    if (blockingTypes.get(shop.id)!.some((t) => required.includes(t))) blocked.add(shop.id);
+  }
+  return blocked;
+}
+
+/**
  * Checkout (per shop) and order acceptance: refused while a required document
  * is blocking. Does nothing with the rule off.
  */

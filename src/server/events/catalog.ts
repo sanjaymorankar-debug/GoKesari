@@ -28,7 +28,8 @@ export type SubjectKind =
   | "referral_request"
   | "integration_job"
   | "shop_registration"
-  | "bank_refund";
+  | "bank_refund"
+  | "customer_referral_request";
 
 export interface EventMessage {
   /** A user id, an audience, or nothing (skipped — e.g. an order with no rider). */
@@ -206,6 +207,19 @@ export interface BankRefundEventPayload {
   orderNumber: string | null;
   expectedWorkingDays?: number;
   reference?: string | null;
+  reason?: string | null;
+}
+
+/** Customer referral-code requests (services/customer-referral-requests.ts). */
+export interface CustomerReferralRequestEventPayload {
+  requestId: string;
+  reference: string;
+  name: string;
+  city: string;
+  pincode: string;
+  requesterUserId: string;
+  decision?: "issued" | "rejected";
+  code?: string | null;
   reason?: string | null;
 }
 
@@ -860,6 +874,30 @@ export const EVENTS = {
       actionUrl: "/wallet",
       channels: ["EMAIL"],
       includeActor: true,
+    },
+  ]),
+
+  /* --------------------------------------------- customer referral-code requests */
+  "customer_referral_request.created": define<CustomerReferralRequestEventPayload>("customer_referral_request", (p) => [
+    {
+      to: "SUPPORT",
+      type: N.SUPPORT_CUSTOMER_REFERRAL_REQUEST,
+      title: "Customer asked for a referral code",
+      body: `${p.name}, ${p.city} ${p.pincode} (${p.reference}). Send someone or issue a code in Referral requests.`,
+      actionUrl: "/admin/referral-requests",
+    },
+  ]),
+  "customer_referral_request.decided": define<CustomerReferralRequestEventPayload>("customer_referral_request", (p) => [
+    {
+      to: p.requesterUserId,
+      type: N.CUSTOMER_REFERRAL_REQUEST_DECIDED,
+      title: p.decision === "issued" ? "Your GoKesari referral code" : "About your referral code request",
+      body:
+        p.decision === "issued"
+          ? `Your referral code is ${p.code}. Enter it in My referral code to start ordering (${p.reference}).`
+          : `We could not give you a referral code this time${p.reason ? `: ${p.reason}` : ""} (${p.reference}).`,
+      actionUrl: "/referral",
+      channels: ["EMAIL"],
     },
   ]),
 

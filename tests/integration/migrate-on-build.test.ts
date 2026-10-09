@@ -110,8 +110,9 @@ const after0055 = () => journal.entries.filter((e) => e.when > whenOf("0055_")).
 /** Puts the database back on 0055 with the releases' own rollback scripts. */
 const backToMigration0055 = () =>
   withTemp(async (sql) => {
-    // docs/three-modules-2026-10 (0068–0071), then docs/four-features-2026-10 (0061–0067), newest first.
-    for (const n of ["0071", "0070", "0069", "0068", "0067", "0066", "0065", "0064", "0063", "0062", "0061"]) await sql.unsafe(readFileSync(`scripts/rollback-${n}.sql`, "utf8"));
+    // docs/four-features-2026-10 (0072, customer referral requests), docs/three-modules-2026-10 (0068–0071),
+    // then docs/four-features-2026-10 (0061–0067), newest first.
+    for (const n of ["0072", "0071", "0070", "0069", "0068", "0067", "0066", "0065", "0064", "0063", "0062", "0061"]) await sql.unsafe(readFileSync(`scripts/rollback-${n}.sql`, "utf8"));
     await sql.unsafe(readFileSync("scripts/rollback-0060.sql", "utf8"));
     await sql.unsafe(readFileSync("scripts/rollback-0059.sql", "utf8"));
     await sql.unsafe(readFileSync("scripts/rollback-0058.sql", "utf8"));

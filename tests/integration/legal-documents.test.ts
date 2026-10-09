@@ -48,6 +48,7 @@ import {
   shops,
 } from "@/server/db/schema";
 import { addToCart } from "@/server/services/cart";
+import { validateCartForLocation } from "@/server/services/cart-validation";
 import { acceptOrder } from "@/server/services/fulfilment";
 import { getShopLegalStatus, runLegalDocumentSweep } from "@/server/services/legal-documents";
 import { checkout } from "@/server/services/orders";
@@ -192,15 +193,23 @@ describe("a shop already live", () => {
     const placed = await tryCheckout(sp.id);
     expect(placed.orders).toHaveLength(1);
 
-    // Grace over: checkout refuses the shop and it cannot accept the order it already has.
+    // Grace over: customers see the shop as "not taking new orders right now", like a paused shop
+    // (the owner's decision B, 9 Oct 2026): the cart warns before checkout, and checkout refuses it.
+    // It cannot accept the order it already has.
     await db.update(shopLegalDocuments).set({ graceUntil: new Date(Date.now() - 60_000) }).where(eq(shopLegalDocuments.shopId, shop.id));
-    await expect(tryCheckout(sp.id)).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("Drug licence") });
+    const { user: shopper } = await createUserWithWallet({ balancePaise: 500_000 });
+    await addToCart(shopper.id, sp.id, 1);
+    const cartCheck = await validateCartForLocation(shopper.id, null);
+    expect(cartCheck.ok).toBe(false);
+    expect(cartCheck.shops[0].issues).toEqual([expect.objectContaining({ code: "ORDERS_PAUSED", blocking: true, message: expect.stringContaining("not taking new orders right now") })]);
+    await expect(tryCheckout(sp.id)).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("not taking new orders right now") });
     await expect(acceptOrder(placed.orders[0].id, { id: owner.id, role: "SHOP_OWNER" })).rejects.toMatchObject({ code: "CONFLICT" });
     expect((await getShopLegalStatus(shop.id)).restricted).toBe(true);
 
     signIn(owner, "SHOP_OWNER");
     const res = await upload(shop.id, { docType: "DRUG_LICENCE", number: "MH-PZ1-123456", expiryDate: inDays(400) });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
+    expect((await validateCartForLocation(shopper.id, null)).ok).toBe(true);
     expect((await tryCheckout(sp.id)).orders).toHaveLength(1);
     await acceptOrder(placed.orders[0].id, { id: owner.id, role: "SHOP_OWNER" });
   });

@@ -79,6 +79,10 @@ export async function shopsBelowWalletMinimum(shopIds: string[]): Promise<Set<st
 /** Shop rows with `ordersPaused` set where the wallet gate closes the shop, for the checks that read it. */
 export async function withWalletGate<T extends Pick<Shop, "id" | "ordersPaused">>(rows: T[]): Promise<T[]> {
   const blocked = await shopsBelowWalletMinimum(rows.filter((r) => !r.ordersPaused).map((r) => r.id));
+  // Mandatory legal documents (docs/four-features-2026-10, the owner's decision of 9 Oct 2026): a shop past
+  // its grace period is closed the same way. Imported lazily: legal-documents.ts sits above this module.
+  const { legallyBlockedShopIds } = await import("./legal-documents");
+  for (const id of await legallyBlockedShopIds(rows.filter((r) => !r.ordersPaused && !blocked.has(r.id)).map((r) => r.id))) blocked.add(id);
   return blocked.size === 0 ? rows : rows.map((r) => (blocked.has(r.id) ? { ...r, ordersPaused: true } : r));
 }
 

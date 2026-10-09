@@ -52,6 +52,7 @@ import { consumeOnlineStock, isOnlinePurchasable } from "./catalogue";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { generateOrderNumber } from "./orders";
 import { applyWalletMutation } from "./wallet";
+import { assertSignupReferralForFirstOrder } from "./customer-signup-referrals";
 
 /* ------------------------------------------------- pure schedule engine */
 
@@ -193,6 +194,7 @@ export async function createSubscription(
     throw validationFailed("Choose at least one delivery day of the week.");
   }
   const row = await assertSubscribable(input.shopProductId, input.quantityMilli);
+  if (!input.draft) await assertSignupReferralForFirstOrder(input.userId);
 
   const [subscription] = await db
     .insert(subscriptions)
@@ -309,6 +311,7 @@ export async function activateSubscription(
   if (!current) throw notFound("Subscription");
   if (current.status !== "DRAFT") throw conflict("Only a draft subscription can be activated.");
   const row = await assertSubscribable(current.shopProductId, current.quantityMilli);
+  await assertSignupReferralForFirstOrder(current.userId);
 
   const today = todayIn(getEnv().APP_TIMEZONE);
   // A draft saved some days ago starts today rather than in the past.

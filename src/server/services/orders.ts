@@ -66,6 +66,7 @@ import { shopServiceability, societyPartnerShopIds, withWalletGate } from "./ser
 import { assertShopMayProgress } from "./shop-suspension-guard";
 import { assertFulfilmentAllowsStatus } from "./fulfilment-guards";
 import { assertLegalDocsAllowOrders } from "./legal-documents";
+import { assertSignupReferralForFirstOrder } from "./customer-signup-referrals";
 import { resolveAddressSociety } from "./societies";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { emitEvent } from "@/server/events/emit";
@@ -203,6 +204,9 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     const parentReference = replayed.map((o) => (o.orderGroupId ? refs.get(o.orderGroupId) : null)).find(Boolean) ?? null;
     return { orders: replayed, deduplicated: true, ...(parentReference ? { parentReference } : {}) };
   }
+
+  // Mandatory referral code (rule customerSignupReferral.required): a new customer's first order needs one.
+  if ((input.orderType ?? "PERSONAL") === "PERSONAL") await assertSignupReferralForFirstOrder(input.userId);
 
   const orderType: OrderType = input.orderType ?? "PERSONAL";
   const buyerShopId = orderType === "B2B" ? await resolveBuyerShop(input) : null;

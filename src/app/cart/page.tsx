@@ -18,6 +18,9 @@ import { getRule } from "@/server/services/settings";
 import { getWalletByUserId } from "@/server/services/wallet";
 import { BankAccountPrompt } from "@/components/bank-account-prompt";
 import { customerBankPrompt } from "@/server/services/bank-accounts";
+import Link from "next/link";
+import { Alert } from "@/components/ui";
+import { needsSignupReferralCode } from "@/server/services/customer-signup-referrals";
 
 export const metadata = { title: "Cart" };
 export const dynamic = "force-dynamic";
@@ -69,6 +72,8 @@ export default async function CartPage() {
 
   // Bank accounts (docs/four-features-2026-10): a prompt at the first checkout, never a blocker.
   const bankPrompt = cart.groups.length > 0 ? await customerBankPrompt(user.id, "checkout") : null;
+  // Mandatory referral code (rule customerSignupReferral.required): checkout refuses a first order without one.
+  const needsReferralCode = cart.groups.length > 0 && (await needsSignupReferralCode(user.id));
 
   return (
     <>
@@ -77,6 +82,17 @@ export default async function CartPage() {
         description="Items are grouped by shop — each shop becomes its own order."
       />
       {bankPrompt ? <BankAccountPrompt status={bankPrompt} href="/profile/bank-account" purpose="refunds" /> : null}
+      {needsReferralCode ? (
+        <div className="mb-4" data-testid="cart-referral-needed">
+          <Alert tone="warning" title="A referral code is needed for your first order">
+            Enter the code you were given — or ask us for one — in{" "}
+            <Link href="/referral" className="font-medium underline">
+              My referral code
+            </Link>
+            .
+          </Alert>
+        </div>
+      ) : null}
       <CartView
         cart={cart}
         walletBalancePaise={wallet?.balancePaise ?? 0}

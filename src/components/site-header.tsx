@@ -24,6 +24,8 @@ interface Props {
   savedAddresses: { id: string; label: string }[];
   /** Module 1: the user is staff of at least one shop (edits its product photos and descriptions). */
   helpsShops?: boolean;
+  /** Referral links (docs/four-features-2026-10): only those whose rule is switched on. */
+  referralLinks?: { href: string; label: string }[];
 }
 
 /** The main row. Wallet has its own balance pill; the rest sit in the account menu. */
@@ -284,6 +286,7 @@ export function SiteHeader({
   locationLabel,
   savedAddresses,
   helpsShops = false,
+  referralLinks = [],
 }: Props) {
   const accountNav = helpsShops ? [...ACCOUNT_NAV, { href: "/shop/staff-access", label: "Shops I help with" }] : ACCOUNT_NAV;
   const pathname = usePathname();
@@ -464,7 +467,7 @@ export function SiteHeader({
                         Dashboard
                       </Link>
                     ) : null}
-                    {accountNav.map((item) => (
+                    {[...accountNav, ...referralLinks].map((item) => (
                       <Link
                         key={item.href}
                         href={item.href}
@@ -552,7 +555,7 @@ export function SiteHeader({
               </div>
             </details>
           ) : null}
-          {[...NAV, ...(user ? accountNav : [])].map((item) => (
+          {[...NAV, ...(user ? [...accountNav, ...referralLinks] : [])].map((item) => (
             <Link
               key={item.href}
               href={item.href}

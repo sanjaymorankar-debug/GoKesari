@@ -199,6 +199,9 @@ export const NOTIFICATION_TYPES = {
   BANK_REFUND_RETURNED: "wallet.bank_refund_returned",
   /** To finance (admins): a customer asked for a refund to their bank. */
   SUPPORT_BANK_REFUND_REQUESTED: "support.bank_refund_requested",
+  /** To operations: a customer asked for a referral code. To the customer: a code was issued, or the request declined. */
+  SUPPORT_CUSTOMER_REFERRAL_REQUEST: "support.customer_referral_request",
+  CUSTOMER_REFERRAL_REQUEST_DECIDED: "customer.referral_request_decided",
   /** To support: someone asked for a shop referral code. */
   SUPPORT_REFERRAL_REQUEST: "support.referral_request",
   /** To the requester (when signed in): a referral code was issued, or the request declined. */

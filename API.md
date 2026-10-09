@@ -885,6 +885,15 @@ the shop has no verified bank account (rule `bankAccounts.requireVerifiedForShop
 | `GET /api/me/signup-referral` | signed in | `{ referral, ask }`: the code this customer joined with, and whether first-time setup still asks for one |
 | `POST /api/me/signup-referral` | signed in, before the first order (rule `customerSignupReferral`) | `{ code }` → `{ kind: GOKESARI \| FRIEND, code, label }`. An unknown, paused or expired code answers `422` with `details.fields.referralCode`. Once per customer |
 
+Mandatory code and customers asking for one (owner's decision, 9 Oct 2026; `customerSignupReferral.required` / `requiredFrom`). With it on, a customer who joined on or after `requiredFrom` and has neither a code nor an order gets `409` with `details.needsReferralCode: true` from checkout and from creating or activating a subscription (a draft is allowed). Browsing and search are open.
+
+| Route | Who | Body / answer |
+|---|---|---|
+| `GET /api/me/referral-request` | signed in | `{ needsCode, referral, requests }`: whether a code is still needed before the first order, the code given, and the customer's requests (with `issuedCode` once issued) |
+| `POST /api/me/referral-request` | signed in (5 per 10 min) | `{ name, mobile, city, pincode, latitude?, longitude?, accuracyM? }` → `201` `{ reference: "CRR-…", mobileMasked, locationShared }`. Emailed to `shopReferral.notifyEmails`. A second request from the same customer or mobile within `requestDuplicateWindowHours` answers `429` with the first reference |
+| `GET /api/admin/customer-referral-requests?status=` | `REFERRAL_MANAGE` | `NEW` · `CODE_ISSUED` · `REJECTED`, with contact number, city, PIN, coordinates and Maps link |
+| `POST /api/admin/customer-referral-requests/{id}` | `REFERRAL_MANAGE` | `{ action: issue, code?, note? }` (no code → a generated `GKC…`) · `{ action: reject, reason }` · `{ action: resend_email }`. The customer is told in the app and by email |
+
 ## Rate limits
 
 | Scope | Limit |
