@@ -40,6 +40,8 @@ re-check of the fixes).
 | F3 Bank accounts & ₹1 | **Pass**: ₹1 verified by UPI, credit card, debit card and net banking through Cashfree sandbox, plus a failure and a retry. Also covered: re-verification on change, daily limit, masking, encryption, shop payout account, finance view. Refund status now re-checked (S-2); on test it shows "refunded" (§4). The payout gate itself was not run on test (no settlement can exist yet; see 3.x). |
 | F4 Referral code | **Pass**: valid / invalid / missing code in the form and API, attribution. Request with location shared, unanswered and denied; email to referrals@gokesari.com; duplicate and PIN checks; operator issue / reject; issued code used to register. |
 | Regression | **Pass**: sign-in, onboarding, address, wallet top-up (Cashfree sandbox), checkout, shop accept, rider dispatch / pickup / delivery code / door photo, shop wallet charges, seller verification, registration fee, approval, cancel / refund, notifications. One existing issue on test: map "Confirm location" answers 500 (geocoding; not touched by this work). |
+| Owner's decisions, round 1 (§5) | **Pass**: delivery fee back on pickup; refunds to bank (paid, failed, cancelled); referral code at customer registration. |
+| Owner's decisions, round 2 (§6) | **Pass**: shops past the legal-document grace period read "not taking new orders" (list and cart) and reopen on upload. A referral code is mandatory before a new customer's first order: the request with location, the referrals email, issuing the code and the first order were all checked. Search works signed out; every role has an invite code. Two problems found and fixed on test (S-6, S-7). |
 
 ## 2. Step by step (UTC times, 8 Oct 2026)
 
@@ -221,7 +223,8 @@ served the new build from 09:22.
 | 09:41 | O-4 · blocked | Grace 0 → the shop re-uploads its FSSAI → operations rejects it ("E2E O-4: licence copy unreadable") → grace back to 15. Cart: "E2E Four Features Bakery is not taking new orders right now. Try again later or remove its items." with "Remove these items". **Found:** the shop list showed the bakery as "Pickup · outside its delivery area · 1.1 km", as it does any paused shop (S-7; fixed in PR #110, re-checked below) | PASS with S-7 |
 | 09:47 | O-4 · reopened | The shop uploads the FSSAI again (under review) → straight away "Delivers to you · 1.1 km" and a normal cart. Operations then approves it | PASS |
 | 09:56 | Regression · rider delivery | Order DB-20261009-WXLQQN: shop accepts, picks, chooses GoKesari partner → offer to the rider → accepted → "Pickup code for the rider: 3393" → PICKED_UP → start → customer emailed "5549 is your delivery code for order DB-20261009-WXLQQN" → door photo + 5549 → DELIVERED. The customer's order shows "delivered", the tax invoice and the delivery photo | PASS |
+| 10:34 | S-6 re-check | PR #110 merged at 10:23 (`fe94abf`), live by 10:33. sanjaymorankar+gk-new1 sends the same request (Pune 411007, location shared) twice, 31 s apart → 201 CRR-89C48687 both times; one request; one email to the referrals list. Operations then declined it (test request) | PASS |
+| 10:37 | S-7 re-check | Bakery blocked again (grace 0, FSSAI re-uploaded and rejected, grace back to 15). Shop list: "E2E Four Features Bakery … **Not taking new orders right now** · 1.1 km"; cart: "… is not taking new orders right now". Upload + approval → "Delivers to you · 1.1 km" | PASS |
 
-**Still to re-check on test after PR #110 deploys:** S-6 (the same customer
-request sent twice → one request, "Request received" both times) and S-7
-(a paused shop reads "Not taking new orders right now" in the shop list).
+All flows of the second round pass on test. The two problems found (S-6,
+S-7) were fixed and re-checked there.
