@@ -31,6 +31,16 @@ const serverEnvSchema = z.object({
    */
   DATABASE_IDLE_TIMEOUT_SECONDS: z.coerce.number().int().min(0).max(3600).default(20),
 
+  /**
+   * Prepared statements for Drizzle's queries. Drizzle sends every query
+   * unprepared, which postgres-js runs as two round trips (describe, then
+   * execute); "on" lets each pooled connection prepare a statement once and
+   * run it in one round trip afterwards. With a distant database (Neon
+   * us-east-2) that halves a page's database wait. Keep "off" behind a
+   * pooler that does not support prepared statements in transaction mode.
+   */
+  DATABASE_PREPARED_STATEMENTS: z.enum(["on", "off"]).default("off"),
+
   // Auth.js
   AUTH_SECRET: z.string().min(1, "AUTH_SECRET is required"),
   AUTH_URL: z.string().url().optional(),
