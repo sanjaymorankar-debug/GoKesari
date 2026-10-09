@@ -118,6 +118,19 @@ const serverEnvSchema = z.object({
   SUBSCRIPTION_CUTOFF_HOUR: z.coerce.number().int().min(0).max(23).default(20),
 
   APP_TIMEZONE: z.string().default("Asia/Kolkata"),
+
+  /**
+   * Links to this site opening in the installed Android/iOS app (mobile/
+   * README.md, "Deep links"). Unset, /.well-known/assetlinks.json and
+   * /.well-known/apple-app-site-association answer 404 and links simply open
+   * in the browser — nothing else depends on them. test.gokesari.com lists
+   * the preview build (com.gokesari.app.preview), gokesari.com the store one.
+   */
+  MOBILE_ANDROID_PACKAGE: z.string().default("com.gokesari.app"),
+  /** Comma-separated SHA-256 signing-certificate fingerprints (Play Console → Test and release → App integrity). */
+  MOBILE_ANDROID_CERT_SHA256: z.string().optional(),
+  /** Comma-separated `<Apple Team ID>.<bundle id>`, e.g. `ABCDE12345.com.gokesari.app`. */
+  MOBILE_IOS_APP_IDS: z.string().optional(),
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
@@ -234,4 +247,25 @@ export function bootstrapAdminEmails(): string[] {
       ...parseEmailList(getEnv().BOOTSTRAP_ADMIN_EMAILS),
     ]),
   );
+}
+
+function parseList(raw: string | undefined): string[] {
+  return (raw ?? "")
+    .split(",")
+    .map((e) => e.trim())
+    .filter(Boolean);
+}
+
+/** The installed apps allowed to open this site's links (see MOBILE_* above). */
+export function mobileAppLinkConfig(): {
+  androidPackage: string;
+  androidCertFingerprints: string[];
+  iosAppIds: string[];
+} {
+  const env = getEnv();
+  return {
+    androidPackage: env.MOBILE_ANDROID_PACKAGE,
+    androidCertFingerprints: parseList(env.MOBILE_ANDROID_CERT_SHA256).map((f) => f.toUpperCase()),
+    iosAppIds: parseList(env.MOBILE_IOS_APP_IDS),
+  };
 }
