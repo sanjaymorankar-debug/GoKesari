@@ -221,6 +221,14 @@ describe("a customer asks for a referral code", () => {
     expect(first.status).toBe(201);
     expect(first.body.locationShared).toBe(false);
 
+    // The very same request moments later (a double tap, or the host repeating a POST after a 307)
+    // is answered as the first one: same reference, no second email.
+    const emailsBefore = state.emails.length;
+    const repeat = await request({ ...VALID, latitude: null, longitude: null });
+    expect(repeat.status).toBe(201);
+    expect(repeat.body.reference).toBe(first.body.reference);
+    expect(state.emails.length).toBe(emailsBefore);
+
     const again = await request({ ...VALID, mobile: "9123456780" });
     expect(again.status).toBe(429);
     expect(again.body.error.message).toContain(first.body.reference);

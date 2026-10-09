@@ -73,6 +73,9 @@ function toView(row: CustomerReferralRequest): CustomerReferralRequestView {
   };
 }
 
+/** An identical request from the same customer within this time is answered as the first one. */
+const REPLAY_WINDOW_MS = 2 * 60_000;
+
 const istTime = (at: Date) =>
   at.toLocaleString("en-IN", { timeZone: "Asia/Kolkata", dateStyle: "medium", timeStyle: "short" }) + " IST";
 
@@ -144,7 +147,7 @@ export async function createCustomerReferralRequest(
   if (!checked.ok) throw validationFailed(Object.values(checked.fields)[0], { fields: checked.fields });
   const request = checked.value;
 
-  const row = await db.transaction(async (tx) => {
+  const { row, replayed } = await db.transaction(async (tx) => {
     // One at a time per customer, so two quick taps make one request.
     await tx.execute(sql`select pg_advisory_xact_lock(hashtext(${`customer-referral-request:${userId}`}))`);
     const since = new Date(Date.now() - rules.requestDuplicateWindowHours * 3_600_000);
@@ -159,6 +162,18 @@ export async function createCustomerReferralRequest(
       )
       .orderBy(desc(customerReferralRequests.createdAt))
       .limit(1);
+    // The same request again from the same customer moments later (a double tap, or the host's CDN
+    // answering the first POST with a 307 that the browser repeats) is the same request: answer it again.
+    if (
+      recent &&
+      recent.userId === userId &&
+      Date.now() - recent.createdAt.getTime() < REPLAY_WINDOW_MS &&
+      recent.mobileE164 === request.mobileE164 &&
+      recent.city === request.city &&
+      recent.pincode === request.pincode
+    ) {
+      return { row: recent, replayed: true };
+    }
     if (recent) {
       throw new AppError(
         "RATE_LIMITED",
@@ -207,10 +222,10 @@ export async function createCustomerReferralRequest(
       },
       tx,
     );
-    return created;
+    return { row: created, replayed: false };
   });
 
-  await emailReferralsTeam(row);
+  if (!replayed) await emailReferralsTeam(row);
   return {
     reference: customerReferralRequestReference(row.id),
     createdAt: row.createdAt.toISOString(),
