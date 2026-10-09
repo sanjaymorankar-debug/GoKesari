@@ -481,8 +481,36 @@
     {
       "idx": 68,
       "version": "7",
-      "when": 1791534069399,
-      "tag": "0068_customer_referral_requests",
+      "when": 1791520798909,
+      "tag": "0068_shop_product_media",
+      "breakpoints": true
+    },
+    {
+      "idx": 69,
+      "version": "7",
+      "when": 1791520799909,
+      "tag": "0069_integrations",
+      "breakpoints": true
+    },
+    {
+      "idx": 70,
+      "version": "7",
+      "when": 1791520800909,
+      "tag": "0070_gst_compliance",
+      "breakpoints": true
+    },
+    {
+      "idx": 71,
+      "version": "7",
+      "when": 1791520801909,
+      "tag": "0071_shop_self_registration",
+      "breakpoints": true
+    },
+    {
+      "idx": 72,
+      "version": "7",
+      "when": 1791536012190,
+      "tag": "0072_customer_referral_requests",
       "breakpoints": true
     }
   ]

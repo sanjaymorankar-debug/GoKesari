@@ -95,6 +95,44 @@ const serverEnvSchema = z.object({
    */
   PAN_ENCRYPTION_KEY: z.string().optional(),
 
+  /**
+   * Module 1: absolute path of a folder OUTSIDE the web root where product
+   * photos are written (random file names, served only through
+   * /api/images/{id}). Unset: photos are kept in the database, as before.
+   * On Hostinger use a folder in the account's home that a redeploy does not
+   * replace, and back it up with the database.
+   */
+  MEDIA_DIR: z.string().optional(),
+
+  /**
+   * Module 2: base64 of a 32-byte AES-256-GCM key for shops' accounting
+   * software secrets (Odoo API keys, Zoho refresh tokens). Without it no
+   * secret can be saved (never stored in plain text). Separate from
+   * PAN_ENCRYPTION_KEY. Back it up: losing it means every shop reconnects.
+   */
+  INTEGRATION_ENCRYPTION_KEY: z.string().optional(),
+  /** "off" stops running sync jobs straight after commit (tests run the dispatcher themselves). */
+  INTEGRATION_AUTODISPATCH: z.enum(["on", "off"]).default("on"),
+  /** Module 2: GoKesari's Zoho API client (api-console.zoho.in, server-based), redirect URI <AUTH_URL>/api/integrations/zoho/callback. */
+  ZOHO_CLIENT_ID: z.string().optional(),
+  ZOHO_CLIENT_SECRET: z.string().optional(),
+  /**
+   * Module 2: the GST Suvidha Provider for GSTIN look-up, e-invoice (IRN)
+   * and e-way bills. `mock` (sandbox-shaped, no network) until a licensed GSP
+   * is chosen; gspConfigProblem() applies the same production/sandbox pairing
+   * as KYC.
+   */
+  GSP_PROVIDER: z.enum(["mock"]).default("mock"),
+  /**
+   * Module 3: SMS and WhatsApp. `none` (default) = not sent. `mock` = written
+   * to outbound_test_messages for testers to read at /admin/test-messages
+   * (test site only; refused on the production site). Real providers (MSG91
+   * DLT for SMS, Meta Cloud API for WhatsApp) are added when chosen.
+   */
+  SMS_PROVIDER: z.enum(["none", "mock"]).default("none"),
+  WHATSAPP_PROVIDER: z.enum(["none", "mock"]).default("none"),
+  GSP_ENV: z.enum(["sandbox", "production"]).default("sandbox"),
+
   // Shared bearer token guarding the daily-order cron endpoint.
   CRON_SECRET: z.string().min(1, "CRON_SECRET is required"),
 
@@ -202,6 +240,40 @@ export function kycConfigProblem(env: ServerEnv = getEnv()): string | null {
   }
   if (env.KYC_PROVIDER === "idfy" && !(env.IDFY_ACCOUNT_ID && env.IDFY_API_KEY)) {
     return "KYC_PROVIDER=idfy needs IDFY_ACCOUNT_ID and IDFY_API_KEY.";
+  }
+  return null;
+}
+
+/** Why GST calls through the GSP must not run with these settings, or null. Same host pairing as KYC. */
+export function gspConfigProblem(env: ServerEnv = getEnv()): string | null {
+  let host = "";
+  try {
+    host = env.AUTH_URL ? new URL(env.AUTH_URL).hostname.toLowerCase() : "";
+  } catch {
+    host = "";
+  }
+  const prodHost = env.KYC_PRODUCTION_HOST.toLowerCase();
+  const isProductionHost = host === prodHost || host === `www.${prodHost}`;
+  if (isProductionHost && env.GSP_PROVIDER === "mock") return "GSP_PROVIDER=mock is not allowed on the production site.";
+  if (isProductionHost && env.GSP_ENV !== "production") return "The production site must use GSP_ENV=production.";
+  if (!isProductionHost && env.GSP_ENV === "production") {
+    return `GSP_ENV=production is only allowed on ${prodHost}; this host (${host || "no AUTH_URL"}) must use the GSP sandbox.`;
+  }
+  return null;
+}
+
+/** Why SMS / WhatsApp must not send with these settings, or null. The mock never runs on the production site. */
+export function messagingConfigProblem(env: ServerEnv = getEnv()): string | null {
+  let host = "";
+  try {
+    host = env.AUTH_URL ? new URL(env.AUTH_URL).hostname.toLowerCase() : "";
+  } catch {
+    host = "";
+  }
+  const prodHost = env.KYC_PRODUCTION_HOST.toLowerCase();
+  const isProductionHost = host === prodHost || host === `www.${prodHost}`;
+  if (isProductionHost && (env.SMS_PROVIDER === "mock" || env.WHATSAPP_PROVIDER === "mock")) {
+    return "SMS_PROVIDER / WHATSAPP_PROVIDER=mock is not allowed on the production site.";
   }
   return null;
 }

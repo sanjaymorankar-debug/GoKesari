@@ -54,7 +54,6 @@ import { DELIVERY_WINDOW_MINUTES, getFeasibleDeliveryWindows, type DeliveryWindo
 import { reserveSlot, slotFullError } from "./delivery-slots";
 import { reserveScheduledSlot } from "./scheduled-slots";
 import { acceptByFor } from "./shop-acceptance";
-import { issueInvoiceForOrder } from "./invoices";
 import { getOrCreateOrderGroup, referencesForGroups } from "./order-groups";
 import { quoteCoupon, redeemCouponForOrder } from "./coupons";
 import { getLiveOffers, priceWithOffers } from "./shop-offers";
@@ -71,6 +70,7 @@ import { assertSignupReferralForFirstOrder } from "./customer-signup-referrals";
 import { resolveAddressSociety } from "./societies";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { emitEvent } from "@/server/events/emit";
+import { onOrderDelivered } from "@/server/integrations/hooks";
 import { orderEventFor, type OrderEventPayload } from "@/server/events/catalog";
 import { applyWalletMutation, refundOriginalDebit } from "./wallet";
 import { checkRiskForUser } from "./risk";
@@ -830,7 +830,8 @@ export async function updateOrderStatus(
         .catch((error) => console.error("[referrals] reward check failed for order", orderId, error));
       // NEW-007: the shop's invoice is issued at delivery (rule invoicing).
       // Its own savepoint, so a problem here never blocks the delivery.
-      await issueInvoiceForOrder(orderId, tx).catch((error) =>
+      // Module 2: also sent to the shop's accounting software / e-invoiced.
+      await onOrderDelivered(orderId, order.shopId, tx).catch((error) =>
         console.error("[invoices] issue failed for order", orderId, error),
       );
     }

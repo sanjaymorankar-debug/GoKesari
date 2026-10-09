@@ -57,6 +57,7 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { applyWalletMutation, refundOriginalDebit } from "./wallet";
 import { getRule } from "./settings";
+import { onRefundRecorded } from "@/server/integrations/hooks";
 
 interface Actor {
   id: string;
@@ -387,6 +388,8 @@ export interface RefundDeliveredInput {
   chargeTo: "SHOP" | "PLATFORM";
   /** Client-generated id so a double submit cannot refund twice. */
   requestId: string;
+  /** Module 2: what the shop's credit note says. Default: a refund, goods not returned. */
+  creditNote?: { reason: "REFUND" | "RETURN"; restock: boolean };
 }
 
 /**
@@ -521,6 +524,20 @@ export async function refundDeliveredOrder(input: RefundDeliveredInput, actor: A
         tx,
       );
     }
+
+    // Module 2: the shop's GST credit note against its invoice (if it issued
+    // one), sent to its accounting software. Never blocks the refund.
+    await onRefundRecorded(
+      {
+        orderId: order.id,
+        adjustmentId: adjustment.id,
+        amountPaise: input.amountPaise,
+        reason: input.creditNote?.reason ?? "REFUND",
+        restock: input.creditNote?.restock ?? false,
+        actorId: actor.id,
+      },
+      tx,
+    ).catch((error) => console.error("[credit-notes] issue failed for order", order.id, error));
 
     const remaining = order.totalPaise - input.amountPaise;
     await tx

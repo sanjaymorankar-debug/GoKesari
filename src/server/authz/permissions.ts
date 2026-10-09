@@ -28,6 +28,24 @@ export const PERMISSIONS = {
   PRODUCT_MANAGE: "product:manage",
   SHOP_PRODUCT_MANAGE_OWN: "shop-product:manage:own",
   SHOP_PRODUCT_MANAGE_ANY: "shop-product:manage:any",
+  /**
+   * Module 1: add or remove the people allowed to edit the own shop's product
+   * photos and descriptions (shop_staff). Staff need no role of their own —
+   * the shop_staff row is their access, to that shop only.
+   */
+  SHOP_STAFF_MANAGE_OWN: "shop-staff:manage:own",
+  /**
+   * Module 2: connect the own shop's accounting / inventory software, match
+   * its items, see the sync log and retry failed entries. Credentials are
+   * write-only even to the owner.
+   */
+  INTEGRATION_MANAGE_OWN: "integration:manage:own",
+  /** Module 2: see every shop's sync health and log, and retry entries (support). No credentials. */
+  INTEGRATION_VIEW_ANY: "integration:view:any",
+  /** Module 2: change any shop's connection for support (admin only). Credentials stay write-only. */
+  INTEGRATION_MANAGE_ANY: "integration:manage:any",
+  /** Module 2: edit GST rules (thresholds, numbering, GSP) and fallback HSN rates. Admin only. */
+  GST_CONFIG_MANAGE: "gst-config:manage",
   /** Create a brand-new master product and attach it to the actor's own shop. */
   PRODUCT_CREATE_OWN: "product:create:own",
   /** Create a brand-new master product and attach it to any shop. */
@@ -294,6 +312,8 @@ const SHOP_OWNER_PERMISSIONS: readonly Permission[] = [
   // Buying for the shop's business is a separate flow from personal orders.
   PERMISSIONS.ORDER_PLACE_B2B,
   PERMISSIONS.SHOP_PRODUCT_MANAGE_OWN,
+  PERMISSIONS.SHOP_STAFF_MANAGE_OWN,
+  PERMISSIONS.INTEGRATION_MANAGE_OWN,
   PERMISSIONS.PRODUCT_CREATE_OWN,
   PERMISSIONS.ORDER_VIEW_SHOP,
   PERMISSIONS.ORDER_UPDATE_STATUS_SHOP,
@@ -388,6 +408,8 @@ const OPERATOR_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.PRICE_REFERENCE_MANAGE,
   PERMISSIONS.CONSENT_VIEW,
   PERMISSIONS.DISPUTE_MANAGE,
+  // Module 2: support sees sync health; GST_CONFIG_MANAGE stays admin-only.
+  PERMISSIONS.INTEGRATION_VIEW_ANY,
   // Deliberately absent (§43 "not unrestricted system access"):
   // USER_SET_ROLE, USER_SUSPEND, WALLET_ADJUST, SYSTEM_CONFIG,
   // AUDIT_LOG_VIEW, REPORT_VIEW_ALL, WALLET_VIEW_ANY.
@@ -472,6 +494,11 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.SHOP_PRODUCT_CATEGORY_MANAGE_ANY]: "Add or remove categories on any shop",
   [PERMISSIONS.SHOP_PRODUCT_MANAGE_OWN]: "Manage own shop's products",
   [PERMISSIONS.SHOP_PRODUCT_MANAGE_ANY]: "Manage any shop's products",
+  [PERMISSIONS.SHOP_STAFF_MANAGE_OWN]: "Choose who may edit the own shop's product photos and descriptions",
+  [PERMISSIONS.INTEGRATION_MANAGE_OWN]: "Connect the own shop's accounting software and manage its sync",
+  [PERMISSIONS.INTEGRATION_VIEW_ANY]: "See every shop's accounting sync health and retry failed entries",
+  [PERMISSIONS.INTEGRATION_MANAGE_ANY]: "Change any shop's accounting connection (support)",
+  [PERMISSIONS.GST_CONFIG_MANAGE]: "Edit GST rules, thresholds and fallback HSN rates",
   [PERMISSIONS.PRODUCT_CREATE_OWN]: "Create a new product for own shop",
   [PERMISSIONS.PRODUCT_CREATE_ANY]: "Create a new product for any shop",
   [PERMISSIONS.PRODUCT_APPROVE]:

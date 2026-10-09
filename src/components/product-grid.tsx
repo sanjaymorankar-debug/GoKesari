@@ -54,6 +54,8 @@ export function ProductGrid({
             distanceKm: distances?.get(p.shopId) ?? null,
             offerPricePaise: p.offerPricePaise ?? null,
             offerTitle: p.offerTitle ?? null,
+            shortDescription: p.shortDescription ?? null,
+            detailsHref: `/products/${p.productId}?shop=${encodeURIComponent(p.shopSlug)}`,
           }}
         />
       ))}

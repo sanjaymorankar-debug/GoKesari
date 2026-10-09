@@ -2,7 +2,7 @@ import { notFound, redirect } from "next/navigation";
 import { eq } from "drizzle-orm";
 
 import { ProductImagesManager } from "@/components/product-images-manager";
-import { LinkButton, PageHeader } from "@/components/ui";
+import { Card, LinkButton, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { db } from "@/server/db";
 import { products, shopProducts, shops } from "@/server/db/schema";
@@ -13,9 +13,11 @@ export const metadata = { title: "Product photos" };
 export const dynamic = "force-dynamic";
 
 /**
- * Photos for one listing. `id` is the shop listing (SKU). The owner manages the
- * listing's own photos; catalogue staff — and the shop that created the product —
- * can also manage the product-wide photos every shop shows by default.
+ * Photos for one listing. `id` is the shop listing (SKU). The listing's own
+ * photos and descriptions are edited on /shop/products/{id}/media (Module 1:
+ * EXIF removed, WebP sizes, staff access); catalogue staff — and the shop that
+ * created the product — manage the product-wide photos every shop shows by
+ * default here.
  */
 export default async function ListingImagesPage({ params }: { params: Promise<{ id: string }> }) {
   const user = await getCurrentUser();
@@ -39,6 +41,7 @@ export default async function ListingImagesPage({ params }: { params: Promise<{ 
     listImages(row.product.id, null),
     getRule("images"),
   ]);
+  if (!mayEditProduct) redirect(`/shop/products/${row.sp.id}/media`);
   const view = (i: (typeof listing)[number]) => ({
     id: i.id,
     url: i.url,
@@ -60,14 +63,13 @@ export default async function ListingImagesPage({ params }: { params: Promise<{ 
           </div>
         }
       />
-      <ProductImagesManager
-        productId={row.product.id}
-        shopProductId={row.sp.id}
-        images={listing.map(view)}
-        max={limits.maxPerProduct}
-        title="This shop's photos"
-        hint="Shown for your listing only."
-      />
+      <Card className="flex flex-wrap items-center justify-between gap-3 p-4">
+        <div className="text-sm">
+          <p className="font-semibold text-ink-900">This shop&apos;s photos and description</p>
+          <p className="text-ink-500">{listing.length} photo{listing.length === 1 ? "" : "s"} of your own. Shown for your listing only.</p>
+        </div>
+        <LinkButton href={`/shop/products/${row.sp.id}/media`}>Edit photos &amp; description</LinkButton>
+      </Card>
       {mayEditProduct ? (
         <ProductImagesManager
           productId={row.product.id}

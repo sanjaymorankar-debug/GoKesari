@@ -31,7 +31,8 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { listShopProducts } from "./catalogue";
-import { imageUrl } from "./image-store";
+import { scheduleOrphanSweep } from "@/server/media/blob-store";
+import { imageUrl, storageKeysOf } from "./image-store";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { getRule } from "./settings";
 
@@ -86,7 +87,7 @@ export async function canManageImages(actor: Actor | null, productId: string, sh
 }
 
 /** PENDING when moderation is on and a non-staff user adds or replaces a photo. */
-async function initialStatus(actor: Actor): Promise<"PENDING" | "APPROVED"> {
+export async function initialStatus(actor: Actor): Promise<"PENDING" | "APPROVED"> {
   if (isStaff(actor.role)) return "APPROVED";
   return (await getRule("imageModeration")).enabled ? "PENDING" : "APPROVED";
 }
@@ -114,7 +115,7 @@ async function assertMayManage(actor: Actor, productId: string, shopProductId: s
  * photo — the primary approved one (F10), else the next approved in order.
  * Without moderation every photo is approved, so this is the primary as before.
  */
-async function syncPrimary(tx: DbClient, productId: string, shopProductId: string | null): Promise<void> {
+export async function syncPrimary(tx: DbClient, productId: string, shopProductId: string | null): Promise<void> {
   const [primary] = await listImages(productId, shopProductId, tx, { approvedOnly: true });
   if (shopProductId) {
     await tx.update(shopProducts).set({ imageUrl: primary?.url ?? null, updatedAt: new Date() }).where(eq(shopProducts.id, shopProductId));
@@ -123,15 +124,27 @@ async function syncPrimary(tx: DbClient, productId: string, shopProductId: strin
   }
 }
 
-/** Deletes an uploaded file once no photo row points at it. */
-async function dropIfOrphaned(tx: DbClient, storedImageId: string | null): Promise<void> {
+/**
+ * Deletes an uploaded file once no photo row points at it. A file kept on
+ * disk (Module 1) is removed shortly after the transaction commits, and only
+ * if nothing refers to it by then.
+ */
+export async function dropIfOrphaned(tx: DbClient, storedImageId: string | null): Promise<void> {
   if (!storedImageId) return;
   const [ref] = await tx
     .select({ id: productImages.id })
     .from(productImages)
     .where(eq(productImages.storedImageId, storedImageId))
     .limit(1);
-  if (!ref) await tx.delete(storedImages).where(eq(storedImages.id, storedImageId));
+  if (ref) return;
+  const keys = await storageKeysOf(storedImageId, tx);
+  await tx.delete(storedImages).where(eq(storedImages.id, storedImageId));
+  scheduleOrphanSweep(keys);
+}
+
+/** How many photos a scope may hold: a shop listing's own limit (Module 1), else the catalogue's. */
+export async function photoLimitFor(shopProductId: string | null): Promise<number> {
+  return shopProductId ? (await getRule("shopProductMedia")).maxPhotos : (await getRule("images")).maxPerProduct;
 }
 
 async function loadUploaded(tx: DbClient, storedImageId: string, actor: Actor) {
@@ -147,14 +160,14 @@ export async function addImage(
 ): Promise<ProductImage> {
   const shopProductId = input.shopProductId ?? null;
   await assertMayManage(actor, input.productId, shopProductId);
-  const limits = await getRule("images");
+  const maxPhotos = await photoLimitFor(shopProductId);
   const moderationStatus = await initialStatus(actor);
 
   return db.transaction(async (tx) => {
     const img = await loadUploaded(tx, input.storedImageId, actor);
     const existing = await listImages(input.productId, shopProductId, tx);
-    if (existing.length >= limits.maxPerProduct) {
-      throw validationFailed(`At most ${limits.maxPerProduct} photos can be kept here. Delete one first.`);
+    if (existing.length >= maxPhotos) {
+      throw validationFailed(`At most ${maxPhotos} photos can be kept here. Delete one first.`);
     }
     if (existing.some((e) => e.storedImageId === img.id)) throw conflict("That photo is already added.");
 

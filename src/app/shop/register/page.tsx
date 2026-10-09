@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { ShopRegisterForm } from "@/components/shop-register-form";
@@ -19,6 +20,8 @@ export default async function RegisterShopPage() {
   const rejected = ownShops.find((s) => s.status === "REJECTED");
   // docs/four-features-2026-10, feature 4: the referral code is mandatory while this rule is on.
   const referralRule = await getRule("shopReferral");
+  // Module 3: with a referral code a shop can register and pay online, approved on payment.
+  const selfService = (await getRule("selfRegistration")).enabled;
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -42,6 +45,13 @@ export default async function RegisterShopPage() {
             Correct the details below and submit with the same Shop Act, PAN or Udyam number, or
             the same shop name and PIN code. We&apos;ll update your earlier registration and send
             it for review again instead of creating a new one.
+          </Alert>
+        </div>
+      ) : null}
+      {selfService ? (
+        <div className="mb-4">
+          <Alert tone="success" title="Have a referral code from a GoKesari distributor?">
+            <Link href="/shop/join" className="underline">Register with the code and pay the fee online</Link> — your shop goes live as soon as the payment is confirmed.
           </Alert>
         </div>
       ) : null}

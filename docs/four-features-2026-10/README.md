@@ -23,7 +23,7 @@ Added on 9 Oct 2026 from the owner's answers to §6 (details in §2, "Decided by
 | 3a | Refunds to a customer's bank | `bankRefunds` (off; on for test) | `drizzle/0066_bank_refund_requests.sql` | `scripts/rollback-0066.sql` |
 | 4a | Referral code checked at customer registration too | `customerSignupReferral` (off; on for test) | `drizzle/0067_customer_signup_referrals.sql` | `scripts/rollback-0067.sql` |
 | 2a | Shops past the grace period show "not taking new orders" (O-4) | `legalDocuments` | — | revert the code |
-| 4b | Referral code mandatory for customers + customers ask for one (O-5) | `customerSignupReferral.required` (off; on for test) | `drizzle/0068_customer_referral_requests.sql` | `scripts/rollback-0068.sql` |
+| 4b | Referral code mandatory for customers + customers ask for one (O-5) | `customerSignupReferral.required` (off; on for test) | `drizzle/0072_customer_referral_requests.sql` | `scripts/rollback-0072.sql` |
 
 Test checklist (every flow, every role): [TEST_CHECKLIST.md](TEST_CHECKLIST.md).
 Test results on test.gokesari.com, step by step: [TEST_RESULTS.md](TEST_RESULTS.md).
@@ -380,7 +380,8 @@ The owner answered the open questions of §6. What was built:
     - customers who joined before `requiredFrom` (a date; empty = every
       customer without an order);
     - shop owners (they gave a code at shop registration) and staff.
-  - **Records:** table `customer_referral_requests` (`0068`).
+  - **Records:** table `customer_referral_requests` (`0072`; 0068–0071 are
+    the three-modules work merged on staging in between).
   - **Rule:** `customerSignupReferral.required` / `requiredFrom` /
     `requestDuplicateWindowHours`, off by default. On for test with
     `requiredFrom` 2026-10-09, so existing test customers keep ordering.
@@ -451,7 +452,8 @@ All four are additive. **Migrate first, deploy second** (DEPLOY_RUNBOOK §0) —
 although this release tolerates the reverse order (G-5).
 
 **Test (automatic):** merging into `staging` runs the "Test database"
-workflow: back up → migrate 0061–0068 → apply `test-settings.sql` → verify.
+workflow: back up → migrate (0061–0067 and 0072 are this work) → apply
+`test-settings.sql` → verify.
 Manual alternative: `DATABASE_URL=<test db> npm run db:migrate`, then
 `psql "$TEST_DATABASE_URL" -f docs/four-features-2026-10/test-settings.sql`.
 
@@ -463,12 +465,15 @@ Manual alternative: `DATABASE_URL=<test db> npm run db:migrate`, then
    is then as before (planned orders already in progress still complete through
    their plan; finish them first if you roll back code).
 2. Code: revert the merge on `staging`; Hostinger redeploys.
-3. Schema (only after the old code is live): run `scripts/rollback-0068.sql`,
+3. Schema (only after the old code is live): run `scripts/rollback-0072.sql`
+   (customer requests for a code are lost, codes already issued stay), then
    `-0067`, `-0066`, `-0065`, `-0064`, `-0063`, `-0062`, `-0061` (newest first, any
-   subset; settle open refunds to bank before 0066; customer requests for a
-   code are lost with 0068, codes already issued stay), then delete their rows:
-   `DELETE FROM drizzle.__drizzle_migrations WHERE created_at >= <0061 when>;`
-   (`node -e "console.log(require('./drizzle/meta/_journal.json').entries.find(e=>e.tag.startsWith('0061_')).when)"`).
+   subset; settle open refunds to bank before 0066). Delete each rolled-back
+   migration's row from `drizzle.__drizzle_migrations` (match `created_at` to
+   its `when` in `drizzle/meta/_journal.json`, e.g.
+   `node -e "console.log(require('./drizzle/meta/_journal.json').entries.find(e=>e.tag.startsWith('0072_')).when)"`).
+   0068–0071 belong to the three-modules work and have their own rollbacks;
+   leave them unless that work is rolled back too.
    Back up first — plans, documents, bank accounts and requests are lost.
 
 ---
@@ -517,7 +522,7 @@ Added on 9 Oct 2026 (O-1 to O-3):
   four new cases in `fulfilment-options.test.ts`.
 
 Added on 9 Oct 2026, second round (O-4 to O-6):
-* Migration: `drizzle/0068_customer_referral_requests.sql` (+ `drizzle/meta`), `scripts/rollback-0068.sql`.
+* Migration: `drizzle/0072_customer_referral_requests.sql` (+ `drizzle/meta`), `scripts/rollback-0072.sql`.
 * Service: `src/server/services/customer-referral-requests.ts`; in `customer-signup-referrals.ts`
   `needsSignupReferralCode` / `assertSignupReferralForFirstOrder`; in `legal-documents.ts`
   `legallyBlockedShopIds` (O-4).
@@ -564,7 +569,8 @@ Nothing here touches production. When you decide to promote:
    licence copies use it.
 4. **Daily cron** `POST /api/cron/seller-verification` (06:30 IST) — it now also
    starts legal-document grace periods and sends expiry reminders.
-5. Migrate 0061–0068 (Production database workflow / `npm run db:migrate`), then
+5. Migrate 0061–0067 and 0072, along with whatever else staging carries
+   (Production database workflow / `npm run db:migrate`), then
    switch each rule on in Admin → Business rules, one at a time.
 6. **Create referral codes** for shop owners before switching `shopReferral.required`
    on, or new registrations will be blocked until codes are issued.

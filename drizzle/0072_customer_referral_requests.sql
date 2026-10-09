@@ -1,7 +1,7 @@
--- 0068 Customer referral-code requests (docs/four-features-2026-10, the owner's
+-- 0072 Customer referral-code requests (docs/four-features-2026-10, the owner's
 -- decision of 9 Oct 2026: a referral code is mandatory for customers; one
 -- without a code asks for it with their location, PIN code, city and contact
--- number). Additive only (one new table). Rollback: scripts/rollback-0068.sql.
+-- number). Additive only (one new table). Rollback: scripts/rollback-0072.sql.
 CREATE TABLE "customer_referral_requests" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"user_id" uuid NOT NULL,

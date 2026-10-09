@@ -8,7 +8,9 @@
  * `getChannelProvider`. Nothing else changes: preferences, retries, the
  * delivery log and templates already handle every channel.
  */
+import { isPlaceholderEmail } from "@/lib/placeholder-email";
 import { EmailUnavailableError, emailMode, sendEmail } from "@/server/email/transport";
+import { isTextChannelAvailable, MessagingUnavailableError, sendText, textFromNotification, type TextChannel } from "@/server/messaging/sms-whatsapp";
 import type { OutboundChannel } from "./templates";
 
 export interface ChannelRecipient {
@@ -38,7 +40,8 @@ export class ChannelUnavailableError extends Error {}
 export const emailChannel: ChannelProvider = {
   channel: "EMAIL",
   isAvailable: () => emailMode() !== "disabled",
-  addressFor: (r) => r.email,
+  // Module 3: an account made from a mobile number alone has no real email.
+  addressFor: (r) => (r.email && !isPlaceholderEmail(r.email) ? r.email : null),
   async send(message) {
     try {
       await sendEmail({ to: message.to, subject: message.subject, text: message.text, html: message.html ?? undefined });
@@ -50,11 +53,35 @@ export const emailChannel: ChannelProvider = {
   },
 };
 
+/** Module 3: SMS and WhatsApp through server/messaging (mock on the test site until a vendor is chosen). */
+function textChannel(channel: TextChannel): ChannelProvider {
+  return {
+    channel,
+    isAvailable: () => isTextChannelAvailable(channel),
+    addressFor: (r) => r.phoneE164,
+    async send(message) {
+      try {
+        return await sendText(channel, message.to, textFromNotification(message.subject, message.text, message.actionUrl), "notification");
+      } catch (error) {
+        if (error instanceof MessagingUnavailableError) throw new ChannelUnavailableError(error.message);
+        throw error;
+      }
+    },
+  };
+}
+
+export const smsChannel = textChannel("SMS");
+export const whatsappChannel = textChannel("WHATSAPP");
+
 export function getChannelProvider(channel: OutboundChannel): ChannelProvider | null {
   switch (channel) {
     case "EMAIL":
       return emailChannel;
-    // SMS, PUSH and WHATSAPP providers plug in here once chosen.
+    case "SMS":
+      return smsChannel;
+    case "WHATSAPP":
+      return whatsappChannel;
+    // A PUSH provider plugs in here once chosen.
     default:
       return null;
   }

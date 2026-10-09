@@ -22,6 +22,8 @@ interface Props {
   locationLabel: string | null;
   /** The signed-in user's saved addresses, offered in the location chooser. */
   savedAddresses: { id: string; label: string }[];
+  /** Module 1: the user is staff of at least one shop (edits its product photos and descriptions). */
+  helpsShops?: boolean;
   /** Referral links (docs/four-features-2026-10): only those whose rule is switched on. */
   referralLinks?: { href: string; label: string }[];
 }
@@ -55,6 +57,8 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/shop/disputes", label: "Disputes" },
     { href: "/shop/inventory", label: "Inventory" },
     { href: "/shop/catalogue", label: "Photo catalogue" },
+    { href: "/shop/media-import", label: "Bulk photos & descriptions" },
+    { href: "/shop/staff", label: "Shop staff" },
     { href: "/shop/product-categories", label: "My product categories" },
     { href: "/product-categories", label: "All product categories" },
     { href: "/shop/prices", label: "Price Updates" },
@@ -63,6 +67,8 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/shop/delivery-staff", label: "Delivery staff" },
     { href: "/shop/legal-documents", label: "Legal documents" },
     { href: "/shop/bank-account", label: "Payout bank account" },
+    { href: "/shop/settings/integrations", label: "Accounting software" },
+    { href: "/shop/gst-returns", label: "GST returns" },
     { href: "/shop/marketing", label: "Marketing" },
     { href: "/shop/offers", label: "Offers" },
     { href: "/shop/analytics", label: "Analytics" },
@@ -92,6 +98,8 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin/cod", label: "COD cash" },
     { href: "/admin/legal-documents", label: "Legal documents" },
     { href: "/admin/referral-requests", label: "Referral requests" },
+    { href: "/admin/integrations", label: "Accounting sync" },
+    { href: "/admin/self-registration", label: "Self-registration" },
   ],
   ADMIN: [
     { href: "/admin", label: "Admin Console" },
@@ -110,6 +118,9 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin/suspensions", label: "Suspensions" },
     { href: "/admin/rider-earnings", label: "Rider earnings" },
     { href: "/admin/settings", label: "Business rules" },
+    { href: "/admin/gst-config", label: "GST settings" },
+    { href: "/admin/integrations", label: "Accounting sync" },
+    { href: "/admin/self-registration", label: "Self-registration" },
     { href: "/admin/societies", label: "Societies" },
     { href: "/admin/ratings", label: "Ratings" },
     { href: "/admin/analytics", label: "Analytics" },
@@ -274,8 +285,10 @@ export function SiteHeader({
   unreadCount,
   locationLabel,
   savedAddresses,
+  helpsShops = false,
   referralLinks = [],
 }: Props) {
+  const accountNav = helpsShops ? [...ACCOUNT_NAV, { href: "/shop/staff-access", label: "Shops I help with" }] : ACCOUNT_NAV;
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [locationOpen, setLocationOpen] = useState(false);
@@ -454,7 +467,7 @@ export function SiteHeader({
                         Dashboard
                       </Link>
                     ) : null}
-                    {[...ACCOUNT_NAV, ...referralLinks].map((item) => (
+                    {[...accountNav, ...referralLinks].map((item) => (
                       <Link
                         key={item.href}
                         href={item.href}
@@ -542,7 +555,7 @@ export function SiteHeader({
               </div>
             </details>
           ) : null}
-          {[...NAV, ...(user ? [...ACCOUNT_NAV, ...referralLinks] : [])].map((item) => (
+          {[...NAV, ...(user ? [...accountNav, ...referralLinks] : [])].map((item) => (
             <Link
               key={item.href}
               href={item.href}

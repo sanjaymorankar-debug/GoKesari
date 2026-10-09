@@ -20,6 +20,9 @@ const schema = z.object({
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Use an ISO date (YYYY-MM-DD).")
     .nullish(),
   note: z.string().max(500).nullish(),
+  // Module 3: self-registration.
+  distributorId: z.string().uuid().nullish(),
+  maxUses: z.number().int().min(1).max(100_000).nullish(),
 });
 
 export const GET = route(async (request: NextRequest) => {

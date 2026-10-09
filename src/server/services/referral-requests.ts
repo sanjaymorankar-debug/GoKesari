@@ -23,7 +23,7 @@ import { referralCodeRequests, referralCodes, type ReferralCodeRequest, type Ref
 import { sendEmail, emailMode } from "@/server/email/transport";
 import { emitEvent } from "@/server/events/emit";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
-import { attributeShopToCode, createReferralCode, resolveUsableCode } from "./referrals";
+import { attributeShopToCode, createReferralCode, resolveCodeForShop } from "./referrals";
 import { getRule } from "./settings";
 
 interface Actor {
@@ -46,7 +46,7 @@ export async function assertRegistrationReferralCode(raw: string | null | undefi
     throw validationFailed("Enter your referral code, or request one.", { fields: { referralCode: "A referral code is required to register a shop." } });
   }
   try {
-    return (await resolveUsableCode(code)).code;
+    return (await resolveCodeForShop(code)).code;
   } catch (error) {
     if (error instanceof AppError && error.code === "VALIDATION_FAILED") {
       throw validationFailed(`${error.message} Check the code, or request one.`, { fields: { referralCode: error.message } });
@@ -58,7 +58,7 @@ export async function assertRegistrationReferralCode(raw: string | null | undefi
 /** For the form's on-blur check: valid or not, nothing more. */
 export async function checkReferralCode(raw: string): Promise<{ valid: boolean; message: string | null }> {
   try {
-    await resolveUsableCode(raw);
+    await resolveCodeForShop(raw);
     return { valid: true, message: null };
   } catch (error) {
     if (error instanceof AppError && error.code === "VALIDATION_FAILED") return { valid: false, message: error.message };
