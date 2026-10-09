@@ -10,6 +10,7 @@ import { getCartItemCount } from "@/server/services/cart";
 import { unreadCount } from "@/server/services/notifications";
 import { listUserRoles } from "@/server/services/roles";
 import { getWalletByUserId } from "@/server/services/wallet";
+import { getRule } from "@/server/services/settings";
 import "./globals.css";
 
 export const metadata: Metadata = {
@@ -50,6 +51,15 @@ export default async function RootLayout({
     : [0, null, 0, [], []];
   // The same location every page filters by (cookie, else the default address).
   const location = await getCustomerLocation(user?.id).catch(() => null);
+  // Referral links (docs/four-features-2026-10) for every signed-in user, when their rules are on.
+  const referralLinks = user
+    ? await Promise.all([getRule("customerSignupReferral"), getRule("customerReferrals")])
+        .then(([signup, friends]) => [
+          ...(signup.enabled ? [{ href: "/referral", label: "My referral code" }] : []),
+          ...(friends.enabled ? [{ href: "/refer", label: "Invite friends" }] : []),
+        ])
+        .catch(() => [])
+    : [];
 
   return (
     <html lang="en">
@@ -65,6 +75,7 @@ export default async function RootLayout({
             id: a.id,
             label: `${a.label ? `${a.label} — ` : ""}${a.pincode}`,
           }))}
+          referralLinks={referralLinks}
         />
         <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
           {children}

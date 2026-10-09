@@ -29,8 +29,11 @@ INSERT INTO platform_settings (key, value) VALUES
   --    production needs the Wallet Terms and Refund Policy updated first.
   ('bankRefunds', '{"enabled": true}'),
   -- 6. Referral code at customer registration (owner's decision, 9 Oct 2026):
-  --    first-time setup asks for one (optional) and checks it.
-  ('customerSignupReferral', '{"enabled": true}')
+  --    first-time setup asks for one and checks it. Second round (same day):
+  --    mandatory before the first order for customers who joined from
+  --    9 Oct 2026 (existing test customers keep ordering); without a code
+  --    they ask for one (emailed to shopReferral.notifyEmails).
+  ('customerSignupReferral', '{"enabled": true, "required": true, "requiredFrom": "2026-10-09"}')
 ON CONFLICT (key) DO UPDATE SET value = platform_settings.value || EXCLUDED.value, updated_at = now();
 
 -- What is now in force (code defaults fill anything not listed):

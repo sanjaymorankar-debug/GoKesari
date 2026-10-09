@@ -22,6 +22,8 @@ interface Props {
   locationLabel: string | null;
   /** The signed-in user's saved addresses, offered in the location chooser. */
   savedAddresses: { id: string; label: string }[];
+  /** Referral links (docs/four-features-2026-10): only those whose rule is switched on. */
+  referralLinks?: { href: string; label: string }[];
 }
 
 /** The main row. Wallet has its own balance pill; the rest sit in the account menu. */
@@ -272,6 +274,7 @@ export function SiteHeader({
   unreadCount,
   locationLabel,
   savedAddresses,
+  referralLinks = [],
 }: Props) {
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
@@ -451,7 +454,7 @@ export function SiteHeader({
                         Dashboard
                       </Link>
                     ) : null}
-                    {ACCOUNT_NAV.map((item) => (
+                    {[...ACCOUNT_NAV, ...referralLinks].map((item) => (
                       <Link
                         key={item.href}
                         href={item.href}
@@ -539,7 +542,7 @@ export function SiteHeader({
               </div>
             </details>
           ) : null}
-          {[...NAV, ...(user ? ACCOUNT_NAV : [])].map((item) => (
+          {[...NAV, ...(user ? [...ACCOUNT_NAV, ...referralLinks] : [])].map((item) => (
             <Link
               key={item.href}
               href={item.href}

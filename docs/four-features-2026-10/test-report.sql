@@ -97,6 +97,17 @@ SELECT u.email, c.kind, c.code, c.created_at
 SELECT c.code, c.kind, count(*) AS customers, max(c.created_at) AS latest
   FROM customer_signup_referrals c GROUP BY c.code, c.kind ORDER BY latest DESC LIMIT 20;
 
+\echo '== 7. Customers asking for a referral code (owner 9 Oct, second round; E2E users)'
+SELECT u.email, r.name, r.mobile_e164, r.city, r.pincode, r.location_status, r.maps_url, r.status,
+       r.issued_code, r.decision_note, r.email_status, left(r.email_error, 120) AS email_error, r.created_at, r.decided_at
+  FROM customer_referral_requests r JOIN users u ON u.id = r.user_id
+ WHERE u.email LIKE 'sanjaymorankar+gk-%@gmail.com' ORDER BY r.created_at;
+
+\echo '== 8. Shops whose legal documents block new orders (grace over / rejected / expired)'
+SELECT s.name, d.doc_type, d.status, d.grace_until, d.expiry_date, d.updated_at
+  FROM shop_legal_documents d JOIN shops s ON s.id = d.shop_id
+ WHERE d.status <> 'APPROVED' OR d.expiry_date < current_date ORDER BY d.updated_at DESC LIMIT 20;
+
 \echo '== Email outbox for the E2E accounts (newest 40; addresses are the test aliases)'
 SELECT d.created_at, u.email, d.type, d.status, d.attempts, d.next_attempt_at, d.sent_at, left(d.last_error, 120) AS last_error
   FROM notification_deliveries d JOIN users u ON u.id = d.user_id
@@ -108,5 +119,6 @@ SELECT a.created_at, a.action, a.entity_type, u.email AS actor
   FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_id
  WHERE a.action LIKE 'order.fulfilment%' OR a.action LIKE 'shop.delivery_staff%' OR a.action LIKE 'shop.legal_document%'
     OR a.action LIKE 'bank_account%' OR a.action LIKE 'referral_request%'
-    OR a.action LIKE 'bank_refund%' OR a.action IN ('order.delivery_fee_refunded', 'customer.signup_referral')
+    OR a.action LIKE 'bank_refund%' OR a.action LIKE 'customer_referral_request%'
+    OR a.action IN ('order.delivery_fee_refunded', 'customer.signup_referral')
  ORDER BY a.created_at DESC LIMIT 40;

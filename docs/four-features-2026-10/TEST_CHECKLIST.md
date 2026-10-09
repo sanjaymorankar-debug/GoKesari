@@ -115,6 +115,24 @@ stands in, and the page says so.
 | O3.3 | A code GoKesari issued (e.g. `E2EANIL1`) → Save | Accepted; continues to the address step. Admin → Referral requests → "Customers who joined with a code" counts it |
 | O3.4 | After the first order | Not asked any more; a code is refused |
 
+## 4b. Added on 9 Oct 2026, second round (the owner's decisions)
+
+| # | Step | Expected |
+|---|---|---|
+| O4.1 | A shop whose required legal document is past its grace period (Admin → Legal documents → grace over) | Listed as "not taking new orders right now"; a cart with its items warns at once; checkout refuses. Customers are not told why |
+| O4.2 | The shop uploads the document | Back to normal straight away, before review |
+| O5.1 | Signed out: search `milk`, open a shop | Products and shops shown; adding to the cart asks you to sign in |
+| O5.2 | A **new** customer: first-time setup | "Referral code" field: "Needed before your first order". Left empty → setup ends on **My referral code** |
+| O5.3 | Browse, search, add to cart | Allowed. Cart: "A referral code is needed for your first order" with a link |
+| O5.4 | Checkout | Refused: "Enter your referral code before your first order — or ask us for one" |
+| O5.5 | My referral code → **Ask us for one**: allow location; contact number, city, PIN | "Request received" with `CRR-…`. Admins/operators get an in-app alert. referrals@gokesari.com (and the test alias) get an email with every field and the Google Maps link |
+| O5.6 | Ask again | "We already have your request (CRR-…)" |
+| O5.7 | Admin → Referral requests → **Customers asking for a code** → Issue a code | Code created (`GKC…` or typed). The customer gets an in-app message and email with the code; My referral code shows it with **Use this code** |
+| O5.8 | Use this code → checkout | Order placed |
+| O5.9 | Decline another request with a reason | The customer is told, with the reason |
+| O5.10 | An existing customer (joined before 9 Oct) with no order; a shop owner | Not stopped |
+| O6.1 | Any signed-in user (customer, shop owner, delivery partner): menu → **Invite friends** | Own invite code and link. A new customer who uses it at setup can order |
+
 ## 5. Regression (existing flows)
 
 Registration · sign-in (email code) · browse · cart · checkout (wallet) ·

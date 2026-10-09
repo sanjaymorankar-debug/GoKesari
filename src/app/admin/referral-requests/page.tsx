@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 
 import { ReferralRequestQueue } from "@/components/referral-request-queue";
+import { CustomerReferralRequestQueue } from "@/components/customer-referral-request-queue";
+import { listCustomerReferralRequests } from "@/server/services/customer-referral-requests";
 import { Alert, Card, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
@@ -23,11 +25,12 @@ export default async function AdminReferralRequestsPage({ searchParams }: { sear
     : params.status === "ALL"
       ? null
       : "NEW";
-  const [requests, rule, customerRule, joined] = await Promise.all([
+  const [requests, rule, customerRule, joined, customerRequests] = await Promise.all([
     listReferralRequests(status, user),
     getRule("shopReferral"),
     getRule("customerSignupReferral"),
     listSignupReferralCounts(),
+    listCustomerReferralRequests(status, user),
   ]);
   return (
     <div className="space-y-4">
@@ -37,6 +40,18 @@ export default async function AdminReferralRequestsPage({ searchParams }: { sear
       />
       {!rule.required ? <Alert tone="info">Referral codes are optional on registration right now (Business rules → shopReferral).</Alert> : null}
       <ReferralRequestQueue status={status ?? "ALL"} requests={requests} />
+
+      {/* Customers asking for a referral code (owner's decision, 9 Oct 2026; same status filter). */}
+      <section className="space-y-2" data-testid="customer-referral-requests">
+        <h2 className="text-base font-semibold text-ink-900">Customers asking for a code</h2>
+        <p className="text-sm text-ink-500">
+          {customerRule.required
+            ? "A referral code is needed before a new customer's first order."
+            : "Referral codes are optional for customers right now (Business rules → customerSignupReferral → required)."}{" "}
+          Each request is emailed to {rule.notifyEmails.join(", ")}.
+        </p>
+        <CustomerReferralRequestQueue requests={customerRequests} />
+      </section>
 
       {/* Referral code at customer registration (rule customerSignupReferral). */}
       <section className="space-y-2" data-testid="signup-referral-counts">

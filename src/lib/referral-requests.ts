@@ -71,6 +71,40 @@ export function checkReferralRequest(input: ReferralRequestInput): { ok: true; v
   return { ok: true, value: { name, mobileE164: phone.ok ? phone.e164 : "", shopType: input.shopType, area, city, pincode, location } };
 }
 
+/* ------------------------------------------------- customers (owner's decision, 9 Oct 2026) */
+
+/** A customer asking for a referral code: contact number, city, PIN code and (when shared) their location. */
+export interface CustomerReferralRequestInput {
+  name: string;
+  mobile: string;
+  city: string;
+  pincode: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  accuracyM?: number | null;
+}
+
+export type CleanCustomerReferralRequest = Omit<CleanReferralRequest, "shopType" | "area">;
+
+/** Field errors, or the cleaned customer request (the same checks as a shop owner's, without shop type and area). */
+export function checkCustomerReferralRequest(
+  input: CustomerReferralRequestInput,
+): { ok: true; value: CleanCustomerReferralRequest } | { ok: false; fields: Record<string, string> } {
+  // A customer has no shop type or area: the shop owner's checks run with placeholders for those two.
+  const checked = checkReferralRequest({ ...input, shopType: SHOP_TYPE_KEYS[0], area: "Not asked" });
+  if (!checked.ok) {
+    const fields = Object.fromEntries(Object.entries(checked.fields).filter(([key]) => key !== "shopType" && key !== "area"));
+    return { ok: false, fields };
+  }
+  const { name, mobileE164, city, pincode, location } = checked.value;
+  return { ok: true, value: { name, mobileE164, city, pincode, location } };
+}
+
+/** "CRR-1A2B3C4D" — a customer's request, apart from shop owners' RCR- references. */
+export function customerReferralRequestReference(id: string): string {
+  return `CRR-${id.replace(/-/g, "").slice(0, 8).toUpperCase()}`;
+}
+
 export const REFERRAL_REQUEST_STATUS_LABELS = {
   NEW: "New",
   CODE_ISSUED: "Code issued",

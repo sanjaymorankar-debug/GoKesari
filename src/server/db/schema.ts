@@ -5839,3 +5839,49 @@ export const customerSignupReferrals = pgTable(
   ],
 );
 export type CustomerSignupReferral = typeof customerSignupReferrals.$inferSelect;
+
+/**
+ * A customer asking for a referral code (docs/four-features-2026-10, the
+ * owner's decision of 9 Oct 2026: a code is mandatory for customers, and one
+ * without a code can ask for it): contact number, city, PIN code and, when
+ * shared, their location (latitude, longitude, Google Maps link). Emailed to
+ * the referrals team (rule shopReferral.notifyEmails). Operations send
+ * someone, or issue a code (an ordinary referral code), or decline.
+ * Migration 0068, rollback scripts/rollback-0068.sql.
+ */
+export const customerReferralRequests = pgTable(
+  "customer_referral_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    mobileE164: text("mobile_e164").notNull(),
+    city: text("city").notNull(),
+    pincode: text("pincode").notNull(),
+    latitude: text("latitude"),
+    longitude: text("longitude"),
+    locationAccuracyM: integer("location_accuracy_m"),
+    mapsUrl: text("maps_url"),
+    locationStatus: text("location_status", { enum: ["SHARED", "NOT_SHARED"] }).notNull(),
+    status: text("status", { enum: REFERRAL_REQUEST_STATUSES }).notNull().default("NEW"),
+    issuedCodeId: uuid("issued_code_id").references(() => referralCodes.id, { onDelete: "set null" }),
+    issuedCode: text("issued_code"),
+    decisionNote: text("decision_note"),
+    decidedBy: uuid("decided_by").references(() => users.id, { onDelete: "set null" }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    emailStatus: text("email_status", { enum: ["SENT", "FAILED", "NOT_CONFIGURED"] }),
+    emailError: text("email_error"),
+    emailSentAt: timestamp("email_sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("customer_referral_requests_user_idx").on(t.userId, t.createdAt),
+    index("customer_referral_requests_mobile_idx").on(t.mobileE164, t.createdAt),
+    index("customer_referral_requests_status_idx").on(t.status, t.createdAt),
+    check("customer_referral_requests_pincode", sql`${t.pincode} ~ '^[1-9][0-9]{5}$'`),
+  ],
+);
+export type CustomerReferralRequest = typeof customerReferralRequests.$inferSelect;

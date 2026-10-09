@@ -18,7 +18,7 @@ import { count, eq, sql } from "drizzle-orm";
 
 import { AppError, conflict, validationFailed } from "@/lib/errors";
 import { db } from "@/server/db";
-import { customerReferralCodes, customerSignupReferrals, orders, referralCodes, type UserRole } from "@/server/db/schema";
+import { customerReferralCodes, customerSignupReferrals, orders, referralCodes, users, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { applyReferralCode, normalizeReferralCode } from "./customer-referrals";
 import { resolveUsableCode } from "./referrals";
@@ -52,6 +52,32 @@ export async function shouldAskSignupReferral(userId: string): Promise<boolean> 
   if (await getSignupReferral(userId)) return false;
   const [{ n }] = await db.select({ n: count() }).from(orders).where(eq(orders.userId, userId));
   return n === 0;
+}
+
+/**
+ * Mandatory code (rule customerSignupReferral.required, the owner's decision
+ * of 9 Oct 2026): whether this customer still needs a referral code before
+ * their first order. Customers only (shop owners gave one at shop
+ * registration; staff are exempt); customers who already ordered, or joined
+ * before requiredFrom, are never stopped. Browsing and search stay open.
+ */
+export async function needsSignupReferralCode(userId: string): Promise<boolean> {
+  const rule = await getRule("customerSignupReferral");
+  if (!rule.enabled || !rule.required) return false;
+  const [user] = await db.select({ role: users.role, createdAt: users.createdAt }).from(users).where(eq(users.id, userId));
+  if (!user || user.role !== "CUSTOMER") return false;
+  // requiredFrom is a date in India time: joined at or after its midnight IST.
+  if (rule.requiredFrom && user.createdAt < new Date(`${rule.requiredFrom}T00:00:00+05:30`)) return false;
+  return shouldAskSignupReferral(userId);
+}
+
+/** Refuses a first order (checkout, a new subscription) from a customer who still needs a code. */
+export async function assertSignupReferralForFirstOrder(userId: string): Promise<void> {
+  if (await needsSignupReferralCode(userId)) {
+    throw conflict("Enter your referral code before your first order — or ask us for one in My referral code.", {
+      needsReferralCode: true,
+    });
+  }
 }
 
 /** Checks the code a new customer gave and records it. */

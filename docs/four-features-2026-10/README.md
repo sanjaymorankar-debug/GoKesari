@@ -22,6 +22,8 @@ Added on 9 Oct 2026 from the owner's answers to §6 (details in §2, "Decided by
 | 1a | Pickup gives the customer's delivery fee back | `fulfilmentOptions.refundDeliveryFeeOnPickup` (on) | `drizzle/0065_pickup_delivery_fee_refund.sql` | `scripts/rollback-0065.sql` |
 | 3a | Refunds to a customer's bank | `bankRefunds` (off; on for test) | `drizzle/0066_bank_refund_requests.sql` | `scripts/rollback-0066.sql` |
 | 4a | Referral code checked at customer registration too | `customerSignupReferral` (off; on for test) | `drizzle/0067_customer_signup_referrals.sql` | `scripts/rollback-0067.sql` |
+| 2a | Shops past the grace period show "not taking new orders" (O-4) | `legalDocuments` | — | revert the code |
+| 4b | Referral code mandatory for customers + customers ask for one (O-5) | `customerSignupReferral.required` (off; on for test) | `drizzle/0068_customer_referral_requests.sql` | `scripts/rollback-0068.sql` |
 
 Test checklist (every flow, every role): [TEST_CHECKLIST.md](TEST_CHECKLIST.md).
 Test results on test.gokesari.com, step by step: [TEST_RESULTS.md](TEST_RESULTS.md).
@@ -334,13 +336,66 @@ The owner answered the open questions of §6. What was built:
     with each code.
   - **Records:** table `customer_signup_referrals` (`0067`).
   - **Rule:** `customerSignupReferral`, off by default, on for test.
-  - **Optional for now.** Making it mandatory for every customer (invite-only
-    sign-up) is an open question (§6). First-time setup can be skipped, so a
-    mandatory code would need checking at the first order.
-- **Answered with more detail, not yet decided:**
-  - **Hiding shops past their legal-document grace period:** options A, B
-    and C are in §6.
-  - **Cashfree's account-verification product:** recommendation in §6.
+  - **Optional at first;** made mandatory by O-5 below.
+
+### Decided by the owner (9 Oct 2026, second round)
+- **O-4. Shops past their legal-document grace period: option B.**
+  - **What customers see:** the shop shows "not taking new orders right
+    now", exactly like a paused shop or one below its wallet minimum. The
+    cart warns at once; checkout refuses as before. Customers are not told
+    why.
+  - **Reopens** as soon as the missing document is uploaded (it no longer
+    blocks while it waits for review).
+  - **Only documents the shop's category needs** count, as at checkout.
+  - **How:** `legallyBlockedShopIds()` in `legal-documents.ts`, added to the
+    existing wallet gate (`withWalletGate` in `serviceability.ts`), which
+    every listing, the cart and checkout already use. No new rule: it
+    follows `legalDocuments`.
+- **O-5. A referral code is mandatory for customers, and they can ask for
+  one.**
+  - **Before the first order:** a new customer can browse and search
+    (signed in or not), but checkout and a new subscription are refused
+    until they give a code. A saved draft subscription is allowed.
+  - **Which code:** one GoKesari issued, or a friend's invite code (O-6).
+  - **Where they see it:** first-time setup asks for it ("needed before your
+    first order"; no code → setup ends on My referral code). The cart shows
+    a warning with a link. The account menu has "My referral code"
+    (`/referral`).
+  - **Asking for a code** (My referral code): the customer's Google location
+    (when they allow it; latitude, longitude, Maps link), contact number,
+    city and PIN code, and their name.
+    - The request is saved with a reference `CRR-…`.
+    - Operations are told in the app.
+    - The referrals team gets an email with every field (the same
+      `shopReferral.notifyEmails` list as shop owners' requests).
+    - One request per customer or mobile number within
+      `requestDuplicateWindowHours` (24).
+  - **Operations** (Admin → Referral requests → "Customers asking for a
+    code"): call or send someone, then issue a code (typed, or generated
+    `GKC…`) or decline with a reason. The customer is told in the app and by
+    email, the code appears on My referral code with "Use this code", and
+    they can order.
+  - **Who is never stopped:**
+    - customers who already ordered;
+    - customers who joined before `requiredFrom` (a date; empty = every
+      customer without an order);
+    - shop owners (they gave a code at shop registration) and staff.
+  - **Records:** table `customer_referral_requests` (`0068`).
+  - **Rule:** `customerSignupReferral.required` / `requiredFrom` /
+    `requestDuplicateWindowHours`, off by default. On for test with
+    `requiredFrom` 2026-10-09, so existing test customers keep ordering.
+- **O-6. Search without signing in; anyone can invite.**
+  - **Search:** was already public. Confirmed on test: `/search?q=milk`
+    signed out lists the products. Adding to the cart asks the customer to
+    sign in, as before.
+  - **Invite codes:** every signed-in user (customer, shop owner, delivery
+    partner, staff) already had an invite code and link at `/refer` (rule
+    `customerReferrals`). It was only linked from My Wallet. The account
+    menu now has "Invite friends" whenever that rule is on. A friend's code
+    counts as the mandatory referral code (O-5).
+- **O-7. Cashfree's account-verification product: buy it.** Not built yet.
+  It needs the product activated on the Cashfree account and its sandbox
+  keys (§6).
 
 ### Found and decided during the staging run (8–9 Oct 2026)
 - **S-1. Repeated requests are harmless.** On test a "Packed — mark ready"
@@ -396,7 +451,7 @@ All four are additive. **Migrate first, deploy second** (DEPLOY_RUNBOOK §0) —
 although this release tolerates the reverse order (G-5).
 
 **Test (automatic):** merging into `staging` runs the "Test database"
-workflow: back up → migrate 0061–0067 → apply `test-settings.sql` → verify.
+workflow: back up → migrate 0061–0068 → apply `test-settings.sql` → verify.
 Manual alternative: `DATABASE_URL=<test db> npm run db:migrate`, then
 `psql "$TEST_DATABASE_URL" -f docs/four-features-2026-10/test-settings.sql`.
 
@@ -408,9 +463,10 @@ Manual alternative: `DATABASE_URL=<test db> npm run db:migrate`, then
    is then as before (planned orders already in progress still complete through
    their plan; finish them first if you roll back code).
 2. Code: revert the merge on `staging`; Hostinger redeploys.
-3. Schema (only after the old code is live): run `scripts/rollback-0067.sql`,
-   `-0066`, `-0065`, `-0064`, `-0063`, `-0062`, `-0061` (newest first, any
-   subset; settle open refunds to bank before 0066), then delete their rows:
+3. Schema (only after the old code is live): run `scripts/rollback-0068.sql`,
+   `-0067`, `-0066`, `-0065`, `-0064`, `-0063`, `-0062`, `-0061` (newest first, any
+   subset; settle open refunds to bank before 0066; customer requests for a
+   code are lost with 0068, codes already issued stay), then delete their rows:
    `DELETE FROM drizzle.__drizzle_migrations WHERE created_at >= <0061 when>;`
    (`node -e "console.log(require('./drizzle/meta/_journal.json').entries.find(e=>e.tag.startsWith('0061_')).when)"`).
    Back up first — plans, documents, bank accounts and requests are lost.
@@ -460,6 +516,18 @@ Added on 9 Oct 2026 (O-1 to O-3):
 * Tests: `tests/integration/bank-refunds.test.ts`, `customer-signup-referrals.test.ts`;
   four new cases in `fulfilment-options.test.ts`.
 
+Added on 9 Oct 2026, second round (O-4 to O-6):
+* Migration: `drizzle/0068_customer_referral_requests.sql` (+ `drizzle/meta`), `scripts/rollback-0068.sql`.
+* Service: `src/server/services/customer-referral-requests.ts`; in `customer-signup-referrals.ts`
+  `needsSignupReferralCode` / `assertSignupReferralForFirstOrder`; in `legal-documents.ts`
+  `legallyBlockedShopIds` (O-4).
+* API: `src/app/api/me/referral-request/route.ts`,
+  `src/app/api/admin/customer-referral-requests/{route,[id]/route}.ts`.
+* Pages / components: `src/app/referral/page.tsx`, `src/components/customer-referral-code.tsx`,
+  `customer-referral-request-queue.tsx`.
+* Tests: `tests/integration/customer-referral-requests.test.ts`,
+  `tests/unit/customer-referral-request-check.test.ts`; `legal-documents.test.ts` updated for O-4.
+
 Existing files touched (additive; exact lines in [EXISTING_FILE_CHANGES.md](EXISTING_FILE_CHANGES.md)):
 `src/server/db/schema.ts` (new tables appended), `src/server/config/rules.ts`
 (4 rule groups appended), `src/server/notifications/types.ts`,
@@ -496,7 +564,7 @@ Nothing here touches production. When you decide to promote:
    licence copies use it.
 4. **Daily cron** `POST /api/cron/seller-verification` (06:30 IST) — it now also
    starts legal-document grace periods and sends expiry reminders.
-5. Migrate 0061–0067 (Production database workflow / `npm run db:migrate`), then
+5. Migrate 0061–0068 (Production database workflow / `npm run db:migrate`), then
    switch each rule on in Admin → Business rules, one at a time.
 6. **Create referral codes** for shop owners before switching `shopReferral.required`
    on, or new registrations will be blocked until codes are issued.
@@ -521,27 +589,24 @@ Nothing here touches production. When you decide to promote:
 9. **Customer referral codes (`customerSignupReferral`)**: create the codes for
    your schemes in Admin → Referral codes first (the same codes shop owners
    use).
+   - **Mandatory (`required`):** set `requiredFrom` to the launch date, so
+     customers who joined before it keep ordering.
+   - **Before switching it on:** make sure someone watches Admin → Referral
+     requests and the referrals@gokesari.com mailbox every day. New
+     customers cannot order until they get a code.
+   - **Invite codes:** turn on `customerReferrals` too if friends' invite
+     codes should count.
 
 ## 6. Decisions needed from you
-Answered on 9 Oct 2026 and built: delivery fee back on pickup (O-1), refunds
-to bank (O-2), and referrals owned by GoKesari with codes checked at
-customer registration too (O-3). Still open:
+All answered and built: O-1 to O-3, then O-4 to O-6 (§2). Still open:
 
-1. **Shops past their legal-document grace period.** Today they stay listed,
-   the cart doesn't warn, and checkout refuses the order.
-   - **A:** hide them from lists and search.
-   - **B (recommended):** show them as "not taking new orders right now",
-     exactly like a paused shop or one below its wallet minimum. The cart
-     warns at once and the customer isn't told why. It reopens on upload.
-   - **C:** leave as is.
-   - B can also be combined with hiding shops blocked for 30+ days.
-2. **Cashfree's account-verification product.** It checks the account
-   number and IFSC with the bank and returns the bank's name, for every
-   account, with a fee per check. Recommended **before** refunds to bank and
-   shop payouts go live in production: real money now goes to these
-   accounts, and the ₹1 check proves only that someone could pay ₹1.
-3. **Customer referral code: mandatory or optional?** Optional today. If
-   mandatory (invite-only sign-up), it would be checked before the first
-   order, with a way to ask for a code.
-4. **Refunds to bank:** approve the Wallet Terms / Refund Policy wording
-   (§5 item 8). Also say who in finance sends the transfers.
+1. **Refunds to bank:** approve the Wallet Terms / Refund Policy wording
+   (§5 item 8). Also say who in finance sends the transfers, and how often.
+   Until then `bankRefunds` stays off in production.
+2. **Cashfree's account-verification product (O-7, approved).** To build it:
+   activate "Verification Suite" (bank account verification) on the Cashfree
+   account. Then put its **sandbox** client id and secret in the test
+   environment's settings, the same way as the payment keys; they are never
+   in code. When it is live, every bank account a customer or shop adds is
+   checked with the bank, and the bank's name for the holder is shown and
+   compared with the name given. The ₹1 payment stays as a fallback.

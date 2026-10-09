@@ -866,9 +866,14 @@ export const RULES = {
   },
   customerSignupReferral: {
     description:
-      "Referral code at customer registration. When enabled, a new customer's first-time setup asks for a referral code (optional) and checks it: a code GoKesari issued (Admin → Referral codes, the same codes shop registration uses) is recorded against the customer; a friend's code (customerReferrals on) starts the friend reward. Only before the customer's first order.",
-    schema: z.object({ enabled: z.boolean() }),
-    defaults: { enabled: false },
+      "Referral code at customer registration. When enabled, a new customer's first-time setup asks for a referral code and checks it: a code GoKesari issued (Admin → Referral codes, the same codes shop registration uses) is recorded against the customer; a friend's code (customerReferrals on) starts the friend reward. Only before the customer's first order. With required on, a customer needs a code before their first order (checkout and new subscriptions are refused without one; browsing and search stay open); requiredFrom (YYYY-MM-DD, IST) limits that to customers who joined on or after the date, so existing customers are not stopped — leave it empty to require it of every customer without an order. A customer without a code can request one (location, PIN code, city, contact number), emailed to shopReferral.notifyEmails — one request per customer or mobile within requestDuplicateWindowHours.",
+    schema: z.object({
+      enabled: z.boolean(),
+      required: z.boolean(),
+      requiredFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD.").nullable(),
+      requestDuplicateWindowHours: int(1, 720),
+    }),
+    defaults: { enabled: false, required: false, requiredFrom: null, requestDuplicateWindowHours: 24 },
   },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 

@@ -477,6 +477,13 @@
       "when": 1791520797909,
       "tag": "0067_customer_signup_referrals",
       "breakpoints": true
+    },
+    {
+      "idx": 68,
+      "version": "7",
+      "when": 1791534069399,
+      "tag": "0068_customer_referral_requests",
+      "breakpoints": true
     }
   ]
 }
