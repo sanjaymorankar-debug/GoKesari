@@ -1,8 +1,13 @@
 import { CURRENT_POLICY_VERSION } from "@/lib/legal-docs";
+import { getRule } from "@/server/services/settings";
 
 export const metadata = { title: "Refund & Cancellation Policy" };
+// Refunds to bank (docs/four-features-2026-10, O-2): the wording follows the rule, so it is read per request.
+export const dynamic = "force-dynamic";
 
-export default function RefundPolicyPage() {
+export default async function RefundPolicyPage() {
+  // The owner's approved wording (9 Oct 2026) shows only while refunds to bank are offered.
+  const bankRefunds = await getRule("bankRefunds").catch(() => null);
   return (
     <>
       <h1>Refund &amp; Cancellation Policy</h1>
@@ -36,6 +41,15 @@ export default function RefundPolicyPage() {
         <a href="/legal/wallet-terms">Wallet Terms</a> for what the wallet
         is and is not.
       </p>
+      {bankRefunds?.enabled ? (
+        <p>
+          Within {bankRefunds.windowDays} days of a refund you can ask for it to
+          be sent to your verified bank account instead (My Wallet). It leaves
+          your wallet straight away and reaches your bank within{" "}
+          {bankRefunds.expectedWorkingDays} working days; if the transfer
+          fails, it returns to your wallet.
+        </p>
+      ) : null}
 
       <h2>Food and perishable items</h2>
       <p>

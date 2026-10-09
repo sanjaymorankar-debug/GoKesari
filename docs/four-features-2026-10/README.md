@@ -318,10 +318,9 @@ The owner answered the open questions of §6. What was built:
   - **Rule:** `bankRefunds`, **off by default**, on for test only.
   - **No gateway payouts:** the site has no payouts product. Sending through
     Cashfree Payouts would be a later change.
-  - **Before switching it on in production**, the Wallet Terms ("cannot be
-    withdrawn as cash or transferred to a bank account") and the Refund
-    Policy must be updated; suggested wording is in §5. Legal pages were not
-    changed.
+  - **Legal wording:** approved by the owner on 9 Oct 2026 (O-8). The Wallet
+    Terms and the Refund Policy show it whenever `bankRefunds` is on, and
+    read as before while it is off.
 - **O-3. Referral code at customer registration** (answer: GoKesari owns
   referrals@gokesari.com, defines the schemes and issues the codes, and the
   app checks them whenever someone registers, shop owner or customer).
@@ -397,6 +396,27 @@ The owner answered the open questions of §6. What was built:
 - **O-7. Cashfree's account-verification product: buy it.** Not built yet.
   It needs the product activated on the Cashfree account and its sandbox
   keys (§6).
+- **O-8. Refunds to bank: legal wording approved; the finance lead sends the
+  transfers** (answer to §5 item 8, 9 Oct 2026).
+  - **Wording:** exactly as proposed in §5 item 8. The owner approved the
+    Wallet Terms wording and, separately, the Refund Policy paragraph.
+  - **Where it shows:** `/legal/wallet-terms` replaces "cannot be withdrawn
+    as cash or transferred to a bank account…" with the new bullet.
+    `/legal/refund-policy` adds the new paragraph under "How refunds are
+    paid".
+  - **When it shows:** only while `bankRefunds` is on. The numbers come from
+    the rule (`windowDays` 30, `expectedWorkingDays` 5), so the terms always
+    match what the site offers. With the rule off, both pages read exactly as
+    before, so production is unchanged until the rule is switched on there.
+  - **Unchanged:** the paragraph "If cash-out or peer-to-peer transfer is ever
+    introduced…" and the policy version (`CURRENT_POLICY_VERSION`,
+    2026-08-21). Bumping the version marks everyone's earlier consent as
+    stale on the compliance dashboard and makes new sign-ups accept the new
+    version. Whether to do that when switching on in production is the
+    owner's call (§5 item 8).
+  - **Who sends the transfers:** the finance lead, in Admin → Refunds to
+    bank. That needs `FINANCE_MANAGE`, which only Administrators have, so
+    the finance lead's account must be an Administrator.
 
 ### Found and decided during the staging run (8–9 Oct 2026)
 - **S-1. Repeated requests are harmless.** On test a "Packed — mark ready"
@@ -554,6 +574,9 @@ Added on 9 Oct 2026, second round (O-4 to O-6):
 * Tests: `tests/integration/customer-referral-requests.test.ts`,
   `tests/unit/customer-referral-request-check.test.ts`; `legal-documents.test.ts` updated for O-4.
 
+Added on 9 Oct 2026 (O-8): `tests/integration/bank-refund-legal-pages.test.ts`; the Wallet Terms
+and Refund Policy pages changed (EXISTING_FILE_CHANGES.md).
+
 Existing files touched (additive; exact lines in [EXISTING_FILE_CHANGES.md](EXISTING_FILE_CHANGES.md)):
 `src/server/db/schema.ts` (new tables appended), `src/server/config/rules.ts`
 (4 rule groups appended), `src/server/notifications/types.ts`,
@@ -597,10 +620,9 @@ Nothing here touches production. When you decide to promote:
    on, or new registrations will be blocked until codes are issued.
 7. Tell shop owners about the 15-day legal-document grace period before switching
    `legalDocuments` on.
-8. **Refunds to bank (`bankRefunds`)**: before switching it on, update the
-   **Wallet Terms** and the **Refund Policy** (have them approved). Today they
-   say the wallet cannot be transferred to a bank account. Suggested wording,
-   for your lawyer to check:
+8. **Refunds to bank (`bankRefunds`)**: the wording below was **approved on
+   9 Oct 2026** (O-8). The legal pages show it automatically once the rule is
+   on.
    - *Wallet Terms*: replace "It cannot be withdrawn as cash or transferred to
      a bank account, UPI ID, or any external payment method." with "It cannot
      be withdrawn as cash. Money refunded to your wallet (not promotional
@@ -612,7 +634,14 @@ Nothing here touches production. When you decide to promote:
      bank within 5 working days; if the transfer fails, it returns to your
      wallet."
 
-   Also decide who in finance sends these transfers, and how often.
+   **Who sends the transfers:** the finance lead (O-8).
+   - **Account:** make their account an Administrator before switching on.
+     Refunds to bank need `FINANCE_MANAGE`, which only Administrators have.
+   - **How often:** work the queue (Admin → Refunds to bank) every working
+     day, since customers are told the money arrives within 5 working days.
+   - **Optional:** raise `CURRENT_POLICY_VERSION` in `src/lib/legal-docs.ts`
+     to the switch-on date if you want the change recorded as a new policy
+     version for consent.
 9. **Customer referral codes (`customerSignupReferral`)**: create the codes for
    your schemes in Admin → Referral codes first (the same codes shop owners
    use).
@@ -625,12 +654,10 @@ Nothing here touches production. When you decide to promote:
      codes should count.
 
 ## 6. Decisions needed from you
-All answered and built: O-1 to O-3, then O-4 to O-6 (§2). Still open:
+All answered and built: O-1 to O-3, O-4 to O-6, and O-8 (refunds to bank:
+wording approved, the finance lead sends the transfers) (§2). Still open:
 
-1. **Refunds to bank:** approve the Wallet Terms / Refund Policy wording
-   (§5 item 8). Also say who in finance sends the transfers, and how often.
-   Until then `bankRefunds` stays off in production.
-2. **Cashfree's account-verification product (O-7, approved).** To build it:
+1. **Cashfree's account-verification product (O-7, approved).** To build it:
    activate "Verification Suite" (bank account verification) on the Cashfree
    account. Then put its **sandbox** client id and secret in the test
    environment's settings, the same way as the payment keys; they are never
