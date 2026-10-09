@@ -141,6 +141,8 @@ export default async function ShopsPage({
         showDeliversToMe={narrows(scope.filter((s) => s.delivers).length)}
       />
 
+      {/* The cards are h3s, as under "Shops" on the search page; keep the outline in order. */}
+      <h2 className="sr-only">Shop list</h2>
       <ShopGrid
         shops={shops}
         toolbar={shops.length > 1 ? <ShopSortSelect value={sort} hasLocation={Boolean(location)} /> : null}

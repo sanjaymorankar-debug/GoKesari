@@ -17,6 +17,7 @@
  * serialisation, and it avoids the spurious serialisation failures (and retry
  * loops) that REPEATABLE READ would introduce under load.
  */
+import { cache } from "react";
 import { and, desc, eq, sql } from "drizzle-orm";
 
 import { isUniqueViolation } from "@/lib/errors";
@@ -102,11 +103,14 @@ export async function getOrCreateWallet(
   return created;
 }
 
-export async function getWalletByUserId(
+async function getWalletByUserIdUncached(
   userId: string,
 ): Promise<Wallet | undefined> {
   return db.query.wallets.findFirst({ where: eq(wallets.userId, userId) });
 }
+
+/** Memoised for one server render (layout, header and board all ask); API routes and actions call straight through. */
+export const getWalletByUserId = cache(getWalletByUserIdUncached);
 
 export async function listTransactions(
   userId: string,

@@ -5,6 +5,7 @@
  * this is the first service/UI to actually populate and manage it.
  * `orders.addressId` is a nullable FK to this table.
  */
+import { cache } from "react";
 import { and, eq, isNull } from "drizzle-orm";
 
 import { forbidden, notFound, validationFailed } from "@/lib/errors";
@@ -144,12 +145,15 @@ export async function updateAddress(
   return updated;
 }
 
-export async function listAddresses(userId: string): Promise<Address[]> {
+async function listAddressesUncached(userId: string): Promise<Address[]> {
   return db.query.addresses.findMany({
     where: and(eq(addresses.userId, userId), isNull(addresses.deletedAt)),
     orderBy: (a, { desc }) => [desc(a.isDefault), desc(a.createdAt)],
   });
 }
+
+/** Memoised for one server render (layout, header and board all ask); API routes and actions call straight through. */
+export const listAddresses = cache(listAddressesUncached);
 
 export async function getAddress(userId: string, addressId: string): Promise<Address> {
   const address = await db.query.addresses.findFirst({

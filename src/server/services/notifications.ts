@@ -20,6 +20,7 @@
  *   business operation that triggered it — and never sends inside the
  *   caller's transaction: it only queues, and delivery runs after.
  */
+import { cache } from "react";
 import { and, count, desc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 
 import { conflict, validationFailed } from "@/lib/errors";
@@ -429,7 +430,7 @@ export async function listNotifications(
     .limit(Math.min(options.limit ?? 30, 100));
 }
 
-export async function unreadCount(userId: string): Promise<number> {
+async function unreadCountUncached(userId: string): Promise<number> {
   const [row] = await db
     .select({ value: count() })
     .from(notifications)
@@ -442,6 +443,9 @@ export async function unreadCount(userId: string): Promise<number> {
     );
   return row?.value ?? 0;
 }
+
+/** Memoised for one server render (layout, header and board all ask); API routes and actions call straight through. */
+export const unreadCount = cache(unreadCountUncached);
 
 export async function markRead(userId: string, notificationId: string): Promise<void> {
   await db

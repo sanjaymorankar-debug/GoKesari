@@ -96,7 +96,7 @@ export function LanguageSwitch({ lang, className }: { lang: Lang; className?: st
       <details className={clsx("group relative shrink-0 lg:hidden", className)} data-testid="language-menu">
         <summary
           className="flex h-11 min-w-11 cursor-pointer list-none min-[360px]:h-12 min-[360px]:min-w-12 items-center justify-center gap-0.5 rounded-xl border border-[#f2c9a5] bg-white px-1.5 text-sm font-bold text-ink-900 [&::-webkit-details-marker]:hidden"
-          aria-label={`${tr(UI.language, lang)}: ${LANG_NAME[lang]}`}
+          aria-label={`${LANG_SWITCH_LABEL[lang]} — ${tr(UI.language, lang)}: ${LANG_NAME[lang]}`}
         >
           <span lang={lang}>{LANG_SWITCH_LABEL[lang]}</span>
           <Icon name="chevron-down" size={14} className="text-kesari-700 transition-transform group-open:rotate-180" />

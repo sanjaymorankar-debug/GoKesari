@@ -12,6 +12,7 @@
  * separately before it can trade. Staff roles (OPERATOR, ADMIN) are granted
  * only by an admin.
  */
+import { cache } from "react";
 import { and, asc, eq, inArray } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
@@ -35,7 +36,7 @@ interface Actor {
 }
 
 /** Active roles of a user, CUSTOMER first. */
-export async function listUserRoles(userId: string, client: DbClient = db): Promise<UserRole[]> {
+async function listUserRolesUncached(userId: string, client: DbClient = db): Promise<UserRole[]> {
   const rows = await client
     .select({ role: userRoleGrants.role })
     .from(userRoleGrants)
@@ -44,6 +45,9 @@ export async function listUserRoles(userId: string, client: DbClient = db): Prom
   const roles = new Set<UserRole>(["CUSTOMER", ...rows.map((r) => r.role)]);
   return [...roles];
 }
+
+/** Memoised for one server render (layout, header and board all ask); API routes and actions call straight through. */
+export const listUserRoles = cache(listUserRolesUncached);
 
 /** Active granted roles for many users at once (admin user list). */
 export async function listRolesForUsers(userIds: string[]): Promise<Map<string, UserRole[]>> {

@@ -17,12 +17,21 @@ import { AUDIT_ACTIONS, recordAudit } from "./audit";
 
 const CACHE_MS = 15_000;
 const cache = new Map<string, { at: number; value: unknown }>();
+const inflight = new Map<string, Promise<unknown>>();
 
 /** Effective value: stored override merged over the code default. */
 export async function getRule<K extends RuleKey>(key: K): Promise<RuleValue<K>> {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.value as RuleValue<K>;
+  // Callers asking for the same rule at once (one page render reads several) share one query.
+  const pending = inflight.get(key);
+  if (pending) return pending as Promise<RuleValue<K>>;
+  const read = readRule(key).finally(() => inflight.delete(key));
+  inflight.set(key, read);
+  return read;
+}
 
+async function readRule<K extends RuleKey>(key: K): Promise<RuleValue<K>> {
   const def = RULES[key];
   let value: unknown = def.defaults;
   try {
@@ -81,6 +90,7 @@ export async function setRule<K extends RuleKey>(
       set: { value: parsed.data, updatedBy: actor.id, updatedAt: new Date() },
     });
   cache.delete(key);
+  inflight.delete(key);
   await recordAudit({
     actorId: actor.id,
     actorRole: actor.role,
@@ -98,6 +108,7 @@ export async function resetRule(key: RuleKey, actor: { id: string; role: UserRol
   const previous = await getRule(key);
   await db.delete(platformSettings).where(eq(platformSettings.key, key));
   cache.delete(key);
+  inflight.delete(key);
   await recordAudit({
     actorId: actor.id,
     actorRole: actor.role,
@@ -112,4 +123,5 @@ export async function resetRule(key: RuleKey, actor: { id: string; role: UserRol
 /** For tests: forget cached values. */
 export function clearRuleCache(): void {
   cache.clear();
+  inflight.clear();
 }

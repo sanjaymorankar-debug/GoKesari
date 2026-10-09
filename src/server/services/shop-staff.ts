@@ -14,6 +14,7 @@
  * `requireShopAccess` (authz/guards.ts) is deliberately left as it is — staff
  * get access through this module's routes only.
  */
+import { cache } from "react";
 import { and, desc, eq, isNull } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
@@ -243,7 +244,7 @@ export async function removeShopStaff(shopId: string, staffId: string, actor: Ac
 }
 
 /** Shops the user is active staff of — their way in (/shop/staff-access). */
-export async function listShopsWhereStaff(userId: string) {
+async function listShopsWhereStaffUncached(userId: string) {
   return db
     .select({ shopId: shops.id, shopName: shops.name, slug: shops.slug, addedAt: shopStaff.addedAt })
     .from(shopStaff)
@@ -251,6 +252,9 @@ export async function listShopsWhereStaff(userId: string) {
     .where(and(eq(shopStaff.userId, userId), eq(shopStaff.status, "ACTIVE"), isNull(shops.deletedAt)))
     .orderBy(shops.name);
 }
+
+/** Memoised for one server render (layout, header and board all ask); API routes and actions call straight through. */
+export const listShopsWhereStaff = cache(listShopsWhereStaffUncached);
 
 /**
  * The shop a catalogue page works on: `requested` when the user may edit it,
