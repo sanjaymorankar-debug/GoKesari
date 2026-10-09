@@ -229,3 +229,19 @@ served the new build from 09:22.
 
 All flows of the second round pass on test. The two problems found (S-6,
 S-7) were fixed and re-checked there.
+
+## 7. Bank check with Cashfree (O-7), tested on test
+
+| Time (UTC, 9 Oct) | Flow | What happened | Result |
+|---|---|---|---|
+| 12:48 | Deploy | PR #115 merged (`34f4983`). "Test database" workflow: backup → migration 0073 → `bankAccountCheck` on → verify, green | PASS |
+| 12:59 | O7.1 · finance card | Admin → Bank accounts: "Bank check with Cashfree (no ₹1 payment)" · **Rule on** · **Keys not found**. The website's environment has none of the expected names (`CASHFREE_VERIFICATION_CLIENT_ID` / `_CLIENT_SECRET`, `_APP_ID` / `_SECRET_KEY`), so saving a bank account records "not configured" and keeps the ₹1 check, as designed | BLOCKED (keys) |
+
+**Blocked on the keys' names or location.** The owner added the Verification
+Suite keys "to the test environment", but test.gokesari.com does not see
+them under any expected name. The follow-up also accepts
+`CASHFREE_CLIENT_ID` / `CASHFREE_CLIENT_SECRET` and names like
+`CASHFREE_VERIFY_ID` / `CASHFREE_VERIFY_SECRET`. If they were saved only in
+GitHub (Settings → Environments → test), they also need to go in the
+website's environment on Hostinger, like the payment keys. O7.2–O7.5 run once
+the card says "Keys found".

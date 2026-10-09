@@ -25,7 +25,7 @@ import crypto from "node:crypto";
 import { and, desc, eq, gte, ne } from "drizzle-orm";
 
 import { maskAccountNumber } from "@/lib/bank-accounts";
-import { getEnv, type ServerEnv } from "@/lib/env";
+import { findCashfreeVerificationKeys, getEnv, type ServerEnv } from "@/lib/env";
 import { AppError, conflict, forbidden, notFound } from "@/lib/errors";
 import { nameMatchScore } from "@/lib/kyc/name-match";
 import { decryptSecret } from "@/lib/pan-crypto";
@@ -64,7 +64,7 @@ function normalizePem(raw: string | undefined): string | null {
 }
 
 /** The Verification Suite keys, or null when they are not set. */
-export function bankCheckConfig(env: ServerEnv = getEnv()): BankCheckConfig | null {
+export function bankCheckConfig(env: ServerEnv = getEnv(), other: ReturnType<typeof findCashfreeVerificationKeys> = findCashfreeVerificationKeys()): BankCheckConfig | null {
   for (const [idName, secretName] of KEY_NAMES) {
     const clientId = env[idName];
     const clientSecret = env[secretName];
@@ -77,6 +77,16 @@ export function bankCheckConfig(env: ServerEnv = getEnv()): BankCheckConfig | nu
         foundAs: { clientId: idName, clientSecret: secretName },
       };
     }
+  }
+  // Keys saved on the host under another name (see findCashfreeVerificationKeys).
+  if (other) {
+    return {
+      clientId: other.clientId,
+      clientSecret: other.clientSecret,
+      publicKey: normalizePem(env.CASHFREE_VERIFICATION_PUBLIC_KEY),
+      env: env.CASHFREE_VERIFICATION_ENV ?? env.CASHFREE_ENV,
+      foundAs: { clientId: other.idName, clientSecret: other.secretName },
+    };
   }
   return null;
 }
@@ -448,7 +458,7 @@ export async function bankCheckAdminStatus(actor: Actor): Promise<BankCheckAdmin
     env: config?.env ?? null,
     foundAs: config?.foundAs ?? null,
     twoFactor: config ? (config.publicKey ? "SIGNATURE" : "IP_WHITELIST") : null,
-    expectedNames: [...KEY_NAMES.flat(), "CASHFREE_VERIFICATION_PUBLIC_KEY", "CASHFREE_VERIFICATION_ENV"],
+    expectedNames: [...KEY_NAMES.flat(), "CASHFREE_CLIENT_ID", "CASHFREE_CLIENT_SECRET", "CASHFREE_VERIFICATION_PUBLIC_KEY", "CASHFREE_VERIFICATION_ENV"],
     recent: recent.map((r) => ({
       result: r.result,
       statusCode: r.statusCode,

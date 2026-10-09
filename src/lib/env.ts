@@ -210,6 +210,28 @@ export function getEnv(): ServerEnv {
   return cached;
 }
 
+/**
+ * Cashfree Verification Suite keys stored under a name other than the
+ * CASHFREE_VERIFICATION_* ones above (the host's settings are the owner's
+ * choice): CASHFREE_CLIENT_ID / CASHFREE_CLIENT_SECRET (Cashfree's own labels
+ * for these keys), else the first pair of names like
+ * CASHFREE…VERIF…_ID / CASHFREE…VERIF…_SECRET (also VRS, SECURE_ID, BAV, KYC;
+ * CF_ for CASHFREE). Returns the names it used, never logged with the values.
+ */
+export function findCashfreeVerificationKeys(
+  source: Record<string, string | undefined> = process.env,
+): { idName: string; secretName: string; clientId: string; clientSecret: string } | null {
+  const set = (name: string) => (source[name] ? name : null);
+  if (set("CASHFREE_CLIENT_ID") && set("CASHFREE_CLIENT_SECRET")) {
+    return { idName: "CASHFREE_CLIENT_ID", secretName: "CASHFREE_CLIENT_SECRET", clientId: source.CASHFREE_CLIENT_ID!, clientSecret: source.CASHFREE_CLIENT_SECRET! };
+  }
+  const names = Object.keys(source).filter((k) => source[k]).sort();
+  const looksLike = /^(CASHFREE|CF)_?\w*(VERIF|VRS|SECURE_?ID|BAV|KYC)\w*$/i;
+  const idName = names.find((k) => looksLike.test(k) && /_(CLIENT_?ID|APP_?ID|ID)$/i.test(k));
+  const secretName = names.find((k) => looksLike.test(k) && /_(CLIENT_?SECRET|SECRET_?KEY|SECRET)$/i.test(k));
+  return idName && secretName ? { idName, secretName, clientId: source[idName]!, clientSecret: source[secretName]! } : null;
+}
+
 /** True when real Cashfree credentials are configured. */
 export function isPaymentGatewayLive(): boolean {
   const env = getEnv();
