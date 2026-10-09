@@ -236,7 +236,7 @@ export function TomorrowDeliveryCard({
               type="button"
               disabled={busy}
               onClick={skipTomorrow}
-              className="tap-target rounded-lg border border-cream-200 bg-white px-3 py-2 text-sm font-medium text-ink-700 hover:bg-cream-100 disabled:text-ink-400"
+              className="tap-target rounded-lg border border-cream-200 bg-white px-3 py-2 text-sm font-medium text-ink-700 hover:bg-cream-100 disabled:text-ink-500"
             >
               Skip tomorrow
             </button>
@@ -245,7 +245,7 @@ export function TomorrowDeliveryCard({
               type="button"
               disabled={busy}
               onClick={undoSkip}
-              className="tap-target rounded-lg border border-cream-200 bg-white px-3 py-2 text-sm font-medium text-ink-700 hover:bg-cream-100 disabled:text-ink-400"
+              className="tap-target rounded-lg border border-cream-200 bg-white px-3 py-2 text-sm font-medium text-ink-700 hover:bg-cream-100 disabled:text-ink-500"
             >
               Undo skip
             </button>

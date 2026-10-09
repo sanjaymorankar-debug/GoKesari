@@ -9,8 +9,19 @@ import type { BoardHeaderData } from "@/server/board-header-data";
 import type { ShopBoardData } from "@/server/board-data";
 
 import { BoardHeader } from "./board-header";
-import { Icon } from "./icons";
-import { Chip, CountBadge, DoNowStrip, TONE_BLOCK, TONE_ICON } from "./tiles";
+import { Icon, type IconName } from "./icons";
+import { Banner, Chip, CountBadge, DoNowStrip, MoreChip, TONE_BLOCK, TONE_ICON, Tile } from "./tiles";
+
+/** Something about the shop's account the owner must act on (suspension, wallet, documents…). */
+export interface ShopAlert {
+  key: string;
+  tone: "warning" | "danger";
+  icon: IconName;
+  title: string;
+  detail?: string | null;
+  action: string;
+  href: string;
+}
 
 interface Props {
   lang: Lang;
@@ -18,22 +29,26 @@ interface Props {
   header: BoardHeaderData;
   shop: { name: string; slug: string };
   data: ShopBoardData;
+  /** Account alerts, most serious first; at most two show, the rest behind "Today's work". */
+  alerts?: ShopAlert[];
 }
 
 /**
- * Shop owner home board (`/shop`): the "Do now" strip, then one row per menu
- * — its label on the left, its submenu chips on the right. One column on
- * phones, two on wide screens; all sixteen rows on the first screen.
+ * Shop owner home board (`/shop`): account alerts (only when there is one),
+ * the "Do now" strip and the sixteen menus. Phones: two columns of tiles,
+ * each one large target. Wide screens: two columns of rows — the menu on the
+ * left, its submenu chips on the right.
  */
-export function ShopBoard({ lang, user, header, shop, data }: Props) {
+export function ShopBoard({ lang, user, header, shop, data, alerts = [] }: Props) {
   const params = { shopSlug: shop.slug };
-  const menus = visibleMenus(SHOP_MENUS, user.role, params);
+  const menus = visibleMenus(SHOP_MENUS, user.role, params, "shop");
   const doNow = visibleItems(SHOP_DO_NOW, user.role, params);
   const ticks = { bankVerified: data.facts.bankVerified, shopVerified: data.facts.shopVerified };
   const walletBalance = formatRupees(data.facts.walletBalancePaise);
+  const extras = { balance: walletBalance };
 
   return (
-    <div data-tile-board="shop" lang={LANG_TAG[lang]} className="flex min-h-[100svh] flex-col bg-[#fdf4ea] text-ink-900">
+    <div data-tile-board="shop" lang={LANG_TAG[lang]} className="flex min-h-[100svh] flex-col bg-[var(--gk-bg)] text-ink-900 max-lg:h-[100svh]">
       <BoardHeader
         lang={lang}
         user={user}
@@ -42,9 +57,38 @@ export function ShopBoard({ lang, user, header, shop, data }: Props) {
         extraLinks={header.extraLinks}
         context={{ kind: "staff", roleLine: tr(UI.myShop, lang), title: shop.name }}
       />
-      <div className="mx-auto flex w-full max-w-[1600px] flex-1 flex-col gap-1.5 px-2 py-1.5 sm:px-3 lg:gap-4 lg:px-6 lg:py-4">
+      <div className="mx-auto flex min-h-0 w-full max-w-[1600px] flex-1 flex-col gap-1.5 px-2 py-1.5 sm:px-3 lg:gap-4 lg:px-6 lg:py-4">
+        {alerts.length > 0 ? (
+          <div className="grid gap-1.5 lg:grid-cols-2 lg:gap-3" data-testid="shop-alerts">
+            {alerts.slice(0, 2).map((a) => (
+              <Banner
+                key={a.key}
+                testId={`shop-alert-${a.key}`}
+                tone={a.tone}
+                icon={a.icon}
+                iconClass={a.tone === "danger" ? "bg-red-700" : "bg-amber-700"}
+                title={a.title}
+                detail={a.detail}
+                action={a.action}
+                href={a.href}
+              />
+            ))}
+          </div>
+        ) : null}
+
         <DoNowStrip items={doNow} lang={lang} counts={data.counts} />
-        <ul className="grid flex-1 content-start gap-[0.1875rem] lg:grid-flow-col lg:grid-cols-2 lg:grid-rows-8 lg:gap-x-4 lg:gap-y-2" aria-label={tr(UI.board, lang)}>
+
+        {/* Touch screens: sixteen tiles, two columns. */}
+        <nav aria-label={tr(UI.board, lang)} className="flex min-h-0 flex-1 flex-col lg:hidden">
+          <div className="grid min-h-0 flex-1 grid-cols-2 gap-1 [grid-auto-rows:minmax(0,1fr)]">
+            {menus.map((menu) => (
+              <Tile key={menu.key} menu={menu} lang={lang} counts={data.counts} ticks={ticks} extras={menu.key === "wallet" ? extras : undefined} layout="row" />
+            ))}
+          </div>
+        </nav>
+
+        {/* Wide screens: two columns of eight rows. */}
+        <ul className="hidden flex-1 content-start gap-x-4 gap-y-2 max-lg:hidden lg:grid lg:grid-flow-col lg:grid-cols-2 lg:grid-rows-8" aria-label={tr(UI.board, lang)}>
           {menus.map((menu) => {
             const value = menu.count ? data.counts[menu.count] : undefined;
             return (
@@ -52,33 +96,27 @@ export function ShopBoard({ lang, user, header, shop, data }: Props) {
                 key={menu.key}
                 data-testid="board-tile"
                 data-key={menu.key}
-                className="flex min-w-0 items-stretch gap-1 rounded-2xl border border-[#f6dcc4] bg-white p-0.5 lg:gap-1.5 lg:p-1.5"
+                className="flex min-w-0 items-stretch gap-1.5 rounded-2xl border border-[var(--gk-line)] bg-white p-1.5"
               >
                 <Link
                   href={menu.href}
-                  className={clsx(
-                    "flex min-h-[1.625rem] w-[6.25rem] shrink-0 items-center gap-1 rounded-xl px-1 py-0.5 hover:brightness-95 sm:w-[8.5rem] lg:w-[11rem] lg:gap-1.5 lg:px-3",
-                    TONE_BLOCK[menu.tone],
-                  )}
+                  className={clsx("flex w-[11rem] shrink-0 items-center gap-1.5 rounded-xl px-3 py-1 hover:brightness-95", TONE_BLOCK[menu.tone])}
                 >
-                  <Icon name={menu.icon ?? "store"} size={16} className={clsx("shrink-0 lg:h-5 lg:w-5", TONE_ICON[menu.tone])} />
-                  <span className="line-clamp-2 min-w-0 flex-1 text-[0.78125rem] font-bold leading-[1.05] lg:text-[0.9375rem] lg:leading-tight">
-                    {tr(menu.label, lang)}
-                  </span>
+                  <Icon name={menu.icon ?? "store"} size={20} className={clsx("shrink-0", TONE_ICON[menu.tone])} />
+                  <span className="line-clamp-2 min-w-0 flex-1 text-[0.9375rem] font-bold leading-tight">{tr(menu.label, lang)}</span>
                   <CountBadge value={value} tone={menu.urgent ? "alert" : "accent"} />
                 </Link>
-                <ul className="flex min-w-0 flex-1 flex-wrap content-center items-center gap-[0.1875rem] lg:gap-1.5">
+                <ul className="flex min-w-0 flex-1 flex-wrap content-center items-center gap-1.5">
                   {menu.items.map((item) => (
                     <li key={item.key} className="min-w-0">
-                      <ShopChip
-                        lang={lang}
-                        item={item}
-                        counts={data.counts}
-                        ticks={ticks}
-                        balance={menu.key === "wallet" && item.key === "balance" ? walletBalance : null}
-                      />
+                      <Chip lang={lang} item={item} counts={data.counts} ticks={ticks} tone={menu.tone} extra={menu.key === "wallet" && item.key === "balance" ? walletBalance : null} withIcon={false} />
                     </li>
                   ))}
+                  {menu.more.length > 0 ? (
+                    <li>
+                      <MoreChip href={menu.href} lang={lang} count={menu.more.length} />
+                    </li>
+                  ) : null}
                 </ul>
               </li>
             );
@@ -86,27 +124,5 @@ export function ShopBoard({ lang, user, header, shop, data }: Props) {
         </ul>
       </div>
     </div>
-  );
-}
-
-/** A compact chip; the wallet's "Balance" chip shows the live balance beside it. */
-function ShopChip({
-  lang,
-  item,
-  counts,
-  ticks,
-  balance,
-}: {
-  lang: Lang;
-  item: Parameters<typeof Chip>[0]["item"];
-  counts: ShopBoardData["counts"];
-  ticks: Parameters<typeof Chip>[0]["ticks"];
-  balance: string | null;
-}) {
-  return (
-    <span className="flex items-center [--chip-h:1.75rem] [--chip-px:0.4375rem] [--chip-text:0.84375rem] max-lg:[@media(max-height:760px)]:[--chip-h:1.5rem]">
-      <Chip item={item} lang={lang} counts={counts} ticks={ticks} />
-      {balance ? <span className="ml-1 text-xs font-bold tabular-nums text-ink-700">{balance}</span> : null}
-    </span>
   );
 }

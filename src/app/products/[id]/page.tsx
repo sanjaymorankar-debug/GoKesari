@@ -19,6 +19,7 @@ import { effectiveDescriptions } from "@/lib/product-text";
 import { serviceableShopIds } from "@/server/services/serviceability";
 import { listShopsForOwner } from "@/server/services/shops";
 import { eq } from "drizzle-orm";
+import { priceUnitLabel } from "@/lib/board/product-look";
 
 export const dynamic = "force-dynamic";
 
@@ -152,7 +153,7 @@ export default async function ProductComparePage({
       {master?.kind === "PACKAGED" && master.mrpPaise != null ? (
         <p className="mb-4 text-sm text-ink-600" data-testid="product-mrp">
           MRP <Money paise={master.mrpPaise} />
-          {master.verification === "VERIFIED" ? null : <span className="text-ink-400"> (not yet verified)</span>}
+          {master.verification === "VERIFIED" ? null : <span className="text-ink-500"> (not yet verified)</span>}
           {ownShop ? (
             <span className="ml-3">
               <MrpDisputeForm productId={id} shopId={ownShop.id} />
@@ -190,7 +191,7 @@ export default async function ProductComparePage({
                   <div>
                     <p className="text-sm font-semibold text-ink-900">
                       <Money paise={offer.onlinePricePaise} />
-                      <span className="text-xs font-normal text-ink-500"> / {offer.unit}</span>
+                      <span className="text-sm font-normal text-ink-600"> {priceUnitLabel(offer.unit)}</span>
                     </p>
                     {packMilli !== 1000 ? (
                       <p className="text-xs text-ink-500">

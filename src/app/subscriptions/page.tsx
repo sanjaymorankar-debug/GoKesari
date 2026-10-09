@@ -10,6 +10,7 @@ import {
   Money,
   PageHeader,
 } from "@/components/ui";
+import { TomorrowDeliveryCard } from "@/components/tomorrow-delivery-card";
 import { formatDisplayDate } from "@/lib/dates";
 import { MILLI_PER_UNIT, lineTotalPaise } from "@/lib/money";
 import { subscriptionStatusLabel, subscriptionStatusTone } from "@/lib/subscription-status-view";
@@ -19,6 +20,25 @@ import {
   isDeliveringStatus,
   listSubscriptionsForUser,
 } from "@/server/services/subscriptions";
+import { getTomorrowDelivery, type TomorrowDelivery } from "@/server/services/tomorrow-delivery";
+
+const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
+
+function utcDate(iso: string): Date {
+  const [y, m, d] = iso.split("-").map(Number);
+  return new Date(Date.UTC(y, m - 1, d));
+}
+
+/** "Thu 8 Oct" — from the calendar date itself, so it cannot disagree with "tomorrow". */
+function shortDayLabel(iso: string): string {
+  return new Intl.DateTimeFormat("en-IN", { weekday: "short", day: "numeric", month: "short", timeZone: "UTC" })
+    .format(utcDate(iso))
+    .replace(",", "");
+}
+
+function cutoffLabel(hour: number): string {
+  return `${hour % 12 === 0 ? 12 : hour % 12}:00 ${hour < 12 ? "AM" : "PM"}`;
+}
 
 export const metadata = { title: "My Subscriptions" };
 export const dynamic = "force-dynamic";
@@ -27,9 +47,14 @@ export default async function SubscriptionsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
 
-  const [subscriptions, forecast] = await Promise.all([
+  const [subscriptions, forecast, tomorrow] = await Promise.all([
     listSubscriptionsForUser(user.id),
     getWalletForecast(user.id, 15),
+    // Moved here from the old home page: the quickest way to change tomorrow's delivery.
+    getTomorrowDelivery(user.id).catch((error): TomorrowDelivery | null => {
+      console.error("[subscriptions] tomorrow's delivery failed", error);
+      return null;
+    }),
   ]);
 
   const active = subscriptions.filter((s) => isDeliveringStatus(s.status));
@@ -41,6 +66,26 @@ export default async function SubscriptionsPage() {
         description="Recurring deliveries paid from your wallet."
         action={<LinkButton href="/category/DAIRY">Browse products</LinkButton>}
       />
+
+      {tomorrow ? (
+        <div id="tomorrow" className="mb-6 scroll-mt-20">
+          <TomorrowDeliveryCard
+            date={tomorrow.date}
+            dateLabel={shortDayLabel(tomorrow.date)}
+            lines={tomorrow.lines}
+            walletBalancePaise={tomorrow.walletBalancePaise}
+            cutoffLabel={cutoffLabel(tomorrow.cutoffHour)}
+            beforeCutoff={tomorrow.beforeCutoff}
+            following={
+              tomorrow.following
+                ? { dayName: WEEKDAYS[utcDate(tomorrow.following.date).getUTCDay()], costPaise: tomorrow.following.costPaise }
+                : null
+            }
+          />
+        </div>
+      ) : (
+        <span id="tomorrow" />
+      )}
 
       {!forecast.sufficient && active.length > 0 ? (
         <div className="mb-6">

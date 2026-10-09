@@ -150,7 +150,7 @@ export function ShopInventoryManager({ shopId, view }: { shopId: string; view: I
       {error ? <Alert tone="danger">{error}</Alert> : null}
 
       {view.alerts.length > 0 ? (
-        <section>
+        <section id="alerts" className="scroll-mt-20">
           <h2 className="mb-2 text-lg font-semibold text-ink-900">Open alerts ({view.alerts.length})</h2>
           <Card className="divide-y divide-cream-100">
             {view.alerts.map((a) => {
@@ -254,7 +254,7 @@ export function ShopInventoryManager({ shopId, view }: { shopId: string; view: I
               {shownRows.map((r) => (
                 <tr key={r.shopProductId} className="align-top">
                   <td className="px-3 py-2">
-                    {r.productName} <span className="text-xs text-ink-400">{r.productCode}</span>
+                    {r.productName} <span className="text-xs text-ink-500">{r.productCode}</span>
                     {editing === r.shopProductId ? (
                       <div className="mt-2 space-y-2 rounded-lg border border-cream-200 p-3">
                         <div className="grid gap-2 sm:grid-cols-3">
@@ -318,11 +318,11 @@ export function ShopInventoryManager({ shopId, view }: { shopId: string; view: I
                   <td className="px-3 py-2">{r.onHand}</td>
                   <td className="px-3 py-2">
                     {r.thresholds.alertsDisabled ? "off" : r.thresholds.lowStock || "—"}
-                    <span className="block text-xs text-ink-400">{r.thresholds.alertsDisabled ? "" : SOURCE_LABEL[r.thresholds.source.lowStock]}</span>
+                    <span className="block text-xs text-ink-500">{r.thresholds.alertsDisabled ? "" : SOURCE_LABEL[r.thresholds.source.lowStock]}</span>
                   </td>
                   <td className="px-3 py-2">
                     {r.thresholds.reorderLevel ?? "—"}
-                    {r.thresholds.reorderQuantity ? <span className="block text-xs text-ink-400">order {r.thresholds.reorderQuantity}</span> : null}
+                    {r.thresholds.reorderQuantity ? <span className="block text-xs text-ink-500">order {r.thresholds.reorderQuantity}</span> : null}
                   </td>
                   <td className="px-3 py-2">
                     <Badge tone={STATUS_TONE[r.status]}>{STATUS_LABEL[r.status]}</Badge>

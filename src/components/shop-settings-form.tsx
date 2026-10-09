@@ -88,7 +88,7 @@ export function ShopSettingsForm({
               className="rounded-lg border border-cream-200 px-2 py-1 text-sm disabled:opacity-50"
               aria-label={`${DAY_NAMES[h.day]} opening time`}
             />
-            <span className="text-ink-400">–</span>
+            <span className="text-ink-500">–</span>
             <input
               type="time"
               value={h.close}

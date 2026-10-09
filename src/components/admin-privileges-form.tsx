@@ -178,7 +178,7 @@ export function AdminPrivilegesForm({
                   aria-label={`${label(role)} held`}
                 />
                 {label(role)}
-                {role === "CUSTOMER" ? <span className="text-xs text-ink-400">(always)</span> : null}
+                {role === "CUSTOMER" ? <span className="text-xs text-ink-500">(always)</span> : null}
               </label>
             ))}
           </div>

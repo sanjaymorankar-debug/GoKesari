@@ -27,8 +27,8 @@ export function SignInConsentCheckbox({ className = "" }: { className?: string }
   const agreed = useContext(ConsentContext);
   const setAgreed = useContext(SetConsentContext);
   return (
-    <label className={`flex items-start gap-2 text-xs text-ink-600 ${className}`} data-testid="signin-consent">
-      <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5" />
+    <label className={`flex min-h-11 cursor-pointer items-start gap-2.5 text-sm text-ink-700 ${className}`} data-testid="signin-consent">
+      <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5 shrink-0" />
       <span>
         I agree to the{" "}
         <a href="/legal/terms" target="_blank" className="underline">

@@ -206,7 +206,7 @@ describe("screens", () => {
     expect(ownerNextAction({ ...base, stage: "PAYMENT_PENDING" }).text).toContain("₹5,000");
     expect(ownerNextAction({ ...base, stage: "VERIFIED" }).text).toContain("no action needed");
     expect(adminNextAction({ ...base, stage: "KYC_PENDING" }).href).toBe("/admin/seller-verification");
-    expect(adminNextAction({ ...base, stage: "PAYMENT_PENDING" }).href).toBe("/admin#shop-finance");
+    expect(adminNextAction({ ...base, stage: "PAYMENT_PENDING" }).href).toBe("/admin/console/registration-fees#shop-finance");
     expect(adminNextAction({ ...base, stage: "VERIFIED" }).text).toContain("ready to approve");
   });
 });

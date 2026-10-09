@@ -3,9 +3,11 @@ import { redirect } from "next/navigation";
 
 import { BankRefundsPanel } from "@/components/bank-refunds-panel";
 import { WalletView } from "@/components/wallet-view";
+import { SubmenuStrip } from "@/components/board/submenu-strip";
 import { Card, PageHeader } from "@/components/ui";
 import { formatPaise } from "@/lib/money";
 import { getCurrentUser } from "@/server/authz/guards";
+import { getBoardLang } from "@/server/board-lang";
 import { getCustomerBankRefunds } from "@/server/services/bank-refunds";
 import { getRule } from "@/server/services/settings";
 import { getWalletForecast } from "@/server/services/subscriptions";
@@ -30,7 +32,7 @@ export default async function WalletPage() {
     getRule("customerReferrals"),
   ]);
   // Refunds to bank (docs/four-features-2026-10, rule bankRefunds): null while the rule is off.
-  const bankRefunds = await getCustomerBankRefunds(user.id);
+  const [bankRefunds, lang] = await Promise.all([getCustomerBankRefunds(user.id), getBoardLang()]);
 
   return (
     <>
@@ -38,6 +40,7 @@ export default async function WalletPage() {
         title="My Wallet"
         description="Top up once, then orders and subscriptions are paid automatically."
       />
+      <SubmenuStrip board="customer" menuKey="wallet" role={user.role} lang={lang} />
       {referrals.enabled ? (
         <Card className="mb-4 flex flex-wrap items-center justify-between gap-2 p-4" data-testid="refer-card">
           <p className="text-sm text-ink-700">

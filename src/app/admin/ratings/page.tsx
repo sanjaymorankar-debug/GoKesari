@@ -30,7 +30,7 @@ export default async function AdminRatingsPage() {
                   {r.score}★ · {r.targetType === "SHOP" ? `shop ${shopName}` : `rider ${riderName}`} · {orderNumber}
                 </p>
                 {r.comment ? <p className="text-xs text-ink-600">&ldquo;{r.comment}&rdquo;</p> : null}
-                {r.moderationReason ? <p className="text-xs text-ink-400">Hidden: {r.moderationReason}</p> : null}
+                {r.moderationReason ? <p className="text-xs text-ink-500">Hidden: {r.moderationReason}</p> : null}
               </div>
               <span className="flex items-center gap-2">
                 <StatusBadge status={r.status} />

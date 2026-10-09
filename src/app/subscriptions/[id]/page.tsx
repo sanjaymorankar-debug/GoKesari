@@ -148,7 +148,7 @@ export default async function SubscriptionDetailPage({
                       {event.action.toLowerCase().replace(/_/g, " ")}
                       {event.note ? <span className="text-xs text-ink-500"> · {event.note}</span> : null}
                     </span>
-                    <span className="text-xs text-ink-400">
+                    <span className="text-xs text-ink-500">
                       {new Date(event.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium" })}
                     </span>
                   </li>

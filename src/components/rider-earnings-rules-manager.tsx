@@ -96,7 +96,7 @@ function DayPicker({ value, onChange }: { value: number[]; onChange: (days: numb
           </button>
         );
       })}
-      <span className="text-xs text-ink-400">{value.length === 0 ? "every day" : ""}</span>
+      <span className="text-xs text-ink-500">{value.length === 0 ? "every day" : ""}</span>
     </div>
   );
 }
@@ -161,7 +161,7 @@ function SlotsSection({ slots }: { slots: SlotRow[] }) {
             <div>
               <p className="font-medium text-ink-900">
                 {s.name} <span className="text-ink-500">{s.startTime}–{s.endTime}</span>{" "}
-                {s.daysOfWeek.length ? <span className="text-xs text-ink-400">({s.daysOfWeek.map((d) => DAYS[d]).join(", ")})</span> : null}
+                {s.daysOfWeek.length ? <span className="text-xs text-ink-500">({s.daysOfWeek.map((d) => DAYS[d]).join(", ")})</span> : null}
               </p>
               <p className="text-xs text-ink-500">
                 base {s.baseFeePaise != null ? <Money paise={s.baseFeePaise} /> : "default"} · per km{" "}

@@ -8,6 +8,7 @@ import { FulfilmentPlanner, type PlannerPlan, type PlannerStaff } from "@/compon
 import type { SlotDay } from "@/lib/fulfilment-options";
 import { formatQuantity } from "@/lib/money";
 import { formatScheduledSlot } from "@/lib/scheduled-slots";
+import { ConfirmButton } from "@/components/confirm-button";
 
 /**
  * Manual status steps that stay available for shops delivering themselves or
@@ -310,9 +311,9 @@ function OrderRow({
             </Button>
           ))}
         {order.status === "RETURNED" ? (
-          <Button size="sm" variant="danger" disabled={busy} onClick={() => advance("CANCELLED")}>
+          <ConfirmButton disabled={busy} onConfirm={() => advance("CANCELLED")} confirmLabel="Yes, cancel and refund" question="Cancel and refund the customer?">
             Cancel &amp; refund customer
-          </Button>
+          </ConfirmButton>
         ) : null}
       </div>
 
@@ -389,7 +390,7 @@ function ItemRow({
         <span className={item.fulfilmentStatus === "REMOVED" ? "line-through" : undefined}>
           {item.productNameSnapshot} · {formatQuantity(item.quantityMilli, item.unitSnapshot)}
           {ITEM_STATUS_LABEL[item.fulfilmentStatus] ? (
-            <span className="ml-2 text-xs text-ink-400">({ITEM_STATUS_LABEL[item.fulfilmentStatus]})</span>
+            <span className="ml-2 text-xs text-ink-500">({ITEM_STATUS_LABEL[item.fulfilmentStatus]})</span>
           ) : null}
         </span>
         <Money paise={item.lineTotalPaise} />

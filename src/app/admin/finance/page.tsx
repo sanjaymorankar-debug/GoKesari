@@ -419,7 +419,7 @@ function Figure({ label, paise, hint }: { label: string; paise: number; hint?: s
       <p className="mt-1 text-xl font-bold text-ink-900">
         <Money paise={paise} />
       </p>
-      {hint ? <p className="mt-0.5 text-xs text-ink-400">{hint}</p> : null}
+      {hint ? <p className="mt-0.5 text-xs text-ink-500">{hint}</p> : null}
     </Card>
   );
 }

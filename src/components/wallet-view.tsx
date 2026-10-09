@@ -268,7 +268,7 @@ export function WalletView({
                       {t.amountPaise > 0 ? "+" : "−"}
                       <Money paise={Math.abs(t.amountPaise)} />
                     </p>
-                    <p className="text-xs text-ink-400">
+                    <p className="text-xs text-ink-500">
                       bal <Money paise={t.newBalancePaise} />
                     </p>
                   </div>

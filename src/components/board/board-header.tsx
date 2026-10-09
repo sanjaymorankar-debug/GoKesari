@@ -9,7 +9,7 @@ import { LocationPanel, OPEN_LOCATION_EVENT } from "@/components/location-picker
 import { RoleSwitcher } from "@/components/role-switcher";
 import { StandaloneBackButton } from "@/components/standalone-back-button";
 import { formatCount, formatRupees } from "@/lib/board/format";
-import { L, LANG_NAME, LANG_SWITCH_LABEL, LANGUAGES, tr, UI, type Lang } from "@/lib/board/i18n";
+import { L, LANG_NAME, LANG_SWITCH_LABEL, LANGUAGES, tr, UI, type Lang, type Text } from "@/lib/board/i18n";
 import { setLanguageAction } from "@/server/language-action";
 import { signOutAction } from "@/server/sign-out-action";
 
@@ -23,6 +23,13 @@ const ACCOUNT_LINKS = [
   { href: "/society", label: L("My society", "मेरी सोसाइटी", "माझी सोसायटी") },
   { href: "/profile/bank-account", label: L("Bank account", "बैंक खाता", "बँक खाते") },
 ];
+
+/** The extra account links, in the board's language (the loader names them in English). */
+const EXTRA_LINK_LABELS: Record<string, Text> = {
+  "/shop/staff-access": UI.shopsIHelp,
+  "/referral": UI.myReferralCode,
+  "/refer": UI.inviteFriends,
+};
 
 export interface BoardHeaderProps {
   lang: Lang;
@@ -57,32 +64,67 @@ function useDismiss(ref: React.RefObject<HTMLElement | null>, open: boolean, clo
 /**
  * The language switch: three submit buttons on one form, so it works with or
  * without JavaScript. The server stores the cookie and re-renders the page.
+ * Wide screens show the three buttons; phones show one button (the current
+ * language) that opens them, so each stays at least 44 px wide.
  */
-export function LanguageSwitch({ lang }: { lang: Lang }) {
+export function LanguageSwitch({ lang, className }: { lang: Lang; className?: string }) {
   return (
-    <form action={setLanguageAction} className="shrink-0" data-testid="language-switch">
-      <fieldset className="flex h-9 items-stretch overflow-hidden rounded-full border border-[#f2c9a5] bg-white">
-        <legend className="sr-only">{tr(UI.language, lang)}</legend>
-        {LANGUAGES.map((code) => (
-          <button
-            key={code}
-            type="submit"
-            name="lang"
-            value={code}
-            aria-pressed={code === lang}
-            lang={code}
-            title={LANG_NAME[code]}
-            aria-label={LANG_NAME[code]}
-            className={clsx(
-              "min-w-[1.625rem] px-0.5 text-[0.8125rem] font-bold leading-none sm:min-w-[2.5rem] sm:px-2.5",
-              code === lang ? "bg-kesari-700 text-white" : "text-ink-700 hover:bg-kesari-50",
-            )}
-          >
-            {LANG_SWITCH_LABEL[code]}
-          </button>
-        ))}
-      </fieldset>
-    </form>
+    <>
+      <form action={setLanguageAction} className={clsx("hidden shrink-0 lg:block", className)} data-testid="language-switch">
+        <fieldset className="flex h-10 items-stretch overflow-hidden rounded-full border border-[#f2c9a5] bg-white">
+          <legend className="sr-only">{tr(UI.language, lang)}</legend>
+          {LANGUAGES.map((code) => (
+            <button
+              key={code}
+              type="submit"
+              name="lang"
+              value={code}
+              aria-pressed={code === lang}
+              lang={code}
+              title={LANG_NAME[code]}
+              aria-label={LANG_NAME[code]}
+              className={clsx(
+                "min-w-11 px-2.5 text-sm font-bold leading-none",
+                code === lang ? "bg-kesari-700 text-white" : "text-ink-700 hover:bg-kesari-50",
+              )}
+            >
+              {LANG_SWITCH_LABEL[code]}
+            </button>
+          ))}
+        </fieldset>
+      </form>
+      <details className={clsx("group relative shrink-0 lg:hidden", className)} data-testid="language-menu">
+        <summary
+          className="flex h-11 min-w-11 cursor-pointer list-none min-[360px]:h-12 min-[360px]:min-w-12 items-center justify-center gap-0.5 rounded-xl border border-[#f2c9a5] bg-white px-1.5 text-sm font-bold text-ink-900 [&::-webkit-details-marker]:hidden"
+          aria-label={`${tr(UI.language, lang)}: ${LANG_NAME[lang]}`}
+        >
+          <span lang={lang}>{LANG_SWITCH_LABEL[lang]}</span>
+          <Icon name="chevron-down" size={14} className="text-kesari-700 transition-transform group-open:rotate-180" />
+        </summary>
+        <form action={setLanguageAction} className="absolute right-0 top-full z-50 mt-1 w-44 rounded-xl border border-cream-200 bg-white p-1.5 shadow-lg">
+          <fieldset className="flex flex-col gap-1">
+            <legend className="sr-only">{tr(UI.language, lang)}</legend>
+            {LANGUAGES.map((code) => (
+              <button
+                key={code}
+                type="submit"
+                name="lang"
+                value={code}
+                aria-pressed={code === lang}
+                lang={code}
+                className={clsx(
+                  "flex h-12 items-center justify-between rounded-lg px-3 text-base font-semibold",
+                  code === lang ? "bg-kesari-700 text-white" : "text-ink-900 hover:bg-kesari-50",
+                )}
+              >
+                {LANG_NAME[code]}
+                <span className="text-sm opacity-80">{LANG_SWITCH_LABEL[code]}</span>
+              </button>
+            ))}
+          </fieldset>
+        </form>
+      </details>
+    </>
   );
 }
 
@@ -122,11 +164,11 @@ export function BoardHeader({ lang, user, roles, unreadCount, extraLinks = [], c
   const balance = context.kind === "customer" ? formatRupees(context.balancePaise) : null;
 
   return (
-    <header className="sticky top-0 z-40 border-b border-[#f6dcc4] bg-white" data-testid="board-header">
+    <header className="sticky top-0 z-40 border-b border-[var(--gk-line)] bg-white" data-testid="board-header">
       <div className="mx-auto flex h-14 w-full max-w-[1600px] items-center gap-1.5 px-3 sm:gap-3 sm:px-4 lg:h-16 lg:px-6">
         {/* iPhone home-screen app only (no browser toolbar there); hidden on "/". */}
         <StandaloneBackButton />
-        <Link href="/" className="flex shrink-0 items-center gap-2" aria-label="GoKesari home">
+        <Link href="/" className="flex min-h-11 shrink-0 items-center gap-2 py-1" aria-label="GoKesari home">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/gk-mark.png" alt="" width={62} height={36} className="h-7 w-auto rounded-lg sm:h-8 lg:h-10" />
           <span className="hidden flex-col xl:flex">
@@ -144,11 +186,11 @@ export function BoardHeader({ lang, user, roles, unreadCount, extraLinks = [], c
             aria-expanded={locationOpen}
             aria-controls="location-panel"
             data-testid="board-location"
-            className="flex min-w-0 shrink items-center gap-1.5 rounded-xl px-1 py-1 text-left hover:bg-kesari-50 lg:border lg:border-[#f2c9a5] lg:bg-kesari-50 lg:px-3"
+            className="flex min-h-11 min-w-0 shrink items-center gap-1.5 rounded-xl px-1 py-1 text-left hover:bg-kesari-50 lg:border lg:border-[#f2c9a5] lg:bg-kesari-50 lg:px-3"
           >
             <Icon name="map-pin" size={20} className="shrink-0 text-kesari-700" />
             <span className="flex min-w-0 flex-col leading-tight">
-              <span className="whitespace-nowrap text-[0.6875rem] font-medium text-ink-600 lg:text-xs">{tr(UI.deliverTo, lang)}</span>
+              <span className="whitespace-nowrap text-xs font-medium text-ink-600">{tr(UI.deliverTo, lang)}</span>
               <span className="truncate text-sm font-bold text-ink-900" data-testid="board-location-label">
                 {context.locationLabel ?? tr(UI.chooseLocation, lang)}
               </span>
@@ -157,7 +199,7 @@ export function BoardHeader({ lang, user, roles, unreadCount, extraLinks = [], c
           </button>
         ) : (
           <span className="flex min-w-0 flex-col leading-tight" data-testid="board-context">
-            <span className="truncate text-[0.6875rem] font-medium text-ink-600 lg:text-xs">{context.roleLine}</span>
+            <span className="truncate text-xs font-medium text-ink-600">{context.roleLine}</span>
             <span className="truncate text-sm font-bold text-ink-900 lg:text-base">{context.title}</span>
           </span>
         )}
@@ -171,7 +213,7 @@ export function BoardHeader({ lang, user, roles, unreadCount, extraLinks = [], c
                 name="q"
                 placeholder={tr(UI.searchPlaceholder, lang)}
                 aria-label={tr(UI.searchLabel, lang)}
-                className="min-w-0 flex-1 bg-transparent text-sm text-ink-900 placeholder:text-ink-500 focus:outline-none"
+                className="h-full min-w-0 flex-1 bg-transparent text-sm text-ink-900 placeholder:text-ink-600 focus:outline-none"
               />
             </label>
           </form>
@@ -196,13 +238,13 @@ export function BoardHeader({ lang, user, roles, unreadCount, extraLinks = [], c
           {user ? (
             <Link
               href="/profile#notifications"
-              className="relative grid h-10 w-8 place-items-center rounded-xl text-ink-900 hover:bg-kesari-50"
+              className="relative grid h-11 w-11 place-items-center min-[360px]:h-12 min-[360px]:w-12 rounded-xl text-ink-900 hover:bg-kesari-50"
               aria-label={`${tr(UI.notifications, lang)}${unread ? `, ${unreadCount} ${tr(UI.unread, lang)}` : ""}`}
               data-testid="board-bell"
             >
               <Icon name="bell" size={22} />
               {unread ? (
-                <span className="absolute right-0 top-0.5 grid h-[1.125rem] min-w-[1.125rem] place-items-center rounded-full bg-red-700 px-1 text-[0.6875rem] font-bold text-white ring-2 ring-white">
+                <span className="absolute right-0 top-0.5 grid h-[1.125rem] min-w-[1.125rem] place-items-center rounded-full bg-red-700 px-1 text-xs font-bold text-white ring-2 ring-white">
                   {unread}
                 </span>
               ) : null}
@@ -218,9 +260,9 @@ export function BoardHeader({ lang, user, roles, unreadCount, extraLinks = [], c
                 aria-expanded={accountOpen}
                 aria-label={tr(UI.account, lang)}
                 data-testid="board-account"
-                className="flex h-10 items-center gap-2 rounded-full hover:bg-kesari-50 lg:p-0.5 lg:pr-3"
+                className="flex h-11 min-w-11 items-center justify-center gap-2 rounded-full min-[360px]:h-12 min-[360px]:min-w-12 hover:bg-kesari-50 lg:p-0.5 lg:pr-3"
               >
-                <span className="grid h-8 w-8 place-items-center rounded-full bg-kesari-700 text-sm font-bold text-white">
+                <span className="grid h-9 w-9 place-items-center rounded-full bg-kesari-700 text-sm font-bold text-white">
                   {(user.name ?? user.email).charAt(0).toUpperCase()}
                 </span>
                 <span className="hidden max-w-[8rem] truncate text-sm font-semibold text-ink-900 lg:inline">{user.name ?? user.email}</span>
@@ -242,12 +284,12 @@ export function BoardHeader({ lang, user, roles, unreadCount, extraLinks = [], c
                     </div>
                   ) : null}
                   <div className="py-1">
-                    {[...ACCOUNT_LINKS.map((l) => ({ href: l.href, label: tr(l.label, lang) })), ...extraLinks].map((item) => (
+                    {[...ACCOUNT_LINKS.map((l) => ({ href: l.href, label: tr(l.label, lang) })), ...extraLinks.map((l) => ({ href: l.href, label: EXTRA_LINK_LABELS[l.href] ? tr(EXTRA_LINK_LABELS[l.href], lang) : l.label }))].map((item) => (
                       <Link
                         key={item.href}
                         href={item.href}
                         role="menuitem"
-                        className="block rounded-lg px-3 py-2 text-sm text-ink-700 hover:bg-cream-100"
+                        className="flex min-h-11 items-center rounded-lg px-3 text-sm text-ink-700 hover:bg-cream-100"
                       >
                         {item.label}
                       </Link>
@@ -257,7 +299,7 @@ export function BoardHeader({ lang, user, roles, unreadCount, extraLinks = [], c
                     <button
                       type="submit"
                       role="menuitem"
-                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm font-medium text-ink-700 hover:bg-cream-100"
+                      className="flex min-h-11 w-full items-center gap-2 rounded-lg px-3 text-left text-sm font-medium text-ink-700 hover:bg-cream-100"
                     >
                       <Icon name="log-out" size={16} />
                       {tr(UI.signOut, lang)}
@@ -269,7 +311,7 @@ export function BoardHeader({ lang, user, roles, unreadCount, extraLinks = [], c
           ) : (
             <Link
               href="/signin"
-              className="flex h-9 items-center whitespace-nowrap rounded-xl bg-kesari-700 px-2.5 text-sm font-bold text-white hover:bg-kesari-800"
+              className="flex h-11 items-center whitespace-nowrap rounded-xl bg-kesari-700 px-3 text-sm font-bold text-white hover:bg-kesari-800"
             >
               {tr(UI.signIn, lang)}
             </Link>

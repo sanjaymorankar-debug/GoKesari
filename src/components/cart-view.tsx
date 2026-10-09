@@ -21,6 +21,7 @@ import { formatQuantity } from "@/lib/money";
 import { formatShopTime, isShopOpenNow, nextOpeningAt } from "@/lib/shop-hours";
 import type { CartSummary } from "@/server/services/cart";
 import type { CartIssue, ShopCartCheck } from "@/server/services/cart-validation";
+import { ConfirmButton } from "@/components/confirm-button";
 
 type DeliveryWindowKey = "EXPRESS_30" | "STANDARD_60" | "SCHEDULED";
 
@@ -420,7 +421,7 @@ export function CartView({
                     {line.purchasable ? (
                       <p className="mt-1 text-sm text-ink-600">
                         {line.listUnitPricePaise ? (
-                          <span className="mr-1 text-ink-400 line-through">
+                          <span className="mr-1 text-ink-500 line-through">
                             <Money paise={line.listUnitPricePaise} />
                           </span>
                         ) : null}
@@ -443,7 +444,7 @@ export function CartView({
                       {line.purchasable ? (
                         <Money paise={line.lineTotalPaise} />
                       ) : (
-                        <span className="text-sm text-ink-400">—</span>
+                        <span className="text-sm text-ink-500">—</span>
                       )}
                     </span>
 
@@ -499,7 +500,7 @@ export function CartView({
                           key={key}
                           aria-disabled="true"
                           data-testid={`slot-full-${key}`}
-                          className="cursor-not-allowed rounded-full border border-cream-200 px-3 py-1.5 text-xs font-medium text-ink-400 line-through"
+                          className="cursor-not-allowed rounded-full border border-cream-200 px-3 py-1.5 text-xs font-medium text-ink-500 line-through"
                         >
                           {WINDOW_LABEL[key]} · Full
                         </span>
@@ -654,7 +655,7 @@ export function CartView({
                   />
                   Wallet
                 </label>
-                <label className={`flex items-center gap-2 ${codPossible ? "" : "text-ink-400"}`}>
+                <label className={`flex items-center gap-2 ${codPossible ? "" : "text-ink-500"}`}>
                   <input
                     type="radio"
                     name="payment-method"
@@ -713,14 +714,14 @@ export function CartView({
                           · {o.shopName} — <strong>{o.statusLabel}</strong> · <Money paise={o.totalPaise} />
                         </span>
                         {o.customerMayCancel ? (
-                          <Button
-                            size="sm"
-                            variant="danger"
+                          <ConfirmButton
                             disabled={busy || cancellingOrderId !== null}
-                            onClick={() => cancelOpenOrder(o)}
+                            onConfirm={() => cancelOpenOrder(o)}
+                            confirmLabel="Yes, cancel it"
+                            keepLabel="Keep order"
                           >
                             {cancellingOrderId === o.id ? "Cancelling…" : "Cancel this order"}
-                          </Button>
+                          </ConfirmButton>
                         ) : (
                           <span className="text-xs">Being prepared — contact the shop to cancel it.</span>
                         )}

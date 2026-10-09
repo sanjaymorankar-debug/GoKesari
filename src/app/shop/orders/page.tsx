@@ -1,9 +1,14 @@
 import { redirect } from "next/navigation";
 
+import { ListTabs, Pager, paginate } from "@/components/board/list-tabs";
 import { ShopOrderManager } from "@/components/shop-order-manager";
 import { ShopWalletBanner } from "@/components/shop-wallet-banner";
 import { EmptyState, PageHeader } from "@/components/ui";
+import { tr, UI } from "@/lib/board/i18n";
+import { SHOP_MENUS } from "@/lib/board/menus";
+import { pickTab, SHOP_ORDER_TABS, type ShopOrderTab } from "@/lib/board/status-groups";
 import { getCurrentUser } from "@/server/authz/guards";
+import { getBoardLang } from "@/server/board-lang";
 import { getDeliveryOrdersForOrders, getRiderSearchStatus } from "@/server/services/delivery-assignment";
 import { listShopProducts } from "@/server/services/catalogue";
 import { listOrdersForShop } from "@/server/services/orders";
@@ -20,7 +25,10 @@ export const dynamic = "force-dynamic";
  * Shop owner's order queue — advance status and, once ready, find a
  * delivery partner (delivery-system Part 58, Slice C).
  */
-export default async function ShopOrdersPage() {
+const PAGE_SIZE = 5;
+const TAB_KEYS = ["new", "packing", "ready", "out", "done", "all"] as const satisfies readonly ShopOrderTab[];
+
+export default async function ShopOrdersPage({ searchParams }: { searchParams: Promise<{ status?: string; page?: string }> }) {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
 
@@ -28,11 +36,35 @@ export default async function ShopOrdersPage() {
   if (shops.length === 0) redirect("/shop");
   const shop = shops[0];
 
-  const [orders, onlineProducts, wallet] = await Promise.all([
+  const [allOrders, onlineProducts, wallet, lang, query] = await Promise.all([
     listOrdersForShop(shop.id, { limit: 100 }),
     listShopProducts(shop.id, { onlineOnly: true }),
     getShopWalletStatus(shop.id),
+    getBoardLang(),
+    searchParams,
   ]);
+
+  // Tabs = the board's Orders submenus (same status groups as its badges), plus Done and All.
+  const inGroup = (tab: ShopOrderTab, status: string) =>
+    tab === "all"
+      ? true
+      : tab === "done"
+        ? !Object.values(SHOP_ORDER_TABS).some((g) => (g as readonly string[]).includes(status))
+        : (SHOP_ORDER_TABS[tab] as readonly string[]).includes(status);
+  const countOf = (tab: ShopOrderTab) => allOrders.filter((o) => inGroup(tab, o.status)).length;
+  // No tab chosen: the first one with work waiting, else everything.
+  const firstBusy = (["new", "packing", "ready", "out"] as const).find((t) => countOf(t) > 0) ?? "all";
+  const tab = pickTab<ShopOrderTab>(query.status, TAB_KEYS, firstBusy);
+  const page = paginate(allOrders.filter((o) => inGroup(tab, o.status)), query.page, PAGE_SIZE);
+  const orders = page.rows;
+  const menuLabels = Object.fromEntries((SHOP_MENUS.find((m) => m.key === "orders")?.items ?? []).map((i) => [i.key, tr(i.label, lang)]));
+  const tabs = TAB_KEYS.map((key) => ({
+    key,
+    label: key === "done" ? tr(UI.done, lang) : key === "all" ? tr(UI.all, lang) : (menuLabels[key] ?? key),
+    href: `/shop/orders?status=${key}`,
+    count: key === "all" || key === "done" ? undefined : countOf(key),
+    urgent: key === "new",
+  }));
   const deliveryOrders = await getDeliveryOrdersForOrders(orders.map((o) => o.id));
   // NEW-007: invoice and delivery-photo links on delivered orders.
   const delivered = orders.filter((o) => o.status === "DELIVERED").map((o) => o.id);
@@ -66,8 +98,13 @@ export default async function ShopOrdersPage() {
       {/* Shop wallet: below the minimum the shop cannot accept new orders (the server refuses too). */}
       <ShopWalletBanner {...wallet} />
 
+      <ListTabs tabs={tabs} active={tab} label={tr(UI.orders, lang)} />
+
       {orders.length === 0 ? (
-        <EmptyState title="No orders yet." />
+        <EmptyState
+          title={allOrders.length === 0 ? "No orders yet." : "Nothing here right now."}
+          description={allOrders.length === 0 ? "New orders appear here and on your board the moment a customer places them." : "Orders move to the next tab as you work on them."}
+        />
       ) : (
         <ShopOrderManager
           deliveryAvailable={shop.deliveryAvailable}
@@ -119,6 +156,7 @@ export default async function ShopOrdersPage() {
           }))}
         />
       )}
+      <Pager lang={lang} page={page.page} pageCount={page.pageCount} hrefFor={(n) => `/shop/orders?status=${tab}&page=${n}`} />
     </>
   );
 }

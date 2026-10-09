@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { Alert, Badge, Button, Card, EmptyState, Field, inputClass } from "@/components/ui";
 import { MapPicker, type MapPickerResult } from "@/components/map-picker";
+import { ConfirmButton } from "@/components/confirm-button";
 
 export interface AddressRow {
   id: string;
@@ -118,16 +119,16 @@ function AddressCard({
             {[address.area, address.city].filter(Boolean).join(", ")} — {address.pincode}
           </p>
           {address.landmark ? (
-            <p className="text-xs text-ink-400">Landmark: {address.landmark}</p>
+            <p className="text-xs text-ink-500">Landmark: {address.landmark}</p>
           ) : null}
         </div>
         <div className="flex shrink-0 gap-2">
           <Button size="sm" variant="secondary" onClick={onEdit}>
             Edit
           </Button>
-          <Button size="sm" variant="danger" onClick={remove} disabled={busy}>
+          <ConfirmButton onConfirm={remove} disabled={busy} confirmLabel="Yes, delete" question="Delete this address?">
             Delete
-          </Button>
+          </ConfirmButton>
         </div>
       </div>
     </Card>

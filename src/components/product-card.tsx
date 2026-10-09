@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
 import { SafeImage } from "@/components/safe-image";
+import { categoryEmoji, priceUnitLabel } from "@/lib/board/product-look";
 import { AvailabilityBadge, Button, Card, Money } from "@/components/ui";
 import type { CartLineQuantity, CartSummary } from "@/server/services/cart";
 
@@ -142,7 +143,7 @@ export function ProductCard({
 
   return (
     <Card
-      className="flex h-full flex-col p-4"
+      className="flex h-full flex-col p-2.5 sm:p-4"
       data-testid="product-card"
       data-product-name={product.productName}
     >
@@ -150,9 +151,10 @@ export function ProductCard({
         src={product.imageUrl}
         size="medium"
         alt={product.productName}
-        className="mb-3 h-32 w-full rounded-lg bg-cream-100 object-cover"
+        fallbackEmoji={categoryEmoji(product.categoryName, product.productName)}
+        className="mb-2 h-24 w-full rounded-lg bg-cream-100 object-cover sm:mb-3 sm:h-32"
       />
-      <div className="mb-2 flex items-start justify-between gap-2">
+      <div className="mb-2 flex flex-col items-start gap-1 sm:flex-row sm:justify-between sm:gap-2">
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold text-ink-900">
             {product.detailsHref ? (
@@ -165,7 +167,7 @@ export function ProductCard({
           </h3>
           <p className="text-xs text-ink-500">{product.categoryName}</p>
           {product.shortDescription ? (
-            <p className="mt-1 line-clamp-2 text-xs text-ink-600" data-testid="product-short-description">
+            <p className="mt-1 line-clamp-2 hidden text-xs text-ink-600 sm:block" data-testid="product-short-description">
               {product.shortDescription}
             </p>
           ) : null}
@@ -188,16 +190,17 @@ export function ProductCard({
       <div className="mt-auto">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
           {product.onlinePricePaise != null && product.offerPricePaise != null ? (
-            <span className="text-xs text-ink-400 line-through" data-testid="offer-list-price">
+            <span className="text-xs text-ink-500 line-through" data-testid="offer-list-price">
               <Money paise={product.onlinePricePaise} />
             </span>
           ) : null}
           {product.onlinePricePaise != null ? (
             <span className="text-base font-semibold text-ink-900">
               <Money paise={product.offerPricePaise ?? product.onlinePricePaise} />
-              <span className="text-xs font-normal text-ink-500">
+              <span className="text-sm font-normal text-ink-600">
                 {" "}
-                / {product.unit} online
+                {priceUnitLabel(product.unit)}
+                {product.offlinePricePaise != null && product.offlinePricePaise !== product.onlinePricePaise ? " online" : ""}
               </span>
             </span>
           ) : null}
@@ -220,7 +223,7 @@ export function ProductCard({
         {product.productId ? (
           <Link
             href={`/products/${product.productId}`}
-            className="mt-1 inline-block text-xs font-medium text-kesari-600 hover:underline"
+            className="mt-1 inline-flex min-h-11 items-center text-sm font-medium text-kesari-700 hover:underline"
           >
             Compare prices at other shops →
           </Link>
@@ -271,7 +274,7 @@ export function ProductCard({
               <Button
                 size="sm"
                 variant="secondary"
-                className="tap-target [--tap-h:36px]"
+                className="tap-target hidden [--tap-h:36px] sm:inline-flex"
                 disabled={disabled}
                 aria-label={`Remove ${product.productName} from cart`}
                 onClick={() => setCartQuantity(0)}
@@ -283,7 +286,8 @@ export function ProductCard({
             <div className="flex gap-2">
               {canBuyOnline ? (
                 <>
-                  <div className="flex items-center gap-1">
+                  {/* Phones: one full-width Add (1 item); −/+ appear once it is in the cart. */}
+                  <div className="hidden items-center gap-1 sm:flex">
                     <Button
                       size="sm"
                       variant="secondary"

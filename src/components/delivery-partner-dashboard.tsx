@@ -625,7 +625,7 @@ export function DeliveryPartnerDashboard({
               <p className="font-medium text-ink-700">Drop</p>
               <p className="text-ink-500">{activeDelivery.customerAddress ?? "Address on order details"}</p>
               {activeDelivery.drop && !activeDelivery.drop.precise ? (
-                <p className="text-xs text-ink-400">The full address and navigation appear once you pick up the order.</p>
+                <p className="text-xs text-ink-500">The full address and navigation appear once you pick up the order.</p>
               ) : null}
               {activeDelivery.customerNotes ? <p className="text-ink-500">Note: {activeDelivery.customerNotes}</p> : null}
               {activeDelivery.drop?.navigationUrl && activeDelivery.status === "PICKED_UP" ? (
@@ -866,7 +866,7 @@ function ReturnPickupPanel({ pickup, onDone }: { pickup: ActiveReturnPickupView;
           <p className="font-medium text-ink-700">Collect from</p>
           <p className="text-ink-500">{pickup.customerAddress ?? "Address on order details"}</p>
           {pickup.customerAddress && pickup.status !== "EN_ROUTE" ? (
-            <p className="text-xs text-ink-400">The full address and navigation appear once you set off.</p>
+            <p className="text-xs text-ink-500">The full address and navigation appear once you set off.</p>
           ) : null}
           {pickup.customerNotes ? <p className="text-ink-500">Note: {pickup.customerNotes}</p> : null}
           {pickup.scheduledFor ? (

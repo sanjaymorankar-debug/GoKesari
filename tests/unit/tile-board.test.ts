@@ -15,6 +15,9 @@ import {
   ADMIN_DO_NOW,
   ADMIN_MENUS,
   allDefinedHrefs,
+  DO_NOW,
+  hubHref,
+  OPERATOR_DO_NOW,
   COUNT_KEYS,
   CUSTOMER_CATEGORIES,
   CUSTOMER_MENUS,
@@ -28,6 +31,9 @@ import {
   visibleMenus,
   type BoardItem,
 } from "@/lib/board/menus";
+import { categoryEmoji, priceUnitLabel } from "@/lib/board/product-look";
+import { paginate } from "@/components/board/list-tabs";
+import { IN_PROGRESS_ORDER_STATUSES, pickTab, SHOP_ORDER_TABS } from "@/lib/board/status-groups";
 import { PERMISSIONS } from "@/server/authz/permissions";
 
 const APP_DIR = path.join(process.cwd(), "src", "app");
@@ -157,7 +163,7 @@ describe("permission filtering", () => {
   it("shows a customer all six tiles and every submenu", () => {
     const menus = visibleMenus(CUSTOMER_MENUS, "CUSTOMER");
     expect(menus.map((m) => m.key)).toEqual(["shops", "orders", "subscriptions", "wallet", "tracking", "profile"]);
-    expect(menus.reduce((n, m) => n + m.items.length, 0)).toBe(18);
+    expect(menus.reduce((n, m) => n + m.items.length, 0)).toBe(19);
   });
 
   it("treats a list of permissions as any-of", () => {
@@ -176,7 +182,10 @@ describe("permission filtering", () => {
       "/admin/coupons", "/admin/customer-referrals", "/admin/delivery-slots", "/admin/rider-kyc", "/admin/settings",
       "/admin/bank-accounts", "/admin/bank-refunds", "/admin/gst-config", "/admin/shop-wallets", "/admin/rider-earnings", "/admin/finance",
     ];
-    const operatorLinks = [...visibleMenus(OPERATOR_MENUS, "OPERATOR"), ...visibleMenus(ADMIN_MENUS, "OPERATOR")].flatMap((m) => [m.href, ...m.items.map((i) => i.href)]);
+    const operatorLinks = [
+      ...[...visibleMenus(OPERATOR_MENUS, "OPERATOR"), ...visibleMenus(ADMIN_MENUS, "OPERATOR")].flatMap((m) => [m.href, ...m.items.map((i) => i.href), ...m.more.map((i) => i.href)]),
+      ...visibleItems(OPERATOR_DO_NOW, "OPERATOR").map((i) => i.href),
+    ];
     for (const href of operatorLinks) {
       expect(adminOnlyRoutes).not.toContain(href.split(/[?#]/)[0]);
     }
@@ -184,21 +193,30 @@ describe("permission filtering", () => {
 });
 
 describe("menu definitions", () => {
-  const all = Object.values(MENUS).flatMap((menus) => menus.flatMap((m) => [m, ...m.items]));
+  const all = Object.values(MENUS).flatMap((menus) => menus.flatMap((m) => [m, ...m.items, ...(m.more ?? [])]));
 
   it("match the approved menu counts", () => {
     expect(CUSTOMER_MENUS).toHaveLength(6);
     expect(CUSTOMER_CATEGORIES).toHaveLength(8);
     expect(SHOP_MENUS).toHaveLength(16);
     expect(ADMIN_MENUS).toHaveLength(9);
-    expect(OPERATOR_MENUS).toHaveLength(6);
+    // The brief's six operator menus plus "Catalogue", the one home for the catalogue tools operators already had.
+    expect(OPERATOR_MENUS.map((m) => m.key)).toEqual(["onboarding", "orderSupport", "riders", "societies", "vouchers", "tickets", "catalogue"]);
     expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(39);
     expect(ADMIN_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(39);
-    expect(OPERATOR_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(22);
+    expect(OPERATOR_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(26);
+  });
+
+  it("keep every group to at most seven entries on the board (Hick's law)", () => {
+    for (const menus of Object.values(MENUS)) {
+      expect(menus.length).toBeLessThanOrEqual(16);
+      for (const menu of menus) expect(menu.items.length, menu.key).toBeLessThanOrEqual(7);
+    }
+    for (const strip of Object.values(DO_NOW)) expect(strip.length).toBeLessThanOrEqual(4);
   });
 
   it("label every entry in all three languages", () => {
-    for (const entry of [...all, ...CUSTOMER_CATEGORIES, ...SHOP_DO_NOW, ...ADMIN_DO_NOW]) {
+    for (const entry of [...all, ...CUSTOMER_CATEGORIES, ...Object.values(DO_NOW).flat()]) {
       for (const lang of LANGUAGES) expect(entry.label[lang].trim(), `${entry.key} ${lang}`).not.toBe("");
     }
     for (const text of [...Object.values(UI), ...Object.values(ORDER_STATUS_TEXT)]) {
@@ -216,8 +234,138 @@ describe("menu definitions", () => {
   it("give each entry in a tile a distinct key", () => {
     for (const menus of Object.values(MENUS)) {
       expect(new Set(menus.map((m) => m.key)).size).toBe(menus.length);
-      for (const menu of menus) expect(new Set(menu.items.map((i) => i.key)).size).toBe(menu.items.length);
+      for (const menu of menus) {
+        const keys = [...menu.items, ...(menu.more ?? [])].map((i) => i.key);
+        expect(new Set(keys).size, menu.key).toBe(keys.length);
+      }
     }
+  });
+});
+
+/* ------------------------------------------- one clear path to each function */
+
+describe("one clear path", () => {
+  /** The flat role menus the old site header carried (removed in favour of the boards). */
+  const OLD_ROLE_MENUS: Record<"SHOP_OWNER" | "OPERATOR" | "ADMIN", string[]> = {
+    SHOP_OWNER: [
+      "/shop", "/shop/orders", "/shop/returns", "/shop/disputes", "/shop/inventory", "/shop/catalogue", "/shop/media-import",
+      "/shop/staff", "/shop/product-categories", "/product-categories", "/shop/prices", "/shop/finance", "/shop/wallet",
+      "/shop/delivery-staff", "/shop/legal-documents", "/shop/bank-account", "/shop/settings/integrations", "/shop/gst-returns",
+      "/shop/marketing", "/shop/offers", "/shop/analytics",
+    ],
+    OPERATOR: [
+      "/admin", "/admin/dashboard", "/admin/orders", "/admin/exceptions", "/admin/shops", "/admin/product-master", "/product-categories",
+      "/admin/shop-categories", "/admin/mrp", "/admin/price-references", "/admin/finance/exceptions", "/admin/returns",
+      "/admin/image-moderation", "/admin/suspensions", "/admin/societies", "/admin/ratings", "/admin/analytics", "/admin/campaigns",
+      "/admin/risk", "/admin/consents", "/admin/disputes", "/admin/cod", "/admin/legal-documents", "/admin/referral-requests",
+      "/admin/integrations", "/admin/self-registration",
+    ],
+    ADMIN: [
+      "/admin", "/admin/dashboard", "/admin/orders", "/admin/exceptions", "/admin/shops", "/admin/product-master", "/product-categories",
+      "/admin/shop-categories", "/admin/mrp", "/admin/price-references", "/admin/finance", "/admin/shop-wallets", "/admin/returns",
+      "/admin/suspensions", "/admin/rider-earnings", "/admin/settings", "/admin/gst-config", "/admin/integrations", "/admin/self-registration",
+      "/admin/societies", "/admin/ratings", "/admin/analytics", "/admin/campaigns", "/admin/risk", "/admin/consents", "/admin/disputes",
+      "/admin/cod", "/admin/coupons", "/admin/delivery-slots", "/admin/image-moderation", "/admin/rider-changes", "/admin/rider-kyc",
+      "/admin/customer-referrals", "/admin/status-changes", "/admin/subscriptions", "/admin/legal-documents", "/admin/referral-requests",
+      "/admin/bank-accounts", "/admin/bank-refunds",
+    ],
+  };
+  /** The sections of the old one-page admin console, each now its own page. */
+  const CONSOLE_SECTIONS = [
+    "shops", "overview", "compliance", "maps", "riders", "grievances", "price-approvals", "product-approvals",
+    "registration-fees", "referral-codes", "users", "vouchers", "audit-log",
+  ];
+  /** The sections of the old one-page shop dashboard, each now its own page. */
+  const SHOP_SECTIONS = ["today", "products", "location", "hours", "gst-pan", "shop-types", "registration"];
+
+  /** Every page a role reaches in at most two clicks: board entries (one click) and menu pages' entries (two). */
+  function reachable(role: "SHOP_OWNER" | "OPERATOR" | "ADMIN"): Set<string> {
+    const board = role === "SHOP_OWNER" ? "shop" : role === "ADMIN" ? "admin" : "operator";
+    const menus = visibleMenus(MENUS[board], role, { shopSlug: "s" }, board);
+    const page = (h: string) => h.split(/[?#]/)[0];
+    const home = board === "shop" ? "/shop" : "/admin";
+    return new Set(
+      [home, ...menus.flatMap((m) => [m.href, ...m.items.map((i) => i.href), ...m.more.map((i) => i.href)]), ...visibleItems(DO_NOW[board], role).map((i) => i.href)].map(page),
+    );
+  }
+
+  it("keeps every destination of the old role menus within two clicks of the board", () => {
+    for (const role of ["SHOP_OWNER", "OPERATOR", "ADMIN"] as const) {
+      const can = reachable(role);
+      const missing = OLD_ROLE_MENUS[role].filter((href) => !can.has(href));
+      expect(missing, role).toEqual([]);
+    }
+  });
+
+  it("gives every old console and dashboard section its own page, reachable from a board", () => {
+    const admin = reachable("ADMIN");
+    const operator = reachable("OPERATOR");
+    for (const key of CONSOLE_SECTIONS) {
+      expect(admin.has(`/admin/console/${key}`) || operator.has(`/admin/console/${key}`), key).toBe(true);
+    }
+    const shop = reachable("SHOP_OWNER");
+    for (const key of SHOP_SECTIONS) expect(shop.has(`/shop/manage/${key}`), key).toBe(true);
+    const consoleSource = readFileSync(path.join(APP_DIR, "admin/console/[section]/page.tsx"), "utf8");
+    for (const key of CONSOLE_SECTIONS) expect(consoleSource.includes(`case "${key}"`), key).toBe(true);
+    const shopSource = readFileSync(path.join(APP_DIR, "shop/manage/[section]/page.tsx"), "utf8");
+    for (const key of SHOP_SECTIONS) expect(shopSource.includes(`case "${key}"`), key).toBe(true);
+  });
+
+  it("opens hub tiles on their menu page and page tiles on their own page", () => {
+    const shop = visibleMenus(SHOP_MENUS, "SHOP_OWNER", { shopSlug: "s" }, "shop");
+    expect(shop.find((m) => m.key === "orders")?.href).toBe("/shop/orders");
+    expect(shop.find((m) => m.key === "finance")?.href).toBe("/shop/menu/finance");
+    expect(hubHref("operator", "tickets")).toBe("/admin/menu/tickets");
+    expect(hubHref("customer", "shops")).toBeNull();
+    for (const m of visibleMenus(ADMIN_MENUS, "ADMIN", {}, "admin")) expect(m.href).toBe(`/admin/menu/${m.key}`);
+  });
+
+  it("never shows an operator an admin-only page inside a menu page either", () => {
+    for (const m of visibleMenus(OPERATOR_MENUS, "OPERATOR", {}, "operator")) {
+      for (const i of m.more) expect(isPermitted(i, "OPERATOR")).toBe(true);
+    }
+  });
+});
+
+/* ---------------------------------------------------------- lists and words */
+
+describe("list tabs and paging", () => {
+  it("count the same statuses as the board badges", () => {
+    expect(SHOP_ORDER_TABS.new).toEqual(["CONFIRMED"]);
+    expect(IN_PROGRESS_ORDER_STATUSES).toEqual(["CONFIRMED", "ACCEPTED", "PREPARING", "READY", "ASSIGNED", "PICKED_UP", "OUT_FOR_DELIVERY"]);
+  });
+
+  it("read a tab leniently", () => {
+    expect(pickTab("packing", ["new", "packing"] as const, "new")).toBe("packing");
+    expect(pickTab("PACKING", ["new", "packing"] as const, "new")).toBe("new");
+    expect(pickTab(["packing", "new"], ["new", "packing"] as const, "new")).toBe("packing");
+    expect(pickTab(undefined, ["new"] as const, "new")).toBe("new");
+  });
+
+  it("page through a list, clamping a page out of range", () => {
+    const items = Array.from({ length: 12 }, (_, i) => i);
+    expect(paginate(items, "1", 5)).toEqual({ rows: [0, 1, 2, 3, 4], page: 1, pageCount: 3 });
+    expect(paginate(items, "3", 5).rows).toEqual([10, 11]);
+    expect(paginate(items, "99", 5).page).toBe(3);
+    expect(paginate(items, "abc", 5).page).toBe(1);
+    expect(paginate([], undefined, 5)).toEqual({ rows: [], page: 1, pageCount: 1 });
+  });
+});
+
+describe("product wording", () => {
+  it("never prices a pack per millilitre or gram", () => {
+    expect(priceUnitLabel("ml")).toBe("per pack");
+    expect(priceUnitLabel("g")).toBe("per pack");
+    expect(priceUnitLabel("L")).toBe("/ L");
+    expect(priceUnitLabel("kg")).toBe("/ kg");
+    expect(priceUnitLabel("piece")).toBe("each");
+    expect(priceUnitLabel(null)).toBe("each");
+  });
+
+  it("picks a category picture for a product with no photo", () => {
+    expect(categoryEmoji("Dairy", "Cow Milk")).toBe("🥛");
+    expect(categoryEmoji("Bakery")).toBe("🍞");
+    expect(categoryEmoji("Something else")).toBe("🛍️");
   });
 });
 

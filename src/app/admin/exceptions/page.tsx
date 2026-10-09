@@ -50,7 +50,7 @@ function Chip({
       title={`${critical} critical of ${total}`}
       className={`inline-flex items-center gap-2 rounded-lg border px-3 py-1.5 text-sm ${
         active ? "border-kesari-400 bg-kesari-50" : "border-cream-200 bg-white hover:bg-cream-100"
-      } ${total === 0 && !active ? "text-ink-400" : "text-ink-800"}`}
+      } ${total === 0 && !active ? "text-ink-500" : "text-ink-800"}`}
     >
       <span>{label}</span>
       <span className="tabular-nums text-xs">
@@ -76,11 +76,11 @@ function PromiseText({ row, formatTime }: { row: OpsExceptionRow; formatTime: (d
     );
   }
   if (row.promisedByAt || AFTER_DELIVERY_CATEGORIES.has(row.category)) return null;
-  return <span className="text-ink-400">No delivery time promised</span>;
+  return <span className="text-ink-500">No delivery time promised</span>;
 }
 
 function RiderText({ row, now }: { row: OpsExceptionRow; now: number }) {
-  if (!row.riderName) return <span className="text-ink-400">No rider</span>;
+  if (!row.riderName) return <span className="text-ink-500">No rider</span>;
   return (
     <span>
       {row.riderName} · {row.riderOnline ? "online" : "offline"} ·{" "}

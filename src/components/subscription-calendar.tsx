@@ -85,7 +85,7 @@ export function SubscriptionCalendar({
                       {day.quantityMilli / MILLI_PER_UNIT} {unit}
                     </span>
                   ) : (
-                    <span className="mt-0.5 block text-sm font-medium text-ink-400">
+                    <span className="mt-0.5 block text-sm font-medium text-ink-500">
                       {day.reason === "SKIPPED"
                         ? "Skipped"
                         : day.reason === "PAUSED"

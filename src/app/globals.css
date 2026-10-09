@@ -41,6 +41,12 @@
 :root {
   --background: var(--color-cream-50);
   --foreground: var(--color-ink-900);
+
+  /* Tile Board tokens, shared by the boards, the menu pages and the site
+     header on every page (one set of colours for the website and the app). */
+  --gk-bg: #fdf4ea; /* board background */
+  --gk-line: #f6dcc4; /* tile and card borders */
+  --gk-chip: #fff4e8; /* submenu chip fill */
 }
 
 * {
@@ -84,6 +90,17 @@ body {
     width: max(100%, var(--tap-w, 48px));
     height: max(100%, var(--tap-h, 48px));
     transform: translate(calc(-50% + var(--tap-dx, 0px)), calc(-50% + var(--tap-dy, 0px)));
+  }
+}
+
+/* Tick boxes and radio buttons: 20 px instead of the browser's 13 px, in the
+   brand colour. In the base layer, so a component's own size still wins. */
+@layer base {
+  input[type="checkbox"],
+  input[type="radio"] {
+    width: 1.25rem;
+    height: 1.25rem;
+    accent-color: var(--color-kesari-700);
   }
 }
 
@@ -162,4 +179,36 @@ body:has([data-tile-board]) > header {
 main:has(> [data-tile-board]) {
   max-width: none;
   padding: 0;
+}
+
+/*
+ * Touch-screen boards fill exactly one screen: the tile grid takes whatever
+ * height is left, so taller phones simply get taller tiles. On short screens
+ * (the app's WebView on a 360×800 phone is about 360×728; 320×640 phones) the
+ * labels inside the tiles step down so every submenu stays visible.
+ */
+@media (max-width: 1023.98px) and (max-height: 760px) {
+  [data-tile-board] {
+    --gk-tag-text: 0.8125rem;
+    --gk-tag-gap: 0.125rem;
+    --gk-tile-title: 0.875rem;
+  }
+}
+@media (max-width: 1023.98px) and (max-height: 660px) {
+  [data-tile-board] {
+    --gk-tag-text: 0.75rem;
+    --gk-tag-gap: 0;
+    --gk-tile-title: 0.8125rem;
+  }
+}
+
+/* While offline, mark links that need the network (the page stays usable). */
+html[data-offline] [data-tile-board] a {
+  opacity: 0.85;
+}
+
+/* Navigation progress bar (src/components/board/navigation-feedback.tsx). */
+@keyframes gk-progress {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(300%); }
 }

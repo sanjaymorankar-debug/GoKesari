@@ -62,13 +62,13 @@ export function ownerNextAction(facts: OnboardingFacts): NextAction {
     case "PAYMENT_PENDING":
       return {
         text: `Your documents are verified. Pay the registration fee of ${formatPaiseCompact(facts.feeOutstandingPaise)} to GoKesari; operations records it and your shop moves to final approval.`,
-        href: "/shop#registration",
+        href: "/shop/manage/registration",
         linkLabel: "See registration fee",
       };
     case "VERIFIED":
       return {
         text: "Documents verified and fee settled. An operator will approve your shop shortly — no action needed from you.",
-        href: "/shop#registration",
+        href: "/shop/manage/registration",
         linkLabel: "See registration details",
       };
   }
@@ -88,13 +88,13 @@ export function adminNextAction(facts: OnboardingFacts): NextAction {
     case "PAYMENT_PENDING":
       return {
         text: `Documents verified. Record the registration fee (${formatPaiseCompact(facts.feeOutstandingPaise)} outstanding) or waive it.`,
-        href: "/admin#shop-finance",
+        href: "/admin/console/registration-fees#shop-finance",
         linkLabel: "Record fee payment",
       };
     case "VERIFIED":
       return {
         text: "Documents verified and fee settled — ready to approve.",
-        href: "/admin#shop-approvals",
+        href: "/admin/console/shops#shop-approvals",
         linkLabel: "Approve",
       };
   }
