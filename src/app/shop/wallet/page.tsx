@@ -68,21 +68,21 @@ export default async function ShopWalletPage() {
         <Card className="p-4">
           <p className="text-xs text-ink-500">Minimum to accept orders</p>
           <p className="mt-1 text-xl font-bold text-ink-900"><Money paise={wallet.minBalancePaise} /></p>
-          <p className="text-xs text-ink-400">
+          <p className="text-xs text-ink-500">
             reminder below <Money paise={wallet.lowBalanceThresholdPaise} />
           </p>
         </Card>
         <Card className="p-4">
           <p className="text-xs text-ink-500">Commission per delivered order</p>
           <p className="mt-1 text-xl font-bold text-ink-900">{(wallet.commissionRateBp / 100).toFixed(2)}%</p>
-          <p className="text-xs text-ink-400">of the goods value</p>
+          <p className="text-xs text-ink-500">of the goods value</p>
         </Card>
         <Card className="p-4">
           <p className="text-xs text-ink-500">Delivery charge</p>
           <p className="mt-1 text-xl font-bold text-ink-900">
             <Money paise={wallet.deliveryChargePerKmPaise} /> <span className="text-sm font-medium text-ink-500">per km</span>
           </p>
-          <p className="text-xs text-ink-400">
+          <p className="text-xs text-ink-500">
             {wallet.deliveryChargePaise > 0 ? (
               <>
                 plus <Money paise={wallet.deliveryChargePaise} /> per order,{" "}
@@ -99,7 +99,7 @@ export default async function ShopWalletPage() {
         </div>
       ) : null}
 
-      <Section title="Wallet history">
+      <Section id="history" title="Wallet history">
         {wallet.transactions.length === 0 ? (
           <EmptyState title="No wallet entries yet." />
         ) : (

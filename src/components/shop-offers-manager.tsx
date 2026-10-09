@@ -91,7 +91,7 @@ export function ShopOffersManager({
       ) : null}
       {error ? <Alert tone="danger">{error}</Alert> : null}
 
-      <Card className="space-y-3 p-4">
+      <Card id="new-offer" className="scroll-mt-20 space-y-3 p-4">
         <h2 className="font-semibold text-ink-900">New offer</h2>
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Title (shown on your shop page)">

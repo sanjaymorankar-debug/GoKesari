@@ -34,7 +34,7 @@ export function RiderTripCard({ stops }: { stops: TripStopView[] }) {
             data-testid={`trip-stop-${i}`}
           >
             <span className="flex flex-wrap items-center gap-2">
-              <span className={stop.done ? "text-ink-400 line-through" : "font-medium text-ink-900"}>
+              <span className={stop.done ? "text-ink-500 line-through" : "font-medium text-ink-900"}>
                 {i + 1}. {stop.kind === "PICKUP" ? "Pick up" : "Drop"} {stop.orderNumber}
               </span>
               {stop.current ? <Badge tone="warning">Next</Badge> : null}

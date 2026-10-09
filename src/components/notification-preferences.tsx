@@ -80,7 +80,7 @@ export function NotificationPreferences({ initial }: { initial: PreferenceRowVie
                         onChange={(e) => toggle(row.category, c.channel, e.target.checked)}
                       />
                     ) : (
-                      <span className="text-xs text-ink-400">soon</span>
+                      <span className="text-xs text-ink-500">soon</span>
                     )}
                   </td>
                 ))}

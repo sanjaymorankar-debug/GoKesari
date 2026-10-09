@@ -145,7 +145,7 @@ export function PendingPriceApprovals({
                     <Money paise={row.previousPricePaise} />
                   </span>
                 ) : (
-                  <span className="text-xs text-ink-400">not priced</span>
+                  <span className="text-xs text-ink-500">not priced</span>
                 )}
                 <span aria-hidden>→</span>
                 <span className="font-semibold text-ink-900">
@@ -209,7 +209,7 @@ export function PendingPriceApprovals({
           value={reason}
           onChange={(e) => setReason(e.target.value)}
           placeholder="Reason for rejection (optional)"
-          className="min-w-0 flex-1 rounded-lg border border-cream-200 bg-cream-50 px-3 py-2 text-sm placeholder:text-ink-400 focus:border-kesari-500 focus:outline-none"
+          className="min-w-0 flex-1 rounded-lg border border-cream-200 bg-cream-50 px-3 py-2 text-sm placeholder:text-ink-600 focus:border-kesari-500 focus:outline-none"
         />
       </div>
 

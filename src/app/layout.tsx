@@ -1,9 +1,14 @@
 import type { Metadata, Viewport } from "next";
 
+import { Suspense } from "react";
+
+import { NavigationFeedback } from "@/components/board/navigation-feedback";
+import { OfflineBanner } from "@/components/board/offline-banner";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { shortLocationLabel } from "@/lib/location";
 import { getCurrentUser } from "@/server/authz/guards";
+import { getBoardLang } from "@/server/board-lang";
 import { getCustomerLocation } from "@/server/location";
 import { listAddresses } from "@/server/services/addresses";
 import { getCartItemCount } from "@/server/services/cart";
@@ -64,16 +69,23 @@ export default async function RootLayout({
   const referralLinks = user
     ? await Promise.all([getRule("customerSignupReferral"), getRule("customerReferrals")])
         .then(([signup, friends]) => [
-          ...(signup.enabled ? [{ href: "/referral", label: "My referral code" }] : []),
-          ...(friends.enabled ? [{ href: "/refer", label: "Invite friends" }] : []),
+          ...(signup.enabled ? [{ href: "/referral", key: "referral" as const }] : []),
+          ...(friends.enabled ? [{ href: "/refer", key: "invite" as const }] : []),
         ])
         .catch(() => [])
     : [];
+  const lang = await getBoardLang();
 
   return (
     <html lang="en">
       <body className="min-h-screen bg-cream-50">
+        <OfflineBanner lang={lang} />
+        {/* useSearchParams needs a boundary; it renders nothing until a link is tapped. */}
+        <Suspense fallback={null}>
+          <NavigationFeedback lang={lang} />
+        </Suspense>
         <SiteHeader
+          lang={lang}
           user={user}
           roles={roles}
           cartCount={cartCount}

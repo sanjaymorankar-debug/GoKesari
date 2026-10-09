@@ -172,7 +172,7 @@ function ShopBadges({ shop }: { shop: ShopCardData }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
       <Badge>{shop.typeLabel}</Badge>
-      <Badge tone={shop.open ? "success" : "danger"}>{shop.hoursLabel}</Badge>
+      <Badge tone={shop.open ? "success" : "neutral"}>{shop.hoursLabel}</Badge>
       {shop.isNew ? <Badge tone="warning">New</Badge> : null}
     </div>
   );

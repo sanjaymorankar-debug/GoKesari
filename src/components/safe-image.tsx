@@ -21,15 +21,25 @@ export function SafeImage({
   alt,
   className,
   size,
+  fallbackEmoji,
 }: {
   src: string | null | undefined;
   alt: string;
   className?: string;
   /** Module 1: ask for a processed photo's smaller copy (ignored for other images). */
   size?: ImageSize;
+  /** No photo: a category picture on a tinted tile instead of the grey placeholder. */
+  fallbackEmoji?: string;
 }) {
   const [failed, setFailed] = useState(false);
   const url = sizedImageUrl(src, size);
+  if ((!url || failed) && fallbackEmoji) {
+    return (
+      <span role="img" aria-label={alt} className={`grid place-items-center bg-kesari-50 text-5xl ${className ?? ""}`} data-testid="image-fallback">
+        <span aria-hidden>{fallbackEmoji}</span>
+      </span>
+    );
+  }
   return (
     // eslint-disable-next-line @next/next/no-img-element
     <img

@@ -1,73 +1,38 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 
-import { ShopBoard } from "@/components/board/shop-board";
-import { ExcelPriceUpload } from "@/components/excel-price-upload";
-import { ShopCategoriesEditor } from "@/components/shop-categories-editor";
-import { UnsavedChangesProvider } from "@/components/unsaved-changes-guard";
-import { ShopDashboardView } from "@/components/shop-dashboard";
-import { PendingPriceApprovals } from "@/components/pending-price-approvals";
-import { RegistrationPanel } from "@/components/registration-panel";
-import { ShopGstPanForm } from "@/components/shop-gst-pan-form";
-import { ShopLocationSettingsForm } from "@/components/shop-location-settings-form";
-import { ShopProductManager } from "@/components/shop-product-manager";
-import { ShopSettingsForm } from "@/components/shop-settings-form";
-import { ShopCustomerContactForm } from "@/components/shop-customer-contact-form";
-import {
-  Alert,
-  Badge,
-  Card,
-  ClassificationBadge,
-  EmptyState,
-  LinkButton,
-  Money,
-  PageHeader,
-  StatusBadge,
-} from "@/components/ui";
-import { addDays, todayIn } from "@/lib/dates";
-import { getEnv } from "@/lib/env";
-import { formatQuantity } from "@/lib/money";
+import { HashRedirect } from "@/components/board/hash-redirect";
+import { ShopBoard, type ShopAlert } from "@/components/board/shop-board";
+import { EmptyState, LinkButton, PageHeader } from "@/components/ui";
+import { tr, UI, type Lang } from "@/lib/board/i18n";
+import { ONBOARDING_STAGE_LABELS, ownerNextAction } from "@/lib/shop-onboarding";
 import { getCurrentUser } from "@/server/authz/guards";
 import { loadShopBoard } from "@/server/board-data";
 import { getBoardHeaderData } from "@/server/board-header-data";
 import { getBoardLang } from "@/server/board-lang";
-import {
-  listShopProducts,
-  suggestProductsForShop,
-} from "@/server/services/catalogue";
-import { getMaskedPan } from "@/server/services/gst-pan-verification";
-import { listOrdersForShop } from "@/server/services/orders";
-import { listPendingForShop } from "@/server/services/price-requests";
-import { getReferralCodeById } from "@/server/services/referrals";
-import { listPaymentsForShop } from "@/server/services/shop-payments";
-import { getShopDashboard } from "@/server/services/dashboards";
-import { getShopCategories } from "@/server/services/shop-categories";
-import { getActiveSuspension } from "@/server/services/shop-suspension";
-import { listShopsForOwner } from "@/server/services/shops";
-import { getShopOnboarding } from "@/server/services/shop-onboarding";
-import { listSubscriptionDeliveries } from "@/server/services/subscription-schedule";
-import { getRule } from "@/server/services/settings";
-import { missedAcceptances30d } from "@/server/services/shop-acceptance";
-import { DeliveryStatusBadge, SubscriptionDeliveryList } from "@/components/subscription-delivery-list";
-import {
-  ONBOARDING_STAGE_LABELS,
-  ONBOARDING_STAGE_TONES,
-  ownerNextAction,
-  SHOP_ONBOARDING_STAGES,
-  type ShopOnboardingStage,
-} from "@/lib/shop-onboarding";
-import { listSubscriptionOrdersForShop } from "@/server/services/subscriptions";
-import { ShopWalletBanner } from "@/components/shop-wallet-banner";
-import { LegalDocumentsBanner } from "@/components/legal-documents-banner";
-import { getShopLegalStatus } from "@/server/services/legal-documents";
-import { BankAccountPrompt } from "@/components/bank-account-prompt";
 import { shopBankPrompt } from "@/server/services/bank-accounts";
+import { getShopLegalStatus, type ShopLegalStatus } from "@/server/services/legal-documents";
+import { getShopOnboarding, type ShopOnboarding } from "@/server/services/shop-onboarding";
+import { getActiveSuspension } from "@/server/services/shop-suspension";
 import { getShopWalletStatus } from "@/server/services/shop-wallet";
+import { listShopsForOwner } from "@/server/services/shops";
 
 export const metadata = { title: "My Shop" };
 export const dynamic = "force-dynamic";
 
-/** Shop owner dashboard (§40, §50). Scoped strictly to the owner's own shop. */
+/** Links into the old long dashboard (`/shop#products`) → the section's own page. */
+const OLD_SECTIONS: Record<string, string> = {
+  "excel-upload": "/shop/prices#excel-upload",
+  location: "/shop/manage/location",
+  products: "/shop/manage/products",
+  registration: "/shop/manage/registration",
+};
+
+/**
+ * Shop owner home (§40, §50): the Tile Board — account alerts, "Do now" and
+ * all sixteen menus on one screen. What the old dashboard held below the
+ * board now lives on its own pages under /shop/manage, opened from the
+ * board (Today's work, products, Excel upload, area, hours, GST & PAN…).
+ */
 export default async function ShopDashboardPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
@@ -87,450 +52,88 @@ export default async function ShopDashboardPage() {
   }
 
   const shop = shops[0];
-  const today = todayIn(getEnv().APP_TIMEZONE);
-  const suspension = shop.status === "SUSPENDED" ? await getActiveSuspension(shop.id) : null;
-  // SM-002: which onboarding stage the shop is at and what the owner does next.
-  const onboarding = shop.status === "PENDING_APPROVAL" ? (await getShopOnboarding([shop.id])).get(shop.id) : undefined;
-  const nextStep = onboarding ? ownerNextAction(onboarding) : null;
-  const shopCategoryList = await getShopCategories(shop.id);
-  // Live figures for the operator's day — only for a shop that trades.
-  const dashboard = shop.status === "APPROVED" || shop.status === "SUSPENDED" ? await getShopDashboard(shop.id, user.id) : null;
-
-  const [
-    products,
-    directOrders,
-    subscriptionOrders,
-    suggestions,
-    pendingApprovals,
-    payments,
-    referral,
-  ] = await Promise.all([
-    listShopProducts(shop.id),
-    listOrdersForShop(shop.id, { source: "DIRECT", limit: 20 }),
-    listSubscriptionOrdersForShop(shop.id, today),
-    suggestProductsForShop(shop.id),
-    listPendingForShop(shop.id),
-    listPaymentsForShop(shop.id),
-    shop.referralCodeId ? getReferralCodeById(shop.referralCodeId) : null,
-  ]);
-  // NEW-007: the acceptance timeout and how often this shop has let it run out.
-  const [acceptanceRule, missedAcceptances, wallet] = await Promise.all([
-    getRule("shopAcceptance"),
-    missedAcceptances30d(shop.id),
+  const [lang, header, board, suspension, onboarding, wallet, legalStatus, bankPrompt] = await Promise.all([
+    getBoardLang(),
+    getBoardHeaderData(user),
+    loadShopBoard(shop.id, user),
+    shop.status === "SUSPENDED" ? getActiveSuspension(shop.id) : Promise.resolve(null),
+    shop.status === "PENDING_APPROVAL" ? getShopOnboarding([shop.id]).then((m) => m.get(shop.id)) : Promise.resolve(undefined),
     getShopWalletStatus(shop.id),
+    getShopLegalStatus(shop.id),
+    shopBankPrompt(shop.id),
   ]);
-  // Mandatory legal documents (docs/four-features-2026-10): prompt, grace period, expiry reminder.
-  const legalStatus = await getShopLegalStatus(shop.id);
-  // Bank accounts (docs/four-features-2026-10): payouts need a verified account — a prompt, not a lockout.
-  const bankPrompt = await shopBankPrompt(shop.id);
-  const upcomingDeliveries = await listSubscriptionDeliveries({
-    shopId: shop.id,
-    from: addDays(today, 1),
-    until: addDays(today, 8),
+
+  const alerts = shopAlerts(lang, {
+    status: shop.status,
+    suspensionReason: suspension?.reason ?? null,
+    rejectionReason: shop.rejectionReason,
+    onboarding,
+    wallet,
+    legalStatus,
+    bankPrompt,
   });
-
-  const alreadyListed = new Set(products.map((p) => p.productId));
-  const availableToAdd = suggestions.filter((p) => !alreadyListed.has(p.id));
-
-  // Tile Board (approved design "Theme 1 Tile Board"): the first screen is
-  // the board; the full dashboard follows below it, unchanged.
-  const [lang, header, board] = await Promise.all([getBoardLang(), getBoardHeaderData(user), loadShopBoard(shop.id, user)]);
 
   return (
     <>
-      <ShopBoard lang={lang} user={user} header={header} shop={{ name: shop.name, slug: shop.slug }} data={board} />
-
-      <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
-      <PageHeader
-        title={shop.name}
-        description={
-          <>
-            Owner: <span className="font-bold text-ink-900">{shop.ownerName}</span>
-            {` · ${[shop.area, shop.city].filter(Boolean).join(", ")} — ${shop.pincode}`}
-          </>
-        }
-        action={
-          <Link
-            href={`/shops/${shop.slug}`}
-            className="text-sm font-medium text-kesari-600 hover:underline"
-          >
-            View public page →
-          </Link>
-        }
-      />
-
-      {/* Shop wallet: "recharge wallet" while it is low or below the minimum. */}
-      <ShopWalletBanner {...wallet} />
-      <LegalDocumentsBanner status={legalStatus} />
-      {bankPrompt ? <BankAccountPrompt status={bankPrompt} href="/shop/bank-account" purpose="payouts" /> : null}
-
-      <div className="mb-6 flex flex-wrap gap-2">
-        {onboarding ? (
-          <Badge tone={ONBOARDING_STAGE_TONES[onboarding.stage]}>{ONBOARDING_STAGE_LABELS[onboarding.stage]}</Badge>
-        ) : (
-          <StatusBadge status={shop.status} />
-        )}
-        <ClassificationBadge value={shop.classification} />
-        <Badge>{shop.shopType}</Badge>
-      </div>
-
-      {shop.status === "PENDING_APPROVAL" ? (
-        <div className="mb-6" data-testid="onboarding-stage">
-          <Alert
-            tone={onboarding?.stage === "VERIFIED" ? "success" : "warning"}
-            title={onboarding ? `Awaiting approval — ${ONBOARDING_STAGE_LABELS[onboarding.stage].toLowerCase()}` : "Awaiting approval"}
-          >
-            <OnboardingSteps current={onboarding?.stage ?? "KYC_PENDING"} />
-            {nextStep ? (
-              <span className="mt-2 block">
-                <span className="font-medium">Next: </span>
-                {nextStep.text}{" "}
-                <Link href={nextStep.href} className="font-medium underline">
-                  {nextStep.linkLabel}
-                </Link>
-              </span>
-            ) : null}
-            <span className="mt-2 block">
-              You can add products now — they go live as soon as the shop is approved.
-            </span>
-          </Alert>
-        </div>
-      ) : null}
-      {shop.status === "SUSPENDED" ? (
-        <div className="mb-6" data-testid="suspension-notice">
-          <Alert tone="danger" title="Your shop is suspended">
-            <span className="block">
-              {suspension
-                ? `Since ${suspension.effectiveAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}. Reason: ${suspension.reason}`
-                : "Please contact support for details."}
-            </span>
-            {suspension ? <span className="mt-1 block">What to do: {suspension.expectedAction}</span> : null}
-            <span className="mt-1 block">
-              New orders are switched off. Orders already on the road should still be completed; any order
-              our team is reviewing will be resolved for you.
-            </span>
-          </Alert>
-        </div>
-      ) : null}
-      {shop.status === "REJECTED" ? (
-        <div className="mb-6">
-          <Alert tone="danger" title="Registration rejected">
-            {shop.rejectionReason ?? "Please contact support for details."}
-            <span className="mt-2 block">
-              <Link href="/shop/register" className="font-medium underline">
-                Correct the details and resubmit
-              </Link>{" "}
-              — this updates the same registration; it does not create a new one.
-            </span>
-          </Alert>
-        </div>
-      ) : null}
-
-      {acceptanceRule.enabled && shop.status === "APPROVED" ? (
-        <p className="mb-4 text-sm text-ink-600" data-testid="missed-acceptances">
-          New orders must be accepted within {acceptanceRule.acceptMinutes} min or they are cancelled automatically.{" "}
-          {missedAcceptances > 0 ? (
-            <strong className="text-red-700">{missedAcceptances} missed in the last 30 days.</strong>
-          ) : (
-            "None missed in the last 30 days."
-          )}
-        </p>
-      ) : null}
-
-      {dashboard ? <ShopDashboardView data={dashboard} /> : null}
-
-      {/* Subscription orders are separated from normal orders per §40. */}
-      <section className="mb-8">
-        <h2 className="mb-3 text-lg font-semibold text-ink-900">
-          Today&apos;s subscription deliveries ({subscriptionOrders.length})
-        </h2>
-        {subscriptionOrders.length === 0 ? (
-          <EmptyState title="No subscription deliveries scheduled for today." />
-        ) : (
-          <Card className="divide-y divide-cream-200">
-            {subscriptionOrders.map((row) => (
-              <div
-                key={row.subscriptionOrder.id}
-                className="flex flex-wrap items-center justify-between gap-2 p-4"
-              >
-                <div>
-                  <p className="font-medium text-ink-900">
-                    {row.productName} ·{" "}
-                    {formatQuantity(
-                      row.subscriptionOrder.quantityMilli,
-                      row.unit,
-                    )}
-                  </p>
-                  <p className="text-xs text-ink-500">
-                    {row.orderNumber ?? "—"} · subscription{" "}
-                    {row.subscriptionId.slice(0, 8)}
-                  </p>
-                </div>
-                <div className="flex items-center gap-2">
-                  <DeliveryStatusBadge status={row.subscriptionOrder.status} />
-                  <Money paise={row.subscriptionOrder.totalPaise} />
-                </div>
-              </div>
-            ))}
-          </Card>
-        )}
-      </section>
-
-      {/* SM-004: what the coming days hold, each delivery with its own status. */}
-      {upcomingDeliveries.length > 0 ? (
-        <section className="mb-8">
-          <SubscriptionDeliveryList
-            title={`Upcoming subscription deliveries (${upcomingDeliveries.filter((d) => d.delivery.status === "SCHEDULED").length} scheduled)`}
-            description="The next seven days. Skipped days are shown so you can plan stock."
-            showCustomer
-            rows={upcomingDeliveries.map((d) => ({
-              id: d.delivery.id,
-              deliveryDate: d.delivery.deliveryDate,
-              status: d.delivery.status,
-              quantityMilli: d.delivery.quantityMilli,
-              reason: d.delivery.reason,
-              orderNumber: d.orderNumber,
-              customerName: d.customerName,
-              productName: `${d.productName}${d.delivery.quantityMilli ? ` · ${formatQuantity(d.delivery.quantityMilli, d.unit)}` : ""}`,
-            }))}
-          />
-        </section>
-      ) : null}
-
-      <section className="mb-8">
-        <h2 className="mb-3 text-lg font-semibold text-ink-900">
-          Recent orders ({directOrders.length})
-        </h2>
-        {directOrders.length === 0 ? (
-          <EmptyState title="No orders yet." />
-        ) : (
-          <Card className="divide-y divide-cream-200">
-            {directOrders.map((order) => (
-              <div key={order.id} className="p-4">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="flex items-center gap-2">
-                    <StatusBadge status={order.status} />
-                    <span className="text-sm text-ink-500">
-                      {order.orderNumber}
-                    </span>
-                  </div>
-                  <Money paise={order.totalPaise} className="font-semibold" />
-                </div>
-                <ul className="mt-2 text-sm text-ink-600">
-                  {order.items.map((item) => (
-                    <li key={item.id}>
-                      {item.productNameSnapshot} ·{" "}
-                      {formatQuantity(item.quantityMilli, item.unitSnapshot)}
-                    </li>
-                  ))}
-                </ul>
-              </div>
-            ))}
-          </Card>
-        )}
-      </section>
-
-      {/* §2.4 — the owner's veto sits above the catalogue, because an operator's
-          proposal is the thing most likely to need action on any given visit. */}
-      {pendingApprovals.length > 0 ? (
-        <section className="mb-8">
-          <h2 className="mb-3 text-lg font-semibold text-ink-900">
-            Price updates awaiting your approval ({pendingApprovals.length})
-          </h2>
-          <PendingPriceApprovals
-            rows={pendingApprovals.map((r) => ({
-              id: r.id,
-              productName: r.productName,
-              productCode: r.productCode,
-              unit: r.unit,
-              priceType: r.priceType,
-              previousPricePaise: r.previousPricePaise,
-              proposedPricePaise: r.proposedPricePaise,
-              source: r.source,
-              createdAt: r.createdAt.toISOString(),
-            }))}
-          />
-        </section>
-      ) : null}
-
-      <div className="mb-8" id="registration">
-        <RegistrationPanel
-          details={{
-            registrationNumber: shop.registrationNumber,
-            registrationDate: shop.registrationDate,
-            shopName: shop.name,
-            ownerName: shop.ownerName,
-            phone: shop.phone,
-            email: shop.email,
-            address: [shop.addressLine1, shop.area, shop.city, shop.pincode]
-              .filter(Boolean)
-              .join(", "),
-            shopType: shop.shopType,
-            classification: shop.classification,
-            status: shop.status,
-            referralCode: referral?.code ?? null,
-            registrationFeePaise: shop.registrationFeePaise,
-            amountPaidPaise: shop.amountPaidPaise,
-            feePaymentStatus: shop.feePaymentStatus,
-          }}
-          payments={payments.map((p) => ({
-            id: p.id,
-            reference: p.reference,
-            paymentType: p.paymentType,
-            amountPaise: p.amountPaise,
-            method: p.method,
-            transactionId: p.transactionId,
-            paidAt: p.paidAt.toISOString(),
-            note: p.note,
-            receiptUrl: p.receiptUrl,
-          }))}
-        />
-      </div>
-
-      <div id="excel-upload" className="mb-8">
-        <ExcelPriceUpload shopId={shop.id} appliesImmediately />
-      </div>
-
-      <div className="mb-8">
-        <ShopCustomerContactForm
-          shopId={shop.id}
-          initial={{ contactPhone: shop.contactPhone, whatsappNumber: shop.whatsappNumber }}
-        />
-      </div>
-
-      <div className="mb-8">
-        <ShopSettingsForm shopId={shop.id} initialHours={shop.openingHours} />
-      </div>
-
-      <div className="mb-8">
-        <ShopGstPanForm
-          settings={{
-            shopId: shop.id,
-            gstStatus: shop.gstStatus,
-            gstin: shop.gstin,
-            panStatus: shop.panStatus,
-            panMasked: getMaskedPan(shop),
-          }}
-        />
-      </div>
-
-      <div className="mb-8">
-        <Card className="flex flex-wrap items-center justify-between gap-2 p-4 text-sm" data-testid="verification-link">
-          <span>
-            <span className="font-medium text-ink-900">Shop verification</span>
-            <span className="block text-ink-500">
-              PAN, GST, Udyam, FSSAI and Shop Act — checked with the government records.
-            </span>
-          </span>
-          <Link href="/shop/verification" className="font-medium text-kesari-700 underline">
-            Verify documents
-          </Link>
-        </Card>
-      </div>
-
-      <div className="mb-8">
-        <Card className="flex flex-wrap items-center justify-between gap-2 p-4 text-sm" data-testid="photo-catalogue-link">
-          <span>
-            <span className="font-medium text-ink-900">Photo catalogue</span>
-            <span className="block text-ink-500">
-              Every product with its photo and price, as customers see them. Add photos and set prices in one place.
-            </span>
-          </span>
-          <Link href="/shop/catalogue" className="font-medium text-kesari-700 underline">
-            Open photo catalogue
-          </Link>
-        </Card>
-      </div>
-
-      <div className="mb-8">
-        <Card className="flex flex-wrap items-center justify-between gap-2 p-4 text-sm" data-testid="product-categories-link">
-          <span>
-            <span className="font-medium text-ink-900">Product categories</span>
-            <span className="block text-ink-500">
-              Your shop sees every product in the categories it carries when you add products.
-            </span>
-          </span>
-          <Link href="/shop/product-categories" className="font-medium text-kesari-700 underline">
-            Manage product categories
-          </Link>
-        </Card>
-      </div>
-
-      <div className="mb-8">
-        <UnsavedChangesProvider>
-          <ShopCategoriesEditor
-            shopId={shop.id}
-            shopName={shop.name}
-            current={shopCategoryList.map((c) => ({ id: c.id, name: c.name, status: c.status }))}
-          />
-        </UnsavedChangesProvider>
-      </div>
-
-      <div id="location" className="mb-8">
-        <ShopLocationSettingsForm
-          settings={{
-            shopId: shop.id,
-            latitude: shop.latitude,
-            longitude: shop.longitude,
-            locationVerified: shop.locationVerified,
-            pickupLatitude: shop.pickupLatitude,
-            pickupLongitude: shop.pickupLongitude,
-            serviceRadiusKm: shop.serviceRadiusKm,
-            deliveryPincodes: shop.deliveryPincodes,
-            minOrderPaise: shop.minOrderPaise,
-            ordersPaused: shop.ordersPaused,
-            pickupInstructions: shop.pickupInstructions,
-          }}
-        />
-      </div>
-
-      <div id="products">
-      <ShopProductManager
-        shopId={shop.id}
-        department={shop.shopType}
-        products={products.map((p) => ({
-          id: p.id,
-          productName: p.product.name,
-          categoryName: p.category.name,
-          unit: p.product.unit,
-          // The photo customers see, as the storefront picks it.
-          imageUrl: p.imageUrl ?? p.product.imageUrl,
-          onlinePricePaise: p.onlinePricePaise,
-          offlinePricePaise: p.offlinePricePaise,
-          onlineSaleEnabled: p.onlineSaleEnabled,
-          offlineSaleEnabled: p.offlineSaleEnabled,
-          onlineStock: p.onlineStock,
-          trackInventory: p.trackInventory,
-          isActive: p.isActive,
-          isAvailable: p.isAvailable,
-          paused: p.categoryCarried === false,
-        }))}
-        suggestions={availableToAdd.map((p) => ({
-          id: p.id,
-          name: p.name,
-          unit: p.unit,
-          categoryName: p.category.name,
-          department: p.category.department,
-        }))}
-      />
-      </div>
-      </div>
+      <HashRedirect map={OLD_SECTIONS} />
+      <ShopBoard lang={lang} user={user} header={header} shop={{ name: shop.name, slug: shop.slug }} data={board} alerts={alerts} />
     </>
   );
 }
 
-/** SM-002: the three onboarding steps, the current one highlighted, earlier ones ticked. */
-function OnboardingSteps({ current }: { current: ShopOnboardingStage }) {
-  const at = SHOP_ONBOARDING_STAGES.indexOf(current);
-  const steps = ["Documents verified (KYC)", "Registration fee paid", "Approved by GoKesari"];
-  return (
-    <ol className="mt-1 flex flex-wrap gap-x-4 gap-y-1 text-sm">
-      {steps.map((label, i) => (
-        <li key={label} className={i === at ? "font-semibold" : "text-ink-500"}>
-          {i < at ? "✓ " : `${i + 1}. `}
-          {label}
-        </li>
-      ))}
-    </ol>
-  );
+/**
+ * What the owner must act on, most serious first — the same conditions the
+ * old dashboard's notices used, now on the first screen instead of below it.
+ */
+function shopAlerts(
+  lang: Lang,
+  s: {
+    status: string;
+    suspensionReason: string | null;
+    rejectionReason: string | null;
+    onboarding: ShopOnboarding | undefined;
+    wallet: Awaited<ReturnType<typeof getShopWalletStatus>>;
+    legalStatus: ShopLegalStatus;
+    bankPrompt: Awaited<ReturnType<typeof shopBankPrompt>>;
+  },
+): ShopAlert[] {
+  const out: ShopAlert[] = [];
+  const today = "/shop/manage/today";
+  if (s.status === "SUSPENDED") {
+    out.push({ key: "suspended", tone: "danger", icon: "lock", title: tr(UI.shopSuspended, lang), detail: s.suspensionReason, action: tr(UI.details, lang), href: today });
+  }
+  if (s.status === "REJECTED") {
+    out.push({ key: "rejected", tone: "danger", icon: "circle-alert", title: tr(UI.registrationRejected, lang), detail: s.rejectionReason, action: tr(UI.fixNow, lang), href: "/shop/register" });
+  }
+  const docs = s.legalStatus.enabled ? s.legalStatus.documents : [];
+  const blocking = docs.filter((d) => d.blocking);
+  if (s.wallet.enabled && !s.wallet.canAcceptOrders) {
+    out.push({ key: "wallet", tone: "danger", icon: "wallet", title: tr(UI.rechargeWallet, lang), action: tr(UI.recharge, lang), href: "/shop/wallet" });
+  }
+  if (blocking.length > 0) {
+    out.push({ key: "legal", tone: "danger", icon: "file-check", title: tr(UI.legalDocsDue, lang), detail: blocking.map((d) => d.label).join(", "), action: tr(UI.upload, lang), href: "/shop/legal-documents" });
+  }
+  if (s.status === "PENDING_APPROVAL") {
+    const next = s.onboarding ? ownerNextAction(s.onboarding) : null;
+    out.push({
+      key: "approval",
+      tone: "warning",
+      icon: "clock",
+      title: `${tr(UI.awaitingApproval, lang)}${s.onboarding ? ` — ${ONBOARDING_STAGE_LABELS[s.onboarding.stage].toLowerCase()}` : ""}`,
+      detail: next?.text ?? null,
+      action: next ? tr(UI.next, lang) : tr(UI.details, lang),
+      href: next?.href ?? today,
+    });
+  }
+  if (s.wallet.enabled && s.wallet.canAcceptOrders && s.wallet.lowBalance) {
+    out.push({ key: "walletLow", tone: "warning", icon: "wallet", title: tr(UI.rechargeWallet, lang), action: tr(UI.recharge, lang), href: "/shop/wallet" });
+  }
+  const pending = docs.filter((d) => !d.blocking && (d.deadline || d.expiringSoon));
+  if (blocking.length === 0 && pending.length > 0) {
+    out.push({ key: "legalSoon", tone: "warning", icon: "file-check", title: tr(UI.legalDocsDue, lang), detail: pending.map((d) => d.label).join(", "), action: tr(UI.upload, lang), href: "/shop/legal-documents" });
+  }
+  if (s.bankPrompt && s.bankPrompt !== "VERIFIED") {
+    out.push({ key: "bank", tone: "warning", icon: "landmark", title: tr(UI.addPayoutBank, lang), action: tr(UI.fixNow, lang), href: "/shop/bank-account" });
+  }
+  return out;
 }

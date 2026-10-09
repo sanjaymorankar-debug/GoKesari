@@ -334,7 +334,7 @@ export function AddRiderForm({ societyId }: { societyId: string }) {
 
 export function RiderLinkActions({ linkId, status, preferred }: { linkId: string; status: string; preferred: boolean }) {
   const { busy, error, send } = useSend();
-  if (status !== "ACTIVE") return <span className="text-xs text-ink-400">revoked</span>;
+  if (status !== "ACTIVE") return <span className="text-xs text-ink-500">revoked</span>;
   return (
     <span className="flex items-center gap-2">
       <Button

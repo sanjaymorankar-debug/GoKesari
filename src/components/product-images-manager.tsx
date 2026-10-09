@@ -118,7 +118,7 @@ export function ProductImagesManager({
             ) : null}
             <div className="flex items-center justify-between">
               <span className="flex items-center gap-1">
-                {image.isPrimary ? <Badge tone="success">Primary</Badge> : <span className="text-xs text-ink-400">#{index + 1}</span>}
+                {image.isPrimary ? <Badge tone="success">Primary</Badge> : <span className="text-xs text-ink-500">#{index + 1}</span>}
                 {image.moderationStatus === "PENDING" ? <Badge tone="warning">Awaiting approval</Badge> : null}
                 {image.moderationStatus === "REJECTED" ? <Badge tone="danger">Not approved</Badge> : null}
               </span>

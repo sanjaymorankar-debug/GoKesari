@@ -211,17 +211,20 @@ export function Button({
   size?: "sm" | "md" | "lg";
 }) {
   const variants = {
+    // Disabled buttons stay readable (ink-600 on cream-200 is 6.6:1) instead of fading to 1.7:1,
+    // so it is clear what the button is even while it cannot be used yet.
     primary:
-      "bg-kesari-600 text-white hover:bg-kesari-800 disabled:bg-kesari-300",
+      "bg-kesari-600 text-white hover:bg-kesari-800 disabled:bg-cream-200 disabled:text-ink-600",
     secondary:
-      "border border-cream-200 bg-white text-ink-700 hover:bg-cream-100 disabled:text-ink-400",
-    ghost: "text-ink-600 hover:bg-cream-100",
-    danger: "bg-red-600 text-white hover:bg-red-700 disabled:bg-red-300",
+      "border border-cream-200 bg-white text-ink-700 hover:bg-cream-100 disabled:bg-cream-100 disabled:text-ink-600",
+    ghost: "text-ink-600 hover:bg-cream-100 disabled:text-ink-500",
+    danger: "bg-red-700 text-white hover:bg-red-800 disabled:bg-cream-200 disabled:text-ink-600",
   } as const;
+  // Touch targets: 44 px for normal and large buttons, 40 px for small ones in dense rows.
   const sizes = {
-    sm: "px-2.5 py-1.5 text-xs",
-    md: "px-4 py-2 text-sm",
-    lg: "px-5 py-2.5 text-base",
+    sm: "min-h-10 px-3 py-1.5 text-sm",
+    md: "min-h-11 px-4 py-2 text-sm",
+    lg: "min-h-12 px-5 py-2.5 text-base",
   } as const;
 
   return (
@@ -255,7 +258,7 @@ export function LinkButton({
     <Link
       href={href}
       className={clsx(
-        "inline-flex items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
+        "inline-flex min-h-11 items-center justify-center gap-1.5 rounded-lg px-4 py-2 text-sm font-medium transition-colors",
         variant === "primary"
           ? "bg-kesari-600 text-white hover:bg-kesari-800"
           : "border border-cream-200 bg-white text-ink-700 hover:bg-cream-100",

@@ -3,6 +3,7 @@ import { AuthError } from "next-auth";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 
 import { OtpLoginForm } from "@/components/otp-login-form";
+import { ConsentSubmitButton, SignInConsentCheckbox, SignInConsentProvider } from "@/components/signin-consent";
 import { Card } from "@/components/ui";
 import { getEnv } from "@/lib/env";
 import { isMobileAppUserAgent } from "@/lib/mobile-app";
@@ -73,10 +74,14 @@ export default async function SignInPage({
   return (
     <div className="mx-auto max-w-md py-8">
       <Card className="p-8">
+        <SignInConsentProvider>
         <h1 className="text-2xl font-semibold text-ink-900">Sign in</h1>
         <p className="mt-1 text-sm text-ink-500">
           A wallet is created for you automatically on first sign-in.
         </p>
+
+        {/* One agreement for every sign-in method below. */}
+        <SignInConsentCheckbox className="mt-6" />
 
         {accessDenied ? (
           <p
@@ -100,26 +105,9 @@ export default async function SignInPage({
               await signIn("google", { redirectTo: AFTER_SIGN_IN });
             }}
           >
-            <label className="mb-3 flex items-start gap-2 text-xs text-ink-600">
-              <input type="checkbox" required className="mt-0.5" />
-              <span>
-                I agree to the{" "}
-                <a href="/legal/terms" target="_blank" className="underline">
-                  Terms &amp; Conditions
-                </a>{" "}
-                and{" "}
-                <a href="/legal/privacy-policy" target="_blank" className="underline">
-                  Privacy Policy
-                </a>
-                .
-              </span>
-            </label>
-            <button
-              type="submit"
-              className="flex w-full items-center justify-center gap-2 rounded-lg border border-cream-200 bg-white px-4 py-2.5 text-sm font-medium text-ink-700 hover:bg-cream-100"
-            >
+            <ConsentSubmitButton className="flex w-full items-center justify-center gap-2 rounded-lg border border-cream-200 bg-white px-4 py-2.5 text-sm font-medium text-ink-700 hover:bg-cream-100 disabled:cursor-not-allowed disabled:opacity-50">
               Continue with Google
-            </button>
+            </ConsentSubmitButton>
           </form>
         ) : (
           <p className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
@@ -170,27 +158,10 @@ export default async function SignInPage({
                 placeholder="you@example.com"
                 className="min-w-0 flex-1 rounded-lg border border-cream-200 px-3 py-2 text-sm focus:border-kesari-500 focus:outline-none"
               />
-              <button
-                type="submit"
-                className="rounded-lg border border-cream-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 hover:bg-cream-100"
-              >
+              <ConsentSubmitButton className="rounded-lg border border-cream-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 hover:bg-cream-100 disabled:cursor-not-allowed disabled:opacity-50">
                 Email me a link
-              </button>
+              </ConsentSubmitButton>
             </div>
-            <label className="mt-3 flex items-start gap-2 text-xs text-ink-600">
-              <input type="checkbox" required className="mt-0.5" />
-              <span>
-                I agree to the{" "}
-                <a href="/legal/terms" target="_blank" className="underline">
-                  Terms &amp; Conditions
-                </a>{" "}
-                and{" "}
-                <a href="/legal/privacy-policy" target="_blank" className="underline">
-                  Privacy Policy
-                </a>
-                .
-              </span>
-            </label>
           </form>
         ) : null}
 
@@ -228,6 +199,7 @@ export default async function SignInPage({
             </p>
           </form>
         ) : null}
+        </SignInConsentProvider>
       </Card>
     </div>
   );

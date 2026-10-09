@@ -85,13 +85,25 @@ export default async function ShopPage({
           <div className="mt-1">
             <RatingBadge avgX100={shop.ratingAvgX100} count={shop.ratingCount} />
           </div>
+          <p className="mt-2 text-sm font-medium text-ink-700" data-testid="shop-delivery-line">
+            {shop.deliveryAvailable
+              ? `Delivery ₹${(shop.deliveryFeePaise / 100).toFixed(0)}${
+                  shop.freeDeliveryAbovePaise ? `, free above ₹${(shop.freeDeliveryAbovePaise / 100).toFixed(0)}` : ""
+                }`
+              : "Pickup only"}
+          </p>
+          {/* Products first: address, hours, owner and reviews open on request (they used to fill the first screen). */}
+          <details className="mt-2" data-testid="shop-info">
+            <summary className="flex min-h-11 cursor-pointer items-center gap-1 text-sm font-semibold text-kesari-800">
+              Shop info, opening hours and reviews
+            </summary>
           {reviews.length > 0 ? (
             <ul className="mt-2 space-y-1 text-sm text-ink-600" data-testid="shop-reviews">
               {reviews.slice(0, 5).map((review) => (
                 <li key={review.id}>
                   <span className="text-kesari-500">{"★".repeat(review.score)}</span>
                   {review.comment ? <> &ldquo;{review.comment}&rdquo;</> : null}
-                  <span className="text-xs text-ink-400"> — verified customer</span>
+                  <span className="text-xs text-ink-500"> — verified customer</span>
                 </li>
               ))}
             </ul>
@@ -144,6 +156,7 @@ export default async function ShopPage({
               </dd>
             </div>
           </dl>
+          </details>
         </div>
       </Card>
 
