@@ -864,6 +864,12 @@ export const RULES = {
     }),
     defaults: { required: false, duplicateWindowHours: 24, notifyEmails: ["referrals@gokesari.com"] },
   },
+  customerSignupReferral: {
+    description:
+      "Referral code at customer registration. When enabled, a new customer's first-time setup asks for a referral code (optional) and checks it: a code GoKesari issued (Admin → Referral codes, the same codes shop registration uses) is recorded against the customer; a friend's code (customerReferrals on) starts the friend reward. Only before the customer's first order.",
+    schema: z.object({ enabled: z.boolean() }),
+    defaults: { enabled: false },
+  },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;

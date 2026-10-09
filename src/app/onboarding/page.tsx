@@ -1,7 +1,10 @@
+import { cookies } from "next/headers";
 import { redirect } from "next/navigation";
 
 import { MobilePromptDialog, ProfileSetupWizard, type GenderValue } from "@/components/profile-setup";
+import { REFERRAL_COOKIE } from "@/lib/customer-referrals";
 import { getCurrentUser } from "@/server/authz/guards";
+import { shouldAskSignupReferral } from "@/server/services/customer-signup-referrals";
 import { getProfile, nextOnboardingStep } from "@/server/services/profile";
 
 export const metadata = { title: "Welcome" };
@@ -28,9 +31,14 @@ export default async function OnboardingPage() {
     );
   }
 
+  // Referral code at registration (docs/four-features-2026-10, rule customerSignupReferral).
+  const askReferral = await shouldAskSignupReferral(user.id);
+  const prefill = askReferral ? ((await cookies()).get(REFERRAL_COOKIE)?.value ?? "") : "";
+
   return (
     <div className="mx-auto max-w-2xl py-8">
       <ProfileSetupWizard
+        referral={askReferral ? { prefill } : null}
         initial={{
           name: profile.name ?? "",
           gender: (profile.gender ?? "") as GenderValue | "",

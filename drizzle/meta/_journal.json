@@ -470,6 +470,13 @@
       "when": 1791520329515,
       "tag": "0066_bank_refund_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 67,
+      "version": "7",
+      "when": 1791520797909,
+      "tag": "0067_customer_signup_referrals",
+      "breakpoints": true
     }
   ]
 }

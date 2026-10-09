@@ -5804,3 +5804,38 @@ export const bankRefundRequests = pgTable(
   ],
 );
 export type BankRefundRequest = typeof bankRefundRequests.$inferSelect;
+
+/* ===================================================================
+ * Referral code at customer registration (docs/four-features-2026-10,
+ * decided by the owner on 9 Oct 2026). Additive: migration 0067, rollback
+ * scripts/rollback-0067.sql.
+ * =================================================================== */
+
+/**
+ * The referral code a customer gave when they joined (first-time setup,
+ * services/customer-signup-referrals.ts, rule customerSignupReferral): a
+ * code GoKesari issued (referral_codes — the same codes shop registration
+ * checks) or a friend's code (customer_referral_codes, which also starts the
+ * existing friend reward in customer_referrals). One per customer.
+ */
+export const customerSignupReferrals = pgTable(
+  "customer_signup_referrals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: ["GOKESARI", "FRIEND"] }).notNull(),
+    /** GOKESARI: the issued code. */
+    referralCodeId: uuid("referral_code_id").references(() => referralCodes.id, { onDelete: "restrict" }),
+    /** The code as GoKesari issued it, or the friend's code. */
+    code: text("code").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("customer_signup_referrals_user_uq").on(t.userId),
+    index("customer_signup_referrals_code_idx").on(t.referralCodeId, t.createdAt),
+    check("customer_signup_referrals_kind", sql`${t.kind} <> 'GOKESARI' OR ${t.referralCodeId} IS NOT NULL`),
+  ],
+);
+export type CustomerSignupReferral = typeof customerSignupReferrals.$inferSelect;

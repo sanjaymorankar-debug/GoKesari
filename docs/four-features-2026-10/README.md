@@ -15,6 +15,14 @@ before.
 | 3 | Bank account details + ₹1 verification | `bankAccounts` | `drizzle/0063_bank_accounts.sql` | `scripts/rollback-0063.sql` |
 | 4 | Mandatory referral code + request a code | `shopReferral` | `drizzle/0064_referral_code_requests.sql` | `scripts/rollback-0064.sql` |
 
+Added on 9 Oct 2026 from the owner's answers to §6 (details in §2, "Decided by the owner"):
+
+| # | Change | Rule | Migration | Rollback |
+|---|---|---|---|---|
+| 1a | Pickup gives the customer's delivery fee back | `fulfilmentOptions.refundDeliveryFeeOnPickup` (on) | `drizzle/0065_pickup_delivery_fee_refund.sql` | `scripts/rollback-0065.sql` |
+| 3a | Refunds to a customer's bank | `bankRefunds` (off; on for test) | `drizzle/0066_bank_refund_requests.sql` | `scripts/rollback-0066.sql` |
+| 4a | Referral code checked at customer registration too | `customerSignupReferral` (off; on for test) | `drizzle/0067_customer_signup_referrals.sql` | `scripts/rollback-0067.sql` |
+
 Test checklist (every flow, every role): [TEST_CHECKLIST.md](TEST_CHECKLIST.md).
 Test results on test.gokesari.com, step by step: [TEST_RESULTS.md](TEST_RESULTS.md).
 
@@ -178,9 +186,9 @@ Decisions taken without asking, with the reason. Flag any you want changed.
 - **F1-8. Charges (as instructed, logged):** pickup and own-delivery orders are
   never charged the shop-wallet delivery charge (₹5/km on test) — the existing rule
   charges it only when a GoKesari rider delivered. The commission is charged from
-  the shop wallet on delivery as for every order. **The customer's delivery fee
-  paid at checkout is not changed** by the shop choosing pickup (no money flow
-  was changed); whether to refund it automatically is a decision for you (§6).
+  the shop wallet on delivery as for every order. *Superseded on 9 Oct 2026 by
+  the owner's decision O-1:* the customer's delivery fee is now given back when
+  the shop chooses pickup.
 - **F1-9. Cash on delivery**: whoever hands over (shop at the counter, delivery
   person) confirms "cash collected", as riders do.
 - **F1-10. Notifications**: customer in the app + email on set and on every
@@ -243,9 +251,9 @@ Decisions taken without asking, with the reason. Flag any you want changed.
   on gokesari.com (`AUTH_URL` host), where without keys verification is
   "not set up".
 - **F3-5. "Required before refunds to bank"**: refunds go to the GoKesari
-  wallet today (no refund-to-bank path exists). The guard
-  `assertCustomerBankRefundAllowed` is in place for any future bank refund;
-  customers are prompted at their first checkout and in My Profile.
+  wallet first. The guard `assertCustomerBankRefundAllowed` is used by the
+  refund-to-bank path added on 9 Oct 2026 (O-2). Customers are prompted at
+  their first checkout and in My Profile.
 - **F3-6. Payout gate** sits on the settlement actions that move money
   ("process" = sent to the bank, "pay"); approving a settlement is unaffected.
   Only the shop's owner can change its payout account; finance can view it.
@@ -272,6 +280,67 @@ Decisions taken without asking, with the reason. Flag any you want changed.
 - **F4-6. Issuing a code** creates an ordinary referral code labelled with the
   request reference (typed, or generated as `GKS` + 6 characters); the requester
   is told in the app and by email when they were signed in.
+
+### Decided by the owner (9 Oct 2026)
+The owner answered the open questions of §6. What was built:
+
+- **O-1. Pickup gives the customer's delivery fee back** (answer to F1-8: yes).
+  - **When:** as soon as the plan becomes pickup, at "mark ready" or by
+    changing the plan later. Once per order, recorded on the plan (`0065`).
+  - **How:** a wallet order is refunded to the wallet, the same way a removed
+    line is. A cash order is charged that much less.
+  - **The order's numbers:** its delivery fee and total drop by the amount.
+    So no delivery fee is booked as platform revenue at delivery, the invoice
+    shows none, and a later cancellation refunds only the rest.
+  - **Switching back** to a delivery option does not charge it again; the
+    shop chose to deliver after all.
+  - **Who is told:** the customer's "Ready for pickup" / "plan changed"
+    message says so. The shop's planner shows it before and after. The
+    customer's order card shows it.
+  - **Rule:** `fulfilmentOptions.refundDeliveryFeeOnPickup`, on by default.
+    An order with no delivery fee is unaffected.
+- **O-2. Refunds to a customer's bank** (answer to F3-5: yes). Refunds still
+  land in the wallet at once, as before. For `windowDays` (30) afterwards, the
+  customer can send one to their verified bank account from My Wallet.
+  - **What can be sent:** only the customer-funded part, never promotional
+    credit or a top-up, and only what is still in the wallet.
+  - **On request:** the amount leaves the wallet straight away.
+  - **Finance's side** (Admin → Refunds to bank, `FINANCE_*` permissions, so
+    admins): works it like a shop settlement. An audited look at the full
+    account, "sent from bank", then "paid" with the bank's reference (UTR),
+    or "failed" and the amount returns to the wallet.
+  - **Cancelling:** the customer can cancel until finance starts.
+  - **Who is told:** the customer by email and in the app at each step;
+    admins in the app.
+  - **Records:** table `bank_refund_requests` (`0066`).
+  - **Rule:** `bankRefunds`, **off by default**, on for test only.
+  - **No gateway payouts:** the site has no payouts product. Sending through
+    Cashfree Payouts would be a later change.
+  - **Before switching it on in production**, the Wallet Terms ("cannot be
+    withdrawn as cash or transferred to a bank account") and the Refund
+    Policy must be updated; suggested wording is in §5. Legal pages were not
+    changed.
+- **O-3. Referral code at customer registration** (answer: GoKesari owns
+  referrals@gokesari.com, defines the schemes and issues the codes, and the
+  app checks them whenever someone registers, shop owner or customer).
+  - **Where:** the customer's first-time setup now has a "Referral code"
+    field, prefilled from a `/r/CODE` link, checked when they continue.
+  - **A code GoKesari issued** (Admin → Referral codes; active, unexpired;
+    hyphens kept) is recorded against the customer.
+  - **A friend's code** (rule `customerReferrals` on) starts the existing
+    friend reward unchanged.
+  - **Limits:** once per customer, and only before the first order.
+  - **Admin view:** Admin → Referral requests shows how many customers joined
+    with each code.
+  - **Records:** table `customer_signup_referrals` (`0067`).
+  - **Rule:** `customerSignupReferral`, off by default, on for test.
+  - **Optional for now.** Making it mandatory for every customer (invite-only
+    sign-up) is an open question (§6). First-time setup can be skipped, so a
+    mandatory code would need checking at the first order.
+- **Answered with more detail, not yet decided:**
+  - **Hiding shops past their legal-document grace period:** options A, B
+    and C are in §6.
+  - **Cashfree's account-verification product:** recommendation in §6.
 
 ### Found and decided during the staging run (8–9 Oct 2026)
 - **S-1. Repeated requests are harmless.** On test a "Packed — mark ready"
@@ -327,18 +396,21 @@ All four are additive. **Migrate first, deploy second** (DEPLOY_RUNBOOK §0) —
 although this release tolerates the reverse order (G-5).
 
 **Test (automatic):** merging into `staging` runs the "Test database"
-workflow: back up → migrate 0061–0064 → apply `test-settings.sql` → verify.
+workflow: back up → migrate 0061–0067 → apply `test-settings.sql` → verify.
 Manual alternative: `DATABASE_URL=<test db> npm run db:migrate`, then
 `psql "$TEST_DATABASE_URL" -f docs/four-features-2026-10/test-settings.sql`.
 
 **Rollback** (each feature independently):
 1. Switch the feature off: Admin → Business rules → `fulfilmentOptions` /
-   `legalDocuments` / `bankAccounts` / `shopReferral` → Restore default. The app
+   `legalDocuments` / `bankAccounts` / `shopReferral` / `bankRefunds` /
+   `customerSignupReferral` → Restore default (or set
+   `fulfilmentOptions.refundDeliveryFeeOnPickup` to false). The app
    is then as before (planned orders already in progress still complete through
    their plan; finish them first if you roll back code).
 2. Code: revert the merge on `staging`; Hostinger redeploys.
-3. Schema (only after the old code is live): run `scripts/rollback-0064.sql`,
-   `-0063`, `-0062`, `-0061` (newest first, any subset), then delete their rows:
+3. Schema (only after the old code is live): run `scripts/rollback-0067.sql`,
+   `-0066`, `-0065`, `-0064`, `-0063`, `-0062`, `-0061` (newest first, any
+   subset; settle open refunds to bank before 0066), then delete their rows:
    `DELETE FROM drizzle.__drizzle_migrations WHERE created_at >= <0061 when>;`
    (`node -e "console.log(require('./drizzle/meta/_journal.json').entries.find(e=>e.tag.startsWith('0061_')).when)"`).
    Back up first — plans, documents, bank accounts and requests are lost.
@@ -374,6 +446,19 @@ New files (all under the paths below):
 * Tests: `tests/integration/fulfilment-options.test.ts`, `legal-documents.test.ts`,
   `bank-accounts.test.ts`, `referral-codes.test.ts`.
 * Docs: this folder.
+
+Added on 9 Oct 2026 (O-1 to O-3):
+* Migrations: `drizzle/0065_pickup_delivery_fee_refund.sql`, `0066_bank_refund_requests.sql`,
+  `0067_customer_signup_referrals.sql` (+ `drizzle/meta`), `scripts/rollback-0065.sql` … `rollback-0067.sql`.
+* Services: `src/server/services/bank-refunds.ts`, `customer-signup-referrals.ts`
+  (O-1 lives in `fulfilment-options.ts`: `refundDeliveryFeeForPickup`).
+* API: `src/app/api/bank-refunds/{route,[id]/cancel/route}.ts`,
+  `src/app/api/admin/bank-refunds/{route,[id]/route,[id]/account/route}.ts`,
+  `src/app/api/me/signup-referral/route.ts`.
+* Pages / components: `src/app/admin/bank-refunds/page.tsx`, `src/components/bank-refunds-panel.tsx`,
+  `bank-refund-queue.tsx`.
+* Tests: `tests/integration/bank-refunds.test.ts`, `customer-signup-referrals.test.ts`;
+  four new cases in `fulfilment-options.test.ts`.
 
 Existing files touched (additive; exact lines in [EXISTING_FILE_CHANGES.md](EXISTING_FILE_CHANGES.md)):
 `src/server/db/schema.ts` (new tables appended), `src/server/config/rules.ts`
@@ -411,22 +496,52 @@ Nothing here touches production. When you decide to promote:
    licence copies use it.
 4. **Daily cron** `POST /api/cron/seller-verification` (06:30 IST) — it now also
    starts legal-document grace periods and sends expiry reminders.
-5. Migrate 0061–0064 (Production database workflow / `npm run db:migrate`), then
+5. Migrate 0061–0067 (Production database workflow / `npm run db:migrate`), then
    switch each rule on in Admin → Business rules, one at a time.
 6. **Create referral codes** for shop owners before switching `shopReferral.required`
    on, or new registrations will be blocked until codes are issued.
 7. Tell shop owners about the 15-day legal-document grace period before switching
    `legalDocuments` on.
+8. **Refunds to bank (`bankRefunds`)**: before switching it on, update the
+   **Wallet Terms** and the **Refund Policy** (have them approved). Today they
+   say the wallet cannot be transferred to a bank account. Suggested wording,
+   for your lawyer to check:
+   - *Wallet Terms*: replace "It cannot be withdrawn as cash or transferred to
+     a bank account, UPI ID, or any external payment method." with "It cannot
+     be withdrawn as cash. Money refunded to your wallet (not promotional
+     credit, not top-ups) can be sent to your own verified bank account
+     within 30 days of the refund; see the Refund Policy."
+   - *Refund Policy*, "How refunds are paid", add: "Within 30 days of a
+     refund you can ask for it to be sent to your verified bank account
+     instead (My Wallet). It leaves your wallet straight away and reaches your
+     bank within 5 working days; if the transfer fails, it returns to your
+     wallet."
+
+   Also decide who in finance sends these transfers, and how often.
+9. **Customer referral codes (`customerSignupReferral`)**: create the codes for
+   your schemes in Admin → Referral codes first (the same codes shop owners
+   use).
 
 ## 6. Decisions needed from you
-1. Should the **customer's delivery fee be refunded automatically** when the
-   shop chooses pickup (F1-8)?
-2. Should shops past their legal-document grace period also be **hidden** from
-   customers (today checkout refuses them)?
-3. Card verifications record the declared name ("payment only", F3-2). Do you
-   want to buy Cashfree's **Verification Suite (penny drop / name at bank)** to
-   get the bank's name for every method?
-4. Should a refund to a customer's **bank** be offered at all (today all refunds
-   go to the wallet, F3-5)?
-5. Who should own **referrals@gokesari.com**, and should requests also go to
-   anyone else (`shopReferral.notifyEmails`)?
+Answered on 9 Oct 2026 and built: delivery fee back on pickup (O-1), refunds
+to bank (O-2), and referrals owned by GoKesari with codes checked at
+customer registration too (O-3). Still open:
+
+1. **Shops past their legal-document grace period.** Today they stay listed,
+   the cart doesn't warn, and checkout refuses the order.
+   - **A:** hide them from lists and search.
+   - **B (recommended):** show them as "not taking new orders right now",
+     exactly like a paused shop or one below its wallet minimum. The cart
+     warns at once and the customer isn't told why. It reopens on upload.
+   - **C:** leave as is.
+   - B can also be combined with hiding shops blocked for 30+ days.
+2. **Cashfree's account-verification product.** It checks the account
+   number and IFSC with the bank and returns the bank's name, for every
+   account, with a fee per check. Recommended **before** refunds to bank and
+   shop payouts go live in production: real money now goes to these
+   accounts, and the ₹1 check proves only that someone could pay ₹1.
+3. **Customer referral code: mandatory or optional?** Optional today. If
+   mandatory (invite-only sign-up), it would be checked before the first
+   order, with a way to ask for a code.
+4. **Refunds to bank:** approve the Wallet Terms / Refund Policy wording
+   (§5 item 8). Also say who in finance sends the transfers.
