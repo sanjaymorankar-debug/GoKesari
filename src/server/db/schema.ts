@@ -5742,3 +5742,65 @@ export const referralCodeRequests = pgTable(
   ],
 );
 export type ReferralCodeRequest = typeof referralCodeRequests.$inferSelect;
+
+/* ===================================================================
+ * Refunds to a customer's bank (docs/four-features-2026-10, decided by the
+ * owner on 9 Oct 2026). Additive: migration 0066, rollback
+ * scripts/rollback-0066.sql.
+ * =================================================================== */
+
+export const BANK_REFUND_STATUSES = ["REQUESTED", "PROCESSING", "PAID", "FAILED", "CANCELLED"] as const;
+export type BankRefundStatus = (typeof BANK_REFUND_STATUSES)[number];
+
+/**
+ * A refund the customer asked to receive in their verified bank account
+ * instead of keeping it in the wallet (services/bank-refunds.ts, rule
+ * bankRefunds). One per refund credit: the amount leaves the wallet when it
+ * is asked for (customer-funded money only, never promotional credit) and
+ * goes back to the wallet if the transfer fails or is cancelled. Finance
+ * sends it from the bank and records the bank's reference (UTR), as for
+ * shop settlements. The account is a masked snapshot; the full number stays
+ * encrypted in bank_accounts.
+ */
+export const bankRefundRequests = pgTable(
+  "bank_refund_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** The wallet REFUND credit being sent to the bank. */
+    refundTransactionId: uuid("refund_transaction_id")
+      .notNull()
+      .references(() => walletTransactions.id, { onDelete: "restrict" }),
+    orderId: uuid("order_id").references(() => orders.id, { onDelete: "set null" }),
+    bankAccountId: uuid("bank_account_id")
+      .notNull()
+      .references(() => bankAccounts.id, { onDelete: "restrict" }),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    status: text("status", { enum: BANK_REFUND_STATUSES }).notNull().default("REQUESTED"),
+    /** "HDFC0000123 ••••6789" or "as•••••@okhdfc", as the customer saw it. */
+    accountLabel: text("account_label").notNull(),
+    accountHolderName: text("account_holder_name").notNull(),
+    /** The wallet debit taken when it was asked for, and the credit when it came back. */
+    debitTransactionId: uuid("debit_transaction_id").references(() => walletTransactions.id, { onDelete: "restrict" }),
+    returnTransactionId: uuid("return_transaction_id").references(() => walletTransactions.id, { onDelete: "restrict" }),
+    /** The bank's reference (UTR) for the transfer. */
+    payoutReference: text("payout_reference"),
+    failureReason: text("failure_reason"),
+    processingAt: timestamp("processing_at", { withTimezone: true }),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    decidedBy: uuid("decided_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("bank_refund_requests_refund_uq").on(t.refundTransactionId),
+    index("bank_refund_requests_user_idx").on(t.userId, t.createdAt),
+    index("bank_refund_requests_status_idx").on(t.status, t.createdAt),
+    check("bank_refund_requests_amount", sql`${t.amountPaise} > 0`),
+  ],
+);
+export type BankRefundRequest = typeof bankRefundRequests.$inferSelect;

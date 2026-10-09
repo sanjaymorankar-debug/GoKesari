@@ -842,6 +842,18 @@ export const RULES = {
       maxAttemptsPerDay: 5,
     },
   },
+  bankRefunds: {
+    description:
+      "Refunds to a customer's bank. When enabled, a customer can have a refund (its customer-funded part, never promotional credit) sent to their bank account instead of keeping it in the wallet, within windowDays of the refund. The amount leaves the wallet at once; finance sends it from the bank and records the reference (Admin → Refunds to bank), or marks it failed and it returns to the wallet. bankAccounts.requireVerifiedForBankRefunds decides whether the account must be verified first. Update the Wallet Terms and Refund Policy before switching this on.",
+    schema: z.object({
+      enabled: z.boolean(),
+      windowDays: int(1, 365),
+      minAmountPaise: int(100, 1_000_000),
+      /** Shown to the customer: when to expect the money. */
+      expectedWorkingDays: int(1, 30),
+    }),
+    defaults: { enabled: false, windowDays: 30, minAmountPaise: 100, expectedWorkingDays: 5 },
+  },
   shopReferral: {
     description:
       "Shop registration referral code. When required, a self-service shop registration must carry a valid (active, unexpired) referral code. Owners without one can request a code: the request is saved and emailed to notifyEmails; a second request from the same mobile within duplicateWindowHours is refused.",
