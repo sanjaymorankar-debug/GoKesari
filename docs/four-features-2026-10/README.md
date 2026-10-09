@@ -398,9 +398,8 @@ The owner answered the open questions of §6. What was built:
   keys (§6).
 - **O-8. Refunds to bank: legal wording approved; the finance lead sends the
   transfers** (answer to §5 item 8, 9 Oct 2026).
-  - **Wording:** exactly as proposed in §5 item 8. The owner approved "the
-    Wallet Terms wording"; the Refund Policy sentence was part of the same
-    item, so it was treated as approved too.
+  - **Wording:** exactly as proposed in §5 item 8. The owner approved the
+    Wallet Terms wording and, separately, the Refund Policy paragraph.
   - **Where it shows:** `/legal/wallet-terms` replaces "cannot be withdrawn
     as cash or transferred to a bank account…" with the new bullet.
     `/legal/refund-policy` adds the new paragraph under "How refunds are
