@@ -165,3 +165,29 @@ support. Emails of every kind were refused, old and new alike (order
 confirmed, rider assigned, seller review, legal documents), so the new
 features are not the cause and no code was changed. The production
 prerequisite is in the README (§5 item 2).
+
+## 5. The owner's decisions (9 Oct 2026), tested on test
+
+PR #106 merged into staging at 05:17 UTC (`7e72292`). The "Test database"
+workflow backed up, applied 0065–0067 (70 migrations, newest 0067) and
+switched on `bankRefunds` and `customerSignupReferral` for test. Hostinger
+served the new build from 05:19.
+
+| Time (UTC) | Flow | Step | Result |
+|---|---|---|---|
+| 05:03 | Setup | The customer's current account KKBK0000111 ••••5566 verified with ₹1 by UPI, through the Cashfree sandbox. The daily attempt limit was raised to 10 for this step, then set back to 5 | PASS |
+| 05:20 | O-1 · shop (phone) | Order DB-20261009-KLK7DD (₹40 bread + ₹20 delivery). In the planner, choosing **Pickup** shows "With pickup, the customer's ₹20.00 delivery fee goes back to them". "Packed — mark ready" → 200 READY. The card now shows ₹40 and "The customer's ₹20.00 delivery fee was given back for pickup" | PASS |
+| 05:20 | O-1 · customer (phone) | My Orders: "No delivery for this order: your ₹20.00 delivery fee was given back". Wallet: "Delivery fee refund: order DB-20261009-KLK7DD is collected from the shop", +₹20. Email "Ready for pickup … Your ₹20.00 delivery fee has been refunded…" arrived | PASS |
+| 05:21 | O-1 · completion | Pickup code 3773 → DELIVERED. Shop wallet: COMMISSION ₹0.40 only. Database: the order's delivery fee is 0, total ₹40, refunded ₹20; the plan records ₹20 at 05:20:12; one wallet refund of ₹20. Pickup orders from before the change are unchanged | PASS |
+| 05:22 | O-2 · customer (phone) | My Wallet → "Send a refund to your bank" lists the ₹20 fee refund, and the ₹60 cancellation refund of DB-20261008-SPQS44 limited to the ₹40 still in the wallet. "Send ₹20.00 to my bank" → "Yes, send it" → 201 REQUESTED. The wallet drops by ₹20; the other refund now offers ₹20. Email "Refund on its way to your bank" arrived | PASS |
+| 05:23 | O-2 · finance (desktop) | Admin → Refunds to bank → To send. "Show account details" shows the full account to finance (12 digits, ending 5566, IFSC KKBK0000111; the look-up is audited). "Mark sent from bank" → PROCESSING. "Paid" with UTR TESTUTR20261009A → PAID. Customer: "Paid to your bank · bank reference TESTUTR20261009A" and the email "Refund sent to your bank (bank reference …)" | PASS |
+| 05:24 | O-2 · failed | The SPQS44 refund (₹20) sent; finance marks it **Failed** ("Beneficiary account closed (test)"). The ₹20 is back in the wallet. Customer: "Failed — back in wallet" with the reason, and the email "Refund back in your wallet" | PASS |
+| 05:25 | O-2 · cancel | The returned ₹20 is offered again ("Back in your wallet: the transfer … failed") → sent → the customer presses **Cancel** → CANCELLED, back in the wallet. Database: three requests (PAID, FAILED, CANCELLED), each with its wallet debit and, for the last two, its return | PASS |
+| 05:25 | O-3 · new customer (phone) | sanjaymorankar+gk-new1 signs in for the first time → first-time setup shows "Referral code (optional)". `NOPE999` → "This referral code is not valid." on the field, and the step stays. Typing clears the error. `e2eanil1` → accepted as E2EANIL1 (GOKESARI, label "Requested by E2E Ref Requester Anil"), then the address step | PASS |
+| 05:27 | O-3 · friend's code | sanjaymorankar+gk-new2: `GKZZZZZZ` refused, then the existing customer's friend code `gk2lqxbl` → accepted as FRIEND (`customerReferrals` is on for test) | PASS |
+| 05:26 | O-3 · operator | Admin → Referral requests → "Customers who joined with a code": E2EANIL1, issued by GoKesari, 1 | PASS |
+| 05:28 | O-3 · existing customer | The customer with orders is not asked (`ask: false`); giving a code is refused with "A referral code can only be given when you join, before your first order." | PASS |
+
+All emails for these steps arrived within a minute: no sending-limit delays
+this time.
+
