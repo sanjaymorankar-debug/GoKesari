@@ -3,6 +3,7 @@
 import { useState } from "react";
 
 import { Button } from "@/components/ui";
+import { formatPaise } from "@/lib/money";
 
 /** services/fulfilment-options.ts BuyerFulfilmentView, as the customer's order card shows it. */
 export interface OrderFulfilmentInfo {
@@ -15,6 +16,8 @@ export interface OrderFulfilmentInfo {
   deliveryCode: { active: boolean; locked: boolean; resendsLeft: number; maskedEmail: string } | null;
   completed: boolean;
   updated: boolean;
+  /** Pickup: the delivery fee given back (paise). */
+  deliveryFeeRefundedPaise?: number | null;
 }
 
 /**
@@ -32,6 +35,11 @@ export function OrderFulfilmentCard({ orderId, info }: { orderId: string; info: 
       </p>
       {info.option === "PICKUP" && info.shopAddress && !info.completed ? (
         <p className="mt-0.5 text-xs text-ink-600">Collect from: {info.shopAddress}</p>
+      ) : null}
+      {info.deliveryFeeRefundedPaise ? (
+        <p className="mt-0.5 text-xs text-ink-600" data-testid="pickup-fee-refunded-customer">
+          No delivery for this order: your {formatPaise(info.deliveryFeeRefundedPaise)} delivery fee was given back.
+        </p>
       ) : null}
       {info.pickupCode ? (
         <p className="mt-2" data-testid="pickup-code-customer">

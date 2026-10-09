@@ -280,6 +280,7 @@ export const AUDIT_ACTIONS = {
   ORDER_FULFILMENT_CODE_WRONG: "order.fulfilment_code_wrong",
   ORDER_FULFILMENT_CODE_LOCKED: "order.fulfilment_code_locked",
   ORDER_FULFILMENT_CODE_SENT: "order.fulfilment_code_sent",
+  ORDER_DELIVERY_FEE_REFUNDED: "order.delivery_fee_refunded",
   SHOP_DELIVERY_STAFF_SAVED: "shop.delivery_staff_saved",
   SHOP_LEGAL_DOCUMENT_SUBMITTED: "shop.legal_document_submitted",
   SHOP_LEGAL_DOCUMENT_DECIDED: "shop.legal_document_decided",

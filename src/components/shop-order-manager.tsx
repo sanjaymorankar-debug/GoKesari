@@ -89,6 +89,8 @@ export interface ShopOrderRow {
   fulfilmentPlan?: PlannerPlan | null;
   /** The order has a delivery address (own delivery and GoKesari need one). */
   hasAddress?: boolean;
+  /** The customer's delivery fee still on the order (pickup gives it back). */
+  deliveryFeePaise?: number;
 }
 
 /** Fulfilment options switched on: the slots and delivery people the planner offers. */
@@ -97,6 +99,8 @@ export interface ShopFulfilmentSettings {
   enabled: boolean;
   days: SlotDay[];
   staff: PlannerStaff[];
+  /** Rule fulfilmentOptions.refundDeliveryFeeOnPickup. */
+  refundDeliveryFeeOnPickup?: boolean;
 }
 
 export interface SubstituteOption {
@@ -322,6 +326,7 @@ function OrderRow({
           hasAddress={order.hasAddress ?? true}
           shopDelivers={deliveryAvailable}
           cashOnDelivery={order.paymentMethod === "COD" && !order.cashCollected}
+          pickupRefundPaise={fulfilment.refundDeliveryFeeOnPickup ? (order.deliveryFeePaise ?? 0) : 0}
           onChanged={onChanged}
         />
       ) : null}

@@ -5488,6 +5488,12 @@ export const orderFulfilmentArrangements = pgTable(
     outForDeliveryAt: timestamp("out_for_delivery_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     completedVia: text("completed_via", { enum: ["PICKUP_CODE", "DELIVERY_CODE", "OPERATOR"] }),
+    /**
+     * PICKUP: the customer's delivery fee given back, once, when the shop chose
+     * pickup (rule fulfilmentOptions.refundDeliveryFeeOnPickup). Migration 0065.
+     */
+    deliveryFeeRefundedPaise: bigint("delivery_fee_refunded_paise", { mode: "number" }),
+    deliveryFeeRefundedAt: timestamp("delivery_fee_refunded_at", { withTimezone: true }),
     /** 1 when first set; +1 on every change (shown as "updated"). */
     version: integer("version").notNull().default(1),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),

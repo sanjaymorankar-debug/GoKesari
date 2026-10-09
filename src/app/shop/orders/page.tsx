@@ -53,7 +53,7 @@ export default async function ShopOrdersPage() {
   ]);
   const fulfilment =
     planner.enabled || plans.size > 0
-      ? { enabled: planner.enabled, days: planner.days, staff: deliveryStaff.map((s) => ({ id: s.id, name: s.name, phoneE164: s.phoneE164 })) }
+      ? { enabled: planner.enabled, days: planner.days, staff: deliveryStaff.map((s) => ({ id: s.id, name: s.name, phoneE164: s.phoneE164 })), refundDeliveryFeeOnPickup: planner.refundDeliveryFeeOnPickup }
       : null;
   // Candidates a shop can offer as a substitute (server re-checks price/stock).
   const substitutes = onlineProducts
@@ -104,6 +104,7 @@ export default async function ShopOrdersPage() {
             })),
             fulfilmentPlan: plans.get(o.id) ?? null,
             hasAddress: o.deliveryAddressSnapshot != null,
+            deliveryFeePaise: o.deliveryFeePaise,
             deliveryStatus: deliveryOrders.get(o.id)?.status ?? null,
             pickupCode: deliveryOrders.get(o.id)?.pickupCode ?? null,
             riderSearch: searchByOrder.has(o.id)

@@ -162,6 +162,8 @@ export interface FulfilmentEventPayload {
   attempts?: number;
   ticketNumber?: string | null;
   codeKind?: "pickup" | "delivery";
+  /** Pickup: the delivery fee given back ("Your ₹20.00 delivery fee has been refunded…"). */
+  deliveryFeeNote?: string | null;
 }
 
 /** Mandatory legal documents (services/legal-documents.ts). */
@@ -681,7 +683,8 @@ export const EVENTS = {
       title: p.optionLabel.startsWith("Pickup") ? "Ready for pickup" : "Delivery scheduled",
       body:
         `Order ${p.orderNumber} from ${p.shopName}: ${p.optionLabel}${p.staffName ? ` (${p.staffName})` : ""}, ${p.whenLabel}.` +
-        (p.optionLabel.startsWith("Pickup") ? " Show your pickup code from My Orders at the shop." : ""),
+        (p.optionLabel.startsWith("Pickup") ? " Show your pickup code from My Orders at the shop." : "") +
+        (p.deliveryFeeNote ? ` ${p.deliveryFeeNote}` : ""),
       actionUrl: ORDERS,
       channels: ["EMAIL"],
     },
@@ -694,7 +697,7 @@ export const EVENTS = {
       to: p.buyerId,
       type: N.ORDER_FULFILMENT_CHANGED,
       title: "Your order's delivery plan changed",
-      body: `Order ${p.orderNumber} from ${p.shopName} is now: ${p.optionLabel}${p.staffName ? ` (${p.staffName})` : ""}, ${p.whenLabel}.${p.previousLabel ? ` Before: ${p.previousLabel}.` : ""}`,
+      body: `Order ${p.orderNumber} from ${p.shopName} is now: ${p.optionLabel}${p.staffName ? ` (${p.staffName})` : ""}, ${p.whenLabel}.${p.previousLabel ? ` Before: ${p.previousLabel}.` : ""}${p.deliveryFeeNote ? ` ${p.deliveryFeeNote}` : ""}`,
       actionUrl: ORDERS,
       channels: ["EMAIL"],
     },

@@ -780,7 +780,7 @@ export const RULES = {
   /* -------------------------------- docs/four-features-2026-10 (all off by default) */
   fulfilmentOptions: {
     description:
-      "Fulfilment options. When enabled, a shop marking an order ready chooses customer pickup (completed with a pickup code the customer shows), its own delivery person (the existing delivery-code completion) or a GoKesari delivery partner (the existing rider dispatch), with a date and time slot. Slots are slotMinutes long between firstSlotHour and lastSlotHour (IST), up to maxDaysAhead days ahead. A GoKesari delivery scheduled later starts its rider search gokesariLeadMinutes before the slot.",
+      "Fulfilment options. When enabled, a shop marking an order ready chooses customer pickup (completed with a pickup code the customer shows), its own delivery person (the existing delivery-code completion) or a GoKesari delivery partner (the existing rider dispatch), with a date and time slot. Slots are slotMinutes long between firstSlotHour and lastSlotHour (IST), up to maxDaysAhead days ahead. A GoKesari delivery scheduled later starts its rider search gokesariLeadMinutes before the slot. With refundDeliveryFeeOnPickup, choosing pickup gives the customer their delivery fee back once (to the wallet; a cash order is charged that much less).",
     schema: z
       .object({
         enabled: z.boolean(),
@@ -789,12 +789,13 @@ export const RULES = {
         lastSlotHour: int(1, 24),
         maxDaysAhead: int(0, 30),
         gokesariLeadMinutes: int(0, 240),
+        refundDeliveryFeeOnPickup: z.boolean(),
       })
       .refine((v) => v.lastSlotHour > v.firstSlotHour, {
         message: "The last slot must end after the first one starts.",
         path: ["lastSlotHour"],
       }),
-    defaults: { enabled: false, slotMinutes: 60, firstSlotHour: 7, lastSlotHour: 22, maxDaysAhead: 7, gokesariLeadMinutes: 45 },
+    defaults: { enabled: false, slotMinutes: 60, firstSlotHour: 7, lastSlotHour: 22, maxDaysAhead: 7, gokesariLeadMinutes: 45, refundDeliveryFeeOnPickup: true },
   },
   legalDocuments: {
     description:
