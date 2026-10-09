@@ -3,7 +3,7 @@ import { AuthError } from "next-auth";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 
 import { OtpLoginForm } from "@/components/otp-login-form";
-import { ConsentCheckbox, ConsentProvider, ConsentSubmit } from "@/components/sign-in-consent";
+import { ConsentSubmitButton, SignInConsentCheckbox, SignInConsentProvider } from "@/components/signin-consent";
 import { Card } from "@/components/ui";
 import { getEnv } from "@/lib/env";
 import { isMobileAppUserAgent } from "@/lib/mobile-app";
@@ -72,12 +72,16 @@ export default async function SignInPage({
   }
 
   return (
-    <div className="mx-auto max-w-md py-4 sm:py-8">
-      <Card className="p-5 sm:p-8">
+    <div className="mx-auto max-w-md py-8">
+      <Card className="p-8">
+        <SignInConsentProvider>
         <h1 className="text-2xl font-semibold text-ink-900">Sign in</h1>
-        <p className="mt-1 text-sm text-ink-600">
+        <p className="mt-1 text-sm text-ink-500">
           A wallet is created for you automatically on first sign-in.
         </p>
+
+        {/* One agreement for every sign-in method below. */}
+        <SignInConsentCheckbox className="mt-6" />
 
         {accessDenied ? (
           <p
@@ -93,6 +97,33 @@ export default async function SignInPage({
           </p>
         ) : null}
 
+        {googleEnabled ? (
+          <form
+            className="mt-6"
+            action={async () => {
+              "use server";
+              await signIn("google", { redirectTo: AFTER_SIGN_IN });
+            }}
+          >
+            <ConsentSubmitButton className="flex w-full items-center justify-center gap-2 rounded-lg border border-cream-200 bg-white px-4 py-2.5 text-sm font-medium text-ink-700 hover:bg-cream-100 disabled:cursor-not-allowed disabled:opacity-50">
+              Continue with Google
+            </ConsentSubmitButton>
+          </form>
+        ) : (
+          <p className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            Google sign-in is not configured. Set <code>AUTH_GOOGLE_ID</code> and{" "}
+            <code>AUTH_GOOGLE_SECRET</code> to enable it.
+          </p>
+        )}
+
+        {otpEmailAvailable ? (
+          <OtpLoginForm verify={verifyLoginCode} />
+        ) : (
+          <p className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
+            Sign-in codes cannot be emailed: set <code>AUTH_EMAIL_FROM</code> and <code>AUTH_EMAIL_SERVER</code>.
+          </p>
+        )}
+
         {checkEmail ? (
           <p
             className="mt-6 rounded-lg border border-leaf-300 bg-leaf-50 p-3 text-sm text-leaf-700"
@@ -103,71 +134,36 @@ export default async function SignInPage({
           </p>
         ) : null}
 
-        <ConsentProvider>
-          {/* One "I agree" for every way of signing in. */}
-          <div className="mt-5">
-            <ConsentCheckbox />
-          </div>
-
-          {/* The quickest way first: a code to your mobile number or email. */}
-          {otpEmailAvailable ? (
-            <OtpLoginForm verify={verifyLoginCode} />
-          ) : (
-            <p className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-              Sign-in codes cannot be emailed: set <code>AUTH_EMAIL_FROM</code> and <code>AUTH_EMAIL_SERVER</code>.
-            </p>
-          )}
-
-          {googleEnabled ? (
-            <form
-              className="mt-6 border-t border-cream-200 pt-6"
-              action={async () => {
-                "use server";
-                await signIn("google", { redirectTo: AFTER_SIGN_IN });
-              }}
-            >
-              <ConsentSubmit className="border border-cream-200 bg-white text-ink-900 hover:bg-cream-100">Continue with Google</ConsentSubmit>
-            </form>
-          ) : (
-            <p className="mt-6 rounded-lg border border-amber-200 bg-amber-50 p-3 text-sm text-amber-900">
-              Google sign-in is not configured. Set <code>AUTH_GOOGLE_ID</code> and{" "}
-              <code>AUTH_GOOGLE_SECRET</code> to enable it.
-            </p>
-          )}
-
-          {emailEnabled ? (
-            <details className="mt-6 border-t border-cream-200 pt-4">
-              <summary className="flex min-h-11 cursor-pointer items-center text-sm font-semibold text-kesari-800">More ways to sign in</summary>
-              <form
-                className="mt-3"
-                action={async (formData: FormData) => {
-                  "use server";
-                  await signIn(EMAIL_PROVIDER_ID, {
-                    email: String(formData.get("email") ?? ""),
-                    redirectTo: AFTER_SIGN_IN,
-                  });
-                }}
-              >
-                <label htmlFor="magic-link-email" className="mb-1 block text-sm font-medium text-ink-700">
-                  Get a sign-in link by email
-                </label>
-                <div className="flex flex-col gap-2">
-                  <input
-                    id="magic-link-email"
-                    type="email"
-                    name="email"
-                    required
-                    autoComplete="email"
-                    inputMode="email"
-                    placeholder="you@example.com"
-                    className="min-h-12 min-w-0 rounded-lg border border-cream-200 px-3 text-base focus:border-kesari-500 focus:outline-none"
-                  />
-                  <ConsentSubmit className="border border-cream-200 bg-white text-ink-900 hover:bg-cream-100">Email me a link</ConsentSubmit>
-                </div>
-              </form>
-            </details>
-          ) : null}
-        </ConsentProvider>
+        {emailEnabled ? (
+          <form
+            className="mt-6 border-t border-cream-200 pt-6"
+            action={async (formData: FormData) => {
+              "use server";
+              await signIn(EMAIL_PROVIDER_ID, {
+                email: String(formData.get("email") ?? ""),
+                redirectTo: AFTER_SIGN_IN,
+              });
+            }}
+          >
+            <label htmlFor="magic-link-email" className="mb-1 block text-sm font-medium text-ink-700">
+              Or get a sign-in link by email
+            </label>
+            <div className="flex gap-2">
+              <input
+                id="magic-link-email"
+                type="email"
+                name="email"
+                required
+                autoComplete="email"
+                placeholder="you@example.com"
+                className="min-w-0 flex-1 rounded-lg border border-cream-200 px-3 py-2 text-sm focus:border-kesari-500 focus:outline-none"
+              />
+              <ConsentSubmitButton className="rounded-lg border border-cream-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 hover:bg-cream-100 disabled:cursor-not-allowed disabled:opacity-50">
+                Email me a link
+              </ConsentSubmitButton>
+            </div>
+          </form>
+        ) : null}
 
         {devLoginEnabled ? (
           <form
@@ -203,6 +199,7 @@ export default async function SignInPage({
             </p>
           </form>
         ) : null}
+        </SignInConsentProvider>
       </Card>
     </div>
   );

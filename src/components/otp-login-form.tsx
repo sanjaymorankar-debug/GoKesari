@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 
-import { ConsentHint, useSharedConsent } from "@/components/sign-in-consent";
+import { useSignInConsent } from "@/components/signin-consent";
 import { EMAIL_HINT, isValidEmail, parseIndianMobile } from "@/lib/contact";
 
 type Step = "identify" | "email" | "code";
@@ -26,10 +26,7 @@ const buttonClass =
 export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
   const [step, setStep] = useState<Step>("identify");
   const [identifier, setIdentifier] = useState("");
-  const [ownAgreed, setAgreed] = useState(false);
-  // On the sign-in page one shared "I agree" covers every method.
-  const shared = useSharedConsent();
-  const agreed = shared ? shared.agreed : ownAgreed;
+  const agreed = useSignInConsent();
   const [mobile, setMobile] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
   const [emailInput, setEmailInput] = useState("");
@@ -119,7 +116,7 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
 
   return (
     <div className="mt-6 border-t border-cream-200 pt-6" data-testid="otp-signin">
-      <p className="mb-2 text-base font-semibold text-ink-900">Sign in with your mobile number or email</p>
+      <p className="mb-2 text-sm font-medium text-ink-700">Login with mobile number or email</p>
 
       {step === "identify" ? (
         <form onSubmit={submitIdentifier}>
@@ -130,33 +127,16 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
               autoComplete="username"
               placeholder="10-digit mobile number or email"
               aria-label="Mobile number or email"
-              className={`${inputClass} min-h-12 flex-1 text-base`}
+              className={`${inputClass} min-h-11 flex-1 text-base`}
               required
             />
             <button type="submit" disabled={busy || !agreed} className={buttonClass}>
               {busy ? "Sending…" : "Get code"}
             </button>
           </div>
-          {shared && !agreed ? (
-            <p className="mt-1">
-              <ConsentHint />
-            </p>
-          ) : null}
-          <label className={shared ? "hidden" : "mt-3 flex items-start gap-2 text-xs text-ink-600"}>
-            <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5" />
-            <span>
-              I agree to the{" "}
-              <a href="/legal/terms" target="_blank" className="underline">
-                Terms &amp; Conditions
-              </a>{" "}
-              and{" "}
-              <a href="/legal/privacy-policy" target="_blank" className="underline">
-                Privacy Policy
-              </a>
-              .
-            </span>
-          </label>
-          <p className="mt-1 text-sm text-ink-600">The sign-in code is sent to your email (by SMS for shops registered with a mobile number only).</p>
+          {/* Why the button cannot be used yet (it used to just look faded). */}
+          {!agreed ? <p className="mt-2 text-sm font-medium text-ink-700">Tick “I agree” above to continue.</p> : null}
+          <p className="mt-2 text-sm text-ink-600">The sign-in code is sent to your email (by SMS for shops registered with a mobile number only).</p>
         </form>
       ) : null}
 
