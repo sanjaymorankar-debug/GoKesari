@@ -51,6 +51,7 @@ import { PUT as shopAccountPut } from "@/app/api/shops/[id]/bank-account/route";
 import { resetRateLimits } from "@/server/api/rate-limit";
 import { db } from "@/server/db";
 import { bankAccountChecks, bankAccounts, notifications, platformSettings } from "@/server/db/schema";
+import { findCashfreeVerificationKeys } from "@/lib/env";
 import { bankCheckConfig, bankCheckDecision, cashfreeSignature } from "@/server/services/bank-account-check";
 import { clearRuleCache, setRule } from "@/server/services/settings";
 import { call } from "../helpers/http";
@@ -319,6 +320,21 @@ describe("the decision and the keys", () => {
     expect(second).toMatchObject({ clientId: "id2", env: "sandbox", foundAs: { clientId: "CASHFREE_VERIFICATION_APP_ID", clientSecret: "CASHFREE_VERIFICATION_SECRET_KEY" } });
     const prod = bankCheckConfig({ ...(base as object), ...KEYS, CASHFREE_VERIFICATION_ENV: "production" } as never);
     expect(prod?.env).toBe("production");
+  });
+
+  it("finds keys saved on the host under another name", () => {
+    expect(findCashfreeVerificationKeys({ CASHFREE_APP_ID: "pg", CASHFREE_SECRET_KEY: "pg-secret" })).toBeNull();
+    expect(findCashfreeVerificationKeys({ CASHFREE_CLIENT_ID: "a", CASHFREE_CLIENT_SECRET: "b" })).toMatchObject({ idName: "CASHFREE_CLIENT_ID", clientId: "a", clientSecret: "b" });
+    expect(findCashfreeVerificationKeys({ CASHFREE_VERIFY_ID: "a", CASHFREE_VERIFY_SECRET: "b", CASHFREE_VERIFY_PUBLIC_KEY: "pem" })).toMatchObject({
+      idName: "CASHFREE_VERIFY_ID",
+      secretName: "CASHFREE_VERIFY_SECRET",
+    });
+    expect(findCashfreeVerificationKeys({ CF_SECUREID_CLIENT_ID: "a", CF_SECUREID_CLIENT_SECRET: "b" })?.idName).toBe("CF_SECUREID_CLIENT_ID");
+    expect(findCashfreeVerificationKeys({ CASHFREE_VRS_APP_ID: "a" })).toBeNull(); // no secret
+    expect(findCashfreeVerificationKeys({ CASHFREE_VERIFICATION_CLIENT_ID: "", CASHFREE_VERIFICATION_CLIENT_SECRET: "b" })).toBeNull();
+
+    const found = bankCheckConfig({ CASHFREE_ENV: "sandbox" } as never, { idName: "CASHFREE_VERIFY_ID", secretName: "CASHFREE_VERIFY_SECRET", clientId: "a", clientSecret: "b" });
+    expect(found).toMatchObject({ clientId: "a", env: "sandbox", foundAs: { clientId: "CASHFREE_VERIFY_ID", clientSecret: "CASHFREE_VERIFY_SECRET" } });
   });
 
   it("signs each call when the Secure ID public key is set (Cashfree's 2FA)", async () => {

@@ -422,8 +422,13 @@ The owner answered the open questions of §6. What was built:
     test.
   - **Keys** (environment only, never in code): `CASHFREE_VERIFICATION_CLIENT_ID`
     and `CASHFREE_VERIFICATION_CLIENT_SECRET` (or `CASHFREE_VERIFICATION_APP_ID`
-    and `CASHFREE_VERIFICATION_SECRET_KEY`). `CASHFREE_VERIFICATION_ENV`
-    (`sandbox`/`production`) defaults to `CASHFREE_ENV`.
+    and `CASHFREE_VERIFICATION_SECRET_KEY`). Also accepted: `CASHFREE_CLIENT_ID`
+    and `CASHFREE_CLIENT_SECRET` (Cashfree's own labels), or any pair named like
+    `CASHFREE…VERIF…_ID` / `CASHFREE…VERIF…_SECRET` (also VRS, SECURE_ID, BAV,
+    KYC; `CF_` for `CASHFREE`). Finance's card shows which names were used.
+    `CASHFREE_VERIFICATION_ENV` (`sandbox`/`production`) defaults to
+    `CASHFREE_ENV`. They must be in the **website's** environment (Hostinger,
+    test.gokesari.com), like the payment keys, not only in GitHub.
   - **Two-factor:** Cashfree requires it even in sandbox. Either whitelist the
     server's outbound IP in the Cashfree dashboard (Developers → Two-Factor
     Authentication → IP whitelist), or set `CASHFREE_VERIFICATION_PUBLIC_KEY`
