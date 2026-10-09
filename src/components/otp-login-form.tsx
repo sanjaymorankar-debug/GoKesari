@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 
+import { useSignInConsent } from "@/components/signin-consent";
 import { EMAIL_HINT, isValidEmail, parseIndianMobile } from "@/lib/contact";
 
 type Step = "identify" | "email" | "code";
@@ -25,7 +26,7 @@ const buttonClass =
 export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
   const [step, setStep] = useState<Step>("identify");
   const [identifier, setIdentifier] = useState("");
-  const [agreed, setAgreed] = useState(false);
+  const agreed = useSignInConsent();
   const [mobile, setMobile] = useState<string | null>(null);
   const [email, setEmail] = useState<string | null>(null);
   const [emailInput, setEmailInput] = useState("");
@@ -133,21 +134,7 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
               {busy ? "Sending…" : "Get code"}
             </button>
           </div>
-          <label className="mt-3 flex items-start gap-2 text-xs text-ink-600">
-            <input type="checkbox" checked={agreed} onChange={(e) => setAgreed(e.target.checked)} className="mt-0.5" />
-            <span>
-              I agree to the{" "}
-              <a href="/legal/terms" target="_blank" className="underline">
-                Terms &amp; Conditions
-              </a>{" "}
-              and{" "}
-              <a href="/legal/privacy-policy" target="_blank" className="underline">
-                Privacy Policy
-              </a>
-              .
-            </span>
-          </label>
-          <p className="mt-1 text-xs text-ink-500">The sign-in code is sent to your email (by SMS for shops registered with a mobile number only).</p>
+          <p className="mt-2 text-xs text-ink-500">The sign-in code is sent to your email (by SMS for shops registered with a mobile number only).</p>
         </form>
       ) : null}
 
