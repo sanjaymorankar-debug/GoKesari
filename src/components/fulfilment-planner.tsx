@@ -3,6 +3,7 @@
 import { useState, useSyncExternalStore } from "react";
 
 import { Alert, Badge, Button } from "@/components/ui";
+import { formatPaise } from "@/lib/money";
 import {
   FULFILMENT_OPTION_HINTS,
   FULFILMENT_OPTION_KEYS,
@@ -23,6 +24,8 @@ export interface PlannerPlan {
   completed: boolean;
   locked: boolean;
   riderSearchFrom: string | null;
+  /** Pickup: the customer's delivery fee given back (paise). */
+  deliveryFeeRefundedPaise?: number | null;
 }
 
 export interface PlannerStaff {
@@ -46,6 +49,7 @@ export function FulfilmentPlanner({
   hasAddress,
   shopDelivers,
   cashOnDelivery,
+  pickupRefundPaise = 0,
   onChanged,
 }: {
   orderId: string;
@@ -56,6 +60,8 @@ export function FulfilmentPlanner({
   hasAddress: boolean;
   shopDelivers: boolean;
   cashOnDelivery: boolean;
+  /** Choosing pickup gives the customer this delivery fee back (0: nothing to give back). */
+  pickupRefundPaise?: number;
   onChanged: () => void;
 }) {
   const choosing = status === "PREPARING" && !plan;
@@ -116,6 +122,12 @@ export function FulfilmentPlanner({
         </div>
       ) : null}
 
+      {plan?.deliveryFeeRefundedPaise ? (
+        <p className="mt-1 text-xs text-ink-600" data-testid="pickup-fee-refunded">
+          The customer&apos;s {formatPaise(plan.deliveryFeeRefundedPaise)} delivery fee was given back for pickup.
+        </p>
+      ) : null}
+
       {plan?.option === "GOKESARI_PARTNER" && plan.riderSearchFrom && status === "READY" ? (
         <p className="mt-1 text-xs text-ink-600">
           The rider search starts at{" "}
@@ -131,6 +143,7 @@ export function FulfilmentPlanner({
           staff={staff}
           hasAddress={hasAddress}
           shopDelivers={shopDelivers}
+          pickupRefundPaise={plan?.deliveryFeeRefundedPaise ? 0 : pickupRefundPaise}
           busy={busy}
           submitLabel={choosing ? "Packed — mark ready" : "Save the new plan"}
           onCancel={editing ? () => setEditing(false) : undefined}
@@ -206,6 +219,7 @@ function PlanForm({
   staff,
   hasAddress,
   shopDelivers,
+  pickupRefundPaise,
   busy,
   submitLabel,
   onCancel,
@@ -216,6 +230,7 @@ function PlanForm({
   staff: PlannerStaff[];
   hasAddress: boolean;
   shopDelivers: boolean;
+  pickupRefundPaise: number;
   busy: boolean;
   submitLabel: string;
   onCancel?: () => void;
@@ -281,6 +296,11 @@ function PlanForm({
             );
           })}
         </div>
+        {option === "PICKUP" && pickupRefundPaise > 0 ? (
+          <p className="mt-1 text-xs text-ink-600" data-testid="pickup-fee-hint">
+            With pickup, the customer&apos;s {formatPaise(pickupRefundPaise)} delivery fee goes back to them.
+          </p>
+        ) : null}
       </fieldset>
 
       <div className="grid gap-2 sm:grid-cols-3">

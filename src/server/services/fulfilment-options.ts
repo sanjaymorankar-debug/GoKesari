@@ -20,10 +20,12 @@
  * change is an event (emitEvent, in the same transaction) — the customer is
  * told at once, in the app and by email; nothing waits for a cron.
  *
- * Money: nothing here moves money. Pickup and own-delivery orders have no
- * GoKesari rider, so the shop wallet's delivery charge (finance.ts
- * walletCollectionFor: only rider-delivered orders) is never applied to them;
- * the commission applies on delivery as for every order.
+ * Money: pickup and own-delivery orders have no GoKesari rider, so the shop
+ * wallet's delivery charge (finance.ts walletCollectionFor: only
+ * rider-delivered orders) is never applied to them; the commission applies on
+ * delivery as for every order. Choosing pickup gives the customer their
+ * delivery fee back, once (refundDeliveryFeeForPickup; rule
+ * fulfilmentOptions.refundDeliveryFeeOnPickup).
  */
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 
@@ -41,6 +43,7 @@ import {
   type SlotRules,
 } from "@/lib/fulfilment-options";
 import { maskEmailAddress } from "@/lib/contact";
+import { formatPaise } from "@/lib/money";
 import { parsePhone } from "@/lib/phone";
 import { db, type DbClient } from "@/server/db";
 import {
@@ -54,6 +57,7 @@ import {
   shopDeliveryStaff,
   shops,
   users,
+  walletTransactions,
   type FulfilmentOption,
   type Order,
   type OrderFulfilmentArrangement,
@@ -70,6 +74,7 @@ import { fulfilmentTablesReady } from "./fulfilment-guards";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { updateOrderStatus } from "./orders";
 import { getRule } from "./settings";
+import { refundOriginalDebit } from "./wallet";
 
 export interface Actor {
   id: string;
@@ -228,7 +233,7 @@ export interface PlanInput {
 /** Statuses in which the plan can be set or changed (see also the per-option checks). */
 const PLANNABLE: readonly Order["status"][] = ["ACCEPTED", "PREPARING", "READY", "ASSIGNED"];
 
-export async function getSlotRules(): Promise<SlotRules & { enabled: boolean; gokesariLeadMinutes: number }> {
+export async function getSlotRules(): Promise<SlotRules & { enabled: boolean; gokesariLeadMinutes: number; refundDeliveryFeeOnPickup: boolean }> {
   return getRule("fulfilmentOptions");
 }
 
@@ -360,6 +365,7 @@ async function savePlan(
         .returning();
 
   if (releaseRider) await releaseRiderFor(tx, order, riderRow!, actor, "The shop changed the delivery plan.");
+  const feeRefund = await refundDeliveryFeeForPickup(tx, order, plan, actor);
   if (input.option !== "GOKESARI_PARTNER") {
     await tx
       .update(riderSearches)
@@ -418,12 +424,93 @@ async function savePlan(
         staffName: staff?.name ?? null,
         previousLabel: previous ? `${labelFor(previous).optionLabel}, ${labelFor(previous).whenLabel}` : null,
         bySupport: actor.id !== shop.ownerId && isSupport(actor),
+        deliveryFeeNote: feeRefund?.note ?? null,
       },
       idempotencyKey: `fulfilment:${order.id}:v${plan.version}`,
     },
     tx,
   );
-  return { plan, previous: previous ?? null, riderReleased: releaseRider };
+  return { plan: feeRefund?.plan ?? plan, previous: previous ?? null, riderReleased: releaseRider };
+}
+
+/**
+ * Pickup gives the customer their delivery fee back (the owner's decision on
+ * F1-8, 9 Oct 2026; rule fulfilmentOptions.refundDeliveryFeeOnPickup). Once
+ * per order, recorded on the plan: a paid order is refunded to the wallet the
+ * way a removed line is (fulfilment.ts refundLine); an unpaid cash order is
+ * charged that much less. The order's delivery fee and total drop by the
+ * amount, so the fee is not booked as platform revenue at delivery
+ * (finance.ts recordOrderFinancials), the invoice shows no delivery fee and a
+ * later cancellation refunds only what is still held. Switching back to a
+ * delivery option does not charge it again. Runs inside savePlan's
+ * transaction, with the order and the plan rows locked.
+ */
+async function refundDeliveryFeeForPickup(
+  tx: DbClient,
+  order: Order,
+  plan: OrderFulfilmentArrangement,
+  actor: Actor,
+): Promise<{ plan: OrderFulfilmentArrangement; amountPaise: number; note: string } | null> {
+  if (plan.option !== "PICKUP" || plan.deliveryFeeRefundedAt != null) return null;
+  if (!(await getRule("fulfilmentOptions")).refundDeliveryFeeOnPickup) return null;
+  const [current] = await tx.select().from(orders).where(eq(orders.id, order.id));
+  const amountPaise = Math.min(current.deliveryFeePaise, current.totalPaise);
+  if (amountPaise <= 0) return null;
+
+  if (current.paidAt != null) {
+    // Only money that was taken from the wallet can go back to it.
+    const [debit] = await tx
+      .select({ id: walletTransactions.id })
+      .from(walletTransactions)
+      .where(and(eq(walletTransactions.orderId, order.id), eq(walletTransactions.userId, current.userId), lt(walletTransactions.amountPaise, 0)))
+      .limit(1);
+    if (!debit) return null;
+    await refundOriginalDebit(
+      {
+        userId: current.userId,
+        referenceType: "orderId",
+        referenceId: order.id,
+        idempotencyKey: `refund:order:${order.id}:delivery-fee-pickup`,
+        description: `Delivery fee refund: order ${current.orderNumber} is collected from the shop`,
+        createdBy: actor.id,
+        amountPaise,
+      },
+      tx,
+    );
+  }
+  const now = new Date();
+  await tx
+    .update(orders)
+    .set({
+      deliveryFeePaise: current.deliveryFeePaise - amountPaise,
+      totalPaise: current.totalPaise - amountPaise,
+      refundedPaise: current.refundedPaise + amountPaise,
+      updatedAt: now,
+    })
+    .where(eq(orders.id, order.id));
+  const [updated] = await tx
+    .update(orderFulfilmentArrangements)
+    .set({ deliveryFeeRefundedPaise: amountPaise, deliveryFeeRefundedAt: now })
+    .where(eq(orderFulfilmentArrangements.id, plan.id))
+    .returning();
+  await recordAudit(
+    {
+      actorId: actor.id,
+      actorRole: actor.role,
+      action: AUDIT_ACTIONS.ORDER_DELIVERY_FEE_REFUNDED,
+      entityType: "order",
+      entityId: order.id,
+      previousValue: { deliveryFeePaise: current.deliveryFeePaise, totalPaise: current.totalPaise },
+      newValue: { amountPaise, toWallet: current.paidAt != null, totalPaise: current.totalPaise - amountPaise },
+    },
+    tx,
+  );
+  const fee = formatPaise(amountPaise);
+  const note =
+    current.paidAt != null
+      ? `Your ${fee} delivery fee has been refunded to your wallet.`
+      : `You won't pay the ${fee} delivery fee: pay ${formatPaise(current.totalPaise - amountPaise)} at the shop.`;
+  return { plan: updated, amountPaise, note };
 }
 
 /** Cancels an offered / accepted rider for this order (the shop chose otherwise). */
@@ -1070,6 +1157,8 @@ export interface ShopFulfilmentView {
   locked: boolean;
   /** GoKesari plan for a later slot: when the rider search starts. */
   riderSearchFrom: string | null;
+  /** Pickup: the customer's delivery fee given back (paise), once. */
+  deliveryFeeRefundedPaise: number | null;
 }
 
 export async function getShopFulfilmentViews(orderIds: string[]): Promise<Map<string, ShopFulfilmentView>> {
@@ -1096,6 +1185,7 @@ export async function getShopFulfilmentViews(orderIds: string[]): Promise<Map<st
           completed: plan.completedAt != null,
           locked: plan.codeLockedAt != null,
           riderSearchFrom: plan.option === "GOKESARI_PARTNER" && from > Date.now() ? new Date(from).toISOString() : null,
+          deliveryFeeRefundedPaise: plan.deliveryFeeRefundedPaise ?? null,
         },
       ] as const;
     }),
@@ -1114,6 +1204,8 @@ export interface BuyerFulfilmentView {
   deliveryCode: { active: boolean; locked: boolean; resendsLeft: number; maskedEmail: string } | null;
   completed: boolean;
   updated: boolean;
+  /** Pickup: the delivery fee given back (paise), once. */
+  deliveryFeeRefundedPaise: number | null;
 }
 
 export async function getBuyerFulfilmentViews(orderIds: string[], buyer: { id: string; email: string }): Promise<Map<string, BuyerFulfilmentView>> {
@@ -1153,13 +1245,14 @@ export async function getBuyerFulfilmentViews(orderIds: string[], buyer: { id: s
           : null,
       completed: plan.completedAt != null,
       updated: plan.version > 1,
+      deliveryFeeRefundedPaise: plan.deliveryFeeRefundedPaise ?? null,
     });
   }
   return result;
 }
 
 /** Slot choices for the shop's planner (computed on the server's clock). */
-export async function plannerOptions(): Promise<{ enabled: boolean; days: ReturnType<typeof availableSlotDays> }> {
+export async function plannerOptions(): Promise<{ enabled: boolean; days: ReturnType<typeof availableSlotDays>; refundDeliveryFeeOnPickup: boolean }> {
   const rules = await getSlotRules();
-  return { enabled: rules.enabled, days: rules.enabled ? availableSlotDays(rules) : [] };
+  return { enabled: rules.enabled, days: rules.enabled ? availableSlotDays(rules) : [], refundDeliveryFeeOnPickup: rules.refundDeliveryFeeOnPickup };
 }

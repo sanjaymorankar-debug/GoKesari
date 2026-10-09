@@ -280,6 +280,7 @@ export const AUDIT_ACTIONS = {
   ORDER_FULFILMENT_CODE_WRONG: "order.fulfilment_code_wrong",
   ORDER_FULFILMENT_CODE_LOCKED: "order.fulfilment_code_locked",
   ORDER_FULFILMENT_CODE_SENT: "order.fulfilment_code_sent",
+  ORDER_DELIVERY_FEE_REFUNDED: "order.delivery_fee_refunded",
   SHOP_DELIVERY_STAFF_SAVED: "shop.delivery_staff_saved",
   SHOP_LEGAL_DOCUMENT_SUBMITTED: "shop.legal_document_submitted",
   SHOP_LEGAL_DOCUMENT_DECIDED: "shop.legal_document_decided",
@@ -288,8 +289,12 @@ export const AUDIT_ACTIONS = {
   BANK_ACCOUNT_VERIFIED: "bank_account.verified",
   BANK_ACCOUNT_VERIFICATION_FAILED: "bank_account.verification_failed",
   BANK_ACCOUNT_REFUND: "bank_account.verification_refund",
+  BANK_REFUND_REQUESTED: "bank_refund.requested",
+  BANK_REFUND_DECIDED: "bank_refund.decided",
+  BANK_REFUND_DETAILS_VIEWED: "bank_refund.details_viewed",
   REFERRAL_REQUEST_CREATED: "referral_request.created",
   REFERRAL_REQUEST_DECIDED: "referral_request.decided",
+  CUSTOMER_SIGNUP_REFERRAL: "customer.signup_referral",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

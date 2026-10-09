@@ -180,6 +180,12 @@ export const NOTIFICATION_TYPES = {
   /** To the account holder: the ₹1 verification of a bank account succeeded / failed. */
   BANK_ACCOUNT_VERIFIED: "wallet.bank_account_verified",
   BANK_ACCOUNT_VERIFICATION_FAILED: "wallet.bank_account_verification_failed",
+  /** To the customer: a refund is on its way to their bank / was paid / failed and is back in the wallet / was cancelled. */
+  BANK_REFUND_REQUESTED: "wallet.bank_refund_requested",
+  BANK_REFUND_PAID: "wallet.bank_refund_paid",
+  BANK_REFUND_RETURNED: "wallet.bank_refund_returned",
+  /** To finance (admins): a customer asked for a refund to their bank. */
+  SUPPORT_BANK_REFUND_REQUESTED: "support.bank_refund_requested",
   /** To support: someone asked for a shop referral code. */
   SUPPORT_REFERRAL_REQUEST: "support.referral_request",
   /** To the requester (when signed in): a referral code was issued, or the request declined. */

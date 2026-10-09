@@ -780,7 +780,7 @@ export const RULES = {
   /* -------------------------------- docs/four-features-2026-10 (all off by default) */
   fulfilmentOptions: {
     description:
-      "Fulfilment options. When enabled, a shop marking an order ready chooses customer pickup (completed with a pickup code the customer shows), its own delivery person (the existing delivery-code completion) or a GoKesari delivery partner (the existing rider dispatch), with a date and time slot. Slots are slotMinutes long between firstSlotHour and lastSlotHour (IST), up to maxDaysAhead days ahead. A GoKesari delivery scheduled later starts its rider search gokesariLeadMinutes before the slot.",
+      "Fulfilment options. When enabled, a shop marking an order ready chooses customer pickup (completed with a pickup code the customer shows), its own delivery person (the existing delivery-code completion) or a GoKesari delivery partner (the existing rider dispatch), with a date and time slot. Slots are slotMinutes long between firstSlotHour and lastSlotHour (IST), up to maxDaysAhead days ahead. A GoKesari delivery scheduled later starts its rider search gokesariLeadMinutes before the slot. With refundDeliveryFeeOnPickup, choosing pickup gives the customer their delivery fee back once (to the wallet; a cash order is charged that much less).",
     schema: z
       .object({
         enabled: z.boolean(),
@@ -789,12 +789,13 @@ export const RULES = {
         lastSlotHour: int(1, 24),
         maxDaysAhead: int(0, 30),
         gokesariLeadMinutes: int(0, 240),
+        refundDeliveryFeeOnPickup: z.boolean(),
       })
       .refine((v) => v.lastSlotHour > v.firstSlotHour, {
         message: "The last slot must end after the first one starts.",
         path: ["lastSlotHour"],
       }),
-    defaults: { enabled: false, slotMinutes: 60, firstSlotHour: 7, lastSlotHour: 22, maxDaysAhead: 7, gokesariLeadMinutes: 45 },
+    defaults: { enabled: false, slotMinutes: 60, firstSlotHour: 7, lastSlotHour: 22, maxDaysAhead: 7, gokesariLeadMinutes: 45, refundDeliveryFeeOnPickup: true },
   },
   legalDocuments: {
     description:
@@ -841,6 +842,18 @@ export const RULES = {
       maxAttemptsPerDay: 5,
     },
   },
+  bankRefunds: {
+    description:
+      "Refunds to a customer's bank. When enabled, a customer can have a refund (its customer-funded part, never promotional credit) sent to their bank account instead of keeping it in the wallet, within windowDays of the refund. The amount leaves the wallet at once; finance sends it from the bank and records the reference (Admin → Refunds to bank), or marks it failed and it returns to the wallet. bankAccounts.requireVerifiedForBankRefunds decides whether the account must be verified first. Update the Wallet Terms and Refund Policy before switching this on.",
+    schema: z.object({
+      enabled: z.boolean(),
+      windowDays: int(1, 365),
+      minAmountPaise: int(100, 1_000_000),
+      /** Shown to the customer: when to expect the money. */
+      expectedWorkingDays: int(1, 30),
+    }),
+    defaults: { enabled: false, windowDays: 30, minAmountPaise: 100, expectedWorkingDays: 5 },
+  },
   shopReferral: {
     description:
       "Shop registration referral code. When required, a self-service shop registration must carry a valid (active, unexpired) referral code. Owners without one can request a code: the request is saved and emailed to notifyEmails; a second request from the same mobile within duplicateWindowHours is refused.",
@@ -850,6 +863,12 @@ export const RULES = {
       notifyEmails: z.array(z.string().email()).min(1).max(5),
     }),
     defaults: { required: false, duplicateWindowHours: 24, notifyEmails: ["referrals@gokesari.com"] },
+  },
+  customerSignupReferral: {
+    description:
+      "Referral code at customer registration. When enabled, a new customer's first-time setup asks for a referral code (optional) and checks it: a code GoKesari issued (Admin → Referral codes, the same codes shop registration uses) is recorded against the customer; a friend's code (customerReferrals on) starts the friend reward. Only before the customer's first order.",
+    schema: z.object({ enabled: z.boolean() }),
+    defaults: { enabled: false },
   },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 

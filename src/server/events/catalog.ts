@@ -18,7 +18,7 @@ import type { Audience } from "./recipients";
 
 type Vars = Record<string, string | number | null | undefined>;
 
-export type SubjectKind = MachineKind | "shop" | "risk_flag" | "notification" | "seller_review" | "bank_account" | "referral_request";
+export type SubjectKind = MachineKind | "shop" | "risk_flag" | "notification" | "seller_review" | "bank_account" | "referral_request" | "bank_refund";
 
 export interface EventMessage {
   /** A user id, an audience, or nothing (skipped — e.g. an order with no rider). */
@@ -162,6 +162,8 @@ export interface FulfilmentEventPayload {
   attempts?: number;
   ticketNumber?: string | null;
   codeKind?: "pickup" | "delivery";
+  /** Pickup: the delivery fee given back ("Your ₹20.00 delivery fee has been refunded…"). */
+  deliveryFeeNote?: string | null;
 }
 
 /** Mandatory legal documents (services/legal-documents.ts). */
@@ -182,6 +184,19 @@ export interface BankAccountEventPayload {
   accountLabel: string;
   reason?: string | null;
   forShop: boolean;
+}
+
+/** Refunds to a customer's bank (services/bank-refunds.ts). */
+export interface BankRefundEventPayload {
+  requestId: string;
+  userId: string;
+  customerName: string | null;
+  amountLabel: string;
+  accountLabel: string;
+  orderNumber: string | null;
+  expectedWorkingDays?: number;
+  reference?: string | null;
+  reason?: string | null;
 }
 
 /** Shop referral-code requests (services/referral-requests.ts). */
@@ -681,7 +696,8 @@ export const EVENTS = {
       title: p.optionLabel.startsWith("Pickup") ? "Ready for pickup" : "Delivery scheduled",
       body:
         `Order ${p.orderNumber} from ${p.shopName}: ${p.optionLabel}${p.staffName ? ` (${p.staffName})` : ""}, ${p.whenLabel}.` +
-        (p.optionLabel.startsWith("Pickup") ? " Show your pickup code from My Orders at the shop." : ""),
+        (p.optionLabel.startsWith("Pickup") ? " Show your pickup code from My Orders at the shop." : "") +
+        (p.deliveryFeeNote ? ` ${p.deliveryFeeNote}` : ""),
       actionUrl: ORDERS,
       channels: ["EMAIL"],
     },
@@ -694,7 +710,7 @@ export const EVENTS = {
       to: p.buyerId,
       type: N.ORDER_FULFILMENT_CHANGED,
       title: "Your order's delivery plan changed",
-      body: `Order ${p.orderNumber} from ${p.shopName} is now: ${p.optionLabel}${p.staffName ? ` (${p.staffName})` : ""}, ${p.whenLabel}.${p.previousLabel ? ` Before: ${p.previousLabel}.` : ""}`,
+      body: `Order ${p.orderNumber} from ${p.shopName} is now: ${p.optionLabel}${p.staffName ? ` (${p.staffName})` : ""}, ${p.whenLabel}.${p.previousLabel ? ` Before: ${p.previousLabel}.` : ""}${p.deliveryFeeNote ? ` ${p.deliveryFeeNote}` : ""}`,
       actionUrl: ORDERS,
       channels: ["EMAIL"],
     },
@@ -792,6 +808,47 @@ export const EVENTS = {
       title: "Bank account not verified",
       body: `${p.accountLabel} could not be verified: ${p.reason ?? "the payment did not go through"}. You can try again.`,
       actionUrl: p.forShop ? "/shop/bank-account" : "/profile/bank-account",
+      includeActor: true,
+    },
+  ]),
+
+  /* ------------------------------------------ refunds to a customer's bank */
+  "bank_refund.requested": define<BankRefundEventPayload>("bank_refund", (p) => [
+    {
+      to: p.userId,
+      type: N.BANK_REFUND_REQUESTED,
+      title: "Refund on its way to your bank",
+      body: `${p.amountLabel}${p.orderNumber ? ` (order ${p.orderNumber})` : ""} will be sent to ${p.accountLabel} within ${p.expectedWorkingDays ?? 5} working days. It has left your wallet.`,
+      actionUrl: "/wallet",
+      channels: ["EMAIL"],
+      includeActor: true,
+    },
+    {
+      to: "SUPPORT_LEAD",
+      type: N.SUPPORT_BANK_REFUND_REQUESTED,
+      title: "Refund to send to a bank",
+      body: `${p.customerName ?? "A customer"} asked for ${p.amountLabel} to ${p.accountLabel}${p.orderNumber ? ` (order ${p.orderNumber})` : ""}.`,
+      actionUrl: "/admin/bank-refunds",
+    },
+  ]),
+  "bank_refund.paid": define<BankRefundEventPayload>("bank_refund", (p) => [
+    {
+      to: p.userId,
+      type: N.BANK_REFUND_PAID,
+      title: "Refund sent to your bank",
+      body: `${p.amountLabel} was sent to ${p.accountLabel}${p.reference ? ` (bank reference ${p.reference})` : ""}.`,
+      actionUrl: "/wallet",
+      channels: ["EMAIL"],
+    },
+  ]),
+  "bank_refund.returned": define<BankRefundEventPayload>("bank_refund", (p) => [
+    {
+      to: p.userId,
+      type: N.BANK_REFUND_RETURNED,
+      title: "Refund back in your wallet",
+      body: `${p.amountLabel} could not be sent to ${p.accountLabel}${p.reason ? `: ${p.reason}` : ""}. It is back in your wallet.`,
+      actionUrl: "/wallet",
+      channels: ["EMAIL"],
       includeActor: true,
     },
   ]),

@@ -5488,6 +5488,12 @@ export const orderFulfilmentArrangements = pgTable(
     outForDeliveryAt: timestamp("out_for_delivery_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
     completedVia: text("completed_via", { enum: ["PICKUP_CODE", "DELIVERY_CODE", "OPERATOR"] }),
+    /**
+     * PICKUP: the customer's delivery fee given back, once, when the shop chose
+     * pickup (rule fulfilmentOptions.refundDeliveryFeeOnPickup). Migration 0065.
+     */
+    deliveryFeeRefundedPaise: bigint("delivery_fee_refunded_paise", { mode: "number" }),
+    deliveryFeeRefundedAt: timestamp("delivery_fee_refunded_at", { withTimezone: true }),
     /** 1 when first set; +1 on every change (shown as "updated"). */
     version: integer("version").notNull().default(1),
     createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
@@ -5736,3 +5742,100 @@ export const referralCodeRequests = pgTable(
   ],
 );
 export type ReferralCodeRequest = typeof referralCodeRequests.$inferSelect;
+
+/* ===================================================================
+ * Refunds to a customer's bank (docs/four-features-2026-10, decided by the
+ * owner on 9 Oct 2026). Additive: migration 0066, rollback
+ * scripts/rollback-0066.sql.
+ * =================================================================== */
+
+export const BANK_REFUND_STATUSES = ["REQUESTED", "PROCESSING", "PAID", "FAILED", "CANCELLED"] as const;
+export type BankRefundStatus = (typeof BANK_REFUND_STATUSES)[number];
+
+/**
+ * A refund the customer asked to receive in their verified bank account
+ * instead of keeping it in the wallet (services/bank-refunds.ts, rule
+ * bankRefunds). One per refund credit: the amount leaves the wallet when it
+ * is asked for (customer-funded money only, never promotional credit) and
+ * goes back to the wallet if the transfer fails or is cancelled. Finance
+ * sends it from the bank and records the bank's reference (UTR), as for
+ * shop settlements. The account is a masked snapshot; the full number stays
+ * encrypted in bank_accounts.
+ */
+export const bankRefundRequests = pgTable(
+  "bank_refund_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** The wallet REFUND credit being sent to the bank. */
+    refundTransactionId: uuid("refund_transaction_id")
+      .notNull()
+      .references(() => walletTransactions.id, { onDelete: "restrict" }),
+    orderId: uuid("order_id").references(() => orders.id, { onDelete: "set null" }),
+    bankAccountId: uuid("bank_account_id")
+      .notNull()
+      .references(() => bankAccounts.id, { onDelete: "restrict" }),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    status: text("status", { enum: BANK_REFUND_STATUSES }).notNull().default("REQUESTED"),
+    /** "HDFC0000123 ••••6789" or "as•••••@okhdfc", as the customer saw it. */
+    accountLabel: text("account_label").notNull(),
+    accountHolderName: text("account_holder_name").notNull(),
+    /** The wallet debit taken when it was asked for, and the credit when it came back. */
+    debitTransactionId: uuid("debit_transaction_id").references(() => walletTransactions.id, { onDelete: "restrict" }),
+    returnTransactionId: uuid("return_transaction_id").references(() => walletTransactions.id, { onDelete: "restrict" }),
+    /** The bank's reference (UTR) for the transfer. */
+    payoutReference: text("payout_reference"),
+    failureReason: text("failure_reason"),
+    processingAt: timestamp("processing_at", { withTimezone: true }),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    failedAt: timestamp("failed_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    decidedBy: uuid("decided_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("bank_refund_requests_refund_uq").on(t.refundTransactionId),
+    index("bank_refund_requests_user_idx").on(t.userId, t.createdAt),
+    index("bank_refund_requests_status_idx").on(t.status, t.createdAt),
+    check("bank_refund_requests_amount", sql`${t.amountPaise} > 0`),
+  ],
+);
+export type BankRefundRequest = typeof bankRefundRequests.$inferSelect;
+
+/* ===================================================================
+ * Referral code at customer registration (docs/four-features-2026-10,
+ * decided by the owner on 9 Oct 2026). Additive: migration 0067, rollback
+ * scripts/rollback-0067.sql.
+ * =================================================================== */
+
+/**
+ * The referral code a customer gave when they joined (first-time setup,
+ * services/customer-signup-referrals.ts, rule customerSignupReferral): a
+ * code GoKesari issued (referral_codes — the same codes shop registration
+ * checks) or a friend's code (customer_referral_codes, which also starts the
+ * existing friend reward in customer_referrals). One per customer.
+ */
+export const customerSignupReferrals = pgTable(
+  "customer_signup_referrals",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: ["GOKESARI", "FRIEND"] }).notNull(),
+    /** GOKESARI: the issued code. */
+    referralCodeId: uuid("referral_code_id").references(() => referralCodes.id, { onDelete: "restrict" }),
+    /** The code as GoKesari issued it, or the friend's code. */
+    code: text("code").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("customer_signup_referrals_user_uq").on(t.userId),
+    index("customer_signup_referrals_code_idx").on(t.referralCodeId, t.createdAt),
+    check("customer_signup_referrals_kind", sql`${t.kind} <> 'GOKESARI' OR ${t.referralCodeId} IS NOT NULL`),
+  ],
+);
+export type CustomerSignupReferral = typeof customerSignupReferrals.$inferSelect;
