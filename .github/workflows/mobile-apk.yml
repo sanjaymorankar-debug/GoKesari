@@ -1,0 +1,75 @@
+name: Android APK
+
+# Builds installable Android APKs of the app (mobile/) on GitHub's machines,
+# so it can be tried on a phone without the Play Store or an Expo account.
+# Download them from the run's "Artifacts" section (mobile/README.md, "Try it
+# on a phone"):
+#
+#   GoKesari-preview-apk     "GoKesari Test", opens test.gokesari.com
+#   GoKesari-production-apk  "GoKesari", opens gokesari.com
+#
+# Signed with the debug key that ships in Expo's project template — the same
+# key every run, so a newer APK installs over an older one. Fine for testing;
+# Play Store builds are made with EAS and their own key.
+on:
+  workflow_dispatch:
+  pull_request:
+    paths: ["mobile/**", ".github/workflows/mobile-apk.yml"]
+  push:
+    branches: [main]
+    paths: ["mobile/**", ".github/workflows/mobile-apk.yml"]
+
+concurrency:
+  group: android-apk-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  apk:
+    name: APK (${{ matrix.variant }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 75
+    strategy:
+      fail-fast: false
+      matrix:
+        variant: [preview, production]
+    env:
+      APP_VARIANT: ${{ matrix.variant }}
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - run: npm ci
+
+      - name: Generate the Android project
+        run: npx expo prebuild --platform android --no-install
+
+      # 64- and 32-bit ARM cover practically every Android phone; x86 is only for emulators.
+      - name: Build
+        working-directory: mobile/android
+        run: ./gradlew assembleRelease --no-daemon -PreactNativeArchitectures=arm64-v8a,armeabi-v7a
+
+      - name: Name the APK
+        run: |
+          mkdir -p "$RUNNER_TEMP/apk"
+          cp android/app/build/outputs/apk/release/app-release.apk "$RUNNER_TEMP/apk/GoKesari-$APP_VARIANT-${GITHUB_SHA::7}.apk"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: GoKesari-${{ matrix.variant }}-apk
+          path: ${{ runner.temp }}/apk/*.apk
+          if-no-files-found: error
+          retention-days: 30

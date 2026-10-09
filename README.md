@@ -152,6 +152,14 @@ What the suite actually proves:
 - Offline-only products cannot enter a cart or be ordered
 - A shop owner cannot reclassify their own shop even with the route guard bypassed
 
+## Mobile app
+
+`mobile/` is the Android and iPhone app: a native shell that shows this site,
+so every feature here is in the app as soon as it is deployed. It is built in
+Expo's cloud — see [mobile/README.md](./mobile/README.md). The website side of
+it is small: Google sign-in for the app (`src/server/mobile-auth.ts`,
+`src/app/mobile-auth/`) and the deep-link files under `src/app/.well-known/`.
+
 ## Project layout
 
 ```
@@ -166,6 +174,7 @@ src/
     api/         route handlers — parse, authorize, delegate, respond
   components/    presentational only
   lib/           money, dates, errors, env
+mobile/          the Android/iPhone app (separate Expo project)
 tests/
   unit/          pure logic
   integration/   real PostgreSQL

@@ -7,6 +7,7 @@ import clsx from "clsx";
 
 import { LocationPanel, OPEN_LOCATION_EVENT } from "@/components/location-picker";
 import { RoleSwitcher } from "@/components/role-switcher";
+import { StandaloneBackButton } from "@/components/standalone-back-button";
 import { formatCount, formatRupees } from "@/lib/board/format";
 import { L, LANG_NAME, LANG_SWITCH_LABEL, LANGUAGES, tr, UI, type Lang } from "@/lib/board/i18n";
 import { setLanguageAction } from "@/server/language-action";
@@ -123,6 +124,8 @@ export function BoardHeader({ lang, user, roles, unreadCount, extraLinks = [], c
   return (
     <header className="sticky top-0 z-40 border-b border-[#f6dcc4] bg-white" data-testid="board-header">
       <div className="mx-auto flex h-14 w-full max-w-[1600px] items-center gap-1.5 px-3 sm:gap-3 sm:px-4 lg:h-16 lg:px-6">
+        {/* iPhone home-screen app only (no browser toolbar there); hidden on "/". */}
+        <StandaloneBackButton />
         <Link href="/" className="flex shrink-0 items-center gap-2" aria-label="GoKesari home">
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/gk-mark.png" alt="" width={62} height={36} className="h-7 w-auto rounded-lg sm:h-8 lg:h-10" />

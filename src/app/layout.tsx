@@ -21,6 +21,12 @@ export const metadata: Metadata = {
   },
   description:
     "Every local shop near you, in one directory. Wallet payments and flexible daily subscriptions.",
+  // Added to the iPhone home screen, the site opens full-screen like an app
+  // (with src/app/manifest.ts); the status bar stays light, above the page.
+  applicationName: "GoKesari",
+  appleWebApp: { capable: true, title: "GoKesari", statusBarStyle: "default" },
+  // Next emits the standard mobile-web-app-capable tag; iOS before 16.4 reads only Apple's own.
+  other: { "apple-mobile-web-app-capable": "yes" },
 };
 
 export const viewport: Viewport = {
