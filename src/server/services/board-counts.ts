@@ -5,6 +5,7 @@
  * caught. A failed or slow query leaves its key out, which the board shows as
  * no badge — it never breaks the page and never shows a stand-in number.
  */
+import { cache } from "react";
 import { and, count, countDistinct, desc, eq, gt, inArray, isNull, lte, notInArray, sql } from "drizzle-orm";
 
 import type { Counts } from "@/lib/board/menus";
@@ -58,6 +59,9 @@ import { getShopVerificationSummary } from "./seller-verification";
 import { listNearbyShops } from "./serviceability";
 import { getShopWalletBalance } from "./shop-wallet";
 import { searchShops } from "./shops";
+
+/** The exceptions queue is read for both a badge and the operator's banner: once per request. */
+const opsQueue = cache(() => listOpsExceptions());
 
 /** A figure slower than this is dropped rather than holding up the page. */
 const QUERY_TIMEOUT_MS = 4000;
@@ -337,7 +341,7 @@ export async function staffCounts(role: "ADMIN" | "OPERATOR"): Promise<Counts> {
     openReturnsAll: () => one(db.select({ n: count() }).from(returnRequests).where(notInArray(returnRequests.status, [...RETURN_TERMINAL]))),
     openGrievances: () => one(db.select({ n: count() }).from(grievances).where(inArray(grievances.status, ["OPEN", "IN_PROGRESS"]))),
     liveOrders: () => one(db.select({ n: count() }).from(orders).where(inArray(orders.status, [...IN_PROGRESS_ORDER]))),
-    opsExceptions: async () => (await listOpsExceptions()).summary.total,
+    opsExceptions: async () => (await opsQueue()).summary.total,
   } satisfies Partial<Record<keyof Counts, () => Promise<number>>>;
 
   if (role === "ADMIN") {
@@ -392,7 +396,7 @@ export interface OperatorAlerts {
 export async function operatorAlerts(): Promise<OperatorAlerts> {
   const [attention, escalated] = await Promise.all([
     settle("ops attention", async () => {
-      const queue = await listOpsExceptions();
+      const queue = await opsQueue();
       const oldest = [...queue.rows].sort((a, b) => a.enteredAt.getTime() - b.enteredAt.getTime())[0];
       return {
         total: queue.summary.total,
