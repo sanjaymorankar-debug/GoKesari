@@ -12,6 +12,7 @@ import {
   StatusBadge,
 } from "@/components/ui";
 import { ListTabs, Pager, paginate } from "@/components/board/list-tabs";
+import { CancelOrderButton } from "@/components/cancel-order-button";
 import { TrackDeliveryButton } from "@/components/live-tracking-map";
 import { RateOrderForm, ReportIssueForm } from "@/components/rating-actions";
 import { SubstitutionDecision } from "@/components/substitution-decision";
@@ -54,7 +55,7 @@ export const dynamic = "force-dynamic";
 export default async function OrdersPage({
   searchParams,
 }: {
-  searchParams: Promise<{ placed?: string; type?: string; tab?: string; page?: string }>;
+  searchParams: Promise<{ placed?: string; type?: string; tab?: string; page?: string; cancelled?: string }>;
 }) {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
@@ -91,17 +92,19 @@ export default async function OrdersPage({
   // Fulfilment options (docs/four-features-2026-10): pickup / own delivery / GoKesari plan and time.
   const fulfilmentPlans = await getBuyerFulfilmentViews(orders.map((o) => o.id), user);
   // NEW-007: delivery photo and invoice links on delivered orders.
-  const [proofPhotos, invoicingRule] = await Promise.all([
+  const [proofPhotos, invoicingRule, cancellationRule] = await Promise.all([
     proofPhotosForOrders(orders.filter((o) => o.status === "DELIVERED").map((o) => o.id)),
     getRule("invoicing"),
+    getRule("cancellation"),
   ]);
+  // Before packing the customer may cancel (rule `cancellation`); the server checks again.
+  const cancellable: readonly string[] = cancellationRule.customerMayCancelUntil === "PREPARING" ? ["CONFIRMED", "ACCEPTED", "PREPARING"] : ["CONFIRMED"];
 
   return (
     <>
       <PageHeader
         title="My Orders"
         description="Track everything you've ordered."
-        action={<LinkButton href="/returns" variant="secondary">My returns</LinkButton>}
       />
 
       {showBusiness ? (
@@ -119,6 +122,17 @@ export default async function OrdersPage({
             Business orders
           </LinkButton>
         </nav>
+      ) : null}
+
+      {params.cancelled ? (
+        <div className="mb-6" data-testid="order-cancelled">
+          <Alert tone="success" title={`Order ${params.cancelled} cancelled`}>
+            The full amount has gone back to your wallet.{" "}
+            <Link href="/wallet#history" className="font-medium underline">
+              See wallet
+            </Link>
+          </Alert>
+        </div>
       ) : null}
 
       {params.placed ? (
@@ -256,6 +270,10 @@ export default async function OrdersPage({
                 <p className="mt-2 text-xs text-ink-500">
                   <Money paise={order.refundedPaise} /> refunded to your wallet for unavailable items.
                 </p>
+              ) : null}
+
+              {order.source !== "SUBSCRIPTION" && cancellable.includes(order.status) ? (
+                <CancelOrderButton orderId={order.id} orderNumber={order.orderNumber} />
               ) : null}
 
               {fulfilmentPlans.has(order.id) &&
