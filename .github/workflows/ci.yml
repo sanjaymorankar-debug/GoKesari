@@ -57,3 +57,35 @@ jobs:
 
       - name: Production build
         run: npm run build
+
+  mobile:
+    # The Android/iOS app (mobile/): a separate Expo project with its own
+    # dependencies. Native builds run on EAS (mobile/README.md); this checks
+    # the code and that the JavaScript bundles for both platforms.
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: mobile
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint
+        run: npm run lint
+
+      - name: Unit tests
+        run: npm test
+
+      - name: Bundle for Android and iOS
+        run: npx expo export --platform android --platform ios --output-dir "$RUNNER_TEMP/expo-export"

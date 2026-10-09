@@ -94,6 +94,24 @@ Web application client and set:
 For a staging subdomain, add its origin and redirect URI to the **same** client
 or create a separate one.
 
+The Android/iPhone app (`mobile/`) signs in with Google through this same
+client and redirect URI — it opens the site's `/mobile-auth/start` page in the
+phone's browser — so it needs nothing extra in Google Cloud Console.
+
+### Mobile app deep links (optional)
+
+So that gokesari.com links open in the installed app rather than the browser,
+set these once the store builds exist (values: mobile/README.md, "Deep
+links"). Unset, `/.well-known/assetlinks.json` and
+`/.well-known/apple-app-site-association` answer 404 and links open in the
+browser as before.
+
+```bash
+MOBILE_ANDROID_PACKAGE=com.gokesari.app          # test.gokesari.com: com.gokesari.app.preview
+MOBILE_ANDROID_CERT_SHA256=<SHA-256 of the app signing certificate>
+MOBILE_IOS_APP_IDS=<Apple Team ID>.com.gokesari.app
+```
+
 ## 3. Deploy
 
 Connect the GitHub repository in the hosting panel and select the branch. The
