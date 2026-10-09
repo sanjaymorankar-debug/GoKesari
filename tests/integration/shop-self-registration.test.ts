@@ -176,11 +176,13 @@ describe("referral code is checked before anything else", () => {
   });
 
   it("the usage limit also holds for a code typed on the manual registration form", async () => {
-    const { resolveUsableCode } = await import("@/server/services/referrals");
+    const { resolveCodeForShop, resolveUsableCode } = await import("@/server/services/referrals");
     await code("MANUAL1", { maxUses: 1 });
-    await expect(resolveUsableCode("MANUAL1")).resolves.toMatchObject({ code: "MANUAL1" });
+    await expect(resolveCodeForShop("MANUAL1")).resolves.toMatchObject({ code: "MANUAL1" });
     await register({ referral: "MANUAL1" }); // holds the only place
-    await expect(resolveUsableCode("manual1")).rejects.toThrow(/maximum number of times/);
+    await expect(resolveCodeForShop("manual1")).rejects.toThrow(/maximum number of times/);
+    // A customer's sign-up code takes no shop's place, so the shop limit does not apply to it.
+    await expect(resolveUsableCode("MANUAL1")).resolves.toMatchObject({ code: "MANUAL1" });
   });
 
   it("needs the right OTP and an offered fee plan", async () => {

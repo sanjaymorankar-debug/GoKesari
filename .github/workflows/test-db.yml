@@ -214,7 +214,7 @@ jobs:
 
       - name: Apply three-modules settings
         if: env.DO_MODULES_SETTINGS == 'yes'
-        # Needs migration 0068 (registration_fee_tiers); the Migrate step above has run.
+        # Needs migration 0071 (registration_fee_tiers); the Migrate step above has run.
         run: |
           set -o pipefail
           echo "### Three-modules settings applied" >> "$GITHUB_STEP_SUMMARY"

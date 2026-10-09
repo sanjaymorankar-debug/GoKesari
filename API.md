@@ -828,6 +828,13 @@ default: `fulfilmentOptions`, `legalDocuments`, `bankAccounts`, `shopReferral`.
 With `fulfilmentOptions` on, `POST /api/orders/{id}/fulfilment {"action":"ready"}`
 without a plan answers `409` with `details.needsFulfilmentChoice`.
 
+With `fulfilmentOptions.refundDeliveryFeeOnPickup` on (the default), a plan that
+becomes `PICKUP` gives the customer's delivery fee back once:
+- a paid order to the wallet;
+- a cash order is charged that much less.
+
+The plan view shows it as `deliveryFeeRefundedPaise`.
+
 ### Legal documents
 | Route | Who | Body / answer |
 |---|---|---|
@@ -851,6 +858,16 @@ without a plan answers `409` with `details.needsFulfilmentChoice`.
 `PATCH /api/finance/settlements/{id}` with `process` or `pay` answers `409` when
 the shop has no verified bank account (rule `bankAccounts.requireVerifiedForShopPayouts`).
 
+### Refunds to a customer's bank (rule `bankRefunds`, off by default)
+| Route | Who | Body / answer |
+|---|---|---|
+| `GET /api/bank-refunds` | signed-in customer | Refunds from the last `windowDays` that can be sent (customer-funded part, less what was spent), the account they would go to (masked), past requests. `409` when the rule is off |
+| `POST /api/bank-refunds` | signed-in customer | `{ refundTransactionId }` → `201` with the request. The amount leaves the wallet now. Repeating it answers the same request |
+| `POST /api/bank-refunds/{id}/cancel` | the customer | Only while `REQUESTED`. The amount returns to the wallet |
+| `GET /api/admin/bank-refunds?status=` | `FINANCE_VIEW` | `REQUESTED` · `PROCESSING` · `PAID` · `FAILED` · `CANCELLED`, masked |
+| `POST /api/admin/bank-refunds/{id}` | `FINANCE_MANAGE` | `{ action: process }` · `{ action: pay, reference }` (the bank's UTR) · `{ action: fail, reason }` (the amount returns to the wallet) |
+| `GET /api/admin/bank-refunds/{id}/account` | `FINANCE_MANAGE` (audited) | The full account details, only while the refund is still to be sent |
+
 ### Referral codes
 | Route | Who | Body / answer |
 |---|---|---|
@@ -862,6 +879,11 @@ the shop has no verified bank account (rule `bankAccounts.requireVerifiedForShop
 `POST /api/shops` (self-service registration) needs `referralCode` when
 `shopReferral.required` is on: an empty or invalid code answers `400` with
 `details.fields.referralCode`.
+
+| Route | Who | Body / answer |
+|---|---|---|
+| `GET /api/me/signup-referral` | signed in | `{ referral, ask }`: the code this customer joined with, and whether first-time setup still asks for one |
+| `POST /api/me/signup-referral` | signed in, before the first order (rule `customerSignupReferral`) | `{ code }` → `{ kind: GOKESARI \| FRIEND, code, label }`. An unknown, paused or expired code answers `422` with `details.fields.referralCode`. Once per customer |
 
 ## Rate limits
 

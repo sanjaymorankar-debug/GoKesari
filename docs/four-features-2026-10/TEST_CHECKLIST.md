@@ -97,6 +97,24 @@ stands in, and the page says so.
 | 4.8 | PIN `012345` or `12345` | Refused |
 | 4.9 | Operator: **Referral requests** → **Issue code** → then reject another one | Status "code issued" with the code. "rejected" with a reason |
 
+## 4a. Added on 9 Oct 2026 (the owner's decisions)
+
+| # | Step | Expected |
+|---|---|---|
+| O1.1 | Shop: a wallet-paid order with a ₹20 delivery fee → choose **Pickup** in the planner | Hint: "the customer's ₹20.00 delivery fee goes back to them" |
+| O1.2 | "Packed — mark ready" | Customer's wallet +₹20 ("Delivery fee refund…"). Order total −₹20, fee 0. "Ready for pickup" message says the fee was refunded. The customer's order card and the shop's planner both say so |
+| O1.3 | Change to own delivery and back to pickup; then complete the pickup | No second refund, no charge. Shop wallet: commission only |
+| O2.1 | Customer with a verified bank account: **My Wallet → Send a refund to your bank** | Recent refunds listed (customer-funded part), with the account they go to |
+| O2.2 | Send one → confirm | Leaves the wallet at once. "On its way" and an email. Finance (admins) get an in-app alert |
+| O2.3 | Admin → **Refunds to bank** → Show account details → Mark sent → Paid with a UTR | Full details shown to finance only, and audited. Customer: "Paid to your bank" with the reference |
+| O2.4 | Another refund → finance marks it **Failed** | Back in the wallet; the customer is told. It can be sent again |
+| O2.5 | Another → the customer **cancels** before finance starts | Back in the wallet |
+| O2.6 | No verified account / promotional refund / refund older than 30 days | Not offered or refused; a prompt to verify the account |
+| O3.1 | A **new** customer signs in → first-time setup | "Referral code (optional)" field |
+| O3.2 | Wrong code → Save | Error on the field; nothing saved |
+| O3.3 | A code GoKesari issued (e.g. `E2EANIL1`) → Save | Accepted; continues to the address step. Admin → Referral requests → "Customers who joined with a code" counts it |
+| O3.4 | After the first order | Not asked any more; a code is refused |
+
 ## 5. Regression (existing flows)
 
 Registration · sign-in (email code) · browse · cart · checkout (wallet) ·

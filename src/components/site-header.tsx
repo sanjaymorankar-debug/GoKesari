@@ -138,6 +138,7 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin/legal-documents", label: "Legal documents" },
     { href: "/admin/referral-requests", label: "Referral requests" },
     { href: "/admin/bank-accounts", label: "Bank accounts" },
+    { href: "/admin/bank-refunds", label: "Refunds to bank" },
   ],
   DELIVERY_PARTNER: [
     { href: "/delivery-partner", label: "Delivery Partner" },

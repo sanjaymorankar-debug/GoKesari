@@ -10,7 +10,8 @@
 \echo '== Migrations (newest 6) and rules in force'
 SELECT id, created_at FROM drizzle.__drizzle_migrations ORDER BY created_at DESC LIMIT 6;
 SELECT key, value FROM platform_settings
- WHERE key IN ('fulfilmentOptions', 'legalDocuments', 'bankAccounts', 'shopReferral', 'shopWallet', 'deliveryOtp') ORDER BY key;
+ WHERE key IN ('fulfilmentOptions', 'legalDocuments', 'bankAccounts', 'shopReferral', 'shopWallet', 'deliveryOtp',
+               'bankRefunds', 'customerSignupReferral', 'customerReferrals') ORDER BY key;
 
 \echo '== E2E accounts (sanjaymorankar+gk-*)'
 SELECT u.email, u.role, u.status, u.created_at
@@ -32,6 +33,12 @@ SELECT o.order_number, o.status AS order_status, a.option, a.scheduled_start, a.
   JOIN orders o ON o.id = a.order_id JOIN shops s ON s.id = a.shop_id
   LEFT JOIN shop_delivery_staff st ON st.id = a.staff_id
  WHERE s.name ILIKE 'E2E%' ORDER BY a.created_at;
+\echo '-- pickup gives the delivery fee back (owner 9 Oct): the fee and total now, the amount given back, the wallet refund'
+SELECT o.order_number, o.payment_method, o.delivery_fee_paise, o.total_paise, o.refunded_paise,
+       a.delivery_fee_refunded_paise, a.delivery_fee_refunded_at,
+       (SELECT t.amount_paise FROM wallet_transactions t WHERE t.idempotency_key = 'refund:order:' || o.id || ':delivery-fee-pickup') AS wallet_refund_paise
+  FROM order_fulfilment_arrangements a JOIN orders o ON o.id = a.order_id JOIN shops s ON s.id = a.shop_id
+ WHERE s.name ILIKE 'E2E%' AND a.option = 'PICKUP' ORDER BY a.created_at;
 \echo '-- shop wallet ledger for those orders (DELIVERY_CHARGE only for GoKesari-rider deliveries)'
 SELECT o.order_number, t.type, t.direction, t.amount_paise, t.balance_after_paise, t.created_at
   FROM shop_wallet_transactions t JOIN orders o ON o.id = t.order_id JOIN shops s ON s.id = o.shop_id
@@ -75,9 +82,31 @@ SELECT rc.code, rc.status, rc.label, rc.expires_at, rc.created_at,
        (SELECT count(*) FROM shops s WHERE s.referral_code_id = rc.id) AS shops_attributed
   FROM referral_codes rc WHERE rc.code ILIKE 'E2E%' OR rc.code LIKE 'GKS%' OR rc.label ILIKE '%RCR-%' ORDER BY rc.created_at;
 
+\echo '== 5. Refunds to bank (E2E users; owner 9 Oct)'
+SELECT u.email, r.status, r.amount_paise, r.account_label, r.payout_reference, r.failure_reason,
+       r.created_at, r.processing_at, r.paid_at, r.failed_at, r.cancelled_at,
+       (SELECT t.amount_paise FROM wallet_transactions t WHERE t.id = r.debit_transaction_id) AS wallet_debit_paise,
+       (SELECT t.amount_paise FROM wallet_transactions t WHERE t.id = r.return_transaction_id) AS wallet_return_paise
+  FROM bank_refund_requests r JOIN users u ON u.id = r.user_id
+ WHERE u.email LIKE 'sanjaymorankar+gk-%@gmail.com' ORDER BY r.created_at;
+
+\echo '== 6. Referral codes given at customer registration (E2E users, and customers per code)'
+SELECT u.email, c.kind, c.code, c.created_at
+  FROM customer_signup_referrals c JOIN users u ON u.id = c.user_id
+ WHERE u.email LIKE 'sanjaymorankar+gk-%@gmail.com' ORDER BY c.created_at;
+SELECT c.code, c.kind, count(*) AS customers, max(c.created_at) AS latest
+  FROM customer_signup_referrals c GROUP BY c.code, c.kind ORDER BY latest DESC LIMIT 20;
+
+\echo '== Email outbox for the E2E accounts (newest 40; addresses are the test aliases)'
+SELECT d.created_at, u.email, d.type, d.status, d.attempts, d.next_attempt_at, d.sent_at, left(d.last_error, 120) AS last_error
+  FROM notification_deliveries d JOIN users u ON u.id = d.user_id
+ WHERE u.email LIKE 'sanjaymorankar+gk-%@gmail.com' AND d.channel = 'EMAIL'
+ ORDER BY d.created_at DESC LIMIT 40;
+
 \echo '== Audit trail of the four features (newest 40)'
 SELECT a.created_at, a.action, a.entity_type, u.email AS actor
   FROM audit_logs a LEFT JOIN users u ON u.id = a.actor_id
  WHERE a.action LIKE 'order.fulfilment%' OR a.action LIKE 'shop.delivery_staff%' OR a.action LIKE 'shop.legal_document%'
     OR a.action LIKE 'bank_account%' OR a.action LIKE 'referral_request%'
+    OR a.action LIKE 'bank_refund%' OR a.action IN ('order.delivery_fee_refunded', 'customer.signup_referral')
  ORDER BY a.created_at DESC LIMIT 40;

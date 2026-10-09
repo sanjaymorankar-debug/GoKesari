@@ -1,4 +1,4 @@
--- 0067 GST compliance (docs/three-modules-2026-10, Module 2).
+-- 0070 GST compliance (docs/three-modules-2026-10, Module 2).
 --   gst_rules            thresholds and switches as dated data (seeded below).
 --   hsn_tax_rates        fallback rates by HSN, dated — empty, for the CA.
 --   credit_notes (+ counters)   the shop's credit note on a refund after delivery.
@@ -9,7 +9,7 @@
 --   tax_invoices: invoice numbers unique per shop (was: across all shops), as
 --     GST requires — needed for the 16-character numbering. Every existing
 --     number is already unique, so the new index builds on any data.
--- Rollback: scripts/rollback-0067.sql
+-- Rollback: scripts/rollback-0070.sql
 CREATE TABLE "credit_note_counters" (
 	"shop_id" uuid NOT NULL,
 	"financial_year" text NOT NULL,

@@ -51,19 +51,22 @@ import {
   deliveryPartners,
   grievances,
   notifications,
+  orderFinancials,
   orderFulfilmentArrangements,
   orders,
   platformSettings,
   riderSearches,
   shopWalletTransactions,
   shops,
+  walletTransactions,
+  wallets,
 } from "@/server/db/schema";
 import { addToCart } from "@/server/services/cart";
 import { acceptDeliveryOffer, findRiderNow, markDelivered, markPickedUp, startDelivery } from "@/server/services/delivery-assignment";
 import { setCommissionRate } from "@/server/services/finance";
 import { acceptOrder, startPicking } from "@/server/services/fulfilment";
 import { pickupCodeFor, getBuyerFulfilmentViews, getShopFulfilmentViews } from "@/server/services/fulfilment-options";
-import { checkout } from "@/server/services/orders";
+import { cancelOrder, checkout } from "@/server/services/orders";
 import { clearRuleCache, setRule } from "@/server/services/settings";
 import { adjustShopWallet } from "@/server/services/shop-wallet";
 import { call } from "../helpers/http";
@@ -118,7 +121,7 @@ function laterSlot(): string {
   throw new Error("no later slot");
 }
 
-async function setup(opts: { deliveryAvailable?: boolean; withRider?: boolean } = {}) {
+async function setup(opts: { deliveryAvailable?: boolean; withRider?: boolean; deliveryFeePaise?: number } = {}) {
   const owner = await createUser({ role: "SHOP_OWNER", name: "Owner" });
   const cat = await createCategory({ department: "DAIRY", name: "Milk" });
   const milk = await createProduct(cat.id, { name: "Cow Milk", unit: "L" });
@@ -127,6 +130,7 @@ async function setup(opts: { deliveryAvailable?: boolean; withRider?: boolean } 
     latitude: SHOP.latitude,
     longitude: SHOP.longitude,
     deliveryAvailable: opts.deliveryAvailable ?? true,
+    ...(opts.deliveryFeePaise != null ? { deliveryFeePaise: opts.deliveryFeePaise } : {}),
   });
   const sp = await createShopProduct(shop.id, milk.id, { onlinePricePaise: PRICE, onlineStock: 50 });
   let riderUser = null as Awaited<ReturnType<typeof createUser>> | null;
@@ -225,12 +229,18 @@ describe("customer pickup", () => {
     expect(res.body.order.status).toBe("READY");
     expect(res.body.plan).toMatchObject({ option: "PICKUP", slotKey: slot, completed: false });
 
+    // The same "mark ready" again (double tap, retried request) answers with what was done.
+    const repeat = await plan(order.id, { option: "PICKUP", slotKey: slot, markReady: true });
+    expect(repeat.status, JSON.stringify(repeat.body)).toBe(200);
+    expect(repeat.body.order.status).toBe("READY");
+
     // No rider is looked for, even with one online next door.
     expect(await db.select().from(deliveryOrders).where(eq(deliveryOrders.orderId, order.id))).toHaveLength(0);
     expect(await db.select().from(riderSearches).where(eq(riderSearches.orderId, order.id))).toHaveLength(0);
 
     // The customer is told at once (in the app; email queued), with the time.
-    const [note] = await notes(customer.id, "order.fulfilment_set");
+    const [note, ...more] = await notes(customer.id, "order.fulfilment_set");
+    expect(more).toHaveLength(0); // the repeat told nobody twice
     expect(note.title).toBe("Ready for pickup");
     expect(note.body).toContain("Pickup from the shop");
 
@@ -261,9 +271,11 @@ describe("customer pickup", () => {
     const charges = await db.select().from(shopWalletTransactions).where(eq(shopWalletTransactions.orderId, order.id));
     expect(charges.map((c) => c.type)).toEqual(["COMMISSION"]);
 
-    // A second submit changes nothing.
+    // A second submit changes nothing and answers with the delivered order.
     const again = await handover(order.id, { action: "pickup", code: view.pickupCode });
-    expect(again.status).toBe(409);
+    expect(again.status).toBe(200);
+    expect(again.body.status).toBe("DELIVERED");
+    expect(await db.select().from(shopWalletTransactions).where(eq(shopWalletTransactions.orderId, order.id))).toHaveLength(1);
   });
 
   it("a cash-on-delivery pickup needs the cash confirmed", async () => {
@@ -308,6 +320,108 @@ describe("customer pickup", () => {
     const confirmed = await handover(order.id, { action: "confirm", note: "Called the customer, collected" });
     expect(confirmed.status, JSON.stringify(confirmed.body)).toBe(200);
     expect(confirmed.body.status).toBe("DELIVERED");
+  });
+});
+
+/* ------------------------------------------- pickup gives the fee back */
+
+describe("pickup gives the customer's delivery fee back (F1-8, decided 9 Oct 2026)", () => {
+  const FEE = 2_000;
+  const balance = async (userId: string) => (await db.select().from(wallets).where(eq(wallets.userId, userId)))[0].balancePaise;
+  const orderRow = async (orderId: string) => (await db.select().from(orders).where(eq(orders.id, orderId)))[0];
+  const feeRefunds = (orderId: string) =>
+    db.select().from(walletTransactions).where(and(eq(walletTransactions.orderId, orderId), eq(walletTransactions.idempotencyKey, `refund:order:${orderId}:delivery-fee-pickup`)));
+
+  it("a wallet order gets the fee back once, on the plan; delivery books no fee; switching back does not charge it again", async () => {
+    await enable();
+    const ctx = await setup({ deliveryFeePaise: FEE });
+    const { order, customer } = await preparingOrder(ctx);
+    const before = await orderRow(order.id);
+    expect(before.deliveryFeePaise).toBe(FEE);
+    const paid = await balance(customer.id);
+    signIn(ctx.owner, "SHOP_OWNER");
+
+    const slot = nowSlot();
+    expect((await plan(order.id, { option: "PICKUP", slotKey: slot, markReady: true })).status).toBe(200);
+    expect(await balance(customer.id)).toBe(paid + FEE);
+    const after = await orderRow(order.id);
+    expect(after).toMatchObject({ deliveryFeePaise: 0, totalPaise: before.totalPaise - FEE, refundedPaise: before.refundedPaise + FEE });
+    expect((await planRow(order.id)).deliveryFeeRefundedPaise).toBe(FEE);
+    const [note] = await notes(customer.id, "order.fulfilment_set");
+    expect(note.body).toContain("Your ₹20.00 delivery fee has been refunded to your wallet.");
+    expect((await getBuyerFulfilmentViews([order.id], customer)).get(order.id)!.deliveryFeeRefundedPaise).toBe(FEE);
+    expect((await getShopFulfilmentViews([order.id])).get(order.id)!.deliveryFeeRefundedPaise).toBe(FEE);
+
+    // A repeat, a switch to own delivery and back to pickup: no second refund, no charge.
+    expect((await plan(order.id, { option: "PICKUP", slotKey: slot, markReady: true })).status).toBe(200);
+    const staff = await addStaff(ctx.shop.id, ctx.owner);
+    expect((await plan(order.id, { option: "SHOP_DELIVERY", slotKey: slot, staffId: staff.id })).status).toBe(200);
+    expect((await plan(order.id, { option: "PICKUP", slotKey: slot })).status).toBe(200);
+    expect(await feeRefunds(order.id)).toHaveLength(1);
+    expect(await balance(customer.id)).toBe(paid + FEE);
+    expect((await orderRow(order.id)).totalPaise).toBe(before.totalPaise - FEE);
+
+    // Collected: the platform books no delivery fee for it.
+    const code = (await getBuyerFulfilmentViews([order.id], customer)).get(order.id)!.pickupCode!;
+    expect((await handover(order.id, { action: "pickup", code })).status).toBe(200);
+    const [fin] = await db.select().from(orderFinancials).where(eq(orderFinancials.orderId, order.id));
+    expect(fin.deliveryFeePaise).toBe(0);
+  });
+
+  it("changing a delivery plan to pickup gives it back then, and a later cancellation refunds only the rest", async () => {
+    await enable();
+    const ctx = await setup({ deliveryFeePaise: FEE });
+    const { order, customer } = await preparingOrder(ctx);
+    const start = await balance(customer.id) + (await orderRow(order.id)).totalPaise;
+    const staff = await addStaff(ctx.shop.id, ctx.owner);
+    signIn(ctx.owner, "SHOP_OWNER");
+    expect((await plan(order.id, { option: "SHOP_DELIVERY", slotKey: nowSlot(), staffId: staff.id, markReady: true })).status).toBe(200);
+    expect(await feeRefunds(order.id)).toHaveLength(0);
+
+    expect((await plan(order.id, { option: "PICKUP", slotKey: nowSlot() })).status).toBe(200);
+    expect(await feeRefunds(order.id)).toHaveLength(1);
+    const [note] = await notes(customer.id, "order.fulfilment_changed");
+    expect(note.body).toContain("Your ₹20.00 delivery fee has been refunded to your wallet.");
+
+    await cancelOrder(order.id, ctx.ownerActor, "Shop closed early");
+    // Fee refund + cancellation refund = everything the customer paid, never more.
+    expect(await balance(customer.id)).toBe(start);
+  });
+
+  it("a cash order is charged that much less; nothing goes to the wallet", async () => {
+    await enable();
+    const ctx = await setup({ deliveryFeePaise: FEE });
+    await db.update(shops).set({ codEnabled: true }).where(eq(shops.id, ctx.shop.id));
+    const { order, customer } = await preparingOrder(ctx, { cod: true });
+    const before = await orderRow(order.id);
+    const wallet = await balance(customer.id);
+    signIn(ctx.owner, "SHOP_OWNER");
+    expect((await plan(order.id, { option: "PICKUP", slotKey: nowSlot(), markReady: true })).status).toBe(200);
+    expect(await balance(customer.id)).toBe(wallet);
+    expect(await feeRefunds(order.id)).toHaveLength(0);
+    expect((await orderRow(order.id)).totalPaise).toBe(before.totalPaise - FEE);
+    const [note] = await notes(customer.id, "order.fulfilment_set");
+    expect(note.body).toContain(`You won't pay the ₹20.00 delivery fee: pay ₹${((before.totalPaise - FEE) / 100).toFixed(2)} at the shop.`);
+  });
+
+  it("with refundDeliveryFeeOnPickup off, or no fee on the order, nothing changes", async () => {
+    await enable({ refundDeliveryFeeOnPickup: false } as Partial<typeof RULES>);
+    const ctx = await setup({ deliveryFeePaise: FEE });
+    const { order, customer } = await preparingOrder(ctx);
+    const before = await orderRow(order.id);
+    const wallet = await balance(customer.id);
+    signIn(ctx.owner, "SHOP_OWNER");
+    expect((await plan(order.id, { option: "PICKUP", slotKey: nowSlot(), markReady: true })).status).toBe(200);
+    expect(await balance(customer.id)).toBe(wallet);
+    expect((await orderRow(order.id)).totalPaise).toBe(before.totalPaise);
+    expect((await planRow(order.id)).deliveryFeeRefundedPaise).toBeNull();
+
+    await enable();
+    const free = await setup();
+    const { order: freeOrder } = await preparingOrder(free);
+    signIn(free.owner, "SHOP_OWNER");
+    expect((await plan(freeOrder.id, { option: "PICKUP", slotKey: nowSlot(), markReady: true })).status).toBe(200);
+    expect((await planRow(freeOrder.id)).deliveryFeeRefundedPaise).toBeNull();
   });
 });
 

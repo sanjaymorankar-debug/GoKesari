@@ -158,8 +158,18 @@ export async function resolveUsableCode(
   if (found.expiresAt && found.expiresAt < new Date().toISOString().slice(0, 10)) {
     throw validationFailed(`Referral code ${code} expired on ${found.expiresAt}.`);
   }
+  return found;
+}
+
+/**
+ * A code a shop registers with: usable (above) and, when the code has a usage
+ * limit (max_uses, Module 3), not used up by shops already. Customer sign-up
+ * codes use resolveUsableCode alone: they take no shop's place.
+ */
+export async function resolveCodeForShop(rawCode: string, client: DbClient = db): Promise<ReferralCode> {
+  const found = await resolveUsableCode(rawCode, client);
   if (found.maxUses != null && (await referralCodeUses(found.id, client)) >= found.maxUses) {
-    throw validationFailed(`Referral code ${code} has already been used the maximum number of times.`);
+    throw validationFailed(`Referral code ${found.code} has already been used the maximum number of times.`);
   }
   return found;
 }
@@ -178,7 +188,7 @@ export async function attributeShopToCode(
   client?: DbClient,
 ): Promise<ReferralCode> {
   const run = async (tx: DbClient) => {
-    const code = await resolveUsableCode(rawCode, tx);
+    const code = await resolveCodeForShop(rawCode, tx);
 
     const [shop] = await tx
       .select({

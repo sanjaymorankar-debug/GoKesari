@@ -121,12 +121,13 @@ function label(account: Pick<BankAccount, "method" | "accountNumberLast4" | "ifs
 }
 
 async function toView(account: BankAccount): Promise<BankAccountView> {
-  const [attempt] = await db
+  const [latest] = await db
     .select()
     .from(bankVerificationAttempts)
     .where(eq(bankVerificationAttempts.bankAccountId, account.id))
     .orderBy(desc(bankVerificationAttempts.createdAt))
     .limit(1);
+  const attempt = latest ? await refreshCashfreeRefund(latest) : latest;
   return {
     id: account.id,
     holderType: account.holderType,
@@ -421,6 +422,44 @@ async function fetchCashfreePayments(gatewayOrderId: string): Promise<GatewayPay
   return ((await response.json()) as CashfreePayment[]).map(readCashfreePayment);
 }
 
+/** Our refund id for an attempt's ₹1 — the same on every call, so Cashfree never refunds twice. */
+function refundIdFor(attempt: Pick<BankVerificationAttempt, "id">): string {
+  return `bvr_${attempt.id.replace(/-/g, "").slice(0, 30)}`;
+}
+
+/**
+ * A refund Cashfree accepted but had not finished settling: asks Cashfree again
+ * and records REFUNDED (or FAILED when Cashfree cancelled it). Called when the
+ * account is shown, so the holder and finance see the ₹1 come back. Never throws.
+ */
+async function refreshCashfreeRefund(attempt: BankVerificationAttempt): Promise<BankVerificationAttempt> {
+  if (attempt.gateway !== "CASHFREE" || attempt.refundStatus !== "PENDING" || !isPaymentGatewayLive()) return attempt;
+  try {
+    const response = await fetch(`${cashfreeApiBase()}/orders/${attempt.gatewayOrderId}/refunds/${refundIdFor(attempt)}`, {
+      method: "GET",
+      headers: cashfreeHeaders(),
+    });
+    const body = (await response.json().catch(() => null)) as { refund_status?: string; cf_refund_id?: string | number } | null;
+    if (!response.ok || !body) return attempt;
+    const status = body.refund_status === "SUCCESS" ? "REFUNDED" : body.refund_status === "CANCELLED" ? "FAILED" : null;
+    if (!status) return attempt;
+    const [updated] = await db
+      .update(bankVerificationAttempts)
+      .set({
+        refundStatus: status,
+        refundReference: attempt.refundReference ?? (body.cf_refund_id != null ? String(body.cf_refund_id) : null),
+        refundedAt: status === "REFUNDED" ? new Date() : attempt.refundedAt,
+        updatedAt: new Date(),
+      })
+      .where(and(eq(bankVerificationAttempts.id, attempt.id), eq(bankVerificationAttempts.refundStatus, "PENDING")))
+      .returning();
+    return updated ?? attempt;
+  } catch (error) {
+    console.error("[bank-accounts] Cashfree refund status check failed", attempt.gatewayOrderId, error);
+    return attempt;
+  }
+}
+
 async function refundCashfree(attempt: BankVerificationAttempt): Promise<{ status: "PENDING" | "REFUNDED" | "FAILED"; reference: string | null }> {
   try {
     const response = await fetch(`${cashfreeApiBase()}/orders/${attempt.gatewayOrderId}/refunds`, {
@@ -428,7 +467,7 @@ async function refundCashfree(attempt: BankVerificationAttempt): Promise<{ statu
       headers: cashfreeHeaders(),
       body: JSON.stringify({
         refund_amount: attempt.amountPaise / 100,
-        refund_id: `bvr_${attempt.id.replace(/-/g, "").slice(0, 30)}`,
+        refund_id: refundIdFor(attempt),
         refund_note: "GoKesari bank account verification",
       }),
     });

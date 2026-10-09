@@ -37,6 +37,9 @@ const STATE_TONES: Record<LegalDocState, "success" | "info" | "warning" | "dange
   EXPIRED: "danger",
 };
 
+/** "Drug licence" → "drug licence" mid-sentence; an acronym such as FSSAI keeps its capitals. */
+const inSentence = (label: string) => label.replace(/^([A-Z])(?=[a-z])/, (c) => c.toLowerCase());
+
 const dateLabel = (iso: string) =>
   new Date(iso).toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
 
@@ -148,19 +151,19 @@ function LegalDocCardView({ shopId, doc }: { shopId: string; doc: LegalDocCard }
       ) : null}
       {doc.blocking ? (
         <div className="mt-3">
-          <Alert tone="danger" title="Your shop cannot accept orders">Upload your {doc.label.toLowerCase()} to start taking orders again.</Alert>
+          <Alert tone="danger" title="Your shop cannot accept orders">Upload your {inSentence(doc.label)} to start taking orders again.</Alert>
         </div>
       ) : doc.deadline ? (
         <div className="mt-3">
           <Alert tone="warning" title={`Upload by ${dateLabel(doc.deadline)}`}>
-            Until then your shop keeps taking orders. After that date it cannot accept orders until the {doc.label.toLowerCase()} is uploaded.
+            Until then your shop keeps taking orders. After that date it cannot accept orders until the {inSentence(doc.label)} is uploaded.
           </Alert>
         </div>
       ) : null}
       {doc.expiringSoon && doc.expiryDate ? (
         <div className="mt-3">
           <Alert tone="warning" title="Expires soon">
-            Your {doc.label.toLowerCase()} expires on {dateLabel(`${doc.expiryDate}T00:00:00+05:30`)}. Upload the renewed licence before then.
+            Your {inSentence(doc.label)} expires on {dateLabel(`${doc.expiryDate}T00:00:00+05:30`)}. Upload the renewed licence before then.
           </Alert>
         </div>
       ) : null}
