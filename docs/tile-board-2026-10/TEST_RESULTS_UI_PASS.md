@@ -124,6 +124,17 @@ The slow first visits are the database waking up (Neon in us-east-2, idle connec
 “[board] customer shops / shopCategories took over 4000ms — badge dropped”; PR #127 keeps those two shared figures for a minute so a visitor's home page no
 longer waits on them. The hosting settings that remove the cold start are listed in the summary (open items).
 
+### PR #127 on test.gokesari.com (9 Oct, 22:20 UTC)
+
+Visitor home page, first byte after 100 s with no traffic (the database connection has closed), four rounds:
+
+| Site | Home | Sign-in (no database work, for comparison) |
+|---|---|---|
+| test.gokesari.com (with #127) | 0.70–0.92 s | 0.62–1.20 s |
+| gokesari.com (without #127) | 3.39–4.46 s | 0.46–0.52 s |
+
+With #127 the home page is as quick as the sign-in page even when the database has gone idle — PASS. Production still shows the 4 s wait until #127 is released.
+
 ## Not run, and why
 
 - C-01 Top up the wallet (Cashfree sandbox, UPI testsuccess@gocash): Not completed: the wallet screen created the Cashfree sandbox session (session_iPGj…), but GitHub Actions did not start the Sandbox payment job (run 37973592123: “recent account payments have failed or your spending limit needs to be increased”). This session cannot reach Cashfree itself
