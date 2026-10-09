@@ -132,6 +132,12 @@ stands in, and the page says so.
 | O5.9 | Decline another request with a reason | The customer is told, with the reason |
 | O5.10 | An existing customer (joined before 9 Oct) with no order; a shop owner | Not stopped |
 | O6.1 | Any signed-in user (customer, shop owner, delivery partner): menu → **Invite friends** | Own invite code and link. A new customer who uses it at setup can order |
+| O7.1 | Admin → Bank accounts | "Bank check with Cashfree" card: Rule on; Keys found (sandbox), with the variable names (no values) and the two-factor mode |
+| O7.2 | **Test connection** | Cashfree's answer for its sample account (VALID, JOHN DOE) and the server's outbound IP; or the error (e.g. IP not whitelisted) |
+| O7.3 | Customer → Bank account for refunds → save 026291800001191 / YESB0000262, holder "John Doe" | "Saved and verified with your bank — no ₹1 payment needed"; "Verified with your bank · name at bank …" |
+| O7.4 | A name that does not match, or Cashfree's failure sample account | "Your bank did not confirm these details" with the reason; no "Verify with ₹1" button |
+| O7.5 | Cashfree refusing (2FA) | Saved; "We could not reach your bank"; ₹1 and "Check with my bank again" offered |
+| O7.6 | `bankAccountCheck` off | Exactly as before: "Saved. Now verify it with a ₹1 payment" |
 | O8.1 | `bankRefunds` on: open /legal/wallet-terms and /legal/refund-policy (signed out is fine) | The approved wording: "It cannot be withdrawn as cash. Money refunded to your wallet … within 30 days of the refund" and "Within 30 days of a refund you can ask for it to be sent to your verified bank account … within 5 working days". With the rule off (production today), the old "cannot be … transferred to a bank account" bullet and no paragraph |
 
 ## 5. Regression (existing flows)

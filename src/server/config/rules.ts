@@ -920,6 +920,12 @@ export const RULES = {
     }),
     defaults: { enabled: false, required: false, requiredFrom: null, requestDuplicateWindowHours: 24 },
   },
+  bankAccountCheck: {
+    description:
+      "Bank account check with Cashfree's Verification Suite (the owner's decision O-7). When enabled and the Verification Suite keys are set (CASHFREE_VERIFICATION_CLIENT_ID / _CLIENT_SECRET, or _APP_ID / _SECRET_KEY), a bank account (account number + IFSC) is checked with the bank as soon as it is saved: the bank says whether it is valid and whose name it is in. A valid account whose name matches (Cashfree's match, or bankAccounts.nameMatchThreshold) is verified at once, without the ₹1 payment; an invalid account or a name mismatch fails with the reason and the bank's name. Errors leave the account to the ₹1 check, as before. UPI IDs keep the ₹1 check. maxChecksPerDay limits checks per person (each costs a fee).",
+    schema: z.object({ enabled: z.boolean(), maxChecksPerDay: int(1, 20) }),
+    defaults: { enabled: false, maxChecksPerDay: 3 },
+  },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;

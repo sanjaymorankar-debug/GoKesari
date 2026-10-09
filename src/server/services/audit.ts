@@ -326,6 +326,7 @@ export const AUDIT_ACTIONS = {
   BANK_ACCOUNT_VERIFIED: "bank_account.verified",
   BANK_ACCOUNT_VERIFICATION_FAILED: "bank_account.verification_failed",
   BANK_ACCOUNT_REFUND: "bank_account.verification_refund",
+  BANK_ACCOUNT_CHECKED: "bank_account.checked",
   BANK_REFUND_REQUESTED: "bank_refund.requested",
   BANK_REFUND_DECIDED: "bank_refund.decided",
   BANK_REFUND_DETAILS_VIEWED: "bank_refund.details_viewed",

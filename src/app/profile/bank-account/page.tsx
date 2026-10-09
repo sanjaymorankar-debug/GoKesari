@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { BankAccountManager } from "@/components/bank-account-manager";
 import { PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
+import { bankCheckOffered } from "@/server/services/bank-account-check";
 import { getBankAccountView, verificationGatewayMode } from "@/server/services/bank-accounts";
 
 export const metadata = { title: "Bank account for refunds" };
@@ -14,6 +15,7 @@ export default async function ProfileBankAccountPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
   const account = await getBankAccountView(user.id, null);
+  const bankCheck = await bankCheckOffered();
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeader
@@ -25,7 +27,7 @@ export default async function ProfileBankAccountPage() {
           </Link>
         }
       />
-      <BankAccountManager account={account} saveUrl="/api/bank-account" gateway={verificationGatewayMode()} purpose="refunds" />
+      <BankAccountManager account={account} saveUrl="/api/bank-account" gateway={verificationGatewayMode()} purpose="refunds" bankCheck={bankCheck} />
     </div>
   );
 }

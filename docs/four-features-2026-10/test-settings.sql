@@ -33,9 +33,13 @@ INSERT INTO platform_settings (key, value) VALUES
   --    mandatory before the first order for customers who joined from
   --    9 Oct 2026 (existing test customers keep ordering); without a code
   --    they ask for one (emailed to shopReferral.notifyEmails).
-  ('customerSignupReferral', '{"enabled": true, "required": true, "requiredFrom": "2026-10-09"}')
+  ('customerSignupReferral', '{"enabled": true, "required": true, "requiredFrom": "2026-10-09"}'),
+  -- 7. Bank accounts checked with the bank through Cashfree's Verification
+  --    Suite (owner's decision O-7, 9 Oct 2026); needs the sandbox keys
+  --    (CASHFREE_VERIFICATION_*) in the test environment.
+  ('bankAccountCheck', '{"enabled": true}')
 ON CONFLICT (key) DO UPDATE SET value = platform_settings.value || EXCLUDED.value, updated_at = now();
 
 -- What is now in force (code defaults fill anything not listed):
 SELECT key, value FROM platform_settings
- WHERE key IN ('fulfilmentOptions', 'legalDocuments', 'bankAccounts', 'shopReferral', 'bankRefunds', 'customerSignupReferral') ORDER BY key;
+ WHERE key IN ('fulfilmentOptions', 'legalDocuments', 'bankAccounts', 'shopReferral', 'bankRefunds', 'customerSignupReferral', 'bankAccountCheck') ORDER BY key;

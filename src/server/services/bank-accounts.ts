@@ -58,6 +58,7 @@ import {
 import { emitEvent } from "@/server/events/emit";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { getRule } from "./settings";
+import { assertNoFailedBankCheck, latestBankCheck, runBankAccountCheckOnSave, type BankCheckView } from "./bank-account-check";
 
 interface Actor {
   id: string;
@@ -114,6 +115,8 @@ export interface BankAccountView {
   gatewayReference: string | null;
   failureReason: string | null;
   lastAttempt: { status: string; refundStatus: string; paymentMethod: string | null; createdAt: string } | null;
+  /** The latest check with the bank (Cashfree Verification Suite, O-7), when there was one. */
+  bankCheck?: BankCheckView | null;
 }
 
 function label(account: Pick<BankAccount, "method" | "accountNumberLast4" | "ifsc" | "upiIdMasked">): string {
@@ -147,6 +150,7 @@ async function toView(account: BankAccount): Promise<BankAccountView> {
     lastAttempt: attempt
       ? { status: attempt.status, refundStatus: attempt.refundStatus, paymentMethod: attempt.paymentMethod, createdAt: attempt.createdAt.toISOString() }
       : null,
+    bankCheck: await latestBankCheck(account.id),
   };
 }
 
@@ -170,6 +174,12 @@ export async function currentBankAccount(userId: string, shopId: string | null, 
       ),
     );
   return row ?? null;
+}
+
+/** One account's view by id (after a bank check); the caller has already checked ownership. */
+export async function getBankAccountViewById(accountId: string): Promise<BankAccountView | null> {
+  const [row] = await db.select().from(bankAccounts).where(eq(bankAccounts.id, accountId));
+  return row ? toView(row) : null;
 }
 
 export async function getBankAccountView(userId: string, shopId: string | null): Promise<BankAccountView | null> {
@@ -259,6 +269,12 @@ export async function saveBankAccount(
     );
     return created;
   });
+  // O-7: check a bank account with the bank straight away (rule bankAccountCheck); never blocks saving.
+  if (row.method === "BANK_ACCOUNT") {
+    await runBankAccountCheckOnSave(row.id, actor);
+    const [checked] = await db.select().from(bankAccounts).where(eq(bankAccounts.id, row.id));
+    return toView(checked ?? row);
+  }
   return toView(row);
 }
 
@@ -297,6 +313,7 @@ export async function startBankVerification(accountId: string, actor: Actor): Pr
   const account = await loadOwnAccount(accountId, actor);
   if (!account.isCurrent) throw conflict("These details were replaced — verify the current account.");
   if (account.status === "VERIFIED") throw conflict("This account is already verified.");
+  await assertNoFailedBankCheck(account);
   const rules = await getRule("bankAccounts");
   const mode = verificationGatewayMode();
   if (mode === "UNAVAILABLE") throw conflict("Payments are not set up on this site yet. Please try again later.");

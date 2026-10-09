@@ -512,6 +512,13 @@
       "when": 1791536012190,
       "tag": "0072_customer_referral_requests",
       "breakpoints": true
+    },
+    {
+      "idx": 73,
+      "version": "7",
+      "when": 1791547953176,
+      "tag": "0073_bank_account_checks",
+      "breakpoints": true
     }
   ]
 }
