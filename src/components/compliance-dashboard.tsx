@@ -45,7 +45,7 @@ export function ComplianceDashboard({ items }: { items: ComplianceItem[] }) {
         </Card>
         <Card className="p-4">
           <p className="text-xs text-ink-500">Review required</p>
-          <p className={`mt-1 text-2xl font-bold ${review > 0 ? "text-amber-600" : "text-ink-900"}`}>
+          <p className={`mt-1 text-2xl font-bold ${review > 0 ? "text-amber-800" : "text-ink-900"}`}>
             {review}
           </p>
         </Card>
