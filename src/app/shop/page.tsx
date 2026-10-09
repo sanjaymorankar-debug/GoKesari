@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { ShopBoard } from "@/components/board/shop-board";
 import { ExcelPriceUpload } from "@/components/excel-price-upload";
 import { ShopCategoriesEditor } from "@/components/shop-categories-editor";
 import { UnsavedChangesProvider } from "@/components/unsaved-changes-guard";
@@ -27,6 +28,9 @@ import { addDays, todayIn } from "@/lib/dates";
 import { getEnv } from "@/lib/env";
 import { formatQuantity } from "@/lib/money";
 import { getCurrentUser } from "@/server/authz/guards";
+import { loadShopBoard } from "@/server/board-data";
+import { getBoardHeaderData } from "@/server/board-header-data";
+import { getBoardLang } from "@/server/board-lang";
 import {
   listShopProducts,
   suggestProductsForShop,
@@ -128,8 +132,15 @@ export default async function ShopDashboardPage() {
   const alreadyListed = new Set(products.map((p) => p.productId));
   const availableToAdd = suggestions.filter((p) => !alreadyListed.has(p.id));
 
+  // Tile Board (approved design "Theme 1 Tile Board"): the first screen is
+  // the board; the full dashboard follows below it, unchanged.
+  const [lang, header, board] = await Promise.all([getBoardLang(), getBoardHeaderData(user), loadShopBoard(shop.id, user)]);
+
   return (
     <>
+      <ShopBoard lang={lang} user={user} header={header} shop={{ name: shop.name, slug: shop.slug }} data={board} />
+
+      <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
       <PageHeader
         title={shop.name}
         description={
@@ -376,7 +387,7 @@ export default async function ShopDashboardPage() {
         />
       </div>
 
-      <div className="mb-8">
+      <div id="excel-upload" className="mb-8">
         <ExcelPriceUpload shopId={shop.id} appliesImmediately />
       </div>
 
@@ -455,7 +466,7 @@ export default async function ShopDashboardPage() {
         </UnsavedChangesProvider>
       </div>
 
-      <div className="mb-8">
+      <div id="location" className="mb-8">
         <ShopLocationSettingsForm
           settings={{
             shopId: shop.id,
@@ -473,6 +484,7 @@ export default async function ShopDashboardPage() {
         />
       </div>
 
+      <div id="products">
       <ShopProductManager
         shopId={shop.id}
         department={shop.shopType}
@@ -501,6 +513,8 @@ export default async function ShopDashboardPage() {
           department: p.category.department,
         }))}
       />
+      </div>
+      </div>
     </>
   );
 }

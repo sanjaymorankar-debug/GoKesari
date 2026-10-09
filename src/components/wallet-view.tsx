@@ -235,7 +235,7 @@ export function WalletView({
           ) : null}
         </Card>
 
-        <Card className="p-6">
+        <Card id="history" className="p-6">
           <h2 className="mb-3 text-base font-semibold text-ink-900">
             Transactions
           </h2>
@@ -280,7 +280,7 @@ export function WalletView({
       </div>
 
       <div className="lg:sticky lg:top-24 lg:self-start">
-        <Card className="p-5">
+        <Card id="add-money" className="p-5">
           <h2 className="text-base font-semibold text-ink-900">Add money</h2>
 
           <div className="mt-3 grid grid-cols-3 gap-2">

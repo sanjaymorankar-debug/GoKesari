@@ -128,7 +128,7 @@ export function ShopApprovalPanel({
         )}
       </section>
 
-      <section>
+      <section id="approved-shops">
         <h2 className="mb-3 text-lg font-semibold text-ink-900">
           Approved shops ({approved.length})
         </h2>

@@ -132,7 +132,7 @@ export default async function ProfilePage() {
         <NotificationPreferences initial={preferences} />
       </div>
 
-      <Card className="p-6">
+      <Card id="notifications" className="p-6">
         <h2 className="mb-3 text-base font-semibold text-ink-900">
           Notifications
         </h2>
