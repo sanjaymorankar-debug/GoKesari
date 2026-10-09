@@ -14,6 +14,7 @@ import {
 import { OFFER_TTL_SECONDS, getOfferTtlSeconds } from "./delivery-assignment";
 import { SETTLEMENT_HOLD_DAYS } from "./finance";
 import { ORDER_STATUS_LABELS } from "./orders";
+import { getRule } from "./settings";
 
 export const OPS_EXCEPTION_THRESHOLDS = {
   // Minutes a 30-minute express order may sit unaccepted: a sixth of its whole window.
@@ -65,7 +66,12 @@ export const OPS_EXCEPTION_THRESHOLDS = {
   otpLockAttempts: 5,
 } as const;
 
-const T = OPS_EXCEPTION_THRESHOLDS;
+/**
+ * Thresholds in force: the code defaults above, overlaid at the start of every
+ * exceptions load with rules `opsExceptions`, `settlement` (a dispute is
+ * critical after the hold) and `deliveryOtp` (the lockout).
+ */
+let T: { [K in keyof typeof OPS_EXCEPTION_THRESHOLDS]: number } = { ...OPS_EXCEPTION_THRESHOLDS };
 const MINUTE_MS = 60_000;
 const HOUR_MS = 60 * MINUTE_MS;
 
@@ -789,6 +795,17 @@ function emptyCounts(): Record<OpsExceptionCategory, OpsExceptionCounts> {
 
 export async function listOpsExceptions(options: { category?: OpsExceptionCategory } = {}): Promise<OpsExceptionQueue> {
   liveOfferTtlSeconds = await getOfferTtlSeconds();
+  const [opsRule, settlementRule, deliveryOtpRule] = await Promise.all([
+    getRule("opsExceptions"),
+    getRule("settlement"),
+    getRule("deliveryOtp"),
+  ]);
+  T = {
+    ...OPS_EXCEPTION_THRESHOLDS,
+    ...opsRule,
+    disputeCriticalHours: settlementRule.holdDays * 24,
+    otpLockAttempts: deliveryOtpRule.maxAttempts,
+  };
   const [raw, health] = await Promise.all([
     db.execute<Record<string, unknown>>(CANDIDATES_QUERY),
     loadDispatchHealth(),

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { ShopBoard } from "@/components/board/shop-board";
 import { ExcelPriceUpload } from "@/components/excel-price-upload";
 import { ShopCategoriesEditor } from "@/components/shop-categories-editor";
 import { UnsavedChangesProvider } from "@/components/unsaved-changes-guard";
@@ -11,6 +12,7 @@ import { ShopGstPanForm } from "@/components/shop-gst-pan-form";
 import { ShopLocationSettingsForm } from "@/components/shop-location-settings-form";
 import { ShopProductManager } from "@/components/shop-product-manager";
 import { ShopSettingsForm } from "@/components/shop-settings-form";
+import { ShopCustomerContactForm } from "@/components/shop-customer-contact-form";
 import {
   Alert,
   Badge,
@@ -26,6 +28,9 @@ import { addDays, todayIn } from "@/lib/dates";
 import { getEnv } from "@/lib/env";
 import { formatQuantity } from "@/lib/money";
 import { getCurrentUser } from "@/server/authz/guards";
+import { loadShopBoard } from "@/server/board-data";
+import { getBoardHeaderData } from "@/server/board-header-data";
+import { getBoardLang } from "@/server/board-lang";
 import {
   listShopProducts,
   suggestProductsForShop,
@@ -52,6 +57,12 @@ import {
   type ShopOnboardingStage,
 } from "@/lib/shop-onboarding";
 import { listSubscriptionOrdersForShop } from "@/server/services/subscriptions";
+import { ShopWalletBanner } from "@/components/shop-wallet-banner";
+import { LegalDocumentsBanner } from "@/components/legal-documents-banner";
+import { getShopLegalStatus } from "@/server/services/legal-documents";
+import { BankAccountPrompt } from "@/components/bank-account-prompt";
+import { shopBankPrompt } from "@/server/services/bank-accounts";
+import { getShopWalletStatus } from "@/server/services/shop-wallet";
 
 export const metadata = { title: "My Shop" };
 export const dynamic = "force-dynamic";
@@ -103,7 +114,15 @@ export default async function ShopDashboardPage() {
     shop.referralCodeId ? getReferralCodeById(shop.referralCodeId) : null,
   ]);
   // NEW-007: the acceptance timeout and how often this shop has let it run out.
-  const [acceptanceRule, missedAcceptances] = await Promise.all([getRule("shopAcceptance"), missedAcceptances30d(shop.id)]);
+  const [acceptanceRule, missedAcceptances, wallet] = await Promise.all([
+    getRule("shopAcceptance"),
+    missedAcceptances30d(shop.id),
+    getShopWalletStatus(shop.id),
+  ]);
+  // Mandatory legal documents (docs/four-features-2026-10): prompt, grace period, expiry reminder.
+  const legalStatus = await getShopLegalStatus(shop.id);
+  // Bank accounts (docs/four-features-2026-10): payouts need a verified account — a prompt, not a lockout.
+  const bankPrompt = await shopBankPrompt(shop.id);
   const upcomingDeliveries = await listSubscriptionDeliveries({
     shopId: shop.id,
     from: addDays(today, 1),
@@ -113,8 +132,15 @@ export default async function ShopDashboardPage() {
   const alreadyListed = new Set(products.map((p) => p.productId));
   const availableToAdd = suggestions.filter((p) => !alreadyListed.has(p.id));
 
+  // Tile Board (approved design "Theme 1 Tile Board"): the first screen is
+  // the board; the full dashboard follows below it, unchanged.
+  const [lang, header, board] = await Promise.all([getBoardLang(), getBoardHeaderData(user), loadShopBoard(shop.id, user)]);
+
   return (
     <>
+      <ShopBoard lang={lang} user={user} header={header} shop={{ name: shop.name, slug: shop.slug }} data={board} />
+
+      <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
       <PageHeader
         title={shop.name}
         description={
@@ -132,6 +158,11 @@ export default async function ShopDashboardPage() {
           </Link>
         }
       />
+
+      {/* Shop wallet: "recharge wallet" while it is low or below the minimum. */}
+      <ShopWalletBanner {...wallet} />
+      <LegalDocumentsBanner status={legalStatus} />
+      {bankPrompt ? <BankAccountPrompt status={bankPrompt} href="/shop/bank-account" purpose="payouts" /> : null}
 
       <div className="mb-6 flex flex-wrap gap-2">
         {onboarding ? (
@@ -356,8 +387,15 @@ export default async function ShopDashboardPage() {
         />
       </div>
 
-      <div className="mb-8">
+      <div id="excel-upload" className="mb-8">
         <ExcelPriceUpload shopId={shop.id} appliesImmediately />
+      </div>
+
+      <div className="mb-8">
+        <ShopCustomerContactForm
+          shopId={shop.id}
+          initial={{ contactPhone: shop.contactPhone, whatsappNumber: shop.whatsappNumber }}
+        />
       </div>
 
       <div className="mb-8">
@@ -428,7 +466,7 @@ export default async function ShopDashboardPage() {
         </UnsavedChangesProvider>
       </div>
 
-      <div className="mb-8">
+      <div id="location" className="mb-8">
         <ShopLocationSettingsForm
           settings={{
             shopId: shop.id,
@@ -446,6 +484,7 @@ export default async function ShopDashboardPage() {
         />
       </div>
 
+      <div id="products">
       <ShopProductManager
         shopId={shop.id}
         department={shop.shopType}
@@ -474,6 +513,8 @@ export default async function ShopDashboardPage() {
           department: p.category.department,
         }))}
       />
+      </div>
+      </div>
     </>
   );
 }

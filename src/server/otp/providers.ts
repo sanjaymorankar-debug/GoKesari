@@ -9,6 +9,7 @@
  * reports itself unavailable and the sign-in screen offers email only.
  */
 import { sendEmail } from "@/server/email/transport";
+import { isTextChannelAvailable, sendText } from "@/server/messaging/sms-whatsapp";
 import { renderOtpEmail } from "@/server/notifications/templates";
 
 export type OtpChannel = "EMAIL" | "SMS";
@@ -35,9 +36,20 @@ export const emailOtpProvider: OtpProvider = {
   },
 };
 
-/** No SMS vendor is wired up yet (decision D2). Replace the body when one is chosen. */
+/**
+ * SMS through server/messaging (Module 3): available when SMS_PROVIDER is set
+ * (mock on the test site until a vendor is chosen — decision D2 still open).
+ */
+const textOtpProvider: OtpProvider = {
+  channel: "SMS",
+  isAvailable: () => isTextChannelAvailable("SMS"),
+  async send({ to, code, expiryMinutes }) {
+    await sendText("SMS", to, `${code} is your GoKesari code. It expires in ${expiryMinutes} minutes. Do not share it with anyone.`, "otp");
+  },
+};
+
 export function smsProvider(): OtpProvider | null {
-  return null;
+  return textOtpProvider.isAvailable() ? textOtpProvider : null;
 }
 
 export function getProvider(channel: OtpChannel): OtpProvider | null {

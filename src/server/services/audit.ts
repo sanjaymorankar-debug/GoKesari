@@ -18,6 +18,43 @@ export const AUDIT_ACTIONS = {
   SHOP_REACTIVATED: "shop.reactivated",
   SHOP_SUSPENSION_ORDER_RESOLVED: "shop.suspension_order_resolved",
   SHOP_UPDATED: "shop.updated",
+
+  /* --------------------------- Module 1: shop product photos & descriptions */
+  SHOP_PRODUCT_MEDIA_CHANGED: "shop_product.media_changed",
+  SHOP_PRODUCT_DESCRIPTION_CHANGED: "shop_product.description_changed",
+  SHOP_MEDIA_IMPORT_APPLIED: "shop_media_import.applied",
+  SHOP_STAFF_ADDED: "shop_staff.added",
+  SHOP_STAFF_REMOVED: "shop_staff.removed",
+
+  /* ------------------------------ Module 2: accounting integration & GST */
+  INTEGRATION_CONNECTED: "integration.connected",
+  INTEGRATION_UPDATED: "integration.updated",
+  INTEGRATION_DISCONNECTED: "integration.disconnected",
+  INTEGRATION_TOKEN_ISSUED: "integration.token_issued",
+  INTEGRATION_TOKEN_REVOKED: "integration.token_revoked",
+  INTEGRATION_ITEM_MAPPED: "integration.item_mapped",
+  INTEGRATION_JOB_RETRIED: "integration.job_retried",
+  INTEGRATION_FILE_APPLIED: "integration.file_applied",
+  INTEGRATION_EXPORTED: "integration.exported",
+  CREDIT_NOTE_ISSUED: "credit_note.issued",
+  EINVOICE_GENERATED: "einvoice.generated",
+  EINVOICE_CANCELLED: "einvoice.cancelled",
+  EWAY_BILL_GENERATED: "eway_bill.generated",
+  GSTIN_LOOKED_UP: "gstin.looked_up",
+  GST_RETURN_EXPORTED: "gst_return.exported",
+  GST_CONFIG_CHANGED: "gst_config.changed",
+  SHOP_EINVOICE_DECLARED: "shop.einvoice_declared",
+  // Module 3: shop self-registration.
+  SHOP_SELF_REGISTRATION_STARTED: "shop_registration.started",
+  SHOP_SELF_REGISTERED: "shop.self_registered",
+  SHOP_REGISTRATION_PAYMENT_MISMATCH: "shop_registration.payment_mismatch",
+  SHOP_REGISTRATION_PAYMENT_FAILED: "shop_registration.payment_failed",
+  SHOP_REGISTRATION_LINK_RESENT: "shop_registration.link_resent",
+  SHOP_PROFILE_COMPLETED: "shop.profile_completed",
+  REGISTRATION_FEE_TIER_CHANGED: "registration_fee_tier.changed",
+  DISTRIBUTOR_TYPE_SAVED: "distributor_type.saved",
+  DISTRIBUTOR_SAVED: "distributor.saved",
+  REFERRAL_COMMISSION_STATUS_CHANGED: "referral_commission.status_changed",
   SHOP_CLASSIFICATION_CHANGED: "shop.classification_changed",
   /** A rejected registration submitted again — the same row goes back to PENDING_APPROVAL. */
   SHOP_RESUBMITTED: "shop.resubmitted",
@@ -51,6 +88,13 @@ export const AUDIT_ACTIONS = {
   SUBSCRIPTION_RENEWED: "subscription.renewed",
   /** NEW-007 */
   ORDER_AUTO_CANCELLED: "order.auto_cancelled_acceptance_timeout",
+  /** Event layer: the accept-by time passed and support was alerted (shopAcceptance.onTimeout = ESCALATE). */
+  ORDER_ACCEPT_ESCALATED: "order.accept_escalated",
+  /** Event layer: no rider accepted within dispatch.alertSupportAfterMinutes; support alerted. */
+  RIDER_SEARCH_SUPPORT_ALERTED: "delivery.rider_search_support_alerted",
+  DISPUTE_COMMENTED: "dispute.commented",
+  /** Event layer: a pending shop approved without a person, once its documents were verified. */
+  SHOP_AUTO_APPROVED: "shop.auto_approved",
   DELIVERY_PROOF_UPLOADED: "delivery.proof_uploaded",
   INVOICE_ISSUED: "invoice.issued",
 
@@ -145,6 +189,11 @@ export const AUDIT_ACTIONS = {
   DELIVERY_PARTNER_PROFILE_UPDATED: "delivery_partner.profile_updated",
   DELIVERY_PARTNER_CHANGE_REQUESTED: "delivery_partner.change_requested",
   DELIVERY_PARTNER_CHANGE_DECIDED: "delivery_partner.change_decided",
+  /** C5: a rider uploaded an identity document (type only — never the image). */
+  DELIVERY_PARTNER_DOCUMENT_UPLOADED: "delivery_partner.document_uploaded",
+  DELIVERY_PARTNER_DOCUMENT_DECIDED: "delivery_partner.document_decided",
+  /** C5: an admin opened a rider's identity document. */
+  DELIVERY_PARTNER_DOCUMENT_VIEWED: "delivery_partner.document_viewed",
 
   /* ------------------------------------ delivery assignment (Part 58, Slice C) */
   DELIVERY_ORDER_OFFERED: "delivery_order.offered",
@@ -171,6 +220,14 @@ export const AUDIT_ACTIONS = {
   RIDER_PAYOUT_PREPARED: "finance.rider_payout_prepared",
   RIDER_PAYOUT_STATUS_CHANGED: "finance.rider_payout_status_changed",
   RECONCILIATION_RUN: "finance.reconciliation_run",
+  /* ----------------------------- shop wallet (docs/shop-wallet-delivery-otp-2026-10) */
+  SHOP_WALLET_TOPUP_VERIFIED: "shop_wallet.topup_verified",
+  SHOP_WALLET_ORDER_CHARGED: "shop_wallet.order_charged",
+  SHOP_WALLET_ADJUSTED: "shop_wallet.adjusted",
+  /* ----------------------------------------------------- delivery code */
+  DELIVERY_CODE_SENT: "delivery_order.code_sent",
+  DELIVERY_CODE_WRONG: "delivery_order.code_wrong",
+  DELIVERY_CODE_LOCKED: "delivery_order.code_locked",
   RECONCILIATION_RESOLVED: "finance.reconciliation_resolved",
   /* ------------------------------------------ society / ratings / subscriptions (Phase 2) */
   SOCIETY_REGISTERED: "society.registered",
@@ -253,6 +310,31 @@ export const AUDIT_ACTIONS = {
   PHONE_RELEASED: "auth.phone_released",
   EMAIL_CHANGED: "auth.email_changed",
   PROFILE_UPDATED: "user.profile_updated",
+  /* ------------------------------------------------- docs/four-features-2026-10 */
+  ORDER_FULFILMENT_SET: "order.fulfilment_set",
+  ORDER_FULFILMENT_CHANGED: "order.fulfilment_changed",
+  ORDER_FULFILMENT_COMPLETED: "order.fulfilment_completed",
+  ORDER_FULFILMENT_CODE_WRONG: "order.fulfilment_code_wrong",
+  ORDER_FULFILMENT_CODE_LOCKED: "order.fulfilment_code_locked",
+  ORDER_FULFILMENT_CODE_SENT: "order.fulfilment_code_sent",
+  ORDER_DELIVERY_FEE_REFUNDED: "order.delivery_fee_refunded",
+  SHOP_DELIVERY_STAFF_SAVED: "shop.delivery_staff_saved",
+  SHOP_LEGAL_DOCUMENT_SUBMITTED: "shop.legal_document_submitted",
+  SHOP_LEGAL_DOCUMENT_DECIDED: "shop.legal_document_decided",
+  SHOP_LEGAL_DOCUMENT_FILE_VIEWED: "shop.legal_document_file_viewed",
+  BANK_ACCOUNT_SAVED: "bank_account.saved",
+  BANK_ACCOUNT_VERIFIED: "bank_account.verified",
+  BANK_ACCOUNT_VERIFICATION_FAILED: "bank_account.verification_failed",
+  BANK_ACCOUNT_REFUND: "bank_account.verification_refund",
+  BANK_ACCOUNT_CHECKED: "bank_account.checked",
+  BANK_REFUND_REQUESTED: "bank_refund.requested",
+  BANK_REFUND_DECIDED: "bank_refund.decided",
+  BANK_REFUND_DETAILS_VIEWED: "bank_refund.details_viewed",
+  REFERRAL_REQUEST_CREATED: "referral_request.created",
+  REFERRAL_REQUEST_DECIDED: "referral_request.decided",
+  CUSTOMER_SIGNUP_REFERRAL: "customer.signup_referral",
+  CUSTOMER_REFERRAL_REQUEST_CREATED: "customer_referral_request.created",
+  CUSTOMER_REFERRAL_REQUEST_DECIDED: "customer_referral_request.decided",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

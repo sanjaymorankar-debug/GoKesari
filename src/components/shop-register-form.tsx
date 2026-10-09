@@ -17,6 +17,7 @@ import {
   type ShopIdentifierField,
 } from "@/lib/shop-identity";
 import { SHOP_TYPES } from "@/lib/shop-types";
+import { ReferralRequestDialog, type ReferralRequestPrefill } from "@/components/referral-request-dialog";
 
 /**
  * Shop registration (§8).
@@ -53,7 +54,12 @@ const FORMAT_CHECKS: Record<ShopIdentifierField, (raw: string) => ParseResult<un
   udyamNumber: parseUdyamNumber,
 };
 
-export function ShopRegisterForm() {
+export function ShopRegisterForm({
+  referralRequired = false,
+}: {
+  /** docs/four-features-2026-10, feature 4: rule shopReferral.required. */
+  referralRequired?: boolean;
+} = {}) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   // Set synchronously on the first submit, before React has re-rendered the
@@ -73,6 +79,31 @@ export function ShopRegisterForm() {
   const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number } | null>(
     null,
   );
+  // Referral code (feature 4): checked as the owner leaves the field; the server checks again.
+  const [referralCode, setReferralCode] = useState("");
+  const [referralCheck, setReferralCheck] = useState<{ valid: boolean; message: string | null } | null>(null);
+  const [requestPrefill, setRequestPrefill] = useState<ReferralRequestPrefill | null>(null);
+
+  async function checkReferral() {
+    const code = referralCode.trim();
+    if (!code) return setReferralCheck(null);
+    const response = await fetch(`/api/referral-codes/check?code=${encodeURIComponent(code)}`).catch(() => null);
+    const payload = response?.ok ? await response.json().catch(() => null) : null;
+    setReferralCheck(payload ? { valid: payload.valid, message: payload.message } : null);
+  }
+
+  function openReferralRequest() {
+    const data = formRef.current ? new FormData(formRef.current) : null;
+    const value = (key: string) => String(data?.get(key) ?? "").trim();
+    setRequestPrefill({
+      name: value("ownerName"),
+      mobile: value("phone"),
+      shopType: value("shopType"),
+      area: value("area"),
+      city: value("city"),
+      pincode: value("pincode"),
+    });
+  }
 
   function handleMapConfirm(result: MapPickerResult) {
     setCoordinates({ latitude: result.latitude, longitude: result.longitude });
@@ -157,6 +188,11 @@ export function ShopRegisterForm() {
     if (!get("shopActNumber") && !get("panNumber") && !get("udyamNumber") && !get("gstin")) {
       invalid.identifiers = IDENTIFIER_REQUIRED_MESSAGE;
     }
+    if (referralRequired && !referralCode.trim()) {
+      invalid.referralCode = "A referral code is required to register a shop — request one if you don't have it.";
+    } else if (referralRequired && referralCheck?.valid === false) {
+      invalid.referralCode = referralCheck.message ?? "This referral code is not valid.";
+    }
     for (const field of Object.keys(FORMAT_CHECKS) as ShopIdentifierField[]) {
       if (!get(field)) continue;
       const format = FORMAT_CHECKS[field](get(field));
@@ -207,6 +243,7 @@ export function ShopRegisterForm() {
           panHolderName: get("panHolderName") || null,
           udyamNumber: get("udyamNumber") || null,
           gstin: get("gstin") || null,
+          ...(referralRequired ? { referralCode: referralCode.trim() || null } : {}),
           deliveryAvailable,
           deliveryFeePaise:
             deliveryAvailable && deliveryFee ? rupeesToPaise(Number(deliveryFee)) : 0,
@@ -269,6 +306,7 @@ export function ShopRegisterForm() {
 
   return (
     <Card className="p-6">
+      {requestPrefill ? <ReferralRequestDialog prefill={requestPrefill} onClose={() => setRequestPrefill(null)} /> : null}
       <form ref={formRef} onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
         <div className="sm:col-span-2">
           <Field label="Shop name *" error={errorFor("name")}>
@@ -299,6 +337,41 @@ export function ShopRegisterForm() {
             <input name="email" type="email" className={inputClass} />
           </Field>
         </div>
+
+        {referralRequired ? (
+          <div className="sm:col-span-2" data-testid="referral-code-field">
+            <Field
+              label="Referral code *"
+              hint={referralCheck?.valid ? "Referral code accepted." : "Given to you by a GoKesari partner or our team."}
+              error={errorFor("referralCode") ?? (referralCheck?.valid === false ? (referralCheck.message ?? "This referral code is not valid.") : undefined)}
+            >
+              <div className="flex flex-wrap gap-2">
+                <input
+                  name="referralCode"
+                  value={referralCode}
+                  onChange={(e) => {
+                    setReferralCode(e.target.value.toUpperCase());
+                    setReferralCheck(null);
+                    // A corrected code must not keep showing the last submit's error.
+                    setFieldErrors((prev) => {
+                      const next = { ...prev };
+                      delete next.referralCode;
+                      return next;
+                    });
+                  }}
+                  onBlur={() => void checkReferral()}
+                  autoComplete="off"
+                  maxLength={32}
+                  className={`${inputClass} min-w-0 flex-1 uppercase`}
+                  aria-label="Referral code"
+                />
+                <Button type="button" variant="secondary" onClick={openReferralRequest}>
+                  Request a referral code
+                </Button>
+              </div>
+            </Field>
+          </div>
+        ) : null}
 
         <div className="sm:col-span-2">
           <p className="mb-2 text-sm font-medium text-ink-700">Shop location</p>

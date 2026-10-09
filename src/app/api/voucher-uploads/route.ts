@@ -6,7 +6,7 @@ import { ok, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { validateVoucherUpload } from "@/server/services/vouchers";
-import { MAX_UPLOAD_BYTES } from "@/server/services/excel";
+import { getSpreadsheetLimits } from "@/server/services/excel";
 
 export const POST = route(async (request: NextRequest) => {
   const user = await requirePermission(PERMISSIONS.VOUCHER_UPLOAD);
@@ -17,8 +17,9 @@ export const POST = route(async (request: NextRequest) => {
   const file = form.get("file");
   if (!(file instanceof File)) throw validationFailed("No file was uploaded.");
   if (file.size === 0) throw validationFailed("The uploaded file is empty.");
-  if (file.size > MAX_UPLOAD_BYTES) {
-    throw validationFailed(`File is too large. The limit is ${MAX_UPLOAD_BYTES / 1024 / 1024} MB.`);
+  const { maxBytes } = await getSpreadsheetLimits();
+  if (file.size > maxBytes) {
+    throw validationFailed(`File is too large. The limit is ${maxBytes / 1024 / 1024} MB.`);
   }
 
   const preview = await validateVoucherUpload(

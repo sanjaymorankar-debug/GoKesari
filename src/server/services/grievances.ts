@@ -29,6 +29,7 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
+import { getRule } from "./settings";
 
 interface Actor {
   id: string;
@@ -178,7 +179,8 @@ export interface GrievanceDashboard {
 
 export async function getGrievanceDashboard(): Promise<GrievanceDashboard> {
   const all = await db.select().from(grievances);
-  const fifteenDaysAgo = new Date(Date.now() - 15 * 24 * 60 * 60 * 1000);
+  const { overdueAfterDays } = await getRule("grievances");
+  const fifteenDaysAgo = new Date(Date.now() - overdueAfterDays * 24 * 60 * 60 * 1000);
 
   return {
     open: all.filter((g) => g.status === "OPEN").length,

@@ -2,13 +2,13 @@ import { redirect } from "next/navigation";
 
 import { Card, EmptyState, Money, PageHeader, Section, StatusBadge } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
+import { getRule } from "@/server/services/settings";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import {
   getShopPendingPayable,
   listOrderFinancialsForShop,
   listShopSettlements,
   resolveCommissionRate,
-  SETTLEMENT_HOLD_DAYS,
 } from "@/server/services/finance";
 import { listShopsForOwner } from "@/server/services/shops";
 import { listInvoicesForShop } from "@/server/services/invoices";
@@ -29,6 +29,8 @@ export default async function ShopFinancePage() {
   const shops = await listShopsForOwner(user.id);
   if (shops.length === 0) redirect("/shop");
   const shop = shops[0];
+  // Item B: live settlement hold (rule settlement.holdDays).
+  const settlementHoldDays = (await getRule("settlement")).holdDays;
 
   const [pending, rate, recent, settlements, invoices] = await Promise.all([
     getShopPendingPayable(shop.id),
@@ -70,9 +72,9 @@ export default async function ShopFinancePage() {
         </Card>
       </section>
 
-      <Section title="Settlements">
+      <Section id="settlements" title="Settlements">
         <p className="mb-3 text-xs text-ink-500">
-          Prepared weekly for orders delivered at least {SETTLEMENT_HOLD_DAYS} days earlier, then paid to your bank account.
+          Prepared weekly for orders delivered at least {settlementHoldDays} days earlier, then paid to your bank account.
         </p>
         {settlements.length === 0 ? (
           <EmptyState title="No settlements yet." />
@@ -112,6 +114,7 @@ export default async function ShopFinancePage() {
                   <span className="ml-2 text-xs text-ink-500">
                     goods <Money paise={f.goodsPaise} /> · {(f.commissionRateBp / 100).toFixed(2)}% commission{" "}
                     <Money paise={f.commissionPaise} />
+                    {f.commissionCollection === "SHOP_WALLET" ? " (paid from wallet)" : ""}
                   </span>
                 </span>
                 <span className="flex items-center gap-2">
@@ -128,7 +131,7 @@ export default async function ShopFinancePage() {
 
       {/* NEW-007: the shop's invoices for delivered orders. */}
       {invoices.length > 0 ? (
-        <Section title={`Invoices (${invoices.length})`}>
+        <Section id="invoices" title={`Invoices (${invoices.length})`}>
           <Card className="divide-y divide-cream-200" data-testid="shop-invoices">
             {invoices.map((inv) => (
               <div key={inv.id} className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm">

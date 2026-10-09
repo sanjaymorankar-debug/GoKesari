@@ -1,6 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 
 import { RatingBadge } from "@/components/rating-badge";
+import { SafeImage } from "@/components/safe-image";
 import {
   AddRiderForm,
   MemberActions,
@@ -14,6 +15,8 @@ import { shopTypeLabel } from "@/lib/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getSocietyDashboard } from "@/server/services/societies";
 import { searchShops } from "@/server/services/shops";
+import { getRule } from "@/server/services/settings";
+import { riderDisplayId, uploadedPhotoId } from "@/server/services/rider-files";
 
 export const metadata = { title: "Society dashboard" };
 export const dynamic = "force-dynamic";
@@ -37,6 +40,8 @@ export default async function SocietyDashboardPage({ params }: { params: Promise
   const { society, myRole, members, riders, partnerShops, recentOrders } = data;
   const isAdmin = myRole === "ADMIN" || myRole === "PLATFORM";
   const nearbyShops = isAdmin ? await searchShops({ pincode: society.pincode, deliveryOnly: true, limit: 30 }) : [];
+  // C2: an unverified society cannot list riders (the server refuses it too).
+  const ridersLocked = society.status !== "VERIFIED" && (await getRule("societyRiders")).requireVerifiedSociety;
   const partnerIds = new Set(partnerShops.map((s) => s.shopId));
 
   return (
@@ -108,7 +113,11 @@ export default async function SocietyDashboardPage({ params }: { params: Promise
           Listed riders are offered your residents&apos; deliveries first; preferred riders ahead of them.
           {society.exclusiveRiders ? " Only listed riders may deliver here." : ""}
         </p>
-        {isAdmin ? (
+        {isAdmin && ridersLocked ? (
+          <p className="mb-3 text-sm text-ink-500" data-testid="riders-locked">
+            Riders can be added once Gokesari has verified this society.
+          </p>
+        ) : isAdmin ? (
           <div className="mb-3">
             <AddRiderForm societyId={society.id} />
           </div>
@@ -119,9 +128,17 @@ export default async function SocietyDashboardPage({ params }: { params: Promise
           <Card className="divide-y divide-cream-100">
             {riders.map((r) => (
               <div key={r.id} className="flex flex-wrap items-center justify-between gap-3 p-3 text-sm">
-                <span>
-                  {r.name} <span className="text-xs text-ink-500">· {r.vehicleType}</span> {r.preferred ? <StatusBadge status="PREFERRED" /> : null}{" "}
-                  <RatingBadge avgX100={r.ratingAvgX100} count={r.ratingCount} />
+                <span className="flex items-center gap-3">
+                  <SafeImage
+                    src={uploadedPhotoId(r.profilePhotoUrl) ? r.profilePhotoUrl : null}
+                    alt={`Photo of ${r.name}`}
+                    className="h-10 w-10 flex-none rounded-full object-cover"
+                  />
+                  <span>
+                    {r.name} <span className="font-mono text-xs text-ink-500">{riderDisplayId(r.deliveryPartnerId)}</span>{" "}
+                    <span className="text-xs text-ink-500">· {r.vehicleType}</span> {r.preferred ? <StatusBadge status="PREFERRED" /> : null}{" "}
+                    <RatingBadge avgX100={r.ratingAvgX100} count={r.ratingCount} />
+                  </span>
                 </span>
                 {isAdmin ? <RiderLinkActions linkId={r.id} status={r.status} preferred={r.preferred} /> : <StatusBadge status={r.status} />}
               </div>

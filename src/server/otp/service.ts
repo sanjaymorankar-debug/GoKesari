@@ -23,6 +23,7 @@ import { createHmac, randomBytes, randomInt, timingSafeEqual } from "node:crypto
 import { and, desc, eq, gt, isNull, ne, sql } from "drizzle-orm";
 
 import { isValidEmail, maskEmailAddress, normalizeEmail, parseIndianMobile } from "@/lib/contact";
+import { isPlaceholderEmail } from "@/lib/placeholder-email";
 import { bootstrapAdminEmails, getEnv } from "@/lib/env";
 import { AppError, conflict, forbidden, isUniqueViolation, validationFailed } from "@/lib/errors";
 import { maskPhone } from "@/lib/phone";
@@ -36,6 +37,7 @@ import { recordConsent } from "@/server/services/consents";
 import { NOTIFICATION_TYPES, notifyEvent } from "@/server/services/notifications";
 import { grantRole } from "@/server/services/roles";
 import { getRule } from "@/server/services/settings";
+import { smsProvider } from "./providers";
 
 export const OTP_INVALID = "That code is wrong or has expired. Check the latest email or request a new code.";
 export const MOBILE_IN_USE =
@@ -130,6 +132,8 @@ async function issueCode(input: {
   userId: string | null;
   phoneE164: string | null;
   ip: string | null;
+  /** Module 3: send by SMS to `phoneE164` (an account with no real email). */
+  bySms?: boolean;
 }): Promise<{ resendAfterSeconds: number; expiryMinutes: number }> {
   const rules = await getRule("otp");
   const now = Date.now();
@@ -177,7 +181,7 @@ async function issueCode(input: {
         email: input.email,
         phoneE164: input.phoneE164,
         purpose: input.purpose,
-        channel: "EMAIL",
+        channel: input.bySms ? "SMS" : "EMAIL",
         codeHash: hashCode(salt, input.email, code),
         expiresAt: new Date(now + rules.expiryMinutes * 60_000),
         maxAttempts: rules.maxAttempts,
@@ -192,7 +196,10 @@ async function issueCode(input: {
       ? renderOtpEmail(code, rules.expiryMinutes)
       : renderEmailChangeOtpEmail(code, rules.expiryMinutes);
   try {
-    await sendEmail({ to: input.email, ...message });
+    const sms = input.bySms ? smsProvider() : null;
+    if (input.bySms && (!sms || !input.phoneE164)) throw new Error("SMS is not available for this sign-in code.");
+    if (sms && input.phoneE164) await sms.send({ to: input.phoneE164, code, expiryMinutes: rules.expiryMinutes });
+    else await sendEmail({ to: input.email, ...message });
   } catch (error) {
     console.error("[otp] delivery failed", error);
     await db.update(loginOtps).set({ supersededAt: new Date() }).where(eq(loginOtps.id, id));
@@ -304,7 +311,9 @@ export async function requestLoginOtp(input: {
         await auditOtp(AUDIT_ACTIONS.OTP_BLOCKED, { email: owner.email, phoneE164: mobile.e164, ip, reason: "account_blocked" });
         return;
       }
-      await issueCode({ email: owner.email, purpose: "LOGIN", userId: owner.id, phoneE164: mobile.e164, ip }).catch(
+      // Module 3: an owner registered from a mobile number alone gets the code by SMS.
+      const bySms = owner.emailPlaceholder || isPlaceholderEmail(owner.email);
+      await issueCode({ email: owner.email, purpose: "LOGIN", userId: owner.id, phoneE164: mobile.e164, ip, bySms }).catch(
         (error: unknown) => {
           // Cooldowns and failed sends are audited by issueCode; the reply stays the same.
           if (!(error instanceof AppError)) console.error("[otp] mobile sign-in code failed", error);

@@ -1,9 +1,17 @@
+import { eq } from "drizzle-orm";
 import { notFound, redirect } from "next/navigation";
 
+import { InvoiceGstActions } from "@/components/gst/invoice-gst-actions";
 import { PrintButton } from "@/components/print-button";
 import { Card, LinkButton } from "@/components/ui";
 import { formatPaise } from "@/lib/money";
+import { stateLabel } from "@/lib/gst-states";
 import { getCurrentUser } from "@/server/authz/guards";
+import { can, PERMISSIONS } from "@/server/authz/permissions";
+import { creditNotesForInvoice } from "@/server/gst/credit-notes";
+import { einvoiceApplies, ewayBillRequirement, gstDocumentsFor } from "@/server/gst/einvoice";
+import { db } from "@/server/db";
+import { shops } from "@/server/db/schema";
 import { amountInWords, canViewInvoice, getInvoice, type InvoiceSnapshot } from "@/server/services/invoices";
 
 export const metadata = { title: "Invoice" };
@@ -23,6 +31,13 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
   if (!invoice || !(await canViewInvoice(invoice, user))) notFound();
   const s = invoice.snapshot as unknown as InvoiceSnapshot;
   const intra = s.supplyType === "INTRA";
+  // Module 2: e-invoice / e-way bill and credit notes.
+  const [gstDocs, notes] = await Promise.all([gstDocumentsFor(invoice.id), creditNotesForInvoice(invoice.id)]);
+  const [shop] = await db.select({ ownerId: shops.ownerId }).from(shops).where(eq(shops.id, invoice.shopId));
+  const isShopSide = shop?.ownerId === user.id || can(user.role, PERMISSIONS.SHOP_GST_PAN_VERIFY);
+  const gstActions = isShopSide
+    ? { einvoiceApplies: (await einvoiceApplies(invoice)).applies, ewayRequired: (await ewayBillRequirement(invoice)).required }
+    : null;
 
   return (
     <div className="mx-auto max-w-4xl space-y-4">
@@ -60,8 +75,9 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
             <p className="text-ink-600">{s.buyer.address}</p>
             {s.buyer.gstin ? <p className="text-ink-600">GSTIN {s.buyer.gstin}</p> : null}
             <p className="text-ink-600">
-              Place of supply {s.placeOfSupply} · {intra ? "intra-state (CGST + SGST)" : "inter-state (IGST)"}
+              Place of supply {stateLabel(s.placeOfSupply) ?? s.placeOfSupply} · {intra ? "intra-state (CGST + SGST)" : "inter-state (IGST)"}
             </p>
+            <p className="text-ink-600">Reverse charge: No</p>
           </div>
         </div>
 
@@ -147,8 +163,36 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
             </p>
           ))}
           <p className="mt-1 text-xs text-ink-500">Computer-generated document issued through GoKesari on behalf of the seller.</p>
+          {gstDocs.einvoice?.status === "GENERATED" ? (
+            <p className="mt-2 break-all text-xs text-ink-700">
+              IRN {gstDocs.einvoice.irn} · Ack {gstDocs.einvoice.ackNo}
+              {gstDocs.einvoice.ackDate ? ` · ${gstDocs.einvoice.ackDate.toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}` : ""}
+            </p>
+          ) : null}
+          {gstDocs.ewayBill?.status === "GENERATED" ? <p className="text-xs text-ink-700">E-way bill {gstDocs.ewayBill.ewbNo}</p> : null}
         </div>
       </Card>
+      {notes.length ? (
+        <Card className="p-4 text-sm print:hidden">
+          <p className="font-medium text-ink-900">Credit notes against this invoice</p>
+          <ul className="mt-1 space-y-1">
+            {notes.map((n) => (
+              <li key={n.id}>
+                <a className="text-kesari-600 hover:underline" href={`/api/credit-notes/${n.id}/pdf`}>{n.creditNoteNumber}</a> · {formatPaise(n.totalPaise)} · {date(n.issuedAt.toISOString())}
+              </li>
+            ))}
+          </ul>
+        </Card>
+      ) : null}
+      {gstActions ? (
+        <InvoiceGstActions
+          invoiceId={invoice.id}
+          einvoice={gstDocs.einvoice ? { status: gstDocs.einvoice.status, irn: gstDocs.einvoice.irn, error: gstDocs.einvoice.error } : null}
+          einvoiceApplies={gstActions.einvoiceApplies}
+          ewayBill={gstDocs.ewayBill ? { ...gstDocs.ewayBill, validUpto: gstDocs.ewayBill.validUpto?.toISOString() ?? null } : null}
+          ewayRequired={gstActions.ewayRequired}
+        />
+      ) : null}
     </div>
   );
 }

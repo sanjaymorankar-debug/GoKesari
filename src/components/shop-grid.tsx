@@ -34,6 +34,8 @@ export type GridShop = Pick<
   deliversHere?: boolean;
   /** The shop has subscribable products, which are delivered whatever its order delivery setting. */
   subscriptionDelivery?: boolean;
+  /** Paused: by the owner, below its wallet minimum, or (four-features O-4) missing a legal document. */
+  ordersPaused?: boolean;
 };
 
 /**
@@ -45,6 +47,8 @@ function fulfilmentLine(shop: GridShop): string {
   const distance = shop.distanceKm != null ? ` · ${shop.distanceKm} km` : "";
   if (shop.deliveryAvailable) {
     if (shop.deliversHere === true) return `Delivers to you${distance}`;
+    // A paused shop is not "outside its delivery area": it takes no new orders at all for now.
+    if (shop.deliversHere === false && shop.ordersPaused) return `Not taking new orders right now${distance}`;
     if (shop.deliversHere === false) return `Pickup · outside its delivery area${distance}`;
     return "Home delivery available";
   }

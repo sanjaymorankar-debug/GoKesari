@@ -12,9 +12,10 @@ import { getCartLineQuantities } from "@/server/services/cart";
 import { listStorefrontProducts } from "@/server/services/catalogue";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
-import { products } from "@/server/db/schema";
+import { products, shopProducts } from "@/server/db/schema";
 import { listReferencesForProduct } from "@/server/services/price-references";
 import { galleryFor } from "@/server/services/product-images";
+import { effectiveDescriptions } from "@/lib/product-text";
 import { serviceableShopIds } from "@/server/services/serviceability";
 import { listShopsForOwner } from "@/server/services/shops";
 import { eq } from "drizzle-orm";
@@ -32,11 +33,15 @@ export const dynamic = "force-dynamic";
  */
 export default async function ProductComparePage({
   params,
+  searchParams,
 }: {
   params: Promise<{ id: string }>;
+  /** Module 1: `shop` = a shop's slug — show that shop's own photos and description. */
+  searchParams: Promise<{ shop?: string }>;
 }) {
   const { id } = await params;
   if (!/^[0-9a-f-]{36}$/i.test(id)) notFound();
+  const { shop: shopSlug } = await searchParams;
 
   const user = await getCurrentUser();
   const location = await getCustomerLocation(user?.id);
@@ -53,7 +58,12 @@ export default async function ProductComparePage({
   // Three different numbers, kept apart: the printed MRP, each shop's price (compared below),
   // and external reference prices (shown only where the settings allow).
   const [master] = await db
-    .select({ kind: products.kind, mrpPaise: products.mrpPaise, verification: products.mrpVerificationStatus })
+    .select({
+      kind: products.kind,
+      mrpPaise: products.mrpPaise,
+      verification: products.mrpVerificationStatus,
+      description: products.description,
+    })
     .from(products)
     .where(eq(products.id, id));
   const viewer = !user
@@ -64,7 +74,17 @@ export default async function ProductComparePage({
         ? "SHOP"
         : "CUSTOMER";
   const references = await listReferencesForProduct(id, viewer);
-  const gallery = await galleryFor(id, null);
+  // Module 1: opened from a shop, the shop's own photos and description win;
+  // whatever it has not set falls back to the master product's.
+  const fromShop = shopSlug ? offers.find((o) => o.shopSlug === shopSlug) : undefined;
+  const gallery = await galleryFor(id, fromShop?.shopProductId ?? null);
+  const [listingText] = fromShop
+    ? await db
+        .select({ shortDescription: shopProducts.shortDescription, longDescription: shopProducts.longDescription })
+        .from(shopProducts)
+        .where(eq(shopProducts.id, fromShop.shopProductId))
+    : [];
+  const about = effectiveDescriptions(listingText ?? { shortDescription: null, longDescription: null }, master?.description ?? null);
   const ownShop =
     user && can(user.role, PERMISSIONS.PRODUCT_MRP_DISPUTE) ? (await listShopsForOwner(user.id))[0] : undefined;
   const mapped = offers.map((offer) => {
@@ -101,18 +121,33 @@ export default async function ProductComparePage({
 
       <div className="mb-4 flex gap-3 overflow-x-auto" data-testid="product-gallery">
         {gallery.length === 0 ? (
-          <SafeImage src={product.imageUrl} alt={product.productName} className="h-40 w-40 shrink-0 rounded-xl bg-cream-100 object-cover" />
+          <SafeImage
+            src={fromShop?.imageUrl ?? product.imageUrl}
+            size="medium"
+            alt={product.productName}
+            className="h-40 w-40 shrink-0 rounded-xl bg-cream-100 object-cover"
+          />
         ) : (
           gallery.map((image) => (
             <SafeImage
               key={image.id}
               src={image.url}
+              size="medium"
               alt={image.altText ?? product.productName}
               className="h-40 w-40 shrink-0 rounded-xl bg-cream-100 object-cover"
             />
           ))
         )}
       </div>
+
+      {about.longDescription ? (
+        <Card className="mb-4 p-4" data-testid="product-description">
+          <h2 className="text-sm font-semibold text-ink-900">
+            About this product{fromShop && about.longSource === "SHOP" ? ` — from ${fromShop.shopName}` : ""}
+          </h2>
+          <p className="mt-2 whitespace-pre-line text-sm text-ink-700">{about.longDescription}</p>
+        </Card>
+      ) : null}
 
       {master?.kind === "PACKAGED" && master.mrpPaise != null ? (
         <p className="mb-4 text-sm text-ink-600" data-testid="product-mrp">

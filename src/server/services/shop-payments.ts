@@ -25,6 +25,7 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { autoApproveShopIfReady } from "./shops";
 
 interface Actor {
   id: string;
@@ -36,7 +37,7 @@ interface Actor {
  * low-volume and the count-based form is human-meaningful; the UNIQUE index on
  * `reference` is the real guarantee, and a collision retries.
  */
-async function nextReference(tx: DbClient): Promise<string> {
+export async function nextReference(tx: DbClient): Promise<string> {
   const year = new Date().getFullYear();
   const [{ n }] = await tx
     .select({ n: sql<number>`COUNT(*)::int` })
@@ -125,7 +126,7 @@ export async function recordPayment(
     throw validationFailed("Use reversePayment() to reverse an existing payment.");
   }
 
-  return db.transaction(async (tx) => {
+  const recorded = await db.transaction(async (tx) => {
     const [shop] = await tx
       .select({
         id: shops.id,
@@ -182,6 +183,13 @@ export async function recordPayment(
 
     return { payment, ...settlement };
   });
+  // Event layer: a settled fee may be the last thing a pending shop was waiting for.
+  if (recorded.feePaymentStatus === "PAID") {
+    await autoApproveShopIfReady(input.shopId).catch((error) =>
+      console.error("[shop-payments] auto-approval check failed", input.shopId, error),
+    );
+  }
+  return recorded;
 }
 
 /**

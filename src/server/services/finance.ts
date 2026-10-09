@@ -21,6 +21,7 @@ import { addDays, assertIsoDate, isoWeekday, todayIn, type IsoDate } from "@/lib
 import { getEnv } from "@/lib/env";
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import type { ShopTypeKey } from "@/lib/shop-types";
+import type { RuleValue } from "@/server/config/rules";
 import { db, type DbClient } from "@/server/db";
 import {
   commissionRates,
@@ -35,6 +36,7 @@ import {
   reconciliationRecords,
   riderPayouts,
   shopSettlements,
+  shopWalletTransactions,
   shops,
   walletTransactions,
   type AdjustmentType,
@@ -54,6 +56,8 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { applyWalletMutation, refundOriginalDebit } from "./wallet";
+import { getRule } from "./settings";
+import { onRefundRecorded } from "@/server/integrations/hooks";
 
 interface Actor {
   id: string;
@@ -66,7 +70,10 @@ interface SystemOrActor {
   role: UserRole | null;
 }
 
-/** Days after delivery before an order can be settled — room for complaints and refunds. */
+/**
+ * Days after delivery before an order can be settled — room for complaints
+ * and refunds. Code default; the live value is rule `settlement.holdDays`.
+ */
 export const SETTLEMENT_HOLD_DAYS = 2;
 
 /* ============================================================ ledger */
@@ -232,6 +239,11 @@ export async function recordOrderFinancials(orderId: string, client: DbClient = 
   const rate = await resolveCommissionRate(shop, client);
   const goodsPaise = order.subtotalPaise;
   const commissionPaise = commissionOn(goodsPaise, rate.rateBp);
+  // Shop wallet (rule shopWallet): the commission is debited from the shop's
+  // prepaid wallet in this same transaction (shop-wallet.ts), so settlement
+  // pays the goods in full instead of withholding it.
+  const collection = await walletCollectionFor(orderId, client);
+  const viaWallet = collection.commissionCollection === "SHOP_WALLET";
   // Promotional wallet credit spent, plus any order-level coupon (F7) — both platform-funded.
   const discountPaise = Math.min(
     (debit ? -debit.promotionalAmountPaise : 0) + (order.discountPaise ?? 0),
@@ -252,7 +264,10 @@ export async function recordOrderFinancials(orderId: string, client: DbClient = 
       commissionRateBp: rate.rateBp,
       commissionRateId: rate.rateId,
       commissionPaise,
-      shopPayablePaise: goodsPaise - commissionPaise,
+      shopPayablePaise: viaWallet ? goodsPaise : goodsPaise - commissionPaise,
+      commissionCollection: collection.commissionCollection,
+      shopDeliveryChargePaise: collection.shopDeliveryChargePaise,
+      shopDeliveryDistanceM: collection.shopDeliveryDistanceM,
       deliveredAt: new Date(),
     })
     .onConflictDoNothing()
@@ -272,6 +287,53 @@ export async function recordOrderFinancials(orderId: string, client: DbClient = 
     null,
     client,
   );
+}
+
+export interface WalletCollection {
+  commissionCollection: "SETTLEMENT" | "SHOP_WALLET";
+  shopDeliveryChargePaise: number;
+  /** Distance the charge was priced on, metres (0.1 km steps); null when none or not known. */
+  shopDeliveryDistanceM: number | null;
+}
+
+/**
+ * The shop's delivery charge for one rider delivery: rule shopWallet's flat
+ * part plus its rate per km × the shop-to-customer distance, to 0.1 km — the
+ * distance stored when the rider was offered the drop, which the rider's own
+ * per-km pay uses too. A distance without a route source is not shop-to-customer
+ * (the customer had no map location and dispatch fell back to the rider's
+ * distance to the shop), so it counts as unknown and the unknown-distance
+ * charge applies.
+ */
+export function shopDeliveryChargeFor(
+  leg: { distanceKm: string | null; routeSource: string | null },
+  rules: Pick<RuleValue<"shopWallet">, "deliveryChargePaise" | "deliveryChargePerKmPaise" | "deliveryChargeUnknownDistancePaise">,
+): { chargePaise: number; distanceM: number | null } {
+  const km = leg.distanceKm != null && leg.routeSource != null ? Number(leg.distanceKm) : NaN;
+  if (!Number.isFinite(km) || km < 0) return { chargePaise: rules.deliveryChargeUnknownDistancePaise, distanceM: null };
+  const tenths = Math.round(km * 10);
+  return {
+    chargePaise: rules.deliveryChargePaise + Math.round((tenths * rules.deliveryChargePerKmPaise) / 10),
+    distanceM: tenths * 100,
+  };
+}
+
+/**
+ * How a newly delivered order's commission is collected. With rule shopWallet
+ * on, from the shop's prepaid wallet — plus the delivery charge when a
+ * GoKesari rider delivered the order (the delivery row is already DELIVERED in
+ * the rider's transaction). Otherwise withheld at settlement, as before.
+ */
+export async function walletCollectionFor(orderId: string, client: DbClient = db): Promise<WalletCollection> {
+  const rules = await getRule("shopWallet");
+  if (!rules.enabled) return { commissionCollection: "SETTLEMENT", shopDeliveryChargePaise: 0, shopDeliveryDistanceM: null };
+  const [riderDelivered] = await client
+    .select({ distanceKm: deliveryOrders.distanceKm, routeSource: deliveryOrders.routeSource })
+    .from(deliveryOrders)
+    .where(and(eq(deliveryOrders.orderId, orderId), eq(deliveryOrders.status, "DELIVERED")));
+  if (!riderDelivered) return { commissionCollection: "SHOP_WALLET", shopDeliveryChargePaise: 0, shopDeliveryDistanceM: null };
+  const charge = shopDeliveryChargeFor(riderDelivered, rules);
+  return { commissionCollection: "SHOP_WALLET", shopDeliveryChargePaise: charge.chargePaise, shopDeliveryDistanceM: charge.distanceM };
 }
 
 /**
@@ -326,6 +388,8 @@ export interface RefundDeliveredInput {
   chargeTo: "SHOP" | "PLATFORM";
   /** Client-generated id so a double submit cannot refund twice. */
   requestId: string;
+  /** Module 2: what the shop's credit note says. Default: a refund, goods not returned. */
+  creditNote?: { reason: "REFUND" | "RETURN"; restock: boolean };
 }
 
 /**
@@ -394,7 +458,16 @@ export async function refundDeliveredOrder(input: RefundDeliveredInput, actor: A
     const snapshot = await tx.query.orderFinancials.findFirst({ where: eq(orderFinancials.orderId, order.id) });
     const chargeShop = input.chargeTo === "SHOP" && snapshot != null;
     const refundedGoods = chargeShop ? Math.min(input.amountPaise, order.subtotalPaise) : 0;
-    const shopShare = refundedGoods - commissionOn(refundedGoods, snapshot?.commissionRateBp ?? 0);
+    const commissionOnRefund = commissionOn(refundedGoods, snapshot?.commissionRateBp ?? 0);
+    // The shop does not pay commission on goods it refunds. Withheld at
+    // settlement (SETTLEMENT): the recovery is net of it. Paid from the shop
+    // wallet (SHOP_WALLET): it goes back to the wallet, in proportion and
+    // never more than was charged, and the settlement recovers the refunded
+    // goods in full.
+    const { creditShopWalletCommissionRefund, returnableShopWalletCommission } = await import("./shop-wallet");
+    const viaWallet = chargeShop && snapshot.commissionCollection === "SHOP_WALLET";
+    const walletCommissionBack = viaWallet ? await returnableShopWalletCommission(order.id, commissionOnRefund, tx) : 0;
+    const shopShare = viaWallet ? refundedGoods : refundedGoods - commissionOnRefund;
     const type: AdjustmentType = chargeShop ? "REFUND_SHOP" : "REFUND_PLATFORM";
 
     const [adjustment] = await tx
@@ -427,6 +500,45 @@ export async function refundDeliveredOrder(input: RefundDeliveredInput, actor: A
       tx,
     );
 
+    if (walletCommissionBack > 0) {
+      const back = await creditShopWalletCommissionRefund(
+        {
+          shopId: order.shopId,
+          orderId: order.id,
+          orderNumber: order.orderNumber,
+          adjustmentId: adjustment.id,
+          amountPaise: walletCommissionBack,
+          refundedGoodsPaise: refundedGoods,
+        },
+        actor,
+        tx,
+      );
+      // The commission journaled at delivery, reversed for the refunded goods.
+      const commissionBase = { ...base, entryType: "COMMISSION" as const, sourceType: "shop_wallet_transactions", sourceId: back?.transaction.id ?? adjustment.id };
+      await postLedger(
+        [
+          { ...commissionBase, entityType: "SHOP", entityId: order.shopId, direction: "CREDIT", amountPaise: walletCommissionBack, key: `adj:${adjustment.id}:commission-back:shop` },
+          { ...commissionBase, entityType: "PLATFORM", direction: "DEBIT", amountPaise: walletCommissionBack, key: `adj:${adjustment.id}:commission-back:platform` },
+        ],
+        actor.id,
+        tx,
+      );
+    }
+
+    // Module 2: the shop's GST credit note against its invoice (if it issued
+    // one), sent to its accounting software. Never blocks the refund.
+    await onRefundRecorded(
+      {
+        orderId: order.id,
+        adjustmentId: adjustment.id,
+        amountPaise: input.amountPaise,
+        reason: input.creditNote?.reason ?? "REFUND",
+        restock: input.creditNote?.restock ?? false,
+        actorId: actor.id,
+      },
+      tx,
+    ).catch((error) => console.error("[credit-notes] issue failed for order", order.id, error));
+
     const remaining = order.totalPaise - input.amountPaise;
     await tx
       .update(orders)
@@ -446,7 +558,7 @@ export async function refundDeliveredOrder(input: RefundDeliveredInput, actor: A
         entityType: "order",
         entityId: order.id,
         previousValue: { totalPaise: order.totalPaise, refundedPaise: order.refundedPaise },
-        newValue: { amountPaise: input.amountPaise, chargeTo: type, shopShare, reason, adjustmentId: adjustment.id },
+        newValue: { amountPaise: input.amountPaise, chargeTo: type, shopShare, walletCommissionBack, reason, adjustmentId: adjustment.id },
       },
       tx,
     );
@@ -578,6 +690,7 @@ function assertMonday(weekStart: string): { start: IsoDate; end: IsoDate } {
  */
 export async function prepareShopSettlements(weekStart: string, actor: SystemOrActor): Promise<ShopSettlement[]> {
   const { start, end } = assertMonday(weekStart);
+  const settlementRule = await getRule("settlement");
 
   return db.transaction(async (tx) => {
     const eligibleOrders = await tx
@@ -588,7 +701,7 @@ export async function prepareShopSettlements(weekStart: string, actor: SystemOrA
         and(
           isNull(orderFinancials.settlementId),
           lt(orderFinancials.deliveredAt, startOf(end)),
-          lt(orderFinancials.deliveredAt, sql`now() - make_interval(days => ${SETTLEMENT_HOLD_DAYS})`),
+          lt(orderFinancials.deliveredAt, sql`now() - make_interval(days => ${settlementRule.holdDays})`),
           inArray(orders.status, ["DELIVERED", "REFUNDED"]),
         ),
       )
@@ -615,7 +728,8 @@ export async function prepareShopSettlements(weekStart: string, actor: SystemOrA
       const lines = eligibleOrders.filter((r) => r.financial.shopId === shopId).map((r) => r.financial);
       const adjustments = eligibleAdjustments.filter((a) => a.shopId === shopId);
       const goodsPaise = lines.reduce((sum, l) => sum + l.goodsPaise, 0);
-      const commissionPaise = lines.reduce((sum, l) => sum + l.commissionPaise, 0);
+      // Commission still to withhold: none for orders that paid it from the shop wallet.
+      const commissionPaise = lines.reduce((sum, l) => sum + (l.goodsPaise - l.shopPayablePaise), 0);
       const refundsPaise = adjustments.filter((a) => a.type === "REFUND_SHOP").reduce((sum, a) => sum + a.amountPaise, 0);
       const adjustmentsPaise = adjustments.filter((a) => a.type !== "REFUND_SHOP").reduce((sum, a) => sum + a.amountPaise, 0);
       if (lines.length === 0 && adjustments.length === 0) continue;
@@ -923,7 +1037,8 @@ export async function getShopPendingPayable(shopId: string) {
     .select({
       orders: sql<number>`count(*)::int`,
       goods: sql<number>`coalesce(sum(${orderFinancials.goodsPaise}), 0)::bigint`,
-      commission: sql<number>`coalesce(sum(${orderFinancials.commissionPaise}), 0)::bigint`,
+      // Withheld at settlement only — commission paid from the shop wallet is not.
+      commission: sql<number>`coalesce(sum(${orderFinancials.goodsPaise} - ${orderFinancials.shopPayablePaise}), 0)::bigint`,
     })
     .from(orderFinancials)
     .where(and(eq(orderFinancials.shopId, shopId), isNull(orderFinancials.settlementId)));
@@ -1054,6 +1169,7 @@ export interface FinanceSummary {
   goodsPaise: number;
   discountPaise: number;
   commissionPaise: number;
+  /** Customers' delivery fees plus shop-wallet delivery charges. */
   deliveryFeeRevenuePaise: number;
   riderCostPaise: number;
   refundsAfterDeliveryPaise: number;
@@ -1083,7 +1199,8 @@ export async function getFinanceSummary(fromDate: string, toDate: string): Promi
       goods: sql<number>`coalesce(sum(${orderFinancials.goodsPaise}), 0)::bigint`,
       discount: sql<number>`coalesce(sum(${orderFinancials.discountPaise}), 0)::bigint`,
       commission: sql<number>`coalesce(sum(${orderFinancials.commissionPaise}), 0)::bigint`,
-      fees: sql<number>`coalesce(sum(${orderFinancials.deliveryFeePaise}), 0)::bigint`,
+      // The customer's delivery fee plus the delivery charge a shop paid from its wallet.
+      fees: sql<number>`coalesce(sum(${orderFinancials.deliveryFeePaise} + ${orderFinancials.shopDeliveryChargePaise}), 0)::bigint`,
     })
     .from(orderFinancials)
     .where(inWindow(orderFinancials.deliveredAt));
@@ -1228,8 +1345,11 @@ export async function runReconciliation(fromDate: string, toDate: string, actor:
       status: payments.status,
       amountPaise: payments.amountPaise,
       createdAt: payments.createdAt,
-      credited: sql<number>`coalesce((select sum(${walletTransactions.amountPaise}) from ${walletTransactions}
-        where ${walletTransactions.paymentId} = ${payments.id} and ${walletTransactions.type} = 'TOP_UP'), 0)::bigint`,
+      // A shop wallet recharge credits the shop's wallet instead of the customer's.
+      credited: sql<number>`(coalesce((select sum(${walletTransactions.amountPaise}) from ${walletTransactions}
+        where ${walletTransactions.paymentId} = ${payments.id} and ${walletTransactions.type} = 'TOP_UP'), 0)
+        + coalesce((select sum(${shopWalletTransactions.amountPaise}) from ${shopWalletTransactions}
+        where ${shopWalletTransactions.paymentId} = ${payments.id} and ${shopWalletTransactions.type} = 'TOP_UP'), 0))::bigint`,
     })
     .from(payments)
     .where(inWindow(payments.createdAt));
@@ -1512,7 +1632,7 @@ export async function listFinancialExceptions(scope: "operator" | "admin") {
             .from(orderFinancials)
             .innerJoin(orders, eq(orderFinancials.orderId, orders.id))
             .innerJoin(shops, eq(orderFinancials.shopId, shops.id))
-            .where(and(isNull(orderFinancials.settlementId), lt(orderFinancials.deliveredAt, sql`now() - interval '9 days'`)))
+            .where(and(isNull(orderFinancials.settlementId), lt(orderFinancials.deliveredAt, sql`now() - make_interval(days => ${(await getRule("settlement")).missingAlertDays})`)))
             .limit(100),
         }
       : null;

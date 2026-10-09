@@ -73,6 +73,7 @@ export default async function ShopsPage({
       distanceKm: near?.distanceKm ?? null,
       deliversHere: location ? (near?.deliversHere ?? false) : undefined,
       subscriptionDelivery: near?.subscriptionDelivery,
+      ordersPaused: near?.ordersPaused,
     };
     return {
       card,

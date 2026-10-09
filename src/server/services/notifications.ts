@@ -9,9 +9,12 @@
  * - Templates and categories: server/notifications/templates.ts
  * - Preferences: per user, per category, per channel; security notices are
  *   always sent. No preference row = the template's default.
- * - Delivery: retried with the configured backoff up to `maxAttempts`, then
- *   marked DEAD (and audited). A channel with no provider or no address is
- *   SKIPPED, not failed. Nothing here is mandatory for a deployment to work:
+ * - Delivery: sent the moment notify() is called (just after commit when
+ *   called inside a transaction); notification_deliveries is the outbox — a
+ *   failed send stays there with its attempt count and is retried with the
+ *   configured backoff (notification-retry job) up to `maxAttempts`, then
+ *   marked DEAD, audited, and support is alerted in the app (event layer). A
+ *   channel with no provider or no address is SKIPPED, not failed. Nothing here is mandatory for a deployment to work:
  *   with no SMTP configured, email deliveries are simply skipped.
  * - notify() never throws — a failed notification must not roll back the
  *   business operation that triggered it — and never sends inside the
@@ -230,17 +233,53 @@ export async function deliverPending(options: { limit?: number } = {}): Promise<
       .returning();
   });
 
+  const dead: { delivery: NotificationDelivery; error: string }[] = [];
   for (const delivery of claimed) {
     const outcome = await sendOne(delivery, rules);
-    tally[outcome] += 1;
+    tally[outcome.status] += 1;
+    if (outcome.status === "dead") dead.push({ delivery, error: outcome.error });
   }
+  if (dead.length > 0 && rules.alertSupportOnDead) await alertSupportOfDead(dead, rules.maxAttempts);
   return tally;
 }
+
+/**
+ * Event layer: one in-app alert to support per run in which messages were
+ * given up on. An alert about an alert is never raised — if the alerts
+ * themselves cannot be sent, the audit log still has every DEAD row.
+ */
+async function alertSupportOfDead(
+  dead: { delivery: NotificationDelivery; error: string }[],
+  maxAttempts: number,
+): Promise<void> {
+  const real = dead.filter((d) => d.delivery.type !== NOTIFICATION_TYPES.SUPPORT_NOTIFICATION_DEAD);
+  if (real.length === 0) return;
+  const latest = real[real.length - 1];
+  try {
+    const { emitEvent } = await import("@/server/events/emit");
+    await emitEvent({
+      type: "notification.dead",
+      subjectId: latest.delivery.id,
+      payload: {
+        count: real.length,
+        attempts: maxAttempts,
+        type: latest.delivery.type,
+        channel: latest.delivery.channel,
+        error: latest.error,
+      },
+      idempotencyKey: `notification-dead:${real[0].delivery.id}`,
+    });
+  } catch (error) {
+    console.error("[notifications] could not alert support about dead deliveries", error);
+  }
+}
+
+type SendOutcome = { status: "sent" | "failed" | "skipped" } | { status: "dead"; error: string };
 
 async function sendOne(
   delivery: NotificationDelivery,
   rules: Awaited<ReturnType<typeof getRule<"notifications">>>,
-): Promise<"sent" | "failed" | "skipped" | "dead"> {
+): Promise<SendOutcome> {
   const finish = (fields: Partial<typeof notificationDeliveries.$inferInsert>) =>
     db
       .update(notificationDeliveries)
@@ -250,7 +289,7 @@ async function sendOne(
   const provider = getChannelProvider(delivery.channel as OutboundChannel);
   if (!provider || !provider.isAvailable()) {
     await finish({ status: "SKIPPED", lastError: "No provider is configured for this channel." });
-    return "skipped";
+    return { status: "skipped" };
   }
   const [user] = await db
     .select({ email: users.email, phoneE164: users.phoneE164 })
@@ -259,7 +298,7 @@ async function sendOne(
   const to = user ? provider.addressFor(user) : null;
   if (!to) {
     await finish({ status: "SKIPPED", lastError: "The user has no address for this channel." });
-    return "skipped";
+    return { status: "skipped" };
   }
 
   const attempts = delivery.attempts + 1;
@@ -279,11 +318,11 @@ async function sendOne(
       providerRef: result.providerRef ?? null,
       lastError: null,
     });
-    return "sent";
+    return { status: "sent" };
   } catch (error) {
     if (error instanceof ChannelUnavailableError) {
       await finish({ status: "SKIPPED", attempts, toAddress: to, lastError: error.message });
-      return "skipped";
+      return { status: "skipped" };
     }
     const message = error instanceof Error ? error.message.slice(0, 300) : "Delivery failed.";
     if (attempts >= delivery.maxAttempts) {
@@ -294,7 +333,7 @@ async function sendOne(
         entityId: delivery.id,
         newValue: { type: delivery.type, channel: delivery.channel, attempts, error: message },
       });
-      return "dead";
+      return { status: "dead", error: message };
     }
     await finish({
       status: "FAILED",
@@ -303,7 +342,7 @@ async function sendOne(
       lastError: message,
       nextAttemptAt: new Date(Date.now() + backoffSeconds(rules.retryBackoffSeconds, attempts) * 1000),
     });
-    return "failed";
+    return { status: "failed" };
   }
 }
 

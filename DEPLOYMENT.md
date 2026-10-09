@@ -130,7 +130,8 @@ Cashfree sandbox keys on staging so no real money moves.
 
 ## 4. Run migrations
 
-Migrations are plain SQL under `drizzle/` and are not run automatically.
+Migrations are plain SQL under `drizzle/` and are not run automatically
+unless the environment opts in (below).
 
 ```bash
 npm run db:migrate                 # apply pending migrations
@@ -139,6 +140,31 @@ npm run db:seed -- --minimal       # reference data only — first deploy
 
 Use `--minimal` in production: it seeds roles, permissions and the dairy/bakery
 catalogue, but **not** the demo shops.
+
+### Automatic migration during the build (opt-in, per environment)
+
+`npm run build` first runs `scripts/migrate-on-build.mjs`, then `next build`.
+The script does nothing unless the environment variable
+`MIGRATE_ON_BUILD=true` is set. With it set, every deploy:
+
+1. applies the pending migrations to that environment's `DATABASE_URL`
+   (all pending files in one transaction — a failure applies none of them);
+2. stops the build if the migration fails (non-zero exit), so `next build`
+   never runs and the new code is not built — migrate first, deploy second;
+3. writes to the build log the database name and host, how many migrations
+   were recorded and how many it applied (never the connection string).
+
+Turn it on by adding `MIGRATE_ON_BUILD=true` to the site's environment
+variables in hPanel, **test.gokesari.com first**. Leave production without it
+(migrate by hand, with a backup, as in §7) until it has run cleanly on test
+and the production database has a restore point you trust (Neon point-in-time
+restore window, or a `pg_dump` before each merge to `main`).
+
+It does not take a backup: take one before merging a release that carries
+migrations. After a deploy, check the build log in hPanel for the
+`[migrate-on-build]` lines — `applied N new migration(s)` — and that the site
+still serves; if the build failed, the log says why and nothing was migrated.
+Without the variable the log shows `[migrate-on-build] skipped`.
 
 Migration policy:
 
@@ -254,6 +280,12 @@ warnings, suspension when a mandatory document lapses):
   -H "Authorization: Bearer $CRON_SECRET" >> /var/log/seller-verification.log 2>&1
 ```
 
+> **Event layer (docs/event-driven-2026-10):** status changes and their
+> notifications now happen in the request that causes them; cron is the safety
+> net only. The minute jobs become `timeout-sweep` and `notification-retry` —
+> see `docs/event-driven-2026-10/crontab.test.txt` for the full schedule and
+> `ROLLBACK.md` there to restore the jobs below.
+
 The shop acceptance timeout (rule `shopAcceptance`, NEW-007) needs a sweep
 every minute. It does nothing while the rule is off, so it is safe to schedule
 before switching the rule on:
@@ -261,6 +293,16 @@ before switching the rule on:
 ```bash
 * * * * * curl -fsS -X POST https://your-domain.com/api/cron/shop-acceptance \
   -H "Authorization: Bearer $CRON_SECRET" >> /var/log/shop-acceptance.log 2>&1
+```
+
+Accounting integration (Module 2, docs/three-modules-2026-10) — invoices and
+credit notes are sent to the shop's software by the event that creates them;
+this minute sweep only runs retries that came due, re-queues a missed push and
+warns about offline Tally connectors:
+
+```bash
+* * * * * curl -fsS -X POST https://your-domain.com/api/cron/integration-sync \
+  -H "Authorization: Bearer $CRON_SECRET" >> /var/log/integration-sync.log 2>&1
 ```
 
 Any scheduler works — the host's cron panel, GitHub Actions on a schedule, or an

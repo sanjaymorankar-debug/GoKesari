@@ -29,7 +29,12 @@ const ORDER_PHASE: Record<OrderStatus, OrderPhase> = {
 const RIDER_ENGAGED_DELIVERY_STATUSES: ReadonlySet<DeliveryOrderStatus> = new Set(["OFFERED", "ACCEPTED"]);
 const REDISPATCHABLE_DELIVERY_STATUSES: ReadonlySet<DeliveryOrderStatus> = new Set(["REJECTED", "CANCELLED"]);
 
-export type TrackingStage = "AWAITING_PICKUP" | "IN_PROGRESS" | "NOT_TRACKED" | "ENDED";
+/**
+ * AWAITING_START (event layer): the rider has collected the order but not yet
+ * started the drop. The rider's location is shared only from the start of the
+ * drop (IN_PROGRESS) until the order is delivered or cancelled (ENDED).
+ */
+export type TrackingStage = "AWAITING_PICKUP" | "AWAITING_START" | "IN_PROGRESS" | "NOT_TRACKED" | "ENDED";
 
 /**
  * Whether an order is far enough along, and not yet finished, for a tracking
@@ -65,6 +70,8 @@ export interface OrderTracking {
   etaSource: "ROAD" | "STRAIGHT_LINE" | null;
   /** F4: expected arrival at the customer (ISO), when it can be estimated. */
   estimatedArrivalAt: string | null;
+  /** Event layer: how often an open tracking map should refresh (rule tracking.buyerPollSeconds). */
+  pollSeconds?: number;
 }
 
 function trackingStage(
@@ -76,7 +83,9 @@ function trackingStage(
     case "ENDED":
       return "ENDED";
     case "EN_ROUTE":
-      return deliveryStatus === "PICKED_UP" ? "IN_PROGRESS" : "NOT_TRACKED";
+      if (deliveryStatus !== "PICKED_UP") return "NOT_TRACKED";
+      // Collected but the drop has not started: no location yet.
+      return orderStatus === "PICKED_UP" ? "AWAITING_START" : "IN_PROGRESS";
     case "PRE_PICKUP":
       if (deliveryStatus && RIDER_ENGAGED_DELIVERY_STATUSES.has(deliveryStatus)) return "AWAITING_PICKUP";
       if (shopDispatchesRiders && (deliveryStatus === null || REDISPATCHABLE_DELIVERY_STATUSES.has(deliveryStatus))) {
@@ -92,7 +101,8 @@ export function buildOrderTracking(input: {
   orderId: string;
   orderStatus: OrderStatus;
   shopDispatchesRiders: boolean;
-  delivery: { status: DeliveryOrderStatus; pickedUpAt: Date | null } | null;
+  /** `startedAt`: when the rider started the drop (out_for_delivery_at); absent on older deliveries. */
+  delivery: { status: DeliveryOrderStatus; pickedUpAt: Date | null; startedAt?: Date | null } | null;
   riderFix: (Coordinates & { recordedAt: Date }) | null;
   destination: Coordinates | null;
   now: Date;
@@ -108,8 +118,10 @@ export function buildOrderTracking(input: {
   const deliveryStatus = delivery?.status ?? null;
   const stage = trackingStage(input.orderStatus, deliveryStatus, input.shopDispatchesRiders);
 
-  const pickedUpAt = stage === "IN_PROGRESS" ? (delivery?.pickedUpAt ?? null) : null;
-  const fix = pickedUpAt && riderFix && riderFix.recordedAt >= pickedUpAt ? riderFix : null;
+  // A fix is shown only if it was taken after the drop started (or, for a
+  // delivery from before drops had a start, after pickup).
+  const sharingSince = stage === "IN_PROGRESS" ? (delivery?.startedAt ?? delivery?.pickedUpAt ?? null) : null;
+  const fix = sharingSince && riderFix && riderFix.recordedAt >= sharingSince ? riderFix : null;
 
   let distanceToDestinationKm: number | null = null;
   let etaMinutes: number | null = null;

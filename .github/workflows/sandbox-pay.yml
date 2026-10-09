@@ -1,0 +1,52 @@
+# Sandbox payment — TEST site tooling only (never production, no secrets).
+# Pays a Cashfree SANDBOX checkout session with Cashfree's test instruments, so
+# a test.gokesari.com flow (e.g. the ₹1 bank-account verification) can be tested
+# end to end from a place that cannot open Cashfree's checkout. The site then
+# confirms the payment with Cashfree itself, as for any payment.
+#   Actions → "Sandbox payment" → Run workflow → session id + instrument.
+# Docs: docs/four-features-2026-10/TEST_RESULTS.md
+name: Sandbox payment
+
+on:
+  workflow_dispatch:
+    inputs:
+      session:
+        description: Cashfree SANDBOX payment_session_id
+        required: true
+      instrument:
+        description: Test instrument
+        type: choice
+        default: upi-success
+        options: [upi-success, upi-failure, card-success, card-failure, debit-card-success, credit-card-success, netbanking-success, netbanking-failure]
+      card:
+        description: "card-* only: a Cashfree sandbox test card number (default 4111 1111 1111 1111)"
+        required: false
+        default: ""
+  push:
+    # Registers the workflow when it changes; the job runs only by hand.
+    paths: [".github/workflows/sandbox-pay.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  pay:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+      - name: Install
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+      - name: Pay the sandbox session
+        env:
+          SESSION: ${{ inputs.session }}
+          INSTRUMENT: ${{ inputs.instrument }}
+          CARD: ${{ inputs.card }}
+        run: node scripts/test-site/sandbox-pay.mjs "$SESSION" "$INSTRUMENT" "$CARD"

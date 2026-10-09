@@ -19,6 +19,7 @@ import { and, desc, eq, gte, lte, inArray, like } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import { conflict, forbidden, invalidTransition, notFound, validationFailed } from "@/lib/errors";
+import { canTransition } from "@/lib/state-machines";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { lineTotalPaise, sumPaise } from "@/lib/money";
 import { formatShopTime, isShopOpenNow, nextOpeningAt } from "@/lib/shop-hours";
@@ -53,7 +54,6 @@ import { DELIVERY_WINDOW_MINUTES, getFeasibleDeliveryWindows, type DeliveryWindo
 import { reserveSlot, slotFullError } from "./delivery-slots";
 import { reserveScheduledSlot } from "./scheduled-slots";
 import { acceptByFor } from "./shop-acceptance";
-import { issueInvoiceForOrder } from "./invoices";
 import { getOrCreateOrderGroup, referencesForGroups } from "./order-groups";
 import { quoteCoupon, redeemCouponForOrder } from "./coupons";
 import { getLiveOffers, priceWithOffers } from "./shop-offers";
@@ -61,11 +61,19 @@ import { rewardReferralOnDelivery } from "./customer-referrals";
 import { getRule } from "./settings";
 import { notifyOpenStockAlerts } from "./inventory-alerts";
 import { postRetainedDeliveryFee, recordOrderFinancials } from "./finance";
-import { shopServiceability, societyPartnerShopIds } from "./serviceability";
+import { assertShopMayAcceptOrders, chargeShopWalletForDeliveredOrder, type OrderWalletCharge } from "./shop-wallet";
+import { shopServiceability, societyPartnerShopIds, withWalletGate } from "./serviceability";
 import { assertShopMayProgress } from "./shop-suspension-guard";
+import { assertFulfilmentAllowsStatus } from "./fulfilment-guards";
+import { assertLegalDocsAllowOrders } from "./legal-documents";
+import { assertSignupReferralForFirstOrder } from "./customer-signup-referrals";
 import { resolveAddressSociety } from "./societies";
-import { NOTIFICATION_TYPES, notify, type NotificationType } from "./notifications";
+import { NOTIFICATION_TYPES, notify } from "./notifications";
+import { emitEvent } from "@/server/events/emit";
+import { onOrderDelivered } from "@/server/integrations/hooks";
+import { orderEventFor, type OrderEventPayload } from "@/server/events/catalog";
 import { applyWalletMutation, refundOriginalDebit } from "./wallet";
+import { checkRiskForUser } from "./risk";
 
 /**
  * A delivery assignment is still "in play" — offered, accepted, or already
@@ -79,41 +87,9 @@ const ACTIVE_DELIVERY_ORDER_STATUSES = ["OFFERED", "ACCEPTED", "PICKED_UP"] as c
 
 /* ------------------------------------------------------- state machine */
 
-/**
- * The approved order state machine (see the orderStatusEnum doc comment in
- * schema.ts for the mapping to DRAFT/PAYMENT_PENDING/PAID/SHOP_PENDING).
- *
- * Kept compatible with what already worked:
- *  - CONFIRMED -> PREPARING stays legal (subscription orders and the older
- *    one-click "Start preparing" path); ACCEPTED is the explicit step.
- *  - READY -> OUT_FOR_DELIVERY / DELIVERED stays legal for shops that deliver
- *    themselves or hand over in store. Once a rider accepts (ASSIGNED), only
- *    the rider flow (pickup code -> OTP) can move the order on.
- *  - ASSIGNED -> READY lets a reassignment put the order back in the queue.
- */
-const ALLOWED_TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
-  PENDING: ["CONFIRMED", "CANCELLED", "PAYMENT_FAILED", "WALLET_INSUFFICIENT"],
-  WALLET_INSUFFICIENT: ["CONFIRMED", "CANCELLED"],
-  PAYMENT_FAILED: ["CONFIRMED", "CANCELLED"],
-  CONFIRMED: ["ACCEPTED", "PREPARING", "CANCELLED", "REFUND_PENDING"],
-  ACCEPTED: ["PREPARING", "CANCELLED", "REFUND_PENDING"],
-  PREPARING: ["READY", "CANCELLED", "REFUND_PENDING"],
-  READY: ["ASSIGNED", "OUT_FOR_DELIVERY", "DELIVERED", "CANCELLED", "REFUND_PENDING"],
-  ASSIGNED: ["READY", "PICKED_UP", "CANCELLED", "REFUND_PENDING"],
-  PICKED_UP: ["OUT_FOR_DELIVERY", "FAILED", "CANCELLED", "REFUND_PENDING"],
-  OUT_FOR_DELIVERY: ["DELIVERED", "FAILED", "CANCELLED", "REFUND_PENDING"],
-  FAILED: ["OUT_FOR_DELIVERY", "RETURNED", "CANCELLED", "REFUND_PENDING"],
-  RETURNED: ["CANCELLED", "REFUND_PENDING"],
-  DELIVERED: ["DISPUTED", "REFUND_PENDING"],
-  DISPUTED: ["DELIVERED", "REFUND_PENDING"],
-  CANCELLED: ["REFUND_PENDING"],
-  REFUND_PENDING: ["REFUNDED"],
-  REFUNDED: [],
-};
-
-export function canTransition(from: OrderStatus, to: OrderStatus): boolean {
-  return ALLOWED_TRANSITIONS[from].includes(to);
-}
+// The order state machine lives in the shared registry (lib/state-machines.ts)
+// so the event layer and this service read the same table.
+export { canTransition };
 
 /**
  * Whether the customer has already been charged at each status. A Record,
@@ -229,6 +205,9 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     return { orders: replayed, deduplicated: true, ...(parentReference ? { parentReference } : {}) };
   }
 
+  // Mandatory referral code (rule customerSignupReferral.required): a new customer's first order needs one.
+  if ((input.orderType ?? "PERSONAL") === "PERSONAL") await assertSignupReferralForFirstOrder(input.userId);
+
   const orderType: OrderType = input.orderType ?? "PERSONAL";
   const buyerShopId = orderType === "B2B" ? await resolveBuyerShop(input) : null;
   if (orderType === "PERSONAL" && input.buyerShopId) {
@@ -321,11 +300,15 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
 
   // A paused shop takes no new orders at all, and a delivered order must meet
   // the shop's minimum value (pickup orders are exempt from the minimum).
+  // A shop whose prepaid wallet is below the minimum is paused too (rule
+  // shopWallet): it could not accept the order, so it is never placed.
   {
-    const groupShops = await db
-      .select()
-      .from(shops)
-      .where(inArray(shops.id, purchasableGroups.map((g) => g.shop.id)));
+    const groupShops = await withWalletGate(
+      await db
+        .select()
+        .from(shops)
+        .where(inArray(shops.id, purchasableGroups.map((g) => g.shop.id))),
+    );
     // A personal order from a shop that delivers needs a saved delivery address.
     // Business orders and shops that only offer pickup are unchanged.
     if (orderType === "PERSONAL" && !addressSnapshot && groupShops.some((s) => s.deliveryAvailable)) {
@@ -337,6 +320,8 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       if (shopRow.ordersPaused) {
         throw conflict(`${shopRow.name} is not taking new orders right now.`);
       }
+      // Mandatory legal documents: a shop past its grace period takes no orders until it uploads them.
+      await assertLegalDocsAllowOrders(shopRow.id);
       if (addressSnapshot && shopRow.deliveryAvailable && group.subtotalPaise < shopRow.minOrderPaise) {
         throw validationFailed(
           `${shopRow.name} needs a minimum order of ₹${(shopRow.minOrderPaise / 100).toFixed(0)}; your items come to ₹${(group.subtotalPaise / 100).toFixed(0)}.`,
@@ -348,12 +333,14 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   // GS-030: cash on delivery — personal orders to a delivery address, for a
   // customer within the COD limits. Shop opt-in and amount are checked per order.
   const paymentMethod: PaymentMethod = input.paymentMethod ?? "WALLET";
+  let codMaxOrderPaise: number = COD_LIMITS.maxOrderPaise;
   if (paymentMethod === "COD") {
     if (orderType !== "PERSONAL") throw validationFailed("Business orders are paid from the wallet.");
     if (!addressSnapshot) throw validationFailed("Choose a delivery address to pay cash on delivery.");
     const eligibility = await getCodEligibility(input.userId);
     if (!eligibility.allowed) throw conflict(eligibility.reason ?? "Cash on delivery is not available.");
-    const codOrdersAllowed = COD_LIMITS.maxOpenOrders - eligibility.openOrders;
+    codMaxOrderPaise = eligibility.maxOrderPaise;
+    const codOrdersAllowed = eligibility.maxOpenOrders - eligibility.openOrders;
     if (purchasableGroups.length > codOrdersAllowed) {
       throw conflict(
         `Cash on delivery allows ${codOrdersAllowed} more open order${codOrdersAllowed === 1 ? "" : "s"} — this cart would create ${purchasableGroups.length}. Pay from your wallet instead.`,
@@ -485,7 +472,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       const couponShare = couponQuote?.shares.find((sh) => sh.shopId === group.shop.id)?.discountPaise ?? 0;
       const discountPaise = Math.min(couponShare, subtotalPaise);
       const totalPaise = subtotalPaise + deliveryFeePaise + taxPaise - discountPaise;
-      if (paymentMethod === "COD") assertCodAllowedForOrder(shopRow, totalPaise);
+      if (paymentMethod === "COD") assertCodAllowedForOrder(shopRow, totalPaise, codMaxOrderPaise);
 
       // GS-027: the customer's chosen time slot, re-checked under the day's lock.
       if (chosenSlotKey) {
@@ -632,6 +619,25 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
         },
         tx,
       );
+      // Event layer: the placed order on the event log. The customer and shop
+      // notifications below stay where they are (they depend on opening hours).
+      await emitEvent(
+        {
+          type: "order.placed",
+          subjectId: orderRow.id,
+          orderId: orderRow.id,
+          transition: { from: "PENDING", to: "CONFIRMED" },
+          actor: { id: input.userId, role: input.actorRole ?? "CUSTOMER" },
+          payload: {
+            orderId: orderRow.id,
+            orderNumber: orderRow.orderNumber,
+            buyerId: input.userId,
+            shopOwnerId: shopRow.ownerId,
+            shopName: shopRow.name,
+          },
+        },
+        tx,
+      );
 
       // DEF-02 (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): a paid order
       // previously notified nobody. The customer learns it's confirmed; the
@@ -696,6 +702,10 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     await notifyOpenStockAlerts(group.shop.id, shopOwnerId);
   }
 
+  // Event layer: the per-order risk rules run now, at placement, not at the next
+  // hourly scan. After commit and never throwing — a check must not block an order.
+  if (created.length > 0) await checkRiskForUser(input.userId, "ORDER_PLACED");
+
   return { orders: created, deduplicated: anyDeduplicated, ...(orderGroup ? { parentReference: orderGroup.reference } : {}) };
 }
 
@@ -737,6 +747,8 @@ export async function updateOrderStatus(
   actor: { id: string; role: UserRole },
   note?: string,
   client?: DbClient,
+  /** Event layer: extra facts for the order event's notifications (e.g. the rider's name). */
+  event?: Pick<OrderEventPayload, "riderUserId" | "riderName" | "reason">,
 ): Promise<Order> {
   const run = async (tx: DbClient): Promise<Order> => {
     const [order] = await tx
@@ -754,6 +766,29 @@ export async function updateOrderStatus(
     }
     // Suspended shops cannot take new orders or move orders under review.
     await assertShopMayProgress(tx, order, newStatus, actor);
+    // OTP-confirmed delivery: while a rider holds the order, only the rider's
+    // own flow (the customer's delivery code) or operations' confirmation
+    // (markDelivered / confirmDeliveryByOperator, which mark the delivery
+    // DELIVERED first) can complete it — not a plain status change.
+    if (newStatus === "DELIVERED") {
+      const [riderHolding] = await tx
+        .select({ id: deliveryOrders.id })
+        .from(deliveryOrders)
+        .where(and(eq(deliveryOrders.orderId, orderId), inArray(deliveryOrders.status, ["ACCEPTED", "PICKED_UP"])));
+      if (riderHolding) {
+        throw conflict(
+          "A rider is delivering this order. It is completed when the customer gives the rider their delivery code, or by operations.",
+        );
+      }
+    }
+    // Fulfilment options: pickup / own-delivery orders complete only with the customer's code.
+    await assertFulfilmentAllowsStatus(tx, order, newStatus);
+    // Shop wallet: a shop below its minimum balance cannot take on a new order
+    // (CONFIRMED → ACCEPTED, or straight to PREPARING) until it recharges.
+    if (order.status === "CONFIRMED" && (newStatus === "ACCEPTED" || newStatus === "PREPARING")) {
+      await assertShopMayAcceptOrders(order.shopId, tx);
+      await assertLegalDocsAllowOrders(order.shopId);
+    }
 
     const [updated] = await tx
       .update(orders)
@@ -781,9 +816,13 @@ export async function updateOrderStatus(
       await recordCodCollection(order, actor.id, tx);
     }
     // Slice 6: snapshot the order's GMV / commission / shop payable the moment
-    // it is delivered, in the same transaction (idempotent).
+    // it is delivered, in the same transaction (idempotent). Shop wallet: the
+    // commission and delivery charge are debited from the shop's wallet here
+    // too — completion and charge commit together, once per order.
+    let walletCharge: OrderWalletCharge | null = null;
     if (newStatus === "DELIVERED") {
       await recordOrderFinancials(orderId, tx);
+      walletCharge = await chargeShopWalletForDeliveredOrder(orderId, actor, tx);
       // F11: a referred customer's first delivered order rewards both sides.
       // Under a savepoint, so a problem here can never block the delivery.
       await tx
@@ -791,7 +830,8 @@ export async function updateOrderStatus(
         .catch((error) => console.error("[referrals] reward check failed for order", orderId, error));
       // NEW-007: the shop's invoice is issued at delivery (rule invoicing).
       // Its own savepoint, so a problem here never blocks the delivery.
-      await issueInvoiceForOrder(orderId, tx).catch((error) =>
+      // Module 2: also sent to the shop's accounting software / e-invoiced.
+      await onOrderDelivered(orderId, order.shopId, tx).catch((error) =>
         console.error("[invoices] issue failed for order", orderId, error),
       );
     }
@@ -823,33 +863,36 @@ export async function updateOrderStatus(
       tx,
     );
 
-    // DEF-02 (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): these
-    // notification types were defined but never emitted. Covers both a
-    // direct shop/operator status change and the same transitions arriving
-    // via delivery-assignment.ts's markPickedUp/markDelivered, since both
-    // paths go through this one function.
-    const CUSTOMER_STATUS_NOTIFICATIONS: Partial<Record<OrderStatus, NotificationType>> = {
-      ACCEPTED: NOTIFICATION_TYPES.ORDER_ACCEPTED,
-      READY: NOTIFICATION_TYPES.ORDER_READY,
-      ASSIGNED: NOTIFICATION_TYPES.ORDER_ASSIGNED,
-      PICKED_UP: NOTIFICATION_TYPES.ORDER_PICKED_UP,
-      FAILED: NOTIFICATION_TYPES.ORDER_DELIVERY_FAILED,
-      OUT_FOR_DELIVERY: NOTIFICATION_TYPES.ORDER_OUT_FOR_DELIVERY,
-      DELIVERED: NOTIFICATION_TYPES.ORDER_DELIVERED,
-    };
-    const notificationType = CUSTOMER_STATUS_NOTIFICATIONS[newStatus];
-    if (notificationType) {
-      await notify(
-        {
-          userId: order.userId,
-          type: notificationType,
-          title: `Order ${ORDER_STATUS_LABELS[newStatus].toLowerCase()}`,
-          body: `Your order ${order.orderNumber} is ${ORDER_STATUS_LABELS[newStatus].toLowerCase()}.`,
-          actionUrl: "/orders",
+    // Event layer: every order status change is one event — checked against
+    // the order state machine, logged in domain_events, and the customer and
+    // shop told now (catalog.ts decides who hears what). Covers a direct
+    // shop/operator change and the rider flow in delivery-assignment.ts alike,
+    // since both come through this function (DEF-02).
+    const [shop] = await tx
+      .select({ ownerId: shops.ownerId, name: shops.name })
+      .from(shops)
+      .where(eq(shops.id, order.shopId));
+    await emitEvent(
+      {
+        type: orderEventFor(newStatus),
+        subjectId: orderId,
+        orderId,
+        transition: { from: order.status, to: newStatus },
+        actor,
+        payload: {
+          orderId,
+          orderNumber: order.orderNumber,
+          buyerId: order.userId,
+          shopOwnerId: shop?.ownerId ?? null,
+          shopName: shop?.name ?? "the shop",
+          reassigned: newStatus === "READY" && order.status === "ASSIGNED",
+          reason: note ?? null,
+          walletCharge,
+          ...event,
         },
-        tx,
-      );
-    }
+      },
+      tx,
+    );
 
     return updated;
   };
@@ -919,8 +962,16 @@ export async function cancelOrder(
     // actively assembling it — there is no clean undo for picked/packed work,
     // so only the shop or an operator may cancel from here. Does not apply to
     // a shop/operator-privileged cancel, which stays unrestricted.
+    // Rule `cancellation.customerMayCancelUntil` = PREPARING opens ACCEPTED and
+    // PREPARING (before packing) to the customer too, with the same full refund.
+    const beforePacking = (["ACCEPTED", "PREPARING"] as OrderStatus[]).includes(order.status);
+    const customerCancelBeforePacking =
+      Boolean(options.selfService) &&
+      beforePacking &&
+      (await getRule("cancellation")).customerMayCancelUntil === "PREPARING";
     if (
       options.selfService &&
+      !customerCancelBeforePacking &&
       (["ACCEPTED", "PREPARING", "READY", "ASSIGNED"] as OrderStatus[]).includes(order.status)
     ) {
       throw conflict(
@@ -961,22 +1012,6 @@ export async function cancelOrder(
       changedBy: actor?.id ?? null,
       note: reason,
     });
-
-    // DEF-02: notify the customer their order was cancelled — only when
-    // someone OTHER than themselves did it (a shop/operator cancel), since a
-    // customer doesn't need to be told about their own action.
-    if (actor?.id !== order.userId) {
-      await notify(
-        {
-          userId: order.userId,
-          type: NOTIFICATION_TYPES.ORDER_CANCELLED,
-          title: "Order cancelled",
-          body: `Your order ${order.orderNumber} was cancelled: ${reason}`,
-          actionUrl: "/orders",
-        },
-        tx,
-      );
-    }
 
     // DEF-01: every cancellation restores the stock checkout() consumed —
     // previously nothing did, so a cancelled order permanently lost the unit.
@@ -1047,14 +1082,23 @@ export async function cancelOrder(
           inArray(deliveryOrders.status, ACTIVE_DELIVERY_ORDER_STATUSES),
         ),
       );
+    let cancelledRiderUserId: string | null = null;
     if (activeDelivery) {
       const wasPickedUp = activeDelivery.pickedUpAt != null;
+      const [rider] = await tx
+        .select({ userId: deliveryPartners.userId })
+        .from(deliveryPartners)
+        .where(eq(deliveryPartners.id, activeDelivery.deliveryPartnerId));
+      cancelledRiderUserId = rider?.userId ?? null;
       await tx
         .update(deliveryOrders)
         .set({
           status: "CANCELLED",
           cancelledAt: new Date(),
           cancellationReason: `Order cancelled: ${reason}`,
+          // The customer's delivery code dies with the delivery.
+          deliveryOtpHash: null,
+          deliveryOtp: null,
           updatedAt: new Date(),
         })
         .where(eq(deliveryOrders.id, activeDelivery.id));
@@ -1062,6 +1106,42 @@ export async function cancelOrder(
         await creditDeliveryEarnings(activeDelivery.id, tx);
       }
     }
+
+    // Event layer: the cancellation as one event. The customer hears when
+    // someone else cancelled (DEF-02); the shop when support did, or the
+    // customer after the shop had started (D6); a rider who had the order is
+    // told to stop. A customer cancelling their own order is not told about it.
+    const [shopRow] = await tx
+      .select({ ownerId: shops.ownerId, name: shops.name })
+      .from(shops)
+      .where(eq(shops.id, order.shopId));
+    await emitEvent(
+      {
+        type: "order.cancelled",
+        subjectId: orderId,
+        orderId,
+        transition: { from: order.status, to: "CANCELLED" },
+        actor: actor ?? { id: null, role: null },
+        payload: {
+          orderId,
+          orderNumber: order.orderNumber,
+          buyerId: order.userId,
+          shopOwnerId: shopRow?.ownerId ?? null,
+          shopName: shopRow?.name ?? "the shop",
+          riderUserId: cancelledRiderUserId,
+          reason,
+          cancelledBy: !actor
+            ? "SYSTEM"
+            : actor.id === order.userId
+              ? "CUSTOMER"
+              : actor.role === "OPERATOR" || actor.role === "ADMIN"
+                ? "SUPPORT"
+                : "SHOP",
+          beforePacking: customerCancelBeforePacking,
+        },
+      },
+      tx,
+    );
 
     // Removed / cheaper-substituted lines were already refunded and deducted
     // from totalPaise/subtotalPaise, so these always reflect what is still held.
@@ -1152,6 +1232,78 @@ export async function getOrder(orderId: string): Promise<OrderDetail | undefined
     shopSlug: row.shopSlug,
     items,
   };
+}
+
+/** C3: placed directly and not yet delivered, cancelled or refunded. */
+const OPEN_ORDER_STATUSES: readonly OrderStatus[] = [
+  "CONFIRMED",
+  "ACCEPTED",
+  "PREPARING",
+  "READY",
+  "ASSIGNED",
+  "PICKED_UP",
+  "OUT_FOR_DELIVERY",
+];
+
+export interface OpenOrderForCheckout {
+  id: string;
+  orderNumber: string;
+  shopId: string;
+  shopName: string;
+  orderType: OrderType;
+  status: OrderStatus;
+  statusLabel: string;
+  totalPaise: number;
+  createdAt: Date;
+  /** The customer may cancel it themselves now (D10 + rule cancellation); otherwise they contact the shop. */
+  customerMayCancel: boolean;
+}
+
+/**
+ * C3 (rule openOrderCheck): the customer's open orders to show before they
+ * pay for a new one. Empty when the rule is off. Subscription orders are left
+ * out — they recur by design.
+ */
+export async function listOpenOrdersForCheckout(
+  userId: string,
+  cartShopIds: readonly string[],
+): Promise<OpenOrderForCheckout[]> {
+  const rule = await getRule("openOrderCheck");
+  if (!rule.enabled) return [];
+  if (rule.scope === "SAME_SHOP" && cartShopIds.length === 0) return [];
+  const { customerMayCancelUntil } = await getRule("cancellation");
+  const cancellable: readonly OrderStatus[] =
+    customerMayCancelUntil === "PREPARING"
+      ? ["CONFIRMED", "ACCEPTED", "PREPARING", "PICKED_UP", "OUT_FOR_DELIVERY"]
+      : ["CONFIRMED", "PICKED_UP", "OUT_FOR_DELIVERY"];
+  const rows = await db
+    .select({
+      id: orders.id,
+      orderNumber: orders.orderNumber,
+      shopId: orders.shopId,
+      shopName: shops.name,
+      orderType: orders.orderType,
+      status: orders.status,
+      totalPaise: orders.totalPaise,
+      createdAt: orders.createdAt,
+    })
+    .from(orders)
+    .innerJoin(shops, eq(orders.shopId, shops.id))
+    .where(
+      and(
+        eq(orders.userId, userId),
+        eq(orders.source, "DIRECT"),
+        inArray(orders.status, [...OPEN_ORDER_STATUSES]),
+        ...(rule.scope === "SAME_SHOP" ? [inArray(orders.shopId, [...cartShopIds])] : []),
+      ),
+    )
+    .orderBy(desc(orders.createdAt))
+    .limit(10);
+  return rows.map((r) => ({
+    ...r,
+    statusLabel: ORDER_STATUS_LABELS[r.status],
+    customerMayCancel: cancellable.includes(r.status),
+  }));
 }
 
 export async function listOrdersForUser(

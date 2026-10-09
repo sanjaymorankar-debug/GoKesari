@@ -31,6 +31,10 @@ export interface ProductCardData {
   /** F8: a live shop offer's online price and title, when one applies. */
   offerPricePaise?: number | null;
   offerTitle?: string | null;
+  /** Module 1: the shop's short description (or the master's). */
+  shortDescription?: string | null;
+  /** Module 1: this shop's product page (its photos and long description). */
+  detailsHref?: string;
 }
 
 /**
@@ -144,15 +148,27 @@ export function ProductCard({
     >
       <SafeImage
         src={product.imageUrl}
+        size="medium"
         alt={product.productName}
         className="mb-3 h-32 w-full rounded-lg bg-cream-100 object-cover"
       />
       <div className="mb-2 flex items-start justify-between gap-2">
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold text-ink-900">
-            {product.productName}
+            {product.detailsHref ? (
+              <Link href={product.detailsHref} className="hover:text-kesari-700">
+                {product.productName}
+              </Link>
+            ) : (
+              product.productName
+            )}
           </h3>
           <p className="text-xs text-ink-500">{product.categoryName}</p>
+          {product.shortDescription ? (
+            <p className="mt-1 line-clamp-2 text-xs text-ink-600" data-testid="product-short-description">
+              {product.shortDescription}
+            </p>
+          ) : null}
         </div>
         <AvailabilityBadge
           onlineSaleEnabled={product.onlineSaleEnabled}

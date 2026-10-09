@@ -7,6 +7,9 @@
  * then never re-offered that order), and re-tries a rider for every READY
  * order of a delivering shop that has nobody working on it. Idempotent —
  * overlapping runs are safe (assignment locks the partner row).
+ *
+ * Event layer: superseded by /api/cron/timeout-sweep, which runs this same
+ * sweep. Kept so the old crontab can be restored (docs/event-driven-2026-10/ROLLBACK.md).
  */
 import type { NextRequest } from "next/server";
 

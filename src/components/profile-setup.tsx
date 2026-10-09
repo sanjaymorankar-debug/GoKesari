@@ -97,20 +97,32 @@ export function PersonalDetailsFields({
 export function ProfileSetupWizard({
   initial,
   hasDefaultAddress,
+  referral = null,
 }: {
   initial: { name: string; gender: GenderValue | ""; mobile: string; email: string };
   hasDefaultAddress: boolean;
+  /** Rule customerSignupReferral: ask a new customer for a referral code (prefilled from a /r/ link). */
+  referral?: { prefill: string; required?: boolean } | null;
 }) {
   const router = useRouter();
   const [step, setStep] = useState<"details" | "address">("details");
   const [name, setName] = useState(initial.name);
   const [gender, setGender] = useState<GenderValue | "">(initial.gender);
   const [mobile, setMobile] = useState(initial.mobile);
+  const [referralCode, setReferralCode] = useState(referral?.prefill ?? "");
+  const [referralError, setReferralError] = useState<string | null>(null);
+  // Mandatory code (customerSignupReferral.required): without one, setup ends on My referral code.
+  const [referralGiven, setReferralGiven] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const finish = () => {
     router.replace("/");
+    router.refresh();
+  };
+  const finishSetup = () => {
+    if (!referral?.required || referralGiven) return finish();
+    router.replace("/referral");
     router.refresh();
   };
 
@@ -119,6 +131,20 @@ export function ProfileSetupWizard({
     setError(null);
     if (mobile && !parseIndianMobile(mobile).ok) return setError(INDIAN_MOBILE_HINT);
     setBusy(true);
+    // The referral code is checked first, so a wrong one can be corrected here.
+    if (referral && referralCode.trim()) {
+      const res = await fetch("/api/me/signup-referral", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ code: referralCode }),
+      });
+      if (!res.ok) {
+        const payload = await res.json().catch(() => null);
+        setBusy(false);
+        return setReferralError(payload?.error?.details?.fields?.referralCode ?? payload?.error?.message ?? "This referral code is not valid.");
+      }
+      setReferralGiven(true);
+    }
     const failure = await patchProfile({
       name: name.trim() || null,
       gender: gender || null,
@@ -127,7 +153,7 @@ export function ProfileSetupWizard({
     });
     setBusy(false);
     if (failure) return setError(failure);
-    if (hasDefaultAddress) finish();
+    if (hasDefaultAddress) finishSetup();
     else setStep("address");
   }
 
@@ -157,6 +183,31 @@ export function ProfileSetupWizard({
             setMobile={setMobile}
             mobileHint="Needed before your first order — the delivery partner calls this number. You can also log in with it."
           />
+          {referral ? (
+            <Field
+              label={referral.required ? "Referral code" : "Referral code (optional)"}
+              hint={
+                referral.required
+                  ? "Needed before your first order — from GoKesari, a GoKesari partner or a friend who invited you. No code? Leave it empty and ask us for one next."
+                  : "From GoKesari, a GoKesari partner or a friend who invited you."
+              }
+              error={referralError ?? undefined}
+            >
+              <input
+                className={inputClass}
+                name="referralCode"
+                value={referralCode}
+                autoCapitalize="characters"
+                autoComplete="off"
+                maxLength={40}
+                onChange={(e) => {
+                  setReferralCode(e.target.value.toUpperCase());
+                  setReferralError(null);
+                }}
+                data-testid="signup-referral-code"
+              />
+            </Field>
+          ) : null}
           <div className="flex flex-wrap gap-2">
             <Button type="submit" disabled={busy}>
               {busy ? "Saving…" : "Save and continue"}
@@ -175,7 +226,7 @@ export function ProfileSetupWizard({
               asked for an address at checkout if you skip this.
             </p>
           </div>
-          <AddressForm defaultIsDefault cancelLabel="Fill in later" onSaved={finish} onCancel={finish} />
+          <AddressForm defaultIsDefault cancelLabel="Fill in later" onSaved={finishSetup} onCancel={finishSetup} />
         </div>
       )}
     </Card>

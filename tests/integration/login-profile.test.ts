@@ -3,7 +3,7 @@
  * details, My Profile edits, email change by code, checkout prerequisites and
  * the admin "release mobile number" action.
  */
-import { eq } from "drizzle-orm";
+import { and, count, eq, inArray, lte, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { UserRole } from "@/server/db/schema";
@@ -44,7 +44,7 @@ import { POST as emailRequestRoute, PUT as emailConfirmRoute } from "@/app/api/p
 import { POST as releasePhoneRoute } from "@/app/api/users/release-phone/route";
 import { resetRateLimits } from "@/server/api/rate-limit";
 import { db } from "@/server/db";
-import { loginOtps, users, wallets } from "@/server/db/schema";
+import { loginOtps, notificationDeliveries, users, wallets } from "@/server/db/schema";
 import {
   EMAIL_IN_USE,
   MOBILE_IN_USE,
@@ -56,6 +56,7 @@ import {
   verifyLoginOtp,
 } from "@/server/otp/service";
 import { addToCart } from "@/server/services/cart";
+import { deliverPending } from "@/server/services/notifications";
 import { checkout } from "@/server/services/orders";
 import { getProfile, nextOnboardingStep, updateProfile } from "@/server/services/profile";
 import { call } from "../helpers/http";
@@ -70,7 +71,25 @@ import {
   resetDatabase,
 } from "../helpers/fixtures";
 
+/**
+ * Notices such as "new sign-in" are emailed in the background after the call
+ * that queued them returns. Let the previous test's finish before the outbox
+ * is cleared, so a late one cannot land in this test's outbox.
+ */
+async function settleBackgroundEmails(): Promise<void> {
+  for (let i = 0; i < 50; i += 1) {
+    await deliverPending();
+    const [{ n }] = await db
+      .select({ n: count() })
+      .from(notificationDeliveries)
+      .where(and(inArray(notificationDeliveries.status, ["PENDING", "SENDING"]), lte(notificationDeliveries.nextAttemptAt, sql`now()`)));
+    if (Number(n) === 0) return;
+    await new Promise((resolve) => setTimeout(resolve, 100));
+  }
+}
+
 beforeEach(async () => {
+  await settleBackgroundEmails();
   state.outbox = [];
   state.session = null;
   resetRateLimits();

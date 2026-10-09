@@ -59,6 +59,12 @@ export const RULES = {
       busyRidersAsFallback: z.boolean(),
       /** With busyRidersAsFallback on: most deliveries one rider may hold at once (offered, accepted or picked up). */
       maxActiveDeliveriesPerRider: int(1, 5),
+      /**
+       * Event layer (Y): minutes after the rider search starts with nobody
+       * accepted before support is alerted (once per search) by the
+       * timeout-sweep. Offers keep being retried meanwhile.
+       */
+      alertSupportAfterMinutes: int(1, 720),
     }),
     defaults: {
       offerTtlSeconds: 120,
@@ -70,6 +76,7 @@ export const RULES = {
       notifyShopAfterAttempts: 1,
       busyRidersAsFallback: false,
       maxActiveDeliveriesPerRider: 2,
+      alertSupportAfterMinutes: 30,
     },
   },
   riderEarnings: {
@@ -148,15 +155,18 @@ export const RULES = {
     defaults: { maxBytes: 2_000_000, maxDimensionPx: 4096, minDimensionPx: 100, maxPerProduct: 8 },
   },
   notifications: {
-    description: "Notification delivery: retry schedule and batch size for outbound channels.",
+    description:
+      "Notification delivery: every notification is sent the moment its event happens; a failed send stays in the outbox (notification_deliveries) and the notification-retry job tries again on this schedule. maxAttempts (N) sends, then the message is marked dead and support is alerted in the app.",
     schema: z.object({
-      /** Delivery attempts per outbound notification before it is marked dead. */
+      /** Delivery attempts (N) per outbound notification before it is marked dead. */
       maxAttempts: int(1, 10),
       /** Seconds to wait before attempt 2, 3, ...; the last value repeats. */
       retryBackoffSeconds: z.array(int(10, 86_400)).min(1).max(10),
       batchSize: int(1, 500),
+      /** Event layer: tell support (operators, in the app) when a message is given up on. */
+      alertSupportOnDead: z.boolean(),
     }),
-    defaults: { maxAttempts: 4, retryBackoffSeconds: [60, 300, 1800], batchSize: 50 },
+    defaults: { maxAttempts: 4, retryBackoffSeconds: [60, 300, 1800], batchSize: 50, alertSupportOnDead: true },
   },
   suspension: {
     description:
@@ -215,6 +225,13 @@ export const RULES = {
       escalateAbovePaise: int(0, 100_000_000),
       /** How long a reviewer has to resolve an escalated case before it is flagged as overdue. */
       resolveTargetHours: int(1, 720),
+      /**
+       * Event layer (dispute SLA): a live L1 case left without a reply from
+       * the shop or support for this many hours — since it opened or since
+       * the customer last wrote — is escalated to an administrator by the
+       * hourly SLA check. 0 disables it.
+       */
+      responseSlaHours: int(0, 720),
     }),
     defaults: {
       // 48 h matches the return window, so a dispute and a return on the same
@@ -223,6 +240,7 @@ export const RULES = {
       // ₹2,000. Above this an administrator decides, not operations.
       escalateAbovePaise: 200_000,
       resolveTargetHours: 120,
+      responseSlaHours: 24,
     },
   },
   customerReferrals: {
@@ -296,15 +314,21 @@ export const RULES = {
   },
   shopAcceptance: {
     description:
-      "Shop acceptance timeout (NEW-007). Off: an order waits for the shop indefinitely (operations sees it in the exceptions queue — the original behaviour). On: a shop must accept a new order within the set minutes — counted from when it opens, for an order placed while closed — or the order is cancelled with a full refund and the customer is told. The shop gets a reminder part-way through. Subscription orders are not affected.",
+      "Shop acceptance timeout (NEW-007). Off: an order waits for the shop indefinitely (operations sees it in the exceptions queue — the original behaviour). On: a shop must accept a new order within acceptMinutes (X) — counted from when it opens, for an order placed while closed — or, per onTimeout, the order is cancelled with a full refund (customer and shop told) or escalated to support. The shop gets a reminder part-way through. Subscription orders are not affected.",
     schema: z.object({
       enabled: z.boolean(),
       /** Minutes the shop has to accept a new order. */
       acceptMinutes: int(1, 240),
       /** Remind the shop when this share of the time has passed (0.5 = half-way). */
       reminderAtFraction: z.number().min(0.1).max(0.95),
+      /**
+       * Event layer: what the timeout-sweep does when the time (X) is up.
+       * CANCEL — cancel with a full refund and tell the customer and shop.
+       * ESCALATE — alert support (once) and leave the order for an operator.
+       */
+      onTimeout: z.enum(["CANCEL", "ESCALATE"]),
     }),
-    defaults: { enabled: false, acceptMinutes: 10, reminderAtFraction: 0.5 },
+    defaults: { enabled: false, acceptMinutes: 30, reminderAtFraction: 0.5, onTimeout: "CANCEL" },
   },
   deliveryProof: {
     description:
@@ -457,6 +481,16 @@ export const RULES = {
        * CONFIRM THE PERIOD WITH A LAWYER/CA against tax and dispute limitation periods.
        */
       retentionDaysAfterClosure: int(30, 3650),
+      /**
+       * Event layer: approve a pending shop the moment its last mandatory
+       * document is verified and nothing else blocks approval (registration
+       * fee paid or waived, details complete). Off: an admin approves.
+       */
+      autoApproveShop: z.boolean(),
+      /** The Kesari/Green classification an automatically approved shop gets, unless it already has one. Operators can change it later. */
+      autoApproveClassification: z.enum(["KESARI", "GREEN"]),
+      /** Event layer: remind support (daily job) of documents waiting in manual review longer than this. */
+      manualReviewReminderHours: int(1, 720),
     }),
     defaults: {
       nameMatchAutoApprove: 85,
@@ -468,7 +502,429 @@ export const RULES = {
       autoSuspendOnLapse: true,
       suspendGraceDays: 0,
       retentionDaysAfterClosure: 1095,
+      autoApproveShop: false,
+      autoApproveClassification: "GREEN",
+      manualReviewReminderHours: 24,
     },
+  },
+  cancellation: {
+    description:
+      "Customer cancellation of their own order (D10 / D6). Any cancellation before the order is packed refunds the full amount, delivery fee included; after pickup a customer's own cancellation refunds the goods only (unchanged). CONFIRMED: a customer may cancel only until the shop accepts the order (the original D10 rule). PREPARING: a customer may cancel at any time before the order is packed (accepted or being picked); the shop is told.",
+    schema: z.object({
+      customerMayCancelUntil: z.enum(["CONFIRMED", "PREPARING"]),
+    }),
+    defaults: { customerMayCancelUntil: "CONFIRMED" },
+  },
+  shopContact: {
+    description:
+      "Shop phone numbers shown to customers (C1). SHOP_CONTACT: customers see only the contact phone and WhatsApp number the shopkeeper entered for the shop (My shop → details); with neither entered they see GoKesari customer care instead. The registration phone and the owner's login number are never shown. REGISTERED_PHONE: the original behaviour — the registration phone is shown as the shop's customer care number.",
+    schema: z.object({
+      customerVisible: z.enum(["SHOP_CONTACT", "REGISTERED_PHONE"]),
+    }),
+    defaults: { customerVisible: "SHOP_CONTACT" },
+  },
+  societyRiders: {
+    description:
+      "Society rider lists (C2). On: only a society Gokesari has verified can add riders to its list or mark one preferred, and only riders Gokesari has approved can be added — enforced by the server for every caller, platform staff included. Removing a rider is always allowed. Off: the original behaviour (any society admin could add an approved rider, verified or not).",
+    schema: z.object({
+      requireVerifiedSociety: z.boolean(),
+    }),
+    defaults: { requireVerifiedSociety: true },
+  },
+  openOrderCheck: {
+    description:
+      "Existing open order prompt at checkout (C3). On: before paying, a customer who already has an open order (placed directly, not yet delivered or cancelled) sees its status and chooses to cancel it (where they may cancel it themselves) or to ignore it and continue. ANY_SHOP: any open order; SAME_SHOP: only an open order from a shop in the cart. Off: no prompt (the original behaviour). Checkout itself is unchanged either way.",
+    schema: z.object({
+      enabled: z.boolean(),
+      scope: z.enum(["ANY_SHOP", "SAME_SHOP"]),
+    }),
+    defaults: { enabled: true, scope: "ANY_SHOP" },
+  },
+  riderFiles: {
+    description:
+      "Rider photos, identity documents and ID card (C5). protectPhotos — on: a rider's photo opens only for the rider, Gokesari staff who manage riders, and the staff of a verified society that lists the rider, through a signed-in, access-checked link; a new photo must be uploaded (outside links are refused). Off: the original behaviour (anyone with the photo link can open it). kycDocuments — riders can upload photos of their identity documents; only an admin can open them (always, whatever this switch). idCard — approved riders get a digital ID card with their photo, name, rider ID and the verified societies that list them, to show at the society gate.",
+    schema: z.object({
+      protectPhotos: z.boolean(),
+      kycDocuments: z.boolean(),
+      idCard: z.boolean(),
+    }),
+    defaults: { protectPhotos: true, kycDocuments: true, idCard: true },
+  },
+  /* ---------------------------------------------------------------------
+   * Item B (7 Oct 2026): business limits that used to be fixed in code. Each
+   * default is the value the code used, so nothing changes until an admin
+   * edits one.
+   * ------------------------------------------------------------------- */
+  cod: {
+    description:
+      "Cash on delivery limits (GS-030): largest COD order, open COD orders a customer may have at once, and how many failed or returned COD deliveries in how many days pause COD for that customer.",
+    schema: z.object({
+      maxOrderPaise: int(100, 100_000_000),
+      maxOpenOrders: int(1, 50),
+      failureWindowDays: int(1, 365),
+      maxFailures: int(1, 50),
+    }),
+    defaults: { maxOrderPaise: 200_000, maxOpenOrders: 2, failureWindowDays: 90, maxFailures: 2 },
+  },
+  walletTopup: {
+    description: "Wallet top-up: smallest and largest single top-up (paise).",
+    schema: z
+      .object({
+        minPaise: int(100, 10_000_000),
+        maxPaise: int(100, 100_000_000),
+      })
+      .refine((v) => v.minPaise <= v.maxPaise, { message: "The minimum cannot be above the maximum.", path: ["minPaise"] }),
+    defaults: { minPaise: 100, maxPaise: 10_000_000 },
+  },
+  ratings: {
+    description: "Ratings (GS-059/060): how many days after delivery a customer may rate the shop and the rider.",
+    schema: z.object({ windowDays: int(1, 365) }),
+    defaults: { windowDays: 30 },
+  },
+  marketing: {
+    description:
+      "Shop marketing campaigns: campaigns a shop may send a week, messages a customer may get from one shop and in total a week, and the largest audience per campaign.",
+    schema: z.object({
+      shopCampaignsPerWeek: int(0, 50),
+      perShopPerCustomerPerWeek: int(0, 50),
+      totalPerCustomerPerWeek: int(0, 100),
+      maxRecipients: int(1, 1_000_000),
+    }),
+    defaults: { shopCampaignsPerWeek: 2, perShopPerCustomerPerWeek: 1, totalPerCustomerPerWeek: 3, maxRecipients: 5000 },
+  },
+  vouchers: {
+    description: "Wallet vouchers: the highest bonus percentage a voucher may give.",
+    schema: z.object({ maxBonusPercent: int(1, 100) }),
+    defaults: { maxBonusPercent: 100 },
+  },
+  settlement: {
+    description:
+      "Shop settlement: days a delivered order is held before it can join a settlement batch, and days after delivery an order with no settlement is flagged as missing one.",
+    schema: z.object({
+      holdDays: int(0, 60),
+      missingAlertDays: int(1, 120),
+    }),
+    defaults: { holdDays: 2, missingAlertDays: 9 },
+  },
+  deliveryOtp: {
+    description:
+      "Customer delivery code (GS-043): wrong attempts a rider may make before the drop is locked (a support ticket is raised and only operations can confirm it), and how often the customer may ask for a new code: seconds between requests and new codes per delivery. Also used by the exceptions queue and the OTP_LOCKOUTS risk rule.",
+    schema: z.object({
+      maxAttempts: int(1, 20),
+      resendCooldownSeconds: int(0, 3600),
+      maxResends: int(0, 20),
+    }),
+    defaults: { maxAttempts: 5, resendCooldownSeconds: 60, maxResends: 3 },
+  },
+  shopWallet: {
+    description:
+      "Shop prepaid wallet. When enabled, a delivered order's commission (rates under Admin → Finance) and a delivery charge (orders a GoKesari rider delivered: deliveryChargePaise + deliveryChargePerKmPaise × the shop-to-customer distance, to 0.1 km — the distance the rider is paid for; deliveryChargeUnknownDistancePaise when that distance is not known) are debited from the shop's wallet, and settlement no longer withholds that commission. A refund the shop bears returns the commission on the refunded goods to the wallet. A shop whose balance is below minBalancePaise cannot accept new orders and customers cannot check out from it; the owner is alerted when a charge takes the balance below lowBalanceThresholdPaise. topupMinPaise / topupMaxPaise limit one top-up. Amounts in paise.",
+    schema: z
+      .object({
+        enabled: z.boolean(),
+        deliveryChargePaise: int(0, 1_000_000),
+        deliveryChargePerKmPaise: int(0, 100_000),
+        deliveryChargeUnknownDistancePaise: int(0, 1_000_000),
+        minBalancePaise: int(0, 100_000_000),
+        lowBalanceThresholdPaise: int(0, 100_000_000),
+        topupMinPaise: int(100, 10_000_000),
+        topupMaxPaise: int(100, 100_000_000),
+      })
+      .refine((v) => v.topupMinPaise <= v.topupMaxPaise, {
+        message: "The minimum top-up cannot be above the maximum.",
+        path: ["topupMinPaise"],
+      })
+      .refine((v) => v.lowBalanceThresholdPaise >= v.minBalancePaise, {
+        message: "Alert at or above the minimum balance, so the shop hears before it is blocked.",
+        path: ["lowBalanceThresholdPaise"],
+      }),
+    // Agreed amounts: delivery charge ₹5 per km (no flat part; ₹25 when the
+    // distance is unknown), ₹200 minimum, reminder at ₹300 (so a shop is warned
+    // before it is blocked). Commission (1%) is the platform rate under Admin →
+    // Finance → Commission, not set here.
+    defaults: {
+      enabled: false,
+      deliveryChargePaise: 0,
+      deliveryChargePerKmPaise: 500,
+      deliveryChargeUnknownDistancePaise: 2_500,
+      minBalancePaise: 20_000,
+      lowBalanceThresholdPaise: 30_000,
+      topupMinPaise: 10_000,
+      topupMaxPaise: 5_000_000,
+    },
+  },
+  returnPickup: {
+    description: "Return pickups: how many days ahead a customer may schedule the pickup.",
+    schema: z.object({ scheduleWithinDays: int(1, 30) }),
+    defaults: { scheduleWithinDays: 3 },
+  },
+  grievances: {
+    description: "Grievances: days after which an open grievance counts as overdue on the dashboard (consumer-rules redressal period).",
+    schema: z.object({ overdueAfterDays: int(1, 90) }),
+    defaults: { overdueAfterDays: 15 },
+  },
+  discovery: {
+    description: "Shop discovery: distance (km) within which a shop is shown as nearby.",
+    schema: z.object({ nearbyRadiusKm: z.number().min(0.5).max(50) }),
+    defaults: { nearbyRadiusKm: 5 },
+  },
+  selfRegistration: {
+    description:
+      "Shop self-registration (Module 3, /shop/join): a shop registers with its name, an OTP-verified mobile and a referral code, picks a fee tier and pays online; the payment webhook approves it. enabled: the page accepts registrations. holdHours: how long an unpaid registration keeps its place on a referral code's usage limit. maxPendingPerMobile: unpaid registrations one mobile may have at once. classification: Kesari/Green given to a self-registered shop (operators can change it).",
+    schema: z.object({
+      enabled: z.boolean(),
+      holdHours: int(1, 168),
+      maxPendingPerMobile: int(1, 20),
+      classification: z.enum(["KESARI", "GREEN"]),
+    }),
+    defaults: { enabled: false, holdHours: 24, maxPendingPerMobile: 3, classification: "GREEN" },
+  },
+  shopProductMedia: {
+    description:
+      "Shop product photos and descriptions (Module 1): photos per shop listing, upload size, the three WebP sizes made from every photo, description lengths, and bulk ZIP/CSV limits. The first photo of a listing is its main photo; a listing with none shows the master product's photos.",
+    schema: z.object({
+      maxPhotos: int(1, 10),
+      maxUploadBytes: int(100_000, 20_000_000),
+      minDimensionPx: int(50, 2000),
+      maxInputPixels: int(1_000_000, 200_000_000),
+      thumbPx: int(64, 800),
+      mediumPx: int(200, 2000),
+      largePx: int(400, 4000),
+      webpQuality: int(40, 100),
+      shortDescriptionMax: int(20, 500),
+      longDescriptionMax: int(100, 20_000),
+      zipMaxBytes: int(1_000_000, 500_000_000),
+      zipMaxFiles: int(1, 5000),
+      csvMaxRows: int(1, 50_000),
+    }),
+    defaults: {
+      maxPhotos: 5,
+      maxUploadBytes: 5 * 1024 * 1024,
+      minDimensionPx: 100,
+      maxInputPixels: 50_000_000,
+      thumbPx: 200,
+      mediumPx: 600,
+      largePx: 1200,
+      webpQuality: 80,
+      shortDescriptionMax: 160,
+      longDescriptionMax: 4000,
+      zipMaxBytes: 50 * 1024 * 1024,
+      zipMaxFiles: 500,
+      csvMaxRows: 5000,
+    },
+  },
+  catalogue: {
+    description: "Shop catalogue: stock given to each product when a shop adds a whole category and its inventory is filled in.",
+    schema: z.object({ categoryFillStock: int(0, 100_000) }),
+    defaults: { categoryFillStock: 100 },
+  },
+  uploads: {
+    description:
+      "File upload limits: spreadsheet size and rows (product, price and voucher sheets) and seller document size, in bytes.",
+    schema: z.object({
+      spreadsheetMaxBytes: int(100_000, 50_000_000),
+      spreadsheetMaxRows: int(10, 100_000),
+      sellerDocumentMaxBytes: int(100_000, 50_000_000),
+    }),
+    defaults: { spreadsheetMaxBytes: 2 * 1024 * 1024, spreadsheetMaxRows: 5_000, sellerDocumentMaxBytes: 5_000_000 },
+  },
+  opsExceptions: {
+    description:
+      "Operations exceptions queue: minutes / hours before an order is flagged (and when it becomes critical) at each stage. A dispute becomes critical after the settlement hold; the delivery-code lockout follows deliveryOtp.",
+    schema: z.object({
+      shopAcceptExpress: int(1, 240),
+      shopAcceptOther: int(1, 240),
+      shopAcceptCritical: int(1, 1440),
+      shopAcceptSubscriptionHours: int(1, 72),
+      shopAcceptSubscriptionCriticalHours: int(1, 72),
+      prepGraceAfterPrepTime: int(0, 240),
+      substitutionWait: int(1, 240),
+      noRiderWarning: int(1, 240),
+      noRiderCritical: int(1, 480),
+      selfDeliveryReady: int(1, 480),
+      riderPickupWait: int(1, 240),
+      riderStaleLocation: int(1, 120),
+      dropNotStarted: int(1, 240),
+      outForDeliveryGrace: int(0, 240),
+      failedDecisionGrace: int(0, 240),
+      returnLegFallback: int(1, 240),
+      returnedDecision: int(1, 1440),
+      disputeWarningHours: int(1, 720),
+      dispatchSweepIntervalSeconds: int(10, 3600),
+      legSpeedKmh: int(5, 80),
+    }),
+    defaults: {
+      shopAcceptExpress: 5,
+      shopAcceptOther: 10,
+      shopAcceptCritical: 30,
+      shopAcceptSubscriptionHours: 4,
+      shopAcceptSubscriptionCriticalHours: 8,
+      prepGraceAfterPrepTime: 10,
+      substitutionWait: 10,
+      noRiderWarning: 5,
+      noRiderCritical: 10,
+      selfDeliveryReady: 30,
+      riderPickupWait: 20,
+      riderStaleLocation: 5,
+      dropNotStarted: 10,
+      outForDeliveryGrace: 10,
+      failedDecisionGrace: 15,
+      returnLegFallback: 15,
+      returnedDecision: 60,
+      disputeWarningHours: 24,
+      dispatchSweepIntervalSeconds: 60,
+      legSpeedKmh: 20,
+    },
+  },
+  riskRules: {
+    description:
+      "Fraud / risk flags (GS-068): the counts, windows and amounts at which each rule raises a flag. Flags never act on their own except a HIGH flag pausing cash on delivery.",
+    schema: z.object({
+      codRefusals: z.object({ count: int(1, 100), days: int(1, 365) }),
+      highRefundRate: z.object({ count: int(1, 100), days: int(1, 365), minPercent: int(1, 100) }),
+      repeatedDisputes: z.object({ count: int(1, 100), days: int(1, 365) }),
+      topupFailures: z.object({ count: int(1, 100), hours: int(1, 720) }),
+      sharedPhone: z.object({ accounts: int(2, 100) }),
+      highValueOutlier: z.object({
+        recentDays: int(1, 90),
+        minPaise: int(0, 100_000_000),
+        multiple: int(2, 100),
+        baselineDays: int(1, 365),
+        minPriorOrders: int(1, 100),
+        newCustomerPaise: int(0, 1_000_000_000),
+      }),
+      otpOverrides: z.object({ count: int(1, 100), days: int(1, 365) }),
+      otpLockouts: z.object({ count: int(1, 100), days: int(1, 365) }),
+      failedDeliveries: z.object({ count: int(1, 100), days: int(1, 365) }),
+      codCashOverdueDays: int(1, 90),
+      highRejection: z.object({ minOrders: int(1, 1000), percent: int(1, 100), days: int(1, 365) }),
+    }),
+    defaults: {
+      codRefusals: { count: 2, days: 90 },
+      highRefundRate: { count: 3, days: 30, minPercent: 50 },
+      repeatedDisputes: { count: 2, days: 30 },
+      topupFailures: { count: 5, hours: 24 },
+      sharedPhone: { accounts: 2 },
+      highValueOutlier: { recentDays: 7, minPaise: 200_000, multiple: 5, baselineDays: 90, minPriorOrders: 3, newCustomerPaise: 1_000_000 },
+      otpOverrides: { count: 3, days: 30 },
+      otpLockouts: { count: 2, days: 30 },
+      failedDeliveries: { count: 3, days: 7 },
+      codCashOverdueDays: 7,
+      highRejection: { minOrders: 10, percent: 30, days: 30 },
+    },
+  },
+  tracking: {
+    description:
+      "Live delivery tracking (event layer). Once the rider starts the drop, the rider's phone sends its location every riderPingSeconds and the customer's open tracking map refreshes every buyerPollSeconds. Location is shown only to the order's customer, its shop and support, and is no longer accepted or shown once the order is delivered or cancelled.",
+    schema: z.object({
+      riderPingSeconds: int(5, 60),
+      buyerPollSeconds: int(5, 60),
+    }),
+    defaults: { riderPingSeconds: 5, buyerPollSeconds: 5 },
+  },
+  /* -------------------------------- docs/four-features-2026-10 (all off by default) */
+  fulfilmentOptions: {
+    description:
+      "Fulfilment options. When enabled, a shop marking an order ready chooses customer pickup (completed with a pickup code the customer shows), its own delivery person (the existing delivery-code completion) or a GoKesari delivery partner (the existing rider dispatch), with a date and time slot. Slots are slotMinutes long between firstSlotHour and lastSlotHour (IST), up to maxDaysAhead days ahead. A GoKesari delivery scheduled later starts its rider search gokesariLeadMinutes before the slot. With refundDeliveryFeeOnPickup, choosing pickup gives the customer their delivery fee back once (to the wallet; a cash order is charged that much less).",
+    schema: z
+      .object({
+        enabled: z.boolean(),
+        slotMinutes: z.union([z.literal(30), z.literal(60), z.literal(120)]),
+        firstSlotHour: int(0, 23),
+        lastSlotHour: int(1, 24),
+        maxDaysAhead: int(0, 30),
+        gokesariLeadMinutes: int(0, 240),
+        refundDeliveryFeeOnPickup: z.boolean(),
+      })
+      .refine((v) => v.lastSlotHour > v.firstSlotHour, {
+        message: "The last slot must end after the first one starts.",
+        path: ["lastSlotHour"],
+      }),
+    defaults: { enabled: false, slotMinutes: 60, firstSlotHour: 7, lastSlotHour: 22, maxDaysAhead: 7, gokesariLeadMinutes: 45, refundDeliveryFeeOnPickup: true },
+  },
+  legalDocuments: {
+    description:
+      "Mandatory legal documents by shop category. When enabled, a shop that sells food needs an FSSAI licence, a pharmacy a drug licence and a doctor / clinic a medical registration (number, expiry or issuing council, and an uploaded copy). A new shop cannot be approved until they are submitted; a live shop gets graceDays to upload before it can no longer accept orders. Owners are reminded expiryReminderDays before a licence expires. The shop types and shop-category slugs that need each document are listed here.",
+    schema: z.object({
+      enabled: z.boolean(),
+      graceDays: int(0, 90),
+      expiryReminderDays: int(1, 120),
+      drugLicenceShopTypes: z.array(z.string().max(60)).max(20),
+      drugLicenceCategorySlugs: z.array(z.string().max(80)).max(50),
+      medicalRegistrationShopTypes: z.array(z.string().max(60)).max(20),
+      medicalRegistrationCategorySlugs: z.array(z.string().max(80)).max(50),
+      /** On top of the food detection seller verification already uses (food shop types and food aisles). */
+      fssaiExtraCategorySlugs: z.array(z.string().max(80)).max(50),
+    }),
+    defaults: {
+      enabled: false,
+      graceDays: 15,
+      expiryReminderDays: 30,
+      drugLicenceShopTypes: ["PHARMACY"],
+      drugLicenceCategorySlugs: ["pharmacy"],
+      medicalRegistrationShopTypes: [],
+      medicalRegistrationCategorySlugs: ["doctor-clinic"],
+      fssaiExtraCategorySlugs: [],
+    },
+  },
+  bankAccounts: {
+    description:
+      "Bank account verification. When enabled, shop owners and customers are prompted to add a bank account (holder name, account number and IFSC, or a UPI ID) and verify it with a payment of verificationAmountPaise through the payment gateway (UPI, debit card, credit card or net banking), refunded automatically. requireVerifiedForShopPayouts stops a shop settlement being sent to the bank or marked paid until the shop has a verified account. nameMatchThreshold is the name-match score (0–100) needed when the gateway reports the payer's name.",
+    schema: z.object({
+      enabled: z.boolean(),
+      verificationAmountPaise: int(100, 1000),
+      requireVerifiedForShopPayouts: z.boolean(),
+      requireVerifiedForBankRefunds: z.boolean(),
+      nameMatchThreshold: int(50, 100),
+      maxAttemptsPerDay: int(1, 20),
+    }),
+    defaults: {
+      enabled: false,
+      verificationAmountPaise: 100,
+      requireVerifiedForShopPayouts: false,
+      requireVerifiedForBankRefunds: true,
+      nameMatchThreshold: 80,
+      maxAttemptsPerDay: 5,
+    },
+  },
+  bankRefunds: {
+    description:
+      "Refunds to a customer's bank. When enabled, a customer can have a refund (its customer-funded part, never promotional credit) sent to their bank account instead of keeping it in the wallet, within windowDays of the refund. The amount leaves the wallet at once; finance sends it from the bank and records the reference (Admin → Refunds to bank), or marks it failed and it returns to the wallet. bankAccounts.requireVerifiedForBankRefunds decides whether the account must be verified first. Update the Wallet Terms and Refund Policy before switching this on.",
+    schema: z.object({
+      enabled: z.boolean(),
+      windowDays: int(1, 365),
+      minAmountPaise: int(100, 1_000_000),
+      /** Shown to the customer: when to expect the money. */
+      expectedWorkingDays: int(1, 30),
+    }),
+    defaults: { enabled: false, windowDays: 30, minAmountPaise: 100, expectedWorkingDays: 5 },
+  },
+  shopReferral: {
+    description:
+      "Shop registration referral code. When required, a self-service shop registration must carry a valid (active, unexpired) referral code. Owners without one can request a code: the request is saved and emailed to notifyEmails; a second request from the same mobile within duplicateWindowHours is refused.",
+    schema: z.object({
+      required: z.boolean(),
+      duplicateWindowHours: int(1, 720),
+      notifyEmails: z.array(z.string().email()).min(1).max(5),
+    }),
+    defaults: { required: false, duplicateWindowHours: 24, notifyEmails: ["referrals@gokesari.com"] },
+  },
+  customerSignupReferral: {
+    description:
+      "Referral code at customer registration. When enabled, a new customer's first-time setup asks for a referral code and checks it: a code GoKesari issued (Admin → Referral codes, the same codes shop registration uses) is recorded against the customer; a friend's code (customerReferrals on) starts the friend reward. Only before the customer's first order. With required on, a customer needs a code before their first order (checkout and new subscriptions are refused without one; browsing and search stay open); requiredFrom (YYYY-MM-DD, IST) limits that to customers who joined on or after the date, so existing customers are not stopped — leave it empty to require it of every customer without an order. A customer without a code can request one (location, PIN code, city, contact number), emailed to shopReferral.notifyEmails — one request per customer or mobile within requestDuplicateWindowHours.",
+    schema: z.object({
+      enabled: z.boolean(),
+      required: z.boolean(),
+      requiredFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD.").nullable(),
+      requestDuplicateWindowHours: int(1, 720),
+    }),
+    defaults: { enabled: false, required: false, requiredFrom: null, requestDuplicateWindowHours: 24 },
+  },
+  bankAccountCheck: {
+    description:
+      "Bank account check with Cashfree's Verification Suite (the owner's decision O-7). When enabled and the Verification Suite keys are set (CASHFREE_VERIFICATION_CLIENT_ID / _CLIENT_SECRET, or _APP_ID / _SECRET_KEY), a bank account (account number + IFSC) is checked with the bank as soon as it is saved: the bank says whether it is valid and whose name it is in. A valid account whose name matches (Cashfree's match, or bankAccounts.nameMatchThreshold) is verified at once, without the ₹1 payment; an invalid account or a name mismatch fails with the reason and the bank's name. Errors leave the account to the ₹1 check, as before. UPI IDs keep the ₹1 check. maxChecksPerDay limits checks per person (each costs a fee).",
+    schema: z.object({ enabled: z.boolean(), maxChecksPerDay: int(1, 20) }),
+    defaults: { enabled: false, maxChecksPerDay: 3 },
   },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 

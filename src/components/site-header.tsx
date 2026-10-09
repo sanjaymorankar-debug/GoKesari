@@ -23,6 +23,10 @@ interface Props {
   locationLabel: string | null;
   /** The signed-in user's saved addresses, offered in the location chooser. */
   savedAddresses: { id: string; label: string }[];
+  /** Module 1: the user is staff of at least one shop (edits its product photos and descriptions). */
+  helpsShops?: boolean;
+  /** Referral links (docs/four-features-2026-10): only those whose rule is switched on. */
+  referralLinks?: { href: string; label: string }[];
 }
 
 /** The main row. Wallet has its own balance pill; the rest sit in the account menu. */
@@ -37,6 +41,7 @@ const ACCOUNT_NAV = [
   { href: "/profile", label: "My Profile" },
   { href: "/wallet", label: "My Wallet" },
   { href: "/society", label: "My Society" },
+  { href: "/profile/bank-account", label: "Bank account" },
 ];
 
 /**
@@ -50,12 +55,21 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/shop", label: "My Shop" },
     { href: "/shop/orders", label: "Orders" },
     { href: "/shop/returns", label: "Returns" },
+    { href: "/shop/disputes", label: "Disputes" },
     { href: "/shop/inventory", label: "Inventory" },
     { href: "/shop/catalogue", label: "Photo catalogue" },
+    { href: "/shop/media-import", label: "Bulk photos & descriptions" },
+    { href: "/shop/staff", label: "Shop staff" },
     { href: "/shop/product-categories", label: "My product categories" },
     { href: "/product-categories", label: "All product categories" },
     { href: "/shop/prices", label: "Price Updates" },
     { href: "/shop/finance", label: "Finance" },
+    { href: "/shop/wallet", label: "Wallet" },
+    { href: "/shop/delivery-staff", label: "Delivery staff" },
+    { href: "/shop/legal-documents", label: "Legal documents" },
+    { href: "/shop/bank-account", label: "Payout bank account" },
+    { href: "/shop/settings/integrations", label: "Accounting software" },
+    { href: "/shop/gst-returns", label: "GST returns" },
     { href: "/shop/marketing", label: "Marketing" },
     { href: "/shop/offers", label: "Offers" },
     { href: "/shop/analytics", label: "Analytics" },
@@ -83,6 +97,10 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin/consents", label: "Consent" },
     { href: "/admin/disputes", label: "Disputes" },
     { href: "/admin/cod", label: "COD cash" },
+    { href: "/admin/legal-documents", label: "Legal documents" },
+    { href: "/admin/referral-requests", label: "Referral requests" },
+    { href: "/admin/integrations", label: "Accounting sync" },
+    { href: "/admin/self-registration", label: "Self-registration" },
   ],
   ADMIN: [
     { href: "/admin", label: "Admin Console" },
@@ -96,10 +114,14 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin/mrp", label: "MRP" },
     { href: "/admin/price-references", label: "Reference prices" },
     { href: "/admin/finance", label: "Finance" },
+    { href: "/admin/shop-wallets", label: "Shop wallets" },
     { href: "/admin/returns", label: "Returns" },
     { href: "/admin/suspensions", label: "Suspensions" },
     { href: "/admin/rider-earnings", label: "Rider earnings" },
     { href: "/admin/settings", label: "Business rules" },
+    { href: "/admin/gst-config", label: "GST settings" },
+    { href: "/admin/integrations", label: "Accounting sync" },
+    { href: "/admin/self-registration", label: "Self-registration" },
     { href: "/admin/societies", label: "Societies" },
     { href: "/admin/ratings", label: "Ratings" },
     { href: "/admin/analytics", label: "Analytics" },
@@ -112,14 +134,20 @@ const ROLE_NAV: Partial<Record<UserRole, { href: string; label: string }[]>> = {
     { href: "/admin/delivery-slots", label: "Delivery slots" },
     { href: "/admin/image-moderation", label: "Image moderation" },
     { href: "/admin/rider-changes", label: "Rider profile changes" },
+    { href: "/admin/rider-kyc", label: "Rider documents" },
     { href: "/admin/customer-referrals", label: "Customer referrals" },
     { href: "/admin/status-changes", label: "Status history" },
     { href: "/admin/subscriptions", label: "Subscriptions" },
+    { href: "/admin/legal-documents", label: "Legal documents" },
+    { href: "/admin/referral-requests", label: "Referral requests" },
+    { href: "/admin/bank-accounts", label: "Bank accounts" },
+    { href: "/admin/bank-refunds", label: "Refunds to bank" },
   ],
   DELIVERY_PARTNER: [
     { href: "/delivery-partner", label: "Delivery Partner" },
     { href: "/gig/orders", label: "My deliveries" },
     { href: "/gig/profile", label: "My delivery profile" },
+    { href: "/gig/id-card", label: "My ID card" },
   ],
 };
 
@@ -258,7 +286,10 @@ export function SiteHeader({
   unreadCount,
   locationLabel,
   savedAddresses,
+  helpsShops = false,
+  referralLinks = [],
 }: Props) {
+  const accountNav = helpsShops ? [...ACCOUNT_NAV, { href: "/shop/staff-access", label: "Shops I help with" }] : ACCOUNT_NAV;
   const pathname = usePathname();
   const [open, setOpen] = useState(false);
   const [locationOpen, setLocationOpen] = useState(false);
@@ -438,7 +469,7 @@ export function SiteHeader({
                         Dashboard
                       </Link>
                     ) : null}
-                    {ACCOUNT_NAV.map((item) => (
+                    {[...accountNav, ...referralLinks].map((item) => (
                       <Link
                         key={item.href}
                         href={item.href}
@@ -526,7 +557,7 @@ export function SiteHeader({
               </div>
             </details>
           ) : null}
-          {[...NAV, ...(user ? ACCOUNT_NAV : [])].map((item) => (
+          {[...NAV, ...(user ? [...accountNav, ...referralLinks] : [])].map((item) => (
             <Link
               key={item.href}
               href={item.href}

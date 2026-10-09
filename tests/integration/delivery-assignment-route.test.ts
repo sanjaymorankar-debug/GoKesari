@@ -55,6 +55,7 @@ import {
   createUserWithWallet,
   deliveryAddressId,
   resetDatabase,
+  setDeliveryCode,
 } from "../helpers/fixtures";
 
 const SHOP_LAT = 18.5;
@@ -261,9 +262,13 @@ describe("PATCH /api/delivery-orders/[id]", () => {
     });
     expect(start.status).toBe(200);
     expect(start.body.deliveryOtp).toBeUndefined();
+    expect(start.body.deliveryOtpHash).toBeUndefined();
+    expect(start.body.needsDeliveryOtp).toBe(true);
     const afterStart = await db.query.orders.findFirst({ where: eq(orders.id, order.id) });
     expect(afterStart?.status).toBe("OUT_FOR_DELIVERY");
-    const otp = (await db.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.id, assigned.id) }))!.deliveryOtp!;
+    // The code is stored hashed and emailed to the customer; give the drop a known one.
+    expect((await db.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.id, assigned.id) }))!.deliveryOtp).toBeNull();
+    const otp = await setDeliveryCode(assigned.id);
 
     const deliver = await call(deliveryOrderRoute, `/api/delivery-orders/${assigned.id}`, {
       method: "PATCH",

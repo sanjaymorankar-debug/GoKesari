@@ -14,6 +14,8 @@ import { getPreferenceMatrix, listNotifications } from "@/server/services/notifi
 import { signOut } from "@/server/auth";
 import { listAddresses } from "@/server/services/addresses";
 import { getProfile } from "@/server/services/profile";
+import { customerBankPrompt } from "@/server/services/bank-accounts";
+import { BANK_STATUS_LABELS } from "@/lib/bank-accounts";
 
 export const metadata = { title: "My Profile" };
 export const dynamic = "force-dynamic";
@@ -30,6 +32,8 @@ export default async function ProfilePage() {
     listAddresses(user.id),
   ]);
   const defaultAddress = addresses.find((a) => a.isDefault) ?? addresses[0] ?? null;
+  // Bank accounts (docs/four-features-2026-10): refunds-to-bank account and its verification.
+  const bankStatus = await customerBankPrompt(user.id, "profile");
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -48,6 +52,22 @@ export default async function ProfilePage() {
         <PhoneLinkForm current={profile.phoneE164} />
         <EmailChangeForm current={profile.email} />
       </Card>
+
+      {bankStatus ? (
+        <Card className="mb-6 p-6" data-testid="profile-bank-account">
+          <div className="flex items-center justify-between gap-2">
+            <div>
+              <h2 className="text-base font-semibold text-ink-900">Bank account for refunds</h2>
+              <p className="text-sm text-ink-500">
+                {bankStatus === "NONE" ? "Not added — needed for refunds to your bank (refunds normally go to your wallet)." : BANK_STATUS_LABELS[bankStatus]}
+              </p>
+            </div>
+            <Link href="/profile/bank-account" className="text-sm font-medium text-kesari-600 hover:underline">
+              {bankStatus === "NONE" ? "Add →" : bankStatus === "VERIFIED" ? "Manage →" : "Verify →"}
+            </Link>
+          </div>
+        </Card>
+      ) : null}
 
       <Card className="mb-6 p-6">
         <div className="mb-3 flex items-center justify-between">
@@ -112,7 +132,7 @@ export default async function ProfilePage() {
         <NotificationPreferences initial={preferences} />
       </div>
 
-      <Card className="p-6">
+      <Card id="notifications" className="p-6">
         <h2 className="mb-3 text-base font-semibold text-ink-900">
           Notifications
         </h2>

@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { ShopOrderManager } from "@/components/shop-order-manager";
+import { ShopWalletBanner } from "@/components/shop-wallet-banner";
 import { EmptyState, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getDeliveryOrdersForOrders, getRiderSearchStatus } from "@/server/services/delivery-assignment";
@@ -9,6 +10,8 @@ import { listOrdersForShop } from "@/server/services/orders";
 import { listShopsForOwner } from "@/server/services/shops";
 import { proofPhotosForOrders } from "@/server/services/delivery-proofs";
 import { getRule } from "@/server/services/settings";
+import { getShopWalletStatus } from "@/server/services/shop-wallet";
+import { getShopFulfilmentViews, listDeliveryStaff, plannerOptions } from "@/server/services/fulfilment-options";
 
 export const metadata = { title: "Shop Orders" };
 export const dynamic = "force-dynamic";
@@ -25,9 +28,10 @@ export default async function ShopOrdersPage() {
   if (shops.length === 0) redirect("/shop");
   const shop = shops[0];
 
-  const [orders, onlineProducts] = await Promise.all([
+  const [orders, onlineProducts, wallet] = await Promise.all([
     listOrdersForShop(shop.id, { limit: 100 }),
     listShopProducts(shop.id, { onlineOnly: true }),
+    getShopWalletStatus(shop.id),
   ]);
   const deliveryOrders = await getDeliveryOrdersForOrders(orders.map((o) => o.id));
   // NEW-007: invoice and delivery-photo links on delivered orders.
@@ -41,6 +45,16 @@ export default async function ShopOrdersPage() {
         )
       : [],
   );
+  // Fulfilment options (docs/four-features-2026-10): plans, slots and the shop's own delivery people.
+  const [plans, planner, deliveryStaff] = await Promise.all([
+    getShopFulfilmentViews(orders.map((o) => o.id)),
+    plannerOptions(),
+    listDeliveryStaff(shop.id, { activeOnly: true }),
+  ]);
+  const fulfilment =
+    planner.enabled || plans.size > 0
+      ? { enabled: planner.enabled, days: planner.days, staff: deliveryStaff.map((s) => ({ id: s.id, name: s.name, phoneE164: s.phoneE164 })), refundDeliveryFeeOnPickup: planner.refundDeliveryFeeOnPickup }
+      : null;
   // Candidates a shop can offer as a substitute (server re-checks price/stock).
   const substitutes = onlineProducts
     .filter((sp) => sp.onlinePricePaise != null)
@@ -49,6 +63,8 @@ export default async function ShopOrdersPage() {
   return (
     <>
       <PageHeader title="Orders" description={`${shop.name} — manage and fulfil incoming orders.`} />
+      {/* Shop wallet: below the minimum the shop cannot accept new orders (the server refuses too). */}
+      <ShopWalletBanner {...wallet} />
 
       {orders.length === 0 ? (
         <EmptyState title="No orders yet." />
@@ -56,6 +72,7 @@ export default async function ShopOrdersPage() {
         <ShopOrderManager
           deliveryAvailable={shop.deliveryAvailable}
           substitutes={substitutes}
+          fulfilment={fulfilment}
           orders={orders.map((o) => ({
             id: o.id,
             orderNumber: o.orderNumber,
@@ -85,6 +102,9 @@ export default async function ShopOrdersPage() {
               substituteQuantityMilli: i.substituteQuantityMilli,
               substituteLineTotalPaise: i.substituteLineTotalPaise,
             })),
+            fulfilmentPlan: plans.get(o.id) ?? null,
+            hasAddress: o.deliveryAddressSnapshot != null,
+            deliveryFeePaise: o.deliveryFeePaise,
             deliveryStatus: deliveryOrders.get(o.id)?.status ?? null,
             pickupCode: deliveryOrders.get(o.id)?.pickupCode ?? null,
             riderSearch: searchByOrder.has(o.id)

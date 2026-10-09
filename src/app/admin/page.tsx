@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { count, eq, sql } from "drizzle-orm";
 
 import { AuditLogView } from "@/components/audit-log-view";
+import { StaffBoard } from "@/components/board/staff-board";
 import { ComplianceDashboard } from "@/components/compliance-dashboard";
 import { DeliveryEarningsConfigManager } from "@/components/delivery-earnings-config-manager";
 import { DeliveryPartnerQueue } from "@/components/delivery-partner-queue";
@@ -24,6 +25,9 @@ import { VoucherUpload } from "@/components/voucher-upload";
 import { formatPaiseCompact } from "@/lib/money";
 import { shopTypeLabel } from "@/lib/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
+import { loadStaffBoard } from "@/server/board-data";
+import { getBoardHeaderData } from "@/server/board-header-data";
+import { getBoardLang } from "@/server/board-lang";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { orders, shops, users, wallets } from "@/server/db/schema";
@@ -208,8 +212,15 @@ export default async function AdminPage() {
     .sort((a, b) => b[1] - a[1])
     .slice(0, 4);
 
+  // Tile Board (approved design "Theme 1 Tile Board"): the first screen is
+  // the board; the full console follows below it, unchanged.
+  const [lang, header, board] = await Promise.all([getBoardLang(), getBoardHeaderData(user), loadStaffBoard(user.role)]);
+
   return (
     <>
+      <StaffBoard lang={lang} user={user} header={header} data={board} />
+
+      <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
       <PageHeader
         title={user.role === "ADMIN" ? "Admin dashboard" : "Operator dashboard"}
         description={
@@ -292,7 +303,7 @@ export default async function AdminPage() {
       ) : null}
 
       {canManageDeliveryPartners ? (
-        <Section title="Delivery partners">
+        <Section id="delivery-partners" title="Delivery partners">
           <DeliveryPartnerQueue
             partners={deliveryPartnerList.map((p) => ({
               id: p.id,
@@ -381,7 +392,7 @@ export default async function AdminPage() {
       ) : null}
 
       {canManageGrievances ? (
-        <Section title={`Grievances (${grievanceDashboard.open + grievanceDashboard.inProgress})`}>
+        <Section id="grievances" title={`Grievances (${grievanceDashboard.open + grievanceDashboard.inProgress})`}>
           <GrievanceManager
             grievances={grievanceList.map((g) => ({
               id: g.id,
@@ -424,7 +435,7 @@ export default async function AdminPage() {
       ) : null}
 
       {canApproveProducts ? (
-        <Section title={`Products awaiting publication (${pendingProducts.length})`}>
+        <Section id="product-approvals" title={`Products awaiting publication (${pendingProducts.length})`}>
           <ProductApprovalQueue
             rows={pendingProducts.map((p) => ({
               id: p.id,
@@ -532,7 +543,7 @@ export default async function AdminPage() {
       ) : null}
 
       {canViewUsers ? (
-        <Section title={`Users (${userList.length})`}>
+        <Section id="users" title={`Users (${userList.length})`}>
           <UserRoleManager
             users={userList.map((u) => ({
               id: u.id,
@@ -559,7 +570,7 @@ export default async function AdminPage() {
       ) : null}
 
       {canViewVouchers ? (
-        <Section title="Vouchers">
+        <Section id="vouchers" title="Vouchers">
           <VoucherManager
             vouchers={voucherList.map((v) => ({
               id: v.id,
@@ -582,7 +593,7 @@ export default async function AdminPage() {
             canManage={canManageVouchers}
           />
           {canUploadVouchers ? (
-            <div className="mt-4">
+            <div id="voucher-upload" className="mt-4">
               <VoucherUpload />
             </div>
           ) : null}
@@ -590,7 +601,7 @@ export default async function AdminPage() {
       ) : null}
 
       {canViewAudit ? (
-        <Section title="Audit log">
+        <Section id="audit-log" title="Audit log">
           <AuditLogView
             rows={auditRows.map((r) => ({
               id: r.id,
@@ -608,6 +619,7 @@ export default async function AdminPage() {
           />
         </Section>
       ) : null}
+      </div>
     </>
   );
 }

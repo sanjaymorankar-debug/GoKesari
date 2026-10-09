@@ -21,7 +21,8 @@ import { and, eq, inArray, isNull, or, sql, type SQL } from "drizzle-orm";
 import { haversineDistanceKm, parseCoordinates } from "@/lib/geo/haversine";
 import type { CustomerLocation } from "@/lib/location";
 import { db } from "@/server/db";
-import { shops, societies, societyShops, type Shop } from "@/server/db/schema";
+import { shops, shopWallets, societies, societyShops, type Shop } from "@/server/db/schema";
+import { getRule } from "./settings";
 
 /** Upper bound of any shop's radius (the schema CHECK) — used for the SQL pre-filter. */
 const MAX_SERVICE_RADIUS_KM = 50;
@@ -47,6 +48,43 @@ type ServiceabilityShop = Pick<
   | "deliveryPincodes"
   | "ordersPaused"
 >;
+
+/**
+ * Rule shopWallet: a shop whose prepaid wallet is below the minimum cannot
+ * accept orders, so customers cannot order from it either — it is treated
+ * exactly like a shop that paused its orders ("not taking new orders right
+ * now"; the customer is never told why). These helpers apply that to every
+ * check that reads `ordersPaused`. Nothing changes while the rule is off.
+ */
+export async function walletOrderGate(): Promise<SQL> {
+  const rules = await getRule("shopWallet");
+  if (!rules.enabled) return sql`true`;
+  // Raw names: the correlated subquery must point at the outer shops row.
+  return sql`coalesce((select sw.balance_paise from shop_wallets sw where sw.shop_id = shops.id), 0) >= ${rules.minBalancePaise}`;
+}
+
+/** The shops among `shopIds` customers cannot order from because their wallet is below the minimum. */
+export async function shopsBelowWalletMinimum(shopIds: string[]): Promise<Set<string>> {
+  if (shopIds.length === 0) return new Set();
+  const rules = await getRule("shopWallet");
+  if (!rules.enabled) return new Set();
+  const rows = await db
+    .select({ id: shops.id })
+    .from(shops)
+    .leftJoin(shopWallets, eq(shopWallets.shopId, shops.id))
+    .where(and(inArray(shops.id, shopIds), sql`coalesce(${shopWallets.balancePaise}, 0) < ${rules.minBalancePaise}`));
+  return new Set(rows.map((r) => r.id));
+}
+
+/** Shop rows with `ordersPaused` set where the wallet gate closes the shop, for the checks that read it. */
+export async function withWalletGate<T extends Pick<Shop, "id" | "ordersPaused">>(rows: T[]): Promise<T[]> {
+  const blocked = await shopsBelowWalletMinimum(rows.filter((r) => !r.ordersPaused).map((r) => r.id));
+  // Mandatory legal documents (docs/four-features-2026-10, the owner's decision of 9 Oct 2026): a shop past
+  // its grace period is closed the same way. Imported lazily: legal-documents.ts sits above this module.
+  const { legallyBlockedShopIds } = await import("./legal-documents");
+  for (const id of await legallyBlockedShopIds(rows.filter((r) => !r.ordersPaused && !blocked.has(r.id)).map((r) => r.id))) blocked.add(id);
+  return blocked.size === 0 ? rows : rows.map((r) => (blocked.has(r.id) ? { ...r, ordersPaused: true } : r));
+}
 
 export function shopServiceability(
   shop: ServiceabilityShop,
@@ -116,6 +154,7 @@ export async function societyPartnerShopIds(societyId: string | null | undefined
         isNull(shops.deletedAt),
         eq(shops.deliveryAvailable, true),
         eq(shops.ordersPaused, false),
+        await walletOrderGate(),
       ),
     );
   return new Set(rows.map((r) => r.shopId));
@@ -161,6 +200,7 @@ export async function listServiceableShops(
         isNull(shops.deletedAt),
         eq(shops.deliveryAvailable, true),
         eq(shops.ordersPaused, false),
+        await walletOrderGate(),
         or(...near),
       ),
     )
@@ -196,6 +236,7 @@ export async function serviceableShopIds(location: CustomerLocation): Promise<Ma
  * customer (a pickup-only shop, or one whose delivery radius stops short).
  * Roughly a short ride. A shop that does deliver is near whatever its distance.
  */
+/** Code default; the live value is rule `discovery.nearbyRadiusKm`. */
 export const NEARBY_RADIUS_KM = 5;
 
 /** A shop card's fields, plus how the shop relates to the customer's location. */
@@ -222,6 +263,8 @@ export type NearbyShop = Pick<
   distanceKm: number | null;
   /** The shop has products customers can subscribe to (delivered daily). */
   subscriptionDelivery: boolean;
+  /** Not taking new orders: paused by the owner, below its wallet minimum, or missing a legal document. */
+  ordersPaused: boolean;
 };
 
 /**
@@ -271,9 +314,13 @@ export async function listNearbyShops(
     .from(shops)
     .where(and(eq(shops.status, "APPROVED"), isNull(shops.deletedAt), or(...near)))
     .limit(1000);
+  // Shown, but like a paused shop (not delivering) while its wallet is below the minimum.
+  const gated = await withWalletGate(candidates.map((c) => c.shop));
 
+  const { nearbyRadiusKm } = await getRule("discovery");
   return candidates
-    .map(({ shop, subscriptionDelivery }) => {
+    .map(({ subscriptionDelivery }, i) => {
+      const shop = gated[i];
       const check = shopServiceability(shop, location);
       const partner = partners.has(shop.id);
       const samePin = Boolean(location.pincode) && location.pincode === shop.pincode;
@@ -286,7 +333,7 @@ export async function listNearbyShops(
         near:
           partner ||
           check.deliversHere ||
-          (check.distanceKm != null ? check.distanceKm <= NEARBY_RADIUS_KM : samePin),
+          (check.distanceKm != null ? check.distanceKm <= nearbyRadiusKm : samePin),
       };
     })
     .filter((row) => row.near)
@@ -318,5 +365,6 @@ export async function listNearbyShops(
       deliversHere,
       distanceKm,
       subscriptionDelivery,
+      ordersPaused: shop.ordersPaused,
     }));
 }

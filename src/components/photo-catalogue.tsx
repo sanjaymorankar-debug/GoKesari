@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useRef, useState } from "react";
 
-import { uploadImage } from "@/components/image-uploader";
+import { shrinkImage } from "@/components/image-uploader";
 import { SafeImage } from "@/components/safe-image";
 import { Alert, AvailabilityBadge, Badge, Button, Card, EmptyState, Money, inputClass } from "@/components/ui";
 import { paiseToRupees } from "@/lib/money";
@@ -20,7 +20,7 @@ const JSON_HEADERS = { "Content-Type": "application/json" };
  * it, as customers see them. A photo is added or changed, and a price set,
  * right on the tile; the full photo manager stays one link away.
  */
-export function PhotoCatalogue({ tiles }: { tiles: ShopCatalogueTile[] }) {
+export function PhotoCatalogue({ tiles, shopId }: { tiles: ShopCatalogueTile[]; shopId: string }) {
   const [query, setQuery] = useState("");
   const [category, setCategory] = useState("");
   const [filter, setFilter] = useState<Filter>("all");
@@ -101,7 +101,7 @@ export function PhotoCatalogue({ tiles }: { tiles: ShopCatalogueTile[] }) {
       ) : (
         <ul className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4" data-testid="catalogue-grid">
           {shown.map((tile) => (
-            <CatalogueTile key={tile.shopProductId} tile={tile} />
+            <CatalogueTile key={tile.shopProductId} tile={tile} shopId={shopId} />
           ))}
         </ul>
       )}
@@ -109,7 +109,7 @@ export function PhotoCatalogue({ tiles }: { tiles: ShopCatalogueTile[] }) {
   );
 }
 
-function CatalogueTile({ tile }: { tile: ShopCatalogueTile }) {
+function CatalogueTile({ tile, shopId }: { tile: ShopCatalogueTile; shopId: string }) {
   const router = useRouter();
   const fileInput = useRef<HTMLInputElement>(null);
   const [busy, setBusy] = useState<"photo" | "price" | null>(null);
@@ -140,20 +140,15 @@ function CatalogueTile({ tile }: { tile: ShopCatalogueTile }) {
     setError(null);
     setNotice(null);
     try {
-      const uploaded = await uploadImage(file, "PRODUCT");
-      const base = `/api/products/${tile.productId}/images`;
-      // A listing with its own photo has it swapped; otherwise the upload becomes its first (primary) photo.
-      const res = own
-        ? await fetch(`${base}/${own.id}`, {
-            method: "PATCH",
-            headers: JSON_HEADERS,
-            body: JSON.stringify({ action: "replace", storedImageId: uploaded.id }),
-          })
-        : await fetch(base, {
-            method: "POST",
-            headers: JSON_HEADERS,
-            body: JSON.stringify({ storedImageId: uploaded.id, shopProductId: tile.shopProductId }),
-          });
+      // Module 1: the shop-photo pipeline (EXIF removed, WebP sizes). A listing
+      // with its own main photo has it swapped; otherwise this becomes its first.
+      const form = new FormData();
+      form.append("file", await shrinkImage(file), file.name);
+      if (own) form.append("replaceImageId", own.id);
+      const res = await fetch(`/api/shops/${shopId}/listings/${tile.shopProductId}/media/photos`, {
+        method: "POST",
+        body: form,
+      });
       if (!res.ok) {
         await showFailure(res, "Could not save the photo.");
         return;
@@ -316,11 +311,11 @@ function CatalogueTile({ tile }: { tile: ShopCatalogueTile }) {
             ) : null}
           </div>
           <Link
-            href={`/shop/products/${tile.shopProductId}/images`}
+            href={`/shop/products/${tile.shopProductId}/media`}
             className="text-xs font-medium text-kesari-700 hover:underline"
-            aria-label={`All photos of ${tile.productName}`}
+            aria-label={`Photos and description of ${tile.productName}`}
           >
-            All photos{tile.ownPhotoCount > 0 ? ` (${tile.ownPhotoCount})` : ""} →
+            Photos &amp; description{tile.ownPhotoCount > 0 ? ` (${tile.ownPhotoCount})` : ""} →
           </Link>
           <input
             ref={fileInput}

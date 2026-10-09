@@ -178,6 +178,87 @@ Owner (own shop) or `SHOP_UPDATE_ANY`. Any subset of the editable shop fields.
 New: `serviceRadiusKm` (integer 1–50) — the shop's delivery zone in straight-line
 km from its pin (GS-010). Audit-logged with the previous value.
 
+## Shop product photos & descriptions (Module 1)
+
+Details, limits and error reasons: [docs/three-modules-2026-10/MODULE1_SHOP_PRODUCT_MEDIA.md](docs/three-modules-2026-10/MODULE1_SHOP_PRODUCT_MEDIA.md).
+Every route below: the shop's owner, its staff (`shop_staff`) or operators/admins; anyone else 403, another shop's product 404.
+
+| Method & path | |
+|---|---|
+| `GET /api/shops/{id}/listings/{listingId}/media` | Photos (main first), short/long description, master fallback, what customers see, limits |
+| `PATCH /api/shops/{id}/listings/{listingId}/media` | `{ shortDescription?, longDescription? }`; `null` or `""` clears (master's text shows) |
+| `POST /api/shops/{id}/listings/{listingId}/media/photos` | multipart `file` (JPG/PNG/WebP ≤ 5 MB), optional `replaceImageId` → 201 `{ id, url, isPrimary, moderationStatus }`. 422 `details.reason`: `PHOTO_TOO_LARGE`, `PHOTO_BAD_TYPE`, `PHOTO_UNREADABLE`, `PHOTO_TOO_SMALL`, `PHOTO_TOO_MANY_PIXELS`, `PHOTO_LIMIT` |
+| `PUT /api/shops/{id}/listings/{listingId}/media/photos/order` | `{ imageIds }` — every photo once; the first is the main photo → 204 |
+| `DELETE /api/shops/{id}/listings/{listingId}/media/photos/{imageId}` | → 204; the next photo becomes main if needed |
+| `GET /api/shops/{id}/listings/{listingId}/media/history` | `{ changes: [{ at, summary, actorName, via: OWNER/STAFF/SUPPORT }] }` |
+| `GET /api/shops/{id}/media-imports` · `POST` | List · multipart `zip` and/or `csv`, `photoMode` REPLACE/ADD → 201 preview (nothing applied) |
+| `GET /api/shops/{id}/media-imports/{importId}` · `DELETE` | Preview/progress · cancel before applying |
+| `POST /api/shops/{id}/media-imports/{importId}/apply` | 202; applies right after the response; resumes a stalled apply; 409 while running/finished |
+| `GET /api/shops/{id}/media-imports/template` | CSV template |
+| `GET /api/shops/{id}/staff` · `POST { identifier }` · `DELETE …/staff/{staffId}` | Owner (or support) manages staff by mobile/email |
+| `GET /api/images/{id}?size=thumb\|medium\|large` | Existing route; processed photos' WebP copies, `ETag`/304 |
+
+`GET /api/shops/{id}/products` (storefront) items gain `shortDescription` (the shop's, else the master's).
+
+## Accounting software & GST (Module 2)
+
+Details, error codes and checklists: [docs/three-modules-2026-10/MODULE2_ACCOUNTING_INTEGRATION.md](docs/three-modules-2026-10/MODULE2_ACCOUNTING_INTEGRATION.md).
+Shop routes: the shop's owner; operators may view and retry (support); admins may also change a connection. Secrets are write-only — no response ever contains them.
+
+| Method & path | |
+|---|---|
+| `GET /api/shops/{id}/integration` | `{ providers, integration (status, counts, last error with fix; no secrets), ready, canManage }` |
+| `PUT /api/shops/{id}/integration` | `{ provider: TALLY\|ODOO\|ZOHO_BOOKS\|MYBILLBOOK\|VYAPAR\|GENERIC_FILE, config, credentials?, paused? }` — connect or change; `credentials` omitted keeps the stored one; 409 when another software is connected |
+| `POST /api/shops/{id}/integration/test` · `/sync` · `/disconnect` | `{ ok, message, fix? }` · 202 `{ jobId, queued }` (one pull at a time) · 204 |
+| `GET · POST /api/shops/{id}/integration/tokens` · `DELETE …/tokens/{tokenId}` | Tally connector tokens; POST → 201 `{ token }` shown once |
+| `POST /api/shops/{id}/integration/webhook` | 201 `{ url, secret }` for Odoo/Zoho change webhooks (shown once) |
+| `GET /api/shops/{id}/integration/items?status=&q=&page=` | Mapping screen: `{ items, total, pageSize }`; status `MATCHED\|SUGGESTED\|UNMATCHED\|IGNORED\|ISSUE` |
+| `PATCH /api/shops/{id}/integration/items/{linkId}` | `{ action: "match", productId }` (applied at once) \| `{ action: "ignore" }` \| `{ action: "unmatch" }` |
+| `POST …/items/auto-match` · `GET …/items/search?q=` | Re-run matching · products to pick from |
+| `GET · POST /api/shops/{id}/integration/imports` | File sync: list · multipart `file` (.xlsx/.csv ≤ 5 MB) → headings, sample rows, suggested mapping |
+| `GET · DELETE …/imports/{importId}` · `PUT …/{importId}/mapping` · `POST …/{importId}/apply` | Upload state (`running`) · cancel · `{ mapping }` · 202, applied after the response |
+| `GET /api/shops/{id}/integration/exports?kind=invoices\|credit-notes\|stock-out&scope=new\|range&from=&to=&format=xlsx\|csv` | File download; `new` marks what it contains (never repeated) |
+| `GET /api/shops/{id}/integration/jobs?status=DEAD,FAILED` · `POST …/jobs/{jobId}/retry` · `GET …/integration/log` | Sync entries with owner-readable errors · retry (204) · log |
+| `GET /api/integrations/zoho/connect?shopId=` · `GET /api/integrations/zoho/callback` | Zoho Books (India) OAuth; returns to `/shop/settings/integrations?zoho=connected\|error` |
+| `POST /api/integrations/webhooks/{provider}/{integrationId}?key=` | From the software: items changed → pull (202; 401 without the right key) |
+| `POST /api/connector/v1/hello` · `GET /api/connector/v1/jobs?wait=25` · `POST /api/connector/v1/jobs/{jobId}/result` · `POST /api/connector/v1/items` | Tally connector, `Authorization: Bearer gkc_…` |
+| `POST /api/gst/gstin/validate` | `{ gstin }` → `{ ok, found, active, legalName, tradeName, status, stateCode, … }` or `{ ok: false, reason: FORMAT\|UNAVAILABLE }` |
+| `GET /api/credit-notes/{id}/pdf` | As the invoice: customer, shop owner, operations |
+| `POST /api/invoices/{id}/einvoice` · `POST /api/invoices/{id}/eway-bill { distanceKm, vehicleNo? }` | Owner/operations; → `{ einvoice, ewayBill }` |
+| `GET /api/shops/{id}/gst/gstr1?period=YYYY-MM&format=json\|xlsx` | GSTR-1-ready file (nothing is filed) |
+| `PUT /api/shops/{id}/gst/einvoice-declaration` | `{ applicable, turnoverBand }` |
+| `GET · PUT /api/admin/gst-config` · `GET · PUT /api/admin/hsn-tax-rates` · `PATCH …/{rateId}` | Admin: dated GST rules, fallback HSN rates |
+| `GET /api/admin/integrations?provider=&problem=any\|failed\|offline&q=` | Operations: all shops' sync health |
+| `POST /api/cron/integration-sync` | Safety-net sweep (cron secret), every minute |
+
+## Shop self-registration (Module 3)
+
+Details, flow and checklists: [docs/three-modules-2026-10/MODULE3_SELF_REGISTRATION.md](docs/three-modules-2026-10/MODULE3_SELF_REGISTRATION.md).
+Applicant routes are public: the private `{token}` (from `POST /api/shop-registrations`, also sent by SMS) is the access, stored only as a hash. All answer 409 while the `selfRegistration` rule is off.
+
+| Method & path | |
+|---|---|
+| `POST /api/shop-registrations/referral-check` | `{ code }` → `{ ok: true, code, label, distributor, tiers: [{ code, label, description, amountPaise }] }` or `{ ok: false, reason: NOT_FOUND\|INACTIVE\|EXPIRED\|LIMIT_REACHED, message }` (same shape for every failure) |
+| `POST /api/shop-registrations/otp` | `{ mobile, referralCode }` → `{ sent, resendAfterSeconds, expiryMinutes }`; an invalid code → 422 and nothing is sent |
+| `POST /api/shop-registrations` | `{ shopName, mobile, referralCode, tierCode, otp, acceptTerms: true }` → 201 `{ token, status: PENDING_PAYMENT, feePaise }`; the code is re-checked under a row lock (the last slot goes to one applicant) |
+| `GET /api/shop-registrations/{token}` | `{ status, shopName, mobile (masked), feePaise, tier, referralCode, holdExpiresAt, lastPayment, shop, receipt, gateway }` for the return / retry page |
+| `POST /api/shop-registrations/{token}/pay` | 201 `{ gateway: CASHFREE\|MOCK, orderId, paymentSessionId, amountPaise, cashfreeMode }` — a new `reg_…` order for exactly the fee snapshot. The browser return never approves |
+| `GET /api/shop-registrations/{token}/receipt` | Fee receipt PDF (`PAY-YYYY-NNNNNN`) once approved |
+| `POST /api/webhooks/cashfree` | Existing route. `reg_…`/`mockreg_…` orders → signature checked, then amount + currency must equal the fee, then approval in one transaction. Outcome `APPROVED\|ALREADY_APPROVED\|FAILED\|MISMATCH\|IGNORED` (always 200 once the signature is good) |
+| `POST /api/dev/settle-registration` | `{ token, outcome?: SUCCESS\|FAILED }` — mock-payment mode only (no gateway keys, not a production build); 404 otherwise |
+| `GET · PATCH /api/shops/{id}/profile-setup` | Owner (or `SHOP_UPDATE_ANY`): `{ shop, categories, missing, fssai }` · `{ ownerName, addressLine1, addressLine2?, city, state?, pincode, shopType, gstin? }` → `{ complete, missing, gstin (GSP check), warnings }`; an invalid, unknown or inactive GSTIN → 422 |
+| `GET /api/admin/shops/auto-approved?code=&distributorId=&from=&to=&profile=complete\|incomplete&q=` | Operations (`SHOP_REGISTRATION_MANAGE`): self-registered shops with fee, code, distributor, commission. Suspend uses the existing `POST /api/shops/{id}/suspend` |
+| `GET /api/admin/shop-registrations?status=PENDING_PAYMENT\|APPROVED\|CANCELLED\|ALL` | `{ registrations, paymentProblems }` (amount mismatches, payments after approval or cancellation — refund due) |
+| `POST /api/admin/shop-registrations/{id}/resend-link` · `/cancel` | New private link by SMS (the old one stops working) · cancel an unpaid registration |
+| `GET /api/admin/registration-fee-tiers` · `PUT …/{code}` | Admin (`REGISTRATION_FEE_MANAGE`): `{ label, description?, amountPaise, isActive, sortOrder? }`; an offered plan needs an amount |
+| `GET · POST /api/admin/distributor-types` · `PATCH …/{id}` | `{ code, name, commissionType: FLAT\|PERCENT, commissionValue (paise \| basis points), isActive }` (`REFERRAL_MANAGE`) |
+| `GET · POST /api/admin/distributors` · `PATCH …/{id}` | `{ distributorTypeId, name, phoneE164?, email?, district?, state?, status, commissionType?, commissionValue? }` — own commission overrides the type's default |
+| `POST /api/referral-codes` · `PATCH /api/referral-codes/{id}` | Existing, plus `distributorId`, `maxUses` (null = unlimited) and `expiresAt` |
+| `GET /api/admin/referral-commissions` · `PATCH …/{id}` | Report per distributor and per shop · admin: `{ status: APPROVED\|PAID\|REVERSED, note? }`, forward only (recorded; nothing is paid out by the system) |
+| `GET /api/admin/test-messages?to=` | SMS/WhatsApp written by the mock provider (test site only), newest first |
+
+Rate limits: referral check 30 / 10 min / client; OTP 10 / 10 min / client plus the `otp` rule per mobile; create 10 / hour / client; pay 20 / 10 min / client.
+
 ## Location (customer)
 
 ### `POST /api/location` · `DELETE /api/location`
@@ -291,12 +372,33 @@ Marks a picked-up delivery DELIVERED without the customer OTP; audited.
 { "action": "reject", "reason": "optional" }  // rider is never offered this order again
 { "action": "pickup", "pickupCode": "1234" }  // code the shop reads out
 { "action": "start" }                         // leaves the shop; issues the customer OTP
-{ "action": "deliver", "otp": "5678" }        // customer's code; 5 wrong tries max
+{ "action": "deliver", "otp": "5678" }        // customer's code; rule deliveryOtp.maxAttempts wrong tries max
 { "action": "fail", "reason": "Customer not reachable" }
 ```
-Responses never contain the pickup code or the OTP (only `needsPickupCode` /
-`needsDeliveryOtp` flags). The shop sees the pickup code on its order list;
-the customer sees the OTP on My Orders while the order is out for delivery.
+Responses never contain the pickup code, the OTP or its hash (only
+`needsPickupCode` / `needsDeliveryOtp` / `deliveryCodeLocked` flags). The shop
+sees the pickup code on its order list.
+
+Delivery code (docs/shop-wallet-delivery-otp-2026-10): `start` stores only a
+salted HMAC of a new 4-digit code and emails the code to the customer. On
+`deliver`, only the rider holding the delivery may enter it (`403` otherwise).
+A wrong code is `422` with `details.attemptsLeft`; the attempt that reaches
+`deliveryOtp.maxAttempts` locks the drop — `409` with
+`details: { locked: true, ticketNumber }` — raises a support ticket (grievance,
+category ORDER) and alerts the customer, the shop and support; operations then
+confirm it (`POST /api/orders/{id}/confirm-delivery`). A right code completes
+the order and spends the code in one transaction; with rule `shopWallet` on,
+the same transaction debits the shop wallet. Submitting again after success
+returns the delivered row and charges nothing more.
+
+### `POST /api/orders/{id}/delivery-code` — customer: new delivery code
+Only the order's own customer (`404` for anyone else), only while the drop is
+under way and not locked. Issues a fresh code (the previous one stops
+working), emails it, and returns it once:
+`{ code, sentTo, resendsLeft, nextRequestAt }`. Limited by rule `deliveryOtp`:
+`resendCooldownSeconds` (default 60) between requests and `maxResends`
+(default 3) per delivery — `429` with `details.retryAfterSeconds` otherwise.
+The code itself is never stored.
 
 ### `POST /api/delivery-orders/{id}/proof`
 NEW-007 (rule `deliveryProof`). Multipart `file`: the rider's photo at the
@@ -305,10 +407,51 @@ bytes). Only the rider holding the picked-up delivery may upload. Returns
 `201 { id, url }`. While the rule is on, `{ "action": "deliver" }` returns
 `409` until a photo exists.
 
+### `POST /api/delivery-orders/{id}/location` — live tracking
+Event layer. `{ latitude, longitude }` from the rider's phone every
+`tracking.riderPingSeconds` (default 5) while the drop is under way. Only the
+rider holding the delivery may post (`403` otherwise). Before the drop starts
+and once it is delivered, failed or cancelled nothing is stored and the answer
+is `{ sharing: false }`; otherwise `{ sharing: true, shared, nextPingSeconds }`.
+
+### `GET /api/tracking/{orderId}`
+The order's tracking panel for its customer, its shop, staff and the rider
+holding it. The rider's location is included only from the start of the drop
+(`stage: IN_PROGRESS`) until the order is delivered or cancelled
+(`stage: ENDED`); `AWAITING_START` means collected but not yet on the way.
+`pollSeconds` (rule `tracking.buyerPollSeconds`, default 5) is how often an
+open map refreshes.
+
 ### `POST /api/cron/delivery-dispatch`
 `Authorization: Bearer $CRON_SECRET`. Run every minute. Expires unanswered
 offers (2 min) and retries a rider for every READY order of a delivering shop
 with nobody working on it. Returns `{ expired, attempted, offered }`.
+**Superseded by `timeout-sweep`** (event layer); kept for rollback.
+
+### `POST /api/cron/timeout-sweep` — event layer safety net
+`Authorization: Bearer $CRON_SECRET`. Run every minute; `GET` is a readiness
+probe. Only what depends on time passing: shop acceptance reminder and timeout
+(X = `shopAcceptance.acceptMinutes`, CANCEL or ESCALATE), unanswered rider
+offers and dispatch retries, the "no rider within Y minutes" support alert
+(`dispatch.alertSupportAfterMinutes`), return pickups, and "shop is open now"
+alerts. Returns `{ shopAcceptance, dispatch, riderSearchAlerts, returnPickups, shopOpening, errors }`.
+
+### `POST /api/cron/notification-retry` — event layer safety net
+`Authorization: Bearer $CRON_SECRET`. Run every minute; `GET` is a readiness
+probe. Retries failed outbound notifications from the outbox
+(`notification_deliveries`) up to N = `notifications.maxAttempts`, then marks
+them DEAD and alerts support in the app. Returns `{ sent, failed, skipped, dead }`.
+
+### Disputes — `POST /api/disputes`, `GET|PATCH /api/disputes/{id}`, `POST /api/disputes/{id}/comments`
+Event layer. Opening (`imageIds` optional — photos uploaded first to
+`POST /api/images` with `purpose=DISPUTE_EVIDENCE`) returns the case with its
+`DSP-` number and notifies the shop and support at once. The case's customer,
+shop and staff may `GET` it and comment
+(`{ body, imageIds?, internal? (staff only), clientRequestId }` — a repeated
+`clientRequestId` posts once). `PATCH { action: "advance" }` is staff's, except
+that the shop may move a triaged case to `RESOLUTION_PROPOSED` with a
+`proposal`; `escalate` and `resolve` are staff-only. Every change notifies the
+other parties.
 
 ---
 
@@ -482,6 +625,48 @@ a replayed call returns `alreadyProcessed: true` without a second credit. If
 Cashfree does not confirm payment, the payment is marked `FAILED` and
 nothing is credited.
 
+### Shop wallet (rule `shopWallet`, docs/shop-wallet-delivery-otp-2026-10)
+
+A shop's prepaid wallet. When the rule is on, a delivered order's commission
+(rates from `commission_rates`) and a delivery charge (orders a GoKesari rider
+delivered: `deliveryChargePaise` + `deliveryChargePerKmPaise` × the
+shop-to-customer distance to 0.1 km, or `deliveryChargeUnknownDistancePaise`
+when that distance is not known) are debited from it in the delivery's own
+transaction, as two ledger entries linked to the order, and settlement no
+longer withholds that commission. Below `minBalancePaise` the shop cannot
+accept a new order: `POST /api/orders/{id}/fulfilment {action:"accept"}`
+returns `402 INSUFFICIENT_BALANCE` with
+`details: { balancePaise, minBalancePaise, rechargeUrl: "/shop/wallet" }`;
+and customers cannot order from it — the cart check reports `ORDERS_PAUSED`
+and `POST /api/checkout` returns `409` "… is not taking new orders right now",
+exactly as for a shop that paused its orders. A refund after delivery the shop
+bears (`POST /api/finance/refunds`, `chargeTo: SHOP`) credits the commission on
+the refunded goods back (`COMMISSION_REFUND`), capped at what was charged.
+The balance changes only through ledger entries (enforced by the database).
+
+#### `GET /api/shops/{id}/wallet?limit=50&offset=0`
+The shop's owner, or finance staff. `{ enabled, balancePaise, minBalancePaise,
+lowBalanceThresholdPaise, canAcceptOrders, lowBalance, commissionRateBp,
+deliveryChargePaise, deliveryChargePerKmPaise, deliveryChargeUnknownDistancePaise,
+topupMinPaise, topupMaxPaise, transactions[] }` — each
+entry `{ type, direction, amountPaise, balanceBeforePaise, balanceAfterPaise,
+orderId, orderNumber, reason, createdAt }`.
+
+#### `POST /api/shops/{id}/wallet/topup` — `{ "amountPaise": 100000 }`
+Shop owner only (staff use `adjust`). Limits `topupMinPaise`/`topupMaxPaise`;
+`409` while the rule is off. Creates a gateway order only — no money moves.
+Returns `{ gatewayOrderId, paymentSessionId, cashfreeMode, amountPaise, mock }`.
+
+#### `POST /api/shops/{id}/wallet/verify` — `{ "gatewayOrderId": "…" }`
+Confirms with Cashfree and credits the shop wallet; idempotent on the gateway
+payment id (the Cashfree webhook credits shop recharges too). In mock mode use
+`POST /api/dev/settle-topup`. Returns `{ success, balancePaise, alreadyProcessed }`.
+
+#### `POST /api/shops/{id}/wallet/adjust` — administrators (`WALLET_ADJUST`)
+`{ direction: "CREDIT" | "DEBIT", amountPaise, reason, requestId }`. A manual
+ledger entry (e.g. a recharge paid in cash); a debit never overdraws; the same
+`requestId` adjusts once. The owner is notified.
+
 ### `PATCH /api/wallet/settings`
 `lowBalanceThresholdPaise`, `autoRechargeEnabled`, `autoRechargeTriggerPaise`,
 `autoRechargeAmountPaise`. Enabling auto-recharge requires both a trigger and an
@@ -614,13 +799,100 @@ probe that generates nothing.
 ### `POST /api/cron/seller-verification`
 Daily seller verification sweep: retries, GSTIN re-check, expiry warnings,
 expiry, suspension when a mandatory document lapses. Bearer `CRON_SECRET`.
-Returns `{ pendingRetried, gstRechecked, expiryWarnings, expired, shopsSuspended, errors }`.
+Returns `{ pendingRetried, gstRechecked, expiryWarnings, expired, shopsSuspended, errors }`,
+plus `legalDocuments: { shopsChecked, requirementsStarted, remindersSent }` (the legal-document sweep, below).
 
 ### `POST /api/cron/shop-acceptance`
 NEW-007, every minute. Reminds shops about orders waiting for acceptance and
 cancels, with a full refund, orders not accepted by their accept-by time.
 Bearer `CRON_SECRET`. Returns `{ reminded, cancelled, skipped }`. Does nothing
 while rule `shopAcceptance` is off.
+
+## Four features (October 2026)
+
+Fulfilment options, legal documents, bank accounts and referral codes
+(docs/four-features-2026-10). Each is gated by its business rule, off by
+default: `fulfilmentOptions`, `legalDocuments`, `bankAccounts`, `shopReferral`.
+
+### Fulfilment options
+| Route | Who | Body / answer |
+|---|---|---|
+| `GET /api/orders/{id}/fulfilment-plan` | shop owner, operations | The plan and the slots that can be chosen now |
+| `POST /api/orders/{id}/fulfilment-plan` | shop owner, operations | `{ option: PICKUP \| SHOP_DELIVERY \| GOKESARI_PARTNER, slotKey, staffId?, markReady? }`. Sets or changes the plan of an ACCEPTED, PREPARING, READY or ASSIGNED order. `markReady` marks a PREPARING order ready in the same step |
+| `POST /api/orders/{id}/fulfilment-plan/handover` | shop owner (operations for `confirm`) | `{ action: pickup, code, cashCollected? }` · `{ action: out_for_delivery }` · `{ action: deliver, code, cashCollected? }` · `{ action: confirm, note }` |
+| `POST /api/orders/{id}/fulfilment-plan/code` | the order's customer | A new delivery code for an own-delivery order (limits from rule `deliveryOtp`) |
+| `GET/POST /api/shops/{id}/delivery-staff` | shop owner | List, or `{ name, mobile }` to add |
+| `PATCH /api/shops/{id}/delivery-staff/{staffId}` | shop owner | `{ name?, mobile?, isActive? }` |
+| `GET/POST /api/delivery-link/{token}` | anyone holding the link | `{ action: start }` · `{ action: complete, code, cashCollected? }`. Any other link answers `404` |
+
+With `fulfilmentOptions` on, `POST /api/orders/{id}/fulfilment {"action":"ready"}`
+without a plan answers `409` with `details.needsFulfilmentChoice`.
+
+With `fulfilmentOptions.refundDeliveryFeeOnPickup` on (the default), a plan that
+becomes `PICKUP` gives the customer's delivery fee back once:
+- a paid order to the wallet;
+- a cash order is charged that much less.
+
+The plan view shows it as `deliveryFeeRefundedPaise`.
+
+### Legal documents
+| Route | Who | Body / answer |
+|---|---|---|
+| `GET /api/shops/{id}/legal-documents` | owner, reviewer | What the shop must hold, each state and deadline |
+| `POST /api/shops/{id}/legal-documents` | owner | multipart: `docType` (FSSAI \| DRUG_LICENCE \| MEDICAL_REGISTRATION), `number`, `expiryDate` or `issuingCouncil`, `file` (PDF / JPEG / PNG / WebP, up to 5 MB) |
+| `GET /api/legal-documents/files/{fileId}` | owner, reviewer (audited) | The copy. Anyone else gets `404` |
+| `GET /api/admin/legal-documents?filter=` | `SHOP_GST_PAN_VERIFY` | `to_review` · `rejected` · `approved` · `missing` · `expiring` · `all` |
+| `POST /api/admin/legal-documents/{id}/decision` | `SHOP_GST_PAN_VERIFY` | `{ decision: approve \| reject, reason? }` (a rejection needs a reason) |
+| `POST /api/admin/legal-documents/sweep` | `SHOP_GST_PAN_VERIFY` | Starts grace periods and sends due expiry reminders now |
+
+### Bank accounts and ₹1 verification
+| Route | Who | Body / answer |
+|---|---|---|
+| `GET/PUT /api/bank-account` | signed-in customer | `{ method: BANK_ACCOUNT \| UPI, accountHolderName, accountNumber?, confirmAccountNumber?, ifsc?, upiId? }`. Answers are masked, with `gateway: CASHFREE \| SIMULATOR \| UNAVAILABLE` |
+| `GET/PUT /api/shops/{id}/bank-account` | owner (PUT), owner or finance (GET) | Same body, for the shop's payout account |
+| `POST /api/bank-account/verification` | account holder | `{ accountId }` → the ₹1 gateway order (Cashfree session, or the test simulator) |
+| `POST /api/bank-account/verification/confirm` | account holder | `{ gatewayOrderId }`. The server asks Cashfree, then records verified / failed and refunds the ₹1 |
+| `POST /api/bank-account/verification/simulate` | account holder | Test simulator only (no gateway keys; never on gokesari.com) |
+| `GET /api/admin/bank-accounts` | `FINANCE_VIEW` | All accounts, masked (`status`, `holderType` filters) |
+
+`PATCH /api/finance/settlements/{id}` with `process` or `pay` answers `409` when
+the shop has no verified bank account (rule `bankAccounts.requireVerifiedForShopPayouts`).
+
+### Refunds to a customer's bank (rule `bankRefunds`, off by default)
+| Route | Who | Body / answer |
+|---|---|---|
+| `GET /api/bank-refunds` | signed-in customer | Refunds from the last `windowDays` that can be sent (customer-funded part, less what was spent), the account they would go to (masked), past requests. `409` when the rule is off |
+| `POST /api/bank-refunds` | signed-in customer | `{ refundTransactionId }` → `201` with the request. The amount leaves the wallet now. Repeating it answers the same request |
+| `POST /api/bank-refunds/{id}/cancel` | the customer | Only while `REQUESTED`. The amount returns to the wallet |
+| `GET /api/admin/bank-refunds?status=` | `FINANCE_VIEW` | `REQUESTED` · `PROCESSING` · `PAID` · `FAILED` · `CANCELLED`, masked |
+| `POST /api/admin/bank-refunds/{id}` | `FINANCE_MANAGE` | `{ action: process }` · `{ action: pay, reference }` (the bank's UTR) · `{ action: fail, reason }` (the amount returns to the wallet) |
+| `GET /api/admin/bank-refunds/{id}/account` | `FINANCE_MANAGE` (audited) | The full account details, only while the refund is still to be sent |
+
+### Referral codes
+| Route | Who | Body / answer |
+|---|---|---|
+| `POST /api/referral-requests` | anyone (5 per 10 min per IP) | `{ name, mobile, shopType, area, city, pincode, latitude?, longitude?, accuracyM? }` → `{ reference, mobileMasked, locationShared }`. A second request from the same mobile within 24 h answers `429` with the first reference |
+| `GET /api/referral-codes/check?code=` | signed in | `{ valid, message }` |
+| `GET /api/admin/referral-requests?status=` | `REFERRAL_MANAGE` | `NEW` · `CODE_ISSUED` · `REJECTED` |
+| `POST /api/admin/referral-requests/{id}` | `REFERRAL_MANAGE` | `{ action: issue, code? }` · `{ action: reject, reason }` · `{ action: resend_email }` |
+
+`POST /api/shops` (self-service registration) needs `referralCode` when
+`shopReferral.required` is on: an empty or invalid code answers `400` with
+`details.fields.referralCode`.
+
+| Route | Who | Body / answer |
+|---|---|---|
+| `GET /api/me/signup-referral` | signed in | `{ referral, ask }`: the code this customer joined with, and whether first-time setup still asks for one |
+| `POST /api/me/signup-referral` | signed in, before the first order (rule `customerSignupReferral`) | `{ code }` → `{ kind: GOKESARI \| FRIEND, code, label }`. An unknown, paused or expired code answers `422` with `details.fields.referralCode`. Once per customer |
+
+Mandatory code and customers asking for one (owner's decision, 9 Oct 2026; `customerSignupReferral.required` / `requiredFrom`). With it on, a customer who joined on or after `requiredFrom` and has neither a code nor an order gets `409` with `details.needsReferralCode: true` from checkout and from creating or activating a subscription (a draft is allowed). Browsing and search are open.
+
+| Route | Who | Body / answer |
+|---|---|---|
+| `GET /api/me/referral-request` | signed in | `{ needsCode, referral, requests }`: whether a code is still needed before the first order, the code given, and the customer's requests (with `issuedCode` once issued) |
+| `POST /api/me/referral-request` | signed in (5 per 10 min) | `{ name, mobile, city, pincode, latitude?, longitude?, accuracyM? }` → `201` `{ reference: "CRR-…", mobileMasked, locationShared }`. Emailed to `shopReferral.notifyEmails`. A second request from the same customer or mobile within `requestDuplicateWindowHours` answers `429` with the first reference |
+| `GET /api/admin/customer-referral-requests?status=` | `REFERRAL_MANAGE` | `NEW` · `CODE_ISSUED` · `REJECTED`, with contact number, city, PIN, coordinates and Maps link |
+| `POST /api/admin/customer-referral-requests/{id}` | `REFERRAL_MANAGE` | `{ action: issue, code?, note? }` (no code → a generated `GKC…`) · `{ action: reject, reason }` · `{ action: resend_email }`. The customer is told in the app and by email |
 
 ## Rate limits
 

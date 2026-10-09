@@ -1,0 +1,237 @@
+# Test database automation — test.gokesari.com ONLY (never production).
+# Setup and use: docs/event-driven-2026-10/DB_AUTOMATION.md
+#
+# Automatic, on a push to staging (i.e. a PR merged into staging):
+#   - a migration added (drizzle/**)                → back up, migrate, verify
+#   - docs/event-driven-2026-10/test-settings.sql changed
+#                                                    → back up, migrate, apply the test settings, verify
+#   - docs/shop-wallet-delivery-otp-2026-10/test-settings.sql changed
+#                                                    → back up, migrate, apply the shop wallet settings, verify
+#   - docs/shop-wallet-delivery-otp-2026-10/test-wallet-credits.sql changed
+#                                                    → back up, migrate, apply the new shop wallet credits, verify
+#   - docs/four-features-2026-10/test-settings.sql or test-e2e-accounts.sql changed
+#                                                    → back up, migrate, apply the four-features settings and E2E accounts, verify
+#   - docs/three-modules-2026-10/test-settings.sql changed
+#                                                    → back up, migrate, apply the self-registration/invoicing settings, verify
+#   - this workflow changed                          → back up, migrate, verify (settings are not re-imposed)
+# Every night (once this file is on the default branch): back up.
+# By hand — Actions → "Test database" → Run workflow → branch staging:
+#   migrate | settings | migrate-and-settings | shop-wallet-settings | shop-wallet-credits | four-features-settings | backup | verify |
+#   four-features-report (read-only: prints docs/four-features-2026-10/test-report.sql) | three-modules-settings |
+#   rollback-0058 (type ROLLBACK 0058 to confirm)
+#
+# Every change is preceded by a pg_dump backup kept as a workflow artifact for 14 days.
+name: Test database
+
+on:
+  push:
+    branches: [staging]
+    paths:
+      - "drizzle/**"
+      - "src/server/db/migrate.ts"
+      - "scripts/migrate-on-build.mjs"
+      - "scripts/test-db/**"
+      - "docs/event-driven-2026-10/test-settings.sql"
+      - "docs/shop-wallet-delivery-otp-2026-10/test-settings.sql"
+      - "docs/shop-wallet-delivery-otp-2026-10/test-wallet-credits.sql"
+      - "docs/four-features-2026-10/test-settings.sql"
+      - "docs/four-features-2026-10/test-e2e-accounts.sql"
+      - "docs/three-modules-2026-10/test-settings.sql"
+      - ".github/workflows/test-db.yml"
+  schedule:
+    # 20:47 UTC = 02:17 IST, away from the cron jobs' busy minutes.
+    - cron: "47 20 * * *"
+  workflow_dispatch:
+    inputs:
+      action:
+        description: What to do to the TEST database
+        type: choice
+        default: migrate
+        options: [migrate, settings, migrate-and-settings, shop-wallet-settings, shop-wallet-credits, four-features-settings, four-features-report, three-modules-settings, backup, verify, rollback-0058]
+      confirm:
+        description: "rollback-0058 only: type ROLLBACK 0058"
+        required: false
+        default: ""
+
+# One database job at a time; a queued run waits rather than cancelling one mid-migration.
+concurrency:
+  group: test-db
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  test-db:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    # Secrets and variables live on this environment (it can require an approver).
+    environment: test
+    env:
+      TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+      EXPECTED_HOST: ${{ vars.TEST_DATABASE_HOST }}
+      EXPECTED_DB: ${{ vars.TEST_DATABASE_NAME }}
+
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: staging
+          fetch-depth: 0
+
+      - name: Plan
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_ACTION: ${{ inputs.action }}
+          INPUT_CONFIRM: ${{ inputs.confirm }}
+          BEFORE: ${{ github.event.before }}
+        run: |
+          migrate=no; settings=no; wallet=no; credits=no; four=no; report=no; modules=no; rollback=no; backup=yes
+          case "$EVENT" in
+            schedule) ;;
+            workflow_dispatch)
+              case "$INPUT_ACTION" in
+                migrate) migrate=yes ;;
+                settings) settings=yes ;;
+                migrate-and-settings) migrate=yes; settings=yes ;;
+                shop-wallet-settings) migrate=yes; wallet=yes ;;
+                shop-wallet-credits) migrate=yes; credits=yes ;;
+                four-features-settings) migrate=yes; four=yes ;;
+                four-features-report) report=yes; backup=no ;;
+                three-modules-settings) migrate=yes; modules=yes ;;
+                backup) ;;
+                verify) backup=no ;;
+                rollback-0058)
+                  [ "$INPUT_CONFIRM" = "ROLLBACK 0058" ] || { echo "::error::To roll back 0058, run again with confirm = ROLLBACK 0058."; exit 1; }
+                  rollback=yes ;;
+              esac ;;
+            push)
+              # What this push changed decides the work.
+              if [ -z "$BEFORE" ] || ! git cat-file -e "$BEFORE^{commit}" 2>/dev/null || [ "$BEFORE" = "0000000000000000000000000000000000000000" ]; then
+                changed=$(git ls-files)
+              else
+                changed=$(git diff --name-only "$BEFORE" "$GITHUB_SHA")
+              fi
+              grep -qE '^(drizzle/|src/server/db/migrate\.ts$|scripts/migrate-on-build\.mjs$|\.github/workflows/test-db\.yml$)' <<<"$changed" && migrate=yes
+              grep -qE '^docs/event-driven-2026-10/test-settings\.sql$' <<<"$changed" && settings=yes
+              grep -qE '^docs/shop-wallet-delivery-otp-2026-10/test-settings\.sql$' <<<"$changed" && wallet=yes
+              grep -qE '^docs/shop-wallet-delivery-otp-2026-10/test-wallet-credits\.sql$' <<<"$changed" && credits=yes
+              grep -qE '^docs/four-features-2026-10/test-(settings|e2e-accounts)\.sql$' <<<"$changed" && four=yes
+              grep -qE '^docs/three-modules-2026-10/test-settings\.sql$' <<<"$changed" && modules=yes
+              # A settings or data change also migrates first (it may need new columns).
+              [ "$settings$wallet$credits$four$modules" != nonononono ] && migrate=yes ;;
+          esac
+          [ "$migrate$settings$wallet$credits$four$modules$rollback" = nonononononono ] && [ "$EVENT" = push ] && backup=no
+          { echo "DO_BACKUP=$backup"; echo "DO_MIGRATE=$migrate"; echo "DO_SETTINGS=$settings"; echo "DO_WALLET_SETTINGS=$wallet"; echo "DO_WALLET_CREDITS=$credits"; echo "DO_FOUR_FEATURES=$four"; echo "DO_FOUR_REPORT=$report"; echo "DO_MODULES_SETTINGS=$modules"; echo "DO_ROLLBACK=$rollback"; } >> "$GITHUB_ENV"
+          echo "### Plan" >> "$GITHUB_STEP_SUMMARY"
+          echo "backup=$backup · migrate=$migrate · settings=$settings · shop-wallet-settings=$wallet · shop-wallet-credits=$credits · four-features-settings=$four · four-features-report=$report · three-modules-settings=$modules · rollback=$rollback ($EVENT)" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Guard — test database only
+        env:
+          READ_ONLY: ${{ env.DO_MIGRATE == 'no' && env.DO_SETTINGS == 'no' && env.DO_WALLET_SETTINGS == 'no' && env.DO_WALLET_CREDITS == 'no' && env.DO_FOUR_FEATURES == 'no' && env.DO_MODULES_SETTINGS == 'no' && env.DO_ROLLBACK == 'no' }}
+        run: scripts/test-db/guard.sh
+
+      - name: PostgreSQL client matching the server
+        run: |
+          major=$(psql "$TEST_DATABASE_URL" -X -tAc "select current_setting('server_version_num')::int / 10000")
+          echo "Server is PostgreSQL $major."
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq postgresql-common > /dev/null
+          sudo /usr/share/postgresql-common/pgdg/apt.postgresql.org.sh -y > /dev/null
+          sudo apt-get install -y -qq "postgresql-client-$major" > /dev/null
+          echo "/usr/lib/postgresql/$major/bin" >> "$GITHUB_PATH"
+
+      - name: Back up
+        if: env.DO_BACKUP == 'yes'
+        run: |
+          file="gokesari_test_$(date -u +%Y-%m-%d_%H%M)_run${GITHUB_RUN_NUMBER}.dump"
+          pg_dump "$TEST_DATABASE_URL" --format=custom --no-owner --no-privileges --file="$file"
+          size=$(stat -c %s "$file")
+          [ "$size" -gt 1024 ] || { echo "::error::Backup is only $size bytes — stopping before any change."; exit 1; }
+          echo "BACKUP_FILE=$file" >> "$GITHUB_ENV"
+          echo "Backup: $file ($((size / 1024)) KiB) — artifact, kept 14 days" | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Keep the backup (14 days)
+        if: env.DO_BACKUP == 'yes'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.BACKUP_FILE }}
+          path: ${{ env.BACKUP_FILE }}
+          retention-days: 14
+          if-no-files-found: error
+
+      - uses: actions/setup-node@v5
+        if: env.DO_MIGRATE == 'yes'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        if: env.DO_MIGRATE == 'yes'
+        run: npm ci --no-audit --no-fund
+
+      - name: Migrate
+        if: env.DO_MIGRATE == 'yes'
+        # The deploy build's migrator, with its lock: safe even if MIGRATE_ON_BUILD
+        # is on and Hostinger's build migrates at the same moment.
+        run: MIGRATE_ON_BUILD=true DATABASE_URL="$TEST_DATABASE_URL" node scripts/migrate-on-build.mjs | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply test settings
+        if: env.DO_SETTINGS == 'yes'
+        run: psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f docs/event-driven-2026-10/test-settings.sql
+
+      - name: Apply shop wallet settings
+        if: env.DO_WALLET_SETTINGS == 'yes'
+        # Needs migration 0059 (shop_wallets); the Migrate step above has run.
+        run: |
+          set -o pipefail
+          echo "### Shop wallet settings applied" >> "$GITHUB_STEP_SUMMARY"
+          { echo '```'; psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f docs/shop-wallet-delivery-otp-2026-10/test-settings.sql; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply shop wallet credits
+        if: env.DO_WALLET_CREDITS == 'yes'
+        # Ledger credits, each applied once (by key); all or nothing.
+        run: |
+          set -o pipefail
+          echo "### Shop wallet credits" >> "$GITHUB_STEP_SUMMARY"
+          { echo '```'; psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f docs/shop-wallet-delivery-otp-2026-10/test-wallet-credits.sql 2>&1; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Apply four-features settings
+        if: env.DO_FOUR_FEATURES == 'yes'
+        # Needs migrations 0061–0064; the Migrate step above has run.
+        run: |
+          set -o pipefail
+          echo "### Four-features settings applied" >> "$GITHUB_STEP_SUMMARY"
+          { echo '```'; psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f docs/four-features-2026-10/test-settings.sql; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "### Four-features E2E accounts" >> "$GITHUB_STEP_SUMMARY"
+          { echo '```'; psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f docs/four-features-2026-10/test-e2e-accounts.sql; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Four-features report (read-only)
+        if: env.DO_FOUR_REPORT == 'yes'
+        # Every statement runs in a read-only transaction; nothing can be written.
+        env:
+          PGOPTIONS: "-c default_transaction_read_only=on"
+        run: psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f docs/four-features-2026-10/test-report.sql
+
+      - name: Apply three-modules settings
+        if: env.DO_MODULES_SETTINGS == 'yes'
+        # Needs migration 0071 (registration_fee_tiers); the Migrate step above has run.
+        run: |
+          set -o pipefail
+          echo "### Three-modules settings applied" >> "$GITHUB_STEP_SUMMARY"
+          { echo '```'; psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f docs/three-modules-2026-10/test-settings.sql; echo '```'; } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Roll back 0058
+        if: env.DO_ROLLBACK == 'yes'
+        run: |
+          psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -f scripts/rollback-0058.sql
+          when=$(node -e 'console.log(require("./drizzle/meta/_journal.json").entries.find(e => e.tag.startsWith("0058_")).when)')
+          psql "$TEST_DATABASE_URL" -X -v ON_ERROR_STOP=1 -c "delete from drizzle.__drizzle_migrations where created_at = $when"
+          echo "Rolled back 0058. Revert the code on staging too (docs/event-driven-2026-10/ROLLBACK.md §3)." | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Verify
+        run: |
+          if [ "$DO_MIGRATE" = yes ]; then
+            scripts/test-db/verify.sh --expect-latest
+          else
+            scripts/test-db/verify.sh
+          fi

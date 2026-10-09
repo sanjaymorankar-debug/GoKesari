@@ -1,10 +1,12 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { BankRefundsPanel } from "@/components/bank-refunds-panel";
 import { WalletView } from "@/components/wallet-view";
 import { Card, PageHeader } from "@/components/ui";
 import { formatPaise } from "@/lib/money";
 import { getCurrentUser } from "@/server/authz/guards";
+import { getCustomerBankRefunds } from "@/server/services/bank-refunds";
 import { getRule } from "@/server/services/settings";
 import { getWalletForecast } from "@/server/services/subscriptions";
 import {
@@ -27,6 +29,8 @@ export default async function WalletPage() {
     listTransactions(user.id, { limit: 30 }),
     getRule("customerReferrals"),
   ]);
+  // Refunds to bank (docs/four-features-2026-10, rule bankRefunds): null while the rule is off.
+  const bankRefunds = await getCustomerBankRefunds(user.id);
 
   return (
     <>
@@ -59,6 +63,7 @@ export default async function WalletPage() {
           createdAt: t.createdAt.toISOString(),
         }))}
       />
+      {bankRefunds ? <BankRefundsPanel info={bankRefunds} /> : null}
     </>
   );
 }

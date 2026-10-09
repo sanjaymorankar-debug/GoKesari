@@ -9,6 +9,9 @@ export interface UploadedImage {
   url: string;
 }
 
+/** DISPUTE_EVIDENCE (event layer): photos on a dispute case. */
+export type ImageUploadPurpose = "PRODUCT" | "RETURN_EVIDENCE" | "DISPUTE_EVIDENCE";
+
 const MAX_SIDE = 1600;
 const QUALITY = 0.82;
 
@@ -37,7 +40,7 @@ export async function shrinkImage(file: File): Promise<Blob> {
 }
 
 /** Uploads one file to /api/images and returns its id and URL. */
-export async function uploadImage(file: File, purpose: "PRODUCT" | "RETURN_EVIDENCE"): Promise<UploadedImage> {
+export async function uploadImage(file: File, purpose: ImageUploadPurpose): Promise<UploadedImage> {
   const blob = await shrinkImage(file);
   const form = new FormData();
   form.append("file", blob, file.name.replace(/\.\w+$/, "") + ".jpg");
@@ -48,7 +51,7 @@ export async function uploadImage(file: File, purpose: "PRODUCT" | "RETURN_EVIDE
   return { id: payload.id, url: payload.url };
 }
 
-/** A small multi-image picker with previews, used for return photos. */
+/** A small multi-image picker with previews, used for return and dispute photos. */
 export function ImageUploader({
   purpose,
   value,
@@ -56,7 +59,7 @@ export function ImageUploader({
   max = 6,
   label = "Add photos",
 }: {
-  purpose: "PRODUCT" | "RETURN_EVIDENCE";
+  purpose: ImageUploadPurpose;
   value: UploadedImage[];
   onChange: (images: UploadedImage[]) => void;
   max?: number;

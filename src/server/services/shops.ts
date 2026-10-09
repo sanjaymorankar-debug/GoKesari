@@ -8,7 +8,7 @@
  */
 import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, or, sql } from "drizzle-orm";
 
-import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
+import { AppError, conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { formatPaise } from "@/lib/money";
 import { parseGstin } from "@/lib/shop-identity";
 import type { ShopTypeKey } from "@/lib/shop-types";
@@ -32,7 +32,10 @@ import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { attributeShopToCode } from "./referrals";
 import { applyShopCategories } from "./shop-categories";
 import { resolveFeeForNewRegistration } from "./registration-fees";
-import { onboardingApprovalBlocker } from "./shop-onboarding";
+import { getRule } from "./settings";
+import { missingMandatoryDocuments, onboardingApprovalBlocker } from "./shop-onboarding";
+import { assertLegalDocsAllowApproval } from "./legal-documents";
+import { emitEvent } from "@/server/events/emit";
 import {
   duplicateShopError,
   findRegistrationMatches,
@@ -642,10 +645,59 @@ export async function approveShop(
   return approved;
 }
 
+/**
+ * Event layer: approves a pending shop without a person the moment nothing
+ * blocks it — every mandatory seller document VERIFIED and the registration
+ * fee settled — when rule sellerVerification.autoApproveShop is on. Called
+ * after a document is verified and after a fee payment. Returns false, and
+ * changes nothing, when the rule is off or anything is still outstanding.
+ */
+export async function autoApproveShopIfReady(shopId: string): Promise<boolean> {
+  const rule = await getRule("sellerVerification");
+  if (!rule.autoApproveShop) return false;
+  const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
+  if (!shop || shop.status !== "PENDING_APPROVAL" || shop.feePaymentStatus !== "PAID") return false;
+  if ((await missingMandatoryDocuments(shop)).length > 0) return false;
+
+  let approved: Shop;
+  try {
+    approved = await approveShopTransaction(
+      shopId,
+      { classification: shop.classification ?? rule.autoApproveClassification },
+      { id: null, role: null },
+    );
+  } catch (error) {
+    // Approved by someone else meanwhile, or a blocker appeared: leave it to a person.
+    if (error instanceof AppError && error.code === "CONFLICT") return false;
+    throw error;
+  }
+  await recordAudit({
+    action: AUDIT_ACTIONS.SHOP_AUTO_APPROVED,
+    entityType: "shop",
+    entityId: shopId,
+    newValue: { classification: approved.classification },
+  });
+  await notify({
+    userId: approved.ownerId,
+    type: NOTIFICATION_TYPES.SHOP_APPROVED,
+    title: "Your shop is approved",
+    body: `${approved.name} is now live on GoKesari.`,
+    actionUrl: "/shop",
+  });
+  await emitEvent({
+    type: "shop.auto_approved",
+    subjectId: shopId,
+    payload: { shopName: approved.name },
+    idempotencyKey: `shop-auto-approved:${shopId}:${approved.approvedAt?.toISOString()}`,
+  });
+  return true;
+}
+
 function approveShopTransaction(
   shopId: string,
   input: { classification: Classification },
-  actor: { id: string; role: UserRole },
+  /** `id: null` — approved automatically (autoApproveShopIfReady). */
+  actor: { id: string | null; role: UserRole | null },
 ): Promise<Shop> {
   return db.transaction(async (tx) => {
     const [shop] = await tx
@@ -661,6 +713,8 @@ function approveShopTransaction(
     const blocker = await onboardingApprovalBlocker(shop, tx);
     if (blocker) throw conflict(blocker, { lifecycleStatus: shop.lifecycleStatus });
     assertRegistrationFeeSettled(shop);
+    // Mandatory legal documents (FSSAI / drug licence / medical registration) are submitted.
+    await assertLegalDocsAllowApproval(shop, tx);
 
     const [updated] = await tx
       .update(shops)
@@ -676,13 +730,16 @@ function approveShopTransaction(
       .where(eq(shops.id, shopId))
       .returning();
 
-    await tx.insert(shopClassificationHistory).values({
-      shopId,
-      previousValue: shop.classification,
-      newValue: input.classification,
-      changedBy: actor.id,
-      reason: "Assigned at approval",
-    });
+    // An automatic approval has nobody to record as the changer; its audit row says what was assigned.
+    if (actor.id) {
+      await tx.insert(shopClassificationHistory).values({
+        shopId,
+        previousValue: shop.classification,
+        newValue: input.classification,
+        changedBy: actor.id,
+        reason: "Assigned at approval",
+      });
+    }
 
     await recordAudit(
       {
@@ -788,6 +845,9 @@ export interface UpdateShopInput {
   ownerName?: string;
   phone?: string;
   email?: string | null;
+  /** C1: the shop's customer contact number and WhatsApp number (null clears). */
+  contactPhone?: string | null;
+  whatsappNumber?: string | null;
   addressLine1?: string;
   addressLine2?: string | null;
   area?: string | null;
@@ -831,6 +891,12 @@ export async function updateShop(
   }
   if (input.phone && !/^[6-9]\d{9}$/.test(input.phone)) {
     throw validationFailed("Enter a valid 10-digit Indian mobile number.");
+  }
+  if (input.contactPhone && !/^[6-9]\d{9}$/.test(input.contactPhone)) {
+    throw validationFailed("Enter a valid 10-digit Indian mobile number for the shop's contact phone.");
+  }
+  if (input.whatsappNumber && !/^[6-9]\d{9}$/.test(input.whatsappNumber)) {
+    throw validationFailed("Enter a valid 10-digit Indian mobile number for WhatsApp.");
   }
   if (
     input.serviceRadiusKm !== undefined &&
@@ -898,6 +964,8 @@ export async function updateShop(
       minOrderPaise: current.minOrderPaise,
       ordersPaused: current.ordersPaused,
       codEnabled: current.codEnabled,
+      ...(input.contactPhone !== undefined ? { contactPhone: current.contactPhone } : {}),
+      ...(input.whatsappNumber !== undefined ? { whatsappNumber: current.whatsappNumber } : {}),
       ...(coordinatesChanged
         ? { latitude: current.latitude, longitude: current.longitude, locationVerified: current.locationVerified }
         : {}),
@@ -910,6 +978,8 @@ export async function updateShop(
       minOrderPaise: updated.minOrderPaise,
       ordersPaused: updated.ordersPaused,
       codEnabled: updated.codEnabled,
+      ...(input.contactPhone !== undefined ? { contactPhone: updated.contactPhone } : {}),
+      ...(input.whatsappNumber !== undefined ? { whatsappNumber: updated.whatsappNumber } : {}),
       ...(coordinatesChanged
         ? { latitude: updated.latitude, longitude: updated.longitude, locationVerified: updated.locationVerified }
         : {}),
@@ -1014,6 +1084,25 @@ export async function getPublicShopById(shopId: string): Promise<PublicShop | un
     .where(and(eq(shops.id, shopId), eq(shops.status, "APPROVED"), isNull(shops.deletedAt)))
     .limit(1);
   return shop;
+}
+
+/**
+ * C1 (rule shopContact): the phone numbers a customer may see for a shop.
+ * SHOP_CONTACT: only the contact phone / WhatsApp number the shopkeeper
+ * entered for customers — never the registration phone or the owner's login
+ * number; with neither entered, `usePlatformCare` asks the page to show
+ * GoKesari customer care instead. REGISTERED_PHONE: the original behaviour.
+ */
+export async function shopCustomerContact(
+  shop: Pick<Shop, "phone" | "contactPhone" | "whatsappNumber">,
+): Promise<{ phone: string | null; whatsapp: string | null; usePlatformCare: boolean }> {
+  const { customerVisible } = await getRule("shopContact");
+  if (customerVisible === "REGISTERED_PHONE") {
+    return { phone: shop.phone, whatsapp: null, usePlatformCare: false };
+  }
+  const phone = shop.contactPhone || null;
+  const whatsapp = shop.whatsappNumber || null;
+  return { phone, whatsapp, usePlatformCare: !phone && !whatsapp };
 }
 
 export async function getPublicShopBySlug(

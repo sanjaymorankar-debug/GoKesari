@@ -9,6 +9,7 @@ import { eq, sql } from "drizzle-orm";
 import { db } from "@/server/db";
 import {
   addresses,
+  deliveryOrders,
   deliveryPartners,
   orders,
   payments,
@@ -26,6 +27,7 @@ import {
   type UserRole,
   sellerVerifications,
 } from "@/server/db/schema";
+import { hashDeliveryCode } from "@/server/services/delivery-otp";
 import type { ShopTypeKey } from "@/lib/shop-types";
 import type { VehicleTypeKey } from "@/lib/vehicle-types";
 
@@ -61,13 +63,14 @@ export async function resetDatabase(): Promise<void> {
           grievances, user_consents,
           delivery_partner_earnings, delivery_earnings_config, delivery_orders,
           maps_api_call_log, delivery_partners,
-          audit_logs, notifications,
+          audit_logs, notifications, domain_events,
           price_update_requests, price_update_batches,
           excel_upload_items, excel_uploads,
           shop_payments, referral_redemptions, referral_codes,
           registration_fee_history, registration_fees,
           voucher_redemptions, voucher_upload_items, voucher_uploads, vouchers,
           subscription_deliveries, subscription_orders, subscription_daily_overrides, subscriptions, delivery_trips,
+          shop_wallet_transactions, shop_wallets,
           wallet_transactions, wallets, payments,
           order_status_history, order_items, orders,
           cart_items, carts,
@@ -457,4 +460,17 @@ export async function createVoucher(
 /** The shop carries this product category, so it sees (and may sell) the category's products. */
 export async function linkShopCategory(shopId: string, categoryId: string) {
   await db.insert(shopProductCategories).values({ shopId, categoryId }).onConflictDoNothing();
+}
+
+/**
+ * Delivery codes are stored only as a hash and emailed to the customer, so a
+ * test cannot read one back. This replaces a started drop's code with a known
+ * one (hashed exactly as the service does) and returns it.
+ */
+export async function setDeliveryCode(deliveryOrderId: string, code = "2468"): Promise<string> {
+  await db
+    .update(deliveryOrders)
+    .set({ deliveryOtpHash: hashDeliveryCode(deliveryOrderId, code), deliveryOtp: null })
+    .where(eq(deliveryOrders.id, deliveryOrderId));
+  return code;
 }

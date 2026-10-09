@@ -95,6 +95,17 @@ export const NOTIFICATION_TYPES = {
   DELIVERY_PARTNER_SUSPENDED: "delivery_partner.suspended",
   DELIVERY_PARTNER_CHANGE_DECIDED: "delivery_partner.change_decided",
   SHOP_PRODUCT_IMAGE_DECIDED: "shop.product_image_decided",
+  /* -------------------- Module 1: shop staff and bulk photo upload */
+  /** To the person added: they may now edit a shop's product photos and descriptions. */
+  SHOP_STAFF_ADDED: "shop.staff_added",
+  SHOP_STAFF_REMOVED: "shop.staff_removed",
+  /** To the uploader: a bulk photo/description upload finished applying. */
+  SHOP_MEDIA_IMPORT_FINISHED: "shop.media_import_finished",
+  /* ------------------------------- Module 2: accounting integration */
+  /** To the owner: an invoice / credit note / sync could not be sent to their accounting software. */
+  INTEGRATION_SYNC_FAILED: "shop.integration_sync_failed",
+  /** Module 3: a self-registered shop is approved (to the owner: SMS, WhatsApp, email when there is one). */
+  SHOP_SELF_REGISTERED: "shop.self_registered",
   REFERRAL_REWARDED: "referral.rewarded",
   DELIVERY_OFFERED: "delivery.offered",
   SHOP_GST_VERIFIED: "shop.gst_verified",
@@ -116,6 +127,85 @@ export const NOTIFICATION_TYPES = {
   SECURITY_PHONE_CHANGED: "security.phone_changed",
   SECURITY_ROLE_CHANGED: "security.role_changed",
   SECURITY_ACCOUNT_STATUS: "security.account_status",
+  /* ------------------------------------- event layer (docs/event-driven-2026-10) */
+  /** To the customer, once per order: the rider search has started. */
+  ORDER_RIDER_SEARCH: "order.rider_search",
+  /** To the shop, once per order: the rider search has started. */
+  SHOP_RIDER_SEARCH_STARTED: "shop.rider_search_started",
+  /** To the shop: a rider declined or let an offer lapse; the next rider is being asked. */
+  SHOP_RIDER_DECLINED: "shop.rider_declined",
+  /** To the shop: a rider accepted and is coming for the pickup. */
+  SHOP_RIDER_ASSIGNED: "shop.rider_assigned",
+  SHOP_ORDER_PICKED_UP: "shop.order_picked_up",
+  SHOP_ORDER_OUT_FOR_DELIVERY: "shop.order_out_for_delivery",
+  SHOP_ORDER_DELIVERED: "shop.order_delivered",
+  /** To the shop: the accept-by time passed and support has been asked to step in. */
+  SHOP_ACCEPT_ESCALATED: "shop.accept_escalated",
+  /** To the rider: an accepted delivery was cancelled or reassigned. */
+  DELIVERY_CANCELLED: "delivery.cancelled",
+  /** To the seller: a document is waiting for a person to review it. */
+  SHOP_DOCUMENT_IN_REVIEW: "shop.document_in_review",
+  /** To the shop: a customer opened a dispute on one of its orders. */
+  SHOP_DISPUTE_OPENED: "shop.dispute_opened",
+  /** To the customer and the shop: a dispute moved on (status, escalation). */
+  DISPUTE_UPDATED: "dispute.updated",
+  /** To the parties of a dispute: someone wrote on the case. */
+  DISPUTE_COMMENT: "dispute.comment",
+  /* Support (operators; administrators for SUPPORT_LEAD alerts). */
+  SUPPORT_ACCEPT_OVERDUE: "support.accept_overdue",
+  SUPPORT_RIDER_UNASSIGNED: "support.rider_unassigned",
+  SUPPORT_NOTIFICATION_DEAD: "support.notification_dead",
+  SUPPORT_SELLER_REVIEW: "support.seller_review",
+  SUPPORT_SELLER_REVIEW_REMINDER: "support.seller_review_reminder",
+  SUPPORT_SELLER_DECIDED: "support.seller_decided",
+  SUPPORT_SHOP_AUTO_APPROVED: "support.shop_auto_approved",
+  SUPPORT_SHOP_SELF_REGISTERED: "support.shop_self_registered",
+  SUPPORT_REGISTRATION_PAYMENT_MISMATCH: "support.registration_payment_mismatch",
+  SUPPORT_DISPUTE_OPENED: "support.dispute_opened",
+  SUPPORT_DISPUTE_UPDATED: "support.dispute_updated",
+  SUPPORT_DISPUTE_ESCALATED: "support.dispute_escalated",
+  /* ------------------------- shop wallet & delivery code (docs/shop-wallet-delivery-otp-2026-10) */
+  SHOP_WALLET_TOPUP_SUCCESS: "shop.wallet_topup_success",
+  SHOP_WALLET_LOW_BALANCE: "shop.wallet_low_balance",
+  SHOP_WALLET_ADJUSTED: "shop.wallet_adjusted",
+  /** To the rider: the order they dropped is confirmed delivered. */
+  DELIVERY_CONFIRMED: "delivery.confirmed",
+  /** To the customer: too many wrong delivery codes; support is checking. */
+  ORDER_DELIVERY_CODE_LOCKED: "order.delivery_code_locked",
+  SHOP_DELIVERY_CODE_LOCKED: "shop.delivery_code_locked",
+  SUPPORT_DELIVERY_CODE_LOCKED: "support.delivery_code_locked",
+  /* ------------------------------------------------- docs/four-features-2026-10 */
+  /** To the customer: the shop chose pickup / own delivery / GoKesari partner and a time. */
+  ORDER_FULFILMENT_SET: "order.fulfilment_set",
+  /** To the customer: the option, the delivery person or the time changed. */
+  ORDER_FULFILMENT_CHANGED: "order.fulfilment_changed",
+  /** To the shop: support changed how one of its orders is fulfilled. */
+  SHOP_FULFILMENT_CHANGED: "shop.fulfilment_changed",
+  /** To the customer and the shop: too many wrong pickup / delivery codes. */
+  ORDER_FULFILMENT_CODE_LOCKED: "order.fulfilment_code_locked",
+  SHOP_FULFILMENT_CODE_LOCKED: "shop.fulfilment_code_locked",
+  SUPPORT_FULFILMENT_CODE_LOCKED: "support.fulfilment_code_locked",
+  /** To the shop owner: a licence is required (grace period started) / decided / expiring. */
+  SHOP_LEGAL_DOCUMENT_REQUIRED: "shop.legal_document_required",
+  SHOP_LEGAL_DOCUMENT_DECIDED: "shop.legal_document_decided",
+  SHOP_LEGAL_DOCUMENT_EXPIRING: "shop.legal_document_expiring",
+  SUPPORT_LEGAL_DOCUMENT_SUBMITTED: "support.legal_document_submitted",
+  /** To the account holder: the ₹1 verification of a bank account succeeded / failed. */
+  BANK_ACCOUNT_VERIFIED: "wallet.bank_account_verified",
+  BANK_ACCOUNT_VERIFICATION_FAILED: "wallet.bank_account_verification_failed",
+  /** To the customer: a refund is on its way to their bank / was paid / failed and is back in the wallet / was cancelled. */
+  BANK_REFUND_REQUESTED: "wallet.bank_refund_requested",
+  BANK_REFUND_PAID: "wallet.bank_refund_paid",
+  BANK_REFUND_RETURNED: "wallet.bank_refund_returned",
+  /** To finance (admins): a customer asked for a refund to their bank. */
+  SUPPORT_BANK_REFUND_REQUESTED: "support.bank_refund_requested",
+  /** To operations: a customer asked for a referral code. To the customer: a code was issued, or the request declined. */
+  SUPPORT_CUSTOMER_REFERRAL_REQUEST: "support.customer_referral_request",
+  CUSTOMER_REFERRAL_REQUEST_DECIDED: "customer.referral_request_decided",
+  /** To support: someone asked for a shop referral code. */
+  SUPPORT_REFERRAL_REQUEST: "support.referral_request",
+  /** To the requester (when signed in): a referral code was issued, or the request declined. */
+  SHOP_REFERRAL_REQUEST_DECIDED: "shop.referral_request_decided",
 } as const;
 
 export type NotificationType =

@@ -1,0 +1,12 @@
+# GoKesari — TEST site crontab BEFORE the event layer, as described in the
+# brief (UTC). Reconstructed from that description, not read from the server:
+# compare it with `crontab -l` and keep your own copy as the source of truth.
+# Restore this block to undo the cron change (ROLLBACK.md §1).
+* * * * *   $HOME/gokesari-cron/run.sh shop-acceptance
+* * * * *   $HOME/gokesari-cron/run.sh delivery-dispatch
+* * * * *   $HOME/gokesari-cron/run.sh notifications
+17 * * * *  $HOME/gokesari-cron/run.sh risk-rules
+23 * * * *  $HOME/gokesari-cron/run.sh dispute-escalation
+30 23 * * * $HOME/gokesari-cron/run.sh daily-orders
+0 1 * * *   $HOME/gokesari-cron/run.sh seller-verification
+0 21 * * 0  $HOME/gokesari-cron/run.sh finance-weekly

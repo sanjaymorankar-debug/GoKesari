@@ -45,6 +45,19 @@ const serverEnvSchema = z.object({
   CASHFREE_APP_ID: z.string().optional(),
   CASHFREE_SECRET_KEY: z.string().optional(),
   CASHFREE_ENV: z.enum(["sandbox", "production"]).default("sandbox"),
+  /**
+   * Cashfree Verification Suite (Secure ID) — bank account check (docs/four-features-2026-10, O-7).
+   * Its own client id / secret, not the payment keys. The *_APP_ID / *_SECRET_KEY spellings are
+   * accepted too, matching the payment keys' names. Optional: without them the ₹1 check is used.
+   */
+  CASHFREE_VERIFICATION_CLIENT_ID: z.string().optional(),
+  CASHFREE_VERIFICATION_CLIENT_SECRET: z.string().optional(),
+  CASHFREE_VERIFICATION_APP_ID: z.string().optional(),
+  CASHFREE_VERIFICATION_SECRET_KEY: z.string().optional(),
+  /** Secure ID public key (PEM) for 2FA by signature; without it Cashfree must have this server's IP whitelisted. */
+  CASHFREE_VERIFICATION_PUBLIC_KEY: z.string().optional(),
+  /** Defaults to CASHFREE_ENV. */
+  CASHFREE_VERIFICATION_ENV: z.enum(["sandbox", "production"]).optional(),
 
   /**
    * Google Maps Platform — server-side Geocoding API key, used exactly once
@@ -94,6 +107,44 @@ const serverEnvSchema = z.object({
    * no fallback to plaintext storage.
    */
   PAN_ENCRYPTION_KEY: z.string().optional(),
+
+  /**
+   * Module 1: absolute path of a folder OUTSIDE the web root where product
+   * photos are written (random file names, served only through
+   * /api/images/{id}). Unset: photos are kept in the database, as before.
+   * On Hostinger use a folder in the account's home that a redeploy does not
+   * replace, and back it up with the database.
+   */
+  MEDIA_DIR: z.string().optional(),
+
+  /**
+   * Module 2: base64 of a 32-byte AES-256-GCM key for shops' accounting
+   * software secrets (Odoo API keys, Zoho refresh tokens). Without it no
+   * secret can be saved (never stored in plain text). Separate from
+   * PAN_ENCRYPTION_KEY. Back it up: losing it means every shop reconnects.
+   */
+  INTEGRATION_ENCRYPTION_KEY: z.string().optional(),
+  /** "off" stops running sync jobs straight after commit (tests run the dispatcher themselves). */
+  INTEGRATION_AUTODISPATCH: z.enum(["on", "off"]).default("on"),
+  /** Module 2: GoKesari's Zoho API client (api-console.zoho.in, server-based), redirect URI <AUTH_URL>/api/integrations/zoho/callback. */
+  ZOHO_CLIENT_ID: z.string().optional(),
+  ZOHO_CLIENT_SECRET: z.string().optional(),
+  /**
+   * Module 2: the GST Suvidha Provider for GSTIN look-up, e-invoice (IRN)
+   * and e-way bills. `mock` (sandbox-shaped, no network) until a licensed GSP
+   * is chosen; gspConfigProblem() applies the same production/sandbox pairing
+   * as KYC.
+   */
+  GSP_PROVIDER: z.enum(["mock"]).default("mock"),
+  /**
+   * Module 3: SMS and WhatsApp. `none` (default) = not sent. `mock` = written
+   * to outbound_test_messages for testers to read at /admin/test-messages
+   * (test site only; refused on the production site). Real providers (MSG91
+   * DLT for SMS, Meta Cloud API for WhatsApp) are added when chosen.
+   */
+  SMS_PROVIDER: z.enum(["none", "mock"]).default("none"),
+  WHATSAPP_PROVIDER: z.enum(["none", "mock"]).default("none"),
+  GSP_ENV: z.enum(["sandbox", "production"]).default("sandbox"),
 
   // Shared bearer token guarding the daily-order cron endpoint.
   CRON_SECRET: z.string().min(1, "CRON_SECRET is required"),
@@ -159,6 +210,28 @@ export function getEnv(): ServerEnv {
   return cached;
 }
 
+/**
+ * Cashfree Verification Suite keys stored under a name other than the
+ * CASHFREE_VERIFICATION_* ones above (the host's settings are the owner's
+ * choice): CASHFREE_CLIENT_ID / CASHFREE_CLIENT_SECRET (Cashfree's own labels
+ * for these keys), else the first pair of names like
+ * CASHFREE…VERIF…_ID / CASHFREE…VERIF…_SECRET (also VRS, SECURE_ID, BAV, KYC;
+ * CF_ for CASHFREE). Returns the names it used, never logged with the values.
+ */
+export function findCashfreeVerificationKeys(
+  source: Record<string, string | undefined> = process.env,
+): { idName: string; secretName: string; clientId: string; clientSecret: string } | null {
+  const set = (name: string) => (source[name] ? name : null);
+  if (set("CASHFREE_CLIENT_ID") && set("CASHFREE_CLIENT_SECRET")) {
+    return { idName: "CASHFREE_CLIENT_ID", secretName: "CASHFREE_CLIENT_SECRET", clientId: source.CASHFREE_CLIENT_ID!, clientSecret: source.CASHFREE_CLIENT_SECRET! };
+  }
+  const names = Object.keys(source).filter((k) => source[k]).sort();
+  const looksLike = /^(CASHFREE|CF)_?\w*(VERIF|VRS|SECURE_?ID|BAV|KYC)\w*$/i;
+  const idName = names.find((k) => looksLike.test(k) && /_(CLIENT_?ID|APP_?ID|ID)$/i.test(k));
+  const secretName = names.find((k) => looksLike.test(k) && /_(CLIENT_?SECRET|SECRET_?KEY|SECRET)$/i.test(k));
+  return idName && secretName ? { idName, secretName, clientId: source[idName]!, clientSecret: source[secretName]! } : null;
+}
+
 /** True when real Cashfree credentials are configured. */
 export function isPaymentGatewayLive(): boolean {
   const env = getEnv();
@@ -215,6 +288,40 @@ export function kycConfigProblem(env: ServerEnv = getEnv()): string | null {
   }
   if (env.KYC_PROVIDER === "idfy" && !(env.IDFY_ACCOUNT_ID && env.IDFY_API_KEY)) {
     return "KYC_PROVIDER=idfy needs IDFY_ACCOUNT_ID and IDFY_API_KEY.";
+  }
+  return null;
+}
+
+/** Why GST calls through the GSP must not run with these settings, or null. Same host pairing as KYC. */
+export function gspConfigProblem(env: ServerEnv = getEnv()): string | null {
+  let host = "";
+  try {
+    host = env.AUTH_URL ? new URL(env.AUTH_URL).hostname.toLowerCase() : "";
+  } catch {
+    host = "";
+  }
+  const prodHost = env.KYC_PRODUCTION_HOST.toLowerCase();
+  const isProductionHost = host === prodHost || host === `www.${prodHost}`;
+  if (isProductionHost && env.GSP_PROVIDER === "mock") return "GSP_PROVIDER=mock is not allowed on the production site.";
+  if (isProductionHost && env.GSP_ENV !== "production") return "The production site must use GSP_ENV=production.";
+  if (!isProductionHost && env.GSP_ENV === "production") {
+    return `GSP_ENV=production is only allowed on ${prodHost}; this host (${host || "no AUTH_URL"}) must use the GSP sandbox.`;
+  }
+  return null;
+}
+
+/** Why SMS / WhatsApp must not send with these settings, or null. The mock never runs on the production site. */
+export function messagingConfigProblem(env: ServerEnv = getEnv()): string | null {
+  let host = "";
+  try {
+    host = env.AUTH_URL ? new URL(env.AUTH_URL).hostname.toLowerCase() : "";
+  } catch {
+    host = "";
+  }
+  const prodHost = env.KYC_PRODUCTION_HOST.toLowerCase();
+  const isProductionHost = host === prodHost || host === `www.${prodHost}`;
+  if (isProductionHost && (env.SMS_PROVIDER === "mock" || env.WHATSAPP_PROVIDER === "mock")) {
+    return "SMS_PROVIDER / WHATSAPP_PROVIDER=mock is not allowed on the production site.";
   }
   return null;
 }

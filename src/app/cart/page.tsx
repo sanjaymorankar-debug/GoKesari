@@ -6,15 +6,21 @@ import { PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { listAddresses } from "@/server/services/addresses";
-import { COD_LIMITS, getCodEligibility } from "@/server/services/cod";
+import { getCodEligibility } from "@/server/services/cod";
 import { getCart } from "@/server/services/cart";
 import { db } from "@/server/db";
 import { shops, users } from "@/server/db/schema";
 import { getCustomerLocation } from "@/server/location";
 import { validateCartForLocation } from "@/server/services/cart-validation";
 import { listShopsForOwner } from "@/server/services/shops";
+import { listOpenOrdersForCheckout } from "@/server/services/orders";
 import { getRule } from "@/server/services/settings";
 import { getWalletByUserId } from "@/server/services/wallet";
+import { BankAccountPrompt } from "@/components/bank-account-prompt";
+import { customerBankPrompt } from "@/server/services/bank-accounts";
+import Link from "next/link";
+import { Alert } from "@/components/ui";
+import { needsSignupReferralCode } from "@/server/services/customer-signup-referrals";
 
 export const metadata = { title: "Cart" };
 export const dynamic = "force-dynamic";
@@ -40,6 +46,8 @@ export default async function CartPage() {
   const cartShops =
     cartShopIds.length > 0 ? await db.select().from(shops).where(inArray(shops.id, cartShopIds)) : [];
   const validation = await validateCartForLocation(user.id, location);
+  // C3: open orders the customer is asked about before paying (rule openOrderCheck).
+  const openOrders = cart.groups.length > 0 ? await listOpenOrdersForCheckout(user.id, cartShopIds) : [];
   // GS-030: why cash on delivery is unavailable for this cart, if it is.
   const tooLarge = cart.groups.find((g) => g.totalPaise > codEligibility.maxOrderPaise);
   const noCodShop = cartShops.find((s) => !s.codEnabled || !s.deliveryAvailable);
@@ -49,7 +57,7 @@ export default async function CartPage() {
       ? `${noCodShop.name} does not accept cash on delivery.`
       : tooLarge
         ? `Cash on delivery is available up to ₹${(codEligibility.maxOrderPaise / 100).toFixed(0)} per shop order.`
-        : cart.groups.length > COD_LIMITS.maxOpenOrders - codEligibility.openOrders
+        : cart.groups.length > codEligibility.maxOpenOrders - codEligibility.openOrders
           ? "Too many cash-on-delivery orders open — pay from your wallet."
           : null;
   const preferredAddressId =
@@ -62,12 +70,29 @@ export default async function CartPage() {
     .filter((shop) => shop.status === "APPROVED")
     .map((shop) => ({ id: shop.id, name: shop.name }));
 
+  // Bank accounts (docs/four-features-2026-10): a prompt at the first checkout, never a blocker.
+  const bankPrompt = cart.groups.length > 0 ? await customerBankPrompt(user.id, "checkout") : null;
+  // Mandatory referral code (rule customerSignupReferral.required): checkout refuses a first order without one.
+  const needsReferralCode = cart.groups.length > 0 && (await needsSignupReferralCode(user.id));
+
   return (
     <>
       <PageHeader
         title="Your cart"
         description="Items are grouped by shop — each shop becomes its own order."
       />
+      {bankPrompt ? <BankAccountPrompt status={bankPrompt} href="/profile/bank-account" purpose="refunds" /> : null}
+      {needsReferralCode ? (
+        <div className="mb-4" data-testid="cart-referral-needed">
+          <Alert tone="warning" title="A referral code is needed for your first order">
+            Enter the code you were given — or ask us for one — in{" "}
+            <Link href="/referral" className="font-medium underline">
+              My referral code
+            </Link>
+            .
+          </Alert>
+        </div>
+      ) : null}
       <CartView
         cart={cart}
         walletBalancePaise={wallet?.balancePaise ?? 0}
@@ -77,6 +102,16 @@ export default async function CartPage() {
         codUnavailableReason={codUnavailableReason}
         hasMobile={Boolean(account?.phoneE164)}
         couponsEnabled={(await getRule("coupons")).enabled}
+        openOrders={openOrders.map((o) => ({
+          id: o.id,
+          orderNumber: o.orderNumber,
+          shopName: o.shopName,
+          orderType: o.orderType,
+          status: o.status,
+          statusLabel: o.statusLabel,
+          totalPaise: o.totalPaise,
+          customerMayCancel: o.customerMayCancel,
+        }))}
         addresses={addresses.map((a) => ({
           id: a.id,
           label: a.label,

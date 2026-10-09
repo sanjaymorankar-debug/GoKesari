@@ -48,7 +48,8 @@ import {
 import { verifyDocument, type SourceRecord, type VerifyExtraFields } from "@/server/kyc";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { detectImage } from "./image-store";
-import { NOTIFICATION_TYPES, notify } from "./notifications";
+import { emitEvent } from "@/server/events/emit";
+import { autoApproveShopIfReady } from "./shops";
 import {
   applyDocumentChecks,
   consistencyScore,
@@ -69,6 +70,7 @@ export interface Actor {
 
 /** A second identical submission within this window rides on the first instead of paying again. */
 const IN_FLIGHT_WINDOW_MS = 30_000;
+/** Code default; the live limit is rule `uploads.sellerDocumentMaxBytes`. */
 const MAX_FILE_BYTES = 5_000_000;
 
 /* ------------------------------------------------------------------ views */
@@ -453,7 +455,7 @@ async function runCheck(
     const latest = await db.query.sellerVerifications.findFirst({ where: eq(sellerVerifications.id, claim.row.id) });
     return latest ?? claim.row;
   }
-  if (status !== claim.previousStatus) await notifyOwner(shop, updated);
+  if (status !== claim.previousStatus) await announceResult(shop, updated, claim.previousStatus, actor);
   return updated;
 }
 
@@ -503,24 +505,50 @@ const ATTENTION_TEXT: Record<string, string> = {
   document_suspended: "The government record shows this document as suspended.",
 };
 
-async function notifyOwner(shop: Shop, row: SellerVerification): Promise<void> {
-  const label = SELLER_DOC_LABELS[row.docType];
+/** Why a document went to a person — for the support alert. */
+const REVIEW_REASONS: Record<string, string> = {
+  name_not_returned: "the government record gave no name to compare",
+  name_mismatch: "the name on the record does not match the shop's",
+  gstin_pan_mismatch: "the GSTIN is not linked to the shop's PAN",
+  state_mismatch: "the GSTIN's state is not the shop's state",
+  expiry_not_returned: "the record has no expiry date",
+  address_mismatch: "the address on the record does not match the shop's",
+  consistency_below_threshold: "the shop's documents disagree with each other",
+  certificate_review: "a Shop Act certificate was uploaded — compare it with the number typed",
+  gst_declaration_review: "the seller declared the shop is not GST-registered",
+};
+
+/**
+ * Event layer: a check result as an event — the seller is told at once
+ * (verified, needs attention, or in review), support gets a review link for
+ * MANUAL_REVIEW, and a verified document may complete the shop's approval.
+ */
+async function announceResult(
+  shop: Shop,
+  row: SellerVerification,
+  from: SellerVerificationStatus | null,
+  actor: Actor | null,
+): Promise<void> {
+  await emitEvent({
+    type: "seller_document.checked",
+    subjectId: row.id,
+    transition: { from, to: row.status },
+    actor: actor ?? { id: null, role: null },
+    payload: {
+      shopId: shop.id,
+      shopName: shop.name,
+      ownerId: shop.ownerId,
+      docLabel: SELLER_DOC_LABELS[row.docType],
+      status: row.status,
+      numberMasked: row.numberMasked,
+      message: row.reviewNote ?? ATTENTION_TEXT[row.lastErrorCode ?? ""] ?? null,
+      why: REVIEW_REASONS[row.lastErrorCode ?? ""] ?? row.lastErrorCode ?? null,
+    },
+  });
   if (row.status === "VERIFIED") {
-    await notify({
-      userId: shop.ownerId,
-      type: NOTIFICATION_TYPES.SHOP_DOCUMENT_VERIFIED,
-      title: `${label} verified`,
-      body: `${shop.name}'s ${label} (${row.numberMasked ?? "on file"}) has been verified.`,
-      actionUrl: "/shop/verification",
-    });
-  } else if (row.status === "FAILED" || row.status === "EXPIRED") {
-    await notify({
-      userId: shop.ownerId,
-      type: NOTIFICATION_TYPES.SHOP_DOCUMENT_ATTENTION,
-      title: `${label} needs your attention`,
-      body: row.reviewNote ?? ATTENTION_TEXT[row.lastErrorCode ?? ""] ?? `We couldn't verify ${shop.name}'s ${label}.`,
-      actionUrl: "/shop/verification",
-    });
+    await autoApproveShopIfReady(shop.id).catch((error) =>
+      console.error("[seller-verification] auto-approval check failed", shop.id, error),
+    );
   }
 }
 
@@ -636,9 +664,10 @@ export async function declareNoGstin(input: {
       .update(shops)
       .set({ gstStatus: "NOT_REGISTERED", gstin: null, gstTradeName: null, gstVerificationSource: "SELF_DECLARED", gstVerifiedAt: null, gstVerifiedBy: null, updatedAt: now })
       .where(eq(shops.id, shop.id));
-    return updated;
+    return { updated, from: current.status };
   });
-  return toView(row);
+  await announceResult(shop, row.updated, row.from, input.actor);
+  return toView(row.updated);
 }
 
 /** File type from the bytes, never the name or declared type. */
@@ -662,7 +691,10 @@ export async function uploadShopActCertificate(input: {
   ipAddress?: string | null;
 }): Promise<SellerVerificationView> {
   if (input.file.length === 0) throw validationFailed("The file is empty.");
-  if (input.file.length > MAX_FILE_BYTES) throw validationFailed("The certificate can be at most 5 MB.");
+  const maxFileBytes = (await getRule("uploads")).sellerDocumentMaxBytes ?? MAX_FILE_BYTES;
+  if (input.file.length > maxFileBytes) {
+    throw validationFailed(`The certificate can be at most ${maxFileBytes / 1_000_000} MB.`);
+  }
   const contentType = detectDocumentFile(input.file);
   if (!contentType) throw validationFailed("Upload the certificate as a PDF, JPEG, PNG or WebP file.");
 
@@ -712,9 +744,14 @@ export async function uploadShopActCertificate(input: {
       toStatus: updated.status,
       details: { contentType, sizeBytes: input.file.length, numberMasked: view.numberMasked },
     });
-    return updated;
+    return { updated, from: current.status, needsReview };
   });
-  return toView(row);
+  // The certificate is new evidence: support is asked to look at it now.
+  if (row.needsReview) {
+    const shop = await db.query.shops.findFirst({ where: eq(shops.id, input.shopId) });
+    if (shop) await announceResult(shop, row.updated, row.from, input.actor);
+  }
+  return toView(row.updated);
 }
 
 /** An uploaded certificate, for its shop's owner or a reviewer. Reviewer views are audited. */
@@ -858,12 +895,14 @@ export async function listVerificationReviewQueue(actor: Actor): Promise<ReviewQ
 
 export async function adminDecideVerification(
   verificationId: string,
-  input: { decision: "approve" | "reject"; reason: string },
+  /** more_info (event layer): send it back to the seller saying what is missing — they resubmit. */
+  input: { decision: "approve" | "reject" | "more_info"; reason: string },
   actor: Actor,
 ): Promise<SellerVerificationView> {
   if (!isReviewer(actor)) throw forbidden("You can't review seller documents.");
   const reason = input.reason.trim();
   if (input.decision === "reject" && reason.length < 3) throw validationFailed("A rejection reason is required.");
+  if (input.decision === "more_info" && reason.length < 3) throw validationFailed("Say what information is needed.");
 
   const row = await db.query.sellerVerifications.findFirst({ where: eq(sellerVerifications.id, verificationId) });
   if (!row) throw notFound("Verification");
@@ -881,7 +920,8 @@ export async function adminDecideVerification(
       .set({
         status: toStatus,
         verifiedAt: toStatus === "VERIFIED" ? now : null,
-        lastErrorCode: toStatus === "FAILED" ? "rejected_by_admin" : null,
+        lastErrorCode:
+          input.decision === "more_info" ? "more_info_requested" : toStatus === "FAILED" ? "rejected_by_admin" : null,
         reviewerId: actor.id,
         reviewedAt: now,
         reviewNote: reason || null,
@@ -895,6 +935,7 @@ export async function adminDecideVerification(
       docType: row.docType,
       ...actorFields(actor, null),
       eventType: input.decision === "approve" ? "ADMIN_APPROVED" : "ADMIN_REJECTED",
+      ...(input.decision === "more_info" ? { details: { moreInfoRequested: true } } : {}),
       fromStatus: row.status,
       toStatus,
       note: reason || null,
@@ -925,7 +966,37 @@ export async function adminDecideVerification(
     newValue: { docType: row.docType, status: toStatus, numberMasked: row.numberMasked, reason: reason || null },
   });
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, row.shopId) });
-  if (shop) await notifyOwner(shop, updated);
+  if (shop) {
+    const label = SELLER_DOC_LABELS[row.docType];
+    await emitEvent({
+      type: "seller_document.decided",
+      subjectId: row.id,
+      transition: { from: row.status, to: toStatus },
+      actor,
+      payload: {
+        shopId: shop.id,
+        shopName: shop.name,
+        ownerId: shop.ownerId,
+        docLabel: label,
+        status: toStatus,
+        numberMasked: updated.numberMasked,
+        decision:
+          input.decision === "approve" ? "approved" : input.decision === "reject" ? "rejected" : "sent back for more information",
+        by: actor.role === "ADMIN" ? "an administrator" : "an operator",
+        message:
+          input.decision === "more_info"
+            ? `We need more information about ${shop.name}'s ${label}: ${reason} Please update it and submit again.`
+            : input.decision === "reject"
+              ? `${shop.name}'s ${label} was not accepted: ${reason}`
+              : null,
+      },
+    });
+    if (toStatus === "VERIFIED") {
+      await autoApproveShopIfReady(shop.id).catch((error) =>
+        console.error("[seller-verification] auto-approval check failed", shop.id, error),
+      );
+    }
+  }
   return toView(updated);
 }
 

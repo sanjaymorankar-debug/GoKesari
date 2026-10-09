@@ -2,6 +2,8 @@
  * Fraud / risk rules sweep (GS-068). Schedule hourly:
  *   curl -X POST https://<host>/api/cron/risk-rules -H "Authorization: Bearer $CRON_SECRET"
  * Raises or refreshes OPEN flags for operations to review. Safe to re-run.
+ * Event layer: this hourly run is the scan for patterns across orders; the
+ * per-order rules also run at placement and on a failed payment (risk.ts).
  */
 import type { NextRequest } from "next/server";
 

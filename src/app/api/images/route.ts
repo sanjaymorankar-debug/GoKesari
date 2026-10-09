@@ -3,6 +3,8 @@
  *   RETURN_EVIDENCE — any signed-in customer, for their own return photos
  *   PRODUCT         — a shop owner or catalogue staff, for product photos
  *   PROFILE_PHOTO   — a delivery partner, for their own profile photo (F2)
+ *   DISPUTE_EVIDENCE — any signed-in user, for photos on a dispute case they
+ *                     are part of (attached by the dispute service, which checks that)
  * The browser shrinks images first; the server validates them again.
  */
 import type { NextRequest } from "next/server";
@@ -25,7 +27,7 @@ export const POST = route(async (request: NextRequest) => {
   const file = form?.get("file");
   const purpose = form?.get("purpose");
   if (!(file instanceof File)) throw validationFailed("Attach an image file.");
-  if (purpose !== "RETURN_EVIDENCE" && purpose !== "PRODUCT" && purpose !== "PROFILE_PHOTO") {
+  if (purpose !== "RETURN_EVIDENCE" && purpose !== "PRODUCT" && purpose !== "PROFILE_PHOTO" && purpose !== "DISPUTE_EVIDENCE") {
     throw validationFailed("Unknown image purpose.");
   }
   // F2: a rider's own profile photo.

@@ -26,13 +26,14 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { getRule } from "./settings";
 
 interface Actor {
   id: string;
   role: UserRole;
 }
 
-/** How long after delivery a customer may rate. */
+/** How long after delivery a customer may rate — code default; the live value is rule `ratings.windowDays`. */
 export const RATING_WINDOW_DAYS = 30;
 const MAX_COMMENT = 500;
 
@@ -67,8 +68,9 @@ export async function getRatingEligibility(orderId: string, customerId: string, 
     .orderBy(orderStatusHistory.createdAt)
     .limit(1);
   const since = deliveredAt?.at ?? order.updatedAt;
-  if (Date.now() - since.getTime() > RATING_WINDOW_DAYS * 86_400_000) {
-    return { ...base, canRateShop: false, canRateRider: false, reason: `Ratings close ${RATING_WINDOW_DAYS} days after delivery.` };
+  const { windowDays } = await getRule("ratings");
+  if (Date.now() - since.getTime() > windowDays * 86_400_000) {
+    return { ...base, canRateShop: false, canRateRider: false, reason: `Ratings close ${windowDays} days after delivery.` };
   }
   return {
     ...base,

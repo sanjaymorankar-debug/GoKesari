@@ -1,0 +1,39 @@
+# GoKesari — TEST site (test.gokesari.com) crontab, event layer.
+# Times are UTC (as in the current crontab). IST = UTC + 5:30.
+# Every job POSTs https://test.gokesari.com/api/cron/<job> with the CRON_SECRET
+# (see run.sh.example). All jobs are idempotent: an overlapping or repeated run
+# is harmless.
+#
+# Install in two phases — the old polling jobs are removed only after the new
+# flows have passed the test checklist (TEST_CHECKLIST.md).
+
+# ---------------------------------------------------------------------------
+# PHASE A — while testing: the new safety-net jobs run ALONGSIDE the old ones.
+# Running both is safe (same sweeps, row-locked and idempotent).
+# ---------------------------------------------------------------------------
+* * * * *   $HOME/gokesari-cron/run.sh timeout-sweep
+* * * * *   $HOME/gokesari-cron/run.sh notification-retry
+* * * * *   $HOME/gokesari-cron/run.sh shop-acceptance
+* * * * *   $HOME/gokesari-cron/run.sh delivery-dispatch
+* * * * *   $HOME/gokesari-cron/run.sh notifications
+17 * * * *  $HOME/gokesari-cron/run.sh risk-rules
+23 * * * *  $HOME/gokesari-cron/run.sh dispute-escalation
+30 23 * * * $HOME/gokesari-cron/run.sh daily-orders
+0 1 * * *   $HOME/gokesari-cron/run.sh seller-verification
+0 21 * * 0  $HOME/gokesari-cron/run.sh finance-weekly
+
+# ---------------------------------------------------------------------------
+# PHASE B — final, after the checklist passes. Replaces the whole block above.
+# ---------------------------------------------------------------------------
+# every minute — safety net only
+* * * * *   $HOME/gokesari-cron/run.sh timeout-sweep        # shop not accepted in X min → cancel/escalate; rider offers/retries; no rider in Y min → support; return pickups; shop-open alerts
+* * * * *   $HOME/gokesari-cron/run.sh notification-retry   # outbox rows only, max N attempts, then support alerted
+* * * * *   $HOME/gokesari-cron/run.sh integration-sync     # Module 2: accounting sync retries that came due, missed pushes, Tally connector offline, e-invoice retries
+# hourly
+17 * * * *  $HOME/gokesari-cron/run.sh risk-rules           # cross-order pattern scan (per-order checks run at placement/payment)
+23 * * * *  $HOME/gokesari-cron/run.sh dispute-escalation   # dispute SLA check: unanswered beyond SLA → escalate to administrators
+# daily
+30 23 * * * $HOME/gokesari-cron/run.sh daily-orders         # 05:00 IST subscription orders
+0 1 * * *   $HOME/gokesari-cron/run.sh seller-verification  # 06:30 IST document upkeep (retries, GST re-check, expiry, lapse, DPDP erasure) + reminder for documents stuck in manual review
+# weekly
+0 21 * * 0  $HOME/gokesari-cron/run.sh finance-weekly       # Mon 02:30 IST settlements, payouts, reconciliation

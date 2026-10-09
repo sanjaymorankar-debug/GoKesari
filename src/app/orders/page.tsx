@@ -11,7 +11,7 @@ import {
   PageHeader,
   StatusBadge,
 } from "@/components/ui";
-import { LiveTrackingMap } from "@/components/live-tracking-map";
+import { TrackDeliveryButton } from "@/components/live-tracking-map";
 import { RateOrderForm, ReportIssueForm } from "@/components/rating-actions";
 import { SubstitutionDecision } from "@/components/substitution-decision";
 import { formatQuantity } from "@/lib/money";
@@ -20,6 +20,9 @@ import { isTrackableOrderStatus } from "@/lib/tracking";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { getDeliveryOrdersForOrders } from "@/server/services/delivery-assignment";
+import { buyerDeliveryCodeView, type BuyerDeliveryCodeView } from "@/server/services/delivery-otp";
+import { DeliveryCodePanel } from "@/components/delivery-code-panel";
+import { maskEmailAddress } from "@/lib/contact";
 import { getLiveDisputesForOrders } from "@/server/services/disputes";
 import { referencesForGroups } from "@/server/services/order-groups";
 import { listOrdersForUser } from "@/server/services/orders";
@@ -27,6 +30,8 @@ import { listMyRatingsByOrder } from "@/server/services/ratings";
 import { formatScheduledSlot } from "@/lib/scheduled-slots";
 import { proofPhotosForOrders } from "@/server/services/delivery-proofs";
 import { getRule } from "@/server/services/settings";
+import { getBuyerFulfilmentViews } from "@/server/services/fulfilment-options";
+import { OrderFulfilmentCard } from "@/components/order-fulfilment-card";
 
 const DELIVERY_STATUS_LABELS: Record<string, string> = {
   OFFERED: "Finding a rider",
@@ -60,6 +65,18 @@ export default async function OrdersPage({
     listMyRatingsByOrder(user.id, orders.map((o) => o.id)),
     getLiveDisputesForOrders(orders.map((o) => o.id)),
   ]);
+  // The delivery code (stored hashed): emailed / locked / new-code state for drops under way.
+  const deliveryCodes = new Map(
+    (
+      await Promise.all(
+        orders
+          .filter((o) => o.status === "OUT_FOR_DELIVERY" && deliveryOrders.has(o.id))
+          .map(async (o) => [o.id, await buyerDeliveryCodeView(deliveryOrders.get(o.id)!)] as const),
+      )
+    ).filter((entry): entry is readonly [string, BuyerDeliveryCodeView] => entry[1] != null && (entry[1].active || entry[1].locked)),
+  );
+  // Fulfilment options (docs/four-features-2026-10): pickup / own delivery / GoKesari plan and time.
+  const fulfilmentPlans = await getBuyerFulfilmentViews(orders.map((o) => o.id), user);
   // NEW-007: delivery photo and invoice links on delivered orders.
   const [proofPhotos, invoicingRule] = await Promise.all([
     proofPhotosForOrders(orders.filter((o) => o.status === "DELIVERED").map((o) => o.id)),
@@ -108,7 +125,7 @@ export default async function OrdersPage({
       ) : (
         <div className="space-y-3">
           {orders.map((order) => (
-            <Card key={order.id} className="p-5" data-testid="order-card">
+            <Card key={order.id} id={`order-${order.orderNumber}`} className="p-5" data-testid="order-card">
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <StatusBadge status={order.status} />
@@ -212,17 +229,19 @@ export default async function OrdersPage({
                 </p>
               ) : null}
 
-              {order.status === "OUT_FOR_DELIVERY" && deliveryOrders.get(order.id)?.deliveryOtp ? (
-                <p
-                  className="mt-3 rounded-lg bg-leaf-50 px-3 py-2 text-sm text-leaf-700"
-                  data-testid="delivery-otp"
-                >
-                  Delivery code:{" "}
-                  <span className="font-mono text-lg font-bold tracking-widest">
-                    {deliveryOrders.get(order.id)!.deliveryOtp}
-                  </span>{" "}
-                  — share it with the rider only when you receive your order.
-                </p>
+              {fulfilmentPlans.has(order.id) &&
+              !["CANCELLED", "REFUNDED", "REFUND_PENDING"].includes(order.status) ? (
+                <OrderFulfilmentCard orderId={order.id} info={fulfilmentPlans.get(order.id)!} />
+              ) : null}
+
+              {order.status === "OUT_FOR_DELIVERY" && deliveryCodes.get(order.id) ? (
+                <DeliveryCodePanel
+                  orderId={order.id}
+                  maskedEmail={maskEmailAddress(user.email)}
+                  locked={deliveryCodes.get(order.id)!.locked}
+                  ticketNumber={deliveryCodes.get(order.id)!.ticketNumber}
+                  resendsLeft={deliveryCodes.get(order.id)!.resendsLeft}
+                />
               ) : null}
 
               {deliveryOrders.has(order.id) ? (
@@ -233,14 +252,14 @@ export default async function OrdersPage({
               ) : null}
 
               {/*
-                GS-042/NAV-004: live tracking, mounted only for an order that
-                has a rider and has not finished — one poll per in-flight order
-                rather than one per card. The panel's own API decides what this
-                viewer may see.
+                GS-042/NAV-004 + event layer: "Track delivery" for an order that
+                has a rider and has not finished. The map and its 5-second poll
+                start only when the customer opens it; the panel's own API
+                decides what this viewer may see.
               */}
               {deliveryOrders.has(order.id) && isTrackableOrderStatus(order.status) ? (
                 <div className="mt-3">
-                  <LiveTrackingMap orderId={order.id} />
+                  <TrackDeliveryButton orderId={order.id} />
                 </div>
               ) : null}
 
@@ -275,10 +294,23 @@ export default async function OrdersPage({
                   <span className="font-medium">
                     {DISPUTE_STATUS_LABELS[liveDisputes.get(order.id)!.status].toLowerCase()}
                   </span>
-                  . We will be in touch.
+                  .{" "}
+                  <Link href={`/disputes/${liveDisputes.get(order.id)!.id}`} className="font-medium underline">
+                    View the case
+                  </Link>
                 </p>
               ) : order.paidAt && order.status !== "PENDING" ? (
-                <ReportIssueForm orderId={order.id} />
+                <>
+                  {/* Event layer: a delivered order can be disputed directly — case number at once. */}
+                  {order.status === "DELIVERED" || order.status === "DISPUTED" ? (
+                    <div className="mt-3">
+                      <LinkButton href={`/orders/${order.id}/dispute`} variant="secondary">
+                        Raise a dispute
+                      </LinkButton>
+                    </div>
+                  ) : null}
+                  <ReportIssueForm orderId={order.id} />
+                </>
               ) : null}
 
               {order.status === "WALLET_INSUFFICIENT" ? (

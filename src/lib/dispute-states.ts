@@ -77,13 +77,14 @@ export const DISPUTE_LEVEL_LABELS: Record<DisputeLevel, string> = {
 };
 
 /** Why a case sits at L2. Recorded so an automatic escalation is distinguishable from a judgement. */
-export const ESCALATION_TRIGGERS = ["MANUAL", "AGE", "AMOUNT"] as const;
+export const ESCALATION_TRIGGERS = ["MANUAL", "AGE", "AMOUNT", "SLA"] as const;
 export type EscalationTrigger = (typeof ESCALATION_TRIGGERS)[number];
 
 export const ESCALATION_TRIGGER_LABELS: Record<EscalationTrigger, string> = {
   MANUAL: "Escalated by a reviewer",
   AGE: "Escalated automatically — open too long",
   AMOUNT: "Escalated automatically — amount above the review limit",
+  SLA: "Escalated automatically — no reply within the response time",
 };
 
 export const DISPUTE_REASONS = [

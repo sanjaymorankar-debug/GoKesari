@@ -1,9 +1,11 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { ShopRegisterForm } from "@/components/shop-register-form";
 import { Alert, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { listShopsForOwner } from "@/server/services/shops";
+import { getRule } from "@/server/services/settings";
 
 export const metadata = { title: "Add my shop" };
 export const dynamic = "force-dynamic";
@@ -16,6 +18,10 @@ export default async function RegisterShopPage() {
   const ownShops = await listShopsForOwner(user.id);
   const pending = ownShops.filter((s) => s.status === "PENDING_APPROVAL");
   const rejected = ownShops.find((s) => s.status === "REJECTED");
+  // docs/four-features-2026-10, feature 4: the referral code is mandatory while this rule is on.
+  const referralRule = await getRule("shopReferral");
+  // Module 3: with a referral code a shop can register and pay online, approved on payment.
+  const selfService = (await getRule("selfRegistration")).enabled;
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -42,6 +48,13 @@ export default async function RegisterShopPage() {
           </Alert>
         </div>
       ) : null}
+      {selfService ? (
+        <div className="mb-4">
+          <Alert tone="success" title="Have a referral code from a GoKesari distributor?">
+            <Link href="/shop/join" className="underline">Register with the code and pay the fee online</Link> — your shop goes live as soon as the payment is confirmed.
+          </Alert>
+        </div>
+      ) : null}
       <div className="mb-4">
         <Alert tone="info">
           Your shop starts as <strong>pending approval</strong>. Kesari/Green
@@ -49,7 +62,7 @@ export default async function RegisterShopPage() {
           chosen here.
         </Alert>
       </div>
-      <ShopRegisterForm />
+      <ShopRegisterForm referralRequired={referralRule.required} />
     </div>
   );
 }

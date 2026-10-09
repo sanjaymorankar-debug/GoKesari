@@ -20,7 +20,7 @@ import type { CustomerLocation } from "@/lib/location";
 import { db } from "@/server/db";
 import { shops } from "@/server/db/schema";
 import { clearCartForShop, getCart, type CartSummary } from "./cart";
-import { shopServiceability, societyPartnerShopIds } from "./serviceability";
+import { shopServiceability, societyPartnerShopIds, withWalletGate } from "./serviceability";
 
 export type CartIssueCode =
   | "NOT_DELIVERABLE"
@@ -155,7 +155,8 @@ export async function validateCartForLocation(
 ): Promise<CartLocationValidation> {
   const cart = await getCart(userId);
   const ids = cart.groups.map((g) => g.shop.id);
-  const rows = ids.length ? await db.select().from(shops).where(inArray(shops.id, ids)) : [];
+  // A shop whose wallet is below the minimum counts as paused (rule shopWallet).
+  const rows = await withWalletGate(ids.length ? await db.select().from(shops).where(inArray(shops.id, ids)) : []);
   const partners = await societyPartnerShopIds(location?.societyId);
 
   const checks = cart.groups.flatMap((group) => {
