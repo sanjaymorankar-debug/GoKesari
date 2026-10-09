@@ -104,7 +104,7 @@ function ShopChip({
   balance: string | null;
 }) {
   return (
-    <span className="flex items-center [--chip-h:1.75rem] [--chip-px:0.4375rem] [--chip-text:0.84375rem]">
+    <span className="flex items-center [--chip-h:1.75rem] [--chip-px:0.4375rem] [--chip-text:0.84375rem] max-lg:[@media(max-height:760px)]:[--chip-h:1.5rem]">
       <Chip item={item} lang={lang} counts={counts} ticks={ticks} />
       {balance ? <span className="ml-1 text-xs font-bold tabular-nums text-ink-700">{balance}</span> : null}
     </span>

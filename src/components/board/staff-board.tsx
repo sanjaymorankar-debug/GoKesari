@@ -81,8 +81,8 @@ export function StaffBoard({ lang, user, header, data }: Props) {
         <div
           className={
             isAdmin
-              ? "grid flex-1 grid-cols-3 gap-1 [--chip-gap-x:0.1875rem] [--chip-gap:0.1875rem] [--chip-h:1.625rem] [--chip-px:0.25rem] [--chip-text:0.78125rem] [--tile-pad:0.25rem] [--tile-title:0.8125rem] lg:gap-4"
-              : "grid flex-1 grid-cols-2 gap-1.5 [--chip-gap:0.25rem] [--chip-h:1.875rem] [--chip-text:0.875rem] [--tile-pad:0.375rem] lg:grid-cols-3 lg:gap-4"
+              ? "grid flex-1 grid-cols-3 gap-1 [--chip-gap-x:0.1875rem] [--chip-gap:0.1875rem] [--chip-h:1.625rem] [--chip-px:0.25rem] [--chip-text:0.78125rem] [--tile-pad:0.25rem] [--tile-title:0.8125rem] max-lg:[@media(max-height:760px)]:[--chip-h:1.4375rem] max-lg:[@media(max-height:760px)]:[--chip-gap:0.125rem] lg:gap-4"
+              : "grid flex-1 grid-cols-2 gap-1.5 [--chip-gap:0.25rem] [--chip-h:1.875rem] [--chip-text:0.875rem] [--tile-pad:0.375rem] max-lg:[@media(max-height:760px)]:[--chip-h:1.625rem] lg:grid-cols-3 lg:gap-4"
           }
         >
           {menus.map((menu) => (

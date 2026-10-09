@@ -18,7 +18,7 @@ Feature: approved design "Theme 1 Tile Board" for customer (`/`), shop owner
 | Every tile and chip opens a real page, HTTP 200, no redirect home (local) | **Pass** — customer 28/28, shop owner 32/32, admin 37/37, operator 21/21, signed-out 14/14 links |
 | Language switch (click, cookie, server render, survives reload) | **Pass** |
 | Other pages keep the site header and layout | **Pass** |
-| test.gokesari.com | see §5 |
+| test.gokesari.com (PR #112 merged to `staging` as 6d60dbc; board served ~2 min later) | **Live.** Signed-out board verified on the site; signed-in roles verified locally only — see §5 |
 
 ## 2. Unit tests added (`tests/unit/tile-board.test.ts`, 29 tests)
 
@@ -114,4 +114,53 @@ mockups", "Substitutions", "Chips that share a destination").
 
 ## 5. test.gokesari.com
 
-_Filled in after the deploy (see below)._
+**Deployed:** PR #112 merged into `staging` (merge commit 6d60dbc, CI green on
+the PR). test.gokesari.com served the new board about 2 minutes later.
+
+**Signed in as:** nobody. Signing in on the test site needs the emailed
+sign-in code from the owner's mailbox; reading it was not permitted in this
+session, so **customer, shop owner, admin and operator were verified locally
+only** (§3). On the test site the signed-out board — which is the customer
+board, with account-only tiles leading to sign-in — was verified:
+
+| Check (test.gokesari.com, Chromium) | Result |
+|---|---|
+| Fit, 360×800 and 1366×768 × EN/HI/MR (6 runs) | **Pass** — 800/800 and 752/768, no horizontal scroll, site header hidden on `/` |
+| Every tile/chip link (14) | **Pass** — all 200, no redirect home; account-only entries open `/signin` |
+| Language switch (phone and desktop): click मरा → Marathi, cookie set, survives reload, EN back | **Pass** |
+| Deliver-to opens the location chooser; cart bar on the first screen | **Pass** |
+| Live figures: shop count 9 and "All 45" categories come from the test database | **Pass** |
+| `/shop` and `/admin` signed out → sign-in page, site header shown; `/search`, `/categories` unchanged | **Pass** |
+
+Hostinger's CDN answers the very first request from a fresh headless browser
+with a 403 bot check (`server: hcdn`); the retry is 200. This is the hosting
+layer, not the app.
+
+### 5.1 Mobile app ("GoKesari Test" preview build)
+
+The app shows test.gokesari.com in a WebView, padding the status bar and the
+bottom system area itself. Emulated as the app does (Android Chrome WebView
+user agent with the `GoKesariApp` token, touch, 360×728 = a 360×800 phone
+minus the bars, and 412×843):
+
+| Check | Result |
+|---|---|
+| Board fits, no horizontal scroll, header 57 px, EN and MR | **Pass** |
+| Tapping a chip (Open now) opens `/shops?open=1` | **Pass** |
+| Language switch and cart bar | **Pass** (same page as §5) |
+
+At 728 px the signed-in boards with data ran 2–41 px past the screen
+(customer with both banners, shop owner with badges, admin). Follow-up PR:
+on phone-width screens shorter than 760 px the chips and category tiles get
+slightly smaller. Measured locally at 360×728 after it: customer tiles end at
+702 (cart bar at 728), shop owner 717, admin 720, operator 720 — all fit;
+360×800 and 1366×768 unchanged (re-measured, same figures as §3.1).
+
+**No new app build is needed** — the app loads the website, so it shows the
+board as soon as the site does.
+
+**Known limit:** a desktop browser whose usable height is well under 768 px
+(e.g. 1366×657 with toolbars) needs a short scroll on the customer (≈80 px)
+and admin (≈27 px) boards; the 1366×768 target fits.
+
+Screenshots: `screenshots/test-site-*.png`.
