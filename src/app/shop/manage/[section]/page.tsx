@@ -1,3 +1,4 @@
+import { SectionTabs } from "@/components/board/section-tabs";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
@@ -200,88 +201,98 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
             </p>
           ) : null}
 
-          {dashboard ? <ShopDashboardView data={dashboard} /> : null}
+          <SectionTabs
+            label="Today"
+            labels={[
+              ...(dashboard ? ["Overview"] : []),
+              `Subscriptions today (${subscriptionOrders.length})`,
+              ...(upcomingDeliveries.length > 0 ? ["Coming days"] : []),
+              `Recent orders (${directOrders.length})`,
+            ]}
+          >
+            {dashboard ? <ShopDashboardView data={dashboard} /> : null}
 
-          {/* Subscription orders are separated from normal orders per §40. */}
-          <section className="mb-8" id="subscription-deliveries">
-            <h2 className="mb-3 text-lg font-semibold text-ink-900">Today&apos;s subscription deliveries ({subscriptionOrders.length})</h2>
-            {subscriptionOrders.length === 0 ? (
-              <EmptyState title="No subscription deliveries scheduled for today." />
-            ) : (
-              <Card className="divide-y divide-cream-200">
-                {subscriptionOrders.map((row) => (
-                  <div key={row.subscriptionOrder.id} className="flex flex-wrap items-center justify-between gap-2 p-4">
-                    <div>
-                      <p className="font-medium text-ink-900">
-                        {row.productName} · {formatQuantity(row.subscriptionOrder.quantityMilli, row.unit)}
-                      </p>
-                      <p className="text-sm text-ink-600">
-                        {row.orderNumber ?? "—"} · subscription {row.subscriptionId.slice(0, 8)}
-                      </p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <DeliveryStatusBadge status={row.subscriptionOrder.status} />
-                      <Money paise={row.subscriptionOrder.totalPaise} />
-                    </div>
-                  </div>
-                ))}
-              </Card>
-            )}
-          </section>
-
-          {/* SM-004: what the coming days hold, each delivery with its own status. */}
-          {upcomingDeliveries.length > 0 ? (
-            <section className="mb-8">
-              <SubscriptionDeliveryList
-                title={`Upcoming subscription deliveries (${upcomingDeliveries.filter((d) => d.delivery.status === "SCHEDULED").length} scheduled)`}
-                description="The next seven days. Skipped days are shown so you can plan stock."
-                showCustomer
-                rows={upcomingDeliveries.map((d) => ({
-                  id: d.delivery.id,
-                  deliveryDate: d.delivery.deliveryDate,
-                  status: d.delivery.status,
-                  quantityMilli: d.delivery.quantityMilli,
-                  reason: d.delivery.reason,
-                  orderNumber: d.orderNumber,
-                  customerName: d.customerName,
-                  productName: `${d.productName}${d.delivery.quantityMilli ? ` · ${formatQuantity(d.delivery.quantityMilli, d.unit)}` : ""}`,
-                }))}
-              />
-            </section>
-          ) : null}
-
-          <section className="mb-8">
-            <h2 className="mb-3 flex items-baseline justify-between gap-2 text-lg font-semibold text-ink-900">
-              Recent orders ({directOrders.length})
-              <Link href="/shop/orders?status=all" className="text-sm font-medium text-kesari-700 hover:underline">
-                All orders →
-              </Link>
-            </h2>
-            {directOrders.length === 0 ? (
-              <EmptyState title="No orders yet." />
-            ) : (
-              <Card className="divide-y divide-cream-200">
-                {directOrders.map((order) => (
-                  <div key={order.id} className="p-4">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="flex items-center gap-2">
-                        <StatusBadge status={order.status} />
-                        <span className="text-sm text-ink-600">{order.orderNumber}</span>
+            {/* Subscription orders are separated from normal orders per §40. */}
+            <section className="mb-8" id="subscription-deliveries">
+              <h2 className="mb-3 text-lg font-semibold text-ink-900">Today&apos;s subscription deliveries ({subscriptionOrders.length})</h2>
+              {subscriptionOrders.length === 0 ? (
+                <EmptyState title="No subscription deliveries scheduled for today." />
+              ) : (
+                <Card className="divide-y divide-cream-200">
+                  {subscriptionOrders.map((row) => (
+                    <div key={row.subscriptionOrder.id} className="flex flex-wrap items-center justify-between gap-2 p-4">
+                      <div>
+                        <p className="font-medium text-ink-900">
+                          {row.productName} · {formatQuantity(row.subscriptionOrder.quantityMilli, row.unit)}
+                        </p>
+                        <p className="text-sm text-ink-600">
+                          {row.orderNumber ?? "—"} · subscription {row.subscriptionId.slice(0, 8)}
+                        </p>
                       </div>
-                      <Money paise={order.totalPaise} className="font-semibold" />
+                      <div className="flex items-center gap-2">
+                        <DeliveryStatusBadge status={row.subscriptionOrder.status} />
+                        <Money paise={row.subscriptionOrder.totalPaise} />
+                      </div>
                     </div>
-                    <ul className="mt-2 text-sm text-ink-700">
-                      {order.items.map((item) => (
-                        <li key={item.id}>
-                          {item.productNameSnapshot} · {formatQuantity(item.quantityMilli, item.unitSnapshot)}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                ))}
-              </Card>
-            )}
-          </section>
+                  ))}
+                </Card>
+              )}
+            </section>
+
+            {/* SM-004: what the coming days hold, each delivery with its own status. */}
+            {upcomingDeliveries.length > 0 ? (
+              <section className="mb-8">
+                <SubscriptionDeliveryList
+                  title={`Upcoming subscription deliveries (${upcomingDeliveries.filter((d) => d.delivery.status === "SCHEDULED").length} scheduled)`}
+                  description="The next seven days. Skipped days are shown so you can plan stock."
+                  showCustomer
+                  rows={upcomingDeliveries.map((d) => ({
+                    id: d.delivery.id,
+                    deliveryDate: d.delivery.deliveryDate,
+                    status: d.delivery.status,
+                    quantityMilli: d.delivery.quantityMilli,
+                    reason: d.delivery.reason,
+                    orderNumber: d.orderNumber,
+                    customerName: d.customerName,
+                    productName: `${d.productName}${d.delivery.quantityMilli ? ` · ${formatQuantity(d.delivery.quantityMilli, d.unit)}` : ""}`,
+                  }))}
+                />
+              </section>
+            ) : null}
+
+            <section className="mb-8">
+              <h2 className="mb-3 flex items-baseline justify-between gap-2 text-lg font-semibold text-ink-900">
+                Recent orders ({directOrders.length})
+                <Link href="/shop/orders?status=all" className="text-sm font-medium text-kesari-700 hover:underline">
+                  All orders →
+                </Link>
+              </h2>
+              {directOrders.length === 0 ? (
+                <EmptyState title="No orders yet." />
+              ) : (
+                <Card className="divide-y divide-cream-200">
+                  {directOrders.map((order) => (
+                    <div key={order.id} className="p-4">
+                      <div className="flex flex-wrap items-center justify-between gap-2">
+                        <div className="flex items-center gap-2">
+                          <StatusBadge status={order.status} />
+                          <span className="text-sm text-ink-600">{order.orderNumber}</span>
+                        </div>
+                        <Money paise={order.totalPaise} className="font-semibold" />
+                      </div>
+                      <ul className="mt-2 text-sm text-ink-700">
+                        {order.items.map((item) => (
+                          <li key={item.id}>
+                            {item.productNameSnapshot} · {formatQuantity(item.quantityMilli, item.unitSnapshot)}
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  ))}
+                </Card>
+              )}
+            </section>
+          </SectionTabs>
         </>
       );
     }

@@ -275,7 +275,7 @@ export function SiteHeader({
 
           {user ? (
             <Link
-              href="/profile#notifications"
+              href="/profile?tab=notifications"
               className="relative hidden h-12 w-12 place-items-center rounded-xl text-ink-900 hover:bg-kesari-50 min-[400px]:grid"
               aria-label={`${tr(UI.notifications, lang)}${unreadCount > 0 ? `, ${unreadCount} ${tr(UI.unread, lang)}` : ""}`}
               data-testid="header-bell"
@@ -329,7 +329,7 @@ export function SiteHeader({
                       </Link>
                     ) : null}
                     {user && unreadCount > 0 ? (
-                      <Link href="/profile#notifications" role="menuitem" className="flex min-h-11 items-center justify-between rounded-lg px-3 text-sm text-ink-700 hover:bg-cream-100 min-[400px]:hidden">
+                      <Link href="/profile?tab=notifications" role="menuitem" className="flex min-h-11 items-center justify-between rounded-lg px-3 text-sm text-ink-700 hover:bg-cream-100 min-[400px]:hidden">
                         {tr(UI.notifications, lang)}
                         <span className="rounded-full bg-red-700 px-1.5 text-xs font-bold text-white">{unreadCount}</span>
                       </Link>

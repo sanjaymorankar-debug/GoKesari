@@ -1,12 +1,14 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 
+import { ListTabs, Pager, paginate } from "@/components/board/list-tabs";
 import { ProductGrid } from "@/components/product-grid";
 import { RatingBadge } from "@/components/rating-badge";
 import { Badge, Card, ClassificationBadge, EmptyState, PageHeader } from "@/components/ui";
 import { listShopReviews } from "@/server/services/ratings";
 import { shopTypeLabel } from "@/lib/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
+import { getBoardLang } from "@/server/board-lang";
 import { getCartLineQuantities } from "@/server/services/cart";
 import { listStorefrontProducts } from "@/server/services/catalogue";
 import { getLiveOffers, listLiveOffersForShop, priceWithOffers } from "@/server/services/shop-offers";
@@ -29,10 +31,12 @@ export async function generateMetadata({
 /** Public shop profile (§16). Only APPROVED shops resolve — others 404. */
 export default async function ShopPage({
   params,
+  searchParams,
 }: {
   params: Promise<{ slug: string }>;
+  searchParams: Promise<{ cat?: string; page?: string }>;
 }) {
-  const { slug } = await params;
+  const [{ slug }, query, lang] = await Promise.all([params, searchParams, getBoardLang()]);
   const shop = await getPublicShopBySlug(slug);
   if (!shop) notFound();
 
@@ -64,6 +68,9 @@ export default async function ShopPage({
     else byCategory.set(key, [product]);
   }
   const open = isShopOpenNow(shop);
+  const categoryNames = [...byCategory.keys()];
+  const activeCategory = categoryNames.includes(query.cat ?? "") ? query.cat! : (categoryNames[0] ?? "");
+  const productPage = paginate(byCategory.get(activeCategory) ?? [], query.page, 6);
 
   return (
     <>
@@ -191,12 +198,32 @@ export default async function ShopPage({
         </Link>
       </div>
 
-      {Array.from(byCategory.entries()).map(([categoryName, items]) => (
-        <section key={categoryName} className="mb-8">
-          <PageHeader title={categoryName} />
-          <ProductGrid products={items} signedIn={Boolean(user)} cartLines={cartLines} />
+      {products.length > 0 ? (
+        <section className="mb-8" data-testid="shop-products">
+          {/* One category at a time, six products a page: the shop page used to list every product. */}
+          {categoryNames.length > 1 ? (
+            <ListTabs
+              label="Product categories"
+              active={activeCategory}
+              tabs={categoryNames.map((name) => ({
+                key: name,
+                label: name,
+                href: `/shops/${shop.slug}?cat=${encodeURIComponent(name)}`,
+                count: byCategory.get(name)?.length,
+              }))}
+            />
+          ) : (
+            <PageHeader title={activeCategory} />
+          )}
+          <ProductGrid products={productPage.rows} signedIn={Boolean(user)} cartLines={cartLines} />
+          <Pager
+            lang={lang}
+            page={productPage.page}
+            pageCount={productPage.pageCount}
+            hrefFor={(n) => `/shops/${shop.slug}?cat=${encodeURIComponent(activeCategory)}&page=${n}`}
+          />
         </section>
-      ))}
+      ) : null}
 
       {products.length === 0 ? (
         <EmptyState

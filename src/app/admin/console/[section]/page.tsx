@@ -1,3 +1,4 @@
+import { SectionTabs } from "@/components/board/section-tabs";
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 import { count, eq, sql } from "drizzle-orm";
@@ -187,29 +188,36 @@ export default async function AdminConsoleSectionPage({
       return (
         <>
           {header}
-          {canViewDashboard ? (
-            <Section title="Legal & regulatory compliance">
-              <ComplianceDashboard items={items} />
-            </Section>
-          ) : null}
-          {canManageShopCompliance ? (
-            <Section title="Shop legal & seller information">
-              <ShopComplianceManager
-                shops={financeShops.map((s) => ({
-                  id: s.id,
-                  name: s.name,
-                  shopType: s.shopType,
-                  city: s.city,
-                  legalBusinessName: s.legalBusinessName,
-                  gstin: s.gstin,
-                  fssaiLicenseNumber: s.fssaiLicenseNumber,
-                  returnPolicyText: s.returnPolicyText,
-                }))}
-              />
-            </Section>
-          ) : null}
-          {canVerifyGstPan ? (
-            <>
+          <SectionTabs
+            label="Compliance sections"
+            labels={[
+              ...(canViewDashboard ? ["Checklist"] : []),
+              ...(canManageShopCompliance ? ["Shop legal information"] : []),
+              ...(canVerifyGstPan ? ["Document checks", `GST & PAN (${pendingGstPan.length})`] : []),
+            ]}
+          >
+            {canViewDashboard ? (
+              <Section title="Legal & regulatory compliance">
+                <ComplianceDashboard items={items} />
+              </Section>
+            ) : null}
+            {canManageShopCompliance ? (
+              <Section title="Shop legal & seller information">
+                <ShopComplianceManager
+                  shops={financeShops.map((s) => ({
+                    id: s.id,
+                    name: s.name,
+                    shopType: s.shopType,
+                    city: s.city,
+                    legalBusinessName: s.legalBusinessName,
+                    gstin: s.gstin,
+                    fssaiLicenseNumber: s.fssaiLicenseNumber,
+                    returnPolicyText: s.returnPolicyText,
+                  }))}
+                />
+              </Section>
+            ) : null}
+            {canVerifyGstPan ? (
               <Section title="Seller document verification">
                 <Card className="flex flex-wrap items-center justify-between gap-2 p-4 text-sm" data-testid="seller-verification-link">
                   <span className="text-ink-600">
@@ -220,6 +228,8 @@ export default async function AdminConsoleSectionPage({
                   </Link>
                 </Card>
               </Section>
+            ) : null}
+            {canVerifyGstPan ? (
               <Section title={`GST & PAN verification (${pendingGstPan.length})`}>
                 <GstPanVerificationQueue
                   shops={pendingGstPan.map((s) => ({
@@ -234,8 +244,8 @@ export default async function AdminConsoleSectionPage({
                   }))}
                 />
               </Section>
-            </>
-          ) : null}
+            ) : null}
+          </SectionTabs>
         </>
       );
     }

@@ -237,7 +237,7 @@ export function BoardHeader({ lang, user, roles, unreadCount, extraLinks = [], c
 
           {user ? (
             <Link
-              href="/profile#notifications"
+              href="/profile?tab=notifications"
               className="relative grid h-11 w-11 place-items-center min-[360px]:h-12 min-[360px]:w-12 rounded-xl text-ink-900 hover:bg-kesari-50"
               aria-label={`${tr(UI.notifications, lang)}${unread ? `, ${unreadCount} ${tr(UI.unread, lang)}` : ""}`}
               data-testid="board-bell"
