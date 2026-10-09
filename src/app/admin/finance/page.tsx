@@ -1,3 +1,4 @@
+import { SectionTabs } from "@/components/board/section-tabs";
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
@@ -105,6 +106,10 @@ export default async function FinancePage({
         </form>
       </Card>
 
+      <SectionTabs
+        label="Finance sections"
+        labels={["Marketplace", "Owed now", "Commission", "Settlements", "Rider payouts", "Adjustments", ...(canRefund ? ["Refund an order"] : []), "Reconciliation", "Money trace"]}
+      >
       <Section title="Marketplace">
         <div className="grid grid-cols-2 gap-3 lg:grid-cols-4" data-testid="finance-summary">
           <Figure label="GMV (delivered)" paise={summary.gmvPaise} hint={`${summary.deliveredOrders} orders · goods ₹${(summary.goodsPaise / 100).toFixed(2)}`} />
@@ -408,6 +413,7 @@ export default async function FinancePage({
           ) : null}
         </Card>
       </Section>
+      </SectionTabs>
     </>
   );
 }

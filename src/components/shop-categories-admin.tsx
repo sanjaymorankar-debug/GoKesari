@@ -13,6 +13,7 @@
  * same save bar.
  */
 
+import { SectionTabs } from "@/components/board/section-tabs";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
@@ -49,11 +50,39 @@ export function ShopCategoriesAdmin({
   categories: CategoryRow[];
   uncategorised: UncategorisedShop[];
 }) {
+  const [page, setPage] = useState(1);
+  const pageCount = Math.max(1, Math.ceil(categories.length / CATEGORY_PAGE));
+  const current = Math.min(page, pageCount);
   return (
-    <div className="space-y-8">
+    <SectionTabs
+      label="Shop categories"
+      labels={[`All categories (${categories.length})`, ...(uncategorised.length > 0 ? [`Shops with no category (${uncategorised.length})`] : []), "Add a category"]}
+    >
+      <section>
+        <h2 className="sr-only">All categories</h2>
+        <Card className="divide-y divide-cream-100">
+          {categories.slice((current - 1) * CATEGORY_PAGE, current * CATEGORY_PAGE).map((c) => (
+            <CategoryEditRow key={c.id} category={c} />
+          ))}
+        </Card>
+        {pageCount > 1 ? (
+          <nav aria-label="Pages" className="mt-3 flex items-center justify-between gap-2">
+            <Button size="sm" variant="secondary" disabled={current <= 1} onClick={() => setPage(current - 1)}>
+              ← Previous
+            </Button>
+            <span className="text-sm font-semibold text-ink-700">
+              Page {current} of {pageCount}
+            </span>
+            <Button size="sm" variant="secondary" disabled={current >= pageCount} onClick={() => setPage(current + 1)}>
+              Next →
+            </Button>
+          </nav>
+        ) : null}
+      </section>
+
       {uncategorised.length > 0 ? (
         <section data-testid="uncategorised">
-          <h2 className="mb-2 text-lg font-semibold text-ink-900">Shops with no category ({uncategorised.length})</h2>
+          <h2 className="sr-only">Shops with no category</h2>
           <Card className="divide-y divide-cream-100">
             {uncategorised.map((s) => (
               <div key={s.id} className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm">
@@ -74,18 +103,12 @@ export function ShopCategoriesAdmin({
       ) : null}
 
       <CreateCategory />
-
-      <section>
-        <h2 className="mb-2 text-lg font-semibold text-ink-900">All categories ({categories.length})</h2>
-        <Card className="divide-y divide-cream-100">
-          {categories.map((c) => (
-            <CategoryEditRow key={c.id} category={c} />
-          ))}
-        </Card>
-      </section>
-    </div>
+    </SectionTabs>
   );
 }
+
+/** Rows per page of the category list (each row holds its own edit form). */
+const CATEGORY_PAGE = 8;
 
 function CreateCategory() {
   const router = useRouter();
@@ -112,7 +135,7 @@ function CreateCategory() {
 
   return (
     <section>
-      <h2 className="mb-2 text-lg font-semibold text-ink-900">Add a category</h2>
+      <h2 className="sr-only">Add a category</h2>
       <Card className="space-y-3 p-4">
         <div className="grid gap-3 sm:grid-cols-2">
           <Field label="Name">

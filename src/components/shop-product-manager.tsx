@@ -50,6 +50,8 @@ interface Suggestion {
  * Enforces the same rule the database does — enabling a channel requires that
  * channel's price — so the owner is told before submitting rather than after.
  */
+const PAGE_SIZE = 6;
+
 export function ShopProductManager({
   shopId,
   department,
@@ -65,8 +67,16 @@ export function ShopProductManager({
   products: ManagedProduct[];
   suggestions: Suggestion[];
 }) {
+  const [view, setView] = useState<"mine" | "add">("mine");
+  const [query, setQuery] = useState("");
+  const [page, setPage] = useState(1);
+  const needle = query.trim().toLowerCase();
+  const matching = needle ? products.filter((p) => `${p.productName} ${p.categoryName}`.toLowerCase().includes(needle)) : products;
+  const pageCount = Math.max(1, Math.ceil(matching.length / PAGE_SIZE));
+  const current = Math.min(page, pageCount);
+  const shown = matching.slice((current - 1) * PAGE_SIZE, current * PAGE_SIZE);
   return (
-    <div className="space-y-8">
+    <div className="space-y-4">
       <section>
         <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-lg font-semibold text-ink-900">Add a product</h2>
@@ -78,38 +88,80 @@ export function ShopProductManager({
         </div>
       </section>
 
-      <section>
-        <h2 className="mb-3 text-lg font-semibold text-ink-900">
-          My products ({products.length})
-        </h2>
-        {products.length === 0 ? (
-          <EmptyState title="No products listed yet — add some below." />
-        ) : (
-          <div className="space-y-2">
-            {products.map((p) => (
-              <ProductRow key={p.id} product={p} />
-            ))}
-          </div>
-        )}
-      </section>
+      {/* My products / Add products as two views, the list searchable and paged, so the page fits a screen
+          (a shop with 126 products used to run to five phone screens). */}
+      <div role="tablist" aria-label="Products" className="flex flex-wrap gap-2">
+        {([["mine", `My products (${products.length})`], ["add", `Add products (${suggestions.length})`]] as const).map(([key, text]) => (
+          <button
+            key={key}
+            type="button"
+            role="tab"
+            aria-selected={view === key}
+            onClick={() => setView(key)}
+            className={`flex h-11 items-center rounded-xl px-4 text-sm font-bold ${view === key ? "bg-kesari-700 text-white" : "border border-[var(--gk-line)] bg-white text-ink-900 hover:bg-kesari-50"}`}
+          >
+            {text}
+          </button>
+        ))}
+      </div>
 
-      <section>
-        <h2 className="mb-1 text-lg font-semibold text-ink-900">
-          Add products
-        </h2>
-        <p className="mb-3 text-sm text-ink-500">
-          Suggested for your shop type — choose the ones you actually sell.
-        </p>
-        {suggestions.length === 0 ? (
-          <EmptyState title="You've listed every suggested product." />
-        ) : (
-          <div className="grid gap-2 sm:grid-cols-2">
-            {suggestions.slice(0, 24).map((s) => (
-              <AddProductRow key={s.id} shopId={shopId} suggestion={s} />
-            ))}
-          </div>
-        )}
-      </section>
+      {view === "mine" ? (
+        <section>
+          <h2 className="sr-only">My products</h2>
+          {products.length === 0 ? (
+            <EmptyState title="No products listed yet — add some below." />
+          ) : (
+            <>
+              <input
+                type="search"
+                value={query}
+                onChange={(e) => {
+                  setQuery(e.target.value);
+                  setPage(1);
+                }}
+                placeholder="Find a product or category"
+                aria-label="Find a product"
+                className="mb-3 min-h-11 w-full rounded-lg border border-cream-200 px-3 text-base focus:border-kesari-500 focus:outline-none"
+              />
+              <div className="space-y-2">
+                {shown.map((p) => (
+                  <ProductRow key={p.id} product={p} />
+                ))}
+              </div>
+              {matching.length === 0 ? <p className="text-sm text-ink-600">No product matches “{query}”.</p> : null}
+              {pageCount > 1 ? (
+                <nav aria-label="Pages" className="mt-3 flex items-center justify-between gap-2">
+                  <Button size="sm" variant="secondary" disabled={current <= 1} onClick={() => setPage(current - 1)}>
+                    ← Previous
+                  </Button>
+                  <span className="text-sm font-semibold text-ink-700">
+                    Page {current} of {pageCount}
+                  </span>
+                  <Button size="sm" variant="secondary" disabled={current >= pageCount} onClick={() => setPage(current + 1)}>
+                    Next →
+                  </Button>
+                </nav>
+              ) : null}
+            </>
+          )}
+        </section>
+      ) : (
+        <section>
+          <h2 className="sr-only">Add products</h2>
+          <p className="mb-3 text-sm text-ink-500">
+            Suggested for your shop type — choose the ones you actually sell.
+          </p>
+          {suggestions.length === 0 ? (
+            <EmptyState title="You've listed every suggested product." />
+          ) : (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {suggestions.slice(0, 24).map((s) => (
+                <AddProductRow key={s.id} shopId={shopId} suggestion={s} />
+              ))}
+            </div>
+          )}
+        </section>
+      )}
     </div>
   );
 }

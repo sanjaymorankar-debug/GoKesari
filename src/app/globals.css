@@ -102,6 +102,27 @@ body {
     height: 1.25rem;
     accent-color: var(--color-kesari-700);
   }
+
+  /* Touch screens: every stand-alone link, button and field on a page is at
+     least 44 px tall (Fitts / WCAG 2.5.5). Links inside running text and
+     headings stay inline. :where() keeps this at zero specificity, so a
+     component's own height or display utility still wins. */
+  @media (max-width: 1023px) {
+    :where(main)
+      :where(
+        a:not(.truncate, :where(p, h1, h2, h3, h4, .truncate, .legal-doc) a),
+        button,
+        summary,
+        select,
+        input:not([type="checkbox"], [type="radio"], [type="hidden"], [type="range"], [type="file"])
+      ) {
+      min-height: 2.75rem;
+    }
+    :where(main) :where(a:not(.truncate, :where(p, h1, h2, h3, h4, .truncate, .legal-doc) a)) {
+      display: inline-flex;
+      align-items: center;
+    }
+  }
 }
 
 /* Visible keyboard focus everywhere — accessibility (§51). */

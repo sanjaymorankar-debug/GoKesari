@@ -6,9 +6,12 @@ import { PhoneLinkForm } from "@/components/phone-link-form";
 import { EmailChangeForm, ProfileDetailsForm } from "@/components/profile-forms";
 import type { GenderValue } from "@/components/profile-setup";
 import { MarketingConsentToggle } from "@/components/marketing-consent-toggle";
+import { HashRedirect } from "@/components/board/hash-redirect";
 import { Icon } from "@/components/board/icons";
+import { ListTabs, Pager, paginate } from "@/components/board/list-tabs";
 import { Badge, Card, PageHeader } from "@/components/ui";
 import { tr, UI } from "@/lib/board/i18n";
+import { pickTab } from "@/lib/board/status-groups";
 import { CUSTOMER_MENUS } from "@/lib/board/menus";
 import { getBoardLang } from "@/server/board-lang";
 import { ROLE_LABELS } from "@/server/authz/permissions";
@@ -24,7 +27,16 @@ import { BANK_STATUS_LABELS } from "@/lib/bank-accounts";
 export const metadata = { title: "My Profile" };
 export const dynamic = "force-dynamic";
 
-export default async function ProfilePage() {
+const TABS = ["details", "notifications", "offers"] as const;
+type ProfileTab = (typeof TABS)[number];
+
+/**
+ * My Profile in three tabs (details · notifications · offers) so each view fits
+ * about one phone screen; it used to stack every card (5 phone screens).
+ */
+export default async function ProfilePage({ searchParams }: { searchParams: Promise<{ tab?: string; page?: string }> }) {
+  const query = await searchParams;
+  const tab = pickTab<ProfileTab>(query.tab, TABS, "details");
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
 
@@ -39,8 +51,13 @@ export default async function ProfilePage() {
   // Bank accounts (docs/four-features-2026-10): refunds-to-bank account and its verification.
   const [bankStatus, lang] = await Promise.all([customerBankPrompt(user.id, "profile"), getBoardLang()]);
 
+  const notePage = paginate(notifications, query.page, 5);
+  const tabLabel: Record<ProfileTab, string> = { details: "My details", notifications: "Notifications", offers: "Offers" };
+  const unreadNotes = notifications.filter((n) => !n.readAt).length;
+
   return (
     <div className="mx-auto max-w-2xl">
+      <HashRedirect map={{ notifications: "/profile?tab=notifications" }} />
       <PageHeader title="My Profile" />
 
       {/* The board's Profile submenus, first on the page: one tap each. */}
@@ -57,6 +74,14 @@ export default async function ProfilePage() {
         ))}
       </nav>
 
+      <ListTabs
+        label="My Profile"
+        active={tab}
+        tabs={TABS.map((t) => ({ key: t, label: tabLabel[t], href: `/profile?tab=${t}`, count: t === "notifications" ? unreadNotes : undefined }))}
+      />
+
+      {tab === "details" ? (
+        <>
       <Card className="mb-6 p-6">
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <p className="text-lg font-semibold text-ink-900">{profile.name ?? "Your details"}</p>
@@ -64,13 +89,11 @@ export default async function ProfilePage() {
         </div>
         <ProfileDetailsForm initial={{ name: profile.name ?? "", gender: (profile.gender ?? "") as GenderValue | "" }} />
       </Card>
-
       <Card className="mb-6 grid gap-5 p-6">
         <h2 className="text-base font-semibold text-ink-900">Login &amp; contact</h2>
         <PhoneLinkForm current={profile.phoneE164} />
         <EmailChangeForm current={profile.email} />
       </Card>
-
       {bankStatus ? (
         <Card className="mb-6 p-6" data-testid="profile-bank-account">
           <div className="flex items-center justify-between gap-2">
@@ -86,7 +109,6 @@ export default async function ProfilePage() {
           </div>
         </Card>
       ) : null}
-
       <Card className="mb-6 p-6">
         <div className="mb-3 flex items-center justify-between">
           <h2 className="text-base font-semibold text-ink-900">Delivery addresses</h2>
@@ -118,7 +140,6 @@ export default async function ProfilePage() {
           <p className="text-sm text-ink-500">No delivery address yet. You&apos;ll need one before your first delivery order.</p>
         )}
       </Card>
-
       <Card className="mb-6 p-6">
         <form
           className="mt-5"
@@ -135,30 +156,23 @@ export default async function ProfilePage() {
           </button>
         </form>
       </Card>
+        </>
+      ) : null}
 
-      <Card className="mb-6 p-6">
-        <h2 className="mb-3 text-base font-semibold text-ink-900">
-          Offers and promotions
-        </h2>
-        <MarketingConsentToggle
-          initialGranted={marketingConsent.granted}
-          lastChangedAt={marketingConsent.lastChangedAt}
-        />
-      </Card>
-
+      {tab === "notifications" ? (
+        <>
       <div className="mb-6">
         <NotificationPreferences initial={preferences} />
       </div>
-
       <Card id="notifications" className="p-6">
         <h2 className="mb-3 text-base font-semibold text-ink-900">
           Notifications
         </h2>
-        {notifications.length === 0 ? (
+        {notePage.rows.length === 0 ? (
           <p className="text-sm text-ink-500">Nothing yet.</p>
         ) : (
           <ul className="divide-y divide-cream-200">
-            {notifications.map((n) => (
+            {notePage.rows.map((n) => (
               <li key={n.id} className="py-3">
                 <div className="flex items-start justify-between gap-3">
                   <div>
@@ -177,7 +191,22 @@ export default async function ProfilePage() {
             ))}
           </ul>
         )}
+        <Pager lang={lang} page={notePage.page} pageCount={notePage.pageCount} hrefFor={(n) => `/profile?tab=notifications&page=${n}`} />
       </Card>
+        </>
+      ) : null}
+
+      {tab === "offers" ? (
+      <Card className="p-6">
+        <h2 className="mb-3 text-base font-semibold text-ink-900">
+          Offers and promotions
+        </h2>
+        <MarketingConsentToggle
+          initialGranted={marketingConsent.granted}
+          lastChangedAt={marketingConsent.lastChangedAt}
+        />
+      </Card>
+      ) : null}
     </div>
   );
 }

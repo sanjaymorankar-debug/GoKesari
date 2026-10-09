@@ -33,8 +33,8 @@ export default async function FinanceExceptionsPage() {
       />
       {isAdmin ? (
         <p className="-mt-4 mb-6 text-sm">
-          <Link href="/admin/finance" className="font-medium text-kesari-700 underline">
-            ← Finance console
+          <Link href="/admin/finance" className="inline-flex min-h-11 items-center font-medium text-kesari-700 underline">
+            ← Finance
           </Link>
         </p>
       ) : null}

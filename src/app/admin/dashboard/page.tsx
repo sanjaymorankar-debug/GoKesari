@@ -1,3 +1,4 @@
+import { SectionTabs } from "@/components/board/section-tabs";
 import { redirect } from "next/navigation";
 
 import { AnalyticsChart } from "@/components/analytics-chart";
@@ -76,6 +77,7 @@ export default async function AdminDashboardPage() {
         }
       />
 
+      <SectionTabs label="Dashboard sections" labels={["Today", "Live operations", "Exceptions & risk", "Shops & riders", "Catalogue", "Notifications", "Key indicators", "Operations"]}>
       <Section title="Today">
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           <KPICard
@@ -269,6 +271,7 @@ export default async function AdminDashboardPage() {
           ) : null}
         </div>
       </Section>
+      </SectionTabs>
     </div>
   );
 }

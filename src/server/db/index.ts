@@ -47,7 +47,20 @@ function createClient() {
   });
 }
 
-const client = globalForDb.__sql ?? createClient();
+/**
+ * DATABASE_PREPARED_STATEMENTS=on: Drizzle runs every query through
+ * `unsafe()`, which postgres-js leaves unprepared unless told otherwise; ask
+ * for prepared statements by default (a caller passing `prepare` still wins).
+ */
+function withPreparedStatements(sql: postgres.Sql): postgres.Sql {
+  const unsafe = sql.unsafe.bind(sql);
+  sql.unsafe = ((query: string, args?: postgres.ParameterOrJSON<never>[], options?: postgres.UnsafeQueryOptions) =>
+    unsafe(query, args, { prepare: true, ...options })) as typeof sql.unsafe;
+  return sql;
+}
+
+const client =
+  globalForDb.__sql ?? (getEnv().DATABASE_PREPARED_STATEMENTS === "on" ? withPreparedStatements(createClient()) : createClient());
 if (getEnv().NODE_ENV !== "production") globalForDb.__sql = client;
 
 export const db = drizzle(client, { schema });
