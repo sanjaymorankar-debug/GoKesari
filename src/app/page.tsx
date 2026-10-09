@@ -4,13 +4,17 @@ import { Suspense } from "react";
 
 import { HomePriceComparison } from "@/components/home-price-comparison";
 import { HomeShopsBoundary } from "@/components/home-shops-boundary";
-import { OpenLocationButton } from "@/components/location-picker";
+import { CustomerBoard } from "@/components/board/customer-board";
 import { ShopGrid } from "@/components/shop-grid";
 import { TomorrowDeliveryCard } from "@/components/tomorrow-delivery-card";
 import { Alert, Section } from "@/components/ui";
 import { REFERRAL_COOKIE } from "@/lib/customer-referrals";
-import { locationAreaName, shortLocationLabel, type CustomerLocation } from "@/lib/location";
+import { getEnv } from "@/lib/env";
+import { locationAreaName, type CustomerLocation } from "@/lib/location";
 import { getCurrentUser } from "@/server/authz/guards";
+import { loadCustomerBoard } from "@/server/board-data";
+import { getBoardHeaderData } from "@/server/board-header-data";
+import { getBoardLang } from "@/server/board-lang";
 import { getCustomerLocation } from "@/server/location";
 import { canApplyReferralCode } from "@/server/services/customer-referrals";
 import { homePriceComparison } from "@/server/services/price-comparison";
@@ -19,9 +23,6 @@ import { searchShops } from "@/server/services/shops";
 import { getTomorrowDelivery, type TomorrowDelivery } from "@/server/services/tomorrow-delivery";
 
 export const dynamic = "force-dynamic";
-
-/** One-tap searches under the hero's search box. */
-const QUICK_SEARCHES = ["Groceries", "Dairy", "Bakery", "Pharmacy", "Hardware", "Stationery"];
 
 /** Fewer shops than this and the "more shops are joining" card fills the row. */
 const INVITE_BELOW = 4;
@@ -70,8 +71,19 @@ export default async function HomePage() {
       })
     : null;
 
+  // Tile Board (approved design "Theme 1 Tile Board"): the first screen is
+  // the board; everything the home page had below its hero follows it.
+  const [lang, header, board] = await Promise.all([
+    getBoardLang(),
+    getBoardHeaderData(user),
+    loadCustomerBoard(user, location),
+  ]);
+
   return (
     <>
+      <CustomerBoard lang={lang} user={user} header={header} data={board} timeZone={getEnv().APP_TIMEZONE} />
+
+      <div className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
       {showReferral ? (
         <div className="mb-4" data-testid="referral-banner">
           <Alert tone="success" title="You were invited by a friend">
@@ -83,56 +95,8 @@ export default async function HomePage() {
         </div>
       ) : null}
 
-      <div className={`mb-10 grid gap-5 ${tomorrow ? "lg:grid-cols-[minmax(0,0.95fr)_minmax(0,1fr)]" : ""}`}>
-        <section className="flex flex-col justify-center overflow-hidden rounded-2xl bg-gradient-to-br from-kesari-50 via-cream-100 to-leaf-50 px-6 py-8 sm:px-8 sm:py-10">
-          <h1 className="text-3xl font-bold tracking-tight text-ink-900 sm:text-4xl">
-            What are you looking for?
-          </h1>
-          <p className="mt-2 max-w-xl text-base text-ink-600">
-            {location ? (
-              <>
-                Shops near <strong className="font-semibold text-ink-900">{shortLocationLabel(location)}</strong>{" "}
-                that have it, in one search.
-              </>
-            ) : (
-              <>
-                Search for what you need and we will show you who has it.{" "}
-                <OpenLocationButton>Choose your location</OpenLocationButton> to see shops near you.
-              </>
-            )}
-          </p>
-
-          <form action="/search" className="mt-5 flex max-w-xl gap-2">
-            <input
-              type="search"
-              name="q"
-              placeholder="e.g. milk, paracetamol, screws"
-              aria-label="Search for a product"
-              className="min-w-0 flex-1 rounded-lg border border-cream-200 bg-white px-4 py-2.5 text-sm placeholder:text-ink-500 focus:border-kesari-500 focus:outline-none"
-            />
-            <button
-              type="submit"
-              className="tap-target rounded-lg bg-kesari-600 px-5 py-2.5 text-sm font-medium text-white hover:bg-kesari-800"
-            >
-              Search
-            </button>
-          </form>
-
-          <ul className="mt-4 flex flex-wrap gap-2" aria-label="Popular searches">
-            {QUICK_SEARCHES.map((term) => (
-              <li key={term}>
-                <Link
-                  href={`/search?q=${encodeURIComponent(term)}`}
-                  className="tap-target inline-block rounded-full border border-cream-200 bg-white px-3 py-1.5 text-sm font-medium text-ink-700 hover:border-kesari-300 hover:bg-kesari-50 [--tap-h:44px]"
-                >
-                  {term}
-                </Link>
-              </li>
-            ))}
-          </ul>
-        </section>
-
-        {tomorrow ? (
+      {tomorrow ? (
+        <div className="mb-10">
           <TomorrowDeliveryCard
             date={tomorrow.date}
             dateLabel={shortDayLabel(tomorrow.date)}
@@ -149,8 +113,8 @@ export default async function HomePage() {
                 : null
             }
           />
-        ) : null}
-      </div>
+        </div>
+      ) : null}
 
       {/* If the list fails or its part of the stream is cut off, the
           boundary shows a retry card in its place, not an error page. */}
@@ -159,6 +123,7 @@ export default async function HomePage() {
           <HomeShopSections location={location} />
         </Suspense>
       </HomeShopsBoundary>
+      </div>
     </>
   );
 }

@@ -125,7 +125,7 @@ export default async function OrdersPage({
       ) : (
         <div className="space-y-3">
           {orders.map((order) => (
-            <Card key={order.id} className="p-5" data-testid="order-card">
+            <Card key={order.id} id={`order-${order.orderNumber}`} className="p-5" data-testid="order-card">
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <StatusBadge status={order.status} />

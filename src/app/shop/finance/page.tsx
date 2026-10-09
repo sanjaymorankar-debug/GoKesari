@@ -72,7 +72,7 @@ export default async function ShopFinancePage() {
         </Card>
       </section>
 
-      <Section title="Settlements">
+      <Section id="settlements" title="Settlements">
         <p className="mb-3 text-xs text-ink-500">
           Prepared weekly for orders delivered at least {settlementHoldDays} days earlier, then paid to your bank account.
         </p>
@@ -131,7 +131,7 @@ export default async function ShopFinancePage() {
 
       {/* NEW-007: the shop's invoices for delivered orders. */}
       {invoices.length > 0 ? (
-        <Section title={`Invoices (${invoices.length})`}>
+        <Section id="invoices" title={`Invoices (${invoices.length})`}>
           <Card className="divide-y divide-cream-200" data-testid="shop-invoices">
             {invoices.map((inv) => (
               <div key={inv.id} className="flex flex-wrap items-center justify-between gap-2 p-3 text-sm">

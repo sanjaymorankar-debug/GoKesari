@@ -149,3 +149,17 @@ body {
 .legal-doc strong {
   color: var(--color-ink-900);
 }
+
+/*
+ * Tile Board home screens (docs/tile-board): a board brings its own compact
+ * header, so while one is on the page the site header steps aside and <main>
+ * drops its width cap and padding to let the board fill the first screen.
+ * Every other page is untouched.
+ */
+body:has([data-tile-board]) > header {
+  display: none;
+}
+main:has(> [data-tile-board]) {
+  max-width: none;
+  padding: 0;
+}

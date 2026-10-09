@@ -39,7 +39,7 @@ export default async function ShopPricesPage() {
         description={`${shop.name} — approve proposed changes and upload price lists.`}
       />
 
-      <Section title={`Pending your approval (${pending.length})`}>
+      <Section id="price-requests" title={`Pending your approval (${pending.length})`}>
         <PendingPriceApprovals
           rows={pending.map((r) => ({
             id: r.id,
