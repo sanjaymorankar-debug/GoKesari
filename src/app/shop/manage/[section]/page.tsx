@@ -2,9 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { BankAccountPrompt } from "@/components/bank-account-prompt";
-import { ExcelPriceUpload } from "@/components/excel-price-upload";
 import { LegalDocumentsBanner } from "@/components/legal-documents-banner";
-import { PendingPriceApprovals } from "@/components/pending-price-approvals";
 import { RegistrationPanel } from "@/components/registration-panel";
 import { ShopCategoriesEditor } from "@/components/shop-categories-editor";
 import { ShopCustomerContactForm } from "@/components/shop-customer-contact-form";
@@ -43,7 +41,6 @@ import { getShopDashboard } from "@/server/services/dashboards";
 import { getMaskedPan } from "@/server/services/gst-pan-verification";
 import { getShopLegalStatus } from "@/server/services/legal-documents";
 import { listOrdersForShop } from "@/server/services/orders";
-import { listPendingForShop } from "@/server/services/price-requests";
 import { getReferralCodeById } from "@/server/services/referrals";
 import { getRule } from "@/server/services/settings";
 import { missedAcceptances30d } from "@/server/services/shop-acceptance";
@@ -67,13 +64,11 @@ export const dynamic = "force-dynamic";
 const SECTIONS = {
   today: "Today's work",
   products: "Products — on/off and stock",
-  "excel-upload": "Price upload from Excel",
   location: "Delivery area and location",
   hours: "Opening hours and contact",
   "gst-pan": "GST and PAN",
   "shop-types": "Shop types I sell",
   registration: "Registration and fee",
-  "price-approvals": "Price changes to approve",
 } as const;
 
 type SectionKey = keyof typeof SECTIONS;
@@ -332,16 +327,6 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
       );
     }
 
-    case "excel-upload":
-      return (
-        <>
-          {header}
-          <div id="excel-upload">
-            <ExcelPriceUpload shopId={shop.id} appliesImmediately />
-          </div>
-        </>
-      );
-
     case "location":
       return (
         <>
@@ -457,32 +442,6 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
               }))}
             />
           </div>
-        </>
-      );
-    }
-
-    case "price-approvals": {
-      const rows = await listPendingForShop(shop.id);
-      return (
-        <>
-          {header}
-          {rows.length === 0 ? (
-            <EmptyState title="Nothing to approve." description="Price changes our team proposes for your shop appear here for your decision." />
-          ) : (
-            <PendingPriceApprovals
-              rows={rows.map((r) => ({
-                id: r.id,
-                productName: r.productName,
-                productCode: r.productCode,
-                unit: r.unit,
-                priceType: r.priceType,
-                previousPricePaise: r.previousPricePaise,
-                proposedPricePaise: r.proposedPricePaise,
-                source: r.source,
-                createdAt: r.createdAt.toISOString(),
-              }))}
-            />
-          )}
         </>
       );
     }

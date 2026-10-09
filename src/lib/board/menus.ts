@@ -147,7 +147,7 @@ export const CUSTOMER_MENUS: readonly BoardMenu[] = [
     ],
   },
   {
-    key: "wallet", label: L("Wallet", "वॉलेट", "वॉलेट"), icon: "wallet", tone: "green", href: "/wallet", auth: true,
+    key: "wallet", label: L("Wallet", "वॉलेट", "वॉलेट"), icon: "wallet", tone: "green", href: "/wallet#add-money", auth: true,
     items: [
       { key: "addMoney", label: L("Add money", "पैसे जोड़ें", "पैसे भरा"), short: { en: "Top up" }, icon: "plus", href: "/wallet#add-money", auth: true },
       { key: "history", label: L("History", "इतिहास", "इतिहास"), icon: "receipt", href: "/wallet#history", auth: true },
@@ -207,7 +207,7 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
     ],
   },
   {
-    key: "inventory", label: L("Inventory", "स्टॉक", "साठा"), icon: "boxes", tone: "teal", href: "/shop/inventory", count: "shopLowStock", opens: "hub",
+    key: "inventory", label: L("Inventory", "स्टॉक", "साठा"), icon: "boxes", tone: "teal", href: "/shop/inventory", count: "shopLowStock",
     items: [
       { key: "stock", label: L("Stock", "स्टॉक", "साठा"), icon: "boxes", href: "/shop/inventory" },
       { key: "low", label: L("Low", "कम", "कमी"), icon: "triangle-alert", href: "/shop/inventory#alerts", count: "shopLowStock" },
@@ -232,14 +232,11 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
     ],
   },
   {
-    key: "prices", label: L("Price updates", "दाम अपडेट", "दर बदल"), short: L("Prices", "दाम", "दर"), icon: "tag", tone: "teal", href: "/shop/prices", count: "shopPriceRequests", opens: "hub",
+    key: "prices", label: L("Price updates", "दाम अपडेट", "दर बदल"), short: L("Prices", "दाम", "दर"), icon: "tag", tone: "teal", href: "/shop/prices", count: "shopPriceRequests",
     items: [
       { key: "edit", label: L("Edit", "बदलें", "बदला"), icon: "tag", href: "/shop/prices" },
-      { key: "excel", label: L("Excel", "एक्सेल", "एक्सेल"), icon: "file-spreadsheet", href: "/shop/manage/excel-upload" },
+      { key: "excel", label: L("Excel", "एक्सेल", "एक्सेल"), icon: "file-spreadsheet", href: "/shop/prices#excel-upload" },
       { key: "requests", label: L("Requests", "अनुरोध", "विनंत्या"), icon: "clock", href: "/shop/prices#price-requests", count: "shopPriceRequests", urgent: true },
-    ],
-    more: [
-      { key: "approve", label: L("Changes to approve", "मंज़ूरी के लिए बदलाव", "मंजुरीसाठी बदल"), icon: "badge-check", href: "/shop/manage/price-approvals" },
     ],
   },
   {

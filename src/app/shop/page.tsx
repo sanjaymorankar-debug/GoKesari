@@ -21,7 +21,7 @@ export const dynamic = "force-dynamic";
 
 /** Links into the old long dashboard (`/shop#products`) → the section's own page. */
 const OLD_SECTIONS: Record<string, string> = {
-  "excel-upload": "/shop/manage/excel-upload",
+  "excel-upload": "/shop/prices#excel-upload",
   location: "/shop/manage/location",
   products: "/shop/manage/products",
   registration: "/shop/manage/registration",

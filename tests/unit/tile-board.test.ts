@@ -276,7 +276,7 @@ describe("one clear path", () => {
     "registration-fees", "referral-codes", "users", "vouchers", "audit-log",
   ];
   /** The sections of the old one-page shop dashboard, each now its own page. */
-  const SHOP_SECTIONS = ["today", "products", "excel-upload", "location", "hours", "gst-pan", "shop-types", "registration", "price-approvals"];
+  const SHOP_SECTIONS = ["today", "products", "location", "hours", "gst-pan", "shop-types", "registration"];
 
   /** Every page a role reaches in at most two clicks: board entries (one click) and menu pages' entries (two). */
   function reachable(role: "SHOP_OWNER" | "OPERATOR" | "ADMIN"): Set<string> {
