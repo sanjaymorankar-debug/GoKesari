@@ -135,7 +135,7 @@ export function CustomerBoard({ lang, user, header, data, timeZone }: Props) {
                     href={c.href}
                     data-testid="board-chip"
                     data-key={`category-${c.key}`}
-                    className="flex h-[3.25rem] flex-col items-center justify-center gap-0.5 rounded-2xl border border-[#f6dcc4] bg-white px-1 hover:border-kesari-300 lg:h-[6.25rem] lg:gap-2"
+                    className="flex h-[3.25rem] flex-col items-center justify-center gap-0.5 max-lg:[@media(max-height:760px)]:h-[2.875rem] rounded-2xl border border-[#f6dcc4] bg-white px-1 hover:border-kesari-300 lg:h-[6.25rem] lg:gap-2"
                   >
                     <span aria-hidden className={`grid h-6 w-8 place-items-center rounded-lg text-base leading-none lg:h-12 lg:w-14 lg:rounded-xl lg:text-3xl ${c.bg}`}>
                       {c.emoji}
@@ -150,7 +150,7 @@ export function CustomerBoard({ lang, user, header, data, timeZone }: Props) {
             </ul>
           </nav>
 
-          <div className="grid flex-1 grid-cols-3 gap-1.5 [--chip-gap-x:0.25rem] [--chip-gap:0.1875rem] [--chip-h:1.75rem] [--chip-icon:0.875rem] [--chip-px:0.375rem] [--chip-text:0.8125rem] [--tile-pad:0.3125rem] [--tile-title:0.875rem] lg:gap-4">
+          <div className="grid flex-1 grid-cols-3 gap-1.5 [--chip-gap-x:0.25rem] [--chip-gap:0.1875rem] [--chip-h:1.75rem] [--chip-icon:0.875rem] [--chip-px:0.375rem] [--chip-text:0.8125rem] [--tile-pad:0.3125rem] [--tile-title:0.875rem] max-lg:[@media(max-height:760px)]:[--chip-h:1.625rem] lg:gap-4">
             {menus.map((menu: ResolvedMenu) => (
               <Tile
                 key={menu.key}
