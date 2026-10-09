@@ -441,6 +441,15 @@ The owner answered the open questions of §6. What was built:
     already carry a request id, so a repeat is harmless there. The shop
     owner's "request a code" form would show the same "already have your
     request" message in that case; the request itself is not lost.
+- **S-7. The shop list called a paused shop "outside its delivery area"
+  (fixed, 9 Oct).** On test, the bakery blocked for a missing document
+  showed as "Pickup · outside its delivery area · 1.1 km". Shops paused by
+  their owner or below their wallet minimum read the same.
+  - **Fix:** a paused shop now reads "Not taking new orders right now"; the
+    cart message was already right. This is the wording option B asked for,
+    and the wallet gate's own design note.
+  - **The shop page** shows no notice for any paused shop (as before); the
+    cart warns as soon as an item is added.
 - **T-1. How the staging run signed in.** Test accounts are plus-aliases of the
   owner's mailbox (sanjaymorankar+gk-*@gmail.com), signing in with the real
   email code. `test-e2e-accounts.sql` gave one of them ADMIN and one OPERATOR on

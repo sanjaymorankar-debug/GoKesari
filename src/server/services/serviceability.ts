@@ -263,6 +263,8 @@ export type NearbyShop = Pick<
   distanceKm: number | null;
   /** The shop has products customers can subscribe to (delivered daily). */
   subscriptionDelivery: boolean;
+  /** Not taking new orders: paused by the owner, below its wallet minimum, or missing a legal document. */
+  ordersPaused: boolean;
 };
 
 /**
@@ -363,5 +365,6 @@ export async function listNearbyShops(
       deliversHere,
       distanceKm,
       subscriptionDelivery,
+      ordersPaused: shop.ordersPaused,
     }));
 }
