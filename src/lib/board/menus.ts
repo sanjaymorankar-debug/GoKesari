@@ -122,7 +122,8 @@ export const CUSTOMER_MENUS: readonly BoardMenu[] = [
   {
     key: "shops", label: L("Shops", "दुकानें", "दुकाने"), icon: "store", tone: "kesari", href: "/shops", count: "nearbyShops",
     items: [
-      { key: "nearby", label: L("Nearby", "पास में", "जवळची"), icon: "map-pin", href: "/shops", count: "nearbyShops" },
+      // docs/nearby-referral-2026-10: shops near the device's real position (asks for location).
+      { key: "nearby", label: L("Nearby", "पास में", "जवळची"), icon: "map-pin", href: "/shops/nearby", count: "nearbyShops" },
       { key: "openNow", label: L("Open now", "अभी खुली", "आता उघडी"), icon: "clock", href: "/shops?open=1", count: "openNowShops" },
       // Mockup: "Favourites" — no favourites feature exists; nearest real destination.
       { key: "deliversHere", label: L("Delivers here", "यहाँ डिलीवरी", "इथे डिलिव्हरी"), short: { en: "Delivers" }, icon: "truck", href: "/shops?delivery=true", count: "deliveringShops" },
@@ -357,6 +358,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "fees", label: L("Registration fees", "पंजीकरण शुल्क", "नोंदणी शुल्क"), icon: "receipt", href: "/admin/console/registration-fees", permission: STAFF },
       { key: "referralCodes", label: L("Referral codes", "रेफ़रल कोड", "रेफरल कोड"), icon: "ticket", href: "/admin/console/referral-codes", permission: PERMISSIONS.REFERRAL_MANAGE },
       { key: "referralRequests", label: L("Referral requests", "रेफ़रल अनुरोध", "रेफरल विनंत्या"), icon: "message-square", href: "/admin/referral-requests", permission: PERMISSIONS.REFERRAL_MANAGE },
+      // docs/nearby-referral-2026-10, feature 1: shops left out of Nearby because they have no map location.
+      { key: "missingLocation", label: L("Shops without location", "बिना लोकेशन दुकानें", "लोकेशन नसलेली दुकाने"), icon: "map-pin", href: "/admin/shops/missing-location", permission: PERMISSIONS.SHOP_APPROVE },
     ],
   },
   {
@@ -457,6 +460,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "gst", label: L("GST settings", "जीएसटी सेटिंग", "जीएसटी सेटिंग्ज"), icon: "file-text", href: "/admin/gst-config", permission: PERMISSIONS.GST_CONFIG_MANAGE },
       { key: "integrations", label: L("Accounting sync", "अकाउंटिंग सिंक", "अकाउंटिंग सिंक"), icon: "database", href: "/admin/integrations", permission: PERMISSIONS.INTEGRATION_VIEW_ANY },
       { key: "testMessages", label: L("Test messages", "टेस्ट संदेश", "चाचणी संदेश"), icon: "message-square", href: "/admin/test-messages", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
+      // docs/nearby-referral-2026-10, feature 2: Mandatory / Optional referral code — admin only.
+      { key: "referralSettings", label: L("Referral settings", "रेफ़रल सेटिंग", "रेफरल सेटिंग्ज"), icon: "toggle-right", href: "/admin/referral-settings", permission: ADMIN_ONLY },
     ],
   },
 ];
@@ -490,6 +495,7 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "fees", label: L("Registration fees", "पंजीकरण शुल्क", "नोंदणी शुल्क"), icon: "receipt", href: "/admin/console/registration-fees", permission: STAFF },
       { key: "referralCodes", label: L("Referral codes", "रेफ़रल कोड", "रेफरल कोड"), icon: "ticket", href: "/admin/console/referral-codes", permission: PERMISSIONS.REFERRAL_MANAGE },
       { key: "referralRequests", label: L("Referral requests", "रेफ़रल अनुरोध", "रेफरल विनंत्या"), icon: "message-square", href: "/admin/referral-requests", permission: PERMISSIONS.REFERRAL_MANAGE },
+      { key: "missingLocation", label: L("Shops without location", "बिना लोकेशन दुकानें", "लोकेशन नसलेली दुकाने"), icon: "map-pin", href: "/admin/shops/missing-location", permission: PERMISSIONS.SHOP_APPROVE },
     ],
   },
   {

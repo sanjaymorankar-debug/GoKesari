@@ -139,7 +139,14 @@ export function MapPicker({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ latitude: pin.lat, longitude: pin.lng, purpose }),
       });
-      const payload = await response.json();
+      const payload = await response.json().catch(() => null);
+      // The address lookup is a convenience: when the server cannot do it (no
+      // geocoding key, Google down — a 5xx), the pin itself is still kept. The
+      // save re-checks it and records it as not verified (geocoding.ts).
+      if (response.status >= 500) {
+        onConfirm({ latitude: pin.lat, longitude: pin.lng, formattedAddress: "" });
+        return;
+      }
       if (!response.ok) {
         throw new Error(payload?.error?.message ?? "Could not confirm this location.");
       }

@@ -22,6 +22,7 @@ import { customerReferralCodes, customerSignupReferrals, orders, referralCodes, 
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { applyReferralCode, normalizeReferralCode } from "./customer-referrals";
 import { resolveUsableCode } from "./referrals";
+import { getReferralSetting } from "./referral-settings";
 import { getRule } from "./settings";
 
 interface Actor {
@@ -46,26 +47,42 @@ export async function getSignupReferral(userId: string): Promise<SignupReferralV
   return row ? { kind: row.row.kind, code: row.row.code, label: row.label, createdAt: row.row.createdAt.toISOString() } : null;
 }
 
+/**
+ * Whether the referral code is asked at customer registration at all. Since the
+ * admin's referral settings (docs/nearby-referral-2026-10, feature 2) it always
+ * is — as Mandatory or Optional by referral_required_customer — so the
+ * `enabled` switch of rule customerSignupReferral is no longer read. One place,
+ * so the pages, header and APIs agree.
+ */
+export async function isSignupReferralAsked(): Promise<boolean> {
+  return true;
+}
+
 /** Whether first-time setup should ask this customer for a code. */
 export async function shouldAskSignupReferral(userId: string): Promise<boolean> {
-  if (!(await getRule("customerSignupReferral")).enabled) return false;
+  if (!(await isSignupReferralAsked())) return false;
   if (await getSignupReferral(userId)) return false;
   const [{ n }] = await db.select({ n: count() }).from(orders).where(eq(orders.userId, userId));
   return n === 0;
 }
 
 /**
- * Mandatory code (rule customerSignupReferral.required, the owner's decision
- * of 9 Oct 2026): whether this customer still needs a referral code before
- * their first order. Customers only (shop owners gave one at shop
- * registration; staff are exempt); customers who already ordered, or joined
- * before requiredFrom, are never stopped. Browsing and search stay open.
+ * Mandatory code: whether this customer still needs a referral code before
+ * their first order. Mandatory when the admin's setting
+ * referral_required_customer is MANDATORY (docs/nearby-referral-2026-10 — it
+ * replaced rule customerSignupReferral.required). Customers only (shop owners
+ * gave one at shop registration; staff are exempt); customers who already
+ * ordered, who joined before the setting was switched to MANDATORY (a change
+ * never reaches existing users), or before rule customerSignupReferral's
+ * requiredFrom, are never stopped. Browsing and search stay open.
  */
 export async function needsSignupReferralCode(userId: string): Promise<boolean> {
+  const setting = await getReferralSetting("customer");
+  if (setting.value !== "MANDATORY") return false;
   const rule = await getRule("customerSignupReferral");
-  if (!rule.enabled || !rule.required) return false;
   const [user] = await db.select({ role: users.role, createdAt: users.createdAt }).from(users).where(eq(users.id, userId));
   if (!user || user.role !== "CUSTOMER") return false;
+  if (setting.since && user.createdAt < setting.since) return false;
   // requiredFrom is a date in India time: joined at or after its midnight IST.
   if (rule.requiredFrom && user.createdAt < new Date(`${rule.requiredFrom}T00:00:00+05:30`)) return false;
   return shouldAskSignupReferral(userId);
@@ -82,7 +99,7 @@ export async function assertSignupReferralForFirstOrder(userId: string): Promise
 
 /** Checks the code a new customer gave and records it. */
 export async function applySignupReferralCode(userId: string, raw: string, actor: Actor): Promise<SignupReferralView> {
-  if (!(await getRule("customerSignupReferral")).enabled) throw conflict("Referral codes aren't asked for right now.");
+  if (!(await isSignupReferralAsked())) throw conflict("Referral codes aren't asked for right now.");
   // Issued codes keep hyphens / underscores (referrals.ts); friends' codes are letters and digits only.
   const entered = raw.trim().toUpperCase();
   const friendCode = normalizeReferralCode(raw);

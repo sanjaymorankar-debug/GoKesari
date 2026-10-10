@@ -23,6 +23,7 @@ import { customerReferralRequests, type CustomerReferralRequest, type ReferralRe
 import { emailMode, sendEmail } from "@/server/email/transport";
 import { emitEvent } from "@/server/events/emit";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { isSignupReferralAsked } from "./customer-signup-referrals";
 import { createReferralCode } from "./referrals";
 import { getRule } from "./settings";
 
@@ -142,7 +143,8 @@ export async function createCustomerReferralRequest(
   userId: string,
 ): Promise<{ reference: string; createdAt: string; mobileMasked: string; locationShared: boolean }> {
   const rules = await getRule("customerSignupReferral");
-  if (!rules.enabled) throw conflict("Referral codes aren't asked for right now.");
+  // docs/nearby-referral-2026-10: asked whenever customers register (Mandatory or Optional).
+  if (!(await isSignupReferralAsked())) throw conflict("Referral codes aren't asked for right now.");
   const checked = checkCustomerReferralRequest(input);
   if (!checked.ok) throw validationFailed(Object.values(checked.fields)[0], { fields: checked.fields });
   const request = checked.value;

@@ -10,7 +10,7 @@ import { getCurrentUser } from "@/server/authz/guards";
 import { db } from "@/server/db";
 import { addresses } from "@/server/db/schema";
 import { listMyCustomerReferralRequests } from "@/server/services/customer-referral-requests";
-import { getSignupReferral, needsSignupReferralCode, shouldAskSignupReferral } from "@/server/services/customer-signup-referrals";
+import { getSignupReferral, isSignupReferralAsked, needsSignupReferralCode, shouldAskSignupReferral } from "@/server/services/customer-signup-referrals";
 import { getProfile } from "@/server/services/profile";
 import { getRule } from "@/server/services/settings";
 
@@ -25,7 +25,7 @@ export const dynamic = "force-dynamic";
 export default async function MyReferralCodePage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
-  const [rule, friendRule] = await Promise.all([getRule("customerSignupReferral"), getRule("customerReferrals")]);
+  const friendRule = await getRule("customerReferrals");
   const invite = friendRule.enabled ? (
     <p className="text-sm text-ink-600">
       Want to invite others?{" "}
@@ -35,7 +35,7 @@ export default async function MyReferralCodePage() {
       .
     </p>
   ) : null;
-  if (!rule.enabled) {
+  if (!(await isSignupReferralAsked())) {
     return (
       <div className="mx-auto max-w-2xl space-y-4">
         <PageHeader title="My referral code" />

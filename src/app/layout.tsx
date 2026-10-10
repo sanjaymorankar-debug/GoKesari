@@ -16,6 +16,7 @@ import { unreadCount } from "@/server/services/notifications";
 import { listUserRoles } from "@/server/services/roles";
 import { listShopsWhereStaff } from "@/server/services/shop-staff";
 import { getWalletByUserId } from "@/server/services/wallet";
+import { isSignupReferralAsked } from "@/server/services/customer-signup-referrals";
 import { getRule } from "@/server/services/settings";
 import "./globals.css";
 
@@ -67,9 +68,9 @@ export default async function RootLayout({
   const location = await getCustomerLocation(user?.id).catch(() => null);
   // Referral links (docs/four-features-2026-10) for every signed-in user, when their rules are on.
   const referralLinks = user
-    ? await Promise.all([getRule("customerSignupReferral"), getRule("customerReferrals")])
+    ? await Promise.all([isSignupReferralAsked(), getRule("customerReferrals")])
         .then(([signup, friends]) => [
-          ...(signup.enabled ? [{ href: "/referral", key: "referral" as const }] : []),
+          ...(signup ? [{ href: "/referral", key: "referral" as const }] : []),
           ...(friends.enabled ? [{ href: "/refer", key: "invite" as const }] : []),
         ])
         .catch(() => [])

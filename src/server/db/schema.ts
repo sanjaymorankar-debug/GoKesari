@@ -5844,9 +5844,8 @@ export const shopRegistrations = pgTable(
     shopName: text("shop_name").notNull(),
     mobileE164: text("mobile_e164").notNull(),
     mobileVerifiedAt: timestamp("mobile_verified_at", { withTimezone: true }).notNull(),
-    referralCodeId: uuid("referral_code_id")
-      .notNull()
-      .references(() => referralCodes.id, { onDelete: "restrict" }),
+    /** Null when the shop registered without a code while referral_required_shop was OPTIONAL (migration 0074). */
+    referralCodeId: uuid("referral_code_id").references(() => referralCodes.id, { onDelete: "restrict" }),
     distributorId: uuid("distributor_id").references(() => distributors.id, { onDelete: "set null" }),
     feeTierId: uuid("fee_tier_id")
       .notNull()
@@ -6777,3 +6776,47 @@ export const bankAccountChecks = pgTable(
   ],
 );
 export type BankAccountCheck = typeof bankAccountChecks.$inferSelect;
+
+/* =====================================================================
+ * Referral settings (docs/nearby-referral-2026-10, feature 2): whether a
+ * referral code is Mandatory or Optional at customer registration and at shop
+ * registration. Admin-only (Admin → Referral settings); every change is kept
+ * in referral_setting_changes. Additive: migration 0074, rollback
+ * scripts/rollback-0074.sql.
+ * =================================================================== */
+
+export const REFERRAL_SETTING_KEYS = ["referral_required_customer", "referral_required_shop"] as const;
+export type ReferralSettingKey = (typeof REFERRAL_SETTING_KEYS)[number];
+export const REFERRAL_REQUIREMENTS = ["MANDATORY", "OPTIONAL"] as const;
+export type ReferralRequirement = (typeof REFERRAL_REQUIREMENTS)[number];
+
+/** One row per setting; seeded OPTIONAL by the migration. */
+export const referralSettings = pgTable(
+  "referral_settings",
+  {
+    key: text("key", { enum: REFERRAL_SETTING_KEYS }).primaryKey(),
+    value: text("value", { enum: REFERRAL_REQUIREMENTS }).notNull().default("OPTIONAL"),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("referral_settings_value", sql`${t.value} in ('MANDATORY', 'OPTIONAL')`)],
+);
+export type ReferralSetting = typeof referralSettings.$inferSelect;
+
+/** Who changed a referral setting, from what to what, and when. Append-only. */
+export const referralSettingChanges = pgTable(
+  "referral_setting_changes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    settingKey: text("setting_key", { enum: REFERRAL_SETTING_KEYS }).notNull(),
+    oldValue: text("old_value", { enum: REFERRAL_REQUIREMENTS }).notNull(),
+    newValue: text("new_value", { enum: REFERRAL_REQUIREMENTS }).notNull(),
+    changedBy: uuid("changed_by").references(() => users.id, { onDelete: "set null" }),
+    /** Copied at the time of the change, so the log still reads if the account goes. */
+    changedByEmail: text("changed_by_email"),
+    changedByRole: text("changed_by_role"),
+    changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("referral_setting_changes_key_idx").on(t.settingKey, t.changedAt)],
+);
+export type ReferralSettingChange = typeof referralSettingChanges.$inferSelect;

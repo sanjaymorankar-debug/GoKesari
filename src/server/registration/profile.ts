@@ -22,6 +22,7 @@ import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { shopProductCategories, shops, type UserRole } from "@/server/db/schema";
 import { checkGstin, type GstinCheck } from "@/server/gst/gstin";
+import { resolveLocationVerification } from "@/server/services/geocoding";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { submitGstin } from "@/server/services/gst-pan-verification";
 import { shopSellsFood } from "@/server/services/seller-verification";
@@ -37,6 +38,9 @@ export const profileSetupSchema = z.object({
   pincode: z.string().trim().regex(/^\d{6}$/, "PIN code must be 6 digits."),
   shopType: z.enum(SHOP_TYPE_KEYS),
   gstin: z.string().trim().max(20).nullish(),
+  // docs/nearby-referral-2026-10: the shop's map pin (map or "use my current location"), so it shows in Nearby.
+  latitude: z.number().min(-90).max(90).nullish(),
+  longitude: z.number().min(-180).max(180).nullish(),
 });
 
 async function loadShop(shopId: string, actor: Actor) {
@@ -70,6 +74,8 @@ export async function profileSetupView(shopId: string, actor: Actor) {
       gstStatus: shop.gstStatus,
       panStatus: shop.panStatus,
       locationVerified: shop.locationVerified,
+      latitude: shop.latitude,
+      longitude: shop.longitude,
       onboardingChannel: shop.onboardingChannel,
       profileCompletedAt: shop.profileCompletedAt,
     },
@@ -105,9 +111,20 @@ export async function saveProfileSetup(shopId: string, input: z.infer<typeof pro
   }
 
   const now = new Date();
+  // A new pin is checked the same way as everywhere else (Google when configured; otherwise kept, not verified).
+  const pinMoved =
+    input.latitude != null && input.longitude != null && (String(input.latitude) !== shop.latitude || String(input.longitude) !== shop.longitude);
+  const location = pinMoved
+    ? {
+        latitude: String(input.latitude),
+        longitude: String(input.longitude),
+        ...(await resolveLocationVerification(input.latitude, input.longitude, "shop_profile_setup", "shop", shopId)),
+      }
+    : {};
   await db
     .update(shops)
     .set({
+      ...location,
       ownerName: input.ownerName,
       addressLine1: input.addressLine1,
       addressLine2: input.addressLine2 ?? null,
@@ -126,7 +143,14 @@ export async function saveProfileSetup(shopId: string, input: z.infer<typeof pro
     entityType: "shop",
     entityId: shopId,
     previousValue: { ownerName: shop.ownerName, city: shop.city, pincode: shop.pincode, shopType: shop.shopType },
-    newValue: { ownerName: input.ownerName, city: input.city, pincode: input.pincode, shopType: input.shopType, via: "profile-setup" },
+    newValue: {
+      ownerName: input.ownerName,
+      city: input.city,
+      pincode: input.pincode,
+      shopType: input.shopType,
+      ...(pinMoved ? { latitude: String(input.latitude), longitude: String(input.longitude) } : {}),
+      via: "profile-setup",
+    },
   });
   // Saved through the existing GST flow (operations confirm it there).
   if (gstin && gstin !== shop.gstin) await submitGstin(shopId, gstin, actor);

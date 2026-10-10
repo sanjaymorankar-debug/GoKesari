@@ -4,7 +4,11 @@
  *
  *   1. checkReferralCode       — exists, active, not expired, within its usage
  *                                limit. An invalid code stops everything here:
- *                                no OTP, no payment.
+ *                                no OTP, no payment. With the admin's setting
+ *                                referral_required_shop OPTIONAL a registration
+ *                                may carry no code at all (checkJoinReferral;
+ *                                docs/nearby-referral-2026-10); one that is
+ *                                entered is still checked.
  *   2. createRegistration      — OTP verified, code re-checked under a row lock,
  *                                PENDING_PAYMENT with the fee of the chosen
  *                                tier snapshotted and a slot held on the code.
@@ -57,6 +61,7 @@ import { recordConsent } from "@/server/services/consents";
 import { grantRole } from "@/server/services/roles";
 import { getRule } from "@/server/services/settings";
 import { referralCodeUses } from "@/server/services/referrals";
+import { isReferralRequired } from "@/server/services/referral-settings";
 import { nextReference } from "@/server/services/shop-payments";
 import { getOrCreateShopWallet } from "@/server/services/shop-wallet";
 import { verifyRegistrationOtp } from "./otp";
@@ -144,12 +149,28 @@ export async function checkReferralCode(raw: string): Promise<ReferralCheck> {
   return { ok: true, code: code!.code, label: code!.label, distributor, tiers: await activeTiers() };
 }
 
+export const REFERRAL_REQUIRED_MESSAGE = "Enter the referral code from your distributor, or request one.";
+
+/**
+ * Step 1 with the admin's setting referral_required_shop: a blank code is
+ * refused while it is MANDATORY and accepted (no code, the fee plans) while
+ * it is OPTIONAL; an entered code is always checked.
+ */
+export async function checkJoinReferral(
+  raw: string | null | undefined,
+): Promise<ReferralCheck | { ok: true; code: null; label: null; distributor: null; tiers: TierView[] } | { ok: false; reason: "REQUIRED"; message: string }> {
+  if ((raw ?? "").trim()) return checkReferralCode(raw!);
+  if (await isReferralRequired("shop")) return { ok: false, reason: "REQUIRED", message: REFERRAL_REQUIRED_MESSAGE };
+  return { ok: true, code: null, label: null, distributor: null, tiers: await activeTiers() };
+}
+
 /* ------------------------------------------------------------ registration */
 
 export const createRegistrationSchema = z.object({
   shopName: z.string().trim().min(2, "Enter the shop's name.").max(100),
   mobile: z.string().trim().min(10).max(16),
-  referralCode: z.string().trim().min(3).max(32),
+  // Blank or absent only while referral_required_shop is OPTIONAL (checked in createRegistration).
+  referralCode: z.union([z.string().trim().min(3).max(32), z.literal("")]).nullish(),
   tierCode: z.string().trim().min(2).max(32),
   otp: z.string().trim().min(4).max(8),
   acceptTerms: z.literal(true, { message: "Accept the seller terms to continue." }),
@@ -169,16 +190,22 @@ export async function createRegistration(
   await assertSelfRegistrationOpen();
   const rules = await getRule("selfRegistration");
   const mobile = parseMobileOrThrow(input.mobile);
-  // The code first: an invalid code stops here, before the OTP is used up.
-  const pre = await checkReferralCode(input.referralCode);
-  if (!pre.ok) throw validationFailed(pre.message, { reason: pre.reason });
+  // The code first: an invalid (or, while mandatory, missing) code stops here, before the OTP is used up.
+  const referralText = (input.referralCode ?? "").trim();
+  const pre = await checkJoinReferral(referralText);
+  if (!pre.ok) throw validationFailed(pre.message, { reason: pre.reason, fields: { referralCode: pre.message } });
   const verifiedAt = await verifyRegistrationOtp(mobile.e164, input.otp);
 
   const token = randomBytes(32).toString("base64url");
   const registration = await db.transaction(async (tx) => {
-    const [code] = await tx.select().from(referralCodes).where(eq(referralCodes.code, normaliseCode(input.referralCode))).for("update");
-    const problem = await referralProblem(code, tx);
-    if (problem) throw validationFailed(REFERRAL_MESSAGES[problem], { reason: problem });
+    // No code: allowed only because the shop setting was OPTIONAL above.
+    const [code] = referralText
+      ? await tx.select().from(referralCodes).where(eq(referralCodes.code, normaliseCode(referralText))).for("update")
+      : [];
+    if (referralText) {
+      const problem = await referralProblem(code, tx);
+      if (problem) throw validationFailed(REFERRAL_MESSAGES[problem], { reason: problem });
+    }
     const [tier] = await tx
       .select()
       .from(registrationFeeTiers)
@@ -192,8 +219,8 @@ export async function createRegistration(
       throw conflict("This mobile number already has unpaid registrations. Pay or wait for them to lapse — the payment link was sent by SMS.");
     }
     let distributorId: string | null = null;
-    if (code!.distributorId) {
-      const [d] = await tx.select({ id: distributors.id, status: distributors.status }).from(distributors).where(eq(distributors.id, code!.distributorId));
+    if (code?.distributorId) {
+      const [d] = await tx.select({ id: distributors.id, status: distributors.status }).from(distributors).where(eq(distributors.id, code.distributorId));
       distributorId = d?.status === "ACTIVE" ? d.id : null;
     }
     const [row] = await tx
@@ -203,7 +230,7 @@ export async function createRegistration(
         shopName: input.shopName,
         mobileE164: mobile.e164,
         mobileVerifiedAt: verifiedAt,
-        referralCodeId: code!.id,
+        referralCodeId: code?.id ?? null,
         distributorId,
         feeTierId: tier.id,
         feePaise: tier.amountPaise,
@@ -217,7 +244,7 @@ export async function createRegistration(
         action: AUDIT_ACTIONS.SHOP_SELF_REGISTRATION_STARTED,
         entityType: "shop_registration",
         entityId: row.id,
-        newValue: { shopName: row.shopName, mobile: `******${mobile.national.slice(-4)}`, referralCode: code!.code, tier: tier.code, feePaise: tier.amountPaise },
+        newValue: { shopName: row.shopName, mobile: `******${mobile.national.slice(-4)}`, referralCode: code?.code ?? null, tier: tier.code, feePaise: tier.amountPaise },
         ipAddress: ip,
       },
       tx,
@@ -244,7 +271,7 @@ export async function registrationByToken(token: string): Promise<ShopRegistrati
 export async function registrationStatus(token: string) {
   const reg = await registrationByToken(token);
   const [tier] = await db.select().from(registrationFeeTiers).where(eq(registrationFeeTiers.id, reg.feeTierId));
-  const [code] = await db.select({ code: referralCodes.code }).from(referralCodes).where(eq(referralCodes.id, reg.referralCodeId));
+  const [code] = reg.referralCodeId ? await db.select({ code: referralCodes.code }).from(referralCodes).where(eq(referralCodes.id, reg.referralCodeId)) : [];
   const [lastPayment] = await db
     .select()
     .from(registrationPayments)
@@ -290,12 +317,19 @@ export async function startRegistrationPayment(token: string): Promise<StartedPa
   const reg = await registrationByToken(token);
   if (reg.status === "APPROVED") throw conflict("This registration is already paid and approved.");
   if (reg.status !== "PENDING_PAYMENT") throw conflict("This registration was cancelled. Start a new one.");
+  // Made without a code while it was optional, and the admin has since made it mandatory: no payment
+  // is taken that could not be approved (docs/nearby-referral-2026-10).
+  if (!reg.referralCodeId && (await isReferralRequired("shop"))) {
+    throw validationFailed(`A referral code is now required to register a shop. ${REFERRAL_REQUIRED_MESSAGE.replace("Enter", "Start again with")}`, { reason: "REQUIRED" });
+  }
   if (reg.holdExpiresAt.getTime() < Date.now()) {
     const rules = await getRule("selfRegistration");
     await db.transaction(async (tx) => {
-      const [code] = await tx.select().from(referralCodes).where(eq(referralCodes.id, reg.referralCodeId)).for("update");
-      const problem = await referralProblem(code, tx, reg.id);
-      if (problem) throw validationFailed(`${REFERRAL_MESSAGES[problem]} This registration cannot be paid now.`, { reason: problem });
+      if (reg.referralCodeId) {
+        const [code] = await tx.select().from(referralCodes).where(eq(referralCodes.id, reg.referralCodeId)).for("update");
+        const problem = await referralProblem(code, tx, reg.id);
+        if (problem) throw validationFailed(`${REFERRAL_MESSAGES[problem]} This registration cannot be paid now.`, { reason: problem });
+      }
       await tx
         .update(shopRegistrations)
         .set({ holdExpiresAt: new Date(Date.now() + rules.holdHours * 3600_000), updatedAt: new Date() })
@@ -481,7 +515,7 @@ export async function approveRegistration(payment: RegistrationPayment, event: R
     await grantRole(owner.id, "SHOP_OWNER", { source: "SHOP_REGISTRATION", activateIfCustomer: true }, tx);
 
     const rules = await getRule("selfRegistration");
-    const [code] = await tx.select().from(referralCodes).where(eq(referralCodes.id, reg.referralCodeId));
+    const [code] = reg.referralCodeId ? await tx.select().from(referralCodes).where(eq(referralCodes.id, reg.referralCodeId)) : [];
     const [shop] = await tx
       .insert(shops)
       .values({
@@ -525,12 +559,16 @@ export async function approveRegistration(payment: RegistrationPayment, event: R
       note: `Self-registration fee, order ${payment.gatewayOrderId}${payment.gateway === "MOCK" ? " (test payment)" : ""}`,
       recordedBy: owner.id,
     });
-    await tx.insert(referralRedemptions).values({ referralCodeId: reg.referralCodeId, shopId: shop.id, registrationFeePaise: reg.feePaise, redeemedBy: owner.id });
+    // No code (referral_required_shop OPTIONAL): nothing to redeem; payment alone approves the shop.
+    if (reg.referralCodeId) {
+      await tx.insert(referralRedemptions).values({ referralCodeId: reg.referralCodeId, shopId: shop.id, registrationFeePaise: reg.feePaise, redeemedBy: owner.id });
+    }
     await getOrCreateShopWallet(shop.id, tx);
 
     // The distributor's commission: its own rate, else its type's default. Recorded only.
     let commission: { amountPaise: number; distributorId: string } | null = null;
-    if (reg.distributorId) {
+    // The distributor comes from the code, so a registration without a code has none.
+    if (reg.distributorId && reg.referralCodeId) {
       const [d] = await tx
         .select({ distributor: distributors, type: distributorTypes })
         .from(distributors)
@@ -618,7 +656,7 @@ export async function registrationReceiptPdf(token: string): Promise<{ fileName:
   const [shop] = await db.select().from(shops).where(eq(shops.id, reg.shopId));
   const [pay] = await db.select().from(shopPayments).where(and(eq(shopPayments.shopId, reg.shopId), eq(shopPayments.paymentType, "REGISTRATION_FEE")));
   const [tier] = await db.select().from(registrationFeeTiers).where(eq(registrationFeeTiers.id, reg.feeTierId));
-  const [code] = await db.select({ code: referralCodes.code }).from(referralCodes).where(eq(referralCodes.id, reg.referralCodeId));
+  const [code] = reg.referralCodeId ? await db.select({ code: referralCodes.code }).from(referralCodes).where(eq(referralCodes.id, reg.referralCodeId)) : [];
   const money = (p: number) => formatPaise(p).replace("₹", "Rs. ");
   const W = PDF_LINE_WIDTH;
   const lines: PdfLine[] = [];

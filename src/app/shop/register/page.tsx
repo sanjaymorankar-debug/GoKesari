@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { ShopRegisterForm } from "@/components/shop-register-form";
 import { Alert, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
+import { isReferralRequired } from "@/server/services/referral-settings";
 import { listShopsForOwner } from "@/server/services/shops";
 import { getRule } from "@/server/services/settings";
 
@@ -18,8 +19,8 @@ export default async function RegisterShopPage() {
   const ownShops = await listShopsForOwner(user.id);
   const pending = ownShops.filter((s) => s.status === "PENDING_APPROVAL");
   const rejected = ownShops.find((s) => s.status === "REJECTED");
-  // docs/four-features-2026-10, feature 4: the referral code is mandatory while this rule is on.
-  const referralRule = await getRule("shopReferral");
+  // docs/nearby-referral-2026-10: the admin's setting referral_required_shop, read live.
+  const referralRequired = await isReferralRequired("shop");
   // Module 3: with a referral code a shop can register and pay online, approved on payment.
   const selfService = (await getRule("selfRegistration")).enabled;
 
@@ -62,7 +63,7 @@ export default async function RegisterShopPage() {
           chosen here.
         </Alert>
       </div>
-      <ShopRegisterForm referralRequired={referralRule.required} />
+      <ShopRegisterForm referralRequired={referralRequired} />
     </div>
   );
 }

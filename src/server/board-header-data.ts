@@ -8,6 +8,7 @@ import { getCustomerLocation } from "@/server/location";
 import { listAddresses } from "@/server/services/addresses";
 import { unreadCount } from "@/server/services/notifications";
 import { listUserRoles } from "@/server/services/roles";
+import { isSignupReferralAsked } from "@/server/services/customer-signup-referrals";
 import { getRule } from "@/server/services/settings";
 import { listShopsWhereStaff } from "@/server/services/shop-staff";
 import { getWalletByUserId } from "@/server/services/wallet";
@@ -42,9 +43,9 @@ export async function getBoardHeaderData(user: AuthenticatedUser | null): Promis
       .catch(() => null),
     listAddresses(user.id).catch(() => []),
     listShopsWhereStaff(user.id).catch(() => []),
-    Promise.all([getRule("customerSignupReferral"), getRule("customerReferrals")])
+    Promise.all([isSignupReferralAsked(), getRule("customerReferrals")])
       .then(([signup, friends]) => [
-        ...(signup.enabled ? [{ href: "/referral", label: "My referral code" }] : []),
+        ...(signup ? [{ href: "/referral", label: "My referral code" }] : []),
         ...(friends.enabled ? [{ href: "/refer", label: "Invite friends" }] : []),
       ])
       .catch(() => []),
