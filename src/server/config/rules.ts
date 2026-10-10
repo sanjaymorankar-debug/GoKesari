@@ -901,7 +901,7 @@ export const RULES = {
   },
   shopReferral: {
     description:
-      "Shop registration referral code. When required, a self-service shop registration must carry a valid (active, unexpired) referral code. Owners without one can request a code: the request is saved and emailed to notifyEmails; a second request from the same mobile within duplicateWindowHours is refused.",
+      "Shop registration referral code requests. `required` is no longer read: whether a code is mandatory is the admin's Referral settings (Settings → Referral settings, referral_required_shop). Owners without one can request a code: the request is saved and emailed to notifyEmails; a second request from the same mobile within duplicateWindowHours is refused.",
     schema: z.object({
       required: z.boolean(),
       duplicateWindowHours: int(1, 720),
@@ -911,7 +911,7 @@ export const RULES = {
   },
   customerSignupReferral: {
     description:
-      "Referral code at customer registration. When enabled, a new customer's first-time setup asks for a referral code and checks it: a code GoKesari issued (Admin → Referral codes, the same codes shop registration uses) is recorded against the customer; a friend's code (customerReferrals on) starts the friend reward. Only before the customer's first order. With required on, a customer needs a code before their first order (checkout and new subscriptions are refused without one; browsing and search stay open); requiredFrom (YYYY-MM-DD, IST) limits that to customers who joined on or after the date, so existing customers are not stopped — leave it empty to require it of every customer without an order. A customer without a code can request one (location, PIN code, city, contact number), emailed to shopReferral.notifyEmails — one request per customer or mobile within requestDuplicateWindowHours.",
+      "Referral code at customer registration. `enabled` and `required` are no longer read: the code is always asked, and whether it is mandatory is the admin's Referral settings (Settings → Referral settings, referral_required_customer). A new customer's first-time setup asks for a referral code and checks it: a code GoKesari issued (Admin → Referral codes, the same codes shop registration uses) is recorded against the customer; a friend's code (customerReferrals on) starts the friend reward. Only before the customer's first order. With required on, a customer needs a code before their first order (checkout and new subscriptions are refused without one; browsing and search stay open); requiredFrom (YYYY-MM-DD, IST) limits that to customers who joined on or after the date, so existing customers are not stopped — leave it empty to require it of every customer without an order. A customer without a code can request one (location, PIN code, city, contact number), emailed to shopReferral.notifyEmails — one request per customer or mobile within requestDuplicateWindowHours.",
     schema: z.object({
       enabled: z.boolean(),
       required: z.boolean(),

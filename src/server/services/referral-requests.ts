@@ -24,6 +24,7 @@ import { sendEmail, emailMode } from "@/server/email/transport";
 import { emitEvent } from "@/server/events/emit";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { attributeShopToCode, createReferralCode, resolveCodeForShop } from "./referrals";
+import { isReferralRequired } from "./referral-settings";
 import { getRule } from "./settings";
 
 interface Actor {
@@ -34,22 +35,27 @@ interface Actor {
 /* ===================================================== registration */
 
 /**
- * Self-service shop registration with rule shopReferral.required: the code
- * must exist, be active and unexpired. Returns the normalised code; throws a
- * field error otherwise. Privileged (operator) registrations are not checked.
+ * Self-service shop registration (Add my shop, POST /api/shops): the referral
+ * code, by the admin's setting referral_required_shop (referral-settings.ts,
+ * docs/nearby-referral-2026-10 — it replaced rule shopReferral.required).
+ *   - MANDATORY: a code is required and must exist, be active and unexpired.
+ *   - OPTIONAL: a blank code is fine (null); a code that is entered must still
+ *     be valid.
+ * Returns the normalised code (or null); throws a field error otherwise.
+ * Privileged (operator) registrations are not checked.
  */
 export async function assertRegistrationReferralCode(raw: string | null | undefined): Promise<string | null> {
-  const rule = await getRule("shopReferral");
-  if (!rule.required) return null;
+  const required = await isReferralRequired("shop");
   const code = (raw ?? "").trim();
   if (!code) {
+    if (!required) return null;
     throw validationFailed("Enter your referral code, or request one.", { fields: { referralCode: "A referral code is required to register a shop." } });
   }
   try {
     return (await resolveCodeForShop(code)).code;
   } catch (error) {
     if (error instanceof AppError && error.code === "VALIDATION_FAILED") {
-      throw validationFailed(`${error.message} Check the code, or request one.`, { fields: { referralCode: error.message } });
+      throw validationFailed(`${error.message} Check the code${required ? ", or request one" : ", or leave it empty"}.`, { fields: { referralCode: error.message } });
     }
     throw error;
   }

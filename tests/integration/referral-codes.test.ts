@@ -43,7 +43,8 @@ import { resetRateLimits } from "@/server/api/rate-limit";
 import { db } from "@/server/db";
 import { notifications, platformSettings, referralCodeRequests, referralRedemptions, shopCategories, shops } from "@/server/db/schema";
 import { createReferralCode, updateReferralCode } from "@/server/services/referrals";
-import { clearRuleCache, setRule } from "@/server/services/settings";
+import { setReferralSetting } from "@/server/services/referral-settings";
+import { clearRuleCache } from "@/server/services/settings";
 import { call } from "../helpers/http";
 import { createUser, resetDatabase } from "../helpers/fixtures";
 
@@ -68,7 +69,8 @@ beforeEach(async () => {
   admin = { id: a.id, role: "ADMIN" };
 });
 
-const requireCodes = () => setRule("shopReferral", { required: true }, admin);
+// docs/nearby-referral-2026-10: the admin's setting referral_required_shop replaced rule shopReferral.required.
+const requireCodes = () => setReferralSetting("referral_required_shop", "MANDATORY", admin);
 
 function signIn(user: { id: string; email: string; name: string | null }, role: UserRole) {
   state.session = { user: { id: user.id, email: user.email, name: user.name, image: null, role, status: "ACTIVE" } };

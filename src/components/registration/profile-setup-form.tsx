@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { MapPicker } from "@/components/map-picker";
 import { Alert, Button, Card, Field, inputClass } from "@/components/ui";
 
 interface Shop {
@@ -22,6 +23,8 @@ interface Shop {
   gstStatus: string;
   panStatus: string;
   locationVerified: boolean;
+  latitude?: string | null;
+  longitude?: string | null;
   profileCompletedAt: string | null;
 }
 
@@ -49,6 +52,12 @@ export function ProfileSetupForm({
     shopType: shop.shopType,
     gstin: shop.gstin ?? "",
   });
+  // docs/nearby-referral-2026-10: the shop's pin, so customers find it in Nearby.
+  const [pin, setPin] = useState<{ latitude: number; longitude: number } | null>(
+    shop.latitude && shop.longitude && Number.isFinite(Number(shop.latitude)) && Number.isFinite(Number(shop.longitude))
+      ? { latitude: Number(shop.latitude), longitude: Number(shop.longitude) }
+      : null,
+  );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [result, setResult] = useState<{ complete: boolean; missing: string[]; warnings: string[]; gstin: { ok: boolean; legalName?: string | null; tradeName?: string | null; status?: string | null; stateName?: string | null; message?: string } | null } | null>(null);
@@ -61,7 +70,13 @@ export function ProfileSetupForm({
     const res = await fetch(`/api/shops/${shop.id}/profile-setup`, {
       method: "PATCH",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ ...values, addressLine2: values.addressLine2 || null, state: values.state || null, gstin: values.gstin || null }),
+      body: JSON.stringify({
+        ...values,
+        addressLine2: values.addressLine2 || null,
+        state: values.state || null,
+        gstin: values.gstin || null,
+        ...(pin ? { latitude: pin.latitude, longitude: pin.longitude } : {}),
+      }),
     });
     const data = await res.json().catch(() => null);
     setBusy(false);
@@ -103,6 +118,16 @@ export function ProfileSetupForm({
           <Field label="GSTIN (if registered)" hint="Checked with the GST system when you save.">
             <input className={`${inputClass} uppercase`} value={values.gstin} onChange={set("gstin")} maxLength={15} />
           </Field>
+          <div>
+            <p className="mb-1 text-sm font-medium text-ink-700">Shop location on the map</p>
+            <p className="mb-2 text-xs text-ink-500">Stand at the shop and use your current location, or drop the pin — customers use it to find you in Nearby.</p>
+            <MapPicker purpose="shop_profile_setup" initialCoordinates={pin} onConfirm={(r) => setPin({ latitude: r.latitude, longitude: r.longitude })} />
+            {pin ? (
+              <p className="mt-1 text-xs text-leaf-700" data-testid="profile-pin">
+                Location set ({pin.latitude.toFixed(5)}, {pin.longitude.toFixed(5)}). Save to keep it.
+              </p>
+            ) : null}
+          </div>
           <Button type="submit" disabled={busy} className="w-full">{busy ? "Saving…" : "Save"}</Button>
         </form>
       </Card>

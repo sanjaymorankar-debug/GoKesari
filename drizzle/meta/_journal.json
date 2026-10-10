@@ -519,6 +519,13 @@
       "when": 1791547953176,
       "tag": "0073_bank_account_checks",
       "breakpoints": true
+    },
+    {
+      "idx": 74,
+      "version": "7",
+      "when": 1791655851733,
+      "tag": "0074_referral_settings",
+      "breakpoints": true
     }
   ]
 }

@@ -255,7 +255,8 @@ export async function listRegistrations(status: "PENDING_PAYMENT" | "APPROVED" |
       attempts: sql<number>`(select count(*) from ${registrationPayments} p where p.shop_registration_id = ${shopRegistrations.id})::int`,
     })
     .from(shopRegistrations)
-    .innerJoin(referralCodes, eq(referralCodes.id, shopRegistrations.referralCodeId))
+    // Left join: a registration may have no code (referral_required_shop OPTIONAL, docs/nearby-referral-2026-10).
+    .leftJoin(referralCodes, eq(referralCodes.id, shopRegistrations.referralCodeId))
     .innerJoin(registrationFeeTiers, eq(registrationFeeTiers.id, shopRegistrations.feeTierId))
     .where(status === "ALL" ? undefined : eq(shopRegistrations.status, status))
     .orderBy(desc(shopRegistrations.createdAt))

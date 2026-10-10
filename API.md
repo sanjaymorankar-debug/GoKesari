@@ -876,9 +876,11 @@ the shop has no verified bank account (rule `bankAccounts.requireVerifiedForShop
 | `GET /api/admin/referral-requests?status=` | `REFERRAL_MANAGE` | `NEW` · `CODE_ISSUED` · `REJECTED` |
 | `POST /api/admin/referral-requests/{id}` | `REFERRAL_MANAGE` | `{ action: issue, code? }` · `{ action: reject, reason }` · `{ action: resend_email }` |
 
-`POST /api/shops` (self-service registration) needs `referralCode` when
-`shopReferral.required` is on: an empty or invalid code answers `400` with
-`details.fields.referralCode`.
+`POST /api/shops` (self-service registration) needs `referralCode` when the
+admin's setting `referral_required_shop` is `MANDATORY` (below; it replaced
+`shopReferral.required`): an empty code answers `422` with
+`details.fields.referralCode`. A code that is entered must be valid whatever
+the setting.
 
 | Route | Who | Body / answer |
 |---|---|---|
@@ -893,6 +895,23 @@ Mandatory code and customers asking for one (owner's decision, 9 Oct 2026; `cust
 | `POST /api/me/referral-request` | signed in (5 per 10 min) | `{ name, mobile, city, pincode, latitude?, longitude?, accuracyM? }` → `201` `{ reference: "CRR-…", mobileMasked, locationShared }`. Emailed to `shopReferral.notifyEmails`. A second request from the same customer or mobile within `requestDuplicateWindowHours` answers `429` with the first reference |
 | `GET /api/admin/customer-referral-requests?status=` | `REFERRAL_MANAGE` | `NEW` · `CODE_ISSUED` · `REJECTED`, with contact number, city, PIN, coordinates and Maps link |
 | `POST /api/admin/customer-referral-requests/{id}` | `REFERRAL_MANAGE` | `{ action: issue, code?, note? }` (no code → a generated `GKC…`) · `{ action: reject, reason }` · `{ action: resend_email }`. The customer is told in the app and by email |
+
+## Nearby shops and referral settings (docs/nearby-referral-2026-10)
+
+| Route | Who | Body / answer |
+|---|---|---|
+| `GET /api/shops/nearby?lat=&lng=&radiusKm=` | anyone (60 a minute per IP) | Approved live shops with a map location within `radiusKm` (1 · 3 · 5 · 10, default 5) of the position, nearest first; Haversine distance on the server. `{ origin: { latitude, longitude, source: DEVICE, place: { area, city, pincode } \| null }, radiusKm, countsByRadius: { 1, 3, 5, 10 }, shops: [{ id, slug, name, shopType, shopTypeLabel, area, city, pincode, latitude, longitude, distanceKm, distanceText, open, takingOrders, deliveryAvailable, directionsUrl }] }` |
+| `GET /api/shops/nearby?q=411014&radiusKm=` | anyone | The same from a typed PIN code or area (location refused or unavailable); `origin.source: PLACE`. `404` when the place cannot be found |
+| `GET /api/admin/shops/missing-location` | `SHOP_APPROVE` | `{ shops, geocoding }` — approved and pending shops left out of Nearby for want of a usable location. `?format=csv` for a spreadsheet |
+| `POST /api/admin/shops/missing-location` | `SHOP_UPDATE_ANY` | `{ shopIds? }` → `{ results: [{ shopId, name, result: FILLED \| NOT_FOUND \| FAILED }] }` — fill locations from the shops' addresses (Google geocoding; `409` without `GOOGLE_MAPS_SERVER_API_KEY`) |
+| `GET /api/referral-settings` | anyone | `{ customer, shop }`, each `MANDATORY` or `OPTIONAL` — for the forms and the app |
+| `GET /api/admin/referral-settings` | `ADMIN` only | `{ settings: [{ key, value, since }], changes: [{ settingKey, oldValue, newValue, changedByEmail, changedByRole, changedAt }] }` |
+| `PUT /api/admin/referral-settings` | `ADMIN` only | `{ key: referral_required_customer \| referral_required_shop, value: MANDATORY \| OPTIONAL }` → `{ setting, changed, lastChange }`. Operators, shop owners and customers get `403` |
+
+Shop self-registration (`POST /api/shop-registrations/referral-check`, `/otp`,
+`POST /api/shop-registrations`) accepts a blank `referralCode` while
+`referral_required_shop` is `OPTIONAL` (the shop is approved on payment
+without a code) and refuses it (`reason: REQUIRED`) while `MANDATORY`.
 
 ## Rate limits
 
