@@ -63,8 +63,13 @@ import { searchShops } from "./shops";
 /** The exceptions queue is read for both a badge and the operator's banner: once per request. */
 const opsQueue = cache(() => listOpsExceptions());
 
-/** A figure slower than this is dropped rather than holding up the page. */
-const QUERY_TIMEOUT_MS = 4000;
+/**
+ * A figure slower than this is dropped rather than holding up the page. 8 s
+ * covers the first visit after a quiet spell, which opens fresh TLS
+ * connections (3-5 s) and may wake a suspended Neon compute; at 4 s those
+ * visits lost their badges.
+ */
+const QUERY_TIMEOUT_MS = 8000;
 
 /** Runs one read; undefined when it fails or takes too long. */
 export async function settle<T>(label: string, read: () => Promise<T>, timeoutMs = QUERY_TIMEOUT_MS): Promise<T | undefined> {
@@ -128,7 +133,7 @@ async function customerShopCounts(location: CustomerLocation | null) {
  * Shop and category figures are the same for everyone at a location, so they
  * are kept for a minute per location and served at once while a newer copy
  * loads in the background. A visitor arriving while the database connection
- * is cold no longer waits up to 4 s (and loses the badges) for figures the
+ * is cold no longer waits up to 8 s (or loses the badges) for figures the
  * previous visitor already had. Only complete results are kept.
  */
 const SHARED_FIGURES_MS = 60_000;
@@ -287,7 +292,7 @@ export function getBuyAgain(userId: string, limit = 6): Promise<BuyAgainItem[] |
       });
     }
     return out;
-  }, 6000);
+  }, 10_000);
 }
 
 /* -------------------------------------------------------------- shop owner */
