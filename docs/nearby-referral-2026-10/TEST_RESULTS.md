@@ -159,8 +159,14 @@ you…", foreground only) and its bridge answers the page's location requests,
 including the denied case. No new top-level page was added, so the Android
 app-link list needs no update.
 
-Fresh Android builds from the released commit: "Android APK" run 38083818743
-(main, 4089fba) — artifacts `GoKesari-preview-apk` (test.gokesari.com) and
-`GoKesari-production-apk` (gokesari.com). iPhone: no installable file without an
+Fresh Android builds from the released commit — "Android APK" run 38083818743
+(main, 4089fba), **success**, both 20 MB, kept until 9 Nov 2026 (sign in to
+GitHub with access to the repository to download; each arrives as a .zip with
+the .apk inside):
+
+| App | Opens | Download |
+|---|---|---|
+| GoKesari | gokesari.com | https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/38083818743/artifacts/11681089327 |
+| GoKesari Test | test.gokesari.com | https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/38083818743/artifacts/11680969793 | iPhone: no installable file without an
 Apple Developer account; add gokesari.com to the home screen from Safari
 (mobile/README.md).
