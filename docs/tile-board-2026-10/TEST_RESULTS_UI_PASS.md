@@ -107,6 +107,34 @@ Companion to `UI_PASS_2026-10-09.md`. Full tables (every link, access case, Ligh
 | Signed-in page, server time (test site) | 3.4–5.1 s | PR #124: 52→24 queries; with prepared statements ~2× faster (local, 200 ms DB); hosting fix pending | <1 s |
 | Usable on slow 4G (test site, warm) | — | 1 of 6 pages under 3 s (2.8–5.0 s) | <3 s |
 
+## Production (gokesari.com) after release #126, 9 Oct 21:44 UTC
+
+Read-only checks; no sign-in, orders or payments on production.
+
+| Check | Result |
+|---|---|
+| Pages load: /, /shops, /categories, /signin, /search?q=milk, /legal/terms | 200 (0.39–1.24 s) — PASS |
+| Signed-in pages without a sign-in: /admin, /shop, /profile, /orders | 307 to /signin — PASS |
+| New build live (“Shop list” heading on /shops) | yes, 21:44:41 UTC — PASS |
+| Lighthouse mobile (perf / a11y / best practices / SEO) | home 93/100/100/100 (cold first visit, server 3.7 s); shops 98; categories 99; search 93 (cold, server 4.1 s); sign-in 100 |
+| Lighthouse desktop | home 92 (cold, server 4.0 s); shops 100 |
+| Home and search, warm repeat visits (5 each) | 0.9–1.3 s to first byte |
+
+The slow first visits are the database waking up (Neon in us-east-2, idle connection closed after 20 s). On the home page this showed in the server log as
+“[board] customer shops / shopCategories took over 4000ms — badge dropped”; PR #127 keeps those two shared figures for a minute so a visitor's home page no
+longer waits on them. The hosting settings that remove the cold start are listed in the summary (open items).
+
+### PR #127 on test.gokesari.com (9 Oct, 22:20 UTC)
+
+Visitor home page, first byte after 100 s with no traffic (the database connection has closed), four rounds:
+
+| Site | Home | Sign-in (no database work, for comparison) |
+|---|---|---|
+| test.gokesari.com (with #127) | 0.70–0.92 s | 0.62–1.20 s |
+| gokesari.com (without #127) | 3.39–4.46 s | 0.46–0.52 s |
+
+With #127 the home page is as quick as the sign-in page even when the database has gone idle — PASS. Production still shows the 4 s wait until #127 is released.
+
 ## Not run, and why
 
 - C-01 Top up the wallet (Cashfree sandbox, UPI testsuccess@gocash): Not completed: the wallet screen created the Cashfree sandbox session (session_iPGj…), but GitHub Actions did not start the Sandbox payment job (run 37973592123: “recent account payments have failed or your spending limit needs to be increased”). This session cannot reach Cashfree itself
