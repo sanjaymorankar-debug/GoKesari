@@ -335,6 +335,7 @@ export const AUDIT_ACTIONS = {
   CUSTOMER_SIGNUP_REFERRAL: "customer.signup_referral",
   CUSTOMER_REFERRAL_REQUEST_CREATED: "customer_referral_request.created",
   CUSTOMER_REFERRAL_REQUEST_DECIDED: "customer_referral_request.decided",
+  REFERRAL_SETTING_CHANGED: "referral_setting.changed",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

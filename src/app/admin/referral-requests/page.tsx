@@ -9,6 +9,7 @@ import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { REFERRAL_REQUEST_STATUSES, type ReferralRequestStatus } from "@/server/db/schema";
 import { listSignupReferralCounts } from "@/server/services/customer-signup-referrals";
 import { listReferralRequests } from "@/server/services/referral-requests";
+import { getReferralSettings } from "@/server/services/referral-settings";
 import { getRule } from "@/server/services/settings";
 
 export const metadata = { title: "Referral requests" };
@@ -25,10 +26,10 @@ export default async function AdminReferralRequestsPage({ searchParams }: { sear
     : params.status === "ALL"
       ? null
       : "NEW";
-  const [requests, rule, customerRule, joined, customerRequests] = await Promise.all([
+  const [requests, rule, referralSettings, joined, customerRequests] = await Promise.all([
     listReferralRequests(status, user),
     getRule("shopReferral"),
-    getRule("customerSignupReferral"),
+    getReferralSettings(),
     listSignupReferralCounts(),
     listCustomerReferralRequests(status, user),
   ]);
@@ -38,16 +39,18 @@ export default async function AdminReferralRequestsPage({ searchParams }: { sear
         title="Referral requests"
         description={`Shop owners asking for a referral code. Each request is emailed to ${rule.notifyEmails.join(", ")}; one per mobile number every ${rule.duplicateWindowHours} h.`}
       />
-      {!rule.required ? <Alert tone="info">Referral codes are optional on registration right now (Business rules → shopReferral).</Alert> : null}
+      {referralSettings.referral_required_shop.value !== "MANDATORY" ? (
+        <Alert tone="info">Referral codes are optional on shop registration right now (Settings → Referral settings).</Alert>
+      ) : null}
       <ReferralRequestQueue status={status ?? "ALL"} requests={requests} />
 
       {/* Customers asking for a referral code (owner's decision, 9 Oct 2026; same status filter). */}
       <section className="space-y-2" data-testid="customer-referral-requests">
         <h2 className="text-base font-semibold text-ink-900">Customers asking for a code</h2>
         <p className="text-sm text-ink-500">
-          {customerRule.required
+          {referralSettings.referral_required_customer.value === "MANDATORY"
             ? "A referral code is needed before a new customer's first order."
-            : "Referral codes are optional for customers right now (Business rules → customerSignupReferral → required)."}{" "}
+            : "Referral codes are optional for customers right now (Settings → Referral settings)."}{" "}
           Each request is emailed to {rule.notifyEmails.join(", ")}.
         </p>
         <CustomerReferralRequestQueue requests={customerRequests} />
@@ -56,9 +59,6 @@ export default async function AdminReferralRequestsPage({ searchParams }: { sear
       {/* Referral code at customer registration (rule customerSignupReferral). */}
       <section className="space-y-2" data-testid="signup-referral-counts">
         <h2 className="text-base font-semibold text-ink-900">Customers who joined with a code</h2>
-        {!customerRule.enabled ? (
-          <Alert tone="info">New customers are not asked for a referral code right now (Business rules → customerSignupReferral).</Alert>
-        ) : null}
         {joined.length === 0 ? (
           <p className="text-sm text-ink-500">None yet.</p>
         ) : (

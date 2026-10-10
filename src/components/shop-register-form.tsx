@@ -57,7 +57,7 @@ const FORMAT_CHECKS: Record<ShopIdentifierField, (raw: string) => ParseResult<un
 export function ShopRegisterForm({
   referralRequired = false,
 }: {
-  /** docs/four-features-2026-10, feature 4: rule shopReferral.required. */
+  /** Admin setting referral_required_shop is MANDATORY (docs/nearby-referral-2026-10). Otherwise the field is optional. */
   referralRequired?: boolean;
 } = {}) {
   const router = useRouter();
@@ -190,7 +190,7 @@ export function ShopRegisterForm({
     }
     if (referralRequired && !referralCode.trim()) {
       invalid.referralCode = "A referral code is required to register a shop — request one if you don't have it.";
-    } else if (referralRequired && referralCheck?.valid === false) {
+    } else if (referralCode.trim() && referralCheck?.valid === false) {
       invalid.referralCode = referralCheck.message ?? "This referral code is not valid.";
     }
     for (const field of Object.keys(FORMAT_CHECKS) as ShopIdentifierField[]) {
@@ -243,7 +243,8 @@ export function ShopRegisterForm({
           panHolderName: get("panHolderName") || null,
           udyamNumber: get("udyamNumber") || null,
           gstin: get("gstin") || null,
-          ...(referralRequired ? { referralCode: referralCode.trim() || null } : {}),
+          // docs/nearby-referral-2026-10: sent whenever entered — an optional code must still be valid.
+          referralCode: referralCode.trim() || null,
           deliveryAvailable,
           deliveryFeePaise:
             deliveryAvailable && deliveryFee ? rupeesToPaise(Number(deliveryFee)) : 0,
@@ -338,40 +339,39 @@ export function ShopRegisterForm({
           </Field>
         </div>
 
-        {referralRequired ? (
-          <div className="sm:col-span-2" data-testid="referral-code-field">
-            <Field
-              label="Referral code *"
-              hint={referralCheck?.valid ? "Referral code accepted." : "Given to you by a GoKesari partner or our team."}
-              error={errorFor("referralCode") ?? (referralCheck?.valid === false ? (referralCheck.message ?? "This referral code is not valid.") : undefined)}
-            >
-              <div className="flex flex-wrap gap-2">
-                <input
-                  name="referralCode"
-                  value={referralCode}
-                  onChange={(e) => {
-                    setReferralCode(e.target.value.toUpperCase());
-                    setReferralCheck(null);
-                    // A corrected code must not keep showing the last submit's error.
-                    setFieldErrors((prev) => {
-                      const next = { ...prev };
-                      delete next.referralCode;
-                      return next;
-                    });
-                  }}
-                  onBlur={() => void checkReferral()}
-                  autoComplete="off"
-                  maxLength={32}
-                  className={`${inputClass} min-w-0 flex-1 uppercase`}
-                  aria-label="Referral code"
-                />
-                <Button type="button" variant="secondary" onClick={openReferralRequest}>
-                  Request a referral code
-                </Button>
-              </div>
-            </Field>
-          </div>
-        ) : null}
+        {/* Always shown (docs/nearby-referral-2026-10): required or "(optional)" by the admin's setting. */}
+        <div className="sm:col-span-2" data-testid="referral-code-field">
+          <Field
+            label={referralRequired ? "Referral code *" : "Referral code (optional)"}
+            hint={referralCheck?.valid ? "Referral code accepted." : "Given to you by a GoKesari partner or our team."}
+            error={errorFor("referralCode") ?? (referralCheck?.valid === false ? (referralCheck.message ?? "This referral code is not valid.") : undefined)}
+          >
+            <div className="flex flex-wrap gap-2">
+              <input
+                name="referralCode"
+                value={referralCode}
+                onChange={(e) => {
+                  setReferralCode(e.target.value.toUpperCase());
+                  setReferralCheck(null);
+                  // A corrected code must not keep showing the last submit's error.
+                  setFieldErrors((prev) => {
+                    const next = { ...prev };
+                    delete next.referralCode;
+                    return next;
+                  });
+                }}
+                onBlur={() => void checkReferral()}
+                autoComplete="off"
+                maxLength={32}
+                className={`${inputClass} min-w-0 flex-1 uppercase`}
+                aria-label="Referral code"
+              />
+              <Button type="button" variant="secondary" onClick={openReferralRequest}>
+                Request a referral code
+              </Button>
+            </div>
+          </Field>
+        </div>
 
         <div className="sm:col-span-2">
           <p className="mb-2 text-sm font-medium text-ink-700">Shop location</p>

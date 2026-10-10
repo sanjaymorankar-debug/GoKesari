@@ -48,6 +48,7 @@ import { addToCart } from "@/server/services/cart";
 import { needsSignupReferralCode } from "@/server/services/customer-signup-referrals";
 import { checkout } from "@/server/services/orders";
 import { createReferralCode } from "@/server/services/referrals";
+import { setReferralSetting } from "@/server/services/referral-settings";
 import { clearRuleCache, setRule } from "@/server/services/settings";
 import { activateSubscription, createSubscription } from "@/server/services/subscriptions";
 import { call } from "../helpers/http";
@@ -76,8 +77,10 @@ beforeEach(async () => {
 });
 
 const asAdmin = { id: "", role: "ADMIN" as const };
+// docs/nearby-referral-2026-10: the admin's setting referral_required_customer replaced rule customerSignupReferral.required.
 async function requireCodes(extra: Record<string, unknown> = {}) {
-  await setRule("customerSignupReferral", { enabled: true, required: true, ...extra }, { ...asAdmin, id: admin.id });
+  if (Object.keys(extra).length > 0) await setRule("customerSignupReferral", extra, { ...asAdmin, id: admin.id });
+  await setReferralSetting("referral_required_customer", "MANDATORY", { ...asAdmin, id: admin.id });
 }
 
 function signIn(user: { id: string; email: string; name: string | null }, role: UserRole = "CUSTOMER") {
@@ -240,10 +243,10 @@ describe("a customer asks for a referral code", () => {
     expect(await db.select().from(customerReferralRequests)).toHaveLength(1);
   });
 
-  it("refused when customer referral codes are switched off", async () => {
+  it("open while the code is optional too (docs/nearby-referral-2026-10: the code is always asked)", async () => {
     const customer = await createUser();
     signIn(customer);
-    expect((await request(VALID)).status).toBe(409);
+    expect((await request(VALID)).status).toBe(201);
   });
 });
 

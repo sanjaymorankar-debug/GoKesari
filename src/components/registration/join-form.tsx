@@ -8,6 +8,7 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { ReferralRequestDialog } from "@/components/referral-request-dialog";
 import { Alert, Button, Card, Field, inputClass } from "@/components/ui";
 
 interface Tier {
@@ -26,7 +27,8 @@ async function post(url: string, body: unknown) {
   return data;
 }
 
-export function JoinForm({ initialCode }: { initialCode: string }) {
+/** `referralRequired`: the admin's setting referral_required_shop (docs/nearby-referral-2026-10); the server enforces it. */
+export function JoinForm({ initialCode, referralRequired = true }: { initialCode: string; referralRequired?: boolean }) {
   const router = useRouter();
   const [step, setStep] = useState<"details" | "verify">("details");
   const [shopName, setShopName] = useState("");
@@ -39,6 +41,7 @@ export function JoinForm({ initialCode }: { initialCode: string }) {
   const [terms, setTerms] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [requesting, setRequesting] = useState(false);
 
   async function sendCode(event?: React.FormEvent) {
     event?.preventDefault();
@@ -75,6 +78,7 @@ export function JoinForm({ initialCode }: { initialCode: string }) {
 
   return (
     <Card className="p-4">
+      {requesting ? <ReferralRequestDialog prefill={{ mobile }} onClose={() => setRequesting(false)} /> : null}
       {error ? <div className="mb-3"><Alert tone="danger">{error}</Alert></div> : null}
       {step === "details" ? (
         <form onSubmit={sendCode} className="space-y-3">
@@ -84,17 +88,35 @@ export function JoinForm({ initialCode }: { initialCode: string }) {
           <Field label="Mobile number" hint="We send a code by SMS. You sign in with this number later.">
             <input className={inputClass} value={mobile} onChange={(e) => setMobile(e.target.value)} inputMode="numeric" autoComplete="tel-national" placeholder="10-digit mobile" required />
           </Field>
-          <Field label="Referral code" hint="From your GoKesari distributor.">
-            <input className={`${inputClass} uppercase`} value={code} onChange={(e) => setCode(e.target.value.toUpperCase())} autoCapitalize="characters" required />
+          <Field
+            label={referralRequired ? "Referral code" : "Referral code (optional)"}
+            hint={referralRequired ? "From your GoKesari distributor." : "From your GoKesari distributor, if you have one. You can register without it."}
+          >
+            <input
+              className={`${inputClass} uppercase`}
+              value={code}
+              onChange={(e) => setCode(e.target.value.toUpperCase())}
+              autoCapitalize="characters"
+              required={referralRequired}
+              data-testid="join-referral-code"
+            />
           </Field>
-          <Button type="submit" disabled={busy || shopName.trim().length < 2 || mobile.trim().length < 10 || code.trim().length < 3} className="w-full">
+          <button type="button" className="text-sm font-semibold text-kesari-800 underline" onClick={() => setRequesting(true)}>
+            Request a referral code
+          </button>
+          <Button
+            type="submit"
+            disabled={busy || shopName.trim().length < 2 || mobile.trim().length < 10 || (referralRequired ? code.trim().length < 3 : code.trim().length > 0 && code.trim().length < 3)}
+            className="w-full"
+          >
             {busy ? "Checking…" : "Continue"}
           </Button>
         </form>
       ) : (
         <form onSubmit={register} className="space-y-3">
           <p className="text-sm text-ink-700">
-            Code <b>{code}</b> is valid{distributor ? ` (${distributor})` : ""}. Enter the code we sent by SMS to +91 {mobile.replace(/\D/g, "").slice(-10)}.
+            {code.trim() ? <>Code <b>{code}</b> is valid{distributor ? ` (${distributor})` : ""}. </> : <>No referral code. </>}
+            Enter the code we sent by SMS to +91 {mobile.replace(/\D/g, "").slice(-10)}.
           </p>
           <Field label="SMS code">
             <input className={inputClass} value={otp} onChange={(e) => setOtp(e.target.value)} inputMode="numeric" autoComplete="one-time-code" maxLength={8} required />

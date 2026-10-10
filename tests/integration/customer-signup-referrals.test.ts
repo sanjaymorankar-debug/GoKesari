@@ -72,11 +72,11 @@ function signIn(user: { id: string; email: string; name: string | null }, role: 
 const give = (code: string) => call(signupPost, "/api/me/signup-referral", { method: "POST", body: { code } });
 
 describe("referral code at customer registration", () => {
-  it("switched off (default): not asked, and a code is refused", async () => {
+  it("optional (default, docs/nearby-referral-2026-10): still asked; an unknown code is refused on the field", async () => {
     const customer = await createUser();
     signIn(customer);
-    expect((await call(signupGet, "/api/me/signup-referral")).body).toEqual({ referral: null, ask: false });
-    expect((await give("ANYCODE")).status).toBe(409);
+    expect((await call(signupGet, "/api/me/signup-referral")).body).toEqual({ referral: null, ask: true });
+    expect((await give("ANYCODE")).status).toBe(422);
   });
 
   it("a code GoKesari issued is checked and recorded once; unknown, paused and expired codes are refused on the field", async () => {
