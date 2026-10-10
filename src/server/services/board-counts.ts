@@ -10,7 +10,7 @@ import { and, count, countDistinct, desc, eq, gt, inArray, isNull, lte, notInArr
 
 import type { Counts } from "@/lib/board/menus";
 import { DISPUTE_TERMINAL } from "@/lib/dispute-states";
-import type { CustomerLocation } from "@/lib/location";
+import { serializeLocation, type CustomerLocation } from "@/lib/location";
 import { RETURN_TERMINAL } from "@/lib/return-states";
 import { isShopOpenNow } from "@/lib/shop-hours";
 import { db } from "@/server/db";
@@ -124,13 +124,51 @@ async function customerShopCounts(location: CustomerLocation | null) {
   };
 }
 
+/**
+ * Shop and category figures are the same for everyone at a location, so they
+ * are kept for a minute per location and served at once while a newer copy
+ * loads in the background. A visitor arriving while the database connection
+ * is cold no longer waits up to 4 s (and loses the badges) for figures the
+ * previous visitor already had. Only complete results are kept.
+ */
+const SHARED_FIGURES_MS = 60_000;
+const sharedFigures = new Map<string, { at: number; value: Counts }>();
+const refreshingFigures = new Map<string, Promise<Counts>>();
+
+function refreshSharedFigures(key: string, location: CustomerLocation | null): Promise<Counts> {
+  let pending = refreshingFigures.get(key);
+  if (!pending) {
+    pending = (async () => {
+      const [shops, categories] = await Promise.all([
+        settle("customer shops", () => customerShopCounts(location)),
+        settle("shopCategories", () => one(db.select({ n: count() }).from(shopCategories).where(eq(shopCategories.status, "ACTIVE")))),
+      ]);
+      const value: Counts = { ...(shops ?? {}), ...(typeof categories === "number" ? { shopCategories: categories } : {}) };
+      if (shops && typeof categories === "number") {
+        sharedFigures.set(key, { at: Date.now(), value });
+        if (sharedFigures.size > 500) sharedFigures.delete(sharedFigures.keys().next().value!);
+      }
+      return value;
+    })().finally(() => refreshingFigures.delete(key));
+    refreshingFigures.set(key, pending);
+  }
+  return pending;
+}
+
+async function sharedCustomerFigures(location: CustomerLocation | null): Promise<Counts> {
+  const key = location ? serializeLocation(location) : "all";
+  const hit = sharedFigures.get(key);
+  if (!hit) return refreshSharedFigures(key, location);
+  if (Date.now() - hit.at > SHARED_FIGURES_MS) void refreshSharedFigures(key, location).catch(() => {});
+  return hit.value;
+}
+
 export async function customerCounts(userId: string | null, location: CustomerLocation | null): Promise<Counts> {
-  const shopFigures = settle("customer shops", () => customerShopCounts(location));
+  const shopFigures = sharedCustomerFigures(location);
   const personal = (statuses: readonly string[]) =>
     and(eq(orders.userId, userId!), eq(orders.orderType, "PERSONAL"), inArray(orders.status, statuses as never));
   const [figures, shopsFound] = await Promise.all([
     gather({
-      shopCategories: () => one(db.select({ n: count() }).from(shopCategories).where(eq(shopCategories.status, "ACTIVE"))),
       ...(userId
         ? {
             activeOrders: () => one(db.select({ n: count() }).from(orders).where(personal(IN_PROGRESS_ORDER))),
@@ -145,7 +183,7 @@ export async function customerCounts(userId: string | null, location: CustomerLo
     }),
     shopFigures,
   ]);
-  return { ...figures, ...(shopsFound ?? {}) };
+  return { ...figures, ...shopsFound };
 }
 
 export interface ActiveOrderSummary {
