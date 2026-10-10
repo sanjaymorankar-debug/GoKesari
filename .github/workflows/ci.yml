@@ -1,17 +1,54 @@
 name: CI
 
-# Runs the full suite on every push and pull request. The integration tests need
-# a real PostgreSQL, so one is provided as a service container — the guarantees
-# they check (row locking, unique constraints, CHECK constraints) cannot be
-# verified against a mock.
+# Runs the full suite on pushes and pull requests to main and staging. The
+# integration tests need a real PostgreSQL, so one is provided as a service
+# container — the guarantees they check (row locking, unique constraints, CHECK
+# constraints) cannot be verified against a mock.
+#
+# To save Actions minutes (the monthly allowance ran out on 9 Oct 2026), the
+# "scope" job first decides what a change needs (scripts/ci/scope.sh):
+#   - test and mobile are skipped when the same files already passed CI on a
+#     push (a release's PR and its merge into main repeat staging's run), or
+#     when only documentation changed;
+#   - test is skipped when only mobile/ changed, mobile when mobile/ didn't.
+# A skipped job counts as passed. A newer push to a pull request cancels its
+# older run; pushes to main and staging always finish.
 on:
   push:
     branches: [main, staging]
   pull_request:
     branches: [main, staging]
 
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+  actions: read # scope: has this commit already passed CI?
+
 jobs:
+  scope:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      app: ${{ steps.scope.outputs.app }}
+      mobile: ${{ steps.scope.outputs.mobile }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - id: scope
+        run: bash scripts/ci/scope.sh
+        env:
+          EVENT: ${{ github.event_name }}
+          BEFORE: ${{ github.event.before }}
+          GH_TOKEN: ${{ github.token }}
+
   test:
+    needs: scope
+    if: needs.scope.outputs.app == 'yes'
     runs-on: ubuntu-latest
 
     services:
@@ -62,6 +99,8 @@ jobs:
     # The Android/iOS app (mobile/): a separate Expo project with its own
     # dependencies. Native builds run on EAS (mobile/README.md); this checks
     # the code and that the JavaScript bundles for both platforms.
+    needs: scope
+    if: needs.scope.outputs.mobile == 'yes'
     runs-on: ubuntu-latest
     defaults:
       run:
