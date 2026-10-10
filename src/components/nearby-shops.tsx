@@ -56,7 +56,7 @@ interface NearbyAnswer {
 
 type Search = { kind: "position"; latitude: number; longitude: number; accuracyM: number | null } | { kind: "place"; query: string };
 
-type LocationProblem = "DENIED" | "UNAVAILABLE" | "TIMEOUT" | "INSECURE" | "UNSUPPORTED";
+type LocationProblem = "DENIED" | "UNAVAILABLE" | "TIMEOUT" | "INSECURE" | "UNSUPPORTED" | "WAITING";
 
 const PROBLEM_TEXT: Record<LocationProblem, { title: string; detail: string }> = {
   DENIED: {
@@ -75,6 +75,11 @@ const PROBLEM_TEXT: Record<LocationProblem, { title: string; detail: string }> =
   INSECURE: {
     title: "Location needs a secure connection",
     detail: "Open this page at https://gokesari.com to use your location — or enter a PIN code or area below.",
+  },
+  // The permission prompt has not been answered (a browser's timeout only starts once it is).
+  WAITING: {
+    title: "Waiting for your location",
+    detail: "Allow location when your browser or phone asks — or enter a PIN code or area below.",
   },
   UNSUPPORTED: {
     title: "This browser can't share its location",
@@ -99,6 +104,7 @@ export function NearbyShops() {
   const [manual, setManual] = useState("");
   const [manualOpen, setManualOpen] = useState(false);
   const requestId = useRef(0);
+  const locateId = useRef(0);
 
   const load = useCallback(async (next: Search, km: NearbyRadiusKm) => {
     const id = ++requestId.current;
@@ -141,8 +147,17 @@ export function NearbyShops() {
         return;
       }
       setPhase("locating");
+      const attempt = ++locateId.current;
+      let answered = false;
+      // No answer at all (prompt ignored or dismissed): offer the PIN code box rather than wait forever.
+      window.setTimeout(() => {
+        if (!answered && attempt === locateId.current) setProblem("WAITING");
+      }, 12_000);
       navigator.geolocation.getCurrentPosition(
         (pos) => {
+          answered = true;
+          if (attempt !== locateId.current) return;
+          setProblem(null);
           const next: Search = {
             kind: "position",
             latitude: pos.coords.latitude,
@@ -154,6 +169,8 @@ export function NearbyShops() {
           void load(next, km);
         },
         (err) => {
+          answered = true;
+          if (attempt !== locateId.current) return;
           setProblem(problemFromError(err));
           setPhase("problem");
         },
