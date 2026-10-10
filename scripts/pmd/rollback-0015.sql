@@ -10,7 +10,7 @@
 -- dropped with it; public.products rows that were promoted from the master stay.
 --
 -- The pg_trgm extension is left installed (other objects may use it).
--- Run inside psql / phpMyAdmin-equivalent for Postgres (Neon SQL editor):
+-- Run inside psql or the Neon SQL editor:
 -- ============================================================================
 BEGIN;
 
