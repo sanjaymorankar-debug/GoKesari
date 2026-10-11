@@ -113,6 +113,60 @@ were returned to **Optional** at the end (log entries 5 and 6).
 | N-4 | `/wallet` and `/admin/orders` log React error #418 (a text hydration mismatch) | Pre-existing: identical before the deploy; pages work |
 | N-5 | Admin → Referral codes shows "0 shops" for every code (the count's subquery compares the redemption with itself) | Pre-existing, not changed here |
 
-## 6. Production
+## 6. Production (gokesari.com)
 
-See the release notes added after the production release.
+**Release:** PR #135 (`staging` → `main`, merge 4089fba) at **20:27 UTC, 10 Oct 2026**, CI
+green on the release head. Migration 0074 runs in the Hostinger build
+(`MIGRATE_ON_BUILD=true`, set for release #120; a failed migration stops the
+build, and the new build went live at 20:30 UTC). The "Production database"
+workflow could not be used: its `PROD_DATABASE_URL` secret is not set. For a
+database restore, use Neon point-in-time to **20:27 UTC**.
+
+Read-only checks only — no sign-in, no test data, no payment on production:
+
+| Check | Before (19:5x) | After (20:30) |
+|---|---|---|
+| `/`, `/shops`, `/search?q=milk`, `/categories`, `/signin`, `/legal/wallet-terms` | 200 | 200 |
+| `/shops/nearby` | 404 | 200 |
+| `/api/referral-settings` | 404 | `{"customer":"OPTIONAL","shop":"OPTIONAL"}` |
+| `/api/shops/nearby?lat=18.5204&lng=73.8567` | 500 (old `/api/shops/{id}` route) | 200 |
+| Nearby screen, Android and desktop, GPS Pune centre | — | "Dattwadi, Pune 411011", all radii, empty state, 0 page errors |
+| Home board Nearby chip | `/shops` | `/shops/nearby` |
+
+Findings on production:
+
+- **No live shop has a map location yet.** Production lists 2 approved shops
+  (both Kharadi, 411014) and Nearby finds none within 10 km of Kharadi, so both
+  are missing coordinates. Admin → Shops → **Shops without location** lists them;
+  production's server Maps key works (a Mumbai position was named "Lower Parel,
+  Mumbai 400070" through Google), so **Fill all from address** should work there.
+- Shop self-registration (`/shop/join`) is switched off on production (rule
+  `selfRegistration`), unchanged.
+- Referral codes are now **Optional** on gokesari.com for customers and shops, as
+  requested. Admin → Settings → Referral settings switches them.
+
+**Owner checks (need a production admin sign-in):** open Admin → Settings →
+Referral settings (the page loads only if migration 0074 ran — or see
+`[migrate-on-build] applied 1 new migration(s)` in hPanel's build log), and
+fix the shops under Shops without location.
+
+## 7. Mobile apps
+
+The apps (`mobile/`) show the website in a native shell, so Nearby and the
+referral changes reach them with each site's deploy — **no app code change**. The
+app already asks for location ("GoKesari uses your location to show shops near
+you…", foreground only) and its bridge answers the page's location requests,
+including the denied case. No new top-level page was added, so the Android
+app-link list needs no update.
+
+Fresh Android builds from the released commit — "Android APK" run 38083818743
+(main, 4089fba), **success**, both 20 MB, kept until 9 Nov 2026 (sign in to
+GitHub with access to the repository to download; each arrives as a .zip with
+the .apk inside):
+
+| App | Opens | Download |
+|---|---|---|
+| GoKesari | gokesari.com | https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/38083818743/artifacts/11681089327 |
+| GoKesari Test | test.gokesari.com | https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/38083818743/artifacts/11680969793 | iPhone: no installable file without an
+Apple Developer account; add gokesari.com to the home screen from Safari
+(mobile/README.md).

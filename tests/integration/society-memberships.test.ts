@@ -27,6 +27,7 @@ import {
   decideMembership,
   decideSociety,
   listMySocieties,
+  listSocietiesForReview,
   registerSociety,
   requestMembership,
   updateSocietySettings,
@@ -116,5 +117,18 @@ describe("GET /api/societies/mine", () => {
       membership: { id: expect.any(String), role: "ADMIN", status: "ACTIVE", unitLabel: "A-101" },
       society: { id: society.id, name: "Green Meadows", status: "VERIFIED" },
     });
+  });
+});
+
+describe("platform review list", () => {
+  it("counts each society's active members (a bare outer id used to count none)", async () => {
+    const { society, founder } = await verifiedSociety();
+    const resident = await createUser({ role: "CUSTOMER" });
+    const request = await requestMembership(society.id, actor(resident), "B-2");
+    await decideMembership(request.id, true, { id: founder.id, role: "SOCIETY_ADMIN" });
+    await requestMembership(society.id, actor(await createUser({ role: "CUSTOMER" })), "C-3"); // still pending
+    const [row] = await listSocietiesForReview("VERIFIED");
+    expect(row.society.id).toBe(society.id);
+    expect(row.members).toBe(2); // founder + approved resident; the pending request is not counted
   });
 });

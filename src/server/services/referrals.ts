@@ -256,9 +256,12 @@ export async function listReferralCodes(options: {
   const rows = await db
     .select({
       code: referralCodes,
+      // The outer table is named in full: in a select list without a join Drizzle
+      // writes ${referralCodes.id} as a bare "id", which inside this subquery is the
+      // redemption's own id — every code then counted 0 shops.
       shopCount: sql<number>`(
-        SELECT COUNT(*)::int FROM ${referralRedemptions}
-        WHERE ${referralRedemptions.referralCodeId} = ${referralCodes.id}
+        SELECT COUNT(*)::int FROM referral_redemptions rr
+        WHERE rr.referral_code_id = referral_codes.id
       )`,
     })
     .from(referralCodes)
