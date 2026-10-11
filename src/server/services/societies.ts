@@ -697,7 +697,8 @@ export async function listSocietiesForReview(status?: Society["status"]) {
   return db
     .select({
       society: societies,
-      members: sql<number>`(select count(*)::int from ${societyMembers} where ${societyMembers.societyId} = ${societies.id} and ${societyMembers.status} = 'ACTIVE')`,
+      // Outer table named in full (a bare "id" here would be the member's own id; see referrals.ts listReferralCodes).
+      members: sql<number>`(select count(*)::int from society_members sm where sm.society_id = societies.id and sm.status = 'ACTIVE')`,
     })
     .from(societies)
     .where(and(isNull(societies.deletedAt), status ? eq(societies.status, status) : undefined))
