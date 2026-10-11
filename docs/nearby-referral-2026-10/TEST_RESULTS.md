@@ -111,7 +111,7 @@ were returned to **Optional** at the end (log entries 5 and 6).
 | N-2 | test.gokesari.com has no SMS provider (`SMS_PROVIDER=none`, test outbox off), so `/shop/join` cannot send its code and no self-registration can be completed there | Pre-existing. Covered by the integration tests (registration without a code while Optional → paid → approved, no redemption) |
 | N-3 | This test environment cannot reach `www.google.com` or `maps.gstatic.com`, so the Directions page could not be opened here and Google's pin images show as broken here only | Not a site issue: the site's CSP allows them; links verified by their exact URL and `target=_blank`. Worth one tap on a real phone |
 | N-4 | `/wallet` and `/admin/orders` log React error #418 (a text hydration mismatch) | Pre-existing: identical before the deploy; pages work |
-| N-5 | Admin → Referral codes shows "0 shops" for every code (the count's subquery compares the redemption with itself) | Pre-existing, not changed here |
+| N-5 | Admin → Referral codes shows "0 shops" for every code (the count's subquery compares the redemption with itself). Admin → Societies showed "0 active members" for the same reason | **Fixed** after this release: PR #138 (staging) and #139 (production); see §8 |
 
 ## 6. Production (gokesari.com)
 
@@ -167,6 +167,8 @@ the .apk inside):
 | App | Opens | Download |
 |---|---|---|
 | GoKesari | gokesari.com | https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/38083818743/artifacts/11681089327 |
-| GoKesari Test | test.gokesari.com | https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/38083818743/artifacts/11680969793 | iPhone: no installable file without an
+| GoKesari Test | test.gokesari.com | https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/38083818743/artifacts/11680969793 |
+
+iPhone: no installable file without an
 Apple Developer account; add gokesari.com to the home screen from Safari
 (mobile/README.md).
