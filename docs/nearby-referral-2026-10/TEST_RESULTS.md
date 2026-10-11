@@ -172,3 +172,29 @@ the .apk inside):
 iPhone: no installable file without an
 Apple Developer account; add gokesari.com to the home screen from Safari
 (mobile/README.md).
+
+## 8. Fix: referral codes showed 0 shops (11 Oct 2026)
+
+Admin → Referral codes counted 0 shops for every code, and the Admin →
+Societies review list counted 0 active members for every society. In both
+count queries, Drizzle wrote the outer table's `id` without its table name, so
+inside the subquery it meant the inner row's own id. Both now name the outer
+table in full (`src/server/services/referrals.ts`,
+`src/server/services/societies.ts`).
+
+| Step | Result |
+|---|---|
+| New integration tests (codes with 2 and 0 shops; a society with founder + approved resident + pending request) | Fail on the old code, pass with the fix |
+| PR #138 → staging, CI | Green; merged 02:11 UTC |
+| test.gokesari.com, Admin → Referral codes (`GET /api/referral-codes` as admin) | E2ENEARBY1 **4**, E2ETEST1 **4**, E2EANIL1 **1**, GKCMUWB6K 0 (it was 0 for all) |
+| Societies on test | None exist, so this is covered by the integration test only |
+| PR #139 staging → main, CI | Green; merged 02:32 UTC |
+| gokesari.com, read-only smoke at 02:40 UTC | `/`, `/shops`, `/shops/nearby`, `/signin`, `/api/referral-settings`, `/api/shops/nearby` all 200; Nearby on Android and desktop: location named, all radii, 0 page errors |
+
+Production's admin counts need a production admin sign-in to see; the query is
+the one verified on test.
+
+The same mistake in three other queries is reported, not fixed here, because
+fixing them changes what live screens show:
+- `delivery-assignment.ts`: rider reliability counts.
+- `integrations/pull.ts` and `integrations/connections.ts`: the "listed" flag.
