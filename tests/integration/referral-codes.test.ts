@@ -42,7 +42,7 @@ import { POST as adminActionRoute } from "@/app/api/admin/referral-requests/[id]
 import { resetRateLimits } from "@/server/api/rate-limit";
 import { db } from "@/server/db";
 import { notifications, platformSettings, referralCodeRequests, referralRedemptions, shopCategories, shops } from "@/server/db/schema";
-import { createReferralCode, updateReferralCode } from "@/server/services/referrals";
+import { createReferralCode, listReferralCodes, updateReferralCode } from "@/server/services/referrals";
 import { setReferralSetting } from "@/server/services/referral-settings";
 import { clearRuleCache } from "@/server/services/settings";
 import { call } from "../helpers/http";
@@ -123,6 +123,18 @@ describe("referral code on shop registration", () => {
     const [shop] = await db.select().from(shops).where(eq(shops.id, ok.body.id));
     expect(shop.referralCodeId).not.toBeNull();
     expect(await db.select().from(referralRedemptions).where(eq(referralRedemptions.shopId, shop.id))).toHaveLength(1);
+  });
+
+  it("Admin → Referral codes counts the shops attributed to each code (it used to show 0 for every code)", async () => {
+    await requireCodes();
+    await createReferralCode({ code: "TWO-SHOPS" }, admin);
+    await createReferralCode({ code: "NO-SHOPS" }, admin);
+    const owner = await createUser();
+    signIn(owner, "CUSTOMER");
+    expect((await register(shopBody({ referralCode: "two-shops" }))).status).toBe(201);
+    expect((await register(shopBody({ referralCode: "TWO-SHOPS" }))).status).toBe(201);
+    const counts = Object.fromEntries((await listReferralCodes()).map((c) => [c.code, c.shopCount]));
+    expect(counts).toMatchObject({ "TWO-SHOPS": 2, "NO-SHOPS": 0 });
   });
 
   it("an inactive or expired code is refused", async () => {
