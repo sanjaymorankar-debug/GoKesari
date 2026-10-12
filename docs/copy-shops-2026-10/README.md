@@ -51,6 +51,29 @@ Each run passes the export between its two jobs as a private artifact kept for
 one day. It holds the shops' owner contact details and photos and nothing
 else.
 
+## Without GitHub access to production: SQL files for the Neon console
+
+Use this when the workflow cannot see `PROD_DATABASE_URL`. Mode **sql** reads
+the test database as usual. Instead of connecting to production, it turns the
+export into two SQL files, made by `scripts/copy-shops/to-sql.ts` from
+`copy-shops.sql.tpl`. They follow the same rules as plan/copy, carried out
+inside the database.
+
+1. **Actions → Copy shops to production → Run workflow**, branch `main`, mode
+   **sql**. When it finishes, download **copy-shops-sql** under *Artifacts* on
+   the run page and unzip it. It is kept for 3 days and holds the shops'
+   owner contact details, so delete it afterwards.
+2. **Neon console → the production project → SQL Editor**, database `neondb`:
+   paste and run `copy-shops-1-PREVIEW.sql`. It does the whole copy and undoes
+   it, then lists what would happen (new registration numbers, owner matching,
+   products added or matched). Production is not changed, and its sequences are
+   not used up.
+3. If that is right, note the time, then run `copy-shops-2-APPLY.sql`. Any
+   error leaves production as it was. Running it again copies nothing twice.
+   To undo it, restore to the time you noted (Neon → Restore).
+
+The files can also be run with `psql "<production URL>" -f <file>`.
+
 ## After copying
 
 - Admin → Shops on gokesari.com lists the shops under their new numbers.
