@@ -119,7 +119,7 @@ export const UI = {
   // Site header on every other page
   home: L("Home", "होम", "होम"),
   myBoard: L("My board", "मेरा बोर्ड", "माझा बोर्ड"),
-  shopBoard: L("Shop board", "दुकान बोर्ड", "दुकान बोर्ड"),
+  shopBoard: L("Seller Central", "सेलर सेंट्रल", "सेलर सेंट्रल"),
   adminBoard: L("Admin board", "एडमिन बोर्ड", "ॲडमिन बोर्ड"),
   operatorBoard: L("Operator board", "ऑपरेटर बोर्ड", "ऑपरेटर बोर्ड"),
   riderHome: L("My deliveries", "मेरी डिलीवरी", "माझ्या डिलिव्हऱ्या"),

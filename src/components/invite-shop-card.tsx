@@ -12,7 +12,7 @@ export function InviteShopCard({ area }: { area: string | null }) {
   const [status, setStatus] = useState<"idle" | "copied" | "failed">("idle");
 
   async function invite() {
-    const url = `${window.location.origin}/shop/register`;
+    const url = `${window.location.origin}/sell`;
     const text = "I'd like to order from your shop on GoKesari. You can list it here:";
     try {
       if (navigator.share) {
@@ -47,7 +47,7 @@ export function InviteShopCard({ area }: { area: string | null }) {
         {status === "copied"
           ? "Invite link copied. Paste it in a message to the shop."
           : status === "failed"
-            ? "Could not share from this browser. The sign-up page is gokesari.com/shop/register."
+            ? "Could not share from this browser. The sign-up page is gokesari.com/sell."
             : ""}
       </p>
     </div>

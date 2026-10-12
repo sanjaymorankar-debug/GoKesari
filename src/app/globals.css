@@ -203,6 +203,20 @@ main:has(> [data-tile-board]) {
 }
 
 /*
+ * Seller Central (src/app/shop/layout.tsx): the shop owner's portal brings
+ * its own top bar and sidebar, so the shopping site's header and footer step
+ * aside and <main> lets the portal fill the window edge to edge.
+ */
+body:has([data-seller-central]) > header,
+body:has([data-seller-central]) > footer {
+  display: none;
+}
+main:has(> [data-seller-central]) {
+  max-width: none;
+  padding: 0;
+}
+
+/*
  * Touch-screen boards fill exactly one screen: the tile grid takes whatever
  * height is left, so taller phones simply get taller tiles. On short screens
  * (the app's WebView on a 360×800 phone is about 360×728; 320×640 phones) the

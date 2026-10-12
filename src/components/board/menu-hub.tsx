@@ -19,12 +19,15 @@ export function MenuHub({
   counts,
   ticks,
   boardHref,
+  backLabel,
 }: {
   lang: Lang;
   menu: ResolvedMenu;
   counts: Counts;
   ticks?: Partial<Record<TickKey, boolean>>;
   boardHref: string;
+  /** Wording of the back link; "Back to board" when not given. */
+  backLabel?: string;
 }) {
   return (
     <div data-testid="menu-hub" data-key={menu.key} className="mx-auto w-full max-w-5xl">
@@ -34,7 +37,7 @@ export function MenuHub({
         data-testid="back-to-board"
       >
         <Icon name="arrow-left" size={18} />
-        {tr(UI.backToBoard, lang)}
+        {backLabel ?? tr(UI.backToBoard, lang)}
       </Link>
       <h1 className="mb-4 flex items-center gap-3 text-2xl font-bold text-ink-900">
         <span className={clsx("grid h-11 w-11 shrink-0 place-items-center rounded-xl", TONE_CHIP[menu.tone])}>

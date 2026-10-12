@@ -309,7 +309,7 @@ function CustomerDoNow({ lang, data, trackHref, referralCode }: { lang: Lang; da
 /** Signed-out visitors: the two sign-up paths that used to sit below the home page's first screen. */
 function JoinRow({ lang }: { lang: Lang }) {
   const links: { href: string; icon: IconName; label: string }[] = [
-    { href: "/shop/register", icon: "store", label: tr(UI.runAShop, lang) },
+    { href: "/sell", icon: "store", label: tr(UI.runAShop, lang) },
     { href: "/delivery-partner/apply", icon: "bike", label: tr(UI.deliverForUs, lang) },
   ];
   return (

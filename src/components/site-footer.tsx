@@ -52,6 +52,7 @@ export function SiteFooter() {
           links={[
             { href: "/about", label: "About Us" },
             { href: "/contact", label: "Contact Us" },
+            { href: "/sell", label: "Sell on GoKesari" },
             { href: "/delivery-partner/apply", label: "Become a Delivery Partner" },
             ...COMPANY_SLUGS.flatMap(doc),
           ]}
