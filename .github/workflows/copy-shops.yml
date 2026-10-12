@@ -7,6 +7,9 @@
 #          summary shows exactly what would be added, and production is not
 #          changed
 #   copy   the same, saved; needs confirm = COPY SHOPS TO PRODUCTION
+#   sql    no production access at all: turns the export into two SQL files
+#          (PREVIEW, then APPLY) to run by hand in the Neon console against
+#          production — same rules, carried out inside the database
 #
 # Two jobs, so each database's password is given to one job only: "export"
 # runs in the test environment and only reads the test database; "copy" runs
@@ -20,10 +23,10 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: plan (nothing saved) or copy (saved to PRODUCTION)
+        description: plan (nothing saved), copy (saved to PRODUCTION), or sql (SQL files to run in the Neon console)
         type: choice
         default: plan
-        options: [plan, copy]
+        options: [plan, copy, sql]
       shops:
         description: Registration numbers ON TEST, comma-separated
         required: true
@@ -95,9 +98,55 @@ jobs:
           retention-days: 1
           if-no-files-found: error
 
+  sql:
+    needs: export
+    if: github.ref == 'refs/heads/main' && inputs.mode == 'sql'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # No database secret here: the files are made from the export alone.
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          persist-credentials: false
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install (no secrets, no install scripts)
+        run: npm ci --ignore-scripts --no-audit --no-fund
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: shops-export
+          path: ${{ runner.temp }}/export
+
+      - name: Make the SQL files
+        env:
+          BUNDLE_FILE: ${{ runner.temp }}/export/shops.json
+          OUT_DIR: ${{ runner.temp }}/sql
+        run: |
+          npx tsx scripts/copy-shops/to-sql.ts
+          {
+            echo "### SQL files ready"
+            echo "Download **copy-shops-sql** below (Artifacts). Unzip it, then in the Neon console → the PRODUCTION project → SQL Editor:"
+            echo "1. run \`copy-shops-1-PREVIEW.sql\` — changes nothing, lists what would happen;"
+            echo "2. if that is right, run \`copy-shops-2-APPLY.sql\` — saves the shops."
+            echo
+            echo "The files hold the shops' owner contact details: kept 3 days, then deleted. docs/copy-shops-2026-10/README.md"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: copy-shops-sql
+          path: ${{ runner.temp }}/sql/*.sql
+          retention-days: 3
+          if-no-files-found: error
+
   copy:
     needs: export
-    if: github.ref == 'refs/heads/main'
+    if: github.ref == 'refs/heads/main' && inputs.mode != 'sql'
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # Sees repository secrets and, if it exists, the production environment's.
