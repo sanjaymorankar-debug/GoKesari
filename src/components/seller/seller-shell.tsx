@@ -281,7 +281,7 @@ export function SellerShell({ lang, user, roles, unreadCount, shop, groups, coun
           </div>
         ) : null}
 
-        <div className="min-w-0 flex-1 px-4 py-5 sm:px-6 lg:px-8 lg:py-7" data-testid="seller-content">
+        <div className="min-w-0 flex-1 px-4 py-5 sm:px-6 lg:px-8 lg:py-7" data-testid="seller-content" data-seller-content>
           <div className={clsx("mx-auto w-full", withNav ? "max-w-6xl" : "max-w-5xl")}>{children}</div>
         </div>
       </div>

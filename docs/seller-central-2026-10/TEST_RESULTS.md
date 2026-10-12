@@ -30,8 +30,10 @@ Android app. It caught the new `/sell` page, which is now added to
 | 1 | `/sell` signed out: hero, benefits, how it works, tools, shop types, register options, FAQ, footer; shopping header hidden | 1366 × 900 | Pass |
 | 2 | `/sell` on a phone: every section stacks, no sideways scrolling | 390 × 844 | Pass |
 | 3 | `/shop` as an approved owner (Kesari Dairy Farm): seller top bar with "Live" pill, sidebar groups, dashboard sections, all-tools grid | 1440 × 900 | Pass |
-| 4 | `/shop` on a phone: shop line under the top bar, ☰ opens the drawer with every group | 390 × 844 | Pass |
-| 5 | Drawer → Inventory: opens `/shop/inventory` and the drawer closes | 390 × 844 | Pass |
+| 4 | `/shop` on a phone: the approved tile board, full screen with its own header (no seller top bar), page height exactly one screen | 390 × 844 | Pass |
+| 4a | `/shop` on a tablet: tile board, one screen | 820 × 1180 | Pass |
+| 4b | Tile board → Orders tile: `/shop/orders` opens in Seller Central with ☰ and the shop line | 390 × 844 | Pass |
+| 5 | ☰ on a seller page → Inventory: opens `/shop/inventory` and the drawer closes | 390 × 844 | Pass |
 | 6 | `/shop/orders`: Orders highlighted in the sidebar with New / Packing / Ready / Out underneath | 1440 × 900 | Pass |
 | 7 | Find a tool, typing "gst": lists "GST (Finance)" and "GST & PAN (My Shop)" | 1440 × 900 | Pass |
 | 8 | `/shop` for a shop pending approval: "Pending approval" pill; Action required shows the approval stage and next step | 1366 × 900 | Pass |

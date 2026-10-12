@@ -11,7 +11,7 @@ became the Seller Central frame around every `/shop/…` page.
 |---|---|---|
 | Public seller page | None. "Sell on GoKesari" went straight to the `/shop/register` form | **`/sell`**: hero, benefits, how it works (4 steps), Seller Central tools, shop types, the ways to register, a checklist of what to keep ready, FAQ, its own seller header and footer |
 | Shop owner pages (`/shop/…`) | Inside the shopping site's header (cart, deliver-to, wallet) and footer | Inside **Seller Central**: a dark seller top bar and a grouped sidebar. The shopping header and footer are hidden on these pages |
-| Seller home (`/shop`) | Tile board with 16 tiles | A dashboard with sections for action required, orders to work on, performance over the last 30 days, the shop wallet, items that need a look, account health, and all seller tools |
+| Seller home (`/shop`) | Tile board with 16 tiles | **Phones and tablets (narrower than 1024 px): the approved tile board, unchanged**, full screen with its own header. **Wider screens:** a dashboard with sections for action required, orders to work on, performance over the last 30 days, the shop wallet, items that need a look, account health, and all seller tools |
 | No shop yet (`/shop`) | One "Add my shop" button | Welcome page with both ways to register side by side |
 | Menu pages (`/shop/menu/…`) | "Back to board" | "Back to Seller Central" |
 | Entry points | `/shop/register` | Footer "Sell on GoKesari", the home page's join row and the invite-a-shop card all lead to `/sell`. The header button for shop owners now reads "Seller Central" |
@@ -46,7 +46,14 @@ saved bookmarks and tests keep working.
   `src/lib/seller/nav.ts`, and a unit test fails if a menu is left out of the
   groups.
 
-## Seller home sections (`/shop`)
+## Seller home sections (`/shop`, wide screens)
+
+On phones and tablets (narrower than 1024 px), `/shop` keeps the approved
+tile board (`src/components/board/shop-board.tsx`): alerts, "Do now" and all
+16 menus on one screen. Seller Central's top bar steps aside there, because
+the board has its own header. Every other `/shop/…` page uses the Seller
+Central frame on every screen size, with the ☰ drawer on phones. The
+dashboard below is shown from 1024 px up.
 
 1. **Action required**: every account alert, most serious first (suspension,
    rejection, wallet recharge, legal documents, approval stage, payout bank).
@@ -72,9 +79,9 @@ saved bookmarks and tests keep working.
 - `src/components/seller/seller-home.tsx`: the seller home dashboard.
 - `src/components/seller/register-options.tsx`: the two ways to register (used on `/sell` and on `/shop` before a shop exists).
 - `src/lib/seller/nav.ts`: sidebar groups and Seller Central wording in EN, HI and MR.
-- `src/app/globals.css`: hides the shopping header and footer while Seller Central is on screen.
+- `src/app/globals.css`: hides the shopping header and footer while Seller Central is on screen; on phones, also hides the seller top bar while the tile board is shown.
 - `src/server/board-data.ts`: `loadShopCounts`, so the shop's counts are read only once per request even though both the layout and the page use them.
-- `src/components/board/shop-board.tsx`: removed, replaced by the seller home.
+- `src/components/board/shop-board.tsx`: the tile board, still the seller home on phones and tablets.
 - `mobile/app.config.ts`: `/sell` added to the paths that open in the Android app.
 - `tests/unit/seller-central.test.ts`: checks the sidebar grouping, permission filtering, all three languages and the status pill.
 

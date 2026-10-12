@@ -74,9 +74,9 @@ export function SellerHome({ lang, userName, shop, alerts, counts, facts, kpis, 
         <div className="flex min-w-0 flex-col gap-5 lg:col-span-2 lg:gap-6">
           <Panel title={tr(SELLER_TEXT.actionRequired, lang)} icon="circle-alert" testId="seller-actions">
             {alerts.length > 0 ? (
-              <ul className="divide-y divide-slate-100" data-testid="shop-alerts">
+              <ul className="divide-y divide-slate-100" data-testid="seller-alerts">
                 {alerts.map((a) => (
-                  <li key={a.key} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0" data-testid={`shop-alert-${a.key}`} role="status">
+                  <li key={a.key} className="flex items-center gap-3 py-3 first:pt-0 last:pb-0" data-testid={`seller-alert-${a.key}`} role="status">
                     <span className={clsx("grid h-9 w-9 shrink-0 place-items-center rounded-full text-white", a.tone === "danger" ? "bg-red-700" : "bg-amber-600")}>
                       <Icon name={a.icon} size={18} />
                     </span>

@@ -215,6 +215,17 @@ main:has(> [data-seller-central]) {
   max-width: none;
   padding: 0;
 }
+/* Touch screens keep the Tile Board on the seller home (/shop): it brings its
+   own compact header and fills the screen, so the seller top bar and the
+   content padding step aside while it is shown. */
+@media (max-width: 1023.98px) {
+  [data-seller-central]:has([data-tile-board]) > header {
+    display: none;
+  }
+  [data-seller-content]:has([data-tile-board]) {
+    padding: 0;
+  }
+}
 
 /*
  * Touch-screen boards fill exactly one screen: the tile grid takes whatever

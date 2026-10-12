@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { HashRedirect } from "@/components/board/hash-redirect";
+import { ShopBoard } from "@/components/board/shop-board";
 import { RegisterOptions } from "@/components/seller/register-options";
 import { SellerHome, type ShopAlert } from "@/components/seller/seller-home";
 import { tr, UI, type Lang } from "@/lib/board/i18n";
@@ -10,6 +11,7 @@ import { ONBOARDING_STAGE_LABELS, ownerNextAction } from "@/lib/shop-onboarding"
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { loadShopBoard } from "@/server/board-data";
+import { getBoardHeaderData } from "@/server/board-header-data";
 import { getBoardLang } from "@/server/board-lang";
 import { defaultWindow, getMarketplaceKpis } from "@/server/services/analytics";
 import { shopBankPrompt } from "@/server/services/bank-accounts";
@@ -33,9 +35,11 @@ const OLD_SECTIONS: Record<string, string> = {
 };
 
 /**
- * Seller Central home (§40, §50): what needs doing first (account alerts),
- * today's order pipeline, the shop's numbers and account health, and every
- * seller tool grouped by job. Before a shop exists it is the start of
+ * Seller home (§40, §50). Touch screens keep the approved Tile Board — alerts,
+ * "Do now" and all sixteen menus on one screen. Wide screens get the Seller
+ * Central home: what needs doing first (account alerts), today's order
+ * pipeline, the shop's numbers and account health, and every seller tool
+ * grouped by job. Before a shop exists it is the start of
  * registration. The sections of the old long dashboard live on their own
  * pages under /shop/manage.
  */
@@ -65,8 +69,9 @@ export default async function ShopDashboardPage() {
 
   const shop = shops[0];
   const window = defaultWindow(30);
-  const [lang, board, suspension, onboarding, wallet, legalStatus, bankPrompt, kpis] = await Promise.all([
+  const [lang, header, board, suspension, onboarding, wallet, legalStatus, bankPrompt, kpis] = await Promise.all([
     getBoardLang(),
+    getBoardHeaderData(user),
     loadShopBoard(shop.id, user),
     shop.status === "SUSPENDED" ? getActiveSuspension(shop.id) : Promise.resolve(null),
     shop.status === "PENDING_APPROVAL" ? getShopOnboarding([shop.id]).then((m) => m.get(shop.id)) : Promise.resolve(undefined),
@@ -91,17 +96,24 @@ export default async function ShopDashboardPage() {
   return (
     <>
       <HashRedirect map={OLD_SECTIONS} />
-      <SellerHome
-        lang={lang}
-        userName={user.name}
-        shop={{ name: shop.name, slug: shop.slug, status: shop.status }}
-        alerts={alerts}
-        counts={board.counts}
-        facts={board.facts}
-        kpis={kpis}
-        legal={legalStatus.enabled ? { blocking: docs.filter((d) => d.blocking).length, dueSoon: docs.filter((d) => !d.blocking && (d.deadline || d.expiringSoon)).length } : null}
-        groups={groupSellerMenus(visibleMenus(SHOP_MENUS, user.role, { shopSlug: shop.slug }, "shop"))}
-      />
+      {/* Touch screens: the approved Tile Board, every menu on one screen. */}
+      <div className="lg:hidden">
+        <ShopBoard lang={lang} user={user} header={header} shop={{ name: shop.name, slug: shop.slug }} data={board} alerts={alerts} />
+      </div>
+      {/* Wide screens: the Seller Central home. */}
+      <div className="hidden lg:block">
+        <SellerHome
+          lang={lang}
+          userName={user.name}
+          shop={{ name: shop.name, slug: shop.slug, status: shop.status }}
+          alerts={alerts}
+          counts={board.counts}
+          facts={board.facts}
+          kpis={kpis}
+          legal={legalStatus.enabled ? { blocking: docs.filter((d) => d.blocking).length, dueSoon: docs.filter((d) => !d.blocking && (d.deadline || d.expiringSoon)).length } : null}
+          groups={groupSellerMenus(visibleMenus(SHOP_MENUS, user.role, { shopSlug: shop.slug }, "shop"))}
+        />
+      </div>
     </>
   );
 }
