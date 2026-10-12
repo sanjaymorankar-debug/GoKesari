@@ -68,6 +68,7 @@ const APP_LINK_PATH_PREFIXES = [
   "/refer",
   "/returns",
   "/search",
+  "/sell",
   "/shop",
   "/signin",
   "/society",

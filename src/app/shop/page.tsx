@@ -1,22 +1,29 @@
 import { redirect } from "next/navigation";
 
 import { HashRedirect } from "@/components/board/hash-redirect";
-import { ShopBoard, type ShopAlert } from "@/components/board/shop-board";
-import { EmptyState, LinkButton, PageHeader } from "@/components/ui";
+import { ShopBoard } from "@/components/board/shop-board";
+import { RegisterOptions } from "@/components/seller/register-options";
+import { SellerHome, type ShopAlert } from "@/components/seller/seller-home";
 import { tr, UI, type Lang } from "@/lib/board/i18n";
+import { SHOP_MENUS, visibleMenus } from "@/lib/board/menus";
+import { groupSellerMenus } from "@/lib/seller/nav";
 import { ONBOARDING_STAGE_LABELS, ownerNextAction } from "@/lib/shop-onboarding";
 import { getCurrentUser } from "@/server/authz/guards";
+import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { loadShopBoard } from "@/server/board-data";
 import { getBoardHeaderData } from "@/server/board-header-data";
 import { getBoardLang } from "@/server/board-lang";
+import { defaultWindow, getMarketplaceKpis } from "@/server/services/analytics";
 import { shopBankPrompt } from "@/server/services/bank-accounts";
 import { getShopLegalStatus, type ShopLegalStatus } from "@/server/services/legal-documents";
+import { isReferralRequired } from "@/server/services/referral-settings";
+import { getRule } from "@/server/services/settings";
 import { getShopOnboarding, type ShopOnboarding } from "@/server/services/shop-onboarding";
 import { getActiveSuspension } from "@/server/services/shop-suspension";
 import { getShopWalletStatus } from "@/server/services/shop-wallet";
 import { listShopsForOwner } from "@/server/services/shops";
 
-export const metadata = { title: "My Shop" };
+export const metadata = { title: { absolute: "Seller Central · GoKesari" } };
 export const dynamic = "force-dynamic";
 
 /** Links into the old long dashboard (`/shop#products`) → the section's own page. */
@@ -28,10 +35,13 @@ const OLD_SECTIONS: Record<string, string> = {
 };
 
 /**
- * Shop owner home (§40, §50): the Tile Board — account alerts, "Do now" and
- * all sixteen menus on one screen. What the old dashboard held below the
- * board now lives on its own pages under /shop/manage, opened from the
- * board (Today's work, products, Excel upload, area, hours, GST & PAN…).
+ * Seller home (§40, §50). Touch screens keep the approved Tile Board — alerts,
+ * "Do now" and all sixteen menus on one screen. Wide screens get the Seller
+ * Central home: what needs doing first (account alerts), today's order
+ * pipeline, the shop's numbers and account health, and every seller tool
+ * grouped by job. Before a shop exists it is the start of
+ * registration. The sections of the old long dashboard live on their own
+ * pages under /shop/manage.
  */
 export default async function ShopDashboardPage() {
   const user = await getCurrentUser();
@@ -39,20 +49,27 @@ export default async function ShopDashboardPage() {
 
   const shops = await listShopsForOwner(user.id);
   if (shops.length === 0) {
+    const [selfService, referralRequired] = await Promise.all([
+      getRule("selfRegistration").then((r) => r.enabled).catch(() => false),
+      isReferralRequired("shop").catch(() => false),
+    ]);
     return (
-      <>
-        <PageHeader title="My Shop" />
-        <EmptyState
-          title="You haven't registered a shop yet"
-          description="Register your dairy or bakery to start selling online."
-          action={<LinkButton href="/shop/register">Add my shop</LinkButton>}
-        />
-      </>
+      <div data-testid="seller-welcome">
+        <h1 className="text-2xl font-bold tracking-tight text-ink-900 sm:text-3xl">Welcome to Seller Central</h1>
+        <p className="mt-1 max-w-2xl text-ink-600">
+          You haven&apos;t registered a shop yet. Choose how you&apos;d like to register — once your shop is set up, your
+          orders, products, payments and every other seller tool will be here.
+        </p>
+        <div className="mt-6">
+          <RegisterOptions selfService={selfService} referralRequired={referralRequired} signedIn />
+        </div>
+      </div>
     );
   }
 
   const shop = shops[0];
-  const [lang, header, board, suspension, onboarding, wallet, legalStatus, bankPrompt] = await Promise.all([
+  const window = defaultWindow(30);
+  const [lang, header, board, suspension, onboarding, wallet, legalStatus, bankPrompt, kpis] = await Promise.all([
     getBoardLang(),
     getBoardHeaderData(user),
     loadShopBoard(shop.id, user),
@@ -61,6 +78,8 @@ export default async function ShopDashboardPage() {
     getShopWalletStatus(shop.id),
     getShopLegalStatus(shop.id),
     shopBankPrompt(shop.id),
+    // The shop's last 30 days for the performance card; best-effort, and only for owners who may see reports.
+    can(user.role, PERMISSIONS.REPORT_VIEW_SHOP) ? getMarketplaceKpis({ ...window, shopId: shop.id }).catch(() => null) : Promise.resolve(null),
   ]);
 
   const alerts = shopAlerts(lang, {
@@ -72,11 +91,29 @@ export default async function ShopDashboardPage() {
     legalStatus,
     bankPrompt,
   });
+  const docs = legalStatus.enabled ? legalStatus.documents : [];
 
   return (
     <>
       <HashRedirect map={OLD_SECTIONS} />
-      <ShopBoard lang={lang} user={user} header={header} shop={{ name: shop.name, slug: shop.slug }} data={board} alerts={alerts} />
+      {/* Touch screens: the approved Tile Board, every menu on one screen. */}
+      <div className="lg:hidden">
+        <ShopBoard lang={lang} user={user} header={header} shop={{ name: shop.name, slug: shop.slug }} data={board} alerts={alerts} />
+      </div>
+      {/* Wide screens: the Seller Central home. */}
+      <div className="hidden lg:block">
+        <SellerHome
+          lang={lang}
+          userName={user.name}
+          shop={{ name: shop.name, slug: shop.slug, status: shop.status }}
+          alerts={alerts}
+          counts={board.counts}
+          facts={board.facts}
+          kpis={kpis}
+          legal={legalStatus.enabled ? { blocking: docs.filter((d) => d.blocking).length, dueSoon: docs.filter((d) => !d.blocking && (d.deadline || d.expiringSoon)).length } : null}
+          groups={groupSellerMenus(visibleMenus(SHOP_MENUS, user.role, { shopSlug: shop.slug }, "shop"))}
+        />
+      </div>
     </>
   );
 }

@@ -1,7 +1,9 @@
 import { notFound, redirect } from "next/navigation";
 
 import { MenuHub } from "@/components/board/menu-hub";
+import { tr } from "@/lib/board/i18n";
 import { SHOP_MENUS, visibleMenus } from "@/lib/board/menus";
+import { SELLER_TEXT } from "@/lib/seller/nav";
 import { getCurrentUser } from "@/server/authz/guards";
 import { loadShopBoard } from "@/server/board-data";
 import { getBoardLang } from "@/server/board-lang";
@@ -11,7 +13,7 @@ export const dynamic = "force-dynamic";
 
 export async function generateMetadata({ params }: { params: Promise<{ key: string }> }) {
   const { key } = await params;
-  return { title: SHOP_MENUS.find((m) => m.key === key)?.label.en ?? "My Shop" };
+  return { title: SHOP_MENUS.find((m) => m.key === key)?.label.en ?? "Seller Central" };
 }
 
 /** A shop owner tile's menu page: every function of that area, with live counts. */
@@ -34,6 +36,7 @@ export default async function ShopMenuPage({ params }: { params: Promise<{ key: 
       counts={data.counts}
       ticks={{ bankVerified: data.facts.bankVerified, shopVerified: data.facts.shopVerified }}
       boardHref="/shop"
+      backLabel={tr(SELLER_TEXT.sellerCentral, lang)}
     />
   );
 }
