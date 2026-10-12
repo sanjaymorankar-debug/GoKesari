@@ -3,6 +3,8 @@
  * Read-only and best-effort: each part may come back undefined, and the board
  * then leaves that badge, banner or line out.
  */
+import { cache } from "react";
+
 import { addDays, todayIn } from "@/lib/dates";
 import { getEnv } from "@/lib/env";
 import type { Counts } from "@/lib/board/menus";
@@ -109,8 +111,14 @@ export interface ShopBoardData {
   facts: ShopFacts;
 }
 
+/**
+ * A shop's live counts, read once per request: the Seller Central layout
+ * (sidebar badges) and the page inside it both ask for them.
+ */
+export const loadShopCounts = cache((shopId: string): Promise<Counts> => shopCounts(shopId));
+
 export async function loadShopBoard(shopId: string, user: AuthenticatedUser): Promise<ShopBoardData> {
-  const [counts, facts] = await Promise.all([shopCounts(shopId), shopBoardFacts(shopId, user)]);
+  const [counts, facts] = await Promise.all([loadShopCounts(shopId), shopBoardFacts(shopId, user)]);
   return { counts, facts };
 }
 

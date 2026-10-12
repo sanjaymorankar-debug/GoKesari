@@ -7,21 +7,11 @@ import { SHOP_DO_NOW, SHOP_MENUS, visibleItems, visibleMenus } from "@/lib/board
 import type { UserRole } from "@/server/db/schema";
 import type { BoardHeaderData } from "@/server/board-header-data";
 import type { ShopBoardData } from "@/server/board-data";
+import type { ShopAlert } from "@/components/seller/seller-home";
 
 import { BoardHeader } from "./board-header";
-import { Icon, type IconName } from "./icons";
+import { Icon } from "./icons";
 import { Banner, Chip, CountBadge, DoNowStrip, MoreChip, TONE_BLOCK, TONE_ICON, Tile } from "./tiles";
-
-/** Something about the shop's account the owner must act on (suspension, wallet, documents…). */
-export interface ShopAlert {
-  key: string;
-  tone: "warning" | "danger";
-  icon: IconName;
-  title: string;
-  detail?: string | null;
-  action: string;
-  href: string;
-}
 
 interface Props {
   lang: Lang;
@@ -34,7 +24,8 @@ interface Props {
 }
 
 /**
- * Shop owner home board (`/shop`): account alerts (only when there is one),
+ * Shop owner home board on touch screens (`/shop` below the lg breakpoint;
+ * wider screens get the Seller Central home): account alerts (only when there is one),
  * the "Do now" strip and the sixteen menus. Phones: two columns of tiles,
  * each one large target. Wide screens: two columns of rows — the menu on the
  * left, its submenu chips on the right.
