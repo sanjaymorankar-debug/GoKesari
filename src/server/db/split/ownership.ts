@@ -205,6 +205,12 @@ export const SCHEMA_OWNERSHIP: Record<string, DbOwner> = { pmd: "seller" };
  */
 export const MIGRATION_TABLE_OWNERSHIP: Record<string, DbOwner> = { migration_0038_category_renames: "seller" };
 
+/**
+ * Tables that are not GoKesari data and are left in the source, never copied.
+ * playing_with_neon is the sample table Neon creates in every new project.
+ */
+export const NOT_SPLIT_TABLES: readonly string[] = ["playing_with_neon"];
+
 /** The physical database a table lives in after the split: platform tables stay in the customer (core) database. */
 export function physicalDatabase(table: string): "seller" | "customer" | null {
   const dot = table.indexOf(".");
