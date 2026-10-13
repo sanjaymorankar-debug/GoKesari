@@ -104,7 +104,10 @@ async function main() {
         for (const [side, sql, tables] of [["seller", sellerSql, seller], ["customer", customerSql, customer]] as const) {
           const prepared = await prepareTarget(sql, side, { replace: flag("replace") });
           console.log(`${side}: schema ready (${prepared.keptTables.length} tables kept, ${prepared.droppedTables.length} owned by the other database dropped).`);
-          await copyTables(source, sql, tables, (line) => console.log(`  ${side}: ${line}`));
+          await copyTables(source, sql, tables, (line) => console.log(`  ${side}: ${line}`), {
+            openReader: () => connect(sourceUrl, 1),
+            tableTimeoutMs: 10 * 60_000,
+          });
         }
       }
 
@@ -118,11 +121,11 @@ async function main() {
       const failed = verify.some((v) => !v.ok) || orphans.some((o) => o.orphans > 0);
       if (failed) process.exitCode = 1;
     } finally {
-      await sellerSql.end();
-      await customerSql.end();
+      await sellerSql.end({ timeout: 5 });
+      await customerSql.end({ timeout: 5 });
     }
   } finally {
-    await source.end();
+    await source.end({ timeout: 5 });
   }
 }
 
