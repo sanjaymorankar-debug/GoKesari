@@ -36,3 +36,17 @@ describe("seller / customer table ownership", () => {
     expect(SELLER_READS_FROM_CORE.every((t) => physicalDatabase(t) === "customer")).toBe(true);
   });
 });
+
+describe("split connections", () => {
+  it("drops libpq-only URL settings (Neon's channel_binding) that Postgres would refuse as session settings", async () => {
+    const { connect } = await import("@/server/db/split/tools");
+    const sql = connect("postgresql://u:p@db.example.test:5432/gokesari_seller?sslmode=require&channel_binding=require", 1);
+    try {
+      expect(sql.options.database).toBe("gokesari_seller");
+      expect(sql.options.connection).not.toHaveProperty("channel_binding");
+      expect(sql.options.ssl).toBe("require");
+    } finally {
+      await sql.end({ timeout: 0 });
+    }
+  });
+});
