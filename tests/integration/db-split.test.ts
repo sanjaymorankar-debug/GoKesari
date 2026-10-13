@@ -160,4 +160,53 @@ describe("seller / customer database split", { timeout: 300_000 }, () => {
     expect(read?.items[0].product?.name).toBe("Cow Milk");
     expect(read?.brokenLinks).toEqual([]);
   });
+  it("copies each table through its own short-lived reader and closes it, leaving the source pool clean", async () => {
+    let opened = 0;
+    let closed = 0;
+    const openReader = () => {
+      opened += 1;
+      const reader = connect(sourceUrl, 1);
+      const end = reader.end.bind(reader);
+      return Object.assign(reader, {
+        end: (options?: { timeout?: number }) => {
+          closed += 1;
+          return end(options);
+        },
+      }) as Sql;
+    };
+    const copied = await copyTables(source, seller, ["shops", "products"], undefined, { openReader, tableTimeoutMs: 60_000 });
+    expect(copied.map((c) => c.table)).toEqual(["shops", "products"]);
+    expect({ opened, closed }).toEqual({ opened: 2, closed: 2 });
+    expect(await fingerprint(seller, "products")).toEqual(await fingerprint(source, "products"));
+    // The pooled source still answers after the copies (the hang on Neon was the next query on a paused connection).
+    const [{ ok }] = await source.unsafe<{ ok: number }[]>("select 1 as ok");
+    expect(ok).toBe(1);
+  });
+
+  // Last case: it leaves the seller database without the foreign keys of the stalled table.
+  it("stops a stalled table copy with a clear error instead of hanging", async () => {
+    // Hold the SOURCE table so the COPY read waits inside the copy step (the step the time limit covers).
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => (release = resolve));
+    let locked!: () => void;
+    const lockTaken = new Promise<void>((resolve) => (locked = resolve));
+    const locker = connect(sourceUrl, 1);
+    const holding = locker.begin(async (tx) => {
+      await tx.unsafe("lock table products in access exclusive mode");
+      locked();
+      await held;
+    });
+    await lockTaken;
+    try {
+      const started = Date.now();
+      await expect(
+        copyTables(source, seller, ["products"], undefined, { openReader: () => connect(sourceUrl, 1), tableTimeoutMs: 1_000 }),
+      ).rejects.toThrow(/copying products took longer than/);
+      expect(Date.now() - started).toBeLessThan(30_000);
+    } finally {
+      release();
+      await holding;
+      await locker.end();
+    }
+  });
 });

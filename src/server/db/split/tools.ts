@@ -31,15 +31,26 @@ import { physicalDatabase, SCHEMA_OWNERSHIP, tablesOwnedBy } from "./ownership";
 export type Sql = postgres.Sql;
 export type Side = "seller" | "customer";
 
+/**
+ * libpq-only URL settings. postgres.js would send them to the server as
+ * session settings, which Postgres refuses ("unrecognized configuration
+ * parameter") — Neon's copy-paste URLs carry channel_binding=require.
+ */
+const LIBPQ_ONLY_PARAMS = ["channel_binding", "gssencmode", "sslcert", "sslkey", "sslpassword", "sslcrl", "krbsrvname"];
+
 export function connect(url: string, max = 2): Sql {
   let ssl: false | "require" = false;
+  let clean = url;
   try {
-    const mode = new URL(url).searchParams.get("sslmode");
+    const u = new URL(url);
+    const mode = u.searchParams.get("sslmode");
     ssl = !mode || mode === "disable" ? false : "require";
+    for (const key of LIBPQ_ONLY_PARAMS) u.searchParams.delete(key);
+    clean = u.toString();
   } catch {
     ssl = false;
   }
-  return postgres(url, { max, ssl, onnotice: () => undefined, types: { bigint: postgres.BigInt } });
+  return postgres(clean, { max, ssl, onnotice: () => undefined, types: { bigint: postgres.BigInt } });
 }
 
 /** host/db for logs — never the password. */
@@ -177,7 +188,28 @@ export interface CopyResult {
  * afterwards; user triggers are disabled during the load so no trigger
  * rewrites a copied row.
  */
-export async function copyTables(source: Sql, target: Sql, tables: string[], log: (line: string) => void = () => undefined): Promise<CopyResult[]> {
+export interface CopyOptions {
+  /**
+   * Opens a fresh one-connection client on the source for each table's COPY
+   * read; it is closed straight after. postgres.js 3.4 can leave a connection's
+   * socket paused when a COPY ... TO STDOUT ends while its stream buffer is
+   * full (the last CopyData and CopyDone arrive in one network chunk), and the
+   * next query on that pooled connection then never gets its answer — seen on
+   * Neon over TLS. A throwaway reader keeps the pool clean. Without it the
+   * pooled `source` is used (fine on a local socket, as in the tests).
+   */
+  openReader?: () => Sql;
+  /** Fail the table, not hang, when one copy takes longer than this. */
+  tableTimeoutMs?: number;
+}
+
+export async function copyTables(
+  source: Sql,
+  target: Sql,
+  tables: string[],
+  log: (line: string) => void = () => undefined,
+  options: CopyOptions = {},
+): Promise<CopyResult[]> {
   const targetTables = new Set(await publicTables(target));
   const missing = tables.filter((t) => !targetTables.has(t));
   if (missing.length) throw new Error(`Target is missing tables: ${missing.join(", ")}. Run prepare first.`);
@@ -187,29 +219,59 @@ export async function copyTables(source: Sql, target: Sql, tables: string[], log
   for (const fk of affected) await target.unsafe(`alter table ${qident(fk.table)} drop constraint if exists ${ident(fk.name)}`);
 
   const results: CopyResult[] = [];
+  let stalled = false;
   try {
     for (const table of tables) {
       const started = Date.now();
       const columns = await copyableColumns(source, table);
       const list = columns.map(ident).join(", ");
-      await target.begin(async (tx) => {
-        await tx.unsafe(`alter table ${qident(table)} disable trigger user`);
-        await tx.unsafe(`truncate table ${qident(table)}`);
-        const readable = await source.unsafe(`copy (select ${list} from ${qident(table)}) to stdout`).readable();
-        const writable = await tx.unsafe(`copy ${qident(table)} (${list}) from stdin`).writable();
-        await pipeline(readable, writable);
-        await tx.unsafe(`alter table ${qident(table)} enable trigger user`);
-      });
+      const reader = options.openReader ? options.openReader() : source;
+      try {
+        await withTimeout(
+          target.begin(async (tx) => {
+            await tx.unsafe(`alter table ${qident(table)} disable trigger user`);
+            await tx.unsafe(`truncate table ${qident(table)}`);
+            const readable = await reader.unsafe(`copy (select ${list} from ${qident(table)}) to stdout`).readable();
+            const writable = await tx.unsafe(`copy ${qident(table)} (${list}) from stdin`).writable();
+            await pipeline(readable, writable);
+            await tx.unsafe(`alter table ${qident(table)} enable trigger user`);
+          }),
+          options.tableTimeoutMs,
+          `copying ${table}`,
+        ).catch((error) => {
+          if (error instanceof CopyTimeoutError) stalled = true;
+          throw error;
+        });
+      } finally {
+        if (reader !== source) await reader.end({ timeout: 0 });
+      }
       const [{ n }] = await target.unsafe<{ n: number }[]>(`select count(*)::int as n from ${qident(table)}`);
       results.push({ table, rows: n, ms: Date.now() - started });
       log(`copied ${table}: ${n} rows in ${Date.now() - started} ms`);
     }
   } finally {
     // Re-create every foreign key we removed; an orphan inside one database fails loudly here.
-    for (const fk of affected) await target.unsafe(`alter table ${qident(fk.table)} add constraint ${ident(fk.name)} ${fk.definition}`);
+    // After a stalled copy the stuck transaction still locks its table, so this would hang too:
+    // skip it — a stalled run is re-run with --replace, which rebuilds the target's schema.
+    if (!stalled) for (const fk of affected) await target.unsafe(`alter table ${qident(fk.table)} add constraint ${ident(fk.name)} ${fk.definition}`);
   }
   await copySequences(source, target);
   return results;
+}
+
+class CopyTimeoutError extends Error {}
+
+async function withTimeout<T>(work: Promise<T>, ms: number | undefined, what: string): Promise<T> {
+  if (!ms) return work;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new CopyTimeoutError(`${what} took longer than ${Math.round(ms / 1000)} s — stopped instead of waiting`)), ms);
+  });
+  try {
+    return await Promise.race([work, timeout]);
+  } finally {
+    clearTimeout(timer);
+  }
 }
 
 /** Carries every sequence's position over (serials, identities and counters such as shop numbers). */
