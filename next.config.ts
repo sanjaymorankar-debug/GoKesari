@@ -63,11 +63,25 @@ const securityHeaders = [
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
 ];
 
+/** Files the document reader opens at run time (docs/document-upload-2026-10). */
+const OCR_RUNTIME_FILES = [
+  "./node_modules/tesseract.js-core/*lstm.wasm",
+  "./node_modules/@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz",
+];
+
 const nextConfig: NextConfig = {
   // docs/document-upload-2026-10: the OCR engine starts a worker thread and
   // loads its WebAssembly and language model from node_modules at run time,
   // so it must not be bundled; the PDF reader likewise.
   serverExternalPackages: ["tesseract.js", "tesseract.js-core", "unpdf"],
+  // The OCR engine reads its WebAssembly and the English model from disk at
+  // run time, which the file tracer cannot see. Hostinger deploys only traced
+  // files, so without this the reader found no model and its worker hung
+  // (test.gokesari.com, 13 Oct 2026: GET /api/admin/document-reader).
+  outputFileTracingIncludes: {
+    "/api/shops/*/documents/read": OCR_RUNTIME_FILES,
+    "/api/admin/document-reader": OCR_RUNTIME_FILES,
+  },
   // Hostinger installs production dependencies only, so `typescript` is absent
   // when the build starts and Next never reads the "@/*" paths in tsconfig.json.
   // Declaring the alias here keeps webpack resolving "@/..." either way.
