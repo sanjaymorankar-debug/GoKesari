@@ -31,6 +31,7 @@ import {
   listForeignKeys,
   prepareTarget,
   publicTables,
+  sameDatabaseClash,
   setupForeignTables,
   splitTables,
   verifyCopy,
@@ -80,7 +81,8 @@ async function main() {
 
     const sellerUrl = need("SELLER_DATABASE_URL");
     const customerUrl = need("CUSTOMER_DATABASE_URL");
-    if (new Set([sourceUrl, sellerUrl, customerUrl]).size !== 3) throw new Error("SOURCE, SELLER and CUSTOMER must be three different databases.");
+    const clash = sameDatabaseClash({ SOURCE: sourceUrl, SELLER: sellerUrl, CUSTOMER: customerUrl });
+    if (clash) throw new Error(`SOURCE, SELLER and CUSTOMER must be three different databases. ${clash}`);
     const sellerSql = connect(sellerUrl, 4);
     const customerSql = connect(customerUrl, 4);
     try {
