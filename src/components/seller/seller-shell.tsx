@@ -10,6 +10,7 @@ import { Icon } from "@/components/board/icons";
 import { CountBadge, TONE_ICON } from "@/components/board/tiles";
 import { RoleSwitcher } from "@/components/role-switcher";
 import { StandaloneBackButton } from "@/components/standalone-back-button";
+import { BrandWordmark } from "@/components/brand-wordmark";
 import { LANG_TAG, tr, UI, type Lang } from "@/lib/board/i18n";
 import type { Counts, ResolvedMenu } from "@/lib/board/menus";
 import { SELLER_TEXT, shopStatusPill, type ResolvedSellerGroup } from "@/lib/seller/nav";
@@ -141,9 +142,7 @@ export function SellerShell({ lang, user, roles, unreadCount, shop, groups, coun
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/brand/gk-mark.png" alt="" width={62} height={36} className="h-8 w-auto rounded-md bg-white p-0.5 lg:h-9" />
             <span className="hidden flex-col leading-tight min-[400px]:flex">
-              <span className="text-base font-bold">
-                Go<span className="text-kesari-300">Kesari</span>
-              </span>
+              <BrandWordmark tone="dark" className="text-base" />
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">{tr(SELLER_TEXT.sellerCentral, lang)}</span>
             </span>
           </Link>

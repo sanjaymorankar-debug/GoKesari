@@ -154,8 +154,11 @@ never failed for it) and the daily job retries them.
 
 ## Not included
 
-- **Reading the number off an uploaded certificate (OCR).** The seller types
-  the number; the admin compares it with the upload.
+- ~~Reading the number off an uploaded certificate (OCR).~~ Added in
+  October 2026: `/shop/documents` reads each document (photo or PDF) and
+  pre-fills the number, name, address and validity for the seller to confirm
+  — see `docs/document-upload-2026-10/README.md`. Typing the number on
+  `/shop/verification` still works.
 - **The IDfy adapter.** Built only if needed; the flows won't change.
 - **Shop approval.** Verification doesn't approve or reject a shop
   registration by itself; admins see verification status when approving.

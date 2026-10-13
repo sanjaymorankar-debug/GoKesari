@@ -64,6 +64,10 @@ const securityHeaders = [
 ];
 
 const nextConfig: NextConfig = {
+  // docs/document-upload-2026-10: the OCR engine starts a worker thread and
+  // loads its WebAssembly and language model from node_modules at run time,
+  // so it must not be bundled; the PDF reader likewise.
+  serverExternalPackages: ["tesseract.js", "tesseract.js-core", "unpdf"],
   // Hostinger installs production dependencies only, so `typescript` is absent
   // when the build starts and Next never reads the "@/*" paths in tsconfig.json.
   // Declaring the alias here keeps webpack resolving "@/..." either way.

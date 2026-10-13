@@ -11,6 +11,7 @@
 import type { EmailConfig } from "next-auth/providers/email";
 
 import { getEnv } from "@/lib/env";
+import { emailBrandHeader } from "@/server/email/brand";
 
 export const EMAIL_PROVIDER_ID = "email";
 
@@ -34,6 +35,7 @@ export function magicLinkEmail(url: string): { subject: string; text: string; ht
     subject: `Your Gokesari sign-in link`,
     text: `Sign in to ${host}:\n${url}\n\nThis link works once and expires in 15 minutes. If you did not ask for it, ignore this email.\n`,
     html:
+      emailBrandHeader() +
       `<p>Tap the button to sign in to <strong>${host}</strong>.</p>` +
       `<p><a href="${escaped}" style="display:inline-block;padding:10px 18px;background:#ea580c;color:#fff;border-radius:8px;text-decoration:none">Sign in</a></p>` +
       `<p style="color:#666;font-size:12px">This link works once and expires in 15 minutes. If you did not ask for it, ignore this email.</p>`,

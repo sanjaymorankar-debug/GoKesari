@@ -34,6 +34,7 @@ import { applyShopCategories } from "./shop-categories";
 import { resolveFeeForNewRegistration } from "./registration-fees";
 import { getRule } from "./settings";
 import { missingMandatoryDocuments, onboardingApprovalBlocker } from "./shop-onboarding";
+import { assertFssaiAllowsApproval } from "./document-uploads";
 import { assertLegalDocsAllowApproval } from "./legal-documents";
 import { emitEvent } from "@/server/events/emit";
 import {
@@ -715,6 +716,8 @@ function approveShopTransaction(
     assertRegistrationFeeSettled(shop);
     // Mandatory legal documents (FSSAI / drug licence / medical registration) are submitted.
     await assertLegalDocsAllowApproval(shop, tx);
+    // Task 3 (docs/document-upload-2026-10): a food shop needs a valid FSSAI licence on file.
+    await assertFssaiAllowsApproval(shop, tx);
 
     const [updated] = await tx
       .update(shops)

@@ -8,9 +8,10 @@
  * and the map location use their existing pages.
  *
  * The profile counts as complete with owner name, address, PIN code, shop
- * type and at least one product category. A shop that sells food is reminded
- * to add its FSSAI licence on the existing verification page; ordering is not
- * blocked for it (owner decision P5 pending: remind only).
+ * type and at least one product category. A shop that sells food also needs
+ * a valid FSSAI licence on file (Task 3, docs/document-upload-2026-10; rule
+ * documentUpload.fssaiMandatoryForFood — with it off, the old "remind only"
+ * behaviour returns).
  */
 import { and, count, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
@@ -25,6 +26,7 @@ import { checkGstin, type GstinCheck } from "@/server/gst/gstin";
 import { resolveLocationVerification } from "@/server/services/geocoding";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { submitGstin } from "@/server/services/gst-pan-verification";
+import { fssaiBlocksRegistration, fssaiStatus } from "@/server/services/document-uploads";
 import { shopSellsFood } from "@/server/services/seller-verification";
 
 type Actor = { id: string; role: UserRole };
@@ -58,6 +60,11 @@ export async function profileSetupView(shopId: string, actor: Actor) {
   if (!shop.addressLine1.trim() || !shop.city.trim() || !/^\d{6}$/.test(shop.pincode)) missing.push("address");
   if (Number(n) === 0) missing.push("product categories");
   const sellsFood = await shopSellsFood(shop);
+  // Task 3 (docs/document-upload-2026-10): with documentUpload.fssaiMandatoryForFood on, a food
+  // shop's profile is not complete until a valid (unexpired) FSSAI licence is on file.
+  const fssaiBlocker = await fssaiBlocksRegistration(shop);
+  if (fssaiBlocker) missing.push("FSSAI licence");
+  const fssai = await fssaiStatus(shop);
   return {
     shop: {
       id: shop.id,
@@ -81,7 +88,7 @@ export async function profileSetupView(shopId: string, actor: Actor) {
     },
     categories: Number(n),
     missing,
-    fssai: { needed: sellsFood, onFile: Boolean(shop.fssaiLicenseNumber) },
+    fssai: { needed: sellsFood, onFile: fssai.onFile || Boolean(shop.fssaiLicenseNumber), ...(fssaiBlocker ? { blocker: fssaiBlocker } : {}) },
   };
 }
 

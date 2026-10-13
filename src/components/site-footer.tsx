@@ -1,33 +1,14 @@
-import Link from "next/link";
-
+import { BrandTagline, BrandWordmark } from "@/components/brand-wordmark";
+import { FooterLinkRow, type FooterLink } from "@/components/footer-link-row";
 import { LEGAL_DOCS, LEGAL_ENTITY } from "@/lib/legal-docs";
 
-/** Which footer column a policy page sits in; anything not listed goes under Policies. */
+/** Which footer row a policy page sits in; anything not listed goes with the policies. */
 const COMPANY_SLUGS = ["seller-terms"];
 const PAYMENT_SLUGS = ["subscription-terms", "wallet-terms", "voucher-terms", "grievance-redressal"];
 
-const linkClass = "inline-flex min-h-11 items-center underline decoration-cream-200 underline-offset-2 hover:text-ink-900 hover:decoration-ink-500";
-
-function Column({ title, links }: { title: string; links: { href: string; label: string }[] }) {
-  return (
-    <nav aria-label={title}>
-      <h2 className="mb-1 text-sm font-semibold text-ink-900">{title}</h2>
-      <ul>
-        {links.map((link) => (
-          <li key={link.href}>
-            <Link href={link.href} className={linkClass}>
-              {link.label}
-            </Link>
-          </li>
-        ))}
-      </ul>
-    </nav>
-  );
-}
-
-/** Site footer: who runs GoKesari, then every company, policy and help link in three columns. */
+/** Site footer, Amazon style: every company, policy and help link in two compact rows, then one small line naming the company. */
 export function SiteFooter() {
-  const doc = (slug: string) => {
+  const doc = (slug: string): FooterLink[] => {
     const found = LEGAL_DOCS.find((d) => d.slug === slug);
     return found ? [{ href: `/legal/${found.slug}`, label: found.shortLabel }] : [];
   };
@@ -35,33 +16,28 @@ export function SiteFooter() {
     (d) => !COMPANY_SLUGS.includes(d.slug) && !PAYMENT_SLUGS.includes(d.slug),
   ).map((d) => ({ href: `/legal/${d.slug}`, label: d.shortLabel }));
 
+  const company: FooterLink[] = [
+    { href: "/about", label: "About Us" },
+    { href: "/contact", label: "Contact Us" },
+    { href: "/sell", label: "Sell on GoKesari" },
+    { href: "/delivery-partner/apply", label: "Become a Delivery Partner" },
+    ...COMPANY_SLUGS.flatMap(doc),
+  ];
+  const policiesAndHelp: FooterLink[] = [
+    ...policies,
+    ...PAYMENT_SLUGS.flatMap(doc),
+    { href: "/grievance", label: "File a complaint" },
+  ];
+
   return (
-    <footer className="border-t border-cream-200 bg-white">
-      <div className="mx-auto grid max-w-6xl gap-x-8 gap-y-6 px-4 py-8 text-sm text-ink-600 sm:grid-cols-2 sm:px-6 lg:grid-cols-[minmax(0,2.6fr)_1fr_1fr_1fr]">
-        <div>
-          <p className="text-base font-bold text-ink-900">
-            Go<span className="text-kesari-600">Kesari</span>
-          </p>
-          <p className="mt-1">Everything for Everyone: every local shop near you, in one directory.</p>
-          <p className="mt-1 text-xs text-ink-500">
-            {LEGAL_ENTITY.legalName} · GSTIN {LEGAL_ENTITY.gstin}
-          </p>
-        </div>
-        <Column
-          title="Company"
-          links={[
-            { href: "/about", label: "About Us" },
-            { href: "/contact", label: "Contact Us" },
-            { href: "/sell", label: "Sell on GoKesari" },
-            { href: "/delivery-partner/apply", label: "Become a Delivery Partner" },
-            ...COMPANY_SLUGS.flatMap(doc),
-          ]}
-        />
-        <Column title="Policies" links={policies} />
-        <Column
-          title="Payments & help"
-          links={[...PAYMENT_SLUGS.flatMap(doc), { href: "/grievance", label: "File a complaint" }]}
-        />
+    <footer className="border-t border-cream-200 bg-white" data-testid="site-footer">
+      <div className="mx-auto flex max-w-6xl flex-col items-center gap-1 px-4 py-3 text-center text-xs text-ink-600 sm:px-6">
+        <FooterLinkRow label="Company" links={company} />
+        <FooterLinkRow label="Policies and help" links={policiesAndHelp} />
+        <p className="mt-1 text-[11px] leading-snug text-ink-500" data-testid="footer-company-line">
+          <BrandWordmark className="text-xs" /> · <BrandTagline className="text-[11px]" /> · © {LEGAL_ENTITY.legalName} · GSTIN{" "}
+          {LEGAL_ENTITY.gstin}
+        </p>
       </div>
     </footer>
   );

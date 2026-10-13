@@ -526,6 +526,13 @@
       "when": 1791655851733,
       "tag": "0074_referral_settings",
       "breakpoints": true
+    },
+    {
+      "idx": 75,
+      "version": "7",
+      "when": 1791745200000,
+      "tag": "0075_seller_document_uploads",
+      "breakpoints": true
     }
   ]
 }

@@ -180,6 +180,9 @@ export const AUDIT_ACTIONS = {
   SELLER_DOCUMENT_FILE_VIEWED: "seller_document.file_viewed",
   /** All verification data for a closed shop erased (retention period over, or on request). Counts only. */
   SELLER_DOCUMENTS_ERASED: "seller_document.erased",
+  /** docs/document-upload-2026-10: a document photo / file was read, and later confirmed by the owner. */
+  SELLER_DOCUMENT_UPLOAD_READ: "seller_document.upload_read",
+  SELLER_DOCUMENT_UPLOAD_CONFIRMED: "seller_document.upload_confirmed",
 
   /* --------------------------------------------- delivery partners (Part 58) */
   DELIVERY_PARTNER_REGISTERED: "delivery_partner.registered",
