@@ -295,13 +295,13 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       // Mockup: "Theme" — no shop theme setting exists; nearest real destination.
       { key: "staff", label: L("Staff", "स्टाफ़", "कर्मचारी"), icon: "users", href: "/shop/staff", permission: PERMISSIONS.SHOP_STAFF_MANAGE_OWN },
       { key: "verified", label: L("Verified", "सत्यापित", "पडताळलेले"), icon: "badge-check", href: "/shop/verification", tick: "shopVerified" },
-      // docs/document-upload-2026-10: upload or photograph each document; it is read automatically.
-      { key: "documents", label: L("Upload documents", "दस्तावेज़ अपलोड", "कागदपत्रे अपलोड"), icon: "file-check", href: "/shop/documents" },
     ],
     more: [
       { key: "today", label: L("Today's work", "आज का काम", "आजचे काम"), icon: "sunrise", href: "/shop/manage/today" },
       { key: "hours", label: L("Hours & contact", "समय और संपर्क", "वेळ आणि संपर्क"), icon: "clock", href: "/shop/manage/hours" },
       { key: "gstPan", label: L("GST & PAN", "जीएसटी और पैन", "जीएसटी आणि पॅन"), icon: "file-text", href: "/shop/manage/gst-pan" },
+      // docs/document-upload-2026-10: upload or photograph each document; it is read automatically.
+      { key: "documents", label: L("Upload documents", "दस्तावेज़ अपलोड", "कागदपत्रे अपलोड"), icon: "file-check", href: "/shop/documents" },
       { key: "publicPage", label: L("Public page", "सार्वजनिक पेज", "सार्वजनिक पान"), icon: "store", href: "/shops/{shopSlug}" },
     ],
   },
