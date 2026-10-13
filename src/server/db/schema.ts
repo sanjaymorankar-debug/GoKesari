@@ -6820,3 +6820,57 @@ export const referralSettingChanges = pgTable(
   (t) => [index("referral_setting_changes_key_idx").on(t.settingKey, t.changedAt)],
 );
 export type ReferralSettingChange = typeof referralSettingChanges.$inferSelect;
+
+/**
+ * docs/document-upload-2026-10 (Task 2): each photo or file a shop owner
+ * uploads on "Upload your documents", with what the reader pulled out of it
+ * and, once confirmed, what the owner submitted. Read fields are personal
+ * data and kept only encrypted; `flags` hold codes and messages, no content.
+ * Seller-owned (docs/db-split-2026-10).
+ */
+export const SELLER_DOCUMENT_UPLOAD_TYPES = ["PAN", "GSTIN", "UDYAM", "FSSAI", "SHOP_ACT", "DRUG_LICENCE", "MEDICAL_REGISTRATION"] as const;
+export const SELLER_DOCUMENT_UPLOAD_STATUSES = ["EXTRACTED", "CONFIRMED", "DISCARDED"] as const;
+
+export const sellerDocumentUploads = pgTable(
+  "seller_document_uploads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    docType: text("doc_type", { enum: SELLER_DOCUMENT_UPLOAD_TYPES }).notNull(),
+    status: text("status", { enum: SELLER_DOCUMENT_UPLOAD_STATUSES }).notNull().default("EXTRACTED"),
+    /** FILE: chosen from the device; CAMERA: taken in the app/browser. */
+    source: text("source", { enum: ["FILE", "CAMERA"] }).notNull().default("FILE"),
+    contentType: text("content_type", { enum: ["application/pdf", "image/jpeg", "image/png", "image/webp"] }).notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    sha256: text("sha256").notNull(),
+    /** Null once the file has moved to the verification / legal-document file table, or was discarded. */
+    dataEncrypted: bytea("data_encrypted"),
+    readerEngine: text("reader_engine").notNull(),
+    readerConfidence: integer("reader_confidence"),
+    /** encryptSecret(JSON of ExtractedFields). */
+    extractedEncrypted: text("extracted_encrypted"),
+    detectedType: text("detected_type"),
+    flags: jsonb("flags").$type<{ code: string; severity: "block" | "warn"; message: string }[]>().notNull().default([]),
+    blocking: boolean("blocking").notNull().default(false),
+    /** encryptSecret(JSON of the fields the owner confirmed). */
+    confirmedEncrypted: text("confirmed_encrypted"),
+    numberLast4: text("number_last4"),
+    validUntil: date("valid_until"),
+    /** Fields the owner changed from what was read — a review signal for admins. */
+    fieldsCorrected: text("fields_corrected").array().notNull().default(sql`'{}'::text[]`),
+    verificationId: uuid("verification_id").references(() => sellerVerifications.id, { onDelete: "set null" }),
+    legalDocumentId: uuid("legal_document_id").references(() => shopLegalDocuments.id, { onDelete: "set null" }),
+    uploadedBy: uuid("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+    confirmedBy: uuid("confirmed_by").references(() => users.id, { onDelete: "set null" }),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("seller_document_uploads_shop_idx").on(t.shopId, t.docType, t.createdAt),
+    index("seller_document_uploads_status_idx").on(t.status, t.createdAt),
+  ],
+);
+export type SellerDocumentUpload = typeof sellerDocumentUploads.$inferSelect;

@@ -41,6 +41,19 @@ const serverEnvSchema = z.object({
    */
   DATABASE_PREPARED_STATEMENTS: z.enum(["on", "off"]).default("off"),
 
+  /**
+   * Seller / customer database split (docs/db-split-2026-10). "single" (the
+   * default): everything in DATABASE_URL, as before. "shadow": still served
+   * from DATABASE_URL while the two new databases are filled and kept in sync
+   * for verification. "split": seller-owned reads go to SELLER_DATABASE_URL
+   * through src/server/db/split (Phase 2; see the README before using it).
+   */
+  DB_SPLIT_MODE: z.enum(["single", "shadow", "split"]).default("single"),
+  /** gokesari_seller — PLACEHOLDER until the owner shares the test seller database. */
+  SELLER_DATABASE_URL: z.string().optional(),
+  /** gokesari_customer — defaults to DATABASE_URL (the core database keeps customer and platform tables). */
+  CUSTOMER_DATABASE_URL: z.string().optional(),
+
   // Auth.js
   AUTH_SECRET: z.string().min(1, "AUTH_SECRET is required"),
   AUTH_URL: z.string().url().optional(),

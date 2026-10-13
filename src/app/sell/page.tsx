@@ -1,6 +1,7 @@
 import Link from "next/link";
 
 import { Icon, type IconName } from "@/components/board/icons";
+import { BrandWordmark } from "@/components/brand-wordmark";
 import { RegisterOptions } from "@/components/seller/register-options";
 import { LEGAL_ENTITY } from "@/lib/legal-docs";
 import { SHOP_TYPES } from "@/lib/shop-types";
@@ -95,9 +96,7 @@ export default async function SellPage() {
             {/* eslint-disable-next-line @next/next/no-img-element */}
             <img src="/brand/gk-mark.png" alt="" width={62} height={36} className="h-9 w-auto rounded-md bg-white p-0.5" />
             <span className="flex flex-col leading-tight">
-              <span className="text-base font-bold">
-                Go<span className="text-kesari-300">Kesari</span>
-              </span>
+              <BrandWordmark tone="dark" className="text-base" />
               <span className="text-xs font-semibold uppercase tracking-wider text-slate-300">for sellers</span>
             </span>
           </Link>

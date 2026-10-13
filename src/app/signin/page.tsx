@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { AuthError } from "next-auth";
 import { isRedirectError } from "next/dist/client/components/redirect-error";
 
+import { BrandTagline, BrandWordmark } from "@/components/brand-wordmark";
 import { OtpLoginForm } from "@/components/otp-login-form";
 import { ConsentSubmitButton, SignInConsentCheckbox, SignInConsentProvider } from "@/components/signin-consent";
 import { Card } from "@/components/ui";
@@ -75,6 +76,10 @@ export default async function SignInPage({
     <div className="mx-auto max-w-md py-8">
       <Card className="p-8">
         <SignInConsentProvider>
+        <p className="mb-4 flex flex-col leading-tight" data-testid="signin-brand">
+          <BrandWordmark className="text-2xl" />
+          <BrandTagline className="text-sm" />
+        </p>
         <h1 className="text-2xl font-semibold text-ink-900">Sign in</h1>
         <p className="mt-1 text-sm text-ink-500">
           A wallet is created for you automatically on first sign-in.

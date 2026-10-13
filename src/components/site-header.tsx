@@ -10,6 +10,7 @@ import { Icon, type IconName } from "@/components/board/icons";
 import { LocationPanel, OPEN_LOCATION_EVENT } from "@/components/location-picker";
 import { RoleSwitcher } from "@/components/role-switcher";
 import { StandaloneBackButton } from "@/components/standalone-back-button";
+import { BrandTagline, BrandWordmark } from "@/components/brand-wordmark";
 import { L, LANG_TAG, tr, UI, type Lang, type Text } from "@/lib/board/i18n";
 import { BOARD_HOME, boardRoleFor } from "@/lib/board/menus";
 import { formatPaiseCompact } from "@/lib/money";
@@ -155,10 +156,8 @@ export function SiteHeader({
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/gk-mark.png" alt="" width={62} height={36} className="h-8 w-auto rounded-lg lg:h-10" />
           <span className="hidden flex-col xl:flex">
-            <span className="text-lg font-bold leading-tight text-ink-900">
-              Go<span className="text-kesari-700">Kesari</span>
-            </span>
-            <span className="text-xs font-medium leading-tight text-ink-600">Everything for Everyone</span>
+            <BrandWordmark className="text-lg leading-tight" />
+            <BrandTagline className="text-xs leading-tight" />
           </span>
         </Link>
 

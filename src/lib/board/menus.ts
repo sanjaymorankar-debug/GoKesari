@@ -295,6 +295,8 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       // Mockup: "Theme" — no shop theme setting exists; nearest real destination.
       { key: "staff", label: L("Staff", "स्टाफ़", "कर्मचारी"), icon: "users", href: "/shop/staff", permission: PERMISSIONS.SHOP_STAFF_MANAGE_OWN },
       { key: "verified", label: L("Verified", "सत्यापित", "पडताळलेले"), icon: "badge-check", href: "/shop/verification", tick: "shopVerified" },
+      // docs/document-upload-2026-10: upload or photograph each document; it is read automatically.
+      { key: "documents", label: L("Upload documents", "दस्तावेज़ अपलोड", "कागदपत्रे अपलोड"), icon: "file-check", href: "/shop/documents" },
     ],
     more: [
       { key: "today", label: L("Today's work", "आज का काम", "आजचे काम"), icon: "sunrise", href: "/shop/manage/today" },
@@ -351,6 +353,7 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
     ],
     more: [
       { key: "documents", label: L("Legal documents", "कानूनी दस्तावेज़", "कायदेशीर कागदपत्रे"), icon: "file-check", href: "/admin/legal-documents", count: "legalDocsToReview", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
+      { key: "uploads", label: L("Document uploads", "दस्तावेज़ अपलोड", "कागदपत्र अपलोड"), icon: "file-text", href: "/admin/document-uploads", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
       { key: "compliance", label: L("Compliance & GST/PAN", "अनुपालन व जीएसटी/पैन", "अनुपालन व जीएसटी/पॅन"), icon: "scroll-text", href: "/admin/console/compliance", permission: COMPLIANCE },
       { key: "registrations", label: L("Registrations", "पंजीकरण", "नोंदण्या"), icon: "user-plus", href: "/admin/shop-registrations", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
       { key: "autoApproved", label: L("Auto-approved", "स्वतः मंज़ूर", "स्वयं मंजूर"), icon: "circle-check", href: "/admin/shops/auto-approved", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
@@ -486,6 +489,7 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
     ],
     more: [
       { key: "verification", label: L("Verification", "सत्यापन", "पडताळणी"), icon: "badge-check", href: "/admin/seller-verification", count: "sellerReviews", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
+      { key: "uploads", label: L("Document uploads", "दस्तावेज़ अपलोड", "कागदपत्र अपलोड"), icon: "file-text", href: "/admin/document-uploads", permission: PERMISSIONS.SHOP_GST_PAN_VERIFY },
       { key: "allShops", label: L("All shops", "सभी दुकानें", "सर्व दुकाने"), icon: "store", href: "/admin/shops", count: "allShops", permission: PERMISSIONS.SHOP_PRODUCT_MANAGE_ANY },
       { key: "suspensions", label: L("Suspensions", "निलंबन", "निलंबन"), icon: "lock", href: "/admin/suspensions", count: "activeSuspensions", permission: PERMISSIONS.SHOP_SUSPEND },
       { key: "compliance", label: L("Compliance & GST/PAN", "अनुपालन व जीएसटी/पैन", "अनुपालन व जीएसटी/पॅन"), icon: "scroll-text", href: "/admin/console/compliance", permission: COMPLIANCE },

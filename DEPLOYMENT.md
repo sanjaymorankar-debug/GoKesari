@@ -58,6 +58,18 @@ SUBSCRIPTION_CUTOFF_HOUR=20
 KYC_PROVIDER=gridlines
 KYC_ENV=production
 GRIDLINES_API_KEY=<live key>
+
+# Shop document upload with auto-read — docs/document-upload-2026-10/README.md.
+# Default: read on this server (tesseract), nothing needed. "claude" sends the
+# document to Anthropic: only after deciding that is acceptable for KYC data.
+# DOCUMENT_OCR_PROVIDER=tesseract
+# ANTHROPIC_API_KEY=<only with DOCUMENT_OCR_PROVIDER=claude>
+
+# Seller / customer database split — docs/db-split-2026-10/README.md.
+# Leave DB_SPLIT_MODE unset (= single) until the cut-over steps there.
+# DB_SPLIT_MODE=single
+# SELLER_DATABASE_URL=<gokesari_seller — placeholder until shared>
+# CUSTOMER_DATABASE_URL=<gokesari_customer — defaults to DATABASE_URL>
 ```
 
 Generate secrets properly:

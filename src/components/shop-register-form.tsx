@@ -272,7 +272,8 @@ export function ShopRegisterForm({
       setError(payload?.error?.message ?? "Could not register the shop.");
       return false;
     }
-    router.push("/shop");
+    // Next step of registration: upload the mandatory documents (docs/document-upload-2026-10).
+    router.push(typeof payload?.id === "string" ? `/shop/documents?shop=${payload.id}` : "/shop/documents");
     router.refresh();
     return true;
   }

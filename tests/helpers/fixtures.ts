@@ -7,6 +7,7 @@
 import { eq, sql } from "drizzle-orm";
 
 import { db } from "@/server/db";
+import { clearRuleCache } from "@/server/services/settings";
 import {
   addresses,
   deliveryOrders,
@@ -83,6 +84,14 @@ export async function resetDatabase(): Promise<void> {
           sessions, accounts, users
         RESTART IDENTITY CASCADE
       `);
+      // docs/document-upload-2026-10: the FSSAI-for-food rule ships on. Tests written
+      // before it approve dairy shops without a licence, so they run with it off;
+      // tests/integration/document-uploads.test.ts switches it on for its own cases.
+      await db.execute(sql`
+        INSERT INTO platform_settings (key, value) VALUES ('documentUpload', '{"fssaiMandatoryForFood": false}'::jsonb)
+        ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value
+      `);
+      clearRuleCache();
       return;
     } catch (error) {
       const code = pgErrorCode(error);

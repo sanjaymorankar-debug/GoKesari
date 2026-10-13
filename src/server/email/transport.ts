@@ -7,6 +7,8 @@
  */
 import { getEnv } from "@/lib/env";
 
+import { withEmailBrand } from "./brand";
+
 export interface OutboundEmail {
   to: string;
   subject: string;
@@ -45,7 +47,8 @@ export async function sendEmail(message: OutboundEmail): Promise<void> {
     to: message.to,
     subject: message.subject,
     text: message.text,
-    html: message.html,
+    // Every HTML email opens with the GoKesari wordmark.
+    html: message.html ? withEmailBrand(message.html) : undefined,
   });
   const failed = [...(result.rejected ?? []), ...(result.pending ?? [])].filter(Boolean);
   if (failed.length) throw new Error("The email could not be delivered.");

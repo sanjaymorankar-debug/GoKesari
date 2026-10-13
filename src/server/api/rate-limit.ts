@@ -58,6 +58,8 @@ export const RATE_LIMITS = {
   SHOP_IDENTITY_CHECK: { limit: 20, windowMs: 60_000 },
   /** Seller document uploads — files are large, and each may trigger a paid check. */
   SELLER_DOCUMENT_UPLOAD: { limit: 10, windowMs: 600_000 },
+  /** docs/document-upload-2026-10: reading a document photo (OCR) — CPU-heavy, so per user. */
+  SELLER_DOCUMENT_READ: { limit: 20, windowMs: 600_000 },
 } as const satisfies Record<string, RateLimitOptions>;
 
 /**
