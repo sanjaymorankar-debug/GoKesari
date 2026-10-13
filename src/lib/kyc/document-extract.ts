@@ -65,7 +65,9 @@ export type FlagCode =
   | "EXPIRING_SOON"
   | "NO_EXPIRY"
   | "LOW_QUALITY"
-  | "AADHAAR_HIDDEN";
+  | "AADHAAR_HIDDEN"
+  /** The reader itself was unavailable or too slow (not the document's fault): the owner types the details. */
+  | "NOT_READ";
 
 export interface ExtractionFlag {
   code: FlagCode;
@@ -445,6 +447,14 @@ export function assessExtraction(input: AssessInput): ExtractionFlag[] {
   }
   return flags;
 }
+
+/** Shown when the reader failed or timed out: nothing was read, nothing is blocked, the owner types the details. */
+export const NOT_READ_FLAG: ExtractionFlag = {
+  code: "NOT_READ",
+  severity: "warn",
+  message:
+    "We couldn't read this document automatically just now. Type the details exactly as printed on it — we check them before anything is approved.",
+};
 
 export interface ConfirmedFields {
   number: string;

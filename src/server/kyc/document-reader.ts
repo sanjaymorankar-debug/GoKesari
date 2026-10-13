@@ -32,6 +32,8 @@ export interface ReadResult {
   fields?: Partial<ExtractedFields>;
   /** Why nothing could be read, for the log (never shown with document content). */
   note?: string;
+  /** The reader itself failed or timed out (not the document): ask the owner to type the details. */
+  readerFailed?: boolean;
 }
 
 export type ReaderProvider = "tesseract" | "claude" | "off";
@@ -41,6 +43,37 @@ export function readerProvider(): ReaderProvider {
   if (value === "off" || value === "none") return "off";
   if (value === "claude" && process.env.ANTHROPIC_API_KEY) return "claude";
   return "tesseract";
+}
+
+/** How long a read may take before the owner is asked to type the details (DOCUMENT_OCR_TIMEOUT_MS). */
+export function readTimeoutMs(): number {
+  const v = Number(process.env.DOCUMENT_OCR_TIMEOUT_MS);
+  return Number.isFinite(v) && v >= 1000 ? v : 25_000;
+}
+
+export class ReadTimeoutError extends Error {
+  constructor(stage: string) {
+    super(`document reading took too long (${stage})`);
+    this.name = "ReadTimeoutError";
+  }
+}
+
+function withTimeout<T>(promise: Promise<T>, ms: number, stage: string): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  return Promise.race([
+    promise,
+    new Promise<T>((_, reject) => {
+      timer = setTimeout(() => reject(new ReadTimeoutError(stage)), ms);
+    }),
+  ]).finally(() => clearTimeout(timer));
+}
+
+/** Drops a worker that hung, so the next read starts a fresh one. */
+function resetOcrWorker(): void {
+  const pending = globalOcr.__gkOcrWorker;
+  globalOcr.__gkOcrWorker = null;
+  globalOcr.__gkOcrQueue = Promise.resolve();
+  void pending?.then((w) => w.terminate()).catch(() => undefined);
 }
 
 /* ---------------------------------------------------------------- pdf */
@@ -123,7 +156,12 @@ async function readImageText(data: Buffer): Promise<{ text: string; confidence: 
   const previous = globalOcr.__gkOcrQueue ?? Promise.resolve();
   const next = previous.catch(() => undefined).then(run);
   globalOcr.__gkOcrQueue = next.catch(() => undefined);
-  return next;
+  try {
+    return await withTimeout(next, readTimeoutMs(), "ocr");
+  } catch (error) {
+    if (error instanceof ReadTimeoutError) resetOcrWorker();
+    throw error;
+  }
 }
 
 /* ---------------------------------------------------------------- claude */
@@ -221,7 +259,7 @@ export async function readDocument(data: Buffer, contentType: string, docType: U
 
   if (contentType === "application/pdf") {
     try {
-      const text = await readPdfText(data);
+      const text = await withTimeout(readPdfText(data), readTimeoutMs(), "pdf");
       return { text, engine: "pdf-text", confidence: null, imageMinSide: null, note: text.trim() ? undefined : "pdf without text layer" };
     } catch (error) {
       return { text: "", engine: "pdf-text", confidence: null, imageMinSide: null, note: `pdf unreadable: ${(error as Error).name}` };
@@ -231,6 +269,55 @@ export async function readDocument(data: Buffer, contentType: string, docType: U
     const { text, confidence, minSide } = await readImageText(data);
     return { text, engine: "tesseract", confidence, imageMinSide: minSide };
   } catch (error) {
-    return { text: "", engine: "tesseract", confidence: 0, imageMinSide: null, note: `ocr failed: ${(error as Error).name}` };
+    console.warn(`[document-reader] ${(error as Error).name}: ${(error as Error).message}`);
+    // The reader failing is not the document's fault: the owner types the details instead.
+    return { text: "", engine: "tesseract", confidence: null, imageMinSide: null, note: "reader unavailable", readerFailed: true };
   }
+}
+
+/**
+ * Admin diagnostics (GET /api/admin/document-reader): reads a small generated
+ * image and reports how long each stage took, or where it stopped. No
+ * document content is involved.
+ */
+export async function readerHealth(): Promise<{ provider: ReaderProvider; ok: boolean; stages: { stage: string; ms: number; ok: boolean; error?: string }[]; text?: string }> {
+  const stages: { stage: string; ms: number; ok: boolean; error?: string }[] = [];
+  const timed = async <T>(stage: string, fn: () => Promise<T>, ms: number): Promise<T | null> => {
+    const started = Date.now();
+    try {
+      const value = await withTimeout(fn(), ms, stage);
+      stages.push({ stage, ms: Date.now() - started, ok: true });
+      return value;
+    } catch (error) {
+      stages.push({ stage, ms: Date.now() - started, ok: false, error: `${(error as Error).name}: ${(error as Error).message}`.slice(0, 300) });
+      return null;
+    }
+  };
+  const sharp = await timed("load sharp", async () => (await import("sharp")).default, 15_000);
+  const png = sharp
+    ? await timed(
+        "render test image",
+        () =>
+          sharp({ create: { width: 900, height: 160, channels: 3, background: "#ffffff" } })
+            .composite([{ input: Buffer.from(`<svg xmlns="http://www.w3.org/2000/svg" width="900" height="160"><text x="20" y="100" font-size="56" font-family="sans-serif">LICENSE 11521998000123</text></svg>`) }])
+            .png()
+            .toBuffer(),
+        15_000,
+      )
+    : null;
+  const langPath = process.env.DOCUMENT_OCR_LANG_PATH ?? path.join(process.cwd(), "node_modules", "@tesseract.js-data", "eng", "4.0.0_best_int");
+  await timed("find language model", async () => {
+    const { stat } = await import("node:fs/promises");
+    await stat(path.join(langPath, "eng.traineddata.gz"));
+  }, 5_000);
+  await timed("load tesseract.js", () => import("tesseract.js"), 15_000);
+  resetOcrWorker();
+  const worker = await timed("start OCR worker", () => ocrWorker(), 45_000);
+  let text: string | undefined;
+  if (worker && png) {
+    const result = await timed("recognise", () => worker.recognize(png), 45_000);
+    text = result?.data.text?.trim();
+  }
+  scheduleIdleShutdown();
+  return { provider: readerProvider(), ok: stages.every((s) => s.ok), stages, text };
 }

@@ -27,6 +27,7 @@ import {
   checkDocNumber,
   extractDocumentFields,
   isSellerDocType,
+  NOT_READ_FLAG,
   UPLOAD_DOC_LABELS,
   UPLOAD_DOC_TYPES,
   validateConfirmedFields,
@@ -283,7 +284,9 @@ export async function readUploadedDocument(input: ReadUploadInput): Promise<Uplo
   if (fields.number && looksLikeAadhaar(fields.number)) fields.number = null;
 
   const verificationRule = await getRule("sellerVerification");
-  const flags = assessExtraction({
+  const flags = read.readerFailed
+    ? [{ ...NOT_READ_FLAG }]
+    : assessExtraction({
     expectedType: docType,
     fields,
     ocrConfidence: read.confidence,

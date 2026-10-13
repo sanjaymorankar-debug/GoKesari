@@ -12,7 +12,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
 import { auditLogs, platformSettings, sellerDocumentUploads, sellerVerificationFiles, sellerVerifications, shopLegalDocuments, shops } from "@/server/db/schema";
-import { setDocumentReaderForTests } from "@/server/kyc/document-reader";
+import { readerHealth, setDocumentReaderForTests } from "@/server/kyc/document-reader";
 import {
   confirmUploadedDocument,
   fssaiStatus,
@@ -227,6 +227,27 @@ describe("FSSAI mandatory for food shops (Task 3)", () => {
     const admin = await createUser({ role: "ADMIN" });
     await setRule("documentUpload", { ...(await getRule("documentUpload")), fssaiMandatoryForFood: false }, { id: admin.id, role: "ADMIN" });
     expect((await profileSetupView(shop.id, actor)).missing).not.toContain("FSSAI licence");
+  });
+});
+
+describe("when the reader is unavailable", () => {
+  it("asks the owner to type the details instead of blocking, and still checks them", async () => {
+    const { shop, actor } = await setup();
+    setDocumentReaderForTests(async () => ({ text: "", engine: "tesseract", confidence: null, imageMinSide: null, note: "reader unavailable", readerFailed: true }));
+    const view = await readUploadedDocument({ shopId: shop.id, docType: "FSSAI", file: await photo(), actor });
+    expect(view.flags.map((f) => f.code)).toEqual(["NOT_READ"]);
+    expect(view.blocking).toBe(false);
+    await expect(
+      confirmUploadedDocument({ shopId: shop.id, uploadId: view.id, fields: { number: "11521998000123", validUntil: "2024-01-01" }, consentGiven: true, actor }),
+    ).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    const done = await confirmUploadedDocument({ shopId: shop.id, uploadId: view.id, fields: { number: "11521998000123", validUntil: `${NEXT_YEAR}-03-31` }, consentGiven: true, actor });
+    expect(done.status).toBe("CONFIRMED");
+  });
+
+  it("the health check reads its test image on this server", async () => {
+    const health = await readerHealth();
+    expect(health.stages.filter((s) => !s.ok)).toEqual([]);
+    expect(health.text?.replace(/\s/g, "")).toContain("11521998000123");
   });
 });
 
