@@ -1,0 +1,118 @@
+name: iPhone app
+
+# Builds the iPhone app (mobile/) in Expo's cloud (EAS), which has the Macs
+# Apple requires, and can upload the build to TestFlight. Started by hand:
+# Actions → iPhone app → Run workflow. The same code as the Android app.
+#
+#   production  "GoKesari"       gokesari.com       → TestFlight / App Store
+#   preview     "GoKesari Test"  test.gokesari.com  → iPhones registered with
+#                                                     `eas device:create`
+#
+# One-time setup (mobile/README.md, "iPhone builds from GitHub"):
+#   - repository secret EXPO_TOKEN: an Expo access token
+#     (expo.dev → Account settings → Access tokens);
+#   - the Expo project id in mobile/app.config.ts (`npx eas-cli init`);
+#   - an App Store Connect API key, so the build can create the signing
+#     certificates and upload to TestFlight without anyone signing in:
+#     secrets ASC_API_KEY_P8 (the .p8 file's contents), ASC_KEY_ID,
+#     ASC_ISSUER_ID and APPLE_TEAM_ID. Without them, run the first build once
+#     from a computer (`npx eas-cli build --platform ios`) so EAS stores the
+#     certificates; later runs here reuse them.
+on:
+  workflow_dispatch:
+    inputs:
+      profile:
+        description: Which app to build
+        type: choice
+        options: [production, preview]
+        default: production
+      submit:
+        description: Upload a production build to TestFlight when it finishes
+        type: boolean
+        default: true
+
+concurrency:
+  group: ios-${{ inputs.profile }}
+  cancel-in-progress: false
+
+jobs:
+  ios:
+    name: iPhone (${{ inputs.profile }})
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        working-directory: mobile
+    env:
+      PROFILE: ${{ inputs.profile }}
+      SUBMIT: ${{ inputs.submit }}
+      APP_VARIANT: ${{ inputs.profile }}
+      EXPO_TOKEN: ${{ secrets.EXPO_TOKEN }}
+      ASC_API_KEY_P8: ${{ secrets.ASC_API_KEY_P8 }}
+      ASC_KEY_ID: ${{ secrets.ASC_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.ASC_ISSUER_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+          cache-dependency-path: mobile/package-lock.json
+
+      - run: npm ci
+
+      # Fail in seconds with what is missing, not half an hour into a build.
+      - name: Check the setup
+        run: |
+          missing=0
+          if [ -z "$EXPO_TOKEN" ]; then
+            echo "::error title=EXPO_TOKEN missing::Add the repository secret EXPO_TOKEN (expo.dev → Account settings → Access tokens). See mobile/README.md, \"iPhone builds from GitHub\"."
+            missing=1
+          fi
+          project_id=$(npx expo config --type public --json | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>{const c=JSON.parse(s);process.stdout.write(c.extra?.eas?.projectId??"")})')
+          if [ -z "$project_id" ]; then
+            echo "::error title=Expo project not linked::Put the Expo project id in mobile/app.config.ts (run \`npx eas-cli init\` in mobile/ once). See mobile/README.md, \"First-time setup\"."
+            missing=1
+          fi
+          exit $missing
+
+      # EAS reads these to create the iPhone signing certificates and to
+      # upload to App Store Connect without an interactive Apple sign-in.
+      - name: App Store Connect key
+        run: |
+          if [ -z "$ASC_API_KEY_P8" ]; then
+            echo "No App Store Connect key in secrets: using the certificates EAS already stores for this project."
+            exit 0
+          fi
+          key="$RUNNER_TEMP/asc-api-key.p8"
+          printf '%s\n' "$ASC_API_KEY_P8" > "$key"
+          {
+            echo "EXPO_ASC_API_KEY_PATH=$key"
+            echo "EXPO_ASC_KEY_ID=$ASC_KEY_ID"
+            echo "EXPO_ASC_ISSUER_ID=$ASC_ISSUER_ID"
+            echo "EXPO_APPLE_TEAM_ID=$APPLE_TEAM_ID"
+          } >> "$GITHUB_ENV"
+
+      - name: Build
+        run: |
+          args=(build --platform ios --profile "$PROFILE" --non-interactive --wait)
+          if [ "$PROFILE" = production ] && [ "$SUBMIT" = true ]; then
+            args+=(--auto-submit)
+          fi
+          npx eas-cli@latest "${args[@]}"
+
+      - name: Where to find it
+        if: success()
+        run: |
+          {
+            echo "### iPhone app ($PROFILE) built"
+            echo
+            if [ "$PROFILE" = production ] && [ "$SUBMIT" = true ]; then
+              echo "Uploaded to App Store Connect. It appears in **TestFlight** once Apple finishes processing it (usually 10–30 minutes)."
+            else
+              echo "Open the build on expo.dev (link in the Build step above) on a registered iPhone to install it."
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

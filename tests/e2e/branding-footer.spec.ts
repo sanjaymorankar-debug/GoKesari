@@ -6,7 +6,6 @@
  */
 import { expect, test, type Page } from "@playwright/test";
 
-const GREEN = "rgb(21, 128, 61)"; // leaf-700
 const SAFFRON = "rgb(194, 65, 12)"; // kesari-700
 
 const VIEWPORTS = [
@@ -66,13 +65,13 @@ for (const vp of VIEWPORTS) {
       await page.goto("/");
     });
 
-    test("wordmark: Go green, Kesari saffron, G and K bold; tagline green and bold", async ({ page }) => {
+    test("wordmark: Go and Kesari saffron, G and K bold; tagline saffron and bold", async ({ page }) => {
       await page.goto("/");
       await page.getByTestId("site-footer").scrollIntoViewIfNeeded();
       const scope = "[data-testid=site-footer] ";
-      expect(await color(page, `${scope}[data-testid=brand-go]`)).toBe(GREEN);
+      expect(await color(page, `${scope}[data-testid=brand-go]`)).toBe(SAFFRON);
       expect(await color(page, `${scope}[data-testid=brand-kesari]`)).toBe(SAFFRON);
-      expect(await color(page, `${scope}[data-testid=brand-tagline]`)).toBe(GREEN);
+      expect(await color(page, `${scope}[data-testid=brand-tagline]`)).toBe(SAFFRON);
       const weights = await page
         .locator(`${scope}[data-testid=brand-wordmark] .font-extrabold`)
         .evaluateAll((els) => els.map((e) => [e.textContent, Number(getComputedStyle(e).fontWeight)]));
@@ -89,7 +88,7 @@ for (const vp of VIEWPORTS) {
       const brand = page.getByTestId("signin-brand");
       await expect(brand).toContainText("GoKesari");
       await expect(brand).toContainText("Everything for Everyone");
-      expect(await color(page, "[data-testid=signin-brand] [data-testid=brand-go]")).toBe(GREEN);
+      expect(await color(page, "[data-testid=signin-brand] [data-testid=brand-go]")).toBe(SAFFRON);
     });
   });
 }

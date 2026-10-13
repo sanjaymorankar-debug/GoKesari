@@ -135,6 +135,45 @@ npx eas-cli@latest build --profile preview --platform ios
 
 Alternatively, make a store build and use TestFlight (see below).
 
+### iPhone builds from GitHub
+
+The workflow **iPhone app** (`.github/workflows/mobile-ios.yml`) builds the
+iPhone app in Expo's cloud and, for the production app, uploads it to
+TestFlight, so nobody has to run commands. Start it from the Actions tab →
+**iPhone app** → **Run workflow**, then pick `production` (GoKesari,
+gokesari.com) or `preview` (GoKesari Test, test.gokesari.com).
+
+One-time setup (needs the Apple Developer account):
+
+1. **Link the project to Expo** ([First-time setup](#first-time-setup), step 3)
+   and commit the project id in `app.config.ts`.
+2. **Expo token.** expo.dev → Account settings → Access tokens → create one.
+   In GitHub: Settings → Secrets and variables → Actions → New repository
+   secret `EXPO_TOKEN`.
+3. **App Store Connect API key**, so the build can make the signing
+   certificates and upload to TestFlight without an Apple sign-in. In App Store
+   Connect: Users and Access → Integrations → App Store Connect API → generate
+   a key with the **App Manager** role and download the `.p8` file. Add four
+   repository secrets:
+
+   | Secret | Value |
+   |---|---|
+   | `ASC_API_KEY_P8` | The whole contents of the `.p8` file |
+   | `ASC_KEY_ID` | The key's ID |
+   | `ASC_ISSUER_ID` | The Issuer ID shown above the keys |
+   | `APPLE_TEAM_ID` | Your team ID (developer.apple.com → Membership details) |
+
+   Instead of the key, you can run the first build once from a computer
+   (`npx eas-cli@latest build --platform ios`, signing in with your Apple ID);
+   EAS keeps the certificates and later runs from GitHub reuse them.
+4. **App in App Store Connect.** The first TestFlight upload needs the app
+   record (bundle id `com.gokesari.app`). `eas submit` creates it when the key
+   allows; otherwise add it under Apps → **+** → New App.
+
+The run fails in its first minute, naming what is missing, if a step above is
+not done. The `preview` build installs only on iPhones registered with
+`npx eas-cli@latest device:create`.
+
 ## Publish to the stores
 
 ```bash
