@@ -93,3 +93,30 @@ for (const vp of VIEWPORTS) {
     });
   });
 }
+
+/** Links whose dot is wrong: shown at the start of a line, or hidden mid-line. */
+async function misplacedDots(page: Page) {
+  return page.getByTestId("site-footer").locator("nav ul").evaluateAll((uls) =>
+    uls.flatMap((ul) => {
+      const wrong: string[] = [];
+      let top: number | null = null;
+      for (const li of Array.from(ul.querySelectorAll<HTMLElement>(":scope > li:not([data-line-break])"))) {
+        const lineStart = top === null || li.offsetTop > top + 2;
+        const dotShown = getComputedStyle(li.querySelector("span")!).display !== "none";
+        if (dotShown === lineStart) wrong.push(`${li.textContent?.replace("·", "").trim()} (${lineStart ? "line start" : "mid-line"})`);
+        top = li.offsetTop;
+      }
+      return wrong;
+    }),
+  );
+}
+
+test("footer: no line starts with a dot and no link loses its dot, at any width", async ({ page }) => {
+  await page.goto("/");
+  await page.getByTestId("site-footer").scrollIntoViewIfNeeded();
+  // 412 px (Pixel 7) is where a link fitted on the line above only without its dot.
+  for (const width of [320, 360, 390, 412, 430, 600, 768, 1024, 1366]) {
+    await page.setViewportSize({ width, height: 900 });
+    await expect.poll(() => misplacedDots(page), { message: `${width}px` }).toEqual([]);
+  }
+});
