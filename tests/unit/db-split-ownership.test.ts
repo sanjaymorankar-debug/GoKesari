@@ -50,3 +50,18 @@ describe("split connections", () => {
     }
   });
 });
+
+describe("split database check", () => {
+  it("names the roles that point at the same database, pooled or direct host, without the password", async () => {
+    const { sameDatabaseClash } = await import("@/server/db/split/tools");
+    const base = "postgresql://u:secret@ep-x.c-4.aws.neon.tech";
+    expect(sameDatabaseClash({ SOURCE: `${base}/neondb`, SELLER: `${base}/seller_db`, CUSTOMER: `${base}/customer_db` })).toBeNull();
+    const clash = sameDatabaseClash({
+      SOURCE: "postgresql://u:secret@ep-x-pooler.c-4.aws.neon.tech/neondb?sslmode=require",
+      SELLER: `${base}/neondb?sslmode=require&channel_binding=require`,
+      CUSTOMER: `${base}/customer_db`,
+    });
+    expect(clash).toBe("SOURCE and SELLER are both neondb on ep-x.c-4.aws.neon.tech");
+    expect(clash).not.toContain("secret");
+  });
+});
