@@ -32,6 +32,7 @@ Status, 13 Oct 2026: built and tested. Ships **on** (rule `documentUpload`).
    | NAME_MISMATCH | the name scores below `nameMatchWarnBelow` (70) against the owner / legal / shop / GST trade name | warning, recorded; the vendor check and admin review decide |
    | NUMBER_NOT_FOUND / NUMBER_INVALID | number missing or fails the document's own format rule (PAN pattern, GSTIN checksum, 14-digit FSSAI, Udyam pattern) | the owner types / fixes it; the server re-checks |
    | NO_EXPIRY | FSSAI or drug licence without a readable expiry | the owner must enter it (required) |
+| NOT_READ | the reader was unavailable or took longer than `DOCUMENT_OCR_TIMEOUT_MS` | warning; the owner types the details; the server checks them as usual |
    | EXPIRING_SOON | expires within `sellerVerification.expiryWarningDays` (30) | warning |
    | LOW_QUALITY | picture smaller than 600 px | warning |
    | AADHAAR_HIDDEN | an Aadhaar number was on the page | it is dropped before parsing and never stored (Aadhaar Act s.29) |
@@ -58,6 +59,18 @@ Status, 13 Oct 2026: built and tested. Ships **on** (rule `documentUpload`).
 
 A scanned PDF (no text layer) with the default engine is flagged UNREADABLE
 with "take a photo instead".
+
+**If the reader is slow or unavailable** on a server (it has
+`DOCUMENT_OCR_TIMEOUT_MS`, default 25 s, to finish), the upload still
+succeeds: the card shows NOT_READ — "type the details exactly as printed" —
+with empty fields, nothing blocked, and the server checks what is typed as
+usual. A hung OCR worker is dropped so the next upload starts a fresh one.
+
+**Health check:** `GET /api/admin/document-reader` (admins/operators with
+document-review rights) reads a small generated image on that server and
+reports each stage — load image library, render, find the language model,
+load the OCR engine, start the worker, recognise — with its time, or the
+stage that failed.
 
 Field extraction is pure and unit-tested: `src/lib/kyc/document-extract.ts`
 (type detection by wording, number patterns with OCR letter/digit fixes —
@@ -121,6 +134,7 @@ suspends a live shop whose mandatory FSSAI lapses.
 | `draftRetentionDays` | 7 | erase unsubmitted uploads |
 
 Env: `DOCUMENT_OCR_PROVIDER` (`tesseract` default, `claude`, `off`),
+`DOCUMENT_OCR_TIMEOUT_MS` (25000),
 `DOCUMENT_OCR_LANG_PATH` (override the bundled model path),
 `DOCUMENT_OCR_CLAUDE_MODEL`, `ANTHROPIC_API_KEY` (only for `claude`).
 
