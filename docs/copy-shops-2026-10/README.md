@@ -82,3 +82,30 @@ The files can also be run with `psql "<production URL>" -f <file>`.
 - The wallet starts at ₹0 on production (test balances came from sandbox
   payments). Where the shop-wallet rule is on, a shop takes orders once its
   wallet reaches the minimum.
+
+## Result: copied 12–13 Oct 2026
+
+GitHub Actions could not see `PROD_DATABASE_URL`: nine plan/verify runs on 11–12 Oct all stopped at the guard with an empty value. The SQL route was used instead.
+
+1. Mode **sql**, run 38283470072 (12 Oct, 17:19 UTC), made the files from the
+   test export of the 5 shops.
+2. The owner ran `copy-shops-1-PREVIEW.sql` in the Neon console against
+   production, then `copy-shops-2-APPLY.sql`, which reported "SAVED".
+3. Checked on gokesari.com at 15:32 UTC, 13 Oct. All checks were read-only, with no sign-in:
+
+| Shop | Products with prices (test → production) | Shop page | Nearby from Kharadi | Taking orders |
+|---|---|---|---|---|
+| Agtci | 26 → 26 (e.g. Badam Milk ₹100) | 200, products shown, "Open now" | 830 m | yes |
+| Asmy Exports | 6 → 6 | 200 | 2.2 km | yes |
+| Chikan Shop | 8 → 8 | 200 | 540 m | yes |
+| EcoMed Solutions | 0 → 0 (no products on test either) | 200 | 6.1 km | yes |
+| Samarth tea center | 4 → 4 | 200 | 1.7 km | yes |
+
+- The public shop list shows 7 shops: the 5 copied, plus production's two "Asmy super market" shops.
+- Nearby found 5 shops within 10 km of Kharadi (1 km: 2, 3 km: 4, 5 km: 4, 10 km: 5). Before the copy it found none, because production's two shops have no map location.
+- `/`, `/shops` and `/search?q=milk` return 200.
+
+**Still to do (owner):**
+- Reset the production database password. It was posted in a chat on 12 Oct. Neon → Roles → `neondb_owner` → Reset password, then update `DATABASE_URL` in hPanel.
+- Delete the downloaded `copy-shops-sql` files. They contain the owners' contact details.
+- Ask the 5 owners to sign in on gokesari.com and upload their legal documents when asked.
