@@ -53,6 +53,29 @@ export function connect(url: string, max = 2): Sql {
   return postgres(clean, { max, ssl, onnotice: () => undefined, types: { bigint: postgres.BigInt } });
 }
 
+/**
+ * Names the roles that point at the same database, or null when all differ.
+ * Compares host and database name, not the raw URL: Neon's pooled host
+ * ("ep-x-pooler.…") and direct host ("ep-x.…") reach the same database.
+ */
+export function sameDatabaseClash(urls: Record<string, string>): string | null {
+  const seen = new Map<string, string>();
+  const clashes: string[] = [];
+  for (const [role, url] of Object.entries(urls)) {
+    let key = url;
+    try {
+      const u = new URL(url);
+      key = `${u.hostname.replace("-pooler.", ".")}:${u.port || "5432"}/${decodeURIComponent(u.pathname.replace(/^\//, ""))}`;
+    } catch {
+      // not a URL: compare the text as given
+    }
+    const other = seen.get(key);
+    if (other) clashes.push(`${other} and ${role} are both ${describeUrl(url)}`);
+    else seen.set(key, role);
+  }
+  return clashes.length ? clashes.join("; ") : null;
+}
+
 /** host/db for logs — never the password. */
 export function describeUrl(url: string): string {
   try {
