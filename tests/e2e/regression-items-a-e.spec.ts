@@ -12,6 +12,8 @@
  * The server must run with BOOTSTRAP_ADMIN_EMAILS=e2e-admin@test.local.
  */
 import { expect, test, type APIRequestContext, type Browser, type BrowserContext, type Page } from "@playwright/test";
+import { createHmac, randomBytes } from "node:crypto";
+
 import { encode } from "next-auth/jwt";
 import postgres from "postgres";
 
@@ -266,7 +268,17 @@ async function deliverOrder(orderId: string) {
   expect(pickup.status, JSON.stringify(pickup.body)).toBe(200);
   const start = await call(rider, "PATCH", `/api/delivery-orders/${offer.id}`, { action: "start" });
   expect(start.status, JSON.stringify(start.body)).toBe(200);
-  const [after] = await sql`select delivery_otp from delivery_orders where id = ${offer.id}`;
+  const [after] = await sql`select delivery_otp, delivery_otp_hash from delivery_orders where id = ${offer.id}`;
+  // Since migration 0059 only a hash of the customer's code is stored (the code goes to the
+  // customer by SMS/email). Stand in for "the customer reads it out": set a known code, hashed
+  // exactly as the server does (src/server/services/delivery-otp.ts, keyed with AUTH_SECRET).
+  if (after.delivery_otp_hash && !after.delivery_otp) {
+    const code = "2468";
+    const salt = randomBytes(8).toString("hex");
+    const mac = createHmac("sha256", AUTH_SECRET).update(`delivery-otp:${salt}:${offer.id}:${code}`).digest("hex");
+    await sql`update delivery_orders set delivery_otp_hash = ${`${salt}:${mac}`} where id = ${offer.id}`;
+    return { deliveryOrderId: offer.id as string, otp: code };
+  }
   return { deliveryOrderId: offer.id as string, otp: (after.delivery_otp ?? codes.delivery_otp) as string | null };
 }
 
@@ -361,6 +373,8 @@ test("C3: an open order is shown before paying; cancel it from the prompt, or ig
   await expect(prompt).toContainText(first.orderNumber);
   await expect(prompt).toContainText("Confirmed");
   await prompt.getByRole("button", { name: "Cancel this order" }).click();
+  // The cart now asks for confirmation before cancelling.
+  await page.getByRole("button", { name: "Yes, cancel it" }).click();
   await expect(page.getByText(`Order ${first.orderNumber} cancelled`)).toBeVisible({ timeout: 30_000 });
   await expect.poll(() => orderStatus(first.orderId)).toBe("REFUNDED");
   // No open order left → paying goes straight through.

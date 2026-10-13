@@ -38,7 +38,7 @@ export function ProfileSetupForm({
   shop: Shop;
   missing: string[];
   categories: number;
-  fssai: { needed: boolean; onFile: boolean };
+  fssai: { needed: boolean; onFile: boolean; blocker?: string | null };
   shopTypes: { key: string; label: string }[];
 }) {
   const router = useRouter();
@@ -136,9 +136,13 @@ export function ProfileSetupForm({
         <ul className="space-y-1">
           <li>{categories > 0 ? "✅" : "⬜"} <Link className="text-kesari-600 underline" href="/shop/product-categories">Choose your product categories</Link> ({categories} chosen) — each adds its products with stock 100; you fill in prices.</li>
           <li>{shop.locationVerified ? "✅" : "⬜"} <Link className="text-kesari-600 underline" href="/shop">Confirm your shop&apos;s location on the map</Link></li>
-          <li>{shop.panStatus === "VERIFIED" ? "✅" : "⬜"} <Link className="text-kesari-600 underline" href="/shop/verification">Add PAN and other documents</Link></li>
+          <li>{shop.panStatus === "VERIFIED" ? "✅" : "⬜"} <Link className="text-kesari-600 underline" href={`/shop/documents?shop=${shop.id}`}>Upload PAN and other documents</Link> — upload a file or take a photo; we read the details for you.</li>
           {fssai.needed ? (
-            <li>{fssai.onFile ? "✅" : "⬜"} <Link className="text-kesari-600 underline" href="/shop/verification">Add your FSSAI licence or registration</Link> — required by law for a shop that sells food.</li>
+            <li data-testid="profile-fssai-step">
+              {fssai.onFile ? "✅" : "⬜"}{" "}
+              <Link className="text-kesari-600 underline" href={`/shop/documents?shop=${shop.id}`}>Upload your FSSAI licence or registration</Link> — required by law for a shop that sells food
+              {fssai.blocker ? <strong className="text-kesari-800">; registration can&apos;t be completed without it.</strong> : "."}
+            </li>
           ) : null}
           <li><Link className="text-kesari-600 underline" href="/shop/wallet">Top up your shop wallet</Link> so you can accept orders.</li>
         </ul>

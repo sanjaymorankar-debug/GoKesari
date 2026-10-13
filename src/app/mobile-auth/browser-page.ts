@@ -30,12 +30,17 @@ export function browserPage(options: {
   main { max-width: 22rem; padding: 2rem 1.5rem; text-align: center; }
   h1 { margin: 0 0 .5rem; font-size: 1.25rem; }
   p { margin: 0 0 1.5rem; color: #4b5563; }
+  .brand { margin: 0 0 1.25rem; line-height: 1.2; }
+  .brand .word { font-size: 1.5rem; font-weight: 600; }
+  .brand .go { color: #15803d; } .brand .kesari { color: #c2410c; } .brand b { font-weight: 800; }
+  .brand .tagline { display: block; font-size: .75rem; font-weight: 700; color: #15803d; }
   a.button { display: inline-block; padding: .75rem 1.5rem; border-radius: .5rem; background: #c9450c;
              color: #fff; font-weight: 600; text-decoration: none; }
 </style>
 </head>
 <body>
 <main>
+<p class="brand"><span class="word"><span class="go"><b>G</b>o</span><span class="kesari"><b>K</b>esari</span></span><span class="tagline">Everything for Everyone</span></p>
 <h1>${title}</h1>
 <p>${message}</p>
 ${continueUrl ? `<a class="button" href="${continueUrl}">Open the GoKesari app</a>` : ""}

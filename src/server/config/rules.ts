@@ -926,6 +926,19 @@ export const RULES = {
     schema: z.object({ enabled: z.boolean(), maxChecksPerDay: int(1, 20) }),
     defaults: { enabled: false, maxChecksPerDay: 3 },
   },
+  documentUpload: {
+    description:
+      "Shop document upload with auto-read (docs/document-upload-2026-10). With enabled on, shop registration shows \"Upload your documents\": the owner uploads a file or takes a photo of each mandatory document, the server reads it (number, name, address, validity), the owner reviews and clicks Verify & Approve. Unreadable, expired or wrong documents are refused with a request to re-upload; a name that scores below nameMatchWarnBelow (0–100) against the registered owner / shop name is flagged for the admin. With fssaiMandatoryForFood on, a food shop (dairy, bakery, grocery, sweets, fruits & vegetables, restaurants and the other food types, or any food aisle) cannot complete registration — profile completion or approval — without an FSSAI licence on file that has not expired. maxUploadsPerShopPerHour limits reads per shop; unconfirmed uploads are erased after draftRetentionDays.",
+    schema: z.object({
+      enabled: z.boolean(),
+      fssaiMandatoryForFood: z.boolean(),
+      nameMatchWarnBelow: int(0, 100),
+      maxUploadBytes: int(500_000, 10_000_000),
+      maxUploadsPerShopPerHour: int(1, 200),
+      draftRetentionDays: int(1, 90),
+    }),
+    defaults: { enabled: true, fssaiMandatoryForFood: true, nameMatchWarnBelow: 70, maxUploadBytes: 10_000_000, maxUploadsPerShopPerHour: 30, draftRetentionDays: 7 },
+  },
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;

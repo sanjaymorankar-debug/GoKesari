@@ -8,6 +8,7 @@ import clsx from "clsx";
 import { LocationPanel, OPEN_LOCATION_EVENT } from "@/components/location-picker";
 import { RoleSwitcher } from "@/components/role-switcher";
 import { StandaloneBackButton } from "@/components/standalone-back-button";
+import { BrandTagline, BrandWordmark } from "@/components/brand-wordmark";
 import { formatCount, formatRupees } from "@/lib/board/format";
 import { L, LANG_NAME, LANG_SWITCH_LABEL, LANGUAGES, tr, UI, type Lang, type Text } from "@/lib/board/i18n";
 import { setLanguageAction } from "@/server/language-action";
@@ -172,10 +173,8 @@ export function BoardHeader({ lang, user, roles, unreadCount, extraLinks = [], c
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/gk-mark.png" alt="" width={62} height={36} className="h-7 w-auto rounded-lg sm:h-8 lg:h-10" />
           <span className="hidden flex-col xl:flex">
-            <span className="text-lg font-bold leading-tight text-ink-900">
-              Go<span className="text-kesari-700">Kesari</span>
-            </span>
-            <span className="text-xs font-medium leading-tight text-ink-600">Everything for Everyone</span>
+            <BrandWordmark className="text-lg leading-tight" />
+            <BrandTagline className="text-xs leading-tight" />
           </span>
         </Link>
 
