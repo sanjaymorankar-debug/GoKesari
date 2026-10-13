@@ -26,7 +26,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 
-import { physicalDatabase, SCHEMA_OWNERSHIP, tablesOwnedBy } from "./ownership";
+import { NOT_SPLIT_TABLES, physicalDatabase, SCHEMA_OWNERSHIP, tablesOwnedBy } from "./ownership";
 
 export type Sql = postgres.Sql;
 export type Side = "seller" | "customer";
@@ -74,14 +74,15 @@ const SPLIT_SCHEMAS = ["public", ...Object.keys(SCHEMA_OWNERSHIP)];
 /**
  * Every table the split moves: public tables by name, tables of the owned
  * schemas as "schema.table". Partitions are left out — their rows are read
- * and written through the partitioned parent.
+ * and written through the partitioned parent. Tables that are not GoKesari
+ * data (NOT_SPLIT_TABLES, e.g. Neon's sample table) are left in the source.
  */
 export async function publicTables(sql: Sql): Promise<string[]> {
   const rows = await sql<{ schema: string; name: string }[]>`
     select n.nspname as schema, c.relname as name from pg_class c join pg_namespace n on n.oid = c.relnamespace
     where n.nspname = any(${SPLIT_SCHEMAS}) and c.relkind in ('r', 'p') and not c.relispartition
     order by 1, 2`;
-  return rows.map((r) => (r.schema === "public" ? r.name : `${r.schema}.${r.name}`));
+  return rows.map((r) => (r.schema === "public" ? r.name : `${r.schema}.${r.name}`)).filter((t) => !NOT_SPLIT_TABLES.includes(t));
 }
 
 /** The tables each database gets, from what the source actually has. */
