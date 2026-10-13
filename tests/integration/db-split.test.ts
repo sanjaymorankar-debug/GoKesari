@@ -39,6 +39,8 @@ const urlFor = (name: string) => {
   return u.toString();
 };
 
+const freshReader = () => connect(sourceUrl, 1);
+
 let admin: Sql;
 let source: Sql;
 let seller: Sql;
@@ -92,8 +94,10 @@ describe("seller / customer database split", { timeout: 300_000 }, () => {
     expect(sp.keptTables.sort()).toEqual(sellerTables.sort());
     expect(cp.keptTables.sort()).toEqual(customerTables.sort());
 
-    await copyTables(source, seller, sellerTables);
-    await copyTables(source, customer, customerTables);
+    // Each table read on its own short-lived connection, as scripts/db-split/run.ts does: a pooled
+    // connection can be left paused after a COPY and never answer its next query (postgres.js 3.4).
+    await copyTables(source, seller, sellerTables, undefined, { openReader: freshReader, tableTimeoutMs: 120_000 });
+    await copyTables(source, customer, customerTables, undefined, { openReader: freshReader, tableTimeoutMs: 120_000 });
 
     const report = [...(await verifyCopy(source, seller, "seller", sellerTables)), ...(await verifyCopy(source, customer, "customer", customerTables))];
     expect(report.filter((r) => !r.ok)).toEqual([]);
@@ -106,6 +110,17 @@ describe("seller / customer database split", { timeout: 300_000 }, () => {
     const sellerFks = await listForeignKeys(seller);
     expect(sellerFks.some((fk) => fk.table === "shop_products" && fk.refTable === "shops")).toBe(true);
     expect(sellerFks.every((fk) => physicalDatabase(fk.refTable) === "seller")).toBe(true);
+  });
+
+  it("leaves Neon's sample table in the source instead of refusing it as unowned", async () => {
+    await source.unsafe("create table if not exists playing_with_neon (id serial primary key, name text not null, value real)");
+    try {
+      const tables = await publicTables(source);
+      expect(tables).not.toContain("playing_with_neon");
+      expect(splitTables(tables).unowned).toEqual([]);
+    } finally {
+      await source.unsafe("drop table if exists playing_with_neon");
+    }
   });
 
   it("keeps every order → shop → product link across the two databases", async () => {
@@ -135,7 +150,7 @@ describe("seller / customer database split", { timeout: 300_000 }, () => {
 
   it("reads seller tables from the customer database through postgres_fdw", async () => {
     // Fresh copy of the shop (the previous case removed it).
-    await copyTables(source, seller, ["shops"]);
+    await copyTables(source, seller, ["shops"], undefined, { openReader: freshReader });
     await setupForeignTables(customer, { serverName: "gokesari_seller", remoteUrl: urlFor(sellerName), schema: "seller_remote", tables: ["shops", "shop_products", "products"] });
     const rows = await customer.unsafe<{ order_number: string; shop_name: string; product_name: string }[]>(`
       select o.order_number, s.name as shop_name, p.name as product_name
