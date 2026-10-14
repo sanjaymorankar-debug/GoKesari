@@ -96,6 +96,25 @@ jobs:
           P_SELLER: ${{ secrets.PROD_SELLER_DATABASE_URL }}
           P_CUSTOMER: ${{ secrets.PROD_CUSTOMER_DATABASE_URL }}
         run: |
+          # Which database each secret points at (database name and server only, never the password),
+          # so a secret saved under the wrong name or with the wrong URL shows up in the log.
+          where() {
+            case "$1" in
+              "") echo "(not set)" ;;
+              *@*/*) local rest=${1##*@} db; db=${rest#*/}; echo "${db%%\?*} on ${rest%%/*}" ;;
+              *) echo "(not a database URL)" ;;
+            esac
+          }
+          {
+            echo "Secrets this run sees (environment: $TARGET):"
+            echo "  TEST_DATABASE_URL           → $(where "$T_SRC")"
+            echo "  TEST_SELLER_DATABASE_URL    → $(where "$T_SELLER")"
+            echo "  TEST_CUSTOMER_DATABASE_URL  → $(where "$T_CUSTOMER")"
+            echo "  PROD_DATABASE_URL           → $(where "$P_SRC")"
+            echo "  PROD_SELLER_DATABASE_URL    → $(where "$P_SELLER")"
+            echo "  PROD_CUSTOMER_DATABASE_URL  → $(where "$P_CUSTOMER")"
+          } | tee -a "$GITHUB_STEP_SUMMARY"
+
           if [ "$TARGET" = "production" ]; then src=$P_SRC; seller=$P_SELLER; customer=$P_CUSTOMER; else src=$T_SRC; seller=$T_SELLER; customer=$T_CUSTOMER; fi
           [ -n "$src" ] || { echo "::error::The source database secret is not set for $TARGET."; exit 1; }
           if [ "${{ inputs.action }}" != "plan" ]; then
