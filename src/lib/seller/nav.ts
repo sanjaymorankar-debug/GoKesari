@@ -56,6 +56,8 @@ export const SELLER_TEXT = {
   findToolLabel: L("Find a Seller Central tool", "सेलर सेंट्रल टूल खोजें", "सेलर सेंट्रल साधन शोधा"),
   noToolFound: L("No tool matches", "कोई टूल नहीं मिला", "कोणतेही साधन सापडले नाही"),
   visitStore: L("View my store", "मेरी दुकान देखें", "माझे दुकान पहा"),
+  switchShop: L("Switch shop", "दुकान बदलें", "दुकान बदला"),
+  yourShops: L("Your shops", "आपकी दुकानें", "तुमची दुकाने"),
   shopOnGoKesari: L("Shop on GoKesari", "GoKesari पर खरीदें", "GoKesari वर खरेदी करा"),
   help: L("Seller help", "सेलर सहायता", "सेलर मदत"),
   sellerTerms: L("Seller terms", "विक्रेता शर्तें", "विक्रेता अटी"),

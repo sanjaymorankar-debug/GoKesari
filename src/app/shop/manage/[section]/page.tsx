@@ -35,6 +35,7 @@ import {
   SHOP_ONBOARDING_STAGES,
   type ShopOnboardingStage,
 } from "@/lib/shop-onboarding";
+import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { shopBankPrompt } from "@/server/services/bank-accounts";
 import { listShopProducts, suggestProductsForShop } from "@/server/services/catalogue";
@@ -88,7 +89,7 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
 
   const shops = await listShopsForOwner(user.id);
   if (shops.length === 0) redirect("/shop");
-  const shop = shops[0];
+  const shop = await activeShop(shops);
   const header = (
     <PageHeader
       title={SECTIONS[key]}

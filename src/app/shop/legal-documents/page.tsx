@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { LegalDocumentsPanel } from "@/components/legal-documents-panel";
 import { Alert, EmptyState, PageHeader } from "@/components/ui";
+import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getShopLegalStatus } from "@/server/services/legal-documents";
 import { listShopsForOwner } from "@/server/services/shops";
@@ -24,7 +25,7 @@ export default async function ShopLegalDocumentsPage({ searchParams }: { searchP
     );
   }
   const params = await searchParams;
-  const shop = shops.find((s) => s.id === params.shop) ?? shops[0];
+  const shop = await activeShop(shops, params.shop);
   const status = await getShopLegalStatus(shop.id);
 
   return (

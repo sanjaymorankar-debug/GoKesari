@@ -4,6 +4,7 @@ import { SubmenuStrip } from "@/components/board/submenu-strip";
 import { ExcelPriceUpload } from "@/components/excel-price-upload";
 import { PendingPriceApprovals } from "@/components/pending-price-approvals";
 import { Badge, Card, EmptyState, Money, PageHeader, Section } from "@/components/ui";
+import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getBoardLang } from "@/server/board-lang";
 import {
@@ -27,7 +28,7 @@ export default async function ShopPricesPage() {
 
   const shops = await listShopsForOwner(user.id);
   if (shops.length === 0) redirect("/shop");
-  const shop = shops[0];
+  const shop = await activeShop(shops);
 
   const [pending, decided, lang] = await Promise.all([
     listPendingForShop(shop.id),

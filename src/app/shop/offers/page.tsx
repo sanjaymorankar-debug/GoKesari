@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { ShopOffersManager } from "@/components/shop-offers-manager";
 import { PageHeader } from "@/components/ui";
+import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { getRule } from "@/server/services/settings";
@@ -18,7 +19,7 @@ export default async function ShopOffersPage() {
   if (!can(user.role, PERMISSIONS.MARKETING_MANAGE_OWN)) redirect("/");
   const shops = await listShopsForOwner(user.id);
   if (shops.length === 0) redirect("/shop");
-  const shop = shops[0];
+  const shop = await activeShop(shops);
   const [rows, targets, rule] = await Promise.all([listShopOffers(shop.id), offerTargetsForShop(shop.id), getRule("shopOffers")]);
   return (
     <>

@@ -8,6 +8,7 @@ import { tr, UI, type Lang } from "@/lib/board/i18n";
 import { SHOP_MENUS, visibleMenus } from "@/lib/board/menus";
 import { groupSellerMenus } from "@/lib/seller/nav";
 import { ONBOARDING_STAGE_LABELS, ownerNextAction } from "@/lib/shop-onboarding";
+import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { loadShopBoard } from "@/server/board-data";
@@ -67,7 +68,7 @@ export default async function ShopDashboardPage() {
     );
   }
 
-  const shop = shops[0];
+  const shop = await activeShop(shops);
   const window = defaultWindow(30);
   const [lang, header, board, suspension, onboarding, wallet, legalStatus, bankPrompt, kpis] = await Promise.all([
     getBoardLang(),

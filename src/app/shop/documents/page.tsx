@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { DocumentUploadPanel, type PanelItem } from "@/components/document-upload-panel";
 import { Alert, EmptyState, PageHeader } from "@/components/ui";
+import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getDocumentChecklist } from "@/server/services/document-uploads";
 import { listShopsForOwner } from "@/server/services/shops";
@@ -28,7 +29,7 @@ export default async function ShopDocumentsPage({ searchParams }: { searchParams
       </>
     );
   }
-  const shop = shops.find((s) => s.id === params.shop) ?? shops[0];
+  const shop = await activeShop(shops, params.shop);
   const checklist = await getDocumentChecklist(shop.id, user);
 
   const items: PanelItem[] = checklist.items.map((item) => ({

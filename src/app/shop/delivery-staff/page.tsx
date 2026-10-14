@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { DeliveryStaffManager } from "@/components/delivery-staff-manager";
 import { Alert, EmptyState, PageHeader } from "@/components/ui";
+import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { listDeliveryStaff, getSlotRules } from "@/server/services/fulfilment-options";
 import { listShopsForOwner } from "@/server/services/shops";
@@ -24,7 +25,7 @@ export default async function DeliveryStaffPage({ searchParams }: { searchParams
     );
   }
   const params = await searchParams;
-  const shop = shops.find((s) => s.id === params.shop) ?? shops[0];
+  const shop = await activeShop(shops, params.shop);
   const [staff, rules] = await Promise.all([listDeliveryStaff(shop.id), getSlotRules()]);
 
   return (

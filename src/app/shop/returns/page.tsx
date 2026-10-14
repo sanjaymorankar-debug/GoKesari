@@ -6,6 +6,7 @@ import { EmptyState, PageHeader } from "@/components/ui";
 import { tr, UI } from "@/lib/board/i18n";
 import { SHOP_MENUS } from "@/lib/board/menus";
 import { pickTab, RETURN_PICKUP_STATUSES, RETURN_REQUEST_STATUSES } from "@/lib/board/status-groups";
+import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getBoardLang } from "@/server/board-lang";
 import { getReturnDetail, listReturnsForShop } from "@/server/services/returns";
@@ -23,7 +24,7 @@ export default async function ShopReturnsPage({ searchParams }: { searchParams: 
   if (!user) redirect("/signin");
   const shops = await listShopsForOwner(user.id);
   if (shops.length === 0) redirect("/shop");
-  const shop = shops[0];
+  const shop = await activeShop(shops);
 
   const [list, lang, query] = await Promise.all([listReturnsForShop(shop.id), getBoardLang(), searchParams]);
   const inTab = (tab: (typeof TABS)[number], status: string) =>

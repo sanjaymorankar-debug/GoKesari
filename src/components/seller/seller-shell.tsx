@@ -9,6 +9,7 @@ import { LanguageSwitch } from "@/components/board/board-header";
 import { Icon } from "@/components/board/icons";
 import { CountBadge, TONE_ICON } from "@/components/board/tiles";
 import { RoleSwitcher } from "@/components/role-switcher";
+import { ShopSwitcher } from "@/components/seller/shop-switcher";
 import { StandaloneBackButton } from "@/components/standalone-back-button";
 import { BrandWordmark } from "@/components/brand-wordmark";
 import { LANG_TAG, tr, UI, type Lang } from "@/lib/board/i18n";
@@ -22,8 +23,10 @@ interface Props {
   user: { name: string | null; email: string; role: UserRole } | null;
   roles: UserRole[];
   unreadCount: number;
-  /** The owner's shop; null for a visitor or someone still registering (no sidebar then). */
-  shop: { name: string; slug: string; status: string } | null;
+  /** The owner's shop on show; null for a visitor or someone still registering (no sidebar then). */
+  shop: { id: string; name: string; slug: string; status: string } | null;
+  /** All of the owner's shops; with more than one, the shop name becomes a switcher. */
+  shops: { id: string; name: string }[];
   groups: ResolvedSellerGroup[];
   counts: Counts;
   children: ReactNode;
@@ -87,7 +90,7 @@ function useDismiss(ref: React.RefObject<HTMLElement | null>, open: boolean, clo
  * The site's shopping header (cart, deliver-to, wallet) and footer step aside
  * while it is on screen (globals.css, `[data-seller-central]`).
  */
-export function SellerShell({ lang, user, roles, unreadCount, shop, groups, counts, children }: Props) {
+export function SellerShell({ lang, user, roles, unreadCount, shop, shops, groups, counts, children }: Props) {
   const pathname = usePathname();
   const [drawerOpen, setDrawerOpen] = useState(false);
   const [accountOpen, setAccountOpen] = useState(false);
@@ -150,7 +153,11 @@ export function SellerShell({ lang, user, roles, unreadCount, shop, groups, coun
           {shop && pill ? (
             <div className="ml-1 hidden min-w-0 items-center gap-2 border-l border-white/20 pl-3 md:flex" data-testid="seller-shop">
               <Icon name="store" size={18} className="shrink-0 text-kesari-300" />
-              <span className="truncate text-sm font-semibold">{shop.name}</span>
+              {shops.length > 1 ? (
+                <ShopSwitcher lang={lang} current={shop} shops={shops} className="text-sm" />
+              ) : (
+                <span className="truncate text-sm font-semibold">{shop.name}</span>
+              )}
               <span className={clsx("shrink-0 rounded-full px-2 py-0.5 text-xs font-bold", pill.className)}>{tr(pill.label, lang)}</span>
             </div>
           ) : null}
@@ -247,7 +254,11 @@ export function SellerShell({ lang, user, roles, unreadCount, shop, groups, coun
           // Phones: the shop and its status on a slim second line.
           <div className="flex items-center gap-2 border-t border-white/10 px-3 py-1.5 text-sm md:hidden">
             <Icon name="store" size={16} className="shrink-0 text-kesari-300" />
-            <span className="min-w-0 truncate font-semibold">{shop.name}</span>
+            {shops.length > 1 ? (
+              <ShopSwitcher lang={lang} current={shop} shops={shops} />
+            ) : (
+              <span className="min-w-0 truncate font-semibold">{shop.name}</span>
+            )}
             <span className={clsx("ml-auto shrink-0 rounded-full px-2 py-0.5 text-xs font-bold", pill.className)}>{tr(pill.label, lang)}</span>
           </div>
         ) : null}
