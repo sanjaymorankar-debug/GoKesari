@@ -1,6 +1,8 @@
 /**
  * docs/document-upload-2026-10: upload a document (multipart: `file`,
- * `docType`, optional `source=CAMERA`) and read it. PDF, JPEG, PNG or WebP,
+ * `docType`, optional `source=CAMERA`, and optional `browserText` +
+ * `browserConfidence` when the owner's browser already read the photo) and
+ * read it. PDF, JPEG, PNG or WebP,
  * checked from the bytes. Returns the fields read and any flags; nothing is
  * submitted until the owner confirms.
  */
@@ -28,12 +30,22 @@ export const POST = route(async (request: NextRequest, context: RouteContext<{ i
   if (!(file instanceof File)) throw validationFailed("Attach the document — upload a file or take a photo.");
   if (typeof docType !== "string") throw validationFailed("Choose which document this is.");
 
+  // The browser's own read of the photo: plain text and a 0–100 score, capped; anything malformed is ignored.
+  const browserText = form?.get("browserText");
+  const confidenceField = form?.get("browserConfidence");
+  const browserConfidence = typeof confidenceField === "string" && confidenceField.trim() ? Number(confidenceField) : NaN;
+  const browserRead =
+    typeof browserText === "string" && Number.isFinite(browserConfidence)
+      ? { text: browserText.slice(0, 20_000), confidence: Math.max(0, Math.min(100, Math.round(browserConfidence))) }
+      : null;
+
   return ok(
     await readUploadedDocument({
       shopId: id,
       docType,
       file: Buffer.from(await file.arrayBuffer()),
       source: form?.get("source") === "CAMERA" ? "CAMERA" : "FILE",
+      browserRead,
       actor: user,
     }),
     201,

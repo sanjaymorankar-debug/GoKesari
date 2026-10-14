@@ -5,6 +5,7 @@ import { DocumentUploadPanel, type PanelItem } from "@/components/document-uploa
 import { Alert, EmptyState, PageHeader } from "@/components/ui";
 import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
+import { browserReadEnabled } from "@/server/kyc/document-reader";
 import { getDocumentChecklist } from "@/server/services/document-uploads";
 import { listShopsForOwner } from "@/server/services/shops";
 
@@ -101,7 +102,7 @@ export default async function ShopDocumentsPage({ searchParams }: { searchParams
         </Alert>
         </div>
       ) : null}
-      {checklist.enabled ? <DocumentUploadPanel shopId={shop.id} items={items} /> : null}
+      {checklist.enabled ? <DocumentUploadPanel shopId={shop.id} items={items} browserOcr={browserReadEnabled()} /> : null}
     </div>
   );
 }
