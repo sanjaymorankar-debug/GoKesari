@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { SellerVerificationPanel, type PanelDocument } from "@/components/seller-verification-panel";
 import { Alert, EmptyState, PageHeader } from "@/components/ui";
+import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getShopVerificationSummary } from "@/server/services/seller-verification";
 import { listShopsForOwner } from "@/server/services/shops";
@@ -24,7 +25,7 @@ export default async function ShopVerificationPage({ searchParams }: { searchPar
       </>
     );
   }
-  const shop = shops.find((s) => s.id === params.shop) ?? shops[0];
+  const shop = await activeShop(shops, params.shop);
   const summary = await getShopVerificationSummary(shop.id, user);
 
   const documents: PanelDocument[] = summary.documents.map((d) => ({

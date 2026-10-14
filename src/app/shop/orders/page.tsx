@@ -7,6 +7,7 @@ import { EmptyState, PageHeader } from "@/components/ui";
 import { tr, UI } from "@/lib/board/i18n";
 import { SHOP_MENUS } from "@/lib/board/menus";
 import { pickTab, SHOP_ORDER_TABS, type ShopOrderTab } from "@/lib/board/status-groups";
+import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getBoardLang } from "@/server/board-lang";
 import { getDeliveryOrdersForOrders, getRiderSearchStatus } from "@/server/services/delivery-assignment";
@@ -34,7 +35,7 @@ export default async function ShopOrdersPage({ searchParams }: { searchParams: P
 
   const shops = await listShopsForOwner(user.id);
   if (shops.length === 0) redirect("/shop");
-  const shop = shops[0];
+  const shop = await activeShop(shops);
 
   const [allOrders, onlineProducts, wallet, lang, query] = await Promise.all([
     listOrdersForShop(shop.id, { limit: 100 }),

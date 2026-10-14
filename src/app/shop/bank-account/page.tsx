@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { BankAccountManager } from "@/components/bank-account-manager";
 import { Alert, EmptyState, PageHeader } from "@/components/ui";
+import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { bankCheckOffered } from "@/server/services/bank-account-check";
 import { getBankAccountView, verificationGatewayMode } from "@/server/services/bank-accounts";
@@ -26,7 +27,7 @@ export default async function ShopBankAccountPage({ searchParams }: { searchPara
     );
   }
   const params = await searchParams;
-  const shop = shops.find((s) => s.id === params.shop) ?? shops[0];
+  const shop = await activeShop(shops, params.shop);
   const [account, rules] = await Promise.all([getBankAccountView(user.id, shop.id), getRule("bankAccounts")]);
   const bankCheck = await bankCheckOffered();
   return (

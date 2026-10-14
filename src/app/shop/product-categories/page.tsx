@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 
 import { ShopProductCategoriesView } from "@/components/shop-product-categories-view";
 import { EmptyState, PageHeader } from "@/components/ui";
+import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { listShopsForOwner } from "@/server/services/shops";
 
@@ -28,7 +29,7 @@ export default async function OwnerShopCategoriesPage({
     );
   }
   // Only the owner's own shops can be selected; anything else falls back to the first.
-  const shop = shops.find((s) => s.id === params.shop) ?? shops[0];
+  const shop = await activeShop(shops, params.shop);
 
   return (
     <div className="mx-auto max-w-5xl space-y-6">

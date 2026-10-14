@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { PhotoCatalogue } from "@/components/photo-catalogue";
 import { EmptyState, LinkButton, PageHeader } from "@/components/ui";
 import { needsPhoto, needsPrice } from "@/lib/photo-catalogue";
+import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { listShopPhotoCatalogue } from "@/server/services/product-images";
 import { listShopsForOwner } from "@/server/services/shops";
@@ -20,7 +21,7 @@ export default async function ShopCataloguePage() {
   if (!user) redirect("/signin");
   const shops = await listShopsForOwner(user.id);
   if (shops.length === 0) redirect("/shop");
-  const shop = shops[0];
+  const shop = await activeShop(shops);
 
   const tiles = await listShopPhotoCatalogue(shop.id);
   const withPhoto = tiles.length - tiles.filter(needsPhoto).length;
