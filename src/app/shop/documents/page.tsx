@@ -4,6 +4,7 @@ import { redirect } from "next/navigation";
 import { DocumentUploadPanel, type PanelItem } from "@/components/document-upload-panel";
 import { Alert, EmptyState, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
+import { browserReadEnabled } from "@/server/kyc/document-reader";
 import { getDocumentChecklist } from "@/server/services/document-uploads";
 import { listShopsForOwner } from "@/server/services/shops";
 
@@ -100,7 +101,7 @@ export default async function ShopDocumentsPage({ searchParams }: { searchParams
         </Alert>
         </div>
       ) : null}
-      {checklist.enabled ? <DocumentUploadPanel shopId={shop.id} items={items} /> : null}
+      {checklist.enabled ? <DocumentUploadPanel shopId={shop.id} items={items} browserOcr={browserReadEnabled()} /> : null}
     </div>
   );
 }

@@ -251,6 +251,81 @@ describe("when the reader is unavailable", () => {
   });
 });
 
+describe("read in the owner's browser (D-18)", () => {
+  afterEach(() => {
+    delete process.env.DOCUMENT_OCR_BROWSER;
+  });
+
+  it("uses the text the browser read from the photo, and checks it like any other read", async () => {
+    const { shop, actor } = await setup();
+    const view = await readUploadedDocument({
+      shopId: shop.id,
+      docType: "FSSAI",
+      file: await photo(),
+      source: "CAMERA",
+      browserRead: { text: fssaiText(`31/03/${NEXT_YEAR}`), confidence: 88 },
+      actor,
+    });
+    expect(view.readerEngine).toBe("browser-tesseract");
+    expect(view.fields).toMatchObject({ detectedType: "FSSAI", number: "11521998000123", validUntil: `${NEXT_YEAR}-03-31` });
+    expect(view.flags).toEqual([]);
+    const [row] = await db.select().from(sellerDocumentUploads).where(eq(sellerDocumentUploads.id, view.id));
+    expect(row.readerConfidence).toBe(88);
+
+    const done = await confirmUploadedDocument({ shopId: shop.id, uploadId: view.id, fields: { number: "11521998000123", validUntil: `${NEXT_YEAR}-03-31` }, consentGiven: true, actor });
+    expect(done.status).toBe("CONFIRMED");
+  });
+
+  it("an expired licence read in the browser is still refused", async () => {
+    const { shop, actor } = await setup();
+    const view = await readUploadedDocument({
+      shopId: shop.id,
+      docType: "FSSAI",
+      file: await photo(),
+      browserRead: { text: fssaiText("31/03/2020"), confidence: 90 },
+      actor,
+    });
+    expect(view.flags.map((f) => f.code)).toContain("EXPIRED");
+    expect(view.blocking).toBe(true);
+  });
+
+  it("an empty browser read is flagged unreadable, and a tiny photo low quality", async () => {
+    const { shop, actor } = await setup();
+    const small = await sharp({ create: { width: 400, height: 300, channels: 3, background: "#ffffff" } }).jpeg().toBuffer();
+    const view = await readUploadedDocument({ shopId: shop.id, docType: "FSSAI", file: small, browserRead: { text: "", confidence: 0 }, actor });
+    expect(view.readerEngine).toBe("browser-tesseract");
+    expect(view.flags.map((f) => f.code)).toEqual(expect.arrayContaining(["UNREADABLE", "LOW_QUALITY"]));
+  });
+
+  it("DOCUMENT_OCR_BROWSER=off ignores the browser's text and reads on the server", async () => {
+    process.env.DOCUMENT_OCR_BROWSER = "off";
+    const { shop, actor } = await setup();
+    const view = await readUploadedDocument({
+      shopId: shop.id,
+      docType: "FSSAI",
+      file: await photo(),
+      browserRead: { text: fssaiText(`31/03/${NEXT_YEAR}`), confidence: 88 },
+      actor,
+    });
+    expect(view.readerEngine).toBe("tesseract");
+    expect(view.fields?.number ?? null).toBeNull();
+  });
+
+  it("a PDF is always read from its own text, whatever the browser sent", async () => {
+    const { shop, actor } = await setup();
+    const lines = ["Food Safety and Standards Authority of India", "License Number : 11521998000123", `Valid Upto : 31/03/${NEXT_YEAR}`];
+    const view = await readUploadedDocument({
+      shopId: shop.id,
+      docType: "FSSAI",
+      file: minimalPdf(lines),
+      browserRead: { text: fssaiText("31/03/2020"), confidence: 99 },
+      actor,
+    });
+    expect(view.readerEngine).toBe("pdf-text");
+    expect(view.fields?.validUntil).toBe(`${NEXT_YEAR}-03-31`);
+  });
+});
+
 describe("real readers", () => {
   it("reads a photographed FSSAI licence with the local OCR engine", async () => {
     const { shop, actor } = await setup();
