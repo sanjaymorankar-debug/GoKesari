@@ -213,6 +213,12 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       { key: "stock", label: L("Stock", "स्टॉक", "साठा"), icon: "boxes", href: "/shop/inventory" },
       { key: "low", label: L("Low", "कम", "कमी"), icon: "triangle-alert", href: "/shop/inventory#alerts", count: "shopLowStock" },
       { key: "onOff", label: L("On/off", "चालू/बंद", "चालू/बंद"), icon: "toggle-right", href: "/shop/manage/products" },
+      // docs/inventory-accounting-2026-10: supplier bills, stock ledger, books and GST.
+      { key: "accounts", label: L("Bills & GST", "बिल और GST", "बिले आणि GST"), icon: "receipt", href: "/shop/accounts" },
+    ],
+    more: [
+      { key: "scanBill", label: L("Scan supplier bill", "सप्लायर बिल स्कैन करें", "पुरवठादाराचे बिल स्कॅन करा"), icon: "images", href: "/shop/accounts/capture?mode=scan" },
+      { key: "stockBook", label: L("Stock ledger & value", "स्टॉक खाता और मूल्य", "साठा खाते आणि मूल्य"), icon: "boxes", href: "/shop/accounts/stock" },
     ],
   },
   {
@@ -248,6 +254,8 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       { key: "gst", label: L("GST", "जीएसटी", "जीएसटी"), icon: "file-text", href: "/shop/gst-returns" },
     ],
     more: [
+      { key: "books", label: L("Books, GST & reports", "बही, GST और रिपोर्ट", "हिशेब, GST आणि अहवाल"), icon: "file-chart-column", href: "/shop/accounts" },
+      { key: "gstPayable", label: L("GST payable", "देय GST", "देय GST"), icon: "indian-rupee", href: "/shop/accounts/gst" },
       { key: "accounting", label: L("Accounting software", "अकाउंटिंग सॉफ़्टवेयर", "अकाउंटिंग सॉफ्टवेअर"), icon: "database", href: "/shop/settings/integrations" },
       { key: "registrationFee", label: L("Registration fee", "पंजीकरण शुल्क", "नोंदणी शुल्क"), icon: "receipt", href: "/shop/manage/registration" },
     ],

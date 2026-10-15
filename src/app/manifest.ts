@@ -23,5 +23,15 @@ export default function manifest(): MetadataRoute.Manifest {
       { src: "/pwa/icon-512.png", sizes: "512x512", type: "image/png", purpose: "any" },
       { src: "/pwa/maskable-512.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
     ],
+    // docs/inventory-accounting-2026-10: once installed, a supplier's bill shared
+    // from WhatsApp, email or Files ("Share → GoKesari") lands in the shop's
+    // bills to check.
+    share_target: {
+      action: "/shop/accounts/share",
+      method: "POST",
+      enctype: "multipart/form-data",
+      params: { title: "title", text: "text", files: [{ name: "file", accept: ["application/pdf", "image/*", "application/json", ".json", ".xlsx", ".xls", ".csv"] }] },
+    },
+    shortcuts: [{ name: "Scan a supplier bill", short_name: "Scan bill", url: "/shop/accounts/capture?mode=scan" }],
   };
 }

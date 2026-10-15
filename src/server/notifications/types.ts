@@ -206,6 +206,11 @@ export const NOTIFICATION_TYPES = {
   SUPPORT_REFERRAL_REQUEST: "support.referral_request",
   /** To the requester (when signed in): a referral code was issued, or the request declined. */
   SHOP_REFERRAL_REQUEST_DECIDED: "shop.referral_request_decided",
+  /* ------------------------------------------- docs/inventory-accounting-2026-10 */
+  /** To the shop owner: a supplier bill was read and waits for their review. */
+  SHOP_BILL_READY: "shop.bill_ready",
+  /** To the shop owner: a GST return is due soon (estimate of tax payable). */
+  SHOP_GST_DUE_REMINDER: "shop.gst_due_reminder",
 } as const;
 
 export type NotificationType =
