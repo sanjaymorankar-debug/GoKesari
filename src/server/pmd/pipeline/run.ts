@@ -123,9 +123,10 @@ export async function runIngestion(sql: Sql, adapter: SourceAdapter, opts: RunOp
     brandCache: new Map(), manufacturerCache: new Map(),
   };
 
-  const flush = async () => {
-    const ids = [...touched];
-    touched.clear();
+  /** Recomputes status and quality for the given masters (emptying the set), then saves errors and counters. */
+  const flush = async (set: Set<number> = touched) => {
+    const ids = [...set];
+    set.clear();
     await flushErrors(sql, runId, sourceId, errors);
     if (ids.length) {
       await recomputeProductStatus(sql, ids);
@@ -140,10 +141,18 @@ export async function runIngestion(sql: Sql, adapter: SourceAdapter, opts: RunOp
   let failure: Error | null = null;
   let unseenMarked = false;
 
+  // Each worker records the masters it changes in its own set and recomputes only those, after its batch has
+  // committed. With one shared set, a worker's flush could take a master another worker was still writing inside
+  // an open transaction, score it from uncommitted (invisible) data, and clear it, so it was never scored again.
+  const workerCtx: LoadContext[] = Array.from({ length: workers }, () => ({ ...ctx, touched: new Set<number>() }));
+  // A master changed by more than one worker is scored once more after every worker has finished.
+  const touchedBy = new Map<number, number>();
+  const sharedByWorkers = new Set<number>();
+
   /** One record through the reference loader. A failure is recorded against the record, never thrown: the run goes on. */
-  const loadOne = async (input: LoadInput): Promise<void> => {
+  const loadOne = async (wctx: LoadContext, input: LoadInput): Promise<void> => {
     try {
-      await loadRecord(ctx, input);
+      await loadRecord(wctx, input);
     } catch (e) {
       counters.errorCount += 1;
       errors.push({
@@ -154,18 +163,27 @@ export async function runIngestion(sql: Sql, adapter: SourceAdapter, opts: RunOp
   };
 
   /** A batch: in bulk where that is safe, record by record everywhere else - then the per-batch bookkeeping. */
-  const runBatch = async (batch: LoadInput[]): Promise<void> => {
+  const runBatch = async (w: number, batch: LoadInput[]): Promise<void> => {
+    const wctx = workerCtx[w];
+    const one = (input: LoadInput) => loadOne(wctx, input);
     if (loader === "batch") {
       try {
-        await loadBatch(ctx, batch, loadOne);
+        await loadBatch(wctx, batch, one);
       } catch {
         // The bulk path failed before it changed anything it counted (its writes roll back): run the batch the reference way.
-        for (const input of batch) await loadOne(input);
+        for (const input of batch) await one(input);
       }
     } else {
-      for (const input of batch) await loadOne(input);
+      for (const input of batch) await one(input);
     }
-    await flush();
+    if (workers > 1) {
+      for (const id of wctx.touched) {
+        const first = touchedBy.get(id);
+        if (first === undefined) touchedBy.set(id, w);
+        else if (first !== w) sharedByWorkers.add(id);
+      }
+    }
+    await flush(wctx.touched);
     log(`run ${runId}: ${counters.recordsRead} read, ${counters.productsCreated} created, ${counters.productsLinked} linked, ${counters.errorCount} errors`);
   };
 
@@ -180,7 +198,7 @@ export async function runIngestion(sql: Sql, adapter: SourceAdapter, opts: RunOp
     buffers[w] = [];
     inFlight[w]++;
     chains[w] = chains[w]
-      .then(() => runBatch(batch))
+      .then(() => runBatch(w, batch))
       .catch((e) => {
         failure ??= e as Error;
       })
@@ -226,6 +244,7 @@ export async function runIngestion(sql: Sql, adapter: SourceAdapter, opts: RunOp
     }
     for (let w = 0; w < workers; w++) await dispatch(w);
     await Promise.all(chains);
+    sharedByWorkers.forEach((id) => touched.add(id)); // every worker has committed: score these once more
     if (failure) throw failure;
 
     // Only a COMPLETE snapshot can say "not seen this time" - and then only downgrades offers.
@@ -238,6 +257,8 @@ export async function runIngestion(sql: Sql, adapter: SourceAdapter, opts: RunOp
     failure = e as Error;
   }
 
+  // A batch that threw never reached its own flush: its masters are scored here with the rest.
+  for (const c of workerCtx) c.touched.forEach((id) => touched.add(id));
   await flush();
   // The snapshot is a full aggregate: at a million products it takes seconds, so a run that changed nothing
   // (an incremental pass over an unchanged source) does not rebuild it.
