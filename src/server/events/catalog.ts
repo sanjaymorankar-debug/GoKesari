@@ -29,7 +29,8 @@ export type SubjectKind =
   | "integration_job"
   | "shop_registration"
   | "bank_refund"
-  | "customer_referral_request";
+  | "customer_referral_request"
+  | "product_import";
 
 export interface EventMessage {
   /** A user id, an audience, or nothing (skipped — e.g. an order with no rider). */
@@ -1000,6 +1001,51 @@ export const EVENTS = {
       },
     ],
   ),
+
+  /** docs/product-import-2026-10: a bulk product upload finished — the shop owner and, when someone else ran it, that operator/admin. */
+  "shop.product_import_finished": define<{
+    jobId: string;
+    shopId: string;
+    shopName: string;
+    ownerId: string;
+    actorId: string | null;
+    fileName: string;
+    created: number;
+    updated: number;
+    deactivated: number;
+    failed: number;
+    status: string;
+  }>("product_import", (p) => {
+    const vars = {
+      shopName: p.shopName,
+      fileName: p.fileName,
+      created: p.created,
+      updated: p.updated,
+      deactivated: p.deactivated,
+      failed: p.failed,
+    };
+    const messages: EventMessage[] = [
+      {
+        to: p.ownerId,
+        type: N.SHOP_PRODUCT_IMPORT_FINISHED,
+        vars,
+        actionUrl: `/shop/product-import?job=${p.jobId}`,
+        channels: ["IN_APP", "PUSH"],
+        includeActor: true,
+      },
+    ];
+    if (p.actorId && p.actorId !== p.ownerId) {
+      messages.push({
+        to: p.actorId,
+        type: N.SHOP_PRODUCT_IMPORT_FINISHED,
+        vars,
+        actionUrl: `/admin/product-import?shopId=${p.shopId}&job=${p.jobId}`,
+        channels: ["IN_APP", "PUSH"],
+        includeActor: true,
+      });
+    }
+    return messages;
+  }),
 
   "notification.dead": define<{
     count: number;

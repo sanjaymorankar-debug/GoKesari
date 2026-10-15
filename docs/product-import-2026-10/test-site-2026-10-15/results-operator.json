@@ -1,0 +1,34 @@
+[
+  {
+    "id": "PS-01",
+    "title": "Bulk upload tile on the staff board",
+    "env": "test.gokesari.com",
+    "result": "PASS",
+    "detail": "tile on /admin/menu/catalogue",
+    "at": "2026-10-15T08:38:40.188Z"
+  },
+  {
+    "id": "PS-02",
+    "title": "Shop picker",
+    "env": "test.gokesari.com",
+    "result": "PASS",
+    "detail": "picker shown",
+    "at": "2026-10-15T08:38:42.500Z"
+  },
+  {
+    "id": "PS-03",
+    "title": "Import for the chosen shop in the browser",
+    "env": "test.gokesari.com",
+    "result": "PASS",
+    "detail": "created; price sent to the owner for approval",
+    "at": "2026-10-15T08:39:26.966Z"
+  },
+  {
+    "id": "PS-04",
+    "title": "Clean up: Delete file deactivates the staff test product",
+    "env": "test.gokesari.com",
+    "result": "PASS",
+    "detail": "deactivated",
+    "at": "2026-10-15T08:40:08.758Z"
+  }
+]

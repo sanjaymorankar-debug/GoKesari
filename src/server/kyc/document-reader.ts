@@ -183,6 +183,20 @@ async function readImageText(data: Buffer): Promise<{ text: string; confidence: 
   }
 }
 
+/**
+ * The same local OCR for other callers (supplier bills, docs/inventory-accounting-2026-10):
+ * one shared worker and queue, the same time limit.
+ */
+export async function ocrImageText(data: Buffer): Promise<{ text: string; confidence: number }> {
+  const { text, confidence } = await readImageText(data);
+  return { text, confidence };
+}
+
+/** PDF text layer, for other callers (empty for a scanned PDF). */
+export async function pdfText(data: Buffer): Promise<string> {
+  return withTimeout(readPdfText(data), readTimeoutMs(), "pdf");
+}
+
 /* ---------------------------------------------------------------- claude */
 
 async function readWithClaude(
