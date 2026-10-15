@@ -108,6 +108,12 @@ export const AUDIT_ACTIONS = {
 
   /* ----------------------------------------------------- excel uploads (§19) */
   EXCEL_UPLOADED: "excel_upload.uploaded",
+  /** Bulk product upload (docs/product-import-2026-10). */
+  PRODUCT_IMPORT_UPLOADED: "product_import.uploaded",
+  PRODUCT_IMPORT_COMMITTED: "product_import.committed",
+  PRODUCT_IMPORT_COMPLETED: "product_import.completed",
+  PRODUCT_IMPORT_CANCELLED: "product_import.cancelled",
+  PRODUCT_IMPORT_REPORT_DOWNLOADED: "product_import.report_downloaded",
   EXCEL_APPLIED: "excel_upload.applied",
   EXCEL_CANCELLED: "excel_upload.cancelled",
 

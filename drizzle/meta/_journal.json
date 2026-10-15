@@ -533,6 +533,27 @@
       "when": 1791745200000,
       "tag": "0075_seller_document_uploads",
       "breakpoints": true
+    },
+    {
+      "idx": 76,
+      "version": "7",
+      "when": 1792038452436,
+      "tag": "0076_inventory_accounting",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1792124852436,
+      "tag": "0077_product_bulk_import",
+      "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1792124853436,
+      "tag": "0078_inventory_ledger_order_cancel",
+      "breakpoints": true
     }
   ]
 }

@@ -213,6 +213,14 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       { key: "stock", label: L("Stock", "स्टॉक", "साठा"), icon: "boxes", href: "/shop/inventory" },
       { key: "low", label: L("Low", "कम", "कमी"), icon: "triangle-alert", href: "/shop/inventory#alerts", count: "shopLowStock" },
       { key: "onOff", label: L("On/off", "चालू/बंद", "चालू/बंद"), icon: "toggle-right", href: "/shop/manage/products" },
+      // docs/inventory-accounting-2026-10: supplier bills, stock ledger, books and GST.
+      { key: "accounts", label: L("Bills & GST", "बिल और GST", "बिले आणि GST"), icon: "receipt", href: "/shop/accounts" },
+      // docs/product-import-2026-10: many products and their stock from one Excel/CSV file.
+      { key: "bulkUpload", label: L("Bulk upload (Excel/CSV)", "बल्क अपलोड (एक्सेल/CSV)", "एकत्र अपलोड (एक्सेल/CSV)"), short: L("Bulk upload", "बल्क अपलोड", "एकत्र अपलोड"), icon: "file-spreadsheet", href: "/shop/product-import", permission: PERMISSIONS.EXCEL_UPLOAD_OWN },
+    ],
+    more: [
+      { key: "scanBill", label: L("Scan supplier bill", "सप्लायर बिल स्कैन करें", "पुरवठादाराचे बिल स्कॅन करा"), icon: "images", href: "/shop/accounts/capture?mode=scan" },
+      { key: "stockBook", label: L("Stock ledger & value", "स्टॉक खाता और मूल्य", "साठा खाते आणि मूल्य"), icon: "boxes", href: "/shop/accounts/stock" },
     ],
   },
   {
@@ -248,6 +256,8 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       { key: "gst", label: L("GST", "जीएसटी", "जीएसटी"), icon: "file-text", href: "/shop/gst-returns" },
     ],
     more: [
+      { key: "books", label: L("Books, GST & reports", "बही, GST और रिपोर्ट", "हिशेब, GST आणि अहवाल"), icon: "file-chart-column", href: "/shop/accounts" },
+      { key: "gstPayable", label: L("GST payable", "देय GST", "देय GST"), icon: "indian-rupee", href: "/shop/accounts/gst" },
       { key: "accounting", label: L("Accounting software", "अकाउंटिंग सॉफ़्टवेयर", "अकाउंटिंग सॉफ्टवेअर"), icon: "database", href: "/shop/settings/integrations" },
       { key: "registrationFee", label: L("Registration fee", "पंजीकरण शुल्क", "नोंदणी शुल्क"), icon: "receipt", href: "/shop/manage/registration" },
     ],
@@ -399,6 +409,7 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
     ],
     more: [
       { key: "priceApprovals", label: L("Price approvals", "दाम मंज़ूरी", "दर मंजुरी"), icon: "badge-check", href: "/admin/console/price-approvals", permission: PERMISSIONS.PRICE_REQUEST_DECIDE_ANY },
+      { key: "bulkUpload", label: L("Bulk upload (Excel/CSV)", "बल्क अपलोड (एक्सेल/CSV)", "एकत्र अपलोड (एक्सेल/CSV)"), short: L("Bulk upload", "बल्क अपलोड", "एकत्र अपलोड"), icon: "file-spreadsheet", href: "/admin/product-import", permission: PERMISSIONS.EXCEL_UPLOAD_ANY },
     ],
   },
   {
@@ -568,6 +579,7 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "review", label: L("Review", "समीक्षा", "पुनरावलोकन"), icon: "clipboard-check", href: "/admin/console/product-approvals", count: "pendingProducts", permission: PERMISSIONS.PRODUCT_APPROVE },
       { key: "mrp", label: L("MRP", "एमआरपी", "एमआरपी"), icon: "tag", href: "/admin/mrp", count: "mrpCorrections", permission: PERMISSIONS.PRODUCT_MRP_MANAGE },
       { key: "refPrices", label: L("Ref. prices", "संदर्भ दाम", "संदर्भ दर"), icon: "scale", href: "/admin/price-references", count: "refPricesToVerify", permission: PERMISSIONS.PRICE_REFERENCE_MANAGE },
+      { key: "bulkUpload", label: L("Bulk upload (Excel/CSV)", "बल्क अपलोड (एक्सेल/CSV)", "एकत्र अपलोड (एक्सेल/CSV)"), short: L("Bulk upload", "बल्क अपलोड", "एकत्र अपलोड"), icon: "file-spreadsheet", href: "/admin/product-import", permission: PERMISSIONS.EXCEL_UPLOAD_ANY },
     ],
     more: [
       { key: "priceApprovals", label: L("Price approvals", "दाम मंज़ूरी", "दर मंजुरी"), icon: "badge-check", href: "/admin/console/price-approvals", permission: PERMISSIONS.PRICE_REQUEST_DECIDE_ANY },
