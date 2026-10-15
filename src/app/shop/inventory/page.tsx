@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { SubmenuStrip } from "@/components/board/submenu-strip";
 import { ShopInventoryManager } from "@/components/shop-inventory-manager";
 import { PageHeader } from "@/components/ui";
+import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getBoardLang } from "@/server/board-lang";
 import { getInventoryDashboard, listInventory, listStockAlerts } from "@/server/services/inventory-alerts";
@@ -16,7 +17,7 @@ export default async function ShopInventoryPage() {
   if (!user) redirect("/signin");
   const shops = await listShopsForOwner(user.id);
   if (shops.length === 0) redirect("/shop");
-  const shop = shops[0];
+  const shop = await activeShop(shops);
 
   const [dashboard, rows, alerts, lang] = await Promise.all([
     getInventoryDashboard(shop.id),

@@ -10,6 +10,12 @@
  *   claude     optional, only with DOCUMENT_OCR_PROVIDER=claude and an
  *              ANTHROPIC_API_KEY: Claude reads the image or PDF. It sends the
  *              document to Anthropic, so it is off unless the owner turns it on.
+ *   browser-tesseract
+ *              a photo the owner's own browser already read (same engine and
+ *              model, src/lib/kyc/browser-ocr.ts) and sent with the upload —
+ *              used instead of the server's tesseract, whose worker does not
+ *              start on the shared host (D-18). DOCUMENT_OCR_BROWSER=off
+ *              ignores it.
  *
  * Whatever an engine returns is only a suggestion the seller reviews; the
  * server re-validates what they confirm.
@@ -19,7 +25,7 @@ import path from "node:path";
 import type { ExtractedFields, UploadDocType } from "@/lib/kyc/document-extract";
 import { UPLOAD_DOC_LABELS } from "@/lib/kyc/document-extract";
 
-export type ReaderEngine = "pdf-text" | "tesseract" | "claude" | "none";
+export type ReaderEngine = "pdf-text" | "tesseract" | "browser-tesseract" | "claude" | "none";
 
 export interface ReadResult {
   text: string;
@@ -43,6 +49,19 @@ export function readerProvider(): ReaderProvider {
   if (value === "off" || value === "none") return "off";
   if (value === "claude" && process.env.ANTHROPIC_API_KEY) return "claude";
   return "tesseract";
+}
+
+/** Text the owner's browser read from the photo before uploading it. */
+export interface BrowserReadInput {
+  text: string;
+  /** 0–100. */
+  confidence: number;
+}
+
+/** Whether a photo read in the owner's browser is used (DOCUMENT_OCR_BROWSER, on unless "off"; never with the reader off). */
+export function browserReadEnabled(): boolean {
+  const value = (process.env.DOCUMENT_OCR_BROWSER ?? "on").trim().toLowerCase();
+  return value !== "off" && value !== "false" && value !== "0" && readerProvider() !== "off";
 }
 
 /** How long a read may take before the owner is asked to type the details (DOCUMENT_OCR_TIMEOUT_MS). */
@@ -257,7 +276,25 @@ export function setDocumentReaderForTests(reader: ReaderOverride | null): void {
   readerOverride = reader;
 }
 
-export async function readDocument(data: Buffer, contentType: string, docType: UploadDocType): Promise<ReadResult> {
+/** Smallest side of a photo, without reading it (for the LOW_QUALITY flag on a browser read). */
+async function imageMinSide(data: Buffer): Promise<number | null> {
+  try {
+    const sharp = (await import("sharp")).default;
+    const meta = await sharp(data, { failOn: "none" }).metadata();
+    const width = meta.autoOrient?.width ?? meta.width ?? 0;
+    const height = meta.autoOrient?.height ?? meta.height ?? 0;
+    return width && height ? Math.min(width, height) : null;
+  } catch {
+    return null;
+  }
+}
+
+export async function readDocument(
+  data: Buffer,
+  contentType: string,
+  docType: UploadDocType,
+  browserRead?: BrowserReadInput | null,
+): Promise<ReadResult> {
   if (readerOverride) return readerOverride(data, contentType, docType);
   const provider = readerProvider();
   if (provider === "off") return { text: "", engine: "none", confidence: null, imageMinSide: null, note: "reader off" };
@@ -278,6 +315,10 @@ export async function readDocument(data: Buffer, contentType: string, docType: U
     } catch (error) {
       return { text: "", engine: "pdf-text", confidence: null, imageMinSide: null, note: `pdf unreadable: ${(error as Error).name}` };
     }
+  }
+  // The owner's browser already read this photo: use that rather than starting the server's own reader.
+  if (browserRead && browserReadEnabled()) {
+    return { text: browserRead.text, engine: "browser-tesseract", confidence: browserRead.confidence, imageMinSide: await imageMinSide(data) };
   }
   try {
     const { text, confidence, minSide } = await readImageText(data);

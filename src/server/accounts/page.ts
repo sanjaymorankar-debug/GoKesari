@@ -1,7 +1,7 @@
 /**
  * Shared start of every Inventory & Accounting page (docs/inventory-accounting-2026-10):
- * the signed-in owner's shop, or — for an administrator helping a shop —
- * the shop named in ?shop=. Anyone else is sent away, exactly as the API
+ * the signed-in owner's active shop (Seller Central's shop switcher), or —
+ * for an administrator helping a shop — the shop named in ?shop=. Anyone else is sent away, exactly as the API
  * refuses them.
  */
 import { and, eq, isNull } from "drizzle-orm";
@@ -13,7 +13,8 @@ import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { getBoardLang } from "@/server/board-lang";
 import { db } from "@/server/db";
 import { shops, type Shop } from "@/server/db/schema";
-import { ownerShop } from "./access";
+import { activeShop } from "@/server/active-shop";
+import { listShopsForOwner } from "@/server/services/shops";
 
 export interface AccountsPage {
   user: AuthenticatedUser;
@@ -36,8 +37,12 @@ export async function loadAccountsPage(searchParams?: Record<string, string | st
       if (row.ownerId !== user.id) shopQuery = `?shop=${row.id}`;
     }
   }
-  shop ??= await ownerShop(user.id);
-  if (!shop) redirect("/shop");
+  if (!shop) {
+    // The owner's shop chosen in Seller Central's shop switcher (or ?shop=), else the newest.
+    const own = await listShopsForOwner(user.id);
+    if (own.length === 0) redirect("/shop");
+    shop = await activeShop(own, wanted);
+  }
   return { user, shop, lang: await getBoardLang(), shopQuery };
 }
 

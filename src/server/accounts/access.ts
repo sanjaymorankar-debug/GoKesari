@@ -8,6 +8,7 @@
  */
 import { requireShopAccess, type AuthenticatedUser } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
+import { activeShop } from "@/server/active-shop";
 import { listShopsForOwner } from "@/server/services/shops";
 
 export interface AccountsActor {
@@ -19,8 +20,8 @@ export async function requireAccountsAccess(shopId: string): Promise<{ user: Aut
   return requireShopAccess(shopId, { anyPermission: PERMISSIONS.SYSTEM_CONFIG });
 }
 
-/** The signed-in owner's shop (their first, as the rest of Seller Central does), or null. */
+/** The signed-in owner's active shop (as Seller Central's shop switcher chose it), or null. */
 export async function ownerShop(userId: string) {
   const shops = await listShopsForOwner(userId);
-  return shops[0] ?? null;
+  return shops.length ? activeShop(shops) : null;
 }
