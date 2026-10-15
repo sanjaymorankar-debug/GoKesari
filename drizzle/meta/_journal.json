@@ -540,6 +540,13 @@
       "when": 1792038452436,
       "tag": "0076_inventory_accounting",
       "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1792049076721,
+      "tag": "0077_inventory_ledger_order_cancel",
+      "breakpoints": true
     }
   ]
 }
