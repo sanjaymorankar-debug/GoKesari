@@ -1,0 +1,122 @@
+[
+  {
+    "id": "PI-01",
+    "title": "Inventory menu has the Bulk upload (Excel/CSV) tile",
+    "env": "test.gokesari.com",
+    "result": "PASS",
+    "detail": "link to /shop/product-import shown",
+    "at": "2026-10-15T08:31:09.031Z"
+  },
+  {
+    "id": "PI-02",
+    "title": "Bulk upload page and the GoKesari template download",
+    "env": "test.gokesari.com",
+    "result": "PASS",
+    "detail": "attachment; filename=\"GoKesari_Product_Upload_Template.xlsx\"",
+    "at": "2026-10-15T08:31:14.060Z"
+  },
+  {
+    "id": "PI-03",
+    "title": "Upload PUZZLES.xlsm in the browser: background check, preview of 5 rows, 309 columns, rows 6-7 left out",
+    "env": "test.gokesari.com",
+    "result": "PASS",
+    "detail": "preview shown",
+    "at": "2026-10-15T08:31:29.731Z"
+  },
+  {
+    "id": "PI-04",
+    "title": "Only rows with warnings",
+    "env": "test.gokesari.com",
+    "result": "PASS",
+    "detail": "1 rows with warnings",
+    "at": "2026-10-15T08:31:33.911Z"
+  },
+  {
+    "id": "PI-05",
+    "title": "Import (Set stock to file quantity) completes with no failed row",
+    "env": "test.gokesari.com",
+    "result": "PASS",
+    "detail": "0,5,0,0,0,1",
+    "at": "2026-10-15T08:32:09.511Z"
+  },
+  {
+    "id": "PI-06",
+    "title": "Result report download (Excel)",
+    "env": "test.gokesari.com",
+    "result": "PASS",
+    "detail": "PUZZLES_result.xlsx",
+    "at": "2026-10-15T08:32:13.144Z"
+  },
+  {
+    "id": "PI-07",
+    "title": "The same file again: 'already imported' prompt",
+    "env": "test.gokesari.com",
+    "result": "PASS",
+    "detail": "prompt shown, upload cancelled",
+    "at": "2026-10-15T08:32:24.895Z"
+  },
+  {
+    "id": "PI-08",
+    "title": "Import history (API)",
+    "env": "test.gokesari.com",
+    "result": "PASS",
+    "detail": "20 imports for shop e1dc0a8d-3e15-4432-b65c-0d3c7dd5409d",
+    "at": "2026-10-15T08:32:36.344Z"
+  },
+  {
+    "id": "PI-09",
+    "title": "GoKesari template file: new products, stock set to the file's Quantity",
+    "env": "test.gokesari.com",
+    "result": "PASS",
+    "detail": "{\"totalRows\":3,\"parsedRows\":3,\"processedRows\":3,\"newProducts\":3,\"updates\":0,\"deactivations\":0,\"skipped\":0,\"withWarnings\":3,\"created\":3,\"updated\":0,\"deactivated\":0,\"failed\":0,\"imagesQueued\":0,\"imagesSaved\":0,\"imagesFailed\":0}",
+    "at": "2026-10-15T08:33:29.996Z"
+  },
+  {
+    "id": "PI-10",
+    "title": "Stock: Set made it 11; Add adds 4 (15); the preview shows current → new",
+    "env": "test.gokesari.com",
+    "result": "PASS",
+    "detail": "11 → 15",
+    "at": "2026-10-15T08:34:32.593Z"
+  },
+  {
+    "id": "PI-11",
+    "title": "Blank and negative quantities leave stock unchanged; Edit with no match is skipped",
+    "env": "test.gokesari.com",
+    "result": "PASS",
+    "detail": "stock still 15",
+    "at": "2026-10-15T08:35:35.392Z"
+  },
+  {
+    "id": "PI-12",
+    "title": "Phone (Android app agent): preview as cards",
+    "env": "test.gokesari.com",
+    "result": "PASS",
+    "detail": "cards shown, cancelled",
+    "at": "2026-10-15T08:35:52.013Z"
+  },
+  {
+    "id": "PI-13",
+    "title": "Delete action soft-deactivates (stock 0, listing kept)",
+    "env": "test.gokesari.com",
+    "result": "PASS",
+    "detail": "2 deactivated",
+    "at": "2026-10-15T08:36:40.074Z"
+  },
+  {
+    "id": "PI-14",
+    "title": "Owner notified in app when an import finishes",
+    "env": "test.gokesari.com",
+    "result": "PASS",
+    "detail": "16 × \"Bulk product upload finished\": E2E Referral MV2SJM8P-3: delete-MV9A4HKO.xlsx — 0 created, 0 updated, 2 deactivated, 0 failed. Open the upload for the full report.",
+    "at": "2026-10-15T08:36:41.577Z"
+  },
+  {
+    "id": "PI-15",
+    "title": "Another shop's id is refused",
+    "env": "test.gokesari.com",
+    "result": "PASS",
+    "detail": "404",
+    "at": "2026-10-15T08:36:42.801Z"
+  }
+]
