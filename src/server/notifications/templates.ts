@@ -135,6 +135,11 @@ export const TEMPLATES: Record<string, Template> = {
     "{{shopName}}: {{applied}} applied, {{failed}} could not be applied. Open the upload for details.",
     false,
   ),
+  [T.SHOP_PRODUCT_IMPORT_FINISHED]: t(
+    "Bulk product upload finished",
+    "{{shopName}}: {{fileName}} — {{created}} created, {{updated}} updated, {{deactivated}} deactivated, {{failed}} failed. Open the upload for the full report.",
+    false,
+  ),
   [T.GRIEVANCE_RESOLVED]: t("Your complaint was resolved", "Ticket {{ticket}} has been resolved."),
   /* ------------------------------------- event layer (docs/event-driven-2026-10) */
   [T.ORDER_READY]: t("Order packed", "Your order {{orderNumber}} is packed and ready.", false),
@@ -232,6 +237,8 @@ export const TEMPLATES: Record<string, Template> = {
   /* Shop wallet & delivery code (docs/shop-wallet-delivery-otp-2026-10). */
   [T.SHOP_WALLET_TOPUP_SUCCESS]: t("Shop wallet recharged", "{{amount}} was added to {{shopName}}'s wallet. New balance: {{balance}}."),
   [T.SHOP_WALLET_LOW_BALANCE]: t("Recharge your shop wallet", "{{shopName}}'s wallet balance is {{balance}}. {{detail}}"),
+  [T.SHOP_BILL_READY]: t("Bill ready to check", "Your bill {{label}} has been read. Check it and confirm to add the stock.", false),
+  [T.SHOP_GST_DUE_REMINDER]: t("GST return due", "{{label}} is due on {{dueDate}}. Verify with your CA before filing."),
   [T.SHOP_WALLET_ADJUSTED]: t("Shop wallet adjusted", "{{amount}} was {{change}} {{shopName}}'s wallet by GoKesari: {{reason}}. New balance: {{balance}}."),
   [T.DELIVERY_CONFIRMED]: t("Delivery confirmed", "Order {{orderNumber}} is confirmed as delivered. Thank you!", false),
   [T.ORDER_DELIVERY_CODE_LOCKED]: t(

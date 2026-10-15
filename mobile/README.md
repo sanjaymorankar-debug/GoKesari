@@ -15,6 +15,7 @@ inside a phone app.
 | Sign-in link by email | Hidden in the app: the link would sign in the phone's browser, not the app |
 | "Use my location", delivery-partner live location | Phone's location service, one permission prompt |
 | Photo uploads (products, proof of delivery, documents) | Camera or gallery picker |
+| Bulk product upload (Excel/CSV: Inventory → Bulk upload; admin/operator: Catalogue → Bulk upload) | The phone's document picker — Android's system picker (Files, Downloads, Google Drive, WhatsApp and e-mail attachments), iPhone's Files. Accepts .xlsx, .xlsm and .csv. The result report downloads like any other file (below). From version 1.1.0 |
 | Invoice PDF, Excel templates | Android: saved to Downloads, with a notification. iPhone: share sheet (Save to Files, WhatsApp, Print…) |
 | Print (invoice page) | Native print dialog |
 | Share buttons | Native share sheet |
@@ -23,6 +24,17 @@ inside a phone app.
 | Links to gokesari.com (WhatsApp, email…) | Open in the app once [deep links](#deep-links) are set up |
 | No internet | "Can't reach GoKesari" screen with Try again |
 | Android back button | Goes back through pages, then exits |
+
+Shop owners' **Inventory & Accounting** (docs/inventory-accounting-2026-10 at
+the repository root) is in the app the same way: the bill scanner opens the
+phone camera through the photo picker (several pages, cropped and straightened
+on the phone before upload), uploads show progress on slow networks, the
+review screen switches between the bill and its details, and reports (Excel,
+PDF, Tally XML) download through the app's download bridge. A PDF bill opens
+with "Open the PDF" (the WebView does not show PDFs inside a page). Receiving a
+bill shared from WhatsApp straight into the native app needs a share-intent
+module and a new store build (open item in the module's tracker); until then
+owners share it to the installed website (Android) or forward it by email.
 
 How it is put together:
 

@@ -101,6 +101,8 @@ export const NOTIFICATION_TYPES = {
   SHOP_STAFF_REMOVED: "shop.staff_removed",
   /** To the uploader: a bulk photo/description upload finished applying. */
   SHOP_MEDIA_IMPORT_FINISHED: "shop.media_import_finished",
+  /** To the shop owner, and to the operator/admin who ran it: a bulk product upload finished (docs/product-import-2026-10). */
+  SHOP_PRODUCT_IMPORT_FINISHED: "shop.product_import_finished",
   /* ------------------------------- Module 2: accounting integration */
   /** To the owner: an invoice / credit note / sync could not be sent to their accounting software. */
   INTEGRATION_SYNC_FAILED: "shop.integration_sync_failed",
@@ -206,6 +208,11 @@ export const NOTIFICATION_TYPES = {
   SUPPORT_REFERRAL_REQUEST: "support.referral_request",
   /** To the requester (when signed in): a referral code was issued, or the request declined. */
   SHOP_REFERRAL_REQUEST_DECIDED: "shop.referral_request_decided",
+  /* ------------------------------------------- docs/inventory-accounting-2026-10 */
+  /** To the shop owner: a supplier bill was read and waits for their review. */
+  SHOP_BILL_READY: "shop.bill_ready",
+  /** To the shop owner: a GST return is due soon (estimate of tax payable). */
+  SHOP_GST_DUE_REMINDER: "shop.gst_due_reminder",
 } as const;
 
 export type NotificationType =

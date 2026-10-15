@@ -728,6 +728,30 @@ export const RULES = {
     }),
     defaults: { spreadsheetMaxBytes: 2 * 1024 * 1024, spreadsheetMaxRows: 5_000, sellerDocumentMaxBytes: 5_000_000 },
   },
+  productImport: {
+    description:
+      "Bulk product upload (docs/product-import-2026-10): a shop owner, operator or admin uploads an Amazon Seller Central inventory template, the GoKesari simple template or a CSV to create or update a shop's products and set its stock. maxFileBytes / maxRows bound one file; rows are written batchSize at a time, each batch in its own transaction; product images are downloaded after the import (imageMaxBytes each, imageTimeoutMs per download, at most maxImagesPerRow per row); uploaded files and staged rows are deleted retentionDays after the upload. With enabled off the Bulk Upload screens and API refuse new uploads.",
+    schema: z.object({
+      enabled: z.boolean(),
+      maxFileBytes: int(100_000, 50_000_000),
+      maxRows: int(1, 50_000),
+      batchSize: int(10, 1000),
+      retentionDays: int(1, 3650),
+      imageMaxBytes: int(100_000, 20_000_000),
+      imageTimeoutMs: int(1000, 120_000),
+      maxImagesPerRow: int(0, 20),
+    }),
+    defaults: {
+      enabled: true,
+      maxFileBytes: 10 * 1024 * 1024,
+      maxRows: 5_000,
+      batchSize: 200,
+      retentionDays: 90,
+      imageMaxBytes: 5 * 1024 * 1024,
+      imageTimeoutMs: 15_000,
+      maxImagesPerRow: 9,
+    },
+  },
   opsExceptions: {
     description:
       "Operations exceptions queue: minutes / hours before an order is flagged (and when it becomes critical) at each stage. A dispute becomes critical after the settlement hold; the delivery-code lockout follows deliveryOtp.",
