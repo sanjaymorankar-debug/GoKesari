@@ -4,7 +4,7 @@
 -- carries no order_id, only the reason "Order <number> cancelled"; 0076's
 -- trigger therefore recorded it as an ADJUSTMENT. The existing order code is
 -- left unchanged: the trigger finds the order from that reason instead.
--- Rollback: scripts/rollback-0077.sql.
+-- Rollback: scripts/rollback-0078.sql.
 CREATE OR REPLACE FUNCTION inv_ledger_on_movement() RETURNS trigger LANGUAGE plpgsql AS $$
 DECLARE
   target uuid;

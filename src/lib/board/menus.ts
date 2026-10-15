@@ -215,6 +215,8 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       { key: "onOff", label: L("On/off", "चालू/बंद", "चालू/बंद"), icon: "toggle-right", href: "/shop/manage/products" },
       // docs/inventory-accounting-2026-10: supplier bills, stock ledger, books and GST.
       { key: "accounts", label: L("Bills & GST", "बिल और GST", "बिले आणि GST"), icon: "receipt", href: "/shop/accounts" },
+      // docs/product-import-2026-10: many products and their stock from one Excel/CSV file.
+      { key: "bulkUpload", label: L("Bulk upload (Excel/CSV)", "बल्क अपलोड (एक्सेल/CSV)", "एकत्र अपलोड (एक्सेल/CSV)"), short: L("Bulk upload", "बल्क अपलोड", "एकत्र अपलोड"), icon: "file-spreadsheet", href: "/shop/product-import", permission: PERMISSIONS.EXCEL_UPLOAD_OWN },
     ],
     more: [
       { key: "scanBill", label: L("Scan supplier bill", "सप्लायर बिल स्कैन करें", "पुरवठादाराचे बिल स्कॅन करा"), icon: "images", href: "/shop/accounts/capture?mode=scan" },
@@ -407,6 +409,7 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
     ],
     more: [
       { key: "priceApprovals", label: L("Price approvals", "दाम मंज़ूरी", "दर मंजुरी"), icon: "badge-check", href: "/admin/console/price-approvals", permission: PERMISSIONS.PRICE_REQUEST_DECIDE_ANY },
+      { key: "bulkUpload", label: L("Bulk upload (Excel/CSV)", "बल्क अपलोड (एक्सेल/CSV)", "एकत्र अपलोड (एक्सेल/CSV)"), short: L("Bulk upload", "बल्क अपलोड", "एकत्र अपलोड"), icon: "file-spreadsheet", href: "/admin/product-import", permission: PERMISSIONS.EXCEL_UPLOAD_ANY },
     ],
   },
   {
@@ -576,6 +579,7 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "review", label: L("Review", "समीक्षा", "पुनरावलोकन"), icon: "clipboard-check", href: "/admin/console/product-approvals", count: "pendingProducts", permission: PERMISSIONS.PRODUCT_APPROVE },
       { key: "mrp", label: L("MRP", "एमआरपी", "एमआरपी"), icon: "tag", href: "/admin/mrp", count: "mrpCorrections", permission: PERMISSIONS.PRODUCT_MRP_MANAGE },
       { key: "refPrices", label: L("Ref. prices", "संदर्भ दाम", "संदर्भ दर"), icon: "scale", href: "/admin/price-references", count: "refPricesToVerify", permission: PERMISSIONS.PRICE_REFERENCE_MANAGE },
+      { key: "bulkUpload", label: L("Bulk upload (Excel/CSV)", "बल्क अपलोड (एक्सेल/CSV)", "एकत्र अपलोड (एक्सेल/CSV)"), short: L("Bulk upload", "बल्क अपलोड", "एकत्र अपलोड"), icon: "file-spreadsheet", href: "/admin/product-import", permission: PERMISSIONS.EXCEL_UPLOAD_ANY },
     ],
     more: [
       { key: "priceApprovals", label: L("Price approvals", "दाम मंज़ूरी", "दर मंजुरी"), icon: "badge-check", href: "/admin/console/price-approvals", permission: PERMISSIONS.PRICE_REQUEST_DECIDE_ANY },
