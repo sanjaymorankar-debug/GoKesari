@@ -21,7 +21,7 @@ export function AccountsBoard({ lang, shopName, overview, shopQuery = "" }: { la
     { key: "due", label: tr(ACCOUNTS_TEXT.nextDue, lang), value: overview.nextDue ? `${overview.nextDue.returnType === "GSTR3B" ? "3B" : overview.nextDue.returnType === "GSTR1" ? "R1" : "PMT"} · ${overview.nextDue.dueDate.slice(8, 10)}/${overview.nextDue.dueDate.slice(5, 7)}` : null, href: "/shop/accounts/gst", tone: "text-kesari-800" },
   ];
   return (
-    <div data-tile-board="accounts" lang={LANG_TAG[lang]} className="flex min-h-0 flex-1 flex-col gap-2">
+    <div data-accounts-board="" lang={LANG_TAG[lang]} className="flex min-h-0 flex-1 flex-col gap-2">
       <div className="flex items-baseline justify-between gap-2">
         <h1 className="text-xl font-bold text-ink-900 sm:text-2xl">{tr(ACCOUNTS_TEXT.title, lang)}</h1>
         <span className="truncate text-sm text-ink-600">{shopName}</span>
