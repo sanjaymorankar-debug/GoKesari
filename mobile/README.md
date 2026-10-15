@@ -25,6 +25,17 @@ inside a phone app.
 | No internet | "Can't reach GoKesari" screen with Try again |
 | Android back button | Goes back through pages, then exits |
 
+Shop owners' **Inventory & Accounting** (docs/inventory-accounting-2026-10 at
+the repository root) is in the app the same way: the bill scanner opens the
+phone camera through the photo picker (several pages, cropped and straightened
+on the phone before upload), uploads show progress on slow networks, the
+review screen switches between the bill and its details, and reports (Excel,
+PDF, Tally XML) download through the app's download bridge. A PDF bill opens
+with "Open the PDF" (the WebView does not show PDFs inside a page). Receiving a
+bill shared from WhatsApp straight into the native app needs a share-intent
+module and a new store build (open item in the module's tracker); until then
+owners share it to the installed website (Android) or forward it by email.
+
 How it is put together:
 
 | File | What it does |

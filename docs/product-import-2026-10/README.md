@@ -164,6 +164,12 @@ by a later row with the same barcode.
   its stock changes, and Add computes in SQL (`online_stock + n`). An order
   placed meanwhile waits for the row and then decrements the new value, so
   nothing is lost (tested with six concurrent orders during an Add import).
+- **Books (Inventory & Accounting, migration 0076).** Its database triggers
+  follow every change of a listing's stock, so each import change also lands
+  in `inv_stock_ledger`: the listing insert or stock update writes the ledger
+  row and the import's `inventory_movements` row (same transaction) labels it
+  with the reason "Bulk upload (set|add)" and the user. Nothing in the
+  accounting module had to change.
 - The file's Quantity sets the **online** stock (what customers order
   against); in-shop (offline) stock is not changed.
 
@@ -222,7 +228,7 @@ it is recorded as skipped until one is — see open items). Opens the import.
 
 | Area | Files |
 |---|---|
-| Migration (additive) | `drizzle/0076_product_bulk_import.sql` (+ journal), rollback `scripts/rollback-0076.sql` |
+| Migration (additive) | `drizzle/0077_product_bulk_import.sql` (+ journal), rollback `scripts/rollback-0077.sql` |
 | Schema | `src/server/db/schema.ts`: `productImportJobs`, `productImportRows`, `shopListingDetails`, `productAttributes`; `inventoryMovements.source`, `.importJobId` |
 | Seller DB ownership | `src/server/db/split/ownership.ts` — all four tables in **gokesari_seller** |
 | Shared vocabulary | `src/lib/product-import.ts` |
@@ -240,7 +246,7 @@ it is recorded as skipped until one is — see open items). Opens the import.
 | Mobile | `mobile/app.config.ts` (1.1.0, versionCode/buildNumber 2), `mobile/README.md`, `mobile/src/__tests__/navigation-policy.test.ts` |
 | Tests | `tests/unit/product-import-parser.test.ts`, `tests/integration/product-import.test.ts`, `tests/integration/product-import-load.test.ts`, `tests/helpers/amazon-template.ts`, `tests/fixtures/bulk_upload/PUZZLES.xlsm`, `scripts/product-import/write-puzzles-fixture.ts` |
 
-**Migration 0076** (additive and backward compatible): four new tables, two
+**Migration 0077** (additive and backward compatible): four new tables, two
 nullable columns on `inventory_movements`, one sequence, indexes. No existing
 column changes. The previous release runs unchanged on the new schema, so the
 migration can run before the deploy (as `MIGRATE_ON_BUILD` does).

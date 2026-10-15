@@ -23,7 +23,7 @@ exactly that — nothing is claimed for an environment it was not run on.
 | Load: 5,000 rows | 1 | **pass** (parse + preview 1.8 s; import 94.7 s) | Not run | Not run |
 | Browser walk-through (desktop, phone, admin, operator) | 10 | **10 pass** | Not run | Not run |
 | Mobile app (unit, typecheck, lint) | 26 tests | **pass** | — | — |
-| Full regression suite (all existing unit + integration tests) | see §4 | see §4 | Not run | Not run |
+| Full regression suite (all existing unit + integration tests) | 1,811 | **all pass** after D-9, re-checked after merging `staging` (see §4) | Not run | Not run |
 | Environment end-to-end (web, Android, iOS on real accounts) | 9 | Not run | **Not run** | **Not run** |
 
 ## 2. Test cases
@@ -130,7 +130,7 @@ Script: Playwright (Chromium). Screenshots in
 | E-03 | Web, operator account | Pick a shop, import, check prices go to the owner | Not run | — |
 | E-04 | Android app (preview build) | Pick the file from Files / Drive / WhatsApp, preview cards, import, share the report | Not run | — |
 | E-05 | iPhone | Same, from Files | Not run | — |
-| E-06 | Migration | `0076` applied by the Test database workflow | Not run | Not run |
+| E-06 | Migration | `0077` applied by the Test database workflow | Not run | Not run |
 | E-07 | Prod smoke | One small import into a designated test shop; check stock and the report | — | Not run |
 | E-08 | Prod clean-up | Delete-action file deactivates the test products | — | Not run |
 | E-09 | Regression on the site | Manual add product, add category, Excel price upload | Not run | Not run |

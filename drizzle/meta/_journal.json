@@ -537,8 +537,15 @@
     {
       "idx": 76,
       "version": "7",
-      "when": 1791832800000,
-      "tag": "0076_product_bulk_import",
+      "when": 1792038452436,
+      "tag": "0076_inventory_accounting",
+      "breakpoints": true
+    },
+    {
+      "idx": 77,
+      "version": "7",
+      "when": 1792124852436,
+      "tag": "0077_product_bulk_import",
       "breakpoints": true
     }
   ]

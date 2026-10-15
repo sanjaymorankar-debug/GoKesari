@@ -21,6 +21,26 @@ import {
   SHOP_LIFECYCLE_STATUSES,
   SUBSCRIPTION_LIFECYCLE_STATUSES,
 } from "@/lib/status-models";
+import {
+  BOOK_ACCOUNTS,
+  CAPTURE_KINDS,
+  CAPTURE_SOURCES,
+  CAPTURE_STATUSES,
+  EXPENSE_CATEGORIES,
+  EXTRACTION_ENGINES,
+  FILING_FREQUENCIES,
+  GST_LINK_STATUSES,
+  ITC_STATUSES,
+  PARTY_KINDS,
+  PAYMENT_MODES,
+  PORTAL_IMPORT_SOURCES,
+  PORTAL_RETURN_TYPES,
+  RECON_STATUSES,
+  STOCK_MOVEMENT_TYPES,
+  STOCK_SOURCE_TYPES,
+  VALUATION_METHODS,
+  VOUCHER_TYPES,
+} from "@/lib/accounts/constants";
 import { SHOP_TYPE_KEYS } from "@/lib/shop-types";
 import {
   IMPORT_JOB_STATUSES,
@@ -1681,7 +1701,7 @@ export const inventoryMovements = pgTable(
     /**
      * Bulk product upload (docs/product-import-2026-10): what wrote this movement
      * (`bulk_upload`) and the import job. Null on every movement written before
-     * migration 0076 and by every other flow.
+     * migration 0077 and by every other flow.
      */
     source: text("source"),
     importJobId: uuid("import_job_id"),
@@ -6892,7 +6912,668 @@ export const sellerDocumentUploads = pgTable(
 );
 export type SellerDocumentUpload = typeof sellerDocumentUploads.$inferSelect;
 
-/* ------------------------------------------- bulk product upload (0076)
+/* ================================================================
+ * Inventory & Accounting (docs/inventory-accounting-2026-10).
+ * Every table belongs to the SELLER database in the seller/customer split
+ * and every row carries shop_id: services filter by it on every read, so
+ * one shop never sees another's books. People columns (created_by …) are
+ * plain uuids — users live in the core database, so no foreign key.
+ * ================================================================ */
+
+/** One row per shop that uses the books: its choices. */
+export const invSettings = pgTable(
+  "inv_settings",
+  {
+    shopId: uuid("shop_id").primaryKey().references(() => shops.id, { onDelete: "cascade" }),
+    valuationMethod: text("valuation_method", { enum: VALUATION_METHODS }).notNull().default("FIFO"),
+    /** Which of the listing's two stock counts a purchase adds to. */
+    purchaseChannel: text("purchase_channel", { enum: ["ONLINE", "OFFLINE"] }).notNull().default("ONLINE"),
+    filingFrequency: text("filing_frequency", { enum: FILING_FREQUENCIES }).notNull().default("MONTHLY"),
+    /** Prefix for the shop's own sales invoices (counter sales), e.g. "INV". */
+    salesInvoicePrefix: text("sales_invoice_prefix").notNull().default("S"),
+    /** Days before a GST due date the owner is reminded. */
+    reminderDaysBefore: integer("reminder_days_before").notNull().default(3),
+    expiryAlertDays: integer("expiry_alert_days").notNull().default(30),
+    updatedBy: uuid("updated_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("inv_settings_days_sane", sql`${t.reminderDaysBefore} BETWEEN 0 AND 30 AND ${t.expiryAlertDays} BETWEEN 0 AND 365`),
+  ],
+);
+export type InvSettings = typeof invSettings.$inferSelect;
+
+/** Per listing: batch/expiry tracking and the last purchase cost. */
+export const invProductSettings = pgTable(
+  "inv_product_settings",
+  {
+    shopProductId: uuid("shop_product_id").primaryKey().references(() => shopProducts.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    trackBatches: boolean("track_batches").notNull().default(false),
+    /** Cost of one sellable unit on the latest confirmed purchase (taxable value, before GST). */
+    lastPurchaseRatePaise: bigint("last_purchase_rate_paise", { mode: "number" }),
+    lastPurchaseAt: timestamp("last_purchase_at", { withTimezone: true }),
+    lastSupplierId: uuid("last_supplier_id"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("inv_product_settings_shop_idx").on(t.shopId)],
+);
+
+/** Batches (lot number, expiry) received on purchases. */
+export const invBatches = pgTable(
+  "inv_batches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    shopProductId: uuid("shop_product_id").notNull().references(() => shopProducts.id, { onDelete: "cascade" }),
+    batchNo: text("batch_no").notNull(),
+    mfgDate: date("mfg_date"),
+    expiryDate: date("expiry_date"),
+    mrpPaise: bigint("mrp_paise", { mode: "number" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("inv_batches_unique").on(t.shopProductId, t.batchNo),
+    index("inv_batches_expiry_idx").on(t.shopId, t.expiryDate),
+  ],
+);
+export type InvBatch = typeof invBatches.$inferSelect;
+
+/**
+ * The stock ledger. Every movement is a row; a listing's stock is the sum of
+ * its rows (qty in milli sellable units: 1 pack = 1000, 2.5 kg of a 1 kg
+ * listing = 2500). Rows are never updated or deleted — a correction adds a
+ * REVERSAL row and a new row. Movements made by the existing order and
+ * catalogue code reach this table through database triggers (migration 0076),
+ * in the same transaction, so an online order reduces stock here the moment
+ * it is placed.
+ */
+export const invStockLedger = pgTable(
+  "inv_stock_ledger",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    shopProductId: uuid("shop_product_id").notNull().references(() => shopProducts.id, { onDelete: "cascade" }),
+    channel: text("channel", { enum: ["ONLINE", "OFFLINE"] }).notNull(),
+    movementType: text("movement_type", { enum: STOCK_MOVEMENT_TYPES }).notNull(),
+    /** Signed: positive in, negative out. */
+    qtyMilli: bigint("qty_milli", { mode: "number" }).notNull(),
+    /** Inbound: cost of one sellable unit (taxable value, before GST). Null when unknown (opening stock). */
+    unitCostPaise: bigint("unit_cost_paise", { mode: "number" }),
+    /** Outbound sales: selling price of one unit, when known. */
+    unitPricePaise: bigint("unit_price_paise", { mode: "number" }),
+    batchId: uuid("batch_id").references(() => invBatches.id, { onDelete: "set null" }),
+    sourceType: text("source_type", { enum: STOCK_SOURCE_TYPES }).notNull(),
+    sourceId: uuid("source_id"),
+    sourceLineId: uuid("source_line_id"),
+    /** Human reference: invoice / order number. */
+    docRef: text("doc_ref"),
+    orderId: uuid("order_id"),
+    inventoryMovementId: uuid("inventory_movement_id"),
+    /** The entry this one undoes (REVERSAL). */
+    reversesId: uuid("reverses_id").references((): AnyPgColumn => invStockLedger.id, { onDelete: "set null" }),
+    /** Transaction id that wrote the row — lets the movement trigger find the stock change it describes. */
+    txid: bigint("txid", { mode: "number" }),
+    entryDate: date("entry_date").notNull().default(sql`(now() AT TIME ZONE 'Asia/Kolkata')::date`),
+    note: text("note"),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("inv_stock_ledger_sp_idx").on(t.shopProductId, t.createdAt),
+    index("inv_stock_ledger_shop_date_idx").on(t.shopId, t.entryDate),
+    index("inv_stock_ledger_source_idx").on(t.sourceType, t.sourceId),
+    index("inv_stock_ledger_txid_idx").on(t.txid),
+    check("inv_stock_ledger_qty_nonzero", sql`${t.qtyMilli} <> 0`),
+  ],
+);
+export type InvStockLedgerEntry = typeof invStockLedger.$inferSelect;
+
+/**
+ * Unit conversions: how many milli sellable units one `unit` of a bill is
+ * (a "case" of 24 packs → 24000; a 25 kg "bag" of a 1 kg listing → 25000).
+ * shop_product_id null = the shop's default for that unit word.
+ */
+export const invUnitConversions = pgTable(
+  "inv_unit_conversions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    shopProductId: uuid("shop_product_id").references(() => shopProducts.id, { onDelete: "cascade" }),
+    unit: text("unit").notNull(),
+    milliPerUnit: bigint("milli_per_unit", { mode: "number" }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("inv_unit_conversions_unique").on(t.shopId, sql`coalesce(${t.shopProductId}, '00000000-0000-0000-0000-000000000000'::uuid)`, t.unit),
+    check("inv_unit_conversions_positive", sql`${t.milliPerUnit} > 0`),
+  ],
+);
+
+/**
+ * What the owner taught the reader: this supplier's line text (or item
+ * code) is this listing, in this unit. Used first when matching the next bill.
+ */
+export const invSupplierItemMaps = pgTable(
+  "inv_supplier_item_maps",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    /** Supplier GSTIN, or "name:<normalised name>" for an unregistered supplier. */
+    supplierKey: text("supplier_key").notNull(),
+    /** Normalised line description or supplier item code. */
+    itemKey: text("item_key").notNull(),
+    shopProductId: uuid("shop_product_id").notNull().references(() => shopProducts.id, { onDelete: "cascade" }),
+    unit: text("unit"),
+    milliPerUnit: bigint("milli_per_unit", { mode: "number" }),
+    timesUsed: integer("times_used").notNull().default(1),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("inv_supplier_item_maps_unique").on(t.shopId, t.supplierKey, t.itemKey)],
+);
+
+/** Suppliers and customers of the shop (its own parties, not GoKesari users). */
+export const accParties = pgTable(
+  "acc_parties",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: PARTY_KINDS }).notNull(),
+    name: text("name").notNull(),
+    gstin: text("gstin"),
+    stateCode: text("state_code"),
+    phone: text("phone"),
+    email: text("email"),
+    address: text("address"),
+    /** Days of credit the supplier gives / the shop gives the customer (due dates, ageing). */
+    creditDays: integer("credit_days").notNull().default(0),
+    /** Positive = the shop owes the party (payable); negative = the party owes the shop. */
+    openingBalancePaise: bigint("opening_balance_paise", { mode: "number" }).notNull().default(0),
+    isActive: boolean("is_active").notNull().default(true),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("acc_parties_shop_idx").on(t.shopId, t.kind),
+    uniqueIndex("acc_parties_gstin_unique").on(t.shopId, t.gstin).where(sql`${t.gstin} IS NOT NULL`),
+  ],
+);
+export type AccParty = typeof accParties.$inferSelect;
+
+/** Files the owner uploaded (bills, portal downloads), per shop. */
+export const accFiles = pgTable(
+  "acc_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    purpose: text("purpose", { enum: ["BILL", "PORTAL_RETURN", "EXPENSE_RECEIPT"] }).notNull(),
+    originalName: text("original_name"),
+    contentType: text("content_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    sha256: text("sha256").notNull(),
+    /** DB: bytes in `data`; DISK: under MEDIA_DIR; S3: an S3-compatible bucket. */
+    storage: text("storage", { enum: ["DB", "DISK", "S3"] }).notNull(),
+    storageKey: text("storage_key"),
+    /** Encrypted at rest when `encrypted` (AES-256-GCM, INTEGRATION_ENCRYPTION_KEY). */
+    data: bytea("data"),
+    encrypted: boolean("encrypted").notNull().default(false),
+    pageNo: integer("page_no"),
+    uploadedBy: uuid("uploaded_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("acc_files_shop_idx").on(t.shopId, t.createdAt), index("acc_files_sha_idx").on(t.shopId, t.sha256)],
+);
+export type AccFile = typeof accFiles.$inferSelect;
+
+/**
+ * A supplier bill being read: the job (queued → processing → ready), the
+ * draft the reader produced with per-field confidence, and the purchase it
+ * became once the owner confirmed. Nothing here touches stock.
+ */
+export const invBillCaptures = pgTable(
+  "inv_bill_captures",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: CAPTURE_KINDS }).notNull(),
+    source: text("source", { enum: CAPTURE_SOURCES }).notNull(),
+    status: text("status", { enum: CAPTURE_STATUSES }).notNull().default("QUEUED"),
+    /** 0–100 and a short stage name, for the progress bar. */
+    progress: integer("progress").notNull().default(0),
+    stage: text("stage"),
+    engine: text("engine", { enum: EXTRACTION_ENGINES }),
+    fileIds: uuid("file_ids").array().notNull(),
+    /** The draft (BillDraft in src/lib/accounts/bill-draft.ts). */
+    draft: jsonb("draft").$type<Record<string, unknown>>(),
+    /** Validation issues of the latest draft. */
+    issues: jsonb("issues").$type<{ code: string; severity: "error" | "warn"; field?: string; line?: number; message: string }[]>().notNull().default([]),
+    error: text("error"),
+    attempts: integer("attempts").notNull().default(0),
+    lockedAt: timestamp("locked_at", { withTimezone: true }),
+    purchaseInvoiceId: uuid("purchase_invoice_id"),
+    createdBy: uuid("created_by"),
+    confirmedBy: uuid("confirmed_by"),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("inv_bill_captures_shop_idx").on(t.shopId, t.status, t.createdAt),
+    index("inv_bill_captures_queue_idx").on(t.status, t.createdAt),
+  ],
+);
+export type InvBillCapture = typeof invBillCaptures.$inferSelect;
+
+/** A supplier's bill in the books (the purchase register). */
+export const accPurchaseInvoices = pgTable(
+  "acc_purchase_invoices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    partyId: uuid("party_id").notNull().references(() => accParties.id, { onDelete: "restrict" }),
+    /** Supplier GSTIN, or "name:<normalised name>": with invoice_no, the duplicate check. */
+    supplierKey: text("supplier_key").notNull(),
+    supplierGstin: text("supplier_gstin"),
+    supplierName: text("supplier_name").notNull(),
+    invoiceNo: text("invoice_no").notNull(),
+    invoiceDate: date("invoice_date").notNull(),
+    dueDate: date("due_date"),
+    placeOfSupply: text("place_of_supply"),
+    interState: boolean("inter_state").notNull().default(false),
+    reverseCharge: boolean("reverse_charge").notNull().default(false),
+    irn: text("irn"),
+    taxablePaise: bigint("taxable_paise", { mode: "number" }).notNull(),
+    cgstPaise: bigint("cgst_paise", { mode: "number" }).notNull().default(0),
+    sgstPaise: bigint("sgst_paise", { mode: "number" }).notNull().default(0),
+    igstPaise: bigint("igst_paise", { mode: "number" }).notNull().default(0),
+    cessPaise: bigint("cess_paise", { mode: "number" }).notNull().default(0),
+    otherChargesPaise: bigint("other_charges_paise", { mode: "number" }).notNull().default(0),
+    roundOffPaise: bigint("round_off_paise", { mode: "number" }).notNull().default(0),
+    totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
+    itcEligible: boolean("itc_eligible").notNull().default(true),
+    status: text("status", { enum: ["CONFIRMED", "CANCELLED"] }).notNull().default("CONFIRMED"),
+    /** 1 on confirm; +1 on every correction. */
+    version: integer("version").notNull().default(1),
+    captureId: uuid("capture_id"),
+    fileIds: uuid("file_ids").array().notNull().default(sql`'{}'::uuid[]`),
+    engine: text("engine", { enum: EXTRACTION_ENGINES }).notNull().default("MANUAL"),
+    note: text("note"),
+    createdBy: uuid("created_by"),
+    updatedBy: uuid("updated_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("acc_purchase_invoices_dup_unique")
+      .on(t.shopId, t.supplierKey, sql`upper(${t.invoiceNo})`)
+      .where(sql`${t.status} = 'CONFIRMED'`),
+    index("acc_purchase_invoices_shop_date_idx").on(t.shopId, t.invoiceDate),
+    index("acc_purchase_invoices_party_idx").on(t.partyId),
+    check("acc_purchase_invoices_amounts", sql`${t.taxablePaise} >= 0 AND ${t.cgstPaise} >= 0 AND ${t.sgstPaise} >= 0 AND ${t.igstPaise} >= 0 AND ${t.cessPaise} >= 0 AND ${t.totalPaise} >= 0`),
+  ],
+);
+export type AccPurchaseInvoice = typeof accPurchaseInvoices.$inferSelect;
+
+/** Lines of the current version of a purchase (replaced as a whole on correction; history in acc_change_log). */
+export const accPurchaseLines = pgTable(
+  "acc_purchase_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    purchaseId: uuid("purchase_id").notNull().references(() => accPurchaseInvoices.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    lineNo: integer("line_no").notNull(),
+    shopProductId: uuid("shop_product_id").references(() => shopProducts.id, { onDelete: "set null" }),
+    description: text("description").notNull(),
+    hsn: text("hsn"),
+    /** As billed: quantity ×1000 in the bill's unit. */
+    qtyMilli: bigint("qty_milli", { mode: "number" }).notNull(),
+    unit: text("unit"),
+    /** The same quantity in the listing's sellable units ×1000 (what stock moves by). */
+    stockQtyMilli: bigint("stock_qty_milli", { mode: "number" }),
+    ratePaise: bigint("rate_paise", { mode: "number" }).notNull(),
+    discountPaise: bigint("discount_paise", { mode: "number" }).notNull().default(0),
+    taxablePaise: bigint("taxable_paise", { mode: "number" }).notNull(),
+    gstRateBp: integer("gst_rate_bp").notNull().default(0),
+    cgstPaise: bigint("cgst_paise", { mode: "number" }).notNull().default(0),
+    sgstPaise: bigint("sgst_paise", { mode: "number" }).notNull().default(0),
+    igstPaise: bigint("igst_paise", { mode: "number" }).notNull().default(0),
+    cessPaise: bigint("cess_paise", { mode: "number" }).notNull().default(0),
+    totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
+    batchNo: text("batch_no"),
+    expiryDate: date("expiry_date"),
+    mrpPaise: bigint("mrp_paise", { mode: "number" }),
+  },
+  (t) => [index("acc_purchase_lines_purchase_idx").on(t.purchaseId), index("acc_purchase_lines_sp_idx").on(t.shopProductId)],
+);
+export type AccPurchaseLine = typeof accPurchaseLines.$inferSelect;
+
+/** The shop's own GST sales invoices (counter / B2B sales outside GoKesari orders): the sales register. */
+export const accSalesInvoices = pgTable(
+  "acc_sales_invoices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    partyId: uuid("party_id").references(() => accParties.id, { onDelete: "restrict" }),
+    invoiceNo: text("invoice_no").notNull(),
+    invoiceDate: date("invoice_date").notNull(),
+    dueDate: date("due_date"),
+    buyerName: text("buyer_name"),
+    buyerGstin: text("buyer_gstin"),
+    /** State code of the place of supply; differs from the shop's state → IGST. */
+    placeOfSupply: text("place_of_supply").notNull(),
+    sellerStateCode: text("seller_state_code").notNull(),
+    interState: boolean("inter_state").notNull(),
+    paymentMode: text("payment_mode", { enum: PAYMENT_MODES }).notNull(),
+    taxablePaise: bigint("taxable_paise", { mode: "number" }).notNull(),
+    cgstPaise: bigint("cgst_paise", { mode: "number" }).notNull().default(0),
+    sgstPaise: bigint("sgst_paise", { mode: "number" }).notNull().default(0),
+    igstPaise: bigint("igst_paise", { mode: "number" }).notNull().default(0),
+    cessPaise: bigint("cess_paise", { mode: "number" }).notNull().default(0),
+    roundOffPaise: bigint("round_off_paise", { mode: "number" }).notNull().default(0),
+    totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
+    status: text("status", { enum: ["ISSUED", "CANCELLED"] }).notNull().default("ISSUED"),
+    cancelReason: text("cancel_reason"),
+    note: text("note"),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("acc_sales_invoices_no_unique").on(t.shopId, t.invoiceNo),
+    index("acc_sales_invoices_shop_date_idx").on(t.shopId, t.invoiceDate),
+  ],
+);
+export type AccSalesInvoice = typeof accSalesInvoices.$inferSelect;
+
+export const accSalesLines = pgTable(
+  "acc_sales_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    salesId: uuid("sales_id").notNull().references(() => accSalesInvoices.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    lineNo: integer("line_no").notNull(),
+    shopProductId: uuid("shop_product_id").references(() => shopProducts.id, { onDelete: "set null" }),
+    description: text("description").notNull(),
+    hsn: text("hsn"),
+    qtyMilli: bigint("qty_milli", { mode: "number" }).notNull(),
+    unit: text("unit"),
+    /** Price of one unit before GST. */
+    ratePaise: bigint("rate_paise", { mode: "number" }).notNull(),
+    discountPaise: bigint("discount_paise", { mode: "number" }).notNull().default(0),
+    taxablePaise: bigint("taxable_paise", { mode: "number" }).notNull(),
+    gstRateBp: integer("gst_rate_bp").notNull().default(0),
+    cgstPaise: bigint("cgst_paise", { mode: "number" }).notNull().default(0),
+    sgstPaise: bigint("sgst_paise", { mode: "number" }).notNull().default(0),
+    igstPaise: bigint("igst_paise", { mode: "number" }).notNull().default(0),
+    cessPaise: bigint("cess_paise", { mode: "number" }).notNull().default(0),
+    totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
+  },
+  (t) => [index("acc_sales_lines_sales_idx").on(t.salesId)],
+);
+export type AccSalesLine = typeof accSalesLines.$inferSelect;
+
+/** Next number of the shop's own documents, per financial year. */
+export const accCounters = pgTable(
+  "acc_counters",
+  {
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    fy: text("fy").notNull(),
+    next: integer("next").notNull().default(1),
+  },
+  (t) => [primaryKey({ columns: [t.shopId, t.kind, t.fy] })],
+);
+
+/** Payments to suppliers and receipts from customers. */
+export const accPayments = pgTable(
+  "acc_payments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    partyId: uuid("party_id").notNull().references(() => accParties.id, { onDelete: "restrict" }),
+    direction: text("direction", { enum: ["PAID", "RECEIVED"] }).notNull(),
+    mode: text("mode", { enum: ["CASH", "BANK", "UPI", "CARD"] }).notNull(),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    paymentDate: date("payment_date").notNull(),
+    /** Optional: the bill / invoice this settles (otherwise applied oldest first). */
+    purchaseInvoiceId: uuid("purchase_invoice_id").references(() => accPurchaseInvoices.id, { onDelete: "set null" }),
+    salesInvoiceId: uuid("sales_invoice_id").references(() => accSalesInvoices.id, { onDelete: "set null" }),
+    reference: text("reference"),
+    note: text("note"),
+    status: text("status", { enum: ["ACTIVE", "CANCELLED"] }).notNull().default("ACTIVE"),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("acc_payments_shop_idx").on(t.shopId, t.paymentDate), index("acc_payments_party_idx").on(t.partyId), check("acc_payments_positive", sql`${t.amountPaise} > 0`)],
+);
+export type AccPayment = typeof accPayments.$inferSelect;
+
+export const accExpenses = pgTable(
+  "acc_expenses",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    category: text("category", { enum: EXPENSE_CATEGORIES }).notNull(),
+    description: text("description"),
+    expenseDate: date("expense_date").notNull(),
+    mode: text("mode", { enum: PAYMENT_MODES }).notNull(),
+    partyId: uuid("party_id").references(() => accParties.id, { onDelete: "set null" }),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    /** GST on the expense the shop may claim (optional). Included in amount. */
+    gstPaise: bigint("gst_paise", { mode: "number" }).notNull().default(0),
+    fileId: uuid("file_id").references(() => accFiles.id, { onDelete: "set null" }),
+    status: text("status", { enum: ["ACTIVE", "CANCELLED"] }).notNull().default("ACTIVE"),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("acc_expenses_shop_idx").on(t.shopId, t.expenseDate), check("acc_expenses_amounts", sql`${t.amountPaise} > 0 AND ${t.gstPaise} >= 0 AND ${t.gstPaise} <= ${t.amountPaise}`)],
+);
+export type AccExpense = typeof accExpenses.$inferSelect;
+
+/**
+ * The books: one row per leg of a voucher (debits = credits per voucher).
+ * Append-only — a correction posts a REVERSAL voucher, never an edit.
+ */
+export const accLedgerEntries = pgTable(
+  "acc_ledger_entries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    voucherId: uuid("voucher_id").notNull(),
+    voucherType: text("voucher_type", { enum: VOUCHER_TYPES }).notNull(),
+    entryDate: date("entry_date").notNull(),
+    account: text("account", { enum: BOOK_ACCOUNTS }).notNull(),
+    partyId: uuid("party_id").references(() => accParties.id, { onDelete: "restrict" }),
+    /** Expense category for EXPENSE legs. */
+    subAccount: text("sub_account"),
+    debitPaise: bigint("debit_paise", { mode: "number" }).notNull().default(0),
+    creditPaise: bigint("credit_paise", { mode: "number" }).notNull().default(0),
+    sourceType: text("source_type", { enum: ["PURCHASE", "SALE", "PAYMENT", "EXPENSE", "WRITE_OFF", "PARTY_OPENING"] }).notNull(),
+    sourceId: uuid("source_id").notNull(),
+    docRef: text("doc_ref"),
+    narration: text("narration"),
+    /** The voucher this one reverses. */
+    reversesVoucherId: uuid("reverses_voucher_id"),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("acc_ledger_entries_shop_date_idx").on(t.shopId, t.entryDate),
+    index("acc_ledger_entries_voucher_idx").on(t.voucherId),
+    index("acc_ledger_entries_party_idx").on(t.partyId, t.entryDate),
+    index("acc_ledger_entries_source_idx").on(t.sourceType, t.sourceId),
+    check("acc_ledger_entries_one_side", sql`(${t.debitPaise} >= 0 AND ${t.creditPaise} >= 0) AND (${t.debitPaise} = 0 OR ${t.creditPaise} = 0)`),
+  ],
+);
+export type AccLedgerEntry = typeof accLedgerEntries.$inferSelect;
+
+/** Input tax credit per purchase (one current row per purchase; corrections supersede). */
+export const gstItcRecords = pgTable(
+  "gst_itc_records",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    purchaseInvoiceId: uuid("purchase_invoice_id").notNull().references(() => accPurchaseInvoices.id, { onDelete: "cascade" }),
+    purchaseVersion: integer("purchase_version").notNull(),
+    /** YYYY-MM of the invoice date. */
+    period: text("period").notNull(),
+    supplierGstin: text("supplier_gstin"),
+    invoiceNo: text("invoice_no").notNull(),
+    invoiceDate: date("invoice_date").notNull(),
+    taxablePaise: bigint("taxable_paise", { mode: "number" }).notNull(),
+    cgstPaise: bigint("cgst_paise", { mode: "number" }).notNull().default(0),
+    sgstPaise: bigint("sgst_paise", { mode: "number" }).notNull().default(0),
+    igstPaise: bigint("igst_paise", { mode: "number" }).notNull().default(0),
+    cessPaise: bigint("cess_paise", { mode: "number" }).notNull().default(0),
+    status: text("status", { enum: ITC_STATUSES }).notNull().default("PENDING_RECON"),
+    portalInvoiceId: uuid("portal_invoice_id"),
+    supersededAt: timestamp("superseded_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("gst_itc_records_shop_period_idx").on(t.shopId, t.period),
+    uniqueIndex("gst_itc_records_current_unique").on(t.purchaseInvoiceId).where(sql`${t.supersededAt} IS NULL`),
+  ],
+);
+export type GstItcRecord = typeof gstItcRecords.$inferSelect;
+
+/** The shop's link to the GST portal through the GSP (one per shop). Tokens encrypted. */
+export const gstPortalLinks = pgTable(
+  "gst_portal_links",
+  {
+    shopId: uuid("shop_id").primaryKey().references(() => shops.id, { onDelete: "cascade" }),
+    gstin: text("gstin").notNull(),
+    portalUsername: text("portal_username").notNull(),
+    provider: text("provider").notNull(),
+    status: text("status", { enum: GST_LINK_STATUSES }).notNull(),
+    consentText: text("consent_text").notNull(),
+    consentAt: timestamp("consent_at", { withTimezone: true }).notNull(),
+    /** encryptCredentials({ requestId / authToken / sek … }) — never plain text. */
+    credentialsEncrypted: text("credentials_encrypted"),
+    tokenExpiresAt: timestamp("token_expires_at", { withTimezone: true }),
+    lastSyncAt: timestamp("last_sync_at", { withTimezone: true }),
+    lastError: text("last_error"),
+    linkedBy: uuid("linked_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+);
+export type GstPortalLink = typeof gstPortalLinks.$inferSelect;
+
+/** One pull from the portal (API) or one uploaded portal file. */
+export const gstPortalImports = pgTable(
+  "gst_portal_imports",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    returnType: text("return_type", { enum: PORTAL_RETURN_TYPES }).notNull(),
+    period: text("period").notNull(),
+    source: text("source", { enum: PORTAL_IMPORT_SOURCES }).notNull(),
+    fileId: uuid("file_id").references(() => accFiles.id, { onDelete: "set null" }),
+    gstinInFile: text("gstin_in_file"),
+    invoiceCount: integer("invoice_count").notNull().default(0),
+    warnings: jsonb("warnings").$type<string[]>().notNull().default([]),
+    importedBy: uuid("imported_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("gst_portal_imports_shop_idx").on(t.shopId, t.returnType, t.period)],
+);
+
+/** Invoices as the portal reports them (latest import per return/period wins). */
+export const gstPortalInvoices = pgTable(
+  "gst_portal_invoices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    importId: uuid("import_id").notNull().references(() => gstPortalImports.id, { onDelete: "cascade" }),
+    returnType: text("return_type", { enum: PORTAL_RETURN_TYPES }).notNull(),
+    period: text("period").notNull(),
+    section: text("section").notNull(),
+    docType: text("doc_type", { enum: ["INV", "CRN", "DBN"] }).notNull().default("INV"),
+    counterpartyGstin: text("counterparty_gstin").notNull(),
+    counterpartyName: text("counterparty_name"),
+    invoiceNo: text("invoice_no").notNull(),
+    invoiceDate: date("invoice_date").notNull(),
+    placeOfSupply: text("place_of_supply"),
+    reverseCharge: boolean("reverse_charge").notNull().default(false),
+    taxablePaise: bigint("taxable_paise", { mode: "number" }).notNull(),
+    cgstPaise: bigint("cgst_paise", { mode: "number" }).notNull().default(0),
+    sgstPaise: bigint("sgst_paise", { mode: "number" }).notNull().default(0),
+    igstPaise: bigint("igst_paise", { mode: "number" }).notNull().default(0),
+    cessPaise: bigint("cess_paise", { mode: "number" }).notNull().default(0),
+    totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
+    itcAvailable: boolean("itc_available"),
+    irn: text("irn"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("gst_portal_invoices_unique").on(t.shopId, t.returnType, t.period, t.counterpartyGstin, t.docType, sql`upper(${t.invoiceNo})`),
+    index("gst_portal_invoices_lookup_idx").on(t.shopId, t.counterpartyGstin),
+  ],
+);
+export type GstPortalInvoice = typeof gstPortalInvoices.$inferSelect;
+
+/** Latest reconciliation per shop and period: one row per invoice on either side. */
+export const gstReconItems = pgTable(
+  "gst_recon_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    period: text("period").notNull(),
+    status: text("status", { enum: RECON_STATUSES }).notNull(),
+    portalInvoiceId: uuid("portal_invoice_id").references(() => gstPortalInvoices.id, { onDelete: "cascade" }),
+    purchaseInvoiceId: uuid("purchase_invoice_id").references(() => accPurchaseInvoices.id, { onDelete: "cascade" }),
+    supplierGstin: text("supplier_gstin"),
+    invoiceNo: text("invoice_no").notNull(),
+    invoiceDate: date("invoice_date"),
+    booksTotalPaise: bigint("books_total_paise", { mode: "number" }),
+    portalTotalPaise: bigint("portal_total_paise", { mode: "number" }),
+    booksTaxPaise: bigint("books_tax_paise", { mode: "number" }),
+    portalTaxPaise: bigint("portal_tax_paise", { mode: "number" }),
+    note: text("note"),
+    runAt: timestamp("run_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("gst_recon_items_shop_period_idx").on(t.shopId, t.period, t.status)],
+);
+export type GstReconItem = typeof gstReconItems.$inferSelect;
+
+/** Who changed what in the books: old and new value, never a silent overwrite. */
+export const accChangeLog = pgTable(
+  "acc_change_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    entityType: text("entity_type").notNull(),
+    entityId: uuid("entity_id").notNull(),
+    action: text("action").notNull(),
+    /** Field-level differences: { field, old, new }[] (lines as "lines[3].qty"). */
+    changes: jsonb("changes").$type<{ field: string; old: unknown; new: unknown }[]>().notNull().default([]),
+    snapshot: jsonb("snapshot").$type<Record<string, unknown>>(),
+    reason: text("reason"),
+    actorId: uuid("actor_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("acc_change_log_entity_idx").on(t.entityType, t.entityId, t.createdAt), index("acc_change_log_shop_idx").on(t.shopId, t.createdAt)],
+);
+
+/** GST due-date reminders already sent (one per shop, return, period and kind). */
+export const gstReminders = pgTable(
+  "gst_reminders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    returnType: text("return_type").notNull(),
+    period: text("period").notNull(),
+    dueDate: date("due_date").notNull(),
+    sentAt: timestamp("sent_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("gst_reminders_unique").on(t.shopId, t.returnType, t.period)],
+);
+
+/* ------------------------------------------- bulk product upload (0077)
  * docs/product-import-2026-10. A shop owner (or an operator/admin for any
  * shop) uploads one spreadsheet — an Amazon Seller Central inventory template,
  * the GoKesari simple template or a CSV — and the rows create or update the

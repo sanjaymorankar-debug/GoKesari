@@ -210,6 +210,13 @@ describe("PUZZLES.xlsm end to end", () => {
       expect(m.newUnits - m.previousUnits).toBe(m.deltaUnits);
     }
 
+    // Inventory & Accounting's stock ledger (migration 0076 triggers) records the same changes, labelled by the import.
+    const books = await db.execute<{ note: string; qty: string }>(
+      sql`select note, qty_milli::text as qty from inv_stock_ledger where inventory_movement_id in (select id from inventory_movements where import_job_id = ${jobId})`,
+    );
+    expect(books).toHaveLength(3);
+    for (const b of books) expect(b.note).toMatch(/^Bulk upload \(set\)$/);
+
     // The owner is told, in app (event-driven, no cron).
     const told = await db.select().from(notifications).where(eq(notifications.userId, owner.id));
     expect(told.some((n) => n.type === "shop.product_import_finished")).toBe(true);

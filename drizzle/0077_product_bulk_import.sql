@@ -1,4 +1,4 @@
--- 0076 Bulk product upload (docs/product-import-2026-10).
+-- 0077 Bulk product upload (docs/product-import-2026-10).
 --   product_import_jobs   one uploaded spreadsheet (Amazon Seller Central
 --                         template, GoKesari simple template or CSV): the file,
 --                         its status, counts and the inventory mode.
@@ -10,9 +10,11 @@
 --   product_attributes    lossless attributes of a product an upload created.
 --   inventory_movements   + source, import_job_id (nullable): the stock ledger
 --                         records which import changed a stock level.
+-- Follows 0076_inventory_accounting: its stock-ledger triggers also record the
+-- stock changes an import makes (no change needed here).
 -- Owned by the SELLER database in the seller/customer split (docs/db-split-2026-10).
 -- Additive only: new tables and nullable columns; no existing column changes.
--- Rollback: scripts/rollback-0076.sql
+-- Rollback: scripts/rollback-0077.sql
 CREATE TABLE "product_import_jobs" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"shop_id" uuid NOT NULL,
