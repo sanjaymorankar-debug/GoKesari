@@ -3,11 +3,11 @@
 | | |
 |---|---|
 | Feature | Bulk product upload — design in [docs/product-import-2026-10/README.md](../product-import-2026-10/README.md) |
-| Branch | `claude/amazing-ritchie-9vlq9f` (PR into `staging`) |
+| Branch | `claude/amazing-ritchie-9vlq9f` — [PR #173](https://github.com/sanjaymorankar-debug/GoKesari/pull/173), merged into `staging` as `2886cf3` |
 | Report date | 15 Oct 2026 |
 | Local environment | Node 22, PostgreSQL 16 (local), Next.js 16.3.6 dev server, Chromium (Playwright) |
-| **Test server (test.gokesari.com)** | **Not run — not deployed yet.** Deployment needs the PR merged into `staging` (owner approval); this session cannot deploy or reach the site. |
-| **Production (gokesari.com)** | **Not run — not deployed yet.** Follows a clean Test run and the `staging` → `main` merge. |
+| **Test server (test.gokesari.com)** | **Pass — 23 of 23 live cases** on 15 Oct 2026 (shop owner, admin, operator; desktop and the Android app's user agent). Migration `0077` confirmed on the test database (Test database workflow run 31: 80 migrations, newest `0077_product_bulk_import`). See §2.7. |
+| **Production (gokesari.com)** | **Not run — not deployed yet.** Waiting for the owner's go-ahead on the `staging` → `main` release (it also carries other unreleased `staging` work; see the PR). |
 | Fixture | `tests/fixtures/bulk_upload/PUZZLES.xlsm` — **a reconstruction** of the Amazon PUZZLES template to the layout the brief verified (309 columns, rows 1–7 as described, data from row 8, VBA project included). The original file was not available to this session. |
 
 Results columns: **Local** = run in this session (automated suite or browser);
@@ -21,10 +21,11 @@ exactly that — nothing is claimed for an environment it was not run on.
 | Parser and normalisation (unit) | 18 | **18 pass** | Not run | Not run |
 | Import service and API (integration, real PostgreSQL) | 23 | **23 pass** | Not run | Not run |
 | Load: 5,000 rows | 1 | **pass** (parse + preview 1.8 s; import 94.7 s) | Not run | Not run |
-| Browser walk-through (desktop, phone, admin, operator) | 10 | **10 pass** | Not run | Not run |
+| Browser walk-through (desktop, phone, admin, operator) | 10 | **10 pass** | **10 pass** (by the live run, §2.7) | Not run |
+| Live functional run on the site (`scripts/test-site/product-import-check.mjs`) | 23 | — | **23 pass** | Not run |
 | Mobile app (unit, typecheck, lint) | 26 tests | **pass** | — | — |
 | Full regression suite (all existing unit + integration tests) | 1,811 | **all pass** after D-9, re-checked after merging `staging` (see §4) | Not run | Not run |
-| Environment end-to-end (web, Android, iOS on real accounts) | 9 | Not run | **Not run** | **Not run** |
+| Environment end-to-end (web, Android, iOS on real accounts) | 9 | — | **4 pass** (E-01–E-03, E-06); E-04/E-05 need a phone; E-09 see §2.6 | **Not run** |
 
 ## 2. Test cases
 
@@ -98,16 +99,16 @@ Script: Playwright (Chromium). Screenshots in
 
 | ID | Role / device | Steps | Expected | Actual | Local | Test | Prod |
 |---|---|---|---|---|---|---|---|
-| U-01 | Shop owner, desktop | Inventory page | "Bulk upload (Excel/CSV)" in the Inventory menu strip and Seller Central sidebar | Shown (01) | Pass | Not run | Not run |
-| U-02 | Shop owner, desktop | Open Bulk upload | Drop zone, template download, limits, help | Shown (02) | Pass | Not run | Not run |
-| U-03 | Shop owner, desktop | Upload PUZZLES.xlsm | Checking… then preview: totals, stock mode, table with Qty current → new and warnings | Shown (03) | Pass | Not run | Not run |
-| U-04 | Shop owner, desktop | "Only rows with warnings" | Filtered table | Shown (04) | Pass | Not run | Not run |
-| U-05 | Shop owner, desktop | Import | Progress, then result totals, row outcomes, image status, history | Shown (05) | Pass | Not run | Not run |
-| U-06 | Shop owner, desktop | Download report | `PUZZLES_result.xlsx` | Downloaded ([sample](../product-import-2026-10/sample-result-report.xlsx)) | Pass | Not run | Not run |
-| U-07 | Shop owner, desktop | Upload the same file again | "This file was already imported on …" | Shown (06) | Pass | Not run | Not run |
-| U-08 | Shop owner, phone 390 px with the app's user agent | Upload, preview (cards), Add mode, import | Card layout; import completes | Shown (07–09); second shop matched the first shop's products by barcode and by name + brand | Pass | Not run | Not run |
-| U-09 | Admin | Product master hub → Bulk upload → pick shop → import | Tile, shop picker, import for that shop | Shown (10–12) | Pass | Not run | Not run |
-| U-10 | Operator | Catalogue hub → Bulk upload → pick shop → import | Tile, picker, import; prices proposed to the owner | Shown (13–14) | Pass | Not run | Not run |
+| U-01 | Shop owner, desktop | Inventory page | "Bulk upload (Excel/CSV)" in the Inventory menu strip and Seller Central sidebar | Shown (01) | Pass | Pass (PI-01) | Not run |
+| U-02 | Shop owner, desktop | Open Bulk upload | Drop zone, template download, limits, help | Shown (02) | Pass | Pass (PI-02) | Not run |
+| U-03 | Shop owner, desktop | Upload PUZZLES.xlsm | Checking… then preview: totals, stock mode, table with Qty current → new and warnings | Shown (03) | Pass | Pass (PI-03) | Not run |
+| U-04 | Shop owner, desktop | "Only rows with warnings" | Filtered table | Shown (04) | Pass | Pass (PI-04) | Not run |
+| U-05 | Shop owner, desktop | Import | Progress, then result totals, row outcomes, image status, history | Shown (05) | Pass | Pass (PI-05) | Not run |
+| U-06 | Shop owner, desktop | Download report | `PUZZLES_result.xlsx` | Downloaded ([sample](../product-import-2026-10/sample-result-report.xlsx)) | Pass | Pass (PI-06) | Not run |
+| U-07 | Shop owner, desktop | Upload the same file again | "This file was already imported on …" | Shown (06) | Pass | Pass (PI-07) | Not run |
+| U-08 | Shop owner, phone 390 px with the app's user agent | Upload, preview (cards), Add mode, import | Card layout; import completes | Shown (07–09); second shop matched the first shop's products by barcode and by name + brand | Pass | Pass (PI-12 cards; Add mode PI-10) | Not run |
+| U-09 | Admin | Product master hub → Bulk upload → pick shop → import | Tile, shop picker, import for that shop | Shown (10–12) | Pass | Pass (PS-01–04, admin) | Not run |
+| U-10 | Operator | Catalogue hub → Bulk upload → pick shop → import | Tile, picker, import; prices proposed to the owner | Shown (13–14) | Pass | Pass (PS-01–04, operator) | Not run |
 
 ### 2.5 Mobile apps
 
@@ -125,15 +126,68 @@ Script: Playwright (Chromium). Screenshots in
 
 | ID | Where | Steps | Test | Prod |
 |---|---|---|---|---|
-| E-01 | Web, shop account | Upload PUZZLES.xlsm + the GoKesari template, preview, import (Set), check stock = Quantity, download report | Not run | — |
-| E-02 | Web, admin account | Pick a shop, import, check the owner is notified | Not run | — |
-| E-03 | Web, operator account | Pick a shop, import, check prices go to the owner | Not run | — |
-| E-04 | Android app (preview build) | Pick the file from Files / Drive / WhatsApp, preview cards, import, share the report | Not run | — |
+| E-01 | Web, shop account | Upload PUZZLES.xlsm + the GoKesari template, preview, import (Set), check stock = Quantity, download report | **Pass** (PI-01–PI-15) | — |
+| E-02 | Web, admin account | Pick a shop, import, check the owner is notified | **Pass** (PS-01–04; owner's in-app notifications list the admin's imports) | — |
+| E-03 | Web, operator account | Pick a shop, import, check prices go to the owner | **Pass** (PS-03: "1 price change(s) were sent to the shop owner for approval"; the admin's price applied at once) | — |
+| E-04 | Android app (preview build) | Pick the file from Files / Drive / WhatsApp, preview cards, import, share the report | Partly: the app's user agent at phone width shows the card preview (PI-12). The system file picker needs a real phone — **not run** | — |
 | E-05 | iPhone | Same, from Files | Not run | — |
-| E-06 | Migration | `0077` applied by the Test database workflow | Not run | Not run |
+| E-06 | Migration | `0077` applied by the Test database workflow | **Pass** (run 31: 80 recorded, newest `0077_product_bulk_import`; backup taken first) | Not run |
 | E-07 | Prod smoke | One small import into a designated test shop; check stock and the report | — | Not run |
 | E-08 | Prod clean-up | Delete-action file deactivates the test products | — | Not run |
-| E-09 | Regression on the site | Manual add product, add category, Excel price upload | Not run | Not run |
+| E-09 | Regression on the site | Manual add product, add category, Excel price upload | Not run on the site (covered locally by I-23 and the full suite, §4) | Not run |
+
+### 2.7 Live run on test.gokesari.com (15 Oct 2026)
+
+Script: `scripts/test-site/product-import-check.mjs` (Chromium, signed in with
+`scripts/test-site/signin.mjs` and the e-mailed code). Shop: **E2E Referral
+MV2SJM8P-3** (`e1dc0a8d-…`, the shop owner test account). Accounts:
+`+gk-shop` (owner), `+gk-admin`, `+gk-ops`. Screenshots and the raw JSON
+results are in
+[docs/product-import-2026-10/test-site-2026-10-15/](../product-import-2026-10/test-site-2026-10-15/).
+
+| ID | Case | Result | Detail |
+|---|---|---|---|
+| PI-01 | Inventory menu has the Bulk upload (Excel/CSV) tile | **Pass** | Link to `/shop/product-import` (T01) |
+| PI-02 | Bulk upload page and the GoKesari template download | **Pass** | `GoKesari_Product_Upload_Template.xlsx` (T02) |
+| PI-03 | Upload PUZZLES.xlsm in the browser: preview, 309 columns, rows 6–7 left out, macros not run | **Pass** | (T03) |
+| PI-04 | Only rows with warnings | **Pass** | 1 row ("ten" is not a whole number) (T04) |
+| PI-05 | Import (Set) completes with no failed row | **Pass** | First run: 5 created. Re-import: 5 updated, 0 failed (T05) |
+| PI-06 | Result report download (Excel) | **Pass** | `PUZZLES_result.xlsx` |
+| PI-07 | Same file again: "already imported" prompt | **Pass** | (T06) |
+| PI-08 | Import history (API) | **Pass** | All the shop's imports listed |
+| PI-09 | GoKesari template file: new products, stock = file Quantity | **Pass** | 3 created, 0 failed |
+| PI-10 | Stock: Set → 11; Add 4 → 15; preview shows current → new | **Pass** | 11 → 15 |
+| PI-11 | Blank and negative quantities leave stock unchanged; Edit with no match skipped | **Pass** | Stock still 15 |
+| PI-12 | Phone width with the Android app's user agent: preview as cards | **Pass** | (T07) |
+| PI-13 | Delete action soft-deactivates (stock 0, listing kept) | **Pass** | 2 deactivated (the run's own test products) |
+| PI-14 | Owner notified in app when an import finishes | **Pass** | "Bulk product upload finished" per import |
+| PI-15 | Another shop's id is refused | **Pass** | 404 |
+| PS-01 (admin) | Bulk upload tile on the staff board | **Pass** | Product master hub (admin-S01) |
+| PS-02 (admin) | Shop picker | **Pass** | (admin-S02) |
+| PS-03 (admin) | Import for the chosen shop | **Pass** | Created; price applied at once (admin-S03) |
+| PS-04 (admin) | Clean-up: Delete file deactivates the product | **Pass** | |
+| PS-01 (operator) | Bulk upload tile on the staff board | **Pass** | Catalogue hub (ops-S01) |
+| PS-02 (operator) | Shop picker | **Pass** | (ops-S02) |
+| PS-03 (operator) | Import for the chosen shop | **Pass** | Created; price sent to the owner for approval (ops-S03) |
+| PS-04 (operator) | Clean-up: Delete file deactivates the product | **Pass** | |
+
+Notes from the live run:
+- Image URLs in the PUZZLES fixture point at `images.example-cdn.com`, which
+  answers with an HTML page. Each image was refused with a row warning ("not a
+  JPEG, PNG or WebP image (text/html)") and the products were still created,
+  as designed. A file with real image URLs was not tried on the site.
+- After "Completed" appears, the result rows replace the preview rows on the
+  next refresh, about 3 s later on the test site. Not a defect; the script
+  waits for it.
+- Earlier attempts of the same run failed only because of the test script:
+  the shop id was read before the history list had refreshed, and the
+  "Import it again?" browser confirmation was dismissed instead of accepted.
+  Both were fixed in the script. The final run above passed in full. A preview
+  left open by an interrupted attempt was cancelled.
+- Test data left on the test shop (test site only): the five PUZZLES
+  products, and per run "Live Test Product … C" (generated `GK-…` SKU, stock
+  4) — both still listed. Each run's `LIVE-…-A` / `LIVE-…-B` and every staff
+  `STAFF-…` product were deactivated by the run's own Delete files.
 
 ## 3. Defects found and fixed during this work
 
@@ -151,13 +205,15 @@ Script: Playwright (Chromium). Screenshots in
 ## 4. Regression suite
 
 Full `npm test` (all unit and integration tests, local PostgreSQL), after the
-feature: **REGRESSION_RESULT**
+feature: **1,811 tests pass, 0 fail** (unit + integration, local PostgreSQL 16), re-run after
+merging `staging` (#168, #169, #171) and renumbering the migration to `0077`. CI on PR #173
+(test, mobile, Android APK) was green before the merge.
 
 ## 5. App build numbers
 
 | App | Version | Build number | Where |
 |---|---|---|---|
-| Android | 1.1.0 | versionCode 2 | APK: PR workflow "Android APK" — **ANDROID_BUILD** |
+| Android | 1.1.0 | versionCode 2 | APK (preview + production): "Android APK" workflow [run 19](https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/38699612143) on PR #173 — artifacts on the run |
 | Android (Play Store AAB) | 1.1.0 | (EAS auto-increments) | Not built — needs EAS |
 | iOS | 1.1.0 | buildNumber 2 | Not built — needs EAS + Apple Developer account |
 
@@ -166,5 +222,5 @@ feature: **REGRESSION_RESULT**
 | Environment | Result | By | Date |
 |---|---|---|---|
 | Local | Pass (automated + browser) | Claude Code | 15 Oct 2026 |
-| test.gokesari.com | Not run | | |
+| test.gokesari.com | Pass — 23/23 live cases (§2.7) | Claude Code | 15 Oct 2026 |
 | gokesari.com | Not run | | |

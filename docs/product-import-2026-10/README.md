@@ -1,8 +1,9 @@
 # Bulk product upload (Excel / CSV) — with shop inventory update
 
-Status, 15 Oct 2026: **built and tested locally (web, API, mobile app code);
-waiting for the merge to `staging` to reach test.gokesari.com.** Nothing is
-deployed yet — see [§9](#9-deployment-and-whats-open).
+Status, 15 Oct 2026: **live on test.gokesari.com** (PR #173 merged into
+`staging`; migration `0077` on the test database) — **23 of 23 live cases pass**
+for the shop owner, admin and operator ([test report §2.7](../testing/bulk-product-upload-test-report.md)).
+**Not on gokesari.com yet** — see [§9](#9-deployment-and-whats-open).
 
 One more way to load products. The existing **manual add**, **add by
 category** and the **Excel price upload** are untouched. A shop owner — or an
@@ -258,9 +259,14 @@ migration can run before the deploy (as `MIGRATE_ON_BUILD` does).
 merge) → end-to-end tests there → `staging` merged into `main` (the human
 approval gate) → gokesari.com. Production smoke test: one small import into a
 designated test shop, check stock and the report, then deactivate the test
-products with a Delete file. None of these steps could be run from this
-session: merging and deploying are the owner's approval, and this session
-cannot reach test.gokesari.com or gokesari.com.
+products with a Delete file.
+
+Done: PR #173 merged into `staging` (`2886cf3`); test.gokesari.com deployed;
+Test database workflow run 31 shows `0077_product_bulk_import` as the newest of
+80 migrations; the live run (`scripts/test-site/product-import-check.mjs`)
+passed 23/23 — screenshots and JSON in
+[test-site-2026-10-15/](test-site-2026-10-15/). Production waits for the
+owner's go-ahead on the `staging` → `main` release.
 
 **Decisions taken** (recorded in the tracker, "Bulk Product Upload" sheet):
 
@@ -289,9 +295,13 @@ cannot reach test.gokesari.com or gokesari.com.
 
 **Open items**
 
-- **Deploy to test.gokesari.com and gokesari.com, and the environment tests
-  there** (web, Android, iOS; real shop, admin and operator accounts) — need
-  the PR merged to `staging`, then `main`.
+- **Production (gokesari.com)**: the Production database workflow
+  (migrate), the `staging` → `main` merge, then the smoke test
+  (`product-import-check.mjs … smoke … --prod-smoke`). Note: that release also
+  ships the other unreleased `staging` work (#168, #169, #171).
+- **On a real phone**: the Android / iPhone system file picker (Files, Drive,
+  WhatsApp) on the test site — the phone-width app view was checked in a
+  browser with the app's user agent only.
 - **Android release AAB / iOS TestFlight build** — the PR's "Android APK"
   workflow builds installable preview and production APKs (version 1.1.0,
   versionCode 2); the Play Store AAB and the iPhone build run on EAS (Expo
