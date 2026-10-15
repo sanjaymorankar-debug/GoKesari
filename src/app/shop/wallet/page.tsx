@@ -3,6 +3,7 @@ import { redirect } from "next/navigation";
 import { ShopWalletBanner } from "@/components/shop-wallet-banner";
 import { ShopWalletTopUp } from "@/components/shop-wallet-topup";
 import { Alert, Badge, Card, EmptyState, Money, PageHeader, Section } from "@/components/ui";
+import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { getShopWalletView } from "@/server/services/shop-wallet";
@@ -35,7 +36,7 @@ export default async function ShopWalletPage() {
 
   const shops = await listShopsForOwner(user.id);
   if (shops.length === 0) redirect("/shop");
-  const shop = shops[0];
+  const shop = await activeShop(shops);
   const wallet = await getShopWalletView(shop.id, { limit: 100 });
 
   return (

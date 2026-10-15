@@ -8,6 +8,7 @@ import {
   SegmentBuilder,
 } from "@/components/growth-actions";
 import { Card, EmptyState, Money, PageHeader, StatusBadge } from "@/components/ui";
+import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { getCodLimits } from "@/server/services/cod";
@@ -43,7 +44,7 @@ export default async function ShopMarketingPage() {
   if (!can(user.role, PERMISSIONS.MARKETING_MANAGE_OWN)) redirect("/");
   const shops = await listShopsForOwner(user.id);
   if (shops.length === 0) redirect("/shop");
-  const shop = shops[0];
+  const shop = await activeShop(shops);
   // Item B: live limits (rules `marketing` and `cod`).
   const [MARKETING_LIMITS, COD_LIMITS] = await Promise.all([getRule("marketing"), getCodLimits()]);
 

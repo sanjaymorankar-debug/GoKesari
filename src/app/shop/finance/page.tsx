@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { Card, EmptyState, Money, PageHeader, Section, StatusBadge } from "@/components/ui";
+import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getRule } from "@/server/services/settings";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
@@ -28,7 +29,7 @@ export default async function ShopFinancePage() {
 
   const shops = await listShopsForOwner(user.id);
   if (shops.length === 0) redirect("/shop");
-  const shop = shops[0];
+  const shop = await activeShop(shops);
   // Item B: live settlement hold (rule settlement.holdDays).
   const settlementHoldDays = (await getRule("settlement")).holdDays;
 

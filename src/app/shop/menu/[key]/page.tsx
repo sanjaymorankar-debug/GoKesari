@@ -4,6 +4,7 @@ import { MenuHub } from "@/components/board/menu-hub";
 import { tr } from "@/lib/board/i18n";
 import { SHOP_MENUS, visibleMenus } from "@/lib/board/menus";
 import { SELLER_TEXT } from "@/lib/seller/nav";
+import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { loadShopBoard } from "@/server/board-data";
 import { getBoardLang } from "@/server/board-lang";
@@ -22,7 +23,7 @@ export default async function ShopMenuPage({ params }: { params: Promise<{ key: 
   if (!user) redirect("/signin");
   const shops = await listShopsForOwner(user.id);
   if (shops.length === 0) redirect("/shop");
-  const shop = shops[0];
+  const shop = await activeShop(shops);
   const { key } = await params;
 
   const menu = visibleMenus(SHOP_MENUS, user.role, { shopSlug: shop.slug }, "shop").find((m) => m.key === key);
