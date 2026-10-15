@@ -38,7 +38,10 @@ const isDev = process.env.NODE_ENV === "development";
 
 const cspDirectives = [
   "default-src 'self'",
-  `script-src 'self' 'unsafe-inline' https://sdk.cashfree.com https://maps.googleapis.com${isDev ? " 'unsafe-eval'" : ""}`,
+  // 'wasm-unsafe-eval' lets the document reader compile its WebAssembly in the
+  // browser (docs/document-upload-2026-10, "Reading in the browser"). It allows
+  // WebAssembly only — JavaScript eval() stays blocked.
+  `script-src 'self' 'unsafe-inline' 'wasm-unsafe-eval' https://sdk.cashfree.com https://maps.googleapis.com${isDev ? " 'unsafe-eval'" : ""}`,
   "style-src 'self' 'unsafe-inline'",
   "img-src 'self' blob: data: https://maps.googleapis.com https://maps.gstatic.com",
   "font-src 'self'",
@@ -69,6 +72,13 @@ const OCR_RUNTIME_FILES = [
   "./node_modules/@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz",
 ];
 
+/** Files the browser reads documents with, served by /api/ocr-assets (same model as the server reader). */
+const BROWSER_OCR_FILES = [
+  "./node_modules/tesseract.js/dist/worker.min.js",
+  "./node_modules/tesseract.js-core/*lstm.wasm.js",
+  "./node_modules/@tesseract.js-data/eng/4.0.0_best_int/eng.traineddata.gz",
+];
+
 const nextConfig: NextConfig = {
   // docs/document-upload-2026-10: the OCR engine starts a worker thread and
   // loads its WebAssembly and language model from node_modules at run time,
@@ -81,6 +91,7 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/shops/*/documents/read": OCR_RUNTIME_FILES,
     "/api/admin/document-reader": OCR_RUNTIME_FILES,
+    "/api/ocr-assets/*": BROWSER_OCR_FILES,
   },
   // Hostinger installs production dependencies only, so `typescript` is absent
   // when the build starts and Next never reads the "@/*" paths in tsconfig.json.
