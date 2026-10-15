@@ -206,7 +206,7 @@ test("GST: GSTR-2B JSON upload (manual fallback) → reconciliation → liabilit
   await page.goto(`/shop/accounts/gst?period=${MONTH}`);
   const fileInput = page.locator('input[type="file"]').last();
   await fileInput.setInputFiles({ name: "gstr2b.json", mimeType: "application/json", buffer: Buffer.from(JSON.stringify(gstr2b)) });
-  await page.getByRole("button", { name: /^Upload/ }).last().click();
+  await page.getByRole("button", { name: "Import file" }).click();
   await expect(page.getByText(/imported/i).first()).toBeVisible({ timeout: 30_000 });
   await page.goto(`/shop/accounts/gst/reconcile?period=${MONTH}`);
   for (const t of ["Matched", "Missing in books", "Missing on portal"]) await expect(page.getByText(t).first()).toBeVisible();
