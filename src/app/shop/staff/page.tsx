@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { ShopStaffManager } from "@/components/shop-staff-manager";
 import { LinkButton, PageHeader } from "@/components/ui";
+import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { listShopStaff } from "@/server/services/shop-staff";
 import { listShopsForOwner } from "@/server/services/shops";
@@ -13,7 +14,7 @@ export const dynamic = "force-dynamic";
 export default async function ShopStaffPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
-  const [shop] = await listShopsForOwner(user.id);
+  const shop = await activeShop(await listShopsForOwner(user.id));
   if (!shop) redirect("/shop");
   const staff = await listShopStaff(shop.id, user);
   return (

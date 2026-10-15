@@ -1,10 +1,12 @@
 /**
  * Which shop a Module 2 page is about: `?shop=` (support, or an owner with
- * more than one shop) after the access check, else the owner's shop.
+ * more than one shop) after the access check, else the owner's shop chosen in
+ * Seller Central's shop switcher (or their newest).
  */
 import { eq } from "drizzle-orm";
 import { redirect } from "next/navigation";
 
+import { activeShop } from "@/server/active-shop";
 import { getCurrentUser, type AuthenticatedUser } from "@/server/authz/guards";
 import { db } from "@/server/db";
 import { shops } from "@/server/db/schema";
@@ -22,7 +24,7 @@ export async function integrationPageShop(
   if (wanted) {
     [shop] = await db.select({ id: shops.id, name: shops.name }).from(shops).where(eq(shops.id, wanted));
   } else {
-    const [own] = await listShopsForOwner(user.id);
+    const own = await activeShop(await listShopsForOwner(user.id));
     shop = own ? { id: own.id, name: own.name } : undefined;
   }
   if (!shop) redirect("/shop");

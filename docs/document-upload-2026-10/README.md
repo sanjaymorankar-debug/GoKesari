@@ -1,6 +1,9 @@
 # Shop documents: upload, auto-read, review (Tasks 2, 3 and 6)
 
 Status, 13 Oct 2026: built and tested. Ships **on** (rule `documentUpload`).
+14 Oct 2026: photos are now read in the owner's browser ("Reading in the
+browser" below), because the server's OCR worker does not start on Hostinger
+(D-18).
 
 ## What the shop owner does
 
@@ -55,6 +58,7 @@ Status, 13 Oct 2026: built and tested. Ships **on** (rule `documentUpload`).
 |---|---|---|
 | `pdf-text` | PDFs with a text layer (most e-certificates: GST REG-06, Udyam, FoSCoS FSSAI) | exact and instant (`unpdf`) |
 | `tesseract` | photos and scanned images — **the default** | runs on our server (`tesseract.js` + the English model shipped in `node_modules/@tesseract.js-data/eng`); no outside service, no key, nothing leaves the server. Photos are auto-rotated, greyscaled, normalised and resized first (`sharp`). ~1 s per page; one worker per server, freed after a minute idle |
+| `browser-tesseract` | photos — **used first, from 14 Oct 2026** | the owner's own browser (phone, computer, or the Android/iPhone app) reads the photo with the same engine and model, then sends the text with the photo. See "Reading in the browser" below |
 | `claude` | optional, better on poor photos and scanned PDFs | only with `DOCUMENT_OCR_PROVIDER=claude` and `ANTHROPIC_API_KEY`. **Sends the document to Anthropic** — turn on only after deciding that is acceptable for KYC data (DPA / privacy notice). Falls back to tesseract on any error |
 
 A scanned PDF (no text layer) with the default engine is flagged UNREADABLE
@@ -76,6 +80,54 @@ Field extraction is pure and unit-tested: `src/lib/kyc/document-extract.ts`
 (type detection by wording, number patterns with OCR letter/digit fixes —
 `O→0`, `I→1`, `S→5`, `B→8` in digit positions and the reverse — and GSTIN
 checksum, labelled names and addresses, Indian date formats, validity ranges).
+
+## Reading in the browser (14 Oct 2026, fixes D-18)
+
+On the shared host (Hostinger) the server's OCR worker never starts, so
+every photo came back NOT_READ and owners typed the details. Now the
+**owner's device reads the photo** before uploading it:
+
+1. `/shop/documents` (`src/components/document-upload-panel.tsx`) shrinks the
+   photo as before, then `src/lib/kyc/browser-ocr.ts` sizes it (long side
+   1600–2600 px, like the server), turns it grey and reads it with
+   tesseract.js in a Web Worker — LSTM engine, English `best_int` model, the
+   same as the server reader.
+2. The worker, the WebAssembly core (plain / SIMD / relaxed-SIMD, picked by
+   the device) and the model come from **our own site**:
+   `GET /api/ocr-assets/<tesseract.js version>/…`
+   (`src/app/api/ocr-assets/[...asset]/route.ts`, a fixed list of five files
+   out of `node_modules`, cached for a year; the version in the path keeps a
+   dependency update from mixing files). No CDN, and the document is never
+   sent anywhere to be read. First read downloads ~5 MB once (the model is
+   then kept in the browser's IndexedDB); a read takes ~1–3 s on a computer,
+   a few seconds on a phone.
+3. The text and confidence go up with the photo (`browserText`,
+   `browserConfidence` on `POST /api/shops/:id/documents/read`). The server
+   parses and flags it exactly as it would its own read — engine
+   `browser-tesseract`, shown on `/admin/document-uploads`. The server still
+   measures the photo itself (LOW_QUALITY); PDFs are always read from their
+   own text layer on the server, whatever the browser sent.
+4. **If the device can't** (no WebAssembly, too old a browser, out of
+   memory, more than 60 s) it sends no text and the server does what it did
+   before — read it itself, or NOT_READ ("type the details").
+
+**Trust:** the browser's text is the owner's own input, exactly like typing
+the details on a NOT_READ card (already allowed). Nothing is decided on it:
+the owner reviews every field, the server re-validates what they confirm
+(formats, GSTIN checksum, expiry), and the vendor check and admin review
+decide as before.
+
+**CSP:** `script-src` gains `'wasm-unsafe-eval'` (`next.config.ts`), which
+lets the page compile WebAssembly; JavaScript `eval` stays blocked. The worker
+is loaded from our origin (`workerBlobURL: false`), so no `blob:` workers
+are allowed.
+
+**Apps:** the Android app (WebView) and iPhone app (WKWebView) show the
+website, so they get this with the website deploy — no store release. Old
+iOS (before 16) doesn't know `'wasm-unsafe-eval'`, refuses the WebAssembly,
+and falls back to step 4.
+
+Switch off with `DOCUMENT_OCR_BROWSER=off` (server only, as before).
 
 ## Task 3 — FSSAI mandatory for food shops
 
@@ -134,6 +186,7 @@ suspends a live shop whose mandatory FSSAI lapses.
 | `draftRetentionDays` | 7 | erase unsubmitted uploads |
 
 Env: `DOCUMENT_OCR_PROVIDER` (`tesseract` default, `claude`, `off`),
+`DOCUMENT_OCR_BROWSER` (`on` default; `off` = never use the browser's read),
 `DOCUMENT_OCR_TIMEOUT_MS` (25000),
 `DOCUMENT_OCR_LANG_PATH` (override the bundled model path),
 `DOCUMENT_OCR_CLAUDE_MODEL`, `ANTHROPIC_API_KEY` (only for `claude`).
@@ -160,6 +213,15 @@ would need `android.permission.CAMERA` and WebView media-capture settings) —
 not used here.
 
 ## Tests
+
+- `tests/unit/ocr-assets-route.test.ts` — the browser's five files are served
+  at the installed version, cached, the model still gzipped; any other
+  version, file or path is a 404.
+- `tests/e2e/document-browser-read.spec.ts` — desktop and Pixel 7, on a
+  production build with the real CSP: an FSSAI photo is read in the browser
+  (engine `browser-tesseract`, number and expiry pre-filled, no CSP
+  violation); with `/api/ocr-assets` blocked, the upload still goes through
+  and the server reads it.
 
 - `tests/unit/document-extract.test.ts` — 21 cases: FSSAI, PAN (with OCR
   misreads and split tokens), GSTIN (checksum), Udyam, Shop Act Form G, date

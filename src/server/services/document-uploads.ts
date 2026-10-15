@@ -52,7 +52,7 @@ import {
   type Shop,
   type UserRole,
 } from "@/server/db/schema";
-import { readDocument } from "@/server/kyc/document-reader";
+import { readDocument, type BrowserReadInput } from "@/server/kyc/document-reader";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { requiredLegalDocTypes, submitLegalDocument } from "./legal-documents";
 import {
@@ -245,6 +245,8 @@ export interface ReadUploadInput {
   docType: string;
   file: Buffer;
   source?: "FILE" | "CAMERA";
+  /** Text the owner's browser read from a photo (src/lib/kyc/browser-ocr.ts); checked like any other read. */
+  browserRead?: BrowserReadInput | null;
   actor: Actor;
 }
 
@@ -270,7 +272,7 @@ export async function readUploadedDocument(input: ReadUploadInput): Promise<Uplo
     throw new AppError("RATE_LIMITED", "Too many uploads for this shop in the last hour. Please try again later.");
   }
 
-  const read = await readDocument(input.file, contentType, docType);
+  const read = await readDocument(input.file, contentType, docType, input.browserRead);
   const parsed = extractDocumentFields(read.text, docType);
   // An engine that understands documents (Claude) fills what the text parse missed.
   const fields: ExtractedFields = { ...parsed.fields };

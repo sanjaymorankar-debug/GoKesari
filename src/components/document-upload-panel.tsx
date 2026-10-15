@@ -9,6 +9,9 @@
  *
  * In the Android/iPhone app the photo button opens the phone's camera app
  * through the file picker, so the app needs no camera permission of its own.
+ *
+ * Photos are read on the device itself first (src/lib/kyc/browser-ocr.ts) and
+ * the text goes up with the photo; if the device can't, the server reads it.
  */
 import { useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
@@ -85,11 +88,11 @@ async function errorOf(response: Response): Promise<{ message: string; reupload:
   };
 }
 
-export function DocumentUploadPanel({ shopId, items }: { shopId: string; items: PanelItem[] }) {
+export function DocumentUploadPanel({ shopId, items, browserOcr = false }: { shopId: string; items: PanelItem[]; browserOcr?: boolean }) {
   return (
     <div className="space-y-4">
       {items.map((item) => (
-        <DocumentCard key={item.docType} shopId={shopId} item={item} />
+        <DocumentCard key={item.docType} shopId={shopId} item={item} browserOcr={browserOcr} />
       ))}
     </div>
   );
@@ -107,7 +110,7 @@ function prefill(upload: PanelUpload | null) {
   };
 }
 
-function DocumentCard({ shopId, item }: { shopId: string; item: PanelItem }) {
+function DocumentCard({ shopId, item, browserOcr }: { shopId: string; item: PanelItem; browserOcr: boolean }) {
   const router = useRouter();
   const pending = item.latest?.status === "EXTRACTED" ? item.latest : null;
   const [upload, setUpload] = useState<PanelUpload | null>(pending);
@@ -126,10 +129,19 @@ function DocumentCard({ shopId, item }: { shopId: string; item: PanelItem }) {
     setBusy("reading");
     setError(null);
     setFieldErrors({});
+    const prepared = await shrinkImage(file);
     const form = new FormData();
-    form.set("file", await shrinkImage(file));
+    form.set("file", prepared);
     form.set("docType", item.docType);
     form.set("source", source);
+    if (browserOcr && prepared.type.startsWith("image/")) {
+      const { readInBrowser } = await import("@/lib/kyc/browser-ocr");
+      const read = await readInBrowser(prepared);
+      if (read) {
+        form.set("browserText", read.text);
+        form.set("browserConfidence", String(read.confidence));
+      }
+    }
     const response = await fetch(`/api/shops/${shopId}/documents/read`, { method: "POST", body: form });
     setBusy(null);
     if (!response.ok) {
@@ -236,7 +248,11 @@ function DocumentCard({ shopId, item }: { shopId: string; item: PanelItem }) {
           <Button size="sm" variant="secondary" disabled={busy !== null} onClick={takePhoto} data-testid={`doc-take-photo-${item.docType}`}>
             Take photo
           </Button>
-          <p className="w-full text-xs text-ink-500">PDF or photo (JPEG, PNG, WebP). Place the document flat in good light with all four corners showing.</p>
+          <p className="w-full text-xs text-ink-500">
+            {busy === "reading" && browserOcr
+              ? "Reading the document on this device — the first time can take up to a minute."
+              : "PDF or photo (JPEG, PNG, WebP). Place the document flat in good light with all four corners showing."}
+          </p>
         </div>
       ) : null}
 

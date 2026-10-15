@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 
 import { KpiDashboard, KpiPeriodPicker } from "@/components/kpi-dashboard";
 import { PageHeader } from "@/components/ui";
+import { activeShop } from "@/server/active-shop";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { defaultWindow, getMarketplaceKpis } from "@/server/services/analytics";
@@ -17,7 +18,7 @@ export default async function ShopAnalyticsPage({ searchParams }: { searchParams
   if (!can(user.role, PERMISSIONS.REPORT_VIEW_SHOP)) redirect("/");
   const shops = await listShopsForOwner(user.id);
   if (shops.length === 0) redirect("/shop");
-  const shop = shops[0];
+  const shop = await activeShop(shops);
   const { days: raw } = await searchParams;
   const days = [7, 30, 90].includes(Number(raw)) ? Number(raw) : 30;
   const window = defaultWindow(days);

@@ -63,6 +63,7 @@ GRIDLINES_API_KEY=<live key>
 # Default: read on this server (tesseract), nothing needed. "claude" sends the
 # document to Anthropic: only after deciding that is acceptable for KYC data.
 # DOCUMENT_OCR_PROVIDER=tesseract
+# DOCUMENT_OCR_BROWSER=on   (photos are read in the owner's browser; "off" = server only)
 # ANTHROPIC_API_KEY=<only with DOCUMENT_OCR_PROVIDER=claude>
 
 # Seller / customer database split — docs/db-split-2026-10/README.md.
