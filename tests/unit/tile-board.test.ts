@@ -202,7 +202,8 @@ describe("menu definitions", () => {
     expect(ADMIN_MENUS).toHaveLength(9);
     // The brief's six operator menus plus "Catalogue", the one home for the catalogue tools operators already had.
     expect(OPERATOR_MENUS.map((m) => m.key)).toEqual(["onboarding", "orderSupport", "riders", "societies", "vouchers", "tickets", "catalogue"]);
-    expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(39);
+    // +1: Inventory → "Bills & GST" (docs/inventory-accounting-2026-10).
+    expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(40);
     expect(ADMIN_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(39);
     expect(OPERATOR_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(26);
   });

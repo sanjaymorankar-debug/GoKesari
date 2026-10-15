@@ -81,6 +81,11 @@ const nextConfig: NextConfig = {
   outputFileTracingIncludes: {
     "/api/shops/*/documents/read": OCR_RUNTIME_FILES,
     "/api/admin/document-reader": OCR_RUNTIME_FILES,
+    // docs/inventory-accounting-2026-10: supplier bills are read (OCR) right after upload and by the cron.
+    "/api/shops/*/accounts/**": OCR_RUNTIME_FILES,
+    "/api/cron/bill-captures": OCR_RUNTIME_FILES,
+    "/api/inbound/bill-email": OCR_RUNTIME_FILES,
+    "/shop/accounts/share": OCR_RUNTIME_FILES,
   },
   // Hostinger installs production dependencies only, so `typescript` is absent
   // when the build starts and Next never reads the "@/*" paths in tsconfig.json.
