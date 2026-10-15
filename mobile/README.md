@@ -15,6 +15,7 @@ inside a phone app.
 | Sign-in link by email | Hidden in the app: the link would sign in the phone's browser, not the app |
 | "Use my location", delivery-partner live location | Phone's location service, one permission prompt |
 | Photo uploads (products, proof of delivery, documents) | Camera or gallery picker |
+| Bulk product upload (Excel/CSV: Inventory → Bulk upload; admin/operator: Catalogue → Bulk upload) | The phone's document picker — Android's system picker (Files, Downloads, Google Drive, WhatsApp and e-mail attachments), iPhone's Files. Accepts .xlsx, .xlsm and .csv. The result report downloads like any other file (below). From version 1.1.0 |
 | Invoice PDF, Excel templates | Android: saved to Downloads, with a notification. iPhone: share sheet (Save to Files, WhatsApp, Print…) |
 | Print (invoice page) | Native print dialog |
 | Share buttons | Native share sheet |

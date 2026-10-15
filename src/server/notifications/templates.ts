@@ -135,6 +135,11 @@ export const TEMPLATES: Record<string, Template> = {
     "{{shopName}}: {{applied}} applied, {{failed}} could not be applied. Open the upload for details.",
     false,
   ),
+  [T.SHOP_PRODUCT_IMPORT_FINISHED]: t(
+    "Bulk product upload finished",
+    "{{shopName}}: {{fileName}} — {{created}} created, {{updated}} updated, {{deactivated}} deactivated, {{failed}} failed. Open the upload for the full report.",
+    false,
+  ),
   [T.GRIEVANCE_RESOLVED]: t("Your complaint was resolved", "Ticket {{ticket}} has been resolved."),
   /* ------------------------------------- event layer (docs/event-driven-2026-10) */
   [T.ORDER_READY]: t("Order packed", "Your order {{orderNumber}} is packed and ready.", false),

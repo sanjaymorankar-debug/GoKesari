@@ -22,6 +22,16 @@ import {
   SUBSCRIPTION_LIFECYCLE_STATUSES,
 } from "@/lib/status-models";
 import { SHOP_TYPE_KEYS } from "@/lib/shop-types";
+import {
+  IMPORT_JOB_STATUSES,
+  IMPORT_MATCH_TYPES,
+  IMPORT_ROW_ACTIONS,
+  IMPORT_ROW_STATUSES,
+  IMPORT_SOURCE_FORMATS,
+  INVENTORY_MODES,
+  type ImportCounts,
+  type ImportRowPlan,
+} from "@/lib/product-import";
 import { SUBSCRIPTION_DELIVERY_STATUSES } from "@/lib/subscription-deliveries";
 import {
   type AnyPgColumn,
@@ -1668,6 +1678,13 @@ export const inventoryMovements = pgTable(
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
+    /**
+     * Bulk product upload (docs/product-import-2026-10): what wrote this movement
+     * (`bulk_upload`) and the import job. Null on every movement written before
+     * migration 0076 and by every other flow.
+     */
+    source: text("source"),
+    importJobId: uuid("import_job_id"),
   },
   (t) => [index("inventory_movements_sp_idx").on(t.shopProductId)],
 );
@@ -6874,3 +6891,154 @@ export const sellerDocumentUploads = pgTable(
   ],
 );
 export type SellerDocumentUpload = typeof sellerDocumentUploads.$inferSelect;
+
+/* ------------------------------------------- bulk product upload (0076)
+ * docs/product-import-2026-10. A shop owner (or an operator/admin for any
+ * shop) uploads one spreadsheet — an Amazon Seller Central inventory template,
+ * the GoKesari simple template or a CSV — and the rows create or update the
+ * shop's listings and set its stock. Additive only: every existing flow
+ * (manual add, add-by-category, the Excel price upload) is untouched.
+ */
+export const productImportJobs = pgTable(
+  "product_import_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    /** Who uploaded (an owner, operator or admin). */
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    actorRole: userRoleEnum("actor_role"),
+    fileName: text("file_name").notNull(),
+    /** sha256 of the file — an identical re-upload is flagged "already imported on …". */
+    fileHash: text("file_hash").notNull(),
+    fileSizeBytes: integer("file_size_bytes").notNull(),
+    /** Where the file is kept when not in `file_data` (reserved; files are kept in the row today). */
+    filePath: text("file_path"),
+    /** The uploaded file, until it is purged after the retention period. */
+    fileData: bytea("file_data"),
+    sourceFormat: text("source_format", { enum: IMPORT_SOURCE_FORMATS }),
+    /** The sheet the rows were read from, and its header (in order) for the result report. */
+    sheetName: text("sheet_name"),
+    columns: jsonb("columns").$type<{ label: string; key: string | null }[]>().notNull().default([]),
+    inventoryMode: text("inventory_mode", { enum: INVENTORY_MODES }).notNull().default("SET"),
+    status: text("status", { enum: IMPORT_JOB_STATUSES }).notNull().default("uploaded"),
+    counts: jsonb("counts").$type<ImportCounts>().notNull().default(sql`'{}'::jsonb`),
+    /** File-level notes (sheet chosen, header rows found, rows over the limit…). */
+    messages: text("messages").array().notNull().default(sql`'{}'::text[]`),
+    errorMessage: text("error_message"),
+    /** Image downloads after the commit: queued → running → done. */
+    imagesStatus: text("images_status", { enum: ["none", "queued", "running", "done"] }).notNull().default("none"),
+    lastProgressAt: timestamp("last_progress_at", { withTimezone: true }),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    /** Set when the file and staged rows were deleted after the retention period. */
+    purgedAt: timestamp("purged_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("product_import_jobs_shop_idx").on(t.shopId, t.createdAt),
+    index("product_import_jobs_hash_idx").on(t.shopId, t.fileHash),
+    index("product_import_jobs_status_idx").on(t.status, t.createdAt),
+  ],
+);
+export type ProductImportJob = typeof productImportJobs.$inferSelect;
+
+/** One data row of an uploaded file: verbatim cells, what was read from them, the plan and the outcome. */
+export const productImportRows = pgTable(
+  "product_import_rows",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => productImportJobs.id, { onDelete: "cascade" }),
+    /** The row number in the sheet (1-based, as Excel shows it). */
+    rowNumber: integer("row_number").notNull(),
+    sku: text("sku"),
+    /** Every cell of the row, keyed by column — nothing in the file is lost. */
+    rawJson: jsonb("raw_json").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    /** Normalised fields and the grouped attributes. */
+    parsedJson: jsonb("parsed_json").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    action: text("action", { enum: IMPORT_ROW_ACTIONS }).notNull().default("UPSERT"),
+    matchType: text("match_type", { enum: IMPORT_MATCH_TYPES }),
+    productId: uuid("product_id").references(() => products.id, { onDelete: "set null" }),
+    listingId: uuid("listing_id").references(() => shopProducts.id, { onDelete: "set null" }),
+    plan: jsonb("plan").$type<ImportRowPlan>(),
+    status: text("status", { enum: IMPORT_ROW_STATUSES }).notNull().default("ready"),
+    /** Warnings and, for a failed row, the reason. */
+    messages: text("messages").array().notNull().default(sql`'{}'::text[]`),
+    /** Rows merged into this one (same SKU earlier in the file). */
+    mergedRows: integer("merged_rows").array().notNull().default(sql`'{}'::integer[]`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("product_import_rows_row_unique").on(t.jobId, t.rowNumber),
+    index("product_import_rows_status_idx").on(t.jobId, t.status),
+  ],
+);
+export type ProductImportRow = typeof productImportRows.$inferSelect;
+
+/**
+ * Per-listing data a spreadsheet carries that shop_products has no column for:
+ * the shop's own SKU, the MRP for this shop (never written to the master), a
+ * scheduled sale, lead time, condition, gift options and every other cell of
+ * the row (attributes). One row per listing, written by the bulk upload.
+ */
+export const shopListingDetails = pgTable(
+  "shop_listing_details",
+  {
+    shopProductId: uuid("shop_product_id")
+      .primaryKey()
+      .references(() => shopProducts.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    sellerSku: text("seller_sku"),
+    mrpPaise: bigint("mrp_paise", { mode: "number" }),
+    salePricePaise: bigint("sale_price_paise", { mode: "number" }),
+    saleStartsOn: date("sale_starts_on"),
+    saleEndsOn: date("sale_ends_on"),
+    handlingDays: integer("handling_days"),
+    restockOn: date("restock_on"),
+    alwaysAvailable: boolean("always_available"),
+    itemCondition: text("item_condition"),
+    conditionNote: text("condition_note"),
+    giftWrap: boolean("gift_wrap"),
+    giftMessage: boolean("gift_message"),
+    attributes: jsonb("attributes").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    lastImportJobId: uuid("last_import_job_id").references(() => productImportJobs.id, { onDelete: "set null" }),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // One listing per SKU in a shop (case-insensitive).
+    uniqueIndex("shop_listing_details_sku_unique")
+      .on(t.shopId, sql`lower(${t.sellerSku})`)
+      .where(sql`${t.sellerSku} IS NOT NULL`),
+    check(
+      "shop_listing_details_money_non_negative",
+      sql`(${t.mrpPaise} IS NULL OR ${t.mrpPaise} >= 0) AND (${t.salePricePaise} IS NULL OR ${t.salePricePaise} >= 0)`,
+    ),
+  ],
+);
+export type ShopListingDetails = typeof shopListingDetails.$inferSelect;
+
+/**
+ * Lossless product attributes from a bulk upload, one row per master product:
+ * brand, model, dimensions, compliance and every other column, grouped by the
+ * template's section headers. Written when an upload creates the product;
+ * never changes a master field.
+ */
+export const productAttributes = pgTable("product_attributes", {
+  productId: uuid("product_id")
+    .primaryKey()
+    .references(() => products.id, { onDelete: "cascade" }),
+  attributes: jsonb("attributes").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+  sourceImportJobId: uuid("source_import_job_id").references(() => productImportJobs.id, { onDelete: "set null" }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type ProductAttributes = typeof productAttributes.$inferSelect;

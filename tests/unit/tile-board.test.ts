@@ -202,9 +202,10 @@ describe("menu definitions", () => {
     expect(ADMIN_MENUS).toHaveLength(9);
     // The brief's six operator menus plus "Catalogue", the one home for the catalogue tools operators already had.
     expect(OPERATOR_MENUS.map((m) => m.key)).toEqual(["onboarding", "orderSupport", "riders", "societies", "vouchers", "tickets", "catalogue"]);
-    expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(39);
+    // +1 each for shop and operator: Bulk upload (Excel/CSV), docs/product-import-2026-10 (the admin's is under Product master → more).
+    expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(40);
     expect(ADMIN_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(39);
-    expect(OPERATOR_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(26);
+    expect(OPERATOR_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(27);
   });
 
   it("keep every group to at most seven entries on the board (Hick's law)", () => {

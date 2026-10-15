@@ -16,6 +16,7 @@ import { RATE_LIMITS, clientKey, enforceRateLimit } from "@/server/api/rate-limi
 import { runSellerVerificationSweep } from "@/server/services/seller-verification-jobs";
 import { purgeStaleUploads } from "@/server/services/document-uploads";
 import { runLegalDocumentSweep } from "@/server/services/legal-documents";
+import { purgeOldProductImports } from "@/server/services/product-import";
 
 export const POST = route(async (request: NextRequest) => {
   enforceRateLimit(clientKey(request, "cron"), RATE_LIMITS.CRON);
@@ -25,8 +26,10 @@ export const POST = route(async (request: NextRequest) => {
   const legalDocuments = await runLegalDocumentSweep().catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
   // docs/document-upload-2026-10: uploads never submitted lose their file and read fields after the retention period.
   const staleUploadsPurged = await purgeStaleUploads().catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
-  console.info("[cron:seller-verification]", JSON.stringify({ ...result, legalDocuments, staleUploadsPurged }));
-  return ok({ ...result, legalDocuments, staleUploadsPurged });
+  // docs/product-import-2026-10: bulk-upload files and staged rows are deleted after the retention period.
+  const productImportsPurged = await purgeOldProductImports().catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
+  console.info("[cron:seller-verification]", JSON.stringify({ ...result, legalDocuments, staleUploadsPurged, productImportsPurged }));
+  return ok({ ...result, legalDocuments, staleUploadsPurged, productImportsPurged });
 });
 
 /** Health probe so a scheduler can verify wiring without running the sweep. */

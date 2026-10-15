@@ -81,7 +81,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: variant.name,
   slug: "gokesari",
-  version: "1.0.0",
+  // 1.1.0: bulk product upload (Excel/CSV) for shop owners, operators and admins — the website's
+  // screens, with the phone's own document picker (Android: Files, Drive, WhatsApp and e-mail
+  // attachments through the system picker; iPhone: Files).
+  version: "1.1.0",
   scheme: variant.scheme,
   orientation: "default",
   icon: "./assets/icon.png",
@@ -89,6 +92,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   backgroundColor: "#ffffff",
   ios: {
     bundleIdentifier: variant.appId,
+    // Local builds (the GitHub workflows); EAS store builds number themselves (eas.json appVersionSource "remote").
+    buildNumber: "2",
     supportsTablet: true,
     associatedDomains: [`applinks:${variant.host}`],
     config: { usesNonExemptEncryption: false },
@@ -102,6 +107,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: variant.appId,
+    versionCode: 2,
     adaptiveIcon: {
       foregroundImage: "./assets/android-icon-foreground.png",
       monochromeImage: "./assets/android-icon-monochrome.png",
