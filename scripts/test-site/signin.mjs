@@ -21,10 +21,20 @@ const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PAT
 const context = await browser.newContext({ viewport: { width: 1280, height: 900 } });
 const page = await context.newPage();
 await page.goto(`${base}/signin`);
-const agree = page.getByRole("checkbox").first();
-if (await agree.isVisible().catch(() => false)) await agree.check();
+// The host may show a browser check first; wait for the real form.
+await page.getByLabel("Mobile number or email").waitFor({ timeout: 90_000 });
+await page.waitForLoadState("networkidle").catch(() => {});
 await page.getByLabel("Mobile number or email").fill(email);
-await page.getByLabel("Mobile number or email").press("Enter");
+// The consent tick is React state: tick it until the page (once hydrated) enables "Get code".
+const agree = page.getByRole("checkbox").first();
+const getCode = page.getByRole("button", { name: "Get code" });
+for (let i = 0; i < 20 && !(await getCode.isEnabled()); i += 1) {
+  if (await agree.isChecked()) await agree.uncheck();
+  await agree.check();
+  await page.waitForTimeout(500);
+}
+await getCode.click();
+await page.getByLabel("One-time code").waitFor({ timeout: 60_000 });
 console.log("CODE_REQUESTED", new Date().toISOString());
 let code = null;
 for (let i = 0; i < 300 && !code; i += 1) {
