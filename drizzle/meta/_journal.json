@@ -547,6 +547,13 @@
       "when": 1792124852436,
       "tag": "0077_product_bulk_import",
       "breakpoints": true
+    },
+    {
+      "idx": 78,
+      "version": "7",
+      "when": 1792124853436,
+      "tag": "0078_inventory_ledger_order_cancel",
+      "breakpoints": true
     }
   ]
 }

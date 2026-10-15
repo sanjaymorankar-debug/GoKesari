@@ -83,6 +83,11 @@ describe("stock ledger follows every stock change (triggers)", () => {
     await cancelOrder(orders[0].id, { id: customer.id, role: "CUSTOMER" }, "changed my mind");
     expect(await ledgerSum(milkSp.id)).toBe(10_000);
     expect(await ledgerDrift(shop.id)).toEqual([]);
+    // The restock is the order's return, linked to it (found on test.gokesari.com: it was an ADJUSTMENT).
+    const [back] = await db.select().from(invStockLedger).where(and(eq(invStockLedger.shopProductId, milkSp.id), eq(invStockLedger.movementType, "SALE_RETURN")));
+    expect(back.orderId).toBe(orders[0].id);
+    expect(back.qtyMilli).toBe(3_000);
+    expect(back.sourceType).toBe("ORDER");
   });
 
   it("a manual stock edit on the catalogue screen is an adjustment", async () => {

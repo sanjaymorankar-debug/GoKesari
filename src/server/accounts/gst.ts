@@ -6,7 +6,7 @@
  * reminders. Everything here is an estimate for the owner and their CA —
  * nothing is filed.
  */
-import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm";
 
 import { conflict, validationFailed } from "@/lib/errors";
 import { isValidGstin } from "@/lib/gst-states";
@@ -317,53 +317,77 @@ export async function reconciliationView(shopId: string, period: string) {
 const IST_OFFSET = "330 minutes";
 
 /** Output tax of one month: the shop's own invoices and its GoKesari order invoices, less credit notes. */
-async function outputFor(shopId: string, period: string): Promise<{ heads: Heads; own: Heads; online: Heads; taxablePaise: number }> {
-  const { from, to } = periodRange(period);
-  const [own] = await db
-    .select({ cgst: sql<number>`coalesce(sum(${accSalesInvoices.cgstPaise}),0)::bigint`, sgst: sql<number>`coalesce(sum(${accSalesInvoices.sgstPaise}),0)::bigint`, igst: sql<number>`coalesce(sum(${accSalesInvoices.igstPaise}),0)::bigint`, cess: sql<number>`coalesce(sum(${accSalesInvoices.cessPaise}),0)::bigint`, taxable: sql<number>`coalesce(sum(${accSalesInvoices.taxablePaise}),0)::bigint` })
-    .from(accSalesInvoices)
-    .where(and(eq(accSalesInvoices.shopId, shopId), eq(accSalesInvoices.status, "ISSUED"), gte(accSalesInvoices.invoiceDate, from), lt(accSalesInvoices.invoiceDate, to)));
-  const istDate = (col: typeof taxInvoices.issuedAt | typeof creditNotes.issuedAt) => sql`(${col} + interval '${sql.raw(IST_OFFSET)}')::date`;
-  const [inv] = await db
-    .select({ cgst: sql<number>`coalesce(sum(${taxInvoices.cgstPaise}),0)::bigint`, sgst: sql<number>`coalesce(sum(${taxInvoices.sgstPaise}),0)::bigint`, igst: sql<number>`coalesce(sum(${taxInvoices.igstPaise}),0)::bigint`, taxable: sql<number>`coalesce(sum(${taxInvoices.taxablePaise}),0)::bigint` })
-    .from(taxInvoices)
-    .where(and(eq(taxInvoices.shopId, shopId), eq(taxInvoices.kind, "TAX_INVOICE"), sql`${istDate(taxInvoices.issuedAt)} >= ${from}::date`, sql`${istDate(taxInvoices.issuedAt)} < ${to}::date`));
-  const [cn] = await db
-    .select({ cgst: sql<number>`coalesce(sum(${creditNotes.cgstPaise}),0)::bigint`, sgst: sql<number>`coalesce(sum(${creditNotes.sgstPaise}),0)::bigint`, igst: sql<number>`coalesce(sum(${creditNotes.igstPaise}),0)::bigint`, taxable: sql<number>`coalesce(sum(${creditNotes.taxablePaise}),0)::bigint` })
-    .from(creditNotes)
-    .where(and(eq(creditNotes.shopId, shopId), sql`${istDate(creditNotes.issuedAt)} >= ${from}::date`, sql`${istDate(creditNotes.issuedAt)} < ${to}::date`));
-  const ownHeads = { cgst: Number(own.cgst), sgst: Number(own.sgst), igst: Number(own.igst), cess: Number(own.cess) };
-  const onlineHeads = { cgst: Number(inv.cgst) - Number(cn.cgst), sgst: Number(inv.sgst) - Number(cn.sgst), igst: Number(inv.igst) - Number(cn.igst), cess: 0 };
-  return { heads: addHeads(ownHeads, onlineHeads), own: ownHeads, online: onlineHeads, taxablePaise: Number(own.taxable) + Number(inv.taxable) - Number(cn.taxable) };
+interface MonthFigures {
+  output: { heads: Heads; own: Heads; online: Heads; taxablePaise: number };
+  input: { eligible: Heads; pending: Heads; ineligible: Heads; expenseGst: number };
 }
 
-/** Input tax credit of one month: reconciled (eligible) and not yet reconciled. */
-async function inputFor(shopId: string, period: string): Promise<{ eligible: Heads; pending: Heads; ineligible: Heads; expenseGst: number }> {
-  const rows = await db
-    .select({ r: gstItcRecords, portalPeriod: gstPortalInvoices.period })
-    .from(gstItcRecords)
-    .leftJoin(gstPortalInvoices, eq(gstItcRecords.portalInvoiceId, gstPortalInvoices.id))
-    .where(and(eq(gstItcRecords.shopId, shopId), isNull(gstItcRecords.supersededAt)));
-  const eligible = { ...ZERO_HEADS };
-  const pending = { ...ZERO_HEADS };
-  const ineligible = { ...ZERO_HEADS };
-  for (const { r, portalPeriod } of rows) {
-    const heads = { cgst: r.cgstPaise, sgst: r.sgstPaise, igst: r.igstPaise, cess: r.cessPaise };
+/**
+ * Output GST and input credit of every month in `months` (sorted "YYYY-MM"),
+ * in five grouped queries whatever the number of months — the shop's database
+ * can be far from the web server, so per-month queries add up to seconds.
+ */
+async function monthlyFigures(shopId: string, months: string[]): Promise<Map<string, MonthFigures>> {
+  const from = periodRange(months[0]).from;
+  const to = periodRange(months[months.length - 1]).to;
+  const istDate = (col: typeof taxInvoices.issuedAt | typeof creditNotes.issuedAt) => sql`(${col} + interval '${sql.raw(IST_OFFSET)}')::date`;
+  const month = (d: SQL) => sql<string>`to_char(${d}, 'YYYY-MM')`;
+  const [own, inv, cn, exp, itc] = await Promise.all([
+    db
+      .select({ m: month(sql`${accSalesInvoices.invoiceDate}`), cgst: sql<number>`coalesce(sum(${accSalesInvoices.cgstPaise}),0)::bigint`, sgst: sql<number>`coalesce(sum(${accSalesInvoices.sgstPaise}),0)::bigint`, igst: sql<number>`coalesce(sum(${accSalesInvoices.igstPaise}),0)::bigint`, cess: sql<number>`coalesce(sum(${accSalesInvoices.cessPaise}),0)::bigint`, taxable: sql<number>`coalesce(sum(${accSalesInvoices.taxablePaise}),0)::bigint` })
+      .from(accSalesInvoices)
+      .where(and(eq(accSalesInvoices.shopId, shopId), eq(accSalesInvoices.status, "ISSUED"), gte(accSalesInvoices.invoiceDate, from), lt(accSalesInvoices.invoiceDate, to)))
+      .groupBy(sql`1`),
+    db
+      .select({ m: month(istDate(taxInvoices.issuedAt)), cgst: sql<number>`coalesce(sum(${taxInvoices.cgstPaise}),0)::bigint`, sgst: sql<number>`coalesce(sum(${taxInvoices.sgstPaise}),0)::bigint`, igst: sql<number>`coalesce(sum(${taxInvoices.igstPaise}),0)::bigint`, taxable: sql<number>`coalesce(sum(${taxInvoices.taxablePaise}),0)::bigint` })
+      .from(taxInvoices)
+      .where(and(eq(taxInvoices.shopId, shopId), eq(taxInvoices.kind, "TAX_INVOICE"), sql`${istDate(taxInvoices.issuedAt)} >= ${from}::date`, sql`${istDate(taxInvoices.issuedAt)} < ${to}::date`))
+      .groupBy(sql`1`),
+    db
+      .select({ m: month(istDate(creditNotes.issuedAt)), cgst: sql<number>`coalesce(sum(${creditNotes.cgstPaise}),0)::bigint`, sgst: sql<number>`coalesce(sum(${creditNotes.sgstPaise}),0)::bigint`, igst: sql<number>`coalesce(sum(${creditNotes.igstPaise}),0)::bigint`, taxable: sql<number>`coalesce(sum(${creditNotes.taxablePaise}),0)::bigint` })
+      .from(creditNotes)
+      .where(and(eq(creditNotes.shopId, shopId), sql`${istDate(creditNotes.issuedAt)} >= ${from}::date`, sql`${istDate(creditNotes.issuedAt)} < ${to}::date`))
+      .groupBy(sql`1`),
+    db
+      .select({ m: month(sql`${accExpenses.expenseDate}`), gst: sql<number>`coalesce(sum(${accExpenses.gstPaise}),0)::bigint` })
+      .from(accExpenses)
+      .where(and(eq(accExpenses.shopId, shopId), eq(accExpenses.status, "ACTIVE"), gte(accExpenses.expenseDate, from), lt(accExpenses.expenseDate, to)))
+      .groupBy(sql`1`),
+    db
+      .select({ r: gstItcRecords, portalPeriod: gstPortalInvoices.period })
+      .from(gstItcRecords)
+      .leftJoin(gstPortalInvoices, eq(gstItcRecords.portalInvoiceId, gstPortalInvoices.id))
+      .where(and(eq(gstItcRecords.shopId, shopId), isNull(gstItcRecords.supersededAt))),
+  ]);
+  const byMonth = <T extends { m: string }>(rows: T[]) => new Map(rows.map((r) => [r.m, r]));
+  const ownBy = byMonth(own);
+  const invBy = byMonth(inv);
+  const cnBy = byMonth(cn);
+  const expBy = byMonth(exp);
+  const out = new Map<string, MonthFigures>();
+  for (const m of months) {
+    const o = ownBy.get(m);
+    const i = invBy.get(m);
+    const c = cnBy.get(m);
+    const ownHeads = { cgst: Number(o?.cgst ?? 0), sgst: Number(o?.sgst ?? 0), igst: Number(o?.igst ?? 0), cess: Number(o?.cess ?? 0) };
+    const onlineHeads = { cgst: Number(i?.cgst ?? 0) - Number(c?.cgst ?? 0), sgst: Number(i?.sgst ?? 0) - Number(c?.sgst ?? 0), igst: Number(i?.igst ?? 0) - Number(c?.igst ?? 0), cess: 0 };
+    out.set(m, {
+      output: { heads: addHeads(ownHeads, onlineHeads), own: ownHeads, online: onlineHeads, taxablePaise: Number(o?.taxable ?? 0) + Number(i?.taxable ?? 0) - Number(c?.taxable ?? 0) },
+      input: { eligible: { ...ZERO_HEADS }, pending: { ...ZERO_HEADS }, ineligible: { ...ZERO_HEADS }, expenseGst: Number(expBy.get(m)?.gst ?? 0) },
+    });
+  }
+  for (const { r, portalPeriod } of itc) {
     // Matched credit is taken in the month the supplier's invoice appears in GSTR-2B.
     const creditPeriod = r.status === "MATCHED" ? (portalPeriod ?? r.period) : r.period;
-    if (creditPeriod !== period) continue;
-    const target = r.status === "MATCHED" ? eligible : r.status === "INELIGIBLE" || r.status === "REVERSED" ? ineligible : pending;
-    target.cgst += heads.cgst;
-    target.sgst += heads.sgst;
-    target.igst += heads.igst;
-    target.cess += heads.cess;
+    const figures = out.get(creditPeriod);
+    if (!figures) continue;
+    const target = r.status === "MATCHED" ? figures.input.eligible : r.status === "INELIGIBLE" || r.status === "REVERSED" ? figures.input.ineligible : figures.input.pending;
+    target.cgst += r.cgstPaise;
+    target.sgst += r.sgstPaise;
+    target.igst += r.igstPaise;
+    target.cess += r.cessPaise;
   }
-  const { from, to } = periodRange(period);
-  const [exp] = await db
-    .select({ gst: sql<number>`coalesce(sum(${accExpenses.gstPaise}),0)::bigint` })
-    .from(accExpenses)
-    .where(and(eq(accExpenses.shopId, shopId), eq(accExpenses.status, "ACTIVE"), gte(accExpenses.expenseDate, from), lt(accExpenses.expenseDate, to)));
-  return { eligible, pending, ineligible, expenseGst: Number(exp?.gst ?? 0) };
+  return out;
 }
 
 export interface LiabilityMonth {
@@ -395,28 +419,32 @@ export interface LiabilityView {
  */
 export async function gstLiability(shopId: string, period: string, frequencyOverride?: FilingFrequency): Promise<LiabilityView> {
   if (!PERIOD.test(period)) throw validationFailed("Choose the month (YYYY-MM).");
-  const settings = await getSettings(shopId);
+  const [settings, [shop], [first]] = await Promise.all([
+    getSettings(shopId),
+    db.select({ gstin: shops.gstin }).from(shops).where(eq(shops.id, shopId)),
+    db
+      .select({ d: sql<string | null>`min(${gstItcRecords.period})` })
+      .from(gstItcRecords)
+      .where(eq(gstItcRecords.shopId, shopId)),
+  ]);
   const frequency = frequencyOverride ?? settings.filingFrequency;
-  const [shop] = await db.select({ gstin: shops.gstin }).from(shops).where(eq(shops.id, shopId));
   const target = frequency === "QUARTERLY" ? quarterMonths(period) : [period];
   const start = shiftMonths(target[0], -24);
-  const [first] = await db
-    .select({ d: sql<string | null>`min(${gstItcRecords.period})` })
-    .from(gstItcRecords)
-    .where(eq(gstItcRecords.shopId, shopId));
   const from = first?.d && first.d > start ? first.d : start;
   const history = monthsBetween(from < target[0] ? from : target[0], shiftMonths(target[0], -1)).filter((m) => m < target[0]);
+
+  const figures = await monthlyFigures(shopId, [...history, ...target]);
 
   // Carry credit forward through the earlier months (only months with data matter).
   let carry: Heads = { ...ZERO_HEADS };
   for (const m of history) {
-    const [out, inp] = await Promise.all([outputFor(shopId, m), inputFor(shopId, m)]);
+    const { output: out, input: inp } = figures.get(m)!;
     if (!Object.values(out.heads).some(Boolean) && !Object.values(inp.eligible).some(Boolean) && !Object.values(carry).some(Boolean)) continue;
     carry = setOff(out.heads, addHeads(inp.eligible, carry)).carryForward;
   }
   const months: LiabilityMonth[] = [];
   for (const m of target) {
-    const [out, inp] = await Promise.all([outputFor(shopId, m), inputFor(shopId, m)]);
+    const { output: out, input: inp } = figures.get(m)!;
     const so = setOff(out.heads, addHeads(inp.eligible, carry));
     months.push({ period: m, output: out.heads, outputOwn: out.own, outputOnline: out.online, taxablePaise: out.taxablePaise, eligibleItc: inp.eligible, pendingItc: inp.pending, ineligibleItc: inp.ineligible, expenseGstPaise: inp.expenseGst, broughtForward: carry, setOff: so });
     carry = so.carryForward;

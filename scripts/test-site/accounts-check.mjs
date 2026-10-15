@@ -62,9 +62,41 @@ function check(cond, msg) {
 }
 
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ["--no-sandbox"] });
+
+// An owner with several shops: work on one that has products (bill lines need
+// something to map to), chosen with Seller Central's shop switcher like a user.
+{
+  const ctx = await browser.newContext({ storageState: statePath });
+  const p = await ctx.newPage();
+  await p.goto(`${base}/shop`, { timeout: 120_000 });
+  const options = p.getByTestId("shop-switcher-option");
+  const all = await options.evaluateAll((els) => els.map((e) => ({ id: e.getAttribute("value"), current: e.getAttribute("aria-current") === "true" })));
+  // The top bar renders the switcher for phone and desktop; keep each shop once.
+  const ids = all.filter((o, i) => all.findIndex((x) => x.id === o.id) === i);
+  for (const { id, current } of ids) {
+    const ls = await (await ctx.request.get(`${base}/api/shops/${id}/accounts/stock/listings`, { timeout: 120_000 })).json().catch(() => []);
+    if (!Array.isArray(ls) || ls.length === 0) continue;
+    if (!current) {
+      const switcher = p.locator('[data-testid="shop-switcher"]:visible').first();
+      await switcher.locator("summary").click();
+      await switcher.locator(`[data-testid="shop-switcher-option"][value="${id}"]`).click();
+      for (let i = 0; i < 120 && !(await ctx.cookies()).some((c) => c.name === "gk_shop" && c.value === id); i += 1) await p.waitForTimeout(1000);
+      await ctx.storageState({ path: statePath });
+    }
+    console.log(JSON.stringify({ info: "shop-with-products", shopId: id, listings: ls.length, switched: !current }));
+    break;
+  }
+  await ctx.close();
+}
+
 const desktop = await browser.newContext({ storageState: statePath, viewport: { width: 1366, height: 900 } });
 const phone = await browser.newContext({ storageState: statePath, viewport: { width: 412, height: 915 }, isMobile: true, hasTouch: true });
 const app = await browser.newContext({ storageState: statePath, viewport: { width: 393, height: 780 }, isMobile: true, hasTouch: true, userAgent: APP_UA });
+// The test site's database is far from its web server: allow slow pages.
+for (const c of [desktop, phone, app]) {
+  c.setDefaultTimeout(60_000);
+  c.setDefaultNavigationTimeout(90_000);
+}
 const page = await desktop.newPage();
 const api = desktop.request;
 
@@ -297,8 +329,8 @@ if (want("gst")) {
   await tcase("TS-GST-LINK", "GSTIN link: consent + username + OTP (GSP sandbox on the test site), token stored encrypted", async () => {
     const st = await json(await api.get(A("gst/link")));
     if (!st.apiAvailable) return `SKIPPED-API: provider ${st.provider} — API path off on this host; manual upload tested below`;
-    const shopGstin = st.link?.gstin ?? (await page.goto(`${base}/shop/accounts/gst`), (/GSTIN ([0-9A-Z]{15})/.exec(await page.content()) ?? [])[1]);
-    check(shopGstin, "shop has no GSTIN on this site");
+    // The shop's own GSTIN when it has one; otherwise a made-up Maharashtra GSTIN (the GSP sandbox accepts any valid one).
+    const shopGstin = st.link?.gstin ?? (await page.goto(`${base}/shop/accounts/gst`), (/GSTIN ([0-9A-Z]{15})/.exec(await page.content()) ?? [])[1]) ?? gstin("27", "AAECE4321K");
     const noConsent = await api.post(A("gst/link"), { data: { gstin: shopGstin, username: "e2etest", consent: false } });
     check(noConsent.status() === 422, `without consent: ${noConsent.status()}`);
     const r = await api.post(A("gst/link"), { data: { gstin: shopGstin, username: "e2etest", consent: true } });

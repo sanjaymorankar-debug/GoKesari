@@ -22,7 +22,7 @@ const head = (ws, cols) => {
   ws.views = [{ state: "frozen", ySplit: 1 }];
   ws.autoFilter = { from: { row: 1, column: 1 }, to: { row: 1, column: cols.length } };
 };
-const colour = { Done: "FFDCFCE7", "In progress": "FFFEF3C7", "Not started": "FFF1F5F9", Blocked: "FFFEE2E2", PASS: "FFDCFCE7", FAIL: "FFFEE2E2", SKIPPED: "FFF1F5F9", "N/A": "FFF1F5F9" };
+const colour = { Done: "FFDCFCE7", "In progress": "FFFEF3C7", "Not started": "FFF1F5F9", Blocked: "FFFEE2E2", PASS: "FFDCFCE7", FAIL: "FFFEE2E2", BLOCKED: "FFFEF3C7", SKIPPED: "FFF1F5F9", "N/A": "FFF1F5F9" };
 const paint = (cell) => {
   const c = colour[String(cell.value)];
   if (c) cell.fill = { type: "pattern", pattern: "solid", fgColor: { argb: c } };
@@ -80,14 +80,14 @@ const paint = (cell) => {
   sum.getCell("A1").value = `Inventory & Accounting — testing report (${date})`;
   sum.getCell("A1").font = { bold: true, size: 14 };
   sum.getCell("A3").value = "Environment";
-  ["PASS", "FAIL", "SKIPPED", "N/A", "Total"].forEach((h, i) => (sum.getRow(3).getCell(2 + i).value = h));
+  ["PASS", "FAIL", "BLOCKED", "SKIPPED", "N/A", "Total"].forEach((h, i) => (sum.getRow(3).getCell(2 + i).value = h));
   sum.getRow(3).font = { bold: true };
   const envs = [...new Set(tests.map((t) => t.env))];
   envs.forEach((e, i) => {
     const r = 4 + i;
     sum.getCell(`A${r}`).value = e;
-    ["PASS", "FAIL", "SKIPPED", "N/A"].forEach((s, j) => (sum.getRow(r).getCell(2 + j).value = { formula: `COUNTIFS('Test cases'!$C$2:$C$2000,$A${r},'Test cases'!$F$2:$F$2000,"${s}")` }));
-    sum.getRow(r).getCell(6).value = { formula: `SUM(B${r}:E${r})` };
+    ["PASS", "FAIL", "BLOCKED", "SKIPPED", "N/A"].forEach((s, j) => (sum.getRow(r).getCell(2 + j).value = { formula: `COUNTIFS('Test cases'!$C$2:$C$2000,$A${r},'Test cases'!$F$2:$F$2000,"${s}")` }));
+    sum.getRow(r).getCell(7).value = { formula: `SUM(B${r}:F${r})` };
   });
   sum.getColumn(1).width = 44;
   const ws = wb.addWorksheet("Test cases");

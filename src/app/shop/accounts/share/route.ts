@@ -13,7 +13,10 @@ import { createCapture, processCapture } from "@/server/accounts/capture/service
 export const dynamic = "force-dynamic";
 export const maxDuration = 120;
 
-const to = (request: NextRequest, path: string) => NextResponse.redirect(new URL(path, request.url), 303);
+// Behind the host's proxy request.url is the server's own address (0.0.0.0:3000),
+// so redirects use the public origin, as the Zoho callback does.
+const to = (request: NextRequest, path: string) =>
+  NextResponse.redirect(new URL(path, (process.env.AUTH_URL ?? request.nextUrl.origin).replace(/\/$/, "")), 303);
 
 export async function GET(request: NextRequest) {
   return to(request, "/shop/accounts/capture");
