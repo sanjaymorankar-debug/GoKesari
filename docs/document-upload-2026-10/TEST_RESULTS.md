@@ -68,12 +68,9 @@ on the production build).
 
 ## Open items
 
-- **OCR on Hostinger:** the OCR worker thread does not start within 45 s on
-  the shared host (the language model and engine now load). Uploads still
-  work: owners type the details (NOT_READ) and the server checks them. PDFs
-  with a text layer (most e-certificates) are read without OCR. Next step:
-  tesseract's own logger in the health check, or `DOCUMENT_OCR_PROVIDER=claude`
-  if sending documents to Anthropic is acceptable for KYC data.
+- ~~**OCR on Hostinger:** the OCR worker thread does not start within 45 s on
+  the shared host.~~ **Fixed 15 Oct (D-18):** photos are read in the owner's
+  browser (#169), released to gokesari.com — see "14–15 Oct" below.
 - **Task 1 (DB split):** waiting for the seller test database details and the
   `TEST_SELLER_DATABASE_URL` / `TEST_CUSTOMER_DATABASE_URL` secrets.
   Production stays `DB_SPLIT_MODE=single`.
@@ -82,3 +79,61 @@ on the production build).
 
 - Customer signup → order → delivery OTP → completion **on staging** (run locally on the production build — 21/21 above; the staging pass needs the sandbox payment workflow and is next).
 - Android/iOS: no native change in this release (WebView); spot-check on the preview app after staging is final.
+
+
+# 14–15 Oct 2026: photos read in the owner's browser (#169, fixes D-18)
+
+Change: [README, "Reading in the browser"](README.md). Staging = PR #169
+(staging `c8e103d`). Production = #175 (another session's cherry-pick of the
+same commit) and #177 (this commit, merged right after — no code change),
+live on gokesari.com at 14:43 UTC on 15 Oct.
+
+## Automated (14 Oct)
+
+| Suite | Result |
+|---|---|
+| CI `test` on #169 and on #177 (full suite + production build) | pass |
+| Full vitest suite, local PostgreSQL 16 | **1,762 passed** (139 files) |
+| Integration `document-uploads` (5 new: browser read used and checked, expired refused, empty → UNREADABLE + small photo → LOW_QUALITY, `DOCUMENT_OCR_BROWSER=off` reads on the server, PDF unaffected) | 21/21 |
+| Unit `ocr-assets-route` | 2/2 |
+| E2E `document-browser-read`, local production build, desktop + Pixel 7 (read in the browser, engine `browser-tesseract`, no CSP violation; with `/api/ocr-assets` blocked the server reads it) | 4/4 |
+| E2E branding/footer + smoke | 30/30 |
+| E2E order lifecycle (`regression-items-a-e`) | 21/21 (the two steps stale since before 13 Oct, D-20, left out as then) |
+
+## Staging (test.gokesari.com)
+
+Shop owner `sanjaymorankar+gk-shop` and admin `+gk-admin`, signed in with the
+real emailed codes. Shop: E2E Four Features Bakery (food, FSSAI card). A
+generated FSSAI licence photo was read, checked, then discarded with "Upload
+again" — never submitted, so the bakery's documents are unchanged.
+
+| When | Check | Result |
+|---|---|---|
+| 14 Oct 17:30, before #169 | FSSAI photo, desktop | **FAIL (baseline, D-18)**: NOT_READ, every field empty, 31 s |
+| 15 Oct, after #169 | Reader files `/api/ocr-assets/7.0.0/…`; CSP | worker, relaxed-SIMD core, English model all 200; `'wasm-unsafe-eval'` present; no CSP violation |
+| 15 Oct | FSSAI photo, desktop | **PASS**: number 11521998000123, name, expiry 2027-03-31 pre-filled; NAME_MISMATCH warning (expected — the test licence's name is not the bakery owner's). 25 s on the first request after the deploy (cold start), **7.4 s** on re-run |
+| 15 Oct | FSSAI photo, Pixel 7 | **PASS**: same fields, 8.4 s |
+| 15 Oct | `/admin/document-uploads` | **PASS**: "File · browser-tesseract 92%" |
+| 15 Oct | E2E branding/footer on test.gokesari.com | **18/18** |
+
+## Production (gokesari.com), 15 Oct — read-only
+
+No sign-in, no upload, no test data.
+
+| Time (UTC) | Check | Result |
+|---|---|---|
+| 14:20 | Baseline: 8 public pages; `/api/ocr-assets`; CSP | 200; 404 (old build); no `'wasm-unsafe-eval'` |
+| 14:43 | New build live | `/api/ocr-assets` 200 |
+| 14:45 | `/`, `/shops`, `/search`, `/categories`, `/signin`, `/sell`, `/legal/privacy-policy`, `/api/referral-settings`; `/shop/documents`, `/admin/document-uploads` signed out | all 200; 307 to sign-in |
+| 14:45 | Five reader files; another version | all 200 (111 KB worker, 3.9 MB cores, 2.9 MB model); other version 404 |
+| 14:45 | CSP `script-src` | `'wasm-unsafe-eval'` present |
+| 14:46–14:47 | The reader in Chromium on `/signin`, from gokesari.com's own files, on an image drawn in the browser (nothing uploaded) | **PASS**: "License Number : 11521998000123 / Valid Upto : 31/03/2027" at 91 % — desktop 3.9 s, Pixel 7 2.3 s; no CSP violation |
+| 14:50 | E2E branding/footer on gokesari.com | **18/18** |
+
+**Not run on production:** a real shop owner's photo upload (no test data on
+production). Watch the first real upload in `/admin/document-uploads` — the
+engine column should read `browser-tesseract`.
+
+Wordmark: kept saffron ("Go" and "Kesari", bold G and K, saffron bold
+tagline), as the owner confirmed on 14 Oct; branding E2E checks it on both
+sites.
