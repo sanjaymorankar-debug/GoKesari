@@ -10,6 +10,17 @@ describe("decideNavigation", () => {
     expect(decideNavigation("about:blank", SITE, true)).toEqual({ action: "load" });
   });
 
+  it("keeps bulk product upload in the app: its pages, the API it calls and the report download", () => {
+    for (const path of [
+      "/shop/product-import",
+      "/admin/product-import?shopId=6b0c1d7e-0000-4000-8000-000000000001",
+      "/api/v1/product-imports/template",
+      "/api/v1/product-imports/6b0c1d7e-0000-4000-8000-000000000002/report?format=xlsx",
+    ]) {
+      expect(decideNavigation(`${SITE}${path}`, SITE, true), path).toEqual({ action: "load" });
+    }
+  });
+
   it("keeps payment pages and anything inside an iframe in the app", () => {
     expect(decideNavigation("https://payments.cashfree.com/order", SITE, true)).toEqual({ action: "load" });
     expect(decideNavigation("https://acs.somebank.example/3ds", SITE, true)).toEqual({ action: "load" });
