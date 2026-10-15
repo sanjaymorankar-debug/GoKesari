@@ -62,9 +62,38 @@ function check(cond, msg) {
 }
 
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ["--no-sandbox"] });
+
+// An owner with several shops: work on one that has products (bill lines need
+// something to map to), chosen with Seller Central's shop switcher like a user.
+{
+  const ctx = await browser.newContext({ storageState: statePath });
+  const p = await ctx.newPage();
+  await p.goto(`${base}/shop`, { timeout: 120_000 });
+  const options = p.getByTestId("shop-switcher-option");
+  const ids = await options.evaluateAll((els) => els.map((e) => ({ id: e.getAttribute("value"), current: e.getAttribute("aria-current") === "true" })));
+  for (const { id, current } of ids) {
+    const ls = await (await ctx.request.get(`${base}/api/shops/${id}/accounts/stock/listings`, { timeout: 120_000 })).json().catch(() => []);
+    if (!Array.isArray(ls) || ls.length === 0) continue;
+    if (!current) {
+      await p.getByTestId("shop-switcher").locator("summary").click();
+      await p.locator(`[data-testid="shop-switcher-option"][value="${id}"]`).click();
+      await p.waitForLoadState("networkidle", { timeout: 120_000 }).catch(() => {});
+      await ctx.storageState({ path: statePath });
+    }
+    console.log(JSON.stringify({ info: "shop-with-products", shopId: id, listings: ls.length, switched: !current }));
+    break;
+  }
+  await ctx.close();
+}
+
 const desktop = await browser.newContext({ storageState: statePath, viewport: { width: 1366, height: 900 } });
 const phone = await browser.newContext({ storageState: statePath, viewport: { width: 412, height: 915 }, isMobile: true, hasTouch: true });
 const app = await browser.newContext({ storageState: statePath, viewport: { width: 393, height: 780 }, isMobile: true, hasTouch: true, userAgent: APP_UA });
+// The test site's database is far from its web server: allow slow pages.
+for (const c of [desktop, phone, app]) {
+  c.setDefaultTimeout(60_000);
+  c.setDefaultNavigationTimeout(90_000);
+}
 const page = await desktop.newPage();
 const api = desktop.request;
 
