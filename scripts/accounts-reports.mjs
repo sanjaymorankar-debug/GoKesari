@@ -4,7 +4,10 @@
  * status report (docs/gokesari-audit/GOKESARI_FEATURE_STATUS_REPORT_<date>.xlsx)
  * from the previous one plus this module's rows.
  *
- *   node scripts/accounts-reports.mjs <features.json> <tests.json> <defects.json> <date> <prev status report> <where-it-runs>
+ *   node scripts/accounts-reports.mjs <features.json> <tests.json> <defects.json> <date> [<prev status report> <where-it-runs>]
+ *
+ * Without the last two arguments only the module's two workbooks are written
+ * (when another release already wrote that day's status report, update it instead).
  */
 import { readFileSync } from "node:fs";
 
@@ -104,7 +107,7 @@ const paint = (cell) => {
 }
 
 /* ------------------------------------------- dated product status report */
-{
+if (prevReport) {
   const wb = new ExcelJS.Workbook();
   await wb.xlsx.readFile(prevReport);
   const fr = wb.getWorksheet("Feature Register");

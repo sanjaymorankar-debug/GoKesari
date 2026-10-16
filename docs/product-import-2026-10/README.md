@@ -1,9 +1,9 @@
 # Bulk product upload (Excel / CSV) — with shop inventory update
 
-Status, 15 Oct 2026: **live on test.gokesari.com** (PR #173 merged into
-`staging`; migration `0077` on the test database) — **23 of 23 live cases pass**
-for the shop owner, admin and operator ([test report §2.7](../testing/bulk-product-upload-test-report.md)).
-**Not on gokesari.com yet** — see [§9](#9-deployment-and-whats-open).
+Status, 15 Oct 2026: **live on gokesari.com** since 15:58 UTC (release
+PR #179; migrations 0076–0078 applied by the build). Signed-out production checks
+pass; on test.gokesari.com **23 of 23 live cases pass** for the shop owner, admin
+and operator ([test report §2.7–2.8](../testing/bulk-product-upload-test-report.md)).
 
 One more way to load products. The existing **manual add**, **add by
 category** and the **Excel price upload** are untouched. A shop owner — or an
@@ -295,10 +295,16 @@ owner's go-ahead on the `staging` → `main` release.
 
 **Open items**
 
-- **Production (gokesari.com)**: the Production database workflow
-  (migrate), the `staging` → `main` merge, then the smoke test
-  (`product-import-check.mjs … smoke … --prod-smoke`). Note: that release also
-  ships the other unreleased `staging` work (#168, #169, #171).
+- **A signed-in import on gokesari.com**: the release is live and the
+  signed-out checks pass, but no file was imported on production (it writes to
+  a real shop). Name a test shop on gokesari.com, then run
+  `product-import-check.mjs https://gokesari.com <state> smoke <dir> <shopId> --prod-smoke`
+  (one product in, then a Delete file takes it out again).
+- **The "Production database" workflow** cannot run yet: the repository
+  variables `PROD_DATABASE_HOST`, `PROD_DATABASE_NAME` and `TEST_DATABASE_HOST`
+  are not set (GitHub → Settings → Secrets and variables → Actions →
+  Variables). This release was migrated by the gokesari.com build
+  (`MIGRATE_ON_BUILD`), as #120 and #135 were.
 - **On a real phone**: the Android / iPhone system file picker (Files, Drive,
   WhatsApp) on the test site — the phone-width app view was checked in a
   browser with the app's user agent only.
