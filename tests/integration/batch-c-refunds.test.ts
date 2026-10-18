@@ -247,3 +247,22 @@ describe("F6.2.3 refund to the original payment method", () => {
     expect((await refundOf(o.order.id)).method).toBe("WALLET");
   });
 });
+
+describe("integration: multi-shop online carts (WS-A pays them with one ORDER_GROUP intent)", () => {
+  it("TC-B26-C-057 an order paid through its group's payment counts as paid online, so its refund can go back to the card/UPI", async () => {
+    const { paymentChannelFor } = await import("@/server/aftercare/refunds");
+    const groupId = crypto.randomUUID();
+    // The group's captured payment is keyed by the group id; the order itself has no intent.
+    intents.captured.set(groupId, { id: "intent-group", amountPaise: PAID * 2 });
+    const order = { id: crypto.randomUUID(), userId: crypto.randomUUID(), paymentMethod: "ONLINE" as const };
+
+    const viaGroup = await paymentChannelFor({ ...order, orderGroupId: groupId });
+    expect(viaGroup.channel).toBe("ONLINE");
+    expect(viaGroup.intent?.id).toBe("intent-group");
+
+    // Without the group link nothing is found (the pre-merge behaviour, kept for single orders).
+    const alone = await paymentChannelFor({ ...order, orderGroupId: null });
+    expect(alone.channel).toBe("WALLET");
+    expect(alone.intent).toBeNull();
+  });
+});

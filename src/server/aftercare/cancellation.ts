@@ -21,7 +21,6 @@ import {
   computeRefundBreakdown,
   findRefundForCancellation,
   paymentChannelFor,
-  processOriginalRefund,
   refundMethodsFor,
   type RefundBreakdown,
   type RefundMethod,
@@ -125,10 +124,9 @@ export async function cancelOrderWithChoice(orderId: string, actor: Actor, input
     refundMethod: quote.refundMethods.length > 0 ? (input.refundMethod ?? quote.defaultMethod ?? undefined) : undefined,
     expectedRefundPaise: input.expectedRefundPaise,
   });
-  let refund = await findRefundForCancellation(orderId);
-  if (refund?.method === "ORIGINAL" && refund.status === "REQUESTED") {
-    refund = await processOriginalRefund(refund.id);
-  }
+  // cancelOrder has already sent an original-method refund to the gateway after
+  // its commit (batch integration), so this only reads where the refund stands.
+  const refund = await findRefundForCancellation(orderId);
   const [after] = await db.select({ status: orders.status }).from(orders).where(eq(orders.id, orderId));
   return {
     order: { id: result.id, orderNumber: result.orderNumber, status: after?.status ?? result.status },

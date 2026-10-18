@@ -14,6 +14,7 @@
 import { and, desc, eq, gte } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
+import { PRICE_REFERENCES_DROPPED } from "@/lib/price-references-drop"; // batch-2026-10 WS-A
 import { db } from "@/server/db";
 import {
   externalPriceReferenceHistory,
@@ -266,6 +267,8 @@ export async function listReferencesForProduct(
   productId: string,
   viewer: ReferenceViewer,
 ): Promise<ExternalPriceReference[]> {
+  // batch-2026-10 WS-A: F1.4.3 dropped — never shown to customers or shops, whatever the settings say.
+  if (PRICE_REFERENCES_DROPPED && viewer !== "STAFF") return [];
   if (viewer !== "STAFF") {
     const rules = await getRule("externalPrices");
     if (viewer === "CUSTOMER" && !rules.showToCustomers) return [];

@@ -63,6 +63,7 @@ const MACHINES: readonly string[] = [
   "seller_verification",
   "dispute",
   "support_ticket", // batch-2026-10 WS-C
+  "payment_intent", // batch-2026-10 WS-A
 ] satisfies MachineKind[];
 
 /** Throws the standard 409 when the move is not in the subject's state machine. */

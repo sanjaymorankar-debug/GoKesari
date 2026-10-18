@@ -408,7 +408,7 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "products", label: L("Products", "उत्पाद", "उत्पादने"), icon: "database", href: "/admin/product-master", count: "products", permission: PERMISSIONS.PMD_VIEW },
       { key: "review", label: L("Review", "समीक्षा", "पुनरावलोकन"), icon: "clipboard-check", href: "/admin/console/product-approvals", count: "pendingProducts", permission: PERMISSIONS.PRODUCT_APPROVE },
       { key: "mrp", label: L("MRP", "एमआरपी", "एमआरपी"), icon: "tag", href: "/admin/mrp", count: "mrpCorrections", permission: PERMISSIONS.PRODUCT_MRP_MANAGE },
-      { key: "refPrices", label: L("Ref. prices", "संदर्भ दाम", "संदर्भ दर"), icon: "scale", href: "/admin/price-references", count: "refPricesToVerify", permission: PERMISSIONS.PRICE_REFERENCE_MANAGE },
+      // batch-2026-10 WS-A: "Ref. prices" removed — F1.4.3 dropped (other websites do not permit their prices to be used).
       { key: "images", label: L("Images", "फ़ोटो", "फोटो"), icon: "images", href: "/admin/image-moderation", count: "pendingImages", permission: PERMISSIONS.PRODUCT_MANAGE },
     ],
     more: [
@@ -594,7 +594,7 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "products", label: L("Products", "उत्पाद", "उत्पादने"), icon: "database", href: "/admin/product-master", count: "products", permission: PERMISSIONS.PMD_VIEW },
       { key: "review", label: L("Review", "समीक्षा", "पुनरावलोकन"), icon: "clipboard-check", href: "/admin/console/product-approvals", count: "pendingProducts", permission: PERMISSIONS.PRODUCT_APPROVE },
       { key: "mrp", label: L("MRP", "एमआरपी", "एमआरपी"), icon: "tag", href: "/admin/mrp", count: "mrpCorrections", permission: PERMISSIONS.PRODUCT_MRP_MANAGE },
-      { key: "refPrices", label: L("Ref. prices", "संदर्भ दाम", "संदर्भ दर"), icon: "scale", href: "/admin/price-references", count: "refPricesToVerify", permission: PERMISSIONS.PRICE_REFERENCE_MANAGE },
+      // batch-2026-10 WS-A: "Ref. prices" removed — F1.4.3 dropped.
       { key: "bulkUpload", label: L("Bulk upload (Excel/CSV)", "बल्क अपलोड (एक्सेल/CSV)", "एकत्र अपलोड (एक्सेल/CSV)"), short: L("Bulk upload", "बल्क अपलोड", "एकत्र अपलोड"), icon: "file-spreadsheet", href: "/admin/product-import", permission: PERMISSIONS.EXCEL_UPLOAD_ANY },
     ],
     more: [

@@ -124,7 +124,7 @@ export function EmailChangeForm({ current }: { current: string }) {
           ) : (
             <form onSubmit={confirm} className="grid gap-2">
               <p className="text-sm text-ink-600">
-                Enter the code we sent to <strong>{sentTo}</strong>.
+                OTP sent to your email <strong>{sentTo}</strong>. Enter it below.
               </p>
               <input
                 className={`${inputClass} tracking-widest`}

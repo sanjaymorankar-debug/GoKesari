@@ -30,7 +30,7 @@ export interface DisputeRow {
   level: DisputeLevel;
   reason: DisputeReason;
   disputedAmountPaise: number;
-  paymentMethod: "WALLET" | "COD";
+  paymentMethod: "WALLET" | "COD" | "ONLINE"; // batch-2026-10 WS-A: + ONLINE
   escalationTrigger: EscalationTrigger | null;
   raisedByName: string | null;
   createdAt: string;

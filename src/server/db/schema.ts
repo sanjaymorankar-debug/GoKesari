@@ -226,7 +226,12 @@ export const orderTypeEnum = pgEnum("order_type", ["PERSONAL", "B2B"]);
  * collected in cash at the door (by the rider, or the shop when it delivers
  * itself) and only then counts as paid.
  */
-export const paymentMethodEnum = pgEnum("payment_method", ["WALLET", "COD"]);
+export const paymentMethodEnum = pgEnum("payment_method", [
+  "WALLET",
+  "COD",
+  /** batch-2026-10 WS-A (F1.7.3): paid at a payment gateway (UPI / card / netbanking); rule onlinePayments. */
+  "ONLINE",
+]);
 
 /* -------------------------------------------------------- delivery windows
  * (delivery-system Part 58 follow-up, Slice C). Fixed set for Phase 1 per
@@ -7730,6 +7735,175 @@ export type ProductAttributes = typeof productAttributes.$inferSelect;
 
 
 /* >>> batch-2026-10 WS-A (payments, OTP, reference prices) — tables below this line only */
+
+/*
+ * Direct online payment (F1.7.3 / F1.8.4, docs/payments-gateway-2026-10.md).
+ * Status / purpose / gateway values mirror src/lib/payment-intent-states.ts
+ * (kept inline so this file gains no new import). All customer-owned.
+ */
+
+/** One gateway payment for one purpose (an order, an order group, a shop's registration fee). */
+export const paymentIntents = pgTable(
+  "payment_intents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE"] }).notNull(),
+    /** The order id, order-group id or shop id — a plain UUID (no FK: the purposes point at different tables). */
+    referenceId: uuid("reference_id").notNull(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    /** Sum of SUCCESS refunds. */
+    refundedPaise: bigint("refunded_paise", { mode: "number" }).notNull().default(0),
+    currency: text("currency").notNull().default("INR"),
+    status: text("status", {
+      enum: ["CREATED", "PENDING", "AUTHORIZED", "CAPTURED", "PARTIALLY_REFUNDED", "REFUNDED", "FAILED", "EXPIRED"],
+    })
+      .notNull()
+      .default("CREATED"),
+    gateway: text("gateway", { enum: ["SANDBOX", "CASHFREE", "RAZORPAY", "PHONEPE"] }).notNull(),
+    mode: text("mode", { enum: ["CHECKOUT", "LINK"] }).notNull().default("CHECKOUT"),
+    /** Our id for the attempt at the gateway (its "order id"); derived from this row's id. */
+    merchantOrderId: text("merchant_order_id").notNull(),
+    gatewayOrderId: text("gateway_order_id"),
+    gatewayPaymentId: text("gateway_payment_id"),
+    /** Same key → same intent: a customer can never be charged twice for one order. */
+    idempotencyKey: text("idempotency_key").notNull(),
+    checkoutKind: text("checkout_kind", { enum: ["HOSTED_URL", "SDK_SESSION"] }),
+    checkoutUrl: text("checkout_url"),
+    /** SDK session token (Cashfree payment_session_id, Razorpay order id). Never card data. */
+    checkoutToken: text("checkout_token"),
+    linkUrl: text("link_url"),
+    method: text("method", { enum: ["UPI", "CARD", "NETBANKING"] }),
+    description: text("description").notNull(),
+    returnPath: text("return_path"),
+    failureReason: text("failure_reason"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    capturedAt: timestamp("captured_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    lastReconciledAt: timestamp("last_reconciled_at", { withTimezone: true }),
+    reconcileAttempts: integer("reconcile_attempts").notNull().default(0),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("payment_intents_idempotency_key_uq").on(t.idempotencyKey),
+    uniqueIndex("payment_intents_merchant_order_uq").on(t.merchantOrderId),
+    index("payment_intents_reference_idx").on(t.purpose, t.referenceId, t.createdAt),
+    index("payment_intents_status_idx").on(t.status, t.createdAt),
+    index("payment_intents_gateway_order_idx").on(t.gateway, t.gatewayOrderId),
+    index("payment_intents_user_idx").on(t.userId, t.createdAt),
+    check("payment_intents_amount_positive", sql`${t.amountPaise} > 0`),
+    check("payment_intents_refund_within_amount", sql`${t.refundedPaise} >= 0 AND ${t.refundedPaise} <= ${t.amountPaise}`),
+  ],
+);
+export type PaymentIntentRow = typeof paymentIntents.$inferSelect;
+
+/** Status history of an intent — one row per move, with what caused it. */
+export const paymentIntentEvents = pgTable(
+  "payment_intent_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    intentId: uuid("intent_id")
+      .notNull()
+      .references(() => paymentIntents.id, { onDelete: "cascade" }),
+    fromStatus: text("from_status"),
+    toStatus: text("to_status").notNull(),
+    /** API (our call), WEBHOOK, RECONCILE (job), REFUND, SYSTEM. */
+    source: text("source").notNull(),
+    note: text("note"),
+    webhookEventId: uuid("webhook_event_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("payment_intent_events_intent_idx").on(t.intentId, t.createdAt)],
+);
+
+/** Every webhook delivery, verified or not. (gateway, event_id) is the processing idempotency key. */
+export const paymentWebhookEvents = pgTable(
+  "payment_webhook_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    gateway: text("gateway").notNull(),
+    eventId: text("event_id").notNull(),
+    kind: text("kind"),
+    signatureOk: boolean("signature_ok").notNull(),
+    intentId: uuid("intent_id").references(() => paymentIntents.id, { onDelete: "set null" }),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    /** PROCESSED, DUPLICATE, BAD_SIGNATURE, UNKNOWN_INTENT, NO_CHANGE, AMOUNT_MISMATCH, ERROR, ... */
+    outcome: text("outcome"),
+    error: text("error"),
+    rawPayload: jsonb("raw_payload").$type<unknown>(),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("payment_webhook_events_gateway_event_uq").on(t.gateway, t.eventId),
+    index("payment_webhook_events_intent_idx").on(t.intentId),
+    index("payment_webhook_events_received_idx").on(t.receivedAt),
+  ],
+);
+
+/** Refunds to the original payment method, through the gateway. */
+export const paymentRefunds = pgTable(
+  "payment_refunds",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    intentId: uuid("intent_id")
+      .notNull()
+      .references(() => paymentIntents.id, { onDelete: "cascade" }),
+    /** Our refund id at the gateway (its idempotency key). */
+    merchantRefundId: text("merchant_refund_id").notNull(),
+    /** The caller's key: one refund per key. */
+    idempotencyKey: text("idempotency_key").notNull(),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    status: text("status", { enum: ["PENDING", "SUCCESS", "FAILED"] }).notNull().default("PENDING"),
+    gatewayRefundId: text("gateway_refund_id"),
+    reason: text("reason").notNull(),
+    /** The order this refund is for, when the intent paid several (order group). Plain UUID. */
+    orderId: uuid("order_id"),
+    /** When the refund was sent to the gateway. Null: queued (asked for inside another transaction); the reconciliation job sends it. */
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
+    failureReason: text("failure_reason"),
+    pollAttempts: integer("poll_attempts").notNull().default(0),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("payment_refunds_merchant_refund_uq").on(t.merchantRefundId),
+    uniqueIndex("payment_refunds_idempotency_key_uq").on(t.idempotencyKey),
+    index("payment_refunds_intent_idx").on(t.intentId),
+    index("payment_refunds_status_idx").on(t.status, t.createdAt),
+    check("payment_refunds_amount_positive", sql`${t.amountPaise} > 0`),
+  ],
+);
+export type PaymentRefundRow = typeof paymentRefunds.$inferSelect;
+
+/**
+ * The sandbox gateway's own ledger (tests and staging only): what a real
+ * gateway would hold on its side. Kept in the database so a staging site with
+ * several instances, or a restart, sees the same sandbox state.
+ */
+export const paymentSandboxOrders = pgTable("payment_sandbox_orders", {
+  gatewayOrderId: text("gateway_order_id").primaryKey(),
+  merchantOrderId: text("merchant_order_id").notNull().unique(),
+  kind: text("kind", { enum: ["ORDER", "LINK"] }).notNull().default("ORDER"),
+  amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+  status: text("status", { enum: ["CREATED", "PENDING", "AUTHORIZED", "CAPTURED", "FAILED", "EXPIRED"] })
+    .notNull()
+    .default("CREATED"),
+  paymentId: text("payment_id"),
+  method: text("method"),
+  failureReason: text("failure_reason"),
+  /** [{ merchantRefundId, gatewayRefundId, amountPaise, status }] */
+  refunds: jsonb("refunds")
+    .$type<{ merchantRefundId: string; gatewayRefundId: string; amountPaise: number; status: "PENDING" | "SUCCESS" | "FAILED" }[]>()
+    .notNull()
+    .default(sql`'[]'::jsonb`),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type PaymentSandboxOrder = typeof paymentSandboxOrders.$inferSelect;
 
 /* <<< end WS-A */
 

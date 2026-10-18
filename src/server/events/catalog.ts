@@ -1063,6 +1063,54 @@ export const EVENTS = {
     { to: "SUPPORT", type: N.SUPPORT_NOTIFICATION_DEAD, vars: p, actionUrl: "/admin" },
   ]),
   /* >>> batch-2026-10 WS-A (payments, OTP, reference prices) — add entries below this line only */
+  // Direct online payment (F1.7.3 / F1.8.4). Subject: the payment intent (state machine
+  // payment_intent). Payload: { intentId, userId, amount (formatted), reference ("order GK-…"),
+  // actionUrl, reason?, problem? }. Order status changes made on capture / failure emit
+  // their own order events as well.
+  "payment.pending": define<{ intentId: string; userId: string | null; amount: string; reference: string; actionUrl: string }>(
+    "payment_intent",
+    () => [],
+  ),
+  "payment.authorized": define<{ intentId: string; userId: string | null; amount: string; reference: string; actionUrl: string }>(
+    "payment_intent",
+    () => [],
+  ),
+  "payment.captured": define<{ intentId: string; userId: string | null; amount: string; reference: string; actionUrl: string }>(
+    "payment_intent",
+    (p) => [
+      { to: p.userId, type: N.ORDER_PAYMENT_CAPTURED, vars: { amount: p.amount, reference: p.reference }, actionUrl: p.actionUrl, includeActor: true },
+    ],
+  ),
+  "payment.failed": define<{ intentId: string; userId: string | null; amount: string; reference: string; actionUrl: string; reason?: string | null }>(
+    "payment_intent",
+    (p) => [
+      {
+        to: p.userId,
+        type: N.ORDER_PAYMENT_FAILED,
+        vars: { amount: p.amount, reference: p.reference, reason: p.reason ? ` (${p.reason})` : "" },
+        actionUrl: p.actionUrl,
+        includeActor: true,
+      },
+    ],
+  ),
+  "payment.expired": define<{ intentId: string; userId: string | null; amount: string; reference: string; actionUrl: string }>(
+    "payment_intent",
+    (p) => [
+      { to: p.userId, type: N.ORDER_PAYMENT_EXPIRED, vars: { amount: p.amount, reference: p.reference }, actionUrl: p.actionUrl, includeActor: true },
+    ],
+  ),
+  /** A refund reached the customer's original method (partial or full; the transition says which). */
+  "payment.refunded": define<{ intentId: string; userId: string | null; amount: string; reference: string; actionUrl: string }>(
+    "payment_intent",
+    (p) => [
+      { to: p.userId, type: N.ORDER_PAYMENT_REFUNDED, vars: { amount: p.amount, reference: p.reference }, actionUrl: p.actionUrl, includeActor: true },
+    ],
+  ),
+  /** Support: a payment needs a person (amount mismatch, money taken after the attempt ended, refund failed or stuck). */
+  "payment.attention": define<{ intentId: string; userId: string | null; amount: string; reference: string; actionUrl: string; problem: string }>(
+    "payment_intent",
+    (p) => [{ to: "SUPPORT", type: N.SUPPORT_PAYMENT_ATTENTION, vars: { reference: p.reference, problem: p.problem }, actionUrl: "/admin" }],
+  ),
   /* <<< end WS-A */
   //
   /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — add entries below this line only */

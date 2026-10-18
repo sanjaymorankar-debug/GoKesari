@@ -102,9 +102,18 @@ const PAID_STATUSES: readonly OrderStatus[] = [
 ];
 
 /** The latest captured gateway payment for an order, or null (also while the payments workstream is not merged). */
-export async function capturedIntentFor(orderId: string, client: DbClient = db): Promise<PaymentIntentRef | null> {
+export async function capturedIntentFor(
+  orderId: string,
+  client: DbClient = db,
+  orderGroupId: string | null = null,
+): Promise<PaymentIntentRef | null> {
   try {
-    return await findCapturedIntent("ORDER", orderId, client);
+    // A multi-shop online cart is paid by one ORDER_GROUP intent (WS-A); each
+    // shop's order is refunded from it (partial refunds of the group payment).
+    return (
+      (await findCapturedIntent("ORDER", orderId, client)) ??
+      (orderGroupId ? await findCapturedIntent("ORDER_GROUP", orderGroupId, client) : null)
+    );
   } catch {
     return null;
   }
@@ -127,12 +136,12 @@ async function walletDebitFor(order: Pick<Order, "id" | "userId">, client: DbCli
 
 /** How the order was paid. A wallet debit wins; then a captured gateway payment; COD is COD. */
 export async function paymentChannelFor(
-  order: Pick<Order, "id" | "userId" | "paymentMethod">,
+  order: Pick<Order, "id" | "userId" | "paymentMethod"> & Partial<Pick<Order, "orderGroupId">>,
   client: DbClient = db,
 ): Promise<{ channel: PaymentChannel; intent: PaymentIntentRef | null; hasWalletDebit: boolean }> {
   if (order.paymentMethod === "COD") return { channel: "COD", intent: null, hasWalletDebit: false };
   if (await walletDebitFor(order, client)) return { channel: "WALLET", intent: null, hasWalletDebit: true };
-  const intent = await capturedIntentFor(order.id, client);
+  const intent = await capturedIntentFor(order.id, client, order.orderGroupId ?? null);
   return { channel: intent ? "ONLINE" : "WALLET", intent, hasWalletDebit: false };
 }
 
@@ -219,7 +228,12 @@ export async function computeRefundBreakdown(
 /** Where the refund may go for this order (wallet always; the original method only for online payments, when enabled). */
 export async function refundMethodsFor(channel: PaymentChannel): Promise<RefundMethod[]> {
   if (channel !== "ONLINE") return ["WALLET"];
-  return (await getRule("refundChoice")).originalMethodEnabled ? ["ORIGINAL", "WALLET"] : ["WALLET"];
+  // An order paid online came through a working gateway (rule onlinePayments),
+  // so its money goes back there by default; the wallet stays the customer's
+  // other choice. refundChoice.originalMethodEnabled still opens it on its own.
+  const original =
+    (await getRule("refundChoice")).originalMethodEnabled || (await getRule("onlinePayments")).enabled;
+  return original ? ["ORIGINAL", "WALLET"] : ["WALLET"];
 }
 
 /* ------------------------------------------------------------- writing */
@@ -635,6 +649,9 @@ export async function processOriginalRefund(refundId: string): Promise<OrderRefu
       amountPaise: refund.amountPaise,
       reason: refund.reason ?? "Order cancelled",
       idempotencyKey: `order-refund:${refund.id}`,
+      // Links WS-A's gateway refund to the order; both sides move REFUND_PENDING → REFUNDED
+      // only from REFUND_PENDING, so whichever settles first wins and the other is a no-op.
+      orderId: refund.orderId,
     });
     if (result.status === "SUCCESS") return finishOriginal(refund.id, { status: "SUCCESS", ref: result.id });
     if (result.status === "FAILED") return finishOriginal(refund.id, { status: "FAILED", ref: result.id, error: "Gateway reported the refund failed." });
@@ -668,6 +685,16 @@ export async function recordGatewayRefundResult(
  * PROCESSING ones from the payment intent's state (REFUNDED /
  * PARTIALLY_REFUNDED with enough refunded). Idempotent.
  */
+/** Sends every still-REQUESTED original-method refund of one order (after its cancellation commits). */
+export async function sendRequestedOriginalRefunds(orderId: string): Promise<number> {
+  const requested = await db
+    .select({ id: orderRefunds.id })
+    .from(orderRefunds)
+    .where(and(eq(orderRefunds.orderId, orderId), eq(orderRefunds.method, "ORIGINAL"), eq(orderRefunds.status, "REQUESTED")));
+  for (const refund of requested) await processOriginalRefund(refund.id);
+  return requested.length;
+}
+
 export async function runRefundSweep(): Promise<{ retried: number; completed: number }> {
   const pending = await db
     .select()

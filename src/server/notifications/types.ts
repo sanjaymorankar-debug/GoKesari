@@ -214,6 +214,16 @@ export const NOTIFICATION_TYPES = {
   /** To the shop owner: a GST return is due soon (estimate of tax payable). */
   SHOP_GST_DUE_REMINDER: "shop.gst_due_reminder",
   /* >>> batch-2026-10 WS-A (payments, OTP, reference prices) — add entries below this line only */
+  /** To the customer: an online payment was received (F1.7.3). */
+  ORDER_PAYMENT_CAPTURED: "order.payment_captured",
+  /** To the customer: an online payment failed; the order can be paid again. */
+  ORDER_PAYMENT_FAILED: "order.payment_failed",
+  /** To the customer: an online payment was not completed in time. */
+  ORDER_PAYMENT_EXPIRED: "order.payment_expired",
+  /** To the customer: money went back to the original payment method. */
+  ORDER_PAYMENT_REFUNDED: "order.payment_refunded",
+  /** To support: a payment needs a person (amount mismatch, late capture, stuck refund). */
+  SUPPORT_PAYMENT_ATTENTION: "support.payment_attention",
   /* <<< end WS-A */
   //
   /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — add entries below this line only */

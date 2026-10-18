@@ -24,13 +24,16 @@ export const RULES = {
     }),
     defaults: {
       length: 6,
-      expiryMinutes: 10,
+      // batch-2026-10 WS-A (F1.1.2, GS-001): codes live 5 minutes (was 10).
+      expiryMinutes: 5,
       maxAttempts: 5,
       resendCooldownSeconds: 60,
       maxResendsPerWindow: 5,
       resendWindowMinutes: 60,
       maxRequestsPerIpPerWindow: 20,
-      smsEnabled: false,
+      // batch-2026-10 WS-A: this switch now really gates SMS codes (with SMS_PROVIDER). On by
+      // default so nothing changes where SMS_PROVIDER is set (Module 3 shops); off = email only.
+      smsEnabled: true,
     },
   },
   dispatch: {
@@ -964,6 +967,45 @@ export const RULES = {
     defaults: { enabled: true, fssaiMandatoryForFood: true, nameMatchWarnBelow: 70, maxUploadBytes: 10_000_000, maxUploadsPerShopPerHour: 30, draftRetentionDays: 7 },
   },
   /* >>> batch-2026-10 WS-A (payments, OTP, reference prices) — add entries below this line only */
+  /** F1.7.3 / F1.8.4 (GS-028, NEW-007, SM-005): orders paid directly at a payment gateway. */
+  onlinePayments: {
+    description:
+      "Pay online (UPI / card / netbanking) at checkout through the payment gateway chosen by PAYMENT_GATEWAY. " +
+      "PRODUCTION STAYS OFF until the gateway is chosen, the merchant account is open, and the live keys and the webhook secret are set " +
+      "(see docs/payments-gateway-2026-10.md). On staging it runs against the sandbox gateway. Off: checkout offers wallet and cash on delivery exactly as before.",
+    schema: z.object({
+      enabled: z.boolean(),
+      /** Methods offered on the gateway page. */
+      methods: z.array(z.enum(["UPI", "CARD", "NETBANKING"])).min(1).max(3),
+      /** How long the customer has to pay before the attempt expires (and the order's stock is released). */
+      intentExpiryMinutes: int(5, 1440),
+      /** An attempt still CREATED / PENDING this long after it started is checked with the gateway by the reconciliation job. */
+      reconcileAfterMinutes: int(1, 1440),
+      /** The job stops asking about an attempt (and a refund) after this many checks; support is alerted instead. */
+      maxReconcileAttempts: int(1, 500),
+      /** The sandbox gateway is refused in production unless PAYMENT_GATEWAY=SANDBOX and this is on. */
+      allowSandboxInProduction: z.boolean(),
+    }),
+    defaults: {
+      enabled: false,
+      methods: ["UPI", "CARD", "NETBANKING"],
+      intentExpiryMinutes: 15,
+      reconcileAfterMinutes: 10,
+      maxReconcileAttempts: 48,
+      allowSandboxInProduction: false,
+    },
+  },
+  /** F1.1.2 (GS-001, GS-074): clean-up of used and expired sign-in codes. */
+  otpHousekeeping: {
+    description:
+      "Expired and used one-time codes are deleted by the auth-housekeeping job after this many hours (the audit log keeps the record). " +
+      "Keep it at least as long as the otp rule's resend window, which counts recent codes.",
+    schema: z.object({
+      purgeEnabled: z.boolean(),
+      retainHours: int(1, 24 * 90),
+    }),
+    defaults: { purgeEnabled: true, retainHours: 24 },
+  },
   /* <<< end WS-A */
   //
   /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — add entries below this line only */

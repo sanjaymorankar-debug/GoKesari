@@ -229,6 +229,24 @@ const serverEnvSchema = z.object({
   OBJECT_STORE_SECRET_ACCESS_KEY: z.string().optional(), // batch-2026-10 WS-D
   /** Expo access token for the push service (rule push.provider = expo); only needed with Expo's enhanced push security. */
   EXPO_ACCESS_TOKEN: z.string().optional(), // batch-2026-10 WS-F
+
+  // batch-2026-10 WS-A — direct online payment (docs/payments-gateway-2026-10.md).
+  /** Which gateway takes online payments for orders. SANDBOX (default) is in-process: tests and staging only. */
+  PAYMENT_GATEWAY: z.enum(["SANDBOX", "CASHFREE", "RAZORPAY", "PHONEPE"]).default("SANDBOX"), // batch-2026-10 WS-A
+  /** Sandbox webhook HMAC secret. Unset: a fixed test secret (refused in production). */
+  PAYMENT_WEBHOOK_SECRET_SANDBOX: z.string().optional(), // batch-2026-10 WS-A
+  /** Cashfree PG webhook secret. Unset: CASHFREE_SECRET_KEY (Cashfree signs webhooks with the API secret). */
+  PAYMENT_WEBHOOK_SECRET_CASHFREE: z.string().optional(), // batch-2026-10 WS-A
+  RAZORPAY_KEY_ID: z.string().optional(), // batch-2026-10 WS-A
+  RAZORPAY_KEY_SECRET: z.string().optional(), // batch-2026-10 WS-A
+  /** Razorpay dashboard → Webhooks → secret. */
+  PAYMENT_WEBHOOK_SECRET_RAZORPAY: z.string().optional(), // batch-2026-10 WS-A
+  PHONEPE_MERCHANT_ID: z.string().optional(), // batch-2026-10 WS-A
+  PHONEPE_SALT_KEY: z.string().optional(), // batch-2026-10 WS-A
+  PHONEPE_SALT_INDEX: z.string().optional(), // batch-2026-10 WS-A
+  PHONEPE_ENV: z.enum(["sandbox", "production"]).default("sandbox"), // batch-2026-10 WS-A
+  /** Public origin used in gateway return / webhook URLs, e.g. https://test.gokesari.com. Falls back to AUTH_URL. */
+  PAYMENT_PUBLIC_BASE_URL: z.string().url().optional(), // batch-2026-10 WS-A
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

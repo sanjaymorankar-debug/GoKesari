@@ -12,6 +12,7 @@ import type { DeliveryOrderStatus, OrderStatus } from "@/server/db/schema";
 import type { SellerVerificationStatus } from "./kyc/doc-formats";
 import { DISPUTE_TRANSITIONS, type DisputeStatus } from "./dispute-states";
 import { TICKET_TRANSITIONS, type TicketStatus } from "./support-ticket-states"; // batch-2026-10 WS-C
+import { PAYMENT_INTENT_TRANSITIONS, type PaymentIntentStatusValue } from "./payment-intent-states"; // batch-2026-10 WS-A
 
 /**
  * The approved order state machine (see the orderStatusEnum doc comment in
@@ -84,6 +85,8 @@ export const STATE_MACHINES = {
   seller_verification: SELLER_VERIFICATION_TRANSITIONS,
   dispute: DISPUTE_TRANSITIONS,
   support_ticket: TICKET_TRANSITIONS, // batch-2026-10 WS-C
+  /** batch-2026-10 WS-A: a gateway payment (lib/payment-intent-states.ts). */
+  payment_intent: PAYMENT_INTENT_TRANSITIONS,
 } as const satisfies Record<string, Record<string, readonly string[]>>;
 
 export type MachineKind = keyof typeof STATE_MACHINES;
@@ -96,6 +99,8 @@ export type MachineStatus<K extends MachineKind> = K extends "order"
       ? SellerVerificationStatus
       : K extends "support_ticket" // batch-2026-10 WS-C
         ? TicketStatus
+      : K extends "payment_intent" // batch-2026-10 WS-A
+        ? PaymentIntentStatusValue
         : DisputeStatus;
 
 /**

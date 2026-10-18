@@ -6,15 +6,24 @@
  * Pages through the public API politely (robots checked, rate limited, retried) and
  * writes a local JSONL, oldest observation first so price history replays in order.
  * Contributor usernames and proof references are stripped before anything is written.
+ *
+ * batch-2026-10 WS-A: F1.4.3 (reference prices) is DROPPED — this refuses to run
+ * unless --i-understand-dropped is passed.
  */
 import { createWriteStream, mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { droppedFeatureRefusal } from "@/lib/price-references-drop";
 import { fetchOpenPricesPage, stripPersonalData } from "@/server/pmd/sources/adapters/open-prices";
 import { PoliteHttpClient } from "@/server/pmd/sources/http";
 import { arg, defaultSampleDir, httpUserAgent } from "./lib";
 
 async function main() {
+  const refusal = droppedFeatureRefusal(process.argv);
+  if (refusal) {
+    console.error(refusal);
+    process.exit(2);
+  }
   const currency = arg("currency", "INR")!;
   const size = Number(arg("size", "100"));
   const maxPages = Number(arg("max-pages", "50"));
