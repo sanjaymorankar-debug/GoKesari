@@ -157,3 +157,17 @@ Format: **ID — decision.** *Why.* (Where.)
 - **D-F06 — Mobile app 1.2.0:** `expo-notifications` / `expo-device` added at SDK 57 versions with npm (`expo install` could not reach Expo); push token requested by the site after sign-in; notification taps open their page; camera allowed inside the WebView for QR (Android `CAMERA`; iOS auto-granted for the site's own pages — Android cannot restrict it to our pages, the system prompt still applies); Cashfree/Razorpay/PhonePe stay in-app; incoming links routed in-app only for the site's own pages.
 - **D-F07 — Signing out does not unregister the device immediately**; pushes stop when someone else signs in on it or Expo reports the app removed.
 - **D-F08 — WhatsApp and SMS: Phase-2 stub adapters only** (existing mock/none), no vendor.
+
+## WS-C — after-packing cancellation, refunds, help desk (F6.1.3, F6.2.3, F6.3.3)
+
+- **D-C01 — After pickup (PICKED_UP / OUT_FOR_DELIVERY) the D10 goods-only refund is unchanged**; the after-packing fee applies only to READY / ASSIGNED and is never stacked on the retained delivery fee.
+- **D-C02 — The fee is taken only from money actually paid** (an unpaid COD order is charged nothing). A percentage fee is a share of the goods, capped; a lower admin cap set later applies at quote time to existing shop overrides. Defaults: ₹20 flat, 10% capped at ₹50, shop override allowed up to ₹100 / 20%.
+- **D-C03 — The fee goes to the shop**, recorded in `order_charges` and the finance ledger as an ADJUSTMENT, paid to the shop in the next settlement as a pending SHOP_ADJUSTMENT. **GST on this fee is not computed** — CA to advise.
+- **D-C04 — `cancelOrder` takes the new refund path only when the fee applies, the customer chose a refund method, or the order was paid ONLINE**; every other cancellation runs the original wallet refund unchanged (verified in review: `planCancellationRefund` returns null).
+- **D-C05 — An order counts as paid online when it has no wallet debit and has a captured payment intent.** Original-method refunds are sent to the gateway after the cancel commits; the hourly `aftercare` job retries; after the last attempt, or a gateway failure, the money goes to the wallet (`refundChoice.fallbackToWallet`).
+- **D-C06 — Wallet- and COD-paid orders always refund to the wallet** (no choice shown); the wallet refund is instant.
+- **D-C07 — Ticket SLA clocks do not pause** while awaiting the customer or the shop; any move out of OPEN or an assignment counts as the acknowledgement; CLOSED only follows RESOLVED. Defaults 48 h / 30 days are also the maximum the setting allows (Rule 4); auto-close resolved tickets after 7 days, reopen within 14.
+- **D-C08 — A shop owner sees a ticket only while it awaits the shop**; internal notes and staff-only files are support-only; anyone without access gets "not found".
+- **D-C09 — A new grievance also opens a linked support ticket** (`helpdesk.ticketForGrievances`); the ticket status is mirrored onto the grievance; `GRV-` numbers are unchanged. The Grievance Redressal page keeps its IT Rules 2021 24 h / 15-day wording and adds the Rule 4 48 h / one-month commitment.
+- **D-C10 — Grievance Officer details are a rule (`grievanceOfficer`)** defaulting to today's `LEGAL_ENTITY` values; an empty field falls back to the constant.
+- **D-C11 — Ticket attachments (photos/PDF, 5 MB, 10 per ticket) are stored in the database row** — the existing blob store only accepts webp/zip/csv.
