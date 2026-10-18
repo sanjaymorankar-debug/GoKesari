@@ -23,7 +23,14 @@ export function SourceLookupForm({ gs1, off }: { gs1: { enabled: boolean; mode: 
     const data = await res.json().catch(() => null);
     setBusy(false);
     if (!res.ok) setResult({ tone: "danger", text: data?.error?.message ?? "Look-up failed." });
-    else setResult({ tone: "success", text: `Found ${data.found}; not found ${data.notFound.length}. Mode: ${data.mode}.`, jobId: data.job?.id });
+    else {
+      const running = data.job && (data.job.status === "QUEUED" || data.job.status === "RUNNING");
+      setResult({
+        tone: "success",
+        text: `Found ${data.found}; not found ${data.notFound.length}. Mode: ${data.mode}.${running ? " Still importing in the background." : ""}`,
+        jobId: data.job?.id,
+      });
+    }
   }
 
   return (

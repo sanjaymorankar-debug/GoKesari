@@ -49,19 +49,22 @@ export interface Gs1DataKartClient {
 
 const g13 = (body12: string) => body12 + gs1CheckDigit(body12);
 
-/** Test GTINs (GS1 India 890 prefix, valid check digits) and the records the mock returns for them. */
+/**
+ * Test GTINs (GS1 India 890 prefix, valid check digits) and the records the mock returns for them.
+ * No image addresses: the mock never makes the server download from a host that does not exist.
+ */
 export const GS1_MOCK_RECORDS: readonly Gs1Record[] = [
   {
     gtin: g13("890100100001"), productDescription: "Pasteurised Table Butter 100 g", brandName: "Amul",
     brandOwnerName: "Gujarat Co-operative Milk Marketing Federation Ltd", brandOwnerGln: "8901001000006", netContent: "100", netContentUom: "GRM",
     gpcBrickCode: "10000046", gpcBrickName: "Butter", hsnCode: "04051000", gstRate: 12, mrp: 62, countryOfOrigin: "India",
-    imageUrls: ["https://images.example.com/gs1/amul-butter-100g-front.jpg"],
+    imageUrls: [],
   },
   {
     gtin: g13("890100200002"), productDescription: "Iodised Salt 1 kg", brandName: "Tata Salt",
     brandOwnerName: "Tata Consumer Products Ltd", brandOwnerGln: "8901002000005", netContent: "1", netContentUom: "KGM",
     gpcBrickCode: "10000158", gpcBrickName: "Salt", hsnCode: "25010020", gstRate: 0, mrp: 28, countryOfOrigin: "India",
-    imageUrls: ["https://images.example.com/gs1/tata-salt-1kg-front.jpg"],
+    imageUrls: [],
   },
   {
     gtin: g13("890100300003"), productDescription: "Glucose Biscuits 250 g", brandName: "Parle-G",
