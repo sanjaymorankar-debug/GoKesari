@@ -166,6 +166,8 @@ export const AUDIT_ACTIONS = {
   /** A shop owner disputing the master MRP — the claim lives here, never in products.mrp_paise. */
   PRODUCT_MRP_CORRECTION_SUBMITTED: "product.mrp_correction_submitted",
   PRODUCT_IDENTITY_UPDATED: "product.identity_updated",
+  /** An admin changed a master product's HSN code / GST rate (/admin/product-gst). */
+  PRODUCT_GST_CHANGED: "product.gst_changed",
   STOCK_THRESHOLD_CHANGED: "shop_product.stock_threshold_changed",
 
   /* --------------------------------------------- GST/PAN verification */

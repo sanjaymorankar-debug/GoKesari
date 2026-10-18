@@ -485,6 +485,7 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
     more: [
       { key: "vouchers", label: L("Vouchers", "वाउचर", "व्हाउचर"), icon: "ticket", href: "/admin/console/vouchers", count: "activeVouchers", permission: PERMISSIONS.VOUCHER_VIEW },
       { key: "gst", label: L("GST settings", "जीएसटी सेटिंग", "जीएसटी सेटिंग्ज"), icon: "file-text", href: "/admin/gst-config", permission: PERMISSIONS.GST_CONFIG_MANAGE },
+      { key: "productGst", label: L("Product GST rates", "उत्पाद जीएसटी दरें", "उत्पाद जीएसटी दर"), icon: "receipt", href: "/admin/product-gst", permission: PERMISSIONS.GST_CONFIG_MANAGE },
       { key: "integrations", label: L("Accounting sync", "अकाउंटिंग सिंक", "अकाउंटिंग सिंक"), icon: "database", href: "/admin/integrations", permission: PERMISSIONS.INTEGRATION_VIEW_ANY },
       { key: "testMessages", label: L("Test messages", "टेस्ट संदेश", "चाचणी संदेश"), icon: "message-square", href: "/admin/test-messages", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
       // docs/nearby-referral-2026-10, feature 2: Mandatory / Optional referral code — admin only.
