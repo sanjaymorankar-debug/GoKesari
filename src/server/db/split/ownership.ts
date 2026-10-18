@@ -233,6 +233,10 @@ export const TABLE_OWNERSHIP = {
   /* <<< end WS-E */
   //
   /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */
+  push_tokens: "platform",
+  push_tickets: "platform",
+  broadcasts: "platform",
+  broadcast_recipients: "platform",
   /* <<< end WS-F */
   //
 } as const satisfies Record<string, DbOwner>;

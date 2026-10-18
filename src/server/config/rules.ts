@@ -979,6 +979,43 @@ export const RULES = {
   /* <<< end WS-E */
   //
   /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */
+  push: {
+    description:
+      "Mobile app push notifications (F13.1.2). With enabled off (the default) PUSH deliveries are skipped exactly as before. With it on, the PUSH channel sends through `provider`: mock (written to the test outbox at /admin/test-messages — refused on gokesari.com) or expo (Expo's push service; set EXPO_ACCESS_TOKEN if the Expo project requires access tokens). Push is on by default, for people who have the app signed in, in the categories listed in defaultOnCategories; everyone can switch it off per category in their notification settings. Expo's delivery receipts are checked receiptDelayMinutes after sending (cron push-receipts); a phone Expo reports as no longer registered stops receiving pushes.",
+    schema: z.object({
+      enabled: z.boolean(),
+      provider: z.enum(["mock", "expo"]),
+      defaultOnCategories: z.array(
+        z.enum(["ORDERS", "RETURNS", "DELIVERY", "SHOP", "WALLET", "SUBSCRIPTIONS", "COMMUNITY", "ACCOUNT_SECURITY", "GENERAL", "ANNOUNCEMENTS"]),
+      ),
+      /** Expo asks to wait ~15 minutes before reading receipts. */
+      receiptDelayMinutes: int(1, 1440),
+      /** Active devices per person; registering one more retires the least recently seen. */
+      maxDevicesPerUser: int(1, 50),
+      /** Android notification channel the app creates (mobile/src/push.ts). */
+      androidChannelId: z.string().min(1).max(64),
+    }),
+    defaults: {
+      enabled: false,
+      provider: "mock",
+      defaultOnCategories: ["ORDERS", "RETURNS", "DELIVERY", "SHOP", "WALLET", "SUBSCRIPTIONS", "ACCOUNT_SECURITY", "ANNOUNCEMENTS"],
+      receiptDelayMinutes: 15,
+      maxDevicesPerUser: 10,
+      androidChannelId: "default",
+    },
+  },
+  broadcasts: {
+    description:
+      "Broadcast announcements (F3.3.2, /admin/broadcasts): admins and operators send a title, message, optional image and link to all customers, shop owners and/or riders, optionally only in some cities or PIN codes, now or at a scheduled time, with an expiry after which it disappears from the notification centre. Everyone gets it in the app; push and email follow each person's notification settings for \"Announcements\". Sending runs in chunks of chunkSize people: \"Send now\" writes up to immediateChunks chunks at once and the broadcast-dispatch job (every minute) writes the rest, up to dispatchChunksPerRun chunks per run. defaultExpiryDays fills in the expiry when none is given (0 = never expires).",
+    schema: z.object({
+      enabled: z.boolean(),
+      chunkSize: int(10, 2000),
+      immediateChunks: int(0, 20),
+      dispatchChunksPerRun: int(1, 200),
+      defaultExpiryDays: int(0, 365),
+    }),
+    defaults: { enabled: true, chunkSize: 200, immediateChunks: 2, dispatchChunksPerRun: 25, defaultExpiryDays: 30 },
+  },
   /* <<< end WS-F */
   //
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;

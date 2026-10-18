@@ -205,6 +205,8 @@ const serverEnvSchema = z.object({
   MOBILE_ANDROID_CERT_SHA256: z.string().optional(),
   /** Comma-separated `<Apple Team ID>.<bundle id>`, e.g. `ABCDE12345.com.gokesari.app`. */
   MOBILE_IOS_APP_IDS: z.string().optional(),
+  /** Expo access token for the push service (rule push.provider = expo); only needed with Expo's enhanced push security. */
+  EXPO_ACCESS_TOKEN: z.string().optional(), // batch-2026-10 WS-F
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

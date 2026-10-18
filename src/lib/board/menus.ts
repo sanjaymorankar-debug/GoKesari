@@ -476,6 +476,7 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "testMessages", label: L("Test messages", "टेस्ट संदेश", "चाचणी संदेश"), icon: "message-square", href: "/admin/test-messages", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
       // docs/nearby-referral-2026-10, feature 2: Mandatory / Optional referral code — admin only.
       { key: "referralSettings", label: L("Referral settings", "रेफ़रल सेटिंग", "रेफरल सेटिंग्ज"), icon: "toggle-right", href: "/admin/referral-settings", permission: ADMIN_ONLY },
+      { key: "broadcasts", label: L("Broadcasts", "प्रसारण संदेश", "प्रसारण संदेश"), icon: "megaphone", href: "/admin/broadcasts", permission: PERMISSIONS.BROADCAST_MANAGE }, // batch-2026-10 WS-F
     ],
   },
 ];
@@ -531,6 +532,7 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "integrations", label: L("Accounting sync", "अकाउंटिंग सिंक", "अकाउंटिंग सिंक"), icon: "database", href: "/admin/integrations", permission: PERMISSIONS.INTEGRATION_VIEW_ANY },
       { key: "testMessages", label: L("Test messages", "टेस्ट संदेश", "चाचणी संदेश"), icon: "message-square", href: "/admin/test-messages", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
       { key: "figures", label: L("Key figures", "मुख्य आँकड़े", "मुख्य आकडे"), icon: "chart-line", href: "/admin/console/overview", permission: STAFF },
+      { key: "broadcasts", label: L("Broadcasts", "प्रसारण संदेश", "प्रसारण संदेश"), icon: "megaphone", href: "/admin/broadcasts", permission: PERMISSIONS.BROADCAST_MANAGE }, // batch-2026-10 WS-F
     ],
   },
   {

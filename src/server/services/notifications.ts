@@ -26,6 +26,8 @@ import { and, count, desc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { conflict, validationFailed } from "@/lib/errors";
 import { getEnv } from "@/lib/env";
 import { ChannelUnavailableError, getChannelProvider } from "@/server/notifications/channels";
+import { notExpired } from "@/server/notifications/expiry";
+import { pushOnByDefault, pushPreferenceDefaults } from "@/server/notifications/push/defaults";
 import {
   CATEGORIES,
   MANDATORY_CATEGORIES,
@@ -71,6 +73,11 @@ export interface NotifyInput {
    * things like a single low-balance warning per threshold crossing.
    */
   dedupeKey?: string;
+  /**
+   * batch-2026-10 WS-F: queue only — the caller runs delivery once for a whole
+   * batch (broadcasts write hundreds of notifications per chunk). Default: send at once, as before.
+   */
+  deferDelivery?: boolean;
 }
 
 /* -------------------------------------------------------------- preferences */
@@ -134,6 +141,8 @@ export async function notify(input: NotifyInput, client: DbClient = db): Promise
     for (const channel of input.channels ?? []) if (channel !== "IN_APP") wanted.add(channel);
     // A user who switched a category's channel ON gets it for every event in that category.
     for (const channel of OUTBOUND_CHANNELS) if (prefs.get(`${category}:${channel}`) === true) wanted.add(channel);
+    // batch-2026-10 WS-F: push is on by default for app users in the rule's categories (rule push; off → unchanged).
+    if (!wanted.has("PUSH") && (await pushOnByDefault(input.userId, category, client))) wanted.add("PUSH");
 
     const outbound = [...wanted].filter((channel) =>
       channelEnabled(prefs, category, channel, wanted.has(channel)),
@@ -155,7 +164,7 @@ export async function notify(input: NotifyInput, client: DbClient = db): Promise
           actionUrl: input.actionUrl ?? null,
         })),
       );
-      scheduleDelivery(client);
+      if (!input.deferDelivery) scheduleDelivery(client);
     }
   } catch (error) {
     console.error("[notifications] failed to deliver", input.type, error);
@@ -288,7 +297,7 @@ async function sendOne(
       .where(eq(notificationDeliveries.id, delivery.id));
 
   const provider = getChannelProvider(delivery.channel as OutboundChannel);
-  if (!provider || !provider.isAvailable()) {
+  if (!provider || !provider.isAvailable() || (provider.isEnabled && !(await provider.isEnabled()))) {
     await finish({ status: "SKIPPED", lastError: "No provider is configured for this channel." });
     return { status: "skipped" };
   }
@@ -296,7 +305,7 @@ async function sendOne(
     .select({ email: users.email, phoneE164: users.phoneE164 })
     .from(users)
     .where(eq(users.id, delivery.userId));
-  const to = user ? provider.addressFor(user) : null;
+  const to = user ? provider.addressFor({ ...user, userId: delivery.userId }) : null;
   if (!to) {
     await finish({ status: "SKIPPED", lastError: "The user has no address for this channel." });
     return { status: "skipped" };
@@ -310,6 +319,7 @@ async function sendOne(
       text: delivery.body,
       html: delivery.html,
       actionUrl: delivery.actionUrl,
+      deliveryId: delivery.id,
     });
     await finish({
       status: "SENT",
@@ -360,6 +370,7 @@ export interface PreferenceRow {
 /** The settings matrix for one user: every category × channel with its effective value. */
 export async function getPreferenceMatrix(userId: string): Promise<PreferenceRow[]> {
   const prefs = await loadPreferences(userId, db);
+  const push = await pushPreferenceDefaults(userId);
   const channels: Channel[] = ["IN_APP", ...OUTBOUND_CHANNELS];
   return (Object.keys(CATEGORIES) as CategoryKey[]).map((category) => {
     const mandatory = MANDATORY_CATEGORIES.includes(category);
@@ -370,9 +381,13 @@ export async function getPreferenceMatrix(userId: string): Promise<PreferenceRow
       mandatory,
       channels: channels.map((channel) => {
         const provider = channel === "IN_APP" ? null : getChannelProvider(channel as OutboundChannel);
-        const available = channel === "IN_APP" || Boolean(provider?.isAvailable());
+        // batch-2026-10 WS-F: push is offered while rule push is on, and on by default for app users in its categories.
+        const available = channel === "PUSH" ? push.available : channel === "IN_APP" || Boolean(provider?.isAvailable());
         // Default: in-app on everywhere; email on where events default to it (approximated per category).
-        const defaultOn = channel === "IN_APP" || (channel === "EMAIL" && defaultEmailForCategory(category));
+        const defaultOn =
+          channel === "IN_APP" ||
+          (channel === "EMAIL" && defaultEmailForCategory(category)) ||
+          (channel === "PUSH" && push.defaultOn.has(category));
         return { channel, available, enabled: channelEnabled(prefs, category, channel, defaultOn) };
       }),
     };
@@ -424,6 +439,7 @@ export async function listNotifications(
         eq(notifications.userId, userId),
         eq(notifications.channel, "IN_APP"),
         options.unreadOnly ? isNull(notifications.readAt) : undefined,
+        notExpired(), // batch-2026-10 WS-F: an expired broadcast leaves the inbox
       ),
     )
     .orderBy(desc(notifications.createdAt))
@@ -439,6 +455,7 @@ async function unreadCountUncached(userId: string): Promise<number> {
         eq(notifications.userId, userId),
         eq(notifications.channel, "IN_APP"),
         isNull(notifications.readAt),
+        notExpired(), // batch-2026-10 WS-F
       ),
     );
   return row?.value ?? 0;

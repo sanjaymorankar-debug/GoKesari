@@ -23,6 +23,7 @@ export const CATEGORIES = {
   COMMUNITY: { label: "Society", description: "Society membership and security notices." },
   ACCOUNT_SECURITY: { label: "Account & security", description: "Sign-ins, number and role changes. Always sent." },
   GENERAL: { label: "Other updates", description: "Everything else." },
+  ANNOUNCEMENTS: { label: "Announcements", description: "News and offers GoKesari sends to everyone or to your area." }, // batch-2026-10 WS-F
 } as const;
 export type CategoryKey = keyof typeof CATEGORIES;
 
@@ -49,6 +50,7 @@ const PREFIX_CATEGORY: [string, CategoryKey][] = [
   ["security.", "ACCOUNT_SECURITY"],
   ["auth.", "ACCOUNT_SECURITY"],
   // Event layer: support alerts and risk flags are operations news (GENERAL).
+  ["broadcast.", "ANNOUNCEMENTS"], // batch-2026-10 WS-F
 ];
 
 export function categoryOf(type: string): CategoryKey {
@@ -270,6 +272,13 @@ export const TEMPLATES: Record<string, Template> = {
   /* <<< end WS-E */
   //
   /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */
+  // A broadcast carries its own title and message; email only for people who switched Announcements email on.
+  [T.BROADCAST]: t("{{title}}", "{{message}}", false),
+  [T.SUPPORT_BROADCAST_FINISHED]: t(
+    "Broadcast sent",
+    "\"{{title}}\" reached {{recipients}} people.",
+    false,
+  ),
   /* <<< end WS-F */
   //
 };

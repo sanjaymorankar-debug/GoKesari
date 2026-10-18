@@ -293,6 +293,11 @@ export const PERMISSIONS = {
   /* <<< end WS-E */
   //
   /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */
+  /**
+   * F3.3.2: compose, schedule, send and cancel broadcast announcements to
+   * customers, shop owners and riders (/admin/broadcasts). Admin + operator.
+   */
+  BROADCAST_MANAGE: "broadcast:manage",
   /* <<< end WS-F */
   //
 } as const;
@@ -428,6 +433,7 @@ const OPERATOR_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.DISPUTE_MANAGE,
   // Module 2: support sees sync health; GST_CONFIG_MANAGE stays admin-only.
   PERMISSIONS.INTEGRATION_VIEW_ANY,
+  PERMISSIONS.BROADCAST_MANAGE, // batch-2026-10 WS-F
   // Deliberately absent (§43 "not unrestricted system access"):
   // USER_SET_ROLE, USER_SUSPEND, WALLET_ADJUST, SYSTEM_CONFIG,
   // AUDIT_LOG_VIEW, REPORT_VIEW_ALL, WALLET_VIEW_ANY.
@@ -628,6 +634,7 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   /* <<< end WS-E */
   //
   /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */
+  [PERMISSIONS.BROADCAST_MANAGE]: "Compose and send broadcast announcements to customers, shop owners and riders",
   /* <<< end WS-F */
   //
 };
