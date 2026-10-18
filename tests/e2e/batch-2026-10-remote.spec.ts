@@ -124,7 +124,8 @@ test.describe(`batch 2026-10 remote checks — ${HOST}`, () => {
         data: { event: "transfer.success" },
         headers: { "content-type": "application/json" },
       });
-      expect([400, 401, 403, 404]).toContain(res.status());
+      // 503 when the site has no payout provider configured (fail closed, as R-006).
+      expect([400, 401, 403, 404, 503]).toContain(res.status());
       return `HTTP ${res.status()}`;
     }));
 
@@ -173,6 +174,13 @@ test.describe(`batch 2026-10 remote checks — ${HOST}`, () => {
   test("TC-B26-R-012 environment banner sanity — production never shows sandbox payment pages", async ({ request }) =>
     tc("TC-B26-R-012", "Sandbox checkout refused on production", async () => {
       const res = await status(request, "/orders/pay/sandbox/00000000-0000-0000-0000-000000000000");
+      if (IS_PROD && res.status() === 200) {
+        // The page may answer with its refusal notice — never the pay / fail / expire controls.
+        const html = await res.text();
+        expect(html).toContain("only runs on the test site");
+        expect(html).not.toMatch(/Pay \(success\)|Let it expire/);
+        return "HTTP 200 with the refusal notice only (production)";
+      }
       if (IS_PROD) expect([301, 302, 303, 307, 308, 401, 403, 404]).toContain(res.status());
       return `HTTP ${res.status()}${IS_PROD ? " (production)" : " (test site)"}`;
     }));
