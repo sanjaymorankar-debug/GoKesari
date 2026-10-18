@@ -967,6 +967,76 @@ export const RULES = {
   /* <<< end WS-A */
   //
   /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — add entries below this line only */
+  dispatchBroadcast: {
+    description:
+      "Broadcast rider offers (F3.3.2). Off (default): one rider at a time, as before. On: when the rider offered an order has not accepted within singleOfferSeconds (or dispatch.offerTtlSeconds, if shorter), the offer goes to every eligible rider (approved, online, free — or busy within the dispatch busy-rider fallback — not among those who declined it, and allowed by the society) within the first radius in radiiKm around the shop. Every stepSeconds the radius widens to the next value, up to maxRadiusKm, adding at most maxRecipientsPerStep riders per step. The first rider to accept gets the order; everyone else sees \"Offer taken\" (for takenNoticeSeconds). After the last step nobody accepted: the normal rider search carries on. Riders' dashboards check for open offers every riderPollSeconds. Run by the timeout-sweep job (every minute).",
+    schema: z
+      .object({
+        enabled: z.boolean(),
+        /** How long the first, single rider has before the offer is broadcast. */
+        singleOfferSeconds: int(15, 900),
+        /** Broadcast radii around the shop, smallest first, one per step (km). */
+        radiiKm: z.array(z.number().min(0.5).max(50)).min(1).max(10),
+        /** How long each radius step stays open before the next (or, after the last, the broadcast ends). */
+        stepSeconds: int(15, 900),
+        /** Radii beyond this are not used. */
+        maxRadiusKm: z.number().min(0.5).max(50),
+        /** Most riders newly reached in one step (nearest first). */
+        maxRecipientsPerStep: int(1, 200),
+        /** How often an open rider dashboard checks for broadcast offers. */
+        riderPollSeconds: int(3, 60),
+        /** How long a rider still sees "Offer taken" after another rider accepted. */
+        takenNoticeSeconds: int(10, 900),
+      })
+      .refine((v) => v.radiiKm.every((r, i) => i === 0 || r > v.radiiKm[i - 1]), {
+        message: "List the radii smallest first, each larger than the one before.",
+        path: ["radiiKm"],
+      }),
+    defaults: {
+      enabled: false,
+      singleOfferSeconds: 60,
+      radiiKm: [2, 4, 6],
+      stepSeconds: 60,
+      maxRadiusKm: 6,
+      maxRecipientsPerStep: 20,
+      riderPollSeconds: 10,
+      takenNoticeSeconds: 120,
+    },
+  },
+  pickupQr: {
+    description:
+      "Pickup by QR code (F4.1.3). Off (default): the rider types the 4-digit pickup code the shop reads out, as before. On: every packed order (ready or rider assigned) shows a signed, single-use QR on the shop's order screen and its printable packing slip; the rider scans it with the phone camera to confirm pickup (the scan's time and the rider's location are recorded and the customer is told at once). A QR stops working after tokenTtlMinutes, once used, or when the order is no longer waiting for pickup. The typed code always remains as a fallback. With requireGps on, a scan without the rider's location is refused (the code still works). Needs the secret PICKUP_QR_SECRET in production.",
+    schema: z.object({
+      enabled: z.boolean(),
+      tokenTtlMinutes: int(10, 2880),
+      requireGps: z.boolean(),
+    }),
+    defaults: { enabled: false, tokenTtlMinutes: 720, requireGps: false },
+  },
+  riderNavigation: {
+    description:
+      "In-app turn-by-turn navigation for riders (F4.2.2). Off (default): riders get the \"Navigate\" links that open Google Maps, as before. On: the rider's delivery has an in-app navigation screen — the route to the shop, then to the customer (the customer's exact location only after pickup), next turn, remaining distance and time, voice prompts (voiceDefaultOn), and a fresh route when the rider is more than offRouteMeters off it (at most once per rerouteCooldownSeconds). provider: mock (straight line, for testing/offline), google (Routes API with GOOGLE_MAPS_SERVER_API_KEY) or osrm (an OSRM-compatible server at osrmBaseUrl). Routes are cached for cacheSeconds; a provider failure falls back to the straight-line route. \"Open in Google Maps\" always stays available.",
+    schema: z.object({
+      enabled: z.boolean(),
+      provider: z.enum(["mock", "google", "osrm"]),
+      osrmBaseUrl: z.string().url(),
+      offRouteMeters: int(20, 1000),
+      rerouteCooldownSeconds: int(5, 600),
+      voiceDefaultOn: z.boolean(),
+      cacheSeconds: int(0, 3600),
+      timeoutMs: int(500, 10_000),
+    }),
+    defaults: {
+      enabled: false,
+      provider: "mock",
+      osrmBaseUrl: "https://router.project-osrm.org",
+      offRouteMeters: 60,
+      rerouteCooldownSeconds: 20,
+      voiceDefaultOn: true,
+      cacheSeconds: 60,
+      timeoutMs: 4000,
+    },
+  },
   /* <<< end WS-B */
   //
   /* >>> batch-2026-10 WS-C (cancellation fee, refunds, help desk) — add entries below this line only */

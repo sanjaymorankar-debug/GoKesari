@@ -18,6 +18,18 @@ import { getRiderEarningsView, listAdjustments, listRiderPayouts } from "@/serve
 import { getPartnerEarningsSummary } from "@/server/services/delivery-earnings";
 import { getMyDeliveryPartnerProfile } from "@/server/services/delivery-partners";
 import { listUserRoles } from "@/server/services/roles";
+// batch-2026-10 WS-B: broadcast offers, pickup QR, in-app navigation (each behind its own rule).
+import { RiderBroadcastOffers } from "@/components/rider-broadcast-offers";
+import { getRiderBroadcastSettings } from "@/server/services/dispatch-broadcast";
+import { isRiderNavigationEnabled } from "@/server/services/rider-navigation";
+import { getRule } from "@/server/services/settings";
+
+/** "45 seconds" / "1 minute" / "3 minutes" — the offer window from the rules. */
+function offerWindowText(seconds: number): string {
+  if (seconds % 60 !== 0) return `${seconds} seconds`;
+  const minutes = seconds / 60;
+  return minutes === 1 ? "1 minute" : `${minutes} minutes`;
+}
 
 export const metadata = { title: "My Delivery Partner Application" };
 export const dynamic = "force-dynamic";
@@ -66,6 +78,14 @@ export default async function DeliveryPartnerStatusPage() {
       : [[], null, []];
   // GS-003: the dashboard's actions all need the Delivery Partner role to be the active one.
   const canDeliver = can(user.role, PERMISSIONS.DELIVERY_ORDER_MANAGE_OWN);
+  const [broadcast, pickupQr, inAppNavigation] =
+    partner.status === "APPROVED" && canDeliver
+      ? await Promise.all([
+          getRiderBroadcastSettings(),
+          getRule("pickupQr").then((r) => r.enabled),
+          isRiderNavigationEnabled(),
+        ])
+      : [null, false, false];
   const roles: UserRole[] = partner.status === "APPROVED" && !canDeliver ? await listUserRoles(user.id) : [];
 
   return (
@@ -127,6 +147,11 @@ export default async function DeliveryPartnerStatusPage() {
 
       {partner.status === "APPROVED" ? (
         <div className="mt-4">
+          {canDeliver && broadcast ? (
+            <div className="mb-4">
+              <RiderBroadcastOffers initialPollSeconds={broadcast.pollSeconds} />
+            </div>
+          ) : null}
           {canDeliver ? (
             <DeliveryPartnerDashboard
               isOnline={partner.isOnline}
@@ -134,6 +159,11 @@ export default async function DeliveryPartnerStatusPage() {
               activeReturnPickup={activeReturnPickup}
               earnings={earnings}
               rating={{ avgX100: partnerRating?.ratingAvgX100 ?? 0, count: partnerRating?.ratingCount ?? 0 }}
+              offerLabel={
+                broadcast ? `New delivery offer — accept within ${offerWindowText(broadcast.singleOfferSeconds)}` : undefined
+              }
+              pickupQr={pickupQr}
+              inAppNavigation={inAppNavigation}
             />
           ) : null}
           {canDeliver && trip ? <RiderTripCard stops={trip.stops} /> : null}

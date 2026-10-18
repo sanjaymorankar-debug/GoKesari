@@ -217,6 +217,12 @@ export const NOTIFICATION_TYPES = {
   /* <<< end WS-A */
   //
   /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — add entries below this line only */
+  /** To a rider: an order nearby was broadcast to every rider in range — first to accept gets it (F3.3.2). */
+  DELIVERY_BROADCAST_OFFERED: "delivery.broadcast_offered",
+  /** To a rider who had a broadcast offer: another rider accepted it first. */
+  DELIVERY_OFFER_TAKEN: "delivery.offer_taken",
+  /** To the shop: no rider took the single offer, so it went to all riders nearby. */
+  SHOP_RIDER_OFFER_BROADCAST: "shop.rider_offer_broadcast",
   /* <<< end WS-B */
   //
   /* >>> batch-2026-10 WS-C (cancellation fee, refunds, help desk) — add entries below this line only */

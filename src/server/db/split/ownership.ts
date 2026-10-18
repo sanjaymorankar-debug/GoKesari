@@ -221,6 +221,11 @@ export const TABLE_OWNERSHIP = {
   /* <<< end WS-A */
   //
   /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — add entries below this line only */
+  // Broadcast rider offers and pickup QR/scan records follow the order and its delivery row.
+  delivery_offer_broadcasts: "customer",
+  delivery_offer_recipients: "customer",
+  delivery_pickup_tokens: "customer",
+  delivery_pickup_scans: "customer",
   /* <<< end WS-B */
   //
   /* >>> batch-2026-10 WS-C (cancellation fee, refunds, help desk) — add entries below this line only */

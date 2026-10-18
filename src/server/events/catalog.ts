@@ -1061,6 +1061,59 @@ export const EVENTS = {
   /* <<< end WS-A */
   //
   /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — add entries below this line only */
+  // F3.3.2: a radius step of a broadcast offer went out — each newly reached rider hears at once;
+  // the shop hears once per order when the single offer turns into a broadcast.
+  "delivery.broadcast_step": define<{
+    orderId: string;
+    orderNumber: string;
+    buyerId: string;
+    shopOwnerId: string | null;
+    /** Not `shopName`: this payload must not read as an order event's (OrderEventType). */
+    shopLabel: string;
+    riderUserId: null;
+    broadcastId: string;
+    step: number;
+    radiusKm: number;
+    recipients: { userId: string; distanceKm: number }[];
+  }>("delivery", (p) => [
+    ...p.recipients.map(
+      (r): EventMessage => ({
+        to: r.userId,
+        type: N.DELIVERY_BROADCAST_OFFERED,
+        vars: { orderNumber: p.orderNumber, shopName: p.shopLabel, distanceKm: r.distanceKm.toFixed(1) },
+        actionUrl: "/delivery-partner",
+        dedupe: `broadcast:${p.broadcastId}`,
+      }),
+    ),
+    ...(p.step === 0
+      ? [
+          {
+            to: p.shopOwnerId,
+            type: N.SHOP_RIDER_OFFER_BROADCAST,
+            vars: { orderNumber: p.orderNumber, radiusKm: p.radiusKm },
+            actionUrl: SHOP_ORDERS,
+            dedupe: `broadcast:${p.broadcastId}`,
+          } satisfies EventMessage,
+        ]
+      : []),
+  ]),
+  // F3.3.2: one rider accepted a broadcast offer first — every other rider it reached sees "Offer taken".
+  "delivery.offer_taken": define<{
+    orderId: string;
+    orderNumber: string;
+    buyerId: string;
+    shopOwnerId: string | null;
+    riderUserId: string | null;
+    broadcastId: string;
+    loserUserIds: string[];
+  }>("delivery", (p) =>
+    p.loserUserIds.map((userId) => ({
+      to: userId,
+      type: N.DELIVERY_OFFER_TAKEN,
+      vars: { orderNumber: p.orderNumber },
+      actionUrl: "/delivery-partner",
+    })),
+  ),
   /* <<< end WS-B */
   //
   /* >>> batch-2026-10 WS-C (cancellation fee, refunds, help desk) — add entries below this line only */

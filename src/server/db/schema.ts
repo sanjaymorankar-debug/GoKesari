@@ -7731,6 +7731,139 @@ export type ProductAttributes = typeof productAttributes.$inferSelect;
 
 /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — tables below this line only */
 
+/**
+ * F3.3.2 (GAP-004): a single rider offer nobody accepted in
+ * `dispatchBroadcast.singleOfferSeconds` is broadcast to every eligible rider
+ * within a radius that widens step by step (rule dispatchBroadcast). One OPEN
+ * broadcast per order; the first rider to accept wins it (a conditional
+ * UPDATE on this row is the lock), everyone else's recipient row becomes
+ * TAKEN_BY_OTHER. Customer database, with the order and its delivery row.
+ */
+export const deliveryOfferBroadcasts = pgTable(
+  "delivery_offer_broadcasts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    deliveryOrderId: uuid("delivery_order_id")
+      .notNull()
+      .references(() => deliveryOrders.id, { onDelete: "cascade" }),
+    status: text("status", { enum: ["OPEN", "TAKEN", "EXPIRED", "CANCELLED"] }).notNull().default("OPEN"),
+    /** Index into the rule's radii in force for this step (0 = first radius). */
+    step: integer("step").notNull().default(0),
+    /** The current broadcast radius around the shop, metres. */
+    radiusM: integer("radius_m").notNull(),
+    /** The rider who held the single offer before the broadcast (platform delivery_partners id). */
+    originalPartnerId: uuid("original_partner_id").references(() => deliveryPartners.id, { onDelete: "set null" }),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    /** When the sweep widens the radius next (or, on the last step, expires the broadcast). */
+    nextStepAt: timestamp("next_step_at", { withTimezone: true }).notNull(),
+    winnerPartnerId: uuid("winner_partner_id").references(() => deliveryPartners.id, { onDelete: "set null" }),
+    takenAt: timestamp("taken_at", { withTimezone: true }),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    closeReason: text("close_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("delivery_offer_broadcasts_open_order_unique").on(t.orderId).where(sql`${t.status} = 'OPEN'`),
+    index("delivery_offer_broadcasts_status_next_idx").on(t.status, t.nextStepAt),
+    index("delivery_offer_broadcasts_delivery_idx").on(t.deliveryOrderId),
+  ],
+);
+export type DeliveryOfferBroadcast = typeof deliveryOfferBroadcasts.$inferSelect;
+
+/** F3.3.2: each rider a broadcast reached, at which radius step, and how it ended for them. */
+export const deliveryOfferRecipients = pgTable(
+  "delivery_offer_recipients",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    broadcastId: uuid("broadcast_id")
+      .notNull()
+      .references(() => deliveryOfferBroadcasts.id, { onDelete: "cascade" }),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    deliveryOrderId: uuid("delivery_order_id")
+      .notNull()
+      .references(() => deliveryOrders.id, { onDelete: "cascade" }),
+    deliveryPartnerId: uuid("delivery_partner_id")
+      .notNull()
+      .references(() => deliveryPartners.id, { onDelete: "cascade" }),
+    radiusStep: integer("radius_step").notNull(),
+    /** Rider → shop, straight line, when the offer went out. */
+    distanceToShopKm: text("distance_to_shop_km"),
+    offeredAt: timestamp("offered_at", { withTimezone: true }).notNull().defaultNow(),
+    /** First time the rider's dashboard showed the offer. */
+    seenAt: timestamp("seen_at", { withTimezone: true }),
+    outcome: text("outcome", { enum: ["OFFERED", "TAKEN_BY_OTHER", "ACCEPTED", "EXPIRED", "DECLINED"] })
+      .notNull()
+      .default("OFFERED"),
+    outcomeAt: timestamp("outcome_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("delivery_offer_recipients_broadcast_partner_unique").on(t.broadcastId, t.deliveryPartnerId),
+    index("delivery_offer_recipients_partner_idx").on(t.deliveryPartnerId, t.outcome),
+  ],
+);
+export type DeliveryOfferRecipient = typeof deliveryOfferRecipients.$inferSelect;
+
+/**
+ * F4.1.3 (GAP-001): the signed pickup QR shown on the shop's order and packing
+ * slip. Only a hash of the nonce is stored (the nonce itself is re-derived
+ * from the row id with the server secret to redraw the QR); single-use —
+ * consumed_at is set in the pickup transaction, a second scan is refused.
+ */
+export const deliveryPickupTokens = pgTable(
+  "delivery_pickup_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    nonceHash: text("nonce_hash").notNull(),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    consumedByPartnerId: uuid("consumed_by_partner_id").references(() => deliveryPartners.id, { onDelete: "set null" }),
+    consumedDeliveryOrderId: uuid("consumed_delivery_order_id").references(() => deliveryOrders.id, { onDelete: "set null" }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("delivery_pickup_tokens_live_order_unique")
+      .on(t.orderId)
+      .where(sql`${t.consumedAt} IS NULL AND ${t.revokedAt} IS NULL`),
+    uniqueIndex("delivery_pickup_tokens_nonce_unique").on(t.nonceHash),
+  ],
+);
+export type DeliveryPickupToken = typeof deliveryPickupTokens.$inferSelect;
+
+/** F4.1.3: every pickup scan (and code fallback after a failed scan) — when, where, by whom, with what result. */
+export const deliveryPickupScans = pgTable(
+  "delivery_pickup_scans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Null when the scanned text was not a readable GoKesari pickup QR. */
+    orderId: uuid("order_id").references(() => orders.id, { onDelete: "cascade" }),
+    deliveryOrderId: uuid("delivery_order_id").references(() => deliveryOrders.id, { onDelete: "set null" }),
+    deliveryPartnerId: uuid("delivery_partner_id").references(() => deliveryPartners.id, { onDelete: "set null" }),
+    tokenId: uuid("token_id").references(() => deliveryPickupTokens.id, { onDelete: "set null" }),
+    method: text("method", { enum: ["QR"] }).notNull().default("QR"),
+    outcome: text("outcome", {
+      enum: ["SUCCESS", "MALFORMED", "BAD_SIGNATURE", "EXPIRED", "ALREADY_USED", "WRONG_RIDER", "WRONG_ORDER", "NOT_READY", "DISABLED", "NO_GPS"],
+    }).notNull(),
+    latitude: text("latitude"),
+    longitude: text("longitude"),
+    accuracyM: integer("accuracy_m"),
+    scannedAt: timestamp("scanned_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("delivery_pickup_scans_delivery_idx").on(t.deliveryOrderId), index("delivery_pickup_scans_order_idx").on(t.orderId)],
+);
+export type DeliveryPickupScan = typeof deliveryPickupScans.$inferSelect;
+
 /* <<< end WS-B */
 
 /* >>> batch-2026-10 WS-C (cancellation fee, refunds, help desk) — tables below this line only */

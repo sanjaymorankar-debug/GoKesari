@@ -205,6 +205,8 @@ const serverEnvSchema = z.object({
   MOBILE_ANDROID_CERT_SHA256: z.string().optional(),
   /** Comma-separated `<Apple Team ID>.<bundle id>`, e.g. `ABCDE12345.com.gokesari.app`. */
   MOBILE_IOS_APP_IDS: z.string().optional(),
+  /** Signs the pickup QR (rule pickupQr). Required in production; elsewhere AUTH_SECRET is used when unset. */
+  PICKUP_QR_SECRET: z.string().min(16).optional(), // batch-2026-10 WS-B
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;
