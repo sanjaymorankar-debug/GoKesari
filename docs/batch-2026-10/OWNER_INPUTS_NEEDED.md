@@ -118,7 +118,7 @@ feature is off).
 
 | What | Where |
 |---|---|
-| Make sure `PROD_DATABASE_HOST` and `PROD_DATABASE_NAME` exist as **variables** on the **production** environment (the 15 Oct run saw them empty) | GitHub → Settings → Environments → production → Variables |
+| Add `PROD_DATABASE_HOST` (the Neon host of gokesari.com's database, e.g. `ep-…neon.tech`) and `PROD_DATABASE_NAME` as **variables** on the **production** environment. The 18 Oct run after the release (39165658144) now sees the secret `PROD_DATABASE_URL`, but both variables are EMPTY, so the workflow stops before touching production. Then run Actions → "Production database" → `verify` from `main` | GitHub → Settings → Environments → production → Variables |
 | Go-ahead and a window for the seller/customer split cut-over (`DB_SPLIT_MODE`), plus enabling logical replication on the Neon project | `docs/db-split-2026-10/CUTOVER_2026-10-18.md` |
 
 ## 14. Production order-lifecycle test (F14.1.3 production subset)
