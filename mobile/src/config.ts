@@ -7,6 +7,7 @@ import Constants from "expo-constants";
 interface Extra {
   siteUrl: string;
   scheme: string;
+  appVariant: "production" | "preview";
 }
 
 const extra = (Constants.expoConfig?.extra ?? {}) as Partial<Extra>;
@@ -24,6 +25,9 @@ export const APP_SCHEME = extra.scheme ?? "gokesari";
 export const UA_TOKEN = "GoKesariApp";
 
 export const APP_VERSION = Constants.expoConfig?.version ?? "0.0.0";
+
+/** Which build this is (production: gokesari.com, preview: test.gokesari.com) — sent with the push token. */
+export const APP_VARIANT: "production" | "preview" = extra.appVariant === "preview" ? "preview" : "production";
 
 /** Colours from the website's theme (src/app/globals.css). */
 export const COLORS = {

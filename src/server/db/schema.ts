@@ -8498,4 +8498,146 @@ export type DocumentEmail = typeof documentEmails.$inferSelect;
 
 /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — tables below this line only */
 
+/**
+ * F13.1.2: Expo push tokens of the GoKesari app installs (mobile/). The app
+ * hands its token to the website after sign-in (bridge "push.getToken") and
+ * the site registers it (POST /api/push-tokens). One token belongs to one
+ * user at a time: a token registered by someone else moves to them. A token
+ * Expo reports as DeviceNotRegistered is deactivated, never deleted (audit
+ * trail of what was sent where stays readable).
+ */
+export const pushTokens = pgTable(
+  "push_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** ExponentPushToken[…] / ExpoPushToken[…]. */
+    token: text("token").notNull(),
+    platform: text("platform", { enum: ["android", "ios"] }).notNull(),
+    /** Which app build: production (gokesari.com) or preview (test.gokesari.com). */
+    appVariant: text("app_variant", { enum: ["production", "preview"] }).notNull().default("production"),
+    deviceId: text("device_id"),
+    deviceName: text("device_name"),
+    active: boolean("active").notNull().default(true),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
+    deactivatedReason: text("deactivated_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("push_tokens_token_unique").on(t.token),
+    index("push_tokens_user_active_idx").on(t.userId, t.active),
+  ],
+);
+export type PushToken = typeof pushTokens.$inferSelect;
+
+/**
+ * F13.1.2: one Expo push ticket per device a PUSH delivery went to. The
+ * delivery itself (attempts, retries, errors) stays in notification_deliveries;
+ * this keeps the per-device outcome and the receipt check that follows
+ * (cron push-receipts). Mock sends get "mock-…" tickets.
+ */
+export const pushTickets = pgTable(
+  "push_tickets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deliveryId: uuid("delivery_id").references(() => notificationDeliveries.id, { onDelete: "set null" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    pushTokenId: uuid("push_token_id")
+      .notNull()
+      .references(() => pushTokens.id, { onDelete: "cascade" }),
+    provider: text("provider", { enum: ["mock", "expo"] }).notNull(),
+    /** Expo's ticket id; null when the send was refused for this device. */
+    ticketId: text("ticket_id"),
+    status: text("status", { enum: ["PENDING_RECEIPT", "DELIVERED", "ERROR"] }).notNull(),
+    /** Expo's error code (DeviceNotRegistered, MessageTooBig, …) and message. */
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+    checkedAt: timestamp("checked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("push_tickets_pending_idx").on(t.status, t.createdAt),
+    index("push_tickets_delivery_idx").on(t.deliveryId),
+  ],
+);
+export type PushTicket = typeof pushTickets.$inferSelect;
+
+/** Who a broadcast goes to: roles, optionally narrowed to cities and/or PIN codes (either matches). */
+export interface BroadcastAudience {
+  roles: ("CUSTOMER" | "SHOP_OWNER" | "DELIVERY_PARTNER")[];
+  cities?: string[];
+  pincodes?: string[];
+}
+
+export const BROADCAST_STATUSES = ["DRAFT", "SCHEDULED", "SENDING", "SENT", "CANCELLED", "EXPIRED"] as const;
+
+/**
+ * F3.3.2: an announcement composed by an admin or operator. Sent in chunks
+ * (cursor = the last user id written) by "Send now" and the broadcast-dispatch
+ * job; every recipient gets an in-app notification (type broadcast.announcement,
+ * category ANNOUNCEMENTS) plus push / email where their settings allow.
+ */
+export const broadcasts = pgTable(
+  "broadcasts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    title: text("title").notNull(),
+    message: text("message").notNull(),
+    /** /api/images/<id> (uploaded through the image store) or an https URL. */
+    imageUrl: text("image_url"),
+    /** Where tapping it goes: an in-site path ("/offers") or an https URL. */
+    linkUrl: text("link_url"),
+    audience: jsonb("audience").$type<BroadcastAudience>().notNull(),
+    status: text("status", { enum: BROADCAST_STATUSES }).notNull().default("DRAFT"),
+    scheduleAt: timestamp("schedule_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    sentBy: uuid("sent_by").references(() => users.id, { onDelete: "set null" }),
+    cancelledBy: uuid("cancelled_by").references(() => users.id, { onDelete: "set null" }),
+    /** Audience size when sending started (estimate; the final number is recipientCount). */
+    audienceEstimate: integer("audience_estimate"),
+    recipientCount: integer("recipient_count").notNull().default(0),
+    /** Chunk cursor: recipients are processed in user-id order after this id. */
+    cursorUserId: uuid("cursor_user_id"),
+    /** A dispatcher holds the broadcast until this time (overlapping runs skip it). */
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    lastError: text("last_error"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("broadcasts_status_idx").on(t.status, t.scheduleAt), index("broadcasts_created_idx").on(t.createdAt)],
+);
+export type Broadcast = typeof broadcasts.$inferSelect;
+
+/** F3.3.2: one row per person a broadcast reached — makes a re-run idempotent and gives the read count. */
+export const broadcastRecipients = pgTable(
+  "broadcast_recipients",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    broadcastId: uuid("broadcast_id")
+      .notNull()
+      .references(() => broadcasts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** The in-app notification; null when the person switched in-app announcements off. */
+    notificationId: uuid("notification_id").references(() => notifications.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("broadcast_recipients_unique").on(t.broadcastId, t.userId),
+    index("broadcast_recipients_notification_idx").on(t.notificationId),
+  ],
+);
+export type BroadcastRecipient = typeof broadcastRecipients.$inferSelect;
+
 /* <<< end WS-F */

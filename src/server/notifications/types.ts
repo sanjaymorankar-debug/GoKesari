@@ -261,6 +261,10 @@ export const NOTIFICATION_TYPES = {
   /* <<< end WS-E */
   //
   /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */
+  /** F3.3.2: an announcement from GoKesari (admin / operator broadcast) — category ANNOUNCEMENTS. */
+  BROADCAST: "broadcast.announcement",
+  /** F3.3.2: to the admin / operator who sent it — a broadcast finished sending. */
+  SUPPORT_BROADCAST_FINISHED: "support.broadcast_finished",
   /* <<< end WS-F */
   //
 } as const;

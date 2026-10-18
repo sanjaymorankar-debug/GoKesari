@@ -123,12 +123,28 @@ export function playStoreUrl(packageName: string): string {
   return `market://details?id=${encodeURIComponent(packageName)}`;
 }
 
+/**
+ * Payment gateways' checkout and bank-authentication pages (Cashfree, Razorpay,
+ * PhonePe — production and sandbox). They stay inside the app even when a
+ * checkout opens them in a new window or through a tapped link, so a payment
+ * is never thrown out to the browser half-way (the browser has no session).
+ * The site's own sandbox checkout (/pay/sandbox/...) is same-origin and loads in place.
+ */
+const PAYMENT_HOST_SUFFIXES = ["cashfree.com", "razorpay.com", "phonepe.com"];
+
+export function isPaymentHost(host: string): boolean {
+  const name = host.toLowerCase();
+  return PAYMENT_HOST_SUFFIXES.some((suffix) => name === suffix || name.endsWith(`.${suffix}`));
+}
+
 /** For links that open a new window (target="_blank", window.open): only the site's own pages stay in the app. */
 export function decideNewWindow(rawUrl: string, siteOrigin: string): NavigationDecision {
   const decision = decideNavigation(rawUrl, siteOrigin, true);
   if (decision.action !== "load") return decision;
   const url = parseUrl(rawUrl);
   if (url && originOf(url) === siteOrigin) return decision;
+  // batch-2026-10 WS-F: payment pages (live and sandbox) stay in the app.
+  if (url && url.scheme === "https" && isPaymentHost(url.host)) return decision;
   if (url && (url.scheme === "http" || url.scheme === "https")) return { action: "open-outside", url: rawUrl };
   return { action: "block" };
 }

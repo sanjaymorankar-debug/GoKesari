@@ -227,6 +227,8 @@ const serverEnvSchema = z.object({
   OBJECT_STORE_REGION: z.string().optional(), // batch-2026-10 WS-D
   OBJECT_STORE_ACCESS_KEY_ID: z.string().optional(), // batch-2026-10 WS-D
   OBJECT_STORE_SECRET_ACCESS_KEY: z.string().optional(), // batch-2026-10 WS-D
+  /** Expo access token for the push service (rule push.provider = expo); only needed with Expo's enhanced push security. */
+  EXPO_ACCESS_TOKEN: z.string().optional(), // batch-2026-10 WS-F
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

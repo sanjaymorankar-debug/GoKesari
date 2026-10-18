@@ -1288,6 +1288,19 @@ export const EVENTS = {
   /* <<< end WS-E */
   //
   /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */
+  /** F3.3.2: a broadcast finished sending — the person who sent it hears how many people it reached (in the app). */
+  "broadcast.finished": define<{ broadcastId: string; title: string; recipients: number; sentBy: string | null }>(
+    "notification",
+    (p) => [
+      {
+        to: p.sentBy,
+        type: N.SUPPORT_BROADCAST_FINISHED,
+        vars: { title: p.title, recipients: p.recipients },
+        actionUrl: `/admin/broadcasts?id=${p.broadcastId}`,
+        includeActor: true,
+      },
+    ],
+  ),
   /* <<< end WS-F */
   //
 } as const;

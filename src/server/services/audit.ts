@@ -382,6 +382,13 @@ export const AUDIT_ACTIONS = {
   PMD_PRODUCTS_MERGED: "pmd.products_merged",
   PMD_PRODUCTS_PROMOTED: "pmd.products_promoted",
   INVENTORY_SYNC_BLOCKED: "inventory_sync.blocked",
+  BROADCAST_SAVED: "broadcast.saved", // batch-2026-10 WS-F
+  BROADCAST_SCHEDULED: "broadcast.scheduled", // batch-2026-10 WS-F
+  BROADCAST_SEND_STARTED: "broadcast.send_started", // batch-2026-10 WS-F
+  BROADCAST_SENT: "broadcast.sent", // batch-2026-10 WS-F
+  BROADCAST_CANCELLED: "broadcast.cancelled", // batch-2026-10 WS-F
+  BROADCAST_EXPIRED: "broadcast.expired", // batch-2026-10 WS-F
+  PUSH_TOKEN_DEACTIVATED: "push_token.deactivated", // batch-2026-10 WS-F
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

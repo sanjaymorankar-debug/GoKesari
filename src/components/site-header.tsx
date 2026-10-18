@@ -8,6 +8,7 @@ import clsx from "clsx";
 import { LanguageSwitch } from "@/components/board/board-header";
 import { Icon, type IconName } from "@/components/board/icons";
 import { LocationPanel, OPEN_LOCATION_EVENT } from "@/components/location-picker";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { RoleSwitcher } from "@/components/role-switcher";
 import { StandaloneBackButton } from "@/components/standalone-back-button";
 import { BrandTagline, BrandWordmark } from "@/components/brand-wordmark";
@@ -275,19 +276,15 @@ export function SiteHeader({
           ) : null}
 
           {user ? (
-            <Link
-              href="/profile?tab=notifications"
-              className="relative hidden h-12 w-12 place-items-center rounded-xl text-ink-900 hover:bg-kesari-50 min-[400px]:grid"
-              aria-label={`${tr(UI.notifications, lang)}${unreadCount > 0 ? `, ${unreadCount} ${tr(UI.unread, lang)}` : ""}`}
-              data-testid="header-bell"
-            >
-              <Icon name="bell" size={22} />
-              {unreadCount > 0 ? (
-                <span className="absolute right-0.5 top-0.5 grid h-[1.125rem] min-w-[1.125rem] place-items-center rounded-full bg-red-700 px-1 text-xs font-bold text-white ring-2 ring-white">
-                  {unreadCount}
-                </span>
-              ) : null}
-            </Link>
+            // batch-2026-10 WS-F: the bell opens the Notification Centre panel (link to /notifications without JS).
+            <NotificationBell
+              lang={lang}
+              unreadCount={unreadCount}
+              accountKey={user.id}
+              testId="header-bell"
+              wrapperClassName="relative hidden min-[400px]:block"
+              className="relative grid h-12 w-12 place-items-center rounded-xl text-ink-900 hover:bg-kesari-50"
+            />
           ) : null}
 
           {user ? (
@@ -330,7 +327,7 @@ export function SiteHeader({
                       </Link>
                     ) : null}
                     {user && unreadCount > 0 ? (
-                      <Link href="/profile?tab=notifications" role="menuitem" className="flex min-h-11 items-center justify-between rounded-lg px-3 text-sm text-ink-700 hover:bg-cream-100 min-[400px]:hidden">
+                      <Link href="/notifications" role="menuitem" className="flex min-h-11 items-center justify-between rounded-lg px-3 text-sm text-ink-700 hover:bg-cream-100 min-[400px]:hidden">
                         {tr(UI.notifications, lang)}
                         <span className="rounded-full bg-red-700 px-1.5 text-xs font-bold text-white">{unreadCount}</span>
                       </Link>

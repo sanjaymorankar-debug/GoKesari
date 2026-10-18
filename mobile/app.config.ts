@@ -58,6 +58,7 @@ const APP_LINK_PATH_PREFIXES = [
   "/grievance",
   "/invoices",
   "/legal",
+  "/notifications",
   "/onboarding",
   "/operator",
   "/orders",
@@ -78,6 +79,24 @@ const APP_LINK_PATH_PREFIXES = [
   "/manufacturer", // batch-2026-10 WS-D (manufacturer portal, F9.1.2)
 ];
 
+/**
+ * Deep-link route map (F15.2.3): what shared links point at — product, shop,
+ * order, invite/referral, notification and help-desk ticket. Same list as
+ * DEEP_LINK_ROUTES in src/lib/deep-links.ts (website) and src/deep-links.ts.
+ * Pages not (yet) top-level directories of the website, such as the help
+ * desk's /support/tickets/…, are listed here so the intent filter has them.
+ */
+const DEEP_LINK_ROUTE_PREFIXES = ["/products/", "/shops/", "/orders/", "/r/", "/refer", "/notifications", "/support/tickets/"];
+
+const INTENT_PATH_PREFIXES = [...new Set([...APP_LINK_PATH_PREFIXES, ...DEEP_LINK_ROUTE_PREFIXES])];
+
+/**
+ * Firebase settings for Android push (google-services.json). On EAS, upload the
+ * file as a secret file variable named GOOGLE_SERVICES_JSON; without it the
+ * app builds and runs, and push stays unavailable on Android.
+ */
+const GOOGLE_SERVICES_JSON: string | undefined = process.env.GOOGLE_SERVICES_JSON;
+
 export default ({ config }: ConfigContext): ExpoConfig => ({
   ...config,
   name: variant.name,
@@ -85,7 +104,9 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   // 1.1.0: bulk product upload (Excel/CSV) for shop owners, operators and admins — the website's
   // screens, with the phone's own document picker (Android: Files, Drive, WhatsApp and e-mail
   // attachments through the system picker; iPhone: Files).
-  version: "1.1.0",
+  // 1.2.0: push notifications (expo-notifications), camera inside pages for QR scanning, deep-link
+  // route map (product, shop, order, referral, notification, ticket).
+  version: "1.2.0",
   scheme: variant.scheme,
   orientation: "default",
   icon: "./assets/icon.png",
@@ -94,13 +115,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     bundleIdentifier: variant.appId,
     // Local builds (the GitHub workflows); EAS store builds number themselves (eas.json appVersionSource "remote").
-    buildNumber: "2",
+    buildNumber: "3",
     supportsTablet: true,
     associatedDomains: [`applinks:${variant.host}`],
     config: { usesNonExemptEncryption: false },
     infoPlist: {
       NSCameraUsageDescription:
-        "GoKesari uses the camera when you take a photo to upload, such as a product picture or a proof of delivery.",
+        "GoKesari uses the camera when you take a photo to upload, such as a product picture or a proof of delivery, and to scan an order's QR code.",
       NSPhotoLibraryUsageDescription:
         "GoKesari opens your photos when you choose a picture to upload, such as a product picture or a document.",
       NSPhotoLibraryAddUsageDescription: "GoKesari saves a picture to your photos when you ask it to.",
@@ -108,7 +129,8 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: variant.appId,
-    versionCode: 2,
+    versionCode: 3,
+    ...(GOOGLE_SERVICES_JSON ? { googleServicesFile: GOOGLE_SERVICES_JSON } : {}),
     adaptiveIcon: {
       foregroundImage: "./assets/android-icon-foreground.png",
       monochromeImage: "./assets/android-icon-monochrome.png",
@@ -118,9 +140,13 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
     // the back press only goes to the previous website page.
     predictiveBackGestureEnabled: false,
     // Location (expo-location) and storage for downloads on Android 9 and
-    // older (expo-file-system) come from the libraries. The camera needs no
-    // permission: photo uploads hand off to the camera app. Drawing over
-    // other apps is only for Expo's development menu.
+    // older (expo-file-system) come from the libraries. Photo uploads hand
+    // off to the camera app; CAMERA is for pages that use the camera
+    // themselves (QR scanning with getUserMedia) — the WebView asks for it
+    // the first time a page wants the camera. Notifications (Android 13+)
+    // come from expo-notifications. Drawing over other apps is only for
+    // Expo's development menu; pages never record audio.
+    permissions: ["android.permission.CAMERA"],
     blockedPermissions: ["android.permission.RECORD_AUDIO", "android.permission.SYSTEM_ALERT_WINDOW"],
     intentFilters: [
       {
@@ -129,7 +155,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
         category: ["BROWSABLE", "DEFAULT"],
         data: [
           { scheme: "https", host: variant.host, path: "/" },
-          ...APP_LINK_PATH_PREFIXES.map((pathPrefix) => ({ scheme: "https", host: variant.host, pathPrefix })),
+          ...INTENT_PATH_PREFIXES.map((pathPrefix) => ({ scheme: "https", host: variant.host, pathPrefix })),
         ],
       },
     ],
@@ -137,6 +163,18 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   plugins: [
     "expo-web-browser",
     "expo-sharing",
+    [
+      "expo-notifications",
+      {
+        // Android's small notification icon: white on transparent.
+        icon: "./assets/android-icon-monochrome.png",
+        color: "#c9450c",
+        defaultChannel: "default",
+        // iOS push environment: only the development-client profile is signed for development;
+        // ad-hoc (preview) and App Store builds use APNs production.
+        mode: process.env.EAS_BUILD_PROFILE === "development" ? "development" : "production",
+      },
+    ],
     [
       "expo-splash-screen",
       {
@@ -164,6 +202,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   extra: {
     siteUrl: `https://${variant.host}`,
     scheme: variant.scheme,
+    appVariant: variant === VARIANTS.preview ? "preview" : "production",
     ...(EAS_PROJECT_ID ? { eas: { projectId: EAS_PROJECT_ID } } : {}),
   },
 });

@@ -11,6 +11,9 @@
  *   links to other sites   → the browser or the right app, not inside GoKesari
  *   downloads (iOS)        → fetched with the page's session, then the share
  *                            sheet ("Save to Files", WhatsApp, print…)
+ *   __gokesariApp.getPushToken() → this phone's Expo push token (asks for
+ *                            notification permission once); the website
+ *                            registers it (src/lib/mobile-bridge-push.ts)
  *
  * It installs only on the website's own origin, and every message carries a
  * per-launch secret: an iframe on the page (a payment widget, a map) can reach
@@ -249,6 +252,7 @@ export function buildBridgeScript({ siteOrigin, token, platform, version }: Brid
     platform: ${JSON.stringify(platform)},
     version: ${JSON.stringify(version)},
     signInWithGoogle: function () { return request("signInWithGoogle", {}); },
+    getPushToken: function () { return request("push.getToken", {}); },
     receive: receive
   };
   Object.defineProperty(window, "__gokesariApp", { value: app });
