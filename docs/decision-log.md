@@ -105,3 +105,30 @@ Format: **ID — decision.** *Why.* (Where.)
   days. Production uses no real payments.
 
 <!-- Workstream decisions (A–F) are appended below. -->
+
+## WS-B — rider broadcast offers, QR pickup, navigation (F3.3.2, F4.1.3, F4.2.2)
+
+- **D-B01 — Broadcast starts after the shorter of `dispatchBroadcast.singleOfferSeconds` and `dispatch.offerTtlSeconds`**; the single offer's row goes OFFERED → REJECTED and that rider joins the broadcast (not counted against the per-step cap). Radii 2 → 4 → 6 km by default, `stepSeconds` 60.
+- **D-B02 — First accept wins by a conditional UPDATE of the broadcast row OPEN → TAKEN** inside the winner's transaction; losers' recipient rows become TAKEN_BY_OTHER and they get "Offer taken". Proven by a concurrent two-rider test.
+- **D-B03 — After the last step the broadcast expires and the normal search continues**; society-exclusive rules, the busy-rider fallback and each rider's own radius still apply. Batched trip offers keep the single-offer flow.
+- **D-B04 — With `dispatchBroadcast.enabled` off the rider text and behaviour are byte-identical to before.**
+- **D-B05 — Pickup QR = order + token id + HMAC-SHA256 (128-bit), secret `PICKUP_QR_SECRET`** (falls back to `AUTH_SECRET` outside production). Only a hash of the nonce is stored; the QR is valid only for READY/ASSIGNED orders and only for the rider holding the accepted delivery; it is spent inside the pickup transaction, so a failed pickup does not burn it. Every scan is logged with GPS.
+- **D-B06 — QR drawn server-side as SVG (`qrcode`, moved to dependencies); scanned in the browser with `jsQR`** (works in the app's WebView once camera permission is granted — WS-F).
+- **D-B07 — Navigation providers: mock (default), Google (Routes, existing server key), OSRM** (own server recommended; the public demo is rate-limited). Without a Google key the map is a plain SVG route drawing (OSM tiles are blocked by the site's CSP `img-src`). Provider failure → straight-line route. Leg 2 (to the customer) is shown only after pickup.
+- **D-B08 — No new npm dependency.** The legacy `delivery-dispatch` cron (kept for rollback) does not run the broadcast step; `timeout-sweep` does.
+- **D-B09 — F4.2.6 signature capture not built** (DEFERRED-PHASE-2).
+
+## WS-E — invoices, payouts, platform invoice, statutory (F9.2.6, F10.2.4, F10.2.5)
+
+- **D-E01 — Statutory values live in a dated table `statutory_rates`**; payout maths uses the row in force on each supply's date. Seeded (all `confirmedByCa = false`): TCS 1% → 0.5% from 2024-07-10; TDS 194-O 1% → 0.1% from 2024-10-01, label s.393 from 2026-04-01, 5% without PAN, individual/HUF ≤ ₹5 lakh/FY exempt (TDS from the order that crosses it); s.9(5) restaurant and local-delivery rows disabled; unregistered sellers: no TCS, TDS applies; GST on GoKesari fees 18%.
+- **D-E02 — TCS base = the tax invoice's taxable value** (gross where no invoice); returns reverse it. TDS base excludes GST (configurable). A shop with a GSTIN counts as GST-registered.
+- **D-E03 — Commission is the taxable value; 18% GST is added on top.** GST on fees is deducted from a payout only when platform invoicing is on and the tax profile is complete. Registration fees are invoiced as GST-inclusive, already paid.
+- **D-E04 — Commission already taken from the shop wallet shows as a zero line**; "± wallet entries" is an optional top-up of the shop wallet from the payout (`payouts.walletTopUpTargetPaise`, default 0).
+- **D-E05 — Shops with no verified bank account, net ≤ 0 or below `minPayoutPaise` are held and carried to the next cycle.** A success webhook without a UTR stays in progress for finance.
+- **D-E06 — Default payout provider is BANK_FILE** (generic NEFT/RTGS CSV + "mark paid with UTR"); the bank's exact template must be confirmed. RTGS from ₹2 lakh.
+- **D-E07 — With `payouts.enabled` on, the weekly shop settlement is refused** (both the cron and the function) so a shop can never be paid twice; rider payouts stay weekly.
+- **D-E08 — Place of supply = delivery-address state, then a PIN-code prefix lookup (unclear prefixes → unknown), then the shop's state with a note on the invoice.**
+- **D-E09 — B2C invoice QR is a key:value text payload** (invoice no., date, GSTINs, value, tax) because the shop's UPI ID is not held; the e-invoice signed QR is drawn when present.
+- **D-E10 — Credit note for a cancellation/reversal is issued when an order reaches REFUNDED** (flag `invoiceDelivery.creditNoteOnCancellation`), capped at what earlier refund notes have not already credited (no double credit).
+- **D-E11 — Platform invoice series `GKP/<FY>/<n>`, credit `GKC`, debit `GKD`** (≤ 16 characters, unique per FY); SAC codes per fee type are defaults for the CA to confirm. PANs are masked in the TDS report.
+- **D-E12 — RazorpayX / Cashfree Payouts request formats are coded from public docs and marked unverified** (no keys or network here). GSTR-8 and the TDS return are summaries, not portal-upload files.
