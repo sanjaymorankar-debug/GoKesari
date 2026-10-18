@@ -2,8 +2,10 @@
 
 Status, 15 Oct 2026: **live on gokesari.com** since 15:58 UTC (release
 PR #179; migrations 0076–0078 applied by the build). Signed-out production checks
-pass; on test.gokesari.com **23 of 23 live cases pass** for the shop owner, admin
-and operator ([test report §2.7–2.8](../testing/bulk-product-upload-test-report.md)).
+pass, and on 18 Oct 2026 the **signed-in production smoke with a test shop passed
+4 of 4** (one product imported, then deactivated). On test.gokesari.com **23 of 23
+live cases pass** for the shop owner, admin and operator
+([test report §2.7–2.9](../testing/bulk-product-upload-test-report.md)).
 
 One more way to load products. The existing **manual add**, **add by
 category** and the **Excel price upload** are untouched. A shop owner — or an
@@ -265,8 +267,9 @@ Done: PR #173 merged into `staging` (`2886cf3`); test.gokesari.com deployed;
 Test database workflow run 31 shows `0077_product_bulk_import` as the newest of
 80 migrations; the live run (`scripts/test-site/product-import-check.mjs`)
 passed 23/23 — screenshots and JSON in
-[test-site-2026-10-15/](test-site-2026-10-15/). Production waits for the
-owner's go-ahead on the `staging` → `main` release.
+[test-site-2026-10-15/](test-site-2026-10-15/). Released to gokesari.com by
+PR #179 (15 Oct). Production smoke with a test shop passed 4/4 on 18 Oct —
+evidence in [prod-smoke-2026-10-18/](prod-smoke-2026-10-18/).
 
 **Decisions taken** (recorded in the tracker, "Bulk Product Upload" sheet):
 
@@ -295,11 +298,11 @@ owner's go-ahead on the `staging` → `main` release.
 
 **Open items**
 
-- **A signed-in import on gokesari.com**: the release is live and the
-  signed-out checks pass, but no file was imported on production (it writes to
-  a real shop). Name a test shop on gokesari.com, then run
-  `product-import-check.mjs https://gokesari.com <state> smoke <dir> <shopId> --prod-smoke`
-  (one product in, then a Delete file takes it out again).
+- **Test data left on gokesari.com by the production smoke** (18 Oct): the test
+  shop "GoKesari QA Test Shop (internal testing - do not order)"
+  (`3a0557f6-42bc-4ee4-81e9-c91109ece9f1`, Pending approval, hidden; **never
+  approve it**) with one deactivated listing, and the master product "Smoke Test
+  MVE0J1I1 (delete)" pending in the catalogue review (reject it there).
 - **The "Production database" workflow** cannot run yet: the repository
   variables `PROD_DATABASE_HOST`, `PROD_DATABASE_NAME` and `TEST_DATABASE_HOST`
   are not set (GitHub → Settings → Secrets and variables → Actions →
