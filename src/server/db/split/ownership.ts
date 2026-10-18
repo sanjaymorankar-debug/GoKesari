@@ -218,6 +218,11 @@ export const TABLE_OWNERSHIP = {
   rider_payouts: "platform",
   rider_searches: "platform",
   /* >>> batch-2026-10 WS-A (payments, OTP, reference prices) — add entries below this line only */
+  payment_intents: "customer",
+  payment_intent_events: "customer",
+  payment_webhook_events: "customer",
+  payment_refunds: "customer",
+  payment_sandbox_orders: "customer",
   /* <<< end WS-A */
   //
   /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — add entries below this line only */

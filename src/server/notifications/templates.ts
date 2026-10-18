@@ -255,6 +255,20 @@ export const TEMPLATES: Record<string, Template> = {
     "Order {{orderNumber}} ({{shopName}}): {{attempts}} wrong delivery codes, so the rider cannot complete it. Ticket {{ticketNumber}}. Call the customer, then confirm the delivery or mark it failed from the exceptions queue.",
   ),
   /* >>> batch-2026-10 WS-A (payments, OTP, reference prices) — add entries below this line only */
+  [T.ORDER_PAYMENT_CAPTURED]: t("Payment received", "We received your payment of {{amount}} for {{reference}}. Thank you!"),
+  [T.ORDER_PAYMENT_FAILED]: t(
+    "Payment failed",
+    "Your payment of {{amount}} for {{reference}} did not go through{{reason}}. Open the order to try again.",
+  ),
+  [T.ORDER_PAYMENT_EXPIRED]: t(
+    "Payment not completed",
+    "The payment of {{amount}} for {{reference}} was not completed in time. Open the order to pay again.",
+  ),
+  [T.ORDER_PAYMENT_REFUNDED]: t(
+    "Refund sent",
+    "{{amount}} for {{reference}} has been refunded to your original payment method. Banks usually take 5–7 working days to show it.",
+  ),
+  [T.SUPPORT_PAYMENT_ATTENTION]: t("Payment needs attention", "{{reference}}: {{problem}}", false),
   /* <<< end WS-A */
   //
   /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — add entries below this line only */

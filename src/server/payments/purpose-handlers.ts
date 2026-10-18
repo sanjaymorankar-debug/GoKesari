@@ -11,6 +11,10 @@ export type CapturedHandler = (intent: PaymentIntentRef, client: DbClient) => Pr
 
 export const CAPTURED_HANDLERS: Partial<Record<PaymentPurpose, CapturedHandler>> = {
   /* >>> batch-2026-10 WS-A (payments, OTP, reference prices) — add entries below this line only */
+  // Orders paid online: every order still waiting for this payment becomes CONFIRMED + paid
+  // (order-payments.ts; imported lazily so this registry adds no import cycle).
+  ORDER: async (intent, client) => (await import("./order-payments")).onOrderPaymentCaptured(intent, client),
+  ORDER_GROUP: async (intent, client) => (await import("./order-payments")).onOrderPaymentCaptured(intent, client),
   /* <<< end WS-A */
   //
   /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */

@@ -11,6 +11,7 @@
 import type { DeliveryOrderStatus, OrderStatus } from "@/server/db/schema";
 import type { SellerVerificationStatus } from "./kyc/doc-formats";
 import { DISPUTE_TRANSITIONS, type DisputeStatus } from "./dispute-states";
+import { PAYMENT_INTENT_TRANSITIONS, type PaymentIntentStatusValue } from "./payment-intent-states"; // batch-2026-10 WS-A
 
 /**
  * The approved order state machine (see the orderStatusEnum doc comment in
@@ -82,6 +83,8 @@ export const STATE_MACHINES = {
   delivery: DELIVERY_TRANSITIONS,
   seller_verification: SELLER_VERIFICATION_TRANSITIONS,
   dispute: DISPUTE_TRANSITIONS,
+  /** batch-2026-10 WS-A: a gateway payment (lib/payment-intent-states.ts). */
+  payment_intent: PAYMENT_INTENT_TRANSITIONS,
 } as const satisfies Record<string, Record<string, readonly string[]>>;
 
 export type MachineKind = keyof typeof STATE_MACHINES;
@@ -92,7 +95,9 @@ export type MachineStatus<K extends MachineKind> = K extends "order"
     ? DeliveryOrderStatus
     : K extends "seller_verification"
       ? SellerVerificationStatus
-      : DisputeStatus;
+      : K extends "payment_intent" // batch-2026-10 WS-A
+        ? PaymentIntentStatusValue
+        : DisputeStatus;
 
 /**
  * Whether `to` may follow `from`. A `from` of null is a new subject (its first

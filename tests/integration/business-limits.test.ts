@@ -67,7 +67,7 @@ describe("B — the new rules", () => {
 
   it("the original named settings are still there: 48 h return window, OTP, image limits, suspension policy", async () => {
     expect(RULES.returns.defaults.windowHours).toBe(48);
-    expect(RULES.otp.defaults).toMatchObject({ length: 6, expiryMinutes: 10, maxAttempts: 5 });
+    expect(RULES.otp.defaults).toMatchObject({ length: 6, expiryMinutes: 5, maxAttempts: 5 }); // batch-2026-10 WS-A (F1.1.2): 5-minute codes
     expect(RULES.images.defaults).toMatchObject({ maxBytes: 2_000_000, maxPerProduct: 8 });
     expect(RULES.suspension.defaults.actions.CONFIRMED).toBe("CANCEL_REFUND");
   });

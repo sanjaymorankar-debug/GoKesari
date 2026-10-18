@@ -333,6 +333,12 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   // GS-030: cash on delivery — personal orders to a delivery address, for a
   // customer within the COD limits. Shop opt-in and amount are checked per order.
   const paymentMethod: PaymentMethod = input.paymentMethod ?? "WALLET";
+  // batch-2026-10 WS-A: "Pay online" only through startOnlineCheckout (server/payments/order-payments.ts),
+  // and only while rule onlinePayments is on.
+  if (paymentMethod === "ONLINE") {
+    if (!(await getRule("onlinePayments")).enabled) throw conflict("Online payment is not available. Please pay from your wallet or choose cash on delivery.");
+    if (orderType !== "PERSONAL") throw validationFailed("Business orders are paid from the wallet.");
+  }
   let codMaxOrderPaise: number = COD_LIMITS.maxOrderPaise;
   if (paymentMethod === "COD") {
     if (orderType !== "PERSONAL") throw validationFailed("Business orders are paid from the wallet.");
@@ -363,8 +369,9 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     : null;
 
   // F6: a cart spanning several shops gets one parent reference over all its orders.
+  // batch-2026-10 WS-A: an online payment covers every shop's order at once, so it always needs the group.
   const orderGroup =
-    purchasableGroups.length > 1 && (await getRule("parentOrders")).enabled
+    purchasableGroups.length > 1 && (paymentMethod === "ONLINE" || (await getRule("parentOrders")).enabled)
       ? await getOrCreateOrderGroup(input.userId, input.requestId)
       : null;
 
@@ -587,6 +594,14 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           },
           tx,
         );
+      }
+
+      // batch-2026-10 WS-A: an online-paid order waits in PENDING (stock held, cart
+      // cleared) until the gateway captures the payment; confirmation, its event and
+      // the notices then come from server/payments/order-payments.ts.
+      if (paymentMethod === "ONLINE") {
+        await clearCartForShop(input.userId, group.shop.id, tx);
+        return { order: orderRow, shopOwnerId: shopRow.ownerId };
       }
 
       const [confirmed] = await tx
@@ -957,6 +972,12 @@ export async function cancelOrder(
     if (!canTransition(order.status, "CANCELLED")) {
       throw invalidTransition(ORDER_STATUS_LABELS[order.status], "Cancelled");
     }
+    // batch-2026-10 WS-A: an online-paid order — refused while a payment attempt is open;
+    // a failed / expired attempt has already put the stock back.
+    const onlinePolicy =
+      order.paymentMethod === "ONLINE"
+        ? await (await import("@/server/payments/order-payments")).onlineCancelPolicy(order, tx)
+        : null;
 
     // D10: a customer cancelling their own order is blocked while the shop is
     // actively assembling it — there is no clean undo for picked/packed work,
@@ -1054,7 +1075,7 @@ export async function cancelOrder(
       ...l,
       unitSizeMilli: unitSizeById.get(l.shopProductId) ?? 1000,
     }));
-    for (const line of lines) {
+    for (const line of onlinePolicy?.stockAlreadyReleased ? [] : lines) {
       const quantityUnits = Math.round(line.quantityMilli / line.unitSizeMilli);
       if (quantityUnits > 0) {
         await restockOnline(
@@ -1146,6 +1167,13 @@ export async function cancelOrder(
     // Removed / cheaper-substituted lines were already refunded and deducted
     // from totalPaise/subtotalPaise, so these always reflect what is still held.
     const refundAmountPaise = goodsOnlyRefund ? order.subtotalPaise : order.totalPaise;
+    // batch-2026-10 WS-A: paid online → refund to the original method (not the wallet).
+    if (onlinePolicy && wasPaid && refundAmountPaise > 0) {
+      const { refundCancelledOnlineOrder } = await import("@/server/payments/order-payments");
+      if (await refundCancelledOnlineOrder(order, refundAmountPaise, goodsOnlyRefund, actor, tx)) {
+        return { ...updated, status: "REFUND_PENDING" as OrderStatus };
+      }
+    }
     if (wasPaid && refundAmountPaise > 0) {
       // Preserves the original customer-funded / promotional split (§29) —
       // does not simply credit a lump customer-funded sum, which would
