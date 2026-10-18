@@ -171,3 +171,25 @@ Format: **ID — decision.** *Why.* (Where.)
 - **D-C09 — A new grievance also opens a linked support ticket** (`helpdesk.ticketForGrievances`); the ticket status is mirrored onto the grievance; `GRV-` numbers are unchanged. The Grievance Redressal page keeps its IT Rules 2021 24 h / 15-day wording and adds the Rule 4 48 h / one-month commitment.
 - **D-C10 — Grievance Officer details are a rule (`grievanceOfficer`)** defaulting to today's `LEGAL_ENTITY` values; an empty field falls back to the constant.
 - **D-C11 — Ticket attachments (photos/PDF, 5 MB, 10 per ticket) are stored in the database row** — the existing blob store only accepts webp/zip/csv.
+
+## WS-A — OTP, reference prices, online payment (F1.1.2, F1.4.3, F1.7.3, F1.8.4)
+
+- **D-A01 — OTP defaults: 6 digits, 5-minute expiry (was 10), 5 attempts, 60 s resend cooldown**, limits per email, per user and per IP counted in the database (shared across instances) on top of the in-process limiter; codes HMAC-hashed; every request/verify/failure audited; expired codes purged hourly (`auth-housekeeping`, rule `otpHousekeeping`).
+- **D-A02 — Every code goes through the `OtpProvider` for its channel.** Email is the active channel. SMS needs both the `SMS_PROVIDER` environment and the new `otp.smsEnabled` rule; that rule defaults **on** so the existing SMS sign-in for mobile-only shops (mock on the test site) keeps working — it can now be switched off. A `SmsOtpProvider` Phase-2 stub documents where a real vendor plugs in.
+- **D-A03 — Online reference prices are dropped by a code constant** (`src/lib/price-references-drop.ts`), deliberately not an admin setting, so they cannot be switched back on by mistake: no customer/shop display, public API answers 404, admin menu entry removed (page explains the drop), the offline Open Prices CLI refuses to run without `--i-understand-dropped`. PR #23 code kept, isolated, no runtime external calls.
+- **D-A04 — Provider chosen by `PAYMENT_GATEWAY` (SANDBOX default | CASHFREE | RAZORPAY | PHONEPE)**; card data never reaches GoKesari (hosted checkout / SDK session only). Razorpay and PhonePe are scaffolds with their unverified parts marked; Cashfree reuses the existing keys.
+- **D-A05 — The sandbox keeps its state in the database**, so several staging instances agree; it is refused on production unless explicitly allowed (`onlinePayments.allowSandboxInProduction`, default false).
+- **D-A06 — Payment state machine** `CREATED → PENDING → AUTHORIZED → CAPTURED → PARTIALLY_REFUNDED → REFUNDED`, plus `FAILED`, `EXPIRED`, enforced for every move. Webhooks: signature checked (401 and recorded when wrong), deduplicated by (gateway, event id), then the gateway's own order status is fetched before anything changes, under a row lock.
+- **D-A07 — An order paid online is created PENDING and becomes CONFIRMED ("placed/paid") only on CAPTURED**; FAILED/EXPIRED → PAYMENT_FAILED with the stock put back. The attempt's key derives from the order's checkout key (`pay:<checkoutKey>:<n>`), so a retry or double click can never charge twice. WALLET and COD checkout are unchanged.
+- **D-A08 — A multi-shop online cart always gets an order group and one ORDER_GROUP payment** (even with `parentOrders` off). Online payment is for personal orders only (B2B stays wallet).
+- **D-A09 — Stuck attempts are reconciled every 5 minutes** (`payments-reconcile`) after `reconcileAfterMinutes` (10), up to 48 checks. A Cashfree order whose latest attempt failed is treated as FAILED; if the customer pays it later anyway, support is alerted (`payment.attention`) rather than refunding automatically.
+- **D-A10 — `cancelOrder` refuses while a payment attempt is still open.**
+
+## Integration of the six workstreams (lead)
+
+- **D-I01 — One refund path for online-paid orders.** A and C each added one; C's runs first and owns the customer's refund record and timeline, and calls A's gateway refund. The original method is offered whenever `onlinePayments` is on and is the default for gateway money; the wallet is the customer's alternative. A's path remains only as a fallback C never reaches for paid orders.
+- **D-I02 — The refund is sent to the gateway as soon as the cancellation commits, for every caller** (shop, operator, customer); the 5-minute payments job also runs C's refund sweep, so the order and timeline follow the gateway within minutes. Both sides move an order REFUND_PENDING → REFUNDED only from REFUND_PENDING, so they cannot double-transition.
+- **D-I03 — Multi-shop online orders are refunded from their ORDER_GROUP payment** (partial refunds of the group payment); test TC-B26-C-057.
+- **D-I04 — D's shop-owner consent OTP keeps its own email wording through A's provider** (`OtpMessage.rendered`).
+- **D-I05 — Shared-list merge conflicts (env, audit actions, permissions, state machines, event subjects, mobile link paths) were resolved as unions** — every workstream's entries kept.
+- **D-I06 — Rollback scripts `scripts/rollback-0079 … 0084.sql`** were generated from the migrations and verified on a migrated database, in reverse order.
