@@ -254,6 +254,24 @@ export const TEMPLATES: Record<string, Template> = {
     "Delivery code locked — confirm the drop",
     "Order {{orderNumber}} ({{shopName}}): {{attempts}} wrong delivery codes, so the rider cannot complete it. Ticket {{ticketNumber}}. Call the customer, then confirm the delivery or mark it failed from the exceptions queue.",
   ),
+  /* >>> batch-2026-10 WS-A (payments, OTP, reference prices) — add entries below this line only */
+  /* <<< end WS-A */
+  //
+  /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — add entries below this line only */
+  /* <<< end WS-B */
+  //
+  /* >>> batch-2026-10 WS-C (cancellation fee, refunds, help desk) — add entries below this line only */
+  /* <<< end WS-C */
+  //
+  /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */
+  /* <<< end WS-D */
+  //
+  /* >>> batch-2026-10 WS-E (invoicing, payouts, statutory) — add entries below this line only */
+  /* <<< end WS-E */
+  //
+  /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */
+  /* <<< end WS-F */
+  //
 };
 
 /** Fills `{{name}}` placeholders; a missing variable becomes an empty string and extra spaces are tidied. */

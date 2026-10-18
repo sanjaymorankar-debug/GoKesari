@@ -213,6 +213,24 @@ export const NOTIFICATION_TYPES = {
   SHOP_BILL_READY: "shop.bill_ready",
   /** To the shop owner: a GST return is due soon (estimate of tax payable). */
   SHOP_GST_DUE_REMINDER: "shop.gst_due_reminder",
+  /* >>> batch-2026-10 WS-A (payments, OTP, reference prices) — add entries below this line only */
+  /* <<< end WS-A */
+  //
+  /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — add entries below this line only */
+  /* <<< end WS-B */
+  //
+  /* >>> batch-2026-10 WS-C (cancellation fee, refunds, help desk) — add entries below this line only */
+  /* <<< end WS-C */
+  //
+  /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */
+  /* <<< end WS-D */
+  //
+  /* >>> batch-2026-10 WS-E (invoicing, payouts, statutory) — add entries below this line only */
+  /* <<< end WS-E */
+  //
+  /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */
+  /* <<< end WS-F */
+  //
 } as const;
 
 export type NotificationType =

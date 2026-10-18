@@ -7723,3 +7723,28 @@ export const productAttributes = pgTable("product_attributes", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export type ProductAttributes = typeof productAttributes.$inferSelect;
+
+
+/* >>> batch-2026-10 WS-A (payments, OTP, reference prices) — tables below this line only */
+
+/* <<< end WS-A */
+
+/* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — tables below this line only */
+
+/* <<< end WS-B */
+
+/* >>> batch-2026-10 WS-C (cancellation fee, refunds, help desk) — tables below this line only */
+
+/* <<< end WS-C */
+
+/* >>> batch-2026-10 WS-D (operator-limited, product master data) — tables below this line only */
+
+/* <<< end WS-D */
+
+/* >>> batch-2026-10 WS-E (invoicing, payouts, statutory) — tables below this line only */
+
+/* <<< end WS-E */
+
+/* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — tables below this line only */
+
+/* <<< end WS-F */
