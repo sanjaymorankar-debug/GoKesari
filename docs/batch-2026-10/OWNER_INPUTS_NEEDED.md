@@ -98,6 +98,8 @@ feature is off).
 
 | What | Where | Then switch on |
 |---|---|---|
+| Expo account: an access token as GitHub secret **`EXPO_TOKEN`**, and the Expo project id in `mobile/app.config.ts` (`npx eas-cli init` in `mobile/` once) — the "iPhone app" workflow stops without both (trial run 39146871432, 18 Oct) | GitHub secret + one commit | — |
+| Apple Developer account: App Store Connect API key as secrets `ASC_API_KEY_P8`, `ASC_KEY_ID`, `ASC_ISSUER_ID`, and `APPLE_TEAM_ID` | GitHub secrets | iOS internal builds from the "iPhone app" workflow |
 | EAS project linked (`EAS_PROJECT_ID`), FCM V1 key and APNs key uploaded to Expo; `google-services.json` as EAS file variable `GOOGLE_SERVICES_JSON` | Expo / EAS | — |
 | `EXPO_ACCESS_TOKEN` only if Expo "enhanced push security" is on | Hostinger env | — |
 | Build app **1.2.0** (Google Play / App Store publishing stays on hold) | "Android app" / "iPhone app" workflows | **`push.enabled` = true, `push.provider` = `expo`** |
