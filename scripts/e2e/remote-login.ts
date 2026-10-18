@@ -31,15 +31,35 @@ async function main() {
 
   // The sign-in consent ("I agree") gates the Get code button; tick it once
   // the page has hydrated (a click before that is lost).
-  const agree = page.getByTestId("signin-consent").locator("input[type=checkbox]").first();
+  // By its accessible name: older builds have no data-testid on the consent box.
+  const agree = page.getByRole("checkbox", { name: /I agree/i }).first();
   const getCode = page.getByRole("button", { name: "Get code" });
-  for (let i = 0; i < 10 && !(await getCode.isEnabled()); i++) {
-    if (await agree.count()) await agree.check({ force: true }).catch(() => {});
-    await page.waitForTimeout(500);
+  for (let i = 0; i < 40 && !(await getCode.isEnabled()); i++) {
+    // A tick that landed before hydration shows as checked while React's
+    // state is still "not agreed": untick and tick again.
+    if (await agree.isChecked().catch(() => false)) {
+      await agree.click({ force: true }).catch(() => {});
+      await page.waitForTimeout(200);
+    }
+    await agree.click({ force: true }).catch(() => {});
+    await page.waitForTimeout(700);
   }
-  await page.getByLabel("Mobile number or email").fill(email);
+  // Typed only now: the consent tick taking effect proves React has hydrated
+  // (text typed before hydration is wiped by the first render).
+  const identifier = page.getByLabel("Mobile number or email");
+  for (let i = 0; i < 10 && (await identifier.inputValue()) !== email; i++) {
+    await identifier.fill(email);
+    await page.waitForTimeout(300);
+  }
   await getCode.click();
-  await page.getByTestId("otp-sent-to").waitFor({ timeout: 30_000 });
+  // The code box appears once the code is sent (older builds have no test ids).
+  try {
+    await page.getByLabel("One-time code").waitFor({ timeout: 30_000 });
+  } catch (error) {
+    if (process.env.E2E_DEBUG_SHOT) await page.screenshot({ path: process.env.E2E_DEBUG_SHOT, fullPage: true });
+    const text = (await page.locator("main").first().innerText().catch(() => "")).replace(/\s+/g, " ").slice(0, 900);
+    throw new Error(`no code box after "Get code"; the form says: ${text}`, { cause: error });
+  }
   console.log(`[remote-login] code requested for ${email}; waiting for ${codeFile}`);
 
   const deadline = Date.now() + 10 * 60_000;
@@ -53,10 +73,12 @@ async function main() {
   }
   if (!code) throw new Error("no code arrived in time");
 
-  await page.getByLabel("One-time code").fill(code);
+  // Submit the code's own form (Enter) — a name match could hit "Continue with Google".
+  const codeBox = page.getByLabel("One-time code");
+  await codeBox.fill(code);
   await Promise.all([
-    page.waitForURL((url) => !url.pathname.startsWith("/signin"), { timeout: 30_000 }),
-    page.getByRole("button", { name: /verify|sign in|continue/i }).first().click(),
+    page.waitForURL((url) => url.host === new URL(baseUrl).host && !url.pathname.startsWith("/signin"), { timeout: 30_000 }),
+    codeBox.press("Enter"),
   ]);
   mkdirSync(dirname(stateFile), { recursive: true });
   await context.storageState({ path: stateFile });

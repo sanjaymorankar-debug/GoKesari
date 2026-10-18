@@ -97,10 +97,11 @@ Format: **ID — decision.** *Why.* (Where.)
 - **D-040 — Integration tests run on a local PostgreSQL 16** (one database per
   workstream), the same engine CI uses. Each new case is named
   `TC-B26-<WS>-NNN` and counted in the test report.
-- **D-041 — Authenticated browser flows on test.gokesari.com were not run by
-  the agent.** Signing in needs the email code from the owner's mailbox; the
-  session's safety policy declined reading it to sign in as the owner's test
-  accounts. The public / read-only remote suite ran instead; the signed-in
-  journeys are listed as BLOCKED in the report with the exact steps to run them.
+- **D-041 — Signed-in journeys on test.gokesari.com use the existing staging
+  test accounts** (`sanjaymorankar+gk-lc14` customer, `gk-shop`, `gk-rider`,
+  `gk-admin`, `gk-ops`), signed in through the normal email code read from the
+  owner's mailbox — **with the owner's go-ahead (18 Oct)**. Sessions are saved
+  only in the git-ignored `.e2e-auth/` of the build machine and expire in 30
+  days. Production uses no real payments.
 
 <!-- Workstream decisions (A–F) are appended below. -->
