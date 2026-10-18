@@ -123,7 +123,8 @@ test.describe(`batch 2026-10 remote checks — ${HOST}`, () => {
   test("TC-B26-R-008 batch cron routes refuse a call without the cron secret", async ({ request }) =>
     tc("TC-B26-R-008", "Cron routes require the cron secret", async () => {
       const seen: string[] = [];
-      for (const path of ["/api/cron/timeout-sweep", "/api/cron/payments-reconcile", "/api/cron/payout-cycle", "/api/cron/broadcast-dispatch"]) {
+      for (const job of ["timeout-sweep", "payments-reconcile", "payout-cycle", "broadcast-dispatch", "pmd-ingest", "document-emails", "operator-onboarding", "push-receipts", "aftercare", "auth-housekeeping"]) {
+        const path = `/api/cron/${job}`;
         const res = await status(request, path, { method: "POST" });
         expect([401, 403, 404, 405], path).toContain(res.status());
         seen.push(`${path}=${res.status()}`);
@@ -134,7 +135,7 @@ test.describe(`batch 2026-10 remote checks — ${HOST}`, () => {
   test("TC-B26-R-009 staff and support screens need a sign-in", async ({ request }) =>
     tc("TC-B26-R-009", "New screens require sign-in", async () => {
       const seen: string[] = [];
-      for (const path of ["/admin/broadcasts", "/admin/payouts", "/admin/support", "/admin/product-browser", "/admin/platform-invoices", "/operator", "/support", "/notifications"]) {
+      for (const path of ["/admin/broadcasts", "/admin/payouts", "/admin/support", "/admin/product-browser", "/admin/platform-invoices", "/admin/statutory", "/operator", "/support", "/notifications", "/manufacturer", "/shop/support"]) {
         const res = await status(request, path);
         // Signed out: a redirect to sign-in, a 401/403, or (before deploy) a 404 — never page content.
         expect([301, 302, 303, 307, 308, 401, 403, 404], path).toContain(res.status());
@@ -163,7 +164,7 @@ test.describe(`batch 2026-10 remote checks — ${HOST}`, () => {
 
   test("TC-B26-R-012 environment banner sanity — production never shows sandbox payment pages", async ({ request }) =>
     tc("TC-B26-R-012", "Sandbox checkout refused on production", async () => {
-      const res = await status(request, "/pay/sandbox/00000000-0000-0000-0000-000000000000");
+      const res = await status(request, "/orders/pay/sandbox/00000000-0000-0000-0000-000000000000");
       if (IS_PROD) expect([301, 302, 303, 307, 308, 401, 403, 404]).toContain(res.status());
       return `HTTP ${res.status()}${IS_PROD ? " (production)" : " (test site)"}`;
     }));
