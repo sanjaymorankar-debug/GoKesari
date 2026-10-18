@@ -258,6 +258,17 @@ export const TEMPLATES: Record<string, Template> = {
   /* <<< end WS-A */
   //
   /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — add entries below this line only */
+  [T.DELIVERY_BROADCAST_OFFERED]: t(
+    "Delivery available — first to accept gets it",
+    "Order {{orderNumber}} from {{shopName}} (~{{distanceKm}} km from you) is open to riders nearby. Accept it before someone else does.",
+    false,
+  ),
+  [T.DELIVERY_OFFER_TAKEN]: t("Offer taken", "Order {{orderNumber}} was accepted by another rider.", false),
+  [T.SHOP_RIDER_OFFER_BROADCAST]: t(
+    "Asking all riders nearby",
+    "Order {{orderNumber}}: the first rider did not accept in time, so the offer has gone to every rider within {{radiusKm}} km. You will hear as soon as one accepts.",
+    false,
+  ),
   /* <<< end WS-B */
   //
   /* >>> batch-2026-10 WS-C (cancellation fee, refunds, help desk) — add entries below this line only */

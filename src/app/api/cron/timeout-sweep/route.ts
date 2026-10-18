@@ -14,7 +14,9 @@
  *   3. no rider accepted within Y minutes (rule dispatch.alertSupportAfterMinutes):
  *      support is alerted, once;
  *   4. return pickups: the same offer / retry loop;
- *   5. "the shop is open now" alerts for orders placed while it was closed.
+ *   5. "the shop is open now" alerts for orders placed while it was closed;
+ *   (batch-2026-10 WS-B) before 2: with rule dispatchBroadcast on, single
+ *      offers nobody accepted go to every rider nearby, widening by step.
  * Each part runs even if another fails. Idempotent; overlapping runs are safe.
  * Replaces the shop-acceptance, delivery-dispatch and (with notification-retry)
  * notifications jobs, whose routes stay for rollback.
@@ -25,6 +27,7 @@ import { ok, route } from "@/server/api/handler";
 import { assertCronAuthorized } from "@/server/api/cron-auth";
 import { RATE_LIMITS, clientKey, enforceRateLimit } from "@/server/api/rate-limit";
 import { alertOverdueRiderSearches, runDispatchSweep } from "@/server/services/delivery-assignment";
+import { runBroadcastSweep } from "@/server/services/dispatch-broadcast";
 import { runReturnPickupSweep } from "@/server/services/return-pickups";
 import { runShopAcceptanceSweep } from "@/server/services/shop-acceptance";
 import { sendShopOpeningAlerts } from "@/server/services/shop-opening";
@@ -43,8 +46,13 @@ export const POST = route(async (request: NextRequest) => {
   enforceRateLimit(clientKey(request, "cron"), RATE_LIMITS.CRON);
   assertCronAuthorized(request);
   const errors: string[] = [];
+  const shopAcceptance = await step("shop-acceptance", errors, () => runShopAcceptanceSweep());
+  // batch-2026-10 WS-B: broadcast stale single offers / widen the radius (rule
+  // dispatchBroadcast) before stale offers are expired below. Reported only when on.
+  const broadcast = await step("dispatch-broadcast", errors, () => runBroadcastSweep());
   const result = {
-    shopAcceptance: await step("shop-acceptance", errors, () => runShopAcceptanceSweep()),
+    shopAcceptance,
+    ...(broadcast?.enabled ? { dispatchBroadcast: broadcast } : {}),
     dispatch: await step("dispatch", errors, () => runDispatchSweep()),
     riderSearchAlerts: await step("rider-search-alerts", errors, () => alertOverdueRiderSearches()),
     returnPickups: await step("return-pickups", errors, () => runReturnPickupSweep()),
