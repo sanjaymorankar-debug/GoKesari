@@ -14,6 +14,14 @@ export interface OutboundEmail {
   subject: string;
   text: string;
   html?: string;
+  /** batch-2026-10 WS-E: files to attach (invoice PDF, statement PDF/CSV). Optional — existing callers send none. */
+  attachments?: EmailAttachment[];
+}
+
+export interface EmailAttachment {
+  filename: string;
+  content: Buffer;
+  contentType: string;
 }
 
 export type EmailMode = "smtp" | "console" | "disabled";
@@ -39,6 +47,9 @@ export async function sendEmail(message: OutboundEmail): Promise<void> {
   if (mode === "console") {
     // Bodies can hold codes: printed only outside production, as for magic links.
     console.info(`[email:console] to=${message.to} subject=${message.subject}\n${message.text}`);
+    if (message.attachments?.length) {
+      console.info(`[email:console] attachments: ${message.attachments.map((a) => `${a.filename} (${a.content.length} bytes)`).join(", ")}`);
+    }
     return;
   }
   const { createTransport } = await import("nodemailer");
@@ -49,6 +60,9 @@ export async function sendEmail(message: OutboundEmail): Promise<void> {
     text: message.text,
     // Every HTML email opens with the GoKesari wordmark.
     html: message.html ? withEmailBrand(message.html) : undefined,
+    ...(message.attachments?.length
+      ? { attachments: message.attachments.map((a) => ({ filename: a.filename, content: a.content, contentType: a.contentType })) }
+      : {}),
   });
   const failed = [...(result.rejected ?? []), ...(result.pending ?? [])].filter(Boolean);
   if (failed.length) throw new Error("The email could not be delivered.");

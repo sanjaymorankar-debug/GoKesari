@@ -345,6 +345,14 @@ export const AUDIT_ACTIONS = {
   CUSTOMER_REFERRAL_REQUEST_CREATED: "customer_referral_request.created",
   CUSTOMER_REFERRAL_REQUEST_DECIDED: "customer_referral_request.decided",
   REFERRAL_SETTING_CHANGED: "referral_setting.changed",
+  PAYOUT_CYCLE_CLOSED: "payout.cycle_closed", // batch-2026-10 WS-E
+  PAYOUT_BATCH_STATUS_CHANGED: "payout.batch_status_changed", // batch-2026-10 WS-E
+  PAYOUT_BANK_FILE_EXPORTED: "payout.bank_file_exported", // batch-2026-10 WS-E
+  PAYOUT_ITEM_STATUS_CHANGED: "payout.item_status_changed", // batch-2026-10 WS-E
+  PLATFORM_INVOICE_ISSUED: "platform_invoice.issued", // batch-2026-10 WS-E
+  PLATFORM_NOTE_ISSUED: "platform_invoice.note_issued", // batch-2026-10 WS-E
+  STATUTORY_RATE_CHANGED: "statutory_rate.changed", // batch-2026-10 WS-E
+  STATUTORY_REPORT_EXPORTED: "statutory.report_exported", // batch-2026-10 WS-E
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

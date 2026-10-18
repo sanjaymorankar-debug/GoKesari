@@ -7743,6 +7743,380 @@ export type ProductAttributes = typeof productAttributes.$inferSelect;
 
 /* >>> batch-2026-10 WS-E (invoicing, payouts, statutory) — tables below this line only */
 
+/*
+ * F10.2.4 automated payouts (seller database). A payout cycle (every
+ * payouts.cycleDays days) is itemised per shop in payout_cycle_lines; one
+ * payout batch per cycle carries one payout item (transfer) per shop. The
+ * order / adjustment / wallet ids in a line are plain UUIDs (they live in the
+ * customer database), so no SQL foreign key crosses the split.
+ */
+export const PAYOUT_CYCLE_STATUSES = ["CLOSED", "BATCHED"] as const;
+export const payoutCycles = pgTable(
+  "payout_cycles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** First day of the cycle (IST), inclusive. */
+    cycleStart: date("cycle_start").notNull(),
+    /** Day after the last day of the cycle (IST), exclusive. */
+    cycleEnd: date("cycle_end").notNull(),
+    cycleDays: integer("cycle_days").notNull(),
+    status: text("status", { enum: PAYOUT_CYCLE_STATUSES }).notNull().default("CLOSED"),
+    shopCount: integer("shop_count").notNull().default(0),
+    netPayablePaise: bigint("net_payable_paise", { mode: "number" }).notNull().default(0),
+    /** Things the close could not do (e.g. platform invoicing switched on without GoKesari's GSTIN). */
+    warnings: jsonb("warnings").$type<string[]>().notNull().default([]),
+    /** users.id (platform) — no SQL FK across the split; null when the scheduled job closed it. */
+    closedBy: uuid("closed_by"),
+    closedAt: timestamp("closed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("payout_cycles_start_unique").on(t.cycleStart)],
+);
+export type PayoutCycle = typeof payoutCycles.$inferSelect;
+
+export const PAYOUT_LINE_TYPES = [
+  "GOODS",
+  "COMMISSION",
+  "DELIVERY_CHARGE",
+  "FEE_GST",
+  "TCS",
+  "TDS",
+  "REFUND",
+  "ADJUSTMENT",
+  "PLATFORM_FEE",
+  "PLATFORM_NOTE",
+  "REGISTRATION_FEE",
+  "WALLET_TOPUP",
+  "CARRY_FORWARD",
+  "SEC95_GST",
+] as const;
+export type PayoutLineType = (typeof PAYOUT_LINE_TYPES)[number];
+
+/** One component of a shop's payout: + owed to the shop, − deducted. Informational lines carry 0. */
+export const payoutCycleLines = pgTable(
+  "payout_cycle_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    cycleId: uuid("cycle_id")
+      .notNull()
+      .references(() => payoutCycles.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    lineType: text("line_type", { enum: PAYOUT_LINE_TYPES }).notNull(),
+    /** order_financials, financial_adjustments, shop_wallet_transactions, payout_items, platform_invoices, statutory. */
+    sourceType: text("source_type").notNull(),
+    sourceId: text("source_id").notNull(),
+    description: text("description").notNull(),
+    /** Signed effect on the payout. */
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    /** What a rate was applied to, and the rate (basis points), for statutory and fee lines. */
+    basePaise: bigint("base_paise", { mode: "number" }),
+    rateBp: integer("rate_bp"),
+    /** Day the underlying supply / entry happened (IST) — the month of the TCS / TDS reports. */
+    occurredOn: date("occurred_on").notNull(),
+    meta: jsonb("meta").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // An order, refund or carried amount is counted in exactly one cycle.
+    uniqueIndex("payout_cycle_lines_source_unique").on(t.lineType, t.sourceType, t.sourceId),
+    index("payout_cycle_lines_cycle_shop_idx").on(t.cycleId, t.shopId),
+    index("payout_cycle_lines_occurred_idx").on(t.lineType, t.occurredOn),
+  ],
+);
+export type PayoutCycleLine = typeof payoutCycleLines.$inferSelect;
+
+export const PAYOUT_BATCH_STATUSES = ["DRAFT", "APPROVED", "PROCESSING", "COMPLETED", "PARTIAL", "FAILED", "CANCELLED"] as const;
+export type PayoutBatchStatus = (typeof PAYOUT_BATCH_STATUSES)[number];
+
+export const payoutBatches = pgTable(
+  "payout_batches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    cycleId: uuid("cycle_id")
+      .notNull()
+      .references(() => payoutCycles.id, { onDelete: "cascade" }),
+    status: text("status", { enum: PAYOUT_BATCH_STATUSES }).notNull().default("DRAFT"),
+    /** BANK_FILE, SANDBOX, RAZORPAYX, CASHFREE — fixed when the batch is executed or its file exported. */
+    provider: text("provider"),
+    itemCount: integer("item_count").notNull().default(0),
+    totalPaise: bigint("total_paise", { mode: "number" }).notNull().default(0),
+    createdBy: uuid("created_by"),
+    approvedBy: uuid("approved_by"),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    processingAt: timestamp("processing_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    fileExportedAt: timestamp("file_exported_at", { withTimezone: true }),
+    fileChecksum: text("file_checksum"),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("payout_batches_cycle_unique").on(t.cycleId).where(sql`${t.status} <> 'CANCELLED'`)],
+);
+export type PayoutBatch = typeof payoutBatches.$inferSelect;
+
+export const PAYOUT_ITEM_STATUSES = ["PENDING", "ON_HOLD", "PROCESSING", "PAID", "FAILED", "REVERSED", "CARRIED_FORWARD"] as const;
+export type PayoutItemStatus = (typeof PAYOUT_ITEM_STATUSES)[number];
+
+export const payoutItems = pgTable(
+  "payout_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    batchId: uuid("batch_id")
+      .notNull()
+      .references(() => payoutBatches.id, { onDelete: "cascade" }),
+    cycleId: uuid("cycle_id")
+      .notNull()
+      .references(() => payoutCycles.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    /** bank_accounts.id (platform) at the time the batch was drafted — no SQL FK across the split. */
+    bankAccountId: uuid("bank_account_id"),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    /** Totals by line type, for the statement and the admin screen. */
+    breakdown: jsonb("breakdown").$type<Record<string, number>>().notNull().default({}),
+    status: text("status", { enum: PAYOUT_ITEM_STATUSES }).notNull().default("PENDING"),
+    /** BANK_NOT_VERIFIED, BELOW_MINIMUM, NOT_POSITIVE. */
+    holdReason: text("hold_reason"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    provider: text("provider"),
+    providerRef: text("provider_ref"),
+    /** Bank reference of the transfer — recorded for every payment. */
+    utr: text("utr"),
+    /** Sent to the provider so a retried request never pays twice. */
+    idempotencyKey: text("idempotency_key").notNull(),
+    failureReason: text("failure_reason"),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    /** users.id of whoever marked it paid / failed by hand; null for a provider webhook. */
+    markedBy: uuid("marked_by"),
+    /** The cycle a held or reversed amount was carried into. */
+    carriedIntoCycleId: uuid("carried_into_cycle_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("payout_items_batch_shop_unique").on(t.batchId, t.shopId),
+    uniqueIndex("payout_items_idempotency_unique").on(t.idempotencyKey),
+    uniqueIndex("payout_items_utr_unique").on(t.utr).where(sql`${t.utr} IS NOT NULL`),
+    index("payout_items_shop_idx").on(t.shopId, t.createdAt),
+    index("payout_items_status_idx").on(t.status, t.nextAttemptAt),
+  ],
+);
+export type PayoutItem = typeof payoutItems.$inferSelect;
+
+/** Everything that happened to a batch or item, including every provider webhook (deduplicated by its event id). */
+export const payoutEvents = pgTable(
+  "payout_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    batchId: uuid("batch_id").references(() => payoutBatches.id, { onDelete: "cascade" }),
+    itemId: uuid("item_id").references(() => payoutItems.id, { onDelete: "cascade" }),
+    /** SYSTEM for our own steps, else the provider (SANDBOX, RAZORPAYX, CASHFREE). */
+    source: text("source").notNull(),
+    /** The provider's event id (webhooks), or our own key. */
+    eventId: text("event_id").notNull(),
+    type: text("type").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    actorId: uuid("actor_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("payout_events_source_event_unique").on(t.source, t.eventId),
+    index("payout_events_item_idx").on(t.itemId, t.createdAt),
+  ],
+);
+export type PayoutEvent = typeof payoutEvents.$inferSelect;
+
+/*
+ * F10.2.5 GoKesari's tax invoices to shops for its own fees (seller database:
+ * GoKesari → shop finance documents, next to settlements and payouts).
+ */
+export const platformInvoiceCounters = pgTable(
+  "platform_invoice_counters",
+  {
+    /** INVOICE, CREDIT_NOTE, DEBIT_NOTE. */
+    series: text("series").notNull(),
+    financialYear: text("financial_year").notNull(),
+    lastNumber: integer("last_number").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.series, t.financialYear] })],
+);
+
+export const platformInvoices = pgTable(
+  "platform_invoices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    cycleId: uuid("cycle_id").references(() => payoutCycles.id, { onDelete: "set null" }),
+    invoiceNumber: text("invoice_number").notNull(),
+    financialYear: text("financial_year").notNull(),
+    sequence: integer("sequence").notNull(),
+    supplyType: text("supply_type", { enum: ["INTRA", "INTER"] }).notNull(),
+    recipientGstin: text("recipient_gstin"),
+    /** Two-letter state code of the place of supply (the shop's state). */
+    placeOfSupply: text("place_of_supply"),
+    taxablePaise: bigint("taxable_paise", { mode: "number" }).notNull(),
+    cgstPaise: bigint("cgst_paise", { mode: "number" }).notNull(),
+    sgstPaise: bigint("sgst_paise", { mode: "number" }).notNull(),
+    igstPaise: bigint("igst_paise", { mode: "number" }).notNull(),
+    totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
+    /** GST that is deducted from the shop's payout (fees already paid directly carry their GST inside). */
+    gstDeductedPaise: bigint("gst_deducted_paise", { mode: "number" }).notNull().default(0),
+    snapshot: jsonb("snapshot").$type<Record<string, unknown>>().notNull(),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("platform_invoices_number_unique").on(t.invoiceNumber),
+    uniqueIndex("platform_invoices_seq_unique").on(t.financialYear, t.sequence),
+    uniqueIndex("platform_invoices_shop_cycle_unique").on(t.shopId, t.cycleId),
+    index("platform_invoices_issued_idx").on(t.issuedAt),
+  ],
+);
+export type PlatformInvoice = typeof platformInvoices.$inferSelect;
+
+export const PLATFORM_FEE_TYPES = ["COMMISSION", "DELIVERY_CHARGE", "PLATFORM_FEE", "REGISTRATION_FEE", "BILLING_MANAGEMENT"] as const;
+export type PlatformFeeType = (typeof PLATFORM_FEE_TYPES)[number];
+
+export const platformInvoiceLines = pgTable(
+  "platform_invoice_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    invoiceId: uuid("invoice_id")
+      .notNull()
+      .references(() => platformInvoices.id, { onDelete: "cascade" }),
+    lineNo: integer("line_no").notNull(),
+    feeType: text("fee_type", { enum: PLATFORM_FEE_TYPES }).notNull(),
+    description: text("description").notNull(),
+    sac: text("sac").notNull(),
+    rateBp: integer("rate_bp").notNull(),
+    taxablePaise: bigint("taxable_paise", { mode: "number" }).notNull(),
+    cgstPaise: bigint("cgst_paise", { mode: "number" }).notNull(),
+    sgstPaise: bigint("sgst_paise", { mode: "number" }).notNull(),
+    igstPaise: bigint("igst_paise", { mode: "number" }).notNull(),
+    totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
+    /** PAYOUT (deducted from the payout), SHOP_WALLET (already debited, GST via payout), PAID_DIRECTLY (GST inside what was paid). */
+    collectedVia: text("collected_via", { enum: ["PAYOUT", "SHOP_WALLET", "PAID_DIRECTLY"] }).notNull(),
+  },
+  (t) => [uniqueIndex("platform_invoice_lines_no_unique").on(t.invoiceId, t.lineNo)],
+);
+export type PlatformInvoiceLine = typeof platformInvoiceLines.$inferSelect;
+
+/** Credit notes (fees reduced or reversed) and debit notes (fees under-billed) against a platform invoice. */
+export const platformCreditDebitNotes = pgTable(
+  "platform_credit_debit_notes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    invoiceId: uuid("invoice_id")
+      .notNull()
+      .references(() => platformInvoices.id, { onDelete: "restrict" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    kind: text("kind", { enum: ["CREDIT", "DEBIT"] }).notNull(),
+    noteNumber: text("note_number").notNull(),
+    financialYear: text("financial_year").notNull(),
+    sequence: integer("sequence").notNull(),
+    reason: text("reason").notNull(),
+    /** One note per source event, ever (a refund adjustment id, or the admin's request id). */
+    sourceRef: text("source_ref").notNull(),
+    taxablePaise: bigint("taxable_paise", { mode: "number" }).notNull(),
+    cgstPaise: bigint("cgst_paise", { mode: "number" }).notNull(),
+    sgstPaise: bigint("sgst_paise", { mode: "number" }).notNull(),
+    igstPaise: bigint("igst_paise", { mode: "number" }).notNull(),
+    totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
+    /** The payout cycle whose maths took this note into account (null until one does). */
+    appliedInCycleId: uuid("applied_in_cycle_id"),
+    snapshot: jsonb("snapshot").$type<Record<string, unknown>>().notNull(),
+    createdBy: uuid("created_by"),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("platform_cd_notes_number_unique").on(t.noteNumber),
+    uniqueIndex("platform_cd_notes_source_unique").on(t.sourceRef),
+    index("platform_cd_notes_invoice_idx").on(t.invoiceId),
+    check("platform_cd_notes_total_positive", sql`${t.totalPaise} > 0`),
+  ],
+);
+export type PlatformCreditDebitNote = typeof platformCreditDebitNotes.$inferSelect;
+
+/*
+ * Statutory settings with effective dates (platform): GST TCS (s.52), income-tax
+ * TDS on e-commerce (s.194-O / s.393 ITA 2025), s.9(5) ECO liabilities, rules
+ * for unregistered sellers, GST rates on GoKesari's fees. The row in force on
+ * a supply's date applies. Seeded unconfirmed: the admin screen shows
+ * "not confirmed by CA" until the owner's CA confirms each row.
+ */
+export const statutoryRates = pgTable(
+  "statutory_rates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    key: text("key").notNull(),
+    label: text("label").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    rateBp: integer("rate_bp"),
+    params: jsonb("params").$type<Record<string, unknown>>().notNull().default({}),
+    effectiveFrom: date("effective_from").notNull(),
+    effectiveTo: date("effective_to"),
+    legalReference: text("legal_reference"),
+    sourceUrl: text("source_url"),
+    note: text("note"),
+    confirmedByCa: boolean("confirmed_by_ca").notNull().default(false),
+    /** users.id — plain UUIDs (no FK): the settings outlive any account. */
+    confirmedBy: uuid("confirmed_by"),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    updatedBy: uuid("updated_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("statutory_rates_key_from_unique").on(t.key, t.effectiveFrom),
+    check("statutory_rates_rate_range", sql`${t.rateBp} IS NULL OR ${t.rateBp} BETWEEN 0 AND 10000`),
+  ],
+);
+export type StatutoryRate = typeof statutoryRates.$inferSelect;
+
+/**
+ * Emails that carry a document (invoice PDF, payout statement PDF + CSV) —
+ * the notification outbox holds text only, so documents get their own small
+ * outbox with the same retry discipline. The document is rendered again at
+ * send time from its stored snapshot (doc ids are plain UUIDs: the document
+ * may live in the seller or the customer database).
+ */
+export const documentEmails = pgTable(
+  "document_emails",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** TAX_INVOICE, CREDIT_NOTE, PAYOUT_STATEMENT, PLATFORM_INVOICE. */
+    docType: text("doc_type").notNull(),
+    docId: uuid("doc_id").notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** CUSTOMER, SHOP_OWNER (the shop owner's copy). */
+    recipientRole: text("recipient_role").notNull(),
+    subject: text("subject").notNull(),
+    body: text("body").notNull(),
+    status: text("status", { enum: ["PENDING", "SENDING", "SENT", "FAILED", "SKIPPED", "DEAD"] }).notNull().default("PENDING"),
+    attempts: integer("attempts").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(5),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    toAddress: text("to_address"),
+    lastError: text("last_error"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("document_emails_doc_user_unique").on(t.docType, t.docId, t.userId),
+    index("document_emails_due_idx").on(t.status, t.nextAttemptAt),
+  ],
+);
+export type DocumentEmail = typeof documentEmails.$inferSelect;
+
 /* <<< end WS-E */
 
 /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — tables below this line only */

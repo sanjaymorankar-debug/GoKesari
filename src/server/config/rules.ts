@@ -976,6 +976,118 @@ export const RULES = {
   /* <<< end WS-D */
   //
   /* >>> batch-2026-10 WS-E (invoicing, payouts, statutory) — add entries below this line only */
+  invoiceDelivery: {
+    description:
+      "F9.2.6 customer invoice extras (needs invoicing.enabled). Off: invoices are issued and shown exactly as before. On: the invoice PDF carries a QR code (the e-invoice signed QR when an IRN exists, else a B2C QR with the supplier GSTIN/PAN, invoice number, date, value and tax), a supplier without GSTIN is described as unregistered / PAN-only (or composition) on the bill of supply, the place of supply is the delivery address's state (from the PIN code when the address has no state; the shop's state for pickups — when it is truly unknown the shop's state is used and the invoice says so), the customer is emailed the PDF (emailCustomer) and the shop owner gets a copy with the order (copyToShopOwner), and a cancelled or fully refunded invoiced order gets a credit note (creditNoteOnCancellation). emailMaxAttempts: tries per email before it is given up. Confirm wording with the CA.",
+    schema: z.object({
+      enabled: z.boolean(),
+      qrOnPdf: z.boolean(),
+      emailCustomer: z.boolean(),
+      copyToShopOwner: z.boolean(),
+      pincodeStateLookup: z.boolean(),
+      creditNoteOnCancellation: z.boolean(),
+      emailMaxAttempts: int(1, 10),
+    }),
+    defaults: {
+      enabled: false,
+      qrOnPdf: true,
+      emailCustomer: true,
+      copyToShopOwner: true,
+      pincodeStateLookup: true,
+      creditNoteOnCancellation: true,
+      emailMaxAttempts: 5,
+    },
+  },
+  payouts: {
+    description:
+      "F10.2.4 automated shop payouts. Off (default): the weekly settlement batches under Admin → Finance are used, unchanged. On: every cycleDays days counted from anchorDate (YYYY-MM-DD, IST) the payout-cycle job closes the cycle — delivered orders held at least holdDays, pending refunds and adjustments, minus commission, GST on GoKesari's fees (when platformInvoicing is on), TCS and TDS (Admin → Statutory) — and drafts one payout batch (one item per shop). With makerChecker on, the person who created a batch cannot approve it. provider: BANK_FILE (download a bank bulk-upload file and mark each payment paid with its UTR), SANDBOX (simulated transfers and webhooks — never on gokesari.com), RAZORPAYX or CASHFREE (need their keys). Only shops with a verified bank account are paid; others, and amounts below minPayoutPaise, are held and carried into the next cycle. Failed transfers are retried retryMaxAttempts times, retryBackoffMinutes × attempt apart. transferMode is the bank rail (RTGS is used automatically from rtgsFromPaise). walletTopUpTargetPaise > 0: a shop whose prepaid wallet is below this is topped up from its payout. debitAccountNumber is GoKesari's account printed in the bank file.",
+    schema: z.object({
+      enabled: z.boolean(),
+      cycleDays: int(1, 31),
+      anchorDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD."),
+      holdDays: int(0, 60),
+      makerChecker: z.boolean(),
+      retryMaxAttempts: int(1, 10),
+      retryBackoffMinutes: int(1, 1440),
+      minPayoutPaise: int(0, 10_000_000),
+      provider: z.enum(["BANK_FILE", "SANDBOX", "RAZORPAYX", "CASHFREE"]),
+      transferMode: z.enum(["NEFT", "IMPS", "RTGS"]),
+      rtgsFromPaise: int(0, 1_000_000_000),
+      sandboxAutoWebhook: z.boolean(),
+      statementEmail: z.boolean(),
+      walletTopUpTargetPaise: int(0, 100_000_000),
+      debitAccountNumber: z.string().max(34),
+    }),
+    defaults: {
+      enabled: false,
+      cycleDays: 5,
+      anchorDate: "2026-10-01",
+      holdDays: 2,
+      makerChecker: true,
+      retryMaxAttempts: 3,
+      retryBackoffMinutes: 30,
+      minPayoutPaise: 100,
+      provider: "BANK_FILE",
+      transferMode: "NEFT",
+      rtgsFromPaise: 20_000_000,
+      sandboxAutoWebhook: true,
+      statementEmail: true,
+      walletTopUpTargetPaise: 0,
+      debitAccountNumber: "",
+    },
+  },
+  platformInvoicing: {
+    description:
+      "F10.2.5 GoKesari's own tax invoice to each shop for its fees (commission, delivery charges, registration fees, billing/inventory management), one per payout cycle, with credit and debit notes and a monthly GSTR-1-ready export. Keep OFF on production until GoKesari's GSTIN, legal name, address, state and invoice prefix are entered in platformTaxProfile and the CA has confirmed the SAC codes and rates (Admin → Statutory). When on, the GST on fees is deducted from the shop's payout. billingManagementFeePaise: a fixed inventory/billing management charge per shop per cycle (0 = none). includeRegistrationFees: registration fees the shop paid during the cycle are invoiced too (their GST is inside what was paid, so nothing more is deducted).",
+    schema: z.object({
+      enabled: z.boolean(),
+      billingManagementFeePaise: int(0, 10_000_000),
+      includeRegistrationFees: z.boolean(),
+    }),
+    defaults: { enabled: false, billingManagementFeePaise: 0, includeRegistrationFees: true },
+  },
+  platformTaxProfile: {
+    description:
+      "GoKesari's own GST identity for its invoices to shops: legal and trade name, GSTIN, PAN, registered address and two-letter state code (e.g. MH), and the document series prefixes (1–4 capital letters/digits; numbers read GKP/2627/000001 — at most 16 characters, unique per financial year). sacCodes: the SAC printed for each fee type (CA to confirm; defaults: 998599 other support services for commission, platform and registration fees, 996813 local delivery services for delivery charges, 998319 other IT services for billing/inventory management). GST rates by fee type are dated under Admin → Statutory (PLATFORM_FEE_GST).",
+    schema: z.object({
+      legalName: z.string().max(200),
+      tradeName: z.string().max(200),
+      gstin: z.string().max(15),
+      pan: z.string().max(10),
+      address: z.string().max(400),
+      stateCode: z.string().max(2),
+      email: z.string().max(200),
+      invoicePrefix: z.string().regex(/^[A-Z0-9]{1,4}$/, "1–4 capital letters or digits."),
+      creditNotePrefix: z.string().regex(/^[A-Z0-9]{1,4}$/, "1–4 capital letters or digits."),
+      debitNotePrefix: z.string().regex(/^[A-Z0-9]{1,4}$/, "1–4 capital letters or digits."),
+      sacCodes: z.object({
+        COMMISSION: z.string().regex(/^\d{4,8}$/),
+        DELIVERY_CHARGE: z.string().regex(/^\d{4,8}$/),
+        PLATFORM_FEE: z.string().regex(/^\d{4,8}$/),
+        REGISTRATION_FEE: z.string().regex(/^\d{4,8}$/),
+        BILLING_MANAGEMENT: z.string().regex(/^\d{4,8}$/),
+      }),
+    }),
+    defaults: {
+      legalName: "",
+      tradeName: "GoKesari",
+      gstin: "",
+      pan: "",
+      address: "",
+      stateCode: "",
+      email: "",
+      invoicePrefix: "GKP",
+      creditNotePrefix: "GKC",
+      debitNotePrefix: "GKD",
+      sacCodes: {
+        COMMISSION: "998599",
+        DELIVERY_CHARGE: "996813",
+        PLATFORM_FEE: "998599",
+        REGISTRATION_FEE: "998599",
+        BILLING_MANAGEMENT: "998319",
+      },
+    },
+  },
   /* <<< end WS-E */
   //
   /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */

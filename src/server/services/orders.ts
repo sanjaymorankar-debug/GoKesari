@@ -850,6 +850,16 @@ export async function updateOrderStatus(
       );
     }
 
+    // batch-2026-10 WS-E (rule invoiceDelivery): an invoiced order that ends
+    // refunded gets a credit note for whatever its refunds did not credit.
+    // Own savepoint inside; a problem here never blocks the status change.
+    if (newStatus === "REFUNDED") {
+      const { creditNoteOnOrderReversal } = await import("@/server/invoicing/delivery");
+      await creditNoteOnOrderReversal(orderId, actor.id, tx).catch((error) =>
+        console.error("[credit-notes] reversal note failed for order", orderId, error),
+      );
+    }
+
     await recordAudit(
       {
         actorId: actor.id,

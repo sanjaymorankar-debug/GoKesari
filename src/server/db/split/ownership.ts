@@ -230,6 +230,19 @@ export const TABLE_OWNERSHIP = {
   /* <<< end WS-D */
   //
   /* >>> batch-2026-10 WS-E (invoicing, payouts, statutory) — add entries below this line only */
+  // Shop payouts and GoKesari's fee invoices to shops: shop finance → seller.
+  payout_cycles: "seller",
+  payout_cycle_lines: "seller",
+  payout_batches: "seller",
+  payout_items: "seller",
+  payout_events: "seller",
+  platform_invoice_counters: "seller",
+  platform_invoices: "seller",
+  platform_invoice_lines: "seller",
+  platform_credit_debit_notes: "seller",
+  // Dated statutory settings and the document email outbox: platform (core).
+  statutory_rates: "platform",
+  document_emails: "platform",
   /* <<< end WS-E */
   //
   /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */

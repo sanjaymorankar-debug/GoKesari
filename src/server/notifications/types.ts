@@ -226,6 +226,20 @@ export const NOTIFICATION_TYPES = {
   /* <<< end WS-D */
   //
   /* >>> batch-2026-10 WS-E (invoicing, payouts, statutory) — add entries below this line only */
+  /** To the shop owner: a copy of the customer's invoice for an order (PDF attached by email). */
+  SHOP_INVOICE_COPY: "shop.invoice_copy",
+  /** To the shop owner: a payout was paid (UTR) — statement PDF/CSV attached by email. */
+  SHOP_PAYOUT_PAID: "shop.payout_paid",
+  /** To the shop owner: this cycle's payout is held (no verified bank account, below the minimum, nothing owed). */
+  SHOP_PAYOUT_HELD: "shop.payout_held",
+  /** To the shop owner: the bank transfer failed (it is retried / handled by finance). */
+  SHOP_PAYOUT_FAILED: "shop.payout_failed",
+  /** To the shop owner: GoKesari's tax invoice for its fees this cycle. */
+  SHOP_PLATFORM_INVOICE: "shop.platform_invoice",
+  /** To administrators: a payout batch was drafted and waits for approval. */
+  SUPPORT_PAYOUT_BATCH_DRAFTED: "support.payout_batch_drafted",
+  /** To administrators: a payout transfer failed for good (retries used up). */
+  SUPPORT_PAYOUT_FAILED: "support.payout_failed",
   /* <<< end WS-E */
   //
   /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */
