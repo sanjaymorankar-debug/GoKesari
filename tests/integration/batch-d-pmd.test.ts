@@ -246,6 +246,33 @@ describe("GS1 DataKart and Open Food Facts (F9.1.2)", () => {
     const browse = await searchBrowser({ q: "Masti" }, sql);
     expect(browse.rows[0].attributions[0]).toMatch(/ODbL/);
   });
+
+  it("TC-B26-D-039 a slow look-up import does not hold the request: the reply carries the running job, which then finishes in the background (S-035)", async () => {
+    const a = await admin();
+    await setRule("pmdSources", { openFoodFactsEnabled: true, imagesEnabled: true, imagesPerRow: 1 }, a);
+    const fetchStub = vi.fn(async () =>
+      Response.json({ status: 1, product: { code: "8901262150101", product_name: "Amul Masti Dahi", brands: "Amul", quantity: "400 g", image_url: "https://images.openfoodfacts.org/dahi.jpg" } }),
+    );
+    let release!: () => void;
+    const gate = new Promise<void>((resolve) => (release = resolve));
+    const slowImage = vi.fn(async () => {
+      await gate;
+      throw new Error("image host did not answer");
+    });
+    const started = Date.now();
+    const r = await lookupAndStage({ source: "OFF", gtins: ["8901262150101"] }, actorOf(a), {
+      source: offLookupSource({ fetch: fetchStub as unknown as typeof fetch }),
+      process: { fetcher: slowImage },
+      waitMs: 200,
+    });
+    expect(Date.now() - started).toBeLessThan(5_000);
+    expect(r.found).toBe(1);
+    expect(r.job?.status).toBe("RUNNING");
+    await vi.waitFor(() => expect(slowImage).toHaveBeenCalled());
+    release();
+    await vi.waitFor(async () => expect((await getJob(r.job!.id)).status).toBe("SUCCEEDED"), { timeout: 10_000, interval: 50 });
+    expect((await getJob(r.job!.id)).imagesFailed).toBe(1);
+  });
 });
 
 describe("large-scale ingestion (F9.1.4)", () => {
