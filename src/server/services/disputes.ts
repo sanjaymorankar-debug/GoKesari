@@ -835,7 +835,7 @@ export interface DisputeListRow {
   level: DisputeLevel;
   reason: DisputeReason;
   disputedAmountPaise: number;
-  paymentMethodSnapshot: "WALLET" | "COD";
+  paymentMethodSnapshot: "WALLET" | "COD" | "ONLINE"; // batch-2026-10 WS-A: + ONLINE
   escalatedAt: Date | null;
   escalationTrigger: EscalationTrigger | null;
   raisedByName: string | null;

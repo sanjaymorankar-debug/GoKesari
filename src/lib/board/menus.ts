@@ -260,6 +260,7 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       { key: "gstPayable", label: L("GST payable", "देय GST", "देय GST"), icon: "indian-rupee", href: "/shop/accounts/gst" },
       { key: "accounting", label: L("Accounting software", "अकाउंटिंग सॉफ़्टवेयर", "अकाउंटिंग सॉफ्टवेअर"), icon: "database", href: "/shop/settings/integrations" },
       { key: "registrationFee", label: L("Registration fee", "पंजीकरण शुल्क", "नोंदणी शुल्क"), icon: "receipt", href: "/shop/manage/registration" },
+      { key: "statements", label: L("Payout statements", "भुगतान विवरण", "पेमेंट विवरण"), icon: "file-text", href: "/shop/finance#statements", permission: PERMISSIONS.SETTLEMENT_VIEW_OWN }, // batch-2026-10 WS-E
     ],
   },
   {
@@ -313,6 +314,9 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       // docs/document-upload-2026-10: upload or photograph each document; it is read automatically.
       { key: "documents", label: L("Upload documents", "दस्तावेज़ अपलोड", "कागदपत्रे अपलोड"), icon: "file-check", href: "/shop/documents" },
       { key: "publicPage", label: L("Public page", "सार्वजनिक पेज", "सार्वजनिक पान"), icon: "store", href: "/shops/{shopSlug}" },
+      // batch-2026-10 WS-C: help desk tickets and the after-packing cancellation fee.
+      { key: "support", label: L("Support tickets", "सहायता टिकट", "मदत तिकिटे"), icon: "life-buoy", href: "/shop/support" },
+      { key: "cancellationFee", label: L("Cancellation fee", "रद्द करने का शुल्क", "रद्द शुल्क"), icon: "receipt", href: "/shop/settings/cancellation-fee", permission: PERMISSIONS.SHOP_CANCELLATION_FEE_MANAGE_OWN },
     ],
   },
   {
@@ -404,12 +408,13 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "products", label: L("Products", "उत्पाद", "उत्पादने"), icon: "database", href: "/admin/product-master", count: "products", permission: PERMISSIONS.PMD_VIEW },
       { key: "review", label: L("Review", "समीक्षा", "पुनरावलोकन"), icon: "clipboard-check", href: "/admin/console/product-approvals", count: "pendingProducts", permission: PERMISSIONS.PRODUCT_APPROVE },
       { key: "mrp", label: L("MRP", "एमआरपी", "एमआरपी"), icon: "tag", href: "/admin/mrp", count: "mrpCorrections", permission: PERMISSIONS.PRODUCT_MRP_MANAGE },
-      { key: "refPrices", label: L("Ref. prices", "संदर्भ दाम", "संदर्भ दर"), icon: "scale", href: "/admin/price-references", count: "refPricesToVerify", permission: PERMISSIONS.PRICE_REFERENCE_MANAGE },
+      // batch-2026-10 WS-A: "Ref. prices" removed — F1.4.3 dropped (other websites do not permit their prices to be used).
       { key: "images", label: L("Images", "फ़ोटो", "फोटो"), icon: "images", href: "/admin/image-moderation", count: "pendingImages", permission: PERMISSIONS.PRODUCT_MANAGE },
     ],
     more: [
       { key: "priceApprovals", label: L("Price approvals", "दाम मंज़ूरी", "दर मंजुरी"), icon: "badge-check", href: "/admin/console/price-approvals", permission: PERMISSIONS.PRICE_REQUEST_DECIDE_ANY },
       { key: "bulkUpload", label: L("Bulk upload (Excel/CSV)", "बल्क अपलोड (एक्सेल/CSV)", "एकत्र अपलोड (एक्सेल/CSV)"), short: L("Bulk upload", "बल्क अपलोड", "एकत्र अपलोड"), icon: "file-spreadsheet", href: "/admin/product-import", permission: PERMISSIONS.EXCEL_UPLOAD_ANY },
+      { key: "productBrowser", label: L("Product browser", "प्रोडक्ट ब्राउज़र", "उत्पादन ब्राउझर"), icon: "search", href: "/admin/product-browser", permission: PERMISSIONS.PMD_VIEW }, // batch-2026-10 WS-D
     ],
   },
   {
@@ -434,6 +439,9 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "bankAccounts", label: L("Bank accounts", "बैंक खाते", "बँक खाती"), icon: "landmark", href: "/admin/bank-accounts", permission: PERMISSIONS.FINANCE_VIEW },
       { key: "subscriptions", label: L("Subscriptions", "सब्सक्रिप्शन", "सदस्यता"), short: { en: "Subscription" }, icon: "calendar-clock", href: "/admin/subscriptions", permission: PERMISSIONS.SUBSCRIPTION_MANAGE_ANY },
       { key: "commissions", label: L("Referral commissions", "रेफ़रल कमीशन", "रेफरल कमिशन"), icon: "receipt", href: "/admin/referral-commissions", permission: PERMISSIONS.REFERRAL_MANAGE },
+      { key: "payouts", label: L("Payouts", "भुगतान", "पेमेंट"), icon: "landmark", href: "/admin/payouts", permission: PERMISSIONS.PAYOUT_VIEW }, // batch-2026-10 WS-E
+      { key: "feeInvoices", label: L("GoKesari invoices", "GoKesari बिल", "GoKesari बिले"), icon: "receipt", href: "/admin/platform-invoices", permission: PERMISSIONS.PLATFORM_INVOICE_MANAGE }, // batch-2026-10 WS-E
+      { key: "statutory", label: L("TCS / TDS settings", "TCS / TDS सेटिंग", "TCS / TDS सेटिंग्ज"), icon: "file-text", href: "/admin/statutory", permission: PERMISSIONS.STATUTORY_MANAGE }, // batch-2026-10 WS-E
     ],
   },
   {
@@ -443,6 +451,11 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "returns", label: L("Returns", "वापसी", "परतावा"), icon: "undo-2", href: "/admin/returns", count: "openReturnsAll", permission: PERMISSIONS.ORDER_VIEW_ANY },
       { key: "ratings", label: L("Ratings", "रेटिंग", "रेटिंग"), icon: "star", href: "/admin/ratings", permission: PERMISSIONS.RATING_MODERATE },
       { key: "grievances", label: L("Grievances", "शिकायतें", "तक्रारी"), icon: "message-square", href: "/admin/console/grievances", count: "openGrievances", permission: PERMISSIONS.GRIEVANCE_MANAGE },
+    ],
+    // batch-2026-10 WS-C: the help desk console and its canned replies.
+    more: [
+      { key: "helpdesk", label: L("Help desk", "हेल्प डेस्क", "मदत कक्ष"), icon: "life-buoy", href: "/admin/support", permission: PERMISSIONS.SUPPORT_TICKET_MANAGE },
+      { key: "cannedReplies", label: L("Canned replies", "तैयार जवाब", "तयार उत्तरे"), icon: "message-square", href: "/admin/support/canned-replies", permission: PERMISSIONS.SUPPORT_CANNED_REPLY_MANAGE },
     ],
   },
   {
@@ -476,6 +489,7 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "testMessages", label: L("Test messages", "टेस्ट संदेश", "चाचणी संदेश"), icon: "message-square", href: "/admin/test-messages", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
       // docs/nearby-referral-2026-10, feature 2: Mandatory / Optional referral code — admin only.
       { key: "referralSettings", label: L("Referral settings", "रेफ़रल सेटिंग", "रेफरल सेटिंग्ज"), icon: "toggle-right", href: "/admin/referral-settings", permission: ADMIN_ONLY },
+      { key: "broadcasts", label: L("Broadcasts", "प्रसारण संदेश", "प्रसारण संदेश"), icon: "megaphone", href: "/admin/broadcasts", permission: PERMISSIONS.BROADCAST_MANAGE }, // batch-2026-10 WS-F
     ],
   },
 ];
@@ -531,6 +545,7 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "integrations", label: L("Accounting sync", "अकाउंटिंग सिंक", "अकाउंटिंग सिंक"), icon: "database", href: "/admin/integrations", permission: PERMISSIONS.INTEGRATION_VIEW_ANY },
       { key: "testMessages", label: L("Test messages", "टेस्ट संदेश", "चाचणी संदेश"), icon: "message-square", href: "/admin/test-messages", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
       { key: "figures", label: L("Key figures", "मुख्य आँकड़े", "मुख्य आकडे"), icon: "chart-line", href: "/admin/console/overview", permission: STAFF },
+      { key: "broadcasts", label: L("Broadcasts", "प्रसारण संदेश", "प्रसारण संदेश"), icon: "megaphone", href: "/admin/broadcasts", permission: PERMISSIONS.BROADCAST_MANAGE }, // batch-2026-10 WS-F
     ],
   },
   {
@@ -569,6 +584,7 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
     ],
     more: [
       { key: "consent", label: L("Consent records", "सहमति रिकॉर्ड", "संमती नोंदी"), icon: "file-check", href: "/admin/consents", permission: PERMISSIONS.CONSENT_VIEW },
+      { key: "helpdesk", label: L("Help desk", "हेल्प डेस्क", "मदत कक्ष"), icon: "life-buoy", href: "/admin/support", permission: PERMISSIONS.SUPPORT_TICKET_MANAGE }, // batch-2026-10 WS-C
     ],
   },
   {
@@ -578,13 +594,14 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "products", label: L("Products", "उत्पाद", "उत्पादने"), icon: "database", href: "/admin/product-master", count: "products", permission: PERMISSIONS.PMD_VIEW },
       { key: "review", label: L("Review", "समीक्षा", "पुनरावलोकन"), icon: "clipboard-check", href: "/admin/console/product-approvals", count: "pendingProducts", permission: PERMISSIONS.PRODUCT_APPROVE },
       { key: "mrp", label: L("MRP", "एमआरपी", "एमआरपी"), icon: "tag", href: "/admin/mrp", count: "mrpCorrections", permission: PERMISSIONS.PRODUCT_MRP_MANAGE },
-      { key: "refPrices", label: L("Ref. prices", "संदर्भ दाम", "संदर्भ दर"), icon: "scale", href: "/admin/price-references", count: "refPricesToVerify", permission: PERMISSIONS.PRICE_REFERENCE_MANAGE },
+      // batch-2026-10 WS-A: "Ref. prices" removed — F1.4.3 dropped.
       { key: "bulkUpload", label: L("Bulk upload (Excel/CSV)", "बल्क अपलोड (एक्सेल/CSV)", "एकत्र अपलोड (एक्सेल/CSV)"), short: L("Bulk upload", "बल्क अपलोड", "एकत्र अपलोड"), icon: "file-spreadsheet", href: "/admin/product-import", permission: PERMISSIONS.EXCEL_UPLOAD_ANY },
     ],
     more: [
       { key: "priceApprovals", label: L("Price approvals", "दाम मंज़ूरी", "दर मंजुरी"), icon: "badge-check", href: "/admin/console/price-approvals", permission: PERMISSIONS.PRICE_REQUEST_DECIDE_ANY },
       { key: "shopCategories", label: L("Shop categories", "दुकान श्रेणियाँ", "दुकान वर्ग"), icon: "store", href: "/admin/shop-categories", permission: PERMISSIONS.CATEGORY_MANAGE },
       { key: "productCategories", label: L("Product categories", "उत्पाद श्रेणियाँ", "उत्पादन वर्ग"), icon: "list-tree", href: "/product-categories", permission: PERMISSIONS.CATALOGUE_BROWSE },
+      { key: "productBrowser", label: L("Product browser", "प्रोडक्ट ब्राउज़र", "उत्पादन ब्राउझर"), icon: "search", href: "/admin/product-browser", permission: PERMISSIONS.PMD_VIEW }, // batch-2026-10 WS-D
     ],
   },
 ];

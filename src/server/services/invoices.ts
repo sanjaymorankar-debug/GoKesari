@@ -52,6 +52,13 @@ import { toStateCode } from "./seller-verification-checks";
 import { getRule } from "./settings";
 import { documentNumbering, formatDocumentNumber, hsnFallbackRate } from "@/server/gst/rules";
 import { uqcFor } from "@/server/integrations/canonical";
+import {
+  PLACE_OF_SUPPLY_NOTE,
+  resolvePlaceOfSupply,
+  sellerRegistrationNotes,
+  sellerRegistrationOf,
+  type PlaceOfSupplySource,
+} from "@/server/invoicing/place-of-supply";
 
 export interface InvoiceLine {
   description: string;
@@ -106,6 +113,9 @@ export interface InvoiceSnapshot {
   notes: string[];
   /** Module 2: shown when an e-invoice (IRN) exists — added at render time, not stored. */
   einvoice?: { irn: string; ackNo: string | null; ackDate: string | null };
+  /** batch-2026-10 WS-E (rule invoiceDelivery): how the place of supply was found, and the supplier's GST registration. */
+  placeOfSupplySource?: PlaceOfSupplySource;
+  sellerRegistration?: "REGISTERED" | "COMPOSITION" | "UNREGISTERED";
 }
 
 /** Financial year (April–March) of a moment, in IST: "2026-27". */
@@ -189,7 +199,23 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
   const address = order.addressId
     ? await client.query.addresses.findFirst({ where: eq(addresses.id, order.addressId) })
     : undefined;
-  const buyerState = toStateCode(address?.state ?? null);
+  let buyerState = toStateCode(address?.state ?? null);
+  // batch-2026-10 WS-E (rule invoiceDelivery): place of supply = the delivery
+  // address's state, else its PIN code's; the shop's state for a pickup or
+  // when truly unknown (said on the invoice). Off: exactly as before.
+  const extras = await getRule("invoiceDelivery");
+  let placeOfSupplySource: PlaceOfSupplySource | undefined;
+  if (extras.enabled) {
+    const pos = resolvePlaceOfSupply({
+      sellerState,
+      hasDeliveryAddress: Boolean(order.addressId || order.deliveryAddressSnapshot),
+      addressState: address?.state ?? null,
+      addressPincode: address?.pincode ?? order.deliveryAddressSnapshot?.pincode ?? null,
+      usePincode: extras.pincodeStateLookup,
+    });
+    buyerState = pos.state;
+    placeOfSupplySource = pos.source;
+  }
   const supplyType: InvoiceSnapshot["supplyType"] =
     sellerState && buyerState && sellerState !== buyerState ? "INTER" : "INTRA";
 
@@ -240,7 +266,14 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
   const buyerShop = order.buyerShopId ? await client.query.shops.findFirst({ where: eq(shops.id, order.buyerShopId) }) : undefined;
   const snap = order.deliveryAddressSnapshot;
   const notes: string[] = [];
-  if (kind === "BILL_OF_SUPPLY") notes.push("Supplier not registered under GST (or under the composition scheme): no tax is charged on this bill of supply.");
+  const sellerRegistration = sellerRegistrationOf(gstin, shop.gstStatus);
+  const panMasked = shop.panLast4 ? `XXXXXX${shop.panLast4}` : null;
+  if (kind === "BILL_OF_SUPPLY") {
+    // WS-E: precise wording (PAN-only / unregistered, or composition) when invoiceDelivery is on.
+    if (extras.enabled) notes.push(...sellerRegistrationNotes(sellerRegistration, panMasked));
+    else notes.push("Supplier not registered under GST (or under the composition scheme): no tax is charged on this bill of supply.");
+  }
+  if (placeOfSupplySource && PLACE_OF_SUPPLY_NOTE[placeOfSupplySource]) notes.push(PLACE_OF_SUPPLY_NOTE[placeOfSupplySource]!);
   if (lines.some((l) => l.rateAssumed)) notes.push("Lines marked * have no GST rate on record for the product; the default rate was applied.");
   notes.push("Prices are inclusive of GST. Tax is shown as included in each line.");
 
@@ -283,6 +316,7 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
       paidByCustomerPaise: order.totalPaise,
     },
     notes,
+    ...(extras.enabled ? { placeOfSupplySource, sellerRegistration } : {}),
   };
   return { order, shop, snapshot };
 }
@@ -366,6 +400,12 @@ export async function issueInvoiceForOrder(
       },
       tx,
     );
+    // batch-2026-10 WS-E (rule invoiceDelivery): PDF by email to the customer, copy to the shop owner. No-op while off.
+    const { onInvoiceIssued } = await import("@/server/invoicing/delivery");
+    // Own savepoint: a problem here never blocks the invoice (or the delivery).
+    await tx
+      .transaction((sp) => onInvoiceIssued(invoice, order, sp))
+      .catch((error) => console.error("[invoices] delivery of invoice failed", invoice.id, error));
     return invoice;
   };
   try {

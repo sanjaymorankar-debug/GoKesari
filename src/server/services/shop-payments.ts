@@ -118,6 +118,13 @@ export interface RecordPaymentInput {
 export async function recordPayment(
   input: RecordPaymentInput,
   actor: Actor,
+  /**
+   * batch-2026-10 WS-D: an ambient transaction (the payment-capture
+   * transaction). The ledger write then commits with it, and the auto-approval
+   * check is left to the caller to run after that commit. Default: its own
+   * transaction and the check straight after, as before.
+   */
+  client: DbClient = db,
 ): Promise<{ payment: ShopPayment; amountPaidPaise: number; feePaymentStatus: FeePaymentStatus }> {
   if (!Number.isInteger(input.amountPaise) || input.amountPaise <= 0) {
     throw validationFailed("Payment amount must be a positive whole number of paise.");
@@ -126,7 +133,7 @@ export async function recordPayment(
     throw validationFailed("Use reversePayment() to reverse an existing payment.");
   }
 
-  const recorded = await db.transaction(async (tx) => {
+  const recorded = await client.transaction(async (tx) => {
     const [shop] = await tx
       .select({
         id: shops.id,
@@ -184,7 +191,7 @@ export async function recordPayment(
     return { payment, ...settlement };
   });
   // Event layer: a settled fee may be the last thing a pending shop was waiting for.
-  if (recorded.feePaymentStatus === "PAID") {
+  if (recorded.feePaymentStatus === "PAID" && client === db) {
     await autoApproveShopIfReady(input.shopId).catch((error) =>
       console.error("[shop-payments] auto-approval check failed", input.shopId, error),
     );

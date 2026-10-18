@@ -11,6 +11,7 @@ import { validationFailed } from "@/lib/errors";
 import { parseBody, route } from "@/server/api/handler";
 import { enforceRateLimit } from "@/server/api/rate-limit";
 import { authenticateConnector } from "@/server/integrations/connections";
+import { assertInventorySyncEnabled } from "@/server/integrations/inventory-sync-flag";
 import { submitConnectorResult } from "@/server/integrations/jobs";
 
 export const dynamic = "force-dynamic";
@@ -29,6 +30,7 @@ const schema = z.discriminatedUnion("ok", [
 
 export const POST = route(async (request: NextRequest, context: { params: Promise<{ jobId: string }> }) => {
   const session = await authenticateConnector(request);
+  await assertInventorySyncEnabled(); // batch-2026-10 WS-D (F9.2.6)
   enforceRateLimit(`connector-result:${session.tokenId}`, { limit: 600, windowMs: 10 * 60_000 });
   if (Number(request.headers.get("content-length") ?? "0") > MAX_BYTES + 1024) throw validationFailed("Reply too large.");
   const jobId = z.string().uuid().parse((await context.params).jobId);

@@ -6,6 +6,7 @@ import { useEffect, useEffectEvent, useState } from "react";
 import { Alert, Button, Card, Money } from "@/components/ui";
 import { formatScheduledSlot } from "@/lib/scheduled-slots";
 import { shrinkImage } from "@/components/image-uploader";
+import { PickupQrScanner } from "@/components/pickup-qr-scanner";
 
 export interface ActiveDelivery {
   id: string;
@@ -115,15 +116,16 @@ const STATUS_LABEL: Record<string, string> = {
 };
 
 // Customers poll tracking every 15s; idle riders only need to be fresh enough for dispatch.
-const HEARTBEAT_ON_DELIVERY_MS = 15_000;
-const HEARTBEAT_IDLE_MS = 60_000;
+// Exported (batch-2026-10 WS-B) so the rider's navigation screen keeps the same cadence.
+export const HEARTBEAT_ON_DELIVERY_MS = 15_000;
+export const HEARTBEAT_IDLE_MS = 60_000;
 /** Live tracking: once the drop starts; the server's `nextPingSeconds` (rule tracking.riderPingSeconds) replaces it. */
-const TRACKING_PING_DEFAULT_MS = 5_000;
+export const TRACKING_PING_DEFAULT_MS = 5_000;
 // Checked every second so a 5-second cadence is kept, not rounded up to the next tick.
 const HEARTBEAT_TICK_MS = 1_000;
-const RIDER_LOCATION_URL = "/api/delivery-partner/location";
+export const RIDER_LOCATION_URL = "/api/delivery-partner/location";
 
-interface LocationReply {
+export interface LocationReply {
   shared?: boolean;
   /** Live tracking endpoint only: false once the drop is over — nothing more is stored. */
   sharing?: boolean;
@@ -155,7 +157,7 @@ function isStale(fix: Fix): boolean {
  * tracking endpoint. The server ignores it if the rider is offline, so this
  * never writes location outside an online session.
  */
-function useLocationHeartbeat(
+export function useLocationHeartbeat(
   enabled: boolean,
   intervalMs: number,
   onServerOffline: () => void,
@@ -361,6 +363,9 @@ export function DeliveryPartnerDashboard({
   activeReturnPickup = null,
   earnings,
   rating,
+  offerLabel,
+  pickupQr = false,
+  inAppNavigation = false,
 }: {
   isOnline: boolean;
   activeDelivery: ActiveDelivery | null;
@@ -369,6 +374,12 @@ export function DeliveryPartnerDashboard({
   earnings: EarningsSummary;
   /** The rider's own average (GS-060), shown only to them. */
   rating?: RiderRating;
+  /** batch-2026-10 WS-B: the new-offer line with the time from the rules (only while broadcasting is on). */
+  offerLabel?: string;
+  /** batch-2026-10 WS-B: rule pickupQr on — scan the shop's QR to confirm pickup. */
+  pickupQr?: boolean;
+  /** batch-2026-10 WS-B: rule riderNavigation on — link to the in-app navigation screen. */
+  inAppNavigation?: boolean;
 }) {
   const router = useRouter();
   const [isOnline, setIsOnline] = useState(initialOnline);
@@ -595,7 +606,9 @@ export function DeliveryPartnerDashboard({
       {activeDelivery ? (
         <Card className="p-5">
           <p className="text-xs font-semibold uppercase tracking-wide text-kesari-600">
-            {STATUS_LABEL[activeDelivery.status] ?? activeDelivery.status}
+            {(activeDelivery.status === "OFFERED" ? offerLabel : undefined) ??
+              STATUS_LABEL[activeDelivery.status] ??
+              activeDelivery.status}
           </p>
           <p className="mt-2 font-semibold text-ink-900">{activeDelivery.orderNumber}</p>
           {activeDelivery.scheduledSlot ? (
@@ -659,6 +672,15 @@ export function DeliveryPartnerDashboard({
                 ) : null}
               </div>
             ) : null}
+            {inAppNavigation && (activeDelivery.status === "ACCEPTED" || activeDelivery.status === "PICKED_UP") ? (
+              <a
+                href={`/delivery-partner/navigate/${activeDelivery.id}`}
+                className="inline-block rounded-lg border border-kesari-300 px-3 py-2 text-sm font-medium text-kesari-800"
+                data-testid="in-app-navigation"
+              >
+                Turn-by-turn navigation
+              </a>
+            ) : null}
             {activeDelivery.cashToCollectPaise != null ? (
               <p className="rounded-lg bg-kesari-50 p-2 font-semibold text-kesari-800" data-testid="cash-to-collect">
                 Cash on delivery — collect <Money paise={activeDelivery.cashToCollectPaise} />
@@ -695,6 +717,9 @@ export function DeliveryPartnerDashboard({
               <Button size="sm" variant="secondary" disabled={busy} onClick={() => act("arrived_shop")}>
                 I&apos;ve arrived at the shop
               </Button>
+            ) : null}
+            {activeDelivery.status === "ACCEPTED" && pickupQr && activeDelivery.needsPickupCode ? (
+              <PickupQrScanner deliveryOrderId={activeDelivery.id} onPickedUp={() => router.refresh()} />
             ) : null}
             {activeDelivery.status === "ACCEPTED" ? (
               <>

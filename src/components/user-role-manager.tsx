@@ -10,6 +10,7 @@ const ROLE_LABELS: Record<string, string> = {
   SOCIETY_ADMIN: "Society Admin",
   OPERATOR: "Operator",
   ADMIN: "Administrator",
+  OPERATOR_LIMITED: "Operator (Limited)", // batch-2026-10 WS-D
 };
 
 export interface ManagedUser {

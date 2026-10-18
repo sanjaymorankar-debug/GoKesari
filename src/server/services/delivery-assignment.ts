@@ -24,6 +24,7 @@ import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { parseCoordinates } from "@/lib/geo/haversine";
 import { db, type DbClient } from "@/server/db";
 import {
+  deliveryOfferBroadcasts,
   deliveryOrders,
   deliveryPartners,
   dispatchAttempts,
@@ -506,69 +507,87 @@ const riderFacts = (ctx: { riderUserId: string | null; riderName: string | null 
  */
 export async function acceptDeliveryOffer(deliveryOrderId: string, partnerUserId: string): Promise<DeliveryOrder> {
   const row = await loadOwnDeliveryOrder(deliveryOrderId, partnerUserId); // ownership check
-  const actor: Actor = { id: partnerUserId, role: "DELIVERY_PARTNER" };
   const offerTtlSeconds = await getOfferTtlSeconds();
 
   // Slice 4: accepting also moves the order READY → ASSIGNED and issues the
   // pickup code the shop reads out at handover — in one transaction, so a
   // cancelled order can never end up with an accepted rider.
-  const accepted = await db.transaction(async (tx) => {
-    const [updated] = await tx
-      .update(deliveryOrders)
-      .set({ status: "ACCEPTED", acceptedAt: new Date(), pickupCode: fourDigitCode(), updatedAt: new Date() })
-      .where(
-        and(
-          eq(deliveryOrders.id, deliveryOrderId),
-          eq(deliveryOrders.status, "OFFERED"),
-          sql`${deliveryOrders.offeredAt} > now() - make_interval(secs => ${offerTtlSeconds})`,
-        ),
-      )
-      .returning();
-    if (!updated) throw conflict("This delivery offer is no longer available.");
-
-    const [order] = await tx.select({ status: orders.status }).from(orders).where(eq(orders.id, row.orderId));
-    // Only a READY order can take a rider — not one the shop has already
-    // sent out itself, cancelled, or given to another rider.
-    if (order?.status !== "READY") {
-      throw conflict("This order is no longer waiting for a rider.");
-    }
-    const ctx = await deliveryEventContext(row.orderId, row.deliveryPartnerId, tx);
-    await emitEvent(
-      {
-        type: "delivery.accepted",
-        subjectId: deliveryOrderId,
-        orderId: row.orderId,
-        transition: { from: "OFFERED", to: "ACCEPTED" },
-        actor,
-        payload: ctx,
-      },
-      tx,
-    );
-    await updateOrderStatus(row.orderId, "ASSIGNED", actor, "Rider accepted", tx, riderFacts(ctx));
-    // The search is over: a rider has the order.
-    await tx
-      .update(riderSearches)
-      .set({ status: "ASSIGNED", stopReason: "RIDER_ACCEPTED", stoppedAt: new Date(), updatedAt: new Date() })
-      .where(and(eq(riderSearches.orderId, row.orderId), eq(riderSearches.status, "SEARCHING")));
-
-    await recordAudit(
-      {
-        actorId: partnerUserId,
-        actorRole: "DELIVERY_PARTNER",
-        action: AUDIT_ACTIONS.DELIVERY_ORDER_ACCEPTED,
-        entityType: "delivery_order",
-        entityId: deliveryOrderId,
-        newValue: { status: "ACCEPTED" },
-      },
-      tx,
-    );
-    return updated;
-  });
+  const accepted = await db.transaction((tx) => acceptOfferInTransaction(tx, row, partnerUserId, offerTtlSeconds));
   // GS-046: society security desk hears who is coming (after commit; never blocks the accept).
   await notifySocietySecurity(row.orderId).catch((error) => {
     console.error("[delivery] society security notification failed", row.orderId, error);
   });
   return accepted;
+}
+
+/**
+ * The body of acceptDeliveryOffer's transaction: OFFERED → ACCEPTED (status-
+ * guarded, and within `offerTtlSeconds` of the offer when given), pickup code,
+ * order READY → ASSIGNED, the rider search closed, events and audit. Shared
+ * with the broadcast accept (batch-2026-10 WS-B, dispatch-broadcast.ts), which
+ * runs it in its own transaction after winning the broadcast — `null` there,
+ * because a broadcast has its own expiry.
+ */
+export async function acceptOfferInTransaction(
+  tx: DbClient,
+  row: DeliveryOrder,
+  partnerUserId: string,
+  offerTtlSeconds: number | null,
+): Promise<DeliveryOrder> {
+  const deliveryOrderId = row.id;
+  const actor: Actor = { id: partnerUserId, role: "DELIVERY_PARTNER" };
+  const [updated] = await tx
+    .update(deliveryOrders)
+    .set({ status: "ACCEPTED", acceptedAt: new Date(), pickupCode: fourDigitCode(), updatedAt: new Date() })
+    .where(
+      and(
+        eq(deliveryOrders.id, deliveryOrderId),
+        eq(deliveryOrders.status, "OFFERED"),
+        offerTtlSeconds == null
+          ? undefined
+          : sql`${deliveryOrders.offeredAt} > now() - make_interval(secs => ${offerTtlSeconds})`,
+      ),
+    )
+    .returning();
+  if (!updated) throw conflict("This delivery offer is no longer available.");
+
+  const [order] = await tx.select({ status: orders.status }).from(orders).where(eq(orders.id, row.orderId));
+  // Only a READY order can take a rider — not one the shop has already
+  // sent out itself, cancelled, or given to another rider.
+  if (order?.status !== "READY") {
+    throw conflict("This order is no longer waiting for a rider.");
+  }
+  const ctx = await deliveryEventContext(row.orderId, row.deliveryPartnerId, tx);
+  await emitEvent(
+    {
+      type: "delivery.accepted",
+      subjectId: deliveryOrderId,
+      orderId: row.orderId,
+      transition: { from: "OFFERED", to: "ACCEPTED" },
+      actor,
+      payload: ctx,
+    },
+    tx,
+  );
+  await updateOrderStatus(row.orderId, "ASSIGNED", actor, "Rider accepted", tx, riderFacts(ctx));
+  // The search is over: a rider has the order.
+  await tx
+    .update(riderSearches)
+    .set({ status: "ASSIGNED", stopReason: "RIDER_ACCEPTED", stoppedAt: new Date(), updatedAt: new Date() })
+    .where(and(eq(riderSearches.orderId, row.orderId), eq(riderSearches.status, "SEARCHING")));
+
+  await recordAudit(
+    {
+      actorId: partnerUserId,
+      actorRole: "DELIVERY_PARTNER",
+      action: AUDIT_ACTIONS.DELIVERY_ORDER_ACCEPTED,
+      entityType: "delivery_order",
+      entityId: deliveryOrderId,
+      newValue: { status: "ACCEPTED" },
+    },
+    tx,
+  );
+  return updated;
 }
 
 /** DEF-04 fix — same status-guarded UPDATE as acceptDeliveryOffer, see above. */
@@ -626,11 +645,18 @@ export async function markPickedUp(
   deliveryOrderId: string,
   actor: Actor,
   pickupCode?: string,
+  /**
+   * batch-2026-10 WS-B (pickup QR): `qrVerified` — the shop's signed QR was
+   * checked instead of the typed code; `inTransaction` runs inside the pickup
+   * transaction (the QR is spent there, so a failed pickup never burns it).
+   * Omitted by every existing caller: the typed-code flow is unchanged.
+   */
+  options: { qrVerified?: boolean; inTransaction?: (tx: DbClient, updated: DeliveryOrder) => Promise<void> } = {},
 ): Promise<DeliveryOrder> {
   const row = await loadOwnDeliveryOrder(deliveryOrderId, actor.id); // ownership check
   // GS-041: the shop reads the code to the rider. Rows accepted before the
   // code existed have none and keep the old one-tap pickup.
-  if (row.pickupCode && pickupCode?.trim() !== row.pickupCode) {
+  if (row.pickupCode && !options.qrVerified && pickupCode?.trim() !== row.pickupCode) {
     throw validationFailed("That pickup code does not match. Ask the shop for the code shown on the order.");
   }
 
@@ -675,6 +701,7 @@ export async function markPickedUp(
       },
       tx,
     );
+    if (options.inTransaction) await options.inTransaction(tx, updated);
 
     return updated;
   });
@@ -1102,6 +1129,16 @@ async function assertCashConfirmed(orderId: string, cashCollected: boolean | und
 
 /* ------------------------------------------------------ find-rider search */
 
+/** batch-2026-10 WS-B: the order's open broadcast offer (dispatch-broadcast.ts), if any. */
+async function openBroadcastFor(orderId: string): Promise<{ id: string; radiusM: number } | null> {
+  const [row] = await db
+    .select({ id: deliveryOfferBroadcasts.id, radiusM: deliveryOfferBroadcasts.radiusM })
+    .from(deliveryOfferBroadcasts)
+    .where(and(eq(deliveryOfferBroadcasts.orderId, orderId), eq(deliveryOfferBroadcasts.status, "OPEN")))
+    .limit(1);
+  return row ?? null;
+}
+
 export type DispatchTrigger = "SHOP_MANUAL" | "AUTO_READY" | "SWEEP" | "REOFFER";
 type StopReason = NonNullable<RiderSearch["stopReason"]>;
 type DispatchRules = Awaited<ReturnType<typeof getDispatchRules>>;
@@ -1274,6 +1311,10 @@ export async function dispatchReadyOrder(
 
   const active = await db.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.orderId, orderId) });
   if (active && (ACTIVE_ASSIGNMENT_STATUSES as readonly string[]).includes(active.status)) return null;
+  // batch-2026-10 WS-B: an order broadcast to every rider nearby waits for the
+  // first of them to accept (dispatch-broadcast.ts); never set when the
+  // dispatchBroadcast rule is off.
+  if (await openBroadcastFor(orderId)) return null;
 
   const search = await ensureSearch(orderId, trigger, actor.id, rules);
   if (search.status !== "SEARCHING") return null; // finished: only a manual retry restarts it
@@ -1380,6 +1421,17 @@ export async function getRiderSearchStatus(orderId: string): Promise<RiderSearch
   }
   if (delivery?.status === "OFFERED") {
     return { ...base, state: "OFFERED", message: "Offer sent to a rider — waiting for them to accept.", canRetry: false };
+  }
+  // batch-2026-10 WS-B: only ever true with the dispatchBroadcast rule on.
+  const broadcast = await openBroadcastFor(orderId);
+  if (broadcast) {
+    const km = Math.round(broadcast.radiusM / 100) / 10;
+    return {
+      ...base,
+      state: "OFFERED",
+      message: `Offer sent to every rider within ${km} km — waiting for the first to accept.`,
+      canRetry: false,
+    };
   }
   if (!search) {
     return { ...base, state: "NOT_STARTED", message: "No rider search has started for this order yet.", canRetry: true };

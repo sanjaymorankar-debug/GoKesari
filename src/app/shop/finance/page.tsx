@@ -13,6 +13,7 @@ import {
 } from "@/server/services/finance";
 import { listShopsForOwner } from "@/server/services/shops";
 import { listInvoicesForShop } from "@/server/services/invoices";
+import { ShopPayoutStatements } from "@/components/shop-payout-statements";
 
 export const metadata = { title: "Shop Finance" };
 export const dynamic = "force-dynamic";
@@ -102,6 +103,9 @@ export default async function ShopFinancePage() {
           </Card>
         )}
       </Section>
+
+      {/* batch-2026-10 WS-E: automated payout statements and GoKesari's fee invoices. */}
+      <ShopPayoutStatements shopId={shop.id} />
 
       <Section title="Delivered orders">
         {recent.length === 0 ? (

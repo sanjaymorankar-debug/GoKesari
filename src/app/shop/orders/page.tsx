@@ -18,6 +18,7 @@ import { proofPhotosForOrders } from "@/server/services/delivery-proofs";
 import { getRule } from "@/server/services/settings";
 import { getShopWalletStatus } from "@/server/services/shop-wallet";
 import { getShopFulfilmentViews, listDeliveryStaff, plannerOptions } from "@/server/services/fulfilment-options";
+import { getPickupQrsForOrders, PICKUP_QR_ORDER_STATUSES } from "@/server/services/pickup-qr";
 
 export const metadata = { title: "Shop Orders" };
 export const dynamic = "force-dynamic";
@@ -88,6 +89,12 @@ export default async function ShopOrdersPage({ searchParams }: { searchParams: P
     planner.enabled || plans.size > 0
       ? { enabled: planner.enabled, days: planner.days, staff: deliveryStaff.map((s) => ({ id: s.id, name: s.name, phoneE164: s.phoneE164 })), refundDeliveryFeeOnPickup: planner.refundDeliveryFeeOnPickup }
       : null;
+  // batch-2026-10 WS-B (rule pickupQr): signed pickup QR for packed orders waiting for a rider.
+  const pickupQrs = shop.deliveryAvailable
+    ? await getPickupQrsForOrders(
+        orders.filter((o) => (PICKUP_QR_ORDER_STATUSES as readonly string[]).includes(o.status)).map((o) => o.id),
+      )
+    : new Map<string, { svg: string; expiresAt: string }>();
   // Candidates a shop can offer as a substitute (server re-checks price/stock).
   const substitutes = onlineProducts
     .filter((sp) => sp.onlinePricePaise != null)
@@ -145,6 +152,8 @@ export default async function ShopOrdersPage({ searchParams }: { searchParams: P
             deliveryFeePaise: o.deliveryFeePaise,
             deliveryStatus: deliveryOrders.get(o.id)?.status ?? null,
             pickupCode: deliveryOrders.get(o.id)?.pickupCode ?? null,
+            pickupQr: pickupQrs.has(o.id) ? { svg: pickupQrs.get(o.id)!.svg, expiresAt: pickupQrs.get(o.id)!.expiresAt } : null,
+            packingSlipUrl: pickupQrs.has(o.id) ? `/shop/orders/${o.id}/packing-slip` : null,
             riderSearch: searchByOrder.has(o.id)
               ? {
                   state: searchByOrder.get(o.id)!.state,

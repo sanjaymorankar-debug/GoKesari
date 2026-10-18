@@ -8,6 +8,23 @@ import * as Print from "expo-print";
 import * as Sharing from "expo-sharing";
 import { Platform, Share, type ShareContent } from "react-native";
 
+/**
+ * Messages the page bridge sends (bridge-script.ts). "push.getToken" asks for
+ * this phone's Expo push token (push.ts); the reply is a PushRegistration.
+ */
+export type BridgeMessageType =
+  | "hello"
+  | "share"
+  | "saveFile"
+  | "print"
+  | "geo.current"
+  | "geo.watch"
+  | "geo.clearWatch"
+  | "openExternal"
+  | "signInWithGoogle"
+  | "downloadFailed"
+  | "push.getToken";
+
 /** What the page sent, after the token and origin checks in App.tsx. */
 export interface BridgeMessage {
   type: string;

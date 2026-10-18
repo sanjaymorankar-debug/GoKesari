@@ -23,7 +23,7 @@ case "${ACTION:-}" in
   *) fail "Unknown action '${ACTION:-}'." ;;
 esac
 
-where="Settings → Secrets and variables → Actions"
+where="Settings → Environments → production (or Secrets and variables → Actions)"
 [ -n "${PROD_DATABASE_URL:-}" ] || fail "Secret PROD_DATABASE_URL is not set ($where → Secrets)."
 [ -n "${EXPECTED_HOST:-}" ] || fail "Variable PROD_DATABASE_HOST is not set ($where → Variables)."
 [ -n "${EXPECTED_DB:-}" ] || fail "Variable PROD_DATABASE_NAME is not set ($where → Variables)."
