@@ -12,7 +12,7 @@
  * names of the real response when the API documentation arrives.
  * Rule pmdSources.gs1Enabled (default OFF) switches the source on.
  */
-import { getEnv } from "@/lib/env";
+import { getEnv, isProductionSite } from "@/lib/env";
 import { getRule } from "@/server/services/settings";
 
 import { analyzeGtin, gs1CheckDigit } from "../normalize/identifiers";
@@ -201,7 +201,8 @@ export function gs1Definition(mode: "REAL" | "MOCK"): SourceDefinition {
 export function gs1DataSource(deps: { real?: Gs1DataKartClient; mock?: Gs1DataKartClient; production?: boolean } = {}): BarcodeLookupSource {
   const real = deps.real ?? new DataKartApiClient();
   const mock = deps.mock ?? new MockGs1DataKartClient();
-  const production = deps.production ?? process.env.NODE_ENV === "production";
+  // The mock never runs on gokesari.com; the test site (a production build) may use it.
+  const production = deps.production ?? isProductionSite();
   const mode = (): "REAL" | "MOCK" | "UNAVAILABLE" => (real.isConfigured() ? "REAL" : production ? "UNAVAILABLE" : "MOCK");
   const client = () => (real.isConfigured() ? real : mock);
   const definition = () => gs1Definition(mode() === "REAL" ? "REAL" : "MOCK");

@@ -12,7 +12,7 @@
  * report (docs/test-reports/2026-10-batch.md).
  */
 import { expect, test, type APIRequestContext } from "@playwright/test";
-import { mkdirSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 
 const BASE_URL = process.env.E2E_BASE_URL ?? "https://test.gokesari.com";
 const HOST = new URL(BASE_URL).host;
@@ -24,20 +24,27 @@ interface Row {
   status: "pass" | "fail";
   detail: string;
 }
-const rows: Row[] = [];
+const OUT = `test-results/batch-2026-10-${HOST}.json`;
 
-test.afterAll(() => {
+/**
+ * Saves one case's outcome at once (merged by case id into the run's file):
+ * Playwright starts a fresh worker after a failure, so an in-memory list
+ * written in afterAll would lose every case before the failure.
+ */
+function save(row: Row) {
   mkdirSync("test-results", { recursive: true });
-  writeFileSync(`test-results/batch-2026-10-${HOST}.json`, JSON.stringify({ baseUrl: BASE_URL, at: new Date().toISOString(), rows }, null, 2));
-});
+  const previous: { rows: Row[] } = existsSync(OUT) ? JSON.parse(readFileSync(OUT, "utf8")) : { rows: [] };
+  const rows = [...previous.rows.filter((r) => r.id !== row.id), row].sort((a, b) => a.id.localeCompare(b.id));
+  writeFileSync(OUT, JSON.stringify({ baseUrl: BASE_URL, at: new Date().toISOString(), rows }, null, 2));
+}
 
 /** Records the outcome of one case for the report, then rethrows a failure. */
 async function tc(id: string, title: string, body: () => Promise<string | void>) {
   try {
     const detail = (await body()) ?? "";
-    rows.push({ id, title, status: "pass", detail });
+    save({ id, title, status: "pass", detail });
   } catch (error) {
-    rows.push({ id, title, status: "fail", detail: error instanceof Error ? error.message.split("\n")[0] : String(error) });
+    save({ id, title, status: "fail", detail: error instanceof Error ? error.message.split("\n")[0] : String(error) });
     throw error;
   }
 }
@@ -105,7 +112,8 @@ test.describe(`batch 2026-10 remote checks — ${HOST}`, () => {
         data: { event: "payment.captured" },
         headers: { "content-type": "application/json" },
       });
-      expect([400, 401, 403, 404]).toContain(res.status());
+      // 401 bad signature; 503 when the site has no secret for that gateway (fail closed).
+      expect([400, 401, 403, 404, 503]).toContain(res.status());
       return `HTTP ${res.status()}`;
     }));
 
