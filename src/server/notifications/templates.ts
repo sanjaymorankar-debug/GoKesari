@@ -278,6 +278,14 @@ export const TEMPLATES: Record<string, Template> = {
   /* <<< end WS-D */
   //
   /* >>> batch-2026-10 WS-E (invoicing, payouts, statutory) — add entries below this line only */
+  // Emailed with the document attached by the document outbox (documents/email.ts), so no plain copy here.
+  [T.SHOP_INVOICE_COPY]: t("Invoice {{invoiceNumber}} issued", "Order {{orderNumber}} was delivered and invoice {{invoiceNumber}} ({{amount}}) was issued to the customer in your shop's name.", false),
+  [T.SHOP_PAYOUT_PAID]: t("Payout {{amount}} paid", "{{shopName}}'s payout for {{period}} was paid to your bank account. Bank reference (UTR): {{utr}}. Your statement is in Finance → Statements.", false),
+  [T.SHOP_PAYOUT_HELD]: t("Payout on hold", "{{shopName}}'s payout of {{amount}} for {{period}} is on hold: {{reason}} It moves to the next payout cycle."),
+  [T.SHOP_PAYOUT_FAILED]: t("Payout could not be paid", "The transfer of {{amount}} to {{shopName}}'s bank account failed: {{reason}} {{next}}"),
+  [T.SHOP_PLATFORM_INVOICE]: t("GoKesari invoice {{invoiceNumber}}", "GoKesari's tax invoice {{invoiceNumber}} for its fees ({{amount}} incl. GST) for {{period}} is in Finance → Statements.", false),
+  [T.SUPPORT_PAYOUT_BATCH_DRAFTED]: t("Payout batch ready to approve", "The payout batch for {{period}} has {{items}} shop payment(s) totalling {{amount}} ({{held}} held). Approve it in Admin → Payouts.", false),
+  [T.SUPPORT_PAYOUT_FAILED]: t("Payout failed", "The payout of {{amount}} to {{shopName}} failed after {{attempts}} attempt(s): {{reason}}", false),
   /* <<< end WS-E */
   //
   /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */

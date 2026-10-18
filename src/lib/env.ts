@@ -207,6 +207,17 @@ const serverEnvSchema = z.object({
   MOBILE_IOS_APP_IDS: z.string().optional(),
   /** Signs the pickup QR (rule pickupQr). Required in production; elsewhere AUTH_SECRET is used when unset. */
   PICKUP_QR_SECRET: z.string().min(16).optional(), // batch-2026-10 WS-B
+  /** batch-2026-10 WS-E payouts: RazorpayX (key id/secret, the RazorpayX current account number, webhook secret). */
+  RAZORPAYX_KEY_ID: z.string().optional(), // batch-2026-10 WS-E
+  RAZORPAYX_KEY_SECRET: z.string().optional(), // batch-2026-10 WS-E
+  RAZORPAYX_ACCOUNT_NUMBER: z.string().optional(), // batch-2026-10 WS-E
+  RAZORPAYX_WEBHOOK_SECRET: z.string().optional(), // batch-2026-10 WS-E
+  /** batch-2026-10 WS-E payouts: Cashfree Payouts (separate from the PG keys); webhooks are signed with the client secret. */
+  CASHFREE_PAYOUT_CLIENT_ID: z.string().optional(), // batch-2026-10 WS-E
+  CASHFREE_PAYOUT_CLIENT_SECRET: z.string().optional(), // batch-2026-10 WS-E
+  CASHFREE_PAYOUT_ENV: z.enum(["sandbox", "production"]).default("sandbox"), // batch-2026-10 WS-E
+  /** batch-2026-10 WS-E: signing secret of the simulated payout webhooks (defaults to one derived from AUTH_SECRET). */
+  PAYOUT_SANDBOX_WEBHOOK_SECRET: z.string().optional(), // batch-2026-10 WS-E
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

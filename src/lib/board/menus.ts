@@ -260,6 +260,7 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       { key: "gstPayable", label: L("GST payable", "देय GST", "देय GST"), icon: "indian-rupee", href: "/shop/accounts/gst" },
       { key: "accounting", label: L("Accounting software", "अकाउंटिंग सॉफ़्टवेयर", "अकाउंटिंग सॉफ्टवेअर"), icon: "database", href: "/shop/settings/integrations" },
       { key: "registrationFee", label: L("Registration fee", "पंजीकरण शुल्क", "नोंदणी शुल्क"), icon: "receipt", href: "/shop/manage/registration" },
+      { key: "statements", label: L("Payout statements", "भुगतान विवरण", "पेमेंट विवरण"), icon: "file-text", href: "/shop/finance#statements", permission: PERMISSIONS.SETTLEMENT_VIEW_OWN }, // batch-2026-10 WS-E
     ],
   },
   {
@@ -434,6 +435,9 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "bankAccounts", label: L("Bank accounts", "बैंक खाते", "बँक खाती"), icon: "landmark", href: "/admin/bank-accounts", permission: PERMISSIONS.FINANCE_VIEW },
       { key: "subscriptions", label: L("Subscriptions", "सब्सक्रिप्शन", "सदस्यता"), short: { en: "Subscription" }, icon: "calendar-clock", href: "/admin/subscriptions", permission: PERMISSIONS.SUBSCRIPTION_MANAGE_ANY },
       { key: "commissions", label: L("Referral commissions", "रेफ़रल कमीशन", "रेफरल कमिशन"), icon: "receipt", href: "/admin/referral-commissions", permission: PERMISSIONS.REFERRAL_MANAGE },
+      { key: "payouts", label: L("Payouts", "भुगतान", "पेमेंट"), icon: "landmark", href: "/admin/payouts", permission: PERMISSIONS.PAYOUT_VIEW }, // batch-2026-10 WS-E
+      { key: "feeInvoices", label: L("GoKesari invoices", "GoKesari बिल", "GoKesari बिले"), icon: "receipt", href: "/admin/platform-invoices", permission: PERMISSIONS.PLATFORM_INVOICE_MANAGE }, // batch-2026-10 WS-E
+      { key: "statutory", label: L("TCS / TDS settings", "TCS / TDS सेटिंग", "TCS / TDS सेटिंग्ज"), icon: "file-text", href: "/admin/statutory", permission: PERMISSIONS.STATUTORY_MANAGE }, // batch-2026-10 WS-E
     ],
   },
   {

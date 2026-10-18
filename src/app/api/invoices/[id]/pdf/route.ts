@@ -6,7 +6,8 @@ import { NextResponse, type NextRequest } from "next/server";
 
 import { AppError, toClientError } from "@/lib/errors";
 import { getCurrentUser } from "@/server/authz/guards";
-import { canViewInvoice, einvoiceFor, getInvoice, renderInvoicePdf } from "@/server/services/invoices";
+import { renderInvoiceDocument } from "@/server/invoicing/delivery";
+import { canViewInvoice, getInvoice } from "@/server/services/invoices";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +20,8 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
     const invoice = await getInvoice(id);
     if (!(await canViewInvoice(invoice, user))) throw new AppError("NOT_FOUND", "Invoice not found.");
     // Module 2: the IRN and acknowledgement print on the invoice once generated.
-    const pdf = renderInvoicePdf(invoice, await einvoiceFor(invoice.id));
+    // batch-2026-10 WS-E: plus the QR code when rule invoiceDelivery is on (else the same PDF as before).
+    const pdf = await renderInvoiceDocument(invoice);
     const filename = `${invoice.invoiceNumber.replace(/[^A-Za-z0-9-]+/g, "_")}.pdf`;
     return new NextResponse(new Uint8Array(pdf), {
       headers: {

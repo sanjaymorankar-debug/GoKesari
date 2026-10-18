@@ -290,6 +290,16 @@ export const PERMISSIONS = {
   /* <<< end WS-D */
   //
   /* >>> batch-2026-10 WS-E (invoicing, payouts, statutory) — add entries below this line only */
+  /** WS-E F10.2.4: see payout cycles, batches, items and bank files. */
+  PAYOUT_VIEW: "payouts:view",
+  /** WS-E F10.2.4: close a cycle, execute a batch, export the bank file, mark items paid / failed, retry. */
+  PAYOUT_MANAGE: "payouts:manage",
+  /** WS-E F10.2.4: approve a drafted payout batch (maker-checker: not the batch's creator). */
+  PAYOUT_APPROVE: "payouts:approve",
+  /** WS-E F10.2.5: GoKesari's invoices to shops, credit / debit notes, GST and TCS / TDS exports. */
+  PLATFORM_INVOICE_MANAGE: "platform-invoices:manage",
+  /** WS-E: dated statutory settings (TCS, TDS, s.9(5)) and their CA confirmation. */
+  STATUTORY_MANAGE: "statutory:manage",
   /* <<< end WS-E */
   //
   /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */
@@ -625,6 +635,11 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   /* <<< end WS-D */
   //
   /* >>> batch-2026-10 WS-E (invoicing, payouts, statutory) — add entries below this line only */
+  [PERMISSIONS.PAYOUT_VIEW]: "View automated payout cycles, batches and items",
+  [PERMISSIONS.PAYOUT_MANAGE]: "Close payout cycles, execute batches, export bank files, mark payouts paid or failed",
+  [PERMISSIONS.PAYOUT_APPROVE]: "Approve a payout batch (not one you created, when maker-checker is on)",
+  [PERMISSIONS.PLATFORM_INVOICE_MANAGE]: "Issue GoKesari's fee invoices, credit and debit notes; export GST, TCS and TDS reports",
+  [PERMISSIONS.STATUTORY_MANAGE]: "Edit dated statutory settings (TCS, TDS, s.9(5)) and record CA confirmation",
   /* <<< end WS-E */
   //
   /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */

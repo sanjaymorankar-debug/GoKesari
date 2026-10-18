@@ -30,7 +30,11 @@ export type SubjectKind =
   | "shop_registration"
   | "bank_refund"
   | "customer_referral_request"
-  | "product_import";
+  | "product_import"
+  | "tax_invoice" // batch-2026-10 WS-E
+  | "payout_batch" // batch-2026-10 WS-E
+  | "payout_item" // batch-2026-10 WS-E
+  | "platform_invoice"; // batch-2026-10 WS-E
 
 export interface EventMessage {
   /** A user id, an audience, or nothing (skipped — e.g. an order with no rider). */
@@ -1123,6 +1127,84 @@ export const EVENTS = {
   /* <<< end WS-D */
   //
   /* >>> batch-2026-10 WS-E (invoicing, payouts, statutory) — add entries below this line only */
+  /** F9.2.6: the shop owner's copy of the customer's invoice, with the order (PDF by email — documents/email.ts). */
+  "invoice.shop_copy": define<{ invoiceId: string; invoiceNumber: string; orderNumber: string; ownerId: string; amount: string }>(
+    "tax_invoice",
+    (p) => [
+      {
+        to: p.ownerId,
+        type: N.SHOP_INVOICE_COPY,
+        vars: { invoiceNumber: p.invoiceNumber, orderNumber: p.orderNumber, amount: p.amount },
+        actionUrl: `/invoices/${p.invoiceId}`,
+        includeActor: true,
+      },
+    ],
+  ),
+  /** F10.2.4: a payout cycle was closed and its batch drafted — administrators approve it. */
+  "payout.batch_drafted": define<{ batchId: string; period: string; items: number; amount: string; held: number }>("payout_batch", (p) => [
+    { to: "SUPPORT_LEAD", type: N.SUPPORT_PAYOUT_BATCH_DRAFTED, vars: { period: p.period, items: p.items, amount: p.amount, held: p.held }, actionUrl: "/admin/payouts" },
+  ]),
+  /** F10.2.4: a shop's payout was paid (UTR recorded) — statement by email and in the app. */
+  "payout.item_paid": define<{ itemId: string; ownerId: string; shopName: string; amount: string; period: string; utr: string }>(
+    "payout_item",
+    (p) => [
+      {
+        to: p.ownerId,
+        type: N.SHOP_PAYOUT_PAID,
+        vars: { shopName: p.shopName, amount: p.amount, period: p.period, utr: p.utr },
+        actionUrl: "/shop/finance#statements",
+        includeActor: true,
+      },
+    ],
+  ),
+  "payout.item_held": define<{ itemId: string; ownerId: string; shopName: string; amount: string; period: string; reason: string }>(
+    "payout_item",
+    (p) => [
+      {
+        to: p.ownerId,
+        type: N.SHOP_PAYOUT_HELD,
+        vars: { shopName: p.shopName, amount: p.amount, period: p.period, reason: p.reason },
+        actionUrl: "/shop/finance#statements",
+        includeActor: true,
+      },
+    ],
+  ),
+  "payout.item_failed": define<{ itemId: string; ownerId: string; shopName: string; amount: string; reason: string; attempts: number; final: boolean }>(
+    "payout_item",
+    (p) => {
+      const messages: EventMessage[] = [
+        {
+          to: p.ownerId,
+          type: N.SHOP_PAYOUT_FAILED,
+          vars: {
+            shopName: p.shopName,
+            amount: p.amount,
+            reason: p.reason,
+            next: p.final ? "GoKesari's finance team will contact you." : "It will be retried automatically.",
+          },
+          actionUrl: "/shop/bank-account",
+          includeActor: true,
+        },
+      ];
+      if (p.final) {
+        messages.push({ to: "SUPPORT_LEAD", type: N.SUPPORT_PAYOUT_FAILED, vars: { amount: p.amount, shopName: p.shopName, attempts: p.attempts, reason: p.reason }, actionUrl: "/admin/payouts" });
+      }
+      return messages;
+    },
+  ),
+  /** F10.2.5: GoKesari's tax invoice for its fees this cycle. */
+  "platform_invoice.issued": define<{ invoiceId: string; invoiceNumber: string; ownerId: string; amount: string; period: string }>(
+    "platform_invoice",
+    (p) => [
+      {
+        to: p.ownerId,
+        type: N.SHOP_PLATFORM_INVOICE,
+        vars: { invoiceNumber: p.invoiceNumber, amount: p.amount, period: p.period },
+        actionUrl: "/shop/finance#statements",
+        includeActor: true,
+      },
+    ],
+  ),
   /* <<< end WS-E */
   //
   /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */

@@ -18,17 +18,20 @@ import {
   previousWeekStart,
   runReconciliation,
 } from "@/server/services/finance";
+import { getRule } from "@/server/services/settings";
 
 export const POST = route(async (request: NextRequest) => {
   enforceRateLimit(clientKey(request, "cron"), RATE_LIMITS.CRON);
   assertCronAuthorized(request);
   const weekStart = previousWeekStart();
   const system = { id: null, role: null };
-  const settlements = await prepareShopSettlements(weekStart, system);
+  // batch-2026-10 WS-E: with automated payouts on, shops are paid by the payout-cycle job instead.
+  const payoutsOn = (await getRule("payouts")).enabled;
+  const settlements = payoutsOn ? [] : await prepareShopSettlements(weekStart, system);
   const payouts = await prepareRiderPayouts(weekStart, system);
   const today = todayIn(getEnv().APP_TIMEZONE);
   const reconciliation = await runReconciliation(addDays(today, -35), addDays(today, 1), system);
-  const result = { weekStart, settlements: settlements.length, payouts: payouts.length, reconciliation };
+  const result = { weekStart, settlements: settlements.length, payouts: payouts.length, reconciliation, ...(payoutsOn ? { shopSettlements: "payout-cycle" } : {}) };
   console.info("[cron:finance-weekly]", JSON.stringify(result));
   return ok(result);
 });
