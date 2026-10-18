@@ -120,3 +120,11 @@ feature is off).
 |---|---|
 | Make sure `PROD_DATABASE_HOST` and `PROD_DATABASE_NAME` exist as **variables** on the **production** environment (the 15 Oct run saw them empty) | GitHub → Settings → Environments → production → Variables |
 | Go-ahead and a window for the seller/customer split cut-over (`DB_SPLIT_MODE`), plus enabling logical replication on the Neon project | `docs/db-split-2026-10/CUTOVER_2026-10-18.md` |
+
+## 14. Production order-lifecycle test (F14.1.3 production subset)
+
+| What | Where | Then |
+|---|---|---|
+| A production shop with delivery on that may receive test orders, and its owner's sign-in email | Tell the developer | — |
+| An approved production rider (or permission to register one for approval) | Tell the developer | — |
+| Whether the test order is COD (no money moves) or a real payment the owner makes (as chosen on 14 Oct — Cashfree live keys confirmed set) | Decision | the full production lifecycle is run and added to `docs/test-reports/2026-10-batch.md` |

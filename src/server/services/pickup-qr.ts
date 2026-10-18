@@ -26,7 +26,7 @@ import { and, eq, isNull } from "drizzle-orm";
 import QRCode from "qrcode";
 
 import { AppError, conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
-import { getEnv, type ServerEnv } from "@/lib/env";
+import { derivedTestSecret, getEnv, isProductionSite, type ServerEnv } from "@/lib/env";
 import { db, type DbClient } from "@/server/db";
 import {
   deliveryOrders,
@@ -54,7 +54,9 @@ export type PickupScanOutcome = DeliveryPickupScan["outcome"];
  */
 export function pickupQrSecret(env: ServerEnv = getEnv()): string | null {
   if (env.PICKUP_QR_SECRET) return env.PICKUP_QR_SECRET;
-  return env.NODE_ENV === "production" ? null : env.AUTH_SECRET;
+  if (env.NODE_ENV !== "production") return env.AUTH_SECRET;
+  // The test site (a production build, not gokesari.com): a per-deployment key.
+  return isProductionSite(env) ? null : derivedTestSecret("pickup-qr", env);
 }
 
 function requireSecret(): string {

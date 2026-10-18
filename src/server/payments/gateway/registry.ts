@@ -9,7 +9,7 @@
  * The sandbox is refused in production unless PAYMENT_GATEWAY=SANDBOX and
  * rule onlinePayments.allowSandboxInProduction is on.
  */
-import { getEnv } from "@/lib/env";
+import { getEnv, isProductionSite } from "@/lib/env";
 import { AppError } from "@/lib/errors";
 import { getRule } from "@/server/services/settings";
 import { CashfreeGateway } from "./cashfree";
@@ -54,7 +54,8 @@ export function getPaymentGateway(): PaymentGateway {
 /** Whether the sandbox may run here: anywhere but production, or production when explicitly chosen and allowed. */
 export async function sandboxAllowed(): Promise<boolean> {
   const env = getEnv();
-  if (env.NODE_ENV !== "production") return true;
+  // Everywhere but gokesari.com (test.gokesari.com runs a production build too).
+  if (!isProductionSite(env)) return true;
   return env.PAYMENT_GATEWAY === "SANDBOX" && (await getRule("onlinePayments")).allowSandboxInProduction;
 }
 

@@ -21,7 +21,7 @@ import { randomUUID } from "node:crypto";
 
 import { eq, sql } from "drizzle-orm";
 
-import { getEnv } from "@/lib/env";
+import { derivedTestSecret, getEnv, isProductionSite } from "@/lib/env";
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { db } from "@/server/db";
 import { paymentSandboxOrders, type PaymentSandboxOrder } from "@/server/db/schema";
@@ -69,7 +69,9 @@ interface SandboxWebhookBody {
 function sandboxSecret(): string | null {
   const env = getEnv();
   if (env.PAYMENT_WEBHOOK_SECRET_SANDBOX) return env.PAYMENT_WEBHOOK_SECRET_SANDBOX;
-  return env.NODE_ENV === "production" ? null : SANDBOX_TEST_WEBHOOK_SECRET;
+  if (env.NODE_ENV !== "production") return SANDBOX_TEST_WEBHOOK_SECRET;
+  // A production build that is not gokesari.com (the test site): a per-deployment secret.
+  return isProductionSite(env) ? null : derivedTestSecret("sandbox-payment-webhook", env);
 }
 
 /** Signs a sandbox webhook body the way the sandbox "gateway" does. */

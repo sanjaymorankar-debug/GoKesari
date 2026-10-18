@@ -110,7 +110,7 @@ def vitest_cases(report):
         return out
     for file in report.get("testResults", []):
         for t in file.get("assertionResults", []):
-            m = re.search(r"TC-B26-[A-F]-\d+", t.get("title", "") + " " + " ".join(t.get("ancestorTitles", [])))
+            m = re.search(r"TC-B26-[A-FI]-\d+", t.get("title", "") + " " + " ".join(t.get("ancestorTitles", [])))
             if not m:
                 continue
             status = {"passed": "pass", "failed": "fail", "skipped": "blocked", "pending": "blocked", "todo": "blocked"}.get(t.get("status"), "blocked")
@@ -171,7 +171,7 @@ def main(evidence: str, out_dir: str) -> None:
     tot = counts(automated)
     w("| Layer | Run | Passed | Failed | Blocked |")
     w("|---|---:|---:|---:|---:|")
-    w(f"| New batch cases (TC-B26-A…F, unit + integration on PostgreSQL 16, mobile) | {tot['run']} | {tot['pass']} | {tot['fail']} | {tot['blocked']} |")
+    w(f"| New batch cases (TC-B26-A…F and I, unit + integration on PostgreSQL 16, mobile) | {tot['run']} | {tot['pass']} | {tot['fail']} | {tot['blocked']} |")
     if full:
         w(f"| Whole suite incl. all existing tests (`npx vitest run`, {full.get('files')} files) | {full.get('tests')} | {full.get('passed')} | {full.get('failed')} | {full.get('blocked', 0)} |")
     for host, rep in remotes.items():

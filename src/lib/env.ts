@@ -1,3 +1,4 @@
+import { createHmac } from "node:crypto";
 /**
  * Environment configuration, validated once at process start.
  *
@@ -440,4 +441,29 @@ export function mobileAppLinkConfig(): {
     androidCertFingerprints: parseList(env.MOBILE_ANDROID_CERT_SHA256).map((f) => f.toUpperCase()),
     iosAppIds: parseList(env.MOBILE_IOS_APP_IDS),
   };
+}
+
+/**
+ * batch-2026-10: gokesari.com (or www.) — the one site where sandboxes, mocks
+ * and simulators must never run. Decided by AUTH_URL's host, like bank-account
+ * verification and push (test.gokesari.com runs a production build too).
+ * Fails safe: a production build with no usable AUTH_URL counts as the
+ * production site.
+ */
+export function isProductionSite(env: ServerEnv = getEnv()): boolean {
+  if (env.NODE_ENV !== "production") return false;
+  let host = "";
+  try {
+    host = env.AUTH_URL ? new URL(env.AUTH_URL).hostname.toLowerCase() : "";
+  } catch {
+    host = "";
+  }
+  if (!host) return true;
+  const prod = env.KYC_PRODUCTION_HOST.toLowerCase();
+  return host === prod || host === `www.${prod}`;
+}
+
+/** A per-deployment secret for a non-production simulator, derived from AUTH_SECRET and a purpose label. */
+export function derivedTestSecret(purpose: string, env: ServerEnv = getEnv()): string {
+  return createHmac("sha256", env.AUTH_SECRET).update(`gokesari-test-secret:${purpose}`).digest("hex");
 }

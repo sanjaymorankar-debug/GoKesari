@@ -174,13 +174,26 @@ describe("PDF with QR, email and the shop owner's copy", () => {
     await rules(admin, { invoicing: { enabled: true }, invoiceDelivery: { enabled: true, copyToShopOwner: false, emailMaxAttempts: 2 } });
     const { invoice } = await deliveredOrder(admin, [[milkSp.id, 1]]);
     const transport = await import("@/server/email/transport");
-    vi.mocked(transport.sendEmail).mockRejectedValueOnce(new Error("SMTP 451"));
+    // Fail only the invoice e-mail (it carries the PDF): a notification e-mail sent
+    // after commit by the event layer must not consume the scripted failure.
+    const failNextDocumentEmail = () => {
+      const passThrough = vi.mocked(transport.sendEmail).getMockImplementation()!;
+      let armed = true;
+      vi.mocked(transport.sendEmail).mockImplementation(async (message) => {
+        if (armed && message.attachments?.length) {
+          armed = false;
+          throw new Error("SMTP 451");
+        }
+        return passThrough(message);
+      });
+    };
+    failNextDocumentEmail();
     expect((await deliverDocumentEmails()).failed).toBe(1);
     const [row] = await db.select().from(documentEmails).where(eq(documentEmails.docId, invoice!.id));
     expect(row.status).toBe("FAILED");
     expect(row.nextAttemptAt.getTime()).toBeGreaterThan(Date.now());
     await db.update(documentEmails).set({ nextAttemptAt: new Date(Date.now() - 1000) }).where(eq(documentEmails.id, row.id));
-    vi.mocked(transport.sendEmail).mockRejectedValueOnce(new Error("SMTP 451"));
+    failNextDocumentEmail();
     expect((await deliverDocumentEmails()).dead).toBe(1);
   });
 });
