@@ -10,6 +10,7 @@ import { route } from "@/server/api/handler";
 import { enforceRateLimit } from "@/server/api/rate-limit";
 import { tallyAdapter } from "@/server/integrations/adapters/tally";
 import { authenticateConnector } from "@/server/integrations/connections";
+import { assertInventorySyncEnabled } from "@/server/integrations/inventory-sync-flag";
 import { asIntegrationError, describeError } from "@/server/integrations/errors";
 import { logSync } from "@/server/integrations/jobs";
 import { applyPulledItems } from "@/server/integrations/pull";
@@ -23,6 +24,7 @@ const MAX_BYTES = 20 * 1024 * 1024;
 
 export const POST = route(async (request: NextRequest) => {
   const session = await authenticateConnector(request);
+  await assertInventorySyncEnabled(); // batch-2026-10 WS-D (F9.2.6)
   enforceRateLimit(`connector-items:${session.tokenId}`, { limit: 30, windowMs: 10 * 60_000 });
   if (Number(request.headers.get("content-length") ?? "0") > MAX_BYTES) throw validationFailed("Item list too large.");
   if (session.integration.status === "PAUSED") return NextResponse.json({ accepted: false, reason: "paused" }, { status: 202 });

@@ -44,7 +44,9 @@ export const MOBILE_IN_USE =
   "This mobile number is already linked to another account. Sign in with that account, or contact support if the number is yours.";
 export const EMAIL_IN_USE = "This email address is already used by another account.";
 
-type OtpPurpose = "LOGIN" | "EMAIL_CHANGE";
+/** batch-2026-10 WS-D: SHOP_ONBOARDING_CONSENT — a shop owner authorises an operator to onboard their shop. */
+type OtpPurpose = "LOGIN" | "EMAIL_CHANGE" | "SHOP_ONBOARDING_CONSENT";
+type RenderedEmail = { subject: string; text: string; html: string };
 
 export type LoginOtpRequestResult =
   /** Sent to the email in the request. */
@@ -134,6 +136,8 @@ async function issueCode(input: {
   ip: string | null;
   /** Module 3: send by SMS to `phoneE164` (an account with no real email). */
   bySms?: boolean;
+  /** batch-2026-10 WS-D: the email for a purpose other than LOGIN / EMAIL_CHANGE. */
+  render?: (code: string, expiryMinutes: number) => RenderedEmail;
 }): Promise<{ resendAfterSeconds: number; expiryMinutes: number }> {
   const rules = await getRule("otp");
   const now = Date.now();
@@ -191,8 +195,9 @@ async function issueCode(input: {
     return row.id;
   });
 
-  const message =
-    input.purpose === "LOGIN"
+  const message = input.render
+    ? input.render(code, rules.expiryMinutes)
+    : input.purpose === "LOGIN"
       ? renderOtpEmail(code, rules.expiryMinutes)
       : renderEmailChangeOtpEmail(code, rules.expiryMinutes);
   try {
@@ -586,4 +591,56 @@ export async function unlinkPhone(userId: string, role: User["role"]): Promise<v
     newValue: { phone: null },
   });
   await notifyEvent(NOTIFICATION_TYPES.SECURITY_PHONE_CHANGED, userId, { action: "removed" });
+}
+
+/* ------------------------------------------- shop onboarding consent (WS-D) */
+
+/**
+ * batch-2026-10 WS-D (F8.4.2): an Operator-Limited user onboards a shop for its
+ * owner only with the owner's consent. The code is emailed to the OWNER, bound
+ * to the operator who asked (stored as the code's user, so no other operator
+ * can use it), and the owner reads it out to the operator. Same hashing,
+ * expiry, attempt cap, cooldown and audit as a sign-in code.
+ */
+export async function requestShopOnboardingConsentOtp(input: {
+  email: string;
+  operatorId: string;
+  ip?: string | null;
+  render: (code: string, expiryMinutes: number) => RenderedEmail;
+}): Promise<{ maskedEmail: string; resendAfterSeconds: number; expiryMinutes: number }> {
+  const email = parseEmail(input.email);
+  const sent = await issueCode({
+    email,
+    purpose: "SHOP_ONBOARDING_CONSENT",
+    userId: input.operatorId,
+    phoneE164: null,
+    ip: input.ip ?? null,
+    render: input.render,
+  });
+  return { maskedEmail: maskEmailAddress(email), ...sent };
+}
+
+/** Checks and consumes the owner's code; throws the standard OTP_INVALID on any failure. */
+export async function verifyShopOnboardingConsentOtp(input: {
+  email: string;
+  code: string;
+  operatorId: string;
+  ip?: string | null;
+}): Promise<{ otpId: string; email: string }> {
+  const email = parseEmail(input.email);
+  const otp = await consumeCode({
+    email,
+    purpose: "SHOP_ONBOARDING_CONSENT",
+    code: input.code,
+    ip: input.ip ?? null,
+    userId: input.operatorId,
+  });
+  await auditOtp(AUDIT_ACTIONS.OTP_VERIFIED, {
+    email,
+    actorId: input.operatorId,
+    ip: input.ip ?? null,
+    otpId: otp.id,
+    purpose: "SHOP_ONBOARDING_CONSENT",
+  });
+  return { otpId: otp.id, email };
 }

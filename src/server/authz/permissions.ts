@@ -287,6 +287,14 @@ export const PERMISSIONS = {
   /* <<< end WS-C */
   //
   /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */
+  /** F8.4.2: onboard a shop for its owner (owner email-OTP consent first); own onboarded shops only. */
+  OPERATOR_LIMITED_ONBOARD: "operator-limited:onboard-shop",
+  /** F8.4.2: view, approve or reject the documents of the shops one onboarded. */
+  OPERATOR_LIMITED_VERIFY_DOCS: "operator-limited:verify-documents",
+  /** F9.1.4: bulk-edit selected products in the product browser (audited). */
+  PMD_BULK_EDIT: "pmd:bulk-edit",
+  /** F9.1.2: create manufacturer accounts and link their users. */
+  PMD_MANUFACTURER_MANAGE: "pmd:manufacturer:manage",
   /* <<< end WS-D */
   //
   /* >>> batch-2026-10 WS-E (invoicing, payouts, statutory) — add entries below this line only */
@@ -438,6 +446,7 @@ const OPERATOR_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.DISPUTE_MANAGE,
   // Module 2: support sees sync health; GST_CONFIG_MANAGE stays admin-only.
   PERMISSIONS.INTEGRATION_VIEW_ANY,
+  PERMISSIONS.PMD_BULK_EDIT, // batch-2026-10 WS-D (product browser bulk edit; audited)
   // Deliberately absent (§43 "not unrestricted system access"):
   // USER_SET_ROLE, USER_SUSPEND, WALLET_ADJUST, SYSTEM_CONFIG,
   // AUDIT_LOG_VIEW, REPORT_VIEW_ALL, WALLET_VIEW_ANY.
@@ -459,6 +468,29 @@ const ADMIN_PERMISSIONS: readonly Permission[] = Object.values(PERMISSIONS);
  */
 const SOCIETY_ADMIN_PERMISSIONS: readonly Permission[] = [...CUSTOMER_PERMISSIONS];
 
+/**
+ * batch-2026-10 WS-D (F8.4.2, RBAC-003): the Operator-Limited role. Exactly:
+ * onboard a shop for its owner (after the owner's email-OTP consent, with the
+ * referral code and the online registration fee) and view / approve / reject
+ * the documents of the shops THEY onboarded. Scope "own shops only" is enforced
+ * by services/operator-limited.ts (shops.onboarded_by_user_id), not by these
+ * capability names. Personal shopping capabilities are kept, as OPERATOR has.
+ * Deliberately absent: every FINANCE_*, PAYMENT_VIEW_ANY, PAYMENT_RECORD,
+ * SYSTEM_CONFIG, SHOP_UPDATE_ANY, SHOP_APPROVE, SHOP_REGISTRATION_MANAGE,
+ * REFERRAL_MANAGE, SHOP_GST_PAN_VERIFY (that would open every shop's
+ * documents), USER_VIEW_ANY and AUDIT_LOG_VIEW*.
+ */
+const OPERATOR_LIMITED_PERMISSIONS: readonly Permission[] = [
+  PERMISSIONS.ORDER_PLACE,
+  PERMISSIONS.ORDER_VIEW_OWN,
+  PERMISSIONS.ORDER_CANCEL_OWN,
+  PERMISSIONS.WALLET_VIEW_OWN,
+  PERMISSIONS.WALLET_TOPUP_OWN,
+  PERMISSIONS.SUBSCRIPTION_MANAGE_OWN,
+  PERMISSIONS.OPERATOR_LIMITED_ONBOARD,
+  PERMISSIONS.OPERATOR_LIMITED_VERIFY_DOCS,
+];
+
 export const ROLE_PERMISSIONS: Readonly<
   Record<UserRole, readonly Permission[]>
 > = {
@@ -468,6 +500,7 @@ export const ROLE_PERMISSIONS: Readonly<
   ADMIN: ADMIN_PERMISSIONS,
   DELIVERY_PARTNER: DELIVERY_PARTNER_PERMISSIONS,
   SOCIETY_ADMIN: SOCIETY_ADMIN_PERMISSIONS,
+  OPERATOR_LIMITED: OPERATOR_LIMITED_PERMISSIONS, // batch-2026-10 WS-D
 };
 
 const PERMISSION_SETS: Readonly<Record<UserRole, ReadonlySet<Permission>>> = {
@@ -477,6 +510,7 @@ const PERMISSION_SETS: Readonly<Record<UserRole, ReadonlySet<Permission>>> = {
   ADMIN: new Set(ADMIN_PERMISSIONS),
   DELIVERY_PARTNER: new Set(DELIVERY_PARTNER_PERMISSIONS),
   SOCIETY_ADMIN: new Set(SOCIETY_ADMIN_PERMISSIONS),
+  OPERATOR_LIMITED: new Set(OPERATOR_LIMITED_PERMISSIONS), // batch-2026-10 WS-D
 };
 
 export function can(role: UserRole, permission: Permission): boolean {
@@ -501,6 +535,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   ADMIN: "Administrator",
   DELIVERY_PARTNER: "Delivery Partner",
   SOCIETY_ADMIN: "Society Admin",
+  OPERATOR_LIMITED: "Operator (Limited)", // batch-2026-10 WS-D
 };
 
 export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
@@ -632,6 +667,11 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   /* <<< end WS-C */
   //
   /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */
+  [PERMISSIONS.OPERATOR_LIMITED_ONBOARD]:
+    "Onboard a shop for its owner after the owner confirms an emailed code (own onboarded shops only)",
+  [PERMISSIONS.OPERATOR_LIMITED_VERIFY_DOCS]: "View, approve or reject the documents of shops one onboarded",
+  [PERMISSIONS.PMD_BULK_EDIT]: "Bulk-edit category, HSN, GST, brand or MRP of selected products",
+  [PERMISSIONS.PMD_MANUFACTURER_MANAGE]: "Create manufacturer accounts and link their users",
   /* <<< end WS-D */
   //
   /* >>> batch-2026-10 WS-E (invoicing, payouts, statutory) — add entries below this line only */

@@ -218,6 +218,15 @@ const serverEnvSchema = z.object({
   CASHFREE_PAYOUT_ENV: z.enum(["sandbox", "production"]).default("sandbox"), // batch-2026-10 WS-E
   /** batch-2026-10 WS-E: signing secret of the simulated payout webhooks (defaults to one derived from AUTH_SECRET). */
   PAYOUT_SANDBOX_WEBHOOK_SECRET: z.string().optional(), // batch-2026-10 WS-E
+  /** GS1 India DataKart API (F9.1.2): base URL and key from the agreement; unset = mock (never in production). */
+  GS1_DATAKART_BASE_URL: z.string().url().optional(), // batch-2026-10 WS-D
+  GS1_DATAKART_API_KEY: z.string().optional(), // batch-2026-10 WS-D
+  /** S3-compatible object store for imported product images (F9.1.4); used only with rule objectStore.s3Enabled. */
+  OBJECT_STORE_ENDPOINT: z.string().url().optional(), // batch-2026-10 WS-D
+  OBJECT_STORE_BUCKET: z.string().optional(), // batch-2026-10 WS-D
+  OBJECT_STORE_REGION: z.string().optional(), // batch-2026-10 WS-D
+  OBJECT_STORE_ACCESS_KEY_ID: z.string().optional(), // batch-2026-10 WS-D
+  OBJECT_STORE_SECRET_ACCESS_KEY: z.string().optional(), // batch-2026-10 WS-D
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

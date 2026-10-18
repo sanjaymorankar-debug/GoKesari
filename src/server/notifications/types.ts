@@ -229,6 +229,18 @@ export const NOTIFICATION_TYPES = {
   /* <<< end WS-C */
   //
   /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */
+  /** To the owner: an operator registered your shop for you (after you confirmed the emailed code). */
+  SHOP_ONBOARDED_BY_OPERATOR: "shop.onboarded_by_operator",
+  /** To the owner (email): pay the registration fee with this link. */
+  SHOP_REGISTRATION_FEE_LINK: "shop.registration_fee_link",
+  /** To the owner and the onboarding operator: the registration fee was paid online. */
+  SHOP_REGISTRATION_FEE_PAID: "shop.registration_fee_paid",
+  /** To the onboarding operator: the fee did not go through — the shop waits for an administrator. */
+  SHOP_REGISTRATION_FEE_FAILED: "shop.registration_fee_failed",
+  /** To administrators: an operator-onboarded shop's fee failed or expired; it is pending their approval. */
+  SUPPORT_SHOP_FEE_FAILED: "support.shop_registration_fee_failed",
+  /** To whoever started it: a product-master import finished (counts, error file). */
+  PMD_IMPORT_FINISHED: "product.master_import_finished",
   /* <<< end WS-D */
   //
   /* >>> batch-2026-10 WS-E (invoicing, payouts, statutory) — add entries below this line only */

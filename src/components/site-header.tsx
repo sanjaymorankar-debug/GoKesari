@@ -137,7 +137,9 @@ export function SiteHeader({
         ? { href: BOARD_HOME.admin, label: UI.adminBoard, icon: "layout-grid" }
         : board === "operator"
           ? { href: BOARD_HOME.operator, label: UI.operatorBoard, icon: "layout-grid" }
-          : isRider
+          : role === "OPERATOR_LIMITED" // batch-2026-10 WS-D: the Operator-Limited board
+            ? { href: "/operator", label: UI.operatorBoard, icon: "layout-grid" }
+            : isRider
             ? { href: "/gig/orders", label: UI.riderHome, icon: "bike" }
             : null;
 

@@ -357,6 +357,31 @@ export const AUDIT_ACTIONS = {
   PLATFORM_NOTE_ISSUED: "platform_invoice.note_issued", // batch-2026-10 WS-E
   STATUTORY_RATE_CHANGED: "statutory_rate.changed", // batch-2026-10 WS-E
   STATUTORY_REPORT_EXPORTED: "statutory.report_exported", // batch-2026-10 WS-E
+  // batch-2026-10 WS-D — Operator-Limited onboarding (F8.4.2): every action is audited.
+  OPLTD_OWNER_OTP_SENT: "operator_limited.owner_otp_sent",
+  OPLTD_OWNER_VERIFIED: "operator_limited.owner_verified",
+  OPLTD_OWNER_OTP_FAILED: "operator_limited.owner_otp_failed",
+  OPLTD_SHOP_SUBMITTED: "operator_limited.shop_submitted",
+  OPLTD_SHOPS_VIEWED: "operator_limited.shops_viewed",
+  OPLTD_DOCUMENTS_VIEWED: "operator_limited.documents_viewed",
+  OPLTD_DOCUMENT_DECIDED: "operator_limited.document_decided",
+  OPLTD_ACCESS_DENIED: "operator_limited.access_denied",
+  OPLTD_FEE_REQUESTED: "operator_limited.fee_requested",
+  OPLTD_FEE_PAID: "operator_limited.fee_paid",
+  OPLTD_FEE_FAILED: "operator_limited.fee_failed",
+  // batch-2026-10 WS-D — product master data (F9.1.2 / F9.1.4).
+  PMD_MANUFACTURER_CREATED: "pmd.manufacturer_created",
+  PMD_MANUFACTURER_MEMBER_ADDED: "pmd.manufacturer_member_added",
+  PMD_API_KEY_ISSUED: "pmd.api_key_issued",
+  PMD_API_KEY_REVOKED: "pmd.api_key_revoked",
+  PMD_API_KEY_USED: "pmd.api_key_used",
+  PMD_INGEST_JOB_CREATED: "pmd.ingest_job_created",
+  PMD_INGEST_JOB_FINISHED: "pmd.ingest_job_finished",
+  PMD_SOURCE_LOOKUP: "pmd.source_lookup",
+  PMD_BULK_EDITED: "pmd.bulk_edited",
+  PMD_PRODUCTS_MERGED: "pmd.products_merged",
+  PMD_PRODUCTS_PROMOTED: "pmd.products_promoted",
+  INVENTORY_SYNC_BLOCKED: "inventory_sync.blocked",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

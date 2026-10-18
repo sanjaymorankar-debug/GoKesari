@@ -1043,6 +1043,62 @@ export const RULES = {
   /* <<< end WS-C */
   //
   /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */
+  operatorLimited: {
+    description:
+      "Operator-Limited shop onboarding (F8.4.2). An Operator-Limited user onboards a shop for its owner only after the owner reads back the code emailed to them: the verified code is good for consentValidMinutes. The registration fee is paid online — a payment link emailed to the owner (valid paymentLinkExpiryHours) or in session. A fee that fails or whose link expires leaves the shop PENDING_APPROVAL for an administrator, who is told at once.",
+    schema: z.object({
+      consentValidMinutes: int(5, 1440),
+      paymentLinkExpiryHours: int(1, 720),
+    }),
+    defaults: { consentValidMinutes: 60, paymentLinkExpiryHours: 72 },
+  },
+  pmdSources: {
+    description:
+      "Product master data sources and large imports (F9.1.2 / F9.1.4). manufacturerPortalEnabled: manufacturers upload their catalogue at /manufacturer or by API key (apiRequestsPerMinute per key). gs1Enabled: GS1 India DataKart look-ups (a mock answers until GS1_DATAKART_API_KEY / GS1_DATAKART_BASE_URL are set; the mock never runs in production). openFoodFactsEnabled: Open Food Facts barcode look-ups for packaged food — ODbL 1.0, offAttribution is stored with every record. Imports are staged and processed ingestBatchSize rows at a time by the pmd-ingest worker (ingestBatchesPerTick per run), resumable after an interruption; maxRowsPerFile caps one file. With imagesEnabled, image URLs are fetched (public addresses only), resized to imageMaxEdgePx and kept in the object store.",
+    schema: z.object({
+      manufacturerPortalEnabled: z.boolean(),
+      gs1Enabled: z.boolean(),
+      openFoodFactsEnabled: z.boolean(),
+      offAttribution: z.string().min(10).max(500),
+      offRequestsPerMinute: int(1, 600),
+      apiRequestsPerMinute: int(1, 6000),
+      maxRowsPerFile: int(100, 1_000_000),
+      ingestBatchSize: int(10, 10_000),
+      ingestBatchesPerTick: int(1, 1000),
+      imagesEnabled: z.boolean(),
+      imageMaxEdgePx: int(100, 4000),
+      imageMaxBytes: int(100_000, 20_000_000),
+      imagesPerRow: int(0, 10),
+    }),
+    defaults: {
+      manufacturerPortalEnabled: true,
+      gs1Enabled: false,
+      openFoodFactsEnabled: false,
+      offAttribution:
+        "Data from Open Food Facts (https://world.openfoodfacts.org), © Open Food Facts contributors, available under the Open Database License (ODbL 1.0); product images under CC BY-SA.",
+      offRequestsPerMinute: 60,
+      apiRequestsPerMinute: 60,
+      maxRowsPerFile: 200_000,
+      ingestBatchSize: 1000,
+      ingestBatchesPerTick: 5,
+      imagesEnabled: true,
+      imageMaxEdgePx: 800,
+      imageMaxBytes: 5_000_000,
+      imagesPerRow: 3,
+    },
+  },
+  objectStore: {
+    description:
+      "Where imported product images are kept. Off: the platform's own store (database, or MEDIA_DIR on disk). s3Enabled: an S3-compatible bucket configured by OBJECT_STORE_ENDPOINT, OBJECT_STORE_BUCKET, OBJECT_STORE_REGION, OBJECT_STORE_ACCESS_KEY_ID and OBJECT_STORE_SECRET_ACCESS_KEY (ignored until all are set).",
+    schema: z.object({ s3Enabled: z.boolean() }),
+    defaults: { s3Enabled: false },
+  },
+  inventorySync: {
+    description:
+      "Inventory / accounting-software sync (Module 2: Tally, Odoo, Zoho Books…). Descoped — stock is the shop owner's responsibility. Off: the integration-sync job, automatic dispatch and the desktop connector stop, and the connect screen is hidden. No connection or data is deleted; switching it on resumes everything.",
+    schema: z.object({ enabled: z.boolean() }),
+    defaults: { enabled: false },
+  },
   /* <<< end WS-D */
   //
   /* >>> batch-2026-10 WS-E (invoicing, payouts, statutory) — add entries below this line only */

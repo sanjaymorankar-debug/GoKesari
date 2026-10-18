@@ -1124,6 +1124,86 @@ export const EVENTS = {
   /* <<< end WS-C */
   //
   /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */
+  /** F8.4.2: an Operator-Limited user submitted a shop for its owner (after the owner's OTP). */
+  "shop.onboarded_by_operator": define<{
+    shopName: string;
+    ownerId: string;
+    operatorName: string;
+    registrationNumber: string | null;
+  }>("shop", (p) => [
+    {
+      to: p.ownerId,
+      type: N.SHOP_ONBOARDED_BY_OPERATOR,
+      vars: { shopName: p.shopName, operatorName: p.operatorName, registrationNumber: p.registrationNumber ?? "" },
+      actionUrl: "/shop",
+    },
+  ]),
+  /** The fee link for an operator-onboarded shop, emailed to its owner now. */
+  "shop.registration_fee_link_sent": define<{
+    shopName: string;
+    ownerId: string;
+    amountPaise: number;
+    link: string;
+    expiresAt: string;
+  }>("shop", (p) => [
+    {
+      to: p.ownerId,
+      type: N.SHOP_REGISTRATION_FEE_LINK,
+      vars: { shopName: p.shopName, amount: formatPaise(p.amountPaise), link: p.link, expiresAt: p.expiresAt },
+      actionUrl: p.link,
+      channels: ["IN_APP", "EMAIL"],
+    },
+  ]),
+  "shop.registration_fee_paid": define<{
+    shopName: string;
+    ownerId: string;
+    operatorId: string | null;
+    amountPaise: number;
+    approved: boolean;
+  }>("shop", (p) => {
+    const vars = {
+      shopName: p.shopName,
+      amount: formatPaise(p.amountPaise),
+      nextStep: p.approved ? "Your shop is approved and live." : "Your shop is with our team for approval.",
+    };
+    return [
+      { to: p.ownerId, type: N.SHOP_REGISTRATION_FEE_PAID, vars, actionUrl: "/shop", includeActor: true },
+      { to: p.operatorId, type: N.SHOP_REGISTRATION_FEE_PAID, vars, actionUrl: "/operator/payments" },
+    ];
+  }),
+  /** The fee failed or its link expired: the shop stays PENDING_APPROVAL for an administrator. */
+  "shop.registration_fee_failed": define<{
+    shopName: string;
+    operatorId: string | null;
+    operatorName: string;
+    reason: string;
+  }>("shop", (p) => [
+    { to: p.operatorId, type: N.SHOP_REGISTRATION_FEE_FAILED, vars: { shopName: p.shopName, reason: p.reason }, actionUrl: "/operator/payments" },
+    {
+      to: "SUPPORT_LEAD",
+      type: N.SUPPORT_SHOP_FEE_FAILED,
+      vars: { shopName: p.shopName, operatorName: p.operatorName, reason: p.reason },
+      actionUrl: "/admin/shops",
+    },
+  ]),
+  /** F9.1.4: a product-master import job finished. */
+  "pmd.import_finished": define<{
+    createdBy: string | null;
+    fileName: string;
+    staged: number;
+    failed: number;
+    status: string;
+    jobId: string;
+    url: string;
+  }>("product_import", (p) => [
+    {
+      to: p.createdBy,
+      type: N.PMD_IMPORT_FINISHED,
+      vars: { fileName: p.fileName, staged: p.staged, failed: p.failed, status: p.status },
+      actionUrl: p.url,
+      includeActor: true,
+    },
+  ]),
   /* <<< end WS-D */
   //
   /* >>> batch-2026-10 WS-E (invoicing, payouts, statutory) — add entries below this line only */
