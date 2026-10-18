@@ -224,6 +224,16 @@ export const TABLE_OWNERSHIP = {
   /* <<< end WS-B */
   //
   /* >>> batch-2026-10 WS-C (cancellation fee, refunds, help desk) — add entries below this line only */
+  shop_cancellation_fee_settings: "seller",
+  order_charges: "customer",
+  order_refunds: "customer",
+  order_refund_events: "customer",
+  support_tickets: "customer",
+  support_ticket_messages: "customer",
+  support_ticket_attachments: "customer",
+  support_ticket_events: "customer",
+  support_canned_replies: "customer",
+  support_ticket_csat: "customer",
   /* <<< end WS-C */
   //
   /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */

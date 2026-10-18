@@ -220,6 +220,28 @@ export const NOTIFICATION_TYPES = {
   /* <<< end WS-B */
   //
   /* >>> batch-2026-10 WS-C (cancellation fee, refunds, help desk) — add entries below this line only */
+  /** To the customer: a refund was requested / is processing / succeeded / failed (email + push). */
+  ORDER_REFUND_UPDATED: "order.refund_updated",
+  /** To the shop owner: the customer cancelled a packed order; the after-packing fee kept for the shop. */
+  SHOP_ORDER_CANCELLED_AFTER_PACKING: "shop.order_cancelled_after_packing",
+  /** To the requester: their ticket was received (number + SLA). */
+  TICKET_RECEIVED: "ticket.received",
+  /** To the requester / assignee: the ticket's status changed. */
+  TICKET_STATUS_CHANGED: "ticket.status_changed",
+  /** To the other side of the conversation: a new public reply. */
+  TICKET_REPLY: "ticket.reply",
+  /** To the requester: the ticket is closed — rate the help you got. */
+  TICKET_CSAT_REQUESTED: "ticket.csat_requested",
+  /** To the shop owner: support needs the shop's input on a ticket about its order. */
+  SHOP_TICKET_AWAITING: "shop.ticket_awaiting",
+  /** To support (operators + admins): a new ticket. */
+  SUPPORT_TICKET_NEW: "support.ticket_new",
+  /** To the assignee: a ticket was assigned to them. */
+  SUPPORT_TICKET_ASSIGNED: "support.ticket_assigned",
+  /** To administrators (and the assignee): a ticket was escalated (manually or on an SLA breach). */
+  SUPPORT_TICKET_ESCALATED: "support.ticket_escalated",
+  /** To the assignee or support: the requester or shop replied. */
+  SUPPORT_TICKET_REPLY: "support.ticket_reply",
   /* <<< end WS-C */
   //
   /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */

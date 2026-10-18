@@ -7735,6 +7735,303 @@ export type ProductAttributes = typeof productAttributes.$inferSelect;
 
 /* >>> batch-2026-10 WS-C (cancellation fee, refunds, help desk) — tables below this line only */
 
+/*
+ * F6.1.3 (NEW-006, D10): a shop's own after-packing cancellation fee, within
+ * the admin's limits (rule afterPackingCancellation). Seller database: it is a
+ * shop setting. One row per shop; no row = the platform default.
+ */
+export const shopCancellationFeeSettings = pgTable(
+  "shop_cancellation_fee_settings",
+  {
+    shopId: uuid("shop_id")
+      .primaryKey()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    /** The shop charges the fee (false = never charge it for this shop). */
+    enabled: boolean("enabled").notNull().default(true),
+    feeType: text("fee_type").$type<"FLAT" | "PERCENT">().notNull().default("FLAT"),
+    feePaise: bigint("fee_paise", { mode: "number" }).notNull().default(0),
+    /** Basis points of the goods subtotal (1000 = 10%), for PERCENT. */
+    feeBp: integer("fee_bp").notNull().default(0),
+    /** Most the fee may be, whatever the percentage gives (null = the admin's maximum). */
+    capPaise: bigint("cap_paise", { mode: "number" }),
+    /** Platform user id (cross-database: no foreign key). */
+    updatedBy: uuid("updated_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("shop_cancellation_fee_type_valid", sql`${t.feeType} IN ('FLAT', 'PERCENT')`),
+    check(
+      "shop_cancellation_fee_non_negative",
+      sql`${t.feePaise} >= 0 AND ${t.feeBp} >= 0 AND ${t.feeBp} <= 10000 AND (${t.capPaise} IS NULL OR ${t.capPaise} >= 0)`,
+    ),
+  ],
+);
+export type ShopCancellationFeeSetting = typeof shopCancellationFeeSettings.$inferSelect;
+
+/**
+ * Charges kept from an order's refund (the order ledger of deductions): today
+ * the after-packing cancellation fee. Each charge is also journaled in
+ * finance_ledger_entries. Customer database (everything after an order).
+ */
+export const orderCharges = pgTable(
+  "order_charges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"AFTER_PACKING_CANCELLATION_FEE">().notNull(),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    /** Who the charge is for: the shop (paid in its next settlement) or the platform. */
+    beneficiary: text("beneficiary").$type<"SHOP" | "PLATFORM">().notNull(),
+    /** How it was worked out (fee type, rate, cap, source), as shown to the customer. */
+    basis: jsonb("basis").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    financialAdjustmentId: uuid("financial_adjustment_id"),
+    idempotencyKey: text("idempotency_key").notNull(),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("order_charges_idempotency_unique").on(t.idempotencyKey),
+    index("order_charges_order_idx").on(t.orderId),
+    check("order_charges_amount_positive", sql`${t.amountPaise} > 0`),
+    check("order_charges_beneficiary_valid", sql`${t.beneficiary} IN ('SHOP', 'PLATFORM')`),
+  ],
+);
+export type OrderCharge = typeof orderCharges.$inferSelect;
+
+/**
+ * F6.2.3 (GS-073): one refund of an order — how much, where it goes (the
+ * GoKesari wallet, instant; or the original payment method through the
+ * gateway), the itemised deductions, and its status.
+ *   REQUESTED → PROCESSING → SUCCESS | FAILED
+ */
+export const orderRefunds = pgTable(
+  "order_refunds",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    method: text("method").$type<"WALLET" | "ORIGINAL">().notNull(),
+    /** How the order was paid: WALLET, ONLINE (gateway) or COD. */
+    paymentChannel: text("payment_channel").$type<"WALLET" | "ONLINE" | "COD">().notNull(),
+    status: text("status").$type<"REQUESTED" | "PROCESSING" | "SUCCESS" | "FAILED">().notNull().default("REQUESTED"),
+    paidPaise: bigint("paid_paise", { mode: "number" }).notNull(),
+    deductionsPaise: bigint("deductions_paise", { mode: "number" }).notNull().default(0),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    /** The itemised breakdown the customer was shown. */
+    breakdown: jsonb("breakdown").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    reason: text("reason"),
+    gatewayIntentId: text("gateway_intent_id"),
+    gatewayRefundRef: text("gateway_refund_ref"),
+    walletTransactionId: uuid("wallet_transaction_id"),
+    /** Gateway attempts so far (ORIGINAL). */
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    /** The gateway refund failed and the amount went to the wallet instead. */
+    fellBackToWallet: boolean("fell_back_to_wallet").notNull().default(false),
+    idempotencyKey: text("idempotency_key").notNull(),
+    requestedBy: uuid("requested_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("order_refunds_idempotency_unique").on(t.idempotencyKey),
+    index("order_refunds_order_idx").on(t.orderId),
+    index("order_refunds_status_idx").on(t.status),
+    check("order_refunds_method_valid", sql`${t.method} IN ('WALLET', 'ORIGINAL')`),
+    check("order_refunds_channel_valid", sql`${t.paymentChannel} IN ('WALLET', 'ONLINE', 'COD')`),
+    check("order_refunds_status_valid", sql`${t.status} IN ('REQUESTED', 'PROCESSING', 'SUCCESS', 'FAILED')`),
+    check("order_refunds_amounts_valid", sql`${t.amountPaise} >= 0 AND ${t.deductionsPaise} >= 0 AND ${t.paidPaise} >= 0`),
+  ],
+);
+export type OrderRefund = typeof orderRefunds.$inferSelect;
+
+/** The refund timeline shown to the customer: one row per status reached. */
+export const orderRefundEvents = pgTable(
+  "order_refund_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    refundId: uuid("refund_id")
+      .notNull()
+      .references(() => orderRefunds.id, { onDelete: "cascade" }),
+    orderId: uuid("order_id").notNull(),
+    status: text("status").$type<"REQUESTED" | "PROCESSING" | "SUCCESS" | "FAILED">().notNull(),
+    note: text("note"),
+    actorId: uuid("actor_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("order_refund_events_refund_idx").on(t.refundId, t.createdAt)],
+);
+export type OrderRefundEvent = typeof orderRefundEvents.$inferSelect;
+
+/*
+ * F6.3.3 (SM-006): help desk. One unified ticket for customers and shop
+ * owners, raised from an order or the /support portal; worked by support at
+ * /admin/support. Customer database (tickets follow orders). The statutory
+ * grievance register (grievances) is kept; a new grievance also opens a
+ * linked ticket (rule helpdesk.ticketForGrievances).
+ */
+export const supportTickets = pgTable(
+  "support_tickets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** TKT-000123 — what the requester quotes back. */
+    ticketNumber: text("ticket_number")
+      .notNull()
+      .default(sql`'TKT-' || lpad(nextval('support_ticket_seq')::text, 6, '0')`),
+    /** Null only for a ticket opened from an anonymous grievance. */
+    requesterId: uuid("requester_id").references(() => users.id, { onDelete: "set null" }),
+    requesterRole: text("requester_role").notNull().default("CUSTOMER"),
+    requesterName: text("requester_name"),
+    requesterEmail: text("requester_email"),
+    orderId: uuid("order_id").references(() => orders.id, { onDelete: "set null" }),
+    /** The shop the ticket is about (seller database: no foreign key). */
+    shopId: uuid("shop_id"),
+    disputeId: uuid("dispute_id").references(() => orderDisputes.id, { onDelete: "set null" }),
+    grievanceId: uuid("grievance_id").references(() => grievances.id, { onDelete: "set null" }),
+    category: text("category").notNull(),
+    subject: text("subject").notNull(),
+    description: text("description").notNull(),
+    status: text("status").notNull().default("OPEN"),
+    priority: text("priority").notNull().default("NORMAL"),
+    assignedToUserId: uuid("assigned_to_user_id").references(() => users.id, { onDelete: "set null" }),
+    escalationLevel: integer("escalation_level").notNull().default(0),
+    escalatedAt: timestamp("escalated_at", { withTimezone: true }),
+    /** SLA clock (rule helpdesk), fixed when the ticket is received. */
+    acknowledgeBy: timestamp("acknowledge_by", { withTimezone: true }).notNull(),
+    resolveBy: timestamp("resolve_by", { withTimezone: true }).notNull(),
+    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    ackBreachedAt: timestamp("ack_breached_at", { withTimezone: true }),
+    resolveBreachedAt: timestamp("resolve_breached_at", { withTimezone: true }),
+    reopenCount: integer("reopen_count").notNull().default(0),
+    resolutionNote: text("resolution_note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("support_tickets_number_unique").on(t.ticketNumber),
+    index("support_tickets_status_idx").on(t.status),
+    index("support_tickets_requester_idx").on(t.requesterId),
+    index("support_tickets_shop_idx").on(t.shopId),
+    index("support_tickets_order_idx").on(t.orderId),
+    index("support_tickets_assignee_idx").on(t.assignedToUserId),
+    check(
+      "support_tickets_status_valid",
+      sql`${t.status} IN ('OPEN','ACKNOWLEDGED','IN_PROGRESS','AWAITING_CUSTOMER','AWAITING_SHOP','RESOLVED','CLOSED','REOPENED','ESCALATED')`,
+    ),
+    check("support_tickets_priority_valid", sql`${t.priority} IN ('LOW','NORMAL','HIGH','URGENT')`),
+  ],
+);
+export type SupportTicket = typeof supportTickets.$inferSelect;
+
+/** Replies (public) and internal notes (support only). */
+export const supportTicketMessages = pgTable(
+  "support_ticket_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => supportTickets.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+    /** REQUESTER, SHOP or STAFF. */
+    authorKind: text("author_kind").notNull(),
+    body: text("body").notNull(),
+    internal: boolean("internal").notNull().default(false),
+    cannedReplyId: uuid("canned_reply_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("support_ticket_messages_ticket_idx").on(t.ticketId, t.createdAt)],
+);
+export type SupportTicketMessage = typeof supportTicketMessages.$inferSelect;
+
+/** Files on a ticket (photo or PDF). Bytes are kept in the row (blob store "DB" mode). */
+export const supportTicketAttachments = pgTable(
+  "support_ticket_attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => supportTickets.id, { onDelete: "cascade" }),
+    messageId: uuid("message_id").references(() => supportTicketMessages.id, { onDelete: "set null" }),
+    uploadedBy: uuid("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+    fileName: text("file_name").notNull(),
+    contentType: text("content_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    sha256: text("sha256").notNull(),
+    /** Staff-only file (attached to an internal note). */
+    internal: boolean("internal").notNull().default(false),
+    data: bytea("data").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("support_ticket_attachments_ticket_idx").on(t.ticketId)],
+);
+export type SupportTicketAttachment = typeof supportTicketAttachments.$inferSelect;
+
+/** Everything that happened to a ticket (status moves, assignment, escalation, SLA breaches). */
+export const supportTicketEvents = pgTable(
+  "support_ticket_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => supportTickets.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    fromStatus: text("from_status"),
+    toStatus: text("to_status"),
+    actorId: uuid("actor_id"),
+    actorRole: text("actor_role"),
+    note: text("note"),
+    /** Shown to the requester (false for internal steps such as assignment). */
+    public: boolean("public").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("support_ticket_events_ticket_idx").on(t.ticketId, t.createdAt)],
+);
+export type SupportTicketEvent = typeof supportTicketEvents.$inferSelect;
+
+/** Ready-made replies support can insert (admin keeps the list). */
+export const supportCannedReplies = pgTable(
+  "support_canned_replies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    category: text("category"),
+    active: boolean("active").notNull().default(true),
+    createdBy: uuid("created_by"),
+    updatedBy: uuid("updated_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("support_canned_replies_active_idx").on(t.active)],
+);
+export type SupportCannedReply = typeof supportCannedReplies.$inferSelect;
+
+/** Customer satisfaction, once per ticket, after it is closed. */
+export const supportTicketCsat = pgTable(
+  "support_ticket_csat",
+  {
+    ticketId: uuid("ticket_id")
+      .primaryKey()
+      .references(() => supportTickets.id, { onDelete: "cascade" }),
+    rating: integer("rating").notNull(),
+    comment: text("comment"),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("support_ticket_csat_rating_range", sql`${t.rating} BETWEEN 1 AND 5`)],
+);
+export type SupportTicketCsat = typeof supportTicketCsat.$inferSelect;
+
 /* <<< end WS-C */
 
 /* >>> batch-2026-10 WS-D (operator-limited, product master data) — tables below this line only */

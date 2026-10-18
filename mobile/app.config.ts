@@ -75,6 +75,7 @@ const APP_LINK_PATH_PREFIXES = [
   "/subscribe",
   "/subscriptions",
   "/wallet",
+  "/support", // batch-2026-10 WS-C: help desk portal
 ];
 
 export default ({ config }: ConfigContext): ExpoConfig => ({

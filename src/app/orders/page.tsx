@@ -92,13 +92,18 @@ export default async function OrdersPage({
   // Fulfilment options (docs/four-features-2026-10): pickup / own delivery / GoKesari plan and time.
   const fulfilmentPlans = await getBuyerFulfilmentViews(orders.map((o) => o.id), user);
   // NEW-007: delivery photo and invoice links on delivered orders.
-  const [proofPhotos, invoicingRule, cancellationRule] = await Promise.all([
+  const [proofPhotos, invoicingRule, cancellationRule, afterPackingRule] = await Promise.all([
     proofPhotosForOrders(orders.filter((o) => o.status === "DELIVERED").map((o) => o.id)),
     getRule("invoicing"),
     getRule("cancellation"),
+    getRule("afterPackingCancellation"), // batch-2026-10 WS-C
   ]);
   // Before packing the customer may cancel (rule `cancellation`); the server checks again.
-  const cancellable: readonly string[] = cancellationRule.customerMayCancelUntil === "PREPARING" ? ["CONFIRMED", "ACCEPTED", "PREPARING"] : ["CONFIRMED"];
+  const cancellable: readonly string[] = [
+    ...(cancellationRule.customerMayCancelUntil === "PREPARING" ? ["CONFIRMED", "ACCEPTED", "PREPARING"] : ["CONFIRMED"]),
+    // batch-2026-10 WS-C (F6.1.3): after packing, for the fee the quote shows.
+    ...(afterPackingRule.enabled ? ["READY", "ASSIGNED"] : []),
+  ];
 
   return (
     <>
@@ -275,6 +280,16 @@ export default async function OrdersPage({
               {order.source !== "SUBSCRIPTION" && cancellable.includes(order.status) ? (
                 <CancelOrderButton orderId={order.id} orderNumber={order.orderNumber} />
               ) : null}
+
+              {/* batch-2026-10 WS-C: refund timeline, charges and help for this order. */}
+              <p className="mt-3 flex flex-wrap gap-3 text-xs">
+                <Link href={`/orders/${order.id}`} className="font-medium text-kesari-700 hover:underline" data-testid="order-details-link">
+                  Details, refunds &amp; help
+                </Link>
+                <Link href={`/support?orderId=${order.id}`} className="font-medium text-kesari-700 hover:underline">
+                  Get help with this order
+                </Link>
+              </p>
 
               {fulfilmentPlans.has(order.id) &&
               !["CANCELLED", "REFUNDED", "REFUND_PENDING"].includes(order.status) ? (

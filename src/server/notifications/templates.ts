@@ -261,6 +261,26 @@ export const TEMPLATES: Record<string, Template> = {
   /* <<< end WS-B */
   //
   /* >>> batch-2026-10 WS-C (cancellation fee, refunds, help desk) — add entries below this line only */
+  [T.ORDER_REFUND_UPDATED]: t("Refund {{statusLabel}} — order {{orderNumber}}", "{{amount}} {{detail}}"),
+  [T.SHOP_ORDER_CANCELLED_AFTER_PACKING]: t(
+    "Packed order cancelled by the customer",
+    "Order {{orderNumber}} was cancelled after packing. A {{fee}} cancellation fee was kept{{beneficiaryNote}}. Please put the items back in stock.",
+  ),
+  [T.TICKET_RECEIVED]: t(
+    "We've received your request — {{ticketNumber}}",
+    "Ticket {{ticketNumber}} ({{subject}}) is with our support team. We will acknowledge it by {{acknowledgeBy}} and aim to resolve it by {{resolveBy}}.",
+  ),
+  [T.TICKET_STATUS_CHANGED]: t("Ticket {{ticketNumber}}: {{statusLabel}}", "Your ticket {{ticketNumber}} ({{subject}}) is now {{statusLabel}}. {{note}}"),
+  [T.TICKET_REPLY]: t("New reply on ticket {{ticketNumber}}", "{{author}}: {{excerpt}}"),
+  [T.TICKET_CSAT_REQUESTED]: t("How did we do? — {{ticketNumber}}", "Your ticket {{ticketNumber}} is closed. Please rate the help you got (1–5)."),
+  [T.SHOP_TICKET_AWAITING]: t(
+    "Support needs your reply — {{ticketNumber}}",
+    "A ticket about order {{orderNumber}} needs the shop's input: {{subject}}. Reply from Support tickets.",
+  ),
+  [T.SUPPORT_TICKET_NEW]: t("New ticket {{ticketNumber}}", "{{category}} — {{subject}} (from {{requester}}). Acknowledge by {{acknowledgeBy}}.", false),
+  [T.SUPPORT_TICKET_ASSIGNED]: t("Ticket {{ticketNumber}} assigned to you", "{{subject}} — resolve by {{resolveBy}}."),
+  [T.SUPPORT_TICKET_ESCALATED]: t("Ticket {{ticketNumber}} escalated", "{{subject}}: {{why}}"),
+  [T.SUPPORT_TICKET_REPLY]: t("Reply on ticket {{ticketNumber}}", "{{author}}: {{excerpt}}", false),
   /* <<< end WS-C */
   //
   /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */

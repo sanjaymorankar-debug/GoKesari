@@ -30,7 +30,8 @@ export type SubjectKind =
   | "shop_registration"
   | "bank_refund"
   | "customer_referral_request"
-  | "product_import";
+  | "product_import"
+  | "order_refund"; // batch-2026-10 WS-C
 
 export interface EventMessage {
   /** A user id, an audience, or nothing (skipped — e.g. an order with no rider). */
@@ -1064,6 +1065,179 @@ export const EVENTS = {
   /* <<< end WS-B */
   //
   /* >>> batch-2026-10 WS-C (cancellation fee, refunds, help desk) — add entries below this line only */
+  /**
+   * F6.2.3: every refund status reaches the customer in the app, by email and
+   * by push (the push provider is WS-F's), including when they caused it
+   * (they still need to know the money moved).
+   */
+  "order_refund.updated": define<{
+    refundId: string;
+    orderId: string;
+    orderNumber: string;
+    buyerId: string;
+    status: "REQUESTED" | "PROCESSING" | "SUCCESS" | "FAILED";
+    statusLabel: string;
+    amountLabel: string;
+    detail: string;
+  }>("order_refund", (p) => [
+    {
+      to: p.buyerId,
+      type: N.ORDER_REFUND_UPDATED,
+      vars: { orderNumber: p.orderNumber, statusLabel: p.statusLabel, amount: p.amountLabel, detail: p.detail },
+      actionUrl: `/orders/${p.orderId}`,
+      channels: ["EMAIL", "PUSH"],
+      includeActor: true,
+      dedupe: `refund:${p.refundId}:${p.status}`,
+    },
+  ]),
+  /** F6.1.3: the shop hears that a packed order was cancelled for a fee (the order.cancelled event says the rest). */
+  "order.cancelled_after_packing": define<{
+    orderId: string;
+    orderNumber: string;
+    shopOwnerId: string | null;
+    feeLabel: string;
+    beneficiary: "SHOP" | "PLATFORM";
+  }>("order", (p) => [
+    {
+      to: p.shopOwnerId,
+      type: N.SHOP_ORDER_CANCELLED_AFTER_PACKING,
+      vars: {
+        orderNumber: p.orderNumber,
+        fee: p.feeLabel,
+        beneficiaryNote: p.beneficiary === "SHOP" ? " for your shop (paid in your next settlement)" : "",
+      },
+      actionUrl: SHOP_ORDERS,
+      channels: ["PUSH"],
+    },
+  ]),
+  /** F6.3.3 help desk: a ticket was raised. Requester gets the number and SLA; support gets a new-ticket alert. */
+  "support_ticket.created": define<{
+    ticketId: string;
+    ticketNumber: string;
+    subject: string;
+    categoryLabel: string;
+    requesterId: string | null;
+    requesterLabel: string;
+    acknowledgeByLabel: string;
+    resolveByLabel: string;
+    /** Opened from a grievance: the grievance form already acknowledged it. */
+    fromGrievance?: boolean;
+  }>("support_ticket", (p) => [
+    p.fromGrievance
+      ? { to: null, type: N.TICKET_RECEIVED }
+      : {
+          to: p.requesterId,
+          type: N.TICKET_RECEIVED,
+          vars: { ticketNumber: p.ticketNumber, subject: p.subject, acknowledgeBy: p.acknowledgeByLabel, resolveBy: p.resolveByLabel },
+          actionUrl: `/support/${p.ticketId}`,
+          channels: ["PUSH"],
+          includeActor: true,
+        },
+    {
+      to: "SUPPORT",
+      type: N.SUPPORT_TICKET_NEW,
+      vars: { ticketNumber: p.ticketNumber, subject: p.subject, category: p.categoryLabel, requester: p.requesterLabel, acknowledgeBy: p.acknowledgeByLabel },
+      actionUrl: `/admin/support/${p.ticketId}`,
+    },
+  ]),
+  /**
+   * Every status change: the requester (unless they made it), the assignee,
+   * and the shop owner when support is waiting for the shop. A closed ticket
+   * also asks the requester for a rating.
+   */
+  "support_ticket.status_changed": define<{
+    ticketId: string;
+    ticketNumber: string;
+    subject: string;
+    status: string;
+    statusLabel: string;
+    note?: string | null;
+    requesterId: string | null;
+    assigneeId: string | null;
+    shopOwnerId: string | null;
+    orderNumber?: string | null;
+    csat?: boolean;
+  }>("support_ticket", (p) => {
+    const messages: EventMessage[] = [
+      {
+        to: p.requesterId,
+        type: N.TICKET_STATUS_CHANGED,
+        vars: { ticketNumber: p.ticketNumber, subject: p.subject, statusLabel: p.statusLabel, note: p.note ?? "" },
+        actionUrl: `/support/${p.ticketId}`,
+        channels: ["PUSH"],
+      },
+      {
+        to: p.assigneeId,
+        type: N.TICKET_STATUS_CHANGED,
+        vars: { ticketNumber: p.ticketNumber, subject: p.subject, statusLabel: p.statusLabel, note: p.note ?? "" },
+        actionUrl: `/admin/support/${p.ticketId}`,
+      },
+    ];
+    if (p.status === "AWAITING_SHOP") {
+      messages.push({
+        to: p.shopOwnerId,
+        type: N.SHOP_TICKET_AWAITING,
+        vars: { ticketNumber: p.ticketNumber, subject: p.subject, orderNumber: p.orderNumber ?? "—" },
+        actionUrl: `/shop/support/${p.ticketId}`,
+        channels: ["PUSH"],
+      });
+    }
+    if (p.csat) {
+      messages.push({
+        to: p.requesterId,
+        type: N.TICKET_CSAT_REQUESTED,
+        vars: { ticketNumber: p.ticketNumber },
+        actionUrl: `/support/${p.ticketId}#rate`,
+        includeActor: true,
+        dedupe: `ticket:${p.ticketId}:csat`,
+      });
+    }
+    return messages;
+  }),
+  /** A public reply: whoever is on the other side hears about it. */
+  "support_ticket.replied": define<{
+    ticketId: string;
+    ticketNumber: string;
+    authorLabel: string;
+    excerpt: string;
+    /** Who wrote it: the requester, the shop, or support. */
+    authorKind: "REQUESTER" | "SHOP" | "STAFF";
+    requesterId: string | null;
+    assigneeId: string | null;
+    shopOwnerId: string | null;
+  }>("support_ticket", (p) => {
+    const vars = { ticketNumber: p.ticketNumber, author: p.authorLabel, excerpt: p.excerpt };
+    const toSupport: EventMessage = { to: p.assigneeId ?? "SUPPORT", type: N.SUPPORT_TICKET_REPLY, vars, actionUrl: `/admin/support/${p.ticketId}` };
+    const toRequester: EventMessage = { to: p.requesterId, type: N.TICKET_REPLY, vars, actionUrl: `/support/${p.ticketId}`, channels: ["PUSH"] };
+    if (p.authorKind === "STAFF") return [toRequester];
+    if (p.authorKind === "SHOP") return [toSupport, toRequester];
+    return [toSupport];
+  }),
+  "support_ticket.assigned": define<{
+    ticketId: string;
+    ticketNumber: string;
+    subject: string;
+    assigneeId: string;
+    resolveByLabel: string;
+  }>("support_ticket", (p) => [
+    {
+      to: p.assigneeId,
+      type: N.SUPPORT_TICKET_ASSIGNED,
+      vars: { ticketNumber: p.ticketNumber, subject: p.subject, resolveBy: p.resolveByLabel },
+      actionUrl: `/admin/support/${p.ticketId}`,
+    },
+  ]),
+  /** Manual escalation or an SLA breach (the help-desk job): administrators and the assignee. */
+  "support_ticket.escalated": define<{
+    ticketId: string;
+    ticketNumber: string;
+    subject: string;
+    why: string;
+    assigneeId: string | null;
+  }>("support_ticket", (p) => [
+    { to: "SUPPORT_LEAD", type: N.SUPPORT_TICKET_ESCALATED, vars: { ticketNumber: p.ticketNumber, subject: p.subject, why: p.why }, actionUrl: `/admin/support/${p.ticketId}` },
+    { to: p.assigneeId, type: N.SUPPORT_TICKET_ESCALATED, vars: { ticketNumber: p.ticketNumber, subject: p.subject, why: p.why }, actionUrl: `/admin/support/${p.ticketId}` },
+  ]),
   /* <<< end WS-C */
   //
   /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */

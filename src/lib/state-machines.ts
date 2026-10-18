@@ -11,6 +11,7 @@
 import type { DeliveryOrderStatus, OrderStatus } from "@/server/db/schema";
 import type { SellerVerificationStatus } from "./kyc/doc-formats";
 import { DISPUTE_TRANSITIONS, type DisputeStatus } from "./dispute-states";
+import { TICKET_TRANSITIONS, type TicketStatus } from "./support-ticket-states"; // batch-2026-10 WS-C
 
 /**
  * The approved order state machine (see the orderStatusEnum doc comment in
@@ -82,6 +83,7 @@ export const STATE_MACHINES = {
   delivery: DELIVERY_TRANSITIONS,
   seller_verification: SELLER_VERIFICATION_TRANSITIONS,
   dispute: DISPUTE_TRANSITIONS,
+  support_ticket: TICKET_TRANSITIONS, // batch-2026-10 WS-C
 } as const satisfies Record<string, Record<string, readonly string[]>>;
 
 export type MachineKind = keyof typeof STATE_MACHINES;
@@ -92,7 +94,9 @@ export type MachineStatus<K extends MachineKind> = K extends "order"
     ? DeliveryOrderStatus
     : K extends "seller_verification"
       ? SellerVerificationStatus
-      : DisputeStatus;
+      : K extends "support_ticket" // batch-2026-10 WS-C
+        ? TicketStatus
+        : DisputeStatus;
 
 /**
  * Whether `to` may follow `from`. A `from` of null is a new subject (its first

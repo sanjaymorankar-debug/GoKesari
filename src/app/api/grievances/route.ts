@@ -15,6 +15,7 @@ import { RATE_LIMITS, clientKey, enforceRateLimit } from "@/server/api/rate-limi
 import { getCurrentUser, requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { getGrievanceDashboard, listGrievances, submitGrievance } from "@/server/services/grievances";
+import { mirrorGrievanceToTicket } from "@/server/aftercare/support-tickets"; // batch-2026-10 WS-C
 
 export const dynamic = "force-dynamic";
 
@@ -41,6 +42,9 @@ export const POST = route(async (request: NextRequest) => {
   const body = await parseBody(request, submitSchema);
   const user = await getCurrentUser();
   const grievance = await submitGrievance({ ...body, submittedByUserId: user?.id ?? null });
+  // batch-2026-10 WS-C (F6.3.3): the complaint also opens a linked help desk
+  // ticket (rule helpdesk.ticketForGrievances). Never fails the submission.
+  await mirrorGrievanceToTicket(grievance);
   return ok(
     { ticketNumber: grievance.ticketNumber, status: grievance.status, createdAt: grievance.createdAt },
     201,
