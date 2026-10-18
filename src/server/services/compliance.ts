@@ -13,6 +13,7 @@ import { db } from "@/server/db";
 import { sellerVerifications, shops } from "@/server/db/schema";
 import { and, eq, inArray, isNull } from "drizzle-orm";
 import { getGrievanceDashboard } from "./grievances";
+import { getGrievanceOfficer } from "@/server/aftercare/grievance-officer"; // batch-2026-10 WS-C
 
 export type ComplianceStatus = "ACTIVE" | "MISSING" | "REVIEW_REQUIRED";
 
@@ -47,16 +48,19 @@ export async function getComplianceChecklist(): Promise<ComplianceItem[]> {
     });
   }
 
+  // batch-2026-10 WS-C: the officer is an admin setting (rule grievanceOfficer),
+  // falling back to LEGAL_ENTITY.grievanceOfficer for any empty field.
+  const officer = await getGrievanceOfficer();
   items.push({
     area: "Grievance Officer details",
     status:
-      isPlaceholder(LEGAL_ENTITY.grievanceOfficer.name) ||
-      isPlaceholder(LEGAL_ENTITY.grievanceOfficer.phone) ||
-      isPlaceholder(LEGAL_ENTITY.grievanceOfficer.address)
+      isPlaceholder(officer.name) ||
+      isPlaceholder(officer.phone) ||
+      isPlaceholder(officer.address)
         ? "MISSING"
         : "ACTIVE",
-    detail: isPlaceholder(LEGAL_ENTITY.grievanceOfficer.name)
-      ? "Placeholder officer name/phone/address in src/lib/legal-docs.ts must be replaced with a real appointee."
+    detail: isPlaceholder(officer.name)
+      ? "Placeholder officer name/phone/address must be replaced with a real appointee (Admin → Settings → grievanceOfficer, or src/lib/legal-docs.ts)."
       : "Grievance Officer contact details are on file.",
   });
 

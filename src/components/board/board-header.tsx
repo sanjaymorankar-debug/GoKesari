@@ -9,8 +9,9 @@ import { LocationPanel, OPEN_LOCATION_EVENT } from "@/components/location-picker
 import { RoleSwitcher } from "@/components/role-switcher";
 import { StandaloneBackButton } from "@/components/standalone-back-button";
 import { BrandTagline, BrandWordmark } from "@/components/brand-wordmark";
-import { formatCount, formatRupees } from "@/lib/board/format";
+import { formatRupees } from "@/lib/board/format";
 import { L, LANG_NAME, LANG_SWITCH_LABEL, LANGUAGES, tr, UI, type Lang, type Text } from "@/lib/board/i18n";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { setLanguageAction } from "@/server/language-action";
 import { signOutAction } from "@/server/sign-out-action";
 
@@ -161,7 +162,6 @@ export function BoardHeader({ lang, user, roles, unreadCount, extraLinks = [], c
     return () => window.removeEventListener(OPEN_LOCATION_EVENT, open);
   }, [context.kind]);
 
-  const unread = formatCount(unreadCount);
   const balance = context.kind === "customer" ? formatRupees(context.balancePaise) : null;
 
   return (
@@ -235,19 +235,15 @@ export function BoardHeader({ lang, user, roles, unreadCount, extraLinks = [], c
           ) : null}
 
           {user ? (
-            <Link
-              href="/profile?tab=notifications"
+            // batch-2026-10 WS-F: the bell opens the Notification Centre panel (link to /notifications without JS).
+            <NotificationBell
+              lang={lang}
+              unreadCount={unreadCount}
+              accountKey={user.email}
+              testId="board-bell"
+              badgeClassName="right-0"
               className="relative grid h-11 w-11 place-items-center min-[360px]:h-12 min-[360px]:w-12 rounded-xl text-ink-900 hover:bg-kesari-50"
-              aria-label={`${tr(UI.notifications, lang)}${unread ? `, ${unreadCount} ${tr(UI.unread, lang)}` : ""}`}
-              data-testid="board-bell"
-            >
-              <Icon name="bell" size={22} />
-              {unread ? (
-                <span className="absolute right-0 top-0.5 grid h-[1.125rem] min-w-[1.125rem] place-items-center rounded-full bg-red-700 px-1 text-xs font-bold text-white ring-2 ring-white">
-                  {unread}
-                </span>
-              ) : null}
-            </Link>
+            />
           ) : null}
 
           {user ? (

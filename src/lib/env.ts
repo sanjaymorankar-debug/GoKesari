@@ -205,6 +205,48 @@ const serverEnvSchema = z.object({
   MOBILE_ANDROID_CERT_SHA256: z.string().optional(),
   /** Comma-separated `<Apple Team ID>.<bundle id>`, e.g. `ABCDE12345.com.gokesari.app`. */
   MOBILE_IOS_APP_IDS: z.string().optional(),
+  /** Signs the pickup QR (rule pickupQr). Required in production; elsewhere AUTH_SECRET is used when unset. */
+  PICKUP_QR_SECRET: z.string().min(16).optional(), // batch-2026-10 WS-B
+  /** batch-2026-10 WS-E payouts: RazorpayX (key id/secret, the RazorpayX current account number, webhook secret). */
+  RAZORPAYX_KEY_ID: z.string().optional(), // batch-2026-10 WS-E
+  RAZORPAYX_KEY_SECRET: z.string().optional(), // batch-2026-10 WS-E
+  RAZORPAYX_ACCOUNT_NUMBER: z.string().optional(), // batch-2026-10 WS-E
+  RAZORPAYX_WEBHOOK_SECRET: z.string().optional(), // batch-2026-10 WS-E
+  /** batch-2026-10 WS-E payouts: Cashfree Payouts (separate from the PG keys); webhooks are signed with the client secret. */
+  CASHFREE_PAYOUT_CLIENT_ID: z.string().optional(), // batch-2026-10 WS-E
+  CASHFREE_PAYOUT_CLIENT_SECRET: z.string().optional(), // batch-2026-10 WS-E
+  CASHFREE_PAYOUT_ENV: z.enum(["sandbox", "production"]).default("sandbox"), // batch-2026-10 WS-E
+  /** batch-2026-10 WS-E: signing secret of the simulated payout webhooks (defaults to one derived from AUTH_SECRET). */
+  PAYOUT_SANDBOX_WEBHOOK_SECRET: z.string().optional(), // batch-2026-10 WS-E
+  /** GS1 India DataKart API (F9.1.2): base URL and key from the agreement; unset = mock (never in production). */
+  GS1_DATAKART_BASE_URL: z.string().url().optional(), // batch-2026-10 WS-D
+  GS1_DATAKART_API_KEY: z.string().optional(), // batch-2026-10 WS-D
+  /** S3-compatible object store for imported product images (F9.1.4); used only with rule objectStore.s3Enabled. */
+  OBJECT_STORE_ENDPOINT: z.string().url().optional(), // batch-2026-10 WS-D
+  OBJECT_STORE_BUCKET: z.string().optional(), // batch-2026-10 WS-D
+  OBJECT_STORE_REGION: z.string().optional(), // batch-2026-10 WS-D
+  OBJECT_STORE_ACCESS_KEY_ID: z.string().optional(), // batch-2026-10 WS-D
+  OBJECT_STORE_SECRET_ACCESS_KEY: z.string().optional(), // batch-2026-10 WS-D
+  /** Expo access token for the push service (rule push.provider = expo); only needed with Expo's enhanced push security. */
+  EXPO_ACCESS_TOKEN: z.string().optional(), // batch-2026-10 WS-F
+
+  // batch-2026-10 WS-A — direct online payment (docs/payments-gateway-2026-10.md).
+  /** Which gateway takes online payments for orders. SANDBOX (default) is in-process: tests and staging only. */
+  PAYMENT_GATEWAY: z.enum(["SANDBOX", "CASHFREE", "RAZORPAY", "PHONEPE"]).default("SANDBOX"), // batch-2026-10 WS-A
+  /** Sandbox webhook HMAC secret. Unset: a fixed test secret (refused in production). */
+  PAYMENT_WEBHOOK_SECRET_SANDBOX: z.string().optional(), // batch-2026-10 WS-A
+  /** Cashfree PG webhook secret. Unset: CASHFREE_SECRET_KEY (Cashfree signs webhooks with the API secret). */
+  PAYMENT_WEBHOOK_SECRET_CASHFREE: z.string().optional(), // batch-2026-10 WS-A
+  RAZORPAY_KEY_ID: z.string().optional(), // batch-2026-10 WS-A
+  RAZORPAY_KEY_SECRET: z.string().optional(), // batch-2026-10 WS-A
+  /** Razorpay dashboard → Webhooks → secret. */
+  PAYMENT_WEBHOOK_SECRET_RAZORPAY: z.string().optional(), // batch-2026-10 WS-A
+  PHONEPE_MERCHANT_ID: z.string().optional(), // batch-2026-10 WS-A
+  PHONEPE_SALT_KEY: z.string().optional(), // batch-2026-10 WS-A
+  PHONEPE_SALT_INDEX: z.string().optional(), // batch-2026-10 WS-A
+  PHONEPE_ENV: z.enum(["sandbox", "production"]).default("sandbox"), // batch-2026-10 WS-A
+  /** Public origin used in gateway return / webhook URLs, e.g. https://test.gokesari.com. Falls back to AUTH_URL. */
+  PAYMENT_PUBLIC_BASE_URL: z.string().url().optional(), // batch-2026-10 WS-A
 });
 
 export type ServerEnv = z.infer<typeof serverEnvSchema>;

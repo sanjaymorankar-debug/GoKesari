@@ -2,7 +2,8 @@
  * Outbound channel providers.
  *
  *   notification → EmailChannel      (live: SMTP, see email/transport.ts)
- *   notification → SMS / PUSH / WHATSAPP  (seams — no vendor chosen yet)
+ *   notification → SMS / WHATSAPP  (mock until a vendor is chosen — Phase 2, see providers/)
+ *   notification → PUSH            (Expo push or mock, rule `push` — push/channel.ts)
  *
  * To add a vendor, implement `ChannelProvider` and return it from
  * `getChannelProvider`. Nothing else changes: preferences, retries, the
@@ -12,10 +13,14 @@ import { isPlaceholderEmail } from "@/lib/placeholder-email";
 import { EmailUnavailableError, emailMode, sendEmail } from "@/server/email/transport";
 import { isTextChannelAvailable, MessagingUnavailableError, sendText, textFromNotification, type TextChannel } from "@/server/messaging/sms-whatsapp";
 import type { OutboundChannel } from "./templates";
+// batch-2026-10 WS-F: the PUSH provider (Expo / mock), see push/channel.ts.
+import { pushChannel } from "./push/channel";
 
 export interface ChannelRecipient {
   email: string | null;
   phoneE164: string | null;
+  /** batch-2026-10 WS-F: the person, for channels addressed per user (push goes to their devices). */
+  userId?: string;
 }
 
 export interface ChannelMessage {
@@ -24,11 +29,15 @@ export interface ChannelMessage {
   text: string;
   html?: string | null;
   actionUrl?: string | null;
+  /** batch-2026-10 WS-F: the notification_deliveries row being sent (push keeps per-device tickets against it). */
+  deliveryId?: string;
 }
 
 export interface ChannelProvider {
   readonly channel: OutboundChannel;
   isAvailable(): boolean;
+  /** batch-2026-10 WS-F: an asynchronous switch (a rule); false skips the delivery like an unavailable provider. */
+  isEnabled?(): Promise<boolean>;
   /** Where this channel would send for a user, or null when the user has no address for it. */
   addressFor(recipient: ChannelRecipient): string | null;
   send(message: ChannelMessage): Promise<{ providerRef?: string }>;
@@ -81,7 +90,8 @@ export function getChannelProvider(channel: OutboundChannel): ChannelProvider | 
       return smsChannel;
     case "WHATSAPP":
       return whatsappChannel;
-    // A PUSH provider plugs in here once chosen.
+    case "PUSH": // batch-2026-10 WS-F — rule push (enabled off by default → skipped as before)
+      return pushChannel;
     default:
       return null;
   }

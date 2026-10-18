@@ -92,6 +92,10 @@ export interface ShopOrderRow {
   hasAddress?: boolean;
   /** The customer's delivery fee still on the order (pickup gives it back). */
   deliveryFeePaise?: number;
+  /** batch-2026-10 WS-B (rule pickupQr): the signed single-use pickup QR for a packed order (SVG markup from the server). */
+  pickupQr?: { svg: string; expiresAt: string } | null;
+  /** batch-2026-10 WS-B: printable packing slip with the QR. */
+  packingSlipUrl?: string | null;
 }
 
 /** Fulfilment options switched on: the slots and delivery people the planner offers. */
@@ -237,10 +241,32 @@ function OrderRow({
           ) : null}
         </p>
       ) : null}
+      {/* batch-2026-10 WS-C: raise a help desk ticket about this order. */}
+      <p className="mt-2 text-xs">
+        <a href={`/shop/support?orderId=${order.id}#new`} className="font-medium text-kesari-700 hover:underline">
+          Get help with this order
+        </a>
+      </p>
       {order.pickupCode && order.status === "ASSIGNED" ? (
         <p className="mt-2 rounded-lg bg-kesari-50 px-3 py-2 text-sm text-kesari-800" data-testid="pickup-code">
           Pickup code for the rider: <span className="font-mono text-lg font-bold tracking-widest">{order.pickupCode}</span>
         </p>
+      ) : null}
+
+      {order.pickupQr ? (
+        <div className="mt-2 flex flex-wrap items-center gap-3 rounded-lg bg-cream-100 px-3 py-2" data-testid="pickup-qr">
+          {/* Server-rendered by the qrcode library from our own signed payload — no user input. */}
+          <div className="h-32 w-32 shrink-0 bg-white" dangerouslySetInnerHTML={{ __html: order.pickupQr.svg }} />
+          <div className="text-sm text-ink-700">
+            <p className="font-medium">Pickup QR — the rider scans it at handover</p>
+            <p className="text-xs text-ink-500">Works once. The pickup code still works if the scan fails.</p>
+            {order.packingSlipUrl ? (
+              <a href={order.packingSlipUrl} className="mt-1 inline-block font-medium text-kesari-700 underline">
+                Print packing slip
+              </a>
+            ) : null}
+          </div>
+        </div>
       ) : null}
 
       {order.status === "READY" && deliveryAvailable && order.riderSearch && riderPlan ? (

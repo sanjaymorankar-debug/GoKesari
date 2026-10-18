@@ -14,6 +14,7 @@ import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { products, shopProducts } from "@/server/db/schema";
 import { listReferencesForProduct } from "@/server/services/price-references";
+import { PRICE_REFERENCES_DROPPED } from "@/lib/price-references-drop"; // batch-2026-10 WS-A
 import { galleryFor } from "@/server/services/product-images";
 import { effectiveDescriptions } from "@/lib/product-text";
 import { serviceableShopIds } from "@/server/services/serviceability";
@@ -74,7 +75,8 @@ export default async function ProductComparePage({
       : can(user.role, PERMISSIONS.SHOP_PRODUCT_MANAGE_OWN)
         ? "SHOP"
         : "CUSTOMER";
-  const references = await listReferencesForProduct(id, viewer);
+  // batch-2026-10 WS-A: F1.4.3 dropped — the "Reference prices" section is never rendered.
+  const references = PRICE_REFERENCES_DROPPED ? [] : await listReferencesForProduct(id, viewer);
   // Module 1: opened from a shop, the shop's own photos and description win;
   // whatever it has not set falls back to the master product's.
   const fromShop = shopSlug ? offers.find((o) => o.shopSlug === shopSlug) : undefined;
@@ -211,7 +213,7 @@ export default async function ProductComparePage({
         </Card>
       </Section>
 
-      {references.length > 0 ? (
+      {!PRICE_REFERENCES_DROPPED && references.length > 0 ? (
         <Section title="Reference prices">
           <Card className="divide-y divide-cream-200" data-testid="reference-prices">
             <p className="p-4 text-xs text-ink-500">

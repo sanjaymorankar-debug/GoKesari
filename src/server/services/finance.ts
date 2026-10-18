@@ -690,6 +690,11 @@ function assertMonday(weekStart: string): { start: IsoDate; end: IsoDate } {
  */
 export async function prepareShopSettlements(weekStart: string, actor: SystemOrActor): Promise<ShopSettlement[]> {
   const { start, end } = assertMonday(weekStart);
+  // batch-2026-10 WS-E: with automated payouts on (rule payouts), shops are paid
+  // through payout cycles instead — a weekly batch too would pay twice.
+  if ((await getRule("payouts")).enabled) {
+    throw conflict("Automated payouts are on (rule payouts): shop settlements are prepared by the payout cycle, under Admin → Payouts.");
+  }
   const settlementRule = await getRule("settlement");
 
   return db.transaction(async (tx) => {

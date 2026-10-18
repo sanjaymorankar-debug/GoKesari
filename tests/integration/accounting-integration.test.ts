@@ -85,6 +85,11 @@ beforeEach(async () => {
   await resetDatabase();
   gtinSeq = 0;
   await db.delete(platformSettings).where(inArray(platformSettings.key, ["invoicing", "mrp"]));
+  // batch-2026-10 WS-D (F9.2.6): inventory sync now ships off; these cases test the sync itself, so it is on.
+  await db
+    .insert(platformSettings)
+    .values({ key: "inventorySync", value: { enabled: true } })
+    .onConflictDoUpdate({ target: platformSettings.key, set: { value: { enabled: true } } });
   clearRuleCache();
   admin = { id: (await createUser({ role: "ADMIN" })).id, role: "ADMIN" };
   state.session = null;

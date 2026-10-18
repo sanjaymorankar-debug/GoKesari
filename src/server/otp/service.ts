@@ -31,20 +31,21 @@ import { enforceRateLimit } from "@/server/api/rate-limit";
 import { db } from "@/server/db";
 import { loginOtps, users, wallets, type User, type UserRole } from "@/server/db/schema";
 import { sendEmail } from "@/server/email/transport";
-import { renderEmailChangeOtpEmail, renderOtpEmail } from "@/server/notifications/templates";
 import { AUDIT_ACTIONS, recordAudit, type AuditAction } from "@/server/services/audit";
 import { recordConsent } from "@/server/services/consents";
 import { NOTIFICATION_TYPES, notifyEvent } from "@/server/services/notifications";
 import { grantRole } from "@/server/services/roles";
 import { getRule } from "@/server/services/settings";
-import { smsProvider } from "./providers";
+import { getOtpProvider } from "./providers";
 
 export const OTP_INVALID = "That code is wrong or has expired. Check the latest email or request a new code.";
 export const MOBILE_IN_USE =
   "This mobile number is already linked to another account. Sign in with that account, or contact support if the number is yours.";
 export const EMAIL_IN_USE = "This email address is already used by another account.";
 
-type OtpPurpose = "LOGIN" | "EMAIL_CHANGE";
+/** batch-2026-10 WS-D: SHOP_ONBOARDING_CONSENT — a shop owner authorises an operator to onboard their shop. */
+type OtpPurpose = "LOGIN" | "EMAIL_CHANGE" | "SHOP_ONBOARDING_CONSENT";
+type RenderedEmail = { subject: string; text: string; html: string };
 
 export type LoginOtpRequestResult =
   /** Sent to the email in the request. */
@@ -134,6 +135,8 @@ async function issueCode(input: {
   ip: string | null;
   /** Module 3: send by SMS to `phoneE164` (an account with no real email). */
   bySms?: boolean;
+  /** batch-2026-10 WS-D: the email for a purpose other than LOGIN / EMAIL_CHANGE. */
+  render?: (code: string, expiryMinutes: number) => RenderedEmail;
 }): Promise<{ resendAfterSeconds: number; expiryMinutes: number }> {
   const rules = await getRule("otp");
   const now = Date.now();
@@ -159,6 +162,10 @@ async function issueCode(input: {
       retryAfterSeconds: rules.resendWindowMinutes * 60,
     });
   }
+  // batch-2026-10 WS-A (GS-074): the per-account and per-IP limits are counted in the
+  // database too, so they hold across server instances (the routes' in-process limits stay
+  // as the first line).
+  await enforceDbLimits(input, windowStart, rules);
 
   const code = generateCode(rules.length);
   const salt = randomBytes(8).toString("hex");
@@ -191,15 +198,21 @@ async function issueCode(input: {
     return row.id;
   });
 
-  const message =
-    input.purpose === "LOGIN"
-      ? renderOtpEmail(code, rules.expiryMinutes)
-      : renderEmailChangeOtpEmail(code, rules.expiryMinutes);
+  // batch-2026-10 WS-D: a purpose with its own wording (the shop owner's onboarding
+  // consent) brings its own email; the provider sends it instead of the sign-in text.
+  const rendered = input.render && !input.bySms ? input.render(code, rules.expiryMinutes) : undefined;
   try {
-    const sms = input.bySms ? smsProvider() : null;
-    if (input.bySms && (!sms || !input.phoneE164)) throw new Error("SMS is not available for this sign-in code.");
-    if (sms && input.phoneE164) await sms.send({ to: input.phoneE164, code, expiryMinutes: rules.expiryMinutes });
-    else await sendEmail({ to: input.email, ...message });
+    // batch-2026-10 WS-A: every code goes out through the OtpProvider for its channel
+    // (email today; SMS only with SMS_PROVIDER and rule otp.smsEnabled).
+    const provider = await getOtpProvider(input.bySms ? "SMS" : "EMAIL");
+    if (!provider || (input.bySms && !input.phoneE164)) throw new Error("SMS is not available for this sign-in code.");
+    await provider.send({
+      to: input.bySms ? input.phoneE164! : input.email,
+      code,
+      expiryMinutes: rules.expiryMinutes,
+      purpose: input.purpose === "EMAIL_CHANGE" ? "EMAIL_CHANGE" : "LOGIN",
+      rendered,
+    });
   } catch (error) {
     console.error("[otp] delivery failed", error);
     await db.update(loginOtps).set({ supersededAt: new Date() }).where(eq(loginOtps.id, id));
@@ -209,6 +222,35 @@ async function issueCode(input: {
 
   await auditOtp(AUDIT_ACTIONS.OTP_REQUESTED, { ...input, purpose: input.purpose, otpId: id, known: Boolean(input.userId) });
   return { resendAfterSeconds: rules.resendCooldownSeconds, expiryMinutes: rules.expiryMinutes };
+}
+
+/**
+ * batch-2026-10 WS-A: per-user and per-IP code limits, counted from login_otps
+ * (shared by every server instance). The per-email limit is the window check above.
+ */
+async function enforceDbLimits(
+  input: { email: string; userId: string | null; ip: string | null; phoneE164: string | null },
+  windowStart: Date,
+  rules: { maxResendsPerWindow: number; maxRequestsPerIpPerWindow: number; resendWindowMinutes: number },
+): Promise<void> {
+  const blocked = async (reason: string, message: string): Promise<never> => {
+    await auditOtp(AUDIT_ACTIONS.OTP_BLOCKED, { ...input, reason });
+    throw new AppError("RATE_LIMITED", message, { retryAfterSeconds: rules.resendWindowMinutes * 60 });
+  };
+  if (input.userId) {
+    const [{ n }] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(loginOtps)
+      .where(and(eq(loginOtps.userId, input.userId), gt(loginOtps.createdAt, windowStart)));
+    if (n >= rules.maxResendsPerWindow) await blocked("user_limit", "Too many codes were requested for this account. Try again later.");
+  }
+  if (input.ip) {
+    const [{ n }] = await db
+      .select({ n: sql<number>`count(*)::int` })
+      .from(loginOtps)
+      .where(and(eq(loginOtps.ipAddress, input.ip), gt(loginOtps.createdAt, windowStart)));
+    if (n >= rules.maxRequestsPerIpPerWindow) await blocked("ip_limit", "Too many codes were requested from this network. Try again later.");
+  }
 }
 
 /**
@@ -586,4 +628,56 @@ export async function unlinkPhone(userId: string, role: User["role"]): Promise<v
     newValue: { phone: null },
   });
   await notifyEvent(NOTIFICATION_TYPES.SECURITY_PHONE_CHANGED, userId, { action: "removed" });
+}
+
+/* ------------------------------------------- shop onboarding consent (WS-D) */
+
+/**
+ * batch-2026-10 WS-D (F8.4.2): an Operator-Limited user onboards a shop for its
+ * owner only with the owner's consent. The code is emailed to the OWNER, bound
+ * to the operator who asked (stored as the code's user, so no other operator
+ * can use it), and the owner reads it out to the operator. Same hashing,
+ * expiry, attempt cap, cooldown and audit as a sign-in code.
+ */
+export async function requestShopOnboardingConsentOtp(input: {
+  email: string;
+  operatorId: string;
+  ip?: string | null;
+  render: (code: string, expiryMinutes: number) => RenderedEmail;
+}): Promise<{ maskedEmail: string; resendAfterSeconds: number; expiryMinutes: number }> {
+  const email = parseEmail(input.email);
+  const sent = await issueCode({
+    email,
+    purpose: "SHOP_ONBOARDING_CONSENT",
+    userId: input.operatorId,
+    phoneE164: null,
+    ip: input.ip ?? null,
+    render: input.render,
+  });
+  return { maskedEmail: maskEmailAddress(email), ...sent };
+}
+
+/** Checks and consumes the owner's code; throws the standard OTP_INVALID on any failure. */
+export async function verifyShopOnboardingConsentOtp(input: {
+  email: string;
+  code: string;
+  operatorId: string;
+  ip?: string | null;
+}): Promise<{ otpId: string; email: string }> {
+  const email = parseEmail(input.email);
+  const otp = await consumeCode({
+    email,
+    purpose: "SHOP_ONBOARDING_CONSENT",
+    code: input.code,
+    ip: input.ip ?? null,
+    userId: input.operatorId,
+  });
+  await auditOtp(AUDIT_ACTIONS.OTP_VERIFIED, {
+    email,
+    actorId: input.operatorId,
+    ip: input.ip ?? null,
+    otpId: otp.id,
+    purpose: "SHOP_ONBOARDING_CONSENT",
+  });
+  return { otpId: otp.id, email };
 }

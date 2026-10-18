@@ -30,7 +30,12 @@ export type SubjectKind =
   | "shop_registration"
   | "bank_refund"
   | "customer_referral_request"
-  | "product_import";
+  | "product_import"
+  | "tax_invoice" // batch-2026-10 WS-E
+  | "payout_batch" // batch-2026-10 WS-E
+  | "payout_item" // batch-2026-10 WS-E
+  | "platform_invoice" // batch-2026-10 WS-E
+  | "order_refund"; // batch-2026-10 WS-C
 
 export interface EventMessage {
   /** A user id, an audience, or nothing (skipped — e.g. an order with no rider). */
@@ -1057,6 +1062,469 @@ export const EVENTS = {
     // In the app only: the failing channel may be the one an alert would use.
     { to: "SUPPORT", type: N.SUPPORT_NOTIFICATION_DEAD, vars: p, actionUrl: "/admin" },
   ]),
+  /* >>> batch-2026-10 WS-A (payments, OTP, reference prices) — add entries below this line only */
+  // Direct online payment (F1.7.3 / F1.8.4). Subject: the payment intent (state machine
+  // payment_intent). Payload: { intentId, userId, amount (formatted), reference ("order GK-…"),
+  // actionUrl, reason?, problem? }. Order status changes made on capture / failure emit
+  // their own order events as well.
+  "payment.pending": define<{ intentId: string; userId: string | null; amount: string; reference: string; actionUrl: string }>(
+    "payment_intent",
+    () => [],
+  ),
+  "payment.authorized": define<{ intentId: string; userId: string | null; amount: string; reference: string; actionUrl: string }>(
+    "payment_intent",
+    () => [],
+  ),
+  "payment.captured": define<{ intentId: string; userId: string | null; amount: string; reference: string; actionUrl: string }>(
+    "payment_intent",
+    (p) => [
+      { to: p.userId, type: N.ORDER_PAYMENT_CAPTURED, vars: { amount: p.amount, reference: p.reference }, actionUrl: p.actionUrl, includeActor: true },
+    ],
+  ),
+  "payment.failed": define<{ intentId: string; userId: string | null; amount: string; reference: string; actionUrl: string; reason?: string | null }>(
+    "payment_intent",
+    (p) => [
+      {
+        to: p.userId,
+        type: N.ORDER_PAYMENT_FAILED,
+        vars: { amount: p.amount, reference: p.reference, reason: p.reason ? ` (${p.reason})` : "" },
+        actionUrl: p.actionUrl,
+        includeActor: true,
+      },
+    ],
+  ),
+  "payment.expired": define<{ intentId: string; userId: string | null; amount: string; reference: string; actionUrl: string }>(
+    "payment_intent",
+    (p) => [
+      { to: p.userId, type: N.ORDER_PAYMENT_EXPIRED, vars: { amount: p.amount, reference: p.reference }, actionUrl: p.actionUrl, includeActor: true },
+    ],
+  ),
+  /** A refund reached the customer's original method (partial or full; the transition says which). */
+  "payment.refunded": define<{ intentId: string; userId: string | null; amount: string; reference: string; actionUrl: string }>(
+    "payment_intent",
+    (p) => [
+      { to: p.userId, type: N.ORDER_PAYMENT_REFUNDED, vars: { amount: p.amount, reference: p.reference }, actionUrl: p.actionUrl, includeActor: true },
+    ],
+  ),
+  /** Support: a payment needs a person (amount mismatch, money taken after the attempt ended, refund failed or stuck). */
+  "payment.attention": define<{ intentId: string; userId: string | null; amount: string; reference: string; actionUrl: string; problem: string }>(
+    "payment_intent",
+    (p) => [{ to: "SUPPORT", type: N.SUPPORT_PAYMENT_ATTENTION, vars: { reference: p.reference, problem: p.problem }, actionUrl: "/admin" }],
+  ),
+  /* <<< end WS-A */
+  //
+  /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — add entries below this line only */
+  // F3.3.2: a radius step of a broadcast offer went out — each newly reached rider hears at once;
+  // the shop hears once per order when the single offer turns into a broadcast.
+  "delivery.broadcast_step": define<{
+    orderId: string;
+    orderNumber: string;
+    buyerId: string;
+    shopOwnerId: string | null;
+    /** Not `shopName`: this payload must not read as an order event's (OrderEventType). */
+    shopLabel: string;
+    riderUserId: null;
+    broadcastId: string;
+    step: number;
+    radiusKm: number;
+    recipients: { userId: string; distanceKm: number }[];
+  }>("delivery", (p) => [
+    ...p.recipients.map(
+      (r): EventMessage => ({
+        to: r.userId,
+        type: N.DELIVERY_BROADCAST_OFFERED,
+        vars: { orderNumber: p.orderNumber, shopName: p.shopLabel, distanceKm: r.distanceKm.toFixed(1) },
+        actionUrl: "/delivery-partner",
+        dedupe: `broadcast:${p.broadcastId}`,
+      }),
+    ),
+    ...(p.step === 0
+      ? [
+          {
+            to: p.shopOwnerId,
+            type: N.SHOP_RIDER_OFFER_BROADCAST,
+            vars: { orderNumber: p.orderNumber, radiusKm: p.radiusKm },
+            actionUrl: SHOP_ORDERS,
+            dedupe: `broadcast:${p.broadcastId}`,
+          } satisfies EventMessage,
+        ]
+      : []),
+  ]),
+  // F3.3.2: one rider accepted a broadcast offer first — every other rider it reached sees "Offer taken".
+  "delivery.offer_taken": define<{
+    orderId: string;
+    orderNumber: string;
+    buyerId: string;
+    shopOwnerId: string | null;
+    riderUserId: string | null;
+    broadcastId: string;
+    loserUserIds: string[];
+  }>("delivery", (p) =>
+    p.loserUserIds.map((userId) => ({
+      to: userId,
+      type: N.DELIVERY_OFFER_TAKEN,
+      vars: { orderNumber: p.orderNumber },
+      actionUrl: "/delivery-partner",
+    })),
+  ),
+  /* <<< end WS-B */
+  //
+  /* >>> batch-2026-10 WS-C (cancellation fee, refunds, help desk) — add entries below this line only */
+  /**
+   * F6.2.3: every refund status reaches the customer in the app, by email and
+   * by push (the push provider is WS-F's), including when they caused it
+   * (they still need to know the money moved).
+   */
+  "order_refund.updated": define<{
+    refundId: string;
+    orderId: string;
+    orderNumber: string;
+    buyerId: string;
+    status: "REQUESTED" | "PROCESSING" | "SUCCESS" | "FAILED";
+    statusLabel: string;
+    amountLabel: string;
+    detail: string;
+  }>("order_refund", (p) => [
+    {
+      to: p.buyerId,
+      type: N.ORDER_REFUND_UPDATED,
+      vars: { orderNumber: p.orderNumber, statusLabel: p.statusLabel, amount: p.amountLabel, detail: p.detail },
+      actionUrl: `/orders/${p.orderId}`,
+      channels: ["EMAIL", "PUSH"],
+      includeActor: true,
+      dedupe: `refund:${p.refundId}:${p.status}`,
+    },
+  ]),
+  /** F6.1.3: the shop hears that a packed order was cancelled for a fee (the order.cancelled event says the rest). */
+  "order.cancelled_after_packing": define<{
+    orderId: string;
+    orderNumber: string;
+    shopOwnerId: string | null;
+    feeLabel: string;
+    beneficiary: "SHOP" | "PLATFORM";
+  }>("order", (p) => [
+    {
+      to: p.shopOwnerId,
+      type: N.SHOP_ORDER_CANCELLED_AFTER_PACKING,
+      vars: {
+        orderNumber: p.orderNumber,
+        fee: p.feeLabel,
+        beneficiaryNote: p.beneficiary === "SHOP" ? " for your shop (paid in your next settlement)" : "",
+      },
+      actionUrl: SHOP_ORDERS,
+      channels: ["PUSH"],
+    },
+  ]),
+  /** F6.3.3 help desk: a ticket was raised. Requester gets the number and SLA; support gets a new-ticket alert. */
+  "support_ticket.created": define<{
+    ticketId: string;
+    ticketNumber: string;
+    subject: string;
+    categoryLabel: string;
+    requesterId: string | null;
+    requesterLabel: string;
+    acknowledgeByLabel: string;
+    resolveByLabel: string;
+    /** Opened from a grievance: the grievance form already acknowledged it. */
+    fromGrievance?: boolean;
+  }>("support_ticket", (p) => [
+    p.fromGrievance
+      ? { to: null, type: N.TICKET_RECEIVED }
+      : {
+          to: p.requesterId,
+          type: N.TICKET_RECEIVED,
+          vars: { ticketNumber: p.ticketNumber, subject: p.subject, acknowledgeBy: p.acknowledgeByLabel, resolveBy: p.resolveByLabel },
+          actionUrl: `/support/${p.ticketId}`,
+          channels: ["PUSH"],
+          includeActor: true,
+        },
+    {
+      to: "SUPPORT",
+      type: N.SUPPORT_TICKET_NEW,
+      vars: { ticketNumber: p.ticketNumber, subject: p.subject, category: p.categoryLabel, requester: p.requesterLabel, acknowledgeBy: p.acknowledgeByLabel },
+      actionUrl: `/admin/support/${p.ticketId}`,
+    },
+  ]),
+  /**
+   * Every status change: the requester (unless they made it), the assignee,
+   * and the shop owner when support is waiting for the shop. A closed ticket
+   * also asks the requester for a rating.
+   */
+  "support_ticket.status_changed": define<{
+    ticketId: string;
+    ticketNumber: string;
+    subject: string;
+    status: string;
+    statusLabel: string;
+    note?: string | null;
+    requesterId: string | null;
+    assigneeId: string | null;
+    shopOwnerId: string | null;
+    orderNumber?: string | null;
+    csat?: boolean;
+  }>("support_ticket", (p) => {
+    const messages: EventMessage[] = [
+      {
+        to: p.requesterId,
+        type: N.TICKET_STATUS_CHANGED,
+        vars: { ticketNumber: p.ticketNumber, subject: p.subject, statusLabel: p.statusLabel, note: p.note ?? "" },
+        actionUrl: `/support/${p.ticketId}`,
+        channels: ["PUSH"],
+      },
+      {
+        to: p.assigneeId,
+        type: N.TICKET_STATUS_CHANGED,
+        vars: { ticketNumber: p.ticketNumber, subject: p.subject, statusLabel: p.statusLabel, note: p.note ?? "" },
+        actionUrl: `/admin/support/${p.ticketId}`,
+      },
+    ];
+    if (p.status === "AWAITING_SHOP") {
+      messages.push({
+        to: p.shopOwnerId,
+        type: N.SHOP_TICKET_AWAITING,
+        vars: { ticketNumber: p.ticketNumber, subject: p.subject, orderNumber: p.orderNumber ?? "—" },
+        actionUrl: `/shop/support/${p.ticketId}`,
+        channels: ["PUSH"],
+      });
+    }
+    if (p.csat) {
+      messages.push({
+        to: p.requesterId,
+        type: N.TICKET_CSAT_REQUESTED,
+        vars: { ticketNumber: p.ticketNumber },
+        actionUrl: `/support/${p.ticketId}#rate`,
+        includeActor: true,
+        dedupe: `ticket:${p.ticketId}:csat`,
+      });
+    }
+    return messages;
+  }),
+  /** A public reply: whoever is on the other side hears about it. */
+  "support_ticket.replied": define<{
+    ticketId: string;
+    ticketNumber: string;
+    authorLabel: string;
+    excerpt: string;
+    /** Who wrote it: the requester, the shop, or support. */
+    authorKind: "REQUESTER" | "SHOP" | "STAFF";
+    requesterId: string | null;
+    assigneeId: string | null;
+    shopOwnerId: string | null;
+  }>("support_ticket", (p) => {
+    const vars = { ticketNumber: p.ticketNumber, author: p.authorLabel, excerpt: p.excerpt };
+    const toSupport: EventMessage = { to: p.assigneeId ?? "SUPPORT", type: N.SUPPORT_TICKET_REPLY, vars, actionUrl: `/admin/support/${p.ticketId}` };
+    const toRequester: EventMessage = { to: p.requesterId, type: N.TICKET_REPLY, vars, actionUrl: `/support/${p.ticketId}`, channels: ["PUSH"] };
+    if (p.authorKind === "STAFF") return [toRequester];
+    if (p.authorKind === "SHOP") return [toSupport, toRequester];
+    return [toSupport];
+  }),
+  "support_ticket.assigned": define<{
+    ticketId: string;
+    ticketNumber: string;
+    subject: string;
+    assigneeId: string;
+    resolveByLabel: string;
+  }>("support_ticket", (p) => [
+    {
+      to: p.assigneeId,
+      type: N.SUPPORT_TICKET_ASSIGNED,
+      vars: { ticketNumber: p.ticketNumber, subject: p.subject, resolveBy: p.resolveByLabel },
+      actionUrl: `/admin/support/${p.ticketId}`,
+    },
+  ]),
+  /** Manual escalation or an SLA breach (the help-desk job): administrators and the assignee. */
+  "support_ticket.escalated": define<{
+    ticketId: string;
+    ticketNumber: string;
+    subject: string;
+    why: string;
+    assigneeId: string | null;
+  }>("support_ticket", (p) => [
+    { to: "SUPPORT_LEAD", type: N.SUPPORT_TICKET_ESCALATED, vars: { ticketNumber: p.ticketNumber, subject: p.subject, why: p.why }, actionUrl: `/admin/support/${p.ticketId}` },
+    { to: p.assigneeId, type: N.SUPPORT_TICKET_ESCALATED, vars: { ticketNumber: p.ticketNumber, subject: p.subject, why: p.why }, actionUrl: `/admin/support/${p.ticketId}` },
+  ]),
+  /* <<< end WS-C */
+  //
+  /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */
+  /** F8.4.2: an Operator-Limited user submitted a shop for its owner (after the owner's OTP). */
+  "shop.onboarded_by_operator": define<{
+    shopName: string;
+    ownerId: string;
+    operatorName: string;
+    registrationNumber: string | null;
+  }>("shop", (p) => [
+    {
+      to: p.ownerId,
+      type: N.SHOP_ONBOARDED_BY_OPERATOR,
+      vars: { shopName: p.shopName, operatorName: p.operatorName, registrationNumber: p.registrationNumber ?? "" },
+      actionUrl: "/shop",
+    },
+  ]),
+  /** The fee link for an operator-onboarded shop, emailed to its owner now. */
+  "shop.registration_fee_link_sent": define<{
+    shopName: string;
+    ownerId: string;
+    amountPaise: number;
+    link: string;
+    expiresAt: string;
+  }>("shop", (p) => [
+    {
+      to: p.ownerId,
+      type: N.SHOP_REGISTRATION_FEE_LINK,
+      vars: { shopName: p.shopName, amount: formatPaise(p.amountPaise), link: p.link, expiresAt: p.expiresAt },
+      actionUrl: p.link,
+      channels: ["IN_APP", "EMAIL"],
+    },
+  ]),
+  "shop.registration_fee_paid": define<{
+    shopName: string;
+    ownerId: string;
+    operatorId: string | null;
+    amountPaise: number;
+    approved: boolean;
+  }>("shop", (p) => {
+    const vars = {
+      shopName: p.shopName,
+      amount: formatPaise(p.amountPaise),
+      nextStep: p.approved ? "Your shop is approved and live." : "Your shop is with our team for approval.",
+    };
+    return [
+      { to: p.ownerId, type: N.SHOP_REGISTRATION_FEE_PAID, vars, actionUrl: "/shop", includeActor: true },
+      { to: p.operatorId, type: N.SHOP_REGISTRATION_FEE_PAID, vars, actionUrl: "/operator/payments" },
+    ];
+  }),
+  /** The fee failed or its link expired: the shop stays PENDING_APPROVAL for an administrator. */
+  "shop.registration_fee_failed": define<{
+    shopName: string;
+    operatorId: string | null;
+    operatorName: string;
+    reason: string;
+  }>("shop", (p) => [
+    { to: p.operatorId, type: N.SHOP_REGISTRATION_FEE_FAILED, vars: { shopName: p.shopName, reason: p.reason }, actionUrl: "/operator/payments" },
+    {
+      to: "SUPPORT_LEAD",
+      type: N.SUPPORT_SHOP_FEE_FAILED,
+      vars: { shopName: p.shopName, operatorName: p.operatorName, reason: p.reason },
+      actionUrl: "/admin/shops",
+    },
+  ]),
+  /** F9.1.4: a product-master import job finished. */
+  "pmd.import_finished": define<{
+    createdBy: string | null;
+    fileName: string;
+    staged: number;
+    failed: number;
+    status: string;
+    jobId: string;
+    url: string;
+  }>("product_import", (p) => [
+    {
+      to: p.createdBy,
+      type: N.PMD_IMPORT_FINISHED,
+      vars: { fileName: p.fileName, staged: p.staged, failed: p.failed, status: p.status },
+      actionUrl: p.url,
+      includeActor: true,
+    },
+  ]),
+  /* <<< end WS-D */
+  //
+  /* >>> batch-2026-10 WS-E (invoicing, payouts, statutory) — add entries below this line only */
+  /** F9.2.6: the shop owner's copy of the customer's invoice, with the order (PDF by email — documents/email.ts). */
+  "invoice.shop_copy": define<{ invoiceId: string; invoiceNumber: string; orderNumber: string; ownerId: string; amount: string }>(
+    "tax_invoice",
+    (p) => [
+      {
+        to: p.ownerId,
+        type: N.SHOP_INVOICE_COPY,
+        vars: { invoiceNumber: p.invoiceNumber, orderNumber: p.orderNumber, amount: p.amount },
+        actionUrl: `/invoices/${p.invoiceId}`,
+        includeActor: true,
+      },
+    ],
+  ),
+  /** F10.2.4: a payout cycle was closed and its batch drafted — administrators approve it. */
+  "payout.batch_drafted": define<{ batchId: string; period: string; items: number; amount: string; held: number }>("payout_batch", (p) => [
+    { to: "SUPPORT_LEAD", type: N.SUPPORT_PAYOUT_BATCH_DRAFTED, vars: { period: p.period, items: p.items, amount: p.amount, held: p.held }, actionUrl: "/admin/payouts" },
+  ]),
+  /** F10.2.4: a shop's payout was paid (UTR recorded) — statement by email and in the app. */
+  "payout.item_paid": define<{ itemId: string; ownerId: string; shopName: string; amount: string; period: string; utr: string }>(
+    "payout_item",
+    (p) => [
+      {
+        to: p.ownerId,
+        type: N.SHOP_PAYOUT_PAID,
+        vars: { shopName: p.shopName, amount: p.amount, period: p.period, utr: p.utr },
+        actionUrl: "/shop/finance#statements",
+        includeActor: true,
+      },
+    ],
+  ),
+  "payout.item_held": define<{ itemId: string; ownerId: string; shopName: string; amount: string; period: string; reason: string }>(
+    "payout_item",
+    (p) => [
+      {
+        to: p.ownerId,
+        type: N.SHOP_PAYOUT_HELD,
+        vars: { shopName: p.shopName, amount: p.amount, period: p.period, reason: p.reason },
+        actionUrl: "/shop/finance#statements",
+        includeActor: true,
+      },
+    ],
+  ),
+  "payout.item_failed": define<{ itemId: string; ownerId: string; shopName: string; amount: string; reason: string; attempts: number; final: boolean }>(
+    "payout_item",
+    (p) => {
+      const messages: EventMessage[] = [
+        {
+          to: p.ownerId,
+          type: N.SHOP_PAYOUT_FAILED,
+          vars: {
+            shopName: p.shopName,
+            amount: p.amount,
+            reason: p.reason,
+            next: p.final ? "GoKesari's finance team will contact you." : "It will be retried automatically.",
+          },
+          actionUrl: "/shop/bank-account",
+          includeActor: true,
+        },
+      ];
+      if (p.final) {
+        messages.push({ to: "SUPPORT_LEAD", type: N.SUPPORT_PAYOUT_FAILED, vars: { amount: p.amount, shopName: p.shopName, attempts: p.attempts, reason: p.reason }, actionUrl: "/admin/payouts" });
+      }
+      return messages;
+    },
+  ),
+  /** F10.2.5: GoKesari's tax invoice for its fees this cycle. */
+  "platform_invoice.issued": define<{ invoiceId: string; invoiceNumber: string; ownerId: string; amount: string; period: string }>(
+    "platform_invoice",
+    (p) => [
+      {
+        to: p.ownerId,
+        type: N.SHOP_PLATFORM_INVOICE,
+        vars: { invoiceNumber: p.invoiceNumber, amount: p.amount, period: p.period },
+        actionUrl: "/shop/finance#statements",
+        includeActor: true,
+      },
+    ],
+  ),
+  /* <<< end WS-E */
+  //
+  /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */
+  /** F3.3.2: a broadcast finished sending — the person who sent it hears how many people it reached (in the app). */
+  "broadcast.finished": define<{ broadcastId: string; title: string; recipients: number; sentBy: string | null }>(
+    "notification",
+    (p) => [
+      {
+        to: p.sentBy,
+        type: N.SUPPORT_BROADCAST_FINISHED,
+        vars: { title: p.title, recipients: p.recipients },
+        actionUrl: `/admin/broadcasts?id=${p.broadcastId}`,
+        includeActor: true,
+      },
+    ],
+  ),
+  /* <<< end WS-F */
+  //
 } as const;
 
 export type EventType = keyof typeof EVENTS;

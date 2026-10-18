@@ -51,3 +51,6 @@ categorisation-reports/
 # Test results
 test-results/
 tests/test-results/
+
+# batch-2026-10 remote e2e sessions (live cookies) — never commit
+.e2e-auth/

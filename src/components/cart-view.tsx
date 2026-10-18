@@ -88,6 +88,7 @@ export function CartView({
   hasMobile = true,
   couponsEnabled = false,
   openOrders = [],
+  onlinePaymentsEnabled = false,
 }: {
   cart: CartSummary;
   walletBalancePaise: number;
@@ -106,6 +107,8 @@ export function CartView({
   couponsEnabled?: boolean;
   /** C3: the customer's open orders; empty when rule openOrderCheck is off. */
   openOrders?: OpenOrderNotice[];
+  /** batch-2026-10 WS-A: offer "Pay online" (rule onlinePayments). */
+  onlinePaymentsEnabled?: boolean;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -122,7 +125,7 @@ export function CartView({
   const [slotOptions, setSlotOptions] = useState<Record<string, SlotOption[] | null>>({});
   const [scheduledSlots, setScheduledSlots] = useState<Record<string, string>>({});
   const [slotDay, setSlotDay] = useState<Record<string, string>>({});
-  const [paymentMethod, setPaymentMethod] = useState<"WALLET" | "COD">("WALLET");
+  const [paymentMethod, setPaymentMethod] = useState<"WALLET" | "COD" | "ONLINE">("WALLET");
   // F7: an applied coupon is a server-priced preview; checkout re-validates it.
   const [couponInput, setCouponInput] = useState("");
   const [coupon, setCoupon] = useState<{ code: string; discountPaise: number; forTotal: number } | null>(null);
@@ -237,10 +240,12 @@ export function CartView({
   // Cash on delivery: personal orders to a saved address only.
   const codPossible = codUnavailableReason == null && !buyerShopId && addressId != null;
   const payingCod = paymentMethod === "COD" && codPossible;
+  // batch-2026-10 WS-A: personal orders only, like cash on delivery.
+  const payingOnline = paymentMethod === "ONLINE" && onlinePaymentsEnabled && !buyerShopId;
   // A coupon priced for a different cart is dropped (the customer re-applies it).
   const couponDiscountPaise = coupon && coupon.forTotal === cart.subtotalPaise ? coupon.discountPaise : 0;
   const payablePaise = cart.grandTotalPaise - couponDiscountPaise;
-  const affordable = payingCod || walletBalancePaise >= payablePaise;
+  const affordable = payingCod || payingOnline || walletBalancePaise >= payablePaise;
   const shortfall = Math.max(0, payablePaise - walletBalancePaise);
 
   async function updateQuantity(cartItemId: string, quantity: number) {
@@ -323,7 +328,7 @@ export function CartView({
         scheduledSlots: Object.fromEntries(
           Object.entries(scheduledSlots).filter(([shopId]) => deliveryWindows[shopId] === "SCHEDULED"),
         ),
-        paymentMethod: payingCod ? "COD" : "WALLET",
+        paymentMethod: payingCod ? "COD" : payingOnline ? "ONLINE" : "WALLET",
         acknowledgeClosedShopIds,
         ...(couponDiscountPaise > 0 && coupon ? { couponCode: coupon.code } : {}),
         ...(buyerShopId ? { orderType: "B2B", buyerShopId } : { orderType: "PERSONAL" }),
@@ -334,6 +339,15 @@ export function CartView({
 
     if (!response.ok) {
       setError(payload?.error?.message ?? "Checkout failed. Please try again.");
+      return;
+    }
+    // batch-2026-10 WS-A: an online payment continues on the gateway's page (kept in-app by the mobile WebView).
+    if (payload?.payment?.redirectUrl) {
+      window.location.assign(payload.payment.redirectUrl);
+      return;
+    }
+    if (payload?.payment?.intentId) {
+      router.push(`/orders/payment-return?intent=${payload.payment.intentId}`);
       return;
     }
     // F6: a multi-shop order with one parent reference opens that reference.
@@ -650,7 +664,7 @@ export function CartView({
                   <input
                     type="radio"
                     name="payment-method"
-                    checked={!payingCod}
+                    checked={!payingCod && !payingOnline}
                     onChange={() => setPaymentMethod("WALLET")}
                   />
                   Wallet
@@ -665,6 +679,17 @@ export function CartView({
                   />
                   Cash on delivery
                 </label>
+                {onlinePaymentsEnabled && !buyerShopId ? (
+                  <label className="flex items-center gap-2" data-testid="pay-online-option">
+                    <input
+                      type="radio"
+                      name="payment-method"
+                      checked={payingOnline}
+                      onChange={() => setPaymentMethod("ONLINE")}
+                    />
+                    Pay online (UPI / card / netbanking)
+                  </label>
+                ) : null}
                 {!codPossible ? (
                   <p className="text-xs text-ink-500">
                     {codUnavailableReason ??

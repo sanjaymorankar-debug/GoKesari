@@ -1,0 +1,21 @@
+# GoKesari — cron jobs added by the 18 Oct 2026 batch. ADD these lines to the
+# existing crontab (docs/event-driven-2026-10/crontab.test.txt, Phase B) on
+# BOTH sites: test.gokesari.com first, then gokesari.com. Times are UTC
+# (IST = UTC + 5:30). Every job POSTs https://<host>/api/cron/<job> with the
+# CRON_SECRET bearer token (run.sh.example) and is idempotent — an overlapping
+# or repeated run is harmless. A job whose feature flag is off does nothing.
+
+# every minute
+* * * * *    $HOME/gokesari-cron/run.sh broadcast-dispatch     # F3.3.2 announcements: scheduled sends, remaining chunks, expiry
+* * * * *    $HOME/gokesari-cron/run.sh pmd-ingest             # F9.1.4 large product imports: next batches of each running job
+# every 5 minutes
+*/5 * * * *  $HOME/gokesari-cron/run.sh payments-reconcile     # F1.8.4 stuck payments, queued/pending gateway refunds, refund timelines
+*/5 * * * *  $HOME/gokesari-cron/run.sh document-emails        # F9.2.6 invoice / statement e-mails with PDFs (retries)
+*/5 * * * *  $HOME/gokesari-cron/run.sh operator-onboarding    # F8.4.2 registration-fee links: paid → approve; expired → admin queue
+# every 15 minutes
+*/15 * * * * $HOME/gokesari-cron/run.sh push-receipts          # F13.1.2 Expo push receipts; unregistered devices switched off
+# hourly
+41 * * * *   $HOME/gokesari-cron/run.sh aftercare              # F6.2.3 / F6.3.3 refund retries, help-desk SLA escalation, auto-close
+47 * * * *   $HOME/gokesari-cron/run.sh auth-housekeeping      # F1.1.2 purge expired sign-in codes
+# daily
+40 0 * * *   $HOME/gokesari-cron/run.sh payout-cycle           # F10.2.4 06:10 IST: close a due payout cycle (every payouts.cycleDays) and draft its batch
