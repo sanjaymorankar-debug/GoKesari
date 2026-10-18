@@ -57,7 +57,13 @@ export interface EmitEventResult {
 }
 
 const AUDIENCES: readonly string[] = ["SUPPORT", "SUPPORT_LEAD"] satisfies Audience[];
-const MACHINES: readonly string[] = ["order", "delivery", "seller_verification", "dispute"] satisfies MachineKind[];
+const MACHINES: readonly string[] = [
+  "order",
+  "delivery",
+  "seller_verification",
+  "dispute",
+  "support_ticket", // batch-2026-10 WS-C
+] satisfies MachineKind[];
 
 /** Throws the standard 409 when the move is not in the subject's state machine. */
 export function assertTransition(kind: string, from: string | null, to: string): void {

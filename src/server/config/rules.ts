@@ -1040,6 +1040,90 @@ export const RULES = {
   /* <<< end WS-B */
   //
   /* >>> batch-2026-10 WS-C (cancellation fee, refunds, help desk) — add entries below this line only */
+  afterPackingCancellation: {
+    description:
+      "F6.1.3 (NEW-006, D10): a customer may cancel an order AFTER it is packed (Ready, or a rider assigned) for a delivery/handling fee, shown before they confirm. Off: the original rule (packed orders cannot be cancelled by the customer). The default fee is FLAT (defaultFeePaise) or PERCENT of the goods (defaultFeeBp, 1000 = 10%) capped at defaultCapPaise. With shopOverrideAllowed, a shop owner sets its own fee within maxFeePaise / maxFeeBp (the server refuses anything higher; a lower limit set later also caps existing shop fees). The fee is never more than what was paid, is written to the order ledger, and goes to feeBeneficiary (SHOP: paid in its next settlement; PLATFORM: platform revenue). Cancelling before packing stays a full refund; after pickup the customer's goods-only refund is unchanged (the fee is not added on top).",
+    schema: z.object({
+      enabled: z.boolean(),
+      defaultFeeType: z.enum(["FLAT", "PERCENT"]),
+      defaultFeePaise: int(0, 1_000_000),
+      defaultFeeBp: int(0, 10_000),
+      defaultCapPaise: int(0, 1_000_000),
+      shopOverrideAllowed: z.boolean(),
+      maxFeePaise: int(0, 1_000_000),
+      maxFeeBp: int(0, 10_000),
+      feeBeneficiary: z.enum(["SHOP", "PLATFORM"]),
+    }),
+    defaults: {
+      enabled: false,
+      defaultFeeType: "FLAT",
+      defaultFeePaise: 2_000,
+      defaultFeeBp: 1_000,
+      defaultCapPaise: 5_000,
+      shopOverrideAllowed: true,
+      maxFeePaise: 10_000,
+      maxFeeBp: 2_000,
+      feeBeneficiary: "SHOP",
+    },
+  },
+  refundChoice: {
+    description:
+      "F6.2.3 (GS-073): where a customer's refund goes. The GoKesari wallet is always available and instant. originalMethodEnabled lets a customer whose order was paid online have the refund sent back to the original payment method through the payment gateway (keep OFF until a live gateway is configured). Orders paid from the wallet or in cash always refund to the wallet. A gateway refund is tried up to maxGatewayAttempts times by the aftercare job; if it still fails and fallbackToWallet is on, the amount is credited to the wallet instead. The customer is told of every refund status by email and push.",
+    schema: z.object({
+      originalMethodEnabled: z.boolean(),
+      maxGatewayAttempts: int(1, 10),
+      fallbackToWallet: z.boolean(),
+    }),
+    defaults: { originalMethodEnabled: false, maxGatewayAttempts: 3, fallbackToWallet: true },
+  },
+  helpdesk: {
+    description:
+      "F6.3.3 (SM-006): help desk and grievance portal. Consumer Protection (E-Commerce) Rules, 2020, Rule 4: acknowledge a complaint within 48 hours and redress it within one month of receipt — acknowledgeWithinHours / resolveWithinDays set the SLA clock each ticket gets when it is received (the clock is not paused while waiting for a reply). With escalateOnBreach, the hourly help-desk job escalates a ticket that misses either deadline and alerts administrators. A resolved ticket closes itself after autoCloseResolvedAfterDays; the requester may reopen it within reopenWithinDays of resolution. csatEnabled asks for a 1–5 rating when a ticket closes. ticketForGrievances: a complaint filed on the grievance form also opens a linked ticket (its GRV- number is kept). maxAttachmentBytes / maxAttachmentsPerTicket limit files (photos or PDF).",
+    schema: z.object({
+      enabled: z.boolean(),
+      acknowledgeWithinHours: int(1, 48),
+      resolveWithinDays: int(1, 30),
+      escalateOnBreach: z.boolean(),
+      autoCloseResolvedAfterDays: int(1, 60),
+      reopenWithinDays: int(1, 60),
+      csatEnabled: z.boolean(),
+      ticketForGrievances: z.boolean(),
+      maxAttachmentBytes: int(100_000, 10_000_000),
+      maxAttachmentsPerTicket: int(1, 20),
+    }),
+    defaults: {
+      enabled: true,
+      acknowledgeWithinHours: 48,
+      resolveWithinDays: 30,
+      escalateOnBreach: true,
+      autoCloseResolvedAfterDays: 7,
+      reopenWithinDays: 14,
+      csatEnabled: true,
+      ticketForGrievances: true,
+      maxAttachmentBytes: 5_000_000,
+      maxAttachmentsPerTicket: 10,
+    },
+  },
+  grievanceOfficer: {
+    description:
+      "The Grievance Officer shown on the Grievance Redressal page, the Contact page and the support portal, and checked on the compliance dashboard (IT Rules 2021 / Consumer Protection (E-Commerce) Rules 2020, Rule 4). A field left empty falls back to the value in src/lib/legal-docs.ts.",
+    schema: z.object({
+      name: z.string().max(120),
+      designation: z.string().max(120),
+      email: z.union([z.string().email(), z.literal("")]),
+      phone: z.string().max(30),
+      address: z.string().max(400),
+      hours: z.string().max(200),
+    }),
+    defaults: {
+      name: "Sonali",
+      designation: "Grievance Officer",
+      email: "grievance@gokesari.com",
+      phone: "9175193009",
+      address: "Flat No B-1102, Yin Yang CHS, Opp EoN IT Park Phase II, Kharadi, Pune 411014",
+      hours: "Monday to Saturday, 10:00 am – 6:00 pm IST",
+    },
+  },
   /* <<< end WS-C */
   //
   /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */

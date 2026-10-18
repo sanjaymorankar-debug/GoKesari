@@ -284,6 +284,14 @@ export const PERMISSIONS = {
   /* <<< end WS-B */
   //
   /* >>> batch-2026-10 WS-C (cancellation fee, refunds, help desk) — add entries below this line only */
+  /** Raise a help-desk ticket and follow one's own tickets (customers, shop owners, everyone signed in). */
+  SUPPORT_TICKET_RAISE: "support-ticket:raise",
+  /** Work the help desk: queues, assignment, internal notes, status, escalation. Operator + admin. */
+  SUPPORT_TICKET_MANAGE: "support-ticket:manage",
+  /** Create, edit and retire canned replies. Admin only. */
+  SUPPORT_CANNED_REPLY_MANAGE: "support-canned-reply:manage",
+  /** Set the own shop's after-packing cancellation fee within the admin's limits. */
+  SHOP_CANCELLATION_FEE_MANAGE_OWN: "shop-cancellation-fee:manage:own",
   /* <<< end WS-C */
   //
   /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */
@@ -333,6 +341,7 @@ const CUSTOMER_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.DELIVERY_PARTNER_REGISTER, // any customer may apply to become a delivery partner
   PERMISSIONS.SOCIETY_REGISTER,
   PERMISSIONS.RATING_CREATE_OWN,
+  PERMISSIONS.SUPPORT_TICKET_RAISE, // batch-2026-10 WS-C
 ];
 
 /**
@@ -375,6 +384,7 @@ const SHOP_OWNER_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.PRODUCT_CATEGORY_CREATE,
   PERMISSIONS.PRODUCT_CATEGORY_MANAGE_OWN,
   PERMISSIONS.SHOP_PRODUCT_CATEGORY_MANAGE_OWN,
+  PERMISSIONS.SHOP_CANCELLATION_FEE_MANAGE_OWN, // batch-2026-10 WS-C
   // Deliberately absent: SHOP_SET_CLASSIFICATION, CATEGORY_MANAGE,
   // PRODUCT_CATEGORY_MANAGE_ANY, SHOP_PRODUCT_CATEGORY_MANAGE_ANY,
   // SHOP_UPDATE_ANY, SYSTEM_CONFIG, REGISTRATION_FEE_MANAGE,
@@ -453,6 +463,8 @@ const OPERATOR_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.INTEGRATION_VIEW_ANY,
   PERMISSIONS.PMD_BULK_EDIT, // batch-2026-10 WS-D (product browser bulk edit; audited)
   PERMISSIONS.BROADCAST_MANAGE, // batch-2026-10 WS-F
+  PERMISSIONS.SUPPORT_TICKET_RAISE, // batch-2026-10 WS-C
+  PERMISSIONS.SUPPORT_TICKET_MANAGE, // batch-2026-10 WS-C
   // Deliberately absent (§43 "not unrestricted system access"):
   // USER_SET_ROLE, USER_SUSPEND, WALLET_ADJUST, SYSTEM_CONFIG,
   // AUDIT_LOG_VIEW, REPORT_VIEW_ALL, WALLET_VIEW_ANY.
@@ -670,6 +682,10 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   /* <<< end WS-B */
   //
   /* >>> batch-2026-10 WS-C (cancellation fee, refunds, help desk) — add entries below this line only */
+  [PERMISSIONS.SUPPORT_TICKET_RAISE]: "Raise a support ticket and follow own tickets",
+  [PERMISSIONS.SUPPORT_TICKET_MANAGE]: "Work the help desk: queues, assignment, internal notes, escalation",
+  [PERMISSIONS.SUPPORT_CANNED_REPLY_MANAGE]: "Create and edit the help desk's canned replies",
+  [PERMISSIONS.SHOP_CANCELLATION_FEE_MANAGE_OWN]: "Set own shop's after-packing cancellation fee within the admin's limits",
   /* <<< end WS-C */
   //
   /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */

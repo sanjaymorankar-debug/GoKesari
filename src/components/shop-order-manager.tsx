@@ -241,6 +241,12 @@ function OrderRow({
           ) : null}
         </p>
       ) : null}
+      {/* batch-2026-10 WS-C: raise a help desk ticket about this order. */}
+      <p className="mt-2 text-xs">
+        <a href={`/shop/support?orderId=${order.id}#new`} className="font-medium text-kesari-700 hover:underline">
+          Get help with this order
+        </a>
+      </p>
       {order.pickupCode && order.status === "ASSIGNED" ? (
         <p className="mt-2 rounded-lg bg-kesari-50 px-3 py-2 text-sm text-kesari-800" data-testid="pickup-code">
           Pickup code for the rider: <span className="font-mono text-lg font-bold tracking-widest">{order.pickupCode}</span>

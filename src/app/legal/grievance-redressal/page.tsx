@@ -1,19 +1,26 @@
-import { CURRENT_POLICY_VERSION, LEGAL_ENTITY } from "@/lib/legal-docs";
+import Link from "next/link";
+
+import { CURRENT_POLICY_VERSION } from "@/lib/legal-docs";
+import { getGrievanceOfficer } from "@/server/aftercare/grievance-officer";
+import { getRule } from "@/server/services/settings";
 
 export const metadata = { title: "Grievance Redressal" };
+// batch-2026-10 WS-C: the officer and the timelines are admin settings (rules grievanceOfficer, helpdesk).
+export const dynamic = "force-dynamic";
 
-export default function GrievanceRedressalPage() {
-  const officer = LEGAL_ENTITY.grievanceOfficer;
+export default async function GrievanceRedressalPage() {
+  const [officer, helpdesk] = await Promise.all([getGrievanceOfficer(), getRule("helpdesk")]);
   return (
     <>
       <h1>Grievance Redressal</h1>
       <p>Last updated: {CURRENT_POLICY_VERSION}</p>
 
       <p>
-        In accordance with the Information Technology Rules, 2021 and the
-        Consumer Protection Act, 2019, we maintain a Grievance Officer and a
-        complaint mechanism for any concern related to your account, an
-        order, a payment, or the platform generally.
+        In accordance with the Information Technology Rules, 2021, the
+        Consumer Protection Act, 2019 and the Consumer Protection (E-Commerce)
+        Rules, 2020, we maintain a Grievance Officer and a complaint mechanism
+        for any concern related to your account, an order, a payment, or the
+        platform generally.
       </p>
 
       <h2>Grievance Officer</h2>
@@ -33,6 +40,11 @@ export default function GrievanceRedressalPage() {
         <li>
           <strong>Address:</strong> {officer.address}
         </li>
+        {officer.hours ? (
+          <li>
+            <strong>Hours:</strong> {officer.hours}
+          </li>
+        ) : null}
       </ul>
 
       <h2>How to file a complaint</h2>
@@ -41,7 +53,9 @@ export default function GrievanceRedressalPage() {
         required. You will receive a ticket number to track your
         complaint&apos;s status. You can look up a ticket&apos;s status at any
         time using the ticket number and the email address you submitted it
-        with.
+        with. Signed-in customers and shop owners can also raise and follow a
+        ticket in our <Link href="/support">support portal</Link>, including from an
+        order.
       </p>
 
       <h2>Response timelines</h2>
@@ -52,12 +66,21 @@ export default function GrievanceRedressalPage() {
         with a third-party payment provider or a shop — may take longer; you
         will be kept informed.
       </p>
+      <p>
+        In any case, under Rule 4 of the Consumer Protection (E-Commerce)
+        Rules, 2020, every complaint is acknowledged within 48 hours and
+        redressed within one month of receipt. Our help desk tracks each
+        ticket against an acknowledgement deadline of{" "}
+        {helpdesk.acknowledgeWithinHours} hours and a resolution deadline of{" "}
+        {helpdesk.resolveWithinDays} days, and escalates a ticket that is at
+        risk of missing them.
+      </p>
 
       <h2>Privacy of your complaint</h2>
       <p>
         Complaint details are only visible to you (via the ticket + email
-        lookup) and to authorised platform staff handling grievances. We do
-        not publish complaint details.
+        lookup, or your support tickets) and to authorised platform staff
+        handling grievances. We do not publish complaint details.
       </p>
     </>
   );

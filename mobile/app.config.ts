@@ -77,6 +77,7 @@ const APP_LINK_PATH_PREFIXES = [
   "/subscriptions",
   "/wallet",
   "/manufacturer", // batch-2026-10 WS-D (manufacturer portal, F9.1.2)
+  "/support", // batch-2026-10 WS-C: help desk portal
 ];
 
 /**

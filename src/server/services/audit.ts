@@ -389,6 +389,12 @@ export const AUDIT_ACTIONS = {
   BROADCAST_CANCELLED: "broadcast.cancelled", // batch-2026-10 WS-F
   BROADCAST_EXPIRED: "broadcast.expired", // batch-2026-10 WS-F
   PUSH_TOKEN_DEACTIVATED: "push_token.deactivated", // batch-2026-10 WS-F
+  SHOP_CANCELLATION_FEE_CHANGED: "shop.cancellation_fee_changed", // batch-2026-10 WS-C
+  ORDER_CANCELLATION_FEE_CHARGED: "order.cancellation_fee_charged", // batch-2026-10 WS-C
+  ORDER_REFUND_RECORDED: "order.refund_recorded", // batch-2026-10 WS-C
+  SUPPORT_TICKET_CREATED: "support_ticket.created", // batch-2026-10 WS-C
+  SUPPORT_TICKET_UPDATED: "support_ticket.updated", // batch-2026-10 WS-C
+  SUPPORT_CANNED_REPLY_CHANGED: "support_canned_reply.changed", // batch-2026-10 WS-C
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

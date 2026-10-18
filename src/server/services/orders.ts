@@ -74,6 +74,8 @@ import { onOrderDelivered } from "@/server/integrations/hooks";
 import { orderEventFor, type OrderEventPayload } from "@/server/events/catalog";
 import { applyWalletMutation, refundOriginalDebit } from "./wallet";
 import { checkRiskForUser } from "./risk";
+import { afterPackingCancellationOpen } from "@/server/aftercare/cancellation-fee"; // batch-2026-10 WS-C
+import { executeCancellationRefund, planCancellationRefund } from "@/server/aftercare/refunds"; // batch-2026-10 WS-C
 
 /**
  * A delivery assignment is still "in play" — offered, accepted, or already
@@ -937,6 +939,14 @@ export interface CancelOrderOptions {
    * before this option existed.
    */
   selfService?: boolean;
+  /**
+   * batch-2026-10 WS-C (F6.2.3): where the customer chose to have the refund
+   * go. Omitted = the original wallet refund, unchanged (unless the order was
+   * paid online or is cancelled after packing — see aftercare/refunds.ts).
+   */
+  refundMethod?: "WALLET" | "ORIGINAL";
+  /** batch-2026-10 WS-C: the refund the customer was shown; refused if it changed. */
+  expectedRefundPaise?: number;
 }
 
 /**
@@ -979,9 +989,15 @@ export async function cancelOrder(
       Boolean(options.selfService) &&
       beforePacking &&
       (await getRule("cancellation")).customerMayCancelUntil === "PREPARING";
+    // batch-2026-10 WS-C (F6.1.3): with rule afterPackingCancellation on, the
+    // customer may also cancel a packed order (READY / ASSIGNED) for a fee.
+    // Off (the default): exactly the original D10 block below.
+    const customerCancelAfterPacking =
+      Boolean(options.selfService) && (await afterPackingCancellationOpen(order.status));
     if (
       options.selfService &&
       !customerCancelBeforePacking &&
+      !customerCancelAfterPacking &&
       (["ACCEPTED", "PREPARING", "READY", "ASSIGNED"] as OrderStatus[]).includes(order.status)
     ) {
       throw conflict(
@@ -1152,6 +1168,21 @@ export async function cancelOrder(
       },
       tx,
     );
+
+    // batch-2026-10 WS-C (F6.1.3 / F6.2.3): an after-packing cancel, a
+    // customer's refund choice, or an order paid online is refunded through
+    // the aftercare path (itemised deductions, wallet or original method,
+    // refund timeline). Every other cancellation continues below, unchanged.
+    const aftercare = await planCancellationRefund(tx, order, {
+      selfService: Boolean(options.selfService),
+      afterPacking: customerCancelAfterPacking,
+      refundMethod: options.refundMethod,
+      expectedRefundPaise: options.expectedRefundPaise,
+    });
+    if (aftercare) {
+      const status = await executeCancellationRefund(tx, order, aftercare, { actor, reason });
+      return { ...updated, status };
+    }
 
     // Removed / cheaper-substituted lines were already refunded and deducted
     // from totalPaise/subtotalPaise, so these always reflect what is still held.
