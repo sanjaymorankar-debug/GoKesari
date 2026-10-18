@@ -227,6 +227,15 @@ export const TABLE_OWNERSHIP = {
   /* <<< end WS-C */
   //
   /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */
+  shop_onboarding_sessions: "seller",
+  pmd_manufacturer_accounts: "seller",
+  pmd_manufacturer_members: "seller",
+  pmd_manufacturer_api_keys: "seller",
+  pmd_ingest_jobs: "seller",
+  pmd_ingest_job_rows: "seller",
+  pmd_object_blobs: "seller",
+  pmd_image_assets: "seller",
+  pmd_record_attributions: "seller",
   /* <<< end WS-D */
   //
   /* >>> batch-2026-10 WS-E (invoicing, payouts, statutory) — add entries below this line only */

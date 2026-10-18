@@ -83,6 +83,7 @@ export const userRoleEnum = pgEnum("user_role", [
   /** Wave 1 skeleton (GS-002): customer capabilities only until the society
    * entity and its scoped permissions land (Wave 8, decision D5). */
   "SOCIETY_ADMIN",
+  "OPERATOR_LIMITED", // batch-2026-10 WS-D (F8.4.2: onboards shops for their owners; own shops only)
 ]);
 
 /**
@@ -371,6 +372,7 @@ export const shopPaymentMethodEnum = pgEnum("shop_payment_method", [
   "OTHER",
   /** Module 3: the fee paid online at self-registration (Cashfree, webhook-confirmed). */
   "CASHFREE",
+  "ONLINE", // batch-2026-10 WS-D: a fee captured through the payment-intent gateway (F1.7.3)
 ]);
 
 export const referralStatusEnum = pgEnum("referral_status", [
@@ -575,7 +577,7 @@ export const loginOtps = pgTable(
     phoneE164: text("phone_e164"),
     /** Address the code was sent to; codes are looked up by it. Null only on rows from before email login. */
     email: text("email"),
-    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION"] }).notNull().default("LOGIN"),
+    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */] }).notNull().default("LOGIN"),
     channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
     codeHash: text("code_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -944,6 +946,8 @@ export const shops = pgTable(
     /** Who is making this status change — read once by the trigger for status_changes, then cleared. */
     statusActorId: uuid("status_actor_id"),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    /** batch-2026-10 WS-D (F8.4.2): the operator who onboarded the shop for its owner. Users live in the platform DB: no FK. */
+    onboardedByUserId: uuid("onboarded_by_user_id"),
   },
   (t) => [
     uniqueIndex("shops_slug_unique").on(t.slug),
@@ -7738,6 +7742,246 @@ export type ProductAttributes = typeof productAttributes.$inferSelect;
 /* <<< end WS-C */
 
 /* >>> batch-2026-10 WS-D (operator-limited, product master data) — tables below this line only */
+
+/**
+ * F8.4.2 — an Operator-Limited onboarding: the owner's email-OTP consent, the
+ * shop it produced and the registration-fee payment (link or in-session).
+ * Seller DB; operator/owner ids and the payment intent live elsewhere (no FK).
+ */
+export const shopOnboardingSessions = pgTable(
+  "shop_onboarding_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    operatorId: uuid("operator_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    ownerUserId: uuid("owner_user_id"),
+    status: text("status", {
+      enum: ["OTP_SENT", "OWNER_VERIFIED", "SHOP_SUBMITTED", "FEE_PENDING", "FEE_PAID", "PENDING_ADMIN", "COMPLETED", "CANCELLED"],
+    })
+      .notNull()
+      .default("OTP_SENT"),
+    otpSentAt: timestamp("otp_sent_at", { withTimezone: true }).notNull().defaultNow(),
+    otpVerifiedAt: timestamp("otp_verified_at", { withTimezone: true }),
+    /** The owner's consent (a verified code) is good for submitting until then. */
+    consentExpiresAt: timestamp("consent_expires_at", { withTimezone: true }),
+    shopId: uuid("shop_id").references(() => shops.id, { onDelete: "set null" }),
+    referralCode: text("referral_code"),
+    feeMode: text("fee_mode", { enum: ["LINK", "CHECKOUT"] }),
+    feeStatus: text("fee_status", { enum: ["NONE", "PENDING", "PAID", "FAILED", "EXPIRED", "WAIVED"] })
+      .notNull()
+      .default("NONE"),
+    feeAmountPaise: bigint("fee_amount_paise", { mode: "number" }),
+    feeIntentId: text("fee_intent_id"),
+    feeLinkUrl: text("fee_link_url"),
+    feeExpiresAt: timestamp("fee_expires_at", { withTimezone: true }),
+    feeFailureReason: text("fee_failure_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("shop_onboarding_sessions_operator_idx").on(t.operatorId, t.createdAt),
+    uniqueIndex("shop_onboarding_sessions_shop_unique").on(t.shopId).where(sql`${t.shopId} IS NOT NULL`),
+    index("shop_onboarding_sessions_fee_idx").on(t.feeStatus, t.feeExpiresAt),
+  ],
+);
+export type ShopOnboardingSession = typeof shopOnboardingSessions.$inferSelect;
+
+/** F9.1.2 — a manufacturer (brand owner) that uploads its own catalogue. Its records feed source `source_key` (mfr_<slug>). */
+export const pmdManufacturerAccounts = pgTable(
+  "pmd_manufacturer_accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    brandNames: text("brand_names").array().notNull().default(sql`'{}'::text[]`),
+    contactEmail: text("contact_email"),
+    status: text("status", { enum: ["ACTIVE", "SUSPENDED"] }).notNull().default("ACTIVE"),
+    sourceKey: text("source_key").notNull(),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("pmd_manufacturer_accounts_slug_unique").on(t.slug),
+    uniqueIndex("pmd_manufacturer_accounts_source_unique").on(t.sourceKey),
+  ],
+);
+export type PmdManufacturerAccount = typeof pmdManufacturerAccounts.$inferSelect;
+
+/** Who may use a manufacturer's portal (/manufacturer). Users are platform rows: no FK. */
+export const pmdManufacturerMembers = pgTable(
+  "pmd_manufacturer_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => pmdManufacturerAccounts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull(),
+    role: text("role", { enum: ["OWNER", "UPLOADER"] }).notNull().default("UPLOADER"),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("pmd_manufacturer_members_unique").on(t.accountId, t.userId),
+    index("pmd_manufacturer_members_user_idx").on(t.userId),
+  ],
+);
+
+/** Bulk-upload API keys: only a SHA-256 hash is stored; the key is shown once. */
+export const pmdManufacturerApiKeys = pgTable(
+  "pmd_manufacturer_api_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => pmdManufacturerAccounts.id, { onDelete: "cascade" }),
+    label: text("label"),
+    keyPrefix: text("key_prefix").notNull(),
+    keyHash: text("key_hash").notNull(),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    useCount: integer("use_count").notNull().default(0),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedBy: uuid("revoked_by"),
+  },
+  (t) => [
+    uniqueIndex("pmd_manufacturer_api_keys_hash_unique").on(t.keyHash),
+    index("pmd_manufacturer_api_keys_account_idx").on(t.accountId),
+  ],
+);
+export type PmdManufacturerApiKey = typeof pmdManufacturerApiKeys.$inferSelect;
+
+export const PMD_INGEST_JOB_KINDS = ["MANUFACTURER_UPLOAD", "MANUFACTURER_API", "GS1_DATAKART", "OPEN_FOOD_FACTS", "FEED"] as const;
+export const PMD_INGEST_JOB_STATUSES = ["QUEUED", "RUNNING", "SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED"] as const;
+
+/** F9.1.4 — a batched, resumable import. `cursor` = last row number whose batch committed. */
+export const pmdIngestJobs = pgTable(
+  "pmd_ingest_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: text("kind", { enum: PMD_INGEST_JOB_KINDS }).notNull(),
+    sourceKey: text("source_key").notNull(),
+    manufacturerAccountId: uuid("manufacturer_account_id").references(() => pmdManufacturerAccounts.id, { onDelete: "set null" }),
+    fileName: text("file_name"),
+    status: text("status", { enum: PMD_INGEST_JOB_STATUSES }).notNull().default("QUEUED"),
+    totalRows: integer("total_rows").notNull().default(0),
+    validRows: integer("valid_rows").notNull().default(0),
+    invalidRows: integer("invalid_rows").notNull().default(0),
+    cursor: integer("cursor").notNull().default(0),
+    batchSize: integer("batch_size").notNull().default(1000),
+    processedRows: integer("processed_rows").notNull().default(0),
+    stagedRows: integer("staged_rows").notNull().default(0),
+    failedRows: integer("failed_rows").notNull().default(0),
+    imagesStored: integer("images_stored").notNull().default(0),
+    imagesFailed: integer("images_failed").notNull().default(0),
+    batchesDone: integer("batches_done").notNull().default(0),
+    runIds: bigint("run_ids", { mode: "number" }).array().notNull().default(sql`'{}'::bigint[]`),
+    leaseOwner: text("lease_owner"),
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    report: jsonb("report").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdBy: uuid("created_by"),
+    createdVia: text("created_via").notNull().default("PORTAL"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("pmd_ingest_jobs_status_idx").on(t.status, t.createdAt),
+    index("pmd_ingest_jobs_account_idx").on(t.manufacturerAccountId, t.createdAt),
+  ],
+);
+export type PmdIngestJob = typeof pmdIngestJobs.$inferSelect;
+
+/** The job's input, staged once: one row per file row, with its validation outcome. */
+export const pmdIngestJobRows = pgTable(
+  "pmd_ingest_job_rows",
+  {
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => pmdIngestJobs.id, { onDelete: "cascade" }),
+    rowNumber: integer("row_number").notNull(),
+    sourceProductId: text("source_product_id"),
+    gtin14: text("gtin14"),
+    /** The StagedProduct the pipeline receives (null for an invalid row). */
+    payload: jsonb("payload").$type<Record<string, unknown>>(),
+    /** The row as the file had it (for the error file). */
+    raw: jsonb("raw").$type<Record<string, string>>(),
+    status: text("status", { enum: ["VALID", "INVALID", "DUPLICATE", "STAGED", "FAILED"] }).notNull().default("VALID"),
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+  },
+  (t) => [primaryKey({ columns: [t.jobId, t.rowNumber] }), index("pmd_ingest_job_rows_status_idx").on(t.jobId, t.status)],
+);
+
+/** ObjectStore default adapter: bytes in the row (or on disk under MEDIA_DIR). */
+export const pmdObjectBlobs = pgTable(
+  "pmd_object_blobs",
+  {
+    key: text("key").primaryKey(),
+    contentType: text("content_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    storage: text("storage", { enum: ["DB", "DISK"] }).notNull().default("DB"),
+    storageKey: text("storage_key"),
+    data: bytea("data"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check(
+      "pmd_object_blobs_bytes_present",
+      sql`(${t.storage} = 'DB' AND ${t.data} IS NOT NULL) OR (${t.storage} = 'DISK' AND ${t.storageKey} IS NOT NULL)`,
+    ),
+  ],
+);
+
+/** A product image fetched from a source URL, resized and kept in the object store. */
+export const pmdImageAssets = pgTable(
+  "pmd_image_assets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    gtin14: text("gtin14"),
+    sourceProductId: text("source_product_id"),
+    sourceKey: text("source_key"),
+    sourceUrl: text("source_url").notNull(),
+    objectStore: text("object_store"),
+    objectKey: text("object_key"),
+    width: integer("width"),
+    height: integer("height"),
+    sizeBytes: integer("size_bytes"),
+    status: text("status", { enum: ["STORED", "FAILED"] }).notNull(),
+    error: text("error"),
+    jobId: uuid("job_id").references(() => pmdIngestJobs.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("pmd_image_assets_unique").on(t.sourceKey, t.sourceProductId, t.sourceUrl),
+    index("pmd_image_assets_gtin_idx").on(t.gtin14),
+  ],
+);
+export type PmdImageAsset = typeof pmdImageAssets.$inferSelect;
+
+/** Licence attribution stored with each imported record (e.g. Open Food Facts, ODbL 1.0). */
+export const pmdRecordAttributions = pgTable(
+  "pmd_record_attributions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sourceKey: text("source_key").notNull(),
+    sourceProductId: text("source_product_id").notNull(),
+    gtin14: text("gtin14"),
+    attribution: text("attribution").notNull(),
+    licenceName: text("licence_name"),
+    licenceUrl: text("licence_url"),
+    recordUrl: text("record_url"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("pmd_record_attributions_unique").on(t.sourceKey, t.sourceProductId),
+    index("pmd_record_attributions_gtin_idx").on(t.gtin14),
+  ],
+);
 
 /* <<< end WS-D */
 

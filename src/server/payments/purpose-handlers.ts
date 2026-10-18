@@ -6,6 +6,7 @@
  */
 import type { DbClient } from "@/server/db";
 import type { PaymentIntentRef, PaymentPurpose } from "./intents";
+import { onShopRegistrationFeeCaptured } from "@/server/services/operator-limited"; // batch-2026-10 WS-D
 
 export type CapturedHandler = (intent: PaymentIntentRef, client: DbClient) => Promise<void>;
 
@@ -14,6 +15,9 @@ export const CAPTURED_HANDLERS: Partial<Record<PaymentPurpose, CapturedHandler>>
   /* <<< end WS-A */
   //
   /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */
+  // F8.4.2: the registration fee of an operator-onboarded shop (link or in-session). Records the fee on the
+  // shop's ledger in the capture transaction; the existing auto-approval rule runs after commit.
+  SHOP_REGISTRATION_FEE: (intent, client) => onShopRegistrationFeeCaptured(intent, client),
   /* <<< end WS-D */
   //
 };

@@ -264,6 +264,33 @@ export const TEMPLATES: Record<string, Template> = {
   /* <<< end WS-C */
   //
   /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */
+  [T.SHOP_ONBOARDED_BY_OPERATOR]: t(
+    "Your shop has been registered",
+    "{{operatorName}} registered {{shopName}} for you on GoKesari after you confirmed the code we emailed. Registration {{registrationNumber}} is now with our team.",
+  ),
+  [T.SHOP_REGISTRATION_FEE_LINK]: t(
+    "Pay your GoKesari registration fee",
+    "Pay the registration fee of {{amount}} for {{shopName}} here: {{link}} — the link works until {{expiresAt}}.",
+  ),
+  [T.SHOP_REGISTRATION_FEE_PAID]: t(
+    "Registration fee received",
+    "We received the registration fee of {{amount}} for {{shopName}}. {{nextStep}}",
+  ),
+  [T.SHOP_REGISTRATION_FEE_FAILED]: t(
+    "Registration fee not received",
+    "The registration fee for {{shopName}} was not paid ({{reason}}). The shop now waits for an administrator's approval.",
+    false,
+  ),
+  [T.SUPPORT_SHOP_FEE_FAILED]: t(
+    "Shop waiting for approval — fee not paid",
+    "{{shopName}} was onboarded by {{operatorName}} but its registration fee was not paid ({{reason}}). It is pending administrator approval.",
+    false,
+  ),
+  [T.PMD_IMPORT_FINISHED]: t(
+    "Product import finished",
+    "{{fileName}}: {{staged}} product(s) staged, {{failed}} row(s) need attention ({{status}}).",
+    false,
+  ),
   /* <<< end WS-D */
   //
   /* >>> batch-2026-10 WS-E (invoicing, payouts, statutory) — add entries below this line only */

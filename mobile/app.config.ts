@@ -75,6 +75,7 @@ const APP_LINK_PATH_PREFIXES = [
   "/subscribe",
   "/subscriptions",
   "/wallet",
+  "/manufacturer", // batch-2026-10 WS-D (manufacturer portal, F9.1.2)
 ];
 
 export default ({ config }: ConfigContext): ExpoConfig => ({
