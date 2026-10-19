@@ -38,7 +38,9 @@ The code has 85 migrations (`0000`–`0084`), and all three databases have appli
 
 | Suite | Result |
 |---|---|
-| `npx vitest run` (all unit and integration tests, local PostgreSQL 16) | _running — added when finished_ |
+| `npx vitest run --silent` (all unit and integration tests, local PostgreSQL 16) | **Pass — 175 / 175 files, 2,198 / 2,198 tests**, 0 failed (07:56–09:09 UTC) |
+
+A first run with the tests' console output on was stopped at the session's 60-minute limit. It had no failures up to that point; its log had grown to 44 MB of database notices. The re-run above, with console output off, completed. CI ran the same suite green on release #194 ([run 39162207748](https://github.com/sanjaymorankar-debug/GoKesari/actions/runs/39162207748)), whose application code is the same as main's today.
 
 ## 4. Production (gokesari.com): every production-safe test
 
@@ -84,6 +86,6 @@ These suites exist but must not run on the live site. Each one writes customer-f
 |---|---|
 | Code: local = staging = main | **Pass** |
 | Database schema: local = test = production (newest `0084`, none missing) | **Pass** |
-| Local full suite | _running_ |
+| Local full suite (2,198 tests) | **Pass — 2,198 / 2,198** |
 | gokesari.com production-safe tests | **Pass — 61 / 61** |
 | test.gokesari.com, same read-only suites | **Pass — 57 / 57** |
