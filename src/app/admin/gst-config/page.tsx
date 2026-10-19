@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { GstConfigEditor } from "@/components/admin/gst-config-editor";
@@ -21,6 +22,7 @@ export default async function GstConfigPage() {
       <PageHeader
         title="GST settings"
         description="Thresholds and switches by date: a change applies from the day you choose; invoices already issued keep the rule of their date. Confirm values with the CA. Every change is in the audit log."
+        action={<Link href="/admin/product-gst" className="text-sm font-medium text-kesari-700 hover:underline">Product GST rates →</Link>}
       />
       <GstConfigEditor rules={JSON.parse(JSON.stringify(rules))} help={GST_RULE_HELP} rates={JSON.parse(JSON.stringify(rates))} today={istDate(new Date())} />
     </div>
