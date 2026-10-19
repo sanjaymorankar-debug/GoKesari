@@ -5,6 +5,7 @@
  * each is only the value used until an admin changes it.
  */
 import { z } from "zod";
+import { LEGAL_ENTITY } from "@/lib/legal-docs";
 
 const int = (min: number, max: number) => z.number().int().min(min).max(max);
 
@@ -1272,8 +1273,9 @@ export const RULES = {
     }),
     defaults: {
       enabled: false,
-      cycleDays: 5,
-      anchorDate: "2026-10-01",
+      // Weekly, every Saturday morning (owner, 19 Oct 2026): 17 Oct 2026 is a Saturday.
+      cycleDays: 7,
+      anchorDate: "2026-10-17",
       holdDays: 2,
       makerChecker: true,
       retryMaxAttempts: 3,
@@ -1321,12 +1323,13 @@ export const RULES = {
       }),
     }),
     defaults: {
-      legalName: "",
+      // GoKesari's registered entity (owner, 19 Oct 2026); the PAN is characters 3-12 of the GSTIN.
+      legalName: LEGAL_ENTITY.legalName,
       tradeName: "GoKesari",
-      gstin: "",
-      pan: "",
-      address: "",
-      stateCode: "",
+      gstin: LEGAL_ENTITY.gstin,
+      pan: LEGAL_ENTITY.gstin.slice(2, 12),
+      address: LEGAL_ENTITY.registeredAddress,
+      stateCode: "MH",
       email: "",
       invoicePrefix: "GKP",
       creditNotePrefix: "GKC",

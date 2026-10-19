@@ -12,15 +12,14 @@ import type { NextRequest } from "next/server";
 import { ok, route } from "@/server/api/handler";
 import { assertCronAuthorized } from "@/server/api/cron-auth";
 import { RATE_LIMITS, clientKey, enforceRateLimit } from "@/server/api/rate-limit";
-import { processDueJobs } from "@/server/pmd/ingest-jobs";
+import { pmdIngest } from "@/server/cron/schedule";
 
 export const POST = route(async (request: NextRequest) => {
   enforceRateLimit(clientKey(request, "cron"), RATE_LIMITS.CRON);
   assertCronAuthorized(request);
-  const result = await processDueJobs();
-  const summary = { jobs: result.jobs, errors: result.errors, progressed: result.progressed.map((p) => ({ id: p.id, status: p.status, percent: p.percent })) };
-  console.info("[cron:pmd-ingest]", JSON.stringify(summary));
-  return ok(summary);
+  const result = await pmdIngest();
+  console.info("[cron:pmd-ingest]", JSON.stringify(result));
+  return ok(result);
 });
 
 export const GET = route(async (request: NextRequest) => {

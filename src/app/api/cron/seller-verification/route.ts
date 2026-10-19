@@ -13,23 +13,14 @@ import type { NextRequest } from "next/server";
 import { ok, route } from "@/server/api/handler";
 import { assertCronAuthorized } from "@/server/api/cron-auth";
 import { RATE_LIMITS, clientKey, enforceRateLimit } from "@/server/api/rate-limit";
-import { runSellerVerificationSweep } from "@/server/services/seller-verification-jobs";
-import { purgeStaleUploads } from "@/server/services/document-uploads";
-import { runLegalDocumentSweep } from "@/server/services/legal-documents";
-import { purgeOldProductImports } from "@/server/services/product-import";
+import { sellerVerification } from "@/server/cron/schedule";
 
 export const POST = route(async (request: NextRequest) => {
   enforceRateLimit(clientKey(request, "cron"), RATE_LIMITS.CRON);
   assertCronAuthorized(request);
-  const result = await runSellerVerificationSweep();
-  // Mandatory legal documents (docs/four-features-2026-10): grace periods and expiry reminders.
-  const legalDocuments = await runLegalDocumentSweep().catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
-  // docs/document-upload-2026-10: uploads never submitted lose their file and read fields after the retention period.
-  const staleUploadsPurged = await purgeStaleUploads().catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
-  // docs/product-import-2026-10: bulk-upload files and staged rows are deleted after the retention period.
-  const productImportsPurged = await purgeOldProductImports().catch((error: unknown) => ({ error: error instanceof Error ? error.message : String(error) }));
-  console.info("[cron:seller-verification]", JSON.stringify({ ...result, legalDocuments, staleUploadsPurged, productImportsPurged }));
-  return ok({ ...result, legalDocuments, staleUploadsPurged, productImportsPurged });
+  const result = await sellerVerification();
+  console.info("[cron:seller-verification]", JSON.stringify(result));
+  return ok(result);
 });
 
 /** Health probe so a scheduler can verify wiring without running the sweep. */

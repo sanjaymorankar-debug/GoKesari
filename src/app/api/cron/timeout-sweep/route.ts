@@ -26,39 +26,12 @@ import type { NextRequest } from "next/server";
 import { ok, route } from "@/server/api/handler";
 import { assertCronAuthorized } from "@/server/api/cron-auth";
 import { RATE_LIMITS, clientKey, enforceRateLimit } from "@/server/api/rate-limit";
-import { alertOverdueRiderSearches, runDispatchSweep } from "@/server/services/delivery-assignment";
-import { runBroadcastSweep } from "@/server/services/dispatch-broadcast";
-import { runReturnPickupSweep } from "@/server/services/return-pickups";
-import { runShopAcceptanceSweep } from "@/server/services/shop-acceptance";
-import { sendShopOpeningAlerts } from "@/server/services/shop-opening";
-
-async function step<T>(name: string, errors: string[], run: () => Promise<T>): Promise<T | null> {
-  try {
-    return await run();
-  } catch (error) {
-    errors.push(`${name}: ${error instanceof Error ? error.message : String(error)}`);
-    console.error(`[cron:timeout-sweep] ${name} failed`, error);
-    return null;
-  }
-}
+import { timeoutSweep } from "@/server/cron/schedule";
 
 export const POST = route(async (request: NextRequest) => {
   enforceRateLimit(clientKey(request, "cron"), RATE_LIMITS.CRON);
   assertCronAuthorized(request);
-  const errors: string[] = [];
-  const shopAcceptance = await step("shop-acceptance", errors, () => runShopAcceptanceSweep());
-  // batch-2026-10 WS-B: broadcast stale single offers / widen the radius (rule
-  // dispatchBroadcast) before stale offers are expired below. Reported only when on.
-  const broadcast = await step("dispatch-broadcast", errors, () => runBroadcastSweep());
-  const result = {
-    shopAcceptance,
-    ...(broadcast?.enabled ? { dispatchBroadcast: broadcast } : {}),
-    dispatch: await step("dispatch", errors, () => runDispatchSweep()),
-    riderSearchAlerts: await step("rider-search-alerts", errors, () => alertOverdueRiderSearches()),
-    returnPickups: await step("return-pickups", errors, () => runReturnPickupSweep()),
-    shopOpening: await step("shop-opening", errors, () => sendShopOpeningAlerts()),
-    errors,
-  };
+  const result = await timeoutSweep();
   console.info("[cron:timeout-sweep]", JSON.stringify(result));
   return ok(result);
 });

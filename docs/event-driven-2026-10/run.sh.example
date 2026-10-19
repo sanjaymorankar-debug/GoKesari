@@ -22,6 +22,8 @@ case "$BASE_URL" in
 esac
 
 case "$JOB" in
+  # The three entry points of docs/crontab.txt (19 Oct 2026).
+  every-minute|hourly|daily) ;;
   timeout-sweep|notification-retry|integration-sync|risk-rules|dispute-escalation|daily-orders|seller-verification|finance-weekly) ;;
   # Old polling jobs — still accepted so the previous crontab can be restored (ROLLBACK.md).
   shop-acceptance|delivery-dispatch|notifications) ;;

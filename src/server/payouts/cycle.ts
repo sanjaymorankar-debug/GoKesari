@@ -1,7 +1,7 @@
 /**
  * F10.2.4 (GAP-005) — automated shop payouts: the cycle (batch-2026-10 WS-E).
  *
- * Every payouts.cycleDays days (default 5) counted from payouts.anchorDate,
+ * Every payouts.cycleDays days (default 7 from Saturday 17 Oct 2026: every Saturday) counted from payouts.anchorDate,
  * the payout-cycle job closes the last complete cycle and drafts its batch.
  * For each shop the payout is itemised (payout_cycle_lines):
  *
