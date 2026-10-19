@@ -1,0 +1,13 @@
+{"id":"PS-PAGES","title":"All 12 module pages ask a signed-out visitor to sign in (no 404 / 500)","env":"gokesari.com","result":"PASS","detail":"all redirect to /signin"}
+{"id":"PS-API","title":"Module API refuses a request without a session (401) on every resource","env":"gokesari.com","result":"PASS","detail":"8 resources → 401"}
+{"id":"PS-API-WRITE","title":"Module API refuses a write without a session (bill upload → 401)","env":"gokesari.com","result":"PASS","detail":"POST bills → 401"}
+{"id":"PS-CRON-BILLS","title":"/api/cron/bill-captures refuses a call without the cron secret","env":"gokesari.com","result":"PASS","detail":"→ 403"}
+{"id":"PS-CRON-GST","title":"/api/cron/gst-reminders refuses a call without the cron secret","env":"gokesari.com","result":"PASS","detail":"→ 403"}
+{"id":"PS-INBOUND","title":"Bill email endpoint refuses a post without its secret","env":"gokesari.com","result":"PASS","detail":"→ 403"}
+{"id":"PS-SHARE","title":"Share target (/shop/accounts/share) sends a signed-out share to sign-in","env":"gokesari.com","result":"PASS","detail":"→ 303 https://gokesari.com/signin?callbackUrl=/shop/accounts/capture"}
+{"id":"PS-MANIFEST","title":"Web app manifest has the bill share target and the Scan bill shortcut","env":"gokesari.com","result":"PASS","detail":"share_target /shop/accounts/share; shortcuts /shop/accounts/capture?mode=scan"}
+{"id":"PS-EXISTING","title":"Existing pages still answer (/, /shops, /signin, /shop → sign-in)","env":"gokesari.com","result":"PASS","detail":"/ 200, /shops 200, /signin 200, /shop 307"}
+{"id":"PS-UI-DESKTOP","title":"Opening Bills & GST signed out (desktop) lands on the sign-in form with no page errors","env":"gokesari.com","result":"PASS","detail":"/signin?callbackUrl=/shop/accounts; page errors 0"}
+{"id":"PS-UI-ANDROID","title":"Opening Bills & GST signed out (Android app) lands on the sign-in form with no page errors","env":"gokesari.com","result":"PASS","detail":"/signin?callbackUrl=/shop/accounts; page errors 0"}
+{"summary":{"env":"gokesari.com","total":11,"passed":11,"failed":0}}
+exit 0
