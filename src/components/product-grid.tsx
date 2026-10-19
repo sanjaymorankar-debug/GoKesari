@@ -9,6 +9,7 @@ export function ProductGrid({
   cartLines,
   distances,
   compare = true,
+  compareCounts,
 }: {
   /** F8: a product may carry a live shop offer's price and title. */
   products: (Awaited<ReturnType<typeof listStorefrontProducts>>[number] & {
@@ -26,6 +27,8 @@ export function ProductGrid({
   distances?: ReadonlyMap<string, number | null>;
   /** Show the "Compare prices" link (off on the comparison page itself). */
   compare?: boolean;
+  /** docs/homepage-uiux-2026-10 (F4): productId → nearby shops selling it; "Compare N prices" from 2. */
+  compareCounts?: ReadonlyMap<string, number>;
 }) {
   return (
     // Phones: two products a row (it was one, so a category ran to 13 screens).
@@ -52,6 +55,7 @@ export function ProductGrid({
             shopName: p.shopName,
             shopSlug: p.shopSlug,
             productId: compare ? p.productId : undefined,
+            compareCount: compare ? (compareCounts?.get(p.productId) ?? 0) : 0,
             distanceKm: distances?.get(p.shopId) ?? null,
             offerPricePaise: p.offerPricePaise ?? null,
             offerTitle: p.offerTitle ?? null,

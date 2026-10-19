@@ -1,43 +1,73 @@
+import { LanguageSwitch } from "@/components/board/board-header";
 import { BrandTagline, BrandWordmark } from "@/components/brand-wordmark";
-import { FooterLinkRow, type FooterLink } from "@/components/footer-link-row";
-import { LEGAL_DOCS, LEGAL_ENTITY } from "@/lib/legal-docs";
+import { FooterColumns, type FooterColumn } from "@/components/footer-columns";
+import { LANG_TAG, tr, UI, type Lang } from "@/lib/board/i18n";
+import { HOME } from "@/lib/home-i18n";
+import { LEGAL_ENTITY } from "@/lib/legal-docs";
 
-/** Which footer row a policy page sits in; anything not listed goes with the policies. */
-const COMPANY_SLUGS = ["seller-terms"];
-const PAYMENT_SLUGS = ["subscription-terms", "wallet-terms", "voucher-terms", "grievance-redressal"];
-
-/** Site footer, Amazon style: every company, policy and help link in two compact rows, then one small line naming the company. */
-export function SiteFooter() {
-  const doc = (slug: string): FooterLink[] => {
-    const found = LEGAL_DOCS.find((d) => d.slug === slug);
-    return found ? [{ href: `/legal/${found.slug}`, label: found.shortLabel }] : [];
-  };
-  const policies = LEGAL_DOCS.filter(
-    (d) => !COMPANY_SLUGS.includes(d.slug) && !PAYMENT_SLUGS.includes(d.slug),
-  ).map((d) => ({ href: `/legal/${d.slug}`, label: d.shortLabel }));
-
-  const company: FooterLink[] = [
-    { href: "/about", label: "About Us" },
-    { href: "/contact", label: "Contact Us" },
-    { href: "/sell", label: "Sell on GoKesari" },
-    { href: "/delivery-partner/apply", label: "Become a Delivery Partner" },
-    ...COMPANY_SLUGS.flatMap(doc),
-  ];
-  const policiesAndHelp: FooterLink[] = [
-    ...policies,
-    ...PAYMENT_SLUGS.flatMap(doc),
-    { href: "/grievance", label: "File a complaint" },
+/**
+ * Site footer (docs/homepage-uiux-2026-10, F5): four labelled columns —
+ * Company, Make Money, Support, Legal — that fold into accordions on phones,
+ * then a bottom bar with the language switch and the company line
+ * (legal name and GSTIN). Every page keeps the same links it had.
+ */
+export function SiteFooter({ lang = "en" }: { lang?: Lang }) {
+  const columns: FooterColumn[] = [
+    {
+      key: "company",
+      title: tr(HOME.footerCompany, lang),
+      links: [
+        { href: "/about", label: tr(HOME.aboutUs, lang) },
+        { href: "/contact", label: tr(HOME.contactUs, lang) },
+      ],
+    },
+    {
+      key: "make-money",
+      title: tr(HOME.footerMakeMoney, lang),
+      links: [
+        { href: "/sell", label: tr(HOME.sellOnGoKesari, lang) },
+        { href: "/delivery-partner/apply", label: tr(HOME.becomeDeliveryPartner, lang) },
+        { href: "/legal/seller-terms", label: tr(HOME.sellerTerms, lang) },
+      ],
+    },
+    {
+      key: "support",
+      title: tr(HOME.footerSupport, lang),
+      links: [
+        { href: "/support", label: tr(HOME.help, lang) },
+        { href: "/grievance", label: tr(HOME.fileComplaint, lang) },
+        { href: "/legal/grievance-redressal", label: tr(HOME.grievanceRedressal, lang) },
+      ],
+    },
+    {
+      key: "legal",
+      title: tr(HOME.footerLegal, lang),
+      links: [
+        { href: "/legal/privacy-policy", label: tr(HOME.privacyPolicy, lang) },
+        { href: "/legal/terms", label: tr(HOME.terms, lang) },
+        { href: "/legal/refund-policy", label: tr(HOME.refundPolicy, lang) },
+        { href: "/legal/shipping-policy", label: tr(HOME.shippingPolicy, lang) },
+        { href: "/legal/cookie-policy", label: tr(HOME.cookiePolicy, lang) },
+        { href: "/legal/subscription-terms", label: tr(HOME.subscriptionTerms, lang) },
+        { href: "/legal/wallet-terms", label: tr(HOME.walletTerms, lang) },
+        { href: "/legal/voucher-terms", label: tr(HOME.voucherTerms, lang) },
+      ],
+    },
   ];
 
   return (
-    <footer className="border-t border-cream-200 bg-white" data-testid="site-footer">
-      <div className="mx-auto flex max-w-6xl flex-col items-center gap-1 px-4 py-3 text-center text-xs text-ink-600 sm:px-6">
-        <FooterLinkRow label="Company" links={company} />
-        <FooterLinkRow label="Policies and help" links={policiesAndHelp} />
-        <p className="mt-1 text-[11px] leading-snug text-ink-500" data-testid="footer-company-line">
-          <BrandWordmark className="text-xs" /> · <BrandTagline className="text-[11px]" /> · © {LEGAL_ENTITY.legalName} · GSTIN{" "}
-          {LEGAL_ENTITY.gstin}
-        </p>
+    <footer lang={LANG_TAG[lang]} className="border-t border-cream-200 bg-white" data-testid="site-footer">
+      <div className="mx-auto max-w-6xl px-4 pb-4 pt-5 sm:px-6 lg:pt-8">
+        <FooterColumns columns={columns} />
+        <div className="mt-4 flex flex-col items-center gap-3 border-t border-cream-200 pt-4 lg:mt-6 lg:flex-row lg:justify-between">
+          <div className="flex items-center gap-2" data-testid="footer-language">
+            <span className="text-sm font-semibold text-ink-700">{tr(UI.language, lang)}</span>
+            <LanguageSwitch lang={lang} variant="buttons" />
+          </div>
+          <p className="text-center text-xs leading-snug text-ink-600 lg:text-right" data-testid="footer-company-line">
+            <BrandWordmark className="text-xs" /> · <BrandTagline className="text-xs" /> · © {LEGAL_ENTITY.legalName} · GSTIN {LEGAL_ENTITY.gstin}
+          </p>
+        </div>
       </div>
     </footer>
   );

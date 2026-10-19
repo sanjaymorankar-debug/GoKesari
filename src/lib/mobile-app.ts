@@ -25,6 +25,24 @@ export function isMobileAppUserAgent(userAgent: string | null | undefined): bool
   return Boolean(userAgent && new RegExp(`\\b${MOBILE_APP_UA_TOKEN}/`).test(userAgent));
 }
 
+/**
+ * docs/homepage-uiux-2026-10 (F2): the first app build whose iPhone app
+ * declares microphone and speech-recognition use. Inside an older build the
+ * header search hides its microphone — iOS closes an app that reaches for the
+ * microphone without that declaration. Browsers are unaffected.
+ */
+export const MOBILE_APP_VOICE_MIN_VERSION = "1.3.0";
+
+/** True in browsers, and in app builds new enough for voice search. */
+export function appAllowsVoiceSearch(userAgent: string | null | undefined): boolean {
+  const match = new RegExp(`\\b${MOBILE_APP_UA_TOKEN}/(\\d+)\\.(\\d+)\\.(\\d+)`).exec(userAgent ?? "");
+  if (!isMobileAppUserAgent(userAgent)) return true;
+  if (!match) return false;
+  const [major, minor, patch] = match.slice(1).map(Number);
+  const [wantMajor, wantMinor, wantPatch] = MOBILE_APP_VOICE_MIN_VERSION.split(".").map(Number);
+  return major !== wantMajor ? major > wantMajor : minor !== wantMinor ? minor > wantMinor : patch >= wantPatch;
+}
+
 export function isMobileAppScheme(value: string | null | undefined): value is MobileAppScheme {
   return (MOBILE_APP_SCHEMES as readonly string[]).includes(value ?? "");
 }

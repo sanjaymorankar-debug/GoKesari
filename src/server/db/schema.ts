@@ -9131,3 +9131,62 @@ export const broadcastRecipients = pgTable(
 export type BroadcastRecipient = typeof broadcastRecipients.$inferSelect;
 
 /* <<< end WS-F */
+
+/* >>> Homepage UI/UX upgrade (docs/homepage-uiux-2026-10) — add entries below this line only */
+
+export const HOME_BANNER_KINDS = ["DEAL", "SEASONAL", "NEW_SHOPS", "GENERAL"] as const;
+export type HomeBannerKind = (typeof HOME_BANNER_KINDS)[number];
+
+/**
+ * F1: the home page's hero carousel. Admins and operators (HOME_BANNER_MANAGE)
+ * create, schedule (starts/ends), reorder and switch banners on or off; a
+ * banner may target one city or one PIN code. With none live, the page shows
+ * its built-in default banner.
+ */
+export const homeBanners = pgTable(
+  "home_banners",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    title: text("title").notNull(),
+    subtitle: text("subtitle"),
+    /** /api/images/<id> (uploaded through the image store), a /public path or an https URL. */
+    imageUrl: text("image_url"),
+    ctaLabel: text("cta_label"),
+    /** An in-site path ("/shops?open=1") or an https URL. */
+    ctaHref: text("cta_href").notNull().default("/shops"),
+    kind: text("kind", { enum: HOME_BANNER_KINDS }).notNull().default("GENERAL"),
+    /** Targeting: null = everywhere. Matched case-insensitively against the visitor's location. */
+    city: text("city"),
+    pincode: text("pincode"),
+    startsAt: timestamp("starts_at", { withTimezone: true }),
+    endsAt: timestamp("ends_at", { withTimezone: true }),
+    sortOrder: integer("sort_order").notNull().default(0),
+    active: boolean("active").notNull().default(true),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("home_banners_live_idx").on(t.active, t.sortOrder)],
+);
+export type HomeBanner = typeof homeBanners.$inferSelect;
+
+/**
+ * F2: searches typed into the header search. A signed-in customer's own rows
+ * are their "Recent searches"; every row (guests' anonymously, user_id null)
+ * feeds "Trending". Only the normalised text is kept — nothing else about the
+ * visitor.
+ */
+export const searchQueries = pgTable(
+  "search_queries",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "cascade" }),
+    query: text("query").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("search_queries_user_idx").on(t.userId, t.createdAt), index("search_queries_created_idx").on(t.createdAt)],
+);
+export type SearchQuery = typeof searchQueries.$inferSelect;
+
+/* <<< end homepage UI/UX upgrade */

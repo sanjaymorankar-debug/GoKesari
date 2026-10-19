@@ -78,14 +78,14 @@ function comparableListing(shopIds: string[]): SQL {
   )!;
 }
 
-/** Every comparable listing at these shops — needed when offers can reorder products. */
-function allListings(shopIds: string[]) {
+/** Every comparable listing at these shops — needed when offers can reorder products. Optionally of one product only. */
+function allListings(shopIds: string[], productId?: string) {
   return db
     .select(listingColumns)
     .from(shopProducts)
     .innerJoin(products, eq(products.id, shopProducts.productId))
     .innerJoin(shops, eq(shops.id, shopProducts.shopId))
-    .where(comparableListing(shopIds));
+    .where(productId ? and(comparableListing(shopIds), eq(shopProducts.productId, productId)) : comparableListing(shopIds));
 }
 
 type Listing = Awaited<ReturnType<typeof allListings>>[number];
@@ -131,11 +131,21 @@ function topListingsAtListPrice(shopIds: string[], limit: number): Promise<Listi
 
 export async function homePriceComparison(
   location: CustomerLocation | null,
-  options: { maxProducts?: number } = {},
+  options: {
+    maxProducts?: number;
+    /**
+     * docs/homepage-uiux-2026-10 (F4): one product's prices only — the
+     * "Compare N prices" link on a product card. Not gated by the rule: it is
+     * the same comparison a product page already offers.
+     */
+    productId?: string;
+  } = {},
 ): Promise<ComparedProduct[]> {
   if (!location) return [];
-  const rule = await getRule("homePriceComparison");
-  if (!rule.enabled) return [];
+  if (!options.productId) {
+    const rule = await getRule("homePriceComparison");
+    if (!rule.enabled) return [];
+  }
   const distances = await serviceableShopIds(location);
   if (distances.size < 2) return [];
   const shopIds = [...distances.keys()];
@@ -146,9 +156,13 @@ export async function homePriceComparison(
   // so then every listing is priced here instead.
   const [offers, top] = await Promise.all([
     getLiveOffers(shopIds),
-    topListingsAtListPrice(shopIds, maxProducts),
+    options.productId ? Promise.resolve([]) : topListingsAtListPrice(shopIds, maxProducts),
   ]);
-  const listings = offers.length === 0 ? top : await allListings(shopIds);
+  const listings = options.productId
+    ? await allListings(shopIds, options.productId)
+    : offers.length === 0
+      ? top
+      : await allListings(shopIds);
 
   const byProduct = new Map<string, { listing: Listing; imageUrl: string | null; prices: ComparedPrice[] }>();
   for (const l of listings) {

@@ -13,6 +13,9 @@ import { getCartLineQuantities } from "@/server/services/cart";
 import { listStorefrontProducts } from "@/server/services/catalogue";
 import { getLiveOffers, listLiveOffersForShop, priceWithOffers } from "@/server/services/shop-offers";
 import { getPublicShopBySlug, isShopOpenNow } from "@/server/services/shops";
+import { getCustomerLocation } from "@/server/location";
+import { nearbyOfferCounts } from "@/server/services/home-discovery";
+import { serviceableShopIds } from "@/server/services/serviceability";
 
 export const dynamic = "force-dynamic";
 
@@ -71,6 +74,10 @@ export default async function ShopPage({
   const categoryNames = [...byCategory.keys()];
   const activeCategory = categoryNames.includes(query.cat ?? "") ? query.cat! : (categoryNames[0] ?? "");
   const productPage = paginate(byCategory.get(activeCategory) ?? [], query.page, 6);
+  // docs/homepage-uiux-2026-10 (F4): "Compare N prices" when other nearby shops sell the same product.
+  const location = await getCustomerLocation(user?.id).catch(() => null);
+  const nearby = location ? await serviceableShopIds(location).catch(() => null) : null;
+  const compareCounts = nearby ? await nearbyOfferCounts(productPage.rows.map((p) => p.productId), [...nearby.keys()]) : undefined;
 
   return (
     <>
@@ -215,7 +222,7 @@ export default async function ShopPage({
           ) : (
             <PageHeader title={activeCategory} />
           )}
-          <ProductGrid products={productPage.rows} signedIn={Boolean(user)} cartLines={cartLines} />
+          <ProductGrid products={productPage.rows} signedIn={Boolean(user)} cartLines={cartLines} compareCounts={compareCounts} />
           <Pager
             lang={lang}
             page={productPage.page}

@@ -326,6 +326,13 @@ export const PERMISSIONS = {
   BROADCAST_MANAGE: "broadcast:manage",
   /* <<< end WS-F */
   //
+  /* >>> homepage UI/UX upgrade (docs/homepage-uiux-2026-10) */
+  /**
+   * F1: create, schedule, reorder and switch on/off the home page's hero
+   * banners (/admin/home-banners). Admin + operator.
+   */
+  HOME_BANNER_MANAGE: "home-banner:manage",
+  /* <<< end homepage UI/UX upgrade */
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -463,6 +470,7 @@ const OPERATOR_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.INTEGRATION_VIEW_ANY,
   PERMISSIONS.PMD_BULK_EDIT, // batch-2026-10 WS-D (product browser bulk edit; audited)
   PERMISSIONS.BROADCAST_MANAGE, // batch-2026-10 WS-F
+  PERMISSIONS.HOME_BANNER_MANAGE, // docs/homepage-uiux-2026-10
   PERMISSIONS.SUPPORT_TICKET_RAISE, // batch-2026-10 WS-C
   PERMISSIONS.SUPPORT_TICKET_MANAGE, // batch-2026-10 WS-C
   // Deliberately absent (§43 "not unrestricted system access"):
@@ -706,6 +714,7 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   //
   /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */
   [PERMISSIONS.BROADCAST_MANAGE]: "Compose and send broadcast announcements to customers, shop owners and riders",
+  [PERMISSIONS.HOME_BANNER_MANAGE]: "Create, schedule, reorder and switch on or off the home page's hero banners",
   /* <<< end WS-F */
   //
 };

@@ -36,6 +36,8 @@ export const DEEP_LINK_ROUTES = [
   { kind: "notification", example: "/notifications/<id>", prefix: "/notifications" },
   // WS-C's help desk (/support): ticket pages.
   { kind: "ticket", example: "/support/tickets/<id>", prefix: "/support/tickets/" },
+  // docs/homepage-uiux-2026-10 (F4): a product's price comparison ("Compare N prices").
+  { kind: "compare", example: "/search/compare?product=<id>", prefix: "/search/compare" },
 ] as const;
 
 /** test.gokesari.com (and any test.* host) is the preview build; everything else the store build. */

@@ -57,6 +57,7 @@ export default async function WalletPage() {
         lowBalanceThresholdPaise={wallet.lowBalanceThresholdPaise}
         todaysDeductionPaise={todaysDeduction}
         forecast={forecast}
+        lang={lang}
         transactions={transactions.map((t) => ({
           id: t.id,
           type: t.type,

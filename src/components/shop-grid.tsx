@@ -74,6 +74,7 @@ export function ShopGrid({
   toolbar,
   inviteArea,
   empty,
+  rail = false,
 }: {
   shops: GridShop[];
   /** Offer quick filter chips (type, open now, delivers to me) over these shops. */
@@ -89,6 +90,8 @@ export function ShopGrid({
   inviteArea?: string | true | null;
   /** Replaces the default "No shops found." card. */
   empty?: ReactNode;
+  /** One swipeable row on phones (the home page). */
+  rail?: boolean;
 }) {
   if (shops.length === 0 && !inviteArea) {
     return empty ?? <EmptyState title="No shops found." />;
@@ -123,6 +126,7 @@ export function ShopGrid({
       viewToggle={viewToggle}
       toolbar={toolbar}
       inviteArea={inviteArea ?? null}
+      rail={rail}
     />
   );
 }

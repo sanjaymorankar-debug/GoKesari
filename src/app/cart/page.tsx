@@ -21,6 +21,7 @@ import { customerBankPrompt } from "@/server/services/bank-accounts";
 import Link from "next/link";
 import { Alert } from "@/components/ui";
 import { needsSignupReferralCode } from "@/server/services/customer-signup-referrals";
+import { getBoardLang } from "@/server/board-lang";
 
 export const metadata = { title: "Cart" };
 export const dynamic = "force-dynamic";
@@ -103,6 +104,7 @@ export default async function CartPage() {
         hasMobile={Boolean(account?.phoneE164)}
         couponsEnabled={(await getRule("coupons")).enabled}
         onlinePaymentsEnabled={(await getRule("onlinePayments")).enabled}
+        lang={await getBoardLang()}
         openOrders={openOrders.map((o) => ({
           id: o.id,
           orderNumber: o.orderNumber,

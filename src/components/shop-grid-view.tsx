@@ -53,12 +53,15 @@ export function ShopGridView({
   viewToggle,
   toolbar,
   inviteArea,
+  rail = false,
 }: {
   shops: ShopCardData[];
   filterChips: boolean;
   viewToggle: boolean;
   toolbar?: ReactNode;
   inviteArea: string | true | null;
+  /** docs/homepage-uiux-2026-10: one swipeable row on phones (the home page), the grid from wide screens. */
+  rail?: boolean;
 }) {
   const [view, setView] = useState<ViewMode>("grid");
   const [type, setType] = useState<string | null>(null);
@@ -130,6 +133,14 @@ export function ShopGridView({
             Show all
           </button>
         </p>
+      ) : view === "grid" && rail ? (
+        <div className="-mx-3 flex snap-x snap-mandatory gap-3 overflow-x-auto px-3 pb-2 sm:-mx-4 sm:px-4 lg:mx-0 lg:grid lg:grid-cols-3 lg:overflow-visible lg:px-0 xl:grid-cols-6" data-testid="shop-rail">
+          {visible.map((shop) => (
+            <div key={shop.id} className="w-[min(17rem,78vw)] shrink-0 snap-start lg:w-auto">
+              <ShopCard shop={shop} />
+            </div>
+          ))}
+        </div>
       ) : view === "grid" ? (
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {visible.map((shop) => (

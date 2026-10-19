@@ -8,6 +8,9 @@ import { getCurrentUser } from "@/server/authz/guards";
 import { getCartLineQuantities } from "@/server/services/cart";
 import { getBoardLang } from "@/server/board-lang";
 import { listStorefrontProducts } from "@/server/services/catalogue";
+import { getCustomerLocation } from "@/server/location";
+import { nearbyOfferCounts } from "@/server/services/home-discovery";
+import { serviceableShopIds } from "@/server/services/serviceability";
 
 export const dynamic = "force-dynamic";
 
@@ -48,6 +51,10 @@ export default async function CategoryPage({
   ]);
 
   const page = paginate(products, query.page, PAGE_SIZE);
+  // docs/homepage-uiux-2026-10 (F4): "Compare N prices" on products two or more nearby shops sell.
+  const location = await getCustomerLocation(user?.id).catch(() => null);
+  const nearby = location ? await serviceableShopIds(location).catch(() => null) : null;
+  const compareCounts = nearby ? await nearbyOfferCounts(page.rows.map((p) => p.productId), [...nearby.keys()]) : undefined;
 
   return (
     <>
@@ -60,7 +67,7 @@ export default async function CategoryPage({
       ) : (
         <>
           {/* Six at a time (three rows on a phone): pages instead of one long list. */}
-          <ProductGrid products={page.rows} signedIn={Boolean(user)} cartLines={cartLines} />
+          <ProductGrid products={page.rows} signedIn={Boolean(user)} cartLines={cartLines} compareCounts={compareCounts} />
           <Pager lang={lang} page={page.page} pageCount={page.pageCount} hrefFor={(n) => `/category/${type}?page=${n}`} />
         </>
       )}

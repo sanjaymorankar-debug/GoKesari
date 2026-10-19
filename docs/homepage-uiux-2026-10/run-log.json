@@ -1,0 +1,1090 @@
+{
+ "generatedAt": "",
+ "pr": "",
+ "features": [
+  [
+   "F1.1",
+   "F1 De-clutter home",
+   "Orders / Subscription / Wallet / Tracking / Profile tiles removed from the home page body",
+   "src/app/page.tsx; src/components/home/home-page.tsx",
+   "Done",
+   null,
+   [
+    "HP-360-en",
+    "HP-360-hi",
+    "HP-360-mr",
+    "HP-390-en",
+    "HP-390-hi",
+    "HP-390-mr",
+    "HP-414-en",
+    "HP-414-hi",
+    "HP-414-mr",
+    "HP-768-en",
+    "HP-768-hi",
+    "HP-768-mr",
+    "HP-1024-en",
+    "HP-1024-hi",
+    "HP-1024-mr",
+    "HP-1440-en",
+    "HP-1440-hi",
+    "HP-1440-mr"
+   ],
+   ""
+  ],
+  [
+   "F1.2",
+   "F1 De-clutter home",
+   "Desktop 'Account' dropdown: 'Sign in / Create account' for guests, grouped menu (Orders, Subscriptions, Wallet, Tracking, Profile) when signed in",
+   "src/components/home/account-nav.tsx; src/components/home/home-header.tsx",
+   "Done",
+   null,
+   [
+    "HP-1024-en",
+    "HP-1024-hi",
+    "HP-1024-mr",
+    "HP-1440-en",
+    "HP-1440-hi",
+    "HP-1440-mr",
+    "F1-ACCOUNT-DESKTOP"
+   ],
+   "Signed-in check runs locally (dev sign-in); staging/production need an emailed OTP"
+  ],
+  [
+   "F1.3",
+   "F1 De-clutter home",
+   "Phone side drawer (☰): guest → Sign in / Create account only; signed in → the five account groups",
+   "src/components/home/account-nav.tsx",
+   "Done",
+   null,
+   [
+    "F1-DRAWER-GUEST"
+   ],
+   "Drawer and location sheet render in a portal (above the bottom navigation)"
+  ],
+  [
+   "F1.4",
+   "F1 De-clutter home",
+   "Phone bottom navigation: Home · Categories · Compare · Orders · Account (44 px+)",
+   "src/components/home/mobile-shop-nav.tsx; src/app/layout.tsx",
+   "Done",
+   null,
+   [
+    "HP-360-en",
+    "HP-360-hi",
+    "HP-360-mr",
+    "HP-390-en",
+    "HP-390-hi",
+    "HP-390-mr",
+    "HP-414-en",
+    "HP-414-hi",
+    "HP-414-mr"
+   ],
+   ""
+  ],
+  [
+   "F1.5",
+   "F1 De-clutter home",
+   "Home order: sticky header → search → hero → categories → shops near you (filters) → Buy again / Popular → Sell / Deliver → footer",
+   "src/components/home/home-page.tsx",
+   "Done",
+   null,
+   [
+    "HP-360-en",
+    "HP-360-hi",
+    "HP-360-mr",
+    "HP-390-en",
+    "HP-390-hi",
+    "HP-390-mr",
+    "HP-414-en",
+    "HP-414-hi",
+    "HP-414-mr",
+    "HP-768-en",
+    "HP-768-hi",
+    "HP-768-mr",
+    "HP-1024-en",
+    "HP-1024-hi",
+    "HP-1024-mr",
+    "HP-1440-en",
+    "HP-1440-hi",
+    "HP-1440-mr"
+   ],
+   ""
+  ],
+  [
+   "F1.6",
+   "F1 Hero banners",
+   "Carousel: reserved height (no layout shift), first image eager / rest lazy, auto-rotate, pause on hover / touch / focus / button, swipe, ← →; built-in banners when none is live",
+   "src/components/home/hero-carousel.tsx; src/lib/home-banners.ts",
+   "Done",
+   null,
+   [
+    "F1-HERO",
+    "HP-360-en",
+    "HP-360-hi",
+    "HP-360-mr",
+    "HP-390-en",
+    "HP-390-hi",
+    "HP-390-mr",
+    "HP-414-en",
+    "HP-414-hi",
+    "HP-414-mr",
+    "HP-768-en",
+    "HP-768-hi",
+    "HP-768-mr",
+    "HP-1024-en",
+    "HP-1024-hi",
+    "HP-1024-mr",
+    "HP-1440-en",
+    "HP-1440-hi",
+    "HP-1440-mr"
+   ],
+   "Lighthouse CLS 0"
+  ],
+  [
+   "F1.7",
+   "F1 Hero banners",
+   "Admin / operator: create, schedule (start/end), reorder, switch on/off, picture upload, CTA link, city / PIN targeting; audited",
+   "src/app/admin/home-banners/page.tsx; src/components/home/home-banner-manager.tsx; src/app/api/admin/home-banners/*; src/server/services/home-banners.ts; drizzle/0086; permission HOME_BANNER_MANAGE",
+   "Done",
+   null,
+   [
+    "F1-BANNER-ADMIN"
+   ],
+   "Integration tests (permissions, schedule, targeting, order) pass locally; staging/production need a signed-in admin"
+  ],
+  [
+   "F2.1",
+   "F2 Search",
+   "Wide search centred in the desktop header; full width under the header on phones, sticky with it",
+   "src/components/home/home-header.tsx; src/components/home/search-box.tsx; src/components/site-header.tsx",
+   "Done",
+   null,
+   [
+    "HP-360-en",
+    "HP-360-hi",
+    "HP-360-mr",
+    "HP-390-en",
+    "HP-390-hi",
+    "HP-390-mr",
+    "HP-414-en",
+    "HP-414-hi",
+    "HP-414-mr",
+    "HP-768-en",
+    "HP-768-hi",
+    "HP-768-mr",
+    "HP-1024-en",
+    "HP-1024-hi",
+    "HP-1024-mr",
+    "HP-1440-en",
+    "HP-1440-hi",
+    "HP-1440-mr",
+    "F6-STICKY"
+   ],
+   ""
+  ],
+  [
+   "F2.2",
+   "F2 Search",
+   "Placeholder in the active language: 'Search for milk, bread, or medicines…'",
+   "src/lib/home-i18n.ts",
+   "Done",
+   null,
+   [
+    "HP-360-en",
+    "HP-360-hi",
+    "HP-360-mr",
+    "HP-390-en",
+    "HP-390-hi",
+    "HP-390-mr",
+    "HP-414-en",
+    "HP-414-hi",
+    "HP-414-mr",
+    "HP-768-en",
+    "HP-768-hi",
+    "HP-768-mr",
+    "HP-1024-en",
+    "HP-1024-hi",
+    "HP-1024-mr",
+    "HP-1440-en",
+    "HP-1440-hi",
+    "HP-1440-mr"
+   ],
+   ""
+  ],
+  [
+   "F2.3",
+   "F2 Search",
+   "Predictive suggestions (≥ 2 chars, 250 ms): Products · Shops · Categories, highlight, ↑ ↓ Enter Esc",
+   "src/components/home/search-box.tsx",
+   "Done",
+   null,
+   [
+    "F2-SUGGEST-DESKTOP",
+    "REG-SITE-HEADER"
+   ],
+   ""
+  ],
+  [
+   "F2.4",
+   "F2 Search",
+   "On focus: recent searches (account; localStorage for guests) and trending",
+   "src/server/services/search-suggest.ts; src/app/api/search/recent/route.ts; drizzle/0086",
+   "Done",
+   null,
+   [
+    "F2-SUGGEST-DESKTOP",
+    "F2-API",
+    "F2-RECENT-ACCOUNT"
+   ],
+   ""
+  ],
+  [
+   "F2.5",
+   "F2 Search",
+   "Voice search (Web Speech API) in en-IN / hi-IN / mr-IN; mic hidden where unsupported and in app builds before 1.3.0",
+   "src/components/home/search-box.tsx; src/lib/mobile-app.ts",
+   "Done",
+   null,
+   [
+    "F2-VOICE"
+   ],
+   "Android WebView has no Web Speech API → mic hidden in the Android app"
+  ],
+  [
+   "F2.6",
+   "F2 Search",
+   "Suggestion API with trigram indexes, nearby shops ranked first; submit → existing /search?q=",
+   "src/app/api/search/suggest/route.ts; drizzle/0087; src/app/search/page.tsx",
+   "Done",
+   null,
+   [
+    "F2-API",
+    "F2-SUGGEST-DESKTOP"
+   ],
+   ""
+  ],
+  [
+   "F3.1",
+   "F3 Empty states",
+   "Cart empty: basket illustration, 'Start shopping' + 'Explore bestsellers'; shown once (never on the home page)",
+   "src/components/cart-view.tsx; src/components/empty-illustrations.tsx; src/app/cart/page.tsx",
+   "Done",
+   null,
+   [
+    "F3-EMPTY-STATES"
+   ],
+   ""
+  ],
+  [
+   "F3.2",
+   "F3 Empty states",
+   "'Popular items in your area' for guests / new customers (area → city → platform → on sale nearby) with Add; real Buy again kept",
+   "src/server/services/home-discovery.ts; src/components/home/product-tiles.tsx; src/server/services/board-counts.ts",
+   "Done",
+   null,
+   [
+    "HP-360-en",
+    "HP-360-hi",
+    "HP-360-mr",
+    "HP-390-en",
+    "HP-390-hi",
+    "HP-390-mr",
+    "HP-414-en",
+    "HP-414-hi",
+    "HP-414-mr",
+    "HP-768-en",
+    "HP-768-hi",
+    "HP-768-mr",
+    "HP-1024-en",
+    "HP-1024-hi",
+    "HP-1024-mr",
+    "HP-1440-en",
+    "HP-1440-hi",
+    "HP-1440-mr",
+    "F6-FLOATING-CART"
+   ],
+   ""
+  ],
+  [
+   "F3.3",
+   "F3 Empty states",
+   "Same pattern for Orders, Subscriptions, Wallet history, search no-results",
+   "src/app/orders/page.tsx; src/app/subscriptions/page.tsx; src/components/wallet-view.tsx; src/app/search/page.tsx; src/components/ui.tsx",
+   "Done",
+   null,
+   [
+    "F3-SEARCH-EMPTY",
+    "F3-EMPTY-STATES"
+   ],
+   ""
+  ],
+  [
+   "F4.1",
+   "F4 Compare",
+   "'Compare prices' chip filled accent + 'Smart tool' badge; 'Compare all shops' the same",
+   "src/components/home/home-page.tsx; src/components/home-price-comparison.tsx",
+   "Done",
+   null,
+   [
+    "HP-360-en",
+    "HP-360-hi",
+    "HP-360-mr",
+    "HP-390-en",
+    "HP-390-hi",
+    "HP-390-mr",
+    "HP-414-en",
+    "HP-414-hi",
+    "HP-414-mr",
+    "HP-768-en",
+    "HP-768-hi",
+    "HP-768-mr",
+    "HP-1024-en",
+    "HP-1024-hi",
+    "HP-1024-mr",
+    "HP-1440-en",
+    "HP-1440-hi",
+    "HP-1440-mr"
+   ],
+   ""
+  ],
+  [
+   "F4.2",
+   "F4 Compare",
+   "Product cards sold by 2+ nearby shops: 'Compare N prices' → /search/compare?product=…",
+   "src/components/product-card.tsx; product-grid.tsx; product-tiles.tsx; search, category, shop pages",
+   "Done",
+   null,
+   [
+    "F4-COMPARE"
+   ],
+   "Counts are per the visitor's location; integration test nearbyOfferCounts"
+  ],
+  [
+   "F4.3",
+   "F4 Compare",
+   "Compare page: lowest price tagged 'Best price', saving vs highest",
+   "src/app/search/compare/page.tsx; src/server/services/price-comparison.ts",
+   "Done",
+   null,
+   [
+    "F4-COMPARE"
+   ],
+   ""
+  ],
+  [
+   "F5.1",
+   "F5 Footer",
+   "Company / Make Money / Support / Legal columns; accordions on phones",
+   "src/components/site-footer.tsx; src/components/footer-columns.tsx",
+   "Done",
+   null,
+   [
+    "F5-FOOTER",
+    "HP-360-en",
+    "HP-360-hi",
+    "HP-360-mr",
+    "HP-390-en",
+    "HP-390-hi",
+    "HP-390-mr",
+    "HP-414-en",
+    "HP-414-hi",
+    "HP-414-mr",
+    "HP-768-en",
+    "HP-768-hi",
+    "HP-768-mr",
+    "HP-1024-en",
+    "HP-1024-hi",
+    "HP-1024-mr",
+    "HP-1440-en",
+    "HP-1440-hi",
+    "HP-1440-mr"
+   ],
+   ""
+  ],
+  [
+   "F5.2",
+   "F5 Footer",
+   "Bottom bar: language switch, '© ASMY GLOBAL TRADING & CONSULTANCY INDIA PRIVATE LIMITED · GSTIN 27ABCCA8318D1ZV'",
+   "src/components/site-footer.tsx; src/components/board/board-header.tsx",
+   "Done",
+   null,
+   [
+    "F5-FOOTER",
+    "HP-360-en",
+    "HP-360-hi",
+    "HP-360-mr",
+    "HP-390-en",
+    "HP-390-hi",
+    "HP-390-mr",
+    "HP-414-en",
+    "HP-414-hi",
+    "HP-414-mr",
+    "HP-768-en",
+    "HP-768-hi",
+    "HP-768-mr",
+    "HP-1024-en",
+    "HP-1024-hi",
+    "HP-1024-mr",
+    "HP-1440-en",
+    "HP-1440-hi",
+    "HP-1440-mr"
+   ],
+   ""
+  ],
+  [
+   "F6.1",
+   "F6 Mobile",
+   "Sticky header with 'Deliver to' and cart badge, compacting on scroll (site-wide sticky fix: overflow-x clip)",
+   "src/components/home/home-header.tsx; src/app/globals.css",
+   "Done",
+   null,
+   [
+    "F6-STICKY"
+   ],
+   ""
+  ],
+  [
+   "F6.2",
+   "F6 Mobile",
+   "Floating 'View cart · N items · ₹total' above the bottom navigation",
+   "src/components/home/mobile-shop-nav.tsx; src/app/layout.tsx",
+   "Done",
+   null,
+   [
+    "F6-FLOATING-CART"
+   ],
+   ""
+  ],
+  [
+   "F6.3",
+   "F6 Mobile",
+   "'Deliver to' bottom sheet: GPS, saved addresses, PIN; refreshes shops, banners, popular",
+   "src/components/home/location-sheet.tsx",
+   "Done",
+   null,
+   [
+    "F6-LOCATION-SHEET"
+   ],
+   ""
+  ],
+  [
+   "F6.4",
+   "F6 Mobile",
+   "Safe-area insets, no sideways scroll 320–430 px, 44 px tap targets",
+   "src/components/home/*; mobile app (native insets)",
+   "Done",
+   null,
+   [
+    "HP-360-en",
+    "HP-360-hi",
+    "HP-360-mr",
+    "HP-390-en",
+    "HP-390-hi",
+    "HP-390-mr",
+    "HP-414-en",
+    "HP-414-hi",
+    "HP-414-mr"
+   ],
+   "Overflow measured at 320/360/390/414"
+  ],
+  [
+   "F7.1",
+   "Languages & themes",
+   "All new text in EN / हिं / मरा; works in the one existing theme (CSS tokens)",
+   "src/lib/home-i18n.ts",
+   "Done",
+   null,
+   [
+    "HP-360-en",
+    "HP-360-hi",
+    "HP-360-mr",
+    "HP-390-en",
+    "HP-390-hi",
+    "HP-390-mr",
+    "HP-414-en",
+    "HP-414-hi",
+    "HP-414-mr",
+    "HP-768-en",
+    "HP-768-hi",
+    "HP-768-mr",
+    "HP-1024-en",
+    "HP-1024-hi",
+    "HP-1024-mr",
+    "HP-1440-en",
+    "HP-1440-hi",
+    "HP-1440-mr"
+   ],
+   "Unit test: every label has three languages"
+  ],
+  [
+   "F7.2",
+   "Switch",
+   "Rule homeDiscovery (Admin → Settings → Rules): off restores the Tile Board home",
+   "src/server/config/rules.ts; src/app/page.tsx",
+   "Done",
+   [
+    "Pass",
+    "Pass",
+    "Pass",
+    "N/A",
+    "N/A"
+   ],
+   [],
+   "Unit test; default on"
+  ],
+  [
+   "F8.1",
+   "Mobile apps",
+   "App 1.3.0: iPhone mic / speech descriptions, /search/compare deep links, white strip under the bottom nav",
+   "mobile/app.config.ts; mobile/src/deep-links.ts; mobile/src/App.tsx; src/lib/deep-links.ts",
+   "Done",
+   null,
+   [
+    "APP-VOICE-1.2.0",
+    "APP-VOICE-1.3.0"
+   ],
+   "Bundles for Android and iOS built; native builds: see Summary blockers"
+  ]
+ ],
+ "flows": [
+  {
+   "id": "NF-01",
+   "name": "Guest discovers products from the home page",
+   "kind": "New",
+   "steps": "Open / → type 'mil' in search → pick a suggestion or Enter",
+   "expected": "Grouped suggestions with highlight; Enter opens /search?q=",
+   "cases": [
+    "F2-SUGGEST-DESKTOP",
+    "F2-API"
+   ],
+   "results": null,
+   "notes": ""
+  },
+  {
+   "id": "NF-02",
+   "name": "Set delivery location from the bottom sheet",
+   "kind": "New",
+   "steps": "Tap 'Deliver to' → enter PIN 411014 → Use PIN",
+   "expected": "Label shows 411014; 'Shops near you' and banners refresh",
+   "cases": [
+    "F6-LOCATION-SHEET"
+   ],
+   "results": null,
+   "notes": ""
+  },
+  {
+   "id": "NF-03",
+   "name": "Add a popular item and check out from the floating bar",
+   "kind": "New",
+   "steps": "Sign in → home → Add on a popular item → floating 'View cart · 1 item · ₹…' → cart",
+   "expected": "Bar above the bottom nav, cart badge 1, opens /cart",
+   "cases": [
+    "F6-FLOATING-CART"
+   ],
+   "results": null,
+   "notes": ""
+  },
+  {
+   "id": "NF-04",
+   "name": "Admin manages a home banner",
+   "kind": "New",
+   "steps": "Admin → Home banners → add → home shows it → switch off → gone → delete",
+   "expected": "Banner live, then hidden, then removed; audited",
+   "cases": [
+    "F1-BANNER-ADMIN"
+   ],
+   "results": null,
+   "notes": ""
+  },
+  {
+   "id": "NF-05",
+   "name": "Compare prices from the accent chip",
+   "kind": "New",
+   "steps": "Home → 'Compare prices' (Smart tool) → compare page",
+   "expected": "Best price tagged; saving against the highest shown",
+   "cases": [
+    "F4-COMPARE",
+    "HP-360-en"
+   ],
+   "results": null,
+   "notes": ""
+  },
+  {
+   "id": "NF-06",
+   "name": "Voice search",
+   "kind": "New",
+   "steps": "Tap mic → speak",
+   "expected": "Recogniser runs in the page language (mr-IN for मरा); hidden where unsupported",
+   "cases": [
+    "F2-VOICE"
+   ],
+   "results": null,
+   "notes": ""
+  },
+  {
+   "id": "NF-07",
+   "name": "Phone navigation (drawer + bottom nav)",
+   "kind": "New",
+   "steps": "☰ → drawer; bottom nav items",
+   "expected": "Guest sees only Sign in / Create account; 5 bottom items ≥ 44 px",
+   "cases": [
+    "F1-DRAWER-GUEST",
+    "HP-360-en",
+    "HP-360-hi",
+    "HP-360-mr",
+    "HP-390-en",
+    "HP-390-hi",
+    "HP-390-mr",
+    "HP-414-en",
+    "HP-414-hi",
+    "HP-414-mr"
+   ],
+   "results": null,
+   "notes": ""
+  },
+  {
+   "id": "NF-08",
+   "name": "Footer and language",
+   "kind": "New",
+   "steps": "Open each footer column → follow every link → switch to हिं",
+   "expected": "16 links open (no 404); page switches to Hindi",
+   "cases": [
+    "F5-FOOTER"
+   ],
+   "results": null,
+   "notes": ""
+  },
+  {
+   "id": "NF-09",
+   "name": "Empty states",
+   "kind": "New",
+   "steps": "New customer: /cart, /orders, /subscriptions, /wallet; search with no results",
+   "expected": "Illustration + next-step CTA; cart empty said once",
+   "cases": [
+    "F3-EMPTY-STATES",
+    "F3-SEARCH-EMPTY"
+   ],
+   "results": null,
+   "notes": ""
+  },
+  {
+   "id": "EF-01",
+   "name": "Sign-in / OTP",
+   "kind": "Existing (regression)",
+   "steps": "/signin → email or mobile → code",
+   "expected": "Signed in, lands on home or onboarding",
+   "cases": [],
+   "results": [
+    "Not run",
+    "Not run",
+    "Not run",
+    "Not run",
+    "Not run"
+   ],
+   "notes": "Local: e2e dev sign-in + integration OTP tests; remote: /signin page renders (code needs a mailbox)"
+  },
+  {
+   "id": "EF-02",
+   "name": "Browse shops by category",
+   "kind": "Existing (regression)",
+   "steps": "/ → category tile → /shops?type=…",
+   "expected": "Shops of that type",
+   "cases": [],
+   "results": [
+    "Not run",
+    "Not run",
+    "Not run",
+    "Not run",
+    "Not run"
+   ],
+   "notes": "Routes + HP category tiles"
+  },
+  {
+   "id": "EF-03",
+   "name": "Nearby / Open now / Delivers here filters",
+   "kind": "Existing (regression)",
+   "steps": "/shops/nearby, /shops?open=1, /shops?delivery=true",
+   "expected": "Filtered lists",
+   "cases": [],
+   "results": [
+    "Not run",
+    "Not run",
+    "Not run",
+    "Not run",
+    "Not run"
+   ],
+   "notes": "REG-ROUTES + shop filter integration tests"
+  },
+  {
+   "id": "EF-04",
+   "name": "Add to cart → checkout → wallet / UPI payment",
+   "kind": "Existing (regression)",
+   "steps": "Add → /cart → place order (wallet, or Cashfree UPI)",
+   "expected": "Order placed, wallet charged once",
+   "cases": [],
+   "results": [
+    "Not run",
+    "Not run",
+    "Not run",
+    "Not run",
+    "Not run"
+   ],
+   "notes": "Local: acceptance e2e + checkout/payment integration (mock gateway); staging sandbox needs a signed-in session"
+  },
+  {
+   "id": "EF-05",
+   "name": "Subscription create / pause",
+   "kind": "Existing (regression)",
+   "steps": "Subscribe 2 L/day → pause / change tomorrow",
+   "expected": "Daily order generated, charged correctly",
+   "cases": [],
+   "results": [
+    "Not run",
+    "Not run",
+    "Not run",
+    "Not run",
+    "Not run"
+   ],
+   "notes": "acceptance e2e + subscription integration"
+  },
+  {
+   "id": "EF-06",
+   "name": "Order tracking + delivery OTP",
+   "kind": "Existing (regression)",
+   "steps": "Active order → live map → delivery code",
+   "expected": "Code verifies; order delivered",
+   "cases": [],
+   "results": [
+    "Not run",
+    "Not run",
+    "Not run",
+    "Not run",
+    "Not run"
+   ],
+   "notes": "Integration (delivery OTP, tracking) + regression e2e"
+  },
+  {
+   "id": "EF-07",
+   "name": "Returns",
+   "kind": "Existing (regression)",
+   "steps": "Delivered order → return request",
+   "expected": "Return created and handled",
+   "cases": [],
+   "results": [
+    "Not run",
+    "Not run",
+    "Not run",
+    "Not run",
+    "Not run"
+   ],
+   "notes": "Integration + regression e2e"
+  },
+  {
+   "id": "EF-08",
+   "name": "Seller registration",
+   "kind": "Existing (regression)",
+   "steps": "/sell → register shop",
+   "expected": "Registration saved, pending approval",
+   "cases": [],
+   "results": [
+    "Not run",
+    "Not run",
+    "Not run",
+    "Not run",
+    "Not run"
+   ],
+   "notes": "/sell renders; integration registration tests"
+  },
+  {
+   "id": "EF-09",
+   "name": "Delivery partner apply",
+   "kind": "Existing (regression)",
+   "steps": "/delivery-partner/apply",
+   "expected": "Application saved",
+   "cases": [],
+   "results": [
+    "Not run",
+    "Not run",
+    "Not run",
+    "Not run",
+    "Not run"
+   ],
+   "notes": "Route + integration"
+  },
+  {
+   "id": "EF-10",
+   "name": "Shop owner / admin / operator dashboards",
+   "kind": "Existing (regression)",
+   "steps": "/shop, /admin, /operator boards",
+   "expected": "Boards render with counts",
+   "cases": [],
+   "results": [
+    "Not run",
+    "Not run",
+    "Not run",
+    "Not run",
+    "Not run"
+   ],
+   "notes": "Unchanged code; integration + e2e regression; remote: sign-in redirect"
+  },
+  {
+   "id": "EF-11",
+   "name": "Footer / legal links",
+   "kind": "Existing (regression)",
+   "steps": "Every footer link",
+   "expected": "No 404s",
+   "cases": [],
+   "results": [
+    "Not run",
+    "Not run",
+    "Not run",
+    "Not run",
+    "Not run"
+   ],
+   "notes": "F5-FOOTER, REG-ROUTES"
+  },
+  {
+   "id": "EF-12",
+   "name": "Language switch EN / हिं / मरा",
+   "kind": "Existing (regression)",
+   "steps": "Header / footer switch",
+   "expected": "Page re-renders in that language",
+   "cases": [],
+   "results": [
+    "Not run",
+    "Not run",
+    "Not run",
+    "Not run",
+    "Not run"
+   ],
+   "notes": "HP-* in three languages, F5-FOOTER"
+  }
+ ],
+ "suites": {},
+ "deploys": {},
+ "blockers": [],
+ "notRunReason": {},
+ "regression": [],
+ "defects": [
+  [
+   "DEF-01",
+   "Header 'Deliver to' and cart scrolled away on every page — position: sticky disabled because body had overflow-x: hidden (scroll container).",
+   "High",
+   "Production (pre-existing), Local",
+   "overflow-x: clip with @supports fallback",
+   "Fixed"
+  ],
+  [
+   "DEF-02",
+   "Empty cart 'Your cart is empty / View cart' rendered twice on the home page (phone bar + wide panel both in the DOM).",
+   "Medium",
+   "Production (pre-existing)",
+   "Home no longer renders a cart-empty block; the cart page shows one illustrated empty state",
+   "Fixed"
+  ],
+  [
+   "DEF-03",
+   "Suggestion API 500 with no location: ORDER BY constant 0 read as a column position.",
+   "High",
+   "Local (new code)",
+   "Order by nearby count only when there are nearby shops; integration test added",
+   "Fixed"
+  ],
+  [
+   "DEF-04",
+   "Phone drawer and location sheet sat under the bottom navigation (sticky header's stacking context).",
+   "Medium",
+   "Local (new code)",
+   "Rendered through a portal to <body>",
+   "Fixed"
+  ],
+  [
+   "DEF-05",
+   "'1 shops' in suggestions.",
+   "Low",
+   "Local (new code)",
+   "Singular / plural labels",
+   "Fixed"
+  ],
+  [
+   "DEF-06",
+   "Double focus ring on the search field.",
+   "Low",
+   "Local (new code)",
+   "Field shows focus through its border",
+   "Fixed"
+  ],
+  [
+   "DEF-07",
+   "Carousel arrows covered the banner button at 360 px.",
+   "Low",
+   "Local (new code)",
+   "Arrows from 640 px; phones swipe; dots + pause stay",
+   "Fixed"
+  ],
+  [
+   "DEF-08",
+   "CSS minifier dropped the overflow-x 'hidden' fallback when 'clip' followed it.",
+   "Low",
+   "Local build",
+   "Fallback kept with @supports",
+   "Fixed"
+  ],
+  [
+   "DEF-09",
+   "Risk: iPhone app (≤ 1.2.0) could be closed by iOS if the page reached for the microphone (no NSMicrophoneUsageDescription).",
+   "High",
+   "Code review",
+   "Mic hidden in app builds before 1.3.0; 1.3.0 declares microphone and speech recognition",
+   "Fixed"
+  ]
+ ],
+ "lighthouse": [],
+ "decisions": [
+  [
+   "D-01",
+   "Work branched from staging (with main merged in, no content change) and goes branch → staging (test.gokesari.com) → main (gokesari.com).",
+   "The repo's documented promotion path (DEPLOYMENT.md §3, decision-log D-002).",
+   "branch claude/gifted-brahmagupta-nj0bt9"
+  ],
+  [
+   "D-02",
+   "The new home is behind rule homeDiscovery (on by default). Off restores the Tile Board home and hides the bottom navigation and floating cart bar.",
+   "Additive-only brief: an instant way back without a deploy (decision-log D-004).",
+   "src/server/config/rules.ts; src/app/page.tsx; src/app/layout.tsx"
+  ],
+  [
+   "D-03",
+   "Banners and search history are new platform tables in the core database (migration 0086, '-- split: core'); trigram indexes on products / shops are a seller migration (0087, '-- split: seller').",
+   "CLAUDE.md two-database rules: classify every table; tags say where a migration runs; no FK between seller and customer tables.",
+   "drizzle/0086, 0087; src/server/db/split/ownership.ts"
+  ],
+  [
+   "D-04",
+   "Code tolerates the new tables being absent (no banners → built-in banners; searches not recorded).",
+   "Production migrates by hand; the code may go live before the migration runs.",
+   "home-banners.ts, search-suggest.ts"
+  ],
+  [
+   "D-05",
+   "New permission HOME_BANNER_MANAGE for admin and operator (not operator-limited).",
+   "Brief: 'Admin/operator can create, schedule, reorder…'.",
+   "src/server/authz/permissions.ts"
+  ],
+  [
+   "D-06",
+   "Trending = searches made at least twice in 7 days (anonymous for guests), topped up with fixed defaults (milk, bread, paneer, curd, eggs, atta) labelled in the visitor's language.",
+   "No search log existed; defaults keep the list useful on a new site.",
+   "src/server/services/search-suggest.ts"
+  ],
+  [
+   "D-07",
+   "Recent searches: account (server) for signed-in customers, this browser's localStorage for guests; only the normalised query text is stored.",
+   "Brief; data minimisation.",
+   "search_queries; search-box.tsx"
+  ],
+  [
+   "D-08",
+   "Search page records a search only on the first page of results (no ?page / ?view), after the response (next/server after()).",
+   "Pagination and tab switches are not new searches; never slows the page.",
+   "src/app/search/page.tsx"
+  ],
+  [
+   "D-09",
+   "Category suggestions come from the home category tiles (all three languages) and the 44 shop types → /shops?type=…, plus product categories → /search?q=….",
+   "Hindi / Marathi typing finds categories although product names are English.",
+   "matchCategories()"
+  ],
+  [
+   "D-10",
+   "Voice search hidden inside app builds before 1.3.0 and wherever the browser lacks the Web Speech API (e.g. Android WebView).",
+   "iOS terminates an app that uses the microphone without NSMicrophoneUsageDescription; 1.3.0 adds it.",
+   "src/lib/mobile-app.ts; mobile/app.config.ts"
+  ],
+  [
+   "D-11",
+   "'Compare N prices' for a single product works whatever rule homePriceComparison says; the general compare list still follows the rule.",
+   "It is the same comparison the product page already offers; the brief requires the link.",
+   "src/server/services/price-comparison.ts"
+  ],
+  [
+   "D-12",
+   "'Popular in your area' = most-ordered listings (paid, not cancelled) in 60 days at shops serving the location → their city → platform → products on sale nearby; one card per product.",
+   "Brief's fallback chain; the last step keeps the grid useful on a new site.",
+   "src/server/services/home-discovery.ts"
+  ],
+  [
+   "D-13",
+   "Homepage shows no 'Do now' / tracking strip; an active order is one tap away (bottom nav Orders, Account → Tracking).",
+   "Brief: 'Homepage becomes product discovery only'.",
+   "home-page.tsx"
+  ],
+  [
+   "D-14",
+   "Bottom navigation and floating cart bar appear on the shopping pages only (home, categories, shops, search, products, the customer's own pages) — not in Seller Central, admin, operator, rider, sign-in, cart/checkout or payment return.",
+   "Those screens have their own bottom actions; avoids covering checkout buttons.",
+   "src/components/home/mobile-shop-nav.tsx"
+  ],
+  [
+   "D-15",
+   "Bottom nav 'Account' opens /profile (signed in) or /signin (guest); the full grouped account menu is in the ☰ drawer.",
+   "One tap to the profile; the drawer holds everything else.",
+   "mobile-shop-nav.tsx"
+  ],
+  [
+   "D-16",
+   "Site-wide CSS: html/body overflow-x 'clip' (with 'hidden' fallback via @supports) instead of 'hidden'.",
+   "'hidden' made <body> a scroll container, which disabled every sticky header — the cause of 'not sticky on mobile'.",
+   "src/app/globals.css"
+  ],
+  [
+   "D-17",
+   "Footer 'Help' links to /support (help desk; asks guests to sign in).",
+   "Brief lists Help separately from Contact Us; /support is the help portal.",
+   "src/components/site-footer.tsx"
+  ],
+  [
+   "D-18",
+   "Old compact footer test replaced by the organised-footer checks.",
+   "The brief replaces the compact two-row footer with labelled columns.",
+   "tests/e2e/branding-footer.spec.ts"
+  ],
+  [
+   "D-19",
+   "Only one theme exists ('Theme 1 Tile Board'); new components use its CSS tokens (--gk-bg, --gk-line, kesari palette).",
+   "No theme switcher exists to test against.",
+   "src/app/globals.css"
+  ],
+  [
+   "D-20",
+   "Product card 'Compare N prices' wording is English like the rest of that card (the card has no language prop); home tiles are translated.",
+   "Keeps the card consistent; translation of the whole card is a separate change.",
+   "src/components/product-card.tsx"
+  ],
+  [
+   "D-21",
+   "Android / iOS 'run on emulator/simulator' replaced by Playwright emulation of the app WebView (app user agent, touch, phone widths) plus Expo bundles for both platforms; APK built by the repo's 'Android APK' workflow on the PR.",
+   "This environment has no Android SDK / KVM and no macOS; the app is a WebView shell, so the website checks are what the app shows.",
+   "tests/e2e/homepage-uiux.spec.ts (E2E_APP)"
+  ],
+  [
+   "D-22",
+   "Lighthouse run from this container (mobile preset, simulated throttling) with a temporary install in the session scratchpad — not a project or global dependency.",
+   "Brief: no new global tools.",
+   "scratchpad"
+  ],
+  [
+   "D-23",
+   "Staging and production tests are guest-only (production-safe: GETs, browser cookies; search submit intercepted on production). Signed-in flows run locally.",
+   "Remote sign-in needs an emailed OTP from a mailbox this run cannot read; brief: production read-only.",
+   "tests/e2e/homepage-uiux.spec.ts"
+  ],
+  [
+   "D-24",
+   "Report date uses India time (APP_TIMEZONE Asia/Kolkata).",
+   "The owner's date.",
+   "reports/"
+  ]
+ ],
+ "extraTestCases": []
+}
