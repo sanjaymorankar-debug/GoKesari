@@ -82,11 +82,24 @@ def load(path, default):
         return default
 
 
+# The app columns take the furthest site the app emulation ran against:
+# the store build shows gokesari.com, the preview build test.gokesari.com.
+APP_RUNS = {
+    "Android": ["gokesari.com-app-android", "test.gokesari.com-app-android", "localhost_3000-app-android"],
+    "iOS": ["gokesari.com-app-ios", "test.gokesari.com-app-ios", "localhost_3000-app-ios"],
+}
+APP_SITE = {}
+
+
 def results():
     """{env: {case id: row}} from the Playwright result files."""
     out = {}
     for env, run in ENVS.items():
-        data = load(os.path.join(ROOT, f"docs/homepage-uiux-2026-10/results/{run}.json"), {"rows": []})
+        for candidate in APP_RUNS.get(env, [run]):
+            data = load(os.path.join(ROOT, f"docs/homepage-uiux-2026-10/results/{candidate}.json"), {"rows": []})
+            if data.get("rows"):
+                APP_SITE[env] = f"{candidate} ({data.get('baseUrl', '')}, {data.get('at', '')[:16]})"
+                break
         out[env] = {r["id"]: r for r in data.get("rows", [])}
     return out
 
@@ -158,6 +171,8 @@ def main(out_path):
         passed = sum(1 for r in rows if r["status"] == "pass")
         rate = f"{passed}/{len(rows)} ({round(100 * passed / len(rows))}%)" if rows else log.get("notRunReason", {}).get(env, "Not run")
         summary_rows.append([f"Playwright pass rate — {env}", rate])
+        if env in APP_SITE:
+            summary_rows.append([f"  run used for {env}", APP_SITE[env]])
     for label, value in log.get("suites", {}).items():
         summary_rows.append([label, value])
     for label, value in log.get("deploys", {}).items():
