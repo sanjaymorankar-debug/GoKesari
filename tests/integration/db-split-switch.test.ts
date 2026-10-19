@@ -31,7 +31,7 @@ const sellerUrl = urlFor(sellerName);
 let admin: Sql;
 let core: Sql;
 let seller: Sql;
-const quiet = () => undefined;
+const quiet = process.env.SPLIT_TEST_LOG ? (line: string) => console.log(`[switch] ${line}`) : () => undefined;
 
 async function kind(sql: Sql, table: string): Promise<string | null> {
   const [row] = await sql<{ kind: string }[]>`select c.relkind::text as kind from pg_class c join pg_namespace n on n.oid = c.relnamespace where n.nspname = 'public' and c.relname = ${table}`;
@@ -131,7 +131,7 @@ describe("switching a site's database to the split layout and back", { timeout: 
   it("switches back with every row written since, and the foreign keys", async () => {
     expect((await checkSwitchBack(core, seller)).problems).toEqual([]);
     const shopsNow = await fingerprint(seller, "shops");
-    const result = await switchBack({ core, seller, log: quiet });
+    const result = await switchBack({ core, seller, sellerUrl, log: quiet });
     expect(result.orphanedForeignKeys).toEqual([]);
 
     expect(await isSplitLayout(core)).toBe(false);
@@ -152,6 +152,36 @@ describe("switching a site's database to the split layout and back", { timeout: 
     expect(next).toBeGreaterThan(drawn);
     expect((await core<{ n: number }[]>`select count(*)::int as n from inv_ledger_marks where id = ${markId}`)[0].n).toBe(1);
     expect((await checkSwitchBack(core, seller)).ready).toBe(false);
+  });
+
+  it("a switch that stalls lets go of its locks by itself: writes go on and nothing is switched", async () => {
+    // A copy that does not answer (for 4 s); the switch may pause writes for 1 s at most.
+    const stalled = {
+      unsafe: () => ({ readable: () => new Promise((_, reject) => setTimeout(() => reject(new Error("stalled reader")), 4_000)) }),
+      end: async () => undefined,
+    } as unknown as Sql;
+    const switching = switchToSplit({ core, seller, coreUrl, sellerUrl, log: quiet, openReader: () => stalled, maxPauseMs: 1_000 });
+    switching.catch(() => undefined);
+    // Wait until the switch holds its locks, then write: the write waits for the server to end the stalled switch.
+    const writer = connect(coreUrl, 1);
+    try {
+      for (let i = 0; i < 300; i++) {
+        const [{ held }] = await core<{ held: boolean }[]>`
+          select exists (select 1 from pg_locks l join pg_class c on c.oid = l.relation where c.relname = 'shops' and l.mode = 'ExclusiveLock' and l.granted) as held`;
+        if (held) break;
+        await new Promise((resolve) => setTimeout(resolve, 100));
+      }
+      const t0 = Date.now();
+      await writer`update shops set rating_count = rating_count where id = ${shopId}`;
+      expect(Date.now() - t0).toBeLessThan(3_000);
+    } finally {
+      await writer.end();
+    }
+    await expect(switching).rejects.toThrow(/longer than 1 s, so the step was stopped. Nothing was changed/);
+    // The abandoned copy finishes failing in the background (its reader answers after 4 s).
+    await new Promise((resolve) => setTimeout(resolve, 5_000));
+    expect(await isSplitLayout(core)).toBe(false);
+    expect(await kind(core, "shops")).toBe("r");
   });
 
   it("can switch again while the site keeps writing — no write is lost — and frees the parked copy on request", async () => {

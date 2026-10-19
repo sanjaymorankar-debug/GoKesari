@@ -118,7 +118,7 @@ async function switched(core: Sql, sellerUrl: string, cached: boolean): Promise<
     );
     split = false;
   }
-  globalForPmd.__pmdLayout = { split, at: Date.now() };
+  if (cached) globalForPmd.__pmdLayout = { split, at: Date.now() };
   return split;
 }
 

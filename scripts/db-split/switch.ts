@@ -64,7 +64,7 @@ async function main() {
       console.log(`\nSwitched: ${r.tables} seller tables, ${r.rows} rows now live in the seller database. Writes waited ${r.writesPausedSeconds} s; ${r.seconds} s in all.`);
       console.log("The site picks the switch up by itself within 30 seconds (DB_SPLIT_MODE=split and SELLER_DATABASE_URL must be set on the host).");
     } else if (action === "back") {
-      const r = await switchBack({ core, seller, log, openReader: remote.openReader });
+      const r = await switchBack({ core, seller, sellerUrl, log, openReader: remote.openReader });
       console.log(`\nSwitched back: ${r.tables} seller tables, ${r.rows} rows are in the core again. ${r.seconds} s.`);
       if (r.orphanedForeignKeys.length) console.log(`Foreign keys with rows that break them (kept for new rows; fix the rows, then VALIDATE): ${r.orphanedForeignKeys.join(", ")}`);
     } else {

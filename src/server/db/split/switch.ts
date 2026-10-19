@@ -24,7 +24,7 @@ import type postgres from "postgres";
 import * as splitMigrate from "../../../../scripts/split-migrate.mjs";
 import { acceptCoreIds, buildOverlayPlan, linkSellerToCore, OVERLAY_SERVER, overlayInTransaction, PARKED_PREFIX, PARKED_SCHEMA, pinFunctionSearchPath } from "./overlay";
 import { SCHEMA_OWNERSHIP } from "./ownership";
-import { copyableColumns, copyTables, listForeignKeys, prepareTarget, publicTables, sameDatabaseClash, verifyCopy, type Sql } from "./tools";
+import { connect, copyableColumns, copyTables, listForeignKeys, prepareTarget, publicTables, sameDatabaseClash, verifyCopy, type Sql } from "./tools";
 
 const ident = (name: string) => `"${name.replace(/"/g, '""')}"`;
 const qident = (name: string) => (name.includes(".") ? name.split(".").map(ident).join(".") : ident(name));
@@ -45,12 +45,61 @@ export interface SwitchOptions {
   coreUrl: string;
   sellerUrl: string;
   log?: Log;
-  /** A fresh one-connection client per table read (see CopyOptions.openReader); remote runs pass one. */
+  /** Opens the one-connection client each table is read with (default: a fresh one on the source URL, see CopyOptions.openReader). */
   openReader?: () => Sql;
   tableTimeoutMs?: number;
   /** How long to wait for the locks before giving up (nothing is changed then). */
   lockTimeoutMs?: number;
+  /**
+   * The longest writes may wait (default 10 min). Past it the step stops keeping its transaction
+   * alive and the server ends it within idleLimitMs: the locks go, nothing is changed.
+   */
+  maxPauseMs?: number;
+  /** How long the server waits on a silent lock-holding transaction before ending it (default IDLE_LIMIT_MS). */
+  idleLimitMs?: number;
   migrationsFolder?: string;
+}
+
+/** A transaction holding the switch's locks that hears nothing from its client for this long is ended by the server. */
+const IDLE_LIMIT_MS = 60_000;
+
+/** A statement of the step that runs longer than this is cancelled by the server, and the step rolls back. */
+const STATEMENT_LIMIT_MS = 5 * 60_000;
+
+/**
+ * Limits on a transaction that holds the step's locks, kept by the server
+ * so they hold even if the client stalls or dies: a statement that runs too
+ * long is cancelled (the step then rolls back, the locks go, nothing is
+ * changed) and a transaction that hears nothing for idleLimitMs is ended.
+ */
+async function limitLockHolder(tx: Sql, o: Pick<SwitchOptions, "lockTimeoutMs" | "idleLimitMs">): Promise<void> {
+  await tx.unsafe(`set local lock_timeout = ${Math.round(o.lockTimeoutMs ?? 15_000)}`);
+  await tx.unsafe(`set local statement_timeout = ${STATEMENT_LIMIT_MS}`);
+  await tx.unsafe(`set local idle_in_transaction_session_timeout = ${Math.round(o.idleLimitMs ?? IDLE_LIMIT_MS)}`);
+}
+
+/** Keeps lock-holding transactions that wait while work runs on other connections from looking idle, until stopped. */
+function keepAlive(txs: Sql[], o: Pick<SwitchOptions, "idleLimitMs">): () => void {
+  const timer = setInterval(() => {
+    for (const tx of txs) tx.unsafe("select 1").catch(() => undefined);
+  }, (o.idleLimitMs ?? IDLE_LIMIT_MS) / 4);
+  timer.unref?.();
+  return () => clearInterval(timer);
+}
+
+/**
+ * Work on other connections while the step's locks are held, given up after
+ * maxPauseMs. Only for work that never uses the lock-holding transaction
+ * itself: giving up then rolls that transaction back cleanly.
+ */
+function withinPause<T>(work: Promise<T>, o: Pick<SwitchOptions, "maxPauseMs">): Promise<T> {
+  const maxPause = o.maxPauseMs ?? 10 * 60_000;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  work.catch(() => undefined);
+  const late = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Writes would have waited longer than ${Math.round(maxPause / 1000)} s, so the step was stopped. Nothing was changed.`)), maxPause);
+  });
+  return Promise.race([work, late]).finally(() => clearTimeout(timer));
 }
 
 async function parkedSchemas(core: Sql): Promise<string[]> {
@@ -176,25 +225,37 @@ export async function switchToSplit(o: SwitchOptions): Promise<SwitchResult> {
   let paused = 0;
   await o.core.begin(async (txn) => {
     const tx = txn as unknown as Sql;
-    await tx.unsafe(`set local lock_timeout = ${Math.round(o.lockTimeoutMs ?? 15_000)}`);
+    await limitLockHolder(tx, o);
     const plan = await buildOverlayPlan(tx);
     await tx.unsafe(`lock table ${plan.tables.map(qident).join(", ")} in exclusive mode`);
     const pausedAt = Date.now();
     log(`writes to the ${plan.tables.length} seller tables are paused (reads go on)`);
 
-    await copyTables(o.core, o.seller, plan.tables, log, { openReader: o.openReader, tableTimeoutMs: o.tableTimeoutMs });
-    const verify = await verifyCopy(o.core, o.seller, "seller", plan.tables);
-    const bad = verify.filter((v) => !v.ok);
-    if (bad.length) throw new Error(`The copy does not match the core: ${bad.map((b) => `${b.table} (${b.sourceRows} → ${b.targetRows} rows)`).join(", ")}. Nothing was switched.`);
+    // The copy runs on other connections while this transaction holds the locks.
+    const stop = keepAlive([tx], o);
+    let verify: Awaited<ReturnType<typeof verifyCopy>>;
+    try {
+      verify = await withinPause(
+        (async () => {
+          await copyTables(o.core, o.seller, plan.tables, log, { openReader: o.openReader ?? (() => connect(o.coreUrl, 1)), tableTimeoutMs: o.tableTimeoutMs ?? STATEMENT_LIMIT_MS });
+          const result = await verifyCopy(o.core, o.seller, "seller", plan.tables);
+          const bad = result.filter((v) => !v.ok);
+          if (bad.length) throw new Error(`The copy does not match the core: ${bad.map((b) => `${b.table} (${b.sourceRows} → ${b.targetRows} rows)`).join(", ")}. Nothing was switched.`);
+          await acceptCoreIds(o.seller, log);
+          await pinFunctionSearchPath(o.seller, log);
+          await linkSellerToCore(o.seller, o.coreUrl, log);
+          return result;
+        })(),
+        o,
+      );
+    } finally {
+      stop();
+    }
     rows = verify.reduce((n, v) => n + v.sourceRows, 0);
     tables = verify.length;
     log(`copy verified: ${tables} tables, ${rows} rows, row counts and checksums match`);
 
-    await acceptCoreIds(o.seller, log);
-    await pinFunctionSearchPath(o.seller, log);
-    await linkSellerToCore(o.seller, o.coreUrl, log);
     await overlayInTransaction(tx, o.sellerUrl, plan, log);
-
     // Prove the link before committing: every seller table, read through the core, has the copied rows.
     for (const v of verify) {
       const n = await rowCount(tx, v.table);
@@ -254,12 +315,11 @@ export interface SwitchBackResult {
   seconds: number;
 }
 
-export async function switchBack(o: Omit<SwitchOptions, "coreUrl" | "sellerUrl" | "migrationsFolder">): Promise<SwitchBackResult> {
+export async function switchBack(o: Omit<SwitchOptions, "coreUrl" | "migrationsFolder">): Promise<SwitchBackResult> {
   const log = o.log ?? (() => undefined);
   const started = Date.now();
   const check = await checkSwitchBack(o.core, o.seller);
   if (!check.ready) throw new Error(check.problems.join(" "));
-  const lockTimeout = Math.round(o.lockTimeoutMs ?? 15_000);
 
   const tables = await publicTables(o.seller);
   const tableSet = new Set(tables);
@@ -272,7 +332,7 @@ export async function switchBack(o: Omit<SwitchOptions, "coreUrl" | "sellerUrl" 
     const sellerTx = sellerTxn as unknown as Sql;
     await o.core.begin(async (txn) => {
       const tx = txn as unknown as Sql;
-      await tx.unsafe(`set local lock_timeout = ${lockTimeout}`);
+      await limitLockHolder(tx, o);
 
       // 1. The core's foreign tables go; requests that use seller tables wait from here on.
       const sequences = await tx<{ schema: string; name: string }[]>`
@@ -292,53 +352,58 @@ export async function switchBack(o: Omit<SwitchOptions, "coreUrl" | "sellerUrl" 
       log("the core's foreign tables are removed; requests that use seller tables wait");
 
       // 2. Writes straight to the seller database wait too.
-      await sellerTx.unsafe(`set local lock_timeout = ${lockTimeout}`);
+      await limitLockHolder(sellerTx, o);
       await sellerTx.unsafe(`lock table ${tables.map(qident).join(", ")} in exclusive mode`);
-
-      // 3. The parked tables come back and are reloaded with the seller database's rows.
-      for (const t of publicNames) await tx.unsafe(`alter table ${qident(parkedName(t))} set schema public`);
-      for (const s of schemas) await tx.unsafe(`alter schema ${ident(PARKED_PREFIX + s)} rename to ${ident(s)}`);
-      const inner = (await listForeignKeys(tx)).filter((fk) => tableSet.has(fk.table) && tableSet.has(fk.refTable));
-      for (const fk of inner) await tx.unsafe(`alter table ${qident(fk.table)} drop constraint ${ident(fk.name)}`);
-      await tx.unsafe(`truncate ${tables.map(qident).join(", ")}`);
-      for (const t of tables) {
-        const list = (await copyableColumns(tx, t)).map(ident).join(", ");
-        const reader = o.openReader ? o.openReader() : o.seller;
-        try {
-          await tx.unsafe(`alter table ${qident(t)} disable trigger user`);
-          const readable = await reader.unsafe(`copy (select ${list} from ${qident(t)}) to stdout`).readable();
-          const writable = await tx.unsafe(`copy ${qident(t)} (${list}) from stdin`).writable();
-          await pipeline(readable, writable);
-          await tx.unsafe(`alter table ${qident(t)} enable trigger user`);
-        } finally {
-          if (reader !== o.seller) await reader.end({ timeout: 0 });
+      // The seller transaction only holds its locks while the core's does the work.
+      const stop = keepAlive([sellerTx], o);
+      try {
+        // 3. The parked tables come back and are reloaded with the seller database's rows.
+        for (const t of publicNames) await tx.unsafe(`alter table ${qident(parkedName(t))} set schema public`);
+        for (const s of schemas) await tx.unsafe(`alter schema ${ident(PARKED_PREFIX + s)} rename to ${ident(s)}`);
+        const inner = (await listForeignKeys(tx)).filter((fk) => tableSet.has(fk.table) && tableSet.has(fk.refTable));
+        for (const fk of inner) await tx.unsafe(`alter table ${qident(fk.table)} drop constraint ${ident(fk.name)}`);
+        await tx.unsafe(`truncate ${tables.map(qident).join(", ")}`);
+        for (const t of tables) {
+          const list = (await copyableColumns(tx, t)).map(ident).join(", ");
+          const reader = o.openReader ? o.openReader() : connect(o.sellerUrl, 1);
+          try {
+            await tx.unsafe(`alter table ${qident(t)} disable trigger user`);
+            const readable = await reader.unsafe(`copy (select ${list} from ${qident(t)}) to stdout`).readable();
+            const writable = await tx.unsafe(`copy ${qident(t)} (${list}) from stdin`).writable();
+            await pipeline(readable, writable);
+            await tx.unsafe(`alter table ${qident(t)} enable trigger user`);
+          } finally {
+            await reader.end({ timeout: 0 });
+          }
         }
-      }
-      for (const fk of inner) await tx.unsafe(`alter table ${qident(fk.table)} add constraint ${ident(fk.name)} ${fk.definition}`);
-      for (const [live, state] of drawn) await tx.unsafe(`select setval('${qident(live).replace(/'/g, "''")}', ${state.value}, ${state.called})`);
+        for (const fk of inner) await tx.unsafe(`alter table ${qident(fk.table)} add constraint ${ident(fk.name)} ${fk.definition}`);
+        for (const [live, state] of drawn) await tx.unsafe(`select setval('${qident(live).replace(/'/g, "''")}', ${state.value}, ${state.called})`);
 
-      const verify = await verifyCopy(o.seller, tx, "seller", tables);
-      const bad = verify.filter((v) => !v.ok);
-      if (bad.length) throw new Error(`The reload does not match the seller database: ${bad.map((b) => b.table).join(", ")}. Nothing was switched back.`);
-      rows = verify.reduce((n, v) => n + v.sourceRows, 0);
-      log(`reloaded ${tables.length} tables, ${rows} rows; row counts and checksums match the seller database`);
+        const verify = await verifyCopy(o.seller, tx, "seller", tables);
+        const bad = verify.filter((v) => !v.ok);
+        if (bad.length) throw new Error(`The reload does not match the seller database: ${bad.map((b) => b.table).join(", ")}. Nothing was switched back.`);
+        rows = verify.reduce((n, v) => n + v.sourceRows, 0);
+        log(`reloaded ${tables.length} tables, ${rows} rows; row counts and checksums match the seller database`);
 
-      // 4. The foreign keys between seller and customer tables come back.
-      const cross = await tx<{ name: string; child: string; definition: string }[]>`
-        select name, child, definition from public.split_layout_foreign_keys where cross_database order by child, name`;
-      for (const fk of cross) {
-        await tx.unsafe(`alter table ${qident(fk.child)} add constraint ${ident(fk.name)} ${fk.definition} not valid`);
-        try {
-          await (txn as postgres.TransactionSql).savepoint((sp) => sp.unsafe(`alter table ${qident(fk.child)} validate constraint ${ident(fk.name)}`));
-        } catch {
-          orphanedForeignKeys.push(`${fk.child}.${fk.name}`);
+        // 4. The foreign keys between seller and customer tables come back.
+        const cross = await tx<{ name: string; child: string; definition: string }[]>`
+          select name, child, definition from public.split_layout_foreign_keys where cross_database order by child, name`;
+        for (const fk of cross) {
+          await tx.unsafe(`alter table ${qident(fk.child)} add constraint ${ident(fk.name)} ${fk.definition} not valid`);
+          try {
+            await (txn as postgres.TransactionSql).savepoint((sp) => sp.unsafe(`alter table ${qident(fk.child)} validate constraint ${ident(fk.name)}`));
+          } catch {
+            orphanedForeignKeys.push(`${fk.child}.${fk.name}`);
+          }
         }
-      }
-      log(`restored ${cross.length} foreign keys between seller and customer tables${orphanedForeignKeys.length ? `; ${orphanedForeignKeys.length} have rows that break them (kept for new rows)` : ""}`);
+        log(`restored ${cross.length} foreign keys between seller and customer tables${orphanedForeignKeys.length ? `; ${orphanedForeignKeys.length} have rows that break them (kept for new rows)` : ""}`);
 
-      await tx.unsafe(`drop server if exists ${ident(OVERLAY_SERVER)} cascade`);
-      await tx.unsafe(`drop table public.split_layout_foreign_keys`);
-      await tx.unsafe(`drop schema ${ident(PARKED_SCHEMA)}`);
+        await tx.unsafe(`drop server if exists ${ident(OVERLAY_SERVER)} cascade`);
+        await tx.unsafe(`drop table public.split_layout_foreign_keys`);
+        await tx.unsafe(`drop schema ${ident(PARKED_SCHEMA)}`);
+      } finally {
+        stop();
+      }
     });
   });
   return { tables: tables.length, rows, orphanedForeignKeys, seconds: Math.round((Date.now() - started) / 1000) };

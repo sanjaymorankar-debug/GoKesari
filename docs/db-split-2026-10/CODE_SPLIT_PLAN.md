@@ -137,7 +137,11 @@ switch has happened; until then it keeps using `DATABASE_URL` alone.
      `split_parked`, `split_parked_pmd`) and puts foreign tables of the same
      names in their place;
    - reads every seller table back through the link before it commits.
-   If any step fails, nothing changes.
+   If any step fails, nothing changes. Writes wait at most 10 minutes: past
+   that the switch stops by itself and rolls back; the database also cancels
+   any one statement of it that runs over 5 minutes, and ends it if its
+   client goes silent for a minute — so a stalled or lost run can never keep
+   the site's writes waiting.
 5. Smoke and signed-in journeys on the site (`tests/e2e`), and the payment
    test with Cashfree sandbox data on test.gokesari.com only.
 
@@ -151,6 +155,10 @@ switch has happened; until then it keeps using `DATABASE_URL` alone.
   until a migration changes a seller table, or until `drop-parked`.
 - Last resort: Neon console → the project → Restore → to the time in the
   switch run's summary (loses what was written after it).
+
+**After the switch:** the product-master tools (`npm run pmd:*`, which never
+fall back to the site's database) take `PMD_DATABASE_URL` = the seller
+database.
 
 **After the rollback window (7 days):** `drop-parked` frees the parked copy.
 
