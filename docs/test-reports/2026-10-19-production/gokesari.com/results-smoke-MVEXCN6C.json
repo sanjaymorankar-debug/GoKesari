@@ -1,0 +1,34 @@
+[
+  {
+    "id": "PROD-01",
+    "title": "Bulk upload page loads",
+    "env": "gokesari.com",
+    "result": "PASS",
+    "detail": "ok",
+    "at": "2026-10-19T07:20:16.558Z"
+  },
+  {
+    "id": "PROD-02",
+    "title": "One-row import into the test shop; stock = file Quantity",
+    "env": "gokesari.com",
+    "result": "PASS",
+    "detail": "job 494bd889-cc16-41f1-8c0e-34fb955f204a; stock 3",
+    "at": "2026-10-19T07:21:18.463Z"
+  },
+  {
+    "id": "PROD-03",
+    "title": "Result report",
+    "env": "gokesari.com",
+    "result": "PASS",
+    "detail": "report has the row, status created",
+    "at": "2026-10-19T07:21:21.393Z"
+  },
+  {
+    "id": "PROD-04",
+    "title": "Clean up: Delete file deactivates the smoke product",
+    "env": "gokesari.com",
+    "result": "PASS",
+    "detail": "deactivated (hidden, stock 0)",
+    "at": "2026-10-19T07:22:03.434Z"
+  }
+]

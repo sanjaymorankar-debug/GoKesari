@@ -1,0 +1,18 @@
+
+Running 12 tests using 1 worker
+
+  ✓   1 [chromium] › tests/e2e/batch-2026-10-remote.spec.ts:64:7 › batch 2026-10 remote checks — test.gokesari.com › TC-B26-R-001 home page renders (2.1s)
+  ✓   2 [chromium] › tests/e2e/batch-2026-10-remote.spec.ts:72:7 › batch 2026-10 remote checks — test.gokesari.com › TC-B26-R-002 shops and search pages load (4.6s)
+  ✓   3 [chromium] › tests/e2e/batch-2026-10-remote.spec.ts:80:7 › batch 2026-10 remote checks — test.gokesari.com › TC-B26-R-003 sign-in says the code goes to email (F1.1.2) (5.9s)
+  ✓   4 [chromium] › tests/e2e/batch-2026-10-remote.spec.ts:87:7 › batch 2026-10 remote checks — test.gokesari.com › TC-B26-R-004 assetlinks.json is served as JSON (F15.2.3) (352ms)
+  ✓   5 [chromium] › tests/e2e/batch-2026-10-remote.spec.ts:98:7 › batch 2026-10 remote checks — test.gokesari.com › TC-B26-R-005 apple-app-site-association: no extension, application/json (F15.2.3) (295ms)
+  ✓   6 [chromium] › tests/e2e/batch-2026-10-remote.spec.ts:108:7 › batch 2026-10 remote checks — test.gokesari.com › TC-B26-R-006 payment webhook refuses an unsigned call (F1.7.3) (1.3s)
+  ✓   7 [chromium] › tests/e2e/batch-2026-10-remote.spec.ts:120:7 › batch 2026-10 remote checks — test.gokesari.com › TC-B26-R-007 payout webhook refuses an unsigned call (F10.2.4) (271ms)
+  ✓   8 [chromium] › tests/e2e/batch-2026-10-remote.spec.ts:132:7 › batch 2026-10 remote checks — test.gokesari.com › TC-B26-R-008 batch cron routes refuse a call without the cron secret (2.6s)
+  ✓   9 [chromium] › tests/e2e/batch-2026-10-remote.spec.ts:144:7 › batch 2026-10 remote checks — test.gokesari.com › TC-B26-R-009 staff and support screens need a sign-in (3.0s)
+  ✓  10 [chromium] › tests/e2e/batch-2026-10-remote.spec.ts:156:7 › batch 2026-10 remote checks — test.gokesari.com › TC-B26-R-010 grievance officer published on the site (F6.3.3) (2.3s)
+  ✓  11 [chromium] › tests/e2e/batch-2026-10-remote.spec.ts:163:7 › batch 2026-10 remote checks — test.gokesari.com › TC-B26-R-011 product page has no online reference prices (F1.4.3 dropped) (5.7s)
+  ✓  12 [chromium] › tests/e2e/batch-2026-10-remote.spec.ts:174:7 › batch 2026-10 remote checks — test.gokesari.com › TC-B26-R-012 environment banner sanity — production never shows sandbox payment pages (817ms)
+
+  12 passed (31.3s)
+exit 0

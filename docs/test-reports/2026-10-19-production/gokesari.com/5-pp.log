@@ -1,0 +1,12 @@
+{"id":"PP-01","check":"/shop/product-import","got":"307 https://gokesari.com/signin","result":"PASS"}
+{"id":"PP-02","check":"/admin/product-import","got":"307 https://gokesari.com/signin","result":"PASS"}
+{"id":"PP-03","check":"GET /api/v1/product-imports/template","got":"401","result":"PASS"}
+{"id":"PP-04","check":"GET /api/v1/product-imports/shops","got":"401","result":"PASS"}
+{"id":"PP-05","check":"GET /api/v1/shops/00000000-0000-4000-8000-000000000000/product-imports","got":"401","result":"PASS"}
+{"id":"PP-06","check":"GET /api/v1/product-imports/00000000-0000-4000-8000-000000000000","got":"401","result":"PASS"}
+{"id":"PP-07","check":"GET /api/v1/product-imports/00000000-0000-4000-8000-000000000000/rows","got":"401","result":"PASS"}
+{"id":"PP-08","check":"GET /api/v1/product-imports/00000000-0000-4000-8000-000000000000/report","got":"401","result":"PASS"}
+{"id":"PP-09","check":"POST /api/v1/shops/00000000-0000-4000-8000-000000000000/product-imports","got":"401","result":"PASS"}
+{"id":"PP-10","check":"POST /api/v1/product-imports/00000000-0000-4000-8000-000000000000/commit","got":"401","result":"PASS"}
+{"id":"PP-11","check":"POST /api/v1/product-imports/00000000-0000-4000-8000-000000000000/cancel","got":"401","result":"PASS"}
+{"id":"PP-12","check":"existing pages","got":"/=200 /shops=200 /signin=200 /shop=307 https://gokesari.com/signin","result":"PASS"}
