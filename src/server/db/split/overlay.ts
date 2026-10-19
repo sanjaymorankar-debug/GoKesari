@@ -6,6 +6,9 @@
  * joins, transactions, row locks — still works, while the data is physically
  * in two databases.
  *
+ * The core's own copies of the seller tables are parked, not dropped, so the
+ * switch can be undone without losing a row (switch.ts → switchBack).
+ *
  * What PostgreSQL cannot do across the two, and the code must not rely on:
  *   - foreign keys between a seller table and a core table (dropped here; the
  *     service layer checks them — src/server/db/split/integrity.ts);
@@ -78,74 +81,82 @@ export async function buildOverlayPlan(core: Sql): Promise<OverlayPlan> {
   return { tables, schemas, crossForeignKeys, allForeignKeys: fks, sequences, standaloneSequences };
 }
 
+/** Where the core's own seller tables are kept after the switch, untouched, so a rollback can bring them back. */
+export const PARKED_SCHEMA = "split_parked";
+/** Moving schemas (pmd) are kept under this prefix. */
+export const PARKED_PREFIX = "split_parked_";
+
 /**
  * Applies the overlay to the core database in one transaction: drops the
- * cross-database foreign keys and the core's copies of the seller tables,
- * then imports the seller tables back as foreign tables (with their column
- * defaults) under the same names.
+ * cross-database foreign keys, moves the core's copies of the seller tables
+ * out of the way (schema split_parked; whole schemas renamed
+ * split_parked_<name>), then imports the seller tables back as foreign tables
+ * (with their column defaults) under the same names.
  */
 export async function applyOverlay(core: Sql, sellerUrl: string, plan: OverlayPlan, log: (line: string) => void = () => undefined, seller?: Sql): Promise<void> {
   if (seller) {
     await acceptCoreIds(seller, log);
     await pinFunctionSearchPath(seller, log);
   }
-  const u = new URL(sellerUrl);
-  const sslmode = u.searchParams.get("sslmode");
+  await core.begin((tx) => overlayInTransaction(tx as unknown as Sql, sellerUrl, plan, log));
+}
+
+/** The overlay, inside the caller's core transaction (the switch holds its write locks across the copy). */
+export async function overlayInTransaction(tx: Sql, sellerUrl: string, plan: OverlayPlan, log: (line: string) => void = () => undefined): Promise<void> {
   const publicSeller = plan.tables.filter((t) => !t.includes("."));
-  await core.begin(async (tx) => {
-    await tx.unsafe(`create extension if not exists postgres_fdw`);
-    // The relationships of the single-database layout, kept for `verify` and for the test reset's cascade.
-    await tx.unsafe(`create table if not exists public.split_layout_foreign_keys (name text not null, child text not null, parent text not null, definition text not null, cross_database boolean not null)`);
-    await tx.unsafe(`truncate public.split_layout_foreign_keys`);
-    const crossNames = new Set(plan.crossForeignKeys.map((fk) => `${fk.table}.${fk.name}`));
-    for (const fk of plan.allForeignKeys) {
-      await tx`insert into public.split_layout_foreign_keys (name, child, parent, definition, cross_database) values (${fk.name}, ${fk.table}, ${fk.refTable}, ${fk.definition}, ${crossNames.has(`${fk.table}.${fk.name}`)})`;
-    }
-    for (const fk of plan.crossForeignKeys) await tx.unsafe(`alter table ${qident(fk.table)} drop constraint if exists ${ident(fk.name)}`);
-    log(`dropped ${plan.crossForeignKeys.length} cross-database foreign keys`);
+  const [{ parked }] = await tx<{ parked: number }[]>`
+    select count(*)::int as parked from pg_namespace where nspname = ${PARKED_SCHEMA} or nspname like ${`${PARKED_PREFIX}%`}`;
+  if (parked) throw new Error(`The core still holds a parked copy from an earlier switch (schema ${PARKED_SCHEMA}*). Drop it first (scripts/db-split/switch.ts drop-parked).`);
+  await tx.unsafe(`create extension if not exists postgres_fdw`);
+  // The relationships of the single-database layout, kept for `verify`, the rollback and the test reset's cascade.
+  await tx.unsafe(`create table if not exists public.split_layout_foreign_keys (name text not null, child text not null, parent text not null, definition text not null, cross_database boolean not null)`);
+  await tx.unsafe(`truncate public.split_layout_foreign_keys`);
+  const crossNames = new Set(plan.crossForeignKeys.map((fk) => `${fk.table}.${fk.name}`));
+  for (const fk of plan.allForeignKeys) {
+    await tx`insert into public.split_layout_foreign_keys (name, child, parent, definition, cross_database) values (${fk.name}, ${fk.table}, ${fk.refTable}, ${fk.definition}, ${crossNames.has(`${fk.table}.${fk.name}`)})`;
+  }
+  for (const fk of plan.crossForeignKeys) await tx.unsafe(`alter table ${qident(fk.table)} drop constraint if exists ${ident(fk.name)}`);
+  log(`dropped ${plan.crossForeignKeys.length} cross-database foreign keys`);
 
-    // Remember the sequences' current values; they are re-created in the core below.
-    const values = new Map<string, bigint>();
-    for (const s of [...plan.sequences, ...plan.standaloneSequences.map((sequence) => ({ sequence }))]) {
-      if (values.has(s.sequence)) continue;
-      const [{ v }] = await tx.unsafe<{ v: bigint }[]>(`select last_value as v from ${qident(s.sequence)}`);
-      values.set(s.sequence, v);
-    }
+  // Remember the sequences' current values; they are re-created in the core below.
+  const values = new Map<string, bigint>();
+  for (const s of [...plan.sequences, ...plan.standaloneSequences.map((sequence) => ({ sequence }))]) {
+    if (values.has(s.sequence)) continue;
+    const [{ v }] = await tx.unsafe<{ v: bigint }[]>(`select last_value as v from ${qident(s.sequence)}`);
+    values.set(s.sequence, v);
+  }
 
-    for (const t of publicSeller) await tx.unsafe(`drop table if exists ${ident(t)} cascade`);
-    for (const schema of plan.schemas) await tx.unsafe(`drop schema if exists ${ident(schema)} cascade`);
-    log(`dropped the core's ${publicSeller.length} seller tables and schemas ${plan.schemas.join(", ") || "(none)"}`);
+  await tx.unsafe(`create schema ${ident(PARKED_SCHEMA)}`);
+  for (const t of publicSeller) await tx.unsafe(`alter table ${ident(t)} set schema ${ident(PARKED_SCHEMA)}`);
+  for (const schema of plan.schemas) await tx.unsafe(`alter schema ${ident(schema)} rename to ${ident(PARKED_PREFIX + schema)}`);
+  log(`parked the core's ${publicSeller.length} seller tables in ${PARKED_SCHEMA} and schemas ${plan.schemas.map((x) => `${x} → ${PARKED_PREFIX}${x}`).join(", ") || "(none)"}`);
 
-    await tx.unsafe(`drop server if exists ${ident(OVERLAY_SERVER)} cascade`);
+  const options = splitMigrate.fdwOptions(sellerUrl);
+  await tx.unsafe(`drop server if exists ${ident(OVERLAY_SERVER)} cascade`);
+  await tx.unsafe(`create server ${ident(OVERLAY_SERVER)} foreign data wrapper postgres_fdw options (${options.server})`);
+  await tx.unsafe(`create user mapping for current_user server ${ident(OVERLAY_SERVER)} options (${options.user})`);
+
+  // The core draws ids for the seller tables (postgres_fdw sends every column on insert).
+  for (const schema of plan.schemas) await tx.unsafe(`create schema if not exists ${ident(schema)}`);
+  for (const [seq, v] of values) {
+    await tx.unsafe(`create sequence if not exists ${qident(seq)}`);
+    await tx.unsafe(`select setval(${literal(qident(seq))}, ${v}, true)`);
+  }
+
+  if (publicSeller.length) {
     await tx.unsafe(
-      `create server ${ident(OVERLAY_SERVER)} foreign data wrapper postgres_fdw options (host ${literal(u.hostname)}, port ${literal(u.port || "5432")}, dbname ${literal(decodeURIComponent(u.pathname.replace(/^\//, "")))}, fetch_size '1000'${sslmode && sslmode !== "disable" ? `, sslmode ${literal(sslmode)}` : ""})`,
+      `import foreign schema public limit to (${publicSeller.map(ident).join(", ")}) from server ${ident(OVERLAY_SERVER)} into public options (import_default 'true')`,
     );
-    await tx.unsafe(
-      `create user mapping for current_user server ${ident(OVERLAY_SERVER)} options (user ${literal(decodeURIComponent(u.username || "postgres"))}${u.password ? `, password ${literal(decodeURIComponent(u.password))}` : ""})`,
-    );
-
-    // The core draws ids for the seller tables (postgres_fdw sends every column on insert).
-    for (const schema of plan.schemas) await tx.unsafe(`create schema if not exists ${ident(schema)}`);
-    for (const [seq, v] of values) {
-      await tx.unsafe(`create sequence if not exists ${qident(seq)}`);
-      await tx.unsafe(`select setval(${literal(qident(seq))}, ${v}, true)`);
-    }
-
-    if (publicSeller.length) {
-      await tx.unsafe(
-        `import foreign schema public limit to (${publicSeller.map(ident).join(", ")}) from server ${ident(OVERLAY_SERVER)} into public options (import_default 'true')`,
-      );
-    }
-    for (const schema of plan.schemas) {
-      await tx.unsafe(`import foreign schema ${ident(schema)} from server ${ident(OVERLAY_SERVER)} into ${ident(schema)} options (import_default 'true')`);
-    }
-    // Identity columns arrive without a default (import_default only carries real defaults, which already
-    // name the core's sequences — including composite ones like 'BKS-' || lpad(nextval(...))): give them one.
-    for (const s of plan.sequences.filter((x) => x.identity)) {
-      await tx.unsafe(`alter foreign table ${qident(s.table)} alter column ${ident(s.column)} set default nextval(${literal(qident(s.sequence))})`);
-    }
-    log(`imported ${plan.tables.length} seller tables as foreign tables`);
-  });
+  }
+  for (const schema of plan.schemas) {
+    await tx.unsafe(`import foreign schema ${ident(schema)} from server ${ident(OVERLAY_SERVER)} into ${ident(schema)} options (import_default 'true')`);
+  }
+  // Identity columns arrive without a default (import_default only carries real defaults, which already
+  // name the core's sequences — including composite ones like 'BKS-' || lpad(nextval(...))): give them one.
+  for (const s of plan.sequences.filter((x) => x.identity)) {
+    await tx.unsafe(`alter foreign table ${qident(s.table)} alter column ${ident(s.column)} set default nextval(${literal(qident(s.sequence))})`);
+  }
+  log(`imported ${plan.tables.length} seller tables as foreign tables`);
 }
 
 /* The seller-side steps live in scripts/split-migrate.mjs (plain Node, so the host's build can run them too). */

@@ -23,7 +23,7 @@ export default async function ProductMasterPage() {
   let queue: Awaited<ReturnType<typeof listReviewQueue>> | null = null;
   let unavailable: string | null = null;
   try {
-    const sql = appSql();
+    const sql = await appSql();
     [report, queue] = await Promise.all([getDataQualityReport(sql), listReviewQueue(sql, { limit: 15 })]);
   } catch {
     unavailable = "The product master schema is not installed in this database. Apply the latest migration (npm run db:migrate).";

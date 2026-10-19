@@ -79,13 +79,9 @@ it across two databases.
 
 ### Still to do before a site is switched
 
-- **Cut-over script for a site**: restore point (Neon branch) → copy the seller
-  tables into the seller database (`Database split → migrate`) → overlay +
-  links on the core → Hostinger `DB_SPLIT_MODE=split`, `SELLER_DATABASE_URL`
-  → smoke and signed-in journeys. Rollback within 7 days: restore the branch,
-  `DB_SPLIT_MODE=single`.
 - Load check on test.gokesari.com (every seller-table read now crosses
-  postgres_fdw).
+  postgres_fdw; each site connection that uses a seller table opens one
+  connection of its own to the seller database).
 
 ## 3. How it is proven
 
@@ -103,6 +99,60 @@ it across two databases.
 | Overlay tool, test layout, CI job `test-split` (non-blocking) | done |
 | Full suite on the overlay | 850 failures → fixes above → re-run in progress |
 | Split-aware migrations (`-- split:` tag, runner, self-repair; tested in `tests/integration/split-migrate.test.ts`) | done |
-| Site cut-over script | to do |
-| test.gokesari.com cut-over | — |
-| gokesari.com cut-over (owner window) | — |
+| Switch and switch back for a site (`scripts/db-split/switch.ts`, workflow actions; tested in `tests/integration/db-split-switch.test.ts`, including writes during the switch) | done |
+| test.gokesari.com switch | — |
+| gokesari.com switch (owner window) | — |
+
+## 5. Switching a site (runbook)
+
+The switch is one step on the database. The site needs no setting changed at
+that moment: with `DB_SPLIT_MODE=split` it looks at its database (every 30 s)
+and uses the seller database directly for the product master only once the
+switch has happened; until then it keeps using `DATABASE_URL` alone.
+
+**Before (once per site)**
+
+1. This release is deployed to the site (the check refuses while the site's
+   database has migrations still to apply).
+2. Hostinger → the site → environment variables: add `DB_SPLIT_MODE` =
+   `split` and `SELLER_DATABASE_URL` = the seller database's connection string
+   (the same value as the GitHub secret `TEST_SELLER_DATABASE_URL` /
+   `PROD_SELLER_DATABASE_URL`). Redeploy. Safe before the switch, as above.
+
+**Switch** (Actions → **Database split** → Run workflow)
+
+3. `switch-status` (expect *single*) and `switch-check` (expect *Ready*). The
+   check is read-only; it also tries the link both ways through postgres_fdw
+   and rolls it back, so an unreachable database or a wrong password shows up
+   here.
+4. `switch` — test: branch `staging`, target `test`. Production: branch
+   `main`, target `production`, confirm `SPLIT PRODUCTION`; refused until the
+   test site is switched. What it does, in one transaction on the site's
+   database:
+   - pauses writes to the seller tables (reads go on; a write waits, then
+     lands in the seller database — none is lost);
+   - empties the seller database, builds it from the migrations and copies
+     every seller row; row counts and checksums must match;
+   - links the two databases, parks the site's own seller tables (schema
+     `split_parked`, `split_parked_pmd`) and puts foreign tables of the same
+     names in their place;
+   - reads every seller table back through the link before it commits.
+   If any step fails, nothing changes.
+5. Smoke and signed-in journeys on the site (`tests/e2e`), and the payment
+   test with Cashfree sandbox data on test.gokesari.com only.
+
+**Undo**
+
+- `switch-back-check`, then `switch-back` — set `DB_SPLIT_MODE` = `single` on
+  Hostinger first (and redeploy), so nothing writes to the seller database
+  directly while it is copied back. Every row written since the switch is
+  kept; the foreign keys between seller and customer tables come back (any
+  that rows written meanwhile break are kept for new rows and listed). It works
+  until a migration changes a seller table, or until `drop-parked`.
+- Last resort: Neon console → the project → Restore → to the time in the
+  switch run's summary (loses what was written after it).
+
+**After the rollback window (7 days):** `drop-parked` frees the parked copy.
+
+Backups (`test-db.yml` → backup) include the seller database once a site is
+switched, and the migration workflows pass `SELLER_DATABASE_URL` to the runner.

@@ -42,6 +42,24 @@ export const CORE_SERVER = "gk_core";
 
 const ident = (name) => `"${String(name).replace(/"/g, '""')}"`;
 const literal = (v) => `'${String(v).replace(/'/g, "''")}'`;
+
+/**
+ * postgres_fdw server and user-mapping options for a database URL. The server
+ * talks to the database directly, not through Neon's pooler: postgres_fdw sets
+ * its session up once per connection (search path, time zone), which a
+ * transaction pooler would not keep.
+ *
+ * @param {string} url
+ */
+export function fdwOptions(url) {
+  const u = new URL(url);
+  const sslmode = u.searchParams.get("sslmode");
+  const host = u.hostname.replace(/-pooler(?=\.)/, "");
+  return {
+    server: `host ${literal(host)}, port ${literal(u.port || "5432")}, dbname ${literal(decodeURIComponent(u.pathname.replace(/^\//, "")))}, fetch_size '1000'${sslmode && sslmode !== "disable" ? `, sslmode ${literal(sslmode)}` : ""}`,
+    user: `user ${literal(decodeURIComponent(u.username || "postgres"))}${u.password ? `, password ${literal(decodeURIComponent(u.password))}` : ""}`,
+  };
+}
 const SPLIT_TAG = /^--\s*split:\s*(seller|core|both)\b/m;
 
 /**
@@ -246,8 +264,7 @@ export async function refreshForeignTables(coreTx, seller) {
 
 /** The seller database's foreign tables for the core tables it uses, imported again. */
 export async function linkSellerToCore(seller, coreUrl) {
-  const u = new URL(coreUrl);
-  const sslmode = u.searchParams.get("sslmode");
+  const options = fdwOptions(coreUrl);
   await seller.begin(async (tx) => {
     await tx.unsafe(`create extension if not exists postgres_fdw`);
     const existing = await tx`
@@ -255,12 +272,8 @@ export async function linkSellerToCore(seller, coreUrl) {
       where n.nspname = 'public' and c.relname = any(${SELLER_LINKED_CORE_TABLES})`;
     for (const t of existing) await tx.unsafe(`drop ${t.kind === "f" ? "foreign table" : "table"} ${ident(t.name)} cascade`);
     await tx.unsafe(`drop server if exists ${ident(CORE_SERVER)} cascade`);
-    await tx.unsafe(
-      `create server ${ident(CORE_SERVER)} foreign data wrapper postgres_fdw options (host ${literal(u.hostname)}, port ${literal(u.port || "5432")}, dbname ${literal(decodeURIComponent(u.pathname.replace(/^\//, "")))}, fetch_size '1000'${sslmode && sslmode !== "disable" ? `, sslmode ${literal(sslmode)}` : ""})`,
-    );
-    await tx.unsafe(
-      `create user mapping for current_user server ${ident(CORE_SERVER)} options (user ${literal(decodeURIComponent(u.username || "postgres"))}${u.password ? `, password ${literal(decodeURIComponent(u.password))}` : ""})`,
-    );
+    await tx.unsafe(`create server ${ident(CORE_SERVER)} foreign data wrapper postgres_fdw options (${options.server})`);
+    await tx.unsafe(`create user mapping for current_user server ${ident(CORE_SERVER)} options (${options.user})`);
     await tx.unsafe(
       `import foreign schema public limit to (${SELLER_LINKED_CORE_TABLES.map(ident).join(", ")}) from server ${ident(CORE_SERVER)} into public options (import_default 'true')`,
     );

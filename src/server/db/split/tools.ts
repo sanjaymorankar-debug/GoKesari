@@ -151,7 +151,7 @@ export function crossDbReferences(fks: ForeignKey[]): (ForeignKey & { from: Side
     .filter((fk) => fk.from && fk.to && fk.from !== fk.to);
 }
 
-async function copyableColumns(sql: Sql, table: string): Promise<string[]> {
+export async function copyableColumns(sql: Sql, table: string): Promise<string[]> {
   const rows = await sql<{ name: string }[]>`
     select a.attname as name from pg_attribute a
     where a.attrelid = ${table.includes(".") ? qident(table) : `public.${ident(table)}`}::regclass and a.attnum > 0 and not a.attisdropped and a.attgenerated = ''

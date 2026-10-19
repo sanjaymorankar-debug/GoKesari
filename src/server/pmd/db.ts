@@ -69,28 +69,48 @@ export function createSql(url: string, opts: { max?: number; applicationName?: s
   });
 }
 
-const globalForPmd = globalThis as unknown as { __pmdSql?: Sql };
+const globalForPmd = globalThis as unknown as { __pmdSql?: Sql; __pmdSellerSql?: Sql; __pmdLayout?: { split: boolean; at: number } };
 
-/**
- * The application's own PMD connection (API routes, dashboard). Bound to
- * DATABASE_URL - the app's database - and reused across dev hot reloads.
- */
-/**
- * The product master lives in the seller database (docs/db-split-2026-10).
- * With DB_SPLIT_MODE=split it is reached directly there, so its set-based SQL
- * (ON CONFLICT upserts, trigram search) runs natively; the few core tables it
- * touches (audit_logs, users, settings) are foreign tables in the seller
- * database. Otherwise it is the site's one database, as before.
- */
-export function pmdDatabaseUrl(env: NodeJS.ProcessEnv = process.env): string | undefined {
-  return env.DB_SPLIT_MODE === "split" && env.SELLER_DATABASE_URL ? env.SELLER_DATABASE_URL : env.DATABASE_URL;
+/** How long the site trusts its last look at the layout: a switch, or a switch back, reaches every server within this. */
+export const LAYOUT_CHECK_MS = 30_000;
+
+/** The postgres_fdw server the switch creates in the core (scripts/split-migrate.mjs SELLER_SERVER). */
+const SELLER_SERVER = "gk_seller";
+
+function pool(key: "__pmdSql" | "__pmdSellerSql", url: string | undefined): Sql {
+  if (!globalForPmd[key]) {
+    if (!url) throw new Error("DATABASE_URL is not set");
+    globalForPmd[key] = createSql(url, { max: 5, applicationName: "gokesari-pmd-app" });
+  }
+  return globalForPmd[key]!;
 }
 
-export function appSql(): Sql {
-  if (!globalForPmd.__pmdSql) {
-    const url = pmdDatabaseUrl();
-    if (!url) throw new Error("DATABASE_URL is not set");
-    globalForPmd.__pmdSql = createSql(url, { max: 5, applicationName: "gokesari-pmd-app" });
-  }
-  return globalForPmd.__pmdSql;
+/** Whether the site's database has been switched to the split layout (looked up at most every LAYOUT_CHECK_MS). */
+async function switched(core: Sql): Promise<boolean> {
+  const known = globalForPmd.__pmdLayout;
+  if (known && Date.now() - known.at < LAYOUT_CHECK_MS) return known.split;
+  const [{ split }] = await core<{ split: boolean }[]>`
+    select exists (select 1 from pg_foreign_table t join pg_foreign_server s on s.oid = t.ftserver where s.srvname = ${SELLER_SERVER}) as split`;
+  globalForPmd.__pmdLayout = { split, at: Date.now() };
+  return split;
+}
+
+/**
+ * The application's own PMD connection (API routes, dashboard), reused across
+ * dev hot reloads.
+ *
+ * The product master lives in the seller database (docs/db-split-2026-10).
+ * Once the site's database has been switched to the split layout and
+ * DB_SPLIT_MODE=split, it is reached directly there, so its set-based SQL
+ * (ON CONFLICT upserts, trigram search) runs natively; the few core tables it
+ * touches (audit_logs, users) are foreign tables in the seller database.
+ * Otherwise it is the site's one database (DATABASE_URL), as before. The site
+ * looks at its database for this, so the two settings can be made on the host
+ * before the switch, and nothing writes to the seller database while it is not
+ * the live one.
+ */
+export async function appSql(env: NodeJS.ProcessEnv = process.env): Promise<Sql> {
+  const core = pool("__pmdSql", env.DATABASE_URL);
+  if (env.DB_SPLIT_MODE !== "split" || !env.SELLER_DATABASE_URL) return core;
+  return (await switched(core)) ? pool("__pmdSellerSql", env.SELLER_DATABASE_URL) : core;
 }

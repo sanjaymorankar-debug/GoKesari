@@ -12,5 +12,5 @@ export const dynamic = "force-dynamic";
 
 export const GET = route(async (request: NextRequest) => {
   await requirePermission(PERMISSIONS.PMD_VIEW);
-  return ok(await listBrands(appSql(), parseQuery(request, pageQuerySchema)));
+  return ok(await listBrands(await appSql(), parseQuery(request, pageQuerySchema)));
 });

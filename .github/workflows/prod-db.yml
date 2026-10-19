@@ -140,6 +140,8 @@ jobs:
         working-directory: release
         env:
           PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+          # Used only once the database is switched to the seller / customer split.
+          SELLER_DATABASE_URL: ${{ secrets.PROD_SELLER_DATABASE_URL }}
         # The deploy build's migrator with its shared lock: safe even if a
         # Hostinger build migrates at the same moment.
         run: MIGRATE_ON_BUILD=true DATABASE_URL="$PROD_DATABASE_URL" node scripts/migrate-on-build.mjs | tee -a "$GITHUB_STEP_SUMMARY"

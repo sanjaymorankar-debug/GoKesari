@@ -19,6 +19,6 @@ export const POST = route(async (request: NextRequest, context: RouteContext<{ i
   const user = await requirePermission(PERMISSIONS.PMD_PROMOTE);
   const id = assertMasterId((await context.params).id);
   const body = await parseBody(request, promoteBodySchema);
-  const result = await guarded(() => promoteToCatalogue(appSql(), id, { userId: user.id, role: user.role }, body));
+  const result = await guarded(async () => promoteToCatalogue(await appSql(), id, { userId: user.id, role: user.role }, body));
   return ok(result, result.adopted ? 200 : 201);
 });
