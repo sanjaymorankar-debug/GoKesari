@@ -98,6 +98,8 @@ jobs:
   # The same suite on the seller / customer split layout (two databases; seller
   # tables reached through postgres_fdw — docs/db-split-2026-10/CODE_SPLIT_PLAN.md),
   # so a change that works on one database but not across the two fails here.
+  # PostgreSQL 18, the version of the sites' Neon databases: the switch and the
+  # split behave differently from 16 in places (a partition's identity column).
   test-split:
     needs: scope
     if: needs.scope.outputs.app == 'yes'
@@ -105,7 +107,7 @@ jobs:
 
     services:
       postgres:
-        image: postgres:16
+        image: postgres:18
         env:
           POSTGRES_PASSWORD: postgres
           POSTGRES_DB: dairy_bakery_test
