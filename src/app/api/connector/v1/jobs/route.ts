@@ -11,6 +11,7 @@ import { z } from "zod";
 import { parseQuery, route } from "@/server/api/handler";
 import { enforceRateLimit } from "@/server/api/rate-limit";
 import { authenticateConnector } from "@/server/integrations/connections";
+import { assertInventorySyncEnabled } from "@/server/integrations/inventory-sync-flag";
 import { claimConnectorWork, waitForConnectorWork } from "@/server/integrations/jobs";
 
 export const dynamic = "force-dynamic";
@@ -20,6 +21,7 @@ const CHECK_MS = 5_000;
 
 export const GET = route(async (request: NextRequest) => {
   const session = await authenticateConnector(request);
+  await assertInventorySyncEnabled(); // batch-2026-10 WS-D (F9.2.6)
   enforceRateLimit(`connector-poll:${session.tokenId}`, { limit: 240, windowMs: 10 * 60_000 });
   const { wait } = parseQuery(request, z.object({ wait: z.coerce.number().int().min(0).max(30).default(25) }));
   const until = Date.now() + wait * 1000;

@@ -14,6 +14,7 @@ import { requirePermission } from "@/server/authz/guards";
 import { forbidden } from "@/lib/errors";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { checkout } from "@/server/services/orders";
+import { startOnlineCheckout } from "@/server/payments/order-payments";
 
 const schema = z.object({
   /** Stable per attempt — resubmitting the same id will not charge twice. */
@@ -27,8 +28,11 @@ const schema = z.object({
   /** Personal orders and business (B2B) orders are separate flows. */
   orderType: z.enum(["PERSONAL", "B2B"]).optional(),
   buyerShopId: z.string().uuid().nullish(),
-  /** WALLET (default) or COD — cash on delivery, checked against the COD limits (GS-030). */
-  paymentMethod: z.enum(["WALLET", "COD"]).optional(),
+  /**
+   * WALLET (default) or COD — cash on delivery, checked against the COD limits (GS-030).
+   * batch-2026-10 WS-A: ONLINE — pay at the payment gateway (rule onlinePayments, default off).
+   */
+  paymentMethod: z.enum(["WALLET", "COD", "ONLINE"]).optional(),
   /** Shops the customer was warned are closed and chose to order from anyway. */
   acknowledgeClosedShopIds: z.array(z.string().uuid()).max(20).optional(),
   /** F7: order-level coupon code; validated and priced server-side. */
@@ -43,7 +47,7 @@ export const POST = route(async (request: NextRequest) => {
   if (body.orderType === "B2B" && !can(user.role, PERMISSIONS.ORDER_PLACE_B2B)) {
     throw forbidden("Your account cannot place business orders.");
   }
-  const result = await checkout({
+  const input = {
     userId: user.id,
     actorRole: user.role,
     orderType: body.orderType,
@@ -56,7 +60,12 @@ export const POST = route(async (request: NextRequest) => {
     paymentMethod: body.paymentMethod,
     acknowledgeClosedShopIds: body.acknowledgeClosedShopIds,
     couponCode: body.couponCode ?? null,
-  });
+  };
+  // batch-2026-10 WS-A: "Pay online" goes through its own service; wallet / COD unchanged.
+  const { paymentMethod: _method, ...onlineInput } = input;
+  void _method;
+  const online = body.paymentMethod === "ONLINE" ? await startOnlineCheckout(onlineInput) : null;
+  const result = online ?? (await checkout(input));
 
   return ok(
     {
@@ -77,6 +86,8 @@ export const POST = route(async (request: NextRequest) => {
       deduplicated: result.deduplicated,
       // F6: present only for a multi-shop checkout with parent orders on.
       ...(result.parentReference ? { parentReference: result.parentReference } : {}),
+      // batch-2026-10 WS-A: where to send the browser to pay (online payment only).
+      ...(online?.payment ? { payment: online.payment } : {}),
     },
     201,
   );

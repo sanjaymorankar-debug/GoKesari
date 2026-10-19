@@ -345,6 +345,62 @@ export const AUDIT_ACTIONS = {
   CUSTOMER_REFERRAL_REQUEST_CREATED: "customer_referral_request.created",
   CUSTOMER_REFERRAL_REQUEST_DECIDED: "customer_referral_request.decided",
   REFERRAL_SETTING_CHANGED: "referral_setting.changed",
+  DELIVERY_OFFER_BROADCAST: "delivery_order.offer_broadcast", // batch-2026-10 WS-B
+  DELIVERY_BROADCAST_ACCEPTED: "delivery_order.broadcast_accepted", // batch-2026-10 WS-B
+  DELIVERY_BROADCAST_CLOSED: "delivery_order.broadcast_closed", // batch-2026-10 WS-B
+  DELIVERY_PICKUP_QR_SCANNED: "delivery_order.pickup_qr_scanned", // batch-2026-10 WS-B
+  PAYOUT_CYCLE_CLOSED: "payout.cycle_closed", // batch-2026-10 WS-E
+  PAYOUT_BATCH_STATUS_CHANGED: "payout.batch_status_changed", // batch-2026-10 WS-E
+  PAYOUT_BANK_FILE_EXPORTED: "payout.bank_file_exported", // batch-2026-10 WS-E
+  PAYOUT_ITEM_STATUS_CHANGED: "payout.item_status_changed", // batch-2026-10 WS-E
+  PLATFORM_INVOICE_ISSUED: "platform_invoice.issued", // batch-2026-10 WS-E
+  PLATFORM_NOTE_ISSUED: "platform_invoice.note_issued", // batch-2026-10 WS-E
+  STATUTORY_RATE_CHANGED: "statutory_rate.changed", // batch-2026-10 WS-E
+  STATUTORY_REPORT_EXPORTED: "statutory.report_exported", // batch-2026-10 WS-E
+  // batch-2026-10 WS-D — Operator-Limited onboarding (F8.4.2): every action is audited.
+  OPLTD_OWNER_OTP_SENT: "operator_limited.owner_otp_sent",
+  OPLTD_OWNER_VERIFIED: "operator_limited.owner_verified",
+  OPLTD_OWNER_OTP_FAILED: "operator_limited.owner_otp_failed",
+  OPLTD_SHOP_SUBMITTED: "operator_limited.shop_submitted",
+  OPLTD_SHOPS_VIEWED: "operator_limited.shops_viewed",
+  OPLTD_DOCUMENTS_VIEWED: "operator_limited.documents_viewed",
+  OPLTD_DOCUMENT_DECIDED: "operator_limited.document_decided",
+  OPLTD_ACCESS_DENIED: "operator_limited.access_denied",
+  OPLTD_FEE_REQUESTED: "operator_limited.fee_requested",
+  OPLTD_FEE_PAID: "operator_limited.fee_paid",
+  OPLTD_FEE_FAILED: "operator_limited.fee_failed",
+  // batch-2026-10 WS-D — product master data (F9.1.2 / F9.1.4).
+  PMD_MANUFACTURER_CREATED: "pmd.manufacturer_created",
+  PMD_MANUFACTURER_MEMBER_ADDED: "pmd.manufacturer_member_added",
+  PMD_API_KEY_ISSUED: "pmd.api_key_issued",
+  PMD_API_KEY_REVOKED: "pmd.api_key_revoked",
+  PMD_API_KEY_USED: "pmd.api_key_used",
+  PMD_INGEST_JOB_CREATED: "pmd.ingest_job_created",
+  PMD_INGEST_JOB_FINISHED: "pmd.ingest_job_finished",
+  PMD_SOURCE_LOOKUP: "pmd.source_lookup",
+  PMD_BULK_EDITED: "pmd.bulk_edited",
+  PMD_PRODUCTS_MERGED: "pmd.products_merged",
+  PMD_PRODUCTS_PROMOTED: "pmd.products_promoted",
+  INVENTORY_SYNC_BLOCKED: "inventory_sync.blocked",
+  BROADCAST_SAVED: "broadcast.saved", // batch-2026-10 WS-F
+  BROADCAST_SCHEDULED: "broadcast.scheduled", // batch-2026-10 WS-F
+  BROADCAST_SEND_STARTED: "broadcast.send_started", // batch-2026-10 WS-F
+  BROADCAST_SENT: "broadcast.sent", // batch-2026-10 WS-F
+  BROADCAST_CANCELLED: "broadcast.cancelled", // batch-2026-10 WS-F
+  BROADCAST_EXPIRED: "broadcast.expired", // batch-2026-10 WS-F
+  PUSH_TOKEN_DEACTIVATED: "push_token.deactivated", // batch-2026-10 WS-F
+  SHOP_CANCELLATION_FEE_CHANGED: "shop.cancellation_fee_changed", // batch-2026-10 WS-C
+  ORDER_CANCELLATION_FEE_CHARGED: "order.cancellation_fee_charged", // batch-2026-10 WS-C
+  ORDER_REFUND_RECORDED: "order.refund_recorded", // batch-2026-10 WS-C
+  SUPPORT_TICKET_CREATED: "support_ticket.created", // batch-2026-10 WS-C
+  SUPPORT_TICKET_UPDATED: "support_ticket.updated", // batch-2026-10 WS-C
+  SUPPORT_CANNED_REPLY_CHANGED: "support_canned_reply.changed", // batch-2026-10 WS-C
+  PAYMENT_INTENT_CREATED: "payment.intent_created", // batch-2026-10 WS-A
+  PAYMENT_INTENT_STATUS_CHANGED: "payment.intent_status_changed", // batch-2026-10 WS-A
+  PAYMENT_WEBHOOK_REJECTED: "payment.webhook_rejected", // batch-2026-10 WS-A
+  PAYMENT_REFUND_REQUESTED: "payment.refund_requested", // batch-2026-10 WS-A
+  PAYMENT_REFUND_SETTLED: "payment.refund_settled", // batch-2026-10 WS-A
+  OTP_PURGED: "auth.otp_purged", // batch-2026-10 WS-A
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

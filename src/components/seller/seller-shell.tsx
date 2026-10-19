@@ -8,6 +8,7 @@ import clsx from "clsx";
 import { LanguageSwitch } from "@/components/board/board-header";
 import { Icon } from "@/components/board/icons";
 import { CountBadge, TONE_ICON } from "@/components/board/tiles";
+import { NotificationBell } from "@/components/notifications/notification-bell";
 import { RoleSwitcher } from "@/components/role-switcher";
 import { ShopSwitcher } from "@/components/seller/shop-switcher";
 import { StandaloneBackButton } from "@/components/standalone-back-button";
@@ -179,19 +180,14 @@ export function SellerShell({ lang, user, roles, unreadCount, shop, shops, group
             <LanguageSwitch lang={lang} />
 
             {user ? (
-              <Link
-                href="/profile?tab=notifications"
+              // batch-2026-10 WS-F: the bell opens the Notification Centre panel (link to /notifications without JS).
+              <NotificationBell
+                lang={lang}
+                unreadCount={unreadCount}
+                accountKey={user.email}
+                testId="seller-bell"
                 className="relative grid h-11 w-11 place-items-center rounded-lg hover:bg-white/10"
-                aria-label={`${tr(UI.notifications, lang)}${unreadCount > 0 ? `, ${unreadCount} ${tr(UI.unread, lang)}` : ""}`}
-                data-testid="seller-bell"
-              >
-                <Icon name="bell" size={22} />
-                {unreadCount > 0 ? (
-                  <span className="absolute right-0.5 top-0.5 grid h-[1.125rem] min-w-[1.125rem] place-items-center rounded-full bg-red-600 px-1 text-xs font-bold text-white ring-2 ring-ink-900">
-                    {unreadCount}
-                  </span>
-                ) : null}
-              </Link>
+              />
             ) : null}
 
             {user ? (

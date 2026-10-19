@@ -74,6 +74,8 @@ import { onOrderDelivered } from "@/server/integrations/hooks";
 import { orderEventFor, type OrderEventPayload } from "@/server/events/catalog";
 import { applyWalletMutation, refundOriginalDebit } from "./wallet";
 import { checkRiskForUser } from "./risk";
+import { afterPackingCancellationOpen } from "@/server/aftercare/cancellation-fee"; // batch-2026-10 WS-C
+import { executeCancellationRefund, planCancellationRefund } from "@/server/aftercare/refunds"; // batch-2026-10 WS-C
 
 /**
  * A delivery assignment is still "in play" — offered, accepted, or already
@@ -333,6 +335,12 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   // GS-030: cash on delivery — personal orders to a delivery address, for a
   // customer within the COD limits. Shop opt-in and amount are checked per order.
   const paymentMethod: PaymentMethod = input.paymentMethod ?? "WALLET";
+  // batch-2026-10 WS-A: "Pay online" only through startOnlineCheckout (server/payments/order-payments.ts),
+  // and only while rule onlinePayments is on.
+  if (paymentMethod === "ONLINE") {
+    if (!(await getRule("onlinePayments")).enabled) throw conflict("Online payment is not available. Please pay from your wallet or choose cash on delivery.");
+    if (orderType !== "PERSONAL") throw validationFailed("Business orders are paid from the wallet.");
+  }
   let codMaxOrderPaise: number = COD_LIMITS.maxOrderPaise;
   if (paymentMethod === "COD") {
     if (orderType !== "PERSONAL") throw validationFailed("Business orders are paid from the wallet.");
@@ -363,8 +371,9 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     : null;
 
   // F6: a cart spanning several shops gets one parent reference over all its orders.
+  // batch-2026-10 WS-A: an online payment covers every shop's order at once, so it always needs the group.
   const orderGroup =
-    purchasableGroups.length > 1 && (await getRule("parentOrders")).enabled
+    purchasableGroups.length > 1 && (paymentMethod === "ONLINE" || (await getRule("parentOrders")).enabled)
       ? await getOrCreateOrderGroup(input.userId, input.requestId)
       : null;
 
@@ -587,6 +596,14 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           },
           tx,
         );
+      }
+
+      // batch-2026-10 WS-A: an online-paid order waits in PENDING (stock held, cart
+      // cleared) until the gateway captures the payment; confirmation, its event and
+      // the notices then come from server/payments/order-payments.ts.
+      if (paymentMethod === "ONLINE") {
+        await clearCartForShop(input.userId, group.shop.id, tx);
+        return { order: orderRow, shopOwnerId: shopRow.ownerId };
       }
 
       const [confirmed] = await tx
@@ -850,6 +867,16 @@ export async function updateOrderStatus(
       );
     }
 
+    // batch-2026-10 WS-E (rule invoiceDelivery): an invoiced order that ends
+    // refunded gets a credit note for whatever its refunds did not credit.
+    // Own savepoint inside; a problem here never blocks the status change.
+    if (newStatus === "REFUNDED") {
+      const { creditNoteOnOrderReversal } = await import("@/server/invoicing/delivery");
+      await creditNoteOnOrderReversal(orderId, actor.id, tx).catch((error) =>
+        console.error("[credit-notes] reversal note failed for order", orderId, error),
+      );
+    }
+
     await recordAudit(
       {
         actorId: actor.id,
@@ -927,6 +954,14 @@ export interface CancelOrderOptions {
    * before this option existed.
    */
   selfService?: boolean;
+  /**
+   * batch-2026-10 WS-C (F6.2.3): where the customer chose to have the refund
+   * go. Omitted = the original wallet refund, unchanged (unless the order was
+   * paid online or is cancelled after packing — see aftercare/refunds.ts).
+   */
+  refundMethod?: "WALLET" | "ORIGINAL";
+  /** batch-2026-10 WS-C: the refund the customer was shown; refused if it changed. */
+  expectedRefundPaise?: number;
 }
 
 /**
@@ -943,7 +978,7 @@ export async function cancelOrder(
   reason: string,
   options: CancelOrderOptions = {},
 ): Promise<Order> {
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const [order] = await tx
       .select()
       .from(orders)
@@ -957,6 +992,12 @@ export async function cancelOrder(
     if (!canTransition(order.status, "CANCELLED")) {
       throw invalidTransition(ORDER_STATUS_LABELS[order.status], "Cancelled");
     }
+    // batch-2026-10 WS-A: an online-paid order — refused while a payment attempt is open;
+    // a failed / expired attempt has already put the stock back.
+    const onlinePolicy =
+      order.paymentMethod === "ONLINE"
+        ? await (await import("@/server/payments/order-payments")).onlineCancelPolicy(order, tx)
+        : null;
 
     // D10: a customer cancelling their own order is blocked while the shop is
     // actively assembling it — there is no clean undo for picked/packed work,
@@ -969,9 +1010,15 @@ export async function cancelOrder(
       Boolean(options.selfService) &&
       beforePacking &&
       (await getRule("cancellation")).customerMayCancelUntil === "PREPARING";
+    // batch-2026-10 WS-C (F6.1.3): with rule afterPackingCancellation on, the
+    // customer may also cancel a packed order (READY / ASSIGNED) for a fee.
+    // Off (the default): exactly the original D10 block below.
+    const customerCancelAfterPacking =
+      Boolean(options.selfService) && (await afterPackingCancellationOpen(order.status));
     if (
       options.selfService &&
       !customerCancelBeforePacking &&
+      !customerCancelAfterPacking &&
       (["ACCEPTED", "PREPARING", "READY", "ASSIGNED"] as OrderStatus[]).includes(order.status)
     ) {
       throw conflict(
@@ -1054,7 +1101,7 @@ export async function cancelOrder(
       ...l,
       unitSizeMilli: unitSizeById.get(l.shopProductId) ?? 1000,
     }));
-    for (const line of lines) {
+    for (const line of onlinePolicy?.stockAlreadyReleased ? [] : lines) {
       const quantityUnits = Math.round(line.quantityMilli / line.unitSizeMilli);
       if (quantityUnits > 0) {
         await restockOnline(
@@ -1143,9 +1190,31 @@ export async function cancelOrder(
       tx,
     );
 
+    // batch-2026-10 WS-C (F6.1.3 / F6.2.3): an after-packing cancel, a
+    // customer's refund choice, or an order paid online is refunded through
+    // the aftercare path (itemised deductions, wallet or original method,
+    // refund timeline). Every other cancellation continues below, unchanged.
+    const aftercare = await planCancellationRefund(tx, order, {
+      selfService: Boolean(options.selfService),
+      afterPacking: customerCancelAfterPacking,
+      refundMethod: options.refundMethod,
+      expectedRefundPaise: options.expectedRefundPaise,
+    });
+    if (aftercare) {
+      const status = await executeCancellationRefund(tx, order, aftercare, { actor, reason });
+      return { ...updated, status };
+    }
+
     // Removed / cheaper-substituted lines were already refunded and deducted
     // from totalPaise/subtotalPaise, so these always reflect what is still held.
     const refundAmountPaise = goodsOnlyRefund ? order.subtotalPaise : order.totalPaise;
+    // batch-2026-10 WS-A: paid online → refund to the original method (not the wallet).
+    if (onlinePolicy && wasPaid && refundAmountPaise > 0) {
+      const { refundCancelledOnlineOrder } = await import("@/server/payments/order-payments");
+      if (await refundCancelledOnlineOrder(order, refundAmountPaise, goodsOnlyRefund, actor, tx)) {
+        return { ...updated, status: "REFUND_PENDING" as OrderStatus };
+      }
+    }
     if (wasPaid && refundAmountPaise > 0) {
       // Preserves the original customer-funded / promotional split (§29) —
       // does not simply credit a lump customer-funded sum, which would
@@ -1188,6 +1257,17 @@ export async function cancelOrder(
 
     return updated;
   });
+  // Batch integration (WS-A × WS-C): a refund to the original payment method is
+  // sent to the gateway as soon as the cancellation has committed, whoever
+  // cancelled (shop, operator or customer). Idempotent; the payments-reconcile
+  // job and the aftercare sweep retry it if this attempt fails.
+  if (result.status === "REFUND_PENDING") {
+    const { sendRequestedOriginalRefunds } = await import("@/server/aftercare/refunds");
+    await sendRequestedOriginalRefunds(orderId).catch((error) =>
+      console.error("[refunds] immediate send failed for order", orderId, error),
+    );
+  }
+  return result;
 }
 
 /* ---------------------------------------------------------- retrieval */

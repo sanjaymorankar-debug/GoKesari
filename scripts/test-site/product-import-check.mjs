@@ -341,7 +341,9 @@ try {
     const shopId = arg;
     const sku = `SMOKE-${RUN}`;
     await tcase("PROD-01", "Bulk upload page loads", async () => {
-      await page.goto(`${base}/admin/product-import?shopId=${shopId}`);
+      // A shop owner uses their own page; staff pick the shop on the admin page.
+      const role = (await json(await api.get(`${base}/api/auth/session`)))?.user?.role;
+      await page.goto(role === "SHOP_OWNER" ? `${base}/shop/product-import` : `${base}/admin/product-import?shopId=${shopId}`);
       await page.locator('[data-testid="product-import-upload"]').waitFor();
       await page.screenshot({ path: path.join(outDir, "P01-upload.png"), fullPage: true });
       return "ok";

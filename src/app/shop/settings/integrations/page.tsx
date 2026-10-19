@@ -1,6 +1,7 @@
 import { FileSync } from "@/components/integrations/file-sync";
 import { IntegrationSettings } from "@/components/integrations/integration-settings";
-import { PageHeader } from "@/components/ui";
+import { Alert, PageHeader } from "@/components/ui";
+import { inventorySyncEnabled } from "@/server/integrations/inventory-sync-flag";
 import { getIntegrationView, listConnectorTokens, providerCatalogue } from "@/server/integrations/connections";
 import { isCredentialEncryptionConfigured } from "@/server/integrations/credentials";
 import { listItemImports } from "@/server/integrations/file-sync";
@@ -13,6 +14,18 @@ export const dynamic = "force-dynamic";
 export default async function IntegrationsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const params = await searchParams;
   const { actor, shop } = await integrationPageShop(params.shop);
+  // batch-2026-10 WS-D (F9.2.6): inventory sync descoped — the connect screen is hidden while the rule is off.
+  if (!(await inventorySyncEnabled())) {
+    return (
+      <div className="mx-auto max-w-3xl space-y-4">
+        <PageHeader title="Accounting software" description={shop.name} />
+        <Alert tone="info" title="Inventory sync is switched off">
+          GoKesari no longer syncs stock and prices with accounting software: each shop keeps its own stock up to date on GoKesari. Any
+          connection you made earlier is kept, but nothing is sent or read.
+        </Alert>
+      </div>
+    );
+  }
   const integration = await getIntegrationView(shop.id);
   const tokens = integration?.transport === "CONNECTOR" ? await listConnectorTokens(shop.id) : [];
   const recent = integration?.transport === "FILE" ? await listItemImports(shop.id) : [];

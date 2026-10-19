@@ -6,8 +6,10 @@
  * subscriptions, shop owner, delivery partner and admin tools — is in the app
  * the moment it ships on the web. This file adds what a bare WebView lacks:
  * Google sign-in through the system browser, UPI and other app links, native
- * share/print/location/downloads (bridge.ts), deep links, the Android back
- * button, and an offline screen.
+ * share/print/location/downloads (bridge.ts), deep links, push notifications
+ * (push.ts: the token for the website, taps open the notification's page),
+ * the camera inside pages (QR scanning), the Android back button, and an
+ * offline screen.
  */
 import * as Crypto from "expo-crypto";
 import * as SplashScreen from "expo-splash-screen";
@@ -37,10 +39,13 @@ import {
 } from "./bridge";
 import { buildBridgeScript } from "./bridge-script";
 import { APP_VERSION, COLORS, SITE_URL, UA_TOKEN } from "./config";
+import { notificationTarget, sitePageUrl as siteLink } from "./deep-links";
 import { signInWithGoogle } from "./google-sign-in";
 import { decideNavigation, decideNewWindow, playStoreUrl, type NavigationDecision } from "./navigation-policy";
 import { OfflineScreen } from "./OfflineScreen";
 import { bytesToBase64Url } from "./pkce";
+import { configureNotifications, getPushRegistration, onNotificationTap } from "./push";
+import { PUSH_TOKEN_MESSAGE } from "./push-registration";
 import { originOf, parseUrl, sameOrigin } from "./url";
 
 void SplashScreen.preventAutoHideAsync().catch(() => {});
@@ -50,14 +55,12 @@ const SITE_ORIGIN = originOf(parseUrl(SITE_URL)!);
 /** Errors that are not a failed page: a navigation the app cancelled itself, a download taking over. */
 const IGNORED_LOAD_ERRORS = Platform.OS === "ios" ? [-999, 102, 204] : [-10];
 
-/** A link to one of the website's pages (App Link / Universal Link), or null. */
+/** A link to one of the website's pages (App Link / Universal Link), or null (deep-links.ts). */
 function sitePageUrl(link: string | null): string | null {
-  if (!link) return null;
-  const parsed = parseUrl(link);
-  if (!parsed || originOf(parsed) !== SITE_ORIGIN) return null;
-  if (parsed.path.startsWith("/api/") || parsed.path.startsWith("/mobile-auth/")) return null;
-  return link;
+  return siteLink(link, SITE_ORIGIN);
 }
+
+configureNotifications();
 
 function toBridgeError(error: unknown): BridgeError {
   if (error && typeof error === "object" && "message" in error) {
@@ -187,7 +190,8 @@ function Shell() {
     Linking.getInitialURL()
       .catch(() => null)
       .then((link) => {
-        if (!cancelled) setSource({ uri: sitePageUrl(link) ?? SITE_URL });
+        // A tapped notification may already have chosen the first page (below).
+        if (!cancelled) setSource((current) => current ?? { uri: sitePageUrl(link) ?? SITE_URL });
       });
     const subscription = Linking.addEventListener("url", ({ url }) => {
       // `<scheme>://auth-callback` belongs to the sign-in in progress (expo-web-browser handles it).
@@ -202,6 +206,17 @@ function Shell() {
       clearTimeout(splashFallback);
     };
   }, [navigate]);
+
+  // A tapped push notification opens its page in the app (or an outside link in the browser).
+  useEffect(
+    () =>
+      onNotificationTap((data) => {
+        const target = notificationTarget(data, SITE_ORIGIN);
+        if (target.action === "open") navigate(target.url);
+        else void Linking.openURL(target.url).catch(() => {});
+      }),
+    [navigate],
+  );
 
   useEffect(() => {
     if (Platform.OS !== "android") return;
@@ -279,6 +294,8 @@ function Shell() {
           case "downloadFailed":
             Alert.alert("Download failed", typeof message.message === "string" ? message.message : "Please try again.");
             return;
+          case PUSH_TOKEN_MESSAGE:
+            return reply(await getPushRegistration());
           default:
             return;
         }
@@ -369,6 +386,9 @@ function Shell() {
             allowsBackForwardNavigationGestures
             allowsLinkPreview={false}
             allowsInlineMediaPlayback
+            // Camera in pages (QR scanning with getUserMedia): iOS grants the site itself without a second prompt and
+            // asks for anything else; Android asks for the CAMERA permission when a page first wants the camera.
+            mediaCapturePermissionGrantType="grantIfSameHostElsePrompt"
             pullToRefreshEnabled
             decelerationRate="normal"
             automaticallyAdjustContentInsets={false}

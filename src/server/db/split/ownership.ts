@@ -217,6 +217,70 @@ export const TABLE_OWNERSHIP = {
   rider_incentive_rules: "platform",
   rider_payouts: "platform",
   rider_searches: "platform",
+  /* >>> batch-2026-10 WS-A (payments, OTP, reference prices) — add entries below this line only */
+  payment_intents: "customer",
+  payment_intent_events: "customer",
+  payment_webhook_events: "customer",
+  payment_refunds: "customer",
+  payment_sandbox_orders: "customer",
+  /* <<< end WS-A */
+  //
+  /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — add entries below this line only */
+  // Broadcast rider offers and pickup QR/scan records follow the order and its delivery row.
+  delivery_offer_broadcasts: "customer",
+  delivery_offer_recipients: "customer",
+  delivery_pickup_tokens: "customer",
+  delivery_pickup_scans: "customer",
+  /* <<< end WS-B */
+  //
+  /* >>> batch-2026-10 WS-C (cancellation fee, refunds, help desk) — add entries below this line only */
+  shop_cancellation_fee_settings: "seller",
+  order_charges: "customer",
+  order_refunds: "customer",
+  order_refund_events: "customer",
+  support_tickets: "customer",
+  support_ticket_messages: "customer",
+  support_ticket_attachments: "customer",
+  support_ticket_events: "customer",
+  support_canned_replies: "customer",
+  support_ticket_csat: "customer",
+  /* <<< end WS-C */
+  //
+  /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */
+  shop_onboarding_sessions: "seller",
+  pmd_manufacturer_accounts: "seller",
+  pmd_manufacturer_members: "seller",
+  pmd_manufacturer_api_keys: "seller",
+  pmd_ingest_jobs: "seller",
+  pmd_ingest_job_rows: "seller",
+  pmd_object_blobs: "seller",
+  pmd_image_assets: "seller",
+  pmd_record_attributions: "seller",
+  /* <<< end WS-D */
+  //
+  /* >>> batch-2026-10 WS-E (invoicing, payouts, statutory) — add entries below this line only */
+  // Shop payouts and GoKesari's fee invoices to shops: shop finance → seller.
+  payout_cycles: "seller",
+  payout_cycle_lines: "seller",
+  payout_batches: "seller",
+  payout_items: "seller",
+  payout_events: "seller",
+  platform_invoice_counters: "seller",
+  platform_invoices: "seller",
+  platform_invoice_lines: "seller",
+  platform_credit_debit_notes: "seller",
+  // Dated statutory settings and the document email outbox: platform (core).
+  statutory_rates: "platform",
+  document_emails: "platform",
+  /* <<< end WS-E */
+  //
+  /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */
+  push_tokens: "platform",
+  push_tickets: "platform",
+  broadcasts: "platform",
+  broadcast_recipients: "platform",
+  /* <<< end WS-F */
+  //
 } as const satisfies Record<string, DbOwner>;
 
 export type OwnedTable = keyof typeof TABLE_OWNERSHIP;

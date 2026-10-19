@@ -83,6 +83,7 @@ export const userRoleEnum = pgEnum("user_role", [
   /** Wave 1 skeleton (GS-002): customer capabilities only until the society
    * entity and its scoped permissions land (Wave 8, decision D5). */
   "SOCIETY_ADMIN",
+  "OPERATOR_LIMITED", // batch-2026-10 WS-D (F8.4.2: onboards shops for their owners; own shops only)
 ]);
 
 /**
@@ -225,7 +226,12 @@ export const orderTypeEnum = pgEnum("order_type", ["PERSONAL", "B2B"]);
  * collected in cash at the door (by the rider, or the shop when it delivers
  * itself) and only then counts as paid.
  */
-export const paymentMethodEnum = pgEnum("payment_method", ["WALLET", "COD"]);
+export const paymentMethodEnum = pgEnum("payment_method", [
+  "WALLET",
+  "COD",
+  /** batch-2026-10 WS-A (F1.7.3): paid at a payment gateway (UPI / card / netbanking); rule onlinePayments. */
+  "ONLINE",
+]);
 
 /* -------------------------------------------------------- delivery windows
  * (delivery-system Part 58 follow-up, Slice C). Fixed set for Phase 1 per
@@ -371,6 +377,7 @@ export const shopPaymentMethodEnum = pgEnum("shop_payment_method", [
   "OTHER",
   /** Module 3: the fee paid online at self-registration (Cashfree, webhook-confirmed). */
   "CASHFREE",
+  "ONLINE", // batch-2026-10 WS-D: a fee captured through the payment-intent gateway (F1.7.3)
 ]);
 
 export const referralStatusEnum = pgEnum("referral_status", [
@@ -575,7 +582,7 @@ export const loginOtps = pgTable(
     phoneE164: text("phone_e164"),
     /** Address the code was sent to; codes are looked up by it. Null only on rows from before email login. */
     email: text("email"),
-    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION"] }).notNull().default("LOGIN"),
+    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */] }).notNull().default("LOGIN"),
     channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
     codeHash: text("code_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -944,6 +951,8 @@ export const shops = pgTable(
     /** Who is making this status change — read once by the trigger for status_changes, then cleared. */
     statusActorId: uuid("status_actor_id"),
     deletedAt: timestamp("deleted_at", { withTimezone: true }),
+    /** batch-2026-10 WS-D (F8.4.2): the operator who onboarded the shop for its owner. Users live in the platform DB: no FK. */
+    onboardedByUserId: uuid("onboarded_by_user_id"),
   },
   (t) => [
     uniqueIndex("shops_slug_unique").on(t.slug),
@@ -7723,3 +7732,1383 @@ export const productAttributes = pgTable("product_attributes", {
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
 export type ProductAttributes = typeof productAttributes.$inferSelect;
+
+
+/* >>> batch-2026-10 WS-A (payments, OTP, reference prices) — tables below this line only */
+
+/*
+ * Direct online payment (F1.7.3 / F1.8.4, docs/payments-gateway-2026-10.md).
+ * Status / purpose / gateway values mirror src/lib/payment-intent-states.ts
+ * (kept inline so this file gains no new import). All customer-owned.
+ */
+
+/** One gateway payment for one purpose (an order, an order group, a shop's registration fee). */
+export const paymentIntents = pgTable(
+  "payment_intents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE"] }).notNull(),
+    /** The order id, order-group id or shop id — a plain UUID (no FK: the purposes point at different tables). */
+    referenceId: uuid("reference_id").notNull(),
+    userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    /** Sum of SUCCESS refunds. */
+    refundedPaise: bigint("refunded_paise", { mode: "number" }).notNull().default(0),
+    currency: text("currency").notNull().default("INR"),
+    status: text("status", {
+      enum: ["CREATED", "PENDING", "AUTHORIZED", "CAPTURED", "PARTIALLY_REFUNDED", "REFUNDED", "FAILED", "EXPIRED"],
+    })
+      .notNull()
+      .default("CREATED"),
+    gateway: text("gateway", { enum: ["SANDBOX", "CASHFREE", "RAZORPAY", "PHONEPE"] }).notNull(),
+    mode: text("mode", { enum: ["CHECKOUT", "LINK"] }).notNull().default("CHECKOUT"),
+    /** Our id for the attempt at the gateway (its "order id"); derived from this row's id. */
+    merchantOrderId: text("merchant_order_id").notNull(),
+    gatewayOrderId: text("gateway_order_id"),
+    gatewayPaymentId: text("gateway_payment_id"),
+    /** Same key → same intent: a customer can never be charged twice for one order. */
+    idempotencyKey: text("idempotency_key").notNull(),
+    checkoutKind: text("checkout_kind", { enum: ["HOSTED_URL", "SDK_SESSION"] }),
+    checkoutUrl: text("checkout_url"),
+    /** SDK session token (Cashfree payment_session_id, Razorpay order id). Never card data. */
+    checkoutToken: text("checkout_token"),
+    linkUrl: text("link_url"),
+    method: text("method", { enum: ["UPI", "CARD", "NETBANKING"] }),
+    description: text("description").notNull(),
+    returnPath: text("return_path"),
+    failureReason: text("failure_reason"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    capturedAt: timestamp("captured_at", { withTimezone: true }),
+    endedAt: timestamp("ended_at", { withTimezone: true }),
+    lastReconciledAt: timestamp("last_reconciled_at", { withTimezone: true }),
+    reconcileAttempts: integer("reconcile_attempts").notNull().default(0),
+    metadata: jsonb("metadata").$type<Record<string, unknown>>(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("payment_intents_idempotency_key_uq").on(t.idempotencyKey),
+    uniqueIndex("payment_intents_merchant_order_uq").on(t.merchantOrderId),
+    index("payment_intents_reference_idx").on(t.purpose, t.referenceId, t.createdAt),
+    index("payment_intents_status_idx").on(t.status, t.createdAt),
+    index("payment_intents_gateway_order_idx").on(t.gateway, t.gatewayOrderId),
+    index("payment_intents_user_idx").on(t.userId, t.createdAt),
+    check("payment_intents_amount_positive", sql`${t.amountPaise} > 0`),
+    check("payment_intents_refund_within_amount", sql`${t.refundedPaise} >= 0 AND ${t.refundedPaise} <= ${t.amountPaise}`),
+  ],
+);
+export type PaymentIntentRow = typeof paymentIntents.$inferSelect;
+
+/** Status history of an intent — one row per move, with what caused it. */
+export const paymentIntentEvents = pgTable(
+  "payment_intent_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    intentId: uuid("intent_id")
+      .notNull()
+      .references(() => paymentIntents.id, { onDelete: "cascade" }),
+    fromStatus: text("from_status"),
+    toStatus: text("to_status").notNull(),
+    /** API (our call), WEBHOOK, RECONCILE (job), REFUND, SYSTEM. */
+    source: text("source").notNull(),
+    note: text("note"),
+    webhookEventId: uuid("webhook_event_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("payment_intent_events_intent_idx").on(t.intentId, t.createdAt)],
+);
+
+/** Every webhook delivery, verified or not. (gateway, event_id) is the processing idempotency key. */
+export const paymentWebhookEvents = pgTable(
+  "payment_webhook_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    gateway: text("gateway").notNull(),
+    eventId: text("event_id").notNull(),
+    kind: text("kind"),
+    signatureOk: boolean("signature_ok").notNull(),
+    intentId: uuid("intent_id").references(() => paymentIntents.id, { onDelete: "set null" }),
+    processedAt: timestamp("processed_at", { withTimezone: true }),
+    /** PROCESSED, DUPLICATE, BAD_SIGNATURE, UNKNOWN_INTENT, NO_CHANGE, AMOUNT_MISMATCH, ERROR, ... */
+    outcome: text("outcome"),
+    error: text("error"),
+    rawPayload: jsonb("raw_payload").$type<unknown>(),
+    receivedAt: timestamp("received_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("payment_webhook_events_gateway_event_uq").on(t.gateway, t.eventId),
+    index("payment_webhook_events_intent_idx").on(t.intentId),
+    index("payment_webhook_events_received_idx").on(t.receivedAt),
+  ],
+);
+
+/** Refunds to the original payment method, through the gateway. */
+export const paymentRefunds = pgTable(
+  "payment_refunds",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    intentId: uuid("intent_id")
+      .notNull()
+      .references(() => paymentIntents.id, { onDelete: "cascade" }),
+    /** Our refund id at the gateway (its idempotency key). */
+    merchantRefundId: text("merchant_refund_id").notNull(),
+    /** The caller's key: one refund per key. */
+    idempotencyKey: text("idempotency_key").notNull(),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    status: text("status", { enum: ["PENDING", "SUCCESS", "FAILED"] }).notNull().default("PENDING"),
+    gatewayRefundId: text("gateway_refund_id"),
+    reason: text("reason").notNull(),
+    /** The order this refund is for, when the intent paid several (order group). Plain UUID. */
+    orderId: uuid("order_id"),
+    /** When the refund was sent to the gateway. Null: queued (asked for inside another transaction); the reconciliation job sends it. */
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
+    failureReason: text("failure_reason"),
+    pollAttempts: integer("poll_attempts").notNull().default(0),
+    settledAt: timestamp("settled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("payment_refunds_merchant_refund_uq").on(t.merchantRefundId),
+    uniqueIndex("payment_refunds_idempotency_key_uq").on(t.idempotencyKey),
+    index("payment_refunds_intent_idx").on(t.intentId),
+    index("payment_refunds_status_idx").on(t.status, t.createdAt),
+    check("payment_refunds_amount_positive", sql`${t.amountPaise} > 0`),
+  ],
+);
+export type PaymentRefundRow = typeof paymentRefunds.$inferSelect;
+
+/**
+ * The sandbox gateway's own ledger (tests and staging only): what a real
+ * gateway would hold on its side. Kept in the database so a staging site with
+ * several instances, or a restart, sees the same sandbox state.
+ */
+export const paymentSandboxOrders = pgTable("payment_sandbox_orders", {
+  gatewayOrderId: text("gateway_order_id").primaryKey(),
+  merchantOrderId: text("merchant_order_id").notNull().unique(),
+  kind: text("kind", { enum: ["ORDER", "LINK"] }).notNull().default("ORDER"),
+  amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+  status: text("status", { enum: ["CREATED", "PENDING", "AUTHORIZED", "CAPTURED", "FAILED", "EXPIRED"] })
+    .notNull()
+    .default("CREATED"),
+  paymentId: text("payment_id"),
+  method: text("method"),
+  failureReason: text("failure_reason"),
+  /** [{ merchantRefundId, gatewayRefundId, amountPaise, status }] */
+  refunds: jsonb("refunds")
+    .$type<{ merchantRefundId: string; gatewayRefundId: string; amountPaise: number; status: "PENDING" | "SUCCESS" | "FAILED" }[]>()
+    .notNull()
+    .default(sql`'[]'::jsonb`),
+  expiresAt: timestamp("expires_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type PaymentSandboxOrder = typeof paymentSandboxOrders.$inferSelect;
+
+/* <<< end WS-A */
+
+/* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — tables below this line only */
+
+/**
+ * F3.3.2 (GAP-004): a single rider offer nobody accepted in
+ * `dispatchBroadcast.singleOfferSeconds` is broadcast to every eligible rider
+ * within a radius that widens step by step (rule dispatchBroadcast). One OPEN
+ * broadcast per order; the first rider to accept wins it (a conditional
+ * UPDATE on this row is the lock), everyone else's recipient row becomes
+ * TAKEN_BY_OTHER. Customer database, with the order and its delivery row.
+ */
+export const deliveryOfferBroadcasts = pgTable(
+  "delivery_offer_broadcasts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    deliveryOrderId: uuid("delivery_order_id")
+      .notNull()
+      .references(() => deliveryOrders.id, { onDelete: "cascade" }),
+    status: text("status", { enum: ["OPEN", "TAKEN", "EXPIRED", "CANCELLED"] }).notNull().default("OPEN"),
+    /** Index into the rule's radii in force for this step (0 = first radius). */
+    step: integer("step").notNull().default(0),
+    /** The current broadcast radius around the shop, metres. */
+    radiusM: integer("radius_m").notNull(),
+    /** The rider who held the single offer before the broadcast (platform delivery_partners id). */
+    originalPartnerId: uuid("original_partner_id").references(() => deliveryPartners.id, { onDelete: "set null" }),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    /** When the sweep widens the radius next (or, on the last step, expires the broadcast). */
+    nextStepAt: timestamp("next_step_at", { withTimezone: true }).notNull(),
+    winnerPartnerId: uuid("winner_partner_id").references(() => deliveryPartners.id, { onDelete: "set null" }),
+    takenAt: timestamp("taken_at", { withTimezone: true }),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    closeReason: text("close_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("delivery_offer_broadcasts_open_order_unique").on(t.orderId).where(sql`${t.status} = 'OPEN'`),
+    index("delivery_offer_broadcasts_status_next_idx").on(t.status, t.nextStepAt),
+    index("delivery_offer_broadcasts_delivery_idx").on(t.deliveryOrderId),
+  ],
+);
+export type DeliveryOfferBroadcast = typeof deliveryOfferBroadcasts.$inferSelect;
+
+/** F3.3.2: each rider a broadcast reached, at which radius step, and how it ended for them. */
+export const deliveryOfferRecipients = pgTable(
+  "delivery_offer_recipients",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    broadcastId: uuid("broadcast_id")
+      .notNull()
+      .references(() => deliveryOfferBroadcasts.id, { onDelete: "cascade" }),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    deliveryOrderId: uuid("delivery_order_id")
+      .notNull()
+      .references(() => deliveryOrders.id, { onDelete: "cascade" }),
+    deliveryPartnerId: uuid("delivery_partner_id")
+      .notNull()
+      .references(() => deliveryPartners.id, { onDelete: "cascade" }),
+    radiusStep: integer("radius_step").notNull(),
+    /** Rider → shop, straight line, when the offer went out. */
+    distanceToShopKm: text("distance_to_shop_km"),
+    offeredAt: timestamp("offered_at", { withTimezone: true }).notNull().defaultNow(),
+    /** First time the rider's dashboard showed the offer. */
+    seenAt: timestamp("seen_at", { withTimezone: true }),
+    outcome: text("outcome", { enum: ["OFFERED", "TAKEN_BY_OTHER", "ACCEPTED", "EXPIRED", "DECLINED"] })
+      .notNull()
+      .default("OFFERED"),
+    outcomeAt: timestamp("outcome_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("delivery_offer_recipients_broadcast_partner_unique").on(t.broadcastId, t.deliveryPartnerId),
+    index("delivery_offer_recipients_partner_idx").on(t.deliveryPartnerId, t.outcome),
+  ],
+);
+export type DeliveryOfferRecipient = typeof deliveryOfferRecipients.$inferSelect;
+
+/**
+ * F4.1.3 (GAP-001): the signed pickup QR shown on the shop's order and packing
+ * slip. Only a hash of the nonce is stored (the nonce itself is re-derived
+ * from the row id with the server secret to redraw the QR); single-use —
+ * consumed_at is set in the pickup transaction, a second scan is refused.
+ */
+export const deliveryPickupTokens = pgTable(
+  "delivery_pickup_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    nonceHash: text("nonce_hash").notNull(),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    consumedAt: timestamp("consumed_at", { withTimezone: true }),
+    consumedByPartnerId: uuid("consumed_by_partner_id").references(() => deliveryPartners.id, { onDelete: "set null" }),
+    consumedDeliveryOrderId: uuid("consumed_delivery_order_id").references(() => deliveryOrders.id, { onDelete: "set null" }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("delivery_pickup_tokens_live_order_unique")
+      .on(t.orderId)
+      .where(sql`${t.consumedAt} IS NULL AND ${t.revokedAt} IS NULL`),
+    uniqueIndex("delivery_pickup_tokens_nonce_unique").on(t.nonceHash),
+  ],
+);
+export type DeliveryPickupToken = typeof deliveryPickupTokens.$inferSelect;
+
+/** F4.1.3: every pickup scan (and code fallback after a failed scan) — when, where, by whom, with what result. */
+export const deliveryPickupScans = pgTable(
+  "delivery_pickup_scans",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Null when the scanned text was not a readable GoKesari pickup QR. */
+    orderId: uuid("order_id").references(() => orders.id, { onDelete: "cascade" }),
+    deliveryOrderId: uuid("delivery_order_id").references(() => deliveryOrders.id, { onDelete: "set null" }),
+    deliveryPartnerId: uuid("delivery_partner_id").references(() => deliveryPartners.id, { onDelete: "set null" }),
+    tokenId: uuid("token_id").references(() => deliveryPickupTokens.id, { onDelete: "set null" }),
+    method: text("method", { enum: ["QR"] }).notNull().default("QR"),
+    outcome: text("outcome", {
+      enum: ["SUCCESS", "MALFORMED", "BAD_SIGNATURE", "EXPIRED", "ALREADY_USED", "WRONG_RIDER", "WRONG_ORDER", "NOT_READY", "DISABLED", "NO_GPS"],
+    }).notNull(),
+    latitude: text("latitude"),
+    longitude: text("longitude"),
+    accuracyM: integer("accuracy_m"),
+    scannedAt: timestamp("scanned_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("delivery_pickup_scans_delivery_idx").on(t.deliveryOrderId), index("delivery_pickup_scans_order_idx").on(t.orderId)],
+);
+export type DeliveryPickupScan = typeof deliveryPickupScans.$inferSelect;
+
+/* <<< end WS-B */
+
+/* >>> batch-2026-10 WS-C (cancellation fee, refunds, help desk) — tables below this line only */
+
+/*
+ * F6.1.3 (NEW-006, D10): a shop's own after-packing cancellation fee, within
+ * the admin's limits (rule afterPackingCancellation). Seller database: it is a
+ * shop setting. One row per shop; no row = the platform default.
+ */
+export const shopCancellationFeeSettings = pgTable(
+  "shop_cancellation_fee_settings",
+  {
+    shopId: uuid("shop_id")
+      .primaryKey()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    /** The shop charges the fee (false = never charge it for this shop). */
+    enabled: boolean("enabled").notNull().default(true),
+    feeType: text("fee_type").$type<"FLAT" | "PERCENT">().notNull().default("FLAT"),
+    feePaise: bigint("fee_paise", { mode: "number" }).notNull().default(0),
+    /** Basis points of the goods subtotal (1000 = 10%), for PERCENT. */
+    feeBp: integer("fee_bp").notNull().default(0),
+    /** Most the fee may be, whatever the percentage gives (null = the admin's maximum). */
+    capPaise: bigint("cap_paise", { mode: "number" }),
+    /** Platform user id (cross-database: no foreign key). */
+    updatedBy: uuid("updated_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check("shop_cancellation_fee_type_valid", sql`${t.feeType} IN ('FLAT', 'PERCENT')`),
+    check(
+      "shop_cancellation_fee_non_negative",
+      sql`${t.feePaise} >= 0 AND ${t.feeBp} >= 0 AND ${t.feeBp} <= 10000 AND (${t.capPaise} IS NULL OR ${t.capPaise} >= 0)`,
+    ),
+  ],
+);
+export type ShopCancellationFeeSetting = typeof shopCancellationFeeSettings.$inferSelect;
+
+/**
+ * Charges kept from an order's refund (the order ledger of deductions): today
+ * the after-packing cancellation fee. Each charge is also journaled in
+ * finance_ledger_entries. Customer database (everything after an order).
+ */
+export const orderCharges = pgTable(
+  "order_charges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    kind: text("kind").$type<"AFTER_PACKING_CANCELLATION_FEE">().notNull(),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    /** Who the charge is for: the shop (paid in its next settlement) or the platform. */
+    beneficiary: text("beneficiary").$type<"SHOP" | "PLATFORM">().notNull(),
+    /** How it was worked out (fee type, rate, cap, source), as shown to the customer. */
+    basis: jsonb("basis").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    financialAdjustmentId: uuid("financial_adjustment_id"),
+    idempotencyKey: text("idempotency_key").notNull(),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("order_charges_idempotency_unique").on(t.idempotencyKey),
+    index("order_charges_order_idx").on(t.orderId),
+    check("order_charges_amount_positive", sql`${t.amountPaise} > 0`),
+    check("order_charges_beneficiary_valid", sql`${t.beneficiary} IN ('SHOP', 'PLATFORM')`),
+  ],
+);
+export type OrderCharge = typeof orderCharges.$inferSelect;
+
+/**
+ * F6.2.3 (GS-073): one refund of an order — how much, where it goes (the
+ * GoKesari wallet, instant; or the original payment method through the
+ * gateway), the itemised deductions, and its status.
+ *   REQUESTED → PROCESSING → SUCCESS | FAILED
+ */
+export const orderRefunds = pgTable(
+  "order_refunds",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    method: text("method").$type<"WALLET" | "ORIGINAL">().notNull(),
+    /** How the order was paid: WALLET, ONLINE (gateway) or COD. */
+    paymentChannel: text("payment_channel").$type<"WALLET" | "ONLINE" | "COD">().notNull(),
+    status: text("status").$type<"REQUESTED" | "PROCESSING" | "SUCCESS" | "FAILED">().notNull().default("REQUESTED"),
+    paidPaise: bigint("paid_paise", { mode: "number" }).notNull(),
+    deductionsPaise: bigint("deductions_paise", { mode: "number" }).notNull().default(0),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    /** The itemised breakdown the customer was shown. */
+    breakdown: jsonb("breakdown").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    reason: text("reason"),
+    gatewayIntentId: text("gateway_intent_id"),
+    gatewayRefundRef: text("gateway_refund_ref"),
+    walletTransactionId: uuid("wallet_transaction_id"),
+    /** Gateway attempts so far (ORIGINAL). */
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    /** The gateway refund failed and the amount went to the wallet instead. */
+    fellBackToWallet: boolean("fell_back_to_wallet").notNull().default(false),
+    idempotencyKey: text("idempotency_key").notNull(),
+    requestedBy: uuid("requested_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("order_refunds_idempotency_unique").on(t.idempotencyKey),
+    index("order_refunds_order_idx").on(t.orderId),
+    index("order_refunds_status_idx").on(t.status),
+    check("order_refunds_method_valid", sql`${t.method} IN ('WALLET', 'ORIGINAL')`),
+    check("order_refunds_channel_valid", sql`${t.paymentChannel} IN ('WALLET', 'ONLINE', 'COD')`),
+    check("order_refunds_status_valid", sql`${t.status} IN ('REQUESTED', 'PROCESSING', 'SUCCESS', 'FAILED')`),
+    check("order_refunds_amounts_valid", sql`${t.amountPaise} >= 0 AND ${t.deductionsPaise} >= 0 AND ${t.paidPaise} >= 0`),
+  ],
+);
+export type OrderRefund = typeof orderRefunds.$inferSelect;
+
+/** The refund timeline shown to the customer: one row per status reached. */
+export const orderRefundEvents = pgTable(
+  "order_refund_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    refundId: uuid("refund_id")
+      .notNull()
+      .references(() => orderRefunds.id, { onDelete: "cascade" }),
+    orderId: uuid("order_id").notNull(),
+    status: text("status").$type<"REQUESTED" | "PROCESSING" | "SUCCESS" | "FAILED">().notNull(),
+    note: text("note"),
+    actorId: uuid("actor_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("order_refund_events_refund_idx").on(t.refundId, t.createdAt)],
+);
+export type OrderRefundEvent = typeof orderRefundEvents.$inferSelect;
+
+/*
+ * F6.3.3 (SM-006): help desk. One unified ticket for customers and shop
+ * owners, raised from an order or the /support portal; worked by support at
+ * /admin/support. Customer database (tickets follow orders). The statutory
+ * grievance register (grievances) is kept; a new grievance also opens a
+ * linked ticket (rule helpdesk.ticketForGrievances).
+ */
+export const supportTickets = pgTable(
+  "support_tickets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** TKT-000123 — what the requester quotes back. */
+    ticketNumber: text("ticket_number")
+      .notNull()
+      .default(sql`'TKT-' || lpad(nextval('support_ticket_seq')::text, 6, '0')`),
+    /** Null only for a ticket opened from an anonymous grievance. */
+    requesterId: uuid("requester_id").references(() => users.id, { onDelete: "set null" }),
+    requesterRole: text("requester_role").notNull().default("CUSTOMER"),
+    requesterName: text("requester_name"),
+    requesterEmail: text("requester_email"),
+    orderId: uuid("order_id").references(() => orders.id, { onDelete: "set null" }),
+    /** The shop the ticket is about (seller database: no foreign key). */
+    shopId: uuid("shop_id"),
+    disputeId: uuid("dispute_id").references(() => orderDisputes.id, { onDelete: "set null" }),
+    grievanceId: uuid("grievance_id").references(() => grievances.id, { onDelete: "set null" }),
+    category: text("category").notNull(),
+    subject: text("subject").notNull(),
+    description: text("description").notNull(),
+    status: text("status").notNull().default("OPEN"),
+    priority: text("priority").notNull().default("NORMAL"),
+    assignedToUserId: uuid("assigned_to_user_id").references(() => users.id, { onDelete: "set null" }),
+    escalationLevel: integer("escalation_level").notNull().default(0),
+    escalatedAt: timestamp("escalated_at", { withTimezone: true }),
+    /** SLA clock (rule helpdesk), fixed when the ticket is received. */
+    acknowledgeBy: timestamp("acknowledge_by", { withTimezone: true }).notNull(),
+    resolveBy: timestamp("resolve_by", { withTimezone: true }).notNull(),
+    acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    ackBreachedAt: timestamp("ack_breached_at", { withTimezone: true }),
+    resolveBreachedAt: timestamp("resolve_breached_at", { withTimezone: true }),
+    reopenCount: integer("reopen_count").notNull().default(0),
+    resolutionNote: text("resolution_note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("support_tickets_number_unique").on(t.ticketNumber),
+    index("support_tickets_status_idx").on(t.status),
+    index("support_tickets_requester_idx").on(t.requesterId),
+    index("support_tickets_shop_idx").on(t.shopId),
+    index("support_tickets_order_idx").on(t.orderId),
+    index("support_tickets_assignee_idx").on(t.assignedToUserId),
+    check(
+      "support_tickets_status_valid",
+      sql`${t.status} IN ('OPEN','ACKNOWLEDGED','IN_PROGRESS','AWAITING_CUSTOMER','AWAITING_SHOP','RESOLVED','CLOSED','REOPENED','ESCALATED')`,
+    ),
+    check("support_tickets_priority_valid", sql`${t.priority} IN ('LOW','NORMAL','HIGH','URGENT')`),
+  ],
+);
+export type SupportTicket = typeof supportTickets.$inferSelect;
+
+/** Replies (public) and internal notes (support only). */
+export const supportTicketMessages = pgTable(
+  "support_ticket_messages",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => supportTickets.id, { onDelete: "cascade" }),
+    authorId: uuid("author_id").references(() => users.id, { onDelete: "set null" }),
+    /** REQUESTER, SHOP or STAFF. */
+    authorKind: text("author_kind").notNull(),
+    body: text("body").notNull(),
+    internal: boolean("internal").notNull().default(false),
+    cannedReplyId: uuid("canned_reply_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("support_ticket_messages_ticket_idx").on(t.ticketId, t.createdAt)],
+);
+export type SupportTicketMessage = typeof supportTicketMessages.$inferSelect;
+
+/** Files on a ticket (photo or PDF). Bytes are kept in the row (blob store "DB" mode). */
+export const supportTicketAttachments = pgTable(
+  "support_ticket_attachments",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => supportTickets.id, { onDelete: "cascade" }),
+    messageId: uuid("message_id").references(() => supportTicketMessages.id, { onDelete: "set null" }),
+    uploadedBy: uuid("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+    fileName: text("file_name").notNull(),
+    contentType: text("content_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    sha256: text("sha256").notNull(),
+    /** Staff-only file (attached to an internal note). */
+    internal: boolean("internal").notNull().default(false),
+    data: bytea("data").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("support_ticket_attachments_ticket_idx").on(t.ticketId)],
+);
+export type SupportTicketAttachment = typeof supportTicketAttachments.$inferSelect;
+
+/** Everything that happened to a ticket (status moves, assignment, escalation, SLA breaches). */
+export const supportTicketEvents = pgTable(
+  "support_ticket_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ticketId: uuid("ticket_id")
+      .notNull()
+      .references(() => supportTickets.id, { onDelete: "cascade" }),
+    kind: text("kind").notNull(),
+    fromStatus: text("from_status"),
+    toStatus: text("to_status"),
+    actorId: uuid("actor_id"),
+    actorRole: text("actor_role"),
+    note: text("note"),
+    /** Shown to the requester (false for internal steps such as assignment). */
+    public: boolean("public").notNull().default(true),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("support_ticket_events_ticket_idx").on(t.ticketId, t.createdAt)],
+);
+export type SupportTicketEvent = typeof supportTicketEvents.$inferSelect;
+
+/** Ready-made replies support can insert (admin keeps the list). */
+export const supportCannedReplies = pgTable(
+  "support_canned_replies",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    title: text("title").notNull(),
+    body: text("body").notNull(),
+    category: text("category"),
+    active: boolean("active").notNull().default(true),
+    createdBy: uuid("created_by"),
+    updatedBy: uuid("updated_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("support_canned_replies_active_idx").on(t.active)],
+);
+export type SupportCannedReply = typeof supportCannedReplies.$inferSelect;
+
+/** Customer satisfaction, once per ticket, after it is closed. */
+export const supportTicketCsat = pgTable(
+  "support_ticket_csat",
+  {
+    ticketId: uuid("ticket_id")
+      .primaryKey()
+      .references(() => supportTickets.id, { onDelete: "cascade" }),
+    rating: integer("rating").notNull(),
+    comment: text("comment"),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("support_ticket_csat_rating_range", sql`${t.rating} BETWEEN 1 AND 5`)],
+);
+export type SupportTicketCsat = typeof supportTicketCsat.$inferSelect;
+
+/* <<< end WS-C */
+
+/* >>> batch-2026-10 WS-D (operator-limited, product master data) — tables below this line only */
+
+/**
+ * F8.4.2 — an Operator-Limited onboarding: the owner's email-OTP consent, the
+ * shop it produced and the registration-fee payment (link or in-session).
+ * Seller DB; operator/owner ids and the payment intent live elsewhere (no FK).
+ */
+export const shopOnboardingSessions = pgTable(
+  "shop_onboarding_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    operatorId: uuid("operator_id").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    ownerUserId: uuid("owner_user_id"),
+    status: text("status", {
+      enum: ["OTP_SENT", "OWNER_VERIFIED", "SHOP_SUBMITTED", "FEE_PENDING", "FEE_PAID", "PENDING_ADMIN", "COMPLETED", "CANCELLED"],
+    })
+      .notNull()
+      .default("OTP_SENT"),
+    otpSentAt: timestamp("otp_sent_at", { withTimezone: true }).notNull().defaultNow(),
+    otpVerifiedAt: timestamp("otp_verified_at", { withTimezone: true }),
+    /** The owner's consent (a verified code) is good for submitting until then. */
+    consentExpiresAt: timestamp("consent_expires_at", { withTimezone: true }),
+    shopId: uuid("shop_id").references(() => shops.id, { onDelete: "set null" }),
+    referralCode: text("referral_code"),
+    feeMode: text("fee_mode", { enum: ["LINK", "CHECKOUT"] }),
+    feeStatus: text("fee_status", { enum: ["NONE", "PENDING", "PAID", "FAILED", "EXPIRED", "WAIVED"] })
+      .notNull()
+      .default("NONE"),
+    feeAmountPaise: bigint("fee_amount_paise", { mode: "number" }),
+    feeIntentId: text("fee_intent_id"),
+    feeLinkUrl: text("fee_link_url"),
+    feeExpiresAt: timestamp("fee_expires_at", { withTimezone: true }),
+    feeFailureReason: text("fee_failure_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("shop_onboarding_sessions_operator_idx").on(t.operatorId, t.createdAt),
+    uniqueIndex("shop_onboarding_sessions_shop_unique").on(t.shopId).where(sql`${t.shopId} IS NOT NULL`),
+    index("shop_onboarding_sessions_fee_idx").on(t.feeStatus, t.feeExpiresAt),
+  ],
+);
+export type ShopOnboardingSession = typeof shopOnboardingSessions.$inferSelect;
+
+/** F9.1.2 — a manufacturer (brand owner) that uploads its own catalogue. Its records feed source `source_key` (mfr_<slug>). */
+export const pmdManufacturerAccounts = pgTable(
+  "pmd_manufacturer_accounts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    name: text("name").notNull(),
+    slug: text("slug").notNull(),
+    brandNames: text("brand_names").array().notNull().default(sql`'{}'::text[]`),
+    contactEmail: text("contact_email"),
+    status: text("status", { enum: ["ACTIVE", "SUSPENDED"] }).notNull().default("ACTIVE"),
+    sourceKey: text("source_key").notNull(),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("pmd_manufacturer_accounts_slug_unique").on(t.slug),
+    uniqueIndex("pmd_manufacturer_accounts_source_unique").on(t.sourceKey),
+  ],
+);
+export type PmdManufacturerAccount = typeof pmdManufacturerAccounts.$inferSelect;
+
+/** Who may use a manufacturer's portal (/manufacturer). Users are platform rows: no FK. */
+export const pmdManufacturerMembers = pgTable(
+  "pmd_manufacturer_members",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => pmdManufacturerAccounts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id").notNull(),
+    role: text("role", { enum: ["OWNER", "UPLOADER"] }).notNull().default("UPLOADER"),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("pmd_manufacturer_members_unique").on(t.accountId, t.userId),
+    index("pmd_manufacturer_members_user_idx").on(t.userId),
+  ],
+);
+
+/** Bulk-upload API keys: only a SHA-256 hash is stored; the key is shown once. */
+export const pmdManufacturerApiKeys = pgTable(
+  "pmd_manufacturer_api_keys",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    accountId: uuid("account_id")
+      .notNull()
+      .references(() => pmdManufacturerAccounts.id, { onDelete: "cascade" }),
+    label: text("label"),
+    keyPrefix: text("key_prefix").notNull(),
+    keyHash: text("key_hash").notNull(),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    useCount: integer("use_count").notNull().default(0),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+    revokedBy: uuid("revoked_by"),
+  },
+  (t) => [
+    uniqueIndex("pmd_manufacturer_api_keys_hash_unique").on(t.keyHash),
+    index("pmd_manufacturer_api_keys_account_idx").on(t.accountId),
+  ],
+);
+export type PmdManufacturerApiKey = typeof pmdManufacturerApiKeys.$inferSelect;
+
+export const PMD_INGEST_JOB_KINDS = ["MANUFACTURER_UPLOAD", "MANUFACTURER_API", "GS1_DATAKART", "OPEN_FOOD_FACTS", "FEED"] as const;
+export const PMD_INGEST_JOB_STATUSES = ["QUEUED", "RUNNING", "SUCCEEDED", "PARTIAL", "FAILED", "CANCELLED"] as const;
+
+/** F9.1.4 — a batched, resumable import. `cursor` = last row number whose batch committed. */
+export const pmdIngestJobs = pgTable(
+  "pmd_ingest_jobs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    kind: text("kind", { enum: PMD_INGEST_JOB_KINDS }).notNull(),
+    sourceKey: text("source_key").notNull(),
+    manufacturerAccountId: uuid("manufacturer_account_id").references(() => pmdManufacturerAccounts.id, { onDelete: "set null" }),
+    fileName: text("file_name"),
+    status: text("status", { enum: PMD_INGEST_JOB_STATUSES }).notNull().default("QUEUED"),
+    totalRows: integer("total_rows").notNull().default(0),
+    validRows: integer("valid_rows").notNull().default(0),
+    invalidRows: integer("invalid_rows").notNull().default(0),
+    cursor: integer("cursor").notNull().default(0),
+    batchSize: integer("batch_size").notNull().default(1000),
+    processedRows: integer("processed_rows").notNull().default(0),
+    stagedRows: integer("staged_rows").notNull().default(0),
+    failedRows: integer("failed_rows").notNull().default(0),
+    imagesStored: integer("images_stored").notNull().default(0),
+    imagesFailed: integer("images_failed").notNull().default(0),
+    batchesDone: integer("batches_done").notNull().default(0),
+    runIds: bigint("run_ids", { mode: "number" }).array().notNull().default(sql`'{}'::bigint[]`),
+    leaseOwner: text("lease_owner"),
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    attempts: integer("attempts").notNull().default(0),
+    lastError: text("last_error"),
+    report: jsonb("report").$type<Record<string, unknown>>().notNull().default(sql`'{}'::jsonb`),
+    createdBy: uuid("created_by"),
+    createdVia: text("created_via").notNull().default("PORTAL"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("pmd_ingest_jobs_status_idx").on(t.status, t.createdAt),
+    index("pmd_ingest_jobs_account_idx").on(t.manufacturerAccountId, t.createdAt),
+  ],
+);
+export type PmdIngestJob = typeof pmdIngestJobs.$inferSelect;
+
+/** The job's input, staged once: one row per file row, with its validation outcome. */
+export const pmdIngestJobRows = pgTable(
+  "pmd_ingest_job_rows",
+  {
+    jobId: uuid("job_id")
+      .notNull()
+      .references(() => pmdIngestJobs.id, { onDelete: "cascade" }),
+    rowNumber: integer("row_number").notNull(),
+    sourceProductId: text("source_product_id"),
+    gtin14: text("gtin14"),
+    /** The StagedProduct the pipeline receives (null for an invalid row). */
+    payload: jsonb("payload").$type<Record<string, unknown>>(),
+    /** The row as the file had it (for the error file). */
+    raw: jsonb("raw").$type<Record<string, string>>(),
+    status: text("status", { enum: ["VALID", "INVALID", "DUPLICATE", "STAGED", "FAILED"] }).notNull().default("VALID"),
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+  },
+  (t) => [primaryKey({ columns: [t.jobId, t.rowNumber] }), index("pmd_ingest_job_rows_status_idx").on(t.jobId, t.status)],
+);
+
+/** ObjectStore default adapter: bytes in the row (or on disk under MEDIA_DIR). */
+export const pmdObjectBlobs = pgTable(
+  "pmd_object_blobs",
+  {
+    key: text("key").primaryKey(),
+    contentType: text("content_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    storage: text("storage", { enum: ["DB", "DISK"] }).notNull().default("DB"),
+    storageKey: text("storage_key"),
+    data: bytea("data"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    check(
+      "pmd_object_blobs_bytes_present",
+      sql`(${t.storage} = 'DB' AND ${t.data} IS NOT NULL) OR (${t.storage} = 'DISK' AND ${t.storageKey} IS NOT NULL)`,
+    ),
+  ],
+);
+
+/** A product image fetched from a source URL, resized and kept in the object store. */
+export const pmdImageAssets = pgTable(
+  "pmd_image_assets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    gtin14: text("gtin14"),
+    sourceProductId: text("source_product_id"),
+    sourceKey: text("source_key"),
+    sourceUrl: text("source_url").notNull(),
+    objectStore: text("object_store"),
+    objectKey: text("object_key"),
+    width: integer("width"),
+    height: integer("height"),
+    sizeBytes: integer("size_bytes"),
+    status: text("status", { enum: ["STORED", "FAILED"] }).notNull(),
+    error: text("error"),
+    jobId: uuid("job_id").references(() => pmdIngestJobs.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("pmd_image_assets_unique").on(t.sourceKey, t.sourceProductId, t.sourceUrl),
+    index("pmd_image_assets_gtin_idx").on(t.gtin14),
+  ],
+);
+export type PmdImageAsset = typeof pmdImageAssets.$inferSelect;
+
+/** Licence attribution stored with each imported record (e.g. Open Food Facts, ODbL 1.0). */
+export const pmdRecordAttributions = pgTable(
+  "pmd_record_attributions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    sourceKey: text("source_key").notNull(),
+    sourceProductId: text("source_product_id").notNull(),
+    gtin14: text("gtin14"),
+    attribution: text("attribution").notNull(),
+    licenceName: text("licence_name"),
+    licenceUrl: text("licence_url"),
+    recordUrl: text("record_url"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("pmd_record_attributions_unique").on(t.sourceKey, t.sourceProductId),
+    index("pmd_record_attributions_gtin_idx").on(t.gtin14),
+  ],
+);
+
+/* <<< end WS-D */
+
+/* >>> batch-2026-10 WS-E (invoicing, payouts, statutory) — tables below this line only */
+
+/*
+ * F10.2.4 automated payouts (seller database). A payout cycle (every
+ * payouts.cycleDays days) is itemised per shop in payout_cycle_lines; one
+ * payout batch per cycle carries one payout item (transfer) per shop. The
+ * order / adjustment / wallet ids in a line are plain UUIDs (they live in the
+ * customer database), so no SQL foreign key crosses the split.
+ */
+export const PAYOUT_CYCLE_STATUSES = ["CLOSED", "BATCHED"] as const;
+export const payoutCycles = pgTable(
+  "payout_cycles",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** First day of the cycle (IST), inclusive. */
+    cycleStart: date("cycle_start").notNull(),
+    /** Day after the last day of the cycle (IST), exclusive. */
+    cycleEnd: date("cycle_end").notNull(),
+    cycleDays: integer("cycle_days").notNull(),
+    status: text("status", { enum: PAYOUT_CYCLE_STATUSES }).notNull().default("CLOSED"),
+    shopCount: integer("shop_count").notNull().default(0),
+    netPayablePaise: bigint("net_payable_paise", { mode: "number" }).notNull().default(0),
+    /** Things the close could not do (e.g. platform invoicing switched on without GoKesari's GSTIN). */
+    warnings: jsonb("warnings").$type<string[]>().notNull().default([]),
+    /** users.id (platform) — no SQL FK across the split; null when the scheduled job closed it. */
+    closedBy: uuid("closed_by"),
+    closedAt: timestamp("closed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("payout_cycles_start_unique").on(t.cycleStart)],
+);
+export type PayoutCycle = typeof payoutCycles.$inferSelect;
+
+export const PAYOUT_LINE_TYPES = [
+  "GOODS",
+  "COMMISSION",
+  "DELIVERY_CHARGE",
+  "FEE_GST",
+  "TCS",
+  "TDS",
+  "REFUND",
+  "ADJUSTMENT",
+  "PLATFORM_FEE",
+  "PLATFORM_NOTE",
+  "REGISTRATION_FEE",
+  "WALLET_TOPUP",
+  "CARRY_FORWARD",
+  "SEC95_GST",
+] as const;
+export type PayoutLineType = (typeof PAYOUT_LINE_TYPES)[number];
+
+/** One component of a shop's payout: + owed to the shop, − deducted. Informational lines carry 0. */
+export const payoutCycleLines = pgTable(
+  "payout_cycle_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    cycleId: uuid("cycle_id")
+      .notNull()
+      .references(() => payoutCycles.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    lineType: text("line_type", { enum: PAYOUT_LINE_TYPES }).notNull(),
+    /** order_financials, financial_adjustments, shop_wallet_transactions, payout_items, platform_invoices, statutory. */
+    sourceType: text("source_type").notNull(),
+    sourceId: text("source_id").notNull(),
+    description: text("description").notNull(),
+    /** Signed effect on the payout. */
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    /** What a rate was applied to, and the rate (basis points), for statutory and fee lines. */
+    basePaise: bigint("base_paise", { mode: "number" }),
+    rateBp: integer("rate_bp"),
+    /** Day the underlying supply / entry happened (IST) — the month of the TCS / TDS reports. */
+    occurredOn: date("occurred_on").notNull(),
+    meta: jsonb("meta").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    // An order, refund or carried amount is counted in exactly one cycle.
+    uniqueIndex("payout_cycle_lines_source_unique").on(t.lineType, t.sourceType, t.sourceId),
+    index("payout_cycle_lines_cycle_shop_idx").on(t.cycleId, t.shopId),
+    index("payout_cycle_lines_occurred_idx").on(t.lineType, t.occurredOn),
+  ],
+);
+export type PayoutCycleLine = typeof payoutCycleLines.$inferSelect;
+
+export const PAYOUT_BATCH_STATUSES = ["DRAFT", "APPROVED", "PROCESSING", "COMPLETED", "PARTIAL", "FAILED", "CANCELLED"] as const;
+export type PayoutBatchStatus = (typeof PAYOUT_BATCH_STATUSES)[number];
+
+export const payoutBatches = pgTable(
+  "payout_batches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    cycleId: uuid("cycle_id")
+      .notNull()
+      .references(() => payoutCycles.id, { onDelete: "cascade" }),
+    status: text("status", { enum: PAYOUT_BATCH_STATUSES }).notNull().default("DRAFT"),
+    /** BANK_FILE, SANDBOX, RAZORPAYX, CASHFREE — fixed when the batch is executed or its file exported. */
+    provider: text("provider"),
+    itemCount: integer("item_count").notNull().default(0),
+    totalPaise: bigint("total_paise", { mode: "number" }).notNull().default(0),
+    createdBy: uuid("created_by"),
+    approvedBy: uuid("approved_by"),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    processingAt: timestamp("processing_at", { withTimezone: true }),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+    fileExportedAt: timestamp("file_exported_at", { withTimezone: true }),
+    fileChecksum: text("file_checksum"),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("payout_batches_cycle_unique").on(t.cycleId).where(sql`${t.status} <> 'CANCELLED'`)],
+);
+export type PayoutBatch = typeof payoutBatches.$inferSelect;
+
+export const PAYOUT_ITEM_STATUSES = ["PENDING", "ON_HOLD", "PROCESSING", "PAID", "FAILED", "REVERSED", "CARRIED_FORWARD"] as const;
+export type PayoutItemStatus = (typeof PAYOUT_ITEM_STATUSES)[number];
+
+export const payoutItems = pgTable(
+  "payout_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    batchId: uuid("batch_id")
+      .notNull()
+      .references(() => payoutBatches.id, { onDelete: "cascade" }),
+    cycleId: uuid("cycle_id")
+      .notNull()
+      .references(() => payoutCycles.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    /** bank_accounts.id (platform) at the time the batch was drafted — no SQL FK across the split. */
+    bankAccountId: uuid("bank_account_id"),
+    amountPaise: bigint("amount_paise", { mode: "number" }).notNull(),
+    /** Totals by line type, for the statement and the admin screen. */
+    breakdown: jsonb("breakdown").$type<Record<string, number>>().notNull().default({}),
+    status: text("status", { enum: PAYOUT_ITEM_STATUSES }).notNull().default("PENDING"),
+    /** BANK_NOT_VERIFIED, BELOW_MINIMUM, NOT_POSITIVE. */
+    holdReason: text("hold_reason"),
+    attempts: integer("attempts").notNull().default(0),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }),
+    provider: text("provider"),
+    providerRef: text("provider_ref"),
+    /** Bank reference of the transfer — recorded for every payment. */
+    utr: text("utr"),
+    /** Sent to the provider so a retried request never pays twice. */
+    idempotencyKey: text("idempotency_key").notNull(),
+    failureReason: text("failure_reason"),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    /** users.id of whoever marked it paid / failed by hand; null for a provider webhook. */
+    markedBy: uuid("marked_by"),
+    /** The cycle a held or reversed amount was carried into. */
+    carriedIntoCycleId: uuid("carried_into_cycle_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("payout_items_batch_shop_unique").on(t.batchId, t.shopId),
+    uniqueIndex("payout_items_idempotency_unique").on(t.idempotencyKey),
+    uniqueIndex("payout_items_utr_unique").on(t.utr).where(sql`${t.utr} IS NOT NULL`),
+    index("payout_items_shop_idx").on(t.shopId, t.createdAt),
+    index("payout_items_status_idx").on(t.status, t.nextAttemptAt),
+  ],
+);
+export type PayoutItem = typeof payoutItems.$inferSelect;
+
+/** Everything that happened to a batch or item, including every provider webhook (deduplicated by its event id). */
+export const payoutEvents = pgTable(
+  "payout_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    batchId: uuid("batch_id").references(() => payoutBatches.id, { onDelete: "cascade" }),
+    itemId: uuid("item_id").references(() => payoutItems.id, { onDelete: "cascade" }),
+    /** SYSTEM for our own steps, else the provider (SANDBOX, RAZORPAYX, CASHFREE). */
+    source: text("source").notNull(),
+    /** The provider's event id (webhooks), or our own key. */
+    eventId: text("event_id").notNull(),
+    type: text("type").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    actorId: uuid("actor_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("payout_events_source_event_unique").on(t.source, t.eventId),
+    index("payout_events_item_idx").on(t.itemId, t.createdAt),
+  ],
+);
+export type PayoutEvent = typeof payoutEvents.$inferSelect;
+
+/*
+ * F10.2.5 GoKesari's tax invoices to shops for its own fees (seller database:
+ * GoKesari → shop finance documents, next to settlements and payouts).
+ */
+export const platformInvoiceCounters = pgTable(
+  "platform_invoice_counters",
+  {
+    /** INVOICE, CREDIT_NOTE, DEBIT_NOTE. */
+    series: text("series").notNull(),
+    financialYear: text("financial_year").notNull(),
+    lastNumber: integer("last_number").notNull().default(0),
+  },
+  (t) => [primaryKey({ columns: [t.series, t.financialYear] })],
+);
+
+export const platformInvoices = pgTable(
+  "platform_invoices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    cycleId: uuid("cycle_id").references(() => payoutCycles.id, { onDelete: "set null" }),
+    invoiceNumber: text("invoice_number").notNull(),
+    financialYear: text("financial_year").notNull(),
+    sequence: integer("sequence").notNull(),
+    supplyType: text("supply_type", { enum: ["INTRA", "INTER"] }).notNull(),
+    recipientGstin: text("recipient_gstin"),
+    /** Two-letter state code of the place of supply (the shop's state). */
+    placeOfSupply: text("place_of_supply"),
+    taxablePaise: bigint("taxable_paise", { mode: "number" }).notNull(),
+    cgstPaise: bigint("cgst_paise", { mode: "number" }).notNull(),
+    sgstPaise: bigint("sgst_paise", { mode: "number" }).notNull(),
+    igstPaise: bigint("igst_paise", { mode: "number" }).notNull(),
+    totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
+    /** GST that is deducted from the shop's payout (fees already paid directly carry their GST inside). */
+    gstDeductedPaise: bigint("gst_deducted_paise", { mode: "number" }).notNull().default(0),
+    snapshot: jsonb("snapshot").$type<Record<string, unknown>>().notNull(),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("platform_invoices_number_unique").on(t.invoiceNumber),
+    uniqueIndex("platform_invoices_seq_unique").on(t.financialYear, t.sequence),
+    uniqueIndex("platform_invoices_shop_cycle_unique").on(t.shopId, t.cycleId),
+    index("platform_invoices_issued_idx").on(t.issuedAt),
+  ],
+);
+export type PlatformInvoice = typeof platformInvoices.$inferSelect;
+
+export const PLATFORM_FEE_TYPES = ["COMMISSION", "DELIVERY_CHARGE", "PLATFORM_FEE", "REGISTRATION_FEE", "BILLING_MANAGEMENT"] as const;
+export type PlatformFeeType = (typeof PLATFORM_FEE_TYPES)[number];
+
+export const platformInvoiceLines = pgTable(
+  "platform_invoice_lines",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    invoiceId: uuid("invoice_id")
+      .notNull()
+      .references(() => platformInvoices.id, { onDelete: "cascade" }),
+    lineNo: integer("line_no").notNull(),
+    feeType: text("fee_type", { enum: PLATFORM_FEE_TYPES }).notNull(),
+    description: text("description").notNull(),
+    sac: text("sac").notNull(),
+    rateBp: integer("rate_bp").notNull(),
+    taxablePaise: bigint("taxable_paise", { mode: "number" }).notNull(),
+    cgstPaise: bigint("cgst_paise", { mode: "number" }).notNull(),
+    sgstPaise: bigint("sgst_paise", { mode: "number" }).notNull(),
+    igstPaise: bigint("igst_paise", { mode: "number" }).notNull(),
+    totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
+    /** PAYOUT (deducted from the payout), SHOP_WALLET (already debited, GST via payout), PAID_DIRECTLY (GST inside what was paid). */
+    collectedVia: text("collected_via", { enum: ["PAYOUT", "SHOP_WALLET", "PAID_DIRECTLY"] }).notNull(),
+  },
+  (t) => [uniqueIndex("platform_invoice_lines_no_unique").on(t.invoiceId, t.lineNo)],
+);
+export type PlatformInvoiceLine = typeof platformInvoiceLines.$inferSelect;
+
+/** Credit notes (fees reduced or reversed) and debit notes (fees under-billed) against a platform invoice. */
+export const platformCreditDebitNotes = pgTable(
+  "platform_credit_debit_notes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    invoiceId: uuid("invoice_id")
+      .notNull()
+      .references(() => platformInvoices.id, { onDelete: "restrict" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    kind: text("kind", { enum: ["CREDIT", "DEBIT"] }).notNull(),
+    noteNumber: text("note_number").notNull(),
+    financialYear: text("financial_year").notNull(),
+    sequence: integer("sequence").notNull(),
+    reason: text("reason").notNull(),
+    /** One note per source event, ever (a refund adjustment id, or the admin's request id). */
+    sourceRef: text("source_ref").notNull(),
+    taxablePaise: bigint("taxable_paise", { mode: "number" }).notNull(),
+    cgstPaise: bigint("cgst_paise", { mode: "number" }).notNull(),
+    sgstPaise: bigint("sgst_paise", { mode: "number" }).notNull(),
+    igstPaise: bigint("igst_paise", { mode: "number" }).notNull(),
+    totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
+    /** The payout cycle whose maths took this note into account (null until one does). */
+    appliedInCycleId: uuid("applied_in_cycle_id"),
+    snapshot: jsonb("snapshot").$type<Record<string, unknown>>().notNull(),
+    createdBy: uuid("created_by"),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("platform_cd_notes_number_unique").on(t.noteNumber),
+    uniqueIndex("platform_cd_notes_source_unique").on(t.sourceRef),
+    index("platform_cd_notes_invoice_idx").on(t.invoiceId),
+    check("platform_cd_notes_total_positive", sql`${t.totalPaise} > 0`),
+  ],
+);
+export type PlatformCreditDebitNote = typeof platformCreditDebitNotes.$inferSelect;
+
+/*
+ * Statutory settings with effective dates (platform): GST TCS (s.52), income-tax
+ * TDS on e-commerce (s.194-O / s.393 ITA 2025), s.9(5) ECO liabilities, rules
+ * for unregistered sellers, GST rates on GoKesari's fees. The row in force on
+ * a supply's date applies. Seeded unconfirmed: the admin screen shows
+ * "not confirmed by CA" until the owner's CA confirms each row.
+ */
+export const statutoryRates = pgTable(
+  "statutory_rates",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    key: text("key").notNull(),
+    label: text("label").notNull(),
+    enabled: boolean("enabled").notNull().default(true),
+    rateBp: integer("rate_bp"),
+    params: jsonb("params").$type<Record<string, unknown>>().notNull().default({}),
+    effectiveFrom: date("effective_from").notNull(),
+    effectiveTo: date("effective_to"),
+    legalReference: text("legal_reference"),
+    sourceUrl: text("source_url"),
+    note: text("note"),
+    confirmedByCa: boolean("confirmed_by_ca").notNull().default(false),
+    /** users.id — plain UUIDs (no FK): the settings outlive any account. */
+    confirmedBy: uuid("confirmed_by"),
+    confirmedAt: timestamp("confirmed_at", { withTimezone: true }),
+    updatedBy: uuid("updated_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("statutory_rates_key_from_unique").on(t.key, t.effectiveFrom),
+    check("statutory_rates_rate_range", sql`${t.rateBp} IS NULL OR ${t.rateBp} BETWEEN 0 AND 10000`),
+  ],
+);
+export type StatutoryRate = typeof statutoryRates.$inferSelect;
+
+/**
+ * Emails that carry a document (invoice PDF, payout statement PDF + CSV) —
+ * the notification outbox holds text only, so documents get their own small
+ * outbox with the same retry discipline. The document is rendered again at
+ * send time from its stored snapshot (doc ids are plain UUIDs: the document
+ * may live in the seller or the customer database).
+ */
+export const documentEmails = pgTable(
+  "document_emails",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** TAX_INVOICE, CREDIT_NOTE, PAYOUT_STATEMENT, PLATFORM_INVOICE. */
+    docType: text("doc_type").notNull(),
+    docId: uuid("doc_id").notNull(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** CUSTOMER, SHOP_OWNER (the shop owner's copy). */
+    recipientRole: text("recipient_role").notNull(),
+    subject: text("subject").notNull(),
+    body: text("body").notNull(),
+    status: text("status", { enum: ["PENDING", "SENDING", "SENT", "FAILED", "SKIPPED", "DEAD"] }).notNull().default("PENDING"),
+    attempts: integer("attempts").notNull().default(0),
+    maxAttempts: integer("max_attempts").notNull().default(5),
+    nextAttemptAt: timestamp("next_attempt_at", { withTimezone: true }).notNull().defaultNow(),
+    toAddress: text("to_address"),
+    lastError: text("last_error"),
+    sentAt: timestamp("sent_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("document_emails_doc_user_unique").on(t.docType, t.docId, t.userId),
+    index("document_emails_due_idx").on(t.status, t.nextAttemptAt),
+  ],
+);
+export type DocumentEmail = typeof documentEmails.$inferSelect;
+
+/* <<< end WS-E */
+
+/* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — tables below this line only */
+
+/**
+ * F13.1.2: Expo push tokens of the GoKesari app installs (mobile/). The app
+ * hands its token to the website after sign-in (bridge "push.getToken") and
+ * the site registers it (POST /api/push-tokens). One token belongs to one
+ * user at a time: a token registered by someone else moves to them. A token
+ * Expo reports as DeviceNotRegistered is deactivated, never deleted (audit
+ * trail of what was sent where stays readable).
+ */
+export const pushTokens = pgTable(
+  "push_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** ExponentPushToken[…] / ExpoPushToken[…]. */
+    token: text("token").notNull(),
+    platform: text("platform", { enum: ["android", "ios"] }).notNull(),
+    /** Which app build: production (gokesari.com) or preview (test.gokesari.com). */
+    appVariant: text("app_variant", { enum: ["production", "preview"] }).notNull().default("production"),
+    deviceId: text("device_id"),
+    deviceName: text("device_name"),
+    active: boolean("active").notNull().default(true),
+    lastSeenAt: timestamp("last_seen_at", { withTimezone: true }).notNull().defaultNow(),
+    deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
+    deactivatedReason: text("deactivated_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("push_tokens_token_unique").on(t.token),
+    index("push_tokens_user_active_idx").on(t.userId, t.active),
+  ],
+);
+export type PushToken = typeof pushTokens.$inferSelect;
+
+/**
+ * F13.1.2: one Expo push ticket per device a PUSH delivery went to. The
+ * delivery itself (attempts, retries, errors) stays in notification_deliveries;
+ * this keeps the per-device outcome and the receipt check that follows
+ * (cron push-receipts). Mock sends get "mock-…" tickets.
+ */
+export const pushTickets = pgTable(
+  "push_tickets",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deliveryId: uuid("delivery_id").references(() => notificationDeliveries.id, { onDelete: "set null" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    pushTokenId: uuid("push_token_id")
+      .notNull()
+      .references(() => pushTokens.id, { onDelete: "cascade" }),
+    provider: text("provider", { enum: ["mock", "expo"] }).notNull(),
+    /** Expo's ticket id; null when the send was refused for this device. */
+    ticketId: text("ticket_id"),
+    status: text("status", { enum: ["PENDING_RECEIPT", "DELIVERED", "ERROR"] }).notNull(),
+    /** Expo's error code (DeviceNotRegistered, MessageTooBig, …) and message. */
+    errorCode: text("error_code"),
+    errorMessage: text("error_message"),
+    checkedAt: timestamp("checked_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("push_tickets_pending_idx").on(t.status, t.createdAt),
+    index("push_tickets_delivery_idx").on(t.deliveryId),
+  ],
+);
+export type PushTicket = typeof pushTickets.$inferSelect;
+
+/** Who a broadcast goes to: roles, optionally narrowed to cities and/or PIN codes (either matches). */
+export interface BroadcastAudience {
+  roles: ("CUSTOMER" | "SHOP_OWNER" | "DELIVERY_PARTNER")[];
+  cities?: string[];
+  pincodes?: string[];
+}
+
+export const BROADCAST_STATUSES = ["DRAFT", "SCHEDULED", "SENDING", "SENT", "CANCELLED", "EXPIRED"] as const;
+
+/**
+ * F3.3.2: an announcement composed by an admin or operator. Sent in chunks
+ * (cursor = the last user id written) by "Send now" and the broadcast-dispatch
+ * job; every recipient gets an in-app notification (type broadcast.announcement,
+ * category ANNOUNCEMENTS) plus push / email where their settings allow.
+ */
+export const broadcasts = pgTable(
+  "broadcasts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    title: text("title").notNull(),
+    message: text("message").notNull(),
+    /** /api/images/<id> (uploaded through the image store) or an https URL. */
+    imageUrl: text("image_url"),
+    /** Where tapping it goes: an in-site path ("/offers") or an https URL. */
+    linkUrl: text("link_url"),
+    audience: jsonb("audience").$type<BroadcastAudience>().notNull(),
+    status: text("status", { enum: BROADCAST_STATUSES }).notNull().default("DRAFT"),
+    scheduleAt: timestamp("schedule_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    sentBy: uuid("sent_by").references(() => users.id, { onDelete: "set null" }),
+    cancelledBy: uuid("cancelled_by").references(() => users.id, { onDelete: "set null" }),
+    /** Audience size when sending started (estimate; the final number is recipientCount). */
+    audienceEstimate: integer("audience_estimate"),
+    recipientCount: integer("recipient_count").notNull().default(0),
+    /** Chunk cursor: recipients are processed in user-id order after this id. */
+    cursorUserId: uuid("cursor_user_id"),
+    /** A dispatcher holds the broadcast until this time (overlapping runs skip it). */
+    leaseUntil: timestamp("lease_until", { withTimezone: true }),
+    lastError: text("last_error"),
+    startedAt: timestamp("started_at", { withTimezone: true }),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("broadcasts_status_idx").on(t.status, t.scheduleAt), index("broadcasts_created_idx").on(t.createdAt)],
+);
+export type Broadcast = typeof broadcasts.$inferSelect;
+
+/** F3.3.2: one row per person a broadcast reached — makes a re-run idempotent and gives the read count. */
+export const broadcastRecipients = pgTable(
+  "broadcast_recipients",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    broadcastId: uuid("broadcast_id")
+      .notNull()
+      .references(() => broadcasts.id, { onDelete: "cascade" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    /** The in-app notification; null when the person switched in-app announcements off. */
+    notificationId: uuid("notification_id").references(() => notifications.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("broadcast_recipients_unique").on(t.broadcastId, t.userId),
+    index("broadcast_recipients_notification_idx").on(t.notificationId),
+  ],
+);
+export type BroadcastRecipient = typeof broadcastRecipients.$inferSelect;
+
+/* <<< end WS-F */

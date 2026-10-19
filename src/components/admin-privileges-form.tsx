@@ -32,6 +32,7 @@ const ROLE_ORDER: readonly UserRole[] = [
   "SHOP_OWNER",
   "DELIVERY_PARTNER",
   "SOCIETY_ADMIN",
+  "OPERATOR_LIMITED", // batch-2026-10 WS-D
   "OPERATOR",
   "ADMIN",
 ];
@@ -48,6 +49,7 @@ const ROLE_LABELS: Record<UserRole, string> = {
   SOCIETY_ADMIN: "Society Admin",
   OPERATOR: "Operator",
   ADMIN: "Administrator",
+  OPERATOR_LIMITED: "Operator (Limited)", // batch-2026-10 WS-D
 };
 
 const label = (role: UserRole) => ROLE_LABELS[role] ?? role;

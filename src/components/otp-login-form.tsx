@@ -171,11 +171,11 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
           <p className="mb-2 text-sm text-ink-600" data-testid="otp-sent-to">
             {sentTo ? (
               <>
-                We sent a code to <strong>{sentTo}</strong>.
+                OTP sent to your email <strong>{sentTo}</strong>.
               </>
             ) : (
               <>
-                If +91 {mobile} is registered, we&apos;ve sent a code to the email address on that account — or by SMS, for a shop registered with its mobile number only.
+                OTP sent to your email: if +91 {mobile} is registered, the code went to the email address on that account — or by SMS, for a shop registered with its mobile number only.
               </>
             )}
           </p>

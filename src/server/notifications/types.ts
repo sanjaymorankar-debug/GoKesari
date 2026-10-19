@@ -213,6 +213,92 @@ export const NOTIFICATION_TYPES = {
   SHOP_BILL_READY: "shop.bill_ready",
   /** To the shop owner: a GST return is due soon (estimate of tax payable). */
   SHOP_GST_DUE_REMINDER: "shop.gst_due_reminder",
+  /* >>> batch-2026-10 WS-A (payments, OTP, reference prices) — add entries below this line only */
+  /** To the customer: an online payment was received (F1.7.3). */
+  ORDER_PAYMENT_CAPTURED: "order.payment_captured",
+  /** To the customer: an online payment failed; the order can be paid again. */
+  ORDER_PAYMENT_FAILED: "order.payment_failed",
+  /** To the customer: an online payment was not completed in time. */
+  ORDER_PAYMENT_EXPIRED: "order.payment_expired",
+  /** To the customer: money went back to the original payment method. */
+  ORDER_PAYMENT_REFUNDED: "order.payment_refunded",
+  /** To support: a payment needs a person (amount mismatch, late capture, stuck refund). */
+  SUPPORT_PAYMENT_ATTENTION: "support.payment_attention",
+  /* <<< end WS-A */
+  //
+  /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — add entries below this line only */
+  /** To a rider: an order nearby was broadcast to every rider in range — first to accept gets it (F3.3.2). */
+  DELIVERY_BROADCAST_OFFERED: "delivery.broadcast_offered",
+  /** To a rider who had a broadcast offer: another rider accepted it first. */
+  DELIVERY_OFFER_TAKEN: "delivery.offer_taken",
+  /** To the shop: no rider took the single offer, so it went to all riders nearby. */
+  SHOP_RIDER_OFFER_BROADCAST: "shop.rider_offer_broadcast",
+  /* <<< end WS-B */
+  //
+  /* >>> batch-2026-10 WS-C (cancellation fee, refunds, help desk) — add entries below this line only */
+  /** To the customer: a refund was requested / is processing / succeeded / failed (email + push). */
+  ORDER_REFUND_UPDATED: "order.refund_updated",
+  /** To the shop owner: the customer cancelled a packed order; the after-packing fee kept for the shop. */
+  SHOP_ORDER_CANCELLED_AFTER_PACKING: "shop.order_cancelled_after_packing",
+  /** To the requester: their ticket was received (number + SLA). */
+  TICKET_RECEIVED: "ticket.received",
+  /** To the requester / assignee: the ticket's status changed. */
+  TICKET_STATUS_CHANGED: "ticket.status_changed",
+  /** To the other side of the conversation: a new public reply. */
+  TICKET_REPLY: "ticket.reply",
+  /** To the requester: the ticket is closed — rate the help you got. */
+  TICKET_CSAT_REQUESTED: "ticket.csat_requested",
+  /** To the shop owner: support needs the shop's input on a ticket about its order. */
+  SHOP_TICKET_AWAITING: "shop.ticket_awaiting",
+  /** To support (operators + admins): a new ticket. */
+  SUPPORT_TICKET_NEW: "support.ticket_new",
+  /** To the assignee: a ticket was assigned to them. */
+  SUPPORT_TICKET_ASSIGNED: "support.ticket_assigned",
+  /** To administrators (and the assignee): a ticket was escalated (manually or on an SLA breach). */
+  SUPPORT_TICKET_ESCALATED: "support.ticket_escalated",
+  /** To the assignee or support: the requester or shop replied. */
+  SUPPORT_TICKET_REPLY: "support.ticket_reply",
+  /* <<< end WS-C */
+  //
+  /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */
+  /** To the owner: an operator registered your shop for you (after you confirmed the emailed code). */
+  SHOP_ONBOARDED_BY_OPERATOR: "shop.onboarded_by_operator",
+  /** To the owner (email): pay the registration fee with this link. */
+  SHOP_REGISTRATION_FEE_LINK: "shop.registration_fee_link",
+  /** To the owner and the onboarding operator: the registration fee was paid online. */
+  SHOP_REGISTRATION_FEE_PAID: "shop.registration_fee_paid",
+  /** To the onboarding operator: the fee did not go through — the shop waits for an administrator. */
+  SHOP_REGISTRATION_FEE_FAILED: "shop.registration_fee_failed",
+  /** To administrators: an operator-onboarded shop's fee failed or expired; it is pending their approval. */
+  SUPPORT_SHOP_FEE_FAILED: "support.shop_registration_fee_failed",
+  /** To whoever started it: a product-master import finished (counts, error file). */
+  PMD_IMPORT_FINISHED: "product.master_import_finished",
+  /* <<< end WS-D */
+  //
+  /* >>> batch-2026-10 WS-E (invoicing, payouts, statutory) — add entries below this line only */
+  /** To the shop owner: a copy of the customer's invoice for an order (PDF attached by email). */
+  SHOP_INVOICE_COPY: "shop.invoice_copy",
+  /** To the shop owner: a payout was paid (UTR) — statement PDF/CSV attached by email. */
+  SHOP_PAYOUT_PAID: "shop.payout_paid",
+  /** To the shop owner: this cycle's payout is held (no verified bank account, below the minimum, nothing owed). */
+  SHOP_PAYOUT_HELD: "shop.payout_held",
+  /** To the shop owner: the bank transfer failed (it is retried / handled by finance). */
+  SHOP_PAYOUT_FAILED: "shop.payout_failed",
+  /** To the shop owner: GoKesari's tax invoice for its fees this cycle. */
+  SHOP_PLATFORM_INVOICE: "shop.platform_invoice",
+  /** To administrators: a payout batch was drafted and waits for approval. */
+  SUPPORT_PAYOUT_BATCH_DRAFTED: "support.payout_batch_drafted",
+  /** To administrators: a payout transfer failed for good (retries used up). */
+  SUPPORT_PAYOUT_FAILED: "support.payout_failed",
+  /* <<< end WS-E */
+  //
+  /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */
+  /** F3.3.2: an announcement from GoKesari (admin / operator broadcast) — category ANNOUNCEMENTS. */
+  BROADCAST: "broadcast.announcement",
+  /** F3.3.2: to the admin / operator who sent it — a broadcast finished sending. */
+  SUPPORT_BROADCAST_FINISHED: "support.broadcast_finished",
+  /* <<< end WS-F */
+  //
 } as const;
 
 export type NotificationType =
