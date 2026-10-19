@@ -60,6 +60,12 @@ export const RATE_LIMITS = {
   SELLER_DOCUMENT_UPLOAD: { limit: 10, windowMs: 600_000 },
   /** docs/document-upload-2026-10: reading a document photo (OCR) — CPU-heavy, so per user. */
   SELLER_DOCUMENT_READ: { limit: 20, windowMs: 600_000 },
+  /**
+   * docs/homepage-uiux-2026-10: header search suggestions, asked for as the
+   * visitor types (debounced to ~4 a second at most) — generous, but a script
+   * cannot walk the catalogue through it.
+   */
+  SEARCH_SUGGEST: { limit: 120, windowMs: 60_000 },
 } as const satisfies Record<string, RateLimitOptions>;
 
 /**

@@ -390,6 +390,8 @@ export const AUDIT_ACTIONS = {
   BROADCAST_SENT: "broadcast.sent", // batch-2026-10 WS-F
   BROADCAST_CANCELLED: "broadcast.cancelled", // batch-2026-10 WS-F
   BROADCAST_EXPIRED: "broadcast.expired", // batch-2026-10 WS-F
+  HOME_BANNER_SAVED: "home_banner.saved", // docs/homepage-uiux-2026-10
+  HOME_BANNER_DELETED: "home_banner.deleted", // docs/homepage-uiux-2026-10
   PUSH_TOKEN_DEACTIVATED: "push_token.deactivated", // batch-2026-10 WS-F
   SHOP_CANCELLATION_FEE_CHANGED: "shop.cancellation_fee_changed", // batch-2026-10 WS-C
   ORDER_CANCELLATION_FEE_CHARGED: "order.cancellation_fee_charged", // batch-2026-10 WS-C

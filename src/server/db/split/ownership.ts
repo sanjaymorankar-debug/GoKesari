@@ -280,6 +280,9 @@ export const TABLE_OWNERSHIP = {
   push_tickets: "platform",
   broadcasts: "platform",
   broadcast_recipients: "platform",
+  // docs/homepage-uiux-2026-10: home hero banners and the header search log.
+  home_banners: "platform",
+  search_queries: "platform",
   /* <<< end WS-F */
   //
 } as const satisfies Record<string, DbOwner>;

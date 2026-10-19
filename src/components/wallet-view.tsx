@@ -3,7 +3,10 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
+import { EmptyIllustration } from "@/components/empty-illustrations";
 import { Alert, Button, Card, Money, inputClass } from "@/components/ui";
+import { tr, type Lang } from "@/lib/board/i18n";
+import { HOME } from "@/lib/home-i18n";
 import { openCashfreeCheckout } from "@/lib/cashfree-checkout";
 import { TOPUP_PRESETS_PAISE, formatPaiseCompact, rupeesToPaise } from "@/lib/money";
 import type { WalletForecast } from "@/server/services/subscriptions";
@@ -33,6 +36,7 @@ export function WalletView({
   todaysDeductionPaise,
   forecast,
   transactions,
+  lang = "en",
 }: {
   balancePaise: number;
   promotionalBalancePaise: number;
@@ -40,6 +44,8 @@ export function WalletView({
   todaysDeductionPaise: number;
   forecast: WalletForecast;
   transactions: Transaction[];
+  /** docs/homepage-uiux-2026-10: the empty history's wording. */
+  lang?: Lang;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -240,7 +246,15 @@ export function WalletView({
             Transactions
           </h2>
           {transactions.length === 0 ? (
-            <p className="text-sm text-ink-500">No transactions yet.</p>
+            // docs/homepage-uiux-2026-10 (F3): a picture and the next step.
+            <div className="py-2 text-center" data-testid="wallet-history-empty">
+              <EmptyIllustration name="wallet" />
+              <p className="mt-2 text-base font-bold text-ink-900">{tr(HOME.walletEmptyTitle, lang)}</p>
+              <p className="mx-auto mt-1 max-w-sm text-sm text-ink-500">{tr(HOME.walletEmptyText, lang)}</p>
+              <a href="#add-money" className="mt-3 inline-flex h-11 items-center rounded-lg bg-kesari-600 px-4 text-sm font-medium text-white hover:bg-kesari-800">
+                {tr(HOME.addMoney, lang)}
+              </a>
+            </div>
           ) : (
             <ul className="divide-y divide-cream-200">
               {transactions.map((t) => (

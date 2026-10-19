@@ -58,6 +58,16 @@ body {
   max-width: 100vw;
   overflow-x: hidden;
 }
+/* docs/homepage-uiux-2026-10 (F6): "hidden" makes <body> a scroll container,
+   which silently turns off every position: sticky header (they scrolled
+   away). "clip" cuts sideways overflow the same way without one; browsers
+   without it keep "hidden" above. */
+@supports (overflow-x: clip) {
+  html,
+  body {
+    overflow-x: clip;
+  }
+}
 
 body {
   margin: 0;
@@ -198,6 +208,19 @@ body:has([data-tile-board]) > header {
   display: none;
 }
 main:has(> [data-tile-board]) {
+  max-width: none;
+  padding: 0;
+}
+
+/*
+ * Product-discovery home (docs/homepage-uiux-2026-10): like a Tile Board it
+ * brings its own header (search, location, cart, account), so the site
+ * header steps aside and <main> lets the page run edge to edge.
+ */
+body:has([data-home-discovery]) > header {
+  display: none;
+}
+main:has(> [data-home-discovery]) {
   max-width: none;
   padding: 0;
 }

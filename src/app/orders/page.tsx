@@ -1,4 +1,6 @@
 import Link from "next/link";
+import { EmptyIllustration } from "@/components/empty-illustrations";
+import { HOME } from "@/lib/home-i18n";
 import { redirect } from "next/navigation";
 
 import {
@@ -160,15 +162,23 @@ export default async function OrdersPage({
 
       {orders.length === 0 && allOrders.length > 0 ? (
         <EmptyState
+          illustration={<EmptyIllustration name="orders" />}
           title={tab === "active" ? "No order on the way right now" : "No past orders yet"}
           description={tab === "active" ? "Orders you place appear here until they are delivered." : "Delivered and cancelled orders appear here."}
           action={<LinkButton href={tab === "active" ? "/orders?tab=past" : "/"}>{tab === "active" ? "See past orders" : "Start shopping"}</LinkButton>}
         />
       ) : orders.length === 0 ? (
         <EmptyState
-          title="No orders yet"
-          description="Your orders and subscription deliveries will appear here."
-          action={<LinkButton href="/">Start shopping</LinkButton>}
+          illustration={<EmptyIllustration name="orders" />}
+          title={tr(HOME.ordersEmptyTitle, lang)}
+          description={tr(HOME.ordersEmptyText, lang)}
+          action={<LinkButton href="/">{tr(HOME.startShopping, lang)}</LinkButton>}
+          secondaryAction={
+            <LinkButton href="/shops" variant="secondary">
+              {tr(HOME.seeShopsNearYou, lang)}
+            </LinkButton>
+          }
+          testId="orders-empty"
         />
       ) : (
         <div className="space-y-3">

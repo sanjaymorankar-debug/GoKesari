@@ -1,6 +1,8 @@
 /**
- * Tasks 4 and 5 (October 2026): the compact footer and the GoKesari
- * wordmark / tagline, on desktop and phone widths. Runs against any site:
+ * Tasks 4 and 5 (October 2026): the footer and the GoKesari wordmark /
+ * tagline, on desktop and phone widths. The footer is now the organised one
+ * of docs/homepage-uiux-2026-10 (F5): labelled columns, accordions on phones.
+ * Runs against any site:
  *   E2E_BASE_URL=https://test.gokesari.com npx playwright test tests/e2e/branding-footer.spec.ts
  * Public pages only — no sign-in, no data written.
  */
@@ -13,8 +15,9 @@ const VIEWPORTS = [
   { name: "phone", width: 390, height: 844 },
 ];
 
-/** Every link the footer had before it was made compact. */
+/** Every link the footer had before, plus Help (/support) in the Support column. */
 const FOOTER_LINKS = [
+  "/support",
   "/about",
   "/contact",
   "/sell",
@@ -40,18 +43,19 @@ for (const vp of VIEWPORTS) {
   test.describe(`branding and footer — ${vp.name}`, () => {
     test.use({ viewport: { width: vp.width, height: vp.height } });
 
-    test("footer is compact, keeps every link, and shows company + GSTIN on one small line", async ({ page }) => {
+    test("footer: four labelled columns keep every link, and the company line shows the GSTIN", async ({ page }) => {
       await page.goto("/");
       const footer = page.getByTestId("site-footer");
       await footer.scrollIntoViewIfNeeded();
       const hrefs = await footer.locator("a").evaluateAll((as) => as.map((a) => a.getAttribute("href")));
       expect(hrefs.sort()).toEqual([...FOOTER_LINKS].sort());
-      const box = await footer.boundingBox();
-      // The old footer was ~300 px tall on desktop and ~900 px on a phone.
-      expect(box!.height).toBeLessThan(vp.name === "desktop" ? 140 : 260);
+      await expect(footer.getByTestId("footer-column")).toHaveCount(4);
+      expect(await footer.locator("h2").allInnerTexts()).toEqual(["Company", "Make Money", "Support", "Legal"]);
       await expect(page.getByTestId("footer-company-line")).toContainText("GSTIN");
-      const fontSize = await footer.locator("a").first().evaluate((a) => parseFloat(getComputedStyle(a).fontSize));
-      expect(fontSize).toBeLessThanOrEqual(12);
+      // Phones fold the columns into accordions; wide screens show them open.
+      const links = footer.locator("[data-key=legal] ul");
+      if (vp.name === "phone") await expect(links).toBeHidden();
+      else await expect(links).toBeVisible();
       // No horizontal scroll from the footer on a phone.
       const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
       expect(overflow).toBeLessThanOrEqual(0);
@@ -92,30 +96,3 @@ for (const vp of VIEWPORTS) {
     });
   });
 }
-
-/** Links whose dot is wrong: shown at the start of a line, or hidden mid-line. */
-async function misplacedDots(page: Page) {
-  return page.getByTestId("site-footer").locator("nav ul").evaluateAll((uls) =>
-    uls.flatMap((ul) => {
-      const wrong: string[] = [];
-      let top: number | null = null;
-      for (const li of Array.from(ul.querySelectorAll<HTMLElement>(":scope > li:not([data-line-break])"))) {
-        const lineStart = top === null || li.offsetTop > top + 2;
-        const dotShown = getComputedStyle(li.querySelector("span")!).display !== "none";
-        if (dotShown === lineStart) wrong.push(`${li.textContent?.replace("·", "").trim()} (${lineStart ? "line start" : "mid-line"})`);
-        top = li.offsetTop;
-      }
-      return wrong;
-    }),
-  );
-}
-
-test("footer: no line starts with a dot and no link loses its dot, at any width", async ({ page }) => {
-  await page.goto("/");
-  await page.getByTestId("site-footer").scrollIntoViewIfNeeded();
-  // 412 px (Pixel 7) is where a link fitted on the line above only without its dot.
-  for (const width of [320, 360, 390, 412, 430, 600, 768, 1024, 1366]) {
-    await page.setViewportSize({ width, height: 900 });
-    await expect.poll(() => misplacedDots(page), { message: `${width}px` }).toEqual([]);
-  }
-});

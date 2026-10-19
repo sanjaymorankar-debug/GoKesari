@@ -87,7 +87,7 @@ const APP_LINK_PATH_PREFIXES = [
  * Pages not (yet) top-level directories of the website, such as the help
  * desk's /support/tickets/…, are listed here so the intent filter has them.
  */
-const DEEP_LINK_ROUTE_PREFIXES = ["/products/", "/shops/", "/orders/", "/r/", "/refer", "/notifications", "/support/tickets/"];
+const DEEP_LINK_ROUTE_PREFIXES = ["/products/", "/shops/", "/orders/", "/r/", "/refer", "/notifications", "/support/tickets/", "/search/compare"];
 
 const INTENT_PATH_PREFIXES = [...new Set([...APP_LINK_PATH_PREFIXES, ...DEEP_LINK_ROUTE_PREFIXES])];
 
@@ -107,7 +107,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   // attachments through the system picker; iPhone: Files).
   // 1.2.0: push notifications (expo-notifications), camera inside pages for QR scanning, deep-link
   // route map (product, shop, order, referral, notification, ticket).
-  version: "1.2.0",
+  // 1.3.0: the website's new home (docs/homepage-uiux-2026-10 at the repository root) — voice search
+  // on iPhone (microphone and speech-recognition descriptions below; the site shows the mic only to
+  // 1.3.0 and later), "compare prices" links open in the app, white strip under the bottom navigation.
+  version: "1.3.0",
   scheme: variant.scheme,
   orientation: "default",
   icon: "./assets/icon.png",
@@ -116,7 +119,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     bundleIdentifier: variant.appId,
     // Local builds (the GitHub workflows); EAS store builds number themselves (eas.json appVersionSource "remote").
-    buildNumber: "3",
+    buildNumber: "4",
     supportsTablet: true,
     associatedDomains: [`applinks:${variant.host}`],
     config: { usesNonExemptEncryption: false },
@@ -126,11 +129,14 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       NSPhotoLibraryUsageDescription:
         "GoKesari opens your photos when you choose a picture to upload, such as a product picture or a document.",
       NSPhotoLibraryAddUsageDescription: "GoKesari saves a picture to your photos when you ask it to.",
+      // 1.3.0: voice search in the header search (the page's Web Speech API, in English, Hindi or Marathi).
+      NSMicrophoneUsageDescription: "GoKesari listens only while you tap the microphone in search, to search by voice.",
+      NSSpeechRecognitionUsageDescription: "GoKesari turns what you say into a search when you tap the microphone in search.",
     },
   },
   android: {
     package: variant.appId,
-    versionCode: 3,
+    versionCode: 4,
     ...(GOOGLE_SERVICES_JSON ? { googleServicesFile: GOOGLE_SERVICES_JSON } : {}),
     adaptiveIcon: {
       foregroundImage: "./assets/android-icon-foreground.png",

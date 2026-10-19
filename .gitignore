@@ -54,3 +54,6 @@ tests/test-results/
 
 # batch-2026-10 remote e2e sessions (live cookies) — never commit
 .e2e-auth/
+
+# homepage-uiux e2e screenshots (evidence; a curated set is in docs/homepage-uiux-2026-10/screenshots)
+/e2e-evidence/
