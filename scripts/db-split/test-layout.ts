@@ -38,6 +38,11 @@ async function main() {
     const plan = await buildOverlayPlan(core);
     await applyOverlay(core, sellerUrl, plan, log, seller);
     await linkSellerToCore(seller, coreUrl, log);
+    // The test reset truncates across the link; each database's notices about it would reach the other's
+    // server log (postgres_fdw prints a remote session's notices there) and bury CI's own output.
+    for (const sql of [core, seller]) {
+      await sql.unsafe(`do $$ begin execute format('alter database %I set client_min_messages = warning', current_database()); end $$`);
+    }
     log(`Split test layout ready: core ${describeUrl(coreUrl)}, seller ${describeUrl(sellerUrl)}.`);
   } finally {
     await core.end();
