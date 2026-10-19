@@ -41,7 +41,7 @@ import {
   type OutboundChannel,
 } from "@/server/notifications/templates";
 import { NOTIFICATION_TYPES, type NotificationType } from "@/server/notifications/types";
-import { db, type DbClient } from "@/server/db";
+import { db, isRetryableTransactionError, type DbClient } from "@/server/db";
 import {
   notificationDeliveries,
   notificationPreferences,
@@ -98,7 +98,9 @@ function channelEnabled(prefs: PrefMap, category: CategoryKey, channel: Channel,
 
 /**
  * Writes the in-app notification and queues outbound deliveries. Never
- * throws; a duplicate `dedupeKey` is silently dropped.
+ * throws (except a serialization failure or deadlock inside a caller's
+ * transaction, which that transaction re-runs); a duplicate `dedupeKey` is
+ * silently dropped.
  */
 export async function notify(input: NotifyInput, client: DbClient = db): Promise<void> {
   try {
@@ -167,6 +169,9 @@ export async function notify(input: NotifyInput, client: DbClient = db): Promise
       if (!input.deferDelivery) scheduleDelivery(client);
     }
   } catch (error) {
+    // Seller / customer split: a serialization failure has already aborted the caller's transaction;
+    // swallowing it would only fail that transaction's next statement. Let the caller's transaction re-run.
+    if (client !== db && isRetryableTransactionError(error)) throw error;
     console.error("[notifications] failed to deliver", input.type, error);
   }
 }

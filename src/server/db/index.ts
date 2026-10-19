@@ -93,8 +93,21 @@ export function isRetryableTransactionError(error: unknown): boolean {
   return RETRYABLE_TRANSACTION_ERRORS.has(String(e?.cause?.code ?? e?.code));
 }
 
+/** The transaction as drizzle runs it: once, READ COMMITTED unless the caller says otherwise. */
+const runOnce = db.transaction.bind(db);
+
+/**
+ * A top-level transaction that is never run twice, for work that calls an
+ * outside service before it commits (the payment gateway): a re-run would call
+ * it again. READ COMMITTED, as on one database, so the split layout's
+ * serialization failures (and the re-run they trigger) do not arise; a
+ * deadlock fails it like any other error. Prefer doing the outside call after
+ * the commit; use this only where it has to happen under the transaction's lock.
+ */
+export const transactionOnce: typeof db.transaction = (run, config) => runOnce(run, { isolationLevel: "read committed", ...config });
+
 if (getEnv().DB_SPLIT_MODE === "split") {
-  const transaction = db.transaction.bind(db);
+  const transaction = runOnce;
   db.transaction = (async (...[run, config]: Parameters<typeof transaction>) => {
     for (let attempt = 1; ; attempt++) {
       try {
