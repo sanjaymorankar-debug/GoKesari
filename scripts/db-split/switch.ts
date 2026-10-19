@@ -76,7 +76,13 @@ async function main() {
   }
 }
 
-main().catch((error) => {
-  console.error(error instanceof Error ? error.message : error);
-  process.exit(1);
-});
+// Exit once the step is done. On Neon the test site's switch (19 Oct) committed and printed
+// "Switched" in 3½ minutes, then the process stayed up until the run was cancelled 24 minutes
+// later: a connection left over from the copy can keep Node alive after every pool has ended.
+main().then(
+  () => process.exit(process.exitCode ?? 0),
+  (error) => {
+    console.error(error instanceof Error ? error.message : error);
+    process.exit(1);
+  },
+);
