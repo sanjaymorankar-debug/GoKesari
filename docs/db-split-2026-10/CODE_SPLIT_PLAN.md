@@ -48,7 +48,7 @@ tests failed, almost all from the first item):
 | 3 | `INSERT … ON CONFLICT (target)` / `DO UPDATE` is refused on a foreign table | `upsertRow()` (update, else insert under a savepoint, retry on a race); single-unique-key `DO NOTHING` loses its target; the product master talks to the seller database directly |
 | 4 | Foreign keys (113) and their `ON DELETE` actions across the two are gone | the overlay records them (`split_layout_foreign_keys`); the one delete that relied on a cascade (subscription retry) deletes the children itself; `verify` reports orphans |
 | 5 | A session setting cannot reach the seller database (`gokesari.inv_ledger_managed`) | migration 0085: the inventory module also leaves a mark row, stamped with the seller transaction id by a trigger |
-| 6 | postgres_fdw runs the seller side at **REPEATABLE READ**: two requests changing the same seller row at once get "could not serialize access" (40001) instead of waiting | in split mode a top-level transaction is retried on 40001/40P01; savepoints that swallow errors rethrow 40001 so the whole transaction retries |
+| 6 | postgres_fdw runs the seller side at **REPEATABLE READ** (one snapshot per transaction): two requests changing the same seller row get "could not serialize access" (40001) instead of a wait, and a transaction that waited for a row lock still reads other rows as they were before the wait (found by the full run: five registrations racing for a referral code's last slot let three through) | in split mode a top-level transaction runs at **SERIALIZABLE** (so does its seller side), PostgreSQL stops every such race with 40001, and the transaction is run again from the start (also on a deadlock, 40P01); savepoints that swallow errors rethrow 40001 |
 | 7 | A relayed error keeps its code and message, not `constraint_name` | the Shop Act duplicate check also reads the index name from the message |
 | 8 | Sequence-backed defaults | the core keeps the sequences; identity columns get a core-drawn default; composite defaults (`'BKS-' || …`) are kept as they are |
 
@@ -97,7 +97,7 @@ it across two databases.
 | Step | Status |
 |---|---|
 | Overlay tool, test layout, CI job `test-split` (non-blocking) | done |
-| Full suite on the overlay | 850 failures → fixes above → re-run in progress |
+| Full suite on the overlay | 850 failures → 56 → 1 (the referral race, item 6) → re-run in progress |
 | Split-aware migrations (`-- split:` tag, runner, self-repair; tested in `tests/integration/split-migrate.test.ts`) | done |
 | Switch and switch back for a site (`scripts/db-split/switch.ts`, workflow actions; tested in `tests/integration/db-split-switch.test.ts`, including writes during the switch) | done |
 | test.gokesari.com switch | — |
