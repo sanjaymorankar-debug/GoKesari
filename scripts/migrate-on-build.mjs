@@ -22,7 +22,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 
-import { isSplitLayout, migrateSplit } from "./split-migrate.mjs";
+import { cleanDatabaseUrl, isSplitLayout, migrateSplit } from "./split-migrate.mjs";
 
 const TAG = "[migrate-on-build]";
 /** Shared with src/server/db/migrate.ts — one migration run per database at a time. */
@@ -39,7 +39,7 @@ if (!/^(1|true)$/i.test(process.env.MIGRATE_ON_BUILD ?? "")) {
   process.exit(0);
 }
 
-const url = process.env.DATABASE_URL;
+const url = process.env.DATABASE_URL ? cleanDatabaseUrl(process.env.DATABASE_URL) : "";
 if (!url) {
   console.error(`${TAG} FAILED: MIGRATE_ON_BUILD is on but DATABASE_URL is not set. Build stopped.`);
   process.exit(1);
@@ -75,7 +75,7 @@ try {
   );
   if (await isSplitLayout(client)) {
     // Seller / customer split: each migration runs in the database its tables live in.
-    const sellerUrl = process.env.SELLER_DATABASE_URL;
+    const sellerUrl = process.env.SELLER_DATABASE_URL ? cleanDatabaseUrl(process.env.SELLER_DATABASE_URL) : "";
     if (!sellerUrl) throw new Error("this database is split (seller tables are in the seller database) but SELLER_DATABASE_URL is not set");
     const sellerSsl = (() => {
       const mode = new URL(sellerUrl).searchParams.get("sslmode");
