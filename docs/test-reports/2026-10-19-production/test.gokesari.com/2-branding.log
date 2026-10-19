@@ -1,0 +1,24 @@
+
+Running 18 tests using 1 worker
+
+  ✓   1 [chromium] › tests/e2e/branding-footer.spec.ts:43:9 › branding and footer — desktop › footer is compact, keeps every link, and shows company + GSTIN on one small line (2.3s)
+  ✓   2 [chromium] › tests/e2e/branding-footer.spec.ts:60:9 › branding and footer — desktop › every footer link opens a page (8.2s)
+  ✓   3 [chromium] › tests/e2e/branding-footer.spec.ts:68:9 › branding and footer — desktop › wordmark: Go and Kesari saffron, G and K bold; tagline saffron and bold (2.3s)
+  ✓   4 [chromium] › tests/e2e/branding-footer.spec.ts:86:9 › branding and footer — desktop › sign-in page shows the wordmark and the tagline (1.9s)
+  ✓   5 [chromium] › tests/e2e/branding-footer.spec.ts:43:9 › branding and footer — phone › footer is compact, keeps every link, and shows company + GSTIN on one small line (2.3s)
+  ✓   6 [chromium] › tests/e2e/branding-footer.spec.ts:60:9 › branding and footer — phone › every footer link opens a page (5.9s)
+  ✓   7 [chromium] › tests/e2e/branding-footer.spec.ts:68:9 › branding and footer — phone › wordmark: Go and Kesari saffron, G and K bold; tagline saffron and bold (1.8s)
+  ✓   8 [chromium] › tests/e2e/branding-footer.spec.ts:86:9 › branding and footer — phone › sign-in page shows the wordmark and the tagline (1.6s)
+  ✓   9 [chromium] › tests/e2e/branding-footer.spec.ts:113:5 › footer: no line starts with a dot and no link loses its dot, at any width (2.6s)
+  ✓  10 [mobile] › tests/e2e/branding-footer.spec.ts:43:9 › branding and footer — desktop › footer is compact, keeps every link, and shows company + GSTIN on one small line (2.3s)
+  ✓  11 [mobile] › tests/e2e/branding-footer.spec.ts:60:9 › branding and footer — desktop › every footer link opens a page (9.2s)
+  ✓  12 [mobile] › tests/e2e/branding-footer.spec.ts:68:9 › branding and footer — desktop › wordmark: Go and Kesari saffron, G and K bold; tagline saffron and bold (2.5s)
+  ✓  13 [mobile] › tests/e2e/branding-footer.spec.ts:86:9 › branding and footer — desktop › sign-in page shows the wordmark and the tagline (2.1s)
+  ✓  14 [mobile] › tests/e2e/branding-footer.spec.ts:43:9 › branding and footer — phone › footer is compact, keeps every link, and shows company + GSTIN on one small line (2.8s)
+  ✓  15 [mobile] › tests/e2e/branding-footer.spec.ts:60:9 › branding and footer — phone › every footer link opens a page (8.5s)
+  ✓  16 [mobile] › tests/e2e/branding-footer.spec.ts:68:9 › branding and footer — phone › wordmark: Go and Kesari saffron, G and K bold; tagline saffron and bold (1.9s)
+  ✓  17 [mobile] › tests/e2e/branding-footer.spec.ts:86:9 › branding and footer — phone › sign-in page shows the wordmark and the tagline (1.6s)
+  ✓  18 [mobile] › tests/e2e/branding-footer.spec.ts:113:5 › footer: no line starts with a dot and no link loses its dot, at any width (3.0s)
+
+  18 passed (1.1m)
+exit 0
