@@ -4,10 +4,10 @@
 |---|---|
 | Feature | Bulk product upload — design in [docs/product-import-2026-10/README.md](../product-import-2026-10/README.md) |
 | Branch | `claude/amazing-ritchie-9vlq9f` — [PR #173](https://github.com/sanjaymorankar-debug/GoKesari/pull/173), merged into `staging` as `2886cf3` |
-| Report date | 15 Oct 2026 |
+| Report date | 15 Oct 2026; production smoke added 18 Oct 2026 |
 | Local environment | Node 22, PostgreSQL 16 (local), Next.js 16.3.6 dev server, Chromium (Playwright) |
 | **Test server (test.gokesari.com)** | **Pass — 23 of 23 live cases** on 15 Oct 2026 (shop owner, admin, operator; desktop and the Android app's user agent). Migration `0077` confirmed on the test database (Test database workflow run 31: 80 migrations, newest `0077_product_bulk_import`). See §2.7. |
-| **Production (gokesari.com)** | **Deployed 15 Oct 2026, 15:58 UTC** — release [PR #179](https://github.com/sanjaymorankar-debug/GoKesari/pull/179) (`acfaa6a`), migrations 0076–0078 applied by the build (`MIGRATE_ON_BUILD`). **Signed-out smoke checks pass (§2.8)**; no import was run on production (no designated test shop; no test data written). |
+| **Production (gokesari.com)** | **Deployed 15 Oct 2026, 15:58 UTC** — release [PR #179](https://github.com/sanjaymorankar-debug/GoKesari/pull/179) (`acfaa6a`), migrations 0076–0078 applied by the build (`MIGRATE_ON_BUILD`). **Signed-out smoke checks pass (§2.8)**. **Signed-in smoke with a test shop: 4 of 4 pass on 18 Oct 2026 (§2.9)** — one product imported, stock and report checked, then deactivated by a Delete file. |
 | Fixture | `tests/fixtures/bulk_upload/PUZZLES.xlsm` — **a reconstruction** of the Amazon PUZZLES template to the layout the brief verified (309 columns, rows 1–7 as described, data from row 8, VBA project included). The original file was not available to this session. |
 
 Results columns: **Local** = run in this session (automated suite or browser);
@@ -22,11 +22,12 @@ exactly that — nothing is claimed for an environment it was not run on.
 | Import service and API (integration, real PostgreSQL) | 23 | **23 pass** | Not run | Not run |
 | Load: 5,000 rows | 1 | **pass** (parse + preview 1.8 s; import 94.7 s) | Not run | Not run |
 | Browser walk-through (desktop, phone, admin, operator) | 10 | **10 pass** | **10 pass** (by the live run, §2.7) | Not run |
-| Live functional run on the site (`scripts/test-site/product-import-check.mjs`) | 23 | — | **23 pass** | Not run (writes; see §2.8) |
+| Live functional run on the site (`scripts/test-site/product-import-check.mjs`) | 23 | — | **23 pass** | Smoke subset only (§2.9) |
 | Production smoke, signed out (§2.8) | 13 | — | — | **13 pass** |
+| Production smoke, signed in with a test shop (§2.9) | 4 | — | — | **4 pass** |
 | Mobile app (unit, typecheck, lint) | 26 tests | **pass** | — | — |
 | Full regression suite (all existing unit + integration tests) | 1,811 | **all pass** after D-9, re-checked after merging `staging` (see §4) | Not run | Not run |
-| Environment end-to-end (web, Android, iOS on real accounts) | 9 | — | **4 pass** (E-01–E-03, E-06); E-04/E-05 need a phone; E-09 see §2.6 | **E-06, E-07 pass** (read-only); E-08 not needed |
+| Environment end-to-end (web, Android, iOS on real accounts) | 9 | — | **4 pass** (E-01–E-03, E-06); E-04/E-05 need a phone; E-09 see §2.6 | **E-06, E-07 pass** (E-07 signed in, §2.9); E-08 not needed |
 
 ## 2. Test cases
 
@@ -133,7 +134,7 @@ Script: Playwright (Chromium). Screenshots in
 | E-04 | Android app (preview build) | Pick the file from Files / Drive / WhatsApp, preview cards, import, share the report | Partly: the app's user agent at phone width shows the card preview (PI-12). The system file picker needs a real phone — **not run** | — |
 | E-05 | iPhone | Same, from Files | Not run | — |
 | E-06 | Migration | `0077` applied by the Test database workflow | **Pass** (run 31: 80 recorded, newest `0077_product_bulk_import`; backup taken first) | **Pass** — applied by the gokesari.com build (`MIGRATE_ON_BUILD`; the build stops before deploying if a migration fails, and the new routes answer) |
-| E-07 | Prod smoke | One small import into a designated test shop; check stock and the report | — | **Read-only only:** the signed-out checks in §2.8 pass. No import was run: production has no designated test shop and no test data is written there |
+| E-07 | Prod smoke | One small import into a designated test shop; check stock and the report | — | **Pass** (18 Oct 2026, §2.9): one-row import into the test shop, stock 3 = file Quantity, report row "created", then the Delete file deactivated it |
 | E-08 | Prod clean-up | Delete-action file deactivates the test products | — | Not needed (nothing was written) |
 | E-09 | Regression on the site | Manual add product, add category, Excel price upload | Not run on the site (covered locally by I-23 and the full suite, §4) | Not run |
 
@@ -212,9 +213,49 @@ succeed, so these answers also show 0076–0078 are applied.
 | PP-12 | Existing pages `/`, `/shops`, `/signin` | **Pass** — 200; `/shop` 307 to sign-in |
 | PP-13 | Inventory & Accounting smoke (`scripts/test-site/prod-smoke.mjs`, released with it) | **Pass** — 11/11 (module pages, API 401s, crons 403, share target, manifest, existing pages, desktop and Android UI with no page errors) |
 
-Not run on production: a signed-in upload and import. It writes products and
-stock to a real shop; run `product-import-check.mjs … smoke … --prod-smoke`
-once a test shop on gokesari.com is named.
+The signed-in upload and import were run later with a test shop (§2.9).
+
+### 2.9 Production smoke, signed in, with a test shop (18 Oct 2026)
+
+**Test shop.** A shop was registered on gokesari.com for this run:
+"GoKesari QA Test Shop (internal testing - do not order)",
+id `3a0557f6-42bc-4ee4-81e9-c91109ece9f1`. It was registered with
+`POST /api/shops` by the test account `sanjaymorankar+gk-shop@gmail.com`, which
+became its owner. No registration fee was paid, so the shop stays
+**Pending approval**. It is not shown in public search (checked after the run)
+and customers cannot order from it. **It must never be approved.**
+
+**Run.** `node scripts/test-site/product-import-check.mjs https://gokesari.com <state> smoke <dir> 3a0557f6-… --prod-smoke`,
+signed in as the shop owner, 16:01–16:03 UTC. Evidence (screenshot, results
+JSON, the import's result CSV) is in
+[prod-smoke-2026-10-18/](../product-import-2026-10/prod-smoke-2026-10-18/).
+
+| ID | Check | Result |
+|---|---|---|
+| PROD-01 | The owner's bulk upload page `/shop/product-import` loads | **Pass** |
+| PROD-02 | One-row file `smoke-MVE0J1I1.xlsx` (SKU `SMOKE-MVE0J1I1`, price 10, Quantity 3) is uploaded and imported; listing stock = file Quantity | **Pass** — job `485e6835-5ca4-4e7e-b7b0-6d855e55e39c`, 1 created, 0 failed, stock 3 |
+| PROD-03 | Result report has the row | **Pass** — status `created`; message "No category given; the product goes in "General" (uncategorised)" |
+| PROD-04 | Clean-up: a Delete file deactivates the smoke product | **Pass** — job `smoke-del-MVE0J1I1.xlsx` 1 deactivated, 0 failed; the listing is hidden with stock 0 |
+
+Checked afterwards: the owner received both "Bulk product upload finished"
+notifications. The import history shows the import, the Delete file and a
+cancelled preview (`smoke-check-…`). That preview is part of PROD-02: it
+re-reads the SKU to confirm the stock now held, then is cancelled, so nothing
+is written. The shop
+is still Pending approval.
+
+**Left on production by this run** (harmless, recorded so nobody is surprised):
+
+- the pending test shop above and its deactivated listing `SMOKE-MVE0J1I1`;
+- the master product "Smoke Test MVE0J1I1 (delete)", Pending approval in the
+  catalogue (an upload never approves a new master product). Reject or delete
+  it in the admin catalogue review;
+- the test account `sanjaymorankar+gk-shop@gmail.com`, now a shop owner on
+  production.
+
+**Script fix found by this run.** In smoke mode PROD-01 always opened the
+staff page `/admin/product-import`, which a shop owner cannot use. It now opens
+`/shop/product-import` for a shop owner and keeps the staff page for staff.
 
 ## 3. Defects found and fixed during this work
 
@@ -250,4 +291,5 @@ merging `staging` (#168, #169, #171) and renumbering the migration to `0077`. CI
 |---|---|---|---|
 | Local | Pass (automated + browser) | Claude Code | 15 Oct 2026 |
 | test.gokesari.com | Pass — 23/23 live cases (§2.7) | Claude Code | 15 Oct 2026 |
-| gokesari.com | Deployed; signed-out smoke 13/13 pass (§2.8). Signed-in import on production not run | Claude Code | 15 Oct 2026 |
+| gokesari.com | Deployed; signed-out smoke 13/13 pass (§2.8) | Claude Code | 15 Oct 2026 |
+| gokesari.com | Signed-in smoke with a test shop 4/4 pass (§2.9) | Claude Code | 18 Oct 2026 |
