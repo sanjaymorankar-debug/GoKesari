@@ -53,6 +53,7 @@ export const TABLE_OWNERSHIP = {
   inv_product_settings: "seller",
   inv_batches: "seller",
   inv_stock_ledger: "seller",
+  inv_ledger_marks: "seller",
   inv_unit_conversions: "seller",
   inv_supplier_item_maps: "seller",
   inv_bill_captures: "seller",

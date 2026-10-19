@@ -379,13 +379,12 @@ async function postVersion(purchase: AccPurchaseInvoice, lines: ResolvedLine[], 
     const key = itemKey(l.input.description, l.input.supplierItemCode);
     if (!key) continue;
     const unit = normaliseUnit(l.input.unit);
-    await client
-      .insert(invSupplierItemMaps)
-      .values({ shopId: purchase.shopId, supplierKey: purchase.supplierKey, itemKey: key, shopProductId: l.shopProductId, unit, milliPerUnit: l.input.qtyMilli ? Math.round((l.stockQtyMilli * 1000) / l.input.qtyMilli) : null })
-      .onConflictDoUpdate({
-        target: [invSupplierItemMaps.shopId, invSupplierItemMaps.supplierKey, invSupplierItemMaps.itemKey],
-        set: { shopProductId: l.shopProductId, unit, milliPerUnit: l.input.qtyMilli ? Math.round((l.stockQtyMilli * 1000) / l.input.qtyMilli) : null, timesUsed: sql`${invSupplierItemMaps.timesUsed} + 1`, lastUsedAt: new Date() },
-      });
+    const milliPerUnit = l.input.qtyMilli ? Math.round((l.stockQtyMilli * 1000) / l.input.qtyMilli) : null;
+    await upsertRow(client, invSupplierItemMaps, {
+      keys: [invSupplierItemMaps.shopId, invSupplierItemMaps.supplierKey, invSupplierItemMaps.itemKey],
+      values: { shopId: purchase.shopId, supplierKey: purchase.supplierKey, itemKey: key, shopProductId: l.shopProductId, unit, milliPerUnit },
+      set: { shopProductId: l.shopProductId, unit, milliPerUnit, timesUsed: sql`${invSupplierItemMaps.timesUsed} + 1`, lastUsedAt: new Date() },
+    });
   }
   return inserted;
 }

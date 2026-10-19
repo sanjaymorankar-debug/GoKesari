@@ -64,6 +64,44 @@ const client =
 if (getEnv().NODE_ENV !== "production") globalForDb.__sql = client;
 
 export const db = drizzle(client, { schema });
+
+/**
+ * Seller / customer split (docs/db-split-2026-10/CODE_SPLIT_PLAN.md §2): the
+ * seller tables are reached through postgres_fdw, which runs the seller side
+ * of every transaction at REPEATABLE READ. Two requests changing the same
+ * seller row at once (two checkouts on one product's stock) then end with
+ * "could not serialize access" (40001) for the second instead of a wait, as
+ * on one database. With DB_SPLIT_MODE=split a top-level transaction that hits
+ * it (or a deadlock, 40P01) is run again from the start, a few times, after a
+ * short random pause. On one database nothing changes.
+ */
+const RETRYABLE_TRANSACTION_ERRORS = new Set(["40001", "40P01"]);
+const TRANSACTION_ATTEMPTS = 6;
+
+/** "could not serialize access" — only on the split layout (the seller side runs at REPEATABLE READ). */
+export function isSerializationFailure(error: unknown): boolean {
+  const e = error as { code?: string; cause?: { code?: string } } | null;
+  return String(e?.cause?.code ?? e?.code) === "40001";
+}
+
+export function isRetryableTransactionError(error: unknown): boolean {
+  const e = error as { code?: string; cause?: { code?: string } } | null;
+  return RETRYABLE_TRANSACTION_ERRORS.has(String(e?.cause?.code ?? e?.code));
+}
+
+if (getEnv().DB_SPLIT_MODE === "split") {
+  const transaction = db.transaction.bind(db);
+  db.transaction = (async (...args: Parameters<typeof transaction>) => {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await transaction(...args);
+      } catch (error) {
+        if (!isRetryableTransactionError(error) || attempt >= TRANSACTION_ATTEMPTS) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 15 * attempt + Math.floor(Math.random() * 40)));
+      }
+    }
+  }) as typeof db.transaction;
+}
 export { schema };
 export type Database = typeof db;
 

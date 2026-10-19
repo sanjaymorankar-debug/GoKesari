@@ -27,6 +27,8 @@ export interface OwnedSequence {
   sequence: string;
   table: string;
   column: string;
+  /** An identity column (no column default of its own). */
+  identity: boolean;
 }
 
 export interface OverlayPlan {
@@ -51,22 +53,22 @@ export async function buildOverlayPlan(core: Sql): Promise<OverlayPlan> {
   const sellerSet = new Set(tables);
   const crossForeignKeys = fks.filter((fk) => sellerSet.has(fk.table) !== sellerSet.has(fk.refTable));
   // Sequences owned by a seller column (serial / identity) or used by a seller column's default.
-  const seqRows = await core<{ sequence: string; table: string; column: string }[]>`
-    select s.oid::regclass::text as sequence, t.oid::regclass::text as table, a.attname as column
+  const seqRows = await core<{ sequence: string; table: string; column: string; identity: boolean }[]>`
+    select s.oid::regclass::text as sequence, t.oid::regclass::text as table, a.attname as column, d.deptype = 'i' as identity
     from pg_depend d
     join pg_class s on s.oid = d.objid and s.relkind = 'S'
     join pg_class t on t.oid = d.refobjid
     join pg_attribute a on a.attrelid = t.oid and a.attnum = d.refobjsubid
     where d.deptype in ('a', 'i')
     union
-    select s.oid::regclass::text, t.oid::regclass::text, a.attname
+    select s.oid::regclass::text, t.oid::regclass::text, a.attname, false
     from pg_attrdef ad
     join pg_depend d on d.classid = 'pg_attrdef'::regclass and d.objid = ad.oid and d.refclassid = 'pg_class'::regclass
     join pg_class s on s.oid = d.refobjid and s.relkind = 'S'
     join pg_class t on t.oid = ad.adrelid
     join pg_attribute a on a.attrelid = t.oid and a.attnum = ad.adnum`;
   const strip = (t: string) => t.replace(/^public\./, "").replace(/"/g, "");
-  const sequences = seqRows.map((r) => ({ sequence: strip(r.sequence), table: strip(r.table), column: r.column })).filter((r) => sellerSet.has(r.table));
+  const sequences = seqRows.map((r) => ({ sequence: strip(r.sequence), table: strip(r.table), column: r.column, identity: r.identity })).filter((r) => sellerSet.has(r.table));
   // Sequences in a moving schema that no default uses (code calls nextval on them directly).
   const schemaSeqs = schemas.length
     ? await core<{ sequence: string }[]>`select c.oid::regclass::text as sequence from pg_class c join pg_namespace n on n.oid = c.relnamespace where c.relkind = 'S' and n.nspname = any(${schemas})`
@@ -136,7 +138,9 @@ export async function applyOverlay(core: Sql, sellerUrl: string, plan: OverlayPl
     for (const schema of plan.schemas) {
       await tx.unsafe(`import foreign schema ${ident(schema)} from server ${ident(OVERLAY_SERVER)} into ${ident(schema)} options (import_default 'true')`);
     }
-    for (const s of plan.sequences) {
+    // Identity columns arrive without a default (import_default only carries real defaults, which already
+    // name the core's sequences — including composite ones like 'BKS-' || lpad(nextval(...))): give them one.
+    for (const s of plan.sequences.filter((x) => x.identity)) {
       await tx.unsafe(`alter foreign table ${qident(s.table)} alter column ${ident(s.column)} set default nextval(${literal(qident(s.sequence))})`);
     }
     log(`imported ${plan.tables.length} seller tables as foreign tables`);

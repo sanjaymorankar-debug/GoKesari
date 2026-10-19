@@ -46,7 +46,7 @@ import {
   type InventoryMode,
 } from "@/lib/product-import";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
-import { db, type DbClient } from "@/server/db";
+import { db, isSerializationFailure, type DbClient } from "@/server/db";
 import {
   brands,
   inventoryMovements,
@@ -1223,6 +1223,9 @@ export async function runCommit(jobId: string, actor: ImportActor, options: Comm
           try {
             outcome = await tx.transaction((sp) => commitRow(sp, ctx, row));
           } catch (error) {
+            // Seller / customer split: a concurrent change to the same listing ends in a serialization
+            // failure (never on one database); the whole batch is retried by db.transaction, not failed row by row.
+            if (isSerializationFailure(error)) throw error;
             const reason = error instanceof AppError ? error.message : "Could not be saved.";
             if (!(error instanceof AppError)) console.error("[product-import] row failed", jobId, row.rowNumber, error);
             outcome = { status: "failed", messages: [`Failed: ${reason}`], productId: row.productId, listingId: row.listingId, matchType: row.matchType };

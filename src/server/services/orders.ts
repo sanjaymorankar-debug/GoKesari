@@ -23,7 +23,7 @@ import { canTransition } from "@/lib/state-machines";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { lineTotalPaise, sumPaise } from "@/lib/money";
 import { formatShopTime, isShopOpenNow, nextOpeningAt } from "@/lib/shop-hours";
-import { db, type DbClient } from "@/server/db";
+import { db, isSerializationFailure, type DbClient } from "@/server/db";
 import {
   addresses,
   deliveryOrders,
@@ -844,13 +844,17 @@ export async function updateOrderStatus(
       // Under a savepoint, so a problem here can never block the delivery.
       await tx
         .transaction((sp) => rewardReferralOnDelivery(orderId, sp))
-        .catch((error) => console.error("[referrals] reward check failed for order", orderId, error));
+        .catch((error) => {
+          if (isSerializationFailure(error)) throw error; // split layout: retry the whole delivery instead
+          console.error("[referrals] reward check failed for order", orderId, error);
+        });
       // NEW-007: the shop's invoice is issued at delivery (rule invoicing).
       // Its own savepoint, so a problem here never blocks the delivery.
       // Module 2: also sent to the shop's accounting software / e-invoiced.
-      await onOrderDelivered(orderId, order.shopId, tx).catch((error) =>
-        console.error("[invoices] issue failed for order", orderId, error),
-      );
+      await onOrderDelivered(orderId, order.shopId, tx).catch((error) => {
+        if (isSerializationFailure(error)) throw error; // split layout: retry the whole delivery instead
+        console.error("[invoices] issue failed for order", orderId, error);
+      });
     }
     // Phase 2: invite the customer to rate the shop and rider (GS-059/060).
     if (newStatus === "DELIVERED") {

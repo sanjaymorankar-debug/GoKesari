@@ -10,7 +10,7 @@ import { and, eq, sql } from "drizzle-orm";
 import { validationFailed } from "@/lib/errors";
 import type { BookAccount, VoucherType } from "@/lib/accounts/constants";
 import { db, type DbClient } from "@/server/db";
-import { accChangeLog, accCounters, accLedgerEntries, invSettings, type AccLedgerEntry, type InvSettings } from "@/server/db/schema";
+import { accChangeLog, accCounters, accLedgerEntries, invLedgerMarks, invSettings, type AccLedgerEntry, type InvSettings } from "@/server/db/schema";
 import { upsertRow } from "@/server/db/split/upsert";
 
 export interface Leg {
@@ -194,7 +194,13 @@ export function todayIst(): string {
   return new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10);
 }
 
-/** Switches the stock-ledger triggers off for the rest of this transaction (the module writes its own rows). */
+/**
+ * Switches the stock-ledger triggers off for the rest of this transaction (the
+ * module writes its own rows). The session setting covers one database; the
+ * mark row covers the split, where the triggers run in the seller database
+ * (migration 0085).
+ */
 export async function manageLedgerInThisTransaction(client: DbClient): Promise<void> {
   await client.execute(sql`select set_config('gokesari.inv_ledger_managed', 'on', true)`);
+  await client.insert(invLedgerMarks).values({});
 }

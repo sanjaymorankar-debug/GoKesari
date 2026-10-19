@@ -30,7 +30,7 @@ import { conflict, notFound } from "@/lib/errors";
 import { formatPaise, formatQuantity } from "@/lib/money";
 import { PDF_LINE_WIDTH, textPdf, type PdfLine } from "@/lib/pdf";
 import { stateLabel } from "@/lib/gst-states";
-import { db, type DbClient } from "@/server/db";
+import { db, isSerializationFailure, type DbClient } from "@/server/db";
 import {
   addresses,
   einvoiceRecords,
@@ -405,7 +405,10 @@ export async function issueInvoiceForOrder(
     // Own savepoint: a problem here never blocks the invoice (or the delivery).
     await tx
       .transaction((sp) => onInvoiceIssued(invoice, order, sp))
-      .catch((error) => console.error("[invoices] delivery of invoice failed", invoice.id, error));
+      .catch((error) => {
+        if (isSerializationFailure(error)) throw error; // split layout: retry the whole transaction instead
+        console.error("[invoices] delivery of invoice failed", invoice.id, error);
+      });
     return invoice;
   };
   try {

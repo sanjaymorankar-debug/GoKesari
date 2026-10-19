@@ -7,6 +7,7 @@
 import { eq, sql } from "drizzle-orm";
 
 import { db } from "@/server/db";
+import { upsertRow } from "@/server/db/split/upsert";
 import { clearRuleCache } from "@/server/services/settings";
 import {
   addresses,
@@ -405,13 +406,11 @@ export async function verifySellerDocuments(
   docTypes: ("PAN" | "GSTIN" | "UDYAM" | "FSSAI" | "SHOP_ACT")[] = ["PAN", "GSTIN", "SHOP_ACT", "FSSAI"],
 ) {
   for (const docType of docTypes) {
-    await db
-      .insert(sellerVerifications)
-      .values({ shopId, docType, status: "VERIFIED", verifiedAt: new Date() })
-      .onConflictDoUpdate({
-        target: [sellerVerifications.shopId, sellerVerifications.docType],
-        set: { status: "VERIFIED", verifiedAt: new Date() },
-      });
+    await upsertRow(db, sellerVerifications, {
+      keys: [sellerVerifications.shopId, sellerVerifications.docType],
+      values: { shopId, docType, status: "VERIFIED", verifiedAt: new Date() },
+      set: { status: "VERIFIED", verifiedAt: new Date() },
+    });
   }
 }
 
