@@ -9,10 +9,11 @@ import { execFileSync } from "node:child_process";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
-import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 
 import { checkSwitch, checkSwitchBack, dropParked, switchBack, switchToSplit } from "@/server/db/split/switch";
 import { connect, fingerprint, type Sql } from "@/server/db/split/tools";
+import { goesToSellerDatabase } from "@/server/pmd/db";
 import { isSplitLayout, reconcile } from "../../scripts/split-migrate.mjs";
 
 const baseUrl = process.env.TEST_DATABASE_URL!;
@@ -78,6 +79,8 @@ describe("switching a site's database to the split layout and back", { timeout: 
   });
 
   it("switches: seller rows move to the seller database, the core reads and writes them through foreign tables", async () => {
+    // Before the switch the setting changes nothing: the product master stays on the site's database.
+    expect(await goesToSellerDatabase(core, { DATABASE_URL: coreUrl, DB_SPLIT_MODE: "split", SELLER_DATABASE_URL: sellerUrl }, { cached: false })).toBe(false);
     shopsBefore = await fingerprint(core, "shops");
     expect(shopsBefore.rows).toBeGreaterThan(0);
     const result = await switchToSplit({ core, seller, coreUrl, sellerUrl, log: quiet });
@@ -105,6 +108,19 @@ describe("switching a site's database to the split layout and back", { timeout: 
     // An identity column of a seller table draws from a sequence in the core.
     [{ drawn }] = await core<{ drawn: number }[]>`select nextval('shop_wallet_transactions_seq_seq')::int as drawn`;
     expect(await reconcile({ core, seller, coreUrl })).toEqual([]);
+
+    // The product master goes to the seller database directly — only to the one the switch filled.
+    const env = { DATABASE_URL: coreUrl, DB_SPLIT_MODE: "split" };
+    const fresh = { cached: false };
+    expect(await goesToSellerDatabase(core, { ...env, SELLER_DATABASE_URL: sellerUrl }, fresh)).toBe(true);
+    expect(await goesToSellerDatabase(core, { ...env, DB_SPLIT_MODE: "single", SELLER_DATABASE_URL: sellerUrl }, fresh)).toBe(false);
+    const error = vi.spyOn(console, "error").mockImplementation(() => undefined);
+    try {
+      expect(await goesToSellerDatabase(core, { ...env, SELLER_DATABASE_URL: urlFor("some_other_seller_db") }, fresh)).toBe(false);
+      expect(String(error.mock.calls[0]?.[0])).toMatch(/SELLER_DATABASE_URL is some_other_seller_db on .* but this site's seller tables are in gk_switch_seller_/);
+    } finally {
+      error.mockRestore();
+    }
   });
 
   it("refuses a second switch", async () => {

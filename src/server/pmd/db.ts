@@ -85,12 +85,39 @@ function pool(key: "__pmdSql" | "__pmdSellerSql", url: string | undefined): Sql 
   return globalForPmd[key]!;
 }
 
-/** Whether the site's database has been switched to the split layout (looked up at most every LAYOUT_CHECK_MS). */
-async function switched(core: Sql): Promise<boolean> {
+/** Host (Neon's pooled and direct hosts are the same database) and database name of a connection string. */
+export function databaseOf(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${decodeURIComponent(u.pathname.replace(/^\//, ""))} on ${u.hostname.replace(/-pooler(?=\.)/, "")}`;
+  } catch {
+    return "(not a database URL)";
+  }
+}
+
+/**
+ * Whether the site's database has been switched to the split layout, and
+ * SELLER_DATABASE_URL is the database the switch filled (looked up at most
+ * every LAYOUT_CHECK_MS). A different seller database is not used: the site
+ * then stays on its own connection (which reaches the seller tables through
+ * the switch's link) and says so in the log.
+ */
+async function switched(core: Sql, sellerUrl: string, cached: boolean): Promise<boolean> {
   const known = globalForPmd.__pmdLayout;
-  if (known && Date.now() - known.at < LAYOUT_CHECK_MS) return known.split;
-  const [{ split }] = await core<{ split: boolean }[]>`
-    select exists (select 1 from pg_foreign_table t join pg_foreign_server s on s.oid = t.ftserver where s.srvname = ${SELLER_SERVER}) as split`;
+  if (cached && known && Date.now() - known.at < LAYOUT_CHECK_MS) return known.split;
+  const [row] = await core<{ host: string | null; dbname: string | null }[]>`
+    select (select substr(o, 6) from unnest(s.srvoptions) o where o like 'host=%') as host,
+           (select substr(o, 8) from unnest(s.srvoptions) o where o like 'dbname=%') as dbname
+    from pg_foreign_server s
+    where s.srvname = ${SELLER_SERVER} and exists (select 1 from pg_foreign_table t where t.ftserver = s.oid)`;
+  let split = Boolean(row);
+  if (row && `${row.dbname} on ${row.host}` !== databaseOf(sellerUrl)) {
+    console.error(
+      `[pmd] SELLER_DATABASE_URL is ${databaseOf(sellerUrl)}, but this site's seller tables are in ${row.dbname} on ${row.host}. ` +
+        "Not using it; set SELLER_DATABASE_URL to the seller database the switch filled.",
+    );
+    split = false;
+  }
   globalForPmd.__pmdLayout = { split, at: Date.now() };
   return split;
 }
@@ -111,6 +138,11 @@ async function switched(core: Sql): Promise<boolean> {
  */
 export async function appSql(env: NodeJS.ProcessEnv = process.env): Promise<Sql> {
   const core = pool("__pmdSql", env.DATABASE_URL);
-  if (env.DB_SPLIT_MODE !== "split" || !env.SELLER_DATABASE_URL) return core;
-  return (await switched(core)) ? pool("__pmdSellerSql", env.SELLER_DATABASE_URL) : core;
+  return (await goesToSellerDatabase(core, env)) ? pool("__pmdSellerSql", env.SELLER_DATABASE_URL) : core;
+}
+
+/** Whether the product master goes to SELLER_DATABASE_URL directly (see appSql). */
+export async function goesToSellerDatabase(core: Sql, env: Record<string, string | undefined> = process.env, options: { cached?: boolean } = {}): Promise<boolean> {
+  if (env.DB_SPLIT_MODE !== "split" || !env.SELLER_DATABASE_URL) return false;
+  return switched(core, env.SELLER_DATABASE_URL, options.cached ?? true);
 }
