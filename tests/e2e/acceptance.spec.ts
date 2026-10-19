@@ -120,7 +120,8 @@ test.describe("customer journey", () => {
 test.describe("offline-only products (§12, §55)", () => {
   test("can be seen but not bought online", async ({ page }) => {
     await signIn(page, `e2e-offline-${Date.now()}@test.local`);
-    await page.goto("/shops/kesari-dairy-farm");
+    // The shop page lists one category at a time (tabs since 9 Oct 2026); Malai Paneer is under Paneer.
+    await page.goto("/shops/kesari-dairy-farm?cat=Paneer");
 
     // Malai Paneer is seeded as offline-only.
     const paneer = page.locator('[data-product-name="Malai Paneer"]');

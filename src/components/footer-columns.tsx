@@ -6,7 +6,7 @@
  * the heading is a button (44 px) that shows or hides its links.
  */
 import Link from "next/link";
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import clsx from "clsx";
 
 import { Icon } from "@/components/board/icons";
@@ -17,8 +17,17 @@ export interface FooterColumn {
   links: { href: string; label: string }[];
 }
 
+const WIDE = "(min-width: 1024px)";
+function subscribeWide(onChange: () => void) {
+  const query = window.matchMedia(WIDE);
+  query.addEventListener("change", onChange);
+  return () => query.removeEventListener("change", onChange);
+}
+
 export function FooterColumns({ columns }: { columns: FooterColumn[] }) {
   const [open, setOpen] = useState<Set<string>>(new Set());
+  // Wide screens show every column open: the heading is then not a control.
+  const wide = useSyncExternalStore(subscribeWide, () => window.matchMedia(WIDE).matches, () => false);
   const toggle = (key: string) =>
     setOpen((prev) => {
       const next = new Set(prev);
@@ -30,14 +39,15 @@ export function FooterColumns({ columns }: { columns: FooterColumn[] }) {
   return (
     <div className="grid divide-y divide-cream-200 lg:grid-cols-4 lg:gap-8 lg:divide-y-0" data-testid="footer-columns">
       {columns.map((column) => {
-        const expanded = open.has(column.key);
+        const expanded = wide || open.has(column.key);
         return (
           <nav key={column.key} aria-labelledby={`footer-${column.key}`} data-testid="footer-column" data-key={column.key}>
-            <h2 id={`footer-${column.key}`} className="text-sm font-extrabold uppercase tracking-wide text-ink-900">
+            <h2 id={`footer-${column.key}`} className="text-sm font-extrabold text-ink-900">
               <button
                 type="button"
                 aria-expanded={expanded}
                 aria-controls={`footer-${column.key}-links`}
+                tabIndex={wide ? -1 : undefined}
                 onClick={() => toggle(column.key)}
                 className="flex min-h-12 w-full items-center justify-between text-left lg:pointer-events-none lg:min-h-0 lg:pb-2"
               >

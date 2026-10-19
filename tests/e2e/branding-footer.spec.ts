@@ -50,7 +50,7 @@ for (const vp of VIEWPORTS) {
       const hrefs = await footer.locator("a").evaluateAll((as) => as.map((a) => a.getAttribute("href")));
       expect(hrefs.sort()).toEqual([...FOOTER_LINKS].sort());
       await expect(footer.getByTestId("footer-column")).toHaveCount(4);
-      expect(await footer.locator("h2").allInnerTexts()).toEqual(["COMPANY", "MAKE MONEY", "SUPPORT", "LEGAL"]);
+      expect(await footer.locator("h2").allInnerTexts()).toEqual(["Company", "Make Money", "Support", "Legal"]);
       await expect(page.getByTestId("footer-company-line")).toContainText("GSTIN");
       // Phones fold the columns into accordions; wide screens show them open.
       const links = footer.locator("[data-key=legal] ul");
