@@ -96,8 +96,8 @@ it across two databases.
 
 | Step | Status |
 |---|---|
-| Overlay tool, test layout, CI job `test-split` (non-blocking) | done |
-| Full suite on the overlay | 850 failures → 56 → 1 (the referral race, item 6) → re-run in progress |
+| Overlay tool, test layout, CI job `test-split` | done — blocking from 19 Oct |
+| Full suite on the overlay | 850 failures → 56 → 1 (the referral race, item 6) → **all pass** (CI, 19 Oct) |
 | Split-aware migrations (`-- split:` tag, runner, self-repair; tested in `tests/integration/split-migrate.test.ts`) | done |
 | Switch and switch back for a site (`scripts/db-split/switch.ts`, workflow actions; tested in `tests/integration/db-split-switch.test.ts`, including writes during the switch) | done |
 | test.gokesari.com switch | — |

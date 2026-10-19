@@ -96,13 +96,12 @@ jobs:
         run: npm run build
 
   # The same suite on the seller / customer split layout (two databases; seller
-  # tables reached through postgres_fdw — docs/db-split-2026-10/CODE_SPLIT_PLAN.md).
-  # Not blocking until the split work makes it pass.
+  # tables reached through postgres_fdw — docs/db-split-2026-10/CODE_SPLIT_PLAN.md),
+  # so a change that works on one database but not across the two fails here.
   test-split:
     needs: scope
     if: needs.scope.outputs.app == 'yes'
     runs-on: ubuntu-latest
-    continue-on-error: true
 
     services:
       postgres:
