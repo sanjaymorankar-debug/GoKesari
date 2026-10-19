@@ -41,6 +41,7 @@ import { createShopProduct, updateShopProduct } from "@/server/services/catalogu
 import { OPEN_ORDER_STATUSES } from "@/server/services/inventory-alerts";
 import { canonicalItem, type CanonicalItem } from "./canonical";
 import { logSync } from "./jobs";
+import { upsertRow } from "@/server/db/split/upsert";
 
 export interface PullOptions {
   stock: boolean;
@@ -301,31 +302,29 @@ export async function applyPulledItems(integration: ShopIntegration, rawItems: u
     }
     const item = parsed.data;
     summary.seen += 1;
-    const [link] = await db
-      .insert(integrationItemLinks)
-      .values({
-        integrationId: integration.id,
-        shopId: shop.id,
-        externalId: item.externalId,
+    const values = {
+      integrationId: integration.id,
+      shopId: shop.id,
+      externalId: item.externalId,
+      externalName: item.name,
+      externalSku: item.sku ?? null,
+      externalBarcode: item.barcode ?? null,
+      externalUnit: item.unit ?? null,
+      lastSeen: item as unknown as Record<string, unknown>,
+    };
+    const link = await upsertRow(db, integrationItemLinks, {
+      keys: [integrationItemLinks.integrationId, integrationItemLinks.externalId],
+      values,
+      set: {
         externalName: item.name,
         externalSku: item.sku ?? null,
         externalBarcode: item.barcode ?? null,
         externalUnit: item.unit ?? null,
         lastSeen: item as unknown as Record<string, unknown>,
-      })
-      .onConflictDoUpdate({
-        target: [integrationItemLinks.integrationId, integrationItemLinks.externalId],
-        set: {
-          externalName: item.name,
-          externalSku: item.sku ?? null,
-          externalBarcode: item.barcode ?? null,
-          externalUnit: item.unit ?? null,
-          lastSeen: item as unknown as Record<string, unknown>,
-          lastSeenAt: new Date(),
-          updatedAt: new Date(),
-        },
-      })
-      .returning();
+        lastSeenAt: new Date(),
+        updatedAt: new Date(),
+      },
+    });
     let current = link;
     // Same values as last time, already applied without a problem: nothing to do (Tally sends the whole list).
     if (link.matchStatus === "MATCHED" && link.lastAppliedAt && !link.lastIssue && sameItem(previous.get(item.externalId), item)) {

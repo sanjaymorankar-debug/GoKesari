@@ -392,7 +392,7 @@ async function seedDemoMarketplace(): Promise<void> {
     UNION
     SELECT DISTINCT sp.shop_id, p.category_id FROM shop_products sp JOIN products p ON p.id = sp.product_id
      WHERE sp.deleted_at IS NULL
-    ON CONFLICT (shop_id, category_id) DO NOTHING`);
+    ON CONFLICT DO NOTHING`);
 
   console.log(`  demo marketplace seeded: ${demoShops.length} shops`);
 }

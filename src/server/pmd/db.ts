@@ -75,9 +75,20 @@ const globalForPmd = globalThis as unknown as { __pmdSql?: Sql };
  * The application's own PMD connection (API routes, dashboard). Bound to
  * DATABASE_URL - the app's database - and reused across dev hot reloads.
  */
+/**
+ * The product master lives in the seller database (docs/db-split-2026-10).
+ * With DB_SPLIT_MODE=split it is reached directly there, so its set-based SQL
+ * (ON CONFLICT upserts, trigram search) runs natively; the few core tables it
+ * touches (audit_logs, users, settings) are foreign tables in the seller
+ * database. Otherwise it is the site's one database, as before.
+ */
+export function pmdDatabaseUrl(env: NodeJS.ProcessEnv = process.env): string | undefined {
+  return env.DB_SPLIT_MODE === "split" && env.SELLER_DATABASE_URL ? env.SELLER_DATABASE_URL : env.DATABASE_URL;
+}
+
 export function appSql(): Sql {
   if (!globalForPmd.__pmdSql) {
-    const url = process.env.DATABASE_URL;
+    const url = pmdDatabaseUrl();
     if (!url) throw new Error("DATABASE_URL is not set");
     globalForPmd.__pmdSql = createSql(url, { max: 5, applicationName: "gokesari-pmd-app" });
   }

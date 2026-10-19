@@ -44,6 +44,7 @@ import { addCategoryToShop } from "@/server/services/product-categories";
 import { getSettings, logChange, postVoucher, reverseSource, todayIst } from "./books";
 import { findOrCreateSupplier } from "./parties";
 import { postStock, type StockPosting } from "./stock";
+import { upsertRow } from "@/server/db/split/upsert";
 
 const paise = z.number().int().min(0);
 const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
@@ -285,16 +286,17 @@ async function postVersion(purchase: AccPurchaseInvoice, lines: ResolvedLine[], 
   for (const [i, l] of lines.entries()) {
     let batchId: string | null = null;
     if (l.input.batchNo) {
-      const [batch] = await client
-        .insert(invBatches)
-        .values({ shopId: purchase.shopId, shopProductId: l.shopProductId, batchNo: l.input.batchNo, expiryDate: l.input.expiryDate ?? null, mfgDate: l.input.mfgDate ?? null, mrpPaise: l.input.mrpPaise ?? null })
-        .onConflictDoUpdate({ target: [invBatches.shopProductId, invBatches.batchNo], set: { expiryDate: sql`coalesce(excluded.expiry_date, ${invBatches.expiryDate})`, mrpPaise: sql`coalesce(excluded.mrp_paise, ${invBatches.mrpPaise})` } })
-        .returning({ id: invBatches.id });
+      const batch = await upsertRow(client, invBatches, {
+        keys: [invBatches.shopProductId, invBatches.batchNo],
+        values: { shopId: purchase.shopId, shopProductId: l.shopProductId, batchNo: l.input.batchNo, expiryDate: l.input.expiryDate ?? null, mfgDate: l.input.mfgDate ?? null, mrpPaise: l.input.mrpPaise ?? null },
+        set: { expiryDate: sql`coalesce(${l.input.expiryDate ?? null}::date, ${invBatches.expiryDate})`, mrpPaise: sql`coalesce(${l.input.mrpPaise ?? null}::bigint, ${invBatches.mrpPaise})` },
+      });
       batchId = batch.id;
-      await client
-        .insert(invProductSettings)
-        .values({ shopProductId: l.shopProductId, shopId: purchase.shopId, trackBatches: true })
-        .onConflictDoUpdate({ target: invProductSettings.shopProductId, set: { trackBatches: true } });
+      await upsertRow(client, invProductSettings, {
+        keys: [invProductSettings.shopProductId],
+        values: { shopProductId: l.shopProductId, shopId: purchase.shopId, trackBatches: true },
+        set: { trackBatches: true },
+      });
     }
     const share = Math.round((otherCharges * l.tax.taxablePaise) / taxableSum);
     const cost = l.tax.taxablePaise + share + (purchase.itcEligible ? 0 : l.tax.taxPaise);
@@ -315,10 +317,11 @@ async function postVersion(purchase: AccPurchaseInvoice, lines: ResolvedLine[], 
       note: purchase.version > 1 ? `Corrected bill (version ${purchase.version})` : null,
       createdBy: actor.id,
     });
-    await client
-      .insert(invProductSettings)
-      .values({ shopProductId: l.shopProductId, shopId: purchase.shopId, lastPurchaseRatePaise: unitCost, lastPurchaseAt: new Date(), lastSupplierId: purchase.partyId })
-      .onConflictDoUpdate({ target: invProductSettings.shopProductId, set: { lastPurchaseRatePaise: unitCost, lastPurchaseAt: new Date(), lastSupplierId: purchase.partyId, updatedAt: new Date() } });
+    await upsertRow(client, invProductSettings, {
+      keys: [invProductSettings.shopProductId],
+      values: { shopProductId: l.shopProductId, shopId: purchase.shopId, lastPurchaseRatePaise: unitCost, lastPurchaseAt: new Date(), lastSupplierId: purchase.partyId },
+      set: { lastPurchaseRatePaise: unitCost, lastPurchaseAt: new Date(), lastSupplierId: purchase.partyId, updatedAt: new Date() },
+    });
   }
   await postStock(postings, client);
 

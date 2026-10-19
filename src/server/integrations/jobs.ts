@@ -98,7 +98,7 @@ export async function enqueueJob(input: EnqueueInput, client: DbClient = db): Pr
       subjectId: input.subjectId ?? null,
       payload: input.payload ?? {},
     })
-    .onConflictDoNothing({ target: integrationJobs.idempotencyKey })
+    .onConflictDoNothing() // the only unique key is the idempotency key
     .returning({ id: integrationJobs.id });
   if (row) {
     scheduleDispatch(client);

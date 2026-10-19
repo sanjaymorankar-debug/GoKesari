@@ -328,6 +328,12 @@ export function tablesOwnedBy(db: "seller" | "customer"): string[] {
 export const SELLER_READS_FROM_CORE = ["users", "platform_settings", "roles", "user_role_grants"] as const;
 
 /**
+ * Core tables the seller database writes through postgres_fdw: the product
+ * master records its promotions in the audit log inside the same transaction.
+ */
+export const SELLER_WRITES_TO_CORE = ["audit_logs"] as const;
+
+/**
  * Seller tables the customer (core) database reads through postgres_fdw for
  * order → shop → product reads (order pages, invoices, admin).
  */

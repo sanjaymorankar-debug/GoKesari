@@ -11,6 +11,7 @@ import { validationFailed } from "@/lib/errors";
 import type { BookAccount, VoucherType } from "@/lib/accounts/constants";
 import { db, type DbClient } from "@/server/db";
 import { accChangeLog, accCounters, accLedgerEntries, invSettings, type AccLedgerEntry, type InvSettings } from "@/server/db/schema";
+import { upsertRow } from "@/server/db/split/upsert";
 
 export interface Leg {
   account: BookAccount;
@@ -158,11 +159,7 @@ export async function updateSettings(shopId: string, patch: SettingsPatch, actor
 
 /** Next number for the shop's own document of `kind` in financial year `fy` (row-locked, gap-free). */
 export async function nextNumber(shopId: string, kind: string, fy: string, client: DbClient): Promise<number> {
-  const [row] = await client
-    .insert(accCounters)
-    .values({ shopId, kind, fy, next: 2 })
-    .onConflictDoUpdate({ target: [accCounters.shopId, accCounters.kind, accCounters.fy], set: { next: sql`${accCounters.next} + 1` } })
-    .returning({ next: accCounters.next });
+  const row = await upsertRow(client, accCounters, { keys: [accCounters.shopId, accCounters.kind, accCounters.fy], values: { shopId, kind, fy, next: 2 }, set: { next: sql`${accCounters.next} + 1` } });
   return row.next - 1;
 }
 
