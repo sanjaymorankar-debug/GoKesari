@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export const GET = route(async (_request: NextRequest, context: RouteContext<{ id: string }>) => {
   await requirePermission(PERMISSIONS.PMD_VIEW);
   const { id } = await context.params;
-  const product = await getProduct(appSql(), assertMasterId(id));
+  const product = await getProduct(await appSql(), assertMasterId(id));
   if (!product) throw notFound("Product");
   return ok(product);
 });

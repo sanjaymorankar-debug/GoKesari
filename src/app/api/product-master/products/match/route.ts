@@ -18,5 +18,5 @@ export const dynamic = "force-dynamic";
 export const POST = route(async (request: NextRequest) => {
   await requirePermission(PERMISSIONS.PMD_VIEW);
   const { product } = await parseBody(request, matchBodySchema);
-  return ok(await matchProduct(appSql(), product as StagedProduct));
+  return ok(await matchProduct(await appSql(), product as StagedProduct));
 });

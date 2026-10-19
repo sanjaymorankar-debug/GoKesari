@@ -13,5 +13,5 @@ export const dynamic = "force-dynamic";
 
 export const GET = route(async () => {
   await requirePermission(PERMISSIONS.PMD_VIEW);
-  return ok(await getDataQualityReport(appSql()));
+  return ok(await getDataQualityReport(await appSql()));
 });

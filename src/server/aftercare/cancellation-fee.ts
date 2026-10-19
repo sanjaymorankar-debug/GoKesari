@@ -27,6 +27,7 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { getRule } from "@/server/services/settings";
+import { upsertRow } from "@/server/db/split/upsert";
 
 export type FeeType = "FLAT" | "PERCENT";
 type FeeRule = RuleValue<"afterPackingCancellation">;
@@ -220,11 +221,7 @@ export async function setShopCancellationFee(
     updatedBy: actor.id,
     updatedAt: new Date(),
   };
-  const [row] = await db
-    .insert(shopCancellationFeeSettings)
-    .values({ shopId, ...values })
-    .onConflictDoUpdate({ target: shopCancellationFeeSettings.shopId, set: values })
-    .returning();
+  const row = await upsertRow(db, shopCancellationFeeSettings, { keys: [shopCancellationFeeSettings.shopId], values: { shopId, ...values }, set: values });
   await recordAudit({
     actorId: actor.id,
     actorRole: actor.role,

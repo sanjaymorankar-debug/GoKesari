@@ -1,5 +1,12 @@
 # Seller DB / Customer DB split (Task 1)
 
+> **19 Oct 2026 — the switch to two databases is built:**
+> [CODE_SPLIT_PLAN.md](CODE_SPLIT_PLAN.md) (design, what changed in the code,
+> and the runbook in §5). The site's database stays the customer database; the
+> seller tables move to the seller database and are reached through
+> postgres_fdw. The copy-based phases below are the earlier plan, kept for the
+> record.
+
 Status, 13 Oct 2026: **tooling built and tested; the split itself is waiting on the
 seller database details.** The site keeps running on its single database
 (`DB_SPLIT_MODE=single`, the default) until the cut-over steps below are done.
@@ -87,9 +94,9 @@ changes through the same events.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `DB_SPLIT_MODE` | `single` | `single`: everything in `DATABASE_URL` (today). `shadow`: still served from `DATABASE_URL` while the two new databases are filled and verified. `split`: seller reads go to `SELLER_DATABASE_URL` through `src/server/db/split` (Phase 2) |
-| `SELLER_DATABASE_URL` | — | **PLACEHOLDER** — gokesari_seller. To be shared by the owner for test.gokesari.com |
-| `CUSTOMER_DATABASE_URL` | `DATABASE_URL` | gokesari_customer |
+| `DB_SPLIT_MODE` | `single` | `single`: everything in `DATABASE_URL` (today). `split`: the site may use the split layout once its database is switched (CODE_SPLIT_PLAN.md §5) — safe to set before the switch. `shadow`: earlier plan, unused |
+| `SELLER_DATABASE_URL` | — | the seller database (`gokesari_seller` for test.gokesari.com) |
+| `CUSTOMER_DATABASE_URL` | `DATABASE_URL` | not used by the switch: the site's database is the customer database |
 
 GitHub secrets for the workflow (Settings → Environments → `test` / `production`):
 `TEST_SELLER_DATABASE_URL`, `TEST_CUSTOMER_DATABASE_URL`,

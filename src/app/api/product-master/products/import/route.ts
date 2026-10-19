@@ -21,7 +21,7 @@ export const maxDuration = 60;
 export const POST = route(async (request: NextRequest) => {
   const user = await requirePermission(PERMISSIONS.PMD_IMPORT);
   const { rows } = await parseBody(request, importBodySchema);
-  const summary = await guarded(() => importProducts(appSql(), rows as StagedProduct[], user.email || user.id));
+  const summary = await guarded(async () => importProducts(await appSql(), rows as StagedProduct[], user.email || user.id));
   await recordAudit({
     actorId: user.id,
     actorRole: user.role,

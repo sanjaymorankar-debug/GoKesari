@@ -31,7 +31,7 @@ async function main() {
   const { eq } = await import("drizzle-orm");
   void manufacturerAccountsForUser;
 
-  await ensureReferenceData(appSql());
+  await ensureReferenceData(await appSql());
   let [admin] = await db.select().from(users).where(eq(users.email, "bench-admin@gokesari.local"));
   if (!admin) [admin] = await db.insert(users).values({ email: "bench-admin@gokesari.local", role: "ADMIN" }).returning();
   const actor = { id: admin.id, role: "ADMIN" as const };

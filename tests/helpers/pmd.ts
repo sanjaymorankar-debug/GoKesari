@@ -2,7 +2,9 @@
  * Test helpers for the Product Master Data Platform.
  *
  * PMD integration tests use the same TEST_DATABASE_URL as the rest of the suite
- * (tests/setup.ts points DATABASE_URL at it before any module loads).
+ * (tests/setup.ts points DATABASE_URL at it before any module loads). On the
+ * split test layout (DB_SPLIT_MODE=split) they use the seller database, as the
+ * app's product master does once a site is switched (src/server/pmd/db.ts).
  */
 import { createSql, type Sql } from "@/server/pmd/db";
 import { gs1CheckDigit } from "@/server/pmd/normalize/identifiers";
@@ -16,7 +18,7 @@ let sqlSingleton: Sql | null = null;
 
 export function pmdSql(): Sql {
   if (!sqlSingleton) {
-    const url = process.env.DATABASE_URL;
+    const url = process.env.DB_SPLIT_MODE === "split" && process.env.SELLER_DATABASE_URL ? process.env.SELLER_DATABASE_URL : process.env.DATABASE_URL;
     if (!url) throw new Error("DATABASE_URL is not set");
     sqlSingleton = createSql(url, { max: 6, applicationName: "gokesari-pmd-tests" });
   }

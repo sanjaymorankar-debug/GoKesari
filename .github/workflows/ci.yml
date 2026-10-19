@@ -95,6 +95,56 @@ jobs:
       - name: Production build
         run: npm run build
 
+  # The same suite on the seller / customer split layout (two databases; seller
+  # tables reached through postgres_fdw — docs/db-split-2026-10/CODE_SPLIT_PLAN.md),
+  # so a change that works on one database but not across the two fails here.
+  test-split:
+    needs: scope
+    if: needs.scope.outputs.app == 'yes'
+    runs-on: ubuntu-latest
+
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dairy_bakery_test
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/dairy_bakery_test
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/dairy_bakery_test
+      SELLER_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/dairy_bakery_seller
+      DB_SPLIT_MODE: split
+      AUTH_SECRET: ci-only-secret-not-used-in-production
+      CRON_SECRET: ci-only-cron-secret
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Apply migrations (core)
+        run: npm run db:migrate
+
+      - name: Build the split layout
+        run: |
+          PGPASSWORD=postgres psql -h localhost -U postgres -c "create database dairy_bakery_seller"
+          npx tsx scripts/db-split/test-layout.ts --core "$TEST_DATABASE_URL" --seller "$SELLER_DATABASE_URL"
+
+      - name: Unit and integration tests (split layout)
+        run: npm test
+
   mobile:
     # The Android/iOS app (mobile/): a separate Expo project with its own
     # dependencies. Native builds run on EAS (mobile/README.md); this checks

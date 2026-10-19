@@ -76,7 +76,8 @@ const SORTS: Record<BrowserSort, string> = {
   gtin: "m.gtin",
 };
 
-export async function searchBrowser(query: BrowserQuery, sql: Sql = appSql()): Promise<{ rows: BrowserRow[]; total: number; page: number; pageSize: number }> {
+export async function searchBrowser(query: BrowserQuery, client?: Sql): Promise<{ rows: BrowserRow[]; total: number; page: number; pageSize: number }> {
+  const sql = client ?? (await appSql());
   const pageSize = Math.min(Math.max(query.pageSize ?? 50, 1), 200);
   const page = Math.max(query.page ?? 1, 1);
   const scope = query.scope ?? "all";
@@ -164,7 +165,8 @@ export async function searchBrowser(query: BrowserQuery, sql: Sql = appSql()): P
 }
 
 /** Figures for the product-browser board. Each read is caught: a missing figure just shows no headline. */
-export async function browserBoardCounts(sql: Sql = appSql()): Promise<{ staging: number | null; master: number | null; duplicates: number | null; activeJobs: number | null; manufacturers: number | null }> {
+export async function browserBoardCounts(client?: Sql): Promise<{ staging: number | null; master: number | null; duplicates: number | null; activeJobs: number | null; manufacturers: number | null }> {
+  const sql = client ?? (await appSql());
   const one = async (q: Promise<{ n: number }[]>) => {
     try {
       return (await q)[0]?.n ?? 0;
@@ -199,7 +201,8 @@ const SIDE = `p.product_id, p.master_product_id, p.product_name, b.brand_name, p
   EXISTS (SELECT 1 FROM pmd.catalogue_link l WHERE l.product_id = p.product_id) AS in_catalogue`;
 
 /** Open possible-duplicate pairs from the match engine, both records side by side. */
-export async function listDuplicatePairs(limit = 50, sql: Sql = appSql()): Promise<DuplicatePair[]> {
+export async function listDuplicatePairs(limit = 50, client?: Sql): Promise<DuplicatePair[]> {
+  const sql = client ?? (await appSql());
   const rows = await sql<{ candidate_id: number; match_score: number; match_status: string; relation: string; hard_conflicts: string[]; source_product: number | null; candidate_product: number }[]>`
     SELECT mc.candidate_id, mc.match_score, mc.match_status, mc.relation, mc.hard_conflicts, ps.product_id AS source_product, mc.candidate_product_id AS candidate_product
     FROM pmd.match_candidate mc JOIN pmd.product_source ps ON ps.product_source_id = mc.product_source_id
@@ -227,7 +230,8 @@ export async function listDuplicatePairs(limit = 50, sql: Sql = appSql()): Promi
 }
 
 /** Two records side by side (for a pair the operator picked themselves). */
-export async function compareProducts(a: string, b: string, sql: Sql = appSql()): Promise<{ left: Record<string, unknown>; right: Record<string, unknown> }> {
+export async function compareProducts(a: string, b: string, client?: Sql): Promise<{ left: Record<string, unknown>; right: Record<string, unknown> }> {
+  const sql = client ?? (await appSql());
   const rows = await sql.unsafe<Record<string, unknown>[]>(
     `SELECT ${SIDE} FROM pmd.product_master p LEFT JOIN pmd.brand b ON b.brand_id = p.brand_id LEFT JOIN pmd.category c ON c.category_id = p.category_id WHERE p.master_product_id = ANY($1::text[])`,
     [[a, b] as never],
@@ -242,8 +246,9 @@ export async function compareProducts(a: string, b: string, sql: Sql = appSql())
 export async function mergeDuplicate(
   input: { fromMasterId: string; intoMasterId: string; reason?: string | null },
   actor: BrowserActor,
-  sql: Sql = appSql(),
+  client?: Sql,
 ) {
+  const sql = client ?? (await appSql());
   const ids = await sql<{ product_id: number; master_product_id: string }[]>`
     SELECT product_id, master_product_id FROM pmd.product_master WHERE master_product_id IN (${input.fromMasterId}, ${input.intoMasterId})`;
   const from = ids.find((r) => r.master_product_id === input.fromMasterId);
@@ -287,7 +292,8 @@ export interface BulkEditResult {
   skipped: { masterProductId: string; reason: string }[];
 }
 
-export async function bulkEdit(input: BulkEditInput, actor: BrowserActor, sql: Sql = appSql()): Promise<BulkEditResult> {
+export async function bulkEdit(input: BulkEditInput, actor: BrowserActor, client?: Sql): Promise<BulkEditResult> {
+  const sql = client ?? (await appSql());
   const ids = [...new Set(input.masterProductIds)];
   if (ids.length === 0) throw validationFailed("Select at least one product.");
   if (ids.length > 500) throw validationFailed("Edit at most 500 products at a time.");
@@ -407,8 +413,9 @@ export async function promoteMany(
   masterProductIds: string[],
   actor: BrowserActor,
   opts: { minQuality?: number; note?: string | null; images?: boolean } = {},
-  sql: Sql = appSql(),
+  client?: Sql,
 ): Promise<{ promoted: number; adopted: number; refused: number; outcomes: PromoteOutcome[] }> {
+  const sql = client ?? (await appSql());
   const ids = [...new Set(masterProductIds)];
   if (ids.length === 0) throw validationFailed("Select at least one product.");
   if (ids.length > 500) throw validationFailed("Promote at most 500 products at a time.");
