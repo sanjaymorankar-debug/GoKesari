@@ -24,6 +24,32 @@ import { createHash } from "node:crypto";
 import { readFileSync } from "node:fs";
 import path from "node:path";
 
+/**
+ * libpq-only URL settings. postgres.js would send them to the server as
+ * session settings, which Postgres refuses ("unrecognized configuration
+ * parameter") — Neon's copy-paste URLs carry channel_binding=require. Same
+ * list as src/server/db/split/tools.ts (connect()).
+ */
+export const LIBPQ_ONLY_PARAMS = ["channel_binding", "gssencmode", "sslcert", "sslkey", "sslpassword", "sslcrl", "krbsrvname"];
+
+/**
+ * A database URL postgres.js can open: surrounding whitespace trimmed (a
+ * secret saved with a trailing newline) and the libpq-only settings dropped.
+ * The migration scripts open the seller database straight from
+ * SELLER_DATABASE_URL, so without this a Neon URL stops every migration on a
+ * split site (and with it the host's build).
+ */
+export function cleanDatabaseUrl(url) {
+  const trimmed = String(url ?? "").trim();
+  try {
+    const u = new URL(trimmed);
+    for (const key of LIBPQ_ONLY_PARAMS) u.searchParams.delete(key);
+    return u.toString();
+  } catch {
+    return trimmed;
+  }
+}
+
 /** The core tables the seller database reaches through postgres_fdw — must equal SELLER_READS_FROM_CORE + SELLER_WRITES_TO_CORE (ownership.ts; a unit test checks). */
 export const SELLER_LINKED_CORE_TABLES = [
   "users",
