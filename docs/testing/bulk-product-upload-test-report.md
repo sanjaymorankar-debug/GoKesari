@@ -27,7 +27,7 @@ exactly that — nothing is claimed for an environment it was not run on.
 | Production smoke, signed in with a test shop (§2.9) | 4 | — | — | **4 pass** |
 | Mobile app (unit, typecheck, lint) | 26 tests | **pass** | — | — |
 | Full regression suite (all existing unit + integration tests) | 1,811 | **all pass** after D-9, re-checked after merging `staging` (see §4) | Not run | Not run |
-| Environment end-to-end (web, Android, iOS on real accounts) | 9 | — | **4 pass** (E-01–E-03, E-06); E-04/E-05 need a phone; E-09 see §2.6 | **E-06, E-07 pass** (E-07 signed in, §2.9); E-08 not needed |
+| Environment end-to-end (web, Android, iOS on real accounts) | 9 | — | **4 pass** (E-01–E-03, E-06); E-04/E-05 need a phone; E-09 see §2.6 | **E-06, E-07, E-08 pass** (E-07 and E-08 signed in, §2.9) |
 
 ## 2. Test cases
 
@@ -135,7 +135,7 @@ Script: Playwright (Chromium). Screenshots in
 | E-05 | iPhone | Same, from Files | Not run | — |
 | E-06 | Migration | `0077` applied by the Test database workflow | **Pass** (run 31: 80 recorded, newest `0077_product_bulk_import`; backup taken first) | **Pass** — applied by the gokesari.com build (`MIGRATE_ON_BUILD`; the build stops before deploying if a migration fails, and the new routes answer) |
 | E-07 | Prod smoke | One small import into a designated test shop; check stock and the report | — | **Pass** (18 Oct 2026, §2.9): one-row import into the test shop, stock 3 = file Quantity, report row "created", then the Delete file deactivated it |
-| E-08 | Prod clean-up | Delete-action file deactivates the test products | — | Not needed (nothing was written) |
+| E-08 | Prod clean-up | Delete-action file deactivates the test products | — | **Pass** (18 Oct 2026, PROD-04 in §2.9): the smoke product is hidden with stock 0 |
 | E-09 | Regression on the site | Manual add product, add category, Excel price upload | Not run on the site (covered locally by I-23 and the full suite, §4) | Not run |
 
 ### 2.7 Live run on test.gokesari.com (15 Oct 2026)
