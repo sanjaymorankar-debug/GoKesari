@@ -102,6 +102,7 @@ export default async function CartPage() {
         codUnavailableReason={codUnavailableReason}
         hasMobile={Boolean(account?.phoneE164)}
         couponsEnabled={(await getRule("coupons")).enabled}
+        onlinePaymentsEnabled={(await getRule("onlinePayments")).enabled}
         openOrders={openOrders.map((o) => ({
           id: o.id,
           orderNumber: o.orderNumber,

@@ -54,7 +54,7 @@ Board" design, in English, Hindi and Marathi.
 | `ANTHROPIC_API_KEY` + `INVOICE_EXTRACTION_PROVIDER=claude` | AI reading of photos / scans / PDFs (Hindi, Marathi, handwriting). Without it: e-invoice, Excel, PDF text and English OCR only. `INVOICE_AI_MODEL` overrides the model |
 | `GST_RETURNS_PROVIDER` | `none` (upload files; the default on gokesari.com), `mock` (OTP **575757**; the default where `GSP_PROVIDER=mock`, i.e. test.gokesari.com — refused on the production host), a licensed GSP's adapter once contracted |
 | `EINVOICE_QR_PUBLIC_KEY` | NIC IRP public key (PEM) — verifies the e-invoice QR signature |
-| `INTEGRATION_ENCRYPTION_KEY` | Already used by Module 2; also encrypts GST portal tokens and stored bills |
+| `INTEGRATION_ENCRYPTION_KEY` | Already used by Module 2; also encrypts GST portal tokens and stored bills. Must be **base64 of 32 bytes** — generate with `openssl rand -base64 32` (44 characters ending in `=`). Without a valid key GST linking is refused and bills are stored unencrypted |
 | `ACCOUNTS_STORAGE=s3`, `ACCOUNTS_S3_ENDPOINT`, `ACCOUNTS_S3_BUCKET`, `ACCOUNTS_S3_REGION`, `ACCOUNTS_S3_ACCESS_KEY_ID`, `ACCOUNTS_S3_SECRET_ACCESS_KEY` | Bills in an S3-compatible bucket (R2, B2, S3, MinIO). Otherwise MEDIA_DIR, otherwise the database |
 | `INBOUND_EMAIL_SECRET`, `INBOUND_EMAIL_DOMAIN` | Email forwarding: each shop gets `bills+<id>-<sig>@<domain>`; the mail provider posts to `/api/inbound/bill-email` with the secret as bearer token |
 
@@ -102,8 +102,15 @@ native app).
 
 ## 6. Status, tests
 
-- Tracker: `docs/inventory-accounting-2026-10/INVENTORY_ACCOUNTING_TRACKER_2026-10-15.xlsx`
+Released to gokesari.com on 15 Oct 2026 by #179 (main @acfaa6a, migrations 0076–0078),
+after staging testing found and #172 fixed three defects.
+
+- Tracker: `docs/inventory-accounting-2026-10/INVENTORY_ACCOUNTING_TRACKER_2026-10-15.xlsx`,
+  and the sheet "Inventory & Accounting" in
+  `docs/gokesari-audit/GOKESARI_FEATURE_STATUS_REPORT_2026-10-15.xlsx`
   (owner's folder: `/Users/agtci/Documents/Doc_GoKesari/Devlopment_Trackers`)
 - Testing report: `docs/inventory-accounting-2026-10/TESTING_REPORT.md` and
   `INVENTORY_ACCOUNTING_TEST_REPORT_2026-10-15.xlsx`
   (owner's folder: `/Users/agtci/Documents/Doc_GoKesari/Test_Cases_Tracking`)
+- Live-site scripts: `scripts/test-site/` — `signin.mjs`, `accounts-check.mjs` (test site only),
+  `stock-order-check.mjs` (test site only), `prod-smoke.mjs` (read-only, any site)

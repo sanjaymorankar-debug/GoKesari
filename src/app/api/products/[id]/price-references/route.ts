@@ -6,6 +6,8 @@
  */
 import type { NextRequest } from "next/server";
 
+import { notFound } from "@/lib/errors";
+import { PRICE_REFERENCES_DROPPED } from "@/lib/price-references-drop";
 import { ok, route, type RouteContext } from "@/server/api/handler";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
@@ -14,6 +16,8 @@ import { listReferencesForProduct } from "@/server/services/price-references";
 export const dynamic = "force-dynamic";
 
 export const GET = route(async (_request: NextRequest, context: RouteContext<{ id: string }>) => {
+  // batch-2026-10 WS-A: F1.4.3 dropped — this public endpoint answers 404 for everyone.
+  if (PRICE_REFERENCES_DROPPED) throw notFound("Reference prices");
   const { id } = await context.params;
   const user = await getCurrentUser();
   const viewer = !user

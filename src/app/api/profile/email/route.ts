@@ -28,6 +28,11 @@ export const POST = route(async (request: NextRequest) => {
     limit: rules.maxRequestsPerIpPerWindow,
     windowMs: rules.resendWindowMinutes * 60_000,
   });
+  // batch-2026-10 WS-A (GS-074): per account too (also counted in the database by the OTP service).
+  enforceRateLimit(`email-change-user:${user.id}`, {
+    limit: rules.maxResendsPerWindow,
+    windowMs: rules.resendWindowMinutes * 60_000,
+  });
   const body = await parseBody(request, requestSchema);
   return ok(await requestEmailChangeOtp(user.id, { email: body.email, ip: ipOf(request) }));
 });

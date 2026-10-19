@@ -898,8 +898,15 @@ export async function adminDecideVerification(
   /** more_info (event layer): send it back to the seller saying what is missing — they resubmit. */
   input: { decision: "approve" | "reject" | "more_info"; reason: string },
   actor: Actor,
+  /**
+   * batch-2026-10 WS-D: `scopedReviewer` — the caller (services/operator-limited.ts)
+   * has already checked that this actor may review THIS shop (an Operator-Limited
+   * user and a shop they onboarded), so the global reviewer capability is not
+   * required. Default: the global check, as before.
+   */
+  options: { scopedReviewer?: boolean } = {},
 ): Promise<SellerVerificationView> {
-  if (!isReviewer(actor)) throw forbidden("You can't review seller documents.");
+  if (!options.scopedReviewer && !isReviewer(actor)) throw forbidden("You can't review seller documents.");
   const reason = input.reason.trim();
   if (input.decision === "reject" && reason.length < 3) throw validationFailed("A rejection reason is required.");
   if (input.decision === "more_info" && reason.length < 3) throw validationFailed("Say what information is needed.");

@@ -205,8 +205,9 @@ describe("menu definitions", () => {
     // Shop +2: Inventory → "Bills & GST" (docs/inventory-accounting-2026-10) and Bulk upload (Excel/CSV)
     // (docs/product-import-2026-10); operator +1: Catalogue → Bulk upload (the admin's is under Product master → more).
     expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(41);
-    expect(ADMIN_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(39);
-    expect(OPERATOR_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(27);
+    // batch-2026-10 WS-A: admin and operator -1 each — "Ref. prices" removed (F1.4.3 dropped).
+    expect(ADMIN_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(38);
+    expect(OPERATOR_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(26);
   });
 
   it("keep every group to at most seven entries on the board (Hick's law)", () => {
@@ -247,7 +248,10 @@ describe("menu definitions", () => {
 /* ------------------------------------------- one clear path to each function */
 
 describe("one clear path", () => {
-  /** The flat role menus the old site header carried (removed in favour of the boards). */
+  /**
+   * The flat role menus the old site header carried (removed in favour of the boards).
+   * batch-2026-10 WS-A: /admin/price-references is no longer on a board (F1.4.3 dropped).
+   */
   const OLD_ROLE_MENUS: Record<"SHOP_OWNER" | "OPERATOR" | "ADMIN", string[]> = {
     SHOP_OWNER: [
       "/shop", "/shop/orders", "/shop/returns", "/shop/disputes", "/shop/inventory", "/shop/catalogue", "/shop/media-import",
@@ -257,14 +261,14 @@ describe("one clear path", () => {
     ],
     OPERATOR: [
       "/admin", "/admin/dashboard", "/admin/orders", "/admin/exceptions", "/admin/shops", "/admin/product-master", "/product-categories",
-      "/admin/shop-categories", "/admin/mrp", "/admin/price-references", "/admin/finance/exceptions", "/admin/returns",
+      "/admin/shop-categories", "/admin/mrp", "/admin/finance/exceptions", "/admin/returns",
       "/admin/image-moderation", "/admin/suspensions", "/admin/societies", "/admin/ratings", "/admin/analytics", "/admin/campaigns",
       "/admin/risk", "/admin/consents", "/admin/disputes", "/admin/cod", "/admin/legal-documents", "/admin/referral-requests",
       "/admin/integrations", "/admin/self-registration",
     ],
     ADMIN: [
       "/admin", "/admin/dashboard", "/admin/orders", "/admin/exceptions", "/admin/shops", "/admin/product-master", "/product-categories",
-      "/admin/shop-categories", "/admin/mrp", "/admin/price-references", "/admin/finance", "/admin/shop-wallets", "/admin/returns",
+      "/admin/shop-categories", "/admin/mrp", "/admin/finance", "/admin/shop-wallets", "/admin/returns",
       "/admin/suspensions", "/admin/rider-earnings", "/admin/settings", "/admin/gst-config", "/admin/integrations", "/admin/self-registration",
       "/admin/societies", "/admin/ratings", "/admin/analytics", "/admin/campaigns", "/admin/risk", "/admin/consents", "/admin/disputes",
       "/admin/cod", "/admin/coupons", "/admin/delivery-slots", "/admin/image-moderation", "/admin/rider-changes", "/admin/rider-kyc",

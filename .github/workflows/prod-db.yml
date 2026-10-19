@@ -53,6 +53,12 @@ jobs:
   prod-db:
     # Only the reviewed copy of this file on main may run against production.
     if: github.ref == 'refs/heads/main'
+    # F14.2.1 (PLT-009): the production secrets and variables are kept on the
+    # "production" environment (as db-split.yml and copy-shops.yml already use).
+    # Without this line the job sees only repository-level values, which is why
+    # earlier runs found PROD_DATABASE_URL — and later PROD_DATABASE_HOST /
+    # PROD_DATABASE_NAME — empty. Repository-level values stay visible too.
+    environment: production
     runs-on: ubuntu-latest
     timeout-minutes: 20
     # The production URL is passed only to the steps that need it (never to npm).
@@ -77,6 +83,14 @@ jobs:
           ref: ${{ inputs.source }}
           path: release
           persist-credentials: false
+
+      - name: Preflight — required secrets and variables are visible (values never printed)
+        env:
+          PROD_DATABASE_URL: ${{ secrets.PROD_DATABASE_URL }}
+          PROD_DATABASE_URL_AS_VAR: ${{ vars.PROD_DATABASE_URL != '' && 'present' || '' }}
+          TEST_DATABASE_URL: ${{ secrets.TEST_DATABASE_URL }}
+          RUN_ENVIRONMENT: production
+        run: tools/scripts/prod-db/preflight.sh
 
       - name: Guard — production, by hand, confirmed
         env:

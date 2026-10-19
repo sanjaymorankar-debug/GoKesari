@@ -554,6 +554,48 @@
       "when": 1792124853436,
       "tag": "0078_inventory_ledger_order_cancel",
       "breakpoints": true
+    },
+    {
+      "idx": 79,
+      "version": "7",
+      "when": 1792124854436,
+      "tag": "0079_batch_a_payments",
+      "breakpoints": true
+    },
+    {
+      "idx": 80,
+      "version": "7",
+      "when": 1792124855436,
+      "tag": "0080_batch_b_dispatch",
+      "breakpoints": true
+    },
+    {
+      "idx": 81,
+      "version": "7",
+      "when": 1792124856436,
+      "tag": "0081_batch_c_aftercare",
+      "breakpoints": true
+    },
+    {
+      "idx": 82,
+      "version": "7",
+      "when": 1792124857436,
+      "tag": "0082_batch_d_catalogue",
+      "breakpoints": true
+    },
+    {
+      "idx": 83,
+      "version": "7",
+      "when": 1792124858436,
+      "tag": "0083_batch_e_finance",
+      "breakpoints": true
+    },
+    {
+      "idx": 84,
+      "version": "7",
+      "when": 1792124859436,
+      "tag": "0084_batch_f_notifications",
+      "breakpoints": true
     }
   ]
 }

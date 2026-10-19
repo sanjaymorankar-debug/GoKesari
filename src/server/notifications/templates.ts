@@ -23,6 +23,7 @@ export const CATEGORIES = {
   COMMUNITY: { label: "Society", description: "Society membership and security notices." },
   ACCOUNT_SECURITY: { label: "Account & security", description: "Sign-ins, number and role changes. Always sent." },
   GENERAL: { label: "Other updates", description: "Everything else." },
+  ANNOUNCEMENTS: { label: "Announcements", description: "News and offers GoKesari sends to everyone or to your area." }, // batch-2026-10 WS-F
 } as const;
 export type CategoryKey = keyof typeof CATEGORIES;
 
@@ -49,6 +50,7 @@ const PREFIX_CATEGORY: [string, CategoryKey][] = [
   ["security.", "ACCOUNT_SECURITY"],
   ["auth.", "ACCOUNT_SECURITY"],
   // Event layer: support alerts and risk flags are operations news (GENERAL).
+  ["broadcast.", "ANNOUNCEMENTS"], // batch-2026-10 WS-F
 ];
 
 export function categoryOf(type: string): CategoryKey {
@@ -254,6 +256,111 @@ export const TEMPLATES: Record<string, Template> = {
     "Delivery code locked — confirm the drop",
     "Order {{orderNumber}} ({{shopName}}): {{attempts}} wrong delivery codes, so the rider cannot complete it. Ticket {{ticketNumber}}. Call the customer, then confirm the delivery or mark it failed from the exceptions queue.",
   ),
+  /* >>> batch-2026-10 WS-A (payments, OTP, reference prices) — add entries below this line only */
+  [T.ORDER_PAYMENT_CAPTURED]: t("Payment received", "We received your payment of {{amount}} for {{reference}}. Thank you!"),
+  [T.ORDER_PAYMENT_FAILED]: t(
+    "Payment failed",
+    "Your payment of {{amount}} for {{reference}} did not go through{{reason}}. Open the order to try again.",
+  ),
+  [T.ORDER_PAYMENT_EXPIRED]: t(
+    "Payment not completed",
+    "The payment of {{amount}} for {{reference}} was not completed in time. Open the order to pay again.",
+  ),
+  [T.ORDER_PAYMENT_REFUNDED]: t(
+    "Refund sent",
+    "{{amount}} for {{reference}} has been refunded to your original payment method. Banks usually take 5–7 working days to show it.",
+  ),
+  [T.SUPPORT_PAYMENT_ATTENTION]: t("Payment needs attention", "{{reference}}: {{problem}}", false),
+  /* <<< end WS-A */
+  //
+  /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — add entries below this line only */
+  [T.DELIVERY_BROADCAST_OFFERED]: t(
+    "Delivery available — first to accept gets it",
+    "Order {{orderNumber}} from {{shopName}} (~{{distanceKm}} km from you) is open to riders nearby. Accept it before someone else does.",
+    false,
+  ),
+  [T.DELIVERY_OFFER_TAKEN]: t("Offer taken", "Order {{orderNumber}} was accepted by another rider.", false),
+  [T.SHOP_RIDER_OFFER_BROADCAST]: t(
+    "Asking all riders nearby",
+    "Order {{orderNumber}}: the first rider did not accept in time, so the offer has gone to every rider within {{radiusKm}} km. You will hear as soon as one accepts.",
+    false,
+  ),
+  /* <<< end WS-B */
+  //
+  /* >>> batch-2026-10 WS-C (cancellation fee, refunds, help desk) — add entries below this line only */
+  [T.ORDER_REFUND_UPDATED]: t("Refund {{statusLabel}} — order {{orderNumber}}", "{{amount}} {{detail}}"),
+  [T.SHOP_ORDER_CANCELLED_AFTER_PACKING]: t(
+    "Packed order cancelled by the customer",
+    "Order {{orderNumber}} was cancelled after packing. A {{fee}} cancellation fee was kept{{beneficiaryNote}}. Please put the items back in stock.",
+  ),
+  [T.TICKET_RECEIVED]: t(
+    "We've received your request — {{ticketNumber}}",
+    "Ticket {{ticketNumber}} ({{subject}}) is with our support team. We will acknowledge it by {{acknowledgeBy}} and aim to resolve it by {{resolveBy}}.",
+  ),
+  [T.TICKET_STATUS_CHANGED]: t("Ticket {{ticketNumber}}: {{statusLabel}}", "Your ticket {{ticketNumber}} ({{subject}}) is now {{statusLabel}}. {{note}}"),
+  [T.TICKET_REPLY]: t("New reply on ticket {{ticketNumber}}", "{{author}}: {{excerpt}}"),
+  [T.TICKET_CSAT_REQUESTED]: t("How did we do? — {{ticketNumber}}", "Your ticket {{ticketNumber}} is closed. Please rate the help you got (1–5)."),
+  [T.SHOP_TICKET_AWAITING]: t(
+    "Support needs your reply — {{ticketNumber}}",
+    "A ticket about order {{orderNumber}} needs the shop's input: {{subject}}. Reply from Support tickets.",
+  ),
+  [T.SUPPORT_TICKET_NEW]: t("New ticket {{ticketNumber}}", "{{category}} — {{subject}} (from {{requester}}). Acknowledge by {{acknowledgeBy}}.", false),
+  [T.SUPPORT_TICKET_ASSIGNED]: t("Ticket {{ticketNumber}} assigned to you", "{{subject}} — resolve by {{resolveBy}}."),
+  [T.SUPPORT_TICKET_ESCALATED]: t("Ticket {{ticketNumber}} escalated", "{{subject}}: {{why}}"),
+  [T.SUPPORT_TICKET_REPLY]: t("Reply on ticket {{ticketNumber}}", "{{author}}: {{excerpt}}", false),
+  /* <<< end WS-C */
+  //
+  /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */
+  [T.SHOP_ONBOARDED_BY_OPERATOR]: t(
+    "Your shop has been registered",
+    "{{operatorName}} registered {{shopName}} for you on GoKesari after you confirmed the code we emailed. Registration {{registrationNumber}} is now with our team.",
+  ),
+  [T.SHOP_REGISTRATION_FEE_LINK]: t(
+    "Pay your GoKesari registration fee",
+    "Pay the registration fee of {{amount}} for {{shopName}} here: {{link}} — the link works until {{expiresAt}}.",
+  ),
+  [T.SHOP_REGISTRATION_FEE_PAID]: t(
+    "Registration fee received",
+    "We received the registration fee of {{amount}} for {{shopName}}. {{nextStep}}",
+  ),
+  [T.SHOP_REGISTRATION_FEE_FAILED]: t(
+    "Registration fee not received",
+    "The registration fee for {{shopName}} was not paid ({{reason}}). The shop now waits for an administrator's approval.",
+    false,
+  ),
+  [T.SUPPORT_SHOP_FEE_FAILED]: t(
+    "Shop waiting for approval — fee not paid",
+    "{{shopName}} was onboarded by {{operatorName}} but its registration fee was not paid ({{reason}}). It is pending administrator approval.",
+    false,
+  ),
+  [T.PMD_IMPORT_FINISHED]: t(
+    "Product import finished",
+    "{{fileName}}: {{staged}} product(s) staged, {{failed}} row(s) need attention ({{status}}).",
+    false,
+  ),
+  /* <<< end WS-D */
+  //
+  /* >>> batch-2026-10 WS-E (invoicing, payouts, statutory) — add entries below this line only */
+  // Emailed with the document attached by the document outbox (documents/email.ts), so no plain copy here.
+  [T.SHOP_INVOICE_COPY]: t("Invoice {{invoiceNumber}} issued", "Order {{orderNumber}} was delivered and invoice {{invoiceNumber}} ({{amount}}) was issued to the customer in your shop's name.", false),
+  [T.SHOP_PAYOUT_PAID]: t("Payout {{amount}} paid", "{{shopName}}'s payout for {{period}} was paid to your bank account. Bank reference (UTR): {{utr}}. Your statement is in Finance → Statements.", false),
+  [T.SHOP_PAYOUT_HELD]: t("Payout on hold", "{{shopName}}'s payout of {{amount}} for {{period}} is on hold: {{reason}} It moves to the next payout cycle."),
+  [T.SHOP_PAYOUT_FAILED]: t("Payout could not be paid", "The transfer of {{amount}} to {{shopName}}'s bank account failed: {{reason}} {{next}}"),
+  [T.SHOP_PLATFORM_INVOICE]: t("GoKesari invoice {{invoiceNumber}}", "GoKesari's tax invoice {{invoiceNumber}} for its fees ({{amount}} incl. GST) for {{period}} is in Finance → Statements.", false),
+  [T.SUPPORT_PAYOUT_BATCH_DRAFTED]: t("Payout batch ready to approve", "The payout batch for {{period}} has {{items}} shop payment(s) totalling {{amount}} ({{held}} held). Approve it in Admin → Payouts.", false),
+  [T.SUPPORT_PAYOUT_FAILED]: t("Payout failed", "The payout of {{amount}} to {{shopName}} failed after {{attempts}} attempt(s): {{reason}}", false),
+  /* <<< end WS-E */
+  //
+  /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */
+  // A broadcast carries its own title and message; email only for people who switched Announcements email on.
+  [T.BROADCAST]: t("{{title}}", "{{message}}", false),
+  [T.SUPPORT_BROADCAST_FINISHED]: t(
+    "Broadcast sent",
+    "\"{{title}}\" reached {{recipients}} people.",
+    false,
+  ),
+  /* <<< end WS-F */
+  //
 };
 
 /** Fills `{{name}}` placeholders; a missing variable becomes an empty string and extra spaces are tidied. */

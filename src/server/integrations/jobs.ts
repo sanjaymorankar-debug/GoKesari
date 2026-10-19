@@ -35,6 +35,7 @@ import type { CanonicalCreditNote, CanonicalInvoice } from "./canonical";
 import { decryptCredentials, encryptCredentials, CREDENTIALS_KEY_VERSION } from "./credentials";
 import { buildPushDocument } from "./documents";
 import { asIntegrationError, describeError, IntegrationError } from "./errors";
+import { inventorySyncEnabled } from "./inventory-sync-flag"; // batch-2026-10 WS-D
 import { applyPulledItems } from "./pull";
 import { API_PROVIDERS, adapterFor, isApiAdapter, isConnectorAdapter } from "./registry";
 import type { AdapterContext, ConnectorStep, PushResult } from "./types";
@@ -171,7 +172,12 @@ export function wakeConnector(integrationId: string, client: DbClient = db): voi
  */
 export function scheduleDispatch(client: DbClient = db): void {
   if (process.env.INTEGRATION_AUTODISPATCH === "off") return;
-  const run = () => void dispatchDueJobs().catch((error) => console.error("[integrations] dispatch failed", error));
+  // batch-2026-10 WS-D (F9.2.6): nothing is dispatched while rule inventorySync.enabled is off.
+  const run = () =>
+    void (async () => {
+      if (!(await inventorySyncEnabled())) return;
+      await dispatchDueJobs();
+    })().catch((error) => console.error("[integrations] dispatch failed", error));
   if (client === db) setTimeout(run, 0).unref?.();
   else setTimeout(run, 2_000).unref?.();
 }

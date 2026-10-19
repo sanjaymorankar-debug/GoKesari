@@ -15,6 +15,9 @@ inside a phone app.
 | Sign-in link by email | Hidden in the app: the link would sign in the phone's browser, not the app |
 | "Use my location", delivery-partner live location | Phone's location service, one permission prompt |
 | Photo uploads (products, proof of delivery, documents) | Camera or gallery picker |
+| QR scanning on a page (camera inside the page) | From version 1.2.0: Android asks for the camera permission the first time a page wants the camera; iPhone allows it for GoKesari's own pages |
+| Push notifications | From version 1.2.0: after sign-in the site asks the app for this phone's push token (one permission prompt) and registers it; tapping a notification opens its page in the app. Sent only while the website's rule `push` is on (see [Push notifications](#push-notifications)) |
+| Notification centre | The bell (unread count) opens the latest notifications; "See all" is /notifications |
 | Bulk product upload (Excel/CSV: Inventory → Bulk upload; admin/operator: Catalogue → Bulk upload) | The phone's document picker — Android's system picker (Files, Downloads, Google Drive, WhatsApp and e-mail attachments), iPhone's Files. Accepts .xlsx, .xlsm and .csv. The result report downloads like any other file (below). From version 1.1.0 |
 | Invoice PDF, Excel templates | Android: saved to Downloads, with a notification. iPhone: share sheet (Save to Files, WhatsApp, Print…) |
 | Print (invoice page) | Native print dialog |
@@ -45,6 +48,8 @@ How it is put together:
 | `src/bridge-script.ts` | Script injected into the website's pages: share, location, print, downloads, outside links |
 | `src/bridge.ts` | The native side of that script |
 | `src/google-sign-in.ts` | Google sign-in through the system browser. The website side is `src/server/mobile-auth.ts` and `src/app/mobile-auth/` at the repository root |
+| `src/push.ts`, `src/push-registration.ts` | Push: permission, Android channel, the Expo token for the bridge message `push.getToken`, notification taps. The website side is `src/lib/mobile-bridge-push.ts` and `POST /api/push-tokens` |
+| `src/deep-links.ts` | Which incoming links and notification taps open inside the app (the route map) |
 | `app.config.ts` | Name, ids, permissions and deep links for both builds |
 | `eas.json` | Cloud build profiles |
 
@@ -229,7 +234,36 @@ you, not app code:
   printing, downloads and deep links. Push notifications would strengthen it
   further (see [Not included yet](#not-included-yet)).
 
+## Push notifications
+
+The website sends push through Expo's push service to the token each signed-in
+phone registered. Nothing is sent until an admin switches rule **push** on
+(Settings → Rules: `enabled: true`, `provider: "expo"`; `provider: "mock"`
+writes pushes to /admin/test-messages instead — test site only).
+
+One-time setup for real pushes:
+
+1. **Expo project** linked (see First-time setup) — the token belongs to it.
+2. **Android (FCM):** create a Firebase project with an Android app for
+   `com.gokesari.app` (and `com.gokesari.app.preview`), download
+   `google-services.json`, add it to EAS as a secret file variable named
+   `GOOGLE_SERVICES_JSON` (`npx eas-cli@latest env:create --name GOOGLE_SERVICES_JSON --type file --value ./google-services.json`),
+   and upload the FCM V1 service-account key with `npx eas-cli@latest credentials`
+   → Android → *Google Service Account Key for Push Notifications (FCM V1)*.
+3. **iPhone (APNs):** `npx eas-cli@latest credentials` → iOS → *Push
+   Notifications: Manage your Apple Push Notifications Key* (EAS creates it
+   with the Apple Developer account).
+4. Optional: if the Expo project has "enhanced push security" on, create an
+   access token on expo.dev and set `EXPO_ACCESS_TOKEN` on the website's host.
+
+Then make a new build (push needs version 1.2.0 or later).
+
 ## Deep links
+
+Step-by-step activation (fingerprints, Team ID, how to verify):
+[docs/deep-links-activation.md](../docs/deep-links-activation.md). The
+association files are always served; until the values below are set they
+carry placeholders and links keep opening in the browser.
 
 With this set up, tapping a gokesari.com link in WhatsApp, SMS or email opens
 the app (if installed) instead of the browser. It is optional. Without it,
@@ -261,6 +295,9 @@ build, against test.gokesari.com:
 - [ ] "Use my location" on the delivery-location picker
 - [ ] Delivery partner: go online, location sharing keeps updating with the app open
 - [ ] Upload a photo from the camera, and one from the gallery
+- [ ] Scan an order's QR code on a page that uses the camera (first time: allow the camera)
+- [ ] After sign-in, allow notifications; with rule push on (mock), an order update appears at /admin/test-messages; with Expo, a push arrives and tapping it opens the order
+- [ ] The bell's panel opens, "Mark all read" clears the count, "See all" opens /notifications
 - [ ] Download an invoice PDF and a shop's Excel price template
 - [ ] Print an invoice
 - [ ] Share (the "invite a shop" card)
@@ -272,11 +309,9 @@ build, against test.gokesari.com:
 
 ## Not included yet
 
-- **Push notifications.** The website sends notifications by email and in the
-  notification bell (both work in the app). It has a slot for a push channel
-  that has no provider yet (`src/server/notifications/channels.ts`). Adding
-  push means `expo-notifications` in the app, a table of device tokens and a
-  `PUSH` channel provider on the website.
+- **Signing out does not unregister the phone at once.** Pushes stop when
+  someone else signs in on that phone (the token moves to them) or when Expo
+  reports the app as removed.
 - **Location while the phone is locked.** A delivery partner's live location
   keeps updating while the app is open on screen, as on the website. Updating
   it in the background needs the "allow all the time" location permission,

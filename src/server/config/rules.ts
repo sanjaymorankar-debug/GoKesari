@@ -24,13 +24,16 @@ export const RULES = {
     }),
     defaults: {
       length: 6,
-      expiryMinutes: 10,
+      // batch-2026-10 WS-A (F1.1.2, GS-001): codes live 5 minutes (was 10).
+      expiryMinutes: 5,
       maxAttempts: 5,
       resendCooldownSeconds: 60,
       maxResendsPerWindow: 5,
       resendWindowMinutes: 60,
       maxRequestsPerIpPerWindow: 20,
-      smsEnabled: false,
+      // batch-2026-10 WS-A: this switch now really gates SMS codes (with SMS_PROVIDER). On by
+      // default so nothing changes where SMS_PROVIDER is set (Module 3 shops); off = email only.
+      smsEnabled: true,
     },
   },
   dispatch: {
@@ -963,6 +966,422 @@ export const RULES = {
     }),
     defaults: { enabled: true, fssaiMandatoryForFood: true, nameMatchWarnBelow: 70, maxUploadBytes: 10_000_000, maxUploadsPerShopPerHour: 30, draftRetentionDays: 7 },
   },
+  /* >>> batch-2026-10 WS-A (payments, OTP, reference prices) — add entries below this line only */
+  /** F1.7.3 / F1.8.4 (GS-028, NEW-007, SM-005): orders paid directly at a payment gateway. */
+  onlinePayments: {
+    description:
+      "Pay online (UPI / card / netbanking) at checkout through the payment gateway chosen by PAYMENT_GATEWAY. " +
+      "PRODUCTION STAYS OFF until the gateway is chosen, the merchant account is open, and the live keys and the webhook secret are set " +
+      "(see docs/payments-gateway-2026-10.md). On staging it runs against the sandbox gateway. Off: checkout offers wallet and cash on delivery exactly as before.",
+    schema: z.object({
+      enabled: z.boolean(),
+      /** Methods offered on the gateway page. */
+      methods: z.array(z.enum(["UPI", "CARD", "NETBANKING"])).min(1).max(3),
+      /** How long the customer has to pay before the attempt expires (and the order's stock is released). */
+      intentExpiryMinutes: int(5, 1440),
+      /** An attempt still CREATED / PENDING this long after it started is checked with the gateway by the reconciliation job. */
+      reconcileAfterMinutes: int(1, 1440),
+      /** The job stops asking about an attempt (and a refund) after this many checks; support is alerted instead. */
+      maxReconcileAttempts: int(1, 500),
+      /** The sandbox gateway is refused in production unless PAYMENT_GATEWAY=SANDBOX and this is on. */
+      allowSandboxInProduction: z.boolean(),
+    }),
+    defaults: {
+      enabled: false,
+      methods: ["UPI", "CARD", "NETBANKING"],
+      intentExpiryMinutes: 15,
+      reconcileAfterMinutes: 10,
+      maxReconcileAttempts: 48,
+      allowSandboxInProduction: false,
+    },
+  },
+  /** F1.1.2 (GS-001, GS-074): clean-up of used and expired sign-in codes. */
+  otpHousekeeping: {
+    description:
+      "Expired and used one-time codes are deleted by the auth-housekeeping job after this many hours (the audit log keeps the record). " +
+      "Keep it at least as long as the otp rule's resend window, which counts recent codes.",
+    schema: z.object({
+      purgeEnabled: z.boolean(),
+      retainHours: int(1, 24 * 90),
+    }),
+    defaults: { purgeEnabled: true, retainHours: 24 },
+  },
+  /* <<< end WS-A */
+  //
+  /* >>> batch-2026-10 WS-B (dispatch, QR pickup, navigation) — add entries below this line only */
+  dispatchBroadcast: {
+    description:
+      "Broadcast rider offers (F3.3.2). Off (default): one rider at a time, as before. On: when the rider offered an order has not accepted within singleOfferSeconds (or dispatch.offerTtlSeconds, if shorter), the offer goes to every eligible rider (approved, online, free — or busy within the dispatch busy-rider fallback — not among those who declined it, and allowed by the society) within the first radius in radiiKm around the shop. Every stepSeconds the radius widens to the next value, up to maxRadiusKm, adding at most maxRecipientsPerStep riders per step. The first rider to accept gets the order; everyone else sees \"Offer taken\" (for takenNoticeSeconds). After the last step nobody accepted: the normal rider search carries on. Riders' dashboards check for open offers every riderPollSeconds. Run by the timeout-sweep job (every minute).",
+    schema: z
+      .object({
+        enabled: z.boolean(),
+        /** How long the first, single rider has before the offer is broadcast. */
+        singleOfferSeconds: int(15, 900),
+        /** Broadcast radii around the shop, smallest first, one per step (km). */
+        radiiKm: z.array(z.number().min(0.5).max(50)).min(1).max(10),
+        /** How long each radius step stays open before the next (or, after the last, the broadcast ends). */
+        stepSeconds: int(15, 900),
+        /** Radii beyond this are not used. */
+        maxRadiusKm: z.number().min(0.5).max(50),
+        /** Most riders newly reached in one step (nearest first). */
+        maxRecipientsPerStep: int(1, 200),
+        /** How often an open rider dashboard checks for broadcast offers. */
+        riderPollSeconds: int(3, 60),
+        /** How long a rider still sees "Offer taken" after another rider accepted. */
+        takenNoticeSeconds: int(10, 900),
+      })
+      .refine((v) => v.radiiKm.every((r, i) => i === 0 || r > v.radiiKm[i - 1]), {
+        message: "List the radii smallest first, each larger than the one before.",
+        path: ["radiiKm"],
+      }),
+    defaults: {
+      enabled: false,
+      singleOfferSeconds: 60,
+      radiiKm: [2, 4, 6],
+      stepSeconds: 60,
+      maxRadiusKm: 6,
+      maxRecipientsPerStep: 20,
+      riderPollSeconds: 10,
+      takenNoticeSeconds: 120,
+    },
+  },
+  pickupQr: {
+    description:
+      "Pickup by QR code (F4.1.3). Off (default): the rider types the 4-digit pickup code the shop reads out, as before. On: every packed order (ready or rider assigned) shows a signed, single-use QR on the shop's order screen and its printable packing slip; the rider scans it with the phone camera to confirm pickup (the scan's time and the rider's location are recorded and the customer is told at once). A QR stops working after tokenTtlMinutes, once used, or when the order is no longer waiting for pickup. The typed code always remains as a fallback. With requireGps on, a scan without the rider's location is refused (the code still works). Needs the secret PICKUP_QR_SECRET in production.",
+    schema: z.object({
+      enabled: z.boolean(),
+      tokenTtlMinutes: int(10, 2880),
+      requireGps: z.boolean(),
+    }),
+    defaults: { enabled: false, tokenTtlMinutes: 720, requireGps: false },
+  },
+  riderNavigation: {
+    description:
+      "In-app turn-by-turn navigation for riders (F4.2.2). Off (default): riders get the \"Navigate\" links that open Google Maps, as before. On: the rider's delivery has an in-app navigation screen — the route to the shop, then to the customer (the customer's exact location only after pickup), next turn, remaining distance and time, voice prompts (voiceDefaultOn), and a fresh route when the rider is more than offRouteMeters off it (at most once per rerouteCooldownSeconds). provider: mock (straight line, for testing/offline), google (Routes API with GOOGLE_MAPS_SERVER_API_KEY) or osrm (an OSRM-compatible server at osrmBaseUrl). Routes are cached for cacheSeconds; a provider failure falls back to the straight-line route. \"Open in Google Maps\" always stays available.",
+    schema: z.object({
+      enabled: z.boolean(),
+      provider: z.enum(["mock", "google", "osrm"]),
+      osrmBaseUrl: z.string().url(),
+      offRouteMeters: int(20, 1000),
+      rerouteCooldownSeconds: int(5, 600),
+      voiceDefaultOn: z.boolean(),
+      cacheSeconds: int(0, 3600),
+      timeoutMs: int(500, 10_000),
+    }),
+    defaults: {
+      enabled: false,
+      provider: "mock",
+      osrmBaseUrl: "https://router.project-osrm.org",
+      offRouteMeters: 60,
+      rerouteCooldownSeconds: 20,
+      voiceDefaultOn: true,
+      cacheSeconds: 60,
+      timeoutMs: 4000,
+    },
+  },
+  /* <<< end WS-B */
+  //
+  /* >>> batch-2026-10 WS-C (cancellation fee, refunds, help desk) — add entries below this line only */
+  afterPackingCancellation: {
+    description:
+      "F6.1.3 (NEW-006, D10): a customer may cancel an order AFTER it is packed (Ready, or a rider assigned) for a delivery/handling fee, shown before they confirm. Off: the original rule (packed orders cannot be cancelled by the customer). The default fee is FLAT (defaultFeePaise) or PERCENT of the goods (defaultFeeBp, 1000 = 10%) capped at defaultCapPaise. With shopOverrideAllowed, a shop owner sets its own fee within maxFeePaise / maxFeeBp (the server refuses anything higher; a lower limit set later also caps existing shop fees). The fee is never more than what was paid, is written to the order ledger, and goes to feeBeneficiary (SHOP: paid in its next settlement; PLATFORM: platform revenue). Cancelling before packing stays a full refund; after pickup the customer's goods-only refund is unchanged (the fee is not added on top).",
+    schema: z.object({
+      enabled: z.boolean(),
+      defaultFeeType: z.enum(["FLAT", "PERCENT"]),
+      defaultFeePaise: int(0, 1_000_000),
+      defaultFeeBp: int(0, 10_000),
+      defaultCapPaise: int(0, 1_000_000),
+      shopOverrideAllowed: z.boolean(),
+      maxFeePaise: int(0, 1_000_000),
+      maxFeeBp: int(0, 10_000),
+      feeBeneficiary: z.enum(["SHOP", "PLATFORM"]),
+    }),
+    defaults: {
+      enabled: false,
+      defaultFeeType: "FLAT",
+      defaultFeePaise: 2_000,
+      defaultFeeBp: 1_000,
+      defaultCapPaise: 5_000,
+      shopOverrideAllowed: true,
+      maxFeePaise: 10_000,
+      maxFeeBp: 2_000,
+      feeBeneficiary: "SHOP",
+    },
+  },
+  refundChoice: {
+    description:
+      "F6.2.3 (GS-073): where a customer's refund goes. The GoKesari wallet is always available and instant. originalMethodEnabled lets a customer whose order was paid online have the refund sent back to the original payment method through the payment gateway (keep OFF until a live gateway is configured). Orders paid from the wallet or in cash always refund to the wallet. A gateway refund is tried up to maxGatewayAttempts times by the aftercare job; if it still fails and fallbackToWallet is on, the amount is credited to the wallet instead. The customer is told of every refund status by email and push.",
+    schema: z.object({
+      originalMethodEnabled: z.boolean(),
+      maxGatewayAttempts: int(1, 10),
+      fallbackToWallet: z.boolean(),
+    }),
+    defaults: { originalMethodEnabled: false, maxGatewayAttempts: 3, fallbackToWallet: true },
+  },
+  helpdesk: {
+    description:
+      "F6.3.3 (SM-006): help desk and grievance portal. Consumer Protection (E-Commerce) Rules, 2020, Rule 4: acknowledge a complaint within 48 hours and redress it within one month of receipt — acknowledgeWithinHours / resolveWithinDays set the SLA clock each ticket gets when it is received (the clock is not paused while waiting for a reply). With escalateOnBreach, the hourly help-desk job escalates a ticket that misses either deadline and alerts administrators. A resolved ticket closes itself after autoCloseResolvedAfterDays; the requester may reopen it within reopenWithinDays of resolution. csatEnabled asks for a 1–5 rating when a ticket closes. ticketForGrievances: a complaint filed on the grievance form also opens a linked ticket (its GRV- number is kept). maxAttachmentBytes / maxAttachmentsPerTicket limit files (photos or PDF).",
+    schema: z.object({
+      enabled: z.boolean(),
+      acknowledgeWithinHours: int(1, 48),
+      resolveWithinDays: int(1, 30),
+      escalateOnBreach: z.boolean(),
+      autoCloseResolvedAfterDays: int(1, 60),
+      reopenWithinDays: int(1, 60),
+      csatEnabled: z.boolean(),
+      ticketForGrievances: z.boolean(),
+      maxAttachmentBytes: int(100_000, 10_000_000),
+      maxAttachmentsPerTicket: int(1, 20),
+    }),
+    defaults: {
+      enabled: true,
+      acknowledgeWithinHours: 48,
+      resolveWithinDays: 30,
+      escalateOnBreach: true,
+      autoCloseResolvedAfterDays: 7,
+      reopenWithinDays: 14,
+      csatEnabled: true,
+      ticketForGrievances: true,
+      maxAttachmentBytes: 5_000_000,
+      maxAttachmentsPerTicket: 10,
+    },
+  },
+  grievanceOfficer: {
+    description:
+      "The Grievance Officer shown on the Grievance Redressal page, the Contact page and the support portal, and checked on the compliance dashboard (IT Rules 2021 / Consumer Protection (E-Commerce) Rules 2020, Rule 4). A field left empty falls back to the value in src/lib/legal-docs.ts.",
+    schema: z.object({
+      name: z.string().max(120),
+      designation: z.string().max(120),
+      email: z.union([z.string().email(), z.literal("")]),
+      phone: z.string().max(30),
+      address: z.string().max(400),
+      hours: z.string().max(200),
+    }),
+    defaults: {
+      name: "Sonali",
+      designation: "Grievance Officer",
+      email: "grievance@gokesari.com",
+      phone: "9175193009",
+      address: "Flat No B-1102, Yin Yang CHS, Opp EoN IT Park Phase II, Kharadi, Pune 411014",
+      hours: "Monday to Saturday, 10:00 am – 6:00 pm IST",
+    },
+  },
+  /* <<< end WS-C */
+  //
+  /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */
+  operatorLimited: {
+    description:
+      "Operator-Limited shop onboarding (F8.4.2). An Operator-Limited user onboards a shop for its owner only after the owner reads back the code emailed to them: the verified code is good for consentValidMinutes. The registration fee is paid online — a payment link emailed to the owner (valid paymentLinkExpiryHours) or in session. A fee that fails or whose link expires leaves the shop PENDING_APPROVAL for an administrator, who is told at once.",
+    schema: z.object({
+      consentValidMinutes: int(5, 1440),
+      paymentLinkExpiryHours: int(1, 720),
+    }),
+    defaults: { consentValidMinutes: 60, paymentLinkExpiryHours: 72 },
+  },
+  pmdSources: {
+    description:
+      "Product master data sources and large imports (F9.1.2 / F9.1.4). manufacturerPortalEnabled: manufacturers upload their catalogue at /manufacturer or by API key (apiRequestsPerMinute per key). gs1Enabled: GS1 India DataKart look-ups (a mock answers until GS1_DATAKART_API_KEY / GS1_DATAKART_BASE_URL are set; the mock never runs in production). openFoodFactsEnabled: Open Food Facts barcode look-ups for packaged food — ODbL 1.0, offAttribution is stored with every record. Imports are staged and processed ingestBatchSize rows at a time by the pmd-ingest worker (ingestBatchesPerTick per run), resumable after an interruption; maxRowsPerFile caps one file. With imagesEnabled, image URLs are fetched (public addresses only), resized to imageMaxEdgePx and kept in the object store.",
+    schema: z.object({
+      manufacturerPortalEnabled: z.boolean(),
+      gs1Enabled: z.boolean(),
+      openFoodFactsEnabled: z.boolean(),
+      offAttribution: z.string().min(10).max(500),
+      offRequestsPerMinute: int(1, 600),
+      apiRequestsPerMinute: int(1, 6000),
+      maxRowsPerFile: int(100, 1_000_000),
+      ingestBatchSize: int(10, 10_000),
+      ingestBatchesPerTick: int(1, 1000),
+      imagesEnabled: z.boolean(),
+      imageMaxEdgePx: int(100, 4000),
+      imageMaxBytes: int(100_000, 20_000_000),
+      imagesPerRow: int(0, 10),
+    }),
+    defaults: {
+      manufacturerPortalEnabled: true,
+      gs1Enabled: false,
+      openFoodFactsEnabled: false,
+      offAttribution:
+        "Data from Open Food Facts (https://world.openfoodfacts.org), © Open Food Facts contributors, available under the Open Database License (ODbL 1.0); product images under CC BY-SA.",
+      offRequestsPerMinute: 60,
+      apiRequestsPerMinute: 60,
+      maxRowsPerFile: 200_000,
+      ingestBatchSize: 1000,
+      ingestBatchesPerTick: 5,
+      imagesEnabled: true,
+      imageMaxEdgePx: 800,
+      imageMaxBytes: 5_000_000,
+      imagesPerRow: 3,
+    },
+  },
+  objectStore: {
+    description:
+      "Where imported product images are kept. Off: the platform's own store (database, or MEDIA_DIR on disk). s3Enabled: an S3-compatible bucket configured by OBJECT_STORE_ENDPOINT, OBJECT_STORE_BUCKET, OBJECT_STORE_REGION, OBJECT_STORE_ACCESS_KEY_ID and OBJECT_STORE_SECRET_ACCESS_KEY (ignored until all are set).",
+    schema: z.object({ s3Enabled: z.boolean() }),
+    defaults: { s3Enabled: false },
+  },
+  inventorySync: {
+    description:
+      "Inventory / accounting-software sync (Module 2: Tally, Odoo, Zoho Books…). Descoped — stock is the shop owner's responsibility. Off: the integration-sync job, automatic dispatch and the desktop connector stop, and the connect screen is hidden. No connection or data is deleted; switching it on resumes everything.",
+    schema: z.object({ enabled: z.boolean() }),
+    defaults: { enabled: false },
+  },
+  /* <<< end WS-D */
+  //
+  /* >>> batch-2026-10 WS-E (invoicing, payouts, statutory) — add entries below this line only */
+  invoiceDelivery: {
+    description:
+      "F9.2.6 customer invoice extras (needs invoicing.enabled). Off: invoices are issued and shown exactly as before. On: the invoice PDF carries a QR code (the e-invoice signed QR when an IRN exists, else a B2C QR with the supplier GSTIN/PAN, invoice number, date, value and tax), a supplier without GSTIN is described as unregistered / PAN-only (or composition) on the bill of supply, the place of supply is the delivery address's state (from the PIN code when the address has no state; the shop's state for pickups — when it is truly unknown the shop's state is used and the invoice says so), the customer is emailed the PDF (emailCustomer) and the shop owner gets a copy with the order (copyToShopOwner), and a cancelled or fully refunded invoiced order gets a credit note (creditNoteOnCancellation). emailMaxAttempts: tries per email before it is given up. Confirm wording with the CA.",
+    schema: z.object({
+      enabled: z.boolean(),
+      qrOnPdf: z.boolean(),
+      emailCustomer: z.boolean(),
+      copyToShopOwner: z.boolean(),
+      pincodeStateLookup: z.boolean(),
+      creditNoteOnCancellation: z.boolean(),
+      emailMaxAttempts: int(1, 10),
+    }),
+    defaults: {
+      enabled: false,
+      qrOnPdf: true,
+      emailCustomer: true,
+      copyToShopOwner: true,
+      pincodeStateLookup: true,
+      creditNoteOnCancellation: true,
+      emailMaxAttempts: 5,
+    },
+  },
+  payouts: {
+    description:
+      "F10.2.4 automated shop payouts. Off (default): the weekly settlement batches under Admin → Finance are used, unchanged. On: every cycleDays days counted from anchorDate (YYYY-MM-DD, IST) the payout-cycle job closes the cycle — delivered orders held at least holdDays, pending refunds and adjustments, minus commission, GST on GoKesari's fees (when platformInvoicing is on), TCS and TDS (Admin → Statutory) — and drafts one payout batch (one item per shop). With makerChecker on, the person who created a batch cannot approve it. provider: BANK_FILE (download a bank bulk-upload file and mark each payment paid with its UTR), SANDBOX (simulated transfers and webhooks — never on gokesari.com), RAZORPAYX or CASHFREE (need their keys). Only shops with a verified bank account are paid; others, and amounts below minPayoutPaise, are held and carried into the next cycle. Failed transfers are retried retryMaxAttempts times, retryBackoffMinutes × attempt apart. transferMode is the bank rail (RTGS is used automatically from rtgsFromPaise). walletTopUpTargetPaise > 0: a shop whose prepaid wallet is below this is topped up from its payout. debitAccountNumber is GoKesari's account printed in the bank file.",
+    schema: z.object({
+      enabled: z.boolean(),
+      cycleDays: int(1, 31),
+      anchorDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use YYYY-MM-DD."),
+      holdDays: int(0, 60),
+      makerChecker: z.boolean(),
+      retryMaxAttempts: int(1, 10),
+      retryBackoffMinutes: int(1, 1440),
+      minPayoutPaise: int(0, 10_000_000),
+      provider: z.enum(["BANK_FILE", "SANDBOX", "RAZORPAYX", "CASHFREE"]),
+      transferMode: z.enum(["NEFT", "IMPS", "RTGS"]),
+      rtgsFromPaise: int(0, 1_000_000_000),
+      sandboxAutoWebhook: z.boolean(),
+      statementEmail: z.boolean(),
+      walletTopUpTargetPaise: int(0, 100_000_000),
+      debitAccountNumber: z.string().max(34),
+    }),
+    defaults: {
+      enabled: false,
+      cycleDays: 5,
+      anchorDate: "2026-10-01",
+      holdDays: 2,
+      makerChecker: true,
+      retryMaxAttempts: 3,
+      retryBackoffMinutes: 30,
+      minPayoutPaise: 100,
+      provider: "BANK_FILE",
+      transferMode: "NEFT",
+      rtgsFromPaise: 20_000_000,
+      sandboxAutoWebhook: true,
+      statementEmail: true,
+      walletTopUpTargetPaise: 0,
+      debitAccountNumber: "",
+    },
+  },
+  platformInvoicing: {
+    description:
+      "F10.2.5 GoKesari's own tax invoice to each shop for its fees (commission, delivery charges, registration fees, billing/inventory management), one per payout cycle, with credit and debit notes and a monthly GSTR-1-ready export. Keep OFF on production until GoKesari's GSTIN, legal name, address, state and invoice prefix are entered in platformTaxProfile and the CA has confirmed the SAC codes and rates (Admin → Statutory). When on, the GST on fees is deducted from the shop's payout. billingManagementFeePaise: a fixed inventory/billing management charge per shop per cycle (0 = none). includeRegistrationFees: registration fees the shop paid during the cycle are invoiced too (their GST is inside what was paid, so nothing more is deducted).",
+    schema: z.object({
+      enabled: z.boolean(),
+      billingManagementFeePaise: int(0, 10_000_000),
+      includeRegistrationFees: z.boolean(),
+    }),
+    defaults: { enabled: false, billingManagementFeePaise: 0, includeRegistrationFees: true },
+  },
+  platformTaxProfile: {
+    description:
+      "GoKesari's own GST identity for its invoices to shops: legal and trade name, GSTIN, PAN, registered address and two-letter state code (e.g. MH), and the document series prefixes (1–4 capital letters/digits; numbers read GKP/2627/000001 — at most 16 characters, unique per financial year). sacCodes: the SAC printed for each fee type (CA to confirm; defaults: 998599 other support services for commission, platform and registration fees, 996813 local delivery services for delivery charges, 998319 other IT services for billing/inventory management). GST rates by fee type are dated under Admin → Statutory (PLATFORM_FEE_GST).",
+    schema: z.object({
+      legalName: z.string().max(200),
+      tradeName: z.string().max(200),
+      gstin: z.string().max(15),
+      pan: z.string().max(10),
+      address: z.string().max(400),
+      stateCode: z.string().max(2),
+      email: z.string().max(200),
+      invoicePrefix: z.string().regex(/^[A-Z0-9]{1,4}$/, "1–4 capital letters or digits."),
+      creditNotePrefix: z.string().regex(/^[A-Z0-9]{1,4}$/, "1–4 capital letters or digits."),
+      debitNotePrefix: z.string().regex(/^[A-Z0-9]{1,4}$/, "1–4 capital letters or digits."),
+      sacCodes: z.object({
+        COMMISSION: z.string().regex(/^\d{4,8}$/),
+        DELIVERY_CHARGE: z.string().regex(/^\d{4,8}$/),
+        PLATFORM_FEE: z.string().regex(/^\d{4,8}$/),
+        REGISTRATION_FEE: z.string().regex(/^\d{4,8}$/),
+        BILLING_MANAGEMENT: z.string().regex(/^\d{4,8}$/),
+      }),
+    }),
+    defaults: {
+      legalName: "",
+      tradeName: "GoKesari",
+      gstin: "",
+      pan: "",
+      address: "",
+      stateCode: "",
+      email: "",
+      invoicePrefix: "GKP",
+      creditNotePrefix: "GKC",
+      debitNotePrefix: "GKD",
+      sacCodes: {
+        COMMISSION: "998599",
+        DELIVERY_CHARGE: "996813",
+        PLATFORM_FEE: "998599",
+        REGISTRATION_FEE: "998599",
+        BILLING_MANAGEMENT: "998319",
+      },
+    },
+  },
+  /* <<< end WS-E */
+  //
+  /* >>> batch-2026-10 WS-F (notifications, push, broadcasts, mobile) — add entries below this line only */
+  push: {
+    description:
+      "Mobile app push notifications (F13.1.2). With enabled off (the default) PUSH deliveries are skipped exactly as before. With it on, the PUSH channel sends through `provider`: mock (written to the test outbox at /admin/test-messages — refused on gokesari.com) or expo (Expo's push service; set EXPO_ACCESS_TOKEN if the Expo project requires access tokens). Push is on by default, for people who have the app signed in, in the categories listed in defaultOnCategories; everyone can switch it off per category in their notification settings. Expo's delivery receipts are checked receiptDelayMinutes after sending (cron push-receipts); a phone Expo reports as no longer registered stops receiving pushes.",
+    schema: z.object({
+      enabled: z.boolean(),
+      provider: z.enum(["mock", "expo"]),
+      defaultOnCategories: z.array(
+        z.enum(["ORDERS", "RETURNS", "DELIVERY", "SHOP", "WALLET", "SUBSCRIPTIONS", "COMMUNITY", "ACCOUNT_SECURITY", "GENERAL", "ANNOUNCEMENTS"]),
+      ),
+      /** Expo asks to wait ~15 minutes before reading receipts. */
+      receiptDelayMinutes: int(1, 1440),
+      /** Active devices per person; registering one more retires the least recently seen. */
+      maxDevicesPerUser: int(1, 50),
+      /** Android notification channel the app creates (mobile/src/push.ts). */
+      androidChannelId: z.string().min(1).max(64),
+    }),
+    defaults: {
+      enabled: false,
+      provider: "mock",
+      defaultOnCategories: ["ORDERS", "RETURNS", "DELIVERY", "SHOP", "WALLET", "SUBSCRIPTIONS", "ACCOUNT_SECURITY", "ANNOUNCEMENTS"],
+      receiptDelayMinutes: 15,
+      maxDevicesPerUser: 10,
+      androidChannelId: "default",
+    },
+  },
+  broadcasts: {
+    description:
+      "Broadcast announcements (F3.3.2, /admin/broadcasts): admins and operators send a title, message, optional image and link to all customers, shop owners and/or riders, optionally only in some cities or PIN codes, now or at a scheduled time, with an expiry after which it disappears from the notification centre. Everyone gets it in the app; push and email follow each person's notification settings for \"Announcements\". Sending runs in chunks of chunkSize people: \"Send now\" writes up to immediateChunks chunks at once and the broadcast-dispatch job (every minute) writes the rest, up to dispatchChunksPerRun chunks per run. defaultExpiryDays fills in the expiry when none is given (0 = never expires).",
+    schema: z.object({
+      enabled: z.boolean(),
+      chunkSize: int(10, 2000),
+      immediateChunks: int(0, 20),
+      dispatchChunksPerRun: int(1, 200),
+      defaultExpiryDays: int(0, 365),
+    }),
+    defaults: { enabled: true, chunkSize: 200, immediateChunks: 2, dispatchChunksPerRun: 25, defaultExpiryDays: 30 },
+  },
+  /* <<< end WS-F */
+  //
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;

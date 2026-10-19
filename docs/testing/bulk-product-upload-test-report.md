@@ -7,7 +7,7 @@
 | Report date | 15 Oct 2026 |
 | Local environment | Node 22, PostgreSQL 16 (local), Next.js 16.3.6 dev server, Chromium (Playwright) |
 | **Test server (test.gokesari.com)** | **Pass — 23 of 23 live cases** on 15 Oct 2026 (shop owner, admin, operator; desktop and the Android app's user agent). Migration `0077` confirmed on the test database (Test database workflow run 31: 80 migrations, newest `0077_product_bulk_import`). See §2.7. |
-| **Production (gokesari.com)** | **Not run — not deployed yet.** Waiting for the owner's go-ahead on the `staging` → `main` release (it also carries other unreleased `staging` work; see the PR). |
+| **Production (gokesari.com)** | **Deployed 15 Oct 2026, 15:58 UTC** — release [PR #179](https://github.com/sanjaymorankar-debug/GoKesari/pull/179) (`acfaa6a`), migrations 0076–0078 applied by the build (`MIGRATE_ON_BUILD`). **Signed-out smoke checks pass (§2.8)**; no import was run on production (no designated test shop; no test data written). |
 | Fixture | `tests/fixtures/bulk_upload/PUZZLES.xlsm` — **a reconstruction** of the Amazon PUZZLES template to the layout the brief verified (309 columns, rows 1–7 as described, data from row 8, VBA project included). The original file was not available to this session. |
 
 Results columns: **Local** = run in this session (automated suite or browser);
@@ -22,10 +22,11 @@ exactly that — nothing is claimed for an environment it was not run on.
 | Import service and API (integration, real PostgreSQL) | 23 | **23 pass** | Not run | Not run |
 | Load: 5,000 rows | 1 | **pass** (parse + preview 1.8 s; import 94.7 s) | Not run | Not run |
 | Browser walk-through (desktop, phone, admin, operator) | 10 | **10 pass** | **10 pass** (by the live run, §2.7) | Not run |
-| Live functional run on the site (`scripts/test-site/product-import-check.mjs`) | 23 | — | **23 pass** | Not run |
+| Live functional run on the site (`scripts/test-site/product-import-check.mjs`) | 23 | — | **23 pass** | Not run (writes; see §2.8) |
+| Production smoke, signed out (§2.8) | 13 | — | — | **13 pass** |
 | Mobile app (unit, typecheck, lint) | 26 tests | **pass** | — | — |
 | Full regression suite (all existing unit + integration tests) | 1,811 | **all pass** after D-9, re-checked after merging `staging` (see §4) | Not run | Not run |
-| Environment end-to-end (web, Android, iOS on real accounts) | 9 | — | **4 pass** (E-01–E-03, E-06); E-04/E-05 need a phone; E-09 see §2.6 | **Not run** |
+| Environment end-to-end (web, Android, iOS on real accounts) | 9 | — | **4 pass** (E-01–E-03, E-06); E-04/E-05 need a phone; E-09 see §2.6 | **E-06, E-07 pass** (read-only); E-08 not needed |
 
 ## 2. Test cases
 
@@ -131,9 +132,9 @@ Script: Playwright (Chromium). Screenshots in
 | E-03 | Web, operator account | Pick a shop, import, check prices go to the owner | **Pass** (PS-03: "1 price change(s) were sent to the shop owner for approval"; the admin's price applied at once) | — |
 | E-04 | Android app (preview build) | Pick the file from Files / Drive / WhatsApp, preview cards, import, share the report | Partly: the app's user agent at phone width shows the card preview (PI-12). The system file picker needs a real phone — **not run** | — |
 | E-05 | iPhone | Same, from Files | Not run | — |
-| E-06 | Migration | `0077` applied by the Test database workflow | **Pass** (run 31: 80 recorded, newest `0077_product_bulk_import`; backup taken first) | Not run |
-| E-07 | Prod smoke | One small import into a designated test shop; check stock and the report | — | Not run |
-| E-08 | Prod clean-up | Delete-action file deactivates the test products | — | Not run |
+| E-06 | Migration | `0077` applied by the Test database workflow | **Pass** (run 31: 80 recorded, newest `0077_product_bulk_import`; backup taken first) | **Pass** — applied by the gokesari.com build (`MIGRATE_ON_BUILD`; the build stops before deploying if a migration fails, and the new routes answer) |
+| E-07 | Prod smoke | One small import into a designated test shop; check stock and the report | — | **Read-only only:** the signed-out checks in §2.8 pass. No import was run: production has no designated test shop and no test data is written there |
+| E-08 | Prod clean-up | Delete-action file deactivates the test products | — | Not needed (nothing was written) |
 | E-09 | Regression on the site | Manual add product, add category, Excel price upload | Not run on the site (covered locally by I-23 and the full suite, §4) | Not run |
 
 ### 2.7 Live run on test.gokesari.com (15 Oct 2026)
@@ -189,6 +190,32 @@ Notes from the live run:
   4) — both still listed. Each run's `LIVE-…-A` / `LIVE-…-B` and every staff
   `STAFF-…` product were deactivated by the run's own Delete files.
 
+### 2.8 Production smoke, gokesari.com (15 Oct 2026, after release #179)
+
+Signed out, no writes. A route that answers 401 or redirects to sign-in, instead of
+404, shows the new code is live. The deploy only builds after its migrations
+succeed, so these answers also show 0076–0078 are applied.
+
+| ID | Check | Result |
+|---|---|---|
+| PP-01 | `/shop/product-import` (owner page) | **Pass** — 307 to /signin |
+| PP-02 | `/admin/product-import` (staff page) | **Pass** — 307 to /signin |
+| PP-03 | GET `/api/v1/product-imports/template` | **Pass** — 401 (was 404 before the release) |
+| PP-04 | GET `/api/v1/product-imports/shops` | **Pass** — 401 |
+| PP-05 | GET `/api/v1/shops/{id}/product-imports` (history) | **Pass** — 401 |
+| PP-06 | GET `/api/v1/product-imports/{id}` (status) | **Pass** — 401 (one request timed out at the network; three retries 401) |
+| PP-07 | GET `…/{id}/rows` | **Pass** — 401 |
+| PP-08 | GET `…/{id}/report` | **Pass** — 401 |
+| PP-09 | POST `/api/v1/shops/{id}/product-imports` (upload) | **Pass** — 401 |
+| PP-10 | POST `…/{id}/commit` | **Pass** — 401 |
+| PP-11 | POST `…/{id}/cancel` | **Pass** — 401 |
+| PP-12 | Existing pages `/`, `/shops`, `/signin` | **Pass** — 200; `/shop` 307 to sign-in |
+| PP-13 | Inventory & Accounting smoke (`scripts/test-site/prod-smoke.mjs`, released with it) | **Pass** — 11/11 (module pages, API 401s, crons 403, share target, manifest, existing pages, desktop and Android UI with no page errors) |
+
+Not run on production: a signed-in upload and import. It writes products and
+stock to a real shop; run `product-import-check.mjs … smoke … --prod-smoke`
+once a test shop on gokesari.com is named.
+
 ## 3. Defects found and fixed during this work
 
 | # | Found by | Defect | Fix |
@@ -223,4 +250,4 @@ merging `staging` (#168, #169, #171) and renumbering the migration to `0077`. CI
 |---|---|---|---|
 | Local | Pass (automated + browser) | Claude Code | 15 Oct 2026 |
 | test.gokesari.com | Pass — 23/23 live cases (§2.7) | Claude Code | 15 Oct 2026 |
-| gokesari.com | Not run | | |
+| gokesari.com | Deployed; signed-out smoke 13/13 pass (§2.8). Signed-in import on production not run | Claude Code | 15 Oct 2026 |
