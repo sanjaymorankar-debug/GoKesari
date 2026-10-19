@@ -54,36 +54,113 @@ function pgErrorCode(error: unknown): string | undefined {
  * suite fails intermittently during cleanup rather than on anything a test
  * actually asserts, which masks real regressions.
  */
+/** The tables resetDatabase() names; TRUNCATE … CASCADE reaches the rest through foreign keys. */
+const RESET_TABLES = [
+  "grievances",
+  "user_consents",
+  "delivery_partner_earnings",
+  "delivery_earnings_config",
+  "delivery_orders",
+  "maps_api_call_log",
+  "delivery_partners",
+  "audit_logs",
+  "notifications",
+  "domain_events",
+  "price_update_requests",
+  "price_update_batches",
+  "excel_upload_items",
+  "excel_uploads",
+  "shop_payments",
+  "referral_redemptions",
+  "referral_codes",
+  "registration_fee_history",
+  "registration_fees",
+  "voucher_redemptions",
+  "voucher_upload_items",
+  "voucher_uploads",
+  "vouchers",
+  "subscription_deliveries",
+  "subscription_orders",
+  "subscription_daily_overrides",
+  "subscriptions",
+  "delivery_trips",
+  "shop_wallet_transactions",
+  "shop_wallets",
+  "wallet_transactions",
+  "wallets",
+  "payments",
+  "order_status_history",
+  "order_items",
+  "orders",
+  "cart_items",
+  "carts",
+  "stock_alerts",
+  "inventory_movements",
+  "product_price_history",
+  "shop_products",
+  "product_images",
+  "product_mrp_history",
+  "products",
+  "product_subcategories",
+  "product_categories",
+  "brands",
+  "delivery_partner_change_requests",
+  "delivery_slot_capacities",
+  "order_groups",
+  "coupon_redemptions",
+  "coupons",
+  "shop_offers",
+  "customer_referrals",
+  "customer_referral_codes",
+  "status_changes",
+  "seller_verification_files",
+  "seller_verification_events",
+  "seller_verifications",
+  "shop_classification_history",
+  "shops",
+  "addresses",
+  "sessions",
+  "accounts",
+  "users",
+];
+
+/**
+ * On the seller / customer split layout (docs/db-split-2026-10/CODE_SPLIT_PLAN.md)
+ * the foreign keys between the two databases are gone, so TRUNCATE … CASCADE
+ * stops at the database boundary. Empty every table the single-database
+ * cascade would have reached, from the relationships the overlay recorded.
+ * Does nothing on the single-database layout.
+ */
+async function truncateAcrossSplit(): Promise<void> {
+  const [{ split }] = (await db.execute(sql`select to_regclass('public.split_layout_foreign_keys') is not null as split`)) as unknown as { split: boolean }[];
+  if (!split) return;
+  const fks = (await db.execute(sql`select child, parent from public.split_layout_foreign_keys`)) as unknown as { child: string; parent: string }[];
+  const reached = new Set<string>(RESET_TABLES);
+  for (let grew = true; grew; ) {
+    grew = false;
+    for (const fk of fks) {
+      if (reached.has(fk.parent) && !reached.has(fk.child)) {
+        reached.add(fk.child);
+        grew = true;
+      }
+    }
+  }
+  const foreign = (await db.execute(
+    sql`select case when foreign_table_schema = 'public' then foreign_table_name else foreign_table_schema || '.' || foreign_table_name end as name from information_schema.foreign_tables`,
+  )) as unknown as { name: string }[];
+  const extra = foreign.map((f) => f.name).filter((n) => reached.has(n) && !RESET_TABLES.includes(n));
+  if (extra.length === 0) return;
+  const list = extra.map((n) => n.split(".").map((part) => `"${part}"`).join(".")).join(", ");
+  await db.execute(sql.raw(`TRUNCATE TABLE ${list} RESTART IDENTITY CASCADE`));
+}
+
 export async function resetDatabase(): Promise<void> {
   const maxAttempts = 5;
 
   for (let attempt = 1; ; attempt += 1) {
     try {
-      await db.execute(sql`
-        TRUNCATE TABLE
-          grievances, user_consents,
-          delivery_partner_earnings, delivery_earnings_config, delivery_orders,
-          maps_api_call_log, delivery_partners,
-          audit_logs, notifications, domain_events,
-          price_update_requests, price_update_batches,
-          excel_upload_items, excel_uploads,
-          shop_payments, referral_redemptions, referral_codes,
-          registration_fee_history, registration_fees,
-          voucher_redemptions, voucher_upload_items, voucher_uploads, vouchers,
-          subscription_deliveries, subscription_orders, subscription_daily_overrides, subscriptions, delivery_trips,
-          shop_wallet_transactions, shop_wallets,
-          wallet_transactions, wallets, payments,
-          order_status_history, order_items, orders,
-          cart_items, carts,
-          stock_alerts, inventory_movements, product_price_history, shop_products,
-          product_images, product_mrp_history, products,
-          product_subcategories, product_categories, brands,
-          delivery_partner_change_requests, delivery_slot_capacities, order_groups, coupon_redemptions, coupons, shop_offers, customer_referrals, customer_referral_codes, status_changes, seller_verification_files, seller_verification_events, seller_verifications,
-          shop_classification_history, shops,
-          addresses,
-          sessions, accounts, users
-        RESTART IDENTITY CASCADE
-      `);
+      await db.execute(sql.raw(`TRUNCATE TABLE ${RESET_TABLES.join(", ")} RESTART IDENTITY CASCADE`));
+      await truncateAcrossSplit();
       // docs/document-upload-2026-10: the FSSAI-for-food rule ships on. Tests written
       // before it approve dairy shops without a licence, so they run with it off;
       // tests/integration/document-uploads.test.ts switches it on for its own cases.

@@ -302,7 +302,7 @@ export const MIGRATION_TABLE_OWNERSHIP: Record<string, DbOwner> = { migration_00
  * Tables that are not GoKesari data and are left in the source, never copied.
  * playing_with_neon is the sample table Neon creates in every new project.
  */
-export const NOT_SPLIT_TABLES: readonly string[] = ["playing_with_neon"];
+export const NOT_SPLIT_TABLES: readonly string[] = ["playing_with_neon", "split_layout_foreign_keys"];
 
 /** The physical database a table lives in after the split: platform tables stay in the customer (core) database. */
 export function physicalDatabase(table: string): "seller" | "customer" | null {
@@ -325,13 +325,22 @@ export function tablesOwnedBy(db: "seller" | "customer"): string[] {
  * Platform tables the seller database reads through postgres_fdw (owner
  * names, emails for KYC name matching, settings). Read-only there.
  */
-export const SELLER_READS_FROM_CORE = ["users", "platform_settings", "roles", "user_role_grants"] as const;
+export const SELLER_READS_FROM_CORE = [
+  "users",
+  "platform_settings",
+  "roles",
+  "user_role_grants",
+  // Seller-side triggers: lifecycle rules (record_lifecycle_change) and the order a restock belongs to (inv_ledger_on_movement).
+  "status_transition_rules",
+  "orders",
+] as const;
 
 /**
  * Core tables the seller database writes through postgres_fdw: the product
- * master records its promotions in the audit log inside the same transaction.
+ * master records its promotions in the audit log inside the same transaction,
+ * and the shops trigger records each lifecycle change (status_changes).
  */
-export const SELLER_WRITES_TO_CORE = ["audit_logs"] as const;
+export const SELLER_WRITES_TO_CORE = ["audit_logs", "status_changes"] as const;
 
 /**
  * Seller tables the customer (core) database reads through postgres_fdw for

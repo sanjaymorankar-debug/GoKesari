@@ -36,6 +36,8 @@ export interface OverlayPlan {
   schemas: string[];
   /** Foreign keys with one end in a seller table and the other in a core table. */
   crossForeignKeys: ForeignKey[];
+  /** Every foreign key of the single-database layout (child → parent), recorded in the core. */
+  allForeignKeys: ForeignKey[];
   /** Sequences behind seller-table defaults; they stay in the core so its foreign tables can draw ids. */
   sequences: OwnedSequence[];
   /** Other sequences in a moving schema (pmd), kept in the core with their values. */
@@ -70,7 +72,7 @@ export async function buildOverlayPlan(core: Sql): Promise<OverlayPlan> {
     ? await core<{ sequence: string }[]>`select c.oid::regclass::text as sequence from pg_class c join pg_namespace n on n.oid = c.relnamespace where c.relkind = 'S' and n.nspname = any(${schemas})`
     : [];
   const standaloneSequences = schemaSeqs.map((r) => strip(r.sequence)).filter((q) => !sequences.some((x) => x.sequence === q));
-  return { tables, schemas, crossForeignKeys, sequences, standaloneSequences };
+  return { tables, schemas, crossForeignKeys, allForeignKeys: fks, sequences, standaloneSequences };
 }
 
 /**
@@ -80,12 +82,22 @@ export async function buildOverlayPlan(core: Sql): Promise<OverlayPlan> {
  * defaults) under the same names.
  */
 export async function applyOverlay(core: Sql, sellerUrl: string, plan: OverlayPlan, log: (line: string) => void = () => undefined, seller?: Sql): Promise<void> {
-  if (seller) await acceptCoreIds(seller, log);
+  if (seller) {
+    await acceptCoreIds(seller, log);
+    await pinFunctionSearchPath(seller, log);
+  }
   const u = new URL(sellerUrl);
   const sslmode = u.searchParams.get("sslmode");
   const publicSeller = plan.tables.filter((t) => !t.includes("."));
   await core.begin(async (tx) => {
     await tx.unsafe(`create extension if not exists postgres_fdw`);
+    // The relationships of the single-database layout, kept for `verify` and for the test reset's cascade.
+    await tx.unsafe(`create table if not exists public.split_layout_foreign_keys (name text not null, child text not null, parent text not null, definition text not null, cross_database boolean not null)`);
+    await tx.unsafe(`truncate public.split_layout_foreign_keys`);
+    const crossNames = new Set(plan.crossForeignKeys.map((fk) => `${fk.table}.${fk.name}`));
+    for (const fk of plan.allForeignKeys) {
+      await tx`insert into public.split_layout_foreign_keys (name, child, parent, definition, cross_database) values (${fk.name}, ${fk.table}, ${fk.refTable}, ${fk.definition}, ${crossNames.has(`${fk.table}.${fk.name}`)})`;
+    }
     for (const fk of plan.crossForeignKeys) await tx.unsafe(`alter table ${qident(fk.table)} drop constraint if exists ${ident(fk.name)}`);
     log(`dropped ${plan.crossForeignKeys.length} cross-database foreign keys`);
 
@@ -168,3 +180,18 @@ export async function linkSellerToCore(seller: Sql, coreUrl: string, log: (line:
   log(`seller: ${tables.length} core tables linked (${tables.join(", ")})`);
 }
 
+
+/**
+ * postgres_fdw runs its sessions in the seller database with
+ * search_path = pg_catalog, so a trigger function there that calls another
+ * function or table by its plain name would not find it. Each function gets
+ * the search path the site itself uses ("$user", public).
+ */
+export async function pinFunctionSearchPath(seller: Sql, log: (line: string) => void = () => undefined): Promise<void> {
+  const rows = await seller<{ signature: string }[]>`
+    select p.oid::regprocedure::text as signature from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+    where n.nspname in ('public', 'pmd') and p.prokind in ('f', 'p')
+      and not exists (select 1 from pg_depend d where d.objid = p.oid and d.deptype = 'e')`;
+  for (const r of rows) await seller.unsafe(`alter function ${r.signature} set search_path = "$user", public`);
+  if (rows.length) log(`seller: ${rows.length} functions pinned to search_path "$user", public`);
+}
