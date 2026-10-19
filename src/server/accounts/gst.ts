@@ -37,6 +37,7 @@ import { notify } from "@/server/services/notifications";
 import { getSettings, logChange, todayIst } from "./books";
 import { putFile } from "./files";
 import { getGstReturnsProvider, gstReturnsProviderName, type PortalSession } from "./gst-returns-provider";
+import { upsertRow } from "@/server/db/split/upsert";
 
 export const GST_LINK_CONSENT_TEXT =
   "I authorise GoKesari and its GST Suvidha Provider to access my GST returns data (GSTR-1, GSTR-2A, GSTR-2B) on the GST portal for my GSTIN, " +
@@ -82,7 +83,7 @@ export async function requestLinkOtp(shopId: string, input: { gstin: string; use
       linkedBy: actorId,
       updatedAt: new Date(),
     };
-    await db.insert(gstPortalLinks).values(values).onConflictDoUpdate({ target: gstPortalLinks.shopId, set: values });
+    await upsertRow(db, gstPortalLinks, { keys: [gstPortalLinks.shopId], values, set: values });
     await logChange({ shopId, entityType: "gst_link", entityId: shopId, action: "OTP_REQUESTED", changes: [{ field: "gstin", old: null, new: gstin }], actorId });
     return { status: "OTP_SENT" as const, provider: provider.name };
   } catch (error) {

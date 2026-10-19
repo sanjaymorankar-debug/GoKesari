@@ -182,7 +182,8 @@ export interface CreateJobInput {
   autoStart?: boolean;
 }
 
-export async function createIngestJob(input: CreateJobInput, actor: JobActor, sql: Sql = appSql()): Promise<PmdIngestJob> {
+export async function createIngestJob(input: CreateJobInput, actor: JobActor, client?: Sql): Promise<PmdIngestJob> {
+  const sql = client ?? (await appSql());
   const rules = await getRule("pmdSources");
   if (!(await input.source.isEnabled())) throw new DataSourceDisabledError(input.source.key, `${input.source.label} is switched off.`);
   if (input.rows.length === 0) throw validationFailed("The file has no product rows.");
@@ -362,7 +363,7 @@ export async function processIngestJob(jobId: string, options: ProcessOptions = 
   const leaseSeconds = options.leaseSeconds ?? 600;
   const rules = await getRule("pmdSources");
   const maxBatches = options.maxBatches ?? rules.ingestBatchesPerTick;
-  const sqlClient = options.sql ?? appSql();
+  const sqlClient = options.sql ?? (await appSql());
 
   const claimed = await claim(jobId, worker, leaseSeconds);
   if (!claimed) {

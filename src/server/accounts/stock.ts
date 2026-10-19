@@ -34,6 +34,7 @@ import {
 } from "@/server/db/schema";
 import { evaluateStockAlerts, resolveThresholds } from "@/server/services/inventory-alerts";
 import { getSettings, logChange, manageLedgerInThisTransaction, todayIst } from "./books";
+import { upsertRow } from "@/server/db/split/upsert";
 
 export interface StockPosting {
   shopId: string;
@@ -458,10 +459,7 @@ export async function adjustStockTo(shopId: string, shopProductId: string, count
 export async function setTrackBatches(shopId: string, shopProductId: string, track: boolean): Promise<void> {
   const [sp] = await db.select({ shopId: shopProducts.shopId }).from(shopProducts).where(eq(shopProducts.id, shopProductId));
   if (!sp || sp.shopId !== shopId) throw notFound("Product");
-  await db
-    .insert(invProductSettings)
-    .values({ shopProductId, shopId, trackBatches: track })
-    .onConflictDoUpdate({ target: invProductSettings.shopProductId, set: { trackBatches: track, updatedAt: new Date() } });
+  await upsertRow(db, invProductSettings, { keys: [invProductSettings.shopProductId], values: { shopProductId, shopId, trackBatches: track }, set: { trackBatches: track, updatedAt: new Date() } });
 }
 
 export interface ExpiringBatch {

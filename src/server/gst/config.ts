@@ -14,6 +14,7 @@ import { db } from "@/server/db";
 import { gstRules, hsnTaxRates, shops, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { istDate } from "./rules";
+import { upsertRow } from "@/server/db/split/upsert";
 
 const paise = z.number().int().min(0);
 
@@ -136,14 +137,11 @@ export async function setHsnRate(input: z.infer<typeof hsnRateSchema>, actor: { 
       .where(and(eq(hsnTaxRates.hsnPrefix, input.hsnPrefix), lt(hsnTaxRates.effectiveFrom, input.effectiveFrom), isNull(hsnTaxRates.effectiveTo)))
       .limit(1);
     if (before) await tx.update(hsnTaxRates).set({ effectiveTo: dayBefore(input.effectiveFrom), updatedAt: new Date() }).where(eq(hsnTaxRates.id, before.id));
-    const [row] = await tx
-      .insert(hsnTaxRates)
-      .values({ hsnPrefix: input.hsnPrefix, rateBp, cessBp, description: input.description ?? null, effectiveFrom: input.effectiveFrom, updatedBy: actor.id })
-      .onConflictDoUpdate({
-        target: [hsnTaxRates.hsnPrefix, hsnTaxRates.effectiveFrom],
-        set: { rateBp, cessBp, description: input.description ?? null, updatedBy: actor.id, updatedAt: new Date() },
-      })
-      .returning();
+    const row = await upsertRow(tx, hsnTaxRates, {
+      keys: [hsnTaxRates.hsnPrefix, hsnTaxRates.effectiveFrom],
+      values: { hsnPrefix: input.hsnPrefix, rateBp, cessBp, description: input.description ?? null, effectiveFrom: input.effectiveFrom, updatedBy: actor.id },
+      set: { rateBp, cessBp, description: input.description ?? null, updatedBy: actor.id, updatedAt: new Date() },
+    });
     await recordAudit(
       {
         actorId: actor.id,

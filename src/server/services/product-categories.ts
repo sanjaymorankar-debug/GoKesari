@@ -428,7 +428,7 @@ export async function removeProductCategory(
           FROM shop_products sp JOIN products p ON p.id = sp.product_id
           JOIN shops s ON s.id = sp.shop_id
          WHERE p.category_id = ${id} AND sp.deleted_at IS NULL AND s.deleted_at IS NULL
-        ON CONFLICT (shop_id, category_id) DO NOTHING
+        ON CONFLICT DO NOTHING
         RETURNING shop_id`);
       generalAddedToShops = added.length;
     }
@@ -589,7 +589,7 @@ async function fillInventoryFromCategory(
           offlineStock: categoryFillStock,
         })),
       )
-      .onConflictDoNothing({ target: [shopProducts.shopId, shopProducts.productId] })
+      .onConflictDoNothing() // the only unique key is (shop_id, product_id); no target so it also works on the split layout
       .returning({ id: shopProducts.id, productId: shopProducts.productId, pricePaise: shopProducts.onlinePricePaise });
     created.push(...batch);
   }
@@ -867,7 +867,7 @@ export async function setProductCategory(
           FROM shop_products sp JOIN shops s ON s.id = sp.shop_id
          WHERE sp.product_id = ${productId} AND sp.deleted_at IS NULL AND s.deleted_at IS NULL
            ${staff ? sql`` : sql`AND s.owner_id = ${actor.id}`}
-        ON CONFLICT (shop_id, category_id) DO NOTHING
+        ON CONFLICT DO NOTHING
         RETURNING shop_id`);
       shopsLinked = linked.length;
     }

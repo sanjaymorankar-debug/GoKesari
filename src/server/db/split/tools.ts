@@ -151,7 +151,7 @@ export function crossDbReferences(fks: ForeignKey[]): (ForeignKey & { from: Side
     .filter((fk) => fk.from && fk.to && fk.from !== fk.to);
 }
 
-async function copyableColumns(sql: Sql, table: string): Promise<string[]> {
+export async function copyableColumns(sql: Sql, table: string): Promise<string[]> {
   const rows = await sql<{ name: string }[]>`
     select a.attname as name from pg_attribute a
     where a.attrelid = ${table.includes(".") ? qident(table) : `public.${ident(table)}`}::regclass and a.attnum > 0 and not a.attisdropped and a.attgenerated = ''
@@ -183,11 +183,18 @@ export async function prepareTarget(target: Sql, side: Side, options: { migratio
       }
     }
   }
-  await target`select pg_advisory_lock(hashtext('gokesari-migrations'))`;
+  // The migration lock is a session lock: take and release it on one pinned connection, not
+  // on whichever pooled connection comes next (that left it held, and a second prepare waited forever).
+  const lock = await target.reserve();
   try {
-    await migrate(drizzle(target), { migrationsFolder: options.migrationsFolder ?? "./drizzle" });
+    await lock`select pg_advisory_lock(hashtext('gokesari-migrations'))`;
+    try {
+      await migrate(drizzle(target), { migrationsFolder: options.migrationsFolder ?? "./drizzle" });
+    } finally {
+      await lock`select pg_advisory_unlock(hashtext('gokesari-migrations'))`;
+    }
   } finally {
-    await target`select pg_advisory_unlock_all()`;
+    lock.release();
   }
   const tables = await publicTables(target);
   const drop = tables.filter((t) => physicalDatabase(t) !== side);

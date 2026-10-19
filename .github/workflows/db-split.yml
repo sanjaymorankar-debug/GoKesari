@@ -9,9 +9,19 @@
 #   verify     read-only: re-runs the verification report
 #   fdw        sets up postgres_fdw both ways (cross-database reads)
 #
+# The switch to two databases (docs/db-split-2026-10/CODE_SPLIT_PLAN.md §5):
+#   switch-status      read-only: which layout the site's database is on
+#   switch-check       read-only: can the site switch now, and what would happen
+#   switch             the seller rows move to the seller database (writes wait
+#                      a few seconds, reads go on); the site's database keeps
+#                      foreign tables of the same names and a parked copy
+#   switch-back-check  read-only: can the switch be undone without losing a row
+#   switch-back        the switch undone, with every row written since
+#   drop-parked        after the rollback window: frees the parked copy
+#
 # Target "test" (test.gokesari.com) runs from staging. Target "production"
-# runs only from main, only after a passing test run, and needs
-# confirm = SPLIT PRODUCTION. The SOURCE database is only ever read: the
+# runs only from main, only after a passing test run (for switch: only once
+# the test site is switched), and needs confirm = SPLIT PRODUCTION. The SOURCE database is only ever read: the
 # site keeps running on it (DB_SPLIT_MODE=single) until the switch in the
 # README, so nothing here can take the site down or lose data.
 #
@@ -33,13 +43,13 @@ on:
         description: What to do
         type: choice
         default: plan
-        options: [plan, dry-run, migrate, verify, fdw]
+        options: [plan, dry-run, migrate, verify, fdw, switch-status, switch-check, switch, switch-back-check, switch-back, drop-parked]
       replace:
         description: "migrate only: overwrite a target that already has data"
         type: boolean
         default: false
       confirm:
-        description: "production migrate/fdw only: type SPLIT PRODUCTION"
+        description: "production migrate/fdw/switch/switch-back/drop-parked only: type SPLIT PRODUCTION"
         required: false
         default: ""
 
@@ -69,9 +79,9 @@ jobs:
           fail() { echo "::error::$1"; exit 1; }
           if [ "$TARGET" = "production" ]; then
             [ "$GITHUB_REF" = "refs/heads/main" ] || fail "Production runs only from main."
-            case "$ACTION" in migrate|fdw) [ "$CONFIRM" = "SPLIT PRODUCTION" ] || fail "Type SPLIT PRODUCTION in confirm to change production databases." ;; esac
+            case "$ACTION" in migrate|fdw|switch|switch-back|drop-parked) [ "$CONFIRM" = "SPLIT PRODUCTION" ] || fail "Type SPLIT PRODUCTION in confirm to change production databases." ;; esac
           else
-            [ "$GITHUB_REF" = "refs/heads/staging" ] || [ "$ACTION" = "plan" ] || [ "$ACTION" = "verify" ] || fail "Test-site changes run only from staging."
+            case "$ACTION" in plan|verify|switch-status|switch-check|switch-back-check) ;; *) [ "$GITHUB_REF" = "refs/heads/staging" ] || fail "Test-site changes run only from staging." ;; esac
           fi
 
       - uses: actions/checkout@v5
@@ -119,10 +129,14 @@ jobs:
           [ -n "$src" ] || { echo "::error::The source database secret is not set for $TARGET."; exit 1; }
           if [ "${{ inputs.action }}" != "plan" ]; then
             [ -n "$seller" ] || { echo "::error::Secret ${TARGET^^}_SELLER_DATABASE_URL is not set yet — the seller (gokesari_seller) database details are still to be shared. See docs/db-split-2026-10/README.md."; exit 1; }
-            [ -n "$customer" ] || { echo "::error::Secret ${TARGET^^}_CUSTOMER_DATABASE_URL is not set yet. See docs/db-split-2026-10/README.md."; exit 1; }
           fi
+          # The switch keeps the site's database as the customer database; only the earlier copy actions use a third one.
+          case "${{ inputs.action }}" in
+            dry-run|migrate|verify|fdw) [ -n "$customer" ] || { echo "::error::Secret ${TARGET^^}_CUSTOMER_DATABASE_URL is not set yet. See docs/db-split-2026-10/README.md."; exit 1; } ;;
+          esac
           {
             echo "SOURCE_DATABASE_URL=$src"
+            echo "CORE_DATABASE_URL=$src"
             echo "SELLER_DATABASE_URL=$seller"
             echo "CUSTOMER_DATABASE_URL=$customer"
           } >> "$GITHUB_ENV"
@@ -138,11 +152,29 @@ jobs:
           SOURCE_DATABASE_URL="$T_SRC" SELLER_DATABASE_URL="$T_SELLER" CUSTOMER_DATABASE_URL="$T_CUSTOMER" \
             npx tsx scripts/db-split/run.ts verify --allow-remote > /dev/null || { echo "::error::The test split does not verify cleanly. Fix it there first."; exit 1; }
 
+      - name: Production only — the test site is switched first
+        if: inputs.target == 'production' && inputs.action == 'switch'
+        env:
+          T_SRC: ${{ secrets.TEST_DATABASE_URL }}
+          T_SELLER: ${{ secrets.TEST_SELLER_DATABASE_URL }}
+        run: |
+          CORE_DATABASE_URL="$T_SRC" SELLER_DATABASE_URL="$T_SELLER" npx tsx scripts/db-split/switch.ts status --expect split --allow-remote \
+            || { echo "::error::Switch test.gokesari.com first, and run its journeys there."; exit 1; }
+
       - name: Restore point (source)
         if: inputs.action == 'migrate'
         run: |
           at=$(psql "$SOURCE_DATABASE_URL" -X -v ON_ERROR_STOP=1 -tAc "select to_char(now() at time zone 'UTC', 'YYYY-MM-DD HH24:MI:SS') || ' UTC'")
           { echo "### Restore point"; echo "Source read at **$at**. The source is never written to; the site keeps using it until DB_SPLIT_MODE changes."; } | tee -a "$GITHUB_STEP_SUMMARY"
+
+      - name: Restore point (before the switch)
+        if: inputs.action == 'switch' || inputs.action == 'switch-back' || inputs.action == 'drop-parked'
+        run: |
+          at=$(psql "$CORE_DATABASE_URL" -X -v ON_ERROR_STOP=1 -tAc "select to_char(now() at time zone 'UTC', 'YYYY-MM-DD HH24:MI:SS') || ' UTC'")
+          {
+            echo "### Restore point"
+            echo "Time **$at**. Undo without losing a row: action switch-back. Last resort: Neon console → the project → Restore → to this time (both databases)."
+          } | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Run
         env:
@@ -157,6 +189,12 @@ jobs:
             migrate) npx tsx scripts/db-split/run.ts migrate --apply --report "$RUNNER_TEMP/split-report.md" "${extra[@]}" ;;
             verify) npx tsx scripts/db-split/run.ts verify --report "$RUNNER_TEMP/split-report.md" "${extra[@]}" ;;
             fdw) npx tsx scripts/db-split/run.ts fdw --apply "${extra[@]}" | tee -a "$GITHUB_STEP_SUMMARY" ;;
+            switch-status) npx tsx scripts/db-split/switch.ts status --allow-remote | tee -a "$GITHUB_STEP_SUMMARY" ;;
+            switch-check) npx tsx scripts/db-split/switch.ts check --allow-remote | tee -a "$GITHUB_STEP_SUMMARY" ;;
+            switch) npx tsx scripts/db-split/switch.ts apply --allow-remote | tee -a "$GITHUB_STEP_SUMMARY" ;;
+            switch-back-check) npx tsx scripts/db-split/switch.ts check-back --allow-remote | tee -a "$GITHUB_STEP_SUMMARY" ;;
+            switch-back) npx tsx scripts/db-split/switch.ts back --allow-remote | tee -a "$GITHUB_STEP_SUMMARY" ;;
+            drop-parked) npx tsx scripts/db-split/switch.ts drop-parked --allow-remote | tee -a "$GITHUB_STEP_SUMMARY" ;;
           esac
 
       - name: Report

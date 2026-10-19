@@ -17,6 +17,6 @@ const schema = z.object({
 
 export const GET = route(async (request: NextRequest) => {
   await requirePermission(PERMISSIONS.PMD_VIEW);
-  const categories = await listCategories(appSql(), parseQuery(request, schema));
+  const categories = await listCategories(await appSql(), parseQuery(request, schema));
   return ok({ count: categories.length, categories });
 });

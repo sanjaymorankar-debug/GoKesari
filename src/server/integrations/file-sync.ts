@@ -37,6 +37,7 @@ import { applyPulledItems, type PullSummary } from "./pull";
 import { adapterFor, isFileAdapter } from "./registry";
 import { readSheet, sheetTypeOf, toCsv, toXlsx } from "./tabular";
 import { FILE_ITEM_FIELDS, type FileItemField } from "./types";
+import { upsertRow } from "@/server/db/split/upsert";
 
 export const MAX_IMPORT_BYTES = 5 * 1024 * 1024;
 export const MAX_IMPORT_ROWS = 20_000;
@@ -168,13 +169,11 @@ export async function setImportMapping(shopId: string, importId: string, mapping
   if (new Set(columns).size !== columns.length) throw validationFailed("One column is chosen for two fields.");
   const [integration] = await db.select().from(shopIntegrations).where(eq(shopIntegrations.id, imp.integrationId));
   await db.update(integrationImports).set({ mapping }).where(eq(integrationImports.id, importId));
-  await db
-    .insert(integrationColumnMappings)
-    .values({ shopId, provider: integration.provider, kind: "ITEMS", mapping, updatedBy: actor.id })
-    .onConflictDoUpdate({
-      target: [integrationColumnMappings.shopId, integrationColumnMappings.provider, integrationColumnMappings.kind],
-      set: { mapping, updatedBy: actor.id, updatedAt: new Date() },
-    });
+  await upsertRow(db, integrationColumnMappings, {
+    keys: [integrationColumnMappings.shopId, integrationColumnMappings.provider, integrationColumnMappings.kind],
+    values: { shopId, provider: integration.provider, kind: "ITEMS", mapping, updatedBy: actor.id },
+    set: { mapping, updatedBy: actor.id, updatedAt: new Date() },
+  });
   return getItemImport(shopId, importId);
 }
 

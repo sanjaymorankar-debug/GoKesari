@@ -46,11 +46,15 @@ const serverEnvSchema = z.object({
    * Seller / customer database split (docs/db-split-2026-10). "single" (the
    * default): everything in DATABASE_URL, as before. "shadow": still served
    * from DATABASE_URL while the two new databases are filled and kept in sync
-   * for verification. "split": seller-owned reads go to SELLER_DATABASE_URL
-   * through src/server/db/split (Phase 2; see the README before using it).
+   * for verification. "split": the site may use the split layout — its
+   * database switched with scripts/db-split/switch.ts (seller tables in
+   * SELLER_DATABASE_URL, reached through postgres_fdw). Safe to set before the
+   * switch: the site looks at its database and keeps using DATABASE_URL alone
+   * until then (the one difference: a transaction that ends in a deadlock is
+   * run again instead of failing).
    */
   DB_SPLIT_MODE: z.enum(["single", "shadow", "split"]).default("single"),
-  /** gokesari_seller — PLACEHOLDER until the owner shares the test seller database. */
+  /** The seller database (the split layout's seller tables). */
   SELLER_DATABASE_URL: z.string().optional(),
   /** gokesari_customer — defaults to DATABASE_URL (the core database keeps customer and platform tables). */
   CUSTOMER_DATABASE_URL: z.string().optional(),

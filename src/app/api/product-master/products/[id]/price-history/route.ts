@@ -16,7 +16,7 @@ export const GET = route(async (request: NextRequest, context: RouteContext<{ id
   await requirePermission(PERMISSIONS.PMD_VIEW);
   const id = assertMasterId((await context.params).id);
   const q = parseQuery(request, priceHistoryQuerySchema);
-  const sql = appSql();
+  const sql = await appSql();
   if (!(await getProduct(sql, id))) throw notFound("Product");
   return ok({ masterProductId: id, ...(await getPriceHistory(sql, id, q)) });
 });

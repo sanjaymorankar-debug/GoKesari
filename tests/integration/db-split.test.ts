@@ -47,7 +47,15 @@ let seller: Sql;
 let customer: Sql;
 let fixture: Awaited<ReturnType<typeof createStandardMilkSetup>> & { orderId: string };
 
+/**
+ * These cases build a split from a single-database source. In CI's split-mode
+ * job the test database is already split (its seller tables are foreign
+ * tables), so there is nothing here to build; the regular job runs them.
+ */
+const onSplitLayout = process.env.DB_SPLIT_MODE === "split";
+
 beforeAll(async () => {
+  if (onSplitLayout) return;
   await resetDatabase();
   const setup = await createStandardMilkSetup();
   const order = await createOrder(setup.customer.id, setup.shop.id, { status: "CONFIRMED" });
@@ -82,7 +90,7 @@ afterAll(async () => {
 });
 
 // Building two databases with every migration and copying into them is slower than a normal test.
-describe("seller / customer database split", { timeout: 300_000 }, () => {
+describe.skipIf(onSplitLayout)("seller / customer database split", { timeout: 300_000 }, () => {
   it("builds both schemas, copies every row, and the checksums match; the source is untouched", async () => {
     const { seller: sellerTables, customer: customerTables, unowned } = splitTables(await publicTables(source));
     expect(unowned).toEqual([]);

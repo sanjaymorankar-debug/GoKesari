@@ -23,8 +23,8 @@ export const POST = route(async (request: NextRequest, context: RouteContext<{ c
   const candidateId = Number(raw);
   const body = await parseBody(request, decisionBodySchema);
 
-  const result = await guarded(() =>
-    decideCandidate(appSql(), candidateId, body.decision, { userId: user.id, label: user.email || user.id }, body.note ?? null),
+  const result = await guarded(async () =>
+    decideCandidate(await appSql(), candidateId, body.decision, { userId: user.id, label: user.email || user.id }, body.note ?? null),
   );
   await recordAudit({
     actorId: user.id,
