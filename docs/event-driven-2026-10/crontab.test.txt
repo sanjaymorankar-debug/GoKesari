@@ -1,3 +1,6 @@
+# SUPERSEDED 19 Oct 2026: the whole schedule is now the three lines in docs/crontab.txt
+# (docs/cron-schedule.md). Kept for reference and rollback.
+#
 # GoKesari — TEST site (test.gokesari.com) crontab, event layer.
 # Times are UTC (as in the current crontab). IST = UTC + 5:30.
 # Every job POSTs https://test.gokesari.com/api/cron/<job> with the CRON_SECRET

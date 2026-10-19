@@ -1,0 +1,24 @@
+# GoKesari — the complete crontab (owner, 19 Oct 2026). Install on BOTH sites:
+# test.gokesari.com first, then gokesari.com. It REPLACES every earlier GoKesari
+# line (docs/event-driven-2026-10/crontab.test.txt Phase A/B, docs/batch-2026-10/
+# crontab.txt and the bill-captures / gst-reminders lines of
+# docs/inventory-accounting-2026-10). Times are UTC (IST = UTC + 5:30).
+#
+# Everything a customer, shop or rider does is handled by its event at once.
+# These three lines cover only what no event can start: a deadline passing, a
+# retry after a failed send, a gateway reply that never came, a timed send, the
+# 05:00 subscription orders and the Saturday payout. What each line runs, and
+# how often: docs/cron-schedule.md.
+#
+# Each line POSTs https://<host>/api/cron/<job> with the CRON_SECRET bearer token
+# (docs/event-driven-2026-10/run.sh.example). Every job is idempotent: a late,
+# overlapping or repeated run is harmless.
+
+* * * * *    $HOME/gokesari-cron/run.sh every-minute   # timeouts, retries, queued sends (each at its own cadence)
+17 * * * *   $HOME/gokesari-cron/run.sh hourly         # risk scan, dispute + help-desk deadlines, refund / payout retries, expired codes
+30 23 * * *  $HOME/gokesari-cron/run.sh daily          # 05:00 IST: subscription orders, document upkeep, GST reminders, Saturday payout, Monday finance week
+
+# Without run.sh, the same three lines as plain curl (replace <host> and keep the secret out of the crontab file if you can):
+# * * * * *   curl -fsS -X POST https://<host>/api/cron/every-minute -H "Authorization: Bearer $CRON_SECRET" >/dev/null
+# 17 * * * *  curl -fsS -X POST https://<host>/api/cron/hourly       -H "Authorization: Bearer $CRON_SECRET" >/dev/null
+# 30 23 * * * curl -fsS -X POST https://<host>/api/cron/daily        -H "Authorization: Bearer $CRON_SECRET" >/dev/null

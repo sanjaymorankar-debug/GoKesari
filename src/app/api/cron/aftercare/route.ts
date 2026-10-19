@@ -17,17 +17,14 @@ import type { NextRequest } from "next/server";
 import { ok, route } from "@/server/api/handler";
 import { assertCronAuthorized } from "@/server/api/cron-auth";
 import { RATE_LIMITS, clientKey, enforceRateLimit } from "@/server/api/rate-limit";
-import { runRefundSweep } from "@/server/aftercare/refunds";
-import { runHelpdeskSlaSweep } from "@/server/aftercare/support-tickets";
+import { aftercare } from "@/server/cron/schedule";
 
 export const dynamic = "force-dynamic";
 
 export const POST = route(async (request: NextRequest) => {
   enforceRateLimit(clientKey(request, "cron"), RATE_LIMITS.CRON);
   assertCronAuthorized(request);
-  const helpdesk = await runHelpdeskSlaSweep();
-  const refunds = await runRefundSweep();
-  const result = { helpdesk, refunds };
+  const result = await aftercare();
   console.info("[cron:aftercare]", JSON.stringify(result));
   return ok(result);
 });

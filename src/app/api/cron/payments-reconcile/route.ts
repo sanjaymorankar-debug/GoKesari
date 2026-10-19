@@ -10,11 +10,10 @@
  */
 import type { NextRequest } from "next/server";
 
-import { assertCronAuthorized } from "@/server/api/cron-auth";
 import { ok, route } from "@/server/api/handler";
+import { assertCronAuthorized } from "@/server/api/cron-auth";
 import { RATE_LIMITS, clientKey, enforceRateLimit } from "@/server/api/rate-limit";
-import { runRefundSweep } from "@/server/aftercare/refunds";
-import { runPaymentReconciliation } from "@/server/payments/processing";
+import { paymentsReconcile } from "@/server/cron/schedule";
 
 export const dynamic = "force-dynamic";
 export const maxDuration = 300;
@@ -22,11 +21,7 @@ export const maxDuration = 300;
 export const POST = route(async (request: NextRequest) => {
   enforceRateLimit(clientKey(request, "cron"), RATE_LIMITS.CRON);
   assertCronAuthorized(request);
-  const payments = await runPaymentReconciliation();
-  // Batch integration: the customer's refund record and timeline (WS-C) follow
-  // the gateway refunds this run settled, within minutes rather than hourly.
-  const orderRefunds = await runRefundSweep();
-  const result = { ...payments, orderRefunds };
+  const result = await paymentsReconcile();
   console.info("[cron:payments-reconcile]", JSON.stringify(result));
   return ok(result);
 });

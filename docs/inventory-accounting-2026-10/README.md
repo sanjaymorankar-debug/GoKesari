@@ -58,7 +58,7 @@ Board" design, in English, Hindi and Marathi.
 | `ACCOUNTS_STORAGE=s3`, `ACCOUNTS_S3_ENDPOINT`, `ACCOUNTS_S3_BUCKET`, `ACCOUNTS_S3_REGION`, `ACCOUNTS_S3_ACCESS_KEY_ID`, `ACCOUNTS_S3_SECRET_ACCESS_KEY` | Bills in an S3-compatible bucket (R2, B2, S3, MinIO). Otherwise MEDIA_DIR, otherwise the database |
 | `INBOUND_EMAIL_SECRET`, `INBOUND_EMAIL_DOMAIN` | Email forwarding: each shop gets `bills+<id>-<sig>@<domain>`; the mail provider posts to `/api/inbound/bill-email` with the secret as bearer token |
 
-Crons (safety nets, same `CRON_SECRET` as the others):
+Crons (safety nets, same `CRON_SECRET` as the others). **Since 19 Oct 2026 both run inside the three-line schedule** (`docs/crontab.txt`: bill-captures every 10 min in `every-minute`, gst-reminders in `daily` at 05:00 IST) — do not add the lines below separately:
 
 ```
 */10 * * * *  curl -X POST https://<host>/api/cron/bill-captures -H "Authorization: Bearer $CRON_SECRET"

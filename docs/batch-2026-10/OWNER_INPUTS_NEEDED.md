@@ -82,9 +82,11 @@ owner can provide, **where to put it**, and **which switch to turn on after**.
 
 ## 9. Cron jobs
 
-Add the lines in **`docs/batch-2026-10/crontab.txt`** to the Hostinger crontab on
-test.gokesari.com, then gokesari.com (9 jobs; each does nothing while its
-feature is off).
+**Replaced 19 Oct 2026:** install the three lines in **`docs/crontab.txt`** on
+test.gokesari.com, then gokesari.com, instead of the 9 lines of
+`docs/batch-2026-10/crontab.txt`. Every batch job runs inside them at its own
+cadence (`docs/cron-schedule.md`); the "Cron …" rows in the sections above are
+all covered by those three lines.
 
 ## 10. Signing fingerprint and Apple Team ID (F15.2.3 deep links)
 
