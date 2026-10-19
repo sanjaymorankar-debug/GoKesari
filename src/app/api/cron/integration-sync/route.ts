@@ -13,18 +13,12 @@ import type { NextRequest } from "next/server";
 import { ok, route } from "@/server/api/handler";
 import { assertCronAuthorized } from "@/server/api/cron-auth";
 import { RATE_LIMITS, clientKey, enforceRateLimit } from "@/server/api/rate-limit";
-import { inventorySyncEnabled } from "@/server/integrations/inventory-sync-flag";
-import { integrationSweep } from "@/server/integrations/sweep";
+import { integrationSync } from "@/server/cron/schedule";
 
 export const POST = route(async (request: NextRequest) => {
   enforceRateLimit(clientKey(request, "cron"), RATE_LIMITS.CRON);
   assertCronAuthorized(request);
-  // batch-2026-10 WS-D (F9.2.6): inventory sync descoped — off unless rule inventorySync.enabled.
-  if (!(await inventorySyncEnabled())) {
-    console.info("[cron:integration-sync] skipped: rule inventorySync.enabled is off");
-    return ok({ skipped: true, reason: "INVENTORY_SYNC_DISABLED" });
-  }
-  const result = await integrationSweep();
+  const result = await integrationSync();
   console.info("[cron:integration-sync]", JSON.stringify(result));
   return ok(result);
 });

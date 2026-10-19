@@ -231,7 +231,7 @@ async function claimCheck(input: ClaimInput): Promise<Claim> {
     await tx
       .insert(sellerVerifications)
       .values({ shopId, docType })
-      .onConflictDoNothing({ target: [sellerVerifications.shopId, sellerVerifications.docType] });
+      .onConflictDoNothing(); // the only unique key is (shop_id, doc_type)
     const [row] = await tx
       .select()
       .from(sellerVerifications)
@@ -616,7 +616,7 @@ export async function declareNoGstin(input: {
     await tx
       .insert(sellerVerifications)
       .values({ shopId: shop.id, docType: "GSTIN" })
-      .onConflictDoNothing({ target: [sellerVerifications.shopId, sellerVerifications.docType] });
+      .onConflictDoNothing(); // the only unique key is (shop_id, doc_type)
     const [current] = await tx
       .select()
       .from(sellerVerifications)

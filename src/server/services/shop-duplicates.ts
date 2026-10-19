@@ -407,8 +407,12 @@ const SHOP_ACT_UNIQUE_INDEX = "shops_shop_act_key_active_unique";
 export function isShopActUniqueViolation(error: unknown): boolean {
   let current: unknown = error;
   for (let depth = 0; current && depth < 4; depth += 1) {
-    const candidate = current as { code?: unknown; constraint_name?: unknown; cause?: unknown };
-    if (candidate.code === "23505") return candidate.constraint_name === SHOP_ACT_UNIQUE_INDEX;
+    const candidate = current as { code?: unknown; constraint_name?: unknown; message?: unknown; cause?: unknown };
+    if (candidate.code === "23505") {
+      // Through postgres_fdw (seller / customer split) the error keeps its code and message but not the
+      // constraint name; the message names the index ('… violates unique constraint "<index>"').
+      return candidate.constraint_name === SHOP_ACT_UNIQUE_INDEX || (typeof candidate.message === "string" && candidate.message.includes(`"${SHOP_ACT_UNIQUE_INDEX}"`));
+    }
     current = candidate.cause;
   }
   return false;

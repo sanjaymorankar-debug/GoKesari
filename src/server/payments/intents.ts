@@ -31,7 +31,7 @@ import {
   PAID_PAYMENT_INTENT_STATUSES,
   type PaymentIntentStatusValue,
 } from "@/lib/payment-intent-states";
-import { db, type DbClient } from "@/server/db";
+import { db, transactionOnce, type DbClient } from "@/server/db";
 import {
   orderStatusHistory,
   orders,
@@ -209,15 +209,19 @@ export async function createPaymentIntent(input: CreatePaymentIntentInput, clien
     throw conflict("This payment key was already used for a different payment.");
   }
   if (row.status !== "CREATED" || row.gatewayOrderId) return created(row);
-  return created(await openAtGateway(row.id, c));
+  return created(await openAtGateway(row.id, client));
 }
 
 /**
  * Creates the gateway order (or link) for a CREATED intent, once: the row is
- * locked, so a double click waits and then finds it done.
+ * locked, so a double click waits and then finds it done. On its own (no
+ * caller's transaction) it is never re-run: a re-run would send the same
+ * merchant order id to the gateway again, which refuses it, and leave the
+ * intent stuck until it expires (seller / customer split, transactionOnce).
  */
-async function openAtGateway(intentId: string, client: DbClient): Promise<PaymentIntentRow> {
-  return inTransaction(client, async (tx) => {
+async function openAtGateway(intentId: string, client: DbClient | undefined): Promise<PaymentIntentRow> {
+  const open = (run: (tx: DbClient) => Promise<PaymentIntentRow>) => (client ? client.transaction(run) : transactionOnce(run));
+  return open(async (tx) => {
     const row = await lockIntent(tx, intentId);
     if (!row) throw notFound("Payment");
     if (row.status !== "CREATED" || row.gatewayOrderId) return row;

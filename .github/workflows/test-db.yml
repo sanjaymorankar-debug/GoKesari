@@ -149,6 +149,8 @@ jobs:
 
       - name: Back up
         if: env.DO_BACKUP == 'yes'
+        env:
+          TEST_SELLER_DATABASE_URL: ${{ secrets.TEST_SELLER_DATABASE_URL }}
         run: |
           file="gokesari_test_$(date -u +%Y-%m-%d_%H%M)_run${GITHUB_RUN_NUMBER}.dump"
           pg_dump "$TEST_DATABASE_URL" --format=custom --no-owner --no-privileges --file="$file"
@@ -156,6 +158,15 @@ jobs:
           [ "$size" -gt 1024 ] || { echo "::error::Backup is only $size bytes — stopping before any change."; exit 1; }
           echo "BACKUP_FILE=$file" >> "$GITHUB_ENV"
           echo "Backup: $file ($((size / 1024)) KiB) — artifact, kept 14 days" | tee -a "$GITHUB_STEP_SUMMARY"
+          # After the seller / customer switch the seller rows live in the seller database: back it up too.
+          split=$(psql "$TEST_DATABASE_URL" -X -tAc "select exists (select 1 from pg_foreign_table t join pg_foreign_server s on s.oid = t.ftserver where s.srvname = 'gk_seller')")
+          if [ "$split" = "t" ]; then
+            [ -n "$TEST_SELLER_DATABASE_URL" ] || { echo "::error::The test database is split but TEST_SELLER_DATABASE_URL is not set — cannot back up the seller rows."; exit 1; }
+            pg_dump "$TEST_SELLER_DATABASE_URL" --format=custom --no-owner --no-privileges --file="seller_$file"
+            mv "$file" "core_$file"; mkdir "$file.d"; mv "core_$file" "seller_$file" "$file.d/"
+            echo "BACKUP_FILE=$file.d" >> "$GITHUB_ENV"
+            echo "Split layout: the seller database is in the same backup (seller_$file)." | tee -a "$GITHUB_STEP_SUMMARY"
+          fi
 
       - name: Keep the backup (14 days)
         if: env.DO_BACKUP == 'yes'
@@ -180,6 +191,9 @@ jobs:
         if: env.DO_MIGRATE == 'yes'
         # The deploy build's migrator, with its lock: safe even if MIGRATE_ON_BUILD
         # is on and Hostinger's build migrates at the same moment.
+        # Once the database is switched to the seller / customer split, the migrator also needs the seller database.
+        env:
+          SELLER_DATABASE_URL: ${{ secrets.TEST_SELLER_DATABASE_URL }}
         run: MIGRATE_ON_BUILD=true DATABASE_URL="$TEST_DATABASE_URL" node scripts/migrate-on-build.mjs | tee -a "$GITHUB_STEP_SUMMARY"
 
       - name: Apply test settings

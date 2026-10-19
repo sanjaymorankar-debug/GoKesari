@@ -16,5 +16,5 @@ export const dynamic = "force-dynamic";
 export const GET = route(async (request: NextRequest) => {
   await requirePermission(PERMISSIONS.PMD_VIEW);
   const { q, limit, ...filters } = parseQuery(request, searchQuerySchema);
-  return ok(await searchProducts(appSql(), q, filters, limit));
+  return ok(await searchProducts(await appSql(), q, filters, limit));
 });

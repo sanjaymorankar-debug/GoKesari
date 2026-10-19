@@ -38,13 +38,13 @@ owner can provide, **where to put it**, and **which switch to turn on after**.
 | Your bank's **bulk-upload file template** (the generic NEFT/RTGS CSV is a placeholder) | Send the template; a developer maps the columns | — |
 | Cron `payout-cycle` daily (§9) | Hostinger cron | **`payouts.enabled` = true with `provider` = `BANK_FILE`** (download file → upload to the bank → "Mark paid" with each UTR in Admin → Payouts) |
 | For automatic transfers: RazorpayX `RAZORPAYX_KEY_ID`, `RAZORPAYX_KEY_SECRET`, `RAZORPAYX_ACCOUNT_NUMBER`, `RAZORPAYX_WEBHOOK_SECRET` **or** Cashfree Payouts `CASHFREE_PAYOUT_CLIENT_ID`, `CASHFREE_PAYOUT_CLIENT_SECRET`, `CASHFREE_PAYOUT_ENV=production` | Hostinger env | `payouts.provider` = `RAZORPAYX` / `CASHFREE`; run **one** test payout first (request formats are coded from public docs, unverified) |
-| Confirm the cycle (default every **5 days** from `payouts.anchorDate`), hold days, minimum payout, maker-checker (on) | Admin setting `payouts` | — |
+| ~~Confirm the cycle~~ — **decided 19 Oct: weekly, every Saturday morning** (default now `cycleDays` 7 from Saturday `anchorDate` 2026-10-17; the payout-cycle job at 06:10 IST acts on Saturdays). Still to confirm: hold days, minimum payout, maker-checker (on) | Admin setting `payouts` | — |
 
 ## 4. GoKesari GSTIN and legal details (F10.2.5)
 
 | What | Where | Then switch on |
 |---|---|---|
-| Legal name, trade name, **GSTIN**, PAN, registered address, two-letter state code, billing e-mail | Admin setting `platformTaxProfile` | **`platformInvoicing.enabled` = true** (GoKesari's own fee invoices to shops, one per payout cycle) |
+| ~~Legal name, trade name, GSTIN, PAN, registered address, state code~~ — **given 19 Oct**: GSTIN **27ABCCA8318D1ZV** (Maharashtra, check digit valid), PAN ABCCA8318D, legal name and address as on the legal pages; now the `platformTaxProfile` defaults. Still to give: the **billing e-mail** | Admin setting `platformTaxProfile` | **`platformInvoicing.enabled` = true** after the CA check in §6 (GoKesari's own fee invoices to shops, one per payout cycle) |
 
 ## 5. Invoice prefix (F10.2.5)
 
@@ -65,7 +65,7 @@ owner can provide, **where to put it**, and **which switch to turn on after**.
 
 | What | Where | Then |
 |---|---|---|
-| Name, designation, e-mail, phone, address, hours (today's values are pre-filled from the legal page) | Admin setting `grievanceOfficer` | shown at once on the site and in the app |
+| ~~Name, designation, e-mail, phone, address, hours~~ — **e-mail confirmed 19 Oct: grievance@gokesari.com** (already the value on the site; name Sonali, phone and address pre-filled from the legal page) | Admin setting `grievanceOfficer` | shown at once on the site and in the app |
 | Counsel to confirm the Consumer Protection (E-Commerce) Rules, 2020 Rule 4 timelines (48 h acknowledge, one month resolve) — `docs/helpdesk-2026-10.md` | Admin setting `helpdesk` (to tighten, e.g. 24 h / 15 days) | — |
 | Cron `aftercare` hourly (§9) | Hostinger cron | help desk is on by default |
 | Review the after-packing fee defaults (₹20 flat; limits ₹100 / 20%) and update the refund policy text | Admin setting `afterPackingCancellation` | **`afterPackingCancellation.enabled` = true** |
@@ -82,9 +82,11 @@ owner can provide, **where to put it**, and **which switch to turn on after**.
 
 ## 9. Cron jobs
 
-Add the lines in **`docs/batch-2026-10/crontab.txt`** to the Hostinger crontab on
-test.gokesari.com, then gokesari.com (9 jobs; each does nothing while its
-feature is off).
+**Replaced 19 Oct 2026:** install the three lines in **`docs/crontab.txt`** on
+test.gokesari.com, then gokesari.com, instead of the 9 lines of
+`docs/batch-2026-10/crontab.txt`. Every batch job runs inside them at its own
+cadence (`docs/cron-schedule.md`); the "Cron …" rows in the sections above are
+all covered by those three lines.
 
 ## 10. Signing fingerprint and Apple Team ID (F15.2.3 deep links)
 

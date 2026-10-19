@@ -1,3 +1,4 @@
+import os from "node:os";
 import path from "node:path";
 
 import type { NextConfig } from "next";
@@ -80,6 +81,16 @@ const BROWSER_OCR_FILES = [
 ];
 
 const nextConfig: NextConfig = {
+  experimental: {
+    // `next build` starts one worker per CPU minus one, and every worker loads
+    // Next's SWC binary, which starts one thread per CPU of its own. Hostinger's
+    // build host reported 64 CPUs (staging build of 9b29c03, 19 Oct 2026):
+    // 63 workers × 64 threads ran into the host's thread limit, and the build
+    // died in "Collecting page data" with "OS can't spawn worker thread ... (os
+    // error 11)". Earlier builds there used 7 workers. Up to 8 CPUs this is
+    // Next's own default, so laptops and CI build exactly as before.
+    cpus: Math.min(7, Math.max(1, os.cpus().length - 1)),
+  },
   // docs/document-upload-2026-10: the OCR engine starts a worker thread and
   // loads its WebAssembly and language model from node_modules at run time,
   // so it must not be bundled; the PDF reader likewise.

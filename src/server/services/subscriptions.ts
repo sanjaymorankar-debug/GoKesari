@@ -33,6 +33,8 @@ import {
   orders,
   products,
   shopProducts,
+  shopSlaEvents,
+  shopSuspensionOrders,
   shops,
   subscriptionDailyOverrides,
   subscriptionEvents,
@@ -1416,6 +1418,9 @@ export async function retryFailedDelivery(
       .where(eq(subscriptionOrders.id, failed.id));
     if (failed.orderId) {
       await tx.delete(orderItems).where(eq(orderItems.orderId, failed.orderId));
+      // Seller-side rows that pointed at the order (ON DELETE CASCADE on one database; explicit across the split).
+      await tx.delete(shopSlaEvents).where(eq(shopSlaEvents.orderId, failed.orderId));
+      await tx.delete(shopSuspensionOrders).where(eq(shopSuspensionOrders.orderId, failed.orderId));
       await tx.delete(orders).where(eq(orders.id, failed.orderId));
     }
   });

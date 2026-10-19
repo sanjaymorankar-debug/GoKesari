@@ -64,6 +64,61 @@ const client =
 if (getEnv().NODE_ENV !== "production") globalForDb.__sql = client;
 
 export const db = drizzle(client, { schema });
+
+/**
+ * Seller / customer split (docs/db-split-2026-10/CODE_SPLIT_PLAN.md §2): the
+ * seller tables are reached through postgres_fdw, which runs the seller side
+ * of a transaction at REPEATABLE READ — one snapshot for the whole
+ * transaction. A transaction that waits for a row lock (a referral code's
+ * last slot) would then go on counting the other rows (the registrations
+ * holding it) as they were before the wait, and two could both take the slot.
+ * So with DB_SPLIT_MODE=split a top-level transaction runs at SERIALIZABLE
+ * (postgres_fdw then runs the seller side at SERIALIZABLE too): PostgreSQL
+ * stops every such race with "could not serialize access" (40001), and the
+ * transaction is run again from the start — as it is after a deadlock
+ * (40P01) — a few times, after a short random pause. On one database nothing
+ * changes.
+ */
+const RETRYABLE_TRANSACTION_ERRORS = new Set(["40001", "40P01"]);
+const TRANSACTION_ATTEMPTS = 8;
+
+/** "could not serialize access" — only on the split layout (its transactions run at SERIALIZABLE). */
+export function isSerializationFailure(error: unknown): boolean {
+  const e = error as { code?: string; cause?: { code?: string } } | null;
+  return String(e?.cause?.code ?? e?.code) === "40001";
+}
+
+export function isRetryableTransactionError(error: unknown): boolean {
+  const e = error as { code?: string; cause?: { code?: string } } | null;
+  return RETRYABLE_TRANSACTION_ERRORS.has(String(e?.cause?.code ?? e?.code));
+}
+
+/** The transaction as drizzle runs it: once, READ COMMITTED unless the caller says otherwise. */
+const runOnce = db.transaction.bind(db);
+
+/**
+ * A top-level transaction that is never run twice, for work that calls an
+ * outside service before it commits (the payment gateway): a re-run would call
+ * it again. READ COMMITTED, as on one database, so the split layout's
+ * serialization failures (and the re-run they trigger) do not arise; a
+ * deadlock fails it like any other error. Prefer doing the outside call after
+ * the commit; use this only where it has to happen under the transaction's lock.
+ */
+export const transactionOnce: typeof db.transaction = (run, config) => runOnce(run, { isolationLevel: "read committed", ...config });
+
+if (getEnv().DB_SPLIT_MODE === "split") {
+  const transaction = runOnce;
+  db.transaction = (async (...[run, config]: Parameters<typeof transaction>) => {
+    for (let attempt = 1; ; attempt++) {
+      try {
+        return await transaction(run, { isolationLevel: "serializable", ...config });
+      } catch (error) {
+        if (!isRetryableTransactionError(error) || attempt >= TRANSACTION_ATTEMPTS) throw error;
+        await new Promise((resolve) => setTimeout(resolve, 20 * attempt + Math.floor(Math.random() * 50)));
+      }
+    }
+  }) as typeof db.transaction;
+}
 export { schema };
 export type Database = typeof db;
 

@@ -56,6 +56,7 @@ import { emitEvent } from "@/server/events/emit";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { detectDocumentFile, shopSellsFood } from "./seller-verification";
 import { getRule } from "./settings";
+import { upsertRow } from "@/server/db/split/upsert";
 
 interface Actor {
   id: string;
@@ -378,11 +379,11 @@ export async function submitLegalDocument(input: SubmitLegalDocInput): Promise<L
       expiryReminderSentFor: null,
       updatedAt: now,
     };
-    const [saved] = await tx
-      .insert(shopLegalDocuments)
-      .values({ shopId: shop.id, docType: input.docType, ...values })
-      .onConflictDoUpdate({ target: [shopLegalDocuments.shopId, shopLegalDocuments.docType], set: values })
-      .returning();
+    const saved = await upsertRow(tx, shopLegalDocuments, {
+      keys: [shopLegalDocuments.shopId, shopLegalDocuments.docType],
+      values: { shopId: shop.id, docType: input.docType, ...values },
+      set: values,
+    });
     await tx.insert(shopLegalDocumentFiles).values({
       documentId: saved.id,
       shopId: shop.id,

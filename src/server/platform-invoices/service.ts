@@ -53,6 +53,7 @@ import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { amountInWords, financialYearOf } from "@/server/services/invoices";
 import { getRule } from "@/server/services/settings";
 import { istDay, platformFeeGstRateOn, statutoryResolver, type StatutoryResolver } from "@/server/statutory/rates";
+import { upsertRow } from "@/server/db/split/upsert";
 
 interface Actor {
   id: string;
@@ -106,14 +107,11 @@ export function shopStateCode(shop: Pick<Shop, "gstin" | "state" | "pincode">): 
 }
 
 async function nextNumber(series: "INVOICE" | "CREDIT_NOTE" | "DEBIT_NOTE", financialYear: string, client: DbClient): Promise<number> {
-  const [counter] = await client
-    .insert(platformInvoiceCounters)
-    .values({ series, financialYear, lastNumber: 1 })
-    .onConflictDoUpdate({
-      target: [platformInvoiceCounters.series, platformInvoiceCounters.financialYear],
-      set: { lastNumber: sql`${platformInvoiceCounters.lastNumber} + 1` },
-    })
-    .returning();
+  const counter = await upsertRow(client, platformInvoiceCounters, {
+    keys: [platformInvoiceCounters.series, platformInvoiceCounters.financialYear],
+    values: { series, financialYear, lastNumber: 1 },
+    set: { lastNumber: sql`${platformInvoiceCounters.lastNumber} + 1` },
+  });
   return counter.lastNumber;
 }
 

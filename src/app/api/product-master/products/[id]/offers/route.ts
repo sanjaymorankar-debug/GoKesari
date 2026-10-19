@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export const GET = route(async (request: NextRequest, context: RouteContext<{ id: string }>) => {
   await requirePermission(PERMISSIONS.PMD_VIEW);
   const id = assertMasterId((await context.params).id);
-  const sql = appSql();
+  const sql = await appSql();
   if (!(await getProduct(sql, id))) throw notFound("Product");
   const currentOnly = new URL(request.url).searchParams.get("current") === "true";
   const offers = await getOffers(sql, id, { currentOnly });

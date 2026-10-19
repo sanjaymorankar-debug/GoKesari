@@ -7039,6 +7039,25 @@ export const invStockLedger = pgTable(
 );
 export type InvStockLedgerEntry = typeof invStockLedger.$inferSelect;
 
+const xid8 = customType<{ data: string; default: false }>({ dataType: () => "xid8" });
+
+/**
+ * Seller / customer split (migration 0085): a row here marks a transaction in
+ * which the inventory module writes the stock ledger itself, so the ledger
+ * triggers stay out of it. A trigger stamps `xact` with the transaction id of
+ * the database the row lands in, which is how the mark reaches the seller
+ * database's triggers through postgres_fdw (a session setting cannot).
+ */
+export const invLedgerMarks = pgTable(
+  "inv_ledger_marks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    xact: xid8("xact"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("inv_ledger_marks_xact_idx").on(t.xact)],
+);
+
 /**
  * Unit conversions: how many milli sellable units one `unit` of a bill is
  * (a "case" of 24 packs → 24000; a 25 kg "bag" of a 1 kg listing → 25000).
