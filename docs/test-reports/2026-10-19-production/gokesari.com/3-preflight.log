@@ -1,0 +1,14 @@
+
+Running 4 tests using 1 worker
+
+[PASS] TC-PRE-001: Test site is reachable and renders
+  ✓  1 [chromium] › tests/e2e/smoke.spec.ts:41:7 › Preflight & Smoke Tests (P0) › TC-PRE-001: Test site is reachable and renders (1.0s)
+[PASS] TC-PRE-002: Database-backed pages load (no 500s)
+  ✓  2 [chromium] › tests/e2e/smoke.spec.ts:71:7 › Preflight & Smoke Tests (P0) › TC-PRE-002: Database-backed pages load (no 500s) (2.1s)
+[PASS] TC-PRE-003: Required test accounts exist and can sign in
+  ✓  3 [chromium] › tests/e2e/smoke.spec.ts:113:7 › Preflight & Smoke Tests (P0) › TC-PRE-003: Required test accounts exist and can sign in (375ms)
+[PASS] TC-PRE-004: Business-rule defaults are in place
+  ✓  4 [chromium] › tests/e2e/smoke.spec.ts:147:7 › Preflight & Smoke Tests (P0) › TC-PRE-004: Business-rule defaults are in place (448ms)
+
+  4 passed (6.3s)
+exit 0
