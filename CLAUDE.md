@@ -49,7 +49,10 @@ Every change — feature, fix, migration, test — must work on **both** layouts
 - **Transactions** run at SERIALIZABLE on the split layout and are re-run from
   the start on 40001 / 40P01: keep external side effects (payment gateway,
   SMS, e-mail, push, uploads) out of `db.transaction` — do them after commit or
-  through an idempotent outbox / idempotency key.
+  through an idempotent outbox / idempotency key. Where an outside call must
+  happen under the transaction's lock, use `transactionOnce`
+  (`src/server/db/index.ts`), which never re-runs. Anything a transaction
+  collects in memory (lists, caches) must be kept only once it commits.
 - **Product master:** use `await appSql()` (`src/server/pmd/db.ts`); never
   connect pmd code to `DATABASE_URL` directly.
 - **Tests:** CI job `test-split` (the whole suite on the two-database layout)

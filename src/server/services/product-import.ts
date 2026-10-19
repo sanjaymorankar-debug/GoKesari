@@ -1214,10 +1214,14 @@ export async function runCommit(jobId: string, actor: ImportActor, options: Comm
       .orderBy(asc(productImportRows.rowNumber))
       .limit(limits.batchSize);
     if (batch.length === 0) break;
+    // Kept only once the batch commits: on the seller / customer split a batch can be re-run, and
+    // a rolled-back attempt's proposals would name listings that no longer exist.
+    let batchProposals: ProposedChange[] = [];
     try {
       await db.transaction(async (tx) => {
         const matcher = await CatalogueMatcher.load(job.shopId, batch.map((r) => (r.parsedJson as { fields: ImportFields }).fields), tx);
-        const ctx: CommitContext = { ...ctxBase, matcher };
+        batchProposals = [];
+        const ctx: CommitContext = { ...ctxBase, matcher, priceProposals: batchProposals };
         for (const row of batch) {
           let outcome: RowOutcome;
           try {
@@ -1243,6 +1247,7 @@ export async function runCommit(jobId: string, actor: ImportActor, options: Comm
             .where(eq(productImportRows.id, row.id));
         }
       });
+      ctxBase.priceProposals.push(...batchProposals);
     } catch (error) {
       console.error("[product-import] batch failed", jobId, error);
       await db
