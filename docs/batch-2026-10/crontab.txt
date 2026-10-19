@@ -18,4 +18,4 @@
 41 * * * *   $HOME/gokesari-cron/run.sh aftercare              # F6.2.3 / F6.3.3 refund retries, help-desk SLA escalation, auto-close
 47 * * * *   $HOME/gokesari-cron/run.sh auth-housekeeping      # F1.1.2 purge expired sign-in codes
 # daily
-40 0 * * *   $HOME/gokesari-cron/run.sh payout-cycle           # F10.2.4 06:10 IST: close a due payout cycle (every payouts.cycleDays) and draft its batch
+40 0 * * *   $HOME/gokesari-cron/run.sh payout-cycle           # F10.2.4 06:10 IST: acts on Saturdays only (weekly cycle from a Saturday anchor) - closes the week and drafts its payout batch
