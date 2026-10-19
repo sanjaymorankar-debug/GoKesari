@@ -10,6 +10,8 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 
+import { isSplitLayout, migrateSplit } from "../../../scripts/split-migrate.mjs";
+
 /** Shared with scripts/migrate-on-build.mjs — one migration run per database at a time. */
 const MIGRATION_LOCK = "gokesari-migrations";
 
@@ -25,8 +27,22 @@ async function main() {
   const client = postgres(url, { max: 1, ssl });
   try {
     await client`select pg_advisory_lock(hashtext(${MIGRATION_LOCK}))`;
-    await migrate(drizzle(client), { migrationsFolder: "./drizzle" });
-    console.log("Migrations applied.");
+    if (await isSplitLayout(client)) {
+      // Seller / customer split (docs/db-split-2026-10/CODE_SPLIT_PLAN.md): each migration runs where its tables live.
+      const sellerUrl = process.env.SELLER_DATABASE_URL;
+      if (!sellerUrl) throw new Error("This database is split but SELLER_DATABASE_URL is not set.");
+      const sellerMode = new URL(sellerUrl).searchParams.get("sslmode");
+      const seller = postgres(sellerUrl, { max: 1, ssl: !sellerMode || sellerMode === "disable" ? false : ("require" as const) });
+      try {
+        const { applied, repaired } = await migrateSplit({ core: client, seller, coreUrl: url, log: (line: string) => console.log(line) });
+        console.log(`Split layout: ${applied.length} migration(s) applied, ${repaired.length} repair(s).`);
+      } finally {
+        await seller.end();
+      }
+    } else {
+      await migrate(drizzle(client), { migrationsFolder: "./drizzle" });
+      console.log("Migrations applied.");
+    }
   } finally {
     await client`select pg_advisory_unlock_all()`.catch(() => {});
     await client.end();

@@ -1,3 +1,4 @@
+-- split: seller
 -- Seller / customer split (docs/db-split-2026-10/CODE_SPLIT_PLAN.md): the stock-ledger
 -- triggers skip their own rows when the inventory module writes the ledger itself.
 -- The module said so with a session setting (gokesari.inv_ledger_managed), which

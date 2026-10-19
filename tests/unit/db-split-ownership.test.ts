@@ -6,7 +6,8 @@ import { getTableConfig, PgTable } from "drizzle-orm/pg-core";
 import { describe, expect, it } from "vitest";
 
 import * as schema from "@/server/db/schema";
-import { CUSTOMER_READS_FROM_SELLER, physicalDatabase, SELLER_READS_FROM_CORE, TABLE_OWNERSHIP, tablesOwnedBy } from "@/server/db/split/ownership";
+import { CUSTOMER_READS_FROM_SELLER, physicalDatabase, SELLER_READS_FROM_CORE, SELLER_WRITES_TO_CORE, TABLE_OWNERSHIP, tablesOwnedBy } from "@/server/db/split/ownership";
+import { readMigrations, SELLER_LINKED_CORE_TABLES } from "../../scripts/split-migrate.mjs";
 
 const schemaTables = (Object.values(schema) as unknown[])
   .filter((v): v is PgTable => v instanceof PgTable)
@@ -34,6 +35,26 @@ describe("seller / customer table ownership", () => {
   it("only reads remote tables that the other side owns", () => {
     expect(CUSTOMER_READS_FROM_SELLER.every((t) => physicalDatabase(t) === "seller")).toBe(true);
     expect(SELLER_READS_FROM_CORE.every((t) => physicalDatabase(t) === "customer")).toBe(true);
+  });
+});
+
+describe("split migrations (scripts/split-migrate.mjs)", () => {
+  it("links exactly the core tables the ownership map says the seller database uses", () => {
+    expect([...SELLER_LINKED_CORE_TABLES].sort()).toEqual([...SELLER_READS_FROM_CORE, ...SELLER_WRITES_TO_CORE].sort());
+    for (const t of SELLER_LINKED_CORE_TABLES) expect(physicalDatabase(t)).toBe("customer");
+  });
+
+  it("reads drizzle's journal the way drizzle does, and the split tag of each migration", () => {
+    const migrations = readMigrations("./drizzle");
+    expect(migrations.length).toBeGreaterThan(80);
+    expect(migrations.every((m) => /^[0-9a-f]{64}$/.test(m.hash) && m.statements.length > 0)).toBe(true);
+    // Written for the split: says where it runs.
+    expect(migrations.find((m) => m.tag === "0085_split_ledger_marks")?.target).toBe("seller");
+  });
+
+  it("every migration from 0085 on says where it runs (the split layout refuses one that does not)", () => {
+    const untagged = readMigrations("./drizzle").filter((m) => Number(m.tag.slice(0, 4)) >= 85 && !m.target);
+    expect(untagged.map((m) => m.tag), 'add a first line "-- split: seller", "-- split: core" or "-- split: both"').toEqual([]);
   });
 });
 
