@@ -30,12 +30,31 @@ function resolveSsl(url: string): "require" | false {
   }
 }
 
+/**
+ * Settings only libpq understands. postgres.js sends unknown URL settings to the server as
+ * session settings, which Postgres refuses ("unrecognized configuration parameter"), and
+ * Neon's copy-paste URLs carry channel_binding=require: a SELLER_DATABASE_URL pasted that
+ * way would fail every product-master query once the site reads the seller database
+ * directly. Same list as src/server/db/split/tools.ts.
+ */
+const LIBPQ_ONLY_PARAMS = ["channel_binding", "gssencmode", "sslcert", "sslkey", "sslpassword", "sslcrl", "krbsrvname"];
+
+function openableUrl(url: string): string {
+  try {
+    const u = new URL(url.trim());
+    for (const key of LIBPQ_ONLY_PARAMS) u.searchParams.delete(key);
+    return u.toString();
+  } catch {
+    return url;
+  }
+}
+
 const INT8 = 20;
 const NUMERIC = 1700;
 const DATE = 1082;
 
 export function createSql(url: string, opts: { max?: number; applicationName?: string } = {}): Sql {
-  return postgres(url, {
+  return postgres(openableUrl(url), {
     max: opts.max ?? 5,
     idle_timeout: 20,
     connect_timeout: 30,
