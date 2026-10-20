@@ -114,6 +114,25 @@ export async function isSplitLayout(core) {
   return n > 0;
 }
 
+/**
+ * Refuses a seller connection that is not the database the core's foreign tables read
+ * (server gk_seller). On 19 Oct Hostinger's SELLER_DATABASE_URL for test.gokesari.com
+ * opened another database, whose migration log ended at 0075: the build stopped with
+ * "every new migration must say where it runs: 0076 … 0084", and a database whose log was
+ * current would have been migrated in place of the real seller database.
+ */
+export async function assertLinkedSeller(core, seller) {
+  const [server] = await core`select srvoptions from pg_foreign_server where srvname = ${SELLER_SERVER}`;
+  if (!server) return;
+  const options = Object.fromEntries((server.srvoptions ?? []).map((o) => [o.slice(0, o.indexOf("=")), o.slice(o.indexOf("=") + 1)]));
+  const [{ db }] = await seller`select current_database() as db`;
+  if (options.dbname && options.dbname !== db) {
+    throw new Error(
+      `SELLER_DATABASE_URL opens database "${db}", but this site's seller tables are in "${options.dbname}" on ${options.host} (the core's ${SELLER_SERVER} link). Set SELLER_DATABASE_URL to that database; nothing was migrated.`,
+    );
+  }
+}
+
 async function lastApplied(sql) {
   await sql`create schema if not exists drizzle`;
   await sql`create table if not exists drizzle.__drizzle_migrations (id serial primary key, hash text not null, created_at bigint)`;
@@ -134,6 +153,7 @@ async function record(sql, migration) {
  */
 export async function migrateSplit({ core, seller, coreUrl, folder = "./drizzle", log = () => {} }) {
   const migrations = readMigrations(folder);
+  await assertLinkedSeller(core, seller);
   const sellerLast = await lastApplied(seller);
   const coreLast = await lastApplied(core);
   const pending = migrations.filter((m) => (coreLast === null || coreLast < m.when) || (sellerLast === null || sellerLast < m.when));

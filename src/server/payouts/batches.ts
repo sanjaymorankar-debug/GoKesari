@@ -33,6 +33,7 @@ import {
   type PayoutItem,
   type UserRole,
 } from "@/server/db/schema";
+import { touchSellerRow } from "@/server/db/split/gate";
 import { queueDocumentEmail } from "@/server/documents/email";
 import { emitEvent } from "@/server/events/emit";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
@@ -127,6 +128,8 @@ export async function cancelPayoutBatch(batchId: string, actor: Actor, reason: s
 async function settleBatchStatus(batchId: string, tx: DbClient): Promise<void> {
   const [batch] = await tx.select().from(payoutBatches).where(eq(payoutBatches.id, batchId)).for("update");
   if (!batch || !["PROCESSING", "PARTIAL", "FAILED", "COMPLETED"].includes(batch.status)) return;
+  // The status comes from the items (seller rows); the batch row itself changes only when the status does.
+  await touchSellerRow(tx, payoutBatches, batchId);
   const rule = await getRule("payouts");
   const items = await tx.select().from(payoutItems).where(eq(payoutItems.batchId, batchId));
   const live = items.filter((i) => !["ON_HOLD", "CARRIED_FORWARD"].includes(i.status));

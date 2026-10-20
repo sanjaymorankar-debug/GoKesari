@@ -34,6 +34,7 @@ import {
 } from "@/server/db/schema";
 import { evaluateStockAlerts, resolveThresholds } from "@/server/services/inventory-alerts";
 import { getSettings, logChange, manageLedgerInThisTransaction, todayIst } from "./books";
+import { touchSellerRow } from "@/server/db/split/gate";
 import { upsertRow } from "@/server/db/split/upsert";
 
 export interface StockPosting {
@@ -85,6 +86,8 @@ export async function postStock(entries: StockPosting[], client: DbClient): Prom
       .where(eq(shopProducts.id, e.shopProductId))
       .for("update");
     if (!listing || listing.shopId !== e.shopId) throw notFound("Product");
+    // The count comes from the ledger (seller rows); a posting that leaves the whole units as they were does not update the listing.
+    await touchSellerRow(client, shopProducts, listing.id);
     const before = await channelTotal(e.shopProductId, e.channel, client);
     const [row] = await client
       .insert(invStockLedger)
