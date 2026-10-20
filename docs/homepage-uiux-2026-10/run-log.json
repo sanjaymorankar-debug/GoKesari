@@ -867,26 +867,26 @@
   "Lint / typecheck (web)": "0 errors (4 pre-existing warnings), tsc clean, production build ✓",
   "Android APK 1.3.0 (GitHub 'Android APK' workflow, PR #214)": "Built ✓ — artifacts GoKesari-preview-apk and GoKesari-production-apk (run 39333658232, expire 18 Nov 2026)",
   "CI on PR #214": "scope ✓, test ✓ (full suite), test-split ✓ (two-database layout), mobile ✓, APK preview ✓, APK production ✓ — merged into staging 19 Oct 22:49 UTC",
-  "Existing E2E regression (local)": "acceptance 5/5 (sign-in, wallet top-up, subscribe 2 L/day, daily order + charge, change tomorrow, offline-only, access control, cron auth); mobile-app 5/7 (2 need the dev sign-in form, run on the dev server); branding-footer 8/8 (updated to the new footer); inventory-accounting, document-browser-read pass on the production build; regression-items-a-e 10 pass, then stops at the stale C1 step (Seller Central moved the shop contact card on 14 Oct — predates this change; later serial steps not reached, covered by integration tests)"
+  "Existing E2E regression (local)": "acceptance 5/5 (sign-in, wallet top-up, subscribe 2 L/day, daily order + charge, change tomorrow, offline-only, access control, cron auth); mobile-app 5/7 (2 need the dev sign-in form, run on the dev server); branding-footer 8/8 (updated to the new footer); inventory-accounting, document-browser-read pass on the production build; regression-items-a-e 10 pass, then stops at the stale C1 step (Seller Central moved the shop contact card on 14 Oct — predates this change; later serial steps not reached, covered by integration tests)",
+  "Staging remote regression (batch-2026-10-remote + branding-footer)": "20 / 20 passed on test.gokesari.com (20 Oct 05:58 UTC)"
  },
  "deploys": {
   "Staging — PR #214 merged": "19 Oct 2026 22:49 UTC (merge 1f4cd76)",
-  "Staging — first build": "Blocked (DEF-00, fixed by #215) — then not rebuilt by Hostinger (DEF-13)",
   "Staging — fix PR #215 merged": "19 Oct 2026 23:50 UTC (merge e6dab2d)",
-  "Staging database (split: core + seller)": "Test database workflow run 39344001502, 23:51 UTC: backup ✓, 0086 → core, 0087 → seller, verify newest 0087 ✓",
-  "Staging — site build after #215": "Not live at 00:47 UTC 20 Oct (57 min after the merge); site still on the build of 19 Oct 21:15 UTC",
-  "Production — database migrate (0086, 0087)": "Held until staging passes (prod-db.yml verify, run 39338789453: production lacks only 0086 and 0087)",
-  "Production — release staging → main": "Held until staging passes"
+  "Staging database (split: core + seller)": "Test database run 39344001502, 23:51 UTC: backup ✓, 0086 → core, 0087 → seller, verify newest 0087 ✓",
+  "Staging — site build": "20 Oct 04:47 UTC: staging c2b1018 (#214 + #215 + #218) after Hostinger's SELLER_DATABASE_URL was corrected (DEF-13)",
+  "Split layout — staging": "split: core neondb, seller gokesari_seller (Database split switch-status, run 39376681434, 05:46 UTC)",
+  "Split layout — production": "split: core neondb, seller PROD_SELLER_DATABASE_URL (Database split switch-status, run 39376683693, 05:46 UTC)",
+  "Production database (0086, 0087)": "Production database run 39372089225, 04:55 UTC: restore point, migrate, state after ✓",
+  "Production — release #219 (staging → main)": "merged 20 Oct 05:39 UTC (80189e2), owner-approved"
  },
  "blockers": [
-  "Staging deploy: Hostinger has not rebuilt test.gokesari.com since 19 Oct 21:15 UTC, so the new home is not live there (DEF-13). Owner: check the build log in hPanel and redeploy ('Settings and redeploy'). Production (database migration, release, tests) waits for staging.",
   "iOS native build: the 'iPhone app' workflow needs the repository secret EXPO_TOKEN and the Expo project id in mobile/app.config.ts (last run 18 Oct failed on both). Owner: add them (mobile/README.md 'iPhone builds from GitHub'), then Actions → iPhone app → Run (preview).",
   "Android emulator / iOS simulator: this cloud environment has no Android SDK / KVM and no macOS. App checks ran as Playwright emulation of the app WebView (app user agent, touch, phone widths); the Android APKs are built by the 'Android APK' workflow on the PR.",
-  "Signed-in flows on staging / production: remote sign-in needs an emailed one-time code from a mailbox this run cannot read; signed-in flows were run locally. Staging sandbox payment (Cashfree) needs a signed-in session → not run on staging in this pass."
+  "Signed-in flows on staging / production: they need the emailed sign-in code of a test account. Reading it from the test mailbox was refused by this session's permission check (D-28); signed-in flows ran locally (F1-ACCOUNT-DESKTOP, F3-EMPTY-STATES, F6-FLOATING-CART, F2-RECENT-ACCOUNT, F1-BANNER-ADMIN). Staging sandbox payment (Cashfree) needs a signed-in session → not run in this pass."
  ],
  "notRunReason": {
-  "Staging": "Blocked (DEF-13)",
-  "Production": "Blocked (waits for staging)",
+  "Production": "Waiting for the gokesari.com build",
   "Android": "Not run",
   "iOS": "Not run"
  },
@@ -998,11 +998,11 @@
   ],
   [
    "DEF-13",
-   "test.gokesari.com has not been rebuilt by Hostinger since 19 Oct 21:15 UTC (Last-Modified of its static files; build pDsNwMAZ6y75Yn2ns8gHO). The pushes to staging for #213 (22:24), #214 (22:49) and #215 (23:50) are not live: the site still serves the old home and /api/search/suggest answers 404 after 57 min of polling. The staging databases are already migrated (Test database run 39344001502), and the same migrator succeeded there with the real URLs.",
+   "test.gokesari.com did not build #213–#215 (19 Oct 22:24 → 20 Oct 04:45 UTC): Hostinger's build stopped in migrate-on-build. Root cause (found from the Hostinger build log, PR #218): the test site's SELLER_DATABASE_URL opened a different database from the seller database the core's foreign tables read (its migration log ended at 0075), so the split migrator refused to go on. The test database itself was already migrated by the Test database workflow.",
    "Blocker",
    "Staging (deploy)",
-   "Outside the repository: Hostinger's build log for test.gokesari.com is not visible from this run. Owner: hPanel → test.gokesari.com → Deployments → open the latest build log; then Redeploy → 'Settings and redeploy' (never 'Change repository'). A report-only merge to staging was also pushed to start a fresh build.",
-   "Blocked"
+   "Hostinger's SELLER_DATABASE_URL corrected; #218 makes migrateSplit refuse a seller URL that is not the core's linked seller database (clear message, nothing touched). test.gokesari.com built staging c2b1018 (#214 + #215 + #218) at 04:47 UTC on 20 Oct.",
+   "Fixed (#218)"
   ]
  ],
  "lighthouse": [
@@ -1053,6 +1053,30 @@
    100,
    "Pass",
    "LCP 2.3 s, TBT 120 ms, CLS 0"
+  ],
+  [
+   "Staging (test.gokesari.com)",
+   "After — run 1",
+   "/",
+   "Mobile (Lighthouse 12, simulated throttling)",
+   88,
+   100,
+   100,
+   100,
+   "Pass",
+   "LCP 2.4 s, TBT 310 ms, CLS 0"
+  ],
+  [
+   "Staging (test.gokesari.com)",
+   "After — run 2",
+   "/",
+   "Mobile (Lighthouse 12, simulated throttling)",
+   96,
+   100,
+   100,
+   100,
+   "Pass",
+   "LCP 2.3 s, TBT 50 ms, CLS 0"
   ]
  ],
  "decisions": [
@@ -1208,9 +1232,21 @@
   ],
   [
    "D-26",
-   "Staging not rebuilt after 55 min → recorded as a blocker; production held (release, production database migration and production tests not run).",
-   "The brief allows the next environment only after the previous one passes; the production database migration is held with the release so code and schema go together.",
+   "Staging not rebuilt after 55 min → recorded as a blocker and production held until staging passed.",
+   "The brief allows the next environment only after the previous one passes.",
    "docs/homepage-uiux-2026-10/run-log.json"
+  ],
+  [
+   "D-27",
+   "Release checked against the two-database rules before it went further (owner request, 20 Oct): new tables classified (platform), migration tags (0086 core, 0087 seller), no seller↔customer foreign key, no writes to seller tables, no ON CONFLICT / session settings, the only transaction (banner order) touches core only with the audit after commit, no query joins seller and customer tables. CI test-split green on #214, #218 and the release.",
+   "CLAUDE.md 'Two databases' rules.",
+   "src/server/services/*; drizzle/0086, 0087; src/server/db/split/ownership.ts"
+  ],
+  [
+   "D-28",
+   "Signed-in checks on staging not run: reading the sign-in code from the test accounts' mailbox (Gmail connector) to sign in was refused by this session's permission check; not worked around.",
+   "Owner decides whether this run may sign in to the staging test accounts.",
+   "tests/e2e/homepage-uiux.spec.ts ('signed in' group, local only)"
   ]
  ],
  "extraTestCases": []
