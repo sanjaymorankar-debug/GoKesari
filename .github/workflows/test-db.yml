@@ -162,7 +162,9 @@ jobs:
           split=$(psql "$TEST_DATABASE_URL" -X -tAc "select exists (select 1 from pg_foreign_table t join pg_foreign_server s on s.oid = t.ftserver where s.srvname = 'gk_seller')")
           if [ "$split" = "t" ]; then
             [ -n "$TEST_SELLER_DATABASE_URL" ] || { echo "::error::The test database is split but TEST_SELLER_DATABASE_URL is not set — cannot back up the seller rows."; exit 1; }
-            pg_dump "$TEST_SELLER_DATABASE_URL" --format=custom --no-owner --no-privileges --file="seller_$file"
+            # Trimmed: a secret saved with a trailing newline breaks libpq's URL parsing ("invalid channel_binding value").
+            seller_url=$(printf '%s' "$TEST_SELLER_DATABASE_URL" | tr -d '\r\n')
+            pg_dump "$seller_url" --format=custom --no-owner --no-privileges --file="seller_$file"
             mv "$file" "core_$file"; mkdir "$file.d"; mv "core_$file" "seller_$file" "$file.d/"
             echo "BACKUP_FILE=$file.d" >> "$GITHUB_ENV"
             echo "Split layout: the seller database is in the same backup (seller_$file)." | tee -a "$GITHUB_STEP_SUMMARY"
