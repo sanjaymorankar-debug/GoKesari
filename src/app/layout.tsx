@@ -4,6 +4,7 @@ import { Suspense } from "react";
 
 import { NavigationFeedback } from "@/components/board/navigation-feedback";
 import { OfflineBanner } from "@/components/board/offline-banner";
+import { MobileShopNav } from "@/components/home/mobile-shop-nav";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
 import { shortLocationLabel } from "@/lib/location";
@@ -11,7 +12,7 @@ import { getCurrentUser } from "@/server/authz/guards";
 import { getBoardLang } from "@/server/board-lang";
 import { getCustomerLocation } from "@/server/location";
 import { listAddresses } from "@/server/services/addresses";
-import { getCartItemCount } from "@/server/services/cart";
+import { getCart, getCartItemCount } from "@/server/services/cart";
 import { unreadCount } from "@/server/services/notifications";
 import { listUserRoles } from "@/server/services/roles";
 import { listShopsWhereStaff } from "@/server/services/shop-staff";
@@ -76,6 +77,14 @@ export default async function RootLayout({
         .catch(() => [])
     : [];
   const lang = await getBoardLang();
+  // docs/homepage-uiux-2026-10: phones' bottom navigation and floating cart bar (rule homeDiscovery).
+  const homeDiscovery = await getRule("homeDiscovery").catch(() => ({ enabled: true }));
+  const cartTotalPaise =
+    user && homeDiscovery.enabled && cartCount > 0
+      ? await getCart(user.id)
+          .then((c) => c.grandTotalPaise)
+          .catch(() => null)
+      : null;
 
   return (
     <html lang="en">
@@ -103,7 +112,8 @@ export default async function RootLayout({
         <main className="mx-auto w-full max-w-6xl px-4 py-6 sm:px-6 sm:py-8">
           {children}
         </main>
-        <SiteFooter />
+        <SiteFooter lang={lang} />
+        {homeDiscovery.enabled ? <MobileShopNav lang={lang} signedIn={Boolean(user)} cartCount={cartCount} cartTotalPaise={cartTotalPaise} /> : null}
       </body>
     </html>
   );

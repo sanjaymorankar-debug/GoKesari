@@ -4,7 +4,7 @@
  * seller database and the core sees its new table and column through the
  * foreign tables; a core migration runs in the core and the seller database's
  * link to it is refreshed; an untagged migration is refused; a second run
- * applies nothing.
+ * applies nothing; a seller connection to another database is refused.
  */
 import { cpSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -115,6 +115,15 @@ ALTER TABLE "shops" ADD COLUMN "test_flag" boolean DEFAULT false NOT NULL;`,
     const [{ coreSees }] = await core<{ coreSees: number }[]>`select count(*)::int as "coreSees" from information_schema.columns where table_name = 'shops' and column_name = 'test_late'`;
     const [{ sellerSees }] = await seller<{ sellerSees: number }[]>`select count(*)::int as "sellerSees" from information_schema.columns where table_name = 'orders' and column_name = 'test_late'`;
     expect([coreSees, sellerSees]).toEqual([1, 1]);
+  });
+
+  it("refuses a seller connection that is not the database the core links to, before touching it", async () => {
+    const journal = async () => (await admin<{ t: string | null }[]>`select to_regclass('drizzle.__drizzle_migrations')::text as t`)[0].t;
+    const before = await journal();
+    await expect(migrateSplit({ core, seller: admin, coreUrl: urlFor(coreName), folder })).rejects.toThrow(
+      new RegExp(`SELLER_DATABASE_URL opens database "postgres", but this site's seller tables are in "${sellerName}"`),
+    );
+    expect(await journal()).toBe(before);
   });
 
   it("refuses a migration that does not say where it runs", async () => {

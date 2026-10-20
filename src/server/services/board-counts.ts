@@ -246,9 +246,12 @@ export function getLastWalletPayment(userId: string): Promise<{ amountPaise: num
 
 export interface BuyAgainItem {
   shopProductId: string;
+  /** Catalogue product (docs/homepage-uiux-2026-10: product links and "Compare N prices"). */
+  productId: string;
   name: string;
   unit: string;
   shopName: string;
+  shopSlug: string;
   imageUrl: string | null;
   pricePaise: number;
 }
@@ -265,13 +268,14 @@ export function getBuyAgain(userId: string, limit = 6): Promise<BuyAgainItem[] |
         name: orderItems.productNameSnapshot,
         unit: orderItems.unitSnapshot,
         shopName: shops.name,
+        shopSlug: shops.slug,
         lastAt: sql<Date>`max(${orders.createdAt})`,
       })
       .from(orderItems)
       .innerJoin(orders, eq(orders.id, orderItems.orderId))
       .innerJoin(shops, eq(shops.id, orders.shopId))
       .where(and(eq(orders.userId, userId), eq(orders.status, "DELIVERED"), eq(orders.orderType, "PERSONAL")))
-      .groupBy(orderItems.shopProductId, orderItems.productNameSnapshot, orderItems.unitSnapshot, shops.name)
+      .groupBy(orderItems.shopProductId, orderItems.productNameSnapshot, orderItems.unitSnapshot, shops.name, shops.slug)
       .orderBy(desc(sql`max(${orders.createdAt})`))
       .limit(limit * 3);
 
@@ -284,9 +288,11 @@ export function getBuyAgain(userId: string, limit = 6): Promise<BuyAgainItem[] |
       if (!live) continue;
       out.push({
         shopProductId: row.shopProductId,
+        productId: live.product.id,
         name: live.product.name,
         unit: row.unit,
         shopName: row.shopName,
+        shopSlug: row.shopSlug,
         imageUrl: live.shopProduct.imageUrl ?? live.product.imageUrl ?? null,
         pricePaise: live.unitPricePaise,
       });

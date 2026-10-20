@@ -603,6 +603,20 @@
       "when": 1792124919436,
       "tag": "0085_split_ledger_marks",
       "breakpoints": true
+    },
+    {
+      "idx": 86,
+      "version": "7",
+      "when": 1792124979436,
+      "tag": "0086_home_banners_search",
+      "breakpoints": true
+    },
+    {
+      "idx": 87,
+      "version": "7",
+      "when": 1792125039436,
+      "tag": "0087_search_trigram_indexes",
+      "breakpoints": true
     }
   ]
 }

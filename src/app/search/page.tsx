@@ -1,8 +1,11 @@
 import Link from "next/link";
+import { after } from "next/server";
 
 import { ListTabs, Pager, paginate } from "@/components/board/list-tabs";
 import { ProductGrid } from "@/components/product-grid";
-import { EmptyState, PageHeader } from "@/components/ui";
+import { EmptyIllustration } from "@/components/empty-illustrations";
+import { SearchBox } from "@/components/home/search-box";
+import { EmptyState, LinkButton, PageHeader } from "@/components/ui";
 import { ShopGrid } from "@/components/shop-grid";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getBoardLang } from "@/server/board-lang";
@@ -11,6 +14,10 @@ import { serviceableShopIds } from "@/server/services/serviceability";
 import { getCartLineQuantities } from "@/server/services/cart";
 import { listStorefrontProducts } from "@/server/services/catalogue";
 import { searchShops } from "@/server/services/shops";
+import { nearbyOfferCounts } from "@/server/services/home-discovery";
+import { recordSearch } from "@/server/services/search-suggest";
+import { tr } from "@/lib/board/i18n";
+import { HOME } from "@/lib/home-i18n";
 
 export const metadata = { title: "Search" };
 export const dynamic = "force-dynamic";
@@ -31,17 +38,25 @@ export default async function SearchPage({
   const location = await getCustomerLocation(user?.id);
   const nearOnly = Boolean(location) && all !== "1";
 
+  const lang = await getBoardLang();
   if (!query) {
     return (
       <>
-        <PageHeader title="Search" />
+        <PageHeader title={tr(HOME.submitSearch, lang)} />
+        {/* docs/homepage-uiux-2026-10 (F2): the phone header's search icon lands here — the search with suggestions, recent and trending. */}
+        <SearchBox lang={lang} signedIn={Boolean(user)} size="lg" autoFocus className="mb-4" />
         <EmptyState
-          title="What are you looking for?"
-          description="Search for a product, a shop, an area or a PIN code."
+          illustration={<EmptyIllustration name="search" />}
+          title={tr(HOME.searchStartTitle, lang)}
+          description={tr(HOME.searchStartText, lang)}
+          testId="search-start"
         />
       </>
     );
   }
+
+  // Recent searches (the account's) and trending (everyone's): the first page of a search only.
+  if (!pageParam && !view) after(() => recordSearch(user?.id ?? null, query));
 
   const distances = location ? await serviceableShopIds(location) : undefined;
   const shopIds = nearOnly && distances ? [...distances.keys()] : undefined;
@@ -60,7 +75,8 @@ export default async function SearchPage({
   const productPage = paginate(products, tab === "products" ? pageParam : 1, 6);
   const shopPage = paginate(shops, tab === "shops" ? pageParam : 1, 6);
   const base = `/search?q=${encodeURIComponent(query)}${all === "1" ? "&all=1" : ""}`;
-  const lang = await getBoardLang();
+  // "Compare N prices" on cards sold by two or more shops near the customer (F4).
+  const compareCounts = distances ? await nearbyOfferCounts(productPage.rows.map((p) => p.productId), [...distances.keys()]) : undefined;
 
   return (
     <>
@@ -94,7 +110,7 @@ export default async function SearchPage({
             ]}
           />
           {tab === "products" ? (
-            <ProductGrid products={productPage.rows} signedIn={Boolean(user)} cartLines={cartLines} distances={distances} />
+            <ProductGrid products={productPage.rows} signedIn={Boolean(user)} cartLines={cartLines} distances={distances} compareCounts={compareCounts} />
           ) : (
             <ShopGrid shops={shopPage.rows} />
           )}
@@ -109,8 +125,16 @@ export default async function SearchPage({
 
       {products.length === 0 && shops.length === 0 ? (
         <EmptyState
-          title="Nothing found"
-          description="Try a different product, shop name, area or PIN code."
+          illustration={<EmptyIllustration name="search" />}
+          title={`${tr(HOME.searchEmptyTitle, lang)} “${query}”`}
+          description={tr(HOME.searchEmptyText, lang)}
+          action={<LinkButton href="/categories">{tr(HOME.browseCategories, lang)}</LinkButton>}
+          secondaryAction={
+            <LinkButton href="/shops" variant="secondary">
+              {tr(HOME.seeShopsNearYou, lang)}
+            </LinkButton>
+          }
+          testId="search-no-results"
         />
       ) : null}
     </>

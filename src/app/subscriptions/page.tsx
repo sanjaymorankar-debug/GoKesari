@@ -1,4 +1,8 @@
 import Link from "next/link";
+import { EmptyIllustration } from "@/components/empty-illustrations";
+import { tr } from "@/lib/board/i18n";
+import { HOME } from "@/lib/home-i18n";
+import { getBoardLang } from "@/server/board-lang";
 import { redirect } from "next/navigation";
 
 import {
@@ -46,6 +50,7 @@ export const dynamic = "force-dynamic";
 export default async function SubscriptionsPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
+  const lang = await getBoardLang();
 
   const [subscriptions, forecast, tomorrow] = await Promise.all([
     listSubscriptionsForUser(user.id),
@@ -103,9 +108,16 @@ export default async function SubscriptionsPage() {
 
       {subscriptions.length === 0 ? (
         <EmptyState
-          title="No subscriptions yet"
-          description="Subscribe to milk, curd or bread and it will be delivered automatically each day."
-          action={<LinkButton href="/category/DAIRY">Find something to subscribe to</LinkButton>}
+          illustration={<EmptyIllustration name="calendar" />}
+          title={tr(HOME.subscriptionsEmptyTitle, lang)}
+          description={tr(HOME.subscriptionsEmptyText, lang)}
+          action={<LinkButton href="/shops?type=DAIRY">{tr(HOME.findDairy, lang)}</LinkButton>}
+          secondaryAction={
+            <LinkButton href="/category/DAIRY" variant="secondary">
+              Find something to subscribe to
+            </LinkButton>
+          }
+          testId="subscriptions-empty"
         />
       ) : (
         <div className="grid gap-3 sm:grid-cols-2">

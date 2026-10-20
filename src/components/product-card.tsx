@@ -27,6 +27,8 @@ export interface ProductCardData {
   shopSlug?: string;
   /** Catalogue product id — enables the "Compare prices" link (GS-021/022). */
   productId?: string;
+  /** docs/homepage-uiux-2026-10 (F4): nearby shops selling it — from 2, the link reads "Compare N prices". */
+  compareCount?: number;
   /** Distance to the shop when a customer location is set (GS-020). */
   distanceKm?: number | null;
   /** F8: a live shop offer's online price and title, when one applies. */
@@ -220,7 +222,15 @@ export function ProductCard({
           </p>
         ) : null}
 
-        {product.productId ? (
+        {product.productId && (product.compareCount ?? 0) >= 2 ? (
+          <Link
+            href={`/search/compare?product=${encodeURIComponent(product.productId)}`}
+            data-testid="compare-n-prices"
+            className="mt-1.5 inline-flex min-h-9 items-center gap-1 self-start rounded-full bg-indigo-50 px-2.5 text-xs font-bold text-indigo-800 hover:bg-indigo-100"
+          >
+            <span aria-hidden>⚖</span> Compare {product.compareCount} prices
+          </Link>
+        ) : product.productId ? (
           <Link
             href={`/products/${product.productId}`}
             className="mt-1 inline-flex min-h-11 items-center text-sm font-medium text-kesari-700 hover:underline"

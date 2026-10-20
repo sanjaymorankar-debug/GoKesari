@@ -1385,6 +1385,14 @@ export const RULES = {
   },
   /* <<< end WS-F */
   //
+  /* >>> homepage UI/UX upgrade (docs/homepage-uiux-2026-10) */
+  homeDiscovery: {
+    description:
+      "Home page layout (docs/homepage-uiux-2026-10). On: the product-discovery home — search with suggestions, hero banners (Admin → Home banners), categories, shops near you, Buy again / Popular in your area, Sell and Deliver links — with account items in the header menu and, on phones, a side drawer, bottom navigation and a floating cart bar. Off: the previous Tile Board home returns (nothing else changes). bannerSeconds: how long each banner shows before the next.",
+    schema: z.object({ enabled: z.boolean(), bannerSeconds: int(3, 30) }),
+    defaults: { enabled: true, bannerSeconds: 6 },
+  },
+  /* <<< end homepage UI/UX upgrade */
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;

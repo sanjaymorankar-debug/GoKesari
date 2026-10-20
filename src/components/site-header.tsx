@@ -10,6 +10,7 @@ import { Icon, type IconName } from "@/components/board/icons";
 import { LocationPanel, OPEN_LOCATION_EVENT } from "@/components/location-picker";
 import { NotificationBell } from "@/components/notifications/notification-bell";
 import { RoleSwitcher } from "@/components/role-switcher";
+import { SearchBox } from "@/components/home/search-box";
 import { StandaloneBackButton } from "@/components/standalone-back-button";
 import { BrandTagline, BrandWordmark } from "@/components/brand-wordmark";
 import { L, LANG_TAG, tr, UI, type Lang, type Text } from "@/lib/board/i18n";
@@ -199,18 +200,8 @@ export function SiteHeader({
         ) : null}
 
         {shopsForThem ? (
-          <form action="/search" role="search" className="mx-1 hidden min-w-0 flex-1 md:block">
-            <label className="flex h-11 items-center gap-2 rounded-xl border border-[#f2c9a5] bg-[#fffaf4] px-3 focus-within:border-kesari-600">
-              <Icon name="search" size={18} className="shrink-0 text-ink-600" />
-              <input
-                type="search"
-                name="q"
-                placeholder={tr(UI.searchPlaceholder, lang)}
-                aria-label={tr(UI.searchLabel, lang)}
-                className="h-full min-w-0 flex-1 bg-transparent text-sm text-ink-900 placeholder:text-ink-600 focus:outline-none"
-              />
-            </label>
-          </form>
+          // docs/homepage-uiux-2026-10 (F2): the same search, with suggestions, as the home page.
+          <SearchBox lang={lang} signedIn={Boolean(user)} className="mx-1 hidden flex-1 md:block" />
         ) : (
           <span className="flex-1" />
         )}

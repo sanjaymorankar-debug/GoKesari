@@ -19,7 +19,7 @@ async function isolation(client: Pick<typeof db, "execute">): Promise<string> {
 }
 
 describe("re-running a transaction after a serialization failure", () => {
-  it(`db.transaction ${split ? "runs it again (split layout, at SERIALIZABLE)" : "runs it once (one database)"}`, async () => {
+  it(`db.transaction ${split ? "runs it again (split layout, at READ COMMITTED)" : "runs it once (one database)"}`, async () => {
     let runs = 0;
     const attempt = db.transaction(async (tx) => {
       runs += 1;
@@ -28,7 +28,7 @@ describe("re-running a transaction after a serialization failure", () => {
       return level;
     });
     if (split) {
-      await expect(attempt).resolves.toBe("serializable");
+      await expect(attempt).resolves.toBe("read committed");
       expect(runs).toBe(2);
     } else {
       await expect(attempt).rejects.toMatchObject({ code: "40001" });

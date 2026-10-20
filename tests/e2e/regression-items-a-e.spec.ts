@@ -214,10 +214,12 @@ test("pages load without server errors (public, customer, shop, admin, operator)
 });
 
 test("business rules page lists the new rules with their defaults (B)", async () => {
-  await admin.page.goto("/admin/settings");
+  // Since 9 Oct the page is a searchable list; each rule's editor opens on its own (?rule=<key>).
   for (const key of ["cancellation", "shopContact", "societyRiders", "openOrderCheck", "riderFiles", "cod", "walletTopup", "ratings", "marketing", "vouchers", "settlement", "deliveryOtp", "returnPickup", "grievances", "discovery", "catalogue", "uploads", "opsExceptions", "riskRules", "returns", "otp", "images", "suspension"]) {
+    await admin.page.goto(`/admin/settings?rule=${key}`);
     await expect(admin.page.getByLabel(`${key} settings (JSON)`, { exact: true })).toBeVisible();
   }
+  await admin.page.goto("/admin/settings?rule=returns");
   await expect(admin.page.getByLabel("returns settings (JSON)", { exact: true })).toHaveValue(/"windowHours": 48/);
   // An operator cannot change business rules.
   const res = await call(operator, "PUT", "/api/admin/settings", { key: "ratings", value: { windowDays: 10 } });

@@ -22,6 +22,7 @@ import { notFound, validationFailed } from "@/lib/errors";
 import { effectiveDescriptions, type EffectiveDescriptions } from "@/lib/product-text";
 import { db, type DbClient } from "@/server/db";
 import { auditLogs, productImages, products, shopProducts, users, type ProductImage } from "@/server/db/schema";
+import { touchSellerRow } from "@/server/db/split/gate";
 import { processProductPhoto } from "@/server/media/photo-pipeline";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import {
@@ -123,6 +124,8 @@ export async function getListingMedia(shopId: string, listingId: string): Promis
 async function lockListing(tx: DbClient, listingId: string) {
   const [row] = await tx.select().from(shopProducts).where(eq(shopProducts.id, listingId)).for("update");
   if (!row) throw notFound("Product in this shop");
+  // The cap counts the listing's photos (seller rows), not the listing row.
+  await touchSellerRow(tx, shopProducts, listingId);
   return row;
 }
 

@@ -403,7 +403,8 @@ function Shell() {
         ) : null}
         {offline ? <OfflineScreen onRetry={restart} /> : null}
       </KeyboardAvoidingView>
-      <View style={{ height: insets.bottom, backgroundColor: COLORS.cream }} />
+      {/* White, like the website's bottom navigation and footer above it (1.3.0). */}
+      <View style={{ height: insets.bottom, backgroundColor: "#ffffff" }} />
     </View>
   );
 }

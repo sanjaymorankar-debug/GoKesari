@@ -69,10 +69,19 @@ function useDismiss(ref: React.RefObject<HTMLElement | null>, open: boolean, clo
  * Wide screens show the three buttons; phones show one button (the current
  * language) that opens them, so each stays at least 44 px wide.
  */
-export function LanguageSwitch({ lang, className }: { lang: Lang; className?: string }) {
+export function LanguageSwitch({
+  lang,
+  className,
+  variant = "auto",
+}: {
+  lang: Lang;
+  className?: string;
+  /** "buttons": the three buttons at every width (the footer); "auto": one menu button on phones. */
+  variant?: "auto" | "buttons";
+}) {
   return (
     <>
-      <form action={setLanguageAction} className={clsx("hidden shrink-0 lg:block", className)} data-testid="language-switch">
+      <form action={setLanguageAction} className={clsx(variant === "buttons" ? "shrink-0" : "hidden shrink-0 lg:block", className)} data-testid="language-switch">
         <fieldset className="flex h-10 items-stretch overflow-hidden rounded-full border border-[#f2c9a5] bg-white">
           <legend className="sr-only">{tr(UI.language, lang)}</legend>
           {LANGUAGES.map((code) => (
@@ -95,37 +104,39 @@ export function LanguageSwitch({ lang, className }: { lang: Lang; className?: st
           ))}
         </fieldset>
       </form>
-      <details className={clsx("group relative shrink-0 lg:hidden", className)} data-testid="language-menu">
-        <summary
-          className="flex h-11 min-w-11 cursor-pointer list-none min-[360px]:h-12 min-[360px]:min-w-12 items-center justify-center gap-0.5 rounded-xl border border-[#f2c9a5] bg-white px-1.5 text-sm font-bold text-ink-900 [&::-webkit-details-marker]:hidden"
-          aria-label={`${LANG_SWITCH_LABEL[lang]} — ${tr(UI.language, lang)}: ${LANG_NAME[lang]}`}
-        >
-          <span lang={lang}>{LANG_SWITCH_LABEL[lang]}</span>
-          <Icon name="chevron-down" size={14} className="text-kesari-700 transition-transform group-open:rotate-180" />
-        </summary>
-        <form action={setLanguageAction} className="absolute right-0 top-full z-50 mt-1 w-44 rounded-xl border border-cream-200 bg-white p-1.5 shadow-lg">
-          <fieldset className="flex flex-col gap-1">
-            <legend className="sr-only">{tr(UI.language, lang)}</legend>
-            {LANGUAGES.map((code) => (
-              <button
-                key={code}
-                type="submit"
-                name="lang"
-                value={code}
-                aria-pressed={code === lang}
-                lang={code}
-                className={clsx(
-                  "flex h-12 items-center justify-between rounded-lg px-3 text-base font-semibold",
-                  code === lang ? "bg-kesari-700 text-white" : "text-ink-900 hover:bg-kesari-50",
-                )}
-              >
-                {LANG_NAME[code]}
-                <span className="text-sm opacity-80">{LANG_SWITCH_LABEL[code]}</span>
-              </button>
-            ))}
-          </fieldset>
-        </form>
-      </details>
+      {variant === "buttons" ? null : (
+        <details className={clsx("group relative shrink-0 lg:hidden", className)} data-testid="language-menu">
+          <summary
+            className="flex h-11 min-w-11 cursor-pointer list-none min-[360px]:h-12 min-[360px]:min-w-12 items-center justify-center gap-0.5 rounded-xl border border-[#f2c9a5] bg-white px-1.5 text-sm font-bold text-ink-900 [&::-webkit-details-marker]:hidden"
+            aria-label={`${LANG_SWITCH_LABEL[lang]} — ${tr(UI.language, lang)}: ${LANG_NAME[lang]}`}
+          >
+            <span lang={lang}>{LANG_SWITCH_LABEL[lang]}</span>
+            <Icon name="chevron-down" size={14} className="text-kesari-700 transition-transform group-open:rotate-180" />
+          </summary>
+          <form action={setLanguageAction} className="absolute right-0 top-full z-50 mt-1 w-44 rounded-xl border border-cream-200 bg-white p-1.5 shadow-lg">
+            <fieldset className="flex flex-col gap-1">
+              <legend className="sr-only">{tr(UI.language, lang)}</legend>
+              {LANGUAGES.map((code) => (
+                <button
+                  key={code}
+                  type="submit"
+                  name="lang"
+                  value={code}
+                  aria-pressed={code === lang}
+                  lang={code}
+                  className={clsx(
+                    "flex h-12 items-center justify-between rounded-lg px-3 text-base font-semibold",
+                    code === lang ? "bg-kesari-700 text-white" : "text-ink-900 hover:bg-kesari-50",
+                  )}
+                >
+                  {LANG_NAME[code]}
+                  <span className="text-sm opacity-80">{LANG_SWITCH_LABEL[code]}</span>
+                </button>
+              ))}
+            </fieldset>
+          </form>
+        </details>
+      )}
     </>
   );
 }

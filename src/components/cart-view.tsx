@@ -16,7 +16,10 @@ import {
   Money,
   inputClass,
 } from "@/components/ui";
+import { EmptyIllustration } from "@/components/empty-illustrations";
 import { SafeImage } from "@/components/safe-image";
+import { tr, type Lang } from "@/lib/board/i18n";
+import { HOME } from "@/lib/home-i18n";
 import { formatQuantity } from "@/lib/money";
 import { formatShopTime, isShopOpenNow, nextOpeningAt } from "@/lib/shop-hours";
 import type { CartSummary } from "@/server/services/cart";
@@ -89,6 +92,7 @@ export function CartView({
   couponsEnabled = false,
   openOrders = [],
   onlinePaymentsEnabled = false,
+  lang = "en",
 }: {
   cart: CartSummary;
   walletBalancePaise: number;
@@ -109,6 +113,8 @@ export function CartView({
   openOrders?: OpenOrderNotice[];
   /** batch-2026-10 WS-A: offer "Pay online" (rule onlinePayments). */
   onlinePaymentsEnabled?: boolean;
+  /** docs/homepage-uiux-2026-10: the empty cart's wording. */
+  lang?: Lang;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -362,9 +368,20 @@ export function CartView({
   if (cart.groups.length === 0) {
     return (
       <EmptyState
-        title="Your cart is empty"
-        description="Browse dairy and bakery products from shops near you."
-        action={<LinkButton href="/">Start shopping</LinkButton>}
+        illustration={<EmptyIllustration name="basket" />}
+        title={tr(HOME.cartEmptyTitle, lang)}
+        description={tr(HOME.cartEmptyText, lang)}
+        action={
+          <LinkButton href="/" className="h-12 px-5 text-base font-bold">
+            {tr(HOME.startShopping, lang)}
+          </LinkButton>
+        }
+        secondaryAction={
+          <LinkButton href="/#popular" variant="secondary" className="h-12 px-5 text-base">
+            {tr(HOME.exploreBestsellers, lang)}
+          </LinkButton>
+        }
+        testId="cart-empty"
       />
     );
   }

@@ -46,8 +46,14 @@ Every change — feature, fix, migration, test — must work on **both** layouts
 - **Errors:** don't rely on `constraint_name` for seller tables (also match the
   index name in the message); a savepoint that swallows errors must rethrow
   40001 (`isSerializationFailure`).
-- **Transactions** run at SERIALIZABLE on the split layout and are re-run from
-  the start on 40001 / 40P01: keep external side effects (payment gateway,
+- **Transactions** run at READ COMMITTED on the core (never SERIALIZABLE: its
+  check can fail at COMMIT after postgres_fdw has already committed the seller
+  side, leaving a transaction half applied); the seller side runs at
+  REPEATABLE READ. On the split layout a transaction is re-run from the start
+  on 40001 / 40P01. A seller row locked only as a gate — the transaction then
+  counts or checks *other* seller rows, as a referral code's last slot or the
+  stock ledger does — must be touched right after the lock with
+  `touchSellerRow` (`src/server/db/split/gate.ts`). Keep external side effects (payment gateway,
   SMS, e-mail, push, uploads) out of `db.transaction` — do them after commit or
   through an idempotent outbox / idempotency key. Where an outside call must
   happen under the transaction's lock, use `transactionOnce`

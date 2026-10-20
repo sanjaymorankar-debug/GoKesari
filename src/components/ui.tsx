@@ -290,20 +290,34 @@ export function EmptyState({
   title,
   description,
   action,
+  illustration,
+  secondaryAction,
+  testId,
 }: {
   title: string;
   description?: string;
   action?: ReactNode;
+  /** docs/homepage-uiux-2026-10 (F3): a picture above the title (components/empty-illustrations.tsx). */
+  illustration?: ReactNode;
+  /** A second, quieter next step beside the main one. */
+  secondaryAction?: ReactNode;
+  testId?: string;
 }) {
   return (
-    <Card className="p-10 text-center">
-      <p className="text-base font-medium text-ink-700">{title}</p>
+    <Card className={clsx("text-center", illustration ? "px-6 py-8" : "p-10")} data-testid={testId}>
+      {illustration ? <div className="mb-3">{illustration}</div> : null}
+      <p className={clsx(illustration ? "text-lg font-bold text-ink-900" : "text-base font-medium text-ink-700")}>{title}</p>
       {description ? (
         <p className="mx-auto mt-1 max-w-sm text-sm text-ink-500">
           {description}
         </p>
       ) : null}
-      {action ? <div className="mt-4">{action}</div> : null}
+      {action || secondaryAction ? (
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2">
+          {action}
+          {secondaryAction}
+        </div>
+      ) : null}
     </Card>
   );
 }
