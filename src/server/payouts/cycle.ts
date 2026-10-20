@@ -40,7 +40,7 @@ import { conflict } from "@/lib/errors";
 import { isValidGstin } from "@/lib/gst-states";
 import { formatPaise } from "@/lib/money";
 import { decryptSecret } from "@/lib/pan-crypto";
-import { db, type DbClient } from "@/server/db";
+import { db, isRetryableTransactionError, type DbClient } from "@/server/db";
 import {
   bankAccounts,
   creditNotes,
@@ -156,6 +156,9 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
   const actor = options.actor;
 
   const outcome = await db.transaction(async (tx) => {
+    // One close at a time, taken before the first seller read: the lines already paid (payout_cycle_lines,
+    // seller) are then read from a snapshot that includes any close that finished while this one waited.
+    await tx.execute(sql`select pg_advisory_xact_lock(hashtext('gokesari-payout-cycle-close'))`);
     const [cycle] = await tx
       .insert(payoutCycles)
       .values({ cycleStart: window.start, cycleEnd: window.end, cycleDays: rule.cycleDays, closedBy: actor.id })
@@ -493,6 +496,8 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
         if (!facts) continue;
         const billedIn = orderIds.includes(a.orderId!) ? cycle.id : null;
         const credited = await creditCommissionOnRefund(a, cycle.id, billedIn, facts, tx).catch((error: unknown) => {
+          // Split layout: the close is run again from the start; swallowing it would settle the refund without its note.
+          if (isRetryableTransactionError(error)) throw error;
           warnings.push(`No fee credit note for refund ${a.id}: ${error instanceof Error ? error.message : "error"}`);
           return null;
         });
