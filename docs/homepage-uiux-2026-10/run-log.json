@@ -1,6 +1,6 @@
 {
- "generatedAt": "",
- "pr": "",
+ "generatedAt": "20 Oct 2026, 06:20 IST (00:50 UTC) — interim: staging not yet rebuilt by Hostinger (DEF-13); production held",
+ "pr": "https://github.com/sanjaymorankar-debug/GoKesari/pull/214 (feature) and https://github.com/sanjaymorankar-debug/GoKesari/pull/215 (split-site migration fix), branch claude/gifted-brahmagupta-nj0bt9 → staging (both merged)",
  "features": [
   [
    "F1.1",
@@ -860,12 +860,46 @@
    "notes": "HP-* in three languages, F5-FOOTER"
   }
  ],
- "suites": {},
- "deploys": {},
- "blockers": [],
- "notRunReason": {},
+ "suites": {
+  "Unit + integration (Vitest, local, single DB)": "2,254 / 2,255 first run; the 1 failure (SEC-03) was a BOOTSTRAP_ADMIN_EMAILS value in the local .env; re-run of that file 28/28 → effectively 2,255 / 2,255",
+  "New tests on the split layout (local)": "39 / 39 (homepage-uiux unit + integration, price-comparison, db-split ownership); migrations 0086 → core, 0087 → seller applied on an existing split layout",
+  "Mobile app (mobile/)": "typecheck ✓, lint ✓, 36 / 36 tests, Expo bundles Android + iOS ✓",
+  "Lint / typecheck (web)": "0 errors (4 pre-existing warnings), tsc clean, production build ✓",
+  "Android APK 1.3.0 (GitHub 'Android APK' workflow, PR #214)": "Built ✓ — artifacts GoKesari-preview-apk and GoKesari-production-apk (run 39333658232, expire 18 Nov 2026)",
+  "CI on PR #214": "scope ✓, test ✓ (full suite), test-split ✓ (two-database layout), mobile ✓, APK preview ✓, APK production ✓ — merged into staging 19 Oct 22:49 UTC",
+  "Existing E2E regression (local)": "acceptance 5/5 (sign-in, wallet top-up, subscribe 2 L/day, daily order + charge, change tomorrow, offline-only, access control, cron auth); mobile-app 5/7 (2 need the dev sign-in form, run on the dev server); branding-footer 8/8 (updated to the new footer); inventory-accounting, document-browser-read pass on the production build; regression-items-a-e 10 pass, then stops at the stale C1 step (Seller Central moved the shop contact card on 14 Oct — predates this change; later serial steps not reached, covered by integration tests)"
+ },
+ "deploys": {
+  "Staging — PR #214 merged": "19 Oct 2026 22:49 UTC (merge 1f4cd76)",
+  "Staging — first build": "Blocked (DEF-00, fixed by #215) — then not rebuilt by Hostinger (DEF-13)",
+  "Staging — fix PR #215 merged": "19 Oct 2026 23:50 UTC (merge e6dab2d)",
+  "Staging database (split: core + seller)": "Test database workflow run 39344001502, 23:51 UTC: backup ✓, 0086 → core, 0087 → seller, verify newest 0087 ✓",
+  "Staging — site build after #215": "Not live at 00:47 UTC 20 Oct (57 min after the merge); site still on the build of 19 Oct 21:15 UTC",
+  "Production — database migrate (0086, 0087)": "Held until staging passes (prod-db.yml verify, run 39338789453: production lacks only 0086 and 0087)",
+  "Production — release staging → main": "Held until staging passes"
+ },
+ "blockers": [
+  "Staging deploy: Hostinger has not rebuilt test.gokesari.com since 19 Oct 21:15 UTC, so the new home is not live there (DEF-13). Owner: check the build log in hPanel and redeploy ('Settings and redeploy'). Production (database migration, release, tests) waits for staging.",
+  "iOS native build: the 'iPhone app' workflow needs the repository secret EXPO_TOKEN and the Expo project id in mobile/app.config.ts (last run 18 Oct failed on both). Owner: add them (mobile/README.md 'iPhone builds from GitHub'), then Actions → iPhone app → Run (preview).",
+  "Android emulator / iOS simulator: this cloud environment has no Android SDK / KVM and no macOS. App checks ran as Playwright emulation of the app WebView (app user agent, touch, phone widths); the Android APKs are built by the 'Android APK' workflow on the PR.",
+  "Signed-in flows on staging / production: remote sign-in needs an emailed one-time code from a mailbox this run cannot read; signed-in flows were run locally. Staging sandbox payment (Cashfree) needs a signed-in session → not run on staging in this pass."
+ ],
+ "notRunReason": {
+  "Staging": "Blocked (DEF-13)",
+  "Production": "Blocked (waits for staging)",
+  "Android": "Not run",
+  "iOS": "Not run"
+ },
  "regression": [],
  "defects": [
+  [
+   "DEF-00",
+   "Staging deploy of #214 blocked: the first migration on the split test site failed — migrate-on-build opened the seller DB with a Neon URL (channel_binding=require → 'unrecognized configuration parameter'), and the Test-database workflow's seller backup failed on the secret's trailing newline.",
+   "Blocker",
+   "Staging (deploy)",
+   "cleanDatabaseUrl() in the migration scripts; workflow trims the URL (PR #215); reproduced and verified on a local split layout",
+   "Fixed (PR #215)"
+  ],
   [
    "DEF-01",
    "Header 'Deliver to' and cart scrolled away on every page — position: sticky disabled because body had overflow-x: hidden (scroll container).",
@@ -937,9 +971,90 @@
    "Code review",
    "Mic hidden in app builds before 1.3.0; 1.3.0 declares microphone and speech recognition",
    "Fixed"
+  ],
+  [
+   "DEF-10",
+   "E2E acceptance 'offline-only' looked on the shop page's first category tab (stale since the 9 Oct tabs change).",
+   "Low",
+   "Local regression (pre-existing)",
+   "Test opens ?cat=Paneer",
+   "Fixed"
+  ],
+  [
+   "DEF-11",
+   "E2E regression 'business rules page' expected every rule editor on one page (stale since 9 Oct: searchable list).",
+   "Low",
+   "Local regression (pre-existing)",
+   "Test opens each rule's editor (?rule=<key>)",
+   "Fixed"
+  ],
+  [
+   "DEF-12",
+   "E2E regression C1 looks for the shop contact card on /shop; Seller Central moved it on 14 Oct, so the serial spec stops there.",
+   "Low",
+   "Local regression (pre-existing)",
+   "Not in this change's scope: the test should open the shop settings page — flows after it are covered by the integration suite",
+   "Open"
+  ],
+  [
+   "DEF-13",
+   "test.gokesari.com has not been rebuilt by Hostinger since 19 Oct 21:15 UTC (Last-Modified of its static files; build pDsNwMAZ6y75Yn2ns8gHO). The pushes to staging for #213 (22:24), #214 (22:49) and #215 (23:50) are not live: the site still serves the old home and /api/search/suggest answers 404 after 57 min of polling. The staging databases are already migrated (Test database run 39344001502), and the same migrator succeeded there with the real URLs.",
+   "Blocker",
+   "Staging (deploy)",
+   "Outside the repository: Hostinger's build log for test.gokesari.com is not visible from this run. Owner: hPanel → test.gokesari.com → Deployments → open the latest build log; then Redeploy → 'Settings and redeploy' (never 'Change repository'). A report-only merge to staging was also pushed to start a fresh build.",
+   "Blocked"
   ]
  ],
- "lighthouse": [],
+ "lighthouse": [
+  [
+   "Staging (test.gokesari.com)",
+   "Before (19 Oct, old home)",
+   "/",
+   "Mobile (Lighthouse 12, simulated throttling)",
+   98,
+   100,
+   100,
+   100,
+   "Pass",
+   "Measured from the build container while other jobs ran"
+  ],
+  [
+   "Production (gokesari.com)",
+   "Before (19 Oct, old home)",
+   "/",
+   "Mobile (Lighthouse 12, simulated throttling)",
+   84,
+   100,
+   100,
+   100,
+   "Fail",
+   "Below the 85 target before this change"
+  ],
+  [
+   "Local (production build)",
+   "After — run 1",
+   "/",
+   "Mobile (Lighthouse 12, simulated throttling)",
+   99,
+   100,
+   100,
+   100,
+   "Pass",
+   "LCP 1.8 s, TBT 100 ms, CLS 0"
+  ],
+  [
+   "Local (production build)",
+   "After — run 2",
+   "/",
+   "Mobile (Lighthouse 12, simulated throttling)",
+   97,
+   100,
+   100,
+   100,
+   "Pass",
+   "LCP 2.3 s, TBT 120 ms, CLS 0"
+  ]
+ ],
  "decisions": [
   [
    "D-01",
@@ -1084,6 +1199,18 @@
    "Report date uses India time (APP_TIMEZONE Asia/Kolkata).",
    "The owner's date.",
    "reports/"
+  ],
+  [
+   "D-25",
+   "Fixed the split-site migration path (PR #215) rather than migrating staging by hand.",
+   "Every future migration on a split site would hit it; the documented path (Test database workflow + Hostinger MIGRATE_ON_BUILD) stays the only way schema changes reach the sites.",
+   "scripts/split-migrate.mjs; scripts/migrate-on-build.mjs; src/server/db/migrate.ts; .github/workflows/test-db.yml"
+  ],
+  [
+   "D-26",
+   "Staging not rebuilt after 55 min → recorded as a blocker; production held (release, production database migration and production tests not run).",
+   "The brief allows the next environment only after the previous one passes; the production database migration is held with the release so code and schema go together.",
+   "docs/homepage-uiux-2026-10/run-log.json"
   ]
  ],
  "extraTestCases": []

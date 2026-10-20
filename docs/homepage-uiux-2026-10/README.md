@@ -9,6 +9,14 @@ additive: every route, API and flow that existed keeps working.
 Status, flows, test cases, regression, defects, Lighthouse and decisions:
 `reports/GoKesari_Homepage_UIUX_Status_<date>.xlsx`.
 
+**Rollout (20 Oct 2026, 00:50 UTC).** Local: done, all suites green. Staging:
+code merged (#214, #215) and both test databases migrated (0086 → core,
+0087 → seller), but Hostinger has not rebuilt test.gokesari.com since 19 Oct
+21:15 UTC, so the new home is not live there yet (DEF-13 — check the build log
+in hPanel and redeploy with "Settings and redeploy"). Production — database
+migration (`prod-db.yml`, migrate, source staging), release staging → main and
+the production-safe suite — waits for staging to pass.
+
 ## What changed
 
 | ID | Feature | Where |
