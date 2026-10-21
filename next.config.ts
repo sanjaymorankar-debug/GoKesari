@@ -67,6 +67,31 @@ const securityHeaders = [
   { key: "Strict-Transport-Security", value: "max-age=63072000; includeSubDomains" },
 ];
 
+/**
+ * www.gokesari.com and www.test.gokesari.com served the whole site instead of
+ * sending visitors to the address without www, which is the one sign-in is
+ * tied to (AUTH_URL). Google sign-in started on www kept its PKCE cookie on
+ * www, Google then returned to the address without www, where that cookie does
+ * not exist, so the sign-in could not finish; and a session made on one name
+ * did not show on the other (checked on www.test.gokesari.com, 21 Oct 2026).
+ * Every page on www now moves, permanently, to the same path without www.
+ *
+ * Left on www: /api, so a webhook or integration given a www address keeps
+ * working (most senders do not follow redirects), and /.well-known, which
+ * Apple and Android read without following redirects.
+ *
+ * The destinations are fixed, never read from the request: Hostinger passes a
+ * client's own x-forwarded-host through to the app (test.gokesari.com, 21 Oct
+ * 2026), so a host taken from it would make an open redirect. The public name
+ * is in x-forwarded-host behind Hostinger's proxy (as requestHost in
+ * src/lib/deep-links.ts reads it), and in Host when nothing forwards it.
+ */
+const WWW_REDIRECTS = [
+  { from: "www.gokesari.com", to: "https://gokesari.com" },
+  { from: "www.test.gokesari.com", to: "https://test.gokesari.com" },
+];
+const WWW_SOURCE = "/:path((?!api(?:/|$)|\\.well-known(?:/|$)).*)";
+
 /** Files the document reader opens at run time (docs/document-upload-2026-10). */
 const OCR_RUNTIME_FILES = [
   "./node_modules/tesseract.js-core/*lstm.wasm",
@@ -134,6 +159,26 @@ const nextConfig: NextConfig = {
         headers: securityHeaders,
       },
     ];
+  },
+  async redirects() {
+    return WWW_REDIRECTS.flatMap(({ from, to }) => {
+      const name = from.replace(/\./g, "\\.");
+      return [
+        {
+          source: WWW_SOURCE,
+          has: [{ type: "header" as const, key: "x-forwarded-host", value: `${name}(?::\\d+)?(?:\\s*,.*)?` }],
+          destination: `${to}/:path`,
+          permanent: true,
+        },
+        {
+          source: WWW_SOURCE,
+          has: [{ type: "host" as const, value: name }],
+          missing: [{ type: "header" as const, key: "x-forwarded-host" }],
+          destination: `${to}/:path`,
+          permanent: true,
+        },
+      ];
+    });
   },
 };
 
