@@ -9,15 +9,15 @@ additive: every route, API and flow that existed keeps working.
 Status, flows, test cases, regression, defects, Lighthouse and decisions:
 `reports/GoKesari_Homepage_UIUX_Status_<date>.xlsx`.
 
-**Rollout (20 Oct 2026, 06:50 UTC).** Both sites run the seller / customer
-split (Database split → switch-status). Local: done, all suites green.
-Staging: live since 04:47 UTC (#214 + #215 + #218, after Hostinger's
-`SELLER_DATABASE_URL` was corrected — DEF-13); guest suite, Android / iOS app
-emulation, remote regression and Lighthouse pass. Production: databases
-migrated (0086, 0087; restore point taken) and release #219 merged at 05:39
-UTC, but gokesari.com has not built it yet (DEF-14 — check the gokesari.com
-build log in hPanel, most likely `SELLER_DATABASE_URL`, then "Settings and
-redeploy").
+**Rollout (done 21 Oct 2026).** Both sites run the seller / customer split
+(Database split → switch-status). Local: all suites green. Staging: live
+since 20 Oct 04:47 UTC (#214 + #215 + #218, after Hostinger's
+`SELLER_DATABASE_URL` was corrected — DEF-13). Production: databases migrated
+(0086, 0087; restore point taken), release #219 live since 20 Oct 19:25 UTC
+(a plain Hostinger "Redeploy" rebuilds the last successful source, so the
+release needed a redeploy of `main` — DEF-14). On both sites the guest suite,
+Android / iOS app emulation, remote regression and Lighthouse pass;
+production checks are read-only. Signed-in checks ran locally only.
 
 ## What changed
 

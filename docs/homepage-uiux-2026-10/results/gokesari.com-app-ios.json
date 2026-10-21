@@ -1,0 +1,248 @@
+{
+  "baseUrl": "https://gokesari.com",
+  "at": "2026-10-21T00:48:22.834Z",
+  "rows": [
+    {
+      "id": "APP-VOICE-1.2.0",
+      "feature": "F2/App",
+      "scenario": "Mic in iPhone app 1.2.0",
+      "device": "ios app 390px",
+      "lang": "en",
+      "user": "guest",
+      "status": "pass",
+      "detail": "",
+      "evidence": "e2e-evidence/homepage-uiux/gokesari.com-app-ios/APP-VOICE-1.2.0.png"
+    },
+    {
+      "id": "APP-VOICE-1.3.0",
+      "feature": "F2/App",
+      "scenario": "Mic in iPhone app 1.3.0",
+      "device": "ios app 390px",
+      "lang": "en",
+      "user": "guest",
+      "status": "pass",
+      "detail": "",
+      "evidence": "e2e-evidence/homepage-uiux/gokesari.com-app-ios/APP-VOICE-1.3.0.png"
+    },
+    {
+      "id": "F1-DRAWER-GUEST",
+      "feature": "F1",
+      "scenario": "Hamburger drawer for a guest",
+      "device": "390px",
+      "lang": "hi",
+      "user": "guest",
+      "status": "pass",
+      "detail": "",
+      "evidence": "e2e-evidence/homepage-uiux/gokesari.com-app-ios/F1-DRAWER-GUEST.png"
+    },
+    {
+      "id": "F1-HERO",
+      "feature": "F1",
+      "scenario": "Carousel controls",
+      "device": "1024px",
+      "lang": "en",
+      "user": "guest",
+      "status": "pass",
+      "detail": "3 banners",
+      "evidence": "e2e-evidence/homepage-uiux/gokesari.com-app-ios/F1-HERO.png"
+    },
+    {
+      "id": "F2-API",
+      "feature": "F2",
+      "scenario": "GET /api/search/suggest",
+      "device": "API",
+      "lang": "en",
+      "user": "guest",
+      "status": "pass",
+      "detail": "6 products, 0 shops, 0 categories",
+      "evidence": ""
+    },
+    {
+      "id": "F2-SUGGEST-DESKTOP",
+      "feature": "F2",
+      "scenario": "Autosuggest with keyboard",
+      "device": "1440px",
+      "lang": "en",
+      "user": "guest",
+      "status": "pass",
+      "detail": "products group, highlight, aria-activedescendant, Esc, Enter → /search?q=milk",
+      "evidence": "e2e-evidence/homepage-uiux/gokesari.com-app-ios/F2-SUGGEST-DESKTOP.png"
+    },
+    {
+      "id": "F2-VOICE",
+      "feature": "F2",
+      "scenario": "Mic shown when supported, hidden when not",
+      "device": "390px",
+      "lang": "mr",
+      "user": "guest",
+      "status": "pass",
+      "detail": "mr-IN recogniser; no mic without the API",
+      "evidence": "e2e-evidence/homepage-uiux/gokesari.com-app-ios/F2-VOICE.png"
+    },
+    {
+      "id": "F3-SEARCH-EMPTY",
+      "feature": "F3",
+      "scenario": "No-results empty state",
+      "device": "390px",
+      "lang": "mr",
+      "user": "guest",
+      "status": "pass",
+      "detail": "",
+      "evidence": "e2e-evidence/homepage-uiux/gokesari.com-app-ios/F3-SEARCH-EMPTY.png"
+    },
+    {
+      "id": "F4-COMPARE",
+      "feature": "F4",
+      "scenario": "Compare page tags best price",
+      "device": "1440px",
+      "lang": "en",
+      "user": "guest",
+      "status": "pass",
+      "detail": "0 best-price rows",
+      "evidence": "e2e-evidence/homepage-uiux/gokesari.com-app-ios/F4-COMPARE.png"
+    },
+    {
+      "id": "F5-FOOTER",
+      "feature": "F5",
+      "scenario": "Footer links and accordions",
+      "device": "390px",
+      "lang": "en",
+      "user": "guest",
+      "status": "pass",
+      "detail": "16 links",
+      "evidence": "e2e-evidence/homepage-uiux/gokesari.com-app-ios/F5-FOOTER.png"
+    },
+    {
+      "id": "F6-LOCATION-SHEET",
+      "feature": "F6",
+      "scenario": "Location bottom sheet, PIN 411014",
+      "device": "390px",
+      "lang": "en",
+      "user": "guest",
+      "status": "pass",
+      "detail": "label shows 411014; section reads Shops near you",
+      "evidence": "e2e-evidence/homepage-uiux/gokesari.com-app-ios/F6-LOCATION-SHEET.png"
+    },
+    {
+      "id": "F6-STICKY",
+      "feature": "F6",
+      "scenario": "Sticky, compacting header",
+      "device": "360px",
+      "lang": "en",
+      "user": "guest",
+      "status": "pass",
+      "detail": "",
+      "evidence": "e2e-evidence/homepage-uiux/gokesari.com-app-ios/F6-STICKY.png"
+    },
+    {
+      "id": "HP-360-en",
+      "feature": "F1/F2/F5/F6",
+      "scenario": "Home renders the discovery layout",
+      "device": "ios app 360px",
+      "lang": "en",
+      "user": "guest",
+      "status": "pass",
+      "detail": "hero 176px",
+      "evidence": "e2e-evidence/homepage-uiux/gokesari.com-app-ios/HP-360-en.png"
+    },
+    {
+      "id": "HP-360-hi",
+      "feature": "F1/F2/F5/F6",
+      "scenario": "Home renders the discovery layout",
+      "device": "ios app 360px",
+      "lang": "hi",
+      "user": "guest",
+      "status": "pass",
+      "detail": "hero 176px",
+      "evidence": "e2e-evidence/homepage-uiux/gokesari.com-app-ios/HP-360-hi.png"
+    },
+    {
+      "id": "HP-360-mr",
+      "feature": "F1/F2/F5/F6",
+      "scenario": "Home renders the discovery layout",
+      "device": "ios app 360px",
+      "lang": "mr",
+      "user": "guest",
+      "status": "pass",
+      "detail": "hero 176px",
+      "evidence": "e2e-evidence/homepage-uiux/gokesari.com-app-ios/HP-360-mr.png"
+    },
+    {
+      "id": "HP-390-en",
+      "feature": "F1/F2/F5/F6",
+      "scenario": "Home renders the discovery layout",
+      "device": "ios app 390px",
+      "lang": "en",
+      "user": "guest",
+      "status": "pass",
+      "detail": "hero 176px",
+      "evidence": "e2e-evidence/homepage-uiux/gokesari.com-app-ios/HP-390-en.png"
+    },
+    {
+      "id": "HP-390-hi",
+      "feature": "F1/F2/F5/F6",
+      "scenario": "Home renders the discovery layout",
+      "device": "ios app 390px",
+      "lang": "hi",
+      "user": "guest",
+      "status": "pass",
+      "detail": "hero 176px",
+      "evidence": "e2e-evidence/homepage-uiux/gokesari.com-app-ios/HP-390-hi.png"
+    },
+    {
+      "id": "HP-390-mr",
+      "feature": "F1/F2/F5/F6",
+      "scenario": "Home renders the discovery layout",
+      "device": "ios app 390px",
+      "lang": "mr",
+      "user": "guest",
+      "status": "pass",
+      "detail": "hero 176px",
+      "evidence": "e2e-evidence/homepage-uiux/gokesari.com-app-ios/HP-390-mr.png"
+    },
+    {
+      "id": "HP-414-en",
+      "feature": "F1/F2/F5/F6",
+      "scenario": "Home renders the discovery layout",
+      "device": "ios app 414px",
+      "lang": "en",
+      "user": "guest",
+      "status": "pass",
+      "detail": "hero 176px",
+      "evidence": "e2e-evidence/homepage-uiux/gokesari.com-app-ios/HP-414-en.png"
+    },
+    {
+      "id": "HP-414-hi",
+      "feature": "F1/F2/F5/F6",
+      "scenario": "Home renders the discovery layout",
+      "device": "ios app 414px",
+      "lang": "hi",
+      "user": "guest",
+      "status": "pass",
+      "detail": "hero 176px",
+      "evidence": "e2e-evidence/homepage-uiux/gokesari.com-app-ios/HP-414-hi.png"
+    },
+    {
+      "id": "HP-414-mr",
+      "feature": "F1/F2/F5/F6",
+      "scenario": "Home renders the discovery layout",
+      "device": "ios app 414px",
+      "lang": "mr",
+      "user": "guest",
+      "status": "pass",
+      "detail": "hero 176px",
+      "evidence": "e2e-evidence/homepage-uiux/gokesari.com-app-ios/HP-414-mr.png"
+    },
+    {
+      "id": "REG-ROUTES",
+      "feature": "Regression",
+      "scenario": "Existing routes (no 404/500)",
+      "device": "HTTP",
+      "lang": "en",
+      "user": "guest",
+      "status": "pass",
+      "detail": "26 routes",
+      "evidence": ""
+    }
+  ]
+}

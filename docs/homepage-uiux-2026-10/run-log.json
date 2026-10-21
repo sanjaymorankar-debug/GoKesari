@@ -1,6 +1,6 @@
 {
- "generatedAt": "20 Oct 2026, 12:20 IST (06:50 UTC) — staging deployed and tested; production released (#219) but not yet built by Hostinger (DEF-14)",
- "pr": "Feature #214, fixes #215 / #218, release #219 (staging → main); results #217 (branch claude/gifted-brahmagupta-nj0bt9 → staging)",
+ "generatedAt": "21 Oct 2026, 06:25 IST (00:55 UTC) — final: local, staging and production pass; production tests read-only, no test data created",
+ "pr": "Feature #214, fixes #215 / #218, releases #219 / #221 (staging → main); results #217 (branch claude/gifted-brahmagupta-nj0bt9 → staging)",
  "features": [
   [
    "F1.1",
@@ -868,7 +868,9 @@
   "Android APK 1.3.0 (GitHub 'Android APK' workflow, PR #214)": "Built ✓ — artifacts GoKesari-preview-apk and GoKesari-production-apk (run 39333658232, expire 18 Nov 2026)",
   "CI on PR #214": "scope ✓, test ✓ (full suite), test-split ✓ (two-database layout), mobile ✓, APK preview ✓, APK production ✓ — merged into staging 19 Oct 22:49 UTC",
   "Existing E2E regression (local)": "acceptance 5/5 (sign-in, wallet top-up, subscribe 2 L/day, daily order + charge, change tomorrow, offline-only, access control, cron auth); mobile-app 5/7 (2 need the dev sign-in form, run on the dev server); branding-footer 8/8 (updated to the new footer); inventory-accounting, document-browser-read pass on the production build; regression-items-a-e 10 pass, then stops at the stale C1 step (Seller Central moved the shop contact card on 14 Oct — predates this change; later serial steps not reached, covered by integration tests)",
-  "Staging remote regression (batch-2026-10-remote + branding-footer)": "20 / 20 passed on test.gokesari.com (20 Oct 05:58 UTC)"
+  "Staging remote regression (batch-2026-10-remote + branding-footer)": "20 / 20 passed on test.gokesari.com (20 Oct 05:58 UTC)",
+  "Production remote regression (batch-2026-10-remote + branding-footer)": "20 / 20 passed on gokesari.com (21 Oct 00:50 UTC), read-only",
+  "Android APK 1.3.0 — production build (main)": "Built ✓ — Android APK workflow run 39376108294 on the release commit 80189e2"
  },
  "deploys": {
   "Staging — PR #214 merged": "19 Oct 2026 22:49 UTC (merge 1f4cd76)",
@@ -879,16 +881,14 @@
   "Split layout — production": "split: core neondb, seller PROD_SELLER_DATABASE_URL (Database split switch-status, run 39376683693, 05:46 UTC)",
   "Production database (0086, 0087)": "Production database run 39372089225, 04:55 UTC: restore point, migrate, state after ✓",
   "Production — release #219 (staging → main)": "merged 20 Oct 05:39 UTC (80189e2), owner-approved",
-  "Production — site build": "Not live at 06:49 UTC: gokesari.com serves a build of 06:02 UTC without the release (DEF-14)"
+  "Production — site build": "Live 20 Oct 19:25 UTC (01:00 IST 21 Oct) after a redeploy of main (DEF-14); build uLTbrAiGsyctSEOjl_kyQ"
  },
  "blockers": [
-  "Production deploy: gokesari.com has not built release #219 (DEF-14) — check the Hostinger build log for gokesari.com (most likely SELLER_DATABASE_URL, as on the test site) and redeploy. The production-safe suite, app checks and Lighthouse run as soon as the new home is live.",
   "iOS native build: the 'iPhone app' workflow needs the repository secret EXPO_TOKEN and the Expo project id in mobile/app.config.ts (last run 18 Oct failed on both). Owner: add them (mobile/README.md 'iPhone builds from GitHub'), then Actions → iPhone app → Run (preview).",
   "Android emulator / iOS simulator: this cloud environment has no Android SDK / KVM and no macOS. App checks ran as Playwright emulation of the app WebView (app user agent, touch, phone widths); the Android APKs are built by the 'Android APK' workflow on the PR.",
   "Signed-in flows on staging / production: they need the emailed sign-in code of a test account. Reading it from the test mailbox was refused by this session's permission check (D-28); signed-in flows ran locally (F1-ACCOUNT-DESKTOP, F3-EMPTY-STATES, F6-FLOATING-CART, F2-RECENT-ACCOUNT, F1-BANNER-ADMIN). Staging sandbox payment (Cashfree) needs a signed-in session → not run in this pass."
  ],
  "notRunReason": {
-  "Production": "Blocked (DEF-14)",
   "Android": "Not run",
   "iOS": "Not run"
  },
@@ -1008,11 +1008,19 @@
   ],
   [
    "DEF-14",
-   "gokesari.com has not deployed release #219 (merged 05:39 UTC) or #221 (06:15 UTC): at 06:49 UTC the site serves a build made at 06:02 UTC without the release (old home; /api/search/suggest and /admin/home-banners answer 404). The production databases already have 0086–0087 (run 39372089225) and are on the split layout.",
+   "gokesari.com did not deploy release #219 (80189e2, merged 20 Oct 05:39 UTC) for ~14 h: it kept serving builds of #216 (6bb96c6). The owner's Hostinger log showed why redeploys never helped: a plain Redeploy restores the 'previous deployment source' (the last successful deployment, #216). Hostinger's variables were checked with the owner: DB_SPLIT_MODE=split and SELLER_DATABASE_URL opens PROD_SELLER_DATABASE_URL, the core's linked seller database, so the #218 seller check was not the cause.",
    "Blocker",
    "Production (deploy)",
-   "Outside the repository: the Hostinger build log for gokesari.com is not visible from this run. Most likely the same cause as DEF-13 on the test site — the build's migration step (since #218) stops when SELLER_DATABASE_URL is not the seller database the core's foreign tables read (production: the database named PROD_SELLER_DATABASE_URL). Owner: hPanel → gokesari.com → Deployments → latest build log; fix SELLER_DATABASE_URL if the log says so, then Redeploy → 'Settings and redeploy'.",
-   "Blocked"
+   "Redeployed from hPanel with the latest main; gokesari.com built the release at 19:25 UTC (20 Oct) and serves the new home, /api/search/suggest 200, /admin/home-banners → sign-in.",
+   "Fixed (redeploy of main)"
+  ],
+  [
+   "DEF-15",
+   "Production configuration (seen while checking DEF-14, outside this change): INTEGRATION_ENCRYPTION_KEY on gokesari.com is not a 32-byte base64 key, so GSTIN linking fails and new bills are stored unencrypted (docs/inventory-accounting-2026-10/TESTING_REPORT.md). Production secrets (database password, AUTH_SECRET) were also shared in the session chat on 20 Oct.",
+   "High",
+   "Production (configuration)",
+   "Owner: set INTEGRATION_ENCRYPTION_KEY to the output of `openssl rand -base64 32` and redeploy; reset the neondb_owner password in Neon (update DATABASE_URL, SELLER_DATABASE_URL, PROD_* in Hostinger and the PROD_* GitHub secrets) and set a new AUTH_SECRET (signs everyone out once).",
+   "Open (owner)"
   ]
  ],
  "lighthouse": [
@@ -1087,6 +1095,30 @@
    100,
    "Pass",
    "LCP 2.3 s, TBT 50 ms, CLS 0"
+  ],
+  [
+   "Production (gokesari.com)",
+   "After — run 1",
+   "/",
+   "Mobile (Lighthouse 12, simulated throttling)",
+   91,
+   100,
+   100,
+   100,
+   "Pass",
+   "LCP 1.8 s, TBT 260 ms, CLS 0 (before: 84)"
+  ],
+  [
+   "Production (gokesari.com)",
+   "After — run 2",
+   "/",
+   "Mobile (Lighthouse 12, simulated throttling)",
+   97,
+   100,
+   100,
+   100,
+   "Pass",
+   "LCP 1.8 s, TBT 80 ms, CLS 0"
   ]
  ],
  "decisions": [
