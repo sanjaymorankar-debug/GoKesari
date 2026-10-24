@@ -587,7 +587,7 @@ export async function sendPurchaseListToCart(
       throw validationFailed("Nothing to order: set a quantity above 0 for at least one product.");
     }
 
-    // The cart's lock, as an add takes it: an add at the same moment waits, or this waits for it (D-100).
+    // The cart's lock, as an add takes it: an add at the same moment waits, or this waits for it (TC-LIST-021).
     const cart = await lockCart(userId, tx);
     const inCart = await tx
       .select({ id: cartItems.id, shopProductId: cartItems.shopProductId, quantity: cartItems.quantity })

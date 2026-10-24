@@ -110,7 +110,8 @@ export const CART_LINE_MAX_QUANTITY = 99;
  * this lock before it reads a line, so two at once — a double tap, two tabs —
  * run one after the other: the second reads what the first wrote. Unlocked,
  * the second insert of a new line hit cart_items_cart_product_unique (500),
- * and two adds onto a line both wrote existing + quantity from one read (D-100).
+ * and two adds onto a line both wrote existing + quantity from one read
+ * (TC-CART-001, QA run of 24 Oct 2026).
  */
 export async function lockCart(userId: string, tx: DbClient): Promise<{ id: string }> {
   const cart = await getOrCreateCart(userId, tx);

@@ -1,6 +1,7 @@
 /**
- * D-100 (docs/testing/qa-defects.json; TC-CART-001, TC-LIST-021): two "add to
- * cart"s of the same product at the same moment — a double tap, or two tabs.
+ * TC-CART-001 / TC-LIST-021 (QA run of 24 Oct 2026, logged in PR #239): two
+ * "add to cart"s of the same product at the same moment — a double tap, or two
+ * tabs.
  * On an empty cart one answered 500 (the second insert hit
  * cart_items_cart_product_unique); onto an existing line both answered 200 but
  * one add was lost (1 + 2 + 2 saved as 3), as both wrote existing + quantity
@@ -71,7 +72,7 @@ async function savedLines(userId: string, shopProductId: string) {
     .where(and(eq(carts.userId, userId), eq(cartItems.shopProductId, shopProductId)));
 }
 
-describe("D-100: simultaneous adds of the same product", () => {
+describe("TC-CART-001: simultaneous adds of the same product", () => {
   it.each([
     ["no cart yet", false],
     ["an empty cart", true],

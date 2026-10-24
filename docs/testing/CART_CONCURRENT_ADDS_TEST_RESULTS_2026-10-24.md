@@ -1,8 +1,11 @@
-# D-100 — simultaneous "add to cart": test results (24 Oct 2026)
+# Simultaneous "add to cart" (TC-CART-001): test results (24 Oct 2026)
 
-Defect D-100 (`docs/testing/qa-defects.json`, logged by the QA run in PR #239;
-cases TC-CART-001, TC-LIST-021), found on test.gokesari.com: two `POST /api/cart`
-of the same product at the same moment.
+The concurrent add-to-cart defect found by the QA run of 24 Oct 2026 on
+test.gokesari.com (cases TC-CART-001, TC-LIST-021): two `POST /api/cart` of the
+same product at the same moment. PR #239 logs it as D-100, but `staging`'s
+`docs/testing/qa-defects.json` already uses D-100 for another defect
+(product-master promotion, #244), so its number changes when #239 is merged.
+Fixed by PR #240.
 
 | Case | Before the fix | After the fix |
 |---|---|---|
