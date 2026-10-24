@@ -624,6 +624,20 @@
       "when": 1792125099436,
       "tag": "0088_revoked_sessions",
       "breakpoints": true
+    },
+    {
+      "idx": 89,
+      "version": "7",
+      "when": 1792125159436,
+      "tag": "0089_repair_revoked_sessions",
+      "breakpoints": true
+    },
+    {
+      "idx": 90,
+      "version": "7",
+      "when": 1792125219436,
+      "tag": "0090_purchase_lists",
+      "breakpoints": true
     }
   ]
 }

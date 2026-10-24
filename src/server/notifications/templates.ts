@@ -361,6 +361,14 @@ export const TEMPLATES: Record<string, Template> = {
   ),
   /* <<< end WS-F */
   //
+  /* >>> purchase lists (docs/purchase-lists-2026-10) */
+  [T.PURCHASE_LIST_DUE]: t(
+    "Time to reorder: {{listName}}",
+    "Your {{frequency}} list \"{{listName}}\" is due. Update the quantities and order it in a minute.",
+    false,
+  ),
+  /* <<< end purchase lists */
+  //
 };
 
 /** Fills `{{name}}` placeholders; a missing variable becomes an empty string and extra spaces are tidied. */

@@ -22,6 +22,8 @@ import Link from "next/link";
 import { Alert } from "@/components/ui";
 import { needsSignupReferralCode } from "@/server/services/customer-signup-referrals";
 import { getBoardLang } from "@/server/board-lang";
+import { SaveCartAsList } from "@/components/purchase-lists/save-cart-as-list";
+import { listPurchaseLists } from "@/server/services/purchase-lists";
 
 export const metadata = { title: "Cart" };
 export const dynamic = "force-dynamic";
@@ -75,6 +77,8 @@ export default async function CartPage() {
   const bankPrompt = cart.groups.length > 0 ? await customerBankPrompt(user.id, "checkout") : null;
   // Mandatory referral code (rule customerSignupReferral.required): checkout refuses a first order without one.
   const needsReferralCode = cart.groups.length > 0 && (await needsSignupReferralCode(user.id));
+  // docs/purchase-lists-2026-10: "Save as a list" offers the customer's own lists.
+  const purchaseLists = cart.groups.length > 0 ? await listPurchaseLists(user.id) : [];
 
   return (
     <>
@@ -93,6 +97,9 @@ export default async function CartPage() {
             .
           </Alert>
         </div>
+      ) : null}
+      {cart.groups.length > 0 ? (
+        <SaveCartAsList lists={purchaseLists.map((l) => ({ id: l.id, name: l.name, kind: l.kind }))} />
       ) : null}
       <CartView
         cart={cart}

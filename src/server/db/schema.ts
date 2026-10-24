@@ -9211,3 +9211,77 @@ export const searchQueries = pgTable(
 export type SearchQuery = typeof searchQueries.$inferSelect;
 
 /* <<< end homepage UI/UX upgrade */
+
+/* >>> purchase lists (docs/purchase-lists-2026-10) */
+
+export const PURCHASE_LIST_KINDS = ["SHOPPING", "MEDICINE"] as const;
+export type PurchaseListKind = (typeof PURCHASE_LIST_KINDS)[number];
+export const PURCHASE_LIST_FREQUENCIES = ["WEEKLY", "MONTHLY"] as const;
+export type PurchaseListFrequency = (typeof PURCHASE_LIST_FREQUENCIES)[number];
+
+/**
+ * A customer's own named list of things they buy every week or every month
+ * ("Monthly groceries", "Papa's BP medicines"). Each period they adjust the
+ * quantities, check the live total and send it to the cart to order. Customer
+ * database, next to carts.
+ */
+export const purchaseLists = pgTable(
+  "purchase_lists",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    name: text("name").notNull(),
+    kind: text("kind", { enum: PURCHASE_LIST_KINDS }).notNull().default("SHOPPING"),
+    frequency: text("frequency", { enum: PURCHASE_LIST_FREQUENCIES }).notNull().default("MONTHLY"),
+    /** An in-app reminder when the list is due again (weekly / monthly after it was last ordered). */
+    remind: boolean("remind").notNull().default(true),
+    /** When the list was last sent to the cart to order. */
+    lastOrderedAt: timestamp("last_ordered_at", { withTimezone: true }),
+    lastRemindedAt: timestamp("last_reminded_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("purchase_lists_user_name_unique").on(t.userId, sql`lower(${t.name})`),
+    index("purchase_lists_user_idx").on(t.userId),
+    check("purchase_lists_name_length", sql`char_length(${t.name}) BETWEEN 1 AND 60`),
+    check("purchase_lists_kind_valid", sql`${t.kind} IN ('SHOPPING','MEDICINE')`),
+    check("purchase_lists_frequency_valid", sql`${t.frequency} IN ('WEEKLY','MONTHLY')`),
+  ],
+);
+export type PurchaseList = typeof purchaseLists.$inferSelect;
+
+/**
+ * One product on a list: a shop's product (as in the cart) and how many.
+ * shop_product_id lives in the seller database, so it has no foreign key —
+ * the service checks it exists before writing (src/server/db/split/integrity.ts)
+ * and shows a line whose product is gone as "no longer sold".
+ */
+export const purchaseListItems = pgTable(
+  "purchase_list_items",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    listId: uuid("list_id")
+      .notNull()
+      .references(() => purchaseLists.id, { onDelete: "cascade" }),
+    /** shop_products.id (seller database: no foreign key). */
+    shopProductId: uuid("shop_product_id").notNull(),
+    /** Whole sellable units, as in the cart (up to 99). 0 = skip it this time but keep it on the list. */
+    quantity: integer("quantity").notNull(),
+    /** The customer's own note: a dosage, who it is for, a brand preference. */
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("purchase_list_items_list_product_unique").on(t.listId, t.shopProductId),
+    index("purchase_list_items_list_idx").on(t.listId),
+    check("purchase_list_items_quantity_range", sql`${t.quantity} BETWEEN 0 AND 99`),
+    check("purchase_list_items_note_length", sql`${t.note} IS NULL OR char_length(${t.note}) <= 120`),
+  ],
+);
+export type PurchaseListItem = typeof purchaseListItems.$inferSelect;
+
+/* <<< end purchase lists */

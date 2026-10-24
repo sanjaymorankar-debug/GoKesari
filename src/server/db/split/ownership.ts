@@ -286,6 +286,11 @@ export const TABLE_OWNERSHIP = {
   search_queries: "platform",
   /* <<< end WS-F */
   //
+  /* >>> purchase lists (docs/purchase-lists-2026-10): a customer's weekly / monthly lists, next to carts */
+  purchase_lists: "customer",
+  purchase_list_items: "customer",
+  /* <<< end purchase lists */
+  //
 } as const satisfies Record<string, DbOwner>;
 
 export type OwnedTable = keyof typeof TABLE_OWNERSHIP;
