@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 
 import { db } from "@/server/db";
-import { notifications, purchaseListItems, purchaseLists, shopProducts, shops } from "@/server/db/schema";
+import { notifications, purchaseListItems, purchaseLists, shopProducts, shops, users } from "@/server/db/schema";
 import { addToCart, getCart } from "@/server/services/cart";
 import {
   addPurchaseListItem,
@@ -435,5 +435,50 @@ describe("QA additions (purchase lists, 24 Oct 2026)", () => {
     const list = await createPurchaseList(customer.id, { name: "Monthly" });
     const weekly = await updatePurchaseList(customer.id, list.id, { frequency: "WEEKLY" });
     expect(weekly.nextDueAt.getTime() - weekly.createdAt.getTime()).toBe(7 * 24 * 3600 * 1000);
+  });
+});
+
+describe("QA follow-ups (24 Oct 2026)", () => {
+  it("simultaneous adds cannot take a list past 100 products", async () => {
+    const customer = await createUser();
+    const sps = await manyShopProducts(105);
+    const list = await createPurchaseList(customer.id, { name: "Big" });
+    for (const sp of sps.slice(0, 99)) await addPurchaseListItem(customer.id, list.id, { shopProductId: sp.id });
+
+    const results = await Promise.allSettled(
+      sps.slice(99).map((sp) => addPurchaseListItem(customer.id, list.id, { shopProductId: sp.id })),
+    );
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    expect(results.filter((r) => r.status === "rejected").map((r) => (r as PromiseRejectedResult).reason.code)).toEqual(
+      Array(5).fill("CONFLICT"),
+    );
+    expect(await db.select().from(purchaseListItems).where(eq(purchaseListItems.listId, list.id))).toHaveLength(100);
+  }, 180_000);
+
+  it("simultaneous creates cannot pass 20 lists", async () => {
+    const customer = await createUser();
+    for (let i = 0; i < 18; i += 1) await createPurchaseList(customer.id, { name: `List ${i}` });
+    const results = await Promise.allSettled([0, 1, 2, 3].map((i) => createPurchaseList(customer.id, { name: `Extra ${i}` })));
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(2);
+    expect(await db.select().from(purchaseLists).where(eq(purchaseLists.userId, customer.id))).toHaveLength(20);
+  });
+
+  it("refuses a product of a shop that is not approved, or a listing that is switched off, as not found", async () => {
+    const { customer, shop, milkSp, curdSp } = await setup();
+    const list = await createPurchaseList(customer.id, { name: "Weekly" });
+    await db.update(shopProducts).set({ isActive: false }).where(eq(shopProducts.id, curdSp.id));
+    await expect(addPurchaseListItem(customer.id, list.id, { shopProductId: curdSp.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    await db.update(shops).set({ status: "SUSPENDED" }).where(eq(shops.id, shop.id));
+    await expect(addPurchaseListItem(customer.id, list.id, { shopProductId: milkSp.id })).rejects.toMatchObject({ code: "NOT_FOUND" });
+    expect(await db.select().from(purchaseListItems)).toHaveLength(0);
+  });
+
+  it("sends no reminder to a suspended account", async () => {
+    const { customer, milkSp } = await setup();
+    const list = await createPurchaseList(customer.id, { name: "Weekly", frequency: "WEEKLY" });
+    await addPurchaseListItem(customer.id, list.id, { shopProductId: milkSp.id });
+    await db.update(users).set({ status: "SUSPENDED" }).where(eq(users.id, customer.id));
+    expect(await sendPurchaseListReminders(new Date(Date.now() + 8 * 24 * 3600 * 1000))).toEqual({ reminded: 0 });
   });
 });

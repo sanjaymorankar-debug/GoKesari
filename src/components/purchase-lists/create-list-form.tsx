@@ -74,12 +74,13 @@ export function CreateListForm({ defaultKind = "SHOPPING" }: { defaultKind?: Lis
       const payload = await response.json().catch(() => null);
       if (!response.ok) {
         setError(payload?.error?.message ?? "Could not create the list.");
+        setBusy(false);
         return;
       }
+      // Stays busy while the new list opens, so a second tap cannot create it twice.
       router.push(`/lists/${payload.id}`);
     } catch {
       setError("Could not create the list. Check your connection and try again.");
-    } finally {
       setBusy(false);
     }
   }

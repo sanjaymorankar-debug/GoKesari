@@ -12,11 +12,11 @@ the cart and they pay at checkout as usual.
 
 | Where | What |
 |---|---|
-| **My lists** (`/lists`) — header, account menu, Orders tile → "My lists" | Shopping lists and medicine lists, each with how often (weekly / monthly), products, last ordered, **next due / Due now**. A form to create a list: type (🛒 Shopping / 💊 Medicines), name, weekly or monthly, reminder on/off. |
+| **My lists** (`/lists`) — account menu, Orders tile → "My lists", the "My lists" tab on `/orders` | Shopping lists and medicine lists, each with how often (weekly / monthly), products, last ordered, **next due / Due now**. A form to create a list: type (🛒 Shopping / 💊 Medicines), name, weekly or monthly, reminder on/off. |
 | **A list** (`/lists/<id>`) | Each product with its shop, today's price, a quantity stepper and a note (e.g. "1 after breakfast — for Papa"). **0 = skip this time** — the product stays on the list. Remove a product; edit the name, type, frequency, reminder; delete the list. An estimate of the items total. |
 | **Check list** | A confirmation step priced exactly as the cart prices it: per shop, each line at today's price and offers, delivery charges, **total to pay**. Products that cannot be ordered now (out of stock, only N left, shop closed for orders) are shown and left out. If the cart already has items: **add this list to them** or **replace my cart**. |
 | **Confirm order** | The list's products go to the cart, the list is marked ordered (its next due date moves on), and the customer goes to checkout for address, delivery time and payment. Nothing is charged before checkout. |
-| **Product cards** | **📝 Add to list** (signed-in customers): pick a list or create one in place. A product already on the list is left as it is. |
+| **Product cards** | **📝 Add to list** (signed-in customers): a sheet to pick a list or create one. A product already on the list is left as it is. Only products customers can see (an active listing of an approved shop) can be added. |
 | **Cart** | **📝 Save as a list**: the cart becomes a new list, or goes into an existing one (products already on it take the cart's quantity). |
 | **Reminder** | Daily at 05:00 IST: a "Time to reorder: <list>" notification for each list that is due again (a week / a month after it was last ordered, or created), once per due date. In-app (and push for app users who have it on); no e-mail by default. |
 
@@ -26,10 +26,12 @@ checks are unchanged: the shop's own rules apply at order time.
 
 ## Rules and limits
 
-- Up to **20 lists** per customer, **100 products** per list, quantity **0–99** (the cart's cap).
+- Up to **20 lists** per customer, **100 products** per list, quantity **0–99** (the cart's cap). Both caps hold under simultaneous requests (an advisory lock per customer; the list row is locked while its products are counted).
 - List names are unique per customer (any case), 1–60 characters; notes up to 120.
 - Prices are **never stored** on a list: the list page shows today's price; the check and the cart price live (offers, delivery fee), and checkout re-prices server-side as always.
 - A product the shop has removed stays on the list as "No longer sold" until the customer removes it; it is never ordered.
+- Sending to the cart decides everything before it writes: nothing to order is refused, and when no line can go in the cart is left exactly as it was (REPLACE never empties a cart for nothing). The result reports the units that really went in (a cart line stops at 99).
+- Reminders go only to active accounts.
 - Only the list's owner can see or change it (another customer's list id answers 404).
 
 ## Design

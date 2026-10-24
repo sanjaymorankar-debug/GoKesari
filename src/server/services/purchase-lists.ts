@@ -29,6 +29,7 @@ import {
   purchaseLists,
   shopProducts,
   shops,
+  users,
   type PurchaseList,
 } from "@/server/db/schema";
 import { isUniqueViolation } from "@/server/db/split/upsert";
@@ -200,9 +201,12 @@ export interface SaveListInput {
 export async function createPurchaseList(
   userId: string,
   input: SaveListInput,
-  client: DbClient = db,
+  client?: DbClient,
 ): Promise<PurchaseListSummary> {
+  if (!client) return db.transaction((tx) => createPurchaseList(userId, input, tx));
   const name = checkName(input.name);
+  // One create per customer at a time, so simultaneous creates cannot pass the cap (core database).
+  await client.execute(sql`select pg_advisory_xact_lock(hashtext(${`purchase-lists:${userId}`}))`);
   const [{ lists }] = await client
     .select({ lists: count() })
     .from(purchaseLists)
@@ -359,13 +363,25 @@ export async function getPurchaseList(userId: string, listId: string): Promise<P
   };
 }
 
-/** Throws unless the shop product exists (it lives in the seller database: no foreign key to check it). */
-async function assertShopProductExists(shopProductId: string): Promise<void> {
-  const [row] = await db
+/**
+ * Throws unless customers can see the shop product: an active listing of an
+ * approved shop (it lives in the seller database: no foreign key to check it).
+ * Anything else is "not found", so a list cannot be used to look up a hidden
+ * shop's products. Items already on a list stay when a shop is later suspended.
+ */
+async function assertShopProductListable(shopProductId: string, client: DbClient): Promise<void> {
+  const [row] = await client
     .select({ id: shopProducts.id })
     .from(shopProducts)
     .innerJoin(shops, eq(shopProducts.shopId, shops.id))
-    .where(and(eq(shopProducts.id, shopProductId), sql`${shops.deletedAt} is null`));
+    .where(
+      and(
+        eq(shopProducts.id, shopProductId),
+        eq(shopProducts.isActive, true),
+        eq(shops.status, "APPROVED"),
+        sql`${shops.deletedAt} is null`,
+      ),
+    );
   if (!row) throw notFound("Product");
 }
 
@@ -383,33 +399,30 @@ export async function addPurchaseListItem(
   await ownList(userId, listId);
   const quantity = checkQuantity(input.quantity ?? 1);
   const note = checkNote(input.note);
-  await assertShopProductExists(input.shopProductId);
+  await assertShopProductListable(input.shopProductId, db);
 
-  const [existing] = await db
-    .select({ id: purchaseListItems.id })
-    .from(purchaseListItems)
-    .where(and(eq(purchaseListItems.listId, listId), eq(purchaseListItems.shopProductId, input.shopProductId)));
-  let itemId = existing?.id;
-  if (!itemId) {
-    const [{ items }] = await db
+  // The list row is locked while its items are counted, so simultaneous adds cannot pass the cap.
+  const alreadyOnList = await db.transaction(async (tx) => {
+    await tx.select({ id: purchaseLists.id }).from(purchaseLists).where(eq(purchaseLists.id, listId)).for("update");
+    const [existing] = await tx
+      .select({ id: purchaseListItems.id })
+      .from(purchaseListItems)
+      .where(and(eq(purchaseListItems.listId, listId), eq(purchaseListItems.shopProductId, input.shopProductId)));
+    if (existing) return true;
+    const [{ items }] = await tx
       .select({ items: count() })
       .from(purchaseListItems)
       .where(eq(purchaseListItems.listId, listId));
     if (items >= LIST_LIMITS.itemsPerList) {
       throw conflict(`A list can hold up to ${LIST_LIMITS.itemsPerList} products. Start another list for the rest.`);
     }
-    // Two taps at once: the unique index keeps one row and the other insert does nothing.
-    const [created] = await db
-      .insert(purchaseListItems)
-      .values({ listId, shopProductId: input.shopProductId, quantity, note })
-      .onConflictDoNothing()
-      .returning({ id: purchaseListItems.id });
-    itemId = created?.id;
-    if (created) await touchList(listId);
-  }
+    await tx.insert(purchaseListItems).values({ listId, shopProductId: input.shopProductId, quantity, note });
+    await tx.update(purchaseLists).set({ updatedAt: new Date() }).where(eq(purchaseLists.id, listId));
+    return false;
+  });
   const view = (await loadItemRows(listId)).find((r) => r.item.shopProductId === input.shopProductId);
   if (!view) throw notFound("List item");
-  return { item: itemView(view), alreadyOnList: Boolean(existing) || !itemId };
+  return { item: itemView(view), alreadyOnList };
 }
 
 export async function updatePurchaseListItem(
@@ -469,6 +482,8 @@ export async function saveCartToList(
   // A new list is created in the same transaction that fills it, so a refusal leaves no empty list behind.
   const listId = await db.transaction(async (tx) => {
     const listId = "listId" in target ? target.listId : (await createPurchaseList(userId, target, tx)).id;
+    // Locked while its items are counted, as when adding one product.
+    await tx.select({ id: purchaseLists.id }).from(purchaseLists).where(eq(purchaseLists.id, listId)).for("update");
     const existing = await tx
       .select({ id: purchaseListItems.id, shopProductId: purchaseListItems.shopProductId })
       .from(purchaseListItems)
@@ -553,7 +568,8 @@ export async function sendPurchaseListToCart(
 
   // Built inside the transaction and returned from it, so a re-run on the split layout starts clean.
   return db.transaction(async (tx) => {
-    // One send of a list at a time (a double tap waits, then finds the cart already updated).
+    // One send of a list at a time: a second send waits for the first, then adds the list again on
+    // top of it (ADD) — the page disables "Confirm order" while it is sending.
     await tx.select({ id: purchaseLists.id }).from(purchaseLists).where(eq(purchaseLists.id, listId)).for("update");
     const wanted = (await loadItemRows(listId, tx)).filter((row) => row.item.quantity > 0);
     if (wanted.length === 0) {
@@ -629,17 +645,20 @@ export async function sendPurchaseListToCart(
  */
 export async function sendPurchaseListReminders(now: Date = new Date()): Promise<{ reminded: number }> {
   const candidates = await db
-    .select()
+    .select({ list: purchaseLists })
     .from(purchaseLists)
+    .innerJoin(users, eq(users.id, purchaseLists.userId))
     .where(
       and(
         eq(purchaseLists.remind, true),
+        // Not to suspended or deleted accounts.
+        eq(users.status, "ACTIVE"),
         sql`exists (select 1 from ${purchaseListItems} where ${purchaseListItems.listId} = ${purchaseLists.id} and ${purchaseListItems.quantity} > 0)`,
       ),
     );
 
   let reminded = 0;
-  for (const list of candidates) {
+  for (const { list } of candidates) {
     const due = nextDueAt(list);
     if (due > now) continue;
     if (list.lastRemindedAt && list.lastRemindedAt >= due) continue;

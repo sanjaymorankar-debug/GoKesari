@@ -12,7 +12,8 @@ import { FREQUENCY_LABEL, KIND_EMOJI, KIND_LABEL, LIST_LIMITS, type ListFrequenc
  * cart becomes a weekly / monthly list — a new one, or one the customer
  * already has (a product already on it takes the cart's quantity).
  */
-export function SaveCartAsList({ lists }: { lists: { id: string; name: string; kind: ListKind }[] }) {
+export function SaveCartAsList({ lists: initialLists }: { lists: { id: string; name: string; kind: ListKind }[] }) {
+  const [lists, setLists] = useState(initialLists);
   const [open, setOpen] = useState(false);
   const [target, setTarget] = useState<string>("new");
   const [name, setName] = useState("");
@@ -38,6 +39,9 @@ export function SaveCartAsList({ lists }: { lists: { id: string; name: string; k
         return;
       }
       setSaved({ id: payload.id, name: payload.name });
+      // A list just created is offered next time without a reload.
+      if (!lists.some((l) => l.id === payload.id)) setLists((current) => [...current, { id: payload.id, name: payload.name, kind: payload.kind }]);
+      setTarget(payload.id);
       setOpen(false);
     } catch {
       setError("Could not save the list. Check your connection.");
