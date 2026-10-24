@@ -299,6 +299,11 @@ export const NOTIFICATION_TYPES = {
   SUPPORT_BROADCAST_FINISHED: "support.broadcast_finished",
   /* <<< end WS-F */
   //
+  /* >>> purchase lists (docs/purchase-lists-2026-10) */
+  /** To the customer: a weekly / monthly list is due again — update the quantities and order. */
+  PURCHASE_LIST_DUE: "list.due",
+  /* <<< end purchase lists */
+  //
 } as const;
 
 export type NotificationType =

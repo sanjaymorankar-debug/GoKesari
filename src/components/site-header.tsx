@@ -42,6 +42,7 @@ interface Props {
 const CUSTOMER_NAV: { href: string; label: Text; auth?: boolean }[] = [
   { href: "/shops", label: UI.shops },
   { href: "/orders", label: UI.orders, auth: true },
+  { href: "/lists", label: L("My lists", "मेरी सूचियाँ", "माझ्या याद्या"), auth: true },
   { href: "/subscriptions", label: UI.subscriptions, auth: true },
 ];
 
@@ -50,6 +51,7 @@ const ACCOUNT_NAV: { href: string; label: Text }[] = [
   { href: "/profile", label: L("My profile", "मेरी प्रोफ़ाइल", "माझे प्रोफाइल") },
   { href: "/wallet", label: L("My wallet", "मेरा वॉलेट", "माझे वॉलेट") },
   { href: "/orders", label: L("My orders", "मेरे ऑर्डर", "माझ्या ऑर्डर") },
+  { href: "/lists", label: L("My lists", "मेरी सूचियाँ", "माझ्या याद्या") },
   { href: "/society", label: L("My society", "मेरी सोसाइटी", "माझी सोसायटी") },
   { href: "/profile/bank-account", label: L("Bank account", "बैंक खाता", "बँक खाते") },
 ];

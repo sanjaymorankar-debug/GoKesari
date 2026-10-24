@@ -163,7 +163,8 @@ describe("permission filtering", () => {
   it("shows a customer all six tiles and every submenu", () => {
     const menus = visibleMenus(CUSTOMER_MENUS, "CUSTOMER");
     expect(menus.map((m) => m.key)).toEqual(["shops", "orders", "subscriptions", "wallet", "tracking", "profile"]);
-    expect(menus.reduce((n, m) => n + m.items.length, 0)).toBe(19);
+    // 20: Orders → "My lists" (docs/purchase-lists-2026-10).
+    expect(menus.reduce((n, m) => n + m.items.length, 0)).toBe(20);
   });
 
   it("treats a list of permissions as any-of", () => {

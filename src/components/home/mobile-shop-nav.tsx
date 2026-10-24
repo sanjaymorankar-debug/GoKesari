@@ -28,6 +28,7 @@ const SHOPPING_PATHS = [
   "/search",
   "/products",
   "/orders",
+  "/lists",
   "/subscriptions",
   "/wallet",
   "/profile",

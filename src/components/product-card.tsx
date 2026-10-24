@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
+import { AddToListButton } from "@/components/purchase-lists/add-to-list-button";
 import { SafeImage } from "@/components/safe-image";
 import { categoryEmoji, priceUnitLabel } from "@/lib/board/product-look";
 import { AvailabilityBadge, Button, Card, Money } from "@/components/ui";
@@ -355,6 +356,9 @@ export function ProductCard({
               Subscribe
             </Button>
           ) : null}
+
+          {/* docs/purchase-lists-2026-10: keep it on a weekly / monthly list (signed-in customers). */}
+          {signedIn ? <AddToListButton shopProductId={product.shopProductId} productName={product.productName} /> : null}
         </div>
       </div>
     </Card>
