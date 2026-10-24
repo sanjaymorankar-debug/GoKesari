@@ -1345,7 +1345,7 @@
    "status": "Fixed (re-test pending)"
   },
   {
-   "id": "D-100",
+   "id": "D-102",
    "title": "Two simultaneous 'add to cart' of the same product: one answers 500 (new line) or one add is lost (existing line)",
    "cases": [
     "TC-CART-001",

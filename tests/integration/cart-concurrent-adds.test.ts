@@ -1,5 +1,5 @@
 /**
- * D-100 (docs/testing/qa-defects.json): two "add to cart" of the same product
+ * D-102 (docs/testing/qa-defects.json): two "add to cart" of the same product
  * at the same moment — a double tap, or two tabs. On a new line one of them
  * answered 500 (the second insert hit cart_items_cart_product_unique); onto an
  * existing line both answered 200 but one add was lost (1 + 2 + 2 saved as 3).
@@ -68,7 +68,7 @@ async function lines(userId: string) {
   return (await getCart(userId)).groups.flatMap((g) => g.lines);
 }
 
-describe("D-100: adds of the same product at the same moment", () => {
+describe("D-102: adds of the same product at the same moment", () => {
   it("on a customer with no cart yet: every add answers 200 and the one line holds the sum", async () => {
     const { customer, bunSp } = await setup();
 

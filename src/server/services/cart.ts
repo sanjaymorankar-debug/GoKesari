@@ -109,7 +109,7 @@ const MAX_CART_LINE_QUANTITY = 99;
  * Every change that reads a cart line before writing it — an add, a quantity
  * set, a purchase list's send — takes this lock first, so two at the same
  * moment (a double tap, two tabs) run one after the other and the second sees
- * what the first wrote (D-100: a second insert hit the unique index, or two
+ * what the first wrote (D-102: a second insert hit the unique index, or two
  * adds wrote from the same read). The core runs READ COMMITTED, so every read
  * after the lock sees the line as the previous holder left it.
  */
