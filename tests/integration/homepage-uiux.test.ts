@@ -105,16 +105,28 @@ describe("recent and trending searches (F2)", () => {
     expect(await listRecentSearches(user.id)).toEqual([]);
   });
 
-  it("trends what at least two searches asked for, topped up with the defaults in the visitor's language", async () => {
-    const user = await createUser();
-    await recordSearch(null, "ghee");
-    await recordSearch(user.id, "ghee");
+  it("trends what at least two different signed-in people searched for, most people first, topped up with the defaults in the visitor's language", async () => {
+    const asha = await createUser();
+    const ravi = await createUser();
+    const meera = await createUser();
+    // Three people once each outrank two people with more searches between them.
+    for (const user of [asha, ravi, meera]) await recordSearch(user.id, "butter");
+    for (let i = 0; i < 3; i++) await recordSearch(asha.id, "ghee");
+    await recordSearch(ravi.id, "ghee");
+    // One person searching twice is still one person; guests cannot be told apart, so they are not counted.
+    await recordSearch(asha.id, "cough syrup");
+    await recordSearch(asha.id, "cough syrup");
+    await recordSearch(null, "honey");
     await recordSearch(null, "honey");
     const trending = await listTrendingSearches("hi", 4);
-    expect(trending[0]).toEqual({ q: "ghee", label: "ghee" });
+    expect(trending.slice(0, 2)).toEqual([
+      { q: "butter", label: "butter" },
+      { q: "ghee", label: "ghee" },
+    ]);
+    expect(trending.map((t) => t.q)).not.toContain("cough syrup");
     expect(trending.map((t) => t.q)).not.toContain("honey");
     expect(trending).toHaveLength(4);
-    expect(trending[1]).toEqual({ q: "milk", label: "दूध" });
+    expect(trending[2]).toEqual({ q: "milk", label: "दूध" });
   });
 });
 

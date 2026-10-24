@@ -51,10 +51,12 @@ export default function PrivacyPolicyPage() {
           box, saved with the time of the search and, when you are signed in,
           your account. Searches made while you are not signed in are saved
           without any link to you. We use your own searches to show you your
-          recent searches, and everyone&apos;s searches to show what is
-          popular: any search made at least twice in the last 7 days, by you
-          or by others, can appear under &quot;Trending&quot; for every
-          visitor, without any name or account. You can delete the searches
+          recent searches, and signed-in people&apos;s searches to show what is
+          popular: a search made by at least two different signed-in people
+          in the last 7 days can appear under &quot;Trending&quot; for every
+          visitor, without any name or account. One person&apos;s searches
+          never trend on their own, and searches made while not signed in are
+          not counted. You can delete the searches
           saved with your account at any time with &quot;Clear&quot; above
           your recent searches in the search box.
         </li>
