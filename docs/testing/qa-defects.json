@@ -1328,7 +1328,35 @@
    "actual": "Right after the round-2 release (PR #232), every saved session was refused and a fresh sign-in did not stick (13:04–13:09 UTC: POST /signin 200, then /onboarding → /signin). Cause: 0088_revoked_sessions and the purchase-lists migration were written the same day with the same journal timestamp; the migrator applies only migrations newer than the newest one recorded, so on the test database, which recorded the other first, 0088 was skipped and revoked_sessions did not exist. The new per-request sign-out check read that table, failed, and the request had no session. Sessions worked again by 13:45 (the table was in place); sign-out revocation verified on the test site afterwards (a copied cookie is refused after Sign out).",
    "expected": "A signed-in visitor stays signed in; a failure of the sign-out list never signs everyone out.",
    "fix": "PR #231: 0089_repair_revoked_sessions recreates the table (IF NOT EXISTS) and the purchase-lists migration is renumbered 0090 with a later timestamp. PR #234: readSession (src/server/auth-sessions.ts) falls back to the account read and logs once when the sign-out list cannot be read, so a missing table never signs everyone out (tests/integration/auth-sessions-fallback.test.ts). PR #238: tests/unit/migration-journal.test.ts fails CI when a journal timestamp is not later than the one before it, or a migration file is missing from the journal.",
-   "status": "Fixed (re-test pending)"
+   "retest": "24 Oct 2026 15:05 and 16:00 UTC on test.gokesari.com (purchase-lists QA run, build 2853b3d): customer and customer2 signed in with emailed codes and stayed signed in — /api/auth/session returns the user, /orders loads signed in.",
+   "fixedIn": "#231 (0089_repair_revoked_sessions), #234 (sessions survive a failed read), #238 (journal guard)",
+   "status": "Fixed - retest passed"
+  },
+  {
+   "id": "D-100",
+   "title": "Two simultaneous 'add to cart' of the same product: one answers 500 (new line) or one add is lost (existing line)",
+   "cases": [
+    "TC-CART-001",
+    "TC-LIST-021"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 test.gokesari.com (signed tier, purchase-lists run; build 487f11b)",
+   "actual": "POST /api/cart is fine one request at a time (Burger Bun and Bread, quantity 1 and 2, on an empty cart and onto an existing line: all 200, GET /api/cart 200 before and after). Two POSTs of the same product at the same moment on an empty cart: one 200, the other 500 {\"error\":{\"code\":\"INTERNAL\",\"message\":\"Something went wrong. Please try again.\"}} — 5 of 5 rounds on the staging customer2 account; the cart then holds one line ×2, so the failing request wrote nothing (the failure is in the add's insert, not in the cart read after it). Two POSTs of different products at once: both 200. Two POSTs of the same product at once when the line already exists: both 200 but 1 + 2 + 2 is saved as 3, not 5 (2 of 2 rounds) — a silent lost update. Four simultaneous GET /api/cart: all 200. First seen 15:21:59 UTC when another session used the same staging customer (TC-LIST-021 set-up; that session placed order DB-20261024-ITRVQT at 15:22:54 UTC). Cause: addToCart (src/server/services/cart.ts) reads the line and then inserts or updates it outside a transaction — the second insert hits the unique index cart_items_cart_product_unique (unhandled → 500), and two updates both write existing + quantity from the same read. Evidence: scratchpad qa2/cart-500-isolation.log and qa2/cart-race.log.",
+   "expected": "A double tap or two tabs never produce a 500 and never lose units: both adds succeed with the line holding the sum (within stock and the 99 cap), or one is refused with a clear message; the saved quantity matches what the answers report.",
+   "fix": "Suggested: make the add one statement — insert … on conflict (cart_id, shop_product_id) do update set quantity = cart_items.quantity + excluded.quantity (cart_items is a core table, so ON CONFLICT DO UPDATE is allowed), checking stock against the resulting quantity, or lock the cart row (select … for update) before reading the line; add an integration test with two concurrent adds (new line and existing line).",
+   "status": "Open",
+   "retest": "Purchase-lists checks re-run without the other session's traffic: TC-LIST-021 and TC-LIST-022 passed (15:36–15:38 UTC). The cart defect itself is not fixed."
+  },
+  {
+   "id": "D-101",
+   "title": "Signed-in desktop header: the search box collapses to 0 px and 'Search by voice' covers the Shops link",
+   "cases": [],
+   "severity": "Medium",
+   "found": "2026-10-24 test.gokesari.com (purchase-lists screenshots, staging customer; build 487f11b)",
+   "actual": "As a signed-in customer at 1024, 1280, 1366, 1440 and 1600 px the site header's search input (data-testid search-input) is 0 px wide and hidden, the header-search icon is hidden, and the voice-search button is drawn over the 'Shops' link: at 1280 px document.elementFromPoint at the centre of 'Shops' is BUTTON voice-search 'Search by voice', so clicking 'Shops' starts voice search. A guest's header at 1024–1366 px shows the box 345–367 px wide. Evidence: scratchpad qa2/evidence/header-customer-1280.png, qa2/screenshots/staging-1280-*.png. Not caused by purchase lists (the release's only net change to site-header.tsx is the 'My lists' account-menu entry); no case of the plan checks the signed-in desktop header row.",
+   "expected": "On wide screens the signed-in header shows a usable search box (or a visible search icon) and every nav link (Shops, Orders, Subscriptions) is clickable; nothing overlaps.",
+   "fix": "Not fixed. The signed-in row (location pill, nav links, language switch, wallet, cart, bell, account) leaves the flexible search box no width; give it a minimum width or move the language switch / nav into the account menu below ~1600 px, and keep the voice button inside the box. Add a check (signed tier, 1280 px) that the search input is visible and 'Shops' receives its own click.",
+   "status": "Open"
   },
   {
    "id": "E-01",
