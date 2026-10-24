@@ -73,7 +73,9 @@ qa("TC-PAY-012", "the voucher bonus is credited as promotional balance with a re
 }, local);
 
 qa("TC-PAY-013", "voucher rules: expired, budget used up, already used by this customer, below the minimum — each refused with its own message; the top-up still works without the code", async () => {
-  const expired = await createVoucher({ code: code("E"), startDate: istDate(-10), endDate: istDate(-1) });
+  // A voucher cannot be created already ended (TC-FLD-114), so it is made valid and then aged.
+  const expired = await createVoucher({ code: code("E") });
+  await db()`update vouchers set start_date = ${istDate(-10)}::date, end_date = ${istDate(-1)}::date where id = ${expired.id}`;
   const budget = await createVoucher({ code: code("G"), totalBudgetPaise: 10_000 });
   await db()`update vouchers set budget_used_paise = total_budget_paise where id = ${budget.id}`;
   const used = await createVoucher({ code: code("U"), perCustomerLimit: 1 });

@@ -154,7 +154,9 @@ qa("TC-LOC-003", "device position: allowed → set and rounded to 4 decimals; de
     await open(page, "/");
     const sheet = await openSheet(page);
     await sheet.getByTestId("location-gps").click();
-    await expect(deliverToLabel(page)).toContainText(/Current location/i, { timeout: 30_000 });
+    // Labelled with the spot's address, or the area and city of a shop or saved address nearby
+    // ("Kothrud, Pune"); "Current location" only when nothing is known there (#225/#226, api/location).
+    await expect(deliverToLabel(page)).toContainText(/Current location|[A-Za-z]+, [A-Za-z]+/i, { timeout: 30_000 });
     const set = await locationCookie(allowed);
     expect(set?.value, "cookie after allow").toMatchObject({ source: "DEVICE", latitude: 18.5075, longitude: 73.8077 });
 

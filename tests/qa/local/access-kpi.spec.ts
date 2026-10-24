@@ -204,7 +204,7 @@ qa(["TC-KPI-003", "TC-KPI-004", "TC-KPI-005", "TC-KPI-006", "TC-KPI-007", "TC-KP
     const items = ((await call(ctx.S, "GET", "/api/orders")).body as { id: string; items: { id: string; shopProductId: string; unitPricePaise?: number; lineTotalPaise?: number }[] }[]).find((o) => o.id === o5.id)?.items ?? [];
     const breadLine = need(items.find((i) => i.shopProductId === bread.shopProductId), "the bread line of O5");
     // "remove" is a fulfilment action flows.fulfil() does not type; sent as the shop would.
-    expectStatus(await call(await as("shop"), "POST", `/api/orders/${o5.id}/fulfilment`, { action: "remove", itemId: breadLine.id, reason: "QA KPI: unavailable" }), 200, "remove a line");
+    expectStatus(await call(await as("shop"), "POST", `/api/orders/${o5.id}/fulfilment`, { action: "remove", itemId: breadLine.id, reason: "Unavailable" }), 200, "remove a line");
     await fulfil(o5.id, "ready");
     await deliverFor(o5.id, ctx.S);
     placed.push({ id: o5.id, label: "O5", customer: "S", t0: istDate(day, 16).toISOString(), plan: { accepted: 6, packed: 16, riderAccepted: 20, pickedUp: 25, outForDelivery: 26, delivered: 35, promised: null }, goodsDeliveredPaise: o5.totalPaise - (bread.pricePaise ?? 0) });

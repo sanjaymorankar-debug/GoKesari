@@ -59,7 +59,8 @@ export async function sellable(key: "A" | "B" = "A", minStock = 3, pick: "cheape
   const shop = await shopOf(key);
   const preset = key === "A" ? (pick === "priciest" ? world().listings.premium : world().listings.packaged) : world().listings.sharedB;
   if (preset && IS_LOCAL) return { ...preset, shopId: shop.id, shopName: shop.name };
-  const res = await call(await as("customer"), "GET", `/api/shops/${shop.id}/products?limit=100`);
+  // Operations see stock counts; a customer sees only whether a product is in stock (TC-SPI-027).
+  const res = await call(await as("ops"), "GET", `/api/shops/${shop.id}/products?limit=100`);
   expectStatus(res, 200, "the shop's storefront");
   const rows = (Array.isArray(res.body) ? res.body : (res.body?.products ?? [])) as StorefrontRow[];
   const sorted = rows

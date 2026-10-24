@@ -268,7 +268,7 @@ qa(["TC-CART-029", "TC-CART-030"], "a couponed two-line order: a removed line is
     const items = (await ordersOf()).find((o) => o.id === order.id)!.items!;
     const breadLine = items.find((i) => i.productNameSnapshot === bread.name)!;
     expectStatus(await call(await as("shop"), "POST", `/api/orders/${order.id}/fulfilment`, { action: "accept" }), 200, "accept");
-    expectStatus(await call(await as("shop"), "POST", `/api/orders/${order.id}/fulfilment`, { action: "remove", itemId: breadLine.id, reason: "QA out of stock" }), 200, "remove a line");
+    expectStatus(await call(await as("shop"), "POST", `/api/orders/${order.id}/fulfilment`, { action: "remove", itemId: breadLine.id, reason: "Out of stock" }), 200, "remove a line");
     const afterLine = await walletOf();
     const lineRefund = afterLine - (start - charged);
     expect(lineRefund, "line refund never above the line").toBeLessThanOrEqual(bread.pricePaise!);

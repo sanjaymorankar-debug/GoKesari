@@ -103,8 +103,16 @@ qa("TC-CART-018", "/orders shows the new order with number, shop, amount and sta
   // against the order's status now ("confirmed" when new, "preparing" later), not a fixed word.
   const label = new RegExp((await statusOf(order.id)).replace(/_/g, " "), "i");
   try {
-    await page.goto("/orders");
+    // My Orders lists 5 a page on two tabs; by the phone run the desktop run has moved the order on
+    // (to the Past tab once delivered), so look through both tabs' pages for its card.
     const card = page.getByTestId("order-card").filter({ hasText: order.orderNumber }).first();
+    search: for (const tab of ["active", "past"]) {
+      for (let n = 1; n <= 10; n++) {
+        await page.goto(`/orders?tab=${tab}&page=${n}`);
+        if (await card.isVisible()) break search;
+        if ((await page.getByTestId("order-card").count()) === 0) break;
+      }
+    }
     await expect(card).toBeVisible();
     await expect(card).toContainText(order.listing.shopName);
     await expect(card).toContainText(label);

@@ -114,11 +114,12 @@ qa("TC-FLD-058", "listing online price: blank (on sale), 0, negative, text, 3 de
     for (const [typed, label] of [["10.555", "₹10.555"], ["0", "₹0"]] as const) {
       await card.getByRole("button", { name: "Edit" }).click();
       await page.getByLabel(/Online price/).fill(typed);
-      const saved = page.waitForResponse((r) => r.url().includes(`/api/shop-products/${noMrp.shopProductId}`) && r.request().method() === "PATCH");
+      // Refused on the form (no request, TC-CAT-032) or sent: either way it must not save the typed value.
+      const saved = page.waitForResponse((r) => r.url().includes(`/api/shop-products/${noMrp.shopProductId}`) && r.request().method() === "PATCH", { timeout: 8_000 }).catch(() => null);
       await page.getByRole("button", { name: "Save changes" }).click();
       const res = await saved;
       const stored = (await listingRow(noMrp.shopProductId)).online_price_paise;
-      if (res.ok()) p.note(`the form saved ${label} as ${stored} paise without a field message`);
+      if (res?.ok()) p.note(`the form saved ${label} as ${stored} paise without a field message`);
       // Put ₹70.50 back for the next probe.
       await patch(noMrp, { onlinePricePaise: 7050 });
       await page.reload();
@@ -176,9 +177,10 @@ qa("TC-FLD-061", "listing stock: −1, 1.5, text and out of range refused; a nor
   p.check("37", await patch(listing, { onlineStock: 37 }), 200);
   if ((await listingRow(listing.shopProductId)).online_stock !== 37) p.note("37 not saved");
   p.check("0", await patch(listing, { onlineStock: 0 }), 200);
+  // A customer's storefront answer says whether it is in stock, not the count (TC-SPI-027).
   const card = await api("customer", "GET", `/api/shops/${shopId("A")}/products?limit=100`);
-  const row = (card.body as { shopProductId: string; onlineStock: number }[]).find((r) => r.shopProductId === listing.shopProductId);
-  if (row && row.onlineStock !== 0) p.note("0 does not show out of stock");
+  const row = (card.body as { shopProductId: string; inStock?: boolean; onlineStock?: number }[]).find((r) => r.shopProductId === listing.shopProductId);
+  if (row && (row.inStock ?? (row.onlineStock ?? 0) > 0)) p.note("0 does not show out of stock");
   const add = await api("customer", "POST", "/api/cart", { shopProductId: listing.shopProductId, quantity: 1 });
   if (add.status !== 409) p.note(`at 0 the product can still be added (${add.status})`);
   // The form: a blank stock box must not save as 0 silently.
@@ -188,7 +190,8 @@ qa("TC-FLD-061", "listing stock: −1, 1.5, text and out of range refused; a nor
     await expect(c).toContainText("37 in stock");
     await c.getByRole("button", { name: "Edit" }).click();
     await page.getByLabel("Online stock").fill("");
-    const saved = page.waitForResponse((r) => r.url().includes(`/api/shop-products/${listing.shopProductId}`) && r.request().method() === "PATCH");
+    // Refused on the form (no request) or sent: a blank box must not become 0.
+    const saved = page.waitForResponse((r) => r.url().includes(`/api/shop-products/${listing.shopProductId}`) && r.request().method() === "PATCH", { timeout: 8_000 }).catch(() => null);
     await page.getByRole("button", { name: "Save changes" }).click();
     await saved;
     const after = (await listingRow(listing.shopProductId)).online_stock;

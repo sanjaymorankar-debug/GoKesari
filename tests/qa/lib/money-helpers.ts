@@ -360,9 +360,10 @@ export async function orderOf(role: Role, id: string): Promise<OrderRow | null> 
   return (await ordersOf(role)).find((o) => o.id === id) ?? null;
 }
 
-/** Online stock of a listing as the storefront API shows it (undefined when not tracked). */
+/** Online stock of a listing (undefined when not tracked), as operations see it. */
 export async function onlineStock(listing: Pick<Listing, "shopId" | "shopProductId">): Promise<number | undefined> {
-  const res = await call(await as("customer"), "GET", `/api/shops/${listing.shopId}/products?limit=100`);
+  // Operations see stock counts; a customer sees only whether a product is in stock (TC-SPI-027).
+  const res = await call(await as("ops"), "GET", `/api/shops/${listing.shopId}/products?limit=100`);
   expectStatus(res, 200, "storefront");
   const rows = (Array.isArray(res.body) ? res.body : (res.body?.products ?? [])) as { shopProductId: string; trackInventory: boolean; onlineStock: number }[];
   const row = rows.find((r) => r.shopProductId === listing.shopProductId);

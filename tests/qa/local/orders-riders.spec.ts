@@ -220,7 +220,7 @@ qa("TC-DEL-014", "rider application: the form flags missing required fields and 
     await page.getByLabel("Mobile number").fill(user.mobile);
     await page.getByLabel("PAN (optional)").fill("ABCDE1234F");
     await page.getByLabel("Government ID type (optional)").fill("Aadhaar");
-    await page.getByLabel("Government ID number (optional)").fill("123412341234");
+    await page.getByLabel("Government ID number (optional)").fill("234123412346");
     await page.getByLabel("Bank account holder name (optional)").fill("QA Applicant");
     await page.getByLabel("Bank account number (optional)").fill("123456789012");
     await page.getByLabel("Bank IFSC (optional)").fill("SBIN0001234");
@@ -236,7 +236,7 @@ qa("TC-DEL-014", "rider application: the form flags missing required fields and 
     expect([row.pan_number, row.bank_account_number, row.bank_ifsc], "no plain KYC columns").toEqual([null, null, null]);
     for (const [name, cipher, plain] of [
       ["PAN", row.pan_number_encrypted, "ABCDE1234F"],
-      ["ID number", row.government_id_number_encrypted, "123412341234"],
+      ["ID number", row.government_id_number_encrypted, "234123412346"],
       ["bank account", row.bank_account_number_encrypted, "123456789012"],
       ["IFSC", row.bank_ifsc_encrypted, "SBIN0001234"],
     ] as const) {
@@ -656,9 +656,10 @@ qa("TC-DEL-030", "invalid profile edits (bad IFSC, account number with letters, 
     const editor = page.getByTestId("rider-profile-editor");
     await editor.getByLabel("Registration number").fill("MH12@#$%^&*");
     await editor.getByRole("button", { name: "Save" }).click();
-    const saved = editor.getByText("Saved.");
-    const message = editor.getByRole("alert");
-    await expect(saved.or(message).first()).toBeVisible();
+    // "Saved." or the refusal under the form (the editor's Alert carries no alert role).
+    const outcome = editor.getByText(/^Saved\.$|registration number as on the RC|check the highlighted fields/i);
+    await expect(outcome.first()).toBeVisible();
+    seen.push(`the form says "${(await outcome.first().innerText()).trim()}"`);
     const reg = (await partner(rider.partnerId)).vehicle_registration_number;
     seen.push(`vehicle MH12@#$%^&* → stored ${JSON.stringify(reg)}`);
     if (reg !== before.vehicle_registration_number) problems.push(`vehicle number with symbols saved as ${JSON.stringify(reg)}`);

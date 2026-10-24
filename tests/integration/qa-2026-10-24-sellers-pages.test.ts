@@ -94,7 +94,7 @@ describe("TC-CAT-050: every category of a big shop is reachable", () => {
   it("TC-CAT-008: a card shows the MRP struck through and the discount", async () => {
     const shop = await bigShop();
     const html = await render(shop.slug, { cat: "Late Category" });
-    expect(html).toMatch(/data-testid="product-mrp">MRP <span class="line-through">(<[^>]+>)*₹60</);
+    expect(html).toMatch(/data-testid="card-mrp">MRP <span class="line-through">(<[^>]+>)*₹60</);
     expect(html).toContain("3% off");
   });
 });

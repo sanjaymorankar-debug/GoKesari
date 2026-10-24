@@ -465,7 +465,8 @@ export async function walletOf(role: Role = "customer"): Promise<number> {
 
 /** Storefront row of one listing (public products API of its shop). */
 export async function storefrontRow(shopKey: "A" | "B", shopProductId: string) {
-  const res = await call(await as("customer"), "GET", `/api/shops/${shopId(shopKey)}/products?limit=100`);
+  // Operations see stock counts; a customer sees only whether a product is in stock (TC-SPI-027).
+  const res = await call(await as("ops"), "GET", `/api/shops/${shopId(shopKey)}/products?limit=100`);
   expectStatus(res, 200, "storefront");
   const rows = (Array.isArray(res.body) ? res.body : (res.body?.products ?? [])) as { shopProductId: string; onlineStock: number; onlinePricePaise: number | null; onlineSaleEnabled: boolean; isAvailable: boolean }[];
   return rows.find((r) => r.shopProductId === shopProductId) ?? null;

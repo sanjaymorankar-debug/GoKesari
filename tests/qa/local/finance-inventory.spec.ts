@@ -339,7 +339,8 @@ qa("TC-SPI-013", "an in-shop sale of 4 takes 4 off the stock with a movement and
   expect(await dbStock(listing.shopProductId), "12 − 4").toBe(8);
   const m = (await movements(listing.shopProductId, since)).find((x) => x.delta_units === -4);
   expect(m?.reason ?? "", "movement naming the sale").toMatch(/sale/i);
-  const card = await api("customer", "GET", `/api/shops/${shopId("A")}/products?limit=100`);
+  // The count as operations see it; a customer's storefront answer says only "in stock" (TC-SPI-027).
+  const card = await api("ops", "GET", `/api/shops/${shopId("A")}/products?limit=100`);
   const row = (card.body as { shopProductId: string; onlineStock: number }[]).find((r) => r.shopProductId === listing.shopProductId);
   expect(row?.onlineStock, "online availability follows").toBe(8);
   const screen = await asPage(browser, "shop", "/shop/accounts/sales", async (p) => p.locator("main").first().innerText());

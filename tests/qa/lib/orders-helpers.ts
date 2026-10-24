@@ -66,9 +66,10 @@ export async function listingOf(key: ListingKey): Promise<Listing> {
   return { ...row, shopId: shop.id, shopName: shop.name };
 }
 
-/** Online stock of a listing as the shop's public storefront reports it (null when not tracked/listed). */
+/** Online stock of a listing (null when not listed), as operations see it. */
 export async function stockOf(listing: Pick<Listing, "shopId" | "shopProductId">): Promise<number | null> {
-  const res = await call(await as("customer"), "GET", `/api/shops/${listing.shopId}/products?limit=100`);
+  // Operations see stock counts; a customer sees only whether a product is in stock (TC-SPI-027).
+  const res = await call(await as("ops"), "GET", `/api/shops/${listing.shopId}/products?limit=100`);
   expectStatus(res, 200, "storefront products");
   const rows = (Array.isArray(res.body) ? res.body : (res.body?.products ?? [])) as { shopProductId: string; onlineStock: number; trackInventory: boolean }[];
   const row = rows.find((r) => r.shopProductId === listing.shopProductId);

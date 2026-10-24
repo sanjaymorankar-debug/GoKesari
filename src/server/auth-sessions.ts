@@ -74,17 +74,31 @@ export async function readSession(token: SessionClaims): Promise<{ user: User | 
   // Kept in the token, so a re-issue (which gives it a new jti) keeps the same session id.
   token.sid = sessionId;
   if (!token.sub) return { user: undefined };
-  const [row] = await db
-    .select({
-      user: users,
-      revoked: sql<boolean>`exists (select 1 from ${revokedSessions} where ${revokedSessions.sessionId} = ${sessionId})`,
-    })
-    .from(users)
-    .where(eq(users.id, token.sub));
-  if (!row) return { user: undefined };
-  if (row.revoked) return null;
-  return { user: row.user };
+  try {
+    const [row] = await db
+      .select({
+        user: users,
+        revoked: sql<boolean>`exists (select 1 from ${revokedSessions} where ${revokedSessions.sessionId} = ${sessionId})`,
+      })
+      .from(users)
+      .where(eq(users.id, token.sub));
+    if (!row) return { user: undefined };
+    if (row.revoked) return null;
+    return { user: row.user };
+  } catch (error) {
+    // The revocation list could not be read (a database the 0088 migration has not reached, or
+    // one whose role cannot read it). Every session would otherwise be dropped — no one could
+    // stay signed in — so the session is checked as before this list existed (the account, its
+    // role and status) and the failure is logged, once per server, with its reason.
+    if (!revocationFailureLogged) {
+      revocationFailureLogged = true;
+      console.error("[auth] the revoked_sessions check failed; signed-out sessions are not refused until it works:", error);
+    }
+    return { user: await db.query.users.findFirst({ where: eq(users.id, token.sub) }) };
+  }
 }
+
+let revocationFailureLogged = false;
 
 /** Lists the session as signed out. False when it already was (a second click on Sign out). */
 export async function revokeSession(userId: string, sessionId: string, now: Date = new Date()): Promise<boolean> {
