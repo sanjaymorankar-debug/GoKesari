@@ -160,8 +160,16 @@ function summarise(list: PurchaseList, itemCount: number, activeItemCount: numbe
   };
 }
 
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+/** Ids come from the URL: one that is not a uuid names nothing, and must not reach PostgreSQL as invalid input. */
+function assertId(id: string, what: string): void {
+  if (!UUID.test(id)) throw notFound(what);
+}
+
 /** The list, if it is this customer's; otherwise "not found" (never "forbidden", so ids cannot be probed). */
 async function ownList(userId: string, listId: string, client: DbClient = db): Promise<PurchaseList> {
+  assertId(listId, "List");
   const [list] = await client
     .select()
     .from(purchaseLists)
@@ -432,6 +440,7 @@ export async function updatePurchaseListItem(
   input: { quantity?: number; note?: string | null },
 ): Promise<PurchaseListItemView> {
   await ownList(userId, listId);
+  assertId(itemId, "List item");
   const changes: Partial<typeof purchaseListItems.$inferInsert> = { updatedAt: new Date() };
   if (input.quantity !== undefined) changes.quantity = checkQuantity(input.quantity);
   if (input.note !== undefined) changes.note = checkNote(input.note);
@@ -449,6 +458,7 @@ export async function updatePurchaseListItem(
 
 export async function removePurchaseListItem(userId: string, listId: string, itemId: string): Promise<void> {
   await ownList(userId, listId);
+  assertId(itemId, "List item");
   const deleted = await db
     .delete(purchaseListItems)
     .where(and(eq(purchaseListItems.id, itemId), eq(purchaseListItems.listId, listId)))

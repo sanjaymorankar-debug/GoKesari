@@ -2,7 +2,7 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { ListEditor } from "@/components/purchase-lists/list-editor";
-import { AppError, isInvalidUuidInput } from "@/lib/errors";
+import { AppError } from "@/lib/errors";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getPurchaseList, type PurchaseListDetail } from "@/server/services/purchase-lists";
 
@@ -19,8 +19,8 @@ export default async function ListPage({ params }: { params: Promise<{ id: strin
   try {
     list = await getPurchaseList(user.id, id);
   } catch (error) {
-    // Another customer's list, or a malformed id in the URL: nothing by that id exists.
-    if ((error instanceof AppError && error.code === "NOT_FOUND") || isInvalidUuidInput(error)) notFound();
+    // Another customer's list, or a malformed id in the URL (the service checks it): nothing by that id exists.
+    if (error instanceof AppError && error.code === "NOT_FOUND") notFound();
     throw error;
   }
 
