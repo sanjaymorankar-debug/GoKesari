@@ -1345,6 +1345,19 @@
    "status": "Fixed (re-test pending)"
   },
   {
+   "id": "D-101",
+   "title": "Vouchers took 'today' in UTC: from midnight to 05:30 IST a past end date was accepted",
+   "cases": [
+    "TC-FLD-114"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 CI (both layouts) at 02:09 IST on 25 Oct",
+   "actual": "src/server/services/vouchers.ts todayIso() used the UTC date, which lags India time from midnight to 05:30 IST. In that window a voucher could be created with yesterday's (IST) end date, and vouchers started and expired up to 5½ hours late. The QA tests use the business time zone and failed only in that window.",
+   "expected": "Voucher dates are judged in the business time zone (APP_TIMEZONE, IST), like the rest of the app.",
+   "fix": "todayIso() → todayIn(getEnv().APP_TIMEZONE). Reproduced at 02:10 IST (2 failures) and passing with the fix (56 voucher tests). Same UTC-date pattern remains in registration-fees, legal-documents, referrals and seller-verification (not failing; follow-up).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
    "id": "E-01",
    "title": "The host's firewall answers some requests itself (SQL-like search text, bursts)",
    "cases": [
