@@ -60,6 +60,13 @@ export function fill(path: string, value = NO_SUCH_ID) {
   return path.replace(/\[\.\.\.[^\]]+\]/g, "x").replace(/\[[^\]]+\]/g, value);
 }
 
+/** Every audit action the app records (AUDIT_ACTIONS in src/server/services/audit.ts), read from the checkout. */
+export function auditActions(): string[] {
+  const src = readFileSync(join(process.cwd(), "src", "server", "services", "audit.ts"), "utf8");
+  const block = src.slice(src.indexOf("export const AUDIT_ACTIONS"), src.indexOf("} as const", src.indexOf("export const AUDIT_ACTIONS")));
+  return [...new Set([...block.matchAll(/:\s*"([a-z_]+(?:\.[a-z_]+)+)"/g)].map((m) => m[1]))];
+}
+
 export interface ApiRoute {
   path: string;
   methods: ("GET" | "POST" | "PUT" | "PATCH" | "DELETE")[];
