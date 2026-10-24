@@ -85,8 +85,10 @@ export default function CookiePolicyPage() {
 
       <h2>Other storage in your browser</h2>
       <p>
-        Besides cookies, the site keeps one list in your browser&apos;s local
-        storage:
+        Besides cookies, the site keeps a few small items in your
+        browser&apos;s storage. Items in local storage stay until you clear
+        them; items in session storage are deleted when you close the tab,
+        or, in the GoKesari app, when you close the app.
       </p>
       <ul>
         <li>
@@ -100,6 +102,26 @@ export default function CookiePolicyPage() {
           GoKesari. When you are signed in, the search box shows the recent
           searches saved with your account instead, and &quot;Clear&quot;
           removes those too.
+        </li>
+        <li>
+          <strong>Location prompt marker</strong>{" "}
+          (<code>gk-locate-asked</code>) — remembers that the site has already
+          asked your device for its location during this visit, so you are not
+          asked again on every page. Set the first time the site asks for your
+          location on a page that lists shops or products, when you have no
+          delivery location yet and have not already allowed or blocked
+          location for this site; kept in session storage, so it is deleted
+          when you close the tab. It holds only the value &quot;1&quot;.
+        </li>
+        <li>
+          <strong>App notification registration</strong>{" "}
+          (<code>gk-push:</code> followed by your email address or account ID)
+          — used only inside the GoKesari app: remembers that this
+          phone&apos;s notification token has already been registered with
+          your account, so the app is not asked for it again on every page.
+          Set after the token is registered while you are signed in to the
+          app; kept in session storage, so it is deleted when you close the
+          app. It holds this phone&apos;s notification token.
         </li>
       </ul>
 
