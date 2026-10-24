@@ -36,6 +36,50 @@ export default function CookiePolicyPage() {
           name or account. See the{" "}
           <a href="/legal/privacy-policy">Privacy Policy</a>, section 2.
         </li>
+        <li>
+          <strong>Language cookie</strong> (<code>gk_lang</code>) — remembers
+          the language you picked for the site (English, Hindi or Marathi), so
+          pages open in that language. Set only when you choose a language with
+          the language switch (EN / हिं / मरा); kept for 1 year or until you
+          choose another language or clear your cookies. It holds only the
+          language you chose, never your name or account.
+        </li>
+        <li>
+          <strong>Referral cookie</strong> (<code>gk_ref</code>) — remembers
+          the referral code from a friend&apos;s referral link, so it can be
+          filled in for you when you sign up or offered to you once you are
+          signed in. Set only when you open a referral link
+          (gokesari.com/r/&hellip;); kept for 30 days or until you clear your
+          cookies. It holds only the referral code from the link, never your
+          name or account.
+        </li>
+        <li>
+          <strong>App sign-in cookie</strong> (<code>gk_mobile_auth</code>) —
+          used only when you sign in to the GoKesari app with Google: it
+          connects the browser page that opens for Google sign-in to the app
+          that opened it, so your sign-in is handed back only to that app. Set
+          when you tap &quot;Continue with Google&quot; in the app; kept for at
+          most 10 minutes and removed as soon as sign-in finishes. It holds a
+          one-time security value and the app&apos;s identifier, never your
+          name or password.
+        </li>
+        <li>
+          <strong>Seller shop cookie</strong> (<code>gk_shop</code>) — for
+          sellers only: remembers which of your shops Seller Central shows when
+          you have more than one. Set only when you pick a shop in Seller
+          Central&apos;s shop switcher; kept for 1 year or until you pick
+          another shop or clear your cookies. It holds only an internal
+          reference to the shop.
+        </li>
+        <li>
+          <strong>Zoho Books connection cookie</strong>{" "}
+          (<code>gk_zoho_oauth</code>) — for sellers only: protects the step
+          that connects your shop to Zoho Books by checking that the Zoho
+          sign-in finishes in the same browser it started in. Set when you
+          press &quot;Connect Zoho Books&quot; on your shop&apos;s Integrations
+          page; kept for at most 10 minutes and removed when Zoho sends you
+          back to GoKesari. It holds a one-time random security value only.
+        </li>
       </ul>
 
       <h2>Analytics</h2>
