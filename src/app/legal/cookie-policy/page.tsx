@@ -19,8 +19,9 @@ export default function CookiePolicyPage() {
       <ul>
         <li>
           <strong>Session/authentication cookie</strong> — keeps you signed
-          in between requests. Set by Auth.js when you sign in; removed when
-          you sign out or the session expires.
+          in between requests. Set by Auth.js when you sign in; lasts 30 days
+          from when it was last renewed (the site renews it as you use it
+          while signed in), and is removed when you sign out.
         </li>
         <li>
           <strong>CSRF protection cookie</strong> — protects forms and
