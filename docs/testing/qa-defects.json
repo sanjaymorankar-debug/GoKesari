@@ -1399,6 +1399,19 @@
    "expected": "On wide screens the signed-in header shows a usable search box (or a visible search icon) and every nav link (Shops, Orders, Subscriptions) is clickable; nothing overlaps.",
    "fix": "Not fixed. The signed-in row (location pill, nav links, language switch, wallet, cart, bell, account) leaves the flexible search box no width; give it a minimum width or move the language switch / nav into the account menu below ~1600 px, and keep the voice button inside the box. Add a check (signed tier, 1280 px) that the search input is visible and 'Shops' receives its own click.",
    "status": "Open"
+  },
+  {
+   "id": "D-104",
+   "title": "Shop owner menu links to the public page of a shop that is not approved yet",
+   "cases": [
+    "TC-UX-001"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 test.gokesari.com round 3 (signed tier, shop owner whose newest shop is pending approval)",
+   "actual": "The shop board and Seller Central menus ('Share', 'Public page') and the manage pages' 'View public page →' link to /shops/<slug> for every shop; /shops/<slug> serves approved shops only, so a pending, rejected or suspended shop's owner gets a 404.",
+   "expected": "Links to the public page appear only for an approved shop (as the seller shell's store link and the catalogue's 'View my shop page' already do).",
+   "fix": "src/app/shop/page.tsx passes the slug to the menus only when the shop is APPROVED (the entries are then hidden); src/app/shop/manage/[section]/page.tsx shows 'View public page →' only for an approved shop. Unit test in tests/unit/tile-board.test.ts.",
+   "status": "Fixed (re-test pending)"
   }
  ]
 }
