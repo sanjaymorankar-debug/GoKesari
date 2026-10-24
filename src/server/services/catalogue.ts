@@ -17,6 +17,8 @@ import {
   outOfStock,
   validationFailed,
 } from "@/lib/errors";
+import { likePattern } from "@/lib/like-pattern";
+import { MAX_PRICE_PAISE, MIN_PRICE_PAISE } from "@/lib/price-rules";
 import { effectiveDescriptions } from "@/lib/product-text";
 import { db, type DbClient } from "@/server/db";
 import {
@@ -684,12 +686,16 @@ export interface UpsertShopProductInput {
  * database. The equivalent CHECK constraints are still in place as a backstop —
  * this layer exists to return a friendly message rather than a 500.
  */
-function validatePricing(input: {
-  onlineSaleEnabled: boolean;
-  offlineSaleEnabled: boolean;
-  onlinePricePaise?: number | null;
-  offlinePricePaise?: number | null;
-}): void {
+function validatePricing(
+  input: {
+    onlineSaleEnabled: boolean;
+    offlineSaleEnabled: boolean;
+    onlinePricePaise?: number | null;
+    offlinePricePaise?: number | null;
+  },
+  /** On an edit, the prices the patch sets; a price left as it was is judged only when its channel is on sale. */
+  changed: { online: boolean; offline: boolean } = { online: true, offline: true },
+): void {
   if (input.onlineSaleEnabled && input.onlinePricePaise == null) {
     throw validationFailed(
       "An online price is required when online selling is enabled.",
@@ -700,12 +706,20 @@ function validatePricing(input: {
       "An offline price is required when offline selling is enabled.",
     );
   }
-  for (const [label, value] of [
-    ["Online price", input.onlinePricePaise],
-    ["Offline price", input.offlinePricePaise],
+  for (const [label, value, onSale, isChanged] of [
+    ["Online price", input.onlinePricePaise, input.onlineSaleEnabled, changed.online],
+    ["Offline price", input.offlinePricePaise, input.offlineSaleEnabled, changed.offline],
   ] as const) {
     if (value != null && (!Number.isInteger(value) || value < 0)) {
       throw validationFailed(`${label} must be a whole, non-negative amount.`);
+    }
+    // A price is at least 1 paisa: a channel on sale at ₹0 gave the product away (TC-CAT-004).
+    if (value != null && value < MIN_PRICE_PAISE && (onSale || isChanged)) {
+      throw validationFailed(`${label} must be more than ₹0. Leave it empty for no price.`);
+    }
+    // ₹10 crore used to be accepted as a listing price (TC-FLD-058/059).
+    if (value != null && value > MAX_PRICE_PAISE && isChanged) {
+      throw validationFailed(`${label} can be at most ₹10,00,000.`);
     }
   }
 }
@@ -745,28 +759,57 @@ export async function createShopProduct(
       eq(shopProducts.productId, input.productId),
     ),
   });
-  if (duplicate) {
+  if (duplicate && !duplicate.deletedAt) {
     throw conflict("This product is already in your shop's catalogue.");
   }
 
-  const [created] = await client
-    .insert(shopProducts)
-    .values({
-      shopId: input.shopId,
-      productId: input.productId,
-      description: input.description ?? null,
-      imageUrl: input.imageUrl ?? null,
-      onlinePricePaise: input.onlinePricePaise ?? null,
-      offlinePricePaise: input.offlinePricePaise ?? null,
-      onlineSaleEnabled: input.onlineSaleEnabled,
-      offlineSaleEnabled: input.offlineSaleEnabled,
-      trackInventory: input.trackInventory ?? true,
-      onlineStock: input.onlineStock ?? 0,
-      offlineStock: input.offlineStock ?? 0,
-      isActive: input.isActive ?? true,
-      isAvailable: input.isAvailable ?? true,
-    })
-    .returning();
+  const listing = {
+    description: input.description ?? null,
+    imageUrl: input.imageUrl ?? null,
+    onlinePricePaise: input.onlinePricePaise ?? null,
+    offlinePricePaise: input.offlinePricePaise ?? null,
+    onlineSaleEnabled: input.onlineSaleEnabled,
+    offlineSaleEnabled: input.offlineSaleEnabled,
+    trackInventory: input.trackInventory ?? true,
+    onlineStock: input.onlineStock ?? 0,
+    offlineStock: input.offlineStock ?? 0,
+    isActive: input.isActive ?? true,
+    isAvailable: input.isAvailable ?? true,
+  };
+
+  let created: ShopProduct;
+  if (duplicate) {
+    // A listing the shop removed earlier is listed again by bringing its row back:
+    // (shop, product) is unique even among removed rows, and past orders still
+    // point at this row, so it is revived rather than inserted twice.
+    const [revived] = await client
+      .update(shopProducts)
+      .set({ ...listing, deletedAt: null, updatedAt: new Date() })
+      .where(and(eq(shopProducts.id, duplicate.id), sql`${shopProducts.deletedAt} IS NOT NULL`))
+      .returning();
+    if (!revived) throw conflict("This product is already in your shop's catalogue.");
+    created = revived;
+    // The price trail carries on from the listing's last price.
+    for (const [priceType, previous, next] of [
+      ["ONLINE", duplicate.onlinePricePaise, revived.onlinePricePaise],
+      ["OFFLINE", duplicate.offlinePricePaise, revived.offlinePricePaise],
+    ] as const) {
+      if (next != null && next !== previous) {
+        await client.insert(productPriceHistory).values({
+          shopProductId: revived.id,
+          priceType,
+          previousPricePaise: previous,
+          newPricePaise: next,
+          changedBy: actor.id,
+        });
+      }
+    }
+  } else {
+    [created] = await client
+      .insert(shopProducts)
+      .values({ shopId: input.shopId, productId: input.productId, ...listing })
+      .returning();
+  }
 
   await recordAudit(
     {
@@ -779,6 +822,7 @@ export async function createShopProduct(
         onlinePricePaise: created.onlinePricePaise,
         offlinePricePaise: created.offlinePricePaise,
         onlineSaleEnabled: created.onlineSaleEnabled,
+        ...(duplicate ? { relisted: true } : {}),
       },
     },
     client,
@@ -802,6 +846,7 @@ export async function setShopPrices(
     if (!Number.isInteger(p.pricePaise) || p.pricePaise <= 0) {
       throw validationFailed("Price must be a number greater than 0.");
     }
+    if (p.pricePaise > MAX_PRICE_PAISE) throw validationFailed("A price can be at most ₹10,00,000.");
   }
   if (prices.length === 0) return { updated: 0 };
 
@@ -853,6 +898,13 @@ export async function updateShopProduct(
   patch: Partial<Omit<UpsertShopProductInput, "shopId" | "productId">>,
   actor: { id: string; role: "SHOP_OWNER" | "OPERATOR" | "ADMIN" },
   client?: DbClient,
+  /**
+   * The online stock the caller's page showed when it was opened. When given
+   * with a new onlineStock, the save is refused if the stock moved since (an
+   * order took some): saving 8 over a 10 that an order made 6 lost the sale
+   * (TC-SPI-022). Callers that do not send it keep the absolute save.
+   */
+  options: { expectedOnlineStock?: number } = {},
 ): Promise<ShopProduct> {
   const run = async (tx: DbClient) => {
     const [current] = await tx
@@ -861,6 +913,16 @@ export async function updateShopProduct(
       .where(eq(shopProducts.id, shopProductId))
       .for("update");
     if (!current) throw notFound("Product");
+    if (
+      options.expectedOnlineStock !== undefined &&
+      patch.onlineStock !== undefined &&
+      current.onlineStock !== options.expectedOnlineStock
+    ) {
+      throw conflict(
+        `Stock changed since you opened this page — it is now ${current.onlineStock}. Check it and save again.`,
+        { onlineStock: current.onlineStock },
+      );
+    }
 
     const next = {
       onlineSaleEnabled: patch.onlineSaleEnabled ?? current.onlineSaleEnabled,
@@ -874,7 +936,10 @@ export async function updateShopProduct(
           ? patch.offlinePricePaise
           : current.offlinePricePaise,
     };
-    validatePricing(next);
+    validatePricing(next, {
+      online: patch.onlinePricePaise !== undefined,
+      offline: patch.offlinePricePaise !== undefined,
+    });
     // Only a price that is actually being changed is checked, so unrelated edits
     // to a listing that already sat above a later-lowered MRP are not blocked.
     await assertPriceWithinMrp(
@@ -1067,15 +1132,11 @@ export interface StorefrontProduct {
   categoryId?: string;
   /** Module 1: the shop's own short description, else the master product's (summarised). */
   shortDescription?: string | null;
+  /** The master MRP, for the struck-through MRP and "x% off" on a card (TC-CAT-008). */
+  mrpPaise?: number | null;
 }
 
-/**
- * Products as customers browse them, joined across every approved shop.
- *
- * Only APPROVED shops and active offerings are included, so an unapproved
- * shop's catalogue can never leak into public listings (§8, §15).
- */
-export async function listStorefrontProducts(options: {
+interface StorefrontFilters {
   department?: Department;
   categoryId?: string;
   shopId?: string;
@@ -1086,10 +1147,16 @@ export async function listStorefrontProducts(options: {
   query?: string;
   subscribableOnly?: boolean;
   onlineOnly?: boolean;
-  limit?: number;
-  offset?: number;
-}): Promise<StorefrontProduct[]> {
-  if (options.shopIds && options.shopIds.length === 0) return [];
+}
+
+/** A listing a customer can put in the cart right now (the §14 rule's stock and price half). */
+const storefrontBuyable = sql<boolean>`(${shopProducts.onlineSaleEnabled}
+  AND ${shopProducts.onlinePricePaise} IS NOT NULL
+  AND ${shopProducts.isAvailable}
+  AND (NOT ${shopProducts.trackInventory} OR ${shopProducts.onlineStock} > 0))`;
+
+/** What makes a listing visible to customers, plus the caller's filters. */
+function storefrontConditions(options: StorefrontFilters) {
   const conditions = [
     eq(shops.status, "APPROVED"),
     isNull(shops.deletedAt),
@@ -1114,7 +1181,7 @@ export async function listStorefrontProducts(options: {
     conditions.push(eq(shopProducts.onlineSaleEnabled, true));
   }
   if (options.query) {
-    const term = `%${options.query}%`;
+    const term = likePattern(options.query);
     conditions.push(
       or(
         ilike(products.name, term),
@@ -1125,6 +1192,45 @@ export async function listStorefrontProducts(options: {
       )!,
     );
   }
+  return conditions;
+}
+
+/**
+ * The categories a shop's storefront lists, in catalogue order, with how many
+ * products each has. The shop page shows one category at a time from this, so
+ * a category beyond the first 100 products still gets its tab (TC-CAT-050).
+ */
+export async function listStorefrontCategories(shopId: string): Promise<{ categoryId: string; categoryName: string; count: number }[]> {
+  const rows = await db
+    .select({
+      categoryId: productCategories.id,
+      categoryName: productCategories.name,
+      count: sql<number>`count(*)::int`.mapWith(Number),
+    })
+    .from(shopProducts)
+    .innerJoin(products, eq(shopProducts.productId, products.id))
+    .innerJoin(productCategories, eq(products.categoryId, productCategories.id))
+    .innerJoin(shops, eq(shopProducts.shopId, shops.id))
+    .where(and(...storefrontConditions({ shopId })))
+    .groupBy(productCategories.id, productCategories.name, productCategories.sortOrder)
+    .orderBy(asc(productCategories.sortOrder), asc(productCategories.name));
+  return rows;
+}
+
+/**
+ * Products as customers browse them, joined across every approved shop.
+ *
+ * Only APPROVED shops and active offerings are included, so an unapproved
+ * shop's catalogue can never leak into public listings (§8, §15).
+ */
+export async function listStorefrontProducts(
+  options: StorefrontFilters & {
+    limit?: number;
+    offset?: number;
+  },
+): Promise<StorefrontProduct[]> {
+  if (options.shopIds && options.shopIds.length === 0) return [];
+  const conditions = storefrontConditions(options);
 
   const rows = await db
     .select({
@@ -1138,7 +1244,15 @@ export async function listStorefrontProducts(options: {
     .innerJoin(productCategories, eq(products.categoryId, productCategories.id))
     .innerJoin(shops, eq(shopProducts.shopId, shops.id))
     .where(and(...conditions))
-    .orderBy(asc(productCategories.sortOrder), asc(products.name))
+    // Buyable listings first, then the catalogue order (TC-SPI-023: an
+    // out-of-stock row came before buyable ones); the listing id breaks ties
+    // so pages never repeat or skip a product.
+    .orderBy(
+      desc(storefrontBuyable),
+      asc(productCategories.sortOrder),
+      asc(products.name),
+      asc(shopProducts.id),
+    )
     .limit(Math.min(options.limit ?? 24, 100))
     .offset(options.offset ?? 0);
 
@@ -1165,6 +1279,7 @@ export async function listStorefrontProducts(options: {
     shopSlug: r.shop.slug,
     shopClassification: r.shop.classification,
     shortDescription: effectiveDescriptions(r.sp, r.product.description).shortDescription,
+    mrpPaise: r.product.mrpPaise,
   }));
 }
 
@@ -1355,6 +1470,8 @@ export async function restockOnline(
   /** null = the system (e.g. an automatic cancellation). */
   actorId: string | null,
   client?: DbClient,
+  /** The order the goods come back from (a return, TC-SPI-020): the stock ledger records a SALE_RETURN of it. */
+  orderId?: string | null,
 ): Promise<ShopProduct> {
   if (!Number.isInteger(units) || units <= 0) {
     throw validationFailed("Restock quantity must be a positive whole number.");
@@ -1384,6 +1501,7 @@ export async function restockOnline(
       newUnits: updated.onlineStock,
       reason,
       createdBy: actorId,
+      ...(orderId ? { orderId } : {}),
     });
 
     // Resolves any open LOW_STOCK/OUT_OF_STOCK alert and flips the line back

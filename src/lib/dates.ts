@@ -15,6 +15,17 @@ export function isIsoDate(value: string): value is IsoDate {
   return ISO_DATE_RE.test(value);
 }
 
+/**
+ * A real calendar date written YYYY-MM-DD: "2026-02-31" has the right shape
+ * but no such day (PostgreSQL refuses it), so it is not one (TC-FLD-108/109).
+ */
+export function isCalendarDate(value: string): value is IsoDate {
+  if (!isIsoDate(value)) return false;
+  const [y, m, d] = value.split("-").map(Number);
+  const dt = new Date(Date.UTC(y, m - 1, d));
+  return dt.getUTCFullYear() === y && dt.getUTCMonth() === m - 1 && dt.getUTCDate() === d;
+}
+
 export function assertIsoDate(value: string): IsoDate {
   if (!isIsoDate(value)) {
     throw new RangeError(`Expected YYYY-MM-DD, received "${value}"`);

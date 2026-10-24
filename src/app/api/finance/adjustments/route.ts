@@ -9,6 +9,8 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { MAX_ADJUSTMENT_PAISE } from "@/lib/money-limits";
+import { formatPaise } from "@/lib/money";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
@@ -19,7 +21,12 @@ const schema = z.object({
   shopId: z.string().uuid().nullish(),
   deliveryPartnerId: z.string().uuid().nullish(),
   orderNumber: z.string().max(40).nullish(),
-  amountPaise: z.number().int().refine((v) => v !== 0, "Amount cannot be zero"),
+  // TC-FLD-116: a named ceiling either way (10^10 paise was accepted).
+  amountPaise: z
+    .number()
+    .int()
+    .refine((v) => v !== 0, "Amount cannot be zero")
+    .refine((v) => Math.abs(v) <= MAX_ADJUSTMENT_PAISE, `At most ${formatPaise(MAX_ADJUSTMENT_PAISE)} either way.`),
   reason: z.string().min(3).max(300),
   requestId: z.string().min(8).max(64),
 });

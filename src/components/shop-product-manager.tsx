@@ -15,7 +15,8 @@ import {
   Money,
   inputClass,
 } from "@/components/ui";
-import { paiseToRupees, rupeesToPaise } from "@/lib/money";
+import { paiseToRupees } from "@/lib/money";
+import { MAX_STOCK_UNITS, parsePriceInput } from "@/lib/price-rules";
 
 interface ManagedProduct {
   id: string;
@@ -199,6 +200,18 @@ function ProductRow({ product }: { product: ManagedProduct }) {
       setError("An offline price is required when offline selling is enabled.");
       return;
     }
+    // Prices: more than ₹0, at most ₹10 lakh, 2 decimals at most (TC-CAT-032, TC-FLD-058/059).
+    const online = onlinePrice.trim() ? parsePriceInput(onlinePrice) : null;
+    const offline = offlinePrice.trim() ? parsePriceInput(offlinePrice) : null;
+    if (online && !online.ok) return setError(`Online price: ${online.error}`);
+    if (offline && !offline.ok) return setError(`In-shop price: ${offline.error}`);
+    // Stock: a whole number; an empty box is refused, not saved as 0 (TC-FLD-061).
+    const stockText = stock.trim();
+    if (!/^\d+$/.test(stockText) || Number(stockText) > MAX_STOCK_UNITS) {
+      setError(`Enter the online stock as a whole number from 0 to ${MAX_STOCK_UNITS.toLocaleString("en-IN")}.`);
+      return;
+    }
+    const stockChanged = Number(stockText) !== product.onlineStock;
 
     setBusy(true);
     setError(null);
@@ -208,11 +221,12 @@ function ProductRow({ product }: { product: ManagedProduct }) {
       body: JSON.stringify({
         onlineSaleEnabled: onlineEnabled,
         offlineSaleEnabled: offlineEnabled,
-        onlinePricePaise: onlinePrice ? rupeesToPaise(Number(onlinePrice)) : null,
-        offlinePricePaise: offlinePrice
-          ? rupeesToPaise(Number(offlinePrice))
-          : null,
-        onlineStock: Number(stock) || 0,
+        onlinePricePaise: online?.ok ? online.paise : null,
+        offlinePricePaise: offline?.ok ? offline.paise : null,
+        // Only a stock the owner changed is sent, with the figure this page
+        // showed: an order placed meanwhile answers 409 instead of being
+        // overwritten (TC-SPI-022).
+        ...(stockChanged ? { onlineStock: Number(stockText), expectedOnlineStock: product.onlineStock } : {}),
         isAvailable: available,
       }),
     });
@@ -406,10 +420,15 @@ function AddProductRow({
       setError("Enter an online price.");
       return;
     }
+    const parsed = parsePriceInput(price);
+    if (!parsed.ok) {
+      setError(parsed.error);
+      return;
+    }
     setBusy(true);
     setError(null);
 
-    const paise = rupeesToPaise(Number(price));
+    const paise = parsed.paise;
     const response = await fetch(`/api/shops/${shopId}/products`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },

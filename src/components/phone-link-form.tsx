@@ -4,7 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Alert, Button } from "@/components/ui";
-import { INDIAN_MOBILE_HINT, formatIndianMobile, parseIndianMobile } from "@/lib/contact";
+import { formatIndianMobile, INDIAN_MOBILE_HINT, mobileFieldDigits, parseIndianMobile } from "@/lib/contact";
 
 const inputClass =
   "min-w-0 flex-1 rounded-lg border border-cream-200 px-3 py-2 text-sm focus:border-kesari-500 focus:outline-none";
@@ -61,7 +61,7 @@ export function PhoneLinkForm({ current }: { current: string | null }) {
           <span className="rounded-lg border border-cream-200 bg-cream-50 px-3 py-2 text-sm text-ink-600">+91</span>
           <input
             value={mobile}
-            onChange={(e) => setMobile(e.target.value.replace(/\D/g, "").slice(0, 10))}
+            onChange={(e) => setMobile(mobileFieldDigits(e.target.value))}
             inputMode="numeric"
             autoComplete="tel-national"
             placeholder="10-digit mobile number"

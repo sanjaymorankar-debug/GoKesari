@@ -5,12 +5,14 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { isoDateSchema } from "@/server/api/date-schema";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { listRiderPayouts, prepareRiderPayouts, previousWeekStart } from "@/server/services/finance";
 
-const schema = z.object({ weekStart: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional() });
+// TC-FLD-118: a real date (the service also checks it is a Monday of a finished / started week).
+const schema = z.object({ weekStart: isoDateSchema.optional() });
 
 export const GET = route(async () => {
   await requirePermission(PERMISSIONS.FINANCE_VIEW);

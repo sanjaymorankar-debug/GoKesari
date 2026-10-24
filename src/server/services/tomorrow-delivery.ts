@@ -10,7 +10,8 @@ import { and, eq, gte, inArray, lte } from "drizzle-orm";
 
 import { addDays, hourIn, todayIn, type IsoDate } from "@/lib/dates";
 import { getEnv } from "@/lib/env";
-import { lineTotalPaise, MILLI_PER_UNIT } from "@/lib/money";
+import { lineTotalPaise } from "@/lib/money";
+import { subscriptionQuantityStep } from "@/lib/subscription-quantity";
 import { db } from "@/server/db";
 import { subscriptionDailyOverrides, subscriptionOrders, wallets } from "@/server/db/schema";
 import {
@@ -65,14 +66,10 @@ function scheduleLabel(frequency: "DAILY" | "WEEKLY", weekdays: number[]): strin
 }
 
 /**
- * Quantity step for the − / + buttons. Loose goods sold by the litre or
- * kilogram move in halves (the same step the subscription page uses);
- * anything counted or pre-packed moves one pack at a time.
+ * Quantity step for the − / + buttons: the shared rule the subscription pages
+ * and the server use (src/lib/subscription-quantity.ts, TC-FLD-107).
  */
-function stepFor(unit: string, unitSizeMilli: number): number {
-  if (unit === "L" || unit === "kg") return MILLI_PER_UNIT / 2;
-  return unitSizeMilli > 0 ? unitSizeMilli : MILLI_PER_UNIT;
-}
+const stepFor = subscriptionQuantityStep;
 
 /**
  * Tomorrow's subscription deliveries for a customer, or null when nothing is

@@ -6,9 +6,9 @@
  */
 import type { Page } from "@playwright/test";
 
-import { anonymous, call } from "../lib/http";
+import { anonymous, call, fromApp } from "../lib/http";
 import { blocked, expect, qa } from "../lib/record";
-import { BASE_URL, TARGET } from "../lib/target";
+import { BASE_URL, IS_REMOTE, TARGET } from "../lib/target";
 
 /** Collects console errors and uncaught page errors while a page is used. */
 function watchErrors(page: Page) {
@@ -25,7 +25,16 @@ function watchErrors(page: Page) {
 }
 
 async function open(page: Page, path: string) {
-  const res = await page.goto(path, { waitUntil: "domcontentloaded" });
+  let res = await page.goto(path, { waitUntil: "domcontentloaded" });
+  // The sites' host firewall can answer a burst of requests with a short-lived 403/429 before the
+  // app sees them; look once more after a pause. A real refusal is still there on the second look.
+  for (const wait of [20_000, 60_000]) {
+    if (!(IS_REMOTE && res && [403, 429].includes(res.status()))) break;
+    await page.waitForTimeout(wait);
+    res = await page.goto(path, { waitUntil: "domcontentloaded" });
+  }
+  // A refusal the host still gives after that says nothing about the app (E-01).
+  if (IS_REMOTE && res && res.status() >= 400 && !fromApp(res.headers())) blocked(`${path}: the host firewall answered ${res.status()} for 80 s, not the app (E-01)`);
   expect(res, `no response for ${path}`).toBeTruthy();
   expect(res!.status(), `${path} answered ${res!.status()}`).toBeLessThan(400);
   await page.waitForLoadState("networkidle", { timeout: 30_000 }).catch(() => {});

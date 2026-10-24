@@ -16,7 +16,8 @@
  */
 import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
 
-import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
+import { AppError, conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
+import { checkRiderDetails } from "@/lib/kyc/rider-details";
 import { RIDER_IDLE_CAP_MINUTES } from "@/lib/rider-sessions";
 import { VEHICLE_TYPE_KEYS, type VehicleTypeKey } from "@/lib/vehicle-types";
 import { db, type DbClient } from "@/server/db";
@@ -64,7 +65,8 @@ export interface RegisterDeliveryPartnerInput {
   operatingRadiusKm?: number;
 }
 
-function validate(input: RegisterDeliveryPartnerInput): void {
+/** Checks the application; returns the identity, bank and vehicle details normalised for storage. */
+function validate(input: RegisterDeliveryPartnerInput) {
   if (!input.fullName.trim()) throw validationFailed("Enter your full name.");
   if (!/^[6-9]\d{9}$/.test(input.mobile)) {
     throw validationFailed("Enter a valid 10-digit Indian mobile number.");
@@ -78,6 +80,18 @@ function validate(input: RegisterDeliveryPartnerInput): void {
   ) {
     throw validationFailed("Operating radius must be a positive number.");
   }
+  // TC-FLD-091/092/093: the same PAN, Aadhaar, bank and vehicle-number rules
+  // as the rider's own profile edit and change request (lib/kyc/rider-details.ts).
+  const details = checkRiderDetails({
+    panNumber: input.panNumber ?? null,
+    governmentIdType: input.governmentIdType,
+    governmentIdNumber: input.governmentIdNumber ?? null,
+    bankAccountNumber: input.bankAccountNumber ?? null,
+    bankIfsc: input.bankIfsc ?? null,
+    vehicleRegistrationNumber: input.vehicleRegistrationNumber ?? null,
+  });
+  if (!details.ok) throw validationFailed(details.message, { fields: details.fields });
+  return details.values;
 }
 
 /**
@@ -91,7 +105,7 @@ export async function registerDeliveryPartner(
   userId: string,
   input: RegisterDeliveryPartnerInput,
 ): Promise<PublicDeliveryPartner> {
-  validate(input);
+  const details = validate(input);
 
   const existing = await db.query.deliveryPartners.findFirst({
     where: and(eq(deliveryPartners.userId, userId), isNull(deliveryPartners.deletedAt)),
@@ -102,7 +116,7 @@ export async function registerDeliveryPartner(
 
   // SEC-02: KYC and bank details are stored as ciphertext only. Encrypted up
   // front so a missing key fails the application before anything is written.
-  const encryptedKyc = encryptKycInput(input);
+  const encryptedKyc = encryptKycInput({ ...input, ...details });
   // C5: a photo given at application must be the applicant's own upload.
   await assertRiderPhotoUrl(input.profilePhotoUrl || null, userId);
 
@@ -122,7 +136,7 @@ export async function registerDeliveryPartner(
       governmentIdType: input.governmentIdType?.trim() || null,
       ...encryptedKyc,
       vehicleType: input.vehicleType,
-      vehicleRegistrationNumber: input.vehicleRegistrationNumber?.trim() || null,
+      vehicleRegistrationNumber: details.vehicleRegistrationNumber ?? null,
       latitude: input.latitude != null ? String(input.latitude) : null,
       longitude: input.longitude != null ? String(input.longitude) : null,
       operatingRadiusKm: input.operatingRadiusKm ?? 5,
@@ -251,6 +265,8 @@ async function transition(
         newValue: {
           status: updated.status,
           reviewNotes: updated.reviewNotes,
+          // The reason given for a reject, suspension or deactivation (a reactivation's is the review note).
+          ...(set.rejectionReason ? { reason: set.rejectionReason } : {}),
           ...(takeOffline ? { isOnline: false } : {}),
         },
       },
@@ -276,11 +292,22 @@ export async function approveDeliveryPartner(
   actor: Actor,
   notes?: string | null,
 ): Promise<PublicDeliveryPartner> {
-  const updated = await transition(id, actor, {
-    status: "APPROVED",
-    reviewNotes: notes ?? null,
-    rejectionReason: null,
-  });
+  const updated = await transition(
+    id,
+    actor,
+    { status: "APPROVED", reviewNotes: notes ?? null, rejectionReason: null },
+    (current) => {
+      // TC-DEL-027: approve was also moving SUSPENDED and REJECTED riders to
+      // APPROVED — a suspended rider comes back only through reactivate (with a reason).
+      if (current.status !== "REGISTERED" && current.status !== "UNDER_REVIEW") {
+        throw conflict(
+          current.status === "SUSPENDED"
+            ? "This delivery partner is suspended. Reactivate them with a reason instead."
+            : "Only an application that is registered or under review can be approved.",
+        );
+      }
+    },
+  );
 
   await notify({
     userId: updated.userId,
@@ -323,6 +350,7 @@ export async function suspendDeliveryPartner(
     }
   });
 
+  await withdrawOpenOffers(updated.id, "The rider's account was suspended.", actor);
   await notify({
     userId: updated.userId,
     type: NOTIFICATION_TYPES.DELIVERY_PARTNER_SUSPENDED,
@@ -333,12 +361,43 @@ export async function suspendDeliveryPartner(
   return updated;
 }
 
-export async function reactivateDeliveryPartner(id: string, actor: Actor): Promise<PublicDeliveryPartner> {
-  return transition(id, actor, { status: "APPROVED", rejectionReason: null }, (current) => {
+/**
+ * TC-DEL-026: once a rider may no longer work, an offer they have not
+ * accepted goes to another rider (delivery-assignment.ts withdrawPartnerOffers).
+ * After the status change commits; never fails it — an offer left behind
+ * cannot be accepted any more and expires on the next sweep.
+ */
+async function withdrawOpenOffers(partnerId: string, reason: string, actor: Actor): Promise<void> {
+  // Imported lazily: delivery-assignment.ts imports this module.
+  const { withdrawPartnerOffers } = await import("./delivery-assignment");
+  await withdrawPartnerOffers(partnerId, reason, actor).catch((error) => {
+    console.error("[delivery-partner] withdrawing open offers failed", partnerId, error);
+  });
+}
+
+/** SUSPENDED → APPROVED. TC-DEL-027: needs a reason, kept as the review note and in the audit. */
+export async function reactivateDeliveryPartner(
+  id: string,
+  reason: string,
+  actor: Actor,
+): Promise<PublicDeliveryPartner> {
+  const why = reason.trim();
+  if (why.length < 3) throw validationFailed("Say why the delivery partner is being reactivated.");
+  const updated = await transition(id, actor, { status: "APPROVED", rejectionReason: null, reviewNotes: why }, (current) => {
     if (current.status !== "SUSPENDED") {
       throw conflict("Only a suspended delivery partner can be reactivated.");
     }
   });
+
+  // TC-DEL-015: the rider hears of every review decision, as for approve, reject and suspend.
+  await notify({
+    userId: updated.userId,
+    type: NOTIFICATION_TYPES.DELIVERY_PARTNER_REACTIVATED,
+    title: "Your delivery partner account is active again",
+    body: "Your suspension has been lifted. Go online to start receiving delivery offers.",
+    actionUrl: "/delivery-partner",
+  });
+  return updated;
 }
 
 /** Permanent close-out — e.g. the partner asked to stop, or a serious policy violation. Terminal; no further transitions. */
@@ -348,7 +407,18 @@ export async function deactivateDeliveryPartner(
   actor: Actor,
 ): Promise<PublicDeliveryPartner> {
   if (!reason.trim()) throw validationFailed("A reason is required.");
-  return transition(id, actor, { status: "DEACTIVATED", rejectionReason: reason.trim() });
+  const updated = await transition(id, actor, { status: "DEACTIVATED", rejectionReason: reason.trim() });
+
+  await withdrawOpenOffers(updated.id, "The rider's account was closed.", actor);
+  // TC-DEL-015: told like the other decisions.
+  await notify({
+    userId: updated.userId,
+    type: NOTIFICATION_TYPES.DELIVERY_PARTNER_DEACTIVATED,
+    title: "Your delivery partner account has been closed",
+    body: reason.trim(),
+    actionUrl: "/delivery-partner",
+  });
+  return updated;
 }
 
 export async function getDeliveryPartnerById(id: string): Promise<PublicDeliveryPartner> {
@@ -533,6 +603,29 @@ export async function goOffline(userId: string): Promise<PublicDeliveryPartner> 
 
     return toPublicPartner(updated);
   });
+}
+
+/**
+ * Signing out (TC-AUTH-040): an online rider goes offline exactly as the Go
+ * offline button does, so assignment stops offering them jobs. goOffline's own
+ * guard still applies — while the rider holds a delivery or a pending offer it
+ * refuses, and then the rider and that job are left as they are (the sign-out
+ * itself goes ahead). Only the availability flag changes; no assignment is touched.
+ */
+export async function goOfflineOnSignOut(userId: string): Promise<"OFFLINE" | "NOT_ONLINE" | "BUSY"> {
+  const [partner] = await db
+    .select({ isOnline: deliveryPartners.isOnline })
+    .from(deliveryPartners)
+    .where(and(eq(deliveryPartners.userId, userId), isNull(deliveryPartners.deletedAt)));
+  if (!partner?.isOnline) return "NOT_ONLINE";
+  try {
+    await goOffline(userId);
+    return "OFFLINE";
+  } catch (error) {
+    if (error instanceof AppError && error.code === "CONFLICT") return "BUSY";
+    if (error instanceof AppError && error.code === "NOT_FOUND") return "NOT_ONLINE";
+    throw error;
+  }
 }
 
 /**

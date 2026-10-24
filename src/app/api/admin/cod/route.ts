@@ -6,6 +6,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { MAX_COD_DEPOSIT_PAISE } from "@/lib/money-limits";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
@@ -21,8 +22,9 @@ export const GET = route(async () => {
 const schema = z.object({
   party: z.enum(["RIDER", "SHOP"]),
   id: z.string().uuid(),
-  amountPaise: z.number().int().positive(),
-  reference: z.string().min(3).max(120),
+  // TC-FLD-117: a named ceiling (the service also limits it to the cash held).
+  amountPaise: z.number().int().positive().max(MAX_COD_DEPOSIT_PAISE),
+  reference: z.string().trim().min(3).max(120),
   requestId: z.string().min(8).max(64),
 });
 

@@ -15,7 +15,7 @@ import { dirname, join } from "node:path";
 import { eq, sql } from "drizzle-orm";
 
 import { db } from "@/server/db";
-import { addresses, products, shops, societies, societyMembers, users, wallets } from "@/server/db/schema";
+import { addresses, deliveryPartners, products, shops, societies, societyMembers, users, wallets } from "@/server/db/schema";
 import { recordConsent } from "@/server/services/consents";
 import { grantRole } from "@/server/services/roles";
 import type { UserRole } from "@/server/db/schema";
@@ -65,7 +65,7 @@ async function person(label: string, role: UserRole, opts: { withMobile?: boolea
     .where(eq(users.id, user.id));
   if (role !== "CUSTOMER") await grantRole(user.id, role, { source: "ADMIN" });
   await recordConsent(user.id, "TERMS_AND_PRIVACY");
-  return { id: user.id, email };
+  return { id: user.id, email, mobile: phone };
 }
 
 /** A wallet whose balance and ledger agree, as a settled top-up leaves them. */
@@ -109,6 +109,8 @@ async function shop(ownerId: string, name: string, at: { lat: number; lng: numbe
     .set({
       pincode: HOME.pincode,
       area: "Kothrud",
+      // In-shop sales invoices need the shop's state (or GSTIN) for the place of supply.
+      state: "Maharashtra",
       serviceRadiusKm: 5,
       codEnabled: false,
       locationVerified: true,
@@ -200,8 +202,14 @@ async function main() {
   const offlineOnly = { shopProductId: offlineRow.id, productId: ghee.id, name: ghee.name, pricePaise: null, stock: 10 };
 
   // Riders: one at shop A, one about 3 km away. Both approved and online.
-  await createDeliveryPartner(rider.id, { status: "APPROVED", isOnline: true, latitude: HOME.lat + 0.001, longitude: HOME.lng + 0.001, operatingRadiusKm: 10 });
-  await createDeliveryPartner(rider2.id, { status: "APPROVED", isOnline: true, latitude: HOME.lat + 0.027, longitude: HOME.lng, operatingRadiusKm: 10 });
+  // Riders of earlier worlds go offline, so offers reach this world's riders only.
+  await db.update(deliveryPartners).set({ isOnline: false }).where(eq(deliveryPartners.isOnline, true));
+  const riderPartner = await createDeliveryPartner(rider.id, { status: "APPROVED", isOnline: true, latitude: HOME.lat + 0.001, longitude: HOME.lng + 0.001, operatingRadiusKm: 10 });
+  const rider2Partner = await createDeliveryPartner(rider2.id, { status: "APPROVED", isOnline: true, latitude: HOME.lat + 0.027, longitude: HOME.lng, operatingRadiusKm: 10 });
+  // The fixture gives every partner one mobile; each rider keeps their own, so a lookup by mobile finds one rider.
+  for (const [partner, account] of [[riderPartner, rider], [rider2Partner, rider2]] as const) {
+    await db.update(deliveryPartners).set({ mobile: account.mobile! }).where(eq(deliveryPartners.id, partner.id));
+  }
 
   // A verified society inside shop A's zone, with its admin.
   const [society] = await db

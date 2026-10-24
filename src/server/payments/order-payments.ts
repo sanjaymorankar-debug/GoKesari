@@ -37,7 +37,7 @@ import { emitEvent } from "@/server/events/emit";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { consumeOnlineStock, restockOnline } from "@/server/services/catalogue";
 import { NOTIFICATION_TYPES, notify } from "@/server/services/notifications";
-import { checkout, type CheckoutInput, type CheckoutResult } from "@/server/services/orders";
+import { checkout, orderConfirmedEmailRows, type CheckoutInput, type CheckoutResult } from "@/server/services/orders";
 import { postRetainedDeliveryFee } from "@/server/services/finance";
 import { getRule } from "@/server/services/settings";
 import { acceptByFor } from "@/server/services/shop-acceptance";
@@ -345,6 +345,16 @@ async function confirmPaidOrder(order: Order, intent: PaymentIntentRef, tx: DbCl
     tx,
   );
   // The same notices checkout sends for a wallet-paid order (orders.ts).
+  const items = await tx
+    .select({
+      id: orderItems.id,
+      name: orderItems.productNameSnapshot,
+      unit: orderItems.unitSnapshot,
+      quantityMilli: orderItems.quantityMilli,
+      lineTotalPaise: orderItems.lineTotalPaise,
+    })
+    .from(orderItems)
+    .where(eq(orderItems.orderId, order.id));
   await notify(
     {
       userId: order.userId,
@@ -353,11 +363,19 @@ async function confirmPaidOrder(order: Order, intent: PaymentIntentRef, tx: DbCl
       body: `Your order ${order.orderNumber} from ${shopRow?.name ?? "the shop"} is confirmed.`,
       actionUrl: "/orders",
       dedupeKey: `order-confirmed:${order.id}`,
+      // TC-SPI-004: the e-mail lists the lines, fees, discount and total, as for a wallet order.
+      emailDetail: orderConfirmedEmailRows({
+        lines: items.map((l) => ({ name: l.name, unit: l.unit, quantityMilli: l.quantityMilli, lineTotalPaise: l.lineTotalPaise })),
+        deliveryFeePaise: order.deliveryFeePaise,
+        taxPaise: order.taxPaise,
+        discountPaise: order.discountPaise,
+        totalPaise: order.totalPaise,
+        paymentMethod: "ONLINE",
+      }),
     },
     tx,
   );
   if (!shopRow) return;
-  const items = await tx.select({ id: orderItems.id }).from(orderItems).where(eq(orderItems.orderId, order.id));
   const amount = `₹${(order.totalPaise / 100).toFixed(2)}`;
   if (order.placedWhileClosed) {
     await notify(

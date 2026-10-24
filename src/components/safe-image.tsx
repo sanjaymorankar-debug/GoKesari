@@ -48,6 +48,10 @@ export function SafeImage({
       loading="lazy"
       decoding="async"
       onError={() => setFailed(true)}
+      // A photo that failed before the page hydrated fired an error React never saw: catch it on mount (TC-DISC-018).
+      ref={(img) => {
+        if (img && url && !failed && img.complete && img.naturalWidth === 0 && !img.currentSrc.startsWith("data:")) setFailed(true);
+      }}
       className={className}
     />
   );

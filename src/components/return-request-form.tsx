@@ -9,6 +9,7 @@ import {
   RETURN_CONDITIONS,
   RETURN_CONDITION_LABELS,
   RETURN_REASON_LABELS,
+  returnQuantityStepError,
   type ReturnCondition,
   type ReturnReason,
 } from "@/lib/return-states";
@@ -61,6 +62,9 @@ export function ReturnRequestForm({ order }: { order: ReturnableOrder }) {
       if (!Number.isFinite(milli) || milli <= 0 || milli > line.availableMilli) {
         return setError(`Enter a quantity between 0 and ${line.availableMilli / 1000} for ${line.name}.`);
       }
+      // TC-RET-003: whole pieces for a per-piece line, as the server checks.
+      const stepError = milli === line.availableMilli ? null : returnQuantityStepError(line.unit, milli, line.name);
+      if (stepError) return setError(stepError);
       items.push({
         orderItemId: line.orderItemId,
         quantityMilli: milli,

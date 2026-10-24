@@ -10,6 +10,8 @@
  * panBlindIndex() in lib/pan-crypto.ts for how two PANs are compared.
  */
 
+import { gstState, isValidGstin } from "@/lib/gst-states";
+
 export type ShopIdentifierField = "shopActNumber" | "panNumber" | "udyamNumber";
 
 export const SHOP_IDENTIFIER_FIELDS: readonly ShopIdentifierField[] = [
@@ -97,14 +99,35 @@ export function parsePanNumber(raw: string): ParseResult<string> {
 
 const GSTIN_PATTERN = /^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][1-9A-Z]Z[0-9A-Z]$/;
 
-/** GSTIN, trimmed and uppercased (27ABCDE1234F1Z5). */
+/**
+ * GSTIN, trimmed and uppercased (27ABCDE1234F1Z0). The one check registration,
+ * the owner's GST form, the compliance screen and their forms share
+ * (TC-FLD-043): 15 characters laid out as state code + PAN + entity number +
+ * "Z" + check character, a state code from the GST list (lib/gst-states.ts:
+ * 01–38 and 97, not 00 or 99), and a matching check character (mod-36).
+ */
 export function parseGstin(raw: string): ParseResult<string> {
   const value = raw.trim().toUpperCase();
   if (!GSTIN_PATTERN.test(value)) {
-    return { ok: false, error: "GST number must be 15 characters, e.g. 27ABCDE1234F1Z5." };
+    return { ok: false, error: "GST number must be 15 characters, e.g. 27ABCDE1234F1Z0." };
+  }
+  if (!gstState(value.slice(0, 2))) {
+    return { ok: false, error: "The first two digits of a GST number are the state code, and that code is not valid." };
+  }
+  if (!isValidGstin(value)) {
+    return { ok: false, error: "This GST number fails its check character — one character is probably mistyped." };
   }
   return { ok: true, value };
 }
+
+/** The business's PAN inside a GSTIN: characters 3–12. */
+export function gstinPan(gstin: string): string {
+  return gstin.slice(2, 12);
+}
+
+/** The GSTIN carries another PAN than the shop's own (TC-FLD-043). */
+export const GSTIN_PAN_MISMATCH_MESSAGE =
+  "Characters 3–12 of a GST number are the business's PAN, and they don't match the PAN on file for this shop.";
 
 /** Shown when none of the business identifiers is filled in at registration. */
 export const IDENTIFIER_REQUIRED_MESSAGE =

@@ -5,6 +5,7 @@ import { PageHeader } from "@/components/ui";
 import { addDays, todayIn } from "@/lib/dates";
 import { getEnv } from "@/lib/env";
 import { getCurrentUser } from "@/server/authz/guards";
+import { listAddresses } from "@/server/services/addresses";
 import { getShopProduct } from "@/server/services/catalogue";
 import { getShopById } from "@/server/services/shops";
 import { getWalletByUserId } from "@/server/services/wallet";
@@ -24,9 +25,10 @@ export default async function SubscribePage({
   const shopProduct = await getShopProduct(shopProductId);
   if (!shopProduct) notFound();
 
-  const [shop, wallet] = await Promise.all([
+  const [shop, wallet, addresses] = await Promise.all([
     getShopById(shopProduct.shopId),
     getWalletByUserId(user.id),
+    listAddresses(user.id),
   ]);
   if (!shop || shop.status !== "APPROVED") notFound();
 
@@ -52,6 +54,16 @@ export default async function SubscribePage({
         walletBalancePaise={wallet?.balancePaise ?? 0}
         defaultStartDate={addDays(today, 1)}
         minDate={today}
+        // TC-SUB-013: the drop address for every delivery (the default is pre-selected).
+        addresses={addresses.map((a) => ({
+          id: a.id,
+          label: a.label,
+          line1: a.line1,
+          area: a.area,
+          city: a.city,
+          pincode: a.pincode,
+          isDefault: a.isDefault,
+        }))}
       />
     </div>
   );

@@ -5,6 +5,8 @@ import { useState } from "react";
 
 import { ROLE_LABEL } from "@/components/role-switcher";
 import { Alert, Button, Field, Money, inputClass } from "@/components/ui";
+import { parseRupeeInput } from "@/lib/rupee-input";
+import { segmentRulesProblem, type SegmentRulesForm } from "@/lib/segment-form";
 
 /** Shared request helper for the Phase 3 controls. */
 function useSend() {
@@ -100,10 +102,12 @@ export function CodDepositForm({ party, id, heldPaise }: { party: "RIDER" | "SHO
   const [amount, setAmount] = useState((heldPaise / 100).toFixed(2));
   const [reference, setReference] = useState("");
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
-  const paise = Math.round(Number(amount) * 100);
+  // TC-FLD-117: read as typed — "10.555" is refused with a message, not rounded.
+  const parsed = parseRupeeInput(amount);
+  const paise = parsed.ok === true ? parsed.paise : 0;
   return (
     <div className="flex flex-wrap items-end gap-2">
-      <Field label="Amount (₹)">
+      <Field label="Amount (₹)" error={parsed.ok === false ? parsed.error : paise > heldPaise ? "More than the cash held." : undefined}>
         <input className={`${inputClass} w-28`} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
       </Field>
       <Field label="Receipt / reference">
@@ -126,13 +130,7 @@ export function CodDepositForm({ party, id, heldPaise }: { party: "RIDER" | "SHO
 
 /* ================================================ GS-052 segments */
 
-interface RulesForm {
-  pincodes: string;
-  minOrders: string;
-  orderedWithinDays: string;
-  lapsedForDays: string;
-  minSpendRupees: string;
-}
+type RulesForm = SegmentRulesForm;
 
 function toRules(form: RulesForm) {
   const int = (v: string) => (v.trim() ? Number(v) : undefined);
@@ -151,6 +149,7 @@ export function SegmentBuilder({ shopId }: { shopId: string }) {
   const [name, setName] = useState("");
   const [form, setForm] = useState<RulesForm>({ pincodes: "", minOrders: "", orderedWithinDays: "", lapsedForDays: "", minSpendRupees: "" });
   const [preview, setPreview] = useState<{ matched: number; reachable: number } | null>(null);
+  const problem = segmentRulesProblem(form);
   const set = (key: keyof RulesForm) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm({ ...form, [key]: e.target.value });
     setPreview(null);
@@ -178,11 +177,16 @@ export function SegmentBuilder({ shopId }: { shopId: string }) {
           <input className={inputClass} inputMode="decimal" value={form.minSpendRupees} onChange={set("minSpendRupees")} />
         </Field>
       </div>
+      {problem ? (
+        <p className="text-sm text-red-700" role="alert" data-testid="segment-rules-problem">
+          {problem}
+        </p>
+      ) : null}
       <div className="flex flex-wrap items-center gap-2">
         <Button
           size="sm"
           variant="secondary"
-          disabled={busy}
+          disabled={busy || problem !== null}
           onClick={async () => {
             const result = await send(`/api/shops/${shopId}/marketing/segments`, "POST", { preview: true, rules: toRules(form) }, "");
             if (result) setPreview(result);
@@ -192,7 +196,7 @@ export function SegmentBuilder({ shopId }: { shopId: string }) {
         </Button>
         <Button
           size="sm"
-          disabled={busy || name.trim().length < 2}
+          disabled={busy || name.trim().length < 2 || problem !== null}
           onClick={async () => {
             const result = await send(`/api/shops/${shopId}/marketing/segments`, "POST", { name, rules: toRules(form) }, "Segment saved.");
             if (result) {

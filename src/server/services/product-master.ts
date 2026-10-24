@@ -18,6 +18,7 @@
 import { and, eq, ilike, isNull, ne, sql } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
+import { MAX_MRP_PAISE, MIN_PRICE_PAISE } from "@/lib/price-rules";
 import { db, type DbClient } from "@/server/db";
 import {
   brands,
@@ -130,8 +131,9 @@ export async function setMasterMrp(input: SetMrpInput, actor: Actor): Promise<Pr
   if (!MRP_WRITERS.includes(actor.role)) {
     throw forbidden("Only an administrator or operator can change the master MRP.");
   }
-  if (!Number.isInteger(input.mrpPaise) || input.mrpPaise < 0) {
-    throw validationFailed("MRP must be a whole, non-negative amount in paise.");
+  // At least 1 paisa and at most ₹10 lakh a unit (TC-FLD-079).
+  if (!Number.isInteger(input.mrpPaise) || input.mrpPaise < MIN_PRICE_PAISE || input.mrpPaise > MAX_MRP_PAISE) {
+    throw validationFailed("MRP must be a whole amount in paise, more than ₹0 and at most ₹10,00,000.");
   }
 
   return db.transaction(async (tx) => {
@@ -198,8 +200,9 @@ export async function submitMrpCorrection(
   actor: Actor,
   note?: string,
 ): Promise<Product> {
-  if (!Number.isInteger(claimedMrpPaise) || claimedMrpPaise < 0) {
-    throw validationFailed("Enter the printed MRP as a whole, non-negative amount.");
+  // The same bounds as the master MRP (TC-CAT-062).
+  if (!Number.isInteger(claimedMrpPaise) || claimedMrpPaise < MIN_PRICE_PAISE || claimedMrpPaise > MAX_MRP_PAISE) {
+    throw validationFailed("Enter the printed MRP: more than ₹0 and at most ₹10,00,000.");
   }
   const current = await db.query.products.findFirst({ where: eq(products.id, productId) });
   if (!current) throw notFound("Product");

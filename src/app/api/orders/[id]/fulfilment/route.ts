@@ -15,6 +15,7 @@ import { eq } from "drizzle-orm";
 import { z } from "zod";
 
 import { notFound } from "@/lib/errors";
+import { DEFAULT_REMOVE_LINE_REASON, REMOVE_LINE_REASONS } from "@/lib/order-line-removal";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { requireShopAccess, requireUser } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
@@ -42,7 +43,12 @@ const schema = z.discriminatedUnion("action", [
     substituteShopProductId: z.string().uuid(),
     note: z.string().max(300).optional(),
   }),
-  z.object({ action: z.literal("remove"), itemId: z.string().uuid(), reason: z.string().max(300).default("Unavailable") }),
+  // TC-FLD-083: only the reasons the shop screen offers (no reason: "Unavailable", as before).
+  z.object({
+    action: z.literal("remove"),
+    itemId: z.string().uuid(),
+    reason: z.enum(REMOVE_LINE_REASONS, { message: "Choose a reason from the list." }).default(DEFAULT_REMOVE_LINE_REASON),
+  }),
   z.object({ action: z.literal("ready") }),
 ]);
 

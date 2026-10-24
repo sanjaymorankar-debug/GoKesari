@@ -2,7 +2,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
-import { assertIsoDate } from "@/lib/dates";
+import { isoDateSchema, todayOrLaterDateSchema } from "@/server/api/date-schema";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
@@ -24,8 +24,9 @@ const createSchema = z.object({
   quantityMilli: z.number().int().positive().max(100_000),
   frequency: z.enum(["DAILY", "WEEKLY"]).default("DAILY"),
   weekdays: z.array(z.number().int().min(1).max(7)).default([]),
-  startDate: z.string(),
-  endDate: z.string().nullish(),
+  // TC-FLD-108: a real date, today or later (blank, "2026-02-31", text → 422; yesterday refused).
+  startDate: todayOrLaterDateSchema,
+  endDate: isoDateSchema.nullish(),
   addressId: z.string().uuid().nullish(),
   /** SM-004: save without starting. */
   draft: z.boolean().optional(),
@@ -41,8 +42,8 @@ export const POST = route(async (request: NextRequest) => {
     quantityMilli: body.quantityMilli,
     frequency: body.frequency,
     weekdays: body.weekdays,
-    startDate: assertIsoDate(body.startDate),
-    endDate: body.endDate ? assertIsoDate(body.endDate) : null,
+    startDate: body.startDate,
+    endDate: body.endDate ?? null,
     addressId: body.addressId ?? null,
     draft: body.draft ?? false,
   });

@@ -24,6 +24,7 @@ import {
 } from "@/lib/dates";
 import { AppError, conflict, notFound, validationFailed } from "@/lib/errors";
 import { formatPaise, lineTotalPaise } from "@/lib/money";
+import { subscriptionQuantityProblem } from "@/lib/subscription-quantity";
 import { getEnv } from "@/lib/env";
 import { db, type DbClient } from "@/server/db";
 import {
@@ -41,6 +42,7 @@ import {
   subscriptionOrders,
   subscriptions,
   wallets,
+  type Address,
   type Subscription,
   type SubscriptionDailyOverride,
   type UserRole,
@@ -196,6 +198,8 @@ export async function createSubscription(
     throw validationFailed("Choose at least one delivery day of the week.");
   }
   const row = await assertSubscribable(input.shopProductId, input.quantityMilli);
+  assertQuantityOnStep(input.quantityMilli, row.product);
+  if (input.addressId) await assertOwnAddress(input.userId, input.addressId);
   if (!input.draft) await assertSignupReferralForFirstOrder(input.userId);
 
   const [subscription] = await db
@@ -293,6 +297,35 @@ async function assertSubscribable(shopProductId: string, quantityMilli: number) 
 }
 
 /**
+ * TC-FLD-107: the quantity must be one the subscription pages can produce —
+ * whole steps (0.5 L / 0.5 kg, else one pack) up to the per-delivery maximum.
+ */
+function assertQuantityOnStep(quantityMilli: number, product: { unit: string; unitSizeMilli: number }): void {
+  const problem = subscriptionQuantityProblem(quantityMilli, product.unit, product.unitSizeMilli);
+  if (problem) throw validationFailed(problem);
+}
+
+async function productOf(shopProductId: string): Promise<{ unit: string; unitSizeMilli: number }> {
+  const [row] = await db
+    .select({ unit: products.unit, unitSizeMilli: products.unitSizeMilli })
+    .from(shopProducts)
+    .innerJoin(products, eq(shopProducts.productId, products.id))
+    .where(eq(shopProducts.id, shopProductId))
+    .limit(1);
+  if (!row) throw notFound("Product");
+  return row;
+}
+
+/** TC-SUB-013: a subscription is delivered to one of the customer's own saved addresses. */
+async function assertOwnAddress(userId: string, addressId: string): Promise<void> {
+  const own = await db.query.addresses.findFirst({
+    where: and(eq(addresses.id, addressId), eq(addresses.userId, userId), isNull(addresses.deletedAt)),
+    columns: { id: true },
+  });
+  if (!own) throw validationFailed("Choose one of your saved delivery addresses.");
+}
+
+/**
  * SM-004: a schedule change re-writes the upcoming per-delivery rows and
  * re-judges renewal for the customer. Never fails the action itself.
  */
@@ -371,8 +404,9 @@ export async function updateSubscription(
   },
   actor: { id: string; role: UserRole },
 ): Promise<Subscription> {
-  const current = await getSubscription(subscriptionId);
-  if (!current) throw notFound("Subscription");
+  // TC-SUB-008: a cancelled or completed subscription is final — the same
+  // guard pause / resume / skip use (409), so a PATCH no longer changes it.
+  const current = await loadLiveSubscription(subscriptionId);
 
   if (
     patch.quantityMilli !== undefined &&
@@ -380,6 +414,10 @@ export async function updateSubscription(
   ) {
     throw validationFailed("Quantity must be a positive amount.");
   }
+  if (patch.quantityMilli !== undefined || patch.shopProductId) {
+    assertQuantityOnStep(patch.quantityMilli ?? current.quantityMilli, await productOf(patch.shopProductId ?? current.shopProductId));
+  }
+  if (patch.addressId) await assertOwnAddress(current.userId, patch.addressId);
 
   const [updated] = await db
     .update(subscriptions)
@@ -430,7 +468,10 @@ export async function setDailyOverride(
   if (!Number.isInteger(quantityMilli) || quantityMilli <= 0) {
     throw validationFailed("Quantity must be a positive amount.");
   }
+  // Locked once cancelled / completed, like skipDate (TC-SUB-008).
+  const subscription = await loadLiveSubscription(subscriptionId);
   await assertDateIsModifiable(subscriptionId, date);
+  assertQuantityOnStep(quantityMilli, await productOf(subscription.shopProductId));
 
   const [override] = await db
     .insert(subscriptionDailyOverrides)
@@ -1000,6 +1041,8 @@ export interface GenerationResult {
   alreadyExisted: number;
   walletFailures: number;
   unavailable: number;
+  /** TC-SUB-013: not generated — the customer has no delivery address at all. */
+  noAddress: number;
   errors: { subscriptionId: string; message: string }[];
 }
 
@@ -1029,6 +1072,7 @@ export async function generateDailyOrders(
     alreadyExisted: 0,
     walletFailures: 0,
     unavailable: 0,
+    noAddress: 0,
     errors: [],
   };
 
@@ -1069,6 +1113,9 @@ export async function generateDailyOrders(
         case "UNAVAILABLE":
           result.unavailable += 1;
           break;
+        case "NO_ADDRESS":
+          result.noAddress += 1;
+          break;
       }
     } catch (error) {
       result.errors.push({
@@ -1098,6 +1145,7 @@ async function recordDeliveryOutcome(subscriptionId: string, date: IsoDate, outc
   try {
     await syncSubscriptionSchedule(subscriptionId, { from: date });
     if (outcome === "UNAVAILABLE") await markDeliveryUnavailable(subscriptionId, date);
+    if (outcome === "NO_ADDRESS") await markDeliveryUnavailable(subscriptionId, date, db, "NO_ADDRESS");
   } catch (error) {
     console.error(`[subscriptions] delivery status sync failed for ${subscriptionId}`, error);
   }
@@ -1108,7 +1156,32 @@ type DeliveryOutcome =
   | "SKIPPED"
   | "ALREADY_EXISTS"
   | "WALLET_INSUFFICIENT"
-  | "UNAVAILABLE";
+  | "UNAVAILABLE"
+  | "NO_ADDRESS";
+
+/**
+ * TC-SUB-013: where a subscription delivery goes — the subscription's own
+ * address while it is still the customer's, else the customer's current
+ * default address (else their newest), the same choice the cart makes. Null
+ * when the customer has no address at all.
+ */
+async function deliveryAddressFor(subscription: Pick<Subscription, "userId" | "addressId">): Promise<Address | null> {
+  if (subscription.addressId) {
+    const own = await db.query.addresses.findFirst({
+      where: and(
+        eq(addresses.id, subscription.addressId),
+        eq(addresses.userId, subscription.userId),
+        isNull(addresses.deletedAt),
+      ),
+    });
+    if (own) return own;
+  }
+  const fallback = await db.query.addresses.findFirst({
+    where: and(eq(addresses.userId, subscription.userId), isNull(addresses.deletedAt)),
+    orderBy: [desc(addresses.isDefault), desc(addresses.createdAt)],
+  });
+  return fallback ?? null;
+}
 
 async function generateOneDelivery(
   subscription: Subscription,
@@ -1176,6 +1249,22 @@ async function generateOneDelivery(
     return "UNAVAILABLE";
   }
 
+  // TC-SUB-013: never an order the rider cannot drop. No address at all → the
+  // day is not generated or charged, the customer is told, and the day shows
+  // FAILED (no delivery address) like an unavailable product's day.
+  const address = await deliveryAddressFor(subscription);
+  if (!address) {
+    await notify({
+      userId: subscription.userId,
+      type: NOTIFICATION_TYPES.SUBSCRIPTION_PAYMENT_FAILED,
+      title: "Delivery address needed",
+      body: `${row.product.name} could not be delivered on ${date} because your account has no delivery address. Add one in your profile — nothing was deducted.`,
+      actionUrl: "/profile/addresses",
+      dedupeKey: `no-address:${subscription.id}:${date}`,
+    });
+    return "NO_ADDRESS";
+  }
+
   // Price is read now, at generation time, and snapshotted into the order —
   // this is what makes a later price change affect only future orders (§34).
   const unitPricePaise = row.sp.onlinePricePaise!;
@@ -1186,32 +1275,25 @@ async function generateOneDelivery(
     await db.transaction(async (tx) => {
       // Same address snapshot and society link a checkout order gets, so
       // rider dispatch, society rules and the drop address work unchanged.
-      const address = subscription.addressId
-        ? await tx.query.addresses.findFirst({ where: eq(addresses.id, subscription.addressId) })
-        : null;
-      const orderSocietyId = address
-        ? await resolveAddressSociety(subscription.userId, address.societyId ?? null, tx)
-        : null;
+      const orderSocietyId = await resolveAddressSociety(subscription.userId, address.societyId ?? null, tx);
       const [order] = await tx
         .insert(orders)
         .values({
           orderNumber: generateOrderNumber(),
           userId: subscription.userId,
           shopId: subscription.shopId,
-          addressId: subscription.addressId,
-          deliveryAddressSnapshot: address
-            ? {
-                line1: address.line1,
-                line2: address.line2,
-                area: address.area,
-                city: address.city,
-                pincode: address.pincode,
-                latitude: address.latitude,
-                longitude: address.longitude,
-                landmark: address.landmark,
-                deliveryInstructions: address.deliveryInstructions,
-              }
-            : null,
+          addressId: address.id,
+          deliveryAddressSnapshot: {
+            line1: address.line1,
+            line2: address.line2,
+            area: address.area,
+            city: address.city,
+            pincode: address.pincode,
+            latitude: address.latitude,
+            longitude: address.longitude,
+            landmark: address.landmark,
+            deliveryInstructions: address.deliveryInstructions,
+          },
           societyId: orderSocietyId,
           status: "PENDING",
           source: "SUBSCRIPTION",

@@ -60,7 +60,17 @@ manual("TC-XXX-002", "SMS code to a real handset", "needs an SMS provider in tes
   `tests/qa/lib/world.ts`); missing pieces → `need(world().shops.B, "a second shop")`
   so the case is **blocked** where they do not exist (e.g. staging), not failed.
 * **Sharing between checks** of one file: `stash(key, value)` / `unstash(key)`
-  (on disk; a failure restarts the worker). Names unique per run with `RUN`.
+  (on disk; a failure restarts the worker). Use a fixed key (the file's name),
+  never one built from `RUN`: `RUN` is drawn again in each new worker, so a
+  RUN-based key is lost after any failure. When the desktop and mobile runs
+  must not share a record, add the project name to the key. Names unique per
+  run with `RUN`.
+* **Area helpers** already exist for most modules (`tests/qa/lib/*-helpers.ts`:
+  fresh accounts, sessions for any local account, rider set-up, cron calls,
+  sandbox payment webhooks, rule changes restored in `finally`). Read them
+  before writing a new helper.
+* **Mail** (local): `waitForCode(address, since)` reads sign-in and e-mail
+  confirmation codes only (delivery-code mails share the inbox).
 * **Writes**: helpers in `flows.ts` refuse production (`assertWritable`);
   restore any rule you change in a `finally`.
 * **IDs**: an ID may be covered by several checks — all must pass; one check

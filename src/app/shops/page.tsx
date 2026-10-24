@@ -32,6 +32,24 @@ type Search = {
   all?: string;
 };
 
+/**
+ * The same search with "near me" switched off (whole city) or back on. Every
+ * other filter — text, type, classification, delivery, open now, sort — stays
+ * (TC-DISC-003: "Show all shops" used to drop the type).
+ */
+function nearToggleHref(params: Search, nearOnly: boolean, city: string | null | undefined) {
+  const next = new URLSearchParams();
+  for (const key of ["q", "type", "classification", "delivery", "open", "sort"] as const) {
+    if (params[key]) next.set(key, params[key]!);
+  }
+  if (nearOnly) {
+    next.set("all", "1");
+    if (city) next.set("city", city);
+  }
+  const query = next.toString();
+  return query ? `/shops?${query}` : "/shops";
+}
+
 /** Fewer shops than this (and no filter in use) and the invite card fills the row. */
 const INVITE_BELOW = 4;
 
@@ -171,7 +189,7 @@ export default async function ShopsPage({
               : `Showing shops beyond your area${params.city ? ` in ${params.city}` : ""}.`}
           </p>
           <Link
-            href={nearOnly ? `/shops?all=1${city ? `&city=${encodeURIComponent(city)}` : ""}` : "/shops"}
+            href={nearToggleHref(params, nearOnly, city)}
             className="tap-target whitespace-nowrap rounded-lg border border-cream-200 bg-white px-3.5 py-2 text-sm font-medium text-ink-900 hover:bg-cream-100"
           >
             {nearOnly ? (city ? `Show all ${city} shops` : "Show all shops") : `Only shops near ${area ?? "me"}`}

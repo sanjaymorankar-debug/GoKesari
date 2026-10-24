@@ -109,7 +109,7 @@ function PartnerRow({ partner }: { partner: AdminDeliveryPartner }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [reasonMode, setReasonMode] = useState<"reject" | "suspend" | "deactivate" | null>(null);
+  const [reasonMode, setReasonMode] = useState<"reject" | "suspend" | "reactivate" | "deactivate" | null>(null);
   const [reason, setReason] = useState("");
 
   async function act(body: Record<string, unknown>) {
@@ -174,7 +174,8 @@ function PartnerRow({ partner }: { partner: AdminDeliveryPartner }) {
             </Button>
           ) : null}
           {partner.status === "SUSPENDED" ? (
-            <Button size="sm" disabled={busy} onClick={() => act({ action: "reactivate" })}>
+            // TC-DEL-027: reactivating asks for a reason, like suspending.
+            <Button size="sm" disabled={busy} onClick={() => setReasonMode("reactivate")}>
               Reactivate
             </Button>
           ) : null}
@@ -196,7 +197,7 @@ function PartnerRow({ partner }: { partner: AdminDeliveryPartner }) {
           />
           <Button
             size="sm"
-            variant="danger"
+            variant={reasonMode === "reactivate" ? "primary" : "danger"}
             disabled={busy || reason.trim().length < 3}
             onClick={() => act({ action: reasonMode, reason })}
           >

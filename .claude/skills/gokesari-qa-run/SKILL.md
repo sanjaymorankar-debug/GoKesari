@@ -34,6 +34,16 @@ catcher (sign-in codes land in `test-results/qa/mail`) and the server, and
 seeds the plan's test data (`scripts/qa/seed-local.ts` → `test-results/qa/world-localhost_3000.json`).
 Re-seed for a clean world: `npx tsx scripts/qa/seed-local.ts --base-url http://localhost:3000`.
 
+* The server must be a build of the code under test: `.next` is what runs,
+  not the working tree. Rebuild after pulling or changing `src/`.
+* The env file carries a local `PAN_ENCRYPTION_KEY` (made once in
+  `test-results/qa/pan-key.local`); without it every KYC / bank write is a 500.
+* Each seed takes earlier worlds' riders offline and gives each rider their
+  own mobile, so offers and rider-by-mobile lookups reach this world only.
+* Several servers side by side (one per port and database) are fine: results
+  and artifacts are kept per host (`test-results/qa/<host>/`,
+  `test-results/qa/artifacts/<host>/`), so runs never wipe each other.
+
 ## 3. Run
 
 ```bash
@@ -44,6 +54,14 @@ npx playwright test -c playwright.qa.config.ts -g "TC-CART-009"   # one case
 
 * Both projects run: `desktop` and `mobile` (Pixel 7) — mobile only for checks marked `{ mobile: true }`.
 * The test site is slow (8–10 s a cold page): a full guest run takes ~15 min there, a signed run longer. Run long runs in the background.
+* On the test site rule `fulfilmentOptions` is on: an order is marked ready
+  together with a delivery plan. `flows.fulfil(id, "ready")` does this by itself
+  (GoKesari delivery partner, earliest slot); use it rather than calling the API.
+* The sites' host firewall sometimes answers a burst itself — a 403, or a
+  redirect to the same URL — for a minute or more (E-01). Checks look again
+  after a pause and tell the host's answer from the app's (`fromApp()` in
+  `lib/http.ts`: app pages carry `Vary: rsc`); a host answer is noted or
+  `blocked`, never a fail.
 * Production: `E2E_BASE_URL=https://gokesari.com npx playwright test -c playwright.qa.config.ts tests/qa/guest` — nothing else.
 
 ## 4. Read the results

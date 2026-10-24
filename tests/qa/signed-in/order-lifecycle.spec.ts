@@ -31,7 +31,8 @@ import { call, expectStatus, RUN, stash, unstash } from "../lib/http";
 import { blocked, expect, qa } from "../lib/record";
 
 const signed = { tier: "signed" as const, timeout: 300_000 };
-const KEY = `lifecycle-${RUN}`;
+// One key for the run (a clean results folder per run): the phone project reads the order the desktop project placed.
+const KEY = "order-lifecycle";
 
 function current() {
   const order = unstash<PlacedOrder & { deliveryOrderId?: string; startBalance?: number }>(KEY);
@@ -98,17 +99,20 @@ qa("TC-CART-018", "/orders shows the new order with number, shop, amount and sta
   const order = current();
   const { pageAs } = await import("../lib/actors");
   const { context, page } = await pageAs(browser, "customer");
+  // The phone run comes after the desktop run has moved the same order on, so the card is checked
+  // against the order's status now ("confirmed" when new, "preparing" later), not a fixed word.
+  const label = new RegExp((await statusOf(order.id)).replace(/_/g, " "), "i");
   try {
     await page.goto("/orders");
     const card = page.getByTestId("order-card").filter({ hasText: order.orderNumber }).first();
     await expect(card).toBeVisible();
     await expect(card).toContainText(order.listing.shopName);
-    await expect(card).toContainText(/confirmed/i);
+    await expect(card).toContainText(label);
     await expect(card).toContainText(`${Math.floor(order.totalPaise / 100)}`);
   } finally {
     await context.close();
   }
-  return `${order.orderNumber} card shows shop, amount and 'confirmed'`;
+  return `${order.orderNumber} card shows shop, amount and its status (${label.source})`;
 }, { ...signed, mobile: true, partial: "the card's action buttons are checked in the cancellation and support specs" });
 
 qa("TC-ORD-007", "the customer cannot cancel once the shop has accepted (ACCEPTED, PREPARING)", async () => {

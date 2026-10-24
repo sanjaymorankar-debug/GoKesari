@@ -10,7 +10,8 @@ import { z } from "zod";
 
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { enforceRateLimit } from "@/server/api/rate-limit";
-import { requireUser } from "@/server/authz/guards";
+import { requireShopAccess, requireUser } from "@/server/authz/guards";
+import { PERMISSIONS } from "@/server/authz/permissions";
 import { profileSetupSchema, profileSetupView, saveProfileSetup } from "@/server/registration/profile";
 
 export const dynamic = "force-dynamic";
@@ -24,5 +25,7 @@ export const PATCH = route(async (request: NextRequest, context: RouteContext<{ 
   const user = await requireUser();
   enforceRateLimit(`profile-setup:${user.id}`, { limit: 30, windowMs: 60 * 60_000 });
   const id = z.string().uuid().parse((await context.params).id);
+  // The shop's owner or operations first: another shop's owner gets 403 before the body is read (TC-RBAC-005).
+  await requireShopAccess(id, { anyPermission: PERMISSIONS.SHOP_UPDATE_ANY });
   return ok(await saveProfileSetup(id, await parseBody(request, profileSetupSchema), user));
 });

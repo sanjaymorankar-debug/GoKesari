@@ -17,7 +17,8 @@
  */
 import { and, desc, eq, ilike, or } from "drizzle-orm";
 
-import { forbidden, notFound, validationFailed } from "@/lib/errors";
+import { parseIndianMobile } from "@/lib/contact";
+import { AppError, notFound, validationFailed } from "@/lib/errors";
 import { db } from "@/server/db";
 import {
   orders,
@@ -65,6 +66,13 @@ export async function submitGrievance(input: SubmitGrievanceInput): Promise<Grie
   if (input.description.trim().length < 10) {
     throw validationFailed("Describe your complaint in a bit more detail.");
   }
+  // TC-FLD-101: a contact number, when given, is a real Indian mobile ("not a phone" was saved).
+  let phone: string | null = null;
+  if (input.phone?.trim()) {
+    const parsed = parseIndianMobile(input.phone);
+    if (!parsed.ok) throw validationFailed(parsed.error, { fields: { phone: parsed.error } });
+    phone = parsed.national;
+  }
 
   if (input.orderId) {
     const order = await db.query.orders.findFirst({ where: eq(orders.id, input.orderId) });
@@ -80,7 +88,7 @@ export async function submitGrievance(input: SubmitGrievanceInput): Promise<Grie
       orderId: input.orderId ?? null,
       name: input.name.trim(),
       email: input.email.trim().toLowerCase(),
-      phone: input.phone?.trim() || null,
+      phone,
       category: input.category,
       subject: input.subject.trim(),
       description: input.description.trim(),
@@ -120,19 +128,29 @@ export async function getGrievanceByTicket(ticketNumber: string): Promise<Grieva
   return grievance;
 }
 
+/** The one answer for a ticket that is unknown or filed with another email (TC-FLD-101). */
+export const GRIEVANCE_LOOKUP_MISS = "We could not find a complaint with that ticket number and email. Check both and try again.";
+
 /**
  * Public status lookup. Requires the SAME email the grievance was filed
  * with — this is deliberately not just "anyone with the ticket number", so a
  * guessed/leaked ticket number cannot be used to read someone else's
  * complaint details (§ "Do not expose private grievance information publicly").
+ *
+ * TC-FLD-101: an unknown ticket and a known ticket with another email get the
+ * same answer (404, one message), so the lookup does not tell a stranger
+ * which ticket numbers exist.
  */
 export async function lookupGrievance(
   ticketNumber: string,
   email: string,
 ): Promise<Grievance> {
-  const grievance = await getGrievanceByTicket(ticketNumber);
-  if (grievance.email !== email.trim().toLowerCase()) {
-    throw forbidden("That ticket number and email do not match.");
+  const [grievance] = await db
+    .select()
+    .from(grievances)
+    .where(eq(grievances.ticketNumber, ticketNumber.trim().toUpperCase()));
+  if (!grievance || grievance.email !== email.trim().toLowerCase()) {
+    throw new AppError("NOT_FOUND", GRIEVANCE_LOOKUP_MISS);
   }
   return grievance;
 }

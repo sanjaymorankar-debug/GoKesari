@@ -6,7 +6,8 @@
 import type { NextRequest } from "next/server";
 
 import { ok, parseBody, route } from "@/server/api/handler";
-import { requireUser } from "@/server/authz/guards";
+import { requirePermission, requireUser } from "@/server/authz/guards";
+import { PERMISSIONS } from "@/server/authz/permissions";
 import { createCannedReply, listCannedReplies } from "@/server/aftercare/support-tickets";
 import { cannedSchema } from "./schema";
 
@@ -19,6 +20,7 @@ export const GET = route(async (request: NextRequest) => {
 });
 
 export const POST = route(async (request: NextRequest) => {
-  const user = await requireUser();
+  // Allowed first: a caller who cannot manage canned replies gets 403 before the body is read (TC-RBAC-003).
+  const user = await requirePermission(PERMISSIONS.SUPPORT_CANNED_REPLY_MANAGE);
   return ok(await createCannedReply(await parseBody(request, cannedSchema), user), 201);
 });

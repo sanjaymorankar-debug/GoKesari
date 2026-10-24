@@ -355,6 +355,7 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
                 serviceRadiusKm: shop.serviceRadiusKm,
                 deliveryPincodes: shop.deliveryPincodes,
                 minOrderPaise: shop.minOrderPaise,
+                preparationTimeMinutes: shop.preparationTimeMinutes,
                 ordersPaused: shop.ordersPaused,
                 pickupInstructions: shop.pickupInstructions,
               }}

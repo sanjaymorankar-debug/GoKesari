@@ -647,6 +647,27 @@ export const verificationTokens = pgTable(
   (t) => [primaryKey({ columns: [t.identifier, t.token] })],
 );
 
+/**
+ * Sessions ended by Sign out (TC-AUTH-034). Sessions are stateless Auth.js
+ * JWTs, so a copy of the cookie taken before signing out would otherwise keep
+ * working until it expires; every request refuses a token whose session id is
+ * listed here (src/server/auth-sessions.ts). A row is kept until every copy of
+ * that token has expired, then the auth-housekeeping job deletes it.
+ */
+export const revokedSessions = pgTable(
+  "revoked_sessions",
+  {
+    /** The token's `sid` (or, for a token issued before session ids, its `jti`). */
+    sessionId: text("session_id").primaryKey(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }).notNull().defaultNow(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+  },
+  (t) => [index("revoked_sessions_expires_idx").on(t.expiresAt)],
+);
+
 /* -------------------------------------------------- roles & permissions */
 /**
  * The capability matrix lives in code (authz/permissions.ts) for fast, typed checks.

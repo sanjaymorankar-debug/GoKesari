@@ -2,6 +2,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { isoDateSchema } from "@/server/api/date-schema";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
@@ -19,11 +20,12 @@ const schema = z
     bonusPercent: z.number().int().positive().max(100),
     minimumTopupPaise: z.number().int().min(0).optional(),
     maximumBonusPaise: z.number().int().min(0).nullish(),
-    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    startDate: isoDateSchema,
+    endDate: isoDateSchema,
     usageLimit: z.number().int().positive().nullish(),
     perCustomerLimit: z.number().int().positive().optional(),
-    totalBudgetPaise: z.number().int().min(0).nullish(),
+    // TC-FLD-114: a budget of 0 could never pay a bonus (leave it out for no budget).
+    totalBudgetPaise: z.number().int().min(1, "The total budget must be at least 1 paisa — leave it empty for no budget.").nullish(),
   })
   .transform((v) => ({
     ...v,

@@ -8,6 +8,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { MAX_PRICE_PAISE, PRICE_MAX_MESSAGE } from "@/lib/price-rules";
 import { forbidden } from "@/lib/errors";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { requireShopAccess } from "@/server/authz/guards";
@@ -21,7 +22,7 @@ const schema = z.object({
     .array(
       z.object({
         shopProductId: z.string().uuid(),
-        pricePaise: z.number().int().positive("Price must be a number greater than 0."),
+        pricePaise: z.number().int().positive("Price must be a number greater than 0.").max(MAX_PRICE_PAISE, PRICE_MAX_MESSAGE),
       }),
     )
     .max(1000),

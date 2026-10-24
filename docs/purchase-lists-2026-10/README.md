@@ -38,7 +38,7 @@ checks are unchanged: the shop's own rules apply at order time.
 
 | Piece | File |
 |---|---|
-| Tables `purchase_lists`, `purchase_list_items` | `src/server/db/schema.ts`, migration `drizzle/0088_purchase_lists.sql` (`-- split: core`) |
+| Tables `purchase_lists`, `purchase_list_items` | `src/server/db/schema.ts`, migration `drizzle/0090_purchase_lists.sql` (`-- split: core`) |
 | Service | `src/server/services/purchase-lists.ts` |
 | Live pricing shared with the cart | `priceLines()` in `src/server/services/cart.ts` (the cart's own totals now go through it too) |
 | API | `src/app/api/purchase-lists/**` |
@@ -73,6 +73,6 @@ clean. No seller table is written. Tested on both layouts (CI `test` and
 
 ## Deploy
 
-Migration `0088_purchase_lists` is additive (two new tables). It is applied by
+Migration `0090_purchase_lists` is additive (two new tables). It ships with `0089_repair_revoked_sessions` (0088's `revoked_sessions` again, `IF NOT EXISTS`): the two features' migrations were first written with the same journal timestamp, so a database that recorded the lists one first skipped 0088. It is applied by
 `MIGRATE_ON_BUILD` on the sites, or by hand with `npm run db:migrate`. No new
 environment variables, no new rule.

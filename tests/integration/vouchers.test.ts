@@ -35,6 +35,13 @@ import {
 const ADMIN = (id: string) => ({ id, role: "ADMIN" as const });
 
 /**
+ * A live window anchored to today: since TC-FLD-114 a new voucher whose end
+ * date has passed is refused, so fixed September 2026 dates aged out.
+ */
+const TODAY = new Date().toISOString().slice(0, 10);
+const IN_30_DAYS = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
+
+/**
  * voucher_redemptions.payment_id is a real FK to payments.id, so every
  * redemption in these tests needs a genuine payment row behind it — this
  * wraps that plumbing so each test reads as "redeem X for Y", not a payments
@@ -90,8 +97,8 @@ describe("voucher creation & validation (TEST 10, 16, 17)", () => {
         bonusPercent: 10,
         minimumTopupPaise: 50_000,
         maximumBonusPaise: 100_000,
-        startDate: "2026-09-01",
-        endDate: "2026-09-30",
+        startDate: TODAY,
+        endDate: IN_30_DAYS,
       },
       ADMIN(admin.user.id),
     );
@@ -128,12 +135,12 @@ describe("voucher creation & validation (TEST 10, 16, 17)", () => {
   it("rejects a duplicate voucher code", async () => {
     const admin = await createUserWithWallet({ role: "ADMIN" });
     await createVoucher(
-      { name: "First", code: "DUPE", bonusPercent: 10, startDate: "2026-09-01", endDate: "2026-09-30" },
+      { name: "First", code: "DUPE", bonusPercent: 10, startDate: TODAY, endDate: IN_30_DAYS },
       ADMIN(admin.user.id),
     );
     await expect(
       createVoucher(
-        { name: "Second", code: "DUPE", bonusPercent: 5, startDate: "2026-09-01", endDate: "2026-09-30" },
+        { name: "Second", code: "DUPE", bonusPercent: 5, startDate: TODAY, endDate: IN_30_DAYS },
         ADMIN(admin.user.id),
       ),
     ).rejects.toThrow();
