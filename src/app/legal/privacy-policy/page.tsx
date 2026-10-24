@@ -41,11 +41,10 @@ export default function PrivacyPolicyPage() {
           reference/transaction ID Cashfree returns to confirm a payment.
         </li>
         <li>
-          <strong>Location data</strong> — this platform does not currently
-          request or collect device GPS/location data. If a &quot;find shops
-          near me&quot; feature using device location is introduced in future,
-          it will only run after you explicitly grant permission through an
-          on-screen consent prompt, and this policy will be updated first.
+          <strong>Location data</strong> — your device&apos;s location, only if
+          you allow it, to show shops near you; the map pin of addresses you
+          save; and, for delivery partners, their location while they are
+          online. See section 2.
         </li>
         <li>
           <strong>Usage and device data</strong> — pages visited, actions
@@ -56,7 +55,64 @@ export default function PrivacyPolicyPage() {
         </li>
       </ul>
 
-      <h2>2. Why we collect it</h2>
+      <h2>2. Location data</h2>
+      <p>
+        We use location only to show the shops near you and whether they
+        deliver to you, and to deliver your orders. Your device shares its
+        location only after you allow it in your browser&apos;s or phone&apos;s
+        permission prompt. You can turn it off there at any time; the site
+        then works from a PIN code you type instead.
+      </p>
+      <ul>
+        <li>
+          <strong>Your delivery area (&quot;Deliver to&quot;).</strong> When you
+          allow location, or tap &quot;Find your location&quot; or &quot;Use my
+          current location&quot;, your device&apos;s position is rounded to about
+          11 metres and saved, with a short address for it, in a cookie on
+          your device (<code>gk_location</code>) for 30 days. It is not stored
+          in our database. When the site finds your location by itself, a
+          location you already chose, or your saved address, is kept instead.
+          You can remove it at any time with &quot;Clear location&quot; under
+          &quot;Deliver to&quot;, or by clearing your cookies.
+        </li>
+        <li>
+          <strong>Nearby shops.</strong> The Nearby screen sends your position
+          to our server to work out how far each shop is. It is not stored,
+          except as your delivery area as described above when you have not
+          chosen one.
+        </li>
+        <li>
+          <strong>The address shown for your position.</strong> To show a
+          readable address instead of coordinates, our server sends the
+          rounded position, with no name, account or contact details, to
+          OpenStreetMap&apos;s address service (Nominatim, run by the
+          OpenStreetMap Foundation). The request comes from our server, so
+          OpenStreetMap does not receive your IP address. The answer is kept
+          in our server&apos;s memory for up to a day, so the same spot is not
+          looked up twice.
+        </li>
+        <li>
+          <strong>Saved addresses.</strong> When you save a delivery address
+          and place its pin on the map, we store the pin&apos;s coordinates with
+          the address, so the shop and the delivery partner can find you.
+          Searching for an address on the map uses Google Maps (section 5).
+        </li>
+        <li>
+          <strong>Delivery partners.</strong> If you deliver for GoKesari, your
+          phone shares its location while you are online. We keep only your
+          latest position, replaced with each update, to offer you nearby
+          orders; while you are carrying an order, the customer of that order
+          sees it so they can follow the delivery. Sharing stops when you go
+          offline.
+        </li>
+        <li>
+          We do not sell location data, use it for advertising, or keep a
+          history of where customers have been. Shop owners never receive
+          your device&apos;s location.
+        </li>
+      </ul>
+
+      <h2>3. Why we collect it</h2>
       <ul>
         <li>To create and secure your account and authenticate sign-in.</li>
         <li>To process orders, deliveries, subscriptions, and payments.</li>
@@ -66,7 +122,7 @@ export default function PrivacyPolicyPage() {
         <li>To comply with tax, accounting, and legal record-keeping obligations.</li>
       </ul>
 
-      <h2>3. How data is stored and secured</h2>
+      <h2>4. How data is stored and secured</h2>
       <p>
         Data is stored in an access-controlled PostgreSQL database. Money
         values and financial mutations are processed with row-level locking
@@ -77,7 +133,7 @@ export default function PrivacyPolicyPage() {
         your own.
       </p>
 
-      <h2>4. Who your data is shared with</h2>
+      <h2>5. Who your data is shared with</h2>
       <ul>
         <li>
           <strong>Cashfree</strong> (payment gateway) — to process payments
@@ -86,7 +142,14 @@ export default function PrivacyPolicyPage() {
         </li>
         <li>
           <strong>Google</strong> — for authentication, if you sign in with
-          Google.
+          Google; and Google Maps, when you search for an address or place a
+          pin on the map, or type a PIN code we have no shops for, to find
+          that address or PIN code on the map.
+        </li>
+        <li>
+          <strong>OpenStreetMap Foundation</strong> (Nominatim) — a rounded
+          position, with no name, account or contact details, to turn it
+          into a readable address (section 2).
         </li>
         <li>
           <strong>The shop you order from</strong> — receives only what is
@@ -100,7 +163,7 @@ export default function PrivacyPolicyPage() {
         </li>
       </ul>
 
-      <h2>5. Seller verification (shop owners only)</h2>
+      <h2>6. Seller verification (shop owners only)</h2>
       <p>
         If you register a shop, we verify its business documents — PAN,
         GSTIN (or your declaration that you are not GST-registered), Udyam
@@ -134,7 +197,7 @@ export default function PrivacyPolicyPage() {
         </li>
       </ul>
 
-      <h2>6. Data retention</h2>
+      <h2>7. Data retention</h2>
       <p>
         Account and order data is retained for as long as your account is
         active and thereafter as required for tax, accounting, dispute, and
@@ -144,7 +207,7 @@ export default function PrivacyPolicyPage() {
         by law (see &quot;Your rights&quot; below).
       </p>
 
-      <h2>7. Your rights</h2>
+      <h2>8. Your rights</h2>
       <p>Under the DPDPA and applicable law, you have the right to:</p>
       <ul>
         <li>Access the personal data we hold about you.</li>
@@ -157,7 +220,7 @@ export default function PrivacyPolicyPage() {
         <li>Raise a grievance about how your data is handled (see below).</li>
       </ul>
 
-      <h2>8. Consent</h2>
+      <h2>9. Consent</h2>
       <p>
         By creating an account you agree to this Privacy Policy and our{" "}
         <a href="/legal/terms">Terms &amp; Conditions</a>. We record when and
@@ -166,7 +229,7 @@ export default function PrivacyPolicyPage() {
         non-essential communications at any time from your profile settings.
       </p>
 
-      <h2>9. Grievance / privacy contact</h2>
+      <h2>10. Grievance / privacy contact</h2>
       <p>
         For any question or complaint about how your personal data is
         handled, contact our Grievance Officer — see the{" "}
