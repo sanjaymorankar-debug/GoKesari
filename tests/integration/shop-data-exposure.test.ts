@@ -294,11 +294,12 @@ describe("the shop owner's action responses", () => {
 
     const gst = await call(gstPost, `/api/shops/${shop.id}/gst`, {
       method: "POST",
-      body: { gstin: "27BBBBB1111B1Z5" },
+      // A GSTIN carries the shop's own PAN, submitted just above (TC-FLD-043).
+      body: { gstin: "27FGHIJ5678K1Z1" },
       params,
     });
     expect(gst.status).toBe(200);
-    expect(gst.body).toMatchObject({ gstin: "27BBBBB1111B1Z5", gstStatus: "PENDING_VERIFICATION" });
+    expect(gst.body).toMatchObject({ gstin: "27FGHIJ5678K1Z1", gstStatus: "PENDING_VERIFICATION" });
     expectNoInternals(gst.body, afterPan);
 
     const none = await call(gstPost, `/api/shops/${shop.id}/gst`, {

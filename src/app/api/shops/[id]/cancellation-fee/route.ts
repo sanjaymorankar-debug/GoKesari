@@ -8,7 +8,8 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { noContent, ok, parseBody, route, type RouteContext } from "@/server/api/handler";
-import { requireUser } from "@/server/authz/guards";
+import { requireShopAccess, requireUser } from "@/server/authz/guards";
+import { PERMISSIONS } from "@/server/authz/permissions";
 import {
   getShopCancellationFeeSettings,
   resetShopCancellationFee,
@@ -33,6 +34,8 @@ export const GET = route(async (_request: NextRequest, context: RouteContext<{ i
 export const PUT = route(async (request: NextRequest, context: RouteContext<{ id: string }>) => {
   const { id } = await context.params;
   const user = await requireUser();
+  // The shop's owner or operations first: another shop's owner gets 403 before the body is read (TC-RBAC-005).
+  await requireShopAccess(id, { anyPermission: PERMISSIONS.SHOP_UPDATE_ANY });
   return ok(await setShopCancellationFee(id, await parseBody(request, schema), user));
 });
 

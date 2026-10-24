@@ -287,6 +287,9 @@ qa("TC-DEL-015", "operator console: start review → approve; reject another wit
     await expect(page.getByText("Reason on file: QA: documents expired")).toBeVisible();
     await tryOnline("SUSPENDED");
     await page.getByRole("button", { name: "Reactivate" }).click();
+    // TC-DEL-027: reactivating asks for a reason, like suspending.
+    await page.getByPlaceholder("Reason for reactivate").fill("QA: documents renewed");
+    await page.getByRole("button", { name: "Confirm" }).click();
     await statusIs(a.partnerId, "APPROVED");
     await tryOnline("APPROVED again");
     await page.getByRole("button", { name: "Deactivate" }).click();
@@ -344,7 +347,7 @@ qa("TC-DEL-015", "the rider is notified of each review decision (approve, reject
     const steps: [Rider, string, Record<string, unknown>][] = [
       [a, "approve", { action: "approve" }],
       [a, "suspend", { action: "suspend", reason: "QA: suspended for the notice check" }],
-      [a, "reactivate", { action: "reactivate" }],
+      [a, "reactivate", { action: "reactivate", reason: "QA: reactivated for the notice check" }],
       [a, "deactivate", { action: "deactivate", reason: "QA: deactivated for the notice check" }],
       [b, "reject", { action: "reject", reason: "QA: rejected for the notice check" }],
     ];
@@ -367,7 +370,8 @@ qa("TC-DEL-015", "the rider is notified of each review decision (approve, reject
 /* ------------------------------------------ KYC not displayed (DEL-016) */
 
 qa("TC-DEL-016", "/gig/profile shows vehicle type and registration; identity and bank details are not displayed (nor returned by the profile API)", async ({ browser }) => {
-  const secrets = { panNumber: "QWERT6789Z", governmentIdType: "Aadhaar", governmentIdNumber: "567856785678", bankAccountHolderName: "QA Holder", bankAccountNumber: "998877665544", bankIfsc: "SBIN0004321" };
+  // A well-formed Aadhaar number (check digit valid): the application checks it since TC-FLD-092.
+  const secrets = { panNumber: "QWERT6789Z", governmentIdType: "Aadhaar", governmentIdNumber: "234123412346", bankAccountHolderName: "QA Holder", bankAccountNumber: "998877665544", bankIfsc: "SBIN0004321" };
   const rider = await freshRider("del016", { approve: true, extra: { ...secrets, drivingLicenceNumber: "MH1220110012345" } });
   const { context, page } = await freshPage(browser, rider);
   try {
@@ -518,7 +522,8 @@ qa("TC-DEL-027", "illegal partner transitions: a rejected rider cannot be put to
   try {
     expectStatus(await staff(rejected.partnerId, { action: "reject", reason: "QA: rejected" }), 200, "reject");
     seen["REJECTED: go online"] = String((await goOnline(rejected.ctx)).status);
-    seen["REJECTED: reactivate"] = String((await staff(rejected.partnerId, { action: "reactivate" })).status);
+    // With a reason, so the answer is about the status (a reason is required since TC-DEL-027).
+    seen["REJECTED: reactivate"] = String((await staff(rejected.partnerId, { action: "reactivate", reason: "QA: put a rejected rider to work" })).status);
     seen["REJECTED: suspend"] = String((await staff(rejected.partnerId, { action: "suspend", reason: "QA: suspend a rejected rider" })).status);
     const r = await partner(rejected.partnerId);
     seen["REJECTED: state after"] = `${r.status}/${r.lifecycle_status}`;
@@ -534,7 +539,10 @@ qa("TC-DEL-027", "illegal partner transitions: a rejected rider cannot be put to
     const back = await staff(blockedRider.partnerId, { action: "reactivate" });
     seen["SUSPENDED: reactivate with no reason"] = `${back.status} → ${(await partner(blockedRider.partnerId)).status}`;
     if (back.status === 200) problems.push(`SUSPENDED → APPROVED with no reason (reactivate ${back.status})`);
-    expectStatus(await staff(blockedRider.partnerId, { action: "suspend", reason: "QA: blocked again" }), 200, "suspend again");
+    // Refused above, the rider is still suspended; suspend again only if the reactivate went through.
+    if ((await partner(blockedRider.partnerId)).status !== "SUSPENDED") {
+      expectStatus(await staff(blockedRider.partnerId, { action: "suspend", reason: "QA: blocked again" }), 200, "suspend again");
+    }
     const approve = await staff(blockedRider.partnerId, { action: "approve" });
     seen["SUSPENDED: approve with no reason"] = `${approve.status} → ${(await partner(blockedRider.partnerId)).status}`;
     if (approve.status === 200) problems.push(`SUSPENDED → APPROVED through "approve" (no reason, no reactivate guard) ${approve.status}`);
@@ -915,6 +923,8 @@ qa("TC-FLD-093", "rider bank account number (digits only, 9–18) and IFSC (4 le
   try {
     const created = await call(user.ctx, "POST", "/api/delivery-partner", application(user, { bankAccountNumber: "12345678", bankIfsc: "SBIN1001234" }));
     seen["application account 12345678 + IFSC SBIN1001234 (first)"] = created.status === 201 ? "accepted (201)" : `HTTP ${created.status}`;
+    // Refused (422): apply without bank details, so the probes below see a duplicate when a value passes.
+    if (created.status !== 201) expectStatus(await call(user.ctx, "POST", "/api/delivery-partner", application(user)), 201, "application without bank details");
     const partnerId = need((await partnerOf(user.id))?.id, "the application");
     const asApplicant = { ...user };
     seen["application both blank"] = await probe(asApplicant, { bankAccountNumber: null, bankIfsc: null });

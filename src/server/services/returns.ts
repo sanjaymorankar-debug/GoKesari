@@ -19,19 +19,22 @@ import {
   RETURN_CONDITIONS,
   RETURN_REASONS,
   holdsQuantity,
+  returnQuantityStepError,
   type ReturnCondition,
   type ReturnReason,
   type ReturnStatus,
 } from "@/lib/return-states";
-import { db } from "@/server/db";
+import { db, type DbClient } from "@/server/db";
 import {
   orderItems,
   orderStatusHistory,
   orders,
+  products,
   returnItems,
   returnPickups,
   returnRequests,
   returnStatusHistory,
+  shopProducts,
   shops,
   storedImages,
   users,
@@ -41,6 +44,7 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { restockOnline } from "./catalogue";
 import { refundDeliveredOrder } from "./finance";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { cancelLivePickup, createPickup, offerPickup, LIVE_PICKUP_STATUSES } from "./return-pickups";
@@ -81,9 +85,10 @@ function effectiveLine(item: typeof orderItems.$inferSelect) {
       milli: item.substituteQuantityMilli ?? item.quantityMilli,
       totalPaise: item.substituteLineTotalPaise ?? item.lineTotalPaise,
       name: item.substituteNameSnapshot ?? item.productNameSnapshot,
+      unit: item.substituteUnitSnapshot ?? item.unitSnapshot,
     };
   }
-  return { milli: item.quantityMilli, totalPaise: item.lineTotalPaise, name: item.productNameSnapshot };
+  return { milli: item.quantityMilli, totalPaise: item.lineTotalPaise, name: item.productNameSnapshot, unit: item.unitSnapshot };
 }
 
 /** Creates a return request; validation runs here and the request goes straight to "under review". */
@@ -171,6 +176,11 @@ export async function requestReturn(input: RequestReturnInput, actor: Actor): Pr
             : `You can return at most ${available / 1000} of ${effective.name}.`,
         );
       }
+      // TC-RET-003 / TC-FLD-094: a per-piece line comes back in whole pieces
+      // (1.5 packs was accepted); all that is left of the line is always allowed.
+      const stepError =
+        wanted.quantityMilli === available ? null : returnQuantityStepError(effective.unit, wanted.quantityMilli, effective.name);
+      if (stepError) throw validationFailed(stepError);
       rows.push({
         orderItemId: line.id,
         quantityMilli: wanted.quantityMilli,
@@ -298,7 +308,7 @@ export async function getReturnableOrder(orderId: string, userId: string): Promi
       {
         orderItemId: line.id,
         name: effective.name,
-        unit: line.unitSnapshot,
+        unit: effective.unit,
         totalMilli: effective.milli,
         availableMilli: Math.max(0, effective.milli - (heldByLine.get(line.id) ?? 0)),
         unitValuePaise: Math.round(effective.totalPaise / Math.max(1, effective.milli / 1000)),
@@ -612,6 +622,51 @@ export async function receiveReturn(returnId: string, actor: Actor): Promise<Ret
   });
 }
 
+/**
+ * TC-SPI-020 (N5): goods that come back sealed and pass inspection go back on
+ * the shop's shelf — the same restock (stock, movement, stock ledger) a
+ * cancellation uses, recorded as a SALE_RETURN of the order. Whole sellable
+ * units only; opened, damaged, expired or used goods are not resold. Runs in
+ * the inspection's transaction, which moves the return on exactly once.
+ */
+async function restockUnopenedItems(tx: DbClient, ret: ReturnRequest, actor: Actor): Promise<void> {
+  const items = await tx
+    .select({
+      quantityMilli: returnItems.quantityMilli,
+      shopProductId: orderItems.shopProductId,
+      fulfilmentStatus: orderItems.fulfilmentStatus,
+      substituteShopProductId: orderItems.substituteShopProductId,
+    })
+    .from(returnItems)
+    .innerJoin(orderItems, eq(orderItems.id, returnItems.orderItemId))
+    .where(and(eq(returnItems.returnId, ret.id), eq(returnItems.condition, "UNOPENED")));
+  if (items.length === 0) return;
+  // What the customer received: the substitute when the line was substituted.
+  const lines = items.map((i) => ({
+    quantityMilli: i.quantityMilli,
+    shopProductId: i.fulfilmentStatus === "SUBSTITUTED" && i.substituteShopProductId ? i.substituteShopProductId : i.shopProductId,
+  }));
+  const sizes = await tx
+    .select({ id: shopProducts.id, unitSizeMilli: products.unitSizeMilli })
+    .from(shopProducts)
+    .innerJoin(products, eq(shopProducts.productId, products.id))
+    .where(inArray(shopProducts.id, lines.map((l) => l.shopProductId)));
+  const sizeById = new Map(sizes.map((s) => [s.id, s.unitSizeMilli]));
+  const [order] = await tx.select({ orderNumber: orders.orderNumber }).from(orders).where(eq(orders.id, ret.orderId));
+  for (const line of lines) {
+    const units = Math.floor(line.quantityMilli / (sizeById.get(line.shopProductId) ?? 1000));
+    if (units <= 0) continue;
+    await restockOnline(
+      line.shopProductId,
+      units,
+      `Return ${ret.returnNumber} of order ${order?.orderNumber ?? ret.orderId}`,
+      actor.id,
+      tx,
+      ret.orderId,
+    );
+  }
+}
+
 export interface InspectInput {
   outcome: "ACCEPT" | "REJECT";
   note: string;
@@ -638,7 +693,9 @@ export async function inspectReturn(returnId: string, actor: Actor, input: Inspe
     if (!Number.isInteger(refund) || refund <= 0 || refund > current.refundAmountPaise) {
       throw validationFailed(`The refund must be between ₹0.01 and ₹${(current.refundAmountPaise / 100).toFixed(2)}.`);
     }
-    return transitionReturn(tx, current, "APPROVED_FOR_REFUND", actor, note, { ...inspected, refundAmountPaise: refund });
+    const approved = await transitionReturn(tx, current, "APPROVED_FOR_REFUND", actor, note, { ...inspected, refundAmountPaise: refund });
+    await restockUnopenedItems(tx, approved, actor);
+    return approved;
   });
 
   const [owner] = await db.select({ userId: returnRequests.userId }).from(returnRequests).where(eq(returnRequests.id, returnId));

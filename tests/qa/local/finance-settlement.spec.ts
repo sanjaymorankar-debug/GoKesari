@@ -40,6 +40,7 @@ import {
   rid,
   setCommission,
   settlements,
+  shown,
   shopAction,
   shopId,
   addDaysIso,
@@ -485,10 +486,12 @@ qa("TC-FIN-019", "weekly rider payout: unpaid earnings incl. failed and cancelle
   for (const leg of legs) expect(linked.map((e) => e.delivery_order_id), `earning of order ${leg.order_id.slice(0, 8)} in the batch`).toContain(leg.id);
   expect(linkedAdj.map((a) => a.type), "the −₹50 rider adjustment of TC-FIN-020").toContain("RIDER_ADJUSTMENT");
   if (codTotal) expect(linkedAdj.find((a) => a.type === "COD_CASH_COLLECTED")?.amount, "COD cash held netted").toBe(-codTotal);
-  // The rider's own statement agrees with the batch.
-  const statement = (await api("rider", "GET", "/api/delivery-partner/earnings")).body.statement as { totalPaise: number; payoutId: string | null }[];
-  const inStatement = statement.filter((e) => e.payoutId === mine.id).reduce((s, e) => s + e.totalPaise, 0);
-  expect(inStatement, "rider's statement total for the batch").toBe(gross);
+  // The rider's own payout list shows the batch (the earnings statement lists the newest 50 earnings only, so last week's may be past it here).
+  await asPage(browser, "rider", "/delivery-partner", async (page) => {
+    const box = page.getByTestId("rider-payouts");
+    await expect(box, "the rider sees the batch").toContainText(`${mine.earningsCount} deliveries`);
+    await expect(box).toContainText(shown(mine.amountPaise));
+  });
   // Approve and pay with a reference.
   expectStatus(await api("admin", "PATCH", `/api/finance/rider-payouts/${mine.id}`, { action: "approve" }), 200, "approve");
   expectStatus(await api("admin", "PATCH", `/api/finance/rider-payouts/${mine.id}`, { action: "process" }), 200, "process");
@@ -505,7 +508,7 @@ qa("TC-FIN-019", "weekly rider payout: unpaid earnings incl. failed and cancelle
   const [{ held }] = await db()<{ held: number }[]>`select count(*)::int as held from delivery_partner_earnings where payout_id = ${r2Batch.id}`;
   expect(held, "cancel releases the earnings").toBe(0);
   stash(K("payout"), mine.id);
-  return `rider 1: ${mine.earningsCount} earnings ₹${gross / 100} + adjustments ₹${adjustments / 100} (−₹50 and COD −₹${codTotal / 100}) = ₹${mine.amountPaise / 100}, statement agrees, paid with a UTR; rider 2's batch cancelled and released. Trips: ${trips.join(", ")}`;
+  return `rider 1: ${mine.earningsCount} earnings ₹${gross / 100} + adjustments ₹${adjustments / 100} (−₹50 and COD −₹${codTotal / 100}) = ₹${mine.amountPaise / 100}, shown on the rider's payout list, paid with a UTR; rider 2's batch cancelled and released. Trips: ${trips.join(", ")}`;
 }, { ...local, timeout: 420_000, partial: "the return-pickup fee is checked with the return journey in scenarios/SC-10-returns.spec.ts" });
 
 /* ------------------------------------------------------------ reconciliation */
@@ -520,6 +523,15 @@ interface ReconRecord {
   detail: string | null;
   expectedPaise: number | null;
   actualPaise: number | null;
+}
+
+/**
+ * Local: the stored reconciliation records (all of them — the admin API lists
+ * only the 200 most recently checked, and a 35-day run checks far more here).
+ */
+async function storedRecords(): Promise<ReconRecord[]> {
+  return db()<ReconRecord[]>`select id, entity_type as "entityType", entity_id as "entityId", reference, check_type as "checkType", status, detail,
+    expected_paise::int as "expectedPaise", actual_paise::int as "actualPaise" from reconciliation_records`;
 }
 
 async function reconRecords(role: "admin" | "ops" = "admin", status = ""): Promise<{ records: ReconRecord[]; counts: Record<string, number> }> {
@@ -542,7 +554,8 @@ qa("TC-FIN-021", "run reconciliation for the last 35 days: ORDER, PAYMENT, RIDER
     await expect(page.getByText("Reconciliation run.")).toBeVisible();
   });
   expect((await auditRows("finance.reconciliation_run", since)).length, "the run is audited").toBe(1);
-  const { records } = await reconRecords();
+  const listed = (await reconRecords()).records.length;
+  const records = await storedRecords();
   const fresh = records.filter((r) => r.status !== "RECONCILED");
   const by = (entityId: string, check: string) => records.find((r) => r.entityId === entityId && r.checkType === check);
   const b1 = kept("rateType", "shop B's order of TC-FIN-002");
@@ -568,13 +581,14 @@ qa("TC-FIN-021", "run reconciliation for the last 35 days: ORDER, PAYMENT, RIDER
   if (unnamed.length) bad.push(`${unnamed.length} non-matched records without a detail: ${unnamed.slice(0, 3).map((r) => `${r.entityType}/${r.checkType}`).join(", ")}`);
   expect(bad, bad.join("\n")).toEqual([]);
   const entities = [...new Set(records.filter((r) => r.status === "MATCHED").map((r) => r.entityType))].sort();
-  return `${from}…${to}: MATCHED for ${entities.join(", ")}; the uncredited ₹77 top-up is UNMATCHED ("${gap?.detail}")`;
+  return `${from}…${to}: MATCHED for ${entities.join(", ")}; the uncredited ₹77 top-up is UNMATCHED ("${gap?.detail}"); ${records.length} records stored, the admin list shows ${listed}`;
 }, local);
 
 qa("TC-FIN-022", "operator resolves an open reconciliation exception with a note (RECONCILED, audited); without a note refused; settlement and payout records are out of an operator's reach", async ({ browser }) => {
   const paymentId = unstash<string>(K("missingPayment")) ?? blocked("needs the open exception of TC-FIN-021");
   const { records } = await reconRecords("ops", "UNMATCHED,PARTIAL,EXCEPTION");
-  const open = need(records.find((r) => r.entityId === paymentId), "the open PAYMENT exception in the operator's view");
+  const open = need((await storedRecords()).find((r) => r.entityId === paymentId && r.status !== "MATCHED" && r.status !== "RECONCILED"), "the open PAYMENT exception");
+  const inOperatorList = records.some((r) => r.id === open.id);
   expect(records.every((r) => ["ORDER", "PAYMENT", "RIDER"].includes(r.entityType)), "operator sees only ORDER / PAYMENT / RIDER records").toBe(true);
   const noNote = await api("ops", "PATCH", `/api/finance/reconciliation/${open.id}`, {});
   expect(noNote.status, "resolve without a note").toBe(422);
@@ -582,14 +596,22 @@ qa("TC-FIN-022", "operator resolves an open reconciliation exception with a note
   expect(shortNote.status, "resolve with a two-letter note").toBe(422);
   const since = new Date(Date.now() - 1000);
   const note = `QA ${RUN}: gateway confirmed the top-up failed; customer told`;
-  await asPage(browser, "ops", "/admin/finance/exceptions", async (page) => {
+  let via = "the exceptions page";
+  const onPage = await asPage(browser, "ops", "/admin/finance/exceptions", async (page) => {
     const row = page.getByTestId("exception-reconciliation").locator("div.flex").filter({ hasText: open.reference }).first();
+    if (!(await row.count())) return false;
     await row.getByRole("button", { name: "Resolve" }).click();
     await row.getByLabel("Resolution note").fill(note);
     await row.getByRole("button", { name: "Mark reconciled" }).click();
     await expect(page.getByTestId("exception-reconciliation").getByText(open.reference)).toHaveCount(0);
+    return true;
   });
-  const after = (await reconRecords("admin")).records.find((r) => r.id === open.id);
+  if (!onPage) {
+    // The open records are many here (every ORDER_PAYMENT is UNMATCHED — see TC-FIN-021), and the page lists the newest only.
+    via = `the API (the page lists the newest open records only; this one is ${inOperatorList ? "in" : "not in"} the operator's list)`;
+    expectStatus(await api("ops", "PATCH", `/api/finance/reconciliation/${open.id}`, { note }), 200, "operator resolves");
+  }
+  const after = (await storedRecords()).find((r) => r.id === open.id);
   expect(after?.status).toBe("RECONCILED");
   expect((await auditRows("finance.reconciliation_resolved", since, open.id)).length, "audited").toBe(1);
   // A settlement / payout record: refused to an operator (looks like a missing record).
@@ -599,7 +621,7 @@ qa("TC-FIN-022", "operator resolves an open reconciliation exception with a note
     const res = await api("ops", "PATCH", `/api/finance/reconciliation/${batchRecord.id}`, { note: "QA operator tries a batch record" });
     expect(res.status, `operator on a ${batchRecord.entityType} record`).toBe(404);
   }
-  return `PAYMENT exception ${open.reference} → RECONCILED by the operator through the page, audited; no / short note → 422; operator on a ${batchRecord?.entityType ?? "batch"} record → 404`;
+  return `PAYMENT exception ${open.reference} → RECONCILED by the operator through ${via}, audited; no / short note → 422; operator on a ${batchRecord?.entityType ?? "batch"} record → 404`;
 }, local);
 
 qa("TC-FIN-023", "finance exceptions queue: payments, refunds pending, cancellations, delivery adjustments, open reconciliation; admin also sees failed / reversed batches and overdue settlements; operator sees no batch totals", async ({ browser }) => {
@@ -645,6 +667,9 @@ qa("TC-FIN-024", "finance summary for a period equals the hand computation; the 
     select order_id, gmv_paise::int as gmv, goods_paise::int as goods, commission_paise::int as commission, delivery_fee_paise::int as fee, shop_delivery_charge_paise::int as charge, discount_paise::int as discount
     from order_financials where delivered_at >= ${`${day}T00:00:00+05:30`} and delivered_at < ${`2026-09-16T00:00:00+05:30`}`;
   const riders = await db()<{ total: number }[]>`select coalesce(sum(total_paise), 0)::int as total from delivery_partner_earnings where created_at >= ${`${day}T00:00:00+05:30`} and created_at < ${`2026-09-16T00:00:00+05:30`}`;
+  // Refunds after delivery in the window (this run's ₹5 plus any an earlier run left on the same quiet date).
+  const [refunds] = await db()<{ total: number }[]>`select coalesce(sum(customer_refund_paise), 0)::int as total from financial_adjustments where created_at >= ${`${day}T00:00:00+05:30`} and created_at < ${`2026-09-16T00:00:00+05:30`}`;
+  expect(refunds.total, "the ₹5 refund is in the window").toBeGreaterThanOrEqual(500);
   const ids = rows.map((r) => r.order_id);
   expect(ids, "the 00:10 IST delivery is in the day").toContain(x.id);
   expect(ids, "the 23:50 IST delivery (previous day) is not").not.toContain(y.id);
@@ -657,11 +682,11 @@ qa("TC-FIN-024", "finance summary for a period equals the hand computation; the 
     commissionPaise: rows.reduce((a, r) => a + r.commission, 0),
     deliveryFeeRevenuePaise: rows.reduce((a, r) => a + r.fee + r.charge, 0),
     riderCostPaise: riders[0].total,
-    refundsAfterDeliveryPaise: 500,
+    refundsAfterDeliveryPaise: refunds.total,
   };
   for (const [k, v] of Object.entries(hand)) expect(s[k], k).toBe(v);
   expect(s.platformNetPaise, "platform net").toBe(s.commissionPaise + s.deliveryFeeRevenuePaise - s.riderCostPaise - s.discountPaise - s.platformRefundCostPaise);
-  return `${day} (IST): ${hand.deliveredOrders} delivered, GMV ₹${hand.gmvPaise / 100}, commission ₹${hand.commissionPaise / 100}, delivery fees ₹${hand.deliveryFeeRevenuePaise / 100}, rider cost ₹${hand.riderCostPaise / 100}, refunds ₹5 — all equal; the 23:50 IST drop counted on the 14th`;
+  return `${day} (IST): ${hand.deliveredOrders} delivered, GMV ₹${hand.gmvPaise / 100}, commission ₹${hand.commissionPaise / 100}, delivery fees ₹${hand.deliveryFeeRevenuePaise / 100}, rider cost ₹${hand.riderCostPaise / 100}, refunds ₹${refunds.total / 100} (incl. this run's ₹5) — all equal; the 23:50 IST drop counted on the 14th`;
 }, local);
 
 qa("TC-FIN-025", "order money trace: payment, wallet entries, snapshot, adjustments, journal, settlement, rider earning and reconciliation", async () => {

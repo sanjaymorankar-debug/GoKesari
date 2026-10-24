@@ -13,6 +13,8 @@
 import { and, desc, eq, lte } from "drizzle-orm";
 
 import { notFound, validationFailed } from "@/lib/errors";
+import { formatPaise } from "@/lib/money";
+import { MAX_REGISTRATION_FEE_PAISE } from "@/lib/money-limits";
 import { db, type DbClient } from "@/server/db";
 import {
   registrationFeeHistory,
@@ -98,6 +100,12 @@ export async function setRegistrationFee(
 ): Promise<RegistrationFee> {
   if (!Number.isInteger(input.amountPaise) || input.amountPaise < 0) {
     throw validationFailed("Registration fee must be a whole number of paise, zero or more.");
+  }
+  // TC-FLD-112: ₹10 crore was accepted.
+  if (input.amountPaise > MAX_REGISTRATION_FEE_PAISE) {
+    throw validationFailed(`The registration fee can be at most ${formatPaise(MAX_REGISTRATION_FEE_PAISE)}.`, {
+      fields: { amountPaise: `At most ${formatPaise(MAX_REGISTRATION_FEE_PAISE)}.` },
+    });
   }
 
   const effectiveFrom = input.effectiveFrom ?? new Date().toISOString().slice(0, 10);

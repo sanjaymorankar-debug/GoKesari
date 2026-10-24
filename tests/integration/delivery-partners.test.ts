@@ -161,7 +161,7 @@ describe("verification state machine", () => {
     const suspended = await suspendDeliveryPartner(partner.id, "policy violation", ADMIN(admin.id));
     expect(suspended.status).toBe("SUSPENDED");
 
-    const reactivated = await reactivateDeliveryPartner(partner.id, ADMIN(admin.id));
+    const reactivated = await reactivateDeliveryPartner(partner.id, "appeal accepted", ADMIN(admin.id));
     expect(reactivated.status).toBe("APPROVED");
   });
 
@@ -170,7 +170,7 @@ describe("verification state machine", () => {
     const admin = await createUser({ role: "ADMIN" });
     const partner = await registerDeliveryPartner(applicant.id, baseInput);
 
-    await expect(reactivateDeliveryPartner(partner.id, ADMIN(admin.id))).rejects.toMatchObject({
+    await expect(reactivateDeliveryPartner(partner.id, "appeal accepted", ADMIN(admin.id))).rejects.toMatchObject({
       code: "CONFLICT",
     });
   });

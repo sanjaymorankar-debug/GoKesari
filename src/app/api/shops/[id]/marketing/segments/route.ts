@@ -27,14 +27,13 @@ const schema = z.object({
 });
 
 export const POST = route(async (request: NextRequest, context: RouteContext<{ id: string }>) => {
-  // Signed in first: a guest gets 401 before the body or the record is read (TC-SEC-001).
+  // Signed in first: a guest gets 401 before the body or the record is read (TC-SEC-001);
+  // then the shop's marketing access, so another shop's owner gets 403, not field names (TC-RBAC-005).
   await requireUser();
   const { id } = await context.params;
+  await requireShopMarketing(id, "view");
   const body = await parseBody(request, schema);
-  if (body.preview) {
-    await requireShopMarketing(id, "view");
-    return ok(await previewAudience(id, body.rules));
-  }
+  if (body.preview) return ok(await previewAudience(id, body.rules));
   const user = await requireShopMarketing(id, "manage");
   return ok(await saveSegment(id, { name: body.name ?? "", rules: body.rules }, user), 201);
 });

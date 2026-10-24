@@ -462,11 +462,11 @@ describe("POST /api/shops", () => {
 
     const result = await call(registerRoute, "/api/shops", {
       method: "POST",
-      body: { ...baseShop, categoryIds, gstin: " 27abcde1234f1z5 " },
+      body: { ...baseShop, categoryIds, gstin: " 27abcde1234f1z0 " },
     });
     expect(result.status).toBe(201);
     const [row] = await db.select().from(shops).where(eq(shops.id, result.body.id));
-    expect(row.gstin).toBe("27ABCDE1234F1Z5");
+    expect(row.gstin).toBe("27ABCDE1234F1Z0");
     expect(row.gstStatus).toBe("PENDING_VERIFICATION");
     expect(row.gstVerificationSource).toBe("SELF_DECLARED");
   });
@@ -490,7 +490,7 @@ describe("POST /api/shops", () => {
 
     const result = await call(registerRoute, "/api/shops", {
       method: "POST",
-      body: { ...baseShop, categoryIds, gstin: "27ABCDE1234F1Z5", panNumber: "ABCD1234", panHolderName: "Ramesh Patil" },
+      body: { ...baseShop, categoryIds, gstin: "27ABCDE1234F1Z0", panNumber: "ABCD1234", panHolderName: "Ramesh Patil" },
     });
     expect(result.status).toBe(422);
     expect(Object.keys(result.body.error.details.fields)).toEqual(["panNumber"]);

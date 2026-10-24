@@ -8,10 +8,19 @@
  */
 import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, or, sql } from "drizzle-orm";
 
+import { parseSellerFssai } from "@/lib/kyc/doc-formats";
 import { likePattern } from "@/lib/like-pattern";
 import { AppError, conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { formatPaise } from "@/lib/money";
-import { parseGstin } from "@/lib/shop-identity";
+import { panBlindIndex } from "@/lib/pan-crypto";
+import { GSTIN_PAN_MISMATCH_MESSAGE, gstinPan, parseGstin } from "@/lib/shop-identity";
+import {
+  MAX_DELIVERY_FEE_PAISE,
+  MAX_FREE_DELIVERY_ABOVE_PAISE,
+  MAX_MIN_ORDER_PAISE,
+  MAX_PREPARATION_MINUTES,
+  MIN_PREPARATION_MINUTES,
+} from "@/lib/shop-settings";
 import type { ShopTypeKey } from "@/lib/shop-types";
 import { db } from "@/server/db";
 import {
@@ -211,6 +220,12 @@ export async function registerShop(
       });
     }
     gstin = parsed.value;
+    // TC-FLD-043: characters 3–12 of a GSTIN are the business's PAN.
+    if (identity.pan && gstinPan(gstin) !== identity.pan.normalized) {
+      throw validationFailed("Please check the highlighted fields.", {
+        fields: { gstin: GSTIN_PAN_MISMATCH_MESSAGE },
+      });
+    }
   }
   // Stored as submitGstin() stores an owner's GSTIN: self-declared, awaiting
   // verification. Absent, nothing is written, so a resubmission keeps what is on file.
@@ -263,23 +278,35 @@ export async function registerShop(
   }
 
   // What the owner typed — shared by a new registration and a resubmission.
+  // Text is stored without its outer spaces; spaces alone are no value (TC-FLD-037).
+  const text = (value: string | null | undefined) => value?.trim() || null;
+  const addressLine1 = input.addressLine1.trim();
+  const city = input.city.trim();
+  if (addressLine1.length < 3 || city.length < 2) {
+    throw validationFailed("Please check the highlighted fields.", {
+      fields: {
+        ...(addressLine1.length < 3 ? { addressLine1: "Enter the shop's address." } : {}),
+        ...(city.length < 2 ? { city: "Enter the city." } : {}),
+      },
+    });
+  }
   const details = {
     name: input.name.trim(),
     ownerName: input.ownerName.trim(),
     phone: input.phone,
-    email: input.email ?? null,
-    addressLine1: input.addressLine1,
-    addressLine2: input.addressLine2 ?? null,
-    area: input.area ?? null,
-    city: input.city,
-    state: input.state ?? null,
+    email: text(input.email),
+    addressLine1,
+    addressLine2: text(input.addressLine2),
+    area: text(input.area),
+    city,
+    state: text(input.state),
     pincode: input.pincode,
     latitude: input.latitude ?? null,
     longitude: input.longitude ?? null,
     pickupLatitude: input.pickupLatitude ?? null,
     pickupLongitude: input.pickupLongitude ?? null,
-    pickupInstructions: input.pickupInstructions ?? null,
-    landmark: input.landmark ?? null,
+    pickupInstructions: text(input.pickupInstructions),
+    landmark: text(input.landmark),
     locationVerified,
     locationVerifiedAt,
     locationSource,
@@ -290,7 +317,7 @@ export async function registerShop(
     deliveryAvailable: input.deliveryAvailable ?? false,
     deliveryFeePaise: input.deliveryFeePaise ?? 0,
     freeDeliveryAbovePaise: input.freeDeliveryAbovePaise ?? null,
-    description: input.description ?? null,
+    description: text(input.description),
   };
 
   const candidate: RegistrationCandidate = {
@@ -542,8 +569,19 @@ export async function updateShopCompliance(
   });
   if (!current) throw notFound("Shop");
 
-  if (patch.gstin && !/^[0-9A-Z]{15}$/.test(patch.gstin)) {
-    throw validationFailed("GSTIN must be 15 alphanumeric characters.");
+  // The same GSTIN and FSSAI rules as the owner's own entries (TC-FLD-043, TC-FLD-044).
+  if (patch.gstin) {
+    const parsed = parseGstin(patch.gstin);
+    if (!parsed.ok) throw validationFailed(parsed.error, { fields: { gstin: parsed.error } });
+    if (current.panHash && panBlindIndex(gstinPan(parsed.value)) !== current.panHash) {
+      throw validationFailed(GSTIN_PAN_MISMATCH_MESSAGE, { fields: { gstin: GSTIN_PAN_MISMATCH_MESSAGE } });
+    }
+    patch = { ...patch, gstin: parsed.value };
+  }
+  if (patch.fssaiLicenseNumber) {
+    const parsed = parseSellerFssai(patch.fssaiLicenseNumber);
+    if (!parsed.ok) throw validationFailed(parsed.error, { fields: { fssaiLicenseNumber: parsed.error } });
+    patch = { ...patch, fssaiLicenseNumber: parsed.value.normalized };
   }
 
   const [updated] = await db
@@ -708,6 +746,10 @@ function approveShopTransaction(
       .where(eq(shops.id, shopId))
       .for("update");
     if (!shop) throw notFound("Shop");
+    // A closed shop stays closed: approval would put it back on the marketplace (TC-ONB-043).
+    if (shop.deletedAt) {
+      throw conflict("This shop is closed and cannot be approved.");
+    }
     if (shop.status === "APPROVED") {
       throw conflict("This shop is already approved.");
     }
@@ -766,15 +808,34 @@ export async function rejectShop(
   reason: string,
   actor: { id: string; role: UserRole },
 ): Promise<Shop> {
-  if (!reason.trim()) {
+  // Stored without its outer spaces (TC-FLD-121).
+  const trimmed = reason.trim();
+  if (!trimmed) {
     throw validationFailed("A rejection reason is required.");
   }
+  // Only a registration awaiting approval can be rejected. An approved, suspended
+  // or closed shop is not "a registration that wasn't approved": rejecting it
+  // used to turn a suspension or a trading shop into REJECTED (TC-ONB-038, TC-FLD-121).
   const [updated] = await db
     .update(shops)
-    .set({ status: "REJECTED", rejectionReason: reason, statusActorId: actor.id, updatedAt: new Date() })
-    .where(eq(shops.id, shopId))
+    .set({ status: "REJECTED", rejectionReason: trimmed, statusActorId: actor.id, updatedAt: new Date() })
+    .where(and(eq(shops.id, shopId), eq(shops.status, "PENDING_APPROVAL"), isNull(shops.deletedAt)))
     .returning();
-  if (!updated) throw notFound("Shop");
+  if (!updated) {
+    const existing = await db.query.shops.findFirst({
+      where: eq(shops.id, shopId),
+      columns: { status: true, deletedAt: true },
+    });
+    if (!existing) throw notFound("Shop");
+    throw conflict(
+      existing.deletedAt
+        ? "This shop is closed and cannot be rejected."
+        : existing.status === "REJECTED"
+          ? "This shop's registration is already rejected."
+          : "Only a shop awaiting approval can be rejected. Suspend an approved shop instead.",
+      { status: existing.status },
+    );
+  }
 
   await recordAudit({
     actorId: actor.id,
@@ -782,14 +843,15 @@ export async function rejectShop(
     action: AUDIT_ACTIONS.SHOP_REJECTED,
     entityType: "shop",
     entityId: shopId,
-    newValue: { status: "REJECTED", reason },
+    previousValue: { status: "PENDING_APPROVAL" },
+    newValue: { status: "REJECTED", reason: trimmed },
   });
 
   await notify({
     userId: updated.ownerId,
     type: NOTIFICATION_TYPES.SHOP_REJECTED,
     title: "Your shop registration wasn't approved",
-    body: `${reason.trim().replace(/[.\s]+$/, "")}. You can correct the details and resubmit from My Shop.`,
+    body: `${trimmed.replace(/[.\s]+$/, "")}. You can correct the details and resubmit from My Shop.`,
     actionUrl: "/shop",
   });
   return updated;
@@ -877,6 +939,8 @@ export interface UpdateShopInput {
   deliveryPincodes?: string[];
   /** Minimum order subtotal in paise (0 = none). */
   minOrderPaise?: number;
+  /** TC-FLD-054: minutes the shop needs to prepare an order (5–240). */
+  preparationTimeMinutes?: number;
   /** Pause new orders without leaving the marketplace. */
   ordersPaused?: boolean;
   /** GS-030: accept cash on delivery (within the platform's COD limits). */
@@ -916,6 +980,22 @@ export async function updateShop(
   }
   if (input.minOrderPaise !== undefined && (!Number.isInteger(input.minOrderPaise) || input.minOrderPaise < 0)) {
     throw validationFailed("Minimum order must be a whole, non-negative amount.");
+  }
+  // The same bounds as the settings API (lib/shop-settings.ts; TC-FLD-051/053/054).
+  for (const [value, max, message] of [
+    [input.minOrderPaise, MAX_MIN_ORDER_PAISE, "Minimum order can be at most ₹1,00,000."],
+    [input.deliveryFeePaise, MAX_DELIVERY_FEE_PAISE, "Delivery fee must be between ₹0 and ₹5,000."],
+    [input.freeDeliveryAbovePaise, MAX_FREE_DELIVERY_ABOVE_PAISE, "Free delivery can start at most at ₹1,00,000."],
+  ] as const) {
+    if (value != null && (!Number.isInteger(value) || value < 0 || value > max)) throw validationFailed(message);
+  }
+  if (
+    input.preparationTimeMinutes !== undefined &&
+    (!Number.isInteger(input.preparationTimeMinutes) ||
+      input.preparationTimeMinutes < MIN_PREPARATION_MINUTES ||
+      input.preparationTimeMinutes > MAX_PREPARATION_MINUTES)
+  ) {
+    throw validationFailed(`Preparation time must be ${MIN_PREPARATION_MINUTES}–${MAX_PREPARATION_MINUTES} minutes.`);
   }
 
   const [current] = await db
@@ -966,6 +1046,7 @@ export async function updateShop(
       serviceRadiusKm: current.serviceRadiusKm,
       deliveryPincodes: current.deliveryPincodes,
       minOrderPaise: current.minOrderPaise,
+      preparationTimeMinutes: current.preparationTimeMinutes,
       ordersPaused: current.ordersPaused,
       codEnabled: current.codEnabled,
       ...(input.contactPhone !== undefined ? { contactPhone: current.contactPhone } : {}),
@@ -980,6 +1061,7 @@ export async function updateShop(
       serviceRadiusKm: updated.serviceRadiusKm,
       deliveryPincodes: updated.deliveryPincodes,
       minOrderPaise: updated.minOrderPaise,
+      preparationTimeMinutes: updated.preparationTimeMinutes,
       ordersPaused: updated.ordersPaused,
       codEnabled: updated.codEnabled,
       ...(input.contactPhone !== undefined ? { contactPhone: updated.contactPhone } : {}),
@@ -1010,7 +1092,9 @@ export async function changeClassification(
   if (actor.role !== "OPERATOR" && actor.role !== "ADMIN") {
     throw forbidden("Only an operator or administrator can change this.");
   }
-  if (!reason.trim()) {
+  // Stored without its outer spaces (TC-FLD-121).
+  const trimmedReason = reason.trim();
+  if (!trimmedReason) {
     throw validationFailed("A reason is required when changing classification.");
   }
 
@@ -1036,7 +1120,7 @@ export async function changeClassification(
       previousValue: shop.classification,
       newValue,
       changedBy: actor.id,
-      reason,
+      reason: trimmedReason,
     });
 
     await recordAudit(
@@ -1047,7 +1131,7 @@ export async function changeClassification(
         entityType: "shop",
         entityId: shopId,
         previousValue: { classification: shop.classification },
-        newValue: { classification: newValue, reason },
+        newValue: { classification: newValue, reason: trimmedReason },
       },
       tx,
     );

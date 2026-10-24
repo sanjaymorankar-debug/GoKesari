@@ -103,7 +103,7 @@ qa("TC-FIN-028", "tax invoice after delivery from a GST-registered shop: shop na
   expect(inv.total_paise, "invoice total = the goods of the order").toBe(detail.subtotalPaise);
   expect(inv.snapshot.payment.paidByCustomerPaise, "paid by the customer = the order total").toBe(detail.totalPaise);
 
-  const page = await asPage(browser, "customer", "/orders", async (p) => {
+  const page = await asPage(browser, "customer", "/orders?tab=past", async (p) => {
     const card = p.getByTestId("order-card").filter({ hasText: order.orderNumber }).first();
     await card.getByRole("link", { name: "Tax invoice" }).click();
     await p.waitForURL(/\/invoices\//);

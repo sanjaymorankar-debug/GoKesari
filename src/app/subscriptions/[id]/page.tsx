@@ -11,6 +11,7 @@ import { Badge, Card, Money, PageHeader } from "@/components/ui";
 import { addDays, formatDisplayDate, todayIn } from "@/lib/dates";
 import { getEnv } from "@/lib/env";
 import { MILLI_PER_UNIT } from "@/lib/money";
+import { subscriptionQuantityMax, subscriptionQuantityStep } from "@/lib/subscription-quantity";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import {
@@ -34,6 +35,9 @@ export default async function SubscriptionDetailPage({
   const subscription = await getSubscriptionDetail(id);
   if (!subscription) notFound();
   const history = await listSubscriptionEvents(id);
+  // TC-FLD-107: the same quantity step and maximum the server enforces.
+  const stepMilli = subscriptionQuantityStep(subscription.unit, subscription.unitSizeMilli);
+  const maxMilli = subscriptionQuantityMax(subscription.unit, subscription.unitSizeMilli);
 
   // Ownership: a customer may only view their own subscription. Operators and
   // admins reach subscriptions through the admin area, not this page.
@@ -96,6 +100,8 @@ export default async function SubscriptionDetailPage({
               }
               unit={subscription.unit}
               unitPricePaise={subscription.currentUnitPricePaise}
+              stepMilli={stepMilli}
+              maxMilli={maxMilli}
               isSkipped={tomorrowEntry.reason === "SKIPPED"}
               isOverridden={tomorrowEntry.isOverridden}
               locked={
@@ -110,6 +116,7 @@ export default async function SubscriptionDetailPage({
             status={subscription.status}
             standingQuantityMilli={subscription.quantityMilli}
             unit={subscription.unit}
+            stepMilli={stepMilli}
             pauseFrom={subscription.pauseFrom}
             pauseUntil={subscription.pauseUntil}
             endDate={subscription.endDate}
@@ -179,6 +186,8 @@ export default async function SubscriptionDetailPage({
           unit={subscription.unit}
           standingQuantityMilli={subscription.quantityMilli}
           unitPricePaise={subscription.currentUnitPricePaise}
+          stepMilli={stepMilli}
+          maxMilli={maxMilli}
         />
       </div>
     </>

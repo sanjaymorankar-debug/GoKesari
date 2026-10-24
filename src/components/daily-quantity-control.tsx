@@ -27,6 +27,8 @@ export function DailyQuantityControl({
   isSkipped,
   isOverridden,
   locked,
+  stepMilli = MILLI_PER_UNIT / 2,
+  maxMilli,
 }: {
   subscriptionId: string;
   date: string;
@@ -38,6 +40,10 @@ export function DailyQuantityControl({
   isSkipped: boolean;
   isOverridden: boolean;
   locked: boolean;
+  /** TC-FLD-107: the product's step (src/lib/subscription-quantity.ts); 0.5 of a unit by default. */
+  stepMilli?: number;
+  /** The most one delivery may be; the server refuses more. */
+  maxMilli?: number;
 }) {
   const router = useRouter();
   const [quantityMilli, setQuantityMilli] = useState(currentQuantityMilli);
@@ -45,7 +51,8 @@ export function DailyQuantityControl({
   const [error, setError] = useState<string | null>(null);
   const [saved, setSaved] = useState(false);
 
-  const STEP = MILLI_PER_UNIT / 2; // 0.5 of a unit
+  const STEP = stepMilli;
+  const stepLabel = STEP / MILLI_PER_UNIT;
   const dirty = quantityMilli !== currentQuantityMilli;
   const cost =
     unitPricePaise && quantityMilli > 0
@@ -54,7 +61,7 @@ export function DailyQuantityControl({
 
   function adjust(deltaMilli: number) {
     setSaved(false);
-    setQuantityMilli((q) => Math.max(STEP, q + deltaMilli));
+    setQuantityMilli((q) => Math.min(maxMilli ?? Number.MAX_SAFE_INTEGER, Math.max(STEP, q + deltaMilli)));
   }
 
   function onManualEntry(value: string) {
@@ -147,9 +154,9 @@ export function DailyQuantityControl({
               size="lg"
               disabled={busy || quantityMilli <= STEP}
               onClick={() => adjust(-STEP)}
-              aria-label={`Decrease by 0.5 ${unit}`}
+              aria-label={`Decrease by ${stepLabel} ${unit}`}
             >
-              −0.5 {unit}
+              −{stepLabel} {unit}
             </Button>
 
             <div className="min-w-24 text-center">
@@ -162,11 +169,11 @@ export function DailyQuantityControl({
             <Button
               variant="secondary"
               size="lg"
-              disabled={busy}
+              disabled={busy || (maxMilli !== undefined && quantityMilli >= maxMilli)}
               onClick={() => adjust(STEP)}
-              aria-label={`Increase by 0.5 ${unit}`}
+              aria-label={`Increase by ${stepLabel} ${unit}`}
             >
-              +0.5 {unit}
+              +{stepLabel} {unit}
             </Button>
           </div>
 
@@ -177,8 +184,9 @@ export function DailyQuantityControl({
             <input
               id="manual-qty"
               type="number"
-              min={0.5}
-              step={0.5}
+              min={stepLabel}
+              step={stepLabel}
+              max={maxMilli !== undefined ? maxMilli / MILLI_PER_UNIT : undefined}
               defaultValue={quantityMilli / MILLI_PER_UNIT}
               onChange={(e) => onManualEntry(e.target.value)}
               className="w-20 rounded-lg border border-cream-200 px-2 py-1 text-sm tabular-nums focus:border-kesari-500 focus:outline-none"

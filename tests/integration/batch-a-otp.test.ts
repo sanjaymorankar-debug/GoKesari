@@ -212,7 +212,7 @@ describe("providers", () => {
     await requestLoginOtp({ email: "audited@example.com" });
     const code = lastCodeTo("audited@example.com");
     await expect(verifyLoginOtp({ email: "audited@example.com", code: code === "000000" ? "111111" : "000000" })).rejects.toThrow();
-    await verifyLoginOtp({ email: "audited@example.com", code });
+    await verifyLoginOtp({ email: "audited@example.com", code, acceptedTerms: true });
     const rows = await db.select().from(auditLogs).where(inArray(auditLogs.action, ["auth.otp_requested", "auth.otp_failed", "auth.otp_verified"]));
     expect(rows.map((r) => r.action).sort()).toEqual(["auth.otp_failed", "auth.otp_requested", "auth.otp_verified"]);
     for (const r of rows) expect(JSON.stringify(r.newValue)).not.toContain("audited@example.com");
@@ -232,7 +232,8 @@ describe("purge job", () => {
     });
     const response = await housekeepingRoute(request);
     expect(response.status).toBe(200);
-    expect(await response.json()).toEqual({ otps: { deleted: 3 } });
+    // The same job forgets expired sign-out revocations too (TC-AUTH-034); none here.
+    expect(await response.json()).toEqual({ otps: { deleted: 3 }, sessions: { deleted: 0 } });
     const left = await db.select().from(loginOtps);
     expect(left.map((r) => r.email)).toEqual(["keep@example.com"]);
     expect((await purgeExpiredOtps()).deleted).toBe(0);

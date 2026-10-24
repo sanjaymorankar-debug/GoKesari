@@ -506,7 +506,7 @@ qa(["TC-FLD-082", "TC-FUL-004"], "reject reason: blank, spaces, 1 character and 
   return `${seen.join(", ")}; kept as written: ${kept.join(", ")} (trimmed), shown as text on /notifications`;
 }, { ...signed, timeout: 300_000 });
 
-qa("TC-FLD-083", "remove-line reason: nothing chosen and a value outside the list are refused (422); the chosen reason is kept", async () => {
+qa("TC-FLD-083", "remove-line reason: a value outside the list is refused (422); no reason keeps the default 'Unavailable'; the chosen reason is kept", async () => {
   await ensureWallet();
   const [packaged, bread, milk] = [await listingOf("packaged"), await listingOf("sharedA"), await listingOf("milk")];
   const placed = await checkoutLines([{ listing: packaged }, { listing: bread }, { listing: milk }]);
@@ -522,7 +522,9 @@ qa("TC-FLD-083", "remove-line reason: nothing chosen and a value outside the lis
     expectStatus(listed, 200, "the screen's reason");
     expect((await orderRow(placed.id)).items.find((i) => i.id === items[2].id)?.fulfilmentNote).toBe("Out of stock");
     seen.push("'Out of stock' (the only reason the screen sends) → 200, kept");
-    expect([none.status, odd.status], `refusals expected — ${seen.join("; ")}`).toEqual([422, 422]);
+    // No reason saves the long-standing default "Unavailable" (src/lib/order-line-removal.ts); anything else must be on the list.
+    expect([none.status, odd.status], `answers — ${seen.join("; ")}`).toEqual([200, 422]);
+    expect((await orderRow(placed.id)).items.find((i) => i.id === items[0].id)?.fulfilmentNote, "the default reason").toBe("Unavailable");
   } finally {
     await abandon(placed.id);
   }

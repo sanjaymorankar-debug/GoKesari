@@ -149,7 +149,7 @@ qa("TC-DSP-002", "only online, approved riders are offered: an offline rider is 
     }
   } finally {
     await db()`update delivery_partners set is_online = false where id = ${applicant.partnerId}`;
-    await call(await as("ops"), "PATCH", `/api/delivery-partner/${partner2}`, { action: "reactivate" });
+    await call(await as("ops"), "PATCH", `/api/delivery-partner/${partner2}`, { action: "reactivate", reason: "QA: reinstated after the check" });
     await applicant.ctx.dispose();
   }
   return notes.join("; ");
@@ -704,7 +704,7 @@ qa("TC-DEL-026", "suspending (the plan's BLOCKED) a rider: no new offers, going 
     notes.push(`online → ${online.status}; no new offer; accept the offer in hand → ${accept.status}${accept.status === 200 ? ` (order now ${await statusOf(held.id)})` : ""}`);
     expect(accept.status, `a suspended rider accepting the offer in hand — ${notes.join("; ")}`).toBe(409);
   } finally {
-    await call(ops, "PATCH", `/api/delivery-partner/${partner}`, { action: "reactivate" });
+    await call(ops, "PATCH", `/api/delivery-partner/${partner}`, { action: "reactivate", reason: "QA: reinstated after the check" });
     for (const id of made) await abandon(id);
   }
   return notes.join("; ");
@@ -733,7 +733,7 @@ qa("TC-DEL-021", "a rider suspended on an active delivery: it stays assigned, le
     expect(next?.rider, "re-offered to another rider").toBe("rider2");
     return "order stays ASSIGNED, the job is hidden from the suspended rider's app, operations reassigned it to rider 2";
   } finally {
-    await call(ops, "PATCH", `/api/delivery-partner/${partner}`, { action: "reactivate" });
+    await call(ops, "PATCH", `/api/delivery-partner/${partner}`, { action: "reactivate", reason: "QA: reinstated after the check" });
     await abandon(job.id);
   }
 }, { ...local, mobile: true, partial: "recorded behaviour (the plan calls it a known gap)" });

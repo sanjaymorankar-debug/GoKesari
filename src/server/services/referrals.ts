@@ -282,7 +282,8 @@ export async function getReferralPerformance() {
       referrerName: referralCodes.referrerName,
       status: referralCodes.status,
       shopCount: sql<number>`COUNT(${referralRedemptions.id})::int`,
-      feesAttributedPaise: sql<number>`COALESCE(SUM(${referralRedemptions.registrationFeePaise}), 0)::bigint`,
+      // A number, not a BigInt: JSON cannot carry a BigInt, so ?report=1 answered 500 (TC-ONB-025).
+      feesAttributedPaise: sql<number>`COALESCE(SUM(${referralRedemptions.registrationFeePaise}), 0)::bigint`.mapWith(Number),
     })
     .from(referralCodes)
     .leftJoin(

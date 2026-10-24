@@ -27,7 +27,7 @@ import {
   skipDate,
 } from "@/server/services/subscriptions";
 import { applyWalletMutation } from "@/server/services/wallet";
-import { createStandardMilkSetup, resetDatabase } from "../helpers/fixtures";
+import { createStandardMilkSetup, deliveryAddressId, resetDatabase } from "../helpers/fixtures";
 
 const TODAY = todayIn(getEnv().APP_TIMEZONE);
 const DAY = (n: number) => addDays(TODAY, n);
@@ -42,6 +42,8 @@ beforeEach(async () => {
 
 async function setup(options: { balancePaise?: number; draft?: boolean; startDate?: string; endDate?: string | null } = {}) {
   const fixture = await createStandardMilkSetup({ customerBalancePaise: options.balancePaise ?? 500_000 });
+  // TC-SUB-013: a delivery is generated only for a customer with a drop address.
+  await deliveryAddressId(fixture.customer.id);
   const subscription = await createSubscription({
     userId: fixture.customer.id,
     shopProductId: fixture.shopProduct.id,

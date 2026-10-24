@@ -38,7 +38,7 @@ import {
 } from "../lib/finance-helpers";
 import { db } from "../lib/db";
 import { expectStatus, why } from "../lib/http";
-import { expect, need, qa } from "../lib/record";
+import { expect, qa } from "../lib/record";
 
 const local = { tier: "local" as const, timeout: 420_000 };
 
@@ -164,14 +164,14 @@ qa("SC-18", "risk flag to suspension: two deliveries with every code attempt use
     if (closed.status !== "ACTIONED" || !closed.review_note?.includes(reason)) bad.push(`flag ${closed.status} "${closed.review_note}"`);
     if (!notes.some((n) => /suspend/i.test(n.title + n.body))) bad.push(`no suspension notice to the rider (${notes.map((n) => n.title).join(", ") || "none"})`);
     // 4. The admin reinstates.
-    expectStatus(await api("admin", "PATCH", `/api/delivery-partner/${rider2}`, { action: "reactivate" }), 200, "reinstate rider 2");
+    expectStatus(await api("admin", "PATCH", `/api/delivery-partner/${rider2}`, { action: "reactivate", reason: "QA: suspension reviewed" }), 200, "reinstate rider 2");
     const [back] = await db()<{ status: string }[]>`select status from delivery_partners where id = ${rider2}`;
     if (back.status !== "APPROVED") bad.push(`after reinstatement rider 2 is ${back.status}`);
     expect(bad, bad.join("\n")).toEqual([]);
     return `wrong codes → ${[...new Set(tries)].join("/")}; 2 lock-outs; rules run twice → one OTP_LOCKOUTS flag; suspended from /admin/risk by operations ("${reason}"), flag ACTIONED "${closed.review_note}", rider notified (${notes.map((n) => n.title).join(", ")}); reinstated → APPROVED`;
   } finally {
     const [p] = await db()<{ status: string }[]>`select status from delivery_partners where id = ${rider2}`;
-    if (p?.status === "SUSPENDED") await api("admin", "PATCH", `/api/delivery-partner/${rider2}`, { action: "reactivate" });
+    if (p?.status === "SUSPENDED") await api("admin", "PATCH", `/api/delivery-partner/${rider2}`, { action: "reactivate", reason: "QA cleanup" });
   }
 }, local);
 

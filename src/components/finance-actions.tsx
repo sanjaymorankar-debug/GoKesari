@@ -4,7 +4,8 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Alert, Button, Field, inputClass } from "@/components/ui";
-import { formatPaise, rupeesToPaise } from "@/lib/money";
+import { formatPaise } from "@/lib/money";
+import { parseRupeeInput } from "@/lib/rupee-input";
 
 /** Shared fetch + error handling for the finance console controls. */
 function useAction() {
@@ -236,9 +237,10 @@ export function RefundDeliveredForm({
   const [chargeTo, setChargeTo] = useState<"SHOP" | "PLATFORM">("SHOP");
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const [confirming, setConfirming] = useState(false);
-  const parsedAmount = Number(amount);
-  const convertedPaise = Number.isFinite(parsedAmount) && parsedAmount > 0 ? rupeesToPaise(parsedAmount) : 0;
-  const amountPaise = Number.isSafeInteger(convertedPaise) ? convertedPaise : 0;
+  // TC-FLD-099: read as typed — "10.555" is refused with a message, not rounded to ₹10.56.
+  const parsedAmount = parseRupeeInput(amount);
+  const amountPaise = parsedAmount.ok === true && parsedAmount.paise > 0 ? parsedAmount.paise : 0;
+  const amountError = parsedAmount.ok === false ? parsedAmount.error : null;
 
   async function submit() {
     setConfirming(false);
@@ -266,7 +268,7 @@ export function RefundDeliveredForm({
           onChange={(e) => setOrderNumber(e.target.value)}
         />
       </Field>
-      <Field label="Amount (₹)">
+      <Field label="Amount (₹)" error={amountError ?? undefined}>
         <input
           className={inputClass}
           type="number"
@@ -348,6 +350,10 @@ export function AdjustmentForm({
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
   const forShop = type === "SHOP_ADJUSTMENT";
   const forRider = type === "RIDER_ADJUSTMENT" || type === "DELIVERY_ADJUSTMENT";
+  // TC-FLD-099: the same no-rounding rule as the refund form (− recovers money).
+  const parsedAmount = parseRupeeInput(amount, { allowNegative: true });
+  const amountPaise = parsedAmount.ok === true ? parsedAmount.paise : 0;
+  const amountError = parsedAmount.ok === false ? parsedAmount.error : null;
 
   async function submit() {
     const ok = await send(
@@ -358,7 +364,7 @@ export function AdjustmentForm({
         shopId: forShop ? target : null,
         deliveryPartnerId: forRider ? target : null,
         orderNumber: orderNumber.trim() || null,
-        amountPaise: rupeesToPaise(Number(amount)),
+        amountPaise,
         reason,
         requestId,
       },
@@ -406,7 +412,7 @@ export function AdjustmentForm({
       <Field label="Order number (optional)">
         <input className={inputClass} value={orderNumber} onChange={(e) => setOrderNumber(e.target.value)} />
       </Field>
-      <Field label="Amount ₹ (− to recover)" hint="+ is owed to the shop/rider">
+      <Field label="Amount ₹ (− to recover)" hint="+ is owed to the shop/rider" error={amountError ?? undefined}>
         <input className={inputClass} type="number" step={0.01} value={amount} onChange={(e) => setAmount(e.target.value)} />
       </Field>
       <Field label="Reason">
@@ -414,7 +420,7 @@ export function AdjustmentForm({
       </Field>
       <div className="flex items-end">
         <Button
-          disabled={busy || !Number(amount) || reason.trim().length < 3 || ((forShop || forRider) && !target)}
+          disabled={busy || amountPaise === 0 || reason.trim().length < 3 || ((forShop || forRider) && !target)}
           onClick={submit}
         >
           Record adjustment

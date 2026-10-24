@@ -18,7 +18,7 @@
  */
 import { randomInt } from "node:crypto";
 
-import { and, desc, eq, inArray, isNull, lt, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, lt, ne, sql } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { parseCoordinates } from "@/lib/geo/haversine";
@@ -114,17 +114,21 @@ async function rankCandidates(
   if (pool.length <= 1) return pool;
 
   const ids = pool.map((c) => c.partner.id);
+  // TC-DSP-020/021: the outer rider is named in full. In a select list without
+  // a join Drizzle writes ${deliveryPartners.id} as a bare "id", which inside
+  // these subqueries is the delivery row's own id — every count was 0, so
+  // reliability and fairness never changed the order (see referrals.ts listReferralCodes).
   const stats = await client
     .select({
       partnerId: deliveryPartners.id,
-      delivered: sql<number>`(select count(*)::int from ${deliveryOrders} d where d.delivery_partner_id = ${deliveryPartners.id}
+      delivered: sql<number>`(select count(*)::int from ${deliveryOrders} d where d.delivery_partner_id = delivery_partners.id
         and d.status = 'DELIVERED' and d.updated_at > now() - interval '30 days')`,
-      failed: sql<number>`(select count(*)::int from ${deliveryOrders} d where d.delivery_partner_id = ${deliveryPartners.id}
+      failed: sql<number>`(select count(*)::int from ${deliveryOrders} d where d.delivery_partner_id = delivery_partners.id
         and d.status = 'FAILED' and d.updated_at > now() - interval '30 days')`,
-      declined: sql<number>`(select count(*)::int from ${deliveryOrders} d where ${deliveryPartners.id} = any(d.rejected_partner_ids)
+      declined: sql<number>`(select count(*)::int from ${deliveryOrders} d where delivery_partners.id = any(d.rejected_partner_ids)
         and d.updated_at > now() - interval '30 days')`,
-      offersToday: sql<number>`(select count(*)::int from ${deliveryOrders} d where (d.delivery_partner_id = ${deliveryPartners.id}
-        or ${deliveryPartners.id} = any(d.rejected_partner_ids)) and d.offered_at > date_trunc('day', now()))`,
+      offersToday: sql<number>`(select count(*)::int from ${deliveryOrders} d where (d.delivery_partner_id = delivery_partners.id
+        or delivery_partners.id = any(d.rejected_partner_ids)) and d.offered_at > date_trunc('day', now()))`,
     })
     .from(deliveryPartners)
     .where(inArray(deliveryPartners.id, ids));
@@ -249,11 +253,18 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
       // this same partner blocks here until the first one commits or
       // rolls back.
       const [lockedPartner] = await tx
-        .select({ id: deliveryPartners.id })
+        .select({
+          id: deliveryPartners.id,
+          status: deliveryPartners.status,
+          isOnline: deliveryPartners.isOnline,
+          deletedAt: deliveryPartners.deletedAt,
+        })
         .from(deliveryPartners)
         .where(eq(deliveryPartners.id, candidate.partner.id))
         .for("update");
-      if (!lockedPartner) continue;
+      // TC-DEL-026: re-checked under the lock — a rider suspended (or gone
+      // offline) since the candidate list was read is not offered the order.
+      if (!lockedPartner || lockedPartner.status !== "APPROVED" || !lockedPartner.isOnline || lockedPartner.deletedAt) continue;
 
       // GA-005: re-check the trip fit under the rider's lock with fresh data.
       let tripMembers: Awaited<ReturnType<typeof loadRiderMembers>> | null = null;
@@ -543,6 +554,8 @@ export async function acceptOfferInTransaction(
       and(
         eq(deliveryOrders.id, deliveryOrderId),
         eq(deliveryOrders.status, "OFFERED"),
+        // Still offered to this rider — not re-offered to someone else since it was read.
+        eq(deliveryOrders.deliveryPartnerId, row.deliveryPartnerId),
         offerTtlSeconds == null
           ? undefined
           : sql`${deliveryOrders.offeredAt} > now() - make_interval(secs => ${offerTtlSeconds})`,
@@ -550,6 +563,19 @@ export async function acceptOfferInTransaction(
     )
     .returning();
   if (!updated) throw conflict("This delivery offer is no longer available.");
+
+  // TC-DEL-026: only a rider who may work takes a job — the rule for going
+  // online (APPROVED, not deleted). Read on the rider's locked row (the
+  // delivery row first, then the rider, as every delivery change locks them),
+  // so a suspension committed before this accept always wins.
+  const [rider] = await tx
+    .select({ status: deliveryPartners.status, deletedAt: deliveryPartners.deletedAt })
+    .from(deliveryPartners)
+    .where(eq(deliveryPartners.id, updated.deliveryPartnerId))
+    .for("update");
+  if (!rider || rider.status !== "APPROVED" || rider.deletedAt) {
+    throw conflict("Your delivery partner account is not active, so you cannot accept deliveries. Contact support if you think this is wrong.");
+  }
 
   const [order] = await tx.select({ status: orders.status }).from(orders).where(eq(orders.id, row.orderId));
   // Only a READY order can take a rider — not one the shop has already
@@ -1282,8 +1308,9 @@ export async function dispatchReadyOrder(
       .from(riderSearches)
       .where(and(eq(riderSearches.orderId, orderId), eq(riderSearches.status, "SEARCHING")));
     if (open) {
+      // A cancelled order that has been refunded is REFUND_PENDING / REFUNDED by now (TC-DSP-011).
       const reason: StopReason =
-        order.status === "CANCELLED"
+        ["CANCELLED", "REFUND_PENDING", "REFUNDED"].includes(order.status)
           ? "ORDER_CANCELLED"
           : ["ASSIGNED", "PICKED_UP", "OUT_FOR_DELIVERY", "DELIVERED"].includes(order.status)
             ? "RIDER_ACCEPTED"
@@ -1506,6 +1533,24 @@ export async function stopRiderSearch(orderId: string, actor: Actor): Promise<vo
 }
 
 /**
+ * TC-DSP-011: cancelling an order ends its rider search at once ("The order
+ * was cancelled, so the search stopped.") and closes an open broadcast offer,
+ * inside the cancellation's own transaction. cancelOrder withdraws the order's
+ * single offer itself. Before this the search stayed SEARCHING: the dispatch
+ * sweep only looks at READY orders.
+ */
+export async function closeRiderSearchForCancelledOrder(orderId: string, client: DbClient): Promise<void> {
+  const now = new Date();
+  await client
+    .update(riderSearches)
+    .set({ status: "STOPPED", stopReason: "ORDER_CANCELLED", stoppedAt: now, updatedAt: now })
+    .where(and(eq(riderSearches.orderId, orderId), eq(riderSearches.status, "SEARCHING")));
+  // Imported lazily: dispatch-broadcast.ts sits above this module.
+  const { closeOpenBroadcastsForOrder } = await import("./dispatch-broadcast");
+  await closeOpenBroadcastsForOrder(orderId, STOP_MESSAGES.ORDER_CANCELLED, client);
+}
+
+/**
  * Offers nobody answered within OFFER_TTL_SECONDS count as declined: the
  * rider is remembered on the row and the order goes to the next rider.
  */
@@ -1550,9 +1595,66 @@ export async function expireStaleOffers(): Promise<number> {
   return expired.length;
 }
 
+/**
+ * TC-DEL-026: a rider who may no longer work (suspended or deactivated) loses
+ * the offers they have not accepted; each order goes straight on to the next
+ * rider, as after a decline. A job already accepted or picked up stays with
+ * the rider for operations to reassign (TC-DEL-021). Called once the status
+ * change has committed — from then on the rider cannot accept anyway
+ * (acceptOfferInTransaction), and an offer left here by a crash simply expires.
+ */
+export async function withdrawPartnerOffers(partnerId: string, reason: string, actor: DispatchActor): Promise<number> {
+  const now = new Date();
+  const withdrawn = await db
+    .update(deliveryOrders)
+    .set({ status: "CANCELLED", cancelledAt: now, cancellationReason: reason, updatedAt: now })
+    .where(and(eq(deliveryOrders.deliveryPartnerId, partnerId), eq(deliveryOrders.status, "OFFERED")))
+    .returning();
+
+  for (const row of withdrawn) {
+    await recordAudit({
+      actorId: actor.id,
+      actorRole: actor.role,
+      action: AUDIT_ACTIONS.DELIVERY_ORDER_CANCELLED,
+      entityType: "delivery_order",
+      entityId: row.id,
+      previousValue: { status: "OFFERED", deliveryPartnerId: partnerId },
+      newValue: { status: "CANCELLED", reason },
+    });
+    await emitEvent({
+      type: "delivery.cancelled",
+      subjectId: row.id,
+      orderId: row.orderId,
+      transition: { from: "OFFERED", to: "CANCELLED" },
+      actor,
+      payload: { ...(await deliveryEventContext(row.orderId, row.deliveryPartnerId)), reason },
+    }).catch((error) => console.error("[delivery] offer-withdrawn event failed", row.id, error));
+    await dispatchReadyOrder(row.orderId, { id: null, role: null }, "REOFFER").catch((error) => {
+      console.error("[delivery] re-offer after withdrawal failed", row.orderId, error);
+    });
+  }
+  return withdrawn.length;
+}
+
 /** Cron sweep: expire stale offers, then retry every READY order that has no rider working on it. */
-export async function runDispatchSweep(): Promise<{ expired: number; attempted: number; offered: number }> {
+export async function runDispatchSweep(): Promise<{ expired: number; attempted: number; offered: number; closed: number }> {
   const expired = await expireStaleOffers();
+
+  // TC-DSP-011: a search still open on an order that no longer waits for a
+  // rider (cancelled before cancelOrder closed searches, or moved on another
+  // way) is closed with its reason — the READY scan below never sees it.
+  const stale = await db
+    .select({ orderId: riderSearches.orderId })
+    .from(riderSearches)
+    .innerJoin(orders, eq(orders.id, riderSearches.orderId))
+    .where(and(eq(riderSearches.status, "SEARCHING"), ne(orders.status, "READY")))
+    .limit(200);
+  for (const { orderId } of stale) {
+    await dispatchReadyOrder(orderId, { id: null, role: null }, "SWEEP").catch((error) => {
+      console.error("[delivery] closing a stale rider search failed", orderId, error);
+    });
+  }
+
   const waiting = await db
     .select({ id: orders.id })
     .from(orders)
@@ -1568,7 +1670,7 @@ export async function runDispatchSweep(): Promise<{ expired: number; attempted: 
     });
     if (result) offered += 1;
   }
-  return { expired, attempted: waiting.length, offered };
+  return { expired, attempted: waiting.length, offered, closed: stale.length };
 }
 
 /**

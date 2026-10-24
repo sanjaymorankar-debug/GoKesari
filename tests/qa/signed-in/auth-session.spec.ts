@@ -6,9 +6,10 @@
  * who signs out while online, a second role, a sign-out sent by another
  * site, and Sign out on a phone screen.
  *
- * Signed-in tier: each check opens its own browser with a test account's
- * session and signs out of that browser only (sessions are per browser), so
- * the accounts stay signed in for the rest of the suite.
+ * Each check opens its own browser with a test account's session and signs
+ * out of that browser only. Sign-out now ends the session on the server, so
+ * the checks that sign out run locally (a fresh session per browser) and not
+ * on the test site, whose test accounts share one saved session per role.
  */
 import { request as playwrightRequest, type BrowserContext, type Page } from "@playwright/test";
 
@@ -21,6 +22,13 @@ import { BASE_URL } from "../lib/target";
 import { world, type Role } from "../lib/world";
 
 const signed = { tier: "signed" as const, timeout: 180_000 };
+/**
+ * Checks that sign out run on local servers only. Since sign-out ends the
+ * session on the server (TC-AUTH-034), signing out of a browser that holds the
+ * test site's saved session would end that session for every later check of
+ * the run; locally each browser gets its own freshly minted session.
+ */
+const signsOut = { tier: "local" as const, timeout: 180_000 };
 const ACCOUNT_BUTTONS = ["account-button", "board-account", "seller-account-button", "account-dropdown"];
 
 /** What the header shows a signed-out visitor: Sign in, no account menu, no role or portal links. */
@@ -61,7 +69,7 @@ qa("TC-AUTH-030", "sign out ends the session: Back to /wallet is sent to sign in
   } finally {
     await context.close();
   }
-}, signed);
+}, signsOut);
 
 qa("TC-AUTH-031", "the session persists across /wallet, /orders and /profile and their reloads", async ({ browser }) => {
   const { context, page } = await signedInContext(browser, "customer");
@@ -114,7 +122,7 @@ qa("TC-AUTH-032", "Sign out from the account menu in every role lands on the hom
   }
   if (missing.length && !done.length) blocked(`needs accounts for ${missing.join(", ")}`);
   return `${done.join("; ")}${missing.length ? `; not on this site: ${missing.join(", ")}` : ""}`;
-}, { ...signed, timeout: 300_000 });
+}, { ...signsOut, timeout: 300_000 });
 
 qa("TC-AUTH-033", "after signing out, customer, shop, rider, society and staff pages send to sign in, and Back shows none of the earlier data", async ({ browser }) => {
   const who = await me("customer");
@@ -141,7 +149,7 @@ qa("TC-AUTH-033", "after signing out, customer, shop, rider, society and staff p
   } finally {
     await context.close();
   }
-}, { ...signed, partial: "the signed-out guest half of TC-AUTH-033 (every page) is in tests/qa/guest/access.spec.ts" });
+}, { ...signsOut, partial: "the signed-out guest half of TC-AUTH-033 (every page) is in tests/qa/guest/access.spec.ts" });
 
 qa("TC-AUTH-034", "an old session cookie copied before signing out is refused afterwards (GET /api/wallet and POST /api/cart → 401)", async ({ browser }) => {
   const listing = await sellable("A");
@@ -165,7 +173,7 @@ qa("TC-AUTH-034", "an old session cookie copied before signing out is refused af
     await context.close();
     await emptyCart().catch(() => {});
   }
-}, signed);
+}, signsOut);
 
 qa("TC-AUTH-035", "signing out in one tab: the other tab's next link goes to sign in and its form write is refused", async ({ browser }) => {
   const original = (await call(await as("customer"), "GET", "/api/profile")).body as { name: string | null };
@@ -187,7 +195,7 @@ qa("TC-AUTH-035", "signing out in one tab: the other tab's next link goes to sig
   } finally {
     await context.close();
   }
-}, signed);
+}, signsOut);
 
 qa("TC-AUTH-036", "signing out on one device leaves the other device's session as it was, the same way every time", async ({ browser }) => {
   const outcomes: string[] = [];
@@ -208,7 +216,7 @@ qa("TC-AUTH-036", "signing out on one device leaves the other device's session a
   }
   expect(outcomes[0], `consistent: ${outcomes.join(" / ")}`).toBe(outcomes[1]);
   return `device 2 after device 1 signs out: ${outcomes.join(", ")} (per-device sessions)`;
-}, signed);
+}, signsOut);
 
 /* =============================================== the next person on the phone */
 
@@ -244,7 +252,7 @@ qa("TC-AUTH-037", "the cart stays with its owner: customer 2 on the same browser
     await context.close();
     await emptyCart("customer").catch(() => {});
   }
-}, { ...signed, partial: "the second person signs in with their own session cookie on the same browser (no emailed code in the signed-in tier)" });
+}, { ...signsOut, partial: "the second person signs in with their own session cookie on the same browser (no emailed code in the signed-in tier)" });
 
 qa("TC-AUTH-038", "shared phone: after shop owner A signs out, customer 2 sees only their own name, location, wallet and notifications, no role switcher, and no shop portal", async ({ browser }) => {
   const shop = await shopOf("A");
@@ -291,7 +299,7 @@ qa("TC-AUTH-038", "shared phone: after shop owner A signs out, customer 2 sees o
   } finally {
     await context.close();
   }
-}, { ...signed, partial: "the second person signs in with their own session cookie on the same browser (no emailed code in the signed-in tier)" });
+}, { ...signsOut, partial: "the second person signs in with their own session cookie on the same browser (no emailed code in the signed-in tier)" });
 
 /* ============================================ edits, riders, roles, CSRF */
 
@@ -321,7 +329,7 @@ qa("TC-AUTH-039", "signing out with an unsaved price change: no half-save — th
   } finally {
     await context.close();
   }
-}, signed);
+}, signsOut);
 
 qa("TC-AUTH-040", "a rider who signs out while online is not offered new jobs (or is set offline)", async ({ browser }) => {
   need(world().users.rider ?? (await me("rider").catch(() => null)), "rider 1");
@@ -355,7 +363,7 @@ qa("TC-AUTH-040", "a rider who signs out while online is not offered new jobs (o
     `after signing out the rider is still online (isOnline ${afterSignOut}) and order ${order.orderNumber} was offered to them (${offered}) — an offer to a signed-out rider only lapses after its time limit`,
   ).toBe(true);
   return `after sign-out: online ${afterSignOut}; offer ${offered ?? "none"}`;
-}, { ...signed, timeout: 300_000, partial: "the case asks to confirm the intended behaviour with the owner; this check asserts the stated expectation" });
+}, { ...signsOut, timeout: 300_000, partial: "the case asks to confirm the intended behaviour with the owner; this check asserts the stated expectation" });
 
 qa("TC-AUTH-041", "signing out while acting in a second role: on return the active role is one the user holds", async ({ browser }) => {
   const ctx = await as("shop");
@@ -386,7 +394,7 @@ qa("TC-AUTH-041", "signing out while acting in a second role: on return the acti
   } finally {
     await call(ctx, "PUT", "/api/me/roles", { role: original });
   }
-}, { ...signed, partial: "signing in again reuses the account's session (no emailed code in the signed-in tier)" });
+}, { ...signsOut, partial: "signing in again reuses the account's session (no emailed code in the signed-in tier)" });
 
 qa("TC-AUTH-042", "another site cannot sign the user out: a cross-site GET and a POST without the CSRF token leave the session; the real Sign out ends it", async ({ browser }) => {
   const { context, page } = await signedInContext(browser, "customer");
@@ -413,7 +421,7 @@ qa("TC-AUTH-042", "another site cannot sign the user out: a cross-site GET and a
   } finally {
     await context.close();
   }
-}, { ...signed, partial: "Next.js server actions (the menu's Sign out) are protected by Next's own origin check, not probed here" });
+}, { ...signsOut, partial: "Next.js server actions (the menu's Sign out) are protected by Next's own origin check, not probed here" });
 
 qa("TC-AUTH-043", "on a 360 px phone screen the menu shows Sign out without sideways scrolling and it works", async ({ browser }) => {
   const { context, page } = await signedInContext(browser, "customer", { viewport: { width: 360, height: 740 }, isMobile: true, hasTouch: true });
@@ -444,4 +452,4 @@ qa("TC-AUTH-043", "on a 360 px phone screen the menu shows Sign out without side
   } finally {
     await context.close();
   }
-}, { ...signed, mobile: true });
+}, { ...signsOut, mobile: true });

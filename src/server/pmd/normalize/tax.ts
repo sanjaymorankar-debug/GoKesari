@@ -17,6 +17,18 @@ export function gstSlabStatus(bp: number): GstSlabStatus {
   return "UNUSUAL";
 }
 
+/**
+ * True when a minus sign is written straight before the number at `index`
+ * ("-5", "GST: -5 %"). A hyphen after a word ("GST-18") or a dash between
+ * words ("GST - 18%") is not a sign.
+ */
+export function isNegativeNumberAt(text: string, index: number): boolean {
+  if (text[index - 1] !== "-") return false;
+  const raw = text.slice(0, index - 1);
+  const before = raw.trimEnd();
+  return before === "" || (!/[A-Za-z0-9.]$/.test(before) && !/[A-Za-z0-9.-]$/.test(raw));
+}
+
 /** Fractions that are unmistakably rates ("0.18"), as opposed to a percentage that happens to be < 1. */
 const FRACTION_RATES = new Set([0.05, 0.12, 0.18, 0.28, 0.4]);
 
@@ -30,6 +42,9 @@ export function parseGstRate(raw: string | number | null | undefined): number | 
   const text = String(raw);
   const m = text.match(/(\d+(?:\.\d+)?)/);
   if (!m) return null;
+  // A minus sign before the number is a negative rate, not 5 % (TC-FLD-078);
+  // a hyphen after a word ("GST-18") is a separator.
+  if (isNegativeNumberAt(text, m.index ?? 0)) return null;
   let pct = parseFloat(m[1]);
   const hasPercent = text.includes("%");
   if (!hasPercent && FRACTION_RATES.has(pct)) pct = pct * 100;

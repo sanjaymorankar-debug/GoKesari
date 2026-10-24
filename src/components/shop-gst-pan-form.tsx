@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Alert, Badge, Button, Card, Field, inputClass } from "@/components/ui";
+import { parseGstin } from "@/lib/shop-identity";
 import type { GstStatus, PanStatus } from "@/server/db/schema";
 
 export interface ShopGstPanSettings {
@@ -61,12 +62,18 @@ export function ShopGstPanForm({ settings }: { settings: ShopGstPanSettings }) {
   const [error, setError] = useState<string | null>(null);
 
   async function submitGstin() {
+    // The server's own check, run here first so a typo is caught before sending (TC-FLD-043).
+    const parsed = parseGstin(gstin);
+    if (!parsed.ok) {
+      setError(parsed.error);
+      return;
+    }
     setBusy("gst");
     setError(null);
     const response = await fetch(`/api/shops/${settings.shopId}/gst`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ gstin: gstin.trim().toUpperCase() }),
+      body: JSON.stringify({ gstin: parsed.value }),
     });
     setBusy(null);
     if (!response.ok) {
@@ -141,7 +148,7 @@ export function ShopGstPanForm({ settings }: { settings: ShopGstPanSettings }) {
                     className={inputClass}
                     value={gstin}
                     onChange={(e) => setGstin(e.target.value.toUpperCase())}
-                    placeholder="22AAAAA0000A1Z5"
+                    placeholder="27ABCDE1234F1Z0"
                     maxLength={15}
                   />
                 </Field>

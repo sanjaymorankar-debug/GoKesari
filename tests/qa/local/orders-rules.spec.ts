@@ -64,12 +64,17 @@ async function delivered(): Promise<Placed> {
   return placed;
 }
 
-/** Monday (IST) of the current week, YYYY-MM-DD. */
-function thisMonday() {
+/** Monday (IST) of last week, YYYY-MM-DD: only a finished week can be settled (TC-FLD-118). */
+function lastMonday() {
   const ist = new Date(Date.now() + 5.5 * 3_600_000);
   const day = (ist.getUTCDay() + 6) % 7;
-  ist.setUTCDate(ist.getUTCDate() - day);
+  ist.setUTCDate(ist.getUTCDate() - day - 7);
   return ist.toISOString().slice(0, 10);
+}
+
+/** Wednesday noon (IST) of the week starting `monday` — a delivery date inside that settlement week. */
+function midWeek(monday: string) {
+  return new Date(new Date(`${monday}T06:30:00Z`).getTime() + 2 * 86_400_000).toISOString();
 }
 
 /** Pays an online order on the local sandbox gateway page as the customer. */
@@ -256,9 +261,9 @@ qa(["TC-ORD-014", "TC-ORD-004", "TC-RET-020"], "settlements: a cancelled order i
   const disputed = await delivered();
   const cancelled = await placeSimple();
   expectStatus(await setStatus(cancelled.id, "CANCELLED", "shop", "QA settlement check"), 200, "cancel");
-  await db()`update order_financials set delivered_at = now() - interval '3 days' where order_id = ${disputed.id}`;
+  const weekStart = lastMonday();
+  await db()`update order_financials set delivered_at = ${midWeek(weekStart)}::timestamptz where order_id = ${disputed.id}`;
   expectStatus(await setStatus(disputed.id, "DISPUTED", "ops"), 200, "dispute");
-  const weekStart = thisMonday();
   const admin = await as("admin");
   expectStatus(await call(admin, "POST", "/api/finance/settlements", { weekStart }), 201, "prepare settlements");
   const fin = async (id: string) => db()<{ settlement_id: string | null }[]>`select settlement_id from order_financials where order_id = ${id}`;
@@ -272,12 +277,14 @@ qa(["TC-ORD-014", "TC-ORD-004", "TC-RET-020"], "settlements: a cancelled order i
     await context.close();
   }
   expectStatus(await setStatus(disputed.id, "DELIVERED", "ops"), 200, "resolved back to DELIVERED");
+  // Kept in last week, whatever re-delivery does to the date, so the next batch of that week picks it up.
+  await db()`update order_financials set delivered_at = ${midWeek(weekStart)}::timestamptz where order_id = ${disputed.id}`;
   expectStatus(await call(admin, "POST", "/api/finance/settlements", { weekStart }), 201, "prepare again");
   const after = await fin(disputed.id);
   expect(after, "exactly one finance snapshot").toHaveLength(1);
   expect(after[0].settlement_id, "now in a batch").toBeTruthy();
   return `cancelled ${cancelled.orderNumber}: no line; disputed ${disputed.orderNumber}: held out, in /admin/exceptions; back to DELIVERED → settled, one snapshot`;
-}, { ...local, partial: "the delivery date is aged past the 2-day settlement hold; the batches are prepared through the API the Finance page's button uses" });
+}, { ...local, partial: "the delivery date is moved into last week (only a finished week is settled, TC-FLD-118); the batches are prepared through the API the Finance page's button uses" });
 
 qa("TC-FUL-016", "a subscription order still goes CONFIRMED → PREPARING in one step", async () => {
   await ensureWallet();

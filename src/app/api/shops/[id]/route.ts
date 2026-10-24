@@ -1,11 +1,21 @@
 /**
  * A single shop's own editable details — name/contact/address, shop type,
- * and "shop time" (opening hours). Status and classification are NOT here:
+ * "shop time" (opening hours) and delivery settings. Status and classification are NOT here:
  * those go through /approve, /reject and /classification (§8, §10).
  */
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import {
+  deliveryFeePaiseSchema,
+  freeDeliveryAbovePaiseSchema,
+  minOrderPaiseSchema,
+  openingHoursSchema,
+  optionalText,
+  preparationMinutesSchema,
+  requiredText,
+  shopImageUrlSchema,
+} from "@/lib/shop-settings";
 import { SHOP_TYPE_KEYS } from "@/lib/shop-types";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { getShopAccess, requireShopAccess } from "@/server/authz/guards";
@@ -35,50 +45,46 @@ export const GET = route(
 
 const schema = z
   .object({
-    name: z.string().min(2).max(120).optional(),
-    ownerName: z.string().min(2).max(120).optional(),
+    // Text is trimmed before its length is checked, as at registration (TC-FLD-037).
+    name: requiredText(2, 120).optional(),
+    ownerName: requiredText(2, 120).optional(),
     phone: z.string().regex(/^[6-9]\d{9}$/, "Enter a valid 10-digit mobile number").optional(),
-    email: z.string().email().nullish(),
+    email: z.string().trim().email().nullish(),
     /** C1: shown to customers (rule shopContact); null clears. */
     contactPhone: z.string().regex(/^[6-9]\d{9}$/, "Enter a valid 10-digit mobile number").nullish(),
     whatsappNumber: z.string().regex(/^[6-9]\d{9}$/, "Enter a valid 10-digit mobile number").nullish(),
-    addressLine1: z.string().min(3).max(200).optional(),
-    addressLine2: z.string().max(200).nullish(),
-    area: z.string().max(120).nullish(),
-    city: z.string().min(2).max(120).optional(),
-    state: z.string().max(120).nullish(),
+    addressLine1: requiredText(3, 200).optional(),
+    addressLine2: optionalText(200),
+    area: optionalText(120),
+    city: requiredText(2, 120).optional(),
+    state: optionalText(120),
     pincode: z.string().regex(/^\d{6}$/, "PIN code must be 6 digits").optional(),
     latitude: z.string().nullish(),
     longitude: z.string().nullish(),
     pickupLatitude: z.string().nullish(),
     pickupLongitude: z.string().nullish(),
-    pickupInstructions: z.string().max(500).nullish(),
-    landmark: z.string().max(200).nullish(),
+    pickupInstructions: optionalText(500),
+    landmark: optionalText(200),
     shopType: z.enum(SHOP_TYPE_KEYS).optional(),
-    logoUrl: z.string().url().nullish(),
-    photos: z.array(z.string().url()).max(10).optional(),
-    // "Shop time" — opening hours per weekday (§9).
-    openingHours: z
-      .array(
-        z.object({
-          day: z.number().int().min(0).max(6),
-          open: z.string(),
-          close: z.string(),
-          closed: z.boolean().optional(),
-        }),
-      )
-      .optional(),
+    // https or the site's own uploads only — it is rendered as <img src> (TC-FLD-056).
+    logoUrl: shopImageUrlSchema.nullish(),
+    photos: z.array(shopImageUrlSchema).max(10).optional(),
+    // "Shop time" — opening hours per weekday (§9): HH:MM, open ≠ close, each day once (TC-FLD-052).
+    openingHours: openingHoursSchema.optional(),
     deliveryAvailable: z.boolean().optional(),
-    deliveryFeePaise: z.number().int().min(0).optional(),
-    freeDeliveryAbovePaise: z.number().int().min(0).nullish(),
+    // Bounded amounts (TC-FLD-051, TC-FLD-053): ₹5,000 fee, ₹1 lakh minimum order / free-delivery threshold.
+    deliveryFeePaise: deliveryFeePaiseSchema.optional(),
+    freeDeliveryAbovePaise: freeDeliveryAbovePaiseSchema.nullish(),
     /** GS-010 delivery zone in km from the shop pin. */
     serviceRadiusKm: z.number().int().min(1).max(50).optional(),
     deliveryPincodes: z.array(z.string().regex(/^\d{6}$/)).max(50).optional(),
-    minOrderPaise: z.number().int().min(0).optional(),
+    minOrderPaise: minOrderPaiseSchema.optional(),
+    /** TC-FLD-054: minutes to prepare an order; feeds delivery slots and the late-order alerts. */
+    preparationTimeMinutes: preparationMinutesSchema.optional(),
     ordersPaused: z.boolean().optional(),
     /** GS-030 cash on delivery opt-in. */
     codEnabled: z.boolean().optional(),
-    description: z.string().max(1000).nullish(),
+    description: optionalText(1000),
   })
   .strict();
 

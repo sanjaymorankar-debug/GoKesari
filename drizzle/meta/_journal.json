@@ -617,6 +617,13 @@
       "when": 1792125039436,
       "tag": "0087_search_trigram_indexes",
       "breakpoints": true
+    },
+    {
+      "idx": 88,
+      "version": "7",
+      "when": 1792125099436,
+      "tag": "0088_revoked_sessions",
+      "breakpoints": true
     }
   ]
 }

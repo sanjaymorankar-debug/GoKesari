@@ -19,6 +19,7 @@ import {
 import { EmptyIllustration } from "@/components/empty-illustrations";
 import { SafeImage } from "@/components/safe-image";
 import { tr, type Lang } from "@/lib/board/i18n";
+import { payButtonLabel } from "@/lib/checkout-payment";
 import { HOME } from "@/lib/home-i18n";
 import { formatQuantity } from "@/lib/money";
 import { formatShopTime, isShopOpenNow, nextOpeningAt } from "@/lib/shop-hours";
@@ -677,48 +678,48 @@ export function CartView({
             </div>
           ) : null}
 
-          <div className="mt-3" data-testid="payment-method">
-            <Field label="Pay with">
-              <div className="space-y-1 text-sm">
-                <label className="flex items-center gap-2">
+          {/* A fieldset, not a <label>: each radio is named by its own text, not by all three. */}
+          <fieldset className="mt-3" data-testid="payment-method">
+            <legend className="mb-1 block text-sm font-medium text-ink-700">Pay with</legend>
+            <div className="space-y-1 text-sm">
+              <label className="flex items-center gap-2">
+                <input
+                  type="radio"
+                  name="payment-method"
+                  checked={!payingCod && !payingOnline}
+                  onChange={() => setPaymentMethod("WALLET")}
+                />
+                Wallet
+              </label>
+              <label className={`flex items-center gap-2 ${codPossible ? "" : "text-ink-500"}`}>
+                <input
+                  type="radio"
+                  name="payment-method"
+                  disabled={!codPossible}
+                  checked={payingCod}
+                  onChange={() => setPaymentMethod("COD")}
+                />
+                Cash on delivery
+              </label>
+              {onlinePaymentsEnabled && !buyerShopId ? (
+                <label className="flex items-center gap-2" data-testid="pay-online-option">
                   <input
                     type="radio"
                     name="payment-method"
-                    checked={!payingCod && !payingOnline}
-                    onChange={() => setPaymentMethod("WALLET")}
+                    checked={payingOnline}
+                    onChange={() => setPaymentMethod("ONLINE")}
                   />
-                  Wallet
+                  Pay online (UPI / card / netbanking)
                 </label>
-                <label className={`flex items-center gap-2 ${codPossible ? "" : "text-ink-500"}`}>
-                  <input
-                    type="radio"
-                    name="payment-method"
-                    disabled={!codPossible}
-                    checked={payingCod}
-                    onChange={() => setPaymentMethod("COD")}
-                  />
-                  Cash on delivery
-                </label>
-                {onlinePaymentsEnabled && !buyerShopId ? (
-                  <label className="flex items-center gap-2" data-testid="pay-online-option">
-                    <input
-                      type="radio"
-                      name="payment-method"
-                      checked={payingOnline}
-                      onChange={() => setPaymentMethod("ONLINE")}
-                    />
-                    Pay online (UPI / card / netbanking)
-                  </label>
-                ) : null}
-                {!codPossible ? (
-                  <p className="text-xs text-ink-500">
-                    {codUnavailableReason ??
-                      (buyerShopId ? "Business orders are paid from the wallet." : "Choose a delivery address for cash on delivery.")}
-                  </p>
-                ) : null}
-              </div>
-            </Field>
-          </div>
+              ) : null}
+              {!codPossible ? (
+                <p className="text-xs text-ink-500">
+                  {codUnavailableReason ??
+                    (buyerShopId ? "Business orders are paid from the wallet." : "Choose a delivery address for cash on delivery.")}
+                </p>
+              ) : null}
+            </div>
+          </fieldset>
 
           <div className="mt-3">
             <Field label="Note for the shop (optional)">
@@ -870,7 +871,7 @@ export function CartView({
                 title={missingSlot ? "Choose a delivery time for your scheduled delivery" : undefined}
                 onClick={startPay}
               >
-                {busy ? "Placing order…" : payingCod ? "Place order — pay cash on delivery" : "Pay from wallet"}
+                {payButtonLabel(payingCod ? "COD" : payingOnline ? "ONLINE" : "WALLET", busy)}
               </Button>
             ) : (
               <LinkButton href="/wallet" className="w-full justify-center">

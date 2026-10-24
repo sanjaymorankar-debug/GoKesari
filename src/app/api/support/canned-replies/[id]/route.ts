@@ -2,7 +2,8 @@
 import type { NextRequest } from "next/server";
 
 import { noContent, ok, parseBody, route, type RouteContext } from "@/server/api/handler";
-import { requireUser } from "@/server/authz/guards";
+import { requirePermission, requireUser } from "@/server/authz/guards";
+import { PERMISSIONS } from "@/server/authz/permissions";
 import { deleteCannedReply, updateCannedReply } from "@/server/aftercare/support-tickets";
 import { cannedSchema } from "../schema";
 
@@ -10,7 +11,8 @@ export const dynamic = "force-dynamic";
 
 export const PATCH = route(async (request: NextRequest, context: RouteContext<{ id: string }>) => {
   const { id } = await context.params;
-  const user = await requireUser();
+  // Allowed first: a caller who cannot manage canned replies gets 403 before the body is read (TC-RBAC-003).
+  const user = await requirePermission(PERMISSIONS.SUPPORT_CANNED_REPLY_MANAGE);
   return ok(await updateCannedReply(id, await parseBody(request, cannedSchema), user));
 });
 

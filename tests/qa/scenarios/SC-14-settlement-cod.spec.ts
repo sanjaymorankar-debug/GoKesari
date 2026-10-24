@@ -139,7 +139,8 @@ qa("SC-14", "weekly settlement and payout: batches total gross âˆ’ commission âˆ
       const today = istDate();
       const run = await api("admin", "POST", "/api/finance/reconciliation", { from: addDaysIso(lastWeek().start, 0), to: addDaysIso(today, 1) });
       expectStatus(run, 200, "run reconciliation");
-      const records = (await api("admin", "GET", "/api/finance/reconciliation")).body.records as ReconRecord[];
+      // The stored records (the admin list shows only the 200 most recently checked).
+      const records = await db()<ReconRecord[]>`select entity_id as "entityId", check_type as "checkType", status, detail, expected_paise::int as "expectedPaise", actual_paise::int as "actualPaise" from reconciliation_records`;
       const legs = await db()<{ id: string; order_id: string }[]>`select id, order_id from delivery_orders where order_id = any(${mine.map((o) => o.id)}) and status = 'DELIVERED'`;
       const want: [string, string, string][] = [
         ...mine.map((o) => [o.id, "ORDER_PAYMENT", `${o.orderNumber} payment`] as [string, string, string]),

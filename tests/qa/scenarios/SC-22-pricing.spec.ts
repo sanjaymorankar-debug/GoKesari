@@ -93,7 +93,7 @@ qa("SC-22", "price governance: the MRP guard holds on the form's API and Excel; 
     await expect(el).toBeVisible();
     return (await el.innerText()).replace(/\s+/g, " ");
   });
-  if (!card.includes("42") || !/16\s*%\s*off/i.test(card)) bad.push(`product card "${card.slice(0, 120)}" (expected ₹42 and 16% off ₹50)`);
+  if (!card.includes("42") || !/16\s*%\s*off/i.test(card)) bad.push(`the product card shows no MRP or discount: "${card.slice(0, 120)}" (expected ₹42 with ₹50 struck and 16% off — src/components/product-card.tsx renders no MRP; same finding as TC-CAT-008)`);
   const compare = await asPage(browser, "customer", `/products/${a.productId}`, async (page) => {
     const mrp = (await page.getByTestId("product-mrp").innerText()).replace(/\s+/g, " ");
     const prices = (await page.getByTestId("price-comparison").innerText()).replace(/\s+/g, " ");
@@ -180,7 +180,7 @@ qa("SC-25", "shop-specific MRP (superseded: one master MRP): owner A's price abo
     const unit = Number(line.unit_price_paise ?? line.price_paise ?? line.unit_price_snapshot_paise ?? NaN);
     const mrpKeys = Object.keys(line).filter((k) => /mrp/i.test(k));
     if (unit !== price && Number(line.line_total_paise) !== price) bad.push(`${o.orderNumber}: line price ${unit} / total ${line.line_total_paise}, expected ${price}`);
-    if (!mrpKeys.length) bad.push(`${o.orderNumber}: the order line records no MRP (columns: ${Object.keys(line).join(", ")})`);
+    if (!mrpKeys.length) bad.push(`${o.orderNumber}: the order line records no MRP — order_items has no MRP column (same defect as TC-SPI-005)`);
     else if (Number(line[mrpKeys[0]]) !== 6000) bad.push(`${o.orderNumber}: MRP ${line[mrpKeys[0]]} recorded, expected 6000`);
     await api("customer", "PATCH", `/api/orders/${o.id}/status`, { status: "CANCELLED", note: "QA cleanup" });
   }

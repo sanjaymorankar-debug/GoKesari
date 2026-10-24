@@ -2,6 +2,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { notFound } from "@/lib/errors";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requireUser } from "@/server/authz/guards";
 import {
@@ -32,7 +33,8 @@ export const PATCH = route(async (request: NextRequest) => {
   const body = await parseBody(request, schema);
 
   if (body.all) await markAllRead(user.id);
-  else if (body.id) await markRead(user.id, body.id);
+  // TC-NTF-012: an id that is not the caller's notification is a 404, not a silent 200.
+  else if (body.id && !(await markRead(user.id, body.id))) throw notFound("Notification");
 
   return ok({ unreadCount: await unreadCount(user.id) });
 });

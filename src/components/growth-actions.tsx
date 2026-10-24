@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { ROLE_LABEL } from "@/components/role-switcher";
 import { Alert, Button, Field, Money, inputClass } from "@/components/ui";
+import { parseRupeeInput } from "@/lib/rupee-input";
 import { segmentRulesProblem, type SegmentRulesForm } from "@/lib/segment-form";
 
 /** Shared request helper for the Phase 3 controls. */
@@ -101,10 +102,12 @@ export function CodDepositForm({ party, id, heldPaise }: { party: "RIDER" | "SHO
   const [amount, setAmount] = useState((heldPaise / 100).toFixed(2));
   const [reference, setReference] = useState("");
   const [requestId, setRequestId] = useState(() => crypto.randomUUID());
-  const paise = Math.round(Number(amount) * 100);
+  // TC-FLD-117: read as typed — "10.555" is refused with a message, not rounded.
+  const parsed = parseRupeeInput(amount);
+  const paise = parsed.ok === true ? parsed.paise : 0;
   return (
     <div className="flex flex-wrap items-end gap-2">
-      <Field label="Amount (₹)">
+      <Field label="Amount (₹)" error={parsed.ok === false ? parsed.error : paise > heldPaise ? "More than the cash held." : undefined}>
         <input className={`${inputClass} w-28`} inputMode="decimal" value={amount} onChange={(e) => setAmount(e.target.value)} />
       </Field>
       <Field label="Receipt / reference">

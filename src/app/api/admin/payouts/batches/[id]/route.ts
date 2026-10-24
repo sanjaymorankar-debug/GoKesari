@@ -8,7 +8,7 @@ import { z } from "zod";
 
 import { notFound } from "@/lib/errors";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
-import { requirePermission, requireUser } from "@/server/authz/guards";
+import { requireAnyPermission, requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { approvePayoutBatch, cancelPayoutBatch, executePayoutBatch, getPayoutBatch } from "@/server/payouts/batches";
 import { isUuid } from "@/server/payouts/http";
@@ -23,8 +23,9 @@ export const GET = route(async (_request: NextRequest, context: RouteContext<{ i
 });
 
 export const PATCH = route(async (request: NextRequest, context: RouteContext<{ id: string }>) => {
-  // Signed in first: a guest gets 401 before the body or the record is read (TC-SEC-001).
-  await requireUser();
+  // Signed in first: a guest gets 401 before the body or the record is read (TC-SEC-001),
+  // and a caller who can neither approve nor run payouts gets 403 before it is read (TC-RBAC-003).
+  await requireAnyPermission([PERMISSIONS.PAYOUT_APPROVE, PERMISSIONS.PAYOUT_MANAGE]);
   const { id } = await context.params;
   if (!isUuid(id)) throw notFound("Payout batch");
   const body = await parseBody(request, schema);

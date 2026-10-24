@@ -15,13 +15,15 @@
  *  - **Per-shop split.** A cart spanning several shops becomes one order per
  *    shop, each paid for independently (§17).
  */
-import { and, desc, eq, gte, lte, inArray, isNull, like } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, like, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
+import { addDays, isCalendarDate, type IsoDate } from "@/lib/dates";
+import { getEnv } from "@/lib/env";
 import { conflict, forbidden, invalidTransition, notFound, validationFailed } from "@/lib/errors";
 import { canTransition } from "@/lib/state-machines";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
-import { lineTotalPaise, sumPaise } from "@/lib/money";
+import { formatPaise, formatQuantity, lineTotalPaise, sumPaise } from "@/lib/money";
 import { formatShopTime, isShopOpenNow, nextOpeningAt } from "@/lib/shop-hours";
 import { db, isSerializationFailure, type DbClient } from "@/server/db";
 import {
@@ -69,12 +71,19 @@ import { assertLegalDocsAllowOrders } from "./legal-documents";
 import { assertSignupReferralForFirstOrder } from "./customer-signup-referrals";
 import { resolveAddressSociety } from "./societies";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
+import type { EmailDetailRow } from "@/server/notifications/templates";
 import { emitEvent } from "@/server/events/emit";
 import { onOrderDelivered } from "@/server/integrations/hooks";
 import { orderEventFor, type OrderEventPayload } from "@/server/events/catalog";
 import { applyWalletMutation, refundOriginalDebit } from "./wallet";
 import { checkRiskForUser } from "./risk";
 import { afterPackingCancellationOpen } from "@/server/aftercare/cancellation-fee"; // batch-2026-10 WS-C
+import {
+  SELF_CANCEL_BEFORE_PACKING,
+  SELF_CANCEL_MESSAGES,
+  customerCancellableStatuses,
+  selfCancelBlock,
+} from "@/lib/order-cancellation";
 import { executeCancellationRefund, planCancellationRefund } from "@/server/aftercare/refunds"; // batch-2026-10 WS-C
 
 /**
@@ -667,6 +676,15 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           title: "Order confirmed",
           body: `Your order ${orderRow.orderNumber} from ${shopRow.name} is confirmed.`,
           actionUrl: `/orders`,
+          // TC-SPI-004: the e-mail lists what was ordered and what it costs.
+          emailDetail: orderConfirmedEmailRows({
+            lines: lines.map((l) => ({ name: l.productName, unit: l.unit, quantityMilli: l.quantityMilli, lineTotalPaise: l.lineTotalPaise })),
+            deliveryFeePaise,
+            taxPaise,
+            discountPaise,
+            totalPaise,
+            paymentMethod,
+          }),
         },
         tx,
       );
@@ -754,6 +772,31 @@ async function resolveBuyerShop(input: CheckoutInput): Promise<string> {
  * The row itself carries the customer's delivery address, ids and checkout
  * key, which the shop or operator acting on it never needs back.
  */
+/**
+ * TC-SPI-004 (N11): the rows of the order-confirmed e-mail — each line (name,
+ * quantity, amount), the delivery fee, any discount and the total. Exported
+ * for the online-payment confirmation (server/payments/order-payments.ts).
+ */
+export function orderConfirmedEmailRows(order: {
+  lines: { name: string; unit: string; quantityMilli: number; lineTotalPaise: number }[];
+  deliveryFeePaise: number;
+  taxPaise?: number;
+  discountPaise: number;
+  totalPaise: number;
+  paymentMethod: string;
+}): EmailDetailRow[] {
+  return [
+    ...order.lines.map((l) => ({ label: `${l.name} × ${formatQuantity(l.quantityMilli, l.unit)}`, value: formatPaise(l.lineTotalPaise) })),
+    { label: "Delivery fee", value: order.deliveryFeePaise > 0 ? formatPaise(order.deliveryFeePaise) : "Free" },
+    ...(order.taxPaise ? [{ label: "Tax", value: formatPaise(order.taxPaise) }] : []),
+    ...(order.discountPaise > 0 ? [{ label: "Discount", value: `−${formatPaise(order.discountPaise)}` }] : []),
+    {
+      label: order.paymentMethod === "COD" ? "Total (pay in cash on delivery)" : order.paymentMethod === "WALLET" ? "Total (paid from wallet)" : "Total",
+      value: formatPaise(order.totalPaise),
+    },
+  ];
+}
+
 export function toOrderStatusView(order: Order): Pick<Order, "id" | "orderNumber" | "status"> {
   return { id: order.id, orderNumber: order.orderNumber, status: order.status };
 }
@@ -1009,32 +1052,24 @@ export async function cancelOrder(
     // a shop/operator-privileged cancel, which stays unrestricted.
     // Rule `cancellation.customerMayCancelUntil` = PREPARING opens ACCEPTED and
     // PREPARING (before packing) to the customer too, with the same full refund.
-    const beforePacking = (["ACCEPTED", "PREPARING"] as OrderStatus[]).includes(order.status);
+    const beforePacking = SELF_CANCEL_BEFORE_PACKING.includes(order.status);
+    const { customerMayCancelUntil } = await getRule("cancellation");
     const customerCancelBeforePacking =
-      Boolean(options.selfService) &&
-      beforePacking &&
-      (await getRule("cancellation")).customerMayCancelUntil === "PREPARING";
+      Boolean(options.selfService) && beforePacking && customerMayCancelUntil === "PREPARING";
     // batch-2026-10 WS-C (F6.1.3): with rule afterPackingCancellation on, the
     // customer may also cancel a packed order (READY / ASSIGNED) for a fee.
     // Off (the default): exactly the original D10 block below.
     const customerCancelAfterPacking =
       Boolean(options.selfService) && (await afterPackingCancellationOpen(order.status));
-    if (
-      options.selfService &&
-      !customerCancelBeforePacking &&
-      !customerCancelAfterPacking &&
-      (["ACCEPTED", "PREPARING", "READY", "ASSIGNED"] as OrderStatus[]).includes(order.status)
-    ) {
-      throw conflict(
-        "This order is already being prepared. Please contact the shop to cancel it.",
-      );
-    }
-    if (
-      options.selfService &&
-      (["FAILED", "RETURNED", "DISPUTED"] as OrderStatus[]).includes(order.status)
-    ) {
-      throw conflict("Please contact support about this order.");
-    }
+    // TC-ORD-008: the one D10 rule (lib/order-cancellation.ts) that My Orders
+    // and the cancellation quote read too.
+    const block = options.selfService
+      ? selfCancelBlock(order.status, {
+          customerMayCancelUntil,
+          afterPackingEnabled: (await getRule("afterPackingCancellation")).enabled,
+        })
+      : null;
+    if (block === "BEING_PREPARED" || block === "CONTACT_SUPPORT") throw conflict(SELF_CANCEL_MESSAGES[block]);
 
     const wasPaid = PAID_STATUSES.includes(order.status) && order.paidAt != null;
     // D10: self-cancelling a dispatched order refunds the goods only — the
@@ -1157,6 +1192,10 @@ export async function cancelOrder(
         await creditDeliveryEarnings(activeDelivery.id, tx);
       }
     }
+    // TC-DSP-011: the rider search ends with the order (it stayed SEARCHING before).
+    // Imported lazily: delivery-assignment.ts imports this module.
+    const { closeRiderSearchForCancelledOrder } = await import("./delivery-assignment");
+    await closeRiderSearchForCancelledOrder(orderId, tx);
 
     // Event layer: the cancellation as one event. The customer hears when
     // someone else cancelled (DEF-02); the shop when support did, or the
@@ -1355,11 +1394,11 @@ export async function listOpenOrdersForCheckout(
   const rule = await getRule("openOrderCheck");
   if (!rule.enabled) return [];
   if (rule.scope === "SAME_SHOP" && cartShopIds.length === 0) return [];
-  const { customerMayCancelUntil } = await getRule("cancellation");
-  const cancellable: readonly OrderStatus[] =
-    customerMayCancelUntil === "PREPARING"
-      ? ["CONFIRMED", "ACCEPTED", "PREPARING", "PICKED_UP", "OUT_FOR_DELIVERY"]
-      : ["CONFIRMED", "PICKED_UP", "OUT_FOR_DELIVERY"];
+  // TC-ORD-008: the same D10 rule as cancelOrder (lib/order-cancellation.ts).
+  const cancellable = customerCancellableStatuses({
+    customerMayCancelUntil: (await getRule("cancellation")).customerMayCancelUntil,
+    afterPackingEnabled: (await getRule("afterPackingCancellation")).enabled,
+  });
   const rows = await db
     .select({
       id: orders.id,
@@ -1602,10 +1641,18 @@ export interface MonitoredOrder {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function parseDay(value: string | undefined): Date | undefined {
-  if (!value) return undefined;
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? undefined : d;
+/** A filter day (YYYY-MM-DD), or undefined for a missing or impossible date. */
+function parseDay(value: string | undefined): IsoDate | undefined {
+  return value && isCalendarDate(value) ? value : undefined;
+}
+
+/**
+ * TC-ADM-004: the instant a business day starts in APP_TIMEZONE (IST), as
+ * analytics.ts bounds its windows — `new Date("2026-10-24")` is UTC midnight,
+ * so an order placed at 01:30 IST was listed under the day before.
+ */
+function businessDayStart(day: IsoDate): SQL {
+  return sql`((${day})::date::timestamp at time zone ${getEnv().APP_TIMEZONE})`;
 }
 
 /** Staff order-monitoring list. Filters come from the URL, so bad values are ignored rather than thrown. */
@@ -1623,13 +1670,11 @@ export async function listOrdersForMonitoring(filters: {
   if (filters.shopId && UUID_RE.test(filters.shopId)) {
     conditions.push(eq(orders.shopId, filters.shopId));
   }
+  // Whole business days: from the start of dateFrom to the start of the day after dateTo.
   const dateFrom = parseDay(filters.dateFrom);
-  if (dateFrom) conditions.push(gte(orders.createdAt, dateFrom));
+  if (dateFrom) conditions.push(sql`${orders.createdAt} >= ${businessDayStart(dateFrom)}`);
   const dateTo = parseDay(filters.dateTo);
-  if (dateTo) {
-    dateTo.setHours(23, 59, 59, 999);
-    conditions.push(lte(orders.createdAt, dateTo));
-  }
+  if (dateTo) conditions.push(sql`${orders.createdAt} < ${businessDayStart(addDays(dateTo, 1))}`);
 
   const riderUser = alias(users, "rider_user");
 

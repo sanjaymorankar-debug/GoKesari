@@ -1071,13 +1071,14 @@ export async function searchShows(who: APIRequestContext, name: string): Promise
 }
 
 /**
- * Local: an approved, selling shop of a new owner beside shop A — registered
+ * Local: an approved shop of a new owner beside shop A (approvedShop, no
+ * products yet) or a selling one (sellingShop) — registered
  * through the site, its documents and fee arranged as operations would have
  * left them (seller_verifications VERIFIED, fee PAID), approved by operations,
  * and the world's QA category added by the owner (every product of it listed
  * at stock 100). `listing` is its cheapest priced listing.
  */
-export async function sellingShop(label: string) {
+export async function approvedShop(label: string) {
   const owner = await freshPerson(`${label}-owner`);
   const body = await shopRegistration();
   const reg = await call(owner.ctx, "POST", "/api/shops", body);
@@ -1089,6 +1090,12 @@ export async function sellingShop(label: string) {
   }
   await db()`update shops set fee_payment_status = 'PAID', registration_fee_paise = 0 where id = ${id} and fee_payment_status <> 'PAID'`;
   expectStatus(await api("ops", "POST", `/api/shops/${id}/approve`, { classification: "GREEN" }), 200, "approve the shop");
+  const [shop] = await db()<{ name: string; slug: string }[]>`select name, slug from shops where id = ${id}`;
+  return { owner, shopId: id, name: shop.name, slug: shop.slug };
+}
+
+export async function sellingShop(label: string) {
+  const { owner, shopId: id } = await approvedShop(label);
   const category = need((world() as unknown as { category?: { id: string } }).category?.id, "the world's QA category");
   expectStatus(await call(owner.ctx, "POST", `/api/shops/${id}/product-categories`, { categoryId: category }), [200, 201], "the owner adds the QA category");
   const own = await call(owner.ctx, "GET", `/api/shops/${id}/products`);

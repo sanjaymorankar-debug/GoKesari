@@ -109,6 +109,8 @@ async function shop(ownerId: string, name: string, at: { lat: number; lng: numbe
     .set({
       pincode: HOME.pincode,
       area: "Kothrud",
+      // In-shop sales invoices need the shop's state (or GSTIN) for the place of supply.
+      state: "Maharashtra",
       serviceRadiusKm: 5,
       codEnabled: false,
       locationVerified: true,

@@ -7,6 +7,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { MAX_MRP_PAISE, MIN_PRICE_PAISE } from "@/lib/price-rules";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
@@ -35,7 +36,8 @@ export const GET = route(async () => {
 const schema = z.object({
   /** A product uuid, or its code such as P00042. */
   productId: z.string().min(1).max(64),
-  mrpPaise: z.number().int().min(0),
+  // At least 1 paisa and at most ₹10 lakh a unit (TC-FLD-079).
+  mrpPaise: z.number().int().min(MIN_PRICE_PAISE, "MRP must be more than ₹0.").max(MAX_MRP_PAISE, "MRP can be at most ₹10,00,000."),
   source: z.enum(["ADMIN", "GS1", "BRAND", "IMPORT", "API", "SELLER_SUBMITTED"]),
   effectiveFrom: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
   reason: z.string().max(300).nullish(),

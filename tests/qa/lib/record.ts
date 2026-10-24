@@ -74,7 +74,10 @@ const ANSI = new RegExp(`${String.fromCharCode(27)}\\[[0-9;]*m`, "g");
 
 function describeError(error: unknown) {
   const text = error instanceof Error ? error.message : String(error);
-  return text.replace(ANSI, "").split("\n").map((l) => l.trim()).filter(Boolean).slice(0, 4).join(" | ").slice(0, 700);
+  // The assertion's own message comes first and is kept whole (a check can list several issues);
+  // Playwright's expected/received block after it is cut to a few lines.
+  const lines = text.replace(ANSI, "").split("\n").map((l) => l.trim()).filter(Boolean);
+  return [lines[0] ?? "", ...lines.slice(1, 4).map((l) => l.slice(0, 300))].join(" | ").slice(0, 4000);
 }
 
 interface Pending {

@@ -15,11 +15,13 @@
  * cost; weekly batches. Nothing here moves money: PROCESSING/PAID record
  * what an admin did at the bank.
  */
-import { and, desc, eq, gte, inArray, isNull, lt, or, sql } from "drizzle-orm";
+import { and, desc, eq, getTableName, gte, inArray, isNull, lt, or, sql, type SQL } from "drizzle-orm";
+import type { AnyPgColumn } from "drizzle-orm/pg-core";
 
-import { addDays, assertIsoDate, isoWeekday, todayIn, type IsoDate } from "@/lib/dates";
+import { addDays, assertIsoDate, isCalendarDate, isoWeekday, todayIn, type IsoDate } from "@/lib/dates";
 import { getEnv } from "@/lib/env";
 import { conflict, notFound, validationFailed } from "@/lib/errors";
+import { formatPaise } from "@/lib/money";
 import type { ShopTypeKey } from "@/lib/shop-types";
 import type { RuleValue } from "@/server/config/rules";
 import { db, type DbClient } from "@/server/db";
@@ -31,7 +33,11 @@ import {
   financeLedgerEntries,
   financialAdjustments,
   orderFinancials,
+  orderRefunds,
   orders,
+  paymentIntentEvents,
+  paymentIntents,
+  paymentRefunds,
   payments,
   reconciliationRecords,
   riderPayouts,
@@ -55,7 +61,7 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
-import { applyWalletMutation, refundOriginalDebit } from "./wallet";
+import { applyWalletMutation } from "./wallet";
 import { getRule } from "./settings";
 import { onRefundRecorded } from "@/server/integrations/hooks";
 
@@ -394,7 +400,12 @@ export interface RefundDeliveredInput {
 
 /**
  * Refund (full, partial or item-level amount) of a DELIVERED or DISPUTED
- * order to the customer's wallet. A full refund moves the order to REFUNDED.
+ * order, the way it was paid (N2): a wallet order reverses its wallet debit;
+ * an order paid online goes back to the original payment method (or the
+ * wallet, by rule refundChoice) through aftercare's order_refunds — sent to
+ * the gateway after commit; a cash order is a wallet credit. Used by returns,
+ * disputes and the admin refund. A full refund moves the order to REFUNDED
+ * (REFUND_PENDING until the gateway confirms, for a refund to the payment).
  * The shop bears only its share (refunded goods − commission on them), never
  * the delivery fee. Orders delivered before the finance ledger have no
  * snapshot, so their refunds are platform-borne.
@@ -416,7 +427,8 @@ export async function refundDeliveredOrder(input: RefundDeliveredInput, actor: A
 
     const key = `refund:order:${order.id}:after-delivery:${input.requestId}`;
     const existing = await tx.query.financialAdjustments.findFirst({ where: eq(financialAdjustments.idempotencyKey, key) });
-    if (existing) return { order, adjustment: existing, fullyRefunded: false };
+    // A replay re-sends a refund to the payment method that is still waiting (idempotent).
+    if (existing) return { order, adjustment: existing, fullyRefunded: false, toPaymentMethod: order.paymentMethod === "ONLINE" };
 
     if (order.status !== "DELIVERED" && order.status !== "DISPUTED") {
       throw conflict("Only a delivered or disputed order can be refunded here — cancel it instead.");
@@ -426,34 +438,43 @@ export async function refundDeliveredOrder(input: RefundDeliveredInput, actor: A
     }
 
     // A cash-on-delivery order has no wallet debit to reverse: its refund is
-    // a customer-funded wallet credit (GS-030).
-    const refund =
-      order.paymentMethod === "COD"
-        ? await applyWalletMutation(
-            {
-              userId: order.userId,
-              amountPaise: input.amountPaise,
-              type: "REFUND",
-              idempotencyKey: key,
-              description: `Refund for cash order ${order.orderNumber}: ${reason}`,
-              orderId: order.id,
-              createdBy: actor.id,
-              promotionalAmountPaise: 0,
-            },
-            tx,
-          )
-        : await refundOriginalDebit(
-            {
-              userId: order.userId,
-              referenceType: "orderId",
-              referenceId: order.id,
-              idempotencyKey: key,
-              description: `Refund for order ${order.orderNumber}: ${reason}`,
-              createdBy: actor.id,
-              amountPaise: input.amountPaise,
-            },
-            tx,
-          );
+    // a customer-funded wallet credit (GS-030). Every other order is refunded
+    // the way it was paid (N2 / TC-PAY-029): before, an online-paid order
+    // answered 404 "Original wallet debit … not found" and the return stuck.
+    let walletTransactionId: string | null;
+    let refundReference: string;
+    let toPaymentMethod = false;
+    if (order.paymentMethod === "COD") {
+      const credit = await applyWalletMutation(
+        {
+          userId: order.userId,
+          amountPaise: input.amountPaise,
+          type: "REFUND",
+          idempotencyKey: key,
+          description: `Refund for cash order ${order.orderNumber}: ${reason}`,
+          orderId: order.id,
+          createdBy: actor.id,
+          promotionalAmountPaise: 0,
+        },
+        tx,
+      );
+      walletTransactionId = credit.transaction.id;
+      refundReference = credit.transaction.id;
+    } else {
+      // Imported lazily: aftercare/refunds imports this module (postLedger).
+      const { refundOrderPart } = await import("@/server/aftercare/refunds");
+      // The part key makes the wallet key exactly `key` (refund:order:<id>:after-delivery:<requestId>).
+      const part = await refundOrderPart(tx, order, {
+        amountPaise: input.amountPaise,
+        key: `after-delivery:${input.requestId}`,
+        description: `Refund for order ${order.orderNumber}: ${reason}`,
+        actor,
+      });
+      if (part.route === "NONE") throw conflict("This order has no payment on record to refund.");
+      walletTransactionId = part.walletTransactionId;
+      refundReference = part.refund?.id ?? part.walletTransactionId!;
+      toPaymentMethod = part.route === "ORIGINAL";
+    }
 
     const snapshot = await tx.query.orderFinancials.findFirst({ where: eq(orderFinancials.orderId, order.id) });
     const chargeShop = input.chargeTo === "SHOP" && snapshot != null;
@@ -478,7 +499,7 @@ export async function refundDeliveredOrder(input: RefundDeliveredInput, actor: A
         status: chargeShop ? "PENDING" : "RECORDED",
         shopId: order.shopId,
         orderId: order.id,
-        walletTransactionId: refund.transaction.id,
+        walletTransactionId,
         amountPaise: -shopShare,
         customerRefundPaise: input.amountPaise,
         reason,
@@ -487,7 +508,7 @@ export async function refundDeliveredOrder(input: RefundDeliveredInput, actor: A
       })
       .returning();
 
-    const base = { orderId: order.id, sourceType: "financial_adjustments", sourceId: adjustment.id, reference: refund.transaction.id, entryType: "REFUND" as const };
+    const base = { orderId: order.id, sourceType: "financial_adjustments", sourceId: adjustment.id, reference: refundReference, entryType: "REFUND" as const };
     await postLedger(
       [
         // The platform holds customer money, so it pays the refund out...
@@ -562,14 +583,23 @@ export async function refundDeliveredOrder(input: RefundDeliveredInput, actor: A
       },
       tx,
     );
-    return { order, adjustment, fullyRefunded: remaining === 0 };
+    return { order, adjustment, fullyRefunded: remaining === 0, toPaymentMethod };
   });
 
   if (result.fullyRefunded) {
     // Imported lazily: orders.ts imports this module for the DELIVERED hook.
     const { updateOrderStatus } = await import("./orders");
     await updateOrderStatus(result.order.id, "REFUND_PENDING", actor, "Full refund after delivery");
-    await updateOrderStatus(result.order.id, "REFUNDED", actor, "Wallet refunded");
+    // A refund to the payment method: REFUNDED once the gateway confirms it.
+    if (!result.toPaymentMethod) await updateOrderStatus(result.order.id, "REFUNDED", actor, "Wallet refunded");
+  }
+  if (result.toPaymentMethod) {
+    // After commit — never for a change that could still roll back. Idempotent;
+    // the aftercare and payments jobs retry it.
+    const { sendRequestedOriginalRefunds } = await import("@/server/aftercare/refunds");
+    await sendRequestedOriginalRefunds(result.order.id).catch((error) =>
+      console.error("[finance] refund send failed for order", result.order.id, error),
+    );
   }
   return result.adjustment;
 }
@@ -676,10 +706,27 @@ function startOf(date: IsoDate) {
   return sql`((${date})::date::timestamp AT TIME ZONE ${getEnv().APP_TIMEZONE})`;
 }
 
-function assertMonday(weekStart: string): { start: IsoDate; end: IsoDate } {
-  const start = assertIsoDate(weekStart);
+function assertMonday(weekStart: string, when: "ENDED" | "STARTED"): { start: IsoDate; end: IsoDate } {
+  if (!isCalendarDate(weekStart)) throw validationFailed("Enter the week's Monday as YYYY-MM-DD.", { fields: { weekStart: "Enter a real date." } });
+  const start = weekStart;
   if (isoWeekday(start) !== 1) throw validationFailed("A settlement week starts on a Monday.");
-  return { start, end: addDays(start, 7) };
+  const end = addDays(start, 7);
+  const today = todayIn(getEnv().APP_TIMEZONE);
+  // TC-FLD-118: a shop is settled only for a finished week — this week's (or a
+  // future) Monday would settle part of a week. A rider payout may cover the
+  // week so far (COD cash is netted as it is collected), never a week that has
+  // not begun.
+  if (when === "ENDED" && end > today) {
+    throw validationFailed("Only a finished week can be settled — choose the Monday of a week that has ended.", {
+      fields: { weekStart: "This week has not ended yet." },
+    });
+  }
+  if (when === "STARTED" && start > today) {
+    throw validationFailed("This week has not started yet — choose this week's Monday or an earlier one.", {
+      fields: { weekStart: "This week has not started yet." },
+    });
+  }
+  return { start, end };
 }
 
 /**
@@ -689,7 +736,7 @@ function assertMonday(weekStart: string): { start: IsoDate; end: IsoDate } {
  * Older unsettled items roll in. Safe to re-run.
  */
 export async function prepareShopSettlements(weekStart: string, actor: SystemOrActor): Promise<ShopSettlement[]> {
-  const { start, end } = assertMonday(weekStart);
+  const { start, end } = assertMonday(weekStart, "ENDED");
   // batch-2026-10 WS-E: with automated payouts on (rule payouts), shops are paid
   // through payout cycles instead — a weekly batch too would pay twice.
   if ((await getRule("payouts")).enabled) {
@@ -783,9 +830,16 @@ export async function prepareShopSettlements(weekStart: string, actor: SystemOrA
   });
 }
 
-/** PENDING rider payouts: unpaid earnings and pending rider/delivery adjustments before the week's end. */
+/**
+ * PENDING rider payouts: unpaid earnings and pending rider/delivery adjustments before the week's end.
+ * TC-COD-010: when the COD cash a rider still holds is more than they earned,
+ * the net is negative — the payout is still prepared (so the netting is on
+ * record) but held: it cannot be approved, processed or paid
+ * (assertPayableNet), and it is listed in the financial exceptions for the
+ * cash to be collected from the rider.
+ */
 export async function prepareRiderPayouts(weekStart: string, actor: SystemOrActor): Promise<RiderPayout[]> {
-  const { start, end } = assertMonday(weekStart);
+  const { start, end } = assertMonday(weekStart, "STARTED");
 
   return db.transaction(async (tx) => {
     const earnings = await tx
@@ -845,7 +899,12 @@ export async function prepareRiderPayouts(weekStart: string, actor: SystemOrActo
           action: AUDIT_ACTIONS.RIDER_PAYOUT_PREPARED,
           entityType: "rider_payout",
           entityId: payout.id,
-          newValue: { deliveryPartnerId: partnerId, amountPaise: payout.amountPaise, earnings: mine.length },
+          newValue: {
+            deliveryPartnerId: partnerId,
+            amountPaise: payout.amountPaise,
+            earnings: mine.length,
+            ...(payout.amountPaise < 0 ? { held: "negative net: the rider owes the platform" } : {}),
+          },
         },
         tx,
       );
@@ -884,6 +943,20 @@ function stepFields(action: BatchAction, actor: Actor, note: string | undefined)
   }
 }
 
+/**
+ * TC-COD-010: a settlement or payout whose net is negative (the shop / rider
+ * owes the platform — e.g. COD cash held is more than the week's earnings) is
+ * held. Nothing negative may be approved, sent to the bank or marked paid;
+ * collect the amount, or cancel the batch to carry it into the next one.
+ */
+function assertPayableNet(action: BatchAction, netPaise: number, what: "settlement" | "payout") {
+  if (netPaise >= 0 || (action !== "approve" && action !== "process" && action !== "pay")) return;
+  throw conflict(
+    `This ${what} is negative (${formatPaise(netPaise)}): the ${what === "payout" ? "rider" : "shop"} owes the platform, so nothing can be paid. ` +
+      `Collect the amount, or cancel the ${what} to carry it into the next week.`,
+  );
+}
+
 function assertNote(action: BatchAction, note: string | undefined) {
   if (action === "pay" && !note) throw validationFailed("Enter the bank / UTR reference of the payment.");
   if ((action === "fail" || action === "reverse") && !note) throw validationFailed("Say why the bank rejected or reversed it.");
@@ -910,6 +983,7 @@ export async function decideShopSettlement(
     if (!step.from.includes(current.status)) {
       throw conflict(`A ${current.status.toLowerCase()} settlement cannot move to ${step.to.toLowerCase()}.`);
     }
+    assertPayableNet(action, current.netPayablePaise, "settlement");
     const [updated] = await tx
       .update(shopSettlements)
       .set({ status: step.to, ...stepFields(action, actor, note), updatedAt: new Date() })
@@ -970,6 +1044,7 @@ export async function decideRiderPayout(
     if (!step.from.includes(current.status)) {
       throw conflict(`A ${current.status.toLowerCase()} payout cannot move to ${step.to.toLowerCase()}.`);
     }
+    assertPayableNet(action, current.amountPaise, "payout");
     const [updated] = await tx
       .update(riderPayouts)
       .set({ status: step.to, ...stepFields(action, actor, note), updatedAt: new Date() })
@@ -1276,6 +1351,45 @@ interface CheckResult {
   detail: string | null;
 }
 
+/**
+ * An outer query's column inside a correlated subquery, written fully
+ * qualified. Drizzle renders a single-table select's columns bare, so a bare
+ * "id" in `where "order_id" = "id"` binds to the subquery's own table and
+ * every check read 0 (TC-PAY-032 / TC-COD-011).
+ */
+function outer(column: AnyPgColumn): SQL {
+  return sql.raw(`"${getTableName(column.table)}"."${column.name}"`);
+}
+
+/** Intent statuses in which the gateway holds (or held) the customer's money. */
+const CAPTURED_INTENT_STATUSES = sql.raw(`('CAPTURED', 'PARTIALLY_REFUNDED', 'REFUNDED')`);
+
+/**
+ * TC-PAY-032: what an order paid online still holds at the gateway — the
+ * captured payment (the order's own ORDER intent, or its share of the
+ * ORDER_GROUP intent of a multi-shop cart: the order's total at capture)
+ * less every refund to the original method that is sent or on its way
+ * (payment_refunds PENDING / SUCCESS, and an aftercare refund still REQUESTED
+ * that has not reached payment_refunds yet).
+ */
+function onlineNetFor(order: typeof orders): SQL<number> {
+  const id = outer(order.id);
+  const groupId = outer(order.orderGroupId);
+  const share = sql`(${outer(order.totalPaise)} + ${outer(order.refundedPaise)})`;
+  return sql<number>`(coalesce((select sum(case when pi.purpose = 'ORDER' then pi.amount_paise else least(pi.amount_paise, ${share}) end)
+      from ${paymentIntents} pi
+      where pi.status in ${CAPTURED_INTENT_STATUSES}
+        and ((pi.purpose = 'ORDER' and pi.reference_id = ${id})
+          or (pi.purpose = 'ORDER_GROUP' and pi.reference_id = ${groupId}
+            and coalesce(pi.metadata -> 'orderIds', '[]'::jsonb) @> to_jsonb(${id}::text)))), 0)
+    - coalesce((select sum(pr.amount_paise) from ${paymentRefunds} pr join ${paymentIntents} pri on pri.id = pr.intent_id
+      where pr.status in ('PENDING', 'SUCCESS')
+        and (pr.order_id = ${id} or (pr.order_id is null and pri.purpose = 'ORDER' and pri.reference_id = ${id}))), 0)
+    - coalesce((select sum(r.amount_paise) from ${orderRefunds} r
+      where r.order_id = ${id} and r.method = 'ORIGINAL' and r.status = 'REQUESTED'
+        and not exists (select 1 from ${paymentRefunds} sent where sent.idempotency_key = 'order-refund:' || r.id::text)), 0))::bigint`;
+}
+
 function compare(expected: number, actual: number): CheckResult["status"] {
   if (actual === expected) return "MATCHED";
   if (actual === 0 && expected !== 0) return "UNMATCHED";
@@ -1287,7 +1401,9 @@ function compare(expected: number, actual: number): CheckResult["status"] {
  * GS-031 / Part H: runs every check for [from, to) and upserts one record
  * per (entity, check). A record someone marked RECONCILED stays RECONCILED
  * unless the figures later agree (then MATCHED). Checks:
- *  ORDER   ORDER_PAYMENT      — wallet net charge = what the order still holds
+ *  ORDER   ORDER_PAYMENT      — money taken for the order (wallet net charge + cash
+ *                               collected + online payment net of refunds) = what
+ *                               the order still holds (0 once cancelled / refunded)
  *  ORDER   DELIVERED_SNAPSHOT — delivered orders have a financial snapshot
  *  PAYMENT GATEWAY_CREDIT     — successful gateway payment credited exactly once
  *  PAYMENT GATEWAY_PENDING    — gateway payment stuck in CREATED/PENDING > 30 min
@@ -1307,18 +1423,21 @@ export async function runReconciliation(fromDate: string, toDate: string, actor:
       status: orders.status,
       totalPaise: orders.totalPaise,
       walletNet: sql<number>`coalesce((select -sum(${walletTransactions.amountPaise}) from ${walletTransactions}
-        where ${walletTransactions.orderId} = ${orders.id} and ${walletTransactions.status} = 'COMPLETED'), 0)::bigint`,
+        where ${walletTransactions.orderId} = ${outer(orders.id)} and ${walletTransactions.status} = 'COMPLETED'), 0)::bigint`,
       // GS-030: cash collected at the door for a COD order.
       codCash: sql<number>`coalesce((select -sum(${financialAdjustments.amountPaise}) from ${financialAdjustments}
-        where ${financialAdjustments.orderId} = ${orders.id} and ${financialAdjustments.type} = 'COD_CASH_COLLECTED'), 0)::bigint`,
-      hasSnapshot: sql<boolean>`exists(select 1 from ${orderFinancials} where ${orderFinancials.orderId} = ${orders.id})`,
+        where ${financialAdjustments.orderId} = ${outer(orders.id)} and ${financialAdjustments.type} = 'COD_CASH_COLLECTED'), 0)::bigint`,
+      onlineNet: onlineNetFor(orders),
+      hasSnapshot: sql<boolean>`exists(select 1 from ${orderFinancials} where ${orderFinancials.orderId} = ${outer(orders.id)})`,
     })
     .from(orders)
     .where(inWindow(orders.paidAt));
   for (const o of paidOrders) {
-    const expected = o.status === "CANCELLED" || o.status === "REFUNDED" ? 0 : o.totalPaise;
-    // Wallet net charge plus COD cash (a COD refund is a wallet credit, so it nets here too).
-    const actual = Number(o.walletNet) + Number(o.codCash);
+    // REFUND_PENDING: the refund to the original method is on its way (counted as gone below).
+    const expected = o.status === "CANCELLED" || o.status === "REFUNDED" || o.status === "REFUND_PENDING" ? 0 : o.totalPaise;
+    // Wallet net charge plus COD cash (a COD refund is a wallet credit, so it nets here too)
+    // plus what an online payment still holds (TC-PAY-032).
+    const actual = Number(o.walletNet) + Number(o.codCash) + Number(o.onlineNet);
     results.push({
       entityType: "ORDER",
       entityId: o.id,
@@ -1327,7 +1446,7 @@ export async function runReconciliation(fromDate: string, toDate: string, actor:
       expectedPaise: expected,
       actualPaise: actual,
       status: compare(expected, actual),
-      detail: actual === expected ? null : `Order is ${o.status}; wallet net charge (plus cash collected) differs from what the order holds.`,
+      detail: actual === expected ? null : `Order is ${o.status}; the money taken (wallet, cash collected, online payment less refunds) differs from what the order holds.`,
     });
     if (o.status === "DELIVERED") {
       results.push({
@@ -1352,9 +1471,9 @@ export async function runReconciliation(fromDate: string, toDate: string, actor:
       createdAt: payments.createdAt,
       // A shop wallet recharge credits the shop's wallet instead of the customer's.
       credited: sql<number>`(coalesce((select sum(${walletTransactions.amountPaise}) from ${walletTransactions}
-        where ${walletTransactions.paymentId} = ${payments.id} and ${walletTransactions.type} = 'TOP_UP'), 0)
+        where ${walletTransactions.paymentId} = ${outer(payments.id)} and ${walletTransactions.type} = 'TOP_UP'), 0)
         + coalesce((select sum(${shopWalletTransactions.amountPaise}) from ${shopWalletTransactions}
-        where ${shopWalletTransactions.paymentId} = ${payments.id} and ${shopWalletTransactions.type} = 'TOP_UP'), 0))::bigint`,
+        where ${shopWalletTransactions.paymentId} = ${outer(payments.id)} and ${shopWalletTransactions.type} = 'TOP_UP'), 0))::bigint`,
     })
     .from(payments)
     .where(inWindow(payments.createdAt));
@@ -1426,9 +1545,9 @@ export async function runReconciliation(fromDate: string, toDate: string, actor:
       id: shopSettlements.id,
       net: shopSettlements.netPayablePaise,
       lines: sql<number>`coalesce((select sum(${orderFinancials.shopPayablePaise}) from ${orderFinancials}
-        where ${orderFinancials.settlementId} = ${shopSettlements.id}), 0)::bigint`,
+        where ${orderFinancials.settlementId} = ${outer(shopSettlements.id)}), 0)::bigint`,
       adjustments: sql<number>`coalesce((select sum(${financialAdjustments.amountPaise}) from ${financialAdjustments}
-        where ${financialAdjustments.settlementId} = ${shopSettlements.id}), 0)::bigint`,
+        where ${financialAdjustments.settlementId} = ${outer(shopSettlements.id)}), 0)::bigint`,
     })
     .from(shopSettlements)
     .where(and(inArray(shopSettlements.status, ["PENDING", "ELIGIBLE", "PROCESSING", "PAID"]), inWindow(shopSettlements.createdAt)));
@@ -1451,9 +1570,9 @@ export async function runReconciliation(fromDate: string, toDate: string, actor:
       id: riderPayouts.id,
       amount: riderPayouts.amountPaise,
       earnings: sql<number>`coalesce((select sum(${deliveryPartnerEarnings.totalPaise}) from ${deliveryPartnerEarnings}
-        where ${deliveryPartnerEarnings.payoutId} = ${riderPayouts.id}), 0)::bigint`,
+        where ${deliveryPartnerEarnings.payoutId} = ${outer(riderPayouts.id)}), 0)::bigint`,
       adjustments: sql<number>`coalesce((select sum(${financialAdjustments.amountPaise}) from ${financialAdjustments}
-        where ${financialAdjustments.payoutId} = ${riderPayouts.id}), 0)::bigint`,
+        where ${financialAdjustments.payoutId} = ${outer(riderPayouts.id)}), 0)::bigint`,
     })
     .from(riderPayouts)
     .where(and(inArray(riderPayouts.status, ["PENDING", "ELIGIBLE", "PROCESSING", "PAID"]), inWindow(riderPayouts.createdAt)));
@@ -1571,6 +1690,7 @@ export const OPERATOR_RECONCILIATION_ENTITIES: ReconciliationEntity[] = ["ORDER"
 /**
  * Part K/O: operational financial exceptions. `scope: "operator"` leaves out
  * settlement and payout batches (admin-only money); the rest is operational.
+ * Batches with a negative net (held, TC-COD-010) are listed with the failed ones.
  */
 export async function listFinancialExceptions(scope: "operator" | "admin") {
   const since = sql`now() - interval '14 days'`;
@@ -1631,6 +1751,21 @@ export async function listFinancialExceptions(scope: "operator" | "admin") {
             .where(inArray(riderPayouts.status, ["FAILED", "REVERSED"]))
             .orderBy(desc(riderPayouts.updatedAt))
             .limit(50),
+          // TC-COD-010: held batches — a negative net is owed to the platform and is never paid out.
+          negativePayouts: await db
+            .select({ payout: riderPayouts, partnerName: deliveryPartners.fullName })
+            .from(riderPayouts)
+            .innerJoin(deliveryPartners, eq(riderPayouts.deliveryPartnerId, deliveryPartners.id))
+            .where(and(lt(riderPayouts.amountPaise, 0), inArray(riderPayouts.status, ["PENDING", "ELIGIBLE", "PROCESSING", "FAILED"])))
+            .orderBy(desc(riderPayouts.createdAt))
+            .limit(50),
+          negativeSettlements: await db
+            .select({ settlement: shopSettlements, shopName: shops.name })
+            .from(shopSettlements)
+            .innerJoin(shops, eq(shopSettlements.shopId, shops.id))
+            .where(and(lt(shopSettlements.netPayablePaise, 0), inArray(shopSettlements.status, ["PENDING", "ELIGIBLE", "PROCESSING", "FAILED"])))
+            .orderBy(desc(shopSettlements.createdAt))
+            .limit(50),
           // Delivered well past the hold period but still in no settlement ("settlement missing").
           unsettled: await db
             .select({ orderId: orderFinancials.orderId, orderNumber: orders.orderNumber, shopName: shops.name, deliveredAt: orderFinancials.deliveredAt })
@@ -1657,20 +1792,23 @@ export async function listFinancialExceptions(scope: "operator" | "admin") {
 
 /**
  * Everything money-related for one order (Part A/L): payment (wallet debit,
- * method WALLET, ledger id as reference), all wallet entries (payment,
- * refunds), the delivered snapshot, adjustments, journal entries, the
- * settlement it went into, the rider's earning, reconciliation results.
+ * method WALLET, ledger id as reference; or, for an order paid online, the
+ * gateway payment — TC-PAY-026), all wallet entries (payment, refunds), every
+ * online payment attempt with its status history and refunds, the delivered
+ * snapshot, adjustments, journal entries, the settlement it went into, the
+ * rider's earning, reconciliation results.
  */
 export async function getOrderFinancialTrace(orderNumber: string) {
   const order = await db.query.orders.findFirst({ where: eq(orders.orderNumber, orderNumber.trim()) });
   if (!order) throw notFound("Order");
-  const [walletEntries, snapshot, adjustments, delivery, ledger, recon] = await Promise.all([
+  const [walletEntries, snapshot, adjustments, delivery, ledger, recon, onlinePayments] = await Promise.all([
     db.select().from(walletTransactions).where(eq(walletTransactions.orderId, order.id)).orderBy(walletTransactions.createdAt),
     db.query.orderFinancials.findFirst({ where: eq(orderFinancials.orderId, order.id) }),
     db.select().from(financialAdjustments).where(eq(financialAdjustments.orderId, order.id)),
     db.query.deliveryOrders.findFirst({ where: eq(deliveryOrders.orderId, order.id) }),
     listLedgerEntries({ orderId: order.id }),
     db.select().from(reconciliationRecords).where(eq(reconciliationRecords.entityId, order.id)),
+    onlinePaymentsForOrder(order),
   ]);
   const settlement = snapshot?.settlementId
     ? await db.query.shopSettlements.findFirst({ where: eq(shopSettlements.id, snapshot.settlementId) })
@@ -1679,6 +1817,8 @@ export async function getOrderFinancialTrace(orderNumber: string) {
     ? await db.query.deliveryPartnerEarnings.findFirst({ where: eq(deliveryPartnerEarnings.deliveryOrderId, delivery.id) })
     : null;
   const debit = walletEntries.find((w) => w.amountPaise < 0);
+  // TC-PAY-026: an order paid online has no wallet debit; its payment is the captured attempt (else the latest one).
+  const online = onlinePayments.find((p) => (CAPTURED_STATUSES as readonly string[]).includes(p.status)) ?? onlinePayments.at(-1) ?? null;
   return {
     order: {
       id: order.id,
@@ -1697,12 +1837,24 @@ export async function getOrderFinancialTrace(orderNumber: string) {
       ? {
           method: "WALLET" as const,
           reference: debit.id,
-          status: debit.status,
+          status: debit.status as string,
           amountPaise: -debit.amountPaise,
           promotionalPaise: -debit.promotionalAmountPaise,
           paidAt: debit.createdAt,
         }
-      : null,
+      : online
+        ? {
+            method: "ONLINE" as const,
+            reference: online.gatewayPaymentId ?? online.gatewayOrderId ?? online.merchantOrderId,
+            status: online.status as string,
+            amountPaise: online.amountPaise,
+            promotionalPaise: 0,
+            paidAt: online.capturedAt,
+            intentId: online.id,
+            gateway: online.gateway,
+            refundedPaise: online.refundedPaise,
+          }
+        : null,
     walletEntries: walletEntries.map((w) => ({
       id: w.id,
       type: w.type,
@@ -1710,6 +1862,7 @@ export async function getOrderFinancialTrace(orderNumber: string) {
       description: w.description,
       createdAt: w.createdAt,
     })),
+    onlinePayments,
     snapshot: snapshot ?? null,
     adjustments,
     ledger,
@@ -1719,4 +1872,67 @@ export async function getOrderFinancialTrace(orderNumber: string) {
       : null,
     riderEarning: riderEarning ? { totalPaise: riderEarning.totalPaise, payoutId: riderEarning.payoutId } : null,
   };
+}
+
+const CAPTURED_STATUSES = ["CAPTURED", "PARTIALLY_REFUNDED", "REFUNDED"] as const;
+
+/**
+ * TC-PAY-026: every gateway payment attempt for an order — its own ORDER
+ * intents and the multi-shop ORDER_GROUP intents that covered it — oldest
+ * first, each with its status history (payment_intent_events) and refunds.
+ * Gateway references only; no card or UPI details are ever stored.
+ */
+async function onlinePaymentsForOrder(order: { id: string; orderGroupId: string | null }) {
+  const intents = await db
+    .select()
+    .from(paymentIntents)
+    .where(
+      or(
+        and(eq(paymentIntents.purpose, "ORDER"), eq(paymentIntents.referenceId, order.id)),
+        order.orderGroupId
+          ? and(eq(paymentIntents.purpose, "ORDER_GROUP"), eq(paymentIntents.referenceId, order.orderGroupId))
+          : undefined,
+      ),
+    )
+    .orderBy(paymentIntents.createdAt);
+  // A group attempt lists the orders it was opened for; one that does not name this order did not pay it.
+  const mine = intents.filter((i) => {
+    const ids = (i.metadata as { orderIds?: unknown } | null)?.orderIds;
+    return i.purpose === "ORDER" || !Array.isArray(ids) || ids.includes(order.id);
+  });
+  if (mine.length === 0) return [];
+  const ids = mine.map((i) => i.id);
+  const [events, refunds] = await Promise.all([
+    db.select().from(paymentIntentEvents).where(inArray(paymentIntentEvents.intentId, ids)).orderBy(paymentIntentEvents.createdAt),
+    db.select().from(paymentRefunds).where(inArray(paymentRefunds.intentId, ids)).orderBy(paymentRefunds.createdAt),
+  ]);
+  return mine.map((i) => ({
+    id: i.id,
+    purpose: i.purpose,
+    gateway: i.gateway,
+    status: i.status,
+    amountPaise: i.amountPaise,
+    refundedPaise: i.refundedPaise,
+    method: i.method,
+    merchantOrderId: i.merchantOrderId,
+    gatewayOrderId: i.gatewayOrderId,
+    gatewayPaymentId: i.gatewayPaymentId,
+    failureReason: i.failureReason,
+    createdAt: i.createdAt,
+    capturedAt: i.capturedAt,
+    events: events
+      .filter((e) => e.intentId === i.id)
+      .map((e) => ({ fromStatus: e.fromStatus, toStatus: e.toStatus, source: e.source, note: e.note, at: e.createdAt })),
+    refunds: refunds
+      .filter((r) => r.intentId === i.id && (r.orderId == null || r.orderId === order.id))
+      .map((r) => ({
+        id: r.id,
+        amountPaise: r.amountPaise,
+        status: r.status,
+        reason: r.reason,
+        gatewayRefundId: r.gatewayRefundId,
+        createdAt: r.createdAt,
+        settledAt: r.settledAt,
+      })),
+  }));
 }

@@ -140,6 +140,7 @@ export default async function ShopOrdersPage({ searchParams }: { searchParams: P
               productNameSnapshot: i.productNameSnapshot,
               unitSnapshot: i.unitSnapshot,
               quantityMilli: i.quantityMilli,
+              unitPricePaise: i.unitPricePaise,
               lineTotalPaise: i.lineTotalPaise,
               fulfilmentStatus: i.fulfilmentStatus,
               substituteNameSnapshot: i.substituteNameSnapshot,

@@ -146,6 +146,27 @@ export async function recordPayment(
       .limit(1);
     if (!shop) throw notFound("Shop");
 
+    // TC-FLD-113: one bank / UPI transaction is one payment — a reference
+    // already recorded is refused (a refund may quote the payment it returns).
+    const transactionId = input.transactionId?.trim() || null;
+    if (transactionId && input.paymentType !== "REFUND") {
+      const [used] = await tx
+        .select({ reference: shopPayments.reference })
+        .from(shopPayments)
+        .where(
+          and(
+            sql`lower(${shopPayments.transactionId}) = lower(${transactionId})`,
+            sql`${shopPayments.paymentType} NOT IN ('REFUND', 'REVERSAL')`,
+          ),
+        )
+        .limit(1);
+      if (used) {
+        throw conflict(`Transaction reference ${transactionId} is already recorded (payment ${used.reference}).`, {
+          fields: { transactionId: "This reference was already recorded." },
+        });
+      }
+    }
+
     const signed =
       input.paymentType === "REFUND" ? -input.amountPaise : input.amountPaise;
 
@@ -158,7 +179,7 @@ export async function recordPayment(
         paymentType: input.paymentType,
         amountPaise: signed,
         method: input.method ?? "CASH",
-        transactionId: input.transactionId ?? null,
+        transactionId,
         feeSnapshotPaise: shop.registrationFeePaise,
         paidAt: input.paidAt ?? new Date(),
         note: input.note ?? null,
