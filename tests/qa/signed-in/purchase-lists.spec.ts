@@ -101,7 +101,10 @@ interface Row {
   onlineSaleEnabled: boolean;
   isAvailable: boolean;
   trackInventory: boolean;
+  /** The count, where the API gives it (the shop's own view, or builds before D-90); otherwise read through a check (shopRows). */
   onlineStock: number;
+  /** What customers are told instead of the count (D-90 / TC-SPI-027). */
+  inStock?: boolean;
   shopId: string;
   shopName: string;
   shopSlug: string;
@@ -206,14 +209,45 @@ async function withCart<T>(lines: { row: Row; quantity: number }[], body: () => 
 
 let rowsCache: Row[] | null = null;
 
-/** Shop A's storefront (online listings), as a customer's browser reads it. */
+/**
+ * Shop A's storefront (online listings), as a customer's browser reads it.
+ * Customers are told whether a product is in stock, not the count (D-90,
+ * TC-SPI-027). Where the count is not given it is read the way the app tells a
+ * customer: a throwaway "QA PL" list asks for 99 of each tracked product and
+ * its check answers "Only N left in stock." for one with fewer (99 here means
+ * "99 or more"); the list is deleted straight away.
+ */
 async function shopRows(): Promise<Row[]> {
   if (rowsCache) return rowsCache;
   const shop = await shopOf("A");
   const res = await api("GET", `/api/shops/${shop.id}/products?limit=100`);
   expectStatus(res, 200, "shop A's storefront");
-  const rows = (Array.isArray(res.body) ? res.body : (res.body?.products ?? [])) as Row[];
-  rowsCache = rows.map((r) => ({ ...r, shopId: r.shopId ?? shop.id, shopName: r.shopName ?? shop.name, shopSlug: r.shopSlug ?? shop.slug }));
+  const rows = ((Array.isArray(res.body) ? res.body : (res.body?.products ?? [])) as Row[]).map((r) => ({
+    ...r,
+    shopId: r.shopId ?? shop.id,
+    shopName: r.shopName ?? shop.name,
+    shopSlug: r.shopSlug ?? shop.slug,
+  }));
+  const unknown = rows.filter((r) => r.trackInventory && typeof r.onlineStock !== "number");
+  for (const r of unknown) if (r.inStock === false) r.onlineStock = 0;
+  const probe = unknown.filter((r) => r.inStock !== false && r.onlineSaleEnabled && r.isAvailable && (r.onlinePricePaise ?? 0) > 0);
+  if (probe.length) {
+    const list = await createList("stock probe");
+    try {
+      for (const r of probe) await addItem(list.id, r, 99);
+      const check = await api("GET", `/api/purchase-lists/${list.id}/check`);
+      expectStatus(check, 200, "check of the stock probe list");
+      const lines = (check.body as Check).preview.groups.flatMap((g) => g.lines);
+      for (const r of probe) {
+        const line = lines.find((l) => l.shopProductId === r.shopProductId);
+        const left = line?.unavailableReason?.match(/^Only (\d+) left in stock\.$/);
+        r.onlineStock = line?.purchasable ? 99 : left ? Number(left[1]) : 0;
+      }
+    } finally {
+      expectStatus(await api("DELETE", `/api/purchase-lists/${list.id}`), [204, 404], "delete the stock probe list");
+    }
+  }
+  rowsCache = rows;
   return rowsCache;
 }
 
@@ -240,10 +274,10 @@ async function lowStock(): Promise<{ row: Row; quantity: number }> {
   return { row, quantity: row.onlineStock + 1 };
 }
 
-/** A product that can take 100 units (stock not tracked, or 100+ in stock): a cart line can reach the 99 cap. */
+/** A product a cart line can hold 99 of (stock not tracked, or 99+ in stock): the line is at the cart's cap. */
 async function roomy(): Promise<Row> {
-  const row = (await shopRows()).filter((r) => buyable(r, 100)).sort((a, b) => (a.onlinePricePaise ?? 0) - (b.onlinePricePaise ?? 0))[0];
-  if (!row) blocked("needs a product of shop A with stock not tracked or 100+ in stock (a cart line at the 99 cap)");
+  const row = (await shopRows()).filter((r) => buyable(r, 99)).sort((a, b) => (a.onlinePricePaise ?? 0) - (b.onlinePricePaise ?? 0))[0];
+  if (!row) blocked("needs a product of shop A with stock not tracked or 99+ in stock (a cart line at the 99 cap)");
   return row;
 }
 
