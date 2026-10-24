@@ -41,6 +41,8 @@ const schema = z.object({
 
 export const PATCH = route(
   async (request: NextRequest, context: RouteContext<{ id: string }>) => {
+    // Signed in first: a guest gets 401 before the body or the record is read (TC-SEC-001).
+    await requireUser();
     const { id } = await context.params;
     const body = await parseBody(request, schema);
 

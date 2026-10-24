@@ -7,6 +7,7 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
+import { requireUser } from "@/server/authz/guards";
 import { requireShopMarketing } from "@/server/authz/marketing-access";
 import { rulesSchema } from "@/server/api/marketing-schemas";
 import { listSegments, previewAudience, saveSegment } from "@/server/services/marketing";
@@ -26,6 +27,8 @@ const schema = z.object({
 });
 
 export const POST = route(async (request: NextRequest, context: RouteContext<{ id: string }>) => {
+  // Signed in first: a guest gets 401 before the body or the record is read (TC-SEC-001).
+  await requireUser();
   const { id } = await context.params;
   const body = await parseBody(request, schema);
   if (body.preview) {

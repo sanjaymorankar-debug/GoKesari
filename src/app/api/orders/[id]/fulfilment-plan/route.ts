@@ -16,7 +16,7 @@ import { z } from "zod";
 import { notFound } from "@/lib/errors";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
-import { requireShopAccess } from "@/server/authz/guards";
+import { requireShopAccess, requireUser } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { FULFILMENT_OPTIONS, orders } from "@/server/db/schema";
@@ -45,6 +45,8 @@ export const GET = route(async (_request: NextRequest, context: RouteContext<{ i
 });
 
 export const POST = route(async (request: NextRequest, context: RouteContext<{ id: string }>) => {
+  // Signed in first: a guest gets 401 before the body or the record is read (TC-SEC-001).
+  await requireUser();
   const { id } = await context.params;
   const { user } = await access(id);
   enforceRateLimit(`fulfilment-plan:${user.id}`, RATE_LIMITS.MUTATION);

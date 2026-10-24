@@ -103,6 +103,9 @@ Format: **ID — decision.** *Why.* (Where.)
   owner's mailbox — **with the owner's go-ahead (18 Oct)**. Sessions are saved
   only in the git-ignored `.e2e-auth/` of the build machine and expire in 30
   days. Production uses no real payments.
+- **D-042 — The 798-case plan is executed by the automated QA suite** (owner, 24 Oct 2026; `tests/qa`, Claude QA agent `.claude/agents/gokesari-qa.md`). Every case is a Playwright UI / API check tagged with its TC ID, or declared not automatable with the reason. Production (gokesari.com) runs only the production-safe tier — public pages and requests the server must refuse; nothing signs in, writes or pays there. test.gokesari.com runs the production-safe and signed-in tiers; the local server built from the release runs every tier. Results per site go to `docs/testing/qa-runs/` and the master register `docs/testing/GOKESARI_MASTER_TEST_REGISTER.xlsx`.
+- **D-043 — D-041 renewed for the QA suite** (owner, 24 Oct 2026): the signed-in tier on test.gokesari.com signs the staging test accounts in with their emailed codes, read from the owner's Gmail (only GoKesari sign-in codes to the `sanjaymorankar+gk-*` addresses). Resolves Blockers & Decisions #68 for the test site; production stays production-safe only.
+- **D-044 — Releases from a feature branch may go to `main` directly while staging holds another session's unreleased PRs** (24 Oct 2026, as #216 did): staging carried #225 / #226 (location detection, waiting for the owner's look on the test site), so the QA release went to gokesari.com from its own branch, keeping #225 / #226 off production until the owner releases them.
 
 <!-- Workstream decisions (A–F) are appended below. -->
 

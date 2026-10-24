@@ -1,0 +1,18 @@
+{
+  "target": "staging",
+  "host": "test.gokesari.com",
+  "note": "The existing staging test accounts (decision D-041) and the E2E shop. Plus-aliases of the owner's mailbox; sign-in is the normal emailed code (scripts/qa/signin-staging.ts). Ids are looked up through the site's APIs at run time.",
+  "users": {
+    "customer": { "email": "sanjaymorankar+gk-lc14@gmail.com" },
+    "customer2": { "email": "sanjaymorankar+gk-cust@gmail.com" },
+    "shop": { "email": "sanjaymorankar+gk-shop@gmail.com" },
+    "rider": { "email": "sanjaymorankar+gk-rider@gmail.com" },
+    "admin": { "email": "sanjaymorankar+gk-admin@gmail.com" },
+    "ops": { "email": "sanjaymorankar+gk-ops@gmail.com" },
+    "oplim": { "email": "sanjaymorankar+gk-oplim@gmail.com" }
+  },
+  "shops": {
+    "A": { "name": "E2E Four Features Bakery" }
+  },
+  "listings": {}
+}

@@ -191,8 +191,8 @@ export async function registerShop(
    */
   options: { privileged?: boolean } = {},
 ): Promise<RegisterShopResult> {
-  if (!/^\d{6}$/.test(input.pincode)) {
-    throw validationFailed("PIN code must be exactly 6 digits.");
+  if (!/^[1-9]\d{5}$/.test(input.pincode)) {
+    throw validationFailed("PIN code must be 6 digits and not start with 0.");
   }
   if (!/^[6-9]\d{9}$/.test(input.phone)) {
     throw validationFailed("Enter a valid 10-digit Indian mobile number.");
@@ -889,8 +889,8 @@ export async function updateShop(
   input: UpdateShopInput,
   actor: { id: string; role: UserRole },
 ): Promise<Shop> {
-  if (input.pincode && !/^\d{6}$/.test(input.pincode)) {
-    throw validationFailed("PIN code must be exactly 6 digits.");
+  if (input.pincode && !/^[1-9]\d{5}$/.test(input.pincode)) {
+    throw validationFailed("PIN code must be 6 digits and not start with 0.");
   }
   if (input.phone && !/^[6-9]\d{9}$/.test(input.phone)) {
     throw validationFailed("Enter a valid 10-digit Indian mobile number.");
@@ -908,7 +908,7 @@ export async function updateShop(
     throw validationFailed("Delivery radius must be a whole number of km between 1 and 50.");
   }
   if (input.deliveryPincodes) {
-    if (input.deliveryPincodes.length > 50 || input.deliveryPincodes.some((p) => !/^\d{6}$/.test(p))) {
+    if (input.deliveryPincodes.length > 50 || input.deliveryPincodes.some((p) => !/^[1-9]\d{5}$/.test(p))) {
       throw validationFailed("Delivery zones must be up to 50 six-digit PIN codes.");
     }
     input.deliveryPincodes = [...new Set(input.deliveryPincodes)];
@@ -1165,6 +1165,8 @@ export async function searchShops(
         ilike(shops.name, term),
         ilike(shops.area, term),
         ilike(shops.city, term),
+        // A PIN typed in the search box finds the shops at that PIN (TC-DISC-004).
+        ilike(shops.pincode, term),
         ilike(shops.description, term),
         // A shop's categories also make it findable ("dairy" finds a shop tagged Dairy).
         sql`exists (select 1 from shop_category_mapping m join shop_categories c on c.id = m.category_id

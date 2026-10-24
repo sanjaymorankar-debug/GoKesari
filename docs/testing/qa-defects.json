@@ -1,0 +1,102 @@
+{
+  "note": "Defects found by the automated QA suite (tests/qa). One entry per defect; 'cases' are the TC IDs whose check shows it. Status: Open, Fixed (not yet re-tested), Fixed - retest passed, Not a defect, Deferred.",
+  "defects": [
+    {
+      "id": "D-01",
+      "title": "Write APIs read the request before checking the session",
+      "cases": [
+        "TC-SEC-001",
+        "TC-RBAC-002"
+      ],
+      "severity": "Low",
+      "found": "2026-10-24 local + test.gokesari.com (guest tier)",
+      "actual": "19 write routes (15 handlers) answered a signed-out caller 404 NOT_FOUND or 422 VALIDATION_FAILED instead of 401: they validated the body or looked the record up first, so a guest learnt field names and whether an id exists. Nothing could be changed signed out.",
+      "expected": "401 for every write API called without a session (TC-SEC-001); guards first (src/server/authz/guards.ts: 'Every mutating route handler and server action begins with one of these').",
+      "fix": "requireUser() as the first statement of the 15 handlers (orders status/fulfilment/assign/fulfilment-plan, shop-products, excel-uploads, invoices einvoice/eway-bill, products, price-requests, marketing segments, admin payout batches).",
+      "status": "Fixed (re-test pending)"
+    },
+    {
+      "id": "D-02",
+      "title": "A malformed id in the URL answers 500",
+      "cases": [
+        "TC-SEC-002",
+        "TC-DISC-007"
+      ],
+      "severity": "Low",
+      "found": "2026-10-24 local + test.gokesari.com",
+      "actual": "GET /api/shops/abc/products (and other id routes, e.g. PATCH /api/cart/items/undefined) → 500 INTERNAL: PostgreSQL 'invalid input syntax for type uuid' reached the generic error handler.",
+      "expected": "404/422 for a malformed id, never a 500 (TC-SEC-002).",
+      "fix": "toClientError() maps PostgreSQL 22P02 for type uuid to 404 NOT_FOUND (src/lib/errors.ts); unit test tests/unit/errors-invalid-id.test.ts.",
+      "status": "Fixed (re-test pending)"
+    },
+    {
+      "id": "D-03",
+      "title": "Responses advertise the framework (X-Powered-By: Next.js)",
+      "cases": [
+        "TC-SEC-010",
+        "TC-SEC-005"
+      ],
+      "severity": "Low",
+      "found": "2026-10-24 local + test.gokesari.com",
+      "actual": "Every response carries 'X-Powered-By: Next.js'.",
+      "expected": "No server details in responses (TC-SEC-010).",
+      "fix": "poweredByHeader: false in next.config.ts.",
+      "status": "Fixed (re-test pending)"
+    },
+    {
+      "id": "D-04",
+      "title": "PIN codes starting with 0 (and 000000) are accepted",
+      "cases": [
+        "TC-LOC-002",
+        "TC-FLD-020",
+        "TC-FLD-016"
+      ],
+      "severity": "Medium",
+      "found": "2026-10-24 local + test.gokesari.com",
+      "actual": "The location bar saved 'PIN 011001' and 'PIN 000000'; addresses, shop registration and settings, societies, delivery slots, price references and marketing segments accepted any 6 digits.",
+      "expected": "Only a 6-digit PIN that does not start with 0 is accepted; others are refused with 422 and the previous location stays (TC-LOC-002, TC-FLD-020).",
+      "fix": "/^[1-9]\\d{5}$/ in the location API and the services that store a PIN (addresses, shops, societies, shop profile, delivery slots, price references, marketing).",
+      "status": "Fixed (re-test pending)"
+    },
+    {
+      "id": "D-05",
+      "title": "No robots.txt on the test site",
+      "cases": [
+        "TC-SEC-008"
+      ],
+      "severity": "Low",
+      "found": "2026-10-24 test.gokesari.com",
+      "actual": "GET https://test.gokesari.com/robots.txt → 404, so search engines may index the test site and its test shops.",
+      "expected": "Search engines are disallowed on the test site (TC-SEC-008).",
+      "fix": "src/app/robots.ts: Disallow / on every host but gokesari.com (isProductionSite); production keeps Allow /.",
+      "status": "Fixed (re-test pending)"
+    },
+    {
+      "id": "D-06",
+      "title": "Shop search by PIN code finds nothing",
+      "cases": [
+        "TC-DISC-004"
+      ],
+      "severity": "Medium",
+      "found": "2026-10-24 gokesari.com (guest tier)",
+      "actual": "/shops?q=411014 lists no shop although several approved shops are at PIN 411014 (e.g. 'Agtci', Kharadi): the free-text search matched name, area, city, description and category but not the PIN, and /shops has no separate PIN field.",
+      "expected": "Shop search by name, category, area and PIN returns the matching approved shops (TC-DISC-004).",
+      "fix": "searchShops() also matches shops.pincode (src/server/services/shops.ts); integration test in tests/integration/shop-categories.test.ts.",
+      "status": "Fixed (re-test pending)"
+    },
+    {
+      "id": "E-01",
+      "title": "The host's firewall answers 403 to search text that looks like SQL",
+      "cases": [
+        "TC-DISC-004",
+        "TC-FLD-022"
+      ],
+      "severity": "Info",
+      "found": "2026-10-24 test.gokesari.com",
+      "actual": "/search?q=';%20drop%20table%20shops;-- → 403 from the hosting firewall (Hostinger), before the app.",
+      "expected": "Not an app defect: the case's own inputs (%, _, ', \", <script>, Hindi, long text) all render; the probe was narrowed to them. Recorded so a 403 on such text is not mistaken for an app error.",
+      "fix": "None in the app (host configuration).",
+      "status": "Not a defect"
+    }
+  ]
+}
