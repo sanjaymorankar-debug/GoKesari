@@ -8,8 +8,17 @@
  * DELETE clears the choice (discovery falls back to the default address, or
  * to showing every shop).
  *
- * Stored in an httpOnly cookie; nothing is written to the database, and no
- * reverse-geocoding call is made (MAPS_USAGE.md — no per-visit Maps cost).
+ * A device position is labelled with its approximate street address from
+ * OpenStreetMap ("12 Lane 5, Kharadi, Pune 411014" — free, no Google call;
+ * one request per spot, remembered for a day — MAPS_USAGE.md). Otherwise with
+ * the area and city of the nearest shop or saved address within 2 km
+ * ("Kharadi, Pune"), from GoKesari's own data; "Current location" only when
+ * nothing is known there. No PIN code is saved from either: both are
+ * approximate, and discovery goes by distance. With `ifUnset: true` (the automatic detection) a location
+ * already chosen, or the signed-in customer's saved address, is kept and the
+ * answer says `saved: false`.
+ *
+ * Stored in an httpOnly cookie; nothing is written to the database.
  */
 import { cookies } from "next/headers";
 import type { NextRequest } from "next/server";
@@ -22,11 +31,14 @@ import {
   serializeLocation,
   type CustomerLocation,
 } from "@/lib/location";
+import { placeLine } from "@/lib/geo/nearby";
 import { ok, parseBody, route } from "@/server/api/handler";
+import { clientKey, enforceRateLimit } from "@/server/api/rate-limit";
 import { getCurrentUser } from "@/server/authz/guards";
 import { unauthenticated } from "@/lib/errors";
-import { locationFromAddress } from "@/server/location";
+import { getCustomerLocation, locationFromAddress } from "@/server/location";
 import { getAddress } from "@/server/services/addresses";
+import { addressForPosition, describePosition } from "@/server/services/place-lookup";
 
 const schema = z.union([
   z.object({ addressId: z.string().uuid() }),
@@ -36,6 +48,8 @@ const schema = z.union([
     pincode: z.string().regex(/^\d{6}$/).nullish(),
     /** Set when the customer picked the point by searching an address. */
     label: z.string().min(1).max(120).nullish(),
+    /** The automatic detection: keep a location that is already chosen. */
+    ifUnset: z.boolean().optional(),
   }),
   z.object({ pincode: z.string().regex(/^\d{6}$/, "Enter a valid 6-digit PIN code.") }),
 ]);
@@ -49,14 +63,24 @@ export const POST = route(async (request: NextRequest) => {
     if (!user) throw unauthenticated();
     location = locationFromAddress(await getAddress(user.id, body.addressId));
   } else if ("latitude" in body) {
+    enforceRateLimit(clientKey(request, "location-device"), { limit: 30, windowMs: 60_000 });
+    if (body.ifUnset) {
+      const current = await getCustomerLocation((await getCurrentUser())?.id);
+      if (current) return ok({ ...current, saved: false });
+    }
+    // The approximate street address from OpenStreetMap; else the area and city of the nearest known point.
+    const osm = body.label ? null : await addressForPosition(body.latitude, body.longitude).catch(() => null);
+    const named = body.label || osm ? null : await describePosition(body.latitude, body.longitude, { ownDataOnly: true }).catch(() => null);
+    const area = (osm ? (osm.area ?? osm.city) : (named?.area ?? named?.city))?.slice(0, 80) || null;
     location = {
-      label: body.label ?? "Current location",
+      label: body.label ?? osm?.address ?? placeLine(named ? { area: named.area, city: named.city } : null)?.slice(0, 120) ?? "Current location",
       pincode: body.pincode ?? null,
       latitude: roundCoordinate(body.latitude),
       longitude: roundCoordinate(body.longitude),
       source: "DEVICE",
       addressId: null,
       societyId: null,
+      area,
     };
   } else {
     location = {
@@ -77,7 +101,7 @@ export const POST = route(async (request: NextRequest) => {
     maxAge: LOCATION_COOKIE_MAX_AGE_SECONDS,
     path: "/",
   });
-  return ok(location);
+  return ok({ ...location, saved: true });
 });
 
 export const DELETE = route(async () => {

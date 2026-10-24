@@ -1,10 +1,14 @@
 /**
  * Places for the Nearby screen (docs/nearby-referral-2026-10, feature 1):
  *
- *  - describePosition: the area / city / PIN shown at the top for the user's
- *    detected position — taken from the nearest shop or saved address with a
- *    map location within 2 km (GoKesari's own data, no cost); only when there
- *    is none, Google reverse geocoding, if the server key is set.
+ *  - addressForPosition: an approximate street address for the user's
+ *    detected position, from OpenStreetMap (Nominatim) — free, no key. Shown
+ *    on the Nearby screen and used as the "Deliver to" text (owner, 24 Oct
+ *    2026: a textual address for the coordinates, not a paid service).
+ *  - describePosition: the area / city / PIN for the detected position —
+ *    taken from the nearest shop or saved address with a map location within
+ *    2 km (GoKesari's own data, no cost); only when there is none, the
+ *    OpenStreetMap answer above.
  *  - findPlace: the point to search from when location is refused or not
  *    available and the user types a PIN code or an area — the centre of the
  *    shops and saved addresses in that PIN code / area; only when there are
@@ -12,12 +16,16 @@
  *
  * Every Google call is logged to maps_api_call_log like the rest of the app
  * (MAPS_USAGE.md), and answers are kept in memory for a day, so the same
- * place is never looked up twice by one server.
+ * place is never looked up twice by one server. OpenStreetMap calls cost
+ * nothing and are not logged there; they follow Nominatim's usage policy (at
+ * most one a second, the app named in the User-Agent, answers cached, the
+ * "© OpenStreetMap contributors" credit shown with the address).
  */
 import { sql } from "drizzle-orm";
 
 import { getEnv, isGeocodingConfigured } from "@/lib/env";
-import { isPincode } from "@/lib/geo/nearby";
+import { cleanAddress, formatOsmAddress, isPincode, type OsmAddress } from "@/lib/geo/nearby";
+import { LEGAL_ENTITY } from "@/lib/legal-docs";
 import { db } from "@/server/db";
 import { mapsApiCallLog } from "@/server/db/schema";
 
@@ -61,8 +69,48 @@ function remember<T>(key: string, value: T): T {
 
 /* ------------------------------------------------------------ position */
 
-/** The area / city / PIN for a position, or null when nothing is known nearby. */
-export async function describePosition(latitude: number, longitude: number): Promise<PlaceName | null> {
+export interface PositionAddress extends PlaceName {
+  /** The approximate street address, e.g. "12 Lane 5, Kharadi, Pune 411014". */
+  address: string;
+}
+
+const lookups = new Map<string, Promise<PositionAddress | null>>();
+
+/**
+ * An approximate street address for a position, from OpenStreetMap — null
+ * when OpenStreetMap knows nothing there or NOMINATIM_URL is "off". Asked at
+ * the ~11 m a saved location keeps (4 decimals) and remembered for a day, so
+ * saving "Deliver to" and the Nearby screen share one request for one spot.
+ * Throws (and remembers nothing, so the next one tries again) when the
+ * request fails or no turn is free within 2 seconds.
+ */
+export async function addressForPosition(latitude: number, longitude: number): Promise<PositionAddress | null> {
+  const server = nominatimServer();
+  if (!server) return null;
+  const lat = latitude.toFixed(4);
+  const lon = longitude.toFixed(4);
+  const key = `addr:${lat},${lon}`;
+  const hit = cached<PositionAddress | null>(key);
+  if (hit !== undefined) return hit;
+  const pending = lookups.get(key);
+  if (pending) return pending;
+  const lookup = osmReverse(server, lat, lon)
+    .then((found) => remember(key, found))
+    .finally(() => lookups.delete(key));
+  lookups.set(key, lookup);
+  return lookup;
+}
+
+/**
+ * The area / city / PIN for a position, or null when nothing is known nearby.
+ * `ownDataOnly` skips OpenStreetMap (the caller has already asked
+ * addressForPosition).
+ */
+export async function describePosition(
+  latitude: number,
+  longitude: number,
+  options: { ownDataOnly?: boolean } = {},
+): Promise<PlaceName | null> {
   const key = `pos:${latitude.toFixed(3)},${longitude.toFixed(3)}`;
   const hit = cached<PlaceName | null>(key);
   if (hit !== undefined) return hit;
@@ -81,9 +129,10 @@ export async function describePosition(latitude: number, longitude: number): Pro
   if (nearest && (nearest.area || nearest.city || nearest.pincode)) {
     return remember(key, { area: nearest.area?.trim() || null, city: nearest.city?.trim() || null, pincode: nearest.pincode });
   }
-  if (!isGeocodingConfigured()) return remember(key, null);
-  const google = await googleGeocode({ latlng: `${latitude},${longitude}` }, "nearby_position_label").catch(() => null);
-  return remember(key, google ? { area: google.area, city: google.city, pincode: google.pincode } : null);
+  if (options.ownDataOnly) return null;
+  const osm = await addressForPosition(latitude, longitude).catch(() => undefined);
+  if (osm === undefined) return null; // failed or busy: not remembered
+  return remember(key, osm ? { area: osm.area, city: osm.city, pincode: osm.pincode } : null);
 }
 
 /* -------------------------------------------------------- typed place */
@@ -208,7 +257,49 @@ async function googleGeocode(params: Record<string, string>, purpose: string, en
   }
 }
 
+/* ------------------------------------------------------- OpenStreetMap */
+
+const PUBLIC_NOMINATIM = "https://nominatim.openstreetmap.org";
+/** Nominatim's usage policy: name the app and a contact. */
+const USER_AGENT = `GoKesari/1.0 (+https://gokesari.com; ${LEGAL_ENTITY.supportEmail})`;
+/** At most one request a second (Nominatim's absolute maximum), with a margin. */
+const OSM_GAP_MS = 1_100;
+const OSM_MAX_WAIT_MS = 2_000;
+let nextOsmTurnAt = 0;
+
+function nominatimServer(): string | null {
+  const configured = getEnv().NOMINATIM_URL;
+  if (configured === "off") return null;
+  return (configured ?? PUBLIC_NOMINATIM).replace(/\/+$/, "");
+}
+
+/** Waits for this server's next free turn; false when it is more than 2 seconds away (the caller falls back). */
+async function takeOsmTurn(): Promise<boolean> {
+  const now = Date.now();
+  const at = Math.max(now, nextOsmTurnAt);
+  if (at - now > OSM_MAX_WAIT_MS) return false;
+  nextOsmTurnAt = at + OSM_GAP_MS;
+  if (at > now) await new Promise((resolve) => setTimeout(resolve, at - now));
+  return true;
+}
+
+async function osmReverse(server: string, lat: string, lon: string): Promise<PositionAddress | null> {
+  if (!(await takeOsmTurn())) throw new Error("OpenStreetMap: no free turn");
+  const url = new URL(`${server}/reverse`);
+  url.search = new URLSearchParams({ format: "jsonv2", lat, lon, zoom: "18", addressdetails: "1", "accept-language": "en" }).toString();
+  const response = await fetch(url, { headers: { "User-Agent": USER_AGENT, Accept: "application/json" }, signal: AbortSignal.timeout(5_000) });
+  if (!response.ok) throw new Error(`OpenStreetMap reverse lookup failed: HTTP ${response.status}`);
+  const body = (await response.json()) as { error?: string; display_name?: string; address?: OsmAddress };
+  if (body.error) return null; // "Unable to geocode": nothing mapped there
+  const formatted = formatOsmAddress(body.address);
+  if (formatted) return { address: formatted.line, area: formatted.area, city: formatted.city, pincode: formatted.pincode };
+  const line = cleanAddress(body.display_name);
+  return line ? { address: line, area: null, city: null, pincode: null } : null;
+}
+
 /** For tests. */
 export function clearPlaceCache(): void {
   cache.clear();
+  lookups.clear();
+  nextOsmTurnAt = 0;
 }

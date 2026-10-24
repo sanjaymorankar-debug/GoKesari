@@ -32,6 +32,45 @@ silently switched off `position: sticky` for every header on the site — the
 no-sideways-scroll effect without a scroll container (browsers without `clip`
 keep `hidden`).
 
+### Finding the location by itself (24 Oct 2026)
+
+Owner report: "user location is not detected". Before, "Deliver to" stayed on
+"Set location" until the shopper opened it and tapped the GPS button. Now:
+
+- **Found by itself** (`src/components/auto-locate.tsx`, mounted in the site
+  header on every page): for a visitor or customer with no location yet — no
+  choice and no saved address — on home, shops, a shop, search and category
+  pages, the device's position is saved as the delivery location and the page
+  refreshes. Permission already given: no prompt. Not answered yet: asked
+  once per browser session. Refused: not asked again. A location chosen
+  while the device was answering is kept (`ifUnset` on POST /api/location).
+- **"Find your location"** button on the home page's "Set your location"
+  line; when it fails, the reason (blocked, location off, too slow, not
+  https, not supported) and a button to the PIN code box. The "Use my
+  current location" buttons use the same code (quick network fix, then one
+  GPS try) and give the same reasons instead of always "permission was not
+  given".
+- **Approximate address, free** (owner, 24 Oct 2026: a textual address for
+  the coordinates, "I don't want paid version"): a device position is
+  labelled with its approximate street address from OpenStreetMap
+  (Nominatim — free, no key, no Google): "12 Lane 5, Kharadi, Pune 411014".
+  One request per spot (~11 m), remembered for a day and shared with the
+  Nearby screen, which shows the same address; at most one request a second
+  (Nominatim's policy), "© OpenStreetMap contributors" shown with it.
+  `NOMINATIM_URL` switches the server, or `off`. No PIN code is saved from it
+  (approximate; discovery goes by distance). When OpenStreetMap has nothing or
+  is busy: the area and city of the nearest shop or saved address within
+  2 km ("Kharadi, Pune"); "Current location" only when nothing is known at
+  all. Headings keep the area ("Shops near Kharadi").
+- **Nearby screen**: the position it finds also becomes the delivery
+  location when none is chosen.
+
+Saved in the `gk_location` cookie on the device (30 days), as before — never
+in the database. In the app the phone's own location permission decides.
+Code: `src/lib/device-location.ts`; tests: `tests/unit/device-location.test.ts`,
+`tests/integration/device-location.test.ts`; results:
+`LOCATION_DETECT_TEST_RESULTS_2026-10-24.md`.
+
 ## Switching it off
 
 Rule **`homeDiscovery`** (Admin → Settings → Rules), on by default:

@@ -14,14 +14,21 @@
  *  4. Location refused, unavailable or not over HTTPS: a clear message and a
  *     PIN code / area box to search from instead. No shop in range: "No shops
  *     found within X km" with a button to widen the radius.
+ *  5. The position found also becomes the delivery location (POST
+ *     /api/location, a cookie on this device) when none is chosen yet, so
+ *     "Deliver to" and the rest of the site follow — a location already
+ *     chosen is kept (24 Oct 2026).
  */
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { Icon } from "@/components/board/icons";
 import { NearbyMap } from "@/components/nearby-map";
+import { saveDevicePosition } from "@/lib/device-location";
 import { NEARBY_RADII_KM, DEFAULT_NEARBY_RADIUS_KM, placeLine, widerRadius, type NearbyRadiusKm } from "@/lib/geo/nearby";
+import { OSM_CREDIT } from "@/lib/home-i18n";
 
 export interface NearbyShop {
   id: string;
@@ -48,6 +55,8 @@ interface NearbyAnswer {
     longitude: number;
     source: "DEVICE" | "PLACE";
     place: { area: string | null; city: string | null; pincode: string | null } | null;
+    /** The approximate street address of a device position, from OpenStreetMap. */
+    address?: string | null;
   };
   radiusKm: NearbyRadiusKm;
   countsByRadius: Record<string, number>;
@@ -94,6 +103,7 @@ function problemFromError(error: GeolocationPositionError | { code?: number }): 
 }
 
 export function NearbyShops() {
+  const router = useRouter();
   const [phase, setPhase] = useState<"locating" | "loading" | "ready" | "problem">("locating");
   const [problem, setProblem] = useState<LocationProblem | null>(null);
   const [search, setSearch] = useState<Search | null>(null);
@@ -167,6 +177,9 @@ export function NearbyShops() {
           setSearch(next);
           setManualOpen(false);
           void load(next, km);
+          saveDevicePosition(next, { ifUnset: true })
+            .then((saved) => saved.saved && router.refresh())
+            .catch(() => {});
         },
         (err) => {
           answered = true;
@@ -177,7 +190,7 @@ export function NearbyShops() {
         { enableHighAccuracy: true, timeout: 20_000, maximumAge: 0 },
       );
     },
-    [load],
+    [load, router],
   );
 
   // Ask for the position as soon as the screen opens (the radius starts at 5 km).
@@ -205,7 +218,7 @@ export function NearbyShops() {
 
   const origin = answer?.origin ?? null;
   const fromPlace = search?.kind === "place";
-  const placeText = placeLine(origin?.place ?? null);
+  const placeText = origin?.address ?? placeLine(origin?.place ?? null);
   const counts = answer?.countsByRadius ?? {};
   const shops = answer?.shops ?? [];
   const wider = widerRadius(radius);
@@ -227,13 +240,22 @@ export function NearbyShops() {
               <p className="text-base font-bold text-ink-900" data-testid="nearby-location">Finding your location…</p>
             ) : origin ? (
               <>
-                <p className="truncate text-base font-bold text-ink-900" data-testid="nearby-location">
+                {/* Two lines: a street address is longer than an area name. */}
+                <p className="line-clamp-2 break-words text-base font-bold text-ink-900" data-testid="nearby-location">
                   {placeText ?? (fromPlace ? search.query : `${origin.latitude.toFixed(5)}, ${origin.longitude.toFixed(5)}`)}
                 </p>
                 <p className="text-xs text-ink-600">
                   {fromPlace
                     ? "From the PIN code / area you entered"
                     : `Detected by your device${search?.kind === "position" && search.accuracyM ? ` · accurate to about ${search.accuracyM} m` : ""}${placeText ? "" : " · area not known yet"}`}
+                  {!fromPlace && origin.address ? (
+                    <>
+                      {" · approximate address "}
+                      <a href={OSM_CREDIT.href} target="_blank" rel="noopener noreferrer" className="underline">
+                        {OSM_CREDIT.text}
+                      </a>
+                    </>
+                  ) : null}
                 </p>
               </>
             ) : phase === "loading" ? (
@@ -414,7 +436,7 @@ export function NearbyShops() {
 
       {phase === "locating" ? (
         <p className="rounded-2xl border-2 border-[var(--gk-line)] bg-white p-4 text-sm text-ink-700">
-          Allow location when your browser or phone asks — it is used only to find shops near you and is not saved.
+          Allow location when your browser or phone asks — it is used only to find shops near you, and kept on this device as your delivery location if you have not chosen one.
         </p>
       ) : null}
     </div>
