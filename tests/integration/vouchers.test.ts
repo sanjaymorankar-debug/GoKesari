@@ -35,6 +35,13 @@ import {
 const ADMIN = (id: string) => ({ id, role: "ADMIN" as const });
 
 /**
+ * A live window anchored to today: since TC-FLD-114 a new voucher whose end
+ * date has passed is refused, so fixed September 2026 dates aged out.
+ */
+const TODAY = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10); // today in IST (APP_TIMEZONE)
+const IN_30_DAYS = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
+
+/**
  * voucher_redemptions.payment_id is a real FK to payments.id, so every
  * redemption in these tests needs a genuine payment row behind it — this
  * wraps that plumbing so each test reads as "redeem X for Y", not a payments
@@ -90,8 +97,8 @@ describe("voucher creation & validation (TEST 10, 16, 17)", () => {
         bonusPercent: 10,
         minimumTopupPaise: 50_000,
         maximumBonusPaise: 100_000,
-        startDate: "2026-09-01",
-        endDate: "2026-09-30",
+        startDate: TODAY,
+        endDate: IN_30_DAYS,
       },
       ADMIN(admin.user.id),
     );
@@ -115,6 +122,20 @@ describe("voucher creation & validation (TEST 10, 16, 17)", () => {
     ).rejects.toThrow();
   });
 
+  it("TC-FLD-114: refuses a code with spaces or symbols, naming the code field", async () => {
+    const admin = await createUserWithWallet({ role: "ADMIN" });
+    const start = new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 10);
+    const end = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
+    for (const code of ["QA CODE 1", "QA<>!@#", "AB"]) {
+      await expect(
+        createVoucher({ name: "Bad Code", code, bonusPercent: 10, startDate: start, endDate: end }, ADMIN(admin.user.id)),
+        code,
+      ).rejects.toMatchObject({ details: { fields: { code: expect.stringMatching(/letters, digits/) } } });
+    }
+    const ok = await createVoucher({ name: "Good Code", code: "diwali-25", bonusPercent: 10, startDate: start, endDate: end }, ADMIN(admin.user.id));
+    expect(ok.code).toBe("DIWALI-25");
+  });
+
   it("rejects an end date before the start date", async () => {
     const admin = await createUserWithWallet({ role: "ADMIN" });
     await expect(
@@ -128,12 +149,12 @@ describe("voucher creation & validation (TEST 10, 16, 17)", () => {
   it("rejects a duplicate voucher code", async () => {
     const admin = await createUserWithWallet({ role: "ADMIN" });
     await createVoucher(
-      { name: "First", code: "DUPE", bonusPercent: 10, startDate: "2026-09-01", endDate: "2026-09-30" },
+      { name: "First", code: "DUPE", bonusPercent: 10, startDate: TODAY, endDate: IN_30_DAYS },
       ADMIN(admin.user.id),
     );
     await expect(
       createVoucher(
-        { name: "Second", code: "DUPE", bonusPercent: 5, startDate: "2026-09-01", endDate: "2026-09-30" },
+        { name: "Second", code: "DUPE", bonusPercent: 5, startDate: TODAY, endDate: IN_30_DAYS },
         ADMIN(admin.user.id),
       ),
     ).rejects.toThrow();

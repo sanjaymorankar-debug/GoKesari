@@ -3,7 +3,7 @@
 import { useState } from "react";
 
 import { Alert, Button, Field, inputClass } from "@/components/ui";
-import { rupeesToPaise } from "@/lib/money";
+import { parsePriceInput } from "@/lib/price-rules";
 
 /** A shop owner tells operations the recorded MRP looks wrong. The master MRP is not changed by this. */
 export function MrpDisputeForm({ productId, shopId }: { productId: string; shopId: string }) {
@@ -15,14 +15,15 @@ export function MrpDisputeForm({ productId, shopId }: { productId: string; shopI
   const [sent, setSent] = useState(false);
 
   async function submit() {
-    const value = Number(claim.replace(/[₹,\s]/g, ""));
-    if (!Number.isFinite(value) || value < 0) return setError("Enter the MRP printed on the pack, in rupees.");
+    // An MRP is more than ₹0, with at most 2 decimals (TC-CAT-062).
+    const parsed = parsePriceInput(claim);
+    if (!parsed.ok) return setError("Enter the MRP printed on the pack, in rupees.");
     setBusy(true);
     setError(null);
     const res = await fetch("/api/mrp/corrections", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ productId, shopId, claimedMrpPaise: rupeesToPaise(value), note: note || null }),
+      body: JSON.stringify({ productId, shopId, claimedMrpPaise: parsed.paise, note: note || null }),
     });
     const payload = await res.json().catch(() => null);
     setBusy(false);

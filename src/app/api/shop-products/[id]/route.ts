@@ -3,10 +3,18 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { imageRefSchema } from "@/lib/image-ref";
+import {
+  MAX_PRICE_PAISE,
+  MAX_STOCK_UNITS,
+  MIN_PRICE_PAISE,
+  PRICE_MAX_MESSAGE,
+  PRICE_MIN_MESSAGE,
+  STOCK_MAX_MESSAGE,
+} from "@/lib/price-rules";
 
 import { notFound } from "@/lib/errors";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
-import { requireShopAccess } from "@/server/authz/guards";
+import { requireShopAccess, requireUser } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { shopProducts, shops } from "@/server/db/schema";
@@ -23,17 +31,22 @@ const schema = z.object({
   imageUrl: imageRefSchema.nullish(),
   onlineSaleEnabled: z.boolean().optional(),
   offlineSaleEnabled: z.boolean().optional(),
-  onlinePricePaise: z.number().int().min(0).nullish(),
-  offlinePricePaise: z.number().int().min(0).nullish(),
+  // A price is 1 paisa to ₹10 lakh; null means no price (TC-CAT-004, TC-FLD-058/059).
+  onlinePricePaise: z.number().int().min(MIN_PRICE_PAISE, PRICE_MIN_MESSAGE).max(MAX_PRICE_PAISE, PRICE_MAX_MESSAGE).nullish(),
+  offlinePricePaise: z.number().int().min(MIN_PRICE_PAISE, PRICE_MIN_MESSAGE).max(MAX_PRICE_PAISE, PRICE_MAX_MESSAGE).nullish(),
   trackInventory: z.boolean().optional(),
-  onlineStock: z.number().int().min(0).optional(),
-  offlineStock: z.number().int().min(0).optional(),
+  onlineStock: z.number().int().min(0).max(MAX_STOCK_UNITS, STOCK_MAX_MESSAGE).optional(),
+  offlineStock: z.number().int().min(0).max(MAX_STOCK_UNITS, STOCK_MAX_MESSAGE).optional(),
   isActive: z.boolean().optional(),
   isAvailable: z.boolean().optional(),
+  /** The online stock the page showed when opened; a changed row answers 409 (TC-SPI-022). */
+  expectedOnlineStock: z.number().int().min(0).optional(),
 });
 
 export const PATCH = route(
   async (request: NextRequest, context: RouteContext<{ id: string }>) => {
+    // Signed in first: a guest gets 401 before the body or the record is read (TC-SEC-001).
+    await requireUser();
     const { id } = await context.params;
 
     // Resolve the owning shop first, then run the ownership check against it.
@@ -51,7 +64,7 @@ export const PATCH = route(
       anyPermission: PERMISSIONS.SHOP_PRODUCT_MANAGE_ANY,
     });
 
-    const body = await parseBody(request, schema);
+    const { expectedOnlineStock, ...body } = await parseBody(request, schema);
 
     /*
      * §7/§10 — a price change made by someone who is not the shop owner does
@@ -92,7 +105,7 @@ export const PATCH = route(
         ...rest
       } = body;
       const product = Object.keys(rest).length
-        ? await updateShopProduct(id, rest, user as never)
+        ? await updateShopProduct(id, rest, user as never, undefined, { expectedOnlineStock })
         : undefined;
 
       return ok(
@@ -107,13 +120,15 @@ export const PATCH = route(
       );
     }
 
-    return ok(await updateShopProduct(id, body, user as never));
+    return ok(await updateShopProduct(id, body, user as never, undefined, { expectedOnlineStock }));
   },
 );
 
 /** Removes a product from the shop's catalogue (§9 "remove products"). */
 export const DELETE = route(
   async (_request: NextRequest, context: RouteContext<{ id: string }>) => {
+    // Signed in first: a guest gets 401 before the body or the record is read (TC-SEC-001).
+    await requireUser();
     const { id } = await context.params;
 
     const existing = await db.query.shopProducts.findFirst({

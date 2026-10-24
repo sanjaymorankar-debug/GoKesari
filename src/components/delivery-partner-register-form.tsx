@@ -98,24 +98,25 @@ export function DeliveryPartnerRegisterForm() {
           </h2>
         </div>
 
-        <Field label="PAN (optional)">
-          <input name="panNumber" className={inputClass} />
+        {/* TC-FLD-092/093: the server's message for a bad PAN, ID, account, IFSC or vehicle number shows on its field. */}
+        <Field label="PAN (optional)" error={fieldErrors.panNumber}>
+          <input name="panNumber" autoCapitalize="characters" className={inputClass} />
         </Field>
         <Field label="Government ID type (optional)" hint="e.g. Aadhaar, Voter ID">
           <input name="governmentIdType" className={inputClass} />
         </Field>
-        <Field label="Government ID number (optional)">
+        <Field label="Government ID number (optional)" error={fieldErrors.governmentIdNumber}>
           <input name="governmentIdNumber" className={inputClass} />
         </Field>
         <div />
         <Field label="Bank account holder name (optional)">
           <input name="bankAccountHolderName" className={inputClass} />
         </Field>
-        <Field label="Bank account number (optional)">
-          <input name="bankAccountNumber" className={inputClass} />
+        <Field label="Bank account number (optional)" error={fieldErrors.bankAccountNumber}>
+          <input name="bankAccountNumber" inputMode="numeric" className={inputClass} />
         </Field>
-        <Field label="Bank IFSC (optional)">
-          <input name="bankIfsc" className={inputClass} />
+        <Field label="Bank IFSC (optional)" error={fieldErrors.bankIfsc}>
+          <input name="bankIfsc" autoCapitalize="characters" className={inputClass} />
         </Field>
 
         <div className="sm:col-span-2 border-t border-cream-200 pt-4">
@@ -136,8 +137,8 @@ export function DeliveryPartnerRegisterForm() {
             ))}
           </select>
         </Field>
-        <Field label="Vehicle registration number (optional)">
-          <input name="vehicleRegistrationNumber" className={inputClass} />
+        <Field label="Vehicle registration number (optional)" hint="e.g. MH12 AB 1234" error={fieldErrors.vehicleRegistrationNumber}>
+          <input name="vehicleRegistrationNumber" autoCapitalize="characters" className={inputClass} />
         </Field>
         <Field label="Driving licence number (optional)">
           <input name="drivingLicenceNumber" className={inputClass} />

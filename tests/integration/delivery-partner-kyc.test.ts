@@ -77,7 +77,8 @@ const ADMIN = (id: string) => ({ id, role: "ADMIN" as const });
 /** Deliberately distinct from the partner's own full name, which the API legitimately returns. */
 const KYC: Record<KycField, string> = {
   panNumber: "ABCDE1234F",
-  governmentIdNumber: "123412341234",
+  // A well-formed Aadhaar number (2–9 first, valid check digit): checked since TC-FLD-092.
+  governmentIdNumber: "234123412346",
   bankAccountHolderName: "R K Savings Account",
   bankAccountNumber: "000123456789",
   bankIfsc: "HDFC0001234",
@@ -225,7 +226,7 @@ describe("nothing sensitive leaves the service layer", () => {
       await startDeliveryPartnerReview(registered.id, admin),
       await approveDeliveryPartner(registered.id, admin),
       await suspendDeliveryPartner(registered.id, "policy check", admin),
-      await reactivateDeliveryPartner(registered.id, admin),
+      await reactivateDeliveryPartner(registered.id, "policy check passed", admin),
       await goOnline(legacyUser.id, 18.52, 73.85),
       await goOffline(legacyUser.id),
       await rejectDeliveryPartner((await registerDeliveryPartner((await createUser()).id, { ...baseInput, ...KYC })).id, "unclear documents", admin),
@@ -308,7 +309,7 @@ describe("beyond KYC: staff ids, date of birth and coordinates", () => {
     const approved = await act({ action: "approve", notes: "documents checked" });
     await goOnline(riderUser.id, LIVE.latitude, LIVE.longitude); // a live position on the row from here on
     const suspended = await act({ action: "suspend", reason: "policy check" });
-    const reactivated = await act({ action: "reactivate" });
+    const reactivated = await act({ action: "reactivate", reason: "policy check passed" });
     const detail = await call(detailRoute, `/api/delivery-partner/${partner.id}`, { params: { id: partner.id } });
     const list = await call(listRoute, "/api/delivery-partner");
 

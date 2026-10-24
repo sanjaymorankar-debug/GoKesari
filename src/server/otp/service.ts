@@ -266,6 +266,12 @@ async function consumeCode(input: {
   phoneE164?: string | null;
   /** When set, the code must have been issued to this user (email change). */
   userId?: string | null;
+  /**
+   * Runs once the code is known to be right, before it is used up: a refusal
+   * here leaves the code valid, so the person can fix what was missing and
+   * enter the same code again.
+   */
+  beforeConsume?: () => Promise<void>;
 }): Promise<typeof loginOtps.$inferSelect> {
   const fail = async (reason: string, extra: Record<string, unknown> = {}): Promise<never> => {
     await auditOtp(AUDIT_ACTIONS.OTP_FAILED, { email: input.email, phoneE164: input.phoneE164, ip: input.ip, reason, ...extra });
@@ -310,6 +316,7 @@ async function consumeCode(input: {
   if (!matches(otp.codeHash, input.email, code)) {
     return fail("mismatch", { attempts: counted.attempts, otpId: otp.id });
   }
+  if (input.beforeConsume) await input.beforeConsume();
 
   // Single use: only one concurrent verifier can flip consumed_at.
   const [used] = await db
@@ -391,6 +398,9 @@ export async function requestLoginOtp(input: {
 const ACCOUNT_BLOCKED =
   "This account is suspended or closed, so it cannot sign in. If you think this is a mistake, contact us through the grievance form.";
 
+export const TERMS_REQUIRED =
+  "To create your account, tick “I agree to the Terms & Conditions and Privacy Policy”, then press Sign in again with the same code.";
+
 /**
  * Verifies a login code. On success returns the account, creating it (with a
  * wallet) on first sign-in and saving the mobile number the code was
@@ -401,6 +411,12 @@ export async function verifyLoginOtp(input: {
   email?: string | null;
   code: string;
   ip?: string | null;
+  /**
+   * The person ticked "I agree to the Terms & Conditions and Privacy Policy".
+   * Required to create a new account, and recorded then as its consent
+   * (DPDPA §6); an existing account signing in again does not need it.
+   */
+  acceptedTerms?: boolean;
 }): Promise<VerifiedLogin> {
   const ip = input.ip ?? null;
   const mobile = input.mobile?.trim() ? parseIndianMobile(input.mobile) : null;
@@ -419,7 +435,20 @@ export async function verifyLoginOtp(input: {
     throw validationFailed(OTP_INVALID);
   }
 
-  const otp = await consumeCode({ email, purpose: "LOGIN", code: input.code, ip, phoneE164 });
+  const otp = await consumeCode({
+    email,
+    purpose: "LOGIN",
+    code: input.code,
+    ip,
+    phoneE164,
+    // TC-FLD-004: no account without consent. Asked only once the code is proven
+    // right, so the answer tells nothing about which emails have accounts.
+    beforeConsume: async () => {
+      if (input.acceptedTerms === true || (await findLiveUserByEmail(email))) return;
+      await auditOtp(AUDIT_ACTIONS.OTP_BLOCKED, { email, phoneE164, ip, reason: "terms_not_accepted" });
+      throw validationFailed(TERMS_REQUIRED);
+    },
+  });
 
   const existing = await findLiveUserByEmail(email);
   let user: User;
@@ -490,7 +519,7 @@ async function createCustomerAccount(input: { email: string; phoneE164: string |
     throw error;
   }
   if (role === "ADMIN") await grantRole(created.id, "ADMIN", { source: "BOOTSTRAP" });
-  // The sign-in form requires ticking the Terms & Privacy box before a code can be requested.
+  // Only reached with the Terms & Privacy box ticked (verifyLoginOtp refuses a new account otherwise).
   await recordConsent(created.id, "TERMS_AND_PRIVACY", { ipAddress: input.ip }).catch((error) => {
     console.error("[otp] failed to record sign-up consent", error);
   });

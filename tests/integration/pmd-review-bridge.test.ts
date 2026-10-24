@@ -5,7 +5,10 @@
 import { readFileSync } from "node:fs";
 import { join } from "node:path";
 
+import { sql as dsql } from "drizzle-orm";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+
+import { db } from "@/server/db";
 
 import { failedInvariants, runChecks } from "@/server/pmd/pipeline/checks";
 import { decideCandidate, mergeProducts, ReviewError, type ReviewActor } from "@/server/pmd/pipeline/review";
@@ -156,6 +159,16 @@ describe("catalogue bridge: master product -> GoKesari catalogue -> shops", () =
     await ingest(kind === "BRAND_MANUFACTURER" ? "test_brand_feed" : "test_market_a", [milk(over)], { kind, adapterOverride: { categoryMapper: mapper } });
     return { admin, masterId: await masterIdOf("Amul Taaza Homogenised Toned Milk 1 L") };
   };
+
+  it("gives the promoted product the site's next product code, after products made through the site (split: not the seller copy's)", async () => {
+    const { admin, masterId } = await setup({ offer: { sellerName: "Brand Store", price: 66, mrp: 68, stock: "in stock" } });
+    // A product made through the site takes its code from the core's product_code_seq.
+    const made = await createProduct((await createCategory({ department: "DAIRY", name: "Curd" })).id, { name: "Site Curd" });
+    const res = await promoteToCatalogue(sql, masterId, { userId: admin.id, role: "ADMIN" });
+    const [{ last }] = (await db.execute(dsql`select last_value::int as last from product_code_seq`)) as unknown as { last: number }[];
+    expect(res.catalogueProductCode).toBe(`P${String(last).padStart(5, "0")}`);
+    expect(Number(res.catalogueProductCode.slice(1))).toBeGreaterThan(Number(made.code.slice(1)));
+  });
 
   it("promotes a master product into the live catalogue with identity and tax intact", async () => {
     const { admin, masterId } = await setup({ offer: { sellerName: "Brand Store", price: 66, mrp: 68, stock: "in stock" } });

@@ -32,6 +32,7 @@ import {
   gstRules,
   platformSettings,
   products,
+  shopProducts,
   shops,
   taxInvoices,
   type TaxInvoice,
@@ -266,7 +267,9 @@ describe("GSTR-1-ready export", () => {
     await rule("b2clThreshold", { invoiceValuePaise: 10_000_000 }, "2024-08-01");
     const a = await delivered([[milkSp.id, 2]], "g-1"); // B2C small, intra
     const b = await delivered([[gheeSp.id, 1], [milkSp.id, 1]], "g-2"); // → B2B
-    const c = await delivered([[gheeSp.id, 300]], "g-3"); // → B2C large, inter-state (₹1,00,800)
+    // A cart line holds at most 99, so the large sale is 99 × ₹1,020 (b's invoice keeps the ₹336 it was sold at).
+    await db.update(shopProducts).set({ onlinePricePaise: 102_000 }).where(eq(shopProducts.id, gheeSp.id));
+    const c = await delivered([[gheeSp.id, 99]], "g-3"); // → B2C large, inter-state (₹1,00,980)
     await makeB2b(b.invoice);
     const cSnap = c.invoice.snapshot as unknown as InvoiceSnapshot;
     const inter = { ...cSnap, supplyType: "INTER" as const, placeOfSupply: "KA", lines: cSnap.lines.map((l) => ({ ...l, igstPaise: l.cgstPaise + l.sgstPaise, cgstPaise: 0, sgstPaise: 0 })), totals: { ...cSnap.totals, igstPaise: cSnap.totals.cgstPaise + cSnap.totals.sgstPaise, cgstPaise: 0, sgstPaise: 0 } };

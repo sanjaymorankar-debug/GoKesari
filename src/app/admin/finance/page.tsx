@@ -247,6 +247,10 @@ export default async function FinancePage({
                     {p.paymentReference ? ` · ref ${p.paymentReference}` : ""}
                     {p.failureReason ? ` · ${p.failureReason}` : ""}
                   </p>
+                  {p.amountPaise < 0 ? (
+                    // TC-COD-010: a negative net is held, never paid out.
+                    <p className="text-xs font-medium text-red-700">Held — the rider owes this amount (COD cash). Collect it, or cancel to carry it forward.</p>
+                  ) : null}
                 </div>
                 <div className="flex items-center gap-3">
                   <StatusBadge status={p.status} />
@@ -388,6 +392,29 @@ export default async function FinancePage({
                   </li>
                 ))}
               </ul>
+              {/* TC-PAY-026: every online payment attempt, with its states and refunds. */}
+              {trace.onlinePayments.length > 0 ? (
+                <div data-testid="order-trace-online">
+                  <p className="font-medium">Online payments</p>
+                  <ul className="list-disc pl-5 text-xs text-ink-600">
+                    {trace.onlinePayments.map((p) => (
+                      <li key={p.id}>
+                        {p.gateway} · {p.status} · <Money paise={p.amountPaise} />
+                        {p.refundedPaise > 0 ? <> (refunded <Money paise={p.refundedPaise} />)</> : null} · ref{" "}
+                        {p.gatewayPaymentId ?? p.gatewayOrderId ?? p.merchantOrderId}
+                        <span className="block">
+                          {p.events.map((e) => `${e.toStatus} (${e.source}, ${e.at.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })})`).join(" → ")}
+                        </span>
+                        {p.refunds.map((r) => (
+                          <span key={r.id} className="block">
+                            refund <Money paise={r.amountPaise} /> · {r.status} — {r.reason}
+                          </span>
+                        ))}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ) : null}
               {trace.snapshot ? (
                 <p>
                   Delivered: GMV <Money paise={trace.snapshot.gmvPaise} /> · commission {(trace.snapshot.commissionRateBp / 100).toFixed(2)}% ={" "}

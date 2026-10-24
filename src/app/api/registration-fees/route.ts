@@ -8,6 +8,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { MAX_REGISTRATION_FEE_PAISE } from "@/lib/money-limits";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
@@ -19,7 +20,8 @@ import {
 } from "@/server/services/registration-fees";
 
 const schema = z.object({
-  amountPaise: z.number().int().min(0),
+  // TC-FLD-112: a named ceiling (₹10,00,000), not ₹10 crore.
+  amountPaise: z.number().int().min(0).max(MAX_REGISTRATION_FEE_PAISE),
   effectiveFrom: z
     .string()
     .regex(/^\d{4}-\d{2}-\d{2}$/, "Use an ISO date (YYYY-MM-DD).")

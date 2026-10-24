@@ -7,6 +7,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { MAX_STOCK_UNITS, STOCK_MAX_MESSAGE } from "@/lib/price-rules";
 import { notFound } from "@/lib/errors";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { requireShopAccess } from "@/server/authz/guards";
@@ -41,10 +42,11 @@ export const GET = route(async (_request: NextRequest, context: RouteContext<{ i
   });
 });
 
+// Bounded like stock itself: 99,999,999 used to be saved (TC-FLD-062/063).
 const schema = z.object({
-  lowStockThreshold: z.number().int().min(0).optional(),
-  reorderLevel: z.number().int().min(0).nullish(),
-  reorderQuantity: z.number().int().positive().nullish(),
+  lowStockThreshold: z.number().int().min(0).max(MAX_STOCK_UNITS, STOCK_MAX_MESSAGE).optional(),
+  reorderLevel: z.number().int().min(0).max(MAX_STOCK_UNITS, STOCK_MAX_MESSAGE).nullish(),
+  reorderQuantity: z.number().int().positive().max(MAX_STOCK_UNITS, STOCK_MAX_MESSAGE).nullish(),
 });
 
 export const PATCH = route(async (request: NextRequest, context: RouteContext<{ id: string }>) => {

@@ -417,6 +417,7 @@ export interface WriteOffInput {
 export async function writeOffStock(shopId: string, input: WriteOffInput, actorId: string): Promise<string> {
   if (!Number.isInteger(input.qtyMilli) || input.qtyMilli <= 0) throw validationFailed("Enter how much to write off.");
   return db.transaction(async (tx) => {
+    await assertWholeUnitsIfPackaged(shopId, input.shopProductId, input.qtyMilli, "write off", tx);
     const settings = await getSettings(shopId, tx);
     const have = await channelTotal(input.shopProductId, settings.purchaseChannel, tx);
     const other = settings.purchaseChannel === "ONLINE" ? "OFFLINE" : "ONLINE";
@@ -434,26 +435,49 @@ export async function writeOffStock(shopId: string, input: WriteOffInput, actorI
   });
 }
 
-/** Physical count: sets the stock to what is on the shelf (difference posted as an adjustment). */
+/**
+ * TC-FLD-065: a packaged product is counted in whole packs — writing off 1.5
+ * of them is refused. Loose goods (kg, L) keep their fractions.
+ */
+async function assertWholeUnitsIfPackaged(shopId: string, shopProductId: string, qtyMilli: number, what: string, client: DbClient): Promise<void> {
+  const [listing] = await client
+    .select({ kind: products.kind, unit: products.unit })
+    .from(shopProducts)
+    .innerJoin(products, eq(shopProducts.productId, products.id))
+    .where(and(eq(shopProducts.id, shopProductId), eq(shopProducts.shopId, shopId)));
+  if (!listing) throw notFound("Product");
+  if (listing.kind === "PACKAGED" && qtyMilli % 1000 !== 0) {
+    throw validationFailed(`This product is counted in whole ${listing.unit === "pack" ? "packs" : "pieces"}: ${what} a whole number.`);
+  }
+}
+
+/**
+ * Physical count: sets the stock to what is on the shelf (difference posted as
+ * an adjustment). The shelf holds one stock, kept as two counts — online (what
+ * customers can order) and in-shop. An increase goes to the purchase channel,
+ * as a purchase would; a shortfall comes out of the in-shop count first and
+ * only then the online one, so a count of 37 against 100 + 100 leaves 37 to
+ * sell online instead of making the product unavailable (N4, SC-23).
+ */
 export async function adjustStockTo(shopId: string, shopProductId: string, countedMilli: number, note: string | null, actorId: string): Promise<{ deltaMilli: number }> {
   if (!Number.isInteger(countedMilli) || countedMilli < 0) throw validationFailed("Enter the quantity counted (0 or more).");
   return db.transaction(async (tx) => {
+    await assertWholeUnitsIfPackaged(shopId, shopProductId, countedMilli, "count", tx);
     const settings = await getSettings(shopId, tx);
-    const other = settings.purchaseChannel === "ONLINE" ? "OFFLINE" : "ONLINE";
-    const main = await channelTotal(shopProductId, settings.purchaseChannel, tx);
-    const second = await channelTotal(shopProductId, other, tx);
-    const delta = countedMilli - (main + second);
+    const online = await channelTotal(shopProductId, "ONLINE", tx);
+    const offline = await channelTotal(shopProductId, "OFFLINE", tx);
+    const delta = countedMilli - (online + offline);
     if (delta === 0) return { deltaMilli: 0 };
     const postings: StockPosting[] = [];
     const base = { shopId, shopProductId, movementType: "ADJUSTMENT", sourceType: "MANUAL", note: note ?? "Physical stock count", createdBy: actorId } as const;
-    if (delta > 0 || -delta <= Math.max(main, 0)) postings.push({ ...base, channel: settings.purchaseChannel, qtyMilli: delta });
+    if (delta > 0) postings.push({ ...base, channel: settings.purchaseChannel, qtyMilli: delta });
     else {
-      const fromMain = Math.max(main, 0);
-      if (fromMain > 0) postings.push({ ...base, channel: settings.purchaseChannel, qtyMilli: -fromMain });
-      postings.push({ ...base, channel: other, qtyMilli: delta + fromMain });
+      const fromOffline = Math.min(-delta, Math.max(offline, 0));
+      if (fromOffline > 0) postings.push({ ...base, channel: "OFFLINE", qtyMilli: -fromOffline });
+      if (-delta - fromOffline > 0) postings.push({ ...base, channel: "ONLINE", qtyMilli: delta + fromOffline });
     }
     await postStock(postings, tx);
-    await logChange({ shopId, entityType: "stock", entityId: shopProductId, action: "COUNT", changes: [{ field: "qtyMilli", old: main + second, new: countedMilli }], reason: note, actorId }, tx);
+    await logChange({ shopId, entityType: "stock", entityId: shopProductId, action: "COUNT", changes: [{ field: "qtyMilli", old: online + offline, new: countedMilli }], reason: note, actorId }, tx);
     return { deltaMilli: delta };
   });
 }

@@ -58,6 +58,21 @@ async function ineligibility(userId: string, applyWithinDays: number): Promise<s
   return null;
 }
 
+/**
+ * Refuses a customer's own code (or a code of an account on their mobile), and
+ * leaves an audit row: risk rule REFERRAL_ABUSE counts repeated tries
+ * (TC-MKT-015).
+ */
+async function refuseOwnCode(userId: string, code: string, reason: "OWN_CODE" | "SAME_MOBILE"): Promise<never> {
+  await recordAudit({
+    actorId: userId,
+    action: AUDIT_ACTIONS.CUSTOMER_REFERRAL_REFUSED,
+    entityType: "customer_referral",
+    newValue: { code, reason },
+  });
+  throw validationFailed("You can't use your own referral code.");
+}
+
 /** Applies a friend's code to the signed-in (new) customer. */
 export async function applyReferralCode(userId: string, rawCode: string): Promise<CustomerReferral> {
   const rule = await getRule("customerReferrals");
@@ -65,7 +80,7 @@ export async function applyReferralCode(userId: string, rawCode: string): Promis
   const code = normalizeReferralCode(rawCode);
   const owner = code ? await db.query.customerReferralCodes.findFirst({ where: eq(customerReferralCodes.code, code) }) : null;
   if (!owner) throw validationFailed("That referral code isn't valid.");
-  if (owner.userId === userId) throw validationFailed("You can't use your own referral code.");
+  if (owner.userId === userId) await refuseOwnCode(userId, code, "OWN_CODE");
   const why = await ineligibility(userId, rule.applyWithinDays);
   if (why) throw conflict(why);
 
@@ -75,7 +90,7 @@ export async function applyReferralCode(userId: string, rawCode: string): Promis
   if (!referrer || referrer.deletedAt) throw validationFailed("That referral code isn't valid.");
   if (referrer.createdAt >= me.createdAt) throw validationFailed("That referral code isn't valid for your account.");
   if (me.phoneE164 && referrer.phoneE164 && me.phoneE164 === referrer.phoneE164) {
-    throw validationFailed("You can't use your own referral code.");
+    await refuseOwnCode(userId, code, "SAME_MOBILE");
   }
 
   const [row] = await db

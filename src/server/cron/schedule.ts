@@ -156,7 +156,13 @@ export const HOURLY: readonly Job[] = [
   { name: "dispute-escalation", run: async () => (await import("@/server/services/disputes")).runDisputeEscalationSweep() },
   { name: "aftercare", run: aftercare },
   { name: "payout-retries", run: payoutRetries },
-  { name: "auth-housekeeping", run: async () => ({ otps: await (await import("@/server/otp/housekeeping")).purgeExpiredOtps() }) },
+  {
+    name: "auth-housekeeping",
+    run: async () => ({
+      otps: await (await import("@/server/otp/housekeeping")).purgeExpiredOtps(),
+      sessions: await (await import("@/server/auth-sessions")).purgeExpiredSessionRevocations(),
+    }),
+  },
 ];
 
 /** Runs at 05:00 IST: subscription orders first, before the morning deliveries. */

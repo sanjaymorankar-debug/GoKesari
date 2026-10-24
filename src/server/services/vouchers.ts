@@ -16,7 +16,10 @@
 import ExcelJS from "exceljs";
 import { and, count, desc, eq, gte, ilike, inArray, lte, or } from "drizzle-orm";
 
+import { isCalendarDate, todayIn } from "@/lib/dates";
+import { getEnv } from "@/lib/env";
 import { conflict, notFound, validationFailed } from "@/lib/errors";
+import { formatPaise } from "@/lib/money";
 import { db, type DbClient } from "@/server/db";
 import {
   voucherRedemptions,
@@ -41,8 +44,9 @@ interface Actor {
 /** Code default; the live cap is rule `vouchers.maxBonusPercent`. */
 export const MAX_VOUCHER_BONUS_PERCENT = 100;
 
+/** Today in the app's timezone (IST), not UTC: from 00:00 to 05:30 IST the UTC date is still yesterday. */
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIn(getEnv().APP_TIMEZONE);
 }
 
 /**
@@ -306,12 +310,38 @@ export interface VoucherInput {
   totalBudgetPaise?: number | null;
 }
 
-function validateVoucherInput(input: VoucherInput, maxBonusPercent: number = MAX_VOUCHER_BONUS_PERCENT): void {
+/** A validation error that names the field it is about, for the form (TC-FLD-114). */
+const fieldError = (field: keyof VoucherInput, message: string) => validationFailed(message, { fields: { [field]: message } });
+
+/**
+ * Which checks that depend on "now" or on two fields together apply. A new
+ * voucher gets all of them; an edit only re-checks what it changes, so an
+ * existing voucher whose start (or even end) date has passed stays editable.
+ */
+/** What a voucher code may hold once trimmed and upper-cased. */
+const VOUCHER_CODE = /^[A-Z0-9_-]{3,32}$/;
+
+interface VoucherCheckScope {
+  /** The end date is new: it may not be in the past. */
+  endDate: boolean;
+  /** The budget or the maximum bonus is new: budget ≥ 1 paisa and ≥ one maximum bonus. */
+  budget: boolean;
+}
+
+function validateVoucherInput(
+  input: VoucherInput,
+  maxBonusPercent: number = MAX_VOUCHER_BONUS_PERCENT,
+  scope: VoucherCheckScope = { endDate: true, budget: true },
+): void {
   if (input.name.trim().length < 3) {
     throw validationFailed("Voucher name must be at least 3 characters.");
   }
   if ((input.applyMode ?? "CODE") === "CODE" && !input.code?.trim()) {
     throw validationFailed("A voucher code is required unless apply mode is AUTO_APPLY.");
+  }
+  // TC-FLD-114: a code a customer can type — letters, digits, "-" and "_", no spaces or symbols.
+  if (input.code?.trim() && !VOUCHER_CODE.test(input.code.trim().toUpperCase())) {
+    throw fieldError("code", "Use 3–32 letters, digits, - or _ for the code (no spaces or symbols).");
   }
   if (
     !Number.isFinite(input.bonusPercent) ||
@@ -328,11 +358,15 @@ function validateVoucherInput(input: VoucherInput, maxBonusPercent: number = MAX
   if (input.maximumBonusPaise != null && input.maximumBonusPaise < 0) {
     throw validationFailed("Maximum bonus cannot be negative.");
   }
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(input.startDate) || !/^\d{4}-\d{2}-\d{2}$/.test(input.endDate)) {
-    throw validationFailed("Dates must be in YYYY-MM-DD format.");
+  if (!isCalendarDate(input.startDate) || !isCalendarDate(input.endDate)) {
+    throw validationFailed("Dates must be real dates in YYYY-MM-DD format.");
   }
   if (input.endDate < input.startDate) {
-    throw validationFailed("End date must be on or after the start date.");
+    throw fieldError("endDate", "End date must be on or after the start date.");
+  }
+  // TC-FLD-114: a voucher that has already ended can never be used.
+  if (scope.endDate && input.endDate < todayIso()) {
+    throw fieldError("endDate", "The end date has already passed — choose today or a later date.");
   }
   if (input.usageLimit != null && input.usageLimit <= 0) {
     throw validationFailed("Usage limit must be a positive number.");
@@ -342,6 +376,18 @@ function validateVoucherInput(input: VoucherInput, maxBonusPercent: number = MAX
   }
   if (input.totalBudgetPaise != null && input.totalBudgetPaise < 0) {
     throw validationFailed("Total budget cannot be negative.");
+  }
+  if (scope.budget && input.totalBudgetPaise != null) {
+    // TC-FLD-114: a budget of 0 (or less than one full bonus) could never pay a single bonus.
+    if (input.totalBudgetPaise < 1) {
+      throw fieldError("totalBudgetPaise", "The total budget must be at least 1 paisa — leave it empty for no budget.");
+    }
+    if (input.maximumBonusPaise != null && input.totalBudgetPaise < input.maximumBonusPaise) {
+      throw fieldError(
+        "totalBudgetPaise",
+        `The total budget (${formatPaise(input.totalBudgetPaise)}) is smaller than one maximum bonus (${formatPaise(input.maximumBonusPaise)}).`,
+      );
+    }
   }
 }
 
@@ -417,7 +463,12 @@ export async function updateVoucher(
     totalBudgetPaise:
       input.totalBudgetPaise !== undefined ? input.totalBudgetPaise : current.totalBudgetPaise,
   };
-  validateVoucherInput(merged, (await getRule("vouchers")).maxBonusPercent);
+  validateVoucherInput(merged, (await getRule("vouchers")).maxBonusPercent, {
+    endDate: input.endDate !== undefined && input.endDate !== current.endDate,
+    budget:
+      (input.totalBudgetPaise !== undefined && input.totalBudgetPaise !== current.totalBudgetPaise) ||
+      (input.maximumBonusPaise !== undefined && input.maximumBonusPaise !== current.maximumBonusPaise),
+  });
 
   const code = merged.code ? merged.code.trim().toUpperCase() : null;
   if (code && code !== current.code) {

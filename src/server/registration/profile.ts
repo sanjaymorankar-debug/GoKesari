@@ -37,7 +37,7 @@ export const profileSetupSchema = z.object({
   addressLine2: z.string().trim().max(200).nullish(),
   city: z.string().trim().min(2, "Enter the city or town.").max(80),
   state: z.string().trim().max(60).nullish(),
-  pincode: z.string().trim().regex(/^\d{6}$/, "PIN code must be 6 digits."),
+  pincode: z.string().trim().regex(/^[1-9]\d{5}$/, "PIN code must be 6 digits and not start with 0."),
   shopType: z.enum(SHOP_TYPE_KEYS),
   gstin: z.string().trim().max(20).nullish(),
   // docs/nearby-referral-2026-10: the shop's map pin (map or "use my current location"), so it shows in Nearby.

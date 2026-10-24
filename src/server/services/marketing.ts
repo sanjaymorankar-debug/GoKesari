@@ -54,7 +54,7 @@ export function normaliseRules(input: SegmentRules): SegmentRules {
   const rules: SegmentRules = {};
   if (input.pincodes?.length) {
     const pins = [...new Set(input.pincodes.map((p) => p.trim()).filter(Boolean))];
-    if (pins.some((p) => !/^\d{6}$/.test(p))) throw validationFailed("PIN codes must be 6 digits.");
+    if (pins.some((p) => !/^[1-9]\d{5}$/.test(p))) throw validationFailed("PIN codes must be 6 digits and not start with 0.");
     if (pins.length > 50) throw validationFailed("At most 50 PIN codes per segment.");
     rules.pincodes = pins;
   }

@@ -75,7 +75,7 @@ function validate(input: ReferenceInput): void {
       throw validationFailed("The reference URL must start with http:// or https://.");
     }
   }
-  if (input.pincode && !/^\d{6}$/.test(input.pincode)) throw validationFailed("PIN code must be 6 digits.");
+  if (input.pincode && !/^[1-9]\d{5}$/.test(input.pincode)) throw validationFailed("PIN code must be 6 digits and not start with 0.");
 }
 
 const snapshot = (r: ExternalPriceReference) => ({

@@ -10,7 +10,7 @@
  * shop*, and checkout produces one order per shop (§17).
  */
 import { cache } from "react";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { notFound, validationFailed } from "@/lib/errors";
 import { lineTotalPaise, sumPaise } from "@/lib/money";
@@ -101,38 +101,63 @@ export async function getOrCreateCart(
   return created;
 }
 
+/** The most units one cart line holds — the API's limit per request, the product card's and a purchase list's. */
+const MAX_CART_LINE_QUANTITY = 99;
+
+/**
+ * The user's cart (created if need be), locked until the transaction ends.
+ * Every change that reads a cart line before writing it — an add, a quantity
+ * set, a purchase list's send — takes this lock first, so two at the same
+ * moment (a double tap, two tabs) run one after the other and the second sees
+ * what the first wrote (D-102: a second insert hit the unique index, or two
+ * adds wrote from the same read). The core runs READ COMMITTED, so every read
+ * after the lock sees the line as the previous holder left it.
+ */
+export async function lockCart(userId: string, tx: DbClient): Promise<{ id: string }> {
+  const cart = await getOrCreateCart(userId, tx);
+  await tx.select({ id: carts.id }).from(carts).where(eq(carts.id, cart.id)).for("update");
+  return cart;
+}
+
 export async function addToCart(
   userId: string,
   shopProductId: string,
   quantity = 1,
 ): Promise<CartSummary> {
-  if (!Number.isInteger(quantity) || quantity <= 0) {
-    throw validationFailed("Quantity must be a positive whole number.");
+  if (!Number.isInteger(quantity) || quantity <= 0 || quantity > MAX_CART_LINE_QUANTITY) {
+    throw validationFailed(`Quantity must be a whole number from 1 to ${MAX_CART_LINE_QUANTITY}.`);
   }
 
-  const cart = await getOrCreateCart(userId);
+  await db.transaction(async (tx) => {
+    const cart = await lockCart(userId, tx);
 
-  const existing = await db.query.cartItems.findFirst({
-    where: and(
-      eq(cartItems.cartId, cart.id),
-      eq(cartItems.shopProductId, shopProductId),
-    ),
+    const existing = await tx.query.cartItems.findFirst({
+      where: and(
+        eq(cartItems.cartId, cart.id),
+        eq(cartItems.shopProductId, shopProductId),
+      ),
+    });
+    const already = existing?.quantity ?? 0;
+    if (already >= MAX_CART_LINE_QUANTITY) {
+      throw validationFailed(`Your cart already has ${already} of this — a cart line holds at most ${MAX_CART_LINE_QUANTITY}.`);
+    }
+    // Capped rather than refused, so a double tap near the cap fills the line instead of failing.
+    const desiredQuantity = Math.min(MAX_CART_LINE_QUANTITY, already + quantity);
+
+    // Validate against the *total* quantity that would result, not just the delta.
+    await assertPurchasableNow(shopProductId, desiredQuantity, tx);
+
+    if (existing) {
+      await tx
+        .update(cartItems)
+        .set({ quantity: desiredQuantity, updatedAt: new Date() })
+        .where(eq(cartItems.id, existing.id));
+    } else {
+      await tx
+        .insert(cartItems)
+        .values({ cartId: cart.id, shopProductId, quantity: desiredQuantity });
+    }
   });
-  const desiredQuantity = (existing?.quantity ?? 0) + quantity;
-
-  // Validate against the *total* quantity that would result, not just the delta.
-  await assertPurchasableNow(shopProductId, desiredQuantity);
-
-  if (existing) {
-    await db
-      .update(cartItems)
-      .set({ quantity: desiredQuantity, updatedAt: new Date() })
-      .where(eq(cartItems.id, existing.id));
-  } else {
-    await db
-      .insert(cartItems)
-      .values({ cartId: cart.id, shopProductId, quantity: desiredQuantity });
-  }
 
   return getCart(userId);
 }
@@ -142,26 +167,29 @@ export async function setCartItemQuantity(
   cartItemId: string,
   quantity: number,
 ): Promise<CartSummary> {
-  if (!Number.isInteger(quantity) || quantity < 0) {
-    throw validationFailed("Quantity must be a whole number.");
+  if (!Number.isInteger(quantity) || quantity < 0 || quantity > MAX_CART_LINE_QUANTITY) {
+    throw validationFailed(`Quantity must be a whole number from 0 to ${MAX_CART_LINE_QUANTITY}.`);
   }
-  const cart = await getOrCreateCart(userId);
 
-  const item = await db.query.cartItems.findFirst({
-    where: and(eq(cartItems.id, cartItemId), eq(cartItems.cartId, cart.id)),
+  await db.transaction(async (tx) => {
+    const cart = await lockCart(userId, tx);
+
+    const item = await tx.query.cartItems.findFirst({
+      where: and(eq(cartItems.id, cartItemId), eq(cartItems.cartId, cart.id)),
+    });
+    if (!item) throw notFound("Cart item");
+
+    if (quantity === 0) {
+      await tx.delete(cartItems).where(eq(cartItems.id, cartItemId));
+      return;
+    }
+
+    await assertPurchasableNow(item.shopProductId, quantity, tx);
+    await tx
+      .update(cartItems)
+      .set({ quantity, updatedAt: new Date() })
+      .where(eq(cartItems.id, cartItemId));
   });
-  if (!item) throw notFound("Cart item");
-
-  if (quantity === 0) {
-    await db.delete(cartItems).where(eq(cartItems.id, cartItemId));
-    return getCart(userId);
-  }
-
-  await assertPurchasableNow(item.shopProductId, quantity);
-  await db
-    .update(cartItems)
-    .set({ quantity, updatedAt: new Date() })
-    .where(eq(cartItems.id, cartItemId));
 
   return getCart(userId);
 }
@@ -185,7 +213,39 @@ export async function clearCart(
   await client.delete(cartItems).where(eq(cartItems.cartId, cart.id));
 }
 
-/** Removes only the lines belonging to one shop — used after a per-shop checkout. */
+/** A cart line as checkout reads it under the cart's lock. */
+export interface LockedCartLine {
+  id: string;
+  shopProductId: string;
+  quantity: number;
+}
+
+/**
+ * One shop's lines in the user's cart, read under lockCart: what a checkout
+ * orders from that shop and then removes (removeCartLines). An add after the
+ * checkout's first read of the cart is in these lines; one from now on waits
+ * for the checkout's transaction — so no unit leaves the cart unordered.
+ */
+export async function lockCartLinesForShop(
+  userId: string,
+  shopId: string,
+  tx: DbClient,
+): Promise<LockedCartLine[]> {
+  const cart = await lockCart(userId, tx);
+  return tx
+    .select({ id: cartItems.id, shopProductId: cartItems.shopProductId, quantity: cartItems.quantity })
+    .from(cartItems)
+    .innerJoin(shopProducts, eq(cartItems.shopProductId, shopProducts.id))
+    .where(and(eq(cartItems.cartId, cart.id), eq(shopProducts.shopId, shopId)));
+}
+
+/** Removes exactly these lines — the ones a checkout read under the cart's lock. */
+export async function removeCartLines(cartItemIds: string[], tx: DbClient): Promise<void> {
+  if (cartItemIds.length === 0) return;
+  await tx.delete(cartItems).where(inArray(cartItems.id, cartItemIds));
+}
+
+/** Removes every line of one shop — the "cannot deliver here" resolution. */
 export async function clearCartForShop(
   userId: string,
   shopId: string,
@@ -411,8 +471,9 @@ export function computeDeliveryFee(
 async function assertPurchasableNow(
   shopProductId: string,
   quantity: number,
+  client: DbClient = db,
 ): Promise<void> {
-  const [row] = await db
+  const [row] = await client
     .select({ sp: shopProducts, shopStatus: shops.status })
     .from(shopProducts)
     .innerJoin(shops, eq(shopProducts.shopId, shops.id))

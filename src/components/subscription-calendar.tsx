@@ -30,12 +30,17 @@ export function SubscriptionCalendar({
   unit,
   standingQuantityMilli,
   unitPricePaise,
+  stepMilli,
+  maxMilli,
 }: {
   subscriptionId: string;
   days: CalendarDayView[];
   unit: string;
   standingQuantityMilli: number;
   unitPricePaise: number | null;
+  /** TC-FLD-107: the product's quantity step and per-delivery maximum. */
+  stepMilli?: number;
+  maxMilli?: number;
 }) {
   const router = useRouter();
   const [selected, setSelected] = useState<string | null>(null);
@@ -136,6 +141,8 @@ export function SubscriptionCalendar({
               }
               unit={unit}
               unitPricePaise={unitPricePaise}
+              stepMilli={stepMilli}
+              maxMilli={maxMilli}
               isSkipped={selectedDay.reason === "SKIPPED"}
               isOverridden={selectedDay.isOverridden}
               locked={

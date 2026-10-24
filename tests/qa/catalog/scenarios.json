@@ -1,0 +1,298 @@
+[
+ {
+  "id": "SC-01",
+  "title": "Customer buys from a local shop and receives it (wallet)",
+  "features": "WF-001, WF-002, WF-003, WF-005, WF-010",
+  "priority": "P0",
+  "journey": "1. Customer signs in and sets a delivery location\n2. Searches a product, opens Compare prices, picks the lowest-price delivering shop\n3. Adds to cart, chooses address and delivery window, pays from wallet\n4. Shop accepts, picks, packs, marks READY\n5. Rider is offered automatically, accepts, enters the pickup code, starts delivery\n6. Rider arrives, enters the customer's OTP - DELIVERED\n7. Customer rates shop and rider\n8. Admin opens the money trace: snapshot, commission, rider earning",
+  "expected": "Order moves through every state with notifications at each step; wallet debited once; stock reduced; one finance snapshot; rider earning recorded; ratings saved."
+ },
+ {
+  "id": "SC-02",
+  "title": "Multi-shop cart",
+  "features": "GS-025, GS-033",
+  "priority": "P0",
+  "journey": "1. Add items from two delivering shops\n2. Pay from wallet\n3. Each shop fulfils independently; one is delivered, the other is rejected by the shop",
+  "expected": "Two independent orders and debits; the rejected one is fully refunded with stock restored; the other completes."
+ },
+ {
+  "id": "SC-03",
+  "title": "Item unavailable - substitution",
+  "features": "GS-035, GS-036",
+  "priority": "P0",
+  "journey": "1. Place a 3-line order\n2. Shop accepts, proposes a cheaper substitute for line 1 and removes line 2\n3. Customer approves the substitute\n4. Shop marks READY; delivery completes",
+  "expected": "Difference and removed line refunded immediately; READY blocked until the customer decides; final snapshot uses the reduced goods value."
+ },
+ {
+  "id": "SC-04",
+  "title": "Shop rejects the order",
+  "features": "GS-034",
+  "priority": "P0",
+  "journey": "1. Customer orders\n2. Shop rejects with a reason",
+  "expected": "Full refund, stock restored, customer notified with the reason, order never reaches a settlement."
+ },
+ {
+  "id": "SC-05",
+  "title": "No rider available",
+  "features": "GA-009, RBAC-007",
+  "priority": "P0",
+  "journey": "1. All riders offline; shop marks READY\n2. Watch attempts until the search stops\n3. A rider comes online; shop presses 'Try finding a rider again'\n4. Delivery completes",
+  "expected": "Bounded search with one notification at start and one at stop; restart offers the rider; order completes."
+ },
+ {
+  "id": "SC-06",
+  "title": "Rider declines / offer lapses",
+  "features": "GS-039, GA-009",
+  "priority": "P0",
+  "journey": "1. Two riders online\n2. Rider 1 declines (or lets 2 minutes pass)\n3. Rider 2 accepts and delivers",
+  "expected": "Rider 1 is never re-offered; only one active assignment at any time."
+ },
+ {
+  "id": "SC-07",
+  "title": "Customer unavailable - failed delivery and return to shop",
+  "features": "WF-005",
+  "priority": "P0",
+  "journey": "1. Rider picks up and starts delivery\n2. Rider reports customer not reachable\n3. Shop marks RETURNED",
+  "expected": "Order FAILED then cancelled and refunded per policy; rider paid per the failed-delivery rule; stock restored."
+ },
+ {
+  "id": "SC-08",
+  "title": "Society authorised delivery",
+  "features": "WF-004, GA-001, GS-045, GS-046, GS-047",
+  "priority": "P0",
+  "journey": "1. Society registered and verified; admin lists a rider and turns on exclusive riders and security notices\n2. Resident joins, links an address, places an order\n3. Shop marks READY\n4. Only the listed rider is offered; accepts\n5. Security staff notified; rider sees gate notes; delivers with OTP",
+  "expected": "Dispatch honours the list; dashboard shows the delivery without PII."
+ },
+ {
+  "id": "SC-09",
+  "title": "Daily milk subscription",
+  "features": "WF-006, GS-048, GS-050, GS-051",
+  "priority": "P0",
+  "journey": "1. Top up the wallet\n2. Subscribe to 2 L/day of milk\n3. Daily-orders cron runs for the start date, then again\n4. Change tomorrow to 3 L; skip the day after; pause the following two days\n5. Run the cron for each date\n6. Let the wallet run short one day, then top up and retry",
+  "expected": "Rs 140 then Rs 210 charged once each; no order on skipped/paused days; the failed day is recovered by retry with a single debit."
+ },
+ {
+  "id": "SC-10",
+  "title": "Return and refund with rider pickup",
+  "features": "WF-007, GS-057",
+  "priority": "P0",
+  "journey": "1. Customer requests a return on a delivered order with a photo\n2. Shop approves\n3. Rider accepts the pickup, enters the handover code\n4. Shop receives, inspects and accepts a partial amount\n5. Refund completes",
+  "expected": "Each status visible to the customer; wallet credited once; shop share adjusted in the next settlement; rider paid the pickup fee."
+ },
+ {
+  "id": "SC-11",
+  "title": "Cancellation at every stage (D10)",
+  "features": "NEW-006",
+  "priority": "P0",
+  "journey": "1. Place 7 orders and bring them to CONFIRMED, ACCEPTED, PREPARING, READY, ASSIGNED, PICKED_UP, OUT_FOR_DELIVERY\n2. Customer tries to cancel each\n3. Shop cancels the ones the customer could not",
+  "expected": "Customer: allowed at CONFIRMED (full refund), blocked at four middle states, goods-only after pickup. Shop: full refund always."
+ },
+ {
+  "id": "SC-12",
+  "title": "Shop onboarding to first sale",
+  "features": "WF-008, GS-006, GS-009, GS-010",
+  "priority": "P0",
+  "journey": "1. New user registers a shop with identifiers and categories\n2. Submits GST and PAN; operator verifies\n3. Operator records the registration fee payment and approves as KESARI\n4. Owner sets radius, hours, minimum order; adds products with prices and stock; uploads photos\n5. A customer in range finds the shop and orders",
+  "expected": "Shop goes from pending to live; appears only inside its zone; first order completes."
+ },
+ {
+  "id": "SC-13",
+  "title": "Duplicate shop registration",
+  "features": "GS-006",
+  "priority": "P1",
+  "journey": "1. Submit a registration\n2. Submit the same shop again from the same and from another account\n3. Operator rejects the first\n4. Owner corrects and resubmits",
+  "expected": "Duplicates blocked with masked messages; resubmission updates the same record."
+ },
+ {
+  "id": "SC-14",
+  "title": "Weekly settlement and payout",
+  "features": "WF-010, GS-062, GS-064, GS-031",
+  "priority": "P0",
+  "journey": "1. Set commission rates\n2. Complete several orders incl. one refund and one COD\n3. Prepare last week's settlements and rider payouts\n4. Admin approves and marks paid with references\n5. Run reconciliation",
+  "expected": "Batches total correctly (gross - commission - refunds +/- adjustments - COD cash held); shop and rider see their own statements; reconciliation is clean."
+ },
+ {
+  "id": "SC-15",
+  "title": "Cash on delivery",
+  "features": "GS-030",
+  "priority": "P1",
+  "journey": "1. Shop opts in\n2. Customer places a COD order under Rs 2,000\n3. Rider delivers with OTP and confirms cash\n4. Admin records the cash deposit\n5. Weekly payout nets any cash still held",
+  "expected": "Order paid on delivery; cash tracked against the rider until deposited."
+ },
+ {
+  "id": "SC-16",
+  "title": "Shop suspension with open orders",
+  "features": "NEW-002",
+  "priority": "P1",
+  "journey": "1. Shop has orders at CONFIRMED, PREPARING and OUT_FOR_DELIVERY\n2. Admin previews and confirms suspension\n3. Admin decides the held order\n4. Admin reinstates the shop",
+  "expected": "Policy applied per status; owner informed; customers cannot order meanwhile; reinstatement restores service."
+ },
+ {
+  "id": "SC-17",
+  "title": "Marketing campaign with consent",
+  "features": "WF-009, GS-052, GS-053, GS-070",
+  "priority": "P1",
+  "journey": "1. Two customers order from the shop; one grants marketing consent\n2. Shop builds a segment and a campaign, submits it\n3. Operator approves; shop sends\n4. Consenting customer opens it and orders\n5. Customer withdraws consent; shop sends another campaign",
+  "expected": "Only the consenting customer is messaged; conversion tracked; nothing after withdrawal."
+ },
+ {
+  "id": "SC-18",
+  "title": "Risk flag to suspension",
+  "features": "GS-068",
+  "priority": "P1",
+  "journey": "1. Create a risk condition (e.g. repeated wrong delivery codes)\n2. Run the rules\n3. Operator reviews and suspends from the flag\n4. Admin reinstates",
+  "expected": "One flag raised; suspension applied with notice; flag closed with the reason."
+ },
+ {
+  "id": "SC-19",
+  "title": "New customer: mobile sign-up to first order",
+  "features": "GS-001, WF-001",
+  "priority": "P0",
+  "journey": "1. Sign up with an unused mobile + email\n2. Complete details and geo-tagged address\n3. Top up the wallet\n4. Place and receive an order",
+  "expected": "Account, wallet and address created; order completes without extra prompts."
+ },
+ {
+  "id": "SC-20",
+  "title": "Multi-role user",
+  "features": "GS-003",
+  "priority": "P1",
+  "journey": "1. A shop owner applies as a rider and is approved\n2. Switches role and delivers an order for another shop\n3. Switches back and fulfils an order in the own shop\n4. Places a personal order as a customer",
+  "expected": "Each role works in turn; data stays separated by role."
+ },
+ {
+  "id": "SC-21",
+  "title": "Order from a closed shop",
+  "features": "NEW-003",
+  "priority": "P1",
+  "journey": "1. Shop is closed\n2. Customer confirms the closed-shop prompt and pays\n3. Shop opens",
+  "expected": "Both parties alerted immediately and once more at opening; order then proceeds normally."
+ },
+ {
+  "id": "SC-22",
+  "title": "Price governance",
+  "features": "GS-015, GS-013, NEW-010",
+  "priority": "P1",
+  "journey": "1. Admin sets an MRP\n2. Owner tries to price above it by form and Excel\n3. Operator proposes a price change; owner approves\n4. Customer sees the new price and discount\n5. Owner changes the MRP of one product for the own shop (NEW-010)\n6. Customer compares the product across two shops",
+  "expected": "MRP guard holds on every path; approval flow gates the operator's change. The owner's MRP change shows for that shop only; the other shop and the master keep theirs."
+ },
+ {
+  "id": "SC-23",
+  "title": "New shop stocks up by category and makes its first sales",
+  "features": "NEW-009, NEW-008, WF-001, WF-002, GS-016",
+  "priority": "P0",
+  "journey": "1. Shop C (approved, no products) adds a product category\n2. Owner opens the inventory: every product of the category is there at stock 100\n3. Owner opens the 'needs price' list and sets prices for products that had none, including one loose product\n4. Owner corrects two stock figures to the real count\n5. Customer finds the shop, buys one packaged product and 500 g of the loose product\n6. Shop accepts, picks, packs; rider delivers\n7. Owner checks inventory, movements and the sales figure",
+  "expected": "All products added once at 100; unpriced ones not buyable until priced; the order is charged at the shop prices; stock falls by exactly what was sold; movements and revenue match the order."
+ },
+ {
+  "id": "SC-24",
+  "title": "Loose goods: from no price to a sale",
+  "features": "NEW-008, GS-022, GS-024",
+  "priority": "P0",
+  "journey": "1. Operator creates a loose product in the master\n2. Shops A and B add it; both see an empty price\n3. Customer sees both as price not set and cannot add either\n4. Shop B sets Rs 60 per kg; Shop A leaves it empty\n5. Customer compares, buys 750 g from Shop B\n6. Shop B clears the price again",
+  "expected": "No Rs 0 is ever shown or charged. Only the priced shop is buyable. The order is Rs 45 exactly. After the price is cleared the product is no longer buyable."
+ },
+ {
+  "id": "SC-25",
+  "title": "Shop-specific MRP",
+  "features": "NEW-010, GS-015, GS-022",
+  "priority": "P0",
+  "journey": "1. Shops A and B sell the same packaged product, master MRP Rs 50\n2. Owner A changes the MRP to Rs 55 and the price to Rs 52\n3. Customer compares both shops\n4. Admin changes the master MRP to Rs 60\n5. Customer buys from each shop\n6. Owner A tries to change the MRP of Shop B through the API",
+  "expected": "Shop A shows MRP 55 throughout; Shop B follows the master (50, then 60). Each order records the MRP and price of its own shop. The cross-shop change is refused."
+ },
+ {
+  "id": "SC-26",
+  "title": "Sell, purchase and inventory reconcile over a day",
+  "features": "WF-001, WF-002, GS-016, GS-057, WF-010",
+  "priority": "P0",
+  "journey": "1. Note opening stock for three Shop A products\n2. Owner records stock received for one product\n3. Customers place five orders: one delivered normally, one cancelled, one with a substitution, one with a removed line, one delivered then returned\n4. Owner writes off damaged stock\n5. Owner records an in-shop sale\n6. At the end compare inventory, movements, shop sales and the admin money trace",
+  "expected": "For each product: closing stock = opening + received - sold - written off + returned to stock. Sales count delivered goods only. Wallet debits and refunds match the orders. Every stock change has a movement."
+ },
+ {
+  "id": "SC-27",
+  "title": "Log out and log off on a shared phone",
+  "features": "GS-001, GS-002, GS-071",
+  "priority": "P0",
+  "journey": "1. Shop owner signs in on a phone browser, works in the shop portal, signs out\n2. Back button and a saved /shop link are tried\n3. A customer signs in on the same browser, shops and signs out\n4. The owner signs in again\n5. A session is left idle past its lifetime",
+  "expected": "After each log out nothing of the previous user is visible or reachable. Each user finds the own cart and data on return. The idle session is ended and returns to the page asked for after sign-in."
+ },
+ {
+  "id": "SC-28",
+  "title": "Field validation along the first-order journey",
+  "features": "GS-001, GS-004, GS-024, GS-029, GS-032",
+  "priority": "P1",
+  "journey": "1. New user enters an invalid then a valid mobile, email and code\n2. Enters invalid then valid profile and address fields (name, recipient mobile, PIN, map pin)\n3. Tops up with an invalid then a valid amount and voucher code\n4. Adds an invalid then a valid quantity to the cart\n5. Places the order with notes and delivery instructions",
+  "expected": "Every invalid entry is stopped at its field with a clear message and typed values are kept. Nothing invalid is saved. The valid path completes with one order and one debit."
+ },
+ {
+  "id": "SC-29",
+  "title": "Order paid online, invoiced and refunded to source",
+  "features": "GS-028, GS-073, SM-005, NEW-007, WF-001",
+  "priority": "P0",
+  "journey": "1. Customer checks out and pays by UPI\n2. Shop fulfils; rider delivers with a photo\n3. Customer downloads the tax invoices\n4. Customer returns one item; refund is approved\n5. Admin runs reconciliation\n6. A second customer abandons the payment page",
+  "expected": "Paid order moves CAPTURED -> RECONCILED; invoices match the order; the refund goes to the source with a credit note; the abandoned payment leaves no order, no charge and no stock held."
+ },
+ {
+  "id": "SC-30",
+  "title": "Mobile sign-up by SMS and messages on every channel",
+  "features": "GS-001, GS-074",
+  "priority": "P0",
+  "journey": "1. New user signs up with a mobile and the SMS code\n2. Enters a wrong code first\n3. Switches on SMS, WhatsApp and push\n4. Places an order through to delivery\n5. Switches WhatsApp off and orders again",
+  "expected": "Wrong code refused; right code signs in with the mobile verified. Each switched-on channel delivers each event once; the switched-off channel stays silent."
+ },
+ {
+  "id": "SC-31",
+  "title": "Shop onboarding with KYC documents and fee gate",
+  "features": "SM-002, GS-007, WF-008, GS-008",
+  "priority": "P0",
+  "journey": "1. Owner registers and uploads KYC documents, one of them invalid\n2. Operations reject that document; owner re-uploads\n3. Operator tries to approve before the fee is paid\n4. Fee is recorded and verified; operator approves\n5. Customer finds the shop",
+  "expected": "Invalid document refused; state moves KYC_PENDING -> PAYMENT_PENDING -> VERIFIED -> ACTIVE; approval is blocked until the fee is verified; the shop is listed only when ACTIVE."
+ },
+ {
+  "id": "SC-32",
+  "title": "Multi-shop purchase with coupon, scheduled slot and master order",
+  "features": "GS-033, NAV-003, GS-027",
+  "priority": "P0",
+  "journey": "1. Customer fills a cart from two shops\n2. Tries an expired coupon, then a valid one\n3. Chooses a scheduled slot; a full slot is refused\n4. Pays\n5. One shop rejects its order",
+  "expected": "One master reference with two child orders; discount applied once; slot carried on both; only the rejected part is refunded, in proportion."
+ },
+ {
+  "id": "SC-33",
+  "title": "Shop does not accept in time",
+  "features": "NEW-007, GS-034",
+  "priority": "P0",
+  "journey": "1. Customer places a wallet order, an online order and a COD order with one shop\n2. The shop accepts none before the timeout",
+  "expected": "All three are cancelled automatically once: wallet credited, online refunded to source, COD nothing; stock restored; customer and shop notified."
+ },
+ {
+  "id": "SC-34",
+  "title": "Rider profile edit, batching and photo proof",
+  "features": "NAV-013, GA-005, SM-003, NEW-007",
+  "priority": "P1",
+  "journey": "1. Rider changes bank details with the confirmation code\n2. Two nearby orders become READY and are batched to the rider\n3. Rider delivers both with a photo each\n4. Operations block the rider afterwards",
+  "expected": "Bank change waits for verification before any payout; both orders delivered with their own codes and photos; the blocked rider gets no further offers."
+ },
+ {
+  "id": "SC-35",
+  "title": "Customer referral",
+  "features": "GS-054, GS-068",
+  "priority": "P1",
+  "journey": "1. Customer 1 shares the referral code\n2. A new customer signs up with it and gets a first order delivered\n3. Customer 1 then tries to refer an own second account on the same phone",
+  "expected": "First referral rewards both once after delivery. The self-referral earns nothing and raises a risk flag."
+ },
+ {
+  "id": "SC-36",
+  "title": "Release check on both sites",
+  "features": "QA-010, QA-012, QA-013",
+  "priority": "P0",
+  "journey": "1. The release reaches test.gokesari.com\n2. The production-safe and signed-in tiers run there; defects are fixed and re-deployed\n3. The release reaches gokesari.com\n4. The production-safe tier runs there\n5. The register is rebuilt",
+  "expected": "The same suite commit has a staging run and a production run in docs/testing/qa-runs, and the register shows each case's status on both sites."
+ },
+ {
+  "id": "SC-37",
+  "title": "Signed-in test run by the Claude QA agent",
+  "features": "QA-011, QA-010",
+  "priority": "P1",
+  "journey": "1. The agent signs the staging test accounts in with the emailed codes (owner's mailbox)\n2. It runs the signed-in tier on test.gokesari.com\n3. It collects the results and rebuilds the register",
+  "expected": "A staging run with signed-in checks that passed (so the sessions worked), collected into docs/testing/qa-runs."
+ }
+]

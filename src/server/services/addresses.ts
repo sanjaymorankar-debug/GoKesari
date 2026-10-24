@@ -6,7 +6,7 @@
  * `orders.addressId` is a nullable FK to this table.
  */
 import { cache } from "react";
-import { and, eq, isNull } from "drizzle-orm";
+import { and, desc, eq, isNull } from "drizzle-orm";
 
 import { forbidden, notFound, validationFailed } from "@/lib/errors";
 import { db } from "@/server/db";
@@ -32,14 +32,17 @@ export interface SaveAddressInput {
   isDefault?: boolean;
 }
 
+/** A refusal that names its field, so the form shows it there (TC-FLD-125). */
+function refuse(field: keyof SaveAddressInput, message: string): never {
+  throw validationFailed(message, { fields: { [field]: message } });
+}
+
 function validate(input: SaveAddressInput): void {
-  if (!input.line1.trim()) throw validationFailed("Enter the address.");
-  if (!input.city.trim()) throw validationFailed("Enter the city.");
-  if (!/^\d{6}$/.test(input.pincode.trim())) {
-    throw validationFailed("Enter a valid 6-digit PIN code.");
-  }
+  if (!input.line1.trim()) refuse("line1", "Enter the address.");
+  if (!input.city.trim()) refuse("city", "Enter the city.");
+  if (!/^[1-9]\d{5}$/.test(input.pincode.trim())) refuse("pincode", "Enter a valid 6-digit PIN code.");
   if (input.recipientPhone && !/^[6-9]\d{9}$/.test(input.recipientPhone.trim())) {
-    throw validationFailed("Enter a valid 10-digit mobile number for the recipient.");
+    refuse("recipientPhone", "Enter a valid 10-digit mobile number for the recipient.");
   }
 }
 
@@ -170,5 +173,15 @@ export async function deleteAddress(userId: string, addressId: string): Promise<
   if (!existing) throw notFound("Address");
   if (existing.userId !== userId) throw forbidden("This address does not belong to you.");
 
-  await db.update(addresses).set({ deletedAt: new Date() }).where(eq(addresses.id, addressId));
+  await db.update(addresses).set({ deletedAt: new Date(), isDefault: false }).where(eq(addresses.id, addressId));
+  if (existing.isDefault) {
+    // The newest remaining address becomes the default, so a customer with addresses always has one (TC-FLD-018).
+    const [next] = await db
+      .select({ id: addresses.id })
+      .from(addresses)
+      .where(and(eq(addresses.userId, userId), isNull(addresses.deletedAt)))
+      .orderBy(desc(addresses.createdAt))
+      .limit(1);
+    if (next) await db.update(addresses).set({ isDefault: true }).where(eq(addresses.id, next.id));
+  }
 }

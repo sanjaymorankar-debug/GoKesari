@@ -116,23 +116,53 @@ function makeQuantity(
   return { unitValue, unit: d.unit, multiplier, total: round4(unitValue * multiplier) };
 }
 
+/**
+ * A minus sign written straight before the number ("-1 kg", "( -500 g"): the
+ * quantity is negative, not 1 kg (TC-FLD-074). A hyphen joining a word or a
+ * range ("Atta-5kg", "1-2 kg") or a dash between words ("Cookies - 100g") is
+ * not a sign.
+ */
+function negativeAt(s: string, index: number): boolean {
+  if (s[index - 1] !== "-") return false;
+  // What comes before the "-": nothing, or punctuation ("(", ":") — not a word or a number.
+  const before = s.slice(0, index - 1).trimEnd();
+  return before === "" || (!/[a-z0-9.]$/.test(before) && !/[a-z0-9.\-]$/.test(s.slice(0, index - 1)));
+}
+
 function collectHits(s: string, opts: QuantityOptions): { multi: Hit[]; single: Hit[] } {
   const multi: Hit[] = [];
   const single: Hit[] = [];
 
   for (const m of s.matchAll(RE_MULT_FIRST)) {
+    if (negativeAt(s, m.index!)) continue;
     const q = makeQuantity(parseFloat(m[2]), m[3], parseInt(m[1], 10), m[0], opts);
     if (q) multi.push({ index: m.index!, length: m[0].length, q });
   }
   for (const m of s.matchAll(RE_MULT_LAST)) {
+    if (negativeAt(s, m.index!)) continue;
     const q = makeQuantity(parseFloat(m[1]), m[2], parseInt(m[3], 10), m[0], opts);
     if (q) multi.push({ index: m.index!, length: m[0].length, q });
   }
   for (const m of s.matchAll(RE_SINGLE)) {
+    if (negativeAt(s, m.index!)) continue;
     const q = makeQuantity(parseFloat(m[1]), m[2], 1, m[0], opts);
     if (q) single.push({ index: m.index!, length: m[0].length, q });
   }
   return { multi, single };
+}
+
+/**
+ * True when the text gives a pack size of zero or below ("0 kg", "-1 kg"):
+ * that is a data error to report, not a size to guess (TC-FLD-074).
+ */
+export function hasNonPositiveQuantity(text: string | null | undefined): boolean {
+  if (!text) return false;
+  const s = prepare(text);
+  for (const m of s.matchAll(RE_SINGLE)) {
+    if (!UNIT_TABLE[m[2]]) continue;
+    if (negativeAt(s, m.index!) || parseFloat(m[1]) <= 0) return true;
+  }
+  return false;
 }
 
 /**

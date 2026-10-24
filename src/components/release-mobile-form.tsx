@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Alert, Button, Field, inputClass } from "@/components/ui";
+import { mobileFieldDigits } from "@/lib/contact";
 
 /** Admin: free a mobile number that another account claimed (numbers are not SMS-verified). */
 export function ReleaseMobileForm() {
@@ -37,7 +38,7 @@ export function ReleaseMobileForm() {
         <input
           className={inputClass}
           value={mobile}
-          onChange={(e) => setMobile(e.target.value.replace(/\D/g, "").slice(0, 10))}
+          onChange={(e) => setMobile(mobileFieldDigits(e.target.value))}
           inputMode="numeric"
           placeholder="10 digits"
           required

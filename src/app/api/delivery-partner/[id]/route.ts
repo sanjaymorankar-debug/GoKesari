@@ -21,7 +21,8 @@ const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("approve"), notes: z.string().max(1000).nullish() }),
   z.object({ action: z.literal("reject"), reason: z.string().min(3).max(1000) }),
   z.object({ action: z.literal("suspend"), reason: z.string().min(3).max(1000) }),
-  z.object({ action: z.literal("reactivate") }),
+  // TC-DEL-027: a suspended rider returns to work only with a reason, as they were suspended with one.
+  z.object({ action: z.literal("reactivate"), reason: z.string().min(3).max(1000) }),
   z.object({ action: z.literal("deactivate"), reason: z.string().min(3).max(1000) }),
 ]);
 
@@ -49,7 +50,7 @@ export const PATCH = route(
       case "suspend":
         return ok(toStaffPartnerView(await suspendDeliveryPartner(id, body.reason, user)));
       case "reactivate":
-        return ok(toStaffPartnerView(await reactivateDeliveryPartner(id, user)));
+        return ok(toStaffPartnerView(await reactivateDeliveryPartner(id, body.reason, user)));
       case "deactivate":
         return ok(toStaffPartnerView(await deactivateDeliveryPartner(id, body.reason, user)));
     }

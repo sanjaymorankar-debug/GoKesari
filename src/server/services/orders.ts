@@ -14,14 +14,19 @@
  *    instead of charging twice.
  *  - **Per-shop split.** A cart spanning several shops becomes one order per
  *    shop, each paid for independently (§17).
+ *  - **The cart.** Each shop's order is made from the shop's cart lines as they
+ *    are under the cart's lock, and exactly those lines leave the cart: a unit
+ *    added while checkout runs is ordered or stays in the cart, never dropped.
  */
-import { and, desc, eq, gte, lte, inArray, like } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, like, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
+import { addDays, isCalendarDate, type IsoDate } from "@/lib/dates";
+import { getEnv } from "@/lib/env";
 import { conflict, forbidden, invalidTransition, notFound, validationFailed } from "@/lib/errors";
 import { canTransition } from "@/lib/state-machines";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
-import { lineTotalPaise, sumPaise } from "@/lib/money";
+import { formatPaise, formatQuantity, lineTotalPaise, sumPaise } from "@/lib/money";
 import { formatShopTime, isShopOpenNow, nextOpeningAt } from "@/lib/shop-hours";
 import { db, isSerializationFailure, type DbClient } from "@/server/db";
 import {
@@ -43,10 +48,11 @@ import {
   type OrderStatus,
   type OrderType,
   type PaymentMethod,
+  type Shop,
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
-import { clearCartForShop, computeDeliveryFee, getCart } from "./cart";
+import { computeDeliveryFee, getCart, lockCartLinesForShop, removeCartLines, type CartLine, type LockedCartLine } from "./cart";
 import { consumeOnlineStock, loadPurchasableShopProduct, restockOnline } from "./catalogue";
 import { COD_LIMITS, assertCodAllowedForOrder, getCodEligibility, recordCodCollection } from "./cod";
 import { creditDeliveryEarnings } from "./delivery-earnings";
@@ -69,12 +75,19 @@ import { assertLegalDocsAllowOrders } from "./legal-documents";
 import { assertSignupReferralForFirstOrder } from "./customer-signup-referrals";
 import { resolveAddressSociety } from "./societies";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
+import type { EmailDetailRow } from "@/server/notifications/templates";
 import { emitEvent } from "@/server/events/emit";
 import { onOrderDelivered } from "@/server/integrations/hooks";
 import { orderEventFor, type OrderEventPayload } from "@/server/events/catalog";
 import { applyWalletMutation, refundOriginalDebit } from "./wallet";
 import { checkRiskForUser } from "./risk";
 import { afterPackingCancellationOpen } from "@/server/aftercare/cancellation-fee"; // batch-2026-10 WS-C
+import {
+  SELF_CANCEL_BEFORE_PACKING,
+  SELF_CANCEL_MESSAGES,
+  customerCancellableStatuses,
+  selfCancelBlock,
+} from "@/lib/order-cancellation";
 import { executeCancellationRefund, planCancellationRefund } from "@/server/aftercare/refunds"; // batch-2026-10 WS-C
 
 /**
@@ -324,11 +337,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       }
       // Mandatory legal documents: a shop past its grace period takes no orders until it uploads them.
       await assertLegalDocsAllowOrders(shopRow.id);
-      if (addressSnapshot && shopRow.deliveryAvailable && group.subtotalPaise < shopRow.minOrderPaise) {
-        throw validationFailed(
-          `${shopRow.name} needs a minimum order of ₹${(shopRow.minOrderPaise / 100).toFixed(0)}; your items come to ₹${(group.subtotalPaise / 100).toFixed(0)}.`,
-        );
-      }
+      assertMinimumOrder(shopRow, group.subtotalPaise, addressSnapshot != null);
     }
   }
 
@@ -426,7 +435,22 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     let scheduledSlot: { start: Date; end: Date; date: string } | null = null;
     const acceptBy = await acceptByFor(new Date(), closedShops.get(group.shop.id) ?? null);
 
-    const { order, shopOwnerId } = await db.transaction(async (tx) => {
+    const placed = await db.transaction(async (tx) => {
+      // The cart's lock first, before any slot, coupon, stock or wallet lock. Its other holders
+      // (an add, a quantity change, a purchase list's send, another checkout) take none of those
+      // before it, so none can deadlock with this. Then this shop's lines as they are now: the
+      // order is made from them and exactly they leave the cart below. An add since the cart was
+      // read above is ordered with them; one from now on waits for this transaction and stays.
+      const inCart = await lockCartLinesForShop(input.userId, group.shop.id, tx);
+      // A double submit of this request that held the lock before us has placed the order.
+      const placedMeanwhile = await tx.query.orders.findFirst({ where: eq(orders.checkoutKey, idempotencyKey) });
+      if (placedMeanwhile) return { order: placedMeanwhile, deduplicated: true as const };
+      if (inCart.length === 0) {
+        throw conflict(
+          `Nothing from ${group.shop.name} is in your cart any more — it changed while this order was being placed. Check your cart and your orders.`,
+        );
+      }
+
       const lines: {
         shopProductId: string;
         productName: string;
@@ -440,9 +464,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       // Re-validate and re-price every line inside the transaction. The cart
       // view is a hint; this is the authority.
       const shopOffersLive = await getLiveOffers([group.shop.id], new Date(), tx);
-      for (const line of group.lines) {
-        if (!line.purchasable) continue;
-
+      for (const line of cartLinesToOrder(group.lines, inCart)) {
         const loaded = await loadPurchasableShopProduct(
           line.shopProductId,
           line.quantity,
@@ -476,6 +498,8 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
         .select()
         .from(shops)
         .where(eq(shops.id, group.shop.id));
+      // Again on the lines ordered: the cart may have changed since the check above.
+      assertMinimumOrder(shopRow, subtotalPaise, addressSnapshot != null);
       const deliveryFeePaise = computeDeliveryFee(shopRow, subtotalPaise);
       const taxPaise = 0;
       const couponShare = couponQuote?.shares.find((sh) => sh.shopId === group.shop.id)?.discountPaise ?? 0;
@@ -602,8 +626,8 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       // cleared) until the gateway captures the payment; confirmation, its event and
       // the notices then come from server/payments/order-payments.ts.
       if (paymentMethod === "ONLINE") {
-        await clearCartForShop(input.userId, group.shop.id, tx);
-        return { order: orderRow, shopOwnerId: shopRow.ownerId };
+        await removeCartLines(inCart.map((l) => l.id), tx);
+        return { order: orderRow, shopOwnerId: shopRow.ownerId, deduplicated: false as const };
       }
 
       const [confirmed] = await tx
@@ -667,6 +691,15 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           title: "Order confirmed",
           body: `Your order ${orderRow.orderNumber} from ${shopRow.name} is confirmed.`,
           actionUrl: `/orders`,
+          // TC-SPI-004: the e-mail lists what was ordered and what it costs.
+          emailDetail: orderConfirmedEmailRows({
+            lines: lines.map((l) => ({ name: l.productName, unit: l.unit, quantityMilli: l.quantityMilli, lineTotalPaise: l.lineTotalPaise })),
+            deliveryFeePaise,
+            taxPaise,
+            discountPaise,
+            totalPaise,
+            paymentMethod,
+          }),
         },
         tx,
       );
@@ -707,16 +740,20 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
         );
       }
 
-      await clearCartForShop(input.userId, group.shop.id, tx);
-      return { order: confirmed, shopOwnerId: shopRow.ownerId };
+      await removeCartLines(inCart.map((l) => l.id), tx);
+      return { order: confirmed, shopOwnerId: shopRow.ownerId, deduplicated: false as const };
     });
 
-    created.push(order);
+    created.push(placed.order);
+    if (placed.deduplicated) {
+      anyDeduplicated = true;
+      continue;
+    }
     // Deliberately AFTER the transaction commits, using bare db — a failed
     // notification must never roll back a paid order (see
     // notifyOpenStockAlerts's own doc comment). Safe to call unconditionally:
     // it dedupes per alert id, so it never re-notifies about one already sent.
-    await notifyOpenStockAlerts(group.shop.id, shopOwnerId);
+    await notifyOpenStockAlerts(group.shop.id, placed.shopOwnerId);
   }
 
   // Event layer: the per-order risk rules run now, at placement, not at the next
@@ -747,6 +784,34 @@ async function resolveBuyerShop(input: CheckoutInput): Promise<string> {
   return shop.id;
 }
 
+/**
+ * The shop's lines to order, from its lines under the cart's lock, in the
+ * order the cart showed them. A line that could not be bought online when the
+ * cart was read, and is unchanged since, is left out (it still leaves the cart
+ * with the rest, as before). Every other line is ordered — one added or changed
+ * since included, and refused like any line if it cannot be bought now.
+ */
+function cartLinesToOrder(read: CartLine[], inCart: LockedCartLine[]): LockedCartLine[] {
+  const position = new Map(read.map((l, i) => [l.cartItemId, i]));
+  const unorderable = new Set(read.filter((l) => !l.purchasable).map((l) => `${l.cartItemId}:${l.quantity}`));
+  return inCart
+    .filter((l) => !unorderable.has(`${l.id}:${l.quantity}`))
+    .sort((a, b) => (position.get(a.id) ?? read.length) - (position.get(b.id) ?? read.length));
+}
+
+/** A delivered order must meet the shop's minimum order value; a pickup order is exempt. */
+function assertMinimumOrder(
+  shop: Pick<Shop, "name" | "deliveryAvailable" | "minOrderPaise">,
+  subtotalPaise: number,
+  delivered: boolean,
+): void {
+  if (delivered && shop.deliveryAvailable && subtotalPaise < shop.minOrderPaise) {
+    throw validationFailed(
+      `${shop.name} needs a minimum order of ₹${(shop.minOrderPaise / 100).toFixed(0)}; your items come to ₹${(subtotalPaise / 100).toFixed(0)}.`,
+    );
+  }
+}
+
 /* --------------------------------------------------------- transitions */
 
 /**
@@ -754,6 +819,31 @@ async function resolveBuyerShop(input: CheckoutInput): Promise<string> {
  * The row itself carries the customer's delivery address, ids and checkout
  * key, which the shop or operator acting on it never needs back.
  */
+/**
+ * TC-SPI-004 (N11): the rows of the order-confirmed e-mail — each line (name,
+ * quantity, amount), the delivery fee, any discount and the total. Exported
+ * for the online-payment confirmation (server/payments/order-payments.ts).
+ */
+export function orderConfirmedEmailRows(order: {
+  lines: { name: string; unit: string; quantityMilli: number; lineTotalPaise: number }[];
+  deliveryFeePaise: number;
+  taxPaise?: number;
+  discountPaise: number;
+  totalPaise: number;
+  paymentMethod: string;
+}): EmailDetailRow[] {
+  return [
+    ...order.lines.map((l) => ({ label: `${l.name} × ${formatQuantity(l.quantityMilli, l.unit)}`, value: formatPaise(l.lineTotalPaise) })),
+    { label: "Delivery fee", value: order.deliveryFeePaise > 0 ? formatPaise(order.deliveryFeePaise) : "Free" },
+    ...(order.taxPaise ? [{ label: "Tax", value: formatPaise(order.taxPaise) }] : []),
+    ...(order.discountPaise > 0 ? [{ label: "Discount", value: `−${formatPaise(order.discountPaise)}` }] : []),
+    {
+      label: order.paymentMethod === "COD" ? "Total (pay in cash on delivery)" : order.paymentMethod === "WALLET" ? "Total (paid from wallet)" : "Total",
+      value: formatPaise(order.totalPaise),
+    },
+  ];
+}
+
 export function toOrderStatusView(order: Order): Pick<Order, "id" | "orderNumber" | "status"> {
   return { id: order.id, orderNumber: order.orderNumber, status: order.status };
 }
@@ -1009,32 +1099,24 @@ export async function cancelOrder(
     // a shop/operator-privileged cancel, which stays unrestricted.
     // Rule `cancellation.customerMayCancelUntil` = PREPARING opens ACCEPTED and
     // PREPARING (before packing) to the customer too, with the same full refund.
-    const beforePacking = (["ACCEPTED", "PREPARING"] as OrderStatus[]).includes(order.status);
+    const beforePacking = SELF_CANCEL_BEFORE_PACKING.includes(order.status);
+    const { customerMayCancelUntil } = await getRule("cancellation");
     const customerCancelBeforePacking =
-      Boolean(options.selfService) &&
-      beforePacking &&
-      (await getRule("cancellation")).customerMayCancelUntil === "PREPARING";
+      Boolean(options.selfService) && beforePacking && customerMayCancelUntil === "PREPARING";
     // batch-2026-10 WS-C (F6.1.3): with rule afterPackingCancellation on, the
     // customer may also cancel a packed order (READY / ASSIGNED) for a fee.
     // Off (the default): exactly the original D10 block below.
     const customerCancelAfterPacking =
       Boolean(options.selfService) && (await afterPackingCancellationOpen(order.status));
-    if (
-      options.selfService &&
-      !customerCancelBeforePacking &&
-      !customerCancelAfterPacking &&
-      (["ACCEPTED", "PREPARING", "READY", "ASSIGNED"] as OrderStatus[]).includes(order.status)
-    ) {
-      throw conflict(
-        "This order is already being prepared. Please contact the shop to cancel it.",
-      );
-    }
-    if (
-      options.selfService &&
-      (["FAILED", "RETURNED", "DISPUTED"] as OrderStatus[]).includes(order.status)
-    ) {
-      throw conflict("Please contact support about this order.");
-    }
+    // TC-ORD-008: the one D10 rule (lib/order-cancellation.ts) that My Orders
+    // and the cancellation quote read too.
+    const block = options.selfService
+      ? selfCancelBlock(order.status, {
+          customerMayCancelUntil,
+          afterPackingEnabled: (await getRule("afterPackingCancellation")).enabled,
+        })
+      : null;
+    if (block === "BEING_PREPARED" || block === "CONTACT_SUPPORT") throw conflict(SELF_CANCEL_MESSAGES[block]);
 
     const wasPaid = PAID_STATUSES.includes(order.status) && order.paidAt != null;
     // D10: self-cancelling a dispatched order refunds the goods only — the
@@ -1157,6 +1239,10 @@ export async function cancelOrder(
         await creditDeliveryEarnings(activeDelivery.id, tx);
       }
     }
+    // TC-DSP-011: the rider search ends with the order (it stayed SEARCHING before).
+    // Imported lazily: delivery-assignment.ts imports this module.
+    const { closeRiderSearchForCancelledOrder } = await import("./delivery-assignment");
+    await closeRiderSearchForCancelledOrder(orderId, tx);
 
     // Event layer: the cancellation as one event. The customer hears when
     // someone else cancelled (DEF-02); the shop when support did, or the
@@ -1355,11 +1441,11 @@ export async function listOpenOrdersForCheckout(
   const rule = await getRule("openOrderCheck");
   if (!rule.enabled) return [];
   if (rule.scope === "SAME_SHOP" && cartShopIds.length === 0) return [];
-  const { customerMayCancelUntil } = await getRule("cancellation");
-  const cancellable: readonly OrderStatus[] =
-    customerMayCancelUntil === "PREPARING"
-      ? ["CONFIRMED", "ACCEPTED", "PREPARING", "PICKED_UP", "OUT_FOR_DELIVERY"]
-      : ["CONFIRMED", "PICKED_UP", "OUT_FOR_DELIVERY"];
+  // TC-ORD-008: the same D10 rule as cancelOrder (lib/order-cancellation.ts).
+  const cancellable = customerCancellableStatuses({
+    customerMayCancelUntil: (await getRule("cancellation")).customerMayCancelUntil,
+    afterPackingEnabled: (await getRule("afterPackingCancellation")).enabled,
+  });
   const rows = await db
     .select({
       id: orders.id,
@@ -1552,8 +1638,9 @@ async function loadAddressSnapshot(
   deliveryInstructions?: string | null;
   societyId?: string | null;
 } | null> {
+  // A deleted address cannot be delivered to (TC-FLD-025).
   const address = await db.query.addresses.findFirst({
-    where: and(eq(addresses.id, addressId), eq(addresses.userId, userId)),
+    where: and(eq(addresses.id, addressId), eq(addresses.userId, userId), isNull(addresses.deletedAt)),
   });
   if (!address) throw notFound("Address");
   return {
@@ -1601,10 +1688,18 @@ export interface MonitoredOrder {
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-function parseDay(value: string | undefined): Date | undefined {
-  if (!value) return undefined;
-  const d = new Date(value);
-  return Number.isNaN(d.getTime()) ? undefined : d;
+/** A filter day (YYYY-MM-DD), or undefined for a missing or impossible date. */
+function parseDay(value: string | undefined): IsoDate | undefined {
+  return value && isCalendarDate(value) ? value : undefined;
+}
+
+/**
+ * TC-ADM-004: the instant a business day starts in APP_TIMEZONE (IST), as
+ * analytics.ts bounds its windows — `new Date("2026-10-24")` is UTC midnight,
+ * so an order placed at 01:30 IST was listed under the day before.
+ */
+function businessDayStart(day: IsoDate): SQL {
+  return sql`((${day})::date::timestamp at time zone ${getEnv().APP_TIMEZONE})`;
 }
 
 /** Staff order-monitoring list. Filters come from the URL, so bad values are ignored rather than thrown. */
@@ -1622,13 +1717,11 @@ export async function listOrdersForMonitoring(filters: {
   if (filters.shopId && UUID_RE.test(filters.shopId)) {
     conditions.push(eq(orders.shopId, filters.shopId));
   }
+  // Whole business days: from the start of dateFrom to the start of the day after dateTo.
   const dateFrom = parseDay(filters.dateFrom);
-  if (dateFrom) conditions.push(gte(orders.createdAt, dateFrom));
+  if (dateFrom) conditions.push(sql`${orders.createdAt} >= ${businessDayStart(dateFrom)}`);
   const dateTo = parseDay(filters.dateTo);
-  if (dateTo) {
-    dateTo.setHours(23, 59, 59, 999);
-    conditions.push(lte(orders.createdAt, dateTo));
-  }
+  if (dateTo) conditions.push(sql`${orders.createdAt} < ${businessDayStart(addDays(dateTo, 1))}`);
 
   const riderUser = alias(users, "rider_user");
 

@@ -507,7 +507,7 @@ export function ShopRegisterForm({
             </div>
 
             <div className="sm:col-span-2">
-              <Field label="GST number (GSTIN)" hint="e.g. 27ABCDE1234F1Z5" error={errorFor("gstin")}>
+              <Field label="GST number (GSTIN)" hint="e.g. 27ABCDE1234F1Z0" error={errorFor("gstin")}>
                 <input
                   name="gstin"
                   autoComplete="off"

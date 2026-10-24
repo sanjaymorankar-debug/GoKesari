@@ -47,8 +47,8 @@ function fulfilmentLine(shop: GridShop): string {
   const distance = shop.distanceKm != null ? ` · ${shop.distanceKm} km` : "";
   if (shop.deliveryAvailable) {
     if (shop.deliversHere === true) return `Delivers to you${distance}`;
-    // A paused shop is not "outside its delivery area": it takes no new orders at all for now.
-    if (shop.deliversHere === false && shop.ordersPaused) return `Not taking new orders right now${distance}`;
+    // A paused shop is not "outside its delivery area"; its card carries the "not taking orders" notice.
+    if (shop.ordersPaused) return `Home delivery${distance}`;
     if (shop.deliversHere === false) return `Pickup · outside its delivery area${distance}`;
     return "Home delivery available";
   }
@@ -117,6 +117,7 @@ export function ShopGrid({
     fulfilment: fulfilmentLine(shop),
     pickupOnly: !shop.deliveryAvailable,
     deliversHere: shop.deliversHere ?? null,
+    ordersPaused: shop.ordersPaused ?? false,
   }));
 
   return (

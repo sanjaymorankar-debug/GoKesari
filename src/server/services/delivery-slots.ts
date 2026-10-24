@@ -227,7 +227,7 @@ export async function upsertSlotCapacity(input: CapacityInput, actorId: string) 
   const shopId = input.shopId || null;
   const pincode = input.pincode?.trim() || null;
   if ((shopId == null) === (pincode == null)) throw validationFailed("Set limits for either one shop or one PIN code.");
-  if (pincode && !/^\d{6}$/.test(pincode)) throw validationFailed("Enter a 6-digit PIN code.");
+  if (pincode && !/^[1-9]\d{5}$/.test(pincode)) throw validationFailed("Enter a 6-digit PIN code.");
   for (const v of [input.expressPerHour, input.standardPerHour, input.scheduledPerDay, input.scheduledPerSlot ?? null]) {
     if (v != null && (!Number.isInteger(v) || v < 0)) throw validationFailed("Limits must be whole numbers, 0 or more.");
   }

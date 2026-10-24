@@ -22,7 +22,7 @@
  */
 import { randomUUID } from "node:crypto";
 
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, desc, eq, inArray, ne, sql } from "drizzle-orm";
 
 import { AppError, conflict, notFound, validationFailed } from "@/lib/errors";
 import { formatPaise } from "@/lib/money";
@@ -33,6 +33,7 @@ import {
 } from "@/lib/payment-intent-states";
 import { db, transactionOnce, type DbClient } from "@/server/db";
 import {
+  orderRefunds,
   orderStatusHistory,
   orders,
   paymentIntentEvents,
@@ -476,10 +477,12 @@ export async function settleRefund(
       patch: { refundedPaise },
       eventAmountPaise: refund.amountPaise,
     });
-    // An order waiting for this refund (cancelled after an online payment) is now refunded.
+    // An order waiting for this refund (cancelled after an online payment) is now refunded —
+    // once no other refund of it is still on its way (a removed line's refund can be in flight
+    // with the cancellation's, TC-PAY-029).
     if (refund.orderId) {
       const [order] = await tx.select().from(orders).where(eq(orders.id, refund.orderId)).for("update");
-      if (order?.status === "REFUND_PENDING") {
+      if (order?.status === "REFUND_PENDING" && !(await otherRefundInFlight(tx, order.id, refund))) {
         await tx.update(orders).set({ status: "REFUNDED", updatedAt: new Date() }).where(eq(orders.id, order.id));
         await tx.insert(orderStatusHistory).values({
           orderId: order.id,
@@ -492,6 +495,33 @@ export async function settleRefund(
     }
     return settled;
   });
+}
+
+/**
+ * Another refund of the order not settled yet: a gateway refund still PENDING,
+ * or an aftercare refund (order_refunds) not sent yet. The aftercare row this
+ * refund was sent for ("order-refund:<id>") is this refund itself.
+ */
+async function otherRefundInFlight(tx: DbClient, orderId: string, refund: PaymentRefundRow): Promise<boolean> {
+  const [pending] = await tx
+    .select({ id: paymentRefunds.id })
+    .from(paymentRefunds)
+    .where(and(eq(paymentRefunds.orderId, orderId), eq(paymentRefunds.status, "PENDING"), ne(paymentRefunds.id, refund.id)))
+    .limit(1);
+  if (pending) return true;
+  const [requested] = await tx
+    .select({ id: orderRefunds.id })
+    .from(orderRefunds)
+    .where(
+      and(
+        eq(orderRefunds.orderId, orderId),
+        eq(orderRefunds.method, "ORIGINAL"),
+        eq(orderRefunds.status, "REQUESTED"),
+        sql`'order-refund:' || ${orderRefunds.id}::text <> ${refund.idempotencyKey}`,
+      ),
+    )
+    .limit(1);
+  return Boolean(requested);
 }
 
 export async function listRefundsFor(intentId: string): Promise<PaymentRefundRow[]> {

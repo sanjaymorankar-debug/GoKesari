@@ -6,6 +6,22 @@ import { useState } from "react";
 import { Alert, Badge, Button, Card, EmptyState, Field, inputClass } from "@/components/ui";
 import { MapPicker, type MapPickerResult } from "@/components/map-picker";
 import { ConfirmButton } from "@/components/confirm-button";
+import { mobileFieldDigits } from "@/lib/contact";
+
+/** Field names in the address API's validation errors → the form's labels (TC-FLD-125). */
+const FIELD_LABELS: Record<string, string> = {
+  label: "Label",
+  recipientName: "Recipient name",
+  recipientPhone: "Recipient mobile",
+  line1: "Address line 1",
+  line2: "Flat / house / floor",
+  area: "Area",
+  city: "City",
+  state: "State",
+  pincode: "PIN code",
+  landmark: "Landmark",
+  deliveryInstructions: "Delivery instructions",
+};
 
 export interface AddressRow {
   id: string;
@@ -171,6 +187,8 @@ export function AddressForm({
   );
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // TC-FLD-125: the server's field messages, shown on the field they belong to.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 
   function handleMapConfirm(result: MapPickerResult) {
     setCoordinates({ latitude: result.latitude, longitude: result.longitude });
@@ -211,9 +229,17 @@ export function AddressForm({
     setBusy(false);
 
     if (!response.ok) {
-      setError(payload?.error?.message ?? "Could not save this address.");
+      const fields = (payload?.error?.details?.fields ?? {}) as Record<string, string>;
+      setFieldErrors(fields);
+      const named = Object.keys(fields).filter((f) => FIELD_LABELS[f]);
+      setError(
+        named.length
+          ? `Please check ${named.map((f) => FIELD_LABELS[f]).join(", ")}.`
+          : (payload?.error?.message ?? "Could not save this address."),
+      );
       return;
     }
+    setFieldErrors({});
     onSaved();
   }
 
@@ -257,50 +283,52 @@ export function AddressForm({
           ))}
         </div>
       </Field>
-      <Field label="Label (optional)" hint="e.g. Mom's flat">
-        <input className={inputClass} value={label} onChange={(e) => setLabel(e.target.value)} />
+      <Field label="Label (optional)" hint="e.g. Mom's flat" error={fieldErrors.label}>
+        <input className={inputClass} value={label} maxLength={50} onChange={(e) => setLabel(e.target.value)} />
       </Field>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Recipient name (optional)">
-          <input className={inputClass} value={recipientName} onChange={(e) => setRecipientName(e.target.value)} />
+        <Field label="Recipient name (optional)" error={fieldErrors.recipientName}>
+          <input className={inputClass} value={recipientName} maxLength={100} onChange={(e) => setRecipientName(e.target.value)} />
         </Field>
-        <Field label="Recipient mobile (optional)">
+        <Field label="Recipient mobile (optional)" error={fieldErrors.recipientPhone}>
           <input
             className={inputClass}
             value={recipientPhone}
-            onChange={(e) => setRecipientPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+            onChange={(e) => setRecipientPhone(mobileFieldDigits(e.target.value))}
             inputMode="numeric"
             pattern="[6-9]\d{9}"
           />
         </Field>
       </div>
-      <Field label="Address line 1">
+      <Field label="Address line 1" error={fieldErrors.line1}>
         <input
           className={inputClass}
+          maxLength={200}
           value={line1}
           onChange={(e) => setLine1(e.target.value)}
           required
         />
       </Field>
-      <Field label="Flat / house / floor (optional)">
-        <input className={inputClass} value={line2} onChange={(e) => setLine2(e.target.value)} />
+      <Field label="Flat / house / floor (optional)" error={fieldErrors.line2}>
+        <input className={inputClass} value={line2} maxLength={200} onChange={(e) => setLine2(e.target.value)} />
       </Field>
       <div className="grid gap-4 sm:grid-cols-2">
-        <Field label="Area">
-          <input className={inputClass} value={area} onChange={(e) => setArea(e.target.value)} />
+        <Field label="Area" error={fieldErrors.area}>
+          <input className={inputClass} value={area} maxLength={100} onChange={(e) => setArea(e.target.value)} />
         </Field>
-        <Field label="City">
+        <Field label="City" error={fieldErrors.city}>
           <input
             className={inputClass}
+            maxLength={100}
             value={city}
             onChange={(e) => setCity(e.target.value)}
             required
           />
         </Field>
-        <Field label="State">
-          <input className={inputClass} value={state} onChange={(e) => setState(e.target.value)} />
+        <Field label="State" error={fieldErrors.state}>
+          <input className={inputClass} value={state} maxLength={100} onChange={(e) => setState(e.target.value)} />
         </Field>
-        <Field label="PIN code">
+        <Field label="PIN code" error={fieldErrors.pincode}>
           <input
             className={inputClass}
             value={pincode}
@@ -311,17 +339,19 @@ export function AddressForm({
           />
         </Field>
       </div>
-      <Field label="Landmark (optional)">
+      <Field label="Landmark (optional)" error={fieldErrors.landmark}>
         <input
           className={inputClass}
+          maxLength={200}
           value={landmark}
           onChange={(e) => setLandmark(e.target.value)}
         />
       </Field>
-      <Field label="Delivery instructions (optional)">
+      <Field label="Delivery instructions (optional)" error={fieldErrors.deliveryInstructions}>
         <textarea
           className={inputClass}
           rows={2}
+          maxLength={500}
           value={deliveryInstructions}
           onChange={(e) => setDeliveryInstructions(e.target.value)}
         />
