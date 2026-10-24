@@ -20,7 +20,7 @@
 import type { Locator, Page } from "@playwright/test";
 
 import { as, pageAs } from "../lib/actors";
-import { addToCart, cartLines, emptyCart, shopOf } from "../lib/flows";
+import { addToCart, cartLines, emptyCart, shopListings, shopOf } from "../lib/flows";
 import { call, expectStatus, RUN, why, type Answer, type Method } from "../lib/http";
 import { blocked, expect, manual, qa, test } from "../lib/record";
 import { NO_SUCH_ID } from "../lib/routes";
@@ -213,7 +213,16 @@ async function shopRows(): Promise<Row[]> {
   const res = await api("GET", `/api/shops/${shop.id}/products?limit=100`);
   expectStatus(res, 200, "shop A's storefront");
   const rows = (Array.isArray(res.body) ? res.body : (res.body?.products ?? [])) as Row[];
-  rowsCache = rows.map((r) => ({ ...r, shopId: r.shopId ?? shop.id, shopName: r.shopName ?? shop.name, shopSlug: r.shopSlug ?? shop.slug }));
+  // A customer sees only whether a product is in stock (TC-SPI-027); the counts come from the operations view.
+  const counts = new Map((await shopListings(shop.id)).map((l) => [l.shopProductId, l]));
+  rowsCache = rows.map((r) => ({
+    ...r,
+    trackInventory: counts.get(r.shopProductId)?.trackInventory ?? r.trackInventory,
+    onlineStock: counts.get(r.shopProductId)?.onlineStock ?? 0,
+    shopId: r.shopId ?? shop.id,
+    shopName: r.shopName ?? shop.name,
+    shopSlug: r.shopSlug ?? shop.slug,
+  }));
   return rowsCache;
 }
 
