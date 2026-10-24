@@ -6,6 +6,7 @@ import { useEffect, useState } from "react";
 import { ImageUploader, type UploadedImage } from "@/components/image-uploader";
 import { Alert, Button, Card, inputClass } from "@/components/ui";
 import { rupeesToPaise } from "@/lib/money";
+import { PRODUCT_UNIT_LABELS, PRODUCT_UNITS } from "@/lib/product-units";
 
 interface CatalogueProduct {
   id: string;
@@ -269,7 +270,7 @@ function NewProductForm({
       return;
     }
     if (!unit.trim()) {
-      setError("Enter a unit (e.g. L, kg, piece).");
+      setError("Choose a unit (e.g. L, kg, piece).");
       return;
     }
     if (onlineEnabled && !onlinePrice) {
@@ -421,13 +422,16 @@ function NewProductForm({
         </label>
 
         <label className="text-sm text-ink-700">
-          Unit / pack size
-          <input
-            value={unit}
-            onChange={(e) => setUnit(e.target.value)}
-            placeholder="1 Litre"
-            className={inputClass}
-          />
+          Unit
+          {/* A unit from the catalogue's list, as the API requires (TC-FLD-074). */}
+          <select value={unit} onChange={(e) => setUnit(e.target.value)} className={inputClass}>
+            <option value="">Choose a unit</option>
+            {PRODUCT_UNITS.map((u) => (
+              <option key={u} value={u}>
+                {PRODUCT_UNIT_LABELS[u]}
+              </option>
+            ))}
+          </select>
         </label>
         <div />
 

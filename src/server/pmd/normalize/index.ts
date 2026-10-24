@@ -32,9 +32,9 @@ import {
 } from "./attributes";
 import { entityKey, looksLikeCompany, normalizeEntity, splitBrandList } from "./brand";
 import { analyzeGtin, normalizeAlnumKey } from "./identifiers";
-import { gstSlabStatus, normalizeFssai, normalizeHsn, parseGstRate } from "./tax";
+import { gstSlabStatus, isNegativeNumberAt, normalizeFssai, normalizeHsn, parseGstRate } from "./tax";
 import { cleanDisplay, isNullLike, normalizeText, presentString } from "./text";
-import { parseDimensions, parseMeasure, parseQuantity, stripQuantityFromText } from "./units";
+import { hasNonPositiveQuantity, parseDimensions, parseMeasure, parseQuantity, stripQuantityFromText } from "./units";
 
 export interface NormalizeContext {
   categoryMapper: CategoryMapper;
@@ -233,7 +233,12 @@ export function normalizeStaged(staged: StagedProduct, ctx: NormalizeContext): N
   /* ---------------------------------------- pack size, weights, sizes  */
   const quantityText = presentString(staged.quantityText);
   let quantity = parseQuantity(quantityText);
-  if (quantityText && !quantity) {
+  // Judged on the text as sent: display cleaning drops a leading "-" (TC-FLD-074).
+  if (quantityText && hasNonPositiveQuantity(String(staged.quantityText))) {
+    // "-1 kg" was read as 1 kg and "0 kg" passed as merely unreadable (TC-FLD-074).
+    quantity = null;
+    issue(issues, "quantity", "QUANTITY_INVALID", "WARNING", "Pack size must be more than zero; it was not used.", quantityText);
+  } else if (quantityText && !quantity) {
     issue(issues, "quantity", "QUANTITY_UNPARSEABLE", "INFO", "Pack size text was not understood.", quantityText);
   }
   // No explicit quantity field: many listings only put the size in the title.
@@ -267,11 +272,19 @@ export function normalizeStaged(staged: StagedProduct, ctx: NormalizeContext): N
   const gstRaw = staged.gstRate;
   if (gstRaw != null && !isNullLike(gstRaw)) {
     gstRateBp = parseGstRate(gstRaw);
-    if (gstRateBp == null) issue(issues, "gst", "GST_RATE_INVALID", "WARNING", "GST rate could not be read.", String(gstRaw));
-    else {
+    if (gstRateBp == null) {
+      const text = String(gstRaw);
+      const negative = /\d/.test(text) && isNegativeNumberAt(text, text.search(/\d/));
+      issue(issues, "gst", "GST_RATE_INVALID", "WARNING", negative ? "GST rate cannot be negative; it was not used." : "GST rate could not be read.", text);
+    } else {
       const status = gstSlabStatus(gstRateBp);
       if (status === "LEGACY") issue(issues, "gst", "GST_RATE_LEGACY", "INFO", "GST slab is no longer current.", String(gstRaw));
-      if (status === "UNUSUAL") issue(issues, "gst", "GST_RATE_UNUSUAL", "WARNING", "GST rate is not a known slab.", String(gstRaw));
+      if (status === "UNUSUAL") {
+        // TC-FLD-078: a rate that is no GST slab (7 %) is dropped like any other
+        // invalid value (HSN, GTIN), not kept with a warning.
+        gstRateBp = null;
+        issue(issues, "gst", "GST_RATE_UNUSUAL", "WARNING", "GST rate is not a GST slab; it was not used.", String(gstRaw));
+      }
     }
   }
   let hsnCode: string | null = null;

@@ -18,7 +18,7 @@ import { eq, or } from "drizzle-orm";
 import { isGstProviderConfigured, isPanProviderConfigured } from "@/lib/env";
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { decryptPan, encryptPan, maskPan, panBlindIndex } from "@/lib/pan-crypto";
-import { parsePanNumber } from "@/lib/shop-identity";
+import { GSTIN_PAN_MISMATCH_MESSAGE, gstinPan, parseGstin, parsePanNumber } from "@/lib/shop-identity";
 import { db } from "@/server/db";
 import { shops, type GstStatus, type PanStatus, type Shop, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
@@ -37,8 +37,6 @@ interface Actor {
   id: string;
   role: UserRole;
 }
-
-const GSTIN_PATTERN = /^[0-9A-Z]{15}$/;
 
 async function loadOwnedShop(shopId: string, actor: Actor): Promise<Shop> {
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
@@ -68,11 +66,16 @@ async function lookupPanFromProvider(
 
 /** Shop owner submits their GSTIN. Auto-verified only if a real provider is configured; otherwise queued for admin review. */
 export async function submitGstin(shopId: string, gstin: string, actor: Actor): Promise<Shop> {
-  const normalized = gstin.trim().toUpperCase();
-  if (!GSTIN_PATTERN.test(normalized)) {
-    throw validationFailed("GSTIN must be 15 alphanumeric characters.");
-  }
+  // TC-FLD-043: the shared GSTIN check (state code, embedded PAN, check
+  // character) — it used to be only "15 letters or digits".
+  const parsed = parseGstin(gstin.replace(/\s+/g, ""));
+  if (!parsed.ok) throw validationFailed(parsed.error);
+  const normalized = parsed.value;
   const shop = await loadOwnedShop(shopId, actor);
+  // A shop whose PAN is on file can only declare a GSTIN issued on that PAN.
+  if (shop.panHash && panBlindIndex(gstinPan(normalized)) !== shop.panHash) {
+    throw validationFailed(GSTIN_PAN_MISMATCH_MESSAGE);
+  }
 
   let status: GstStatus = "PENDING_VERIFICATION";
   let legalName = shop.legalBusinessName;

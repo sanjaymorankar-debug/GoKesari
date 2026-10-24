@@ -4,7 +4,8 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Alert, Badge, Button, Card, Field, Money, inputClass } from "@/components/ui";
-import { paiseToRupees, rupeesToPaise } from "@/lib/money";
+import { paiseToRupees } from "@/lib/money";
+import { parsePriceInput } from "@/lib/price-rules";
 
 export interface InventoryRowView {
   shopProductId: string;
@@ -76,12 +77,13 @@ export function ShopInventoryManager({ shopId, view }: { shopId: string; view: I
       const value = raw.trim();
       // An empty box is not a change: a price cannot be removed here.
       if (value === "") continue;
-      const rupees = Number(value);
-      const pricePaise = Number.isFinite(rupees) ? rupeesToPaise(rupees) : 0;
-      if (pricePaise <= 0) {
-        errors[shopProductId] = "Enter a price greater than 0.";
+      // More than 2 decimals is refused, not rounded: "10.555" was saved as 1056 paise (TC-CAT-032).
+      const parsed = parsePriceInput(value);
+      if (!parsed.ok) {
+        errors[shopProductId] = parsed.error;
         continue;
       }
+      const pricePaise = parsed.paise;
       if (pricePaise !== row.onlinePricePaise || pricePaise !== row.offlinePricePaise) {
         prices.push({ shopProductId, pricePaise });
       }

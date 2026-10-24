@@ -19,7 +19,7 @@ import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { getRule } from "@/server/services/settings";
 import { hsnFallbackRate } from "./rules";
 
-/** GST rates in use in India (percent), for a gentle warning on anything else. */
+/** GST rates in use in India (percent) — the only rates the editor accepts (TC-FLD-078). */
 export const STANDARD_GST_RATES = [0, 0.1, 0.25, 1, 1.5, 3, 5, 6, 7.5, 12, 18, 28, 40] as const;
 
 export const productGstSchema = z.object({
@@ -35,6 +35,11 @@ export const productGstSchema = z.object({
     .min(0, "GST rate must be between 0 and 100%.")
     .max(100, "GST rate must be between 0 and 100%.")
     .refine((v) => Math.abs(v * 100 - Math.round(v * 100)) < 1e-6, "Use at most two decimals.")
+    // A rate that is not a GST rate (7 %) used to be saved with only a warning (TC-FLD-078).
+    .refine(
+      (v) => (STANDARD_GST_RATES as readonly number[]).includes(v),
+      `Use a GST rate in force: ${STANDARD_GST_RATES.join(", ")}%.`,
+    )
     .nullable(),
   /** Why — the CA's advice, a notification number. Kept in the audit log. */
   reason: z.string().trim().min(3, "Say why (at least 3 characters).").max(300),

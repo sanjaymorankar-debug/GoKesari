@@ -9,7 +9,8 @@ import { z } from "zod";
 
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { enforceRateLimit } from "@/server/api/rate-limit";
-import { requireUser } from "@/server/authz/guards";
+import { requireShopAccess, requireUser } from "@/server/authz/guards";
+import { PERMISSIONS } from "@/server/authz/permissions";
 import { addShopStaff, listShopStaff } from "@/server/services/shop-staff";
 
 export const dynamic = "force-dynamic";
@@ -26,6 +27,8 @@ export const POST = route(async (request: NextRequest, context: RouteContext<{ i
   const id = z.string().uuid().parse((await context.params).id);
   const user = await requireUser();
   enforceRateLimit(`shop-staff-add:${user.id}`, { limit: 20, windowMs: 60 * 60_000 });
+  // The shop's owner or operations first: another shop's owner gets 403 before the body is read (TC-RBAC-005).
+  await requireShopAccess(id, { anyPermission: PERMISSIONS.SHOP_UPDATE_ANY });
   const { identifier } = await parseBody(request, schema);
   return ok(await addShopStaff(id, identifier, user), 201);
 });

@@ -19,6 +19,30 @@ export function parseIndianMobile(input: string): MobileParse {
   return { ok: true, e164: parsed.e164, national: parsed.national };
 }
 
+/**
+ * A phone someone can be called on: an Indian mobile, or a landline with its
+ * STD code (10 digits after +91 or the trunk 0, e.g. "020 2612 3456").
+ * TC-FLD-105: a society's gate contact "123456" was accepted.
+ */
+export function isIndianPhone(input: string): boolean {
+  if (parseIndianMobile(input).ok) return true;
+  let digits = input.trim().replace(/[\s()-]/g, "");
+  if (digits.startsWith("+91")) digits = digits.slice(3);
+  else if (digits.startsWith("0")) digits = digits.slice(1);
+  return /^[1-9]\d{9}$/.test(digits);
+}
+
+/**
+ * What a 10-digit mobile field keeps from typed or pasted text: the national
+ * number. A leading "+91" or a 12-digit "91…" is the country code, not the
+ * first digits of the number (TC-LOC-009: "+91 98765 43210" kept "9198765432").
+ */
+export function mobileFieldDigits(value: string): string {
+  let digits = value.replace(/\D/g, "");
+  if (value.trim().startsWith("+91") || (digits.length > 10 && digits.startsWith("91"))) digits = digits.slice(2);
+  return digits.slice(0, 10);
+}
+
 const EMAIL_PATTERN = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 export function normalizeEmail(input: string): string {

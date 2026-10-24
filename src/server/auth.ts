@@ -8,6 +8,7 @@
  * OPERATOR/ADMIN by tampering with a cookie or request body.
  */
 import { eq } from "drizzle-orm";
+import { headers } from "next/headers";
 import NextAuth, { type DefaultSession } from "next-auth";
 import Credentials from "next-auth/providers/credentials";
 import Google from "next-auth/providers/google";
@@ -25,9 +26,11 @@ import {
   users,
   verificationTokens,
   wallets,
+  type User as UserRecord,
   type UserRole,
 } from "@/server/db/schema";
 import { emailProvider } from "@/server/auth-email";
+import { SESSION_MAX_AGE_SECONDS, endSession, readSession, startSession } from "@/server/auth-sessions";
 import { readLoginTicket } from "@/server/otp/service";
 import { recordConsent } from "@/server/services/consents";
 import { grantRole } from "@/server/services/roles";
@@ -102,6 +105,23 @@ const otpTicketProvider = Credentials({
 
 const magicLink = emailProvider();
 
+/**
+ * The account row the jwt callback read for a session token, handed to the
+ * session callback of the same request (Auth.js passes it the same token
+ * object), so revocation and role ride on one query.
+ */
+const sessionUsers = new WeakMap<object, UserRecord | undefined>();
+
+/** Where a sign-out came from, for its audit row. Empty outside a request. */
+async function requestDetails(): Promise<{ ip: string | null; userAgent: string | null }> {
+  try {
+    const h = await headers();
+    return { ip: h.get("x-forwarded-for")?.split(",")[0]?.trim() || null, userAgent: h.get("user-agent") };
+  } catch {
+    return { ip: null, userAgent: null };
+  }
+}
+
 const providers = [
   otpTicketProvider,
   ...(magicLink ? [magicLink] : []),
@@ -128,9 +148,10 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
   session: {
     // JWT is required for the Credentials provider to work; the role is still
     // re-read from the database on every session callback, so a stale token
-    // cannot grant stale privileges.
+    // cannot grant stale privileges, and a signed-out session's token is
+    // refused on every request (auth-sessions.ts).
     strategy: "jwt",
-    maxAge: 30 * 24 * 60 * 60,
+    maxAge: SESSION_MAX_AGE_SECONDS,
   },
   pages: {
     signIn: "/signin",
@@ -149,7 +170,13 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
 
     async jwt({ token, user }) {
-      if (user?.id) token.sub = user.id;
+      // Sign-in: a new session with its own id.
+      if (user?.id) return startSession(token, user.id);
+      // Every later request: a session that was signed out is dropped (TC-AUTH-034) —
+      // null makes Auth.js treat the request as signed out and never re-issue the token.
+      const read = await readSession(token);
+      if (!read) return null;
+      sessionUsers.set(token, read.user);
       return token;
     },
 
@@ -157,10 +184,11 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
       const userId = token.sub;
       if (!userId) return session;
 
-      // Authoritative read: role and status always come from the database.
-      let record = await db.query.users.findFirst({
-        where: eq(users.id, userId),
-      });
+      // Authoritative read: role and status always come from the database
+      // (read by the jwt callback just before, with the revocation check).
+      let record = sessionUsers.has(token)
+        ? sessionUsers.get(token)
+        : await db.query.users.findFirst({ where: eq(users.id, userId) });
       if (!record) return session;
 
       // Self-healing: the two permanently bootstrapped admin emails are kept
@@ -190,6 +218,15 @@ export const { handlers, auth, signIn, signOut } = NextAuth({
     },
   },
   events: {
+    /**
+     * Every sign-out, however it is started: the session is ended on the
+     * server too — its token is refused from now on, even a copy (TC-AUTH-034) —
+     * and auth-sessions.ts endSession does the rest (location, rider, audit).
+     */
+    async signOut(message) {
+      if ("token" in message) await endSession(message.token, await requestDetails());
+    },
+
     /**
      * A brand-new user (Google or email link) automatically receives the CUSTOMER role and a
      * wallet (§5). Role assignment here is server-side only.

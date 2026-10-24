@@ -130,6 +130,22 @@ describe("parseDates and detectDocType", () => {
     expect(fields.validUntil).toBe("2027-03-31");
   });
 
+  // TC-FLD-047: a GST REG-06 certificate has no end date; its "From" date is not an expiry.
+  it("reads 'To : Not Applicable' as no expiry, and never takes a From date as the expiry", () => {
+    const first14 = "27AAPFU0939F1Z";
+    const gstin = first14 + gstinCheckChar(first14);
+    const reg06 = `Form GST REG-06\nRegistration Certificate\nRegistration Number : ${gstin}\nLegal Name : GOKUL DAIRY\nPeriod of Validity From : 01/04/2020 To : Not Applicable\nType of Registration : Regular`;
+    expect(extractDocumentFields(reg06, "GSTIN").fields).toMatchObject({ validFrom: "2020-04-01", validUntil: null });
+    // The same, with "To" on its own line, or written NA.
+    const split = extractDocumentFields(`Form GST REG-06\nPeriod of Validity From : 01/04/2020\nTo : Not Applicable`, "GSTIN").fields;
+    expect(split).toMatchObject({ validFrom: "2020-04-01", validUntil: null });
+    expect(extractDocumentFields("Form GST REG-06\nDate of Validity From 01/07/2017 To NA", "GSTIN").fields.validUntil).toBeNull();
+    // A start date alone is not an expiry; a real end date still is.
+    expect(extractDocumentFields("Food Safety and Standards\nValidity From : 01/04/2020", "FSSAI").fields.validUntil).toBeNull();
+    expect(extractDocumentFields("Food Safety and Standards\nValidity From : 01/04/2022\nTo : 31/03/2027", "FSSAI").fields.validUntil).toBe("2027-03-31");
+    expect(extractDocumentFields("Food Safety and Standards\nDate of Expiry: 31/03/2027 (renew from 01/02/2027)", "FSSAI").fields.validUntil).toBe("2027-03-31");
+  });
+
   it("recognises documents by their wording", () => {
     expect(detectDocType(["DRUGS AND COSMETICS ACT FORM 20"])).toBe("DRUG_LICENCE");
     expect(detectDocType(["MAHARASHTRA MEDICAL COUNCIL"])).toBe("MEDICAL_REGISTRATION");

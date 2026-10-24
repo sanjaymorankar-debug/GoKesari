@@ -116,12 +116,12 @@ export function ProductGstEditor({ rows, standardRates }: { rows: Row[]; standar
                   <input className={inputClass} type="number" min={0} max={100} step="0.01" value={editing.rate} onChange={(e) => setEditing({ ...editing, rate: e.target.value })} />
                 </Field>
               </div>
-              {unusual ? <Alert tone="warning">{editing.rate}% is not one of the usual GST rates ({standardRates.join(", ")}%). Check it with the CA.</Alert> : null}
+              {unusual ? <Alert tone="danger">{editing.rate}% is not a GST rate in force. Use one of {standardRates.join(", ")}%.</Alert> : null}
               <Field label="Reason" hint="E.g. CA advice or the notification number - kept in the audit log">
                 <input className={inputClass} value={editing.reason} onChange={(e) => setEditing({ ...editing, reason: e.target.value })} required minLength={3} maxLength={300} />
               </Field>
               <div className="flex gap-2">
-                <Button type="submit" size="sm" disabled={saving}>{saving ? "Saving…" : "Save"}</Button>
+                <Button type="submit" size="sm" disabled={saving || Boolean(unusual)}>{saving ? "Saving…" : "Save"}</Button>
                 <Button size="sm" variant="ghost" onClick={() => setEditing(null)}>Cancel</Button>
               </div>
             </form>

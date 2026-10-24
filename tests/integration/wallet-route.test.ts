@@ -34,8 +34,9 @@ vi.mock("@/server/auth", () => ({
 
 import { POST as topupRoute } from "@/app/api/wallet/topup/route";
 import { POST as verifyRoute } from "@/app/api/wallet/verify/route";
+import { getEnv } from "@/lib/env";
 import { db } from "@/server/db";
-import { wallets } from "@/server/db/schema";
+import { payments, wallets } from "@/server/db/schema";
 import { createTopUpOrder } from "@/server/services/payments";
 import { call } from "../helpers/http";
 import { createUserWithWallet, resetDatabase } from "../helpers/fixtures";
@@ -44,7 +45,23 @@ beforeEach(async () => {
   state.session = null;
   await resetDatabase();
 });
-afterEach(() => vi.unstubAllGlobals());
+const env = getEnv() as { CASHFREE_APP_ID?: string };
+const appIdBefore = env.CASHFREE_APP_ID;
+afterEach(() => {
+  vi.unstubAllGlobals();
+  env.CASHFREE_APP_ID = appIdBefore;
+});
+
+/**
+ * TC-PAY-004: verify asks Cashfree only for a Cashfree payment while keys are
+ * set, so the top-up is created offline and then made a Cashfree order.
+ */
+async function cashfreeTopUp(userId: string, amountPaise: number) {
+  const intent = await createTopUpOrder(userId, amountPaise);
+  await db.update(payments).set({ gateway: "CASHFREE" }).where(eq(payments.gatewayOrderId, intent.gatewayOrderId));
+  env.CASHFREE_APP_ID = "test-app";
+  return intent;
+}
 
 function signInAsUser(user: { id: string; email: string; name: string | null; role: UserRole }) {
   state.session = {
@@ -102,7 +119,7 @@ describe("POST /api/wallet/verify", () => {
 
   it("credits the wallet when Cashfree confirms a SUCCESS payment", async () => {
     const { user } = await createUserWithWallet({ balancePaise: 0 });
-    const intent = await createTopUpOrder(user.id, 500_000);
+    const intent = await cashfreeTopUp(user.id, 500_000);
     mockFetchOnce(200, [{ cf_payment_id: "cf_pay_route_1", payment_status: "SUCCESS" }]);
 
     signInAsUser({ ...user, role: "CUSTOMER" });
@@ -119,7 +136,7 @@ describe("POST /api/wallet/verify", () => {
 
   it("credits nothing and returns an error when Cashfree does not confirm payment", async () => {
     const { user } = await createUserWithWallet({ balancePaise: 0 });
-    const intent = await createTopUpOrder(user.id, 500_000);
+    const intent = await cashfreeTopUp(user.id, 500_000);
     mockFetchOnce(200, []); // no SUCCESS attempt reported
 
     signInAsUser({ ...user, role: "CUSTOMER" });
@@ -135,7 +152,7 @@ describe("POST /api/wallet/verify", () => {
 
   it("re-verifying an already-settled order is idempotent, not a second credit", async () => {
     const { user } = await createUserWithWallet({ balancePaise: 0 });
-    const intent = await createTopUpOrder(user.id, 500_000);
+    const intent = await cashfreeTopUp(user.id, 500_000);
     mockFetchOnce(200, [{ cf_payment_id: "cf_pay_route_2", payment_status: "SUCCESS" }]);
     signInAsUser({ ...user, role: "CUSTOMER" });
 

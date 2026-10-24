@@ -181,6 +181,7 @@ export const TABLE_OWNERSHIP = {
   accounts: "platform",
   sessions: "platform",
   verification_tokens: "platform",
+  revoked_sessions: "platform", // sessions ended by Sign out (TC-AUTH-034)
   login_otps: "platform",
   roles: "platform",
   permissions: "platform",

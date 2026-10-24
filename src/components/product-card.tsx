@@ -6,6 +6,7 @@ import { useState, useTransition } from "react";
 
 import { SafeImage } from "@/components/safe-image";
 import { categoryEmoji, priceUnitLabel } from "@/lib/board/product-look";
+import { discountPercent } from "@/lib/price-rules";
 import { AvailabilityBadge, Button, Card, Money } from "@/components/ui";
 import type { CartLineQuantity, CartSummary } from "@/server/services/cart";
 
@@ -38,6 +39,8 @@ export interface ProductCardData {
   shortDescription?: string | null;
   /** Module 1: this shop's product page (its photos and long description). */
   detailsHref?: string;
+  /** The master MRP: struck through, with "x% off", when the price is below it (TC-CAT-008). */
+  mrpPaise?: number | null;
 }
 
 /**
@@ -80,6 +83,11 @@ export function ProductCard({
     product.onlinePricePaise != null &&
     product.isAvailable &&
     !outOfStock;
+
+  // TC-CAT-008: the MRP struck through and the saving, against the price the customer pays now.
+  const shownPricePaise = product.offerPricePaise ?? product.onlinePricePaise;
+  const percentOff = discountPercent(product.mrpPaise, shownPricePaise);
+  const showMrp = percentOff != null;
 
   // The cart API takes at most 99 of a line.
   const maxQuantity = Math.min(99, product.trackInventory ? product.onlineStock : 99);
@@ -191,7 +199,14 @@ export function ProductCard({
 
       <div className="mt-auto">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
-          {product.onlinePricePaise != null && product.offerPricePaise != null ? (
+          {showMrp ? (
+            <span className="text-xs text-ink-500" data-testid="product-mrp">
+              MRP{" "}
+              <span className="line-through">
+                <Money paise={product.mrpPaise!} />
+              </span>
+            </span>
+          ) : product.onlinePricePaise != null && product.offerPricePaise != null ? (
             <span className="text-xs text-ink-500 line-through" data-testid="offer-list-price">
               <Money paise={product.onlinePricePaise} />
             </span>
@@ -204,6 +219,11 @@ export function ProductCard({
                 {priceUnitLabel(product.unit)}
                 {product.offlinePricePaise != null && product.offlinePricePaise !== product.onlinePricePaise ? " online" : ""}
               </span>
+            </span>
+          ) : null}
+          {percentOff != null ? (
+            <span className="text-xs font-semibold text-leaf-700" data-testid="product-discount">
+              {percentOff}% off
             </span>
           ) : null}
           {product.offlinePricePaise != null &&

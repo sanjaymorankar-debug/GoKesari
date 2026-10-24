@@ -5,7 +5,7 @@ import { useState } from "react";
 
 import { AddressForm } from "@/components/address-manager";
 import { Alert, Button, Card, Field, inputClass } from "@/components/ui";
-import { INDIAN_MOBILE_HINT, parseIndianMobile } from "@/lib/contact";
+import { INDIAN_MOBILE_HINT, mobileFieldDigits, parseIndianMobile } from "@/lib/contact";
 
 export type GenderValue = "MALE" | "FEMALE" | "OTHER";
 
@@ -76,7 +76,7 @@ export function PersonalDetailsFields({
             <input
               className={inputClass}
               value={mobile ?? ""}
-              onChange={(e) => setMobile(e.target.value.replace(/\D/g, "").slice(0, 10))}
+              onChange={(e) => setMobile(mobileFieldDigits(e.target.value))}
               inputMode="numeric"
               autoComplete="tel-national"
               placeholder="10-digit mobile number"
@@ -279,7 +279,7 @@ export function MobilePromptDialog() {
             <input
               className={inputClass}
               value={mobile}
-              onChange={(e) => setMobile(e.target.value.replace(/\D/g, "").slice(0, 10))}
+              onChange={(e) => setMobile(mobileFieldDigits(e.target.value))}
               inputMode="numeric"
               autoComplete="tel-national"
               placeholder="10-digit mobile number"

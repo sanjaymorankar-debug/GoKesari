@@ -41,7 +41,7 @@ export const SUBSCRIPTION_DELIVERY_STATUSES = [...SCHEDULE_ONLY_STATUSES, ...ORD
 export type SubscriptionDeliveryStatus = (typeof SUBSCRIPTION_DELIVERY_STATUSES)[number];
 
 /** Why a date is SKIPPED (or FAILED without an order). */
-export const DELIVERY_SKIP_REASONS = ["SKIPPED_BY_CUSTOMER", "PAUSED", "UNAVAILABLE"] as const;
+export const DELIVERY_SKIP_REASONS = ["SKIPPED_BY_CUSTOMER", "PAUSED", "UNAVAILABLE", "NO_ADDRESS"] as const;
 export type DeliverySkipReason = (typeof DELIVERY_SKIP_REASONS)[number];
 
 export const DELIVERY_STATUS_LABELS: Record<SubscriptionDeliveryStatus, string> = {
@@ -70,6 +70,8 @@ export const DELIVERY_SKIP_REASON_LABELS: Record<DeliverySkipReason, string> = {
   SKIPPED_BY_CUSTOMER: "skipped by you",
   PAUSED: "subscription paused",
   UNAVAILABLE: "product unavailable that day",
+  /** TC-SUB-013: the customer had no delivery address. */
+  NO_ADDRESS: "no delivery address — add one in your profile",
 };
 
 export type DeliveryTone = "neutral" | "info" | "success" | "warning" | "danger";

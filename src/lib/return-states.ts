@@ -4,6 +4,7 @@
  *
  *   Request → Validation → Approval → Pickup assignment → Pickup → Inspection → Refund
  */
+import { normaliseUnit, unitDimension } from "@/lib/accounts/units";
 
 export const RETURN_STATUSES = [
   "RETURN_REQUESTED",
@@ -100,3 +101,20 @@ export const RETURN_CONDITION_LABELS: Record<ReturnCondition, string> = {
 
 export const PICKUP_STATUSES = ["PENDING", "OFFERED", "ACCEPTED", "EN_ROUTE", "PICKED_UP", "FAILED", "CANCELLED"] as const;
 export type PickupStatus = (typeof PICKUP_STATUSES)[number];
+
+/**
+ * TC-RET-003 / TC-FLD-094: a line sold by the piece or pack (bread, a packet
+ * of milk, "unit") is returned in whole pieces — a multiple of 1000 milli-units;
+ * a loose line sold by weight or volume (kg, g, L, ml) keeps any quantity, as
+ * it was bought. The line's unit is its order-time unit snapshot.
+ */
+export function returnsInWholePieces(unit: string | null | undefined): boolean {
+  const dimension = unitDimension(normaliseUnit(unit));
+  return dimension !== "mass" && dimension !== "volume";
+}
+
+/** Null when `quantityMilli` is a returnable step of a line in `unit`, else what to tell the customer. */
+export function returnQuantityStepError(unit: string | null | undefined, quantityMilli: number, name: string): string | null {
+  if (!returnsInWholePieces(unit) || quantityMilli % 1000 === 0) return null;
+  return `${name} is sold by the piece — return a whole number of pieces.`;
+}

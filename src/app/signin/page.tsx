@@ -14,6 +14,7 @@ import { EMAIL_PROVIDER_ID, emailSignInMode } from "@/server/auth-email";
 import { emailMode } from "@/server/email/transport";
 import { isTextChannelAvailable } from "@/server/messaging/sms-whatsapp";
 import { createLoginTicket, verifyLoginOtp } from "@/server/otp/service";
+import { signInFromForm } from "@/server/signin-form";
 import { toClientError } from "@/lib/errors";
 import { headers } from "next/headers";
 
@@ -49,16 +50,25 @@ export default async function SignInPage({
   const checkEmail = Boolean(query["check-email"]);
   // Auth.js sends AccessDenied when the signIn callback refuses: a suspended or closed account.
   const accessDenied = query.error === "AccessDenied";
+  // Any other refusal Auth.js or a form here reports (never the raw value).
+  const signInFailed = Boolean(query.error) && !accessDenied;
   const devLoginEnabled = env.NODE_ENV !== "production";
   // Module 3: with SMS set up, shops registered with a mobile number alone sign in by SMS code.
   const otpEmailAvailable = emailMode() !== "disabled" || isTextChannelAvailable("SMS");
 
-  async function verifyLoginCode(input: { mobile: string | null; email: string | null; code: string }) {
+  async function verifyLoginCode(input: { mobile: string | null; email: string | null; code: string; acceptedTerms: boolean }) {
     "use server";
     const ip = (await headers()).get("x-forwarded-for")?.split(",")[0]?.trim() ?? null;
     let ticket: string;
     try {
-      const { user } = await verifyLoginOtp({ ...input, ip });
+      const { user } = await verifyLoginOtp({
+        mobile: input?.mobile ?? null,
+        email: input?.email ?? null,
+        code: String(input?.code ?? ""),
+        // TC-FLD-004: a new account needs the Terms box ticked; the server checks it.
+        acceptedTerms: input?.acceptedTerms === true,
+        ip,
+      });
       ticket = createLoginTicket(user.id);
     } catch (error) {
       return { error: toClientError(error).body.error.message };
@@ -102,12 +112,22 @@ export default async function SignInPage({
           </p>
         ) : null}
 
+        {signInFailed ? (
+          <p
+            role="alert"
+            className="mt-6 rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-900"
+            data-testid="signin-error"
+          >
+            Could not sign you in. Please try again, or use another way to sign in below.
+          </p>
+        ) : null}
+
         {googleEnabled ? (
           <form
             className="mt-6"
             action={async () => {
               "use server";
-              await signIn("google", { redirectTo: AFTER_SIGN_IN });
+              await signInFromForm(() => signIn("google", { redirectTo: AFTER_SIGN_IN }));
             }}
           >
             <ConsentSubmitButton className="flex w-full items-center justify-center gap-2 rounded-lg border border-cream-200 bg-white px-4 py-2.5 text-sm font-medium text-ink-700 hover:bg-cream-100 disabled:cursor-not-allowed disabled:opacity-50">
@@ -144,10 +164,13 @@ export default async function SignInPage({
             className="mt-6 border-t border-cream-200 pt-6"
             action={async (formData: FormData) => {
               "use server";
-              await signIn(EMAIL_PROVIDER_ID, {
-                email: String(formData.get("email") ?? ""),
-                redirectTo: AFTER_SIGN_IN,
-              });
+              // A suspended or closed account is refused here: shown as the notice above (TC-AUTH-027).
+              await signInFromForm(() =>
+                signIn(EMAIL_PROVIDER_ID, {
+                  email: String(formData.get("email") ?? ""),
+                  redirectTo: AFTER_SIGN_IN,
+                }),
+              );
             }}
           >
             <label htmlFor="magic-link-email" className="mb-1 block text-sm font-medium text-ink-700">
@@ -175,10 +198,12 @@ export default async function SignInPage({
             className="mt-6 border-t border-cream-200 pt-6"
             action={async (formData: FormData) => {
               "use server";
-              await signIn("test-credentials", {
-                email: String(formData.get("email") ?? ""),
-                redirectTo: AFTER_SIGN_IN,
-              });
+              await signInFromForm(() =>
+                signIn("test-credentials", {
+                  email: String(formData.get("email") ?? ""),
+                  redirectTo: AFTER_SIGN_IN,
+                }),
+              );
             }}
           >
             <label className="mb-1 block text-sm font-medium text-ink-700">

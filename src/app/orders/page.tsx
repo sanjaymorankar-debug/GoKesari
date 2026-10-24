@@ -19,6 +19,7 @@ import { TrackDeliveryButton } from "@/components/live-tracking-map";
 import { RateOrderForm, ReportIssueForm } from "@/components/rating-actions";
 import { SubstitutionDecision } from "@/components/substitution-decision";
 import { formatQuantity } from "@/lib/money";
+import { customerCancellableStatuses } from "@/lib/order-cancellation";
 import { DISPUTE_STATUS_LABELS } from "@/lib/dispute-states";
 import { isTrackableOrderStatus } from "@/lib/tracking";
 import { tr, UI } from "@/lib/board/i18n";
@@ -100,12 +101,13 @@ export default async function OrdersPage({
     getRule("cancellation"),
     getRule("afterPackingCancellation"), // batch-2026-10 WS-C
   ]);
-  // Before packing the customer may cancel (rule `cancellation`); the server checks again.
-  const cancellable: readonly string[] = [
-    ...(cancellationRule.customerMayCancelUntil === "PREPARING" ? ["CONFIRMED", "ACCEPTED", "PREPARING"] : ["CONFIRMED"]),
-    // batch-2026-10 WS-C (F6.1.3): after packing, for the fee the quote shows.
-    ...(afterPackingRule.enabled ? ["READY", "ASSIGNED"] : []),
-  ];
+  // TC-ORD-008: the server's own D10 rule (lib/order-cancellation.ts) — before
+  // packing by rule `cancellation`, after packing for the fee (WS-C), and after
+  // pickup for the goods; the server checks again.
+  const cancellable: readonly string[] = customerCancellableStatuses({
+    customerMayCancelUntil: cancellationRule.customerMayCancelUntil,
+    afterPackingEnabled: afterPackingRule.enabled,
+  });
 
   return (
     <>

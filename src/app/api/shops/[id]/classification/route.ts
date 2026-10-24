@@ -14,7 +14,8 @@ import { changeClassification, getClassificationHistory, toShopView } from "@/se
 
 const schema = z.object({
   classification: z.enum(["KESARI", "GREEN"]),
-  reason: z.string().min(3).max(500),
+  // Trimmed before the length check, and stored trimmed (TC-FLD-121).
+  reason: z.string().trim().min(3).max(500),
 });
 
 export const GET = route(

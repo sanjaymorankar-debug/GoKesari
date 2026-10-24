@@ -5,6 +5,18 @@ import { useState } from "react";
 
 import { Alert, Button, Card, Money, inputClass } from "@/components/ui";
 import { MILLI_PER_UNIT, lineTotalPaise } from "@/lib/money";
+import { subscriptionQuantityMax, subscriptionQuantityStep } from "@/lib/subscription-quantity";
+
+/** A saved address the deliveries can go to (TC-SUB-013). */
+export interface SubscribeAddress {
+  id: string;
+  label: string | null;
+  line1: string;
+  area: string | null;
+  city: string;
+  pincode: string;
+  isDefault: boolean;
+}
 
 /**
  * Subscription setup with the §35 cost preview.
@@ -22,6 +34,7 @@ export function SubscribeForm({
   walletBalancePaise,
   defaultStartDate,
   minDate,
+  addresses = [],
 }: {
   shopProductId: string;
   productName: string;
@@ -31,9 +44,18 @@ export function SubscribeForm({
   walletBalancePaise: number;
   defaultStartDate: string;
   minDate: string;
+  /** The customer's saved addresses, default first. */
+  addresses?: SubscribeAddress[];
 }) {
   const router = useRouter();
-  const [quantityMilli, setQuantityMilli] = useState(unitSizeMilli);
+  // TC-FLD-107: the same step and maximum the server enforces (0.5 L / 0.5 kg, else one pack).
+  const STEP = subscriptionQuantityStep(unit, unitSizeMilli);
+  const MAX = subscriptionQuantityMax(unit, unitSizeMilli);
+  const [quantityMilli, setQuantityMilli] = useState(() => Math.min(MAX, Math.max(STEP, Math.round(unitSizeMilli / STEP) * STEP)));
+  // TC-SUB-013: deliveries go to this address; the default is pre-selected.
+  const [addressId, setAddressId] = useState<string>(
+    () => addresses.find((a) => a.isDefault)?.id ?? addresses[0]?.id ?? "",
+  );
   const [frequency, setFrequency] = useState<"DAILY" | "WEEKLY">("DAILY");
   const [weekdays, setWeekdays] = useState<number[]>([1, 4]);
   const [startDate, setStartDate] = useState(defaultStartDate);
@@ -42,7 +64,7 @@ export function SubscribeForm({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const STEP = MILLI_PER_UNIT / 2;
+  const stepLabel = STEP / MILLI_PER_UNIT;
   const perDelivery = lineTotalPaise(unitPricePaise, quantityMilli);
   const deliveriesPerWeek = frequency === "DAILY" ? 7 : weekdays.length;
   const sevenDay = perDelivery * deliveriesPerWeek;
@@ -63,6 +85,7 @@ export function SubscribeForm({
         weekdays: frequency === "WEEKLY" ? weekdays : [],
         startDate,
         endDate: endDate || null,
+        addressId: addressId || null,
         draft,
       }),
     });
@@ -97,9 +120,9 @@ export function SubscribeForm({
             size="lg"
             disabled={quantityMilli <= STEP}
             onClick={() => setQuantityMilli((q) => Math.max(STEP, q - STEP))}
-            aria-label={`Decrease by 0.5 ${unit}`}
+            aria-label={`Decrease by ${stepLabel} ${unit}`}
           >
-            −0.5
+            −{stepLabel}
           </Button>
           <div className="min-w-24 text-center">
             <span className="block text-3xl font-bold tabular-nums text-ink-900">
@@ -110,10 +133,11 @@ export function SubscribeForm({
           <Button
             variant="secondary"
             size="lg"
-            onClick={() => setQuantityMilli((q) => q + STEP)}
-            aria-label={`Increase by 0.5 ${unit}`}
+            disabled={quantityMilli >= MAX}
+            onClick={() => setQuantityMilli((q) => Math.min(MAX, q + STEP))}
+            aria-label={`Increase by ${stepLabel} ${unit}`}
           >
-            +0.5
+            +{stepLabel}
           </Button>
         </div>
       </div>
@@ -164,6 +188,35 @@ export function SubscribeForm({
           </div>
         ) : null}
       </div>
+
+      <label className="block">
+        <span className="mb-1 block text-sm font-medium text-ink-700">
+          Deliver to
+        </span>
+        {addresses.length > 0 ? (
+          <select
+            value={addressId}
+            onChange={(e) => setAddressId(e.target.value)}
+            className={inputClass}
+            data-testid="subscribe-address"
+          >
+            {addresses.map((a) => (
+              <option key={a.id} value={a.id}>
+                {[a.label, a.line1, a.area, a.city, a.pincode].filter(Boolean).join(", ")}
+                {a.isDefault ? " (default)" : ""}
+              </option>
+            ))}
+          </select>
+        ) : (
+          <span className="block text-sm text-ink-600">
+            You have no saved address yet.{" "}
+            <a href="/profile/addresses" className="font-medium text-kesari-700 underline">
+              Add a delivery address
+            </a>{" "}
+            — deliveries are made only once there is one.
+          </span>
+        )}
+      </label>
 
       <label className="block">
         <span className="mb-1 block text-sm font-medium text-ink-700">

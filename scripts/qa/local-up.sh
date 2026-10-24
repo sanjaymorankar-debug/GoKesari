@@ -26,6 +26,10 @@ if ! psql "$PGURL/postgres" -tAc "select 1" >/dev/null 2>&1; then
   sleep 3
 fi
 
+# Rider and shop KYC numbers are stored encrypted; a local key, made once and kept with the results (never in git).
+PAN_KEY_FILE="$OUT/pan-key.local"
+[ -s "$PAN_KEY_FILE" ] || openssl rand -base64 32 > "$PAN_KEY_FILE"
+
 cat > "$ENV_FILE" <<EOF
 export DATABASE_URL=$PGURL/$DB
 export E2E_DATABASE_URL=$PGURL/$DB
@@ -37,6 +41,7 @@ export CRON_SECRET=qa-local-cron-secret
 export APP_TIMEZONE=Asia/Kolkata
 export AUTH_EMAIL_FROM=qa@gokesari.local
 export AUTH_EMAIL_SERVER=smtp://localhost:2525
+export PAN_ENCRYPTION_KEY=$(cat "$PAN_KEY_FILE")
 EOF
 # The cloud container's browser build differs from Playwright's default; elsewhere Playwright finds its own.
 if [ -z "${CHROMIUM_PATH:-}" ] && [ -x /opt/pw-browsers/chromium ]; then echo "export CHROMIUM_PATH=/opt/pw-browsers/chromium" >> "$ENV_FILE"; fi

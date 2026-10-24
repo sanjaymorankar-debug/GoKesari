@@ -20,10 +20,12 @@ import {
   submitPan,
 } from "@/server/services/gst-pan-verification";
 import { createShop, createUser, resetDatabase } from "../helpers/fixtures";
+import { gstin } from "../helpers/gstin";
 
 beforeEach(resetDatabase);
 
-const VALID_GSTIN = "27AAAAA0000A1Z5";
+// A real GSTIN layout with a correct check character (TC-FLD-043 checks it).
+const VALID_GSTIN = gstin("27", "AAAAA0000A");
 const VALID_PAN = "ABCDE1234F";
 
 async function setupShop() {

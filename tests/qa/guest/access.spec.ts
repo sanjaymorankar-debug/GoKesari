@@ -4,7 +4,7 @@
  * endpoint guarded by a secret refuses a call without it. Nothing here can
  * create or change anything — each request is one the server must refuse.
  */
-import { anonymous, call, pace, refusesGuest, type Answer } from "../lib/http";
+import { anonymous, call, fromApp, pace, refusesGuest, type Answer } from "../lib/http";
 import { expect, qa } from "../lib/record";
 import { apiRoutes, fill, isDynamic, NO_SUCH_ID, pagePaths, PUBLIC_PAGES, PUBLIC_WRITES, SECRET_PREFIXES } from "../lib/routes";
 import { IS_PROD, IS_REMOTE, TARGET } from "../lib/target";
@@ -23,19 +23,32 @@ qa(["TC-RBAC-002", "TC-AUTH-033"], "guest is sent to sign-in from every signed-i
   const guest = await anonymous();
   const pages = pagePaths().filter((p) => !PUBLIC_PAGES.has(p));
   const bad: string[] = [];
+  const hostAnswers: string[] = [];
   for (const path of pages) {
     await pace();
-    const res = await call(guest, "GET", fill(path));
+    let res = await call(guest, "GET", fill(path));
     // A guest must never see a signed-in page: sign-in redirect, 401/403, or 404 for an id that does not exist.
-    const ok = refusesGuest(res) || (isDynamic(path) && res.status === 404);
-    if (!ok) bad.push(`${path} → ${res.status}${res.location ? ` ${res.location}` : ""}`);
+    const closedToGuest = (r: Answer) => refusesGuest(r) || (isDynamic(path) && r.status === 404);
+    if (!closedToGuest(res) && IS_REMOTE) {
+      // A deployed site can answer oddly for a moment (a host redirect while the app restarts);
+      // only an answer that is still wrong on a second look counts.
+      await new Promise((r) => setTimeout(r, 5000));
+      res = await call(guest, "GET", fill(path));
+    }
+    if (!closedToGuest(res) && IS_REMOTE && !fromApp(res.headers)) {
+      // Still the host's own answer: it showed the guest nothing, so it is noted, not failed (E-01).
+      hostAnswers.push(`${path} → ${res.status}${res.location ? ` ${res.location}` : ""}`);
+      continue;
+    }
+    if (!closedToGuest(res)) bad.push(`${path} → ${res.status}${res.location ? ` ${res.location}` : ""}`);
   }
   for (const path of ["/api/wallet", "/api/orders", "/api/cart", "/api/notifications", "/api/addresses", "/api/subscriptions", "/api/profile"]) {
     const res = await call(guest, "GET", path);
     if (res.status !== 401) bad.push(`GET ${path} → ${res.status} (expected 401)`);
   }
   await guest.dispose();
-  return summarize(bad, pages.length + 7, "signed-in pages and account APIs not closed to a guest");
+  const done = summarize(bad, pages.length + 7, "signed-in pages and account APIs not closed to a guest");
+  return hostAnswers.length ? `${done}; answered by the host, not the app (E-01): ${hostAnswers.join(", ")}` : done;
 }, { timeout: 600_000 });
 
 /** The write endpoints a session protects (everything but PUBLIC_WRITES and secret-guarded prefixes). */

@@ -4,6 +4,14 @@ import { z } from "zod";
 
 import { notFound } from "@/lib/errors";
 import { imageRefSchema } from "@/lib/image-ref";
+import {
+  MAX_PRICE_PAISE,
+  MAX_STOCK_UNITS,
+  MIN_PRICE_PAISE,
+  PRICE_MAX_MESSAGE,
+  PRICE_MIN_MESSAGE,
+  STOCK_MAX_MESSAGE,
+} from "@/lib/price-rules";
 
 import { ok, parseBody, parseQuery, route, type RouteContext } from "@/server/api/handler";
 import { getShopAccess, requireShopAccess } from "@/server/authz/guards";
@@ -21,8 +29,9 @@ const pageSchema = z.object({
 /**
  * The shop's owner and staff get every listing with its stock settings
  * (`onlineOnly=true` narrows to what is on sale online). Everyone else sees
- * what the storefront shows: an APPROVED shop's online listings, `limit` /
- * `offset` at a time, and a 404 for a shop that is not live.
+ * what the storefront shows: an APPROVED shop's online listings, buyable ones
+ * first, `limit` / `offset` at a time, with `inStock` instead of the stock
+ * count, and a 404 for a shop that is not live.
  */
 export const GET = route(
   async (request: NextRequest, context: RouteContext<{ id: string }>) => {
@@ -34,7 +43,9 @@ export const GET = route(
     }
     if (!(await getPublicShopById(id))) throw notFound("Shop");
     const { limit, offset } = parseQuery(request, pageSchema);
-    return ok(await listStorefrontProducts({ shopId: id, onlineOnly: true, limit, offset }));
+    const rows = await listStorefrontProducts({ shopId: id, onlineOnly: true, limit, offset });
+    // Customers see whether a product is in stock, never the shop's exact count (TC-SPI-027).
+    return ok(rows.map(({ onlineStock, ...row }) => ({ ...row, inStock: !row.trackInventory || onlineStock > 0 })));
   },
 );
 
@@ -45,11 +56,12 @@ const schema = z
     imageUrl: imageRefSchema.nullish(),
     onlineSaleEnabled: z.boolean().default(false),
     offlineSaleEnabled: z.boolean().default(false),
-    onlinePricePaise: z.number().int().min(0).nullish(),
-    offlinePricePaise: z.number().int().min(0).nullish(),
+    // A price is 1 paisa to ₹10 lakh; null means no price (TC-CAT-004, TC-FLD-058/059).
+    onlinePricePaise: z.number().int().min(MIN_PRICE_PAISE, PRICE_MIN_MESSAGE).max(MAX_PRICE_PAISE, PRICE_MAX_MESSAGE).nullish(),
+    offlinePricePaise: z.number().int().min(MIN_PRICE_PAISE, PRICE_MIN_MESSAGE).max(MAX_PRICE_PAISE, PRICE_MAX_MESSAGE).nullish(),
     trackInventory: z.boolean().default(true),
-    onlineStock: z.number().int().min(0).default(0),
-    offlineStock: z.number().int().min(0).default(0),
+    onlineStock: z.number().int().min(0).max(MAX_STOCK_UNITS, STOCK_MAX_MESSAGE).default(0),
+    offlineStock: z.number().int().min(0).max(MAX_STOCK_UNITS, STOCK_MAX_MESSAGE).default(0),
     isActive: z.boolean().default(true),
     isAvailable: z.boolean().default(true),
   })

@@ -38,6 +38,7 @@ import {
   renderTemplate,
   type CategoryKey,
   type Channel,
+  type EmailDetailRow,
   type OutboundChannel,
 } from "@/server/notifications/templates";
 import { NOTIFICATION_TYPES, type NotificationType } from "@/server/notifications/types";
@@ -68,6 +69,11 @@ export interface NotifyInput {
   metadata?: Record<string, unknown>;
   /** Extra outbound channels to attempt for this notification (still subject to the user's opt-outs). */
   channels?: Channel[];
+  /**
+   * TC-SPI-004: rows the e-mail shows under the body (an order's lines, fees
+   * and total). E-mail only — the in-app notice, SMS and push keep the short body.
+   */
+  emailDetail?: EmailDetailRow[];
   /**
    * When set, the notification is written at most once for this key. Used for
    * things like a single low-balance warning per threshold crossing.
@@ -151,7 +157,10 @@ export async function notify(input: NotifyInput, client: DbClient = db): Promise
     );
     if (outbound.length > 0) {
       const rules = await getRule("notifications");
-      const email = renderEmail({ title, body, actionUrl: input.actionUrl, baseUrl: getEnv().AUTH_URL });
+      const short = renderEmail({ title, body, actionUrl: input.actionUrl, baseUrl: getEnv().AUTH_URL });
+      const email = input.emailDetail?.length
+        ? renderEmail({ title, body, actionUrl: input.actionUrl, baseUrl: getEnv().AUTH_URL, detail: input.emailDetail })
+        : short;
       await client.insert(notificationDeliveries).values(
         outbound.map((channel) => ({
           notificationId,
@@ -161,7 +170,7 @@ export async function notify(input: NotifyInput, client: DbClient = db): Promise
           channel,
           maxAttempts: rules.maxAttempts,
           subject: email.subject,
-          body: email.text,
+          body: channel === "EMAIL" ? email.text : short.text,
           html: channel === "EMAIL" ? email.html : null,
           actionUrl: input.actionUrl ?? null,
         })),
@@ -469,11 +478,18 @@ async function unreadCountUncached(userId: string): Promise<number> {
 /** Memoised for one server render (layout, header and board all ask); API routes and actions call straight through. */
 export const unreadCount = cache(unreadCountUncached);
 
-export async function markRead(userId: string, notificationId: string): Promise<void> {
-  await db
+/**
+ * Marks one of the person's own notifications read (an already-read one keeps
+ * its first read time). False when no notification of theirs has that id —
+ * someone else's is never touched, and the API answers 404 (TC-NTF-012).
+ */
+export async function markRead(userId: string, notificationId: string): Promise<boolean> {
+  const updated = await db
     .update(notifications)
-    .set({ readAt: new Date() })
-    .where(and(eq(notifications.id, notificationId), eq(notifications.userId, userId)));
+    .set({ readAt: sql`coalesce(${notifications.readAt}, now())` })
+    .where(and(eq(notifications.id, notificationId), eq(notifications.userId, userId)))
+    .returning({ id: notifications.id });
+  return updated.length > 0;
 }
 
 export async function markAllRead(userId: string): Promise<void> {

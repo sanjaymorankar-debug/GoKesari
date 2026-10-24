@@ -26,7 +26,8 @@ export type Role =
   | "admin"
   | "ops" // OPERATOR
   | "oplim" // OPERATOR_LIMITED
-  | "society"; // SOCIETY_ADMIN of a verified society inside shop A's zone
+  | "society" // SOCIETY_ADMIN of a verified society inside shop A's zone
+  | "pending"; // SHOP_OWNER of the shop still waiting for approval
 
 export const ROLE_NAMES: Record<Role, string> = {
   customer: "CUSTOMER",
@@ -40,6 +41,7 @@ export const ROLE_NAMES: Record<Role, string> = {
   ops: "OPERATOR",
   oplim: "OPERATOR_LIMITED",
   society: "SOCIETY_ADMIN",
+  pending: "SHOP_OWNER",
 };
 
 export interface WorldUser {
@@ -67,6 +69,8 @@ export interface World {
   target: string;
   host: string;
   createdAt?: string;
+  /** The seed run's id (local worlds). */
+  run?: string;
   users: Partial<Record<Role, WorldUser>>;
   shops: Partial<Record<"A" | "B" | "C" | "pending", WorldShop>>;
   listings: Partial<
@@ -80,6 +84,8 @@ export interface World {
     >
   >;
   society?: { id: string; name: string };
+  /** The QA category every seeded product is in (local worlds). */
+  category?: { id: string; name: string };
   /** Shop A's PIN and coordinates; customer 1's address is here. */
   location?: { pincode: string; lat: number; lng: number };
   /** A PIN no shop of the world delivers to. */

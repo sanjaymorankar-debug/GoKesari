@@ -8,10 +8,14 @@
  *
  * Built on the existing order, order-item, stock and wallet structures — no
  * parallel order system. Money rules:
- *  - a removed line is refunded to the wallet in full;
+ *  - a removed line is refunded in full, the way the order was paid
+ *    (TC-PAY-029): to the wallet for a wallet order, to the original payment
+ *    method (or the wallet, by rule) for an online order — sent to the gateway
+ *    after commit — and nothing for cash on delivery (less is collected);
  *  - a substitute is charged at the lower of its own price and the original
  *    line (the shop absorbs any increase — the customer never pays more than
  *    they agreed to at checkout); a cheaper substitute refunds the difference;
+ *    the original product goes back to stock and the substitute leaves it;
  *  - every refund reduces order.subtotalPaise/totalPaise and adds to
  *    refundedPaise, so a later cancellation refunds only what is still held.
  * If every line ends up removed, the order is cancelled (refunding the rest).
@@ -33,12 +37,12 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
-import { consumeOnlineStock, loadPurchasableShopProduct } from "./catalogue";
+import { consumeOnlineStock, loadPurchasableShopProduct, restockOnline } from "./catalogue";
 import { dispatchReadyOrder } from "./delivery-assignment";
 import { assertFulfilmentChosen } from "./fulfilment-guards";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { cancelOrder, updateOrderStatus } from "./orders";
-import { refundOriginalDebit } from "./wallet";
+import { refundOrderPart, sendRequestedOriginalRefunds, type PartRefundRoute } from "@/server/aftercare/refunds";
 
 interface Actor {
   id: string;
@@ -189,36 +193,57 @@ export async function proposeSubstitution(
   });
 }
 
-/** Shop drops a line it cannot supply (no substitute) — refunded to the wallet. */
+/** Shop drops a line it cannot supply (no substitute) — refunded the way the order was paid. */
 export async function removeItem(
   orderId: string,
   itemId: string,
   actor: Actor,
   reason: string,
 ): Promise<void> {
-  const allRemoved = await db.transaction(async (tx) => {
+  const { allRemoved, route } = await db.transaction(async (tx) => {
     const order = await lockOrderInWork(tx, orderId, actor);
     const item = await loadItem(tx, orderId, itemId);
     if (item.fulfilmentStatus === "REMOVED" || item.fulfilmentStatus === "SUBSTITUTED") {
       throw conflict("This item has already been handled.");
     }
     await setItemStatus(tx, item.id, "REMOVED", reason.trim() || "Unavailable");
-    await refundLine(tx, order, item.lineTotalPaise, `line:${item.id}`, actor.id,
+    const route = await refundLine(tx, order, item.lineTotalPaise, `line:${item.id}`, actor,
       `Refund: ${item.productNameSnapshot} unavailable (order ${order.orderNumber})`);
-    await auditItem(tx, actor, order, item.id, item.fulfilmentStatus, "REMOVED", { reason });
+    await auditItem(tx, actor, order, item.id, item.fulfilmentStatus, "REMOVED", { reason, refundTo: route });
     await notify(
       {
         userId: order.userId,
         type: NOTIFICATION_TYPES.ORDER_ITEM_REMOVED,
         title: "Item unavailable",
-        body: `${item.productNameSnapshot} was removed from order ${order.orderNumber} and refunded to your wallet.`,
+        body: `${item.productNameSnapshot} was removed from order ${order.orderNumber}${REMOVED_LINE_MONEY[route]}`,
         actionUrl: "/orders",
       },
       tx,
     );
-    return everyLineRemoved(tx, orderId);
+    return { allRemoved: await everyLineRemoved(tx, orderId), route };
   });
+  await sendGatewayRefundsAfterCommit(orderId, route);
   if (allRemoved) await cancelOrder(orderId, actor, "All items were unavailable");
+}
+
+/** How the customer is told where a removed line's money went. */
+const REMOVED_LINE_MONEY: Record<PartRefundRoute, string> = {
+  WALLET: " and refunded to your wallet.",
+  ORIGINAL: " and is being refunded to your original payment method.",
+  NONE: " — nothing is charged for it.",
+};
+
+/**
+ * TC-PAY-029: a line refund to the original payment method is only recorded
+ * inside the transaction; it goes to the gateway once that has committed
+ * (never for a change that could still roll back). Idempotent; the aftercare
+ * and payments jobs retry it if this attempt fails.
+ */
+async function sendGatewayRefundsAfterCommit(orderId: string, route: PartRefundRoute): Promise<void> {
+  if (route !== "ORIGINAL") return;
+  await sendRequestedOriginalRefunds(orderId).catch((error) =>
+    console.error("[fulfilment] line refund send failed for order", orderId, error),
+  );
 }
 
 /**
@@ -232,7 +257,7 @@ export async function decideSubstitution(
   customer: Actor,
   approve: boolean,
 ): Promise<void> {
-  const allRemoved = await db.transaction(async (tx) => {
+  const { allRemoved, route } = await db.transaction(async (tx): Promise<{ allRemoved: boolean; route: PartRefundRoute }> => {
     const order = await lockOrder(tx, orderId);
     if (order.userId !== customer.id) throw notFound("Order");
     if (!WORKING_STATUSES.includes(order.status)) {
@@ -252,22 +277,38 @@ export async function decideSubstitution(
         tx,
         order.id,
       );
+      // TC-SPI-010: the original product was taken from stock at checkout but is
+      // not sold — it goes back (a SALE_RETURN of this order in the stock
+      // ledger), so only the substitute leaves stock.
+      const originalUnits = await trackedUnits(tx, item.shopProductId, item.quantityMilli);
+      if (originalUnits > 0) {
+        await restockOnline(
+          item.shopProductId,
+          originalUnits,
+          `Order ${order.orderNumber}: ${item.productNameSnapshot} substituted by ${item.substituteNameSnapshot ?? "another product"}`,
+          customer.id,
+          tx,
+          order.id,
+        );
+      }
       await setItemStatus(tx, item.id, "SUBSTITUTED", item.fulfilmentNote);
       const difference = item.lineTotalPaise - (item.substituteLineTotalPaise ?? item.lineTotalPaise);
-      if (difference > 0) {
-        await refundLine(tx, order, difference, `substitute:${item.id}`, customer.id,
-          `Price difference: ${item.substituteNameSnapshot} for ${item.productNameSnapshot} (order ${order.orderNumber})`);
-      }
-      await auditItem(tx, customer, order, item.id, "SUBSTITUTION_PROPOSED", "SUBSTITUTED", { difference });
-      return false;
+      const route =
+        difference > 0
+          ? await refundLine(tx, order, difference, `substitute:${item.id}`, customer,
+              `Price difference: ${item.substituteNameSnapshot} for ${item.productNameSnapshot} (order ${order.orderNumber})`)
+          : "NONE";
+      await auditItem(tx, customer, order, item.id, "SUBSTITUTION_PROPOSED", "SUBSTITUTED", { difference, refundTo: route });
+      return { allRemoved: false, route };
     }
 
     await setItemStatus(tx, item.id, "REMOVED", "Customer rejected the substitute");
-    await refundLine(tx, order, item.lineTotalPaise, `line:${item.id}`, customer.id,
+    const route = await refundLine(tx, order, item.lineTotalPaise, `line:${item.id}`, customer,
       `Refund: ${item.productNameSnapshot} unavailable, substitute declined (order ${order.orderNumber})`);
-    await auditItem(tx, customer, order, item.id, "SUBSTITUTION_PROPOSED", "REMOVED");
-    return everyLineRemoved(tx, orderId);
+    await auditItem(tx, customer, order, item.id, "SUBSTITUTION_PROPOSED", "REMOVED", { refundTo: route });
+    return { allRemoved: await everyLineRemoved(tx, orderId), route };
   });
+  await sendGatewayRefundsAfterCommit(orderId, route);
   if (allRemoved) await cancelOrder(orderId, customer, "All items were unavailable");
 
   const order = await db.query.orders.findFirst({ where: eq(orders.id, orderId) });
@@ -339,36 +380,39 @@ async function wholeUnits(tx: DbClient, shopProductId: string, quantityMilli: nu
   return Math.max(1, Math.round(quantityMilli / row.unitSizeMilli));
 }
 
+/**
+ * Refunds a removed line / substitute difference and takes it off the order's
+ * totals. TC-PAY-029: the money goes back the way the order was paid (wallet
+ * debit, online payment, or nothing for unpaid cash on delivery) — before, an
+ * online-paid order answered 404 "Original wallet debit … not found".
+ */
+/** Units checkout took from stock for a line (0 when the listing does not track stock). */
+async function trackedUnits(tx: DbClient, shopProductId: string, quantityMilli: number): Promise<number> {
+  const [row] = await tx
+    .select({ trackInventory: shopProducts.trackInventory })
+    .from(shopProducts)
+    .where(eq(shopProducts.id, shopProductId));
+  if (!row?.trackInventory) return 0;
+  return wholeUnits(tx, shopProductId, quantityMilli);
+}
+
 async function refundLine(
   tx: DbClient,
   order: Order,
   amountPaise: number,
   keySuffix: string,
-  actorId: string,
+  actor: Actor,
   description: string,
-): Promise<void> {
-  if (amountPaise <= 0) return;
+): Promise<PartRefundRoute> {
+  if (amountPaise <= 0) return "NONE";
   // F7: a coupon-discounted order never refunds more goods than were paid for —
   // the discount is used up by the last lines refunded.
   if (order.discountPaise > 0) {
     const [latest] = await tx.select().from(orders).where(eq(orders.id, order.id));
     amountPaise = Math.min(amountPaise, Math.max(0, latest.totalPaise - latest.deliveryFeePaise - latest.taxPaise));
-    if (amountPaise <= 0) return;
+    if (amountPaise <= 0) return "NONE";
   }
-  if (order.paidAt != null) {
-    await refundOriginalDebit(
-      {
-        userId: order.userId,
-        referenceType: "orderId",
-        referenceId: order.id,
-        idempotencyKey: `refund:order:${order.id}:${keySuffix}`,
-        description,
-        createdBy: actorId,
-        amountPaise,
-      },
-      tx,
-    );
-  }
+  const { route } = await refundOrderPart(tx, order, { amountPaise, key: keySuffix, description, actor });
   // Re-read inside the lock so two line refunds in a row both apply.
   const [current] = await tx.select().from(orders).where(eq(orders.id, order.id));
   await tx
@@ -380,6 +424,7 @@ async function refundLine(
       updatedAt: new Date(),
     })
     .where(eq(orders.id, order.id));
+  return route;
 }
 
 async function everyLineRemoved(tx: DbClient, orderId: string): Promise<boolean> {

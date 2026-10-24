@@ -170,7 +170,21 @@ export async function walletBalance(role: Role = "customer"): Promise<number> {
 
 export async function fulfil(orderId: string, action: "accept" | "start" | "ready" | "reject", extra: Record<string, unknown> = {}, role: Role = "shop") {
   assertWritable("act on an order");
-  return call(await as(role), "POST", `/api/orders/${orderId}/fulfilment`, { action, ...extra });
+  const res = await call(await as(role), "POST", `/api/orders/${orderId}/fulfilment`, { action, ...extra });
+  // With rule fulfilmentOptions on (as on the test site) READY needs a delivery plan first:
+  // choose a GoKesari delivery partner for the earliest slot, in the same step the shop page uses.
+  if (action === "ready" && res.status === 409 && res.body?.error?.details?.needsFulfilmentChoice) return readyWithPartner(orderId, role);
+  return res;
+}
+
+/** Marks a PREPARING order ready with plan "GoKesari delivery partner, earliest slot" (POST fulfilment-plan, markReady). */
+export async function readyWithPartner(orderId: string, role: Role = "shop") {
+  const ctx = await as(role);
+  const options = await call(ctx, "GET", `/api/orders/${orderId}/fulfilment-plan`);
+  expectStatus(options, 200, "delivery plan options");
+  const slotKey = (options.body?.days as { slots: { key: string }[] }[] | undefined)?.[0]?.slots[0]?.key;
+  if (!slotKey) throw new Error(`no delivery slot can be chosen now for order ${orderId} (${JSON.stringify(options.body).slice(0, 200)})`);
+  return call(ctx, "POST", `/api/orders/${orderId}/fulfilment-plan`, { option: "GOKESARI_PARTNER", slotKey, markReady: true });
 }
 
 /** accept → start → ready, each expected to succeed. */

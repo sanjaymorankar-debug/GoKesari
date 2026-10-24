@@ -307,18 +307,54 @@ export function parseDates(text: string): string[] {
 }
 
 const UNTIL_LABEL = /VALID\s*(?:UP\s*TO|UPTO|TILL|UNTIL|THROUGH)|VALIDITY|EXPIRY|EXPIRES|DATE OF EXPIRY|EXPIRING ON|RENEWAL DUE/i;
-const FROM_LABEL = /VALID\s*FROM|DATE OF ISSUE|ISSUE DATE|ISSUED ON|DATE OF REGISTRATION|REGISTRATION DATE|DATE OF INCORPORATION/i;
+const FROM_LABEL = /VALID(?:ITY)?\s*FROM|DATE OF ISSUE|ISSUE DATE|ISSUED ON|DATE OF REGISTRATION|REGISTRATION DATE|DATE OF INCORPORATION/i;
+
+/** The word that starts the end of a validity range: "… To : 31/03/2027". */
+const RANGE_END = /\b(?:TO|UP\s*TO|UPTO|TILL|UNTIL)\b\s*[:\-.]?/i;
+const RANGE_START = /\bFROM\b/i;
+/** "To : Not Applicable" — a GST registration (REG-06) has no end date. */
+const NO_EXPIRY = /^\s*[:\-.]?\s*(?:NOT\s*APPLICABLE|N\.?\s?A\b\.?|NIL\b|NONE\b|LIFE\s*TIME|PERMANENT|NO\s+EXPIRY)/i;
+
+/**
+ * The expiry a piece of validity text gives: a date, null when it says the
+ * document never expires, undefined when it says nothing about the end.
+ * TC-FLD-047: "Period of Validity From : 01/04/2020 To : Not Applicable" was
+ * read as expiring on its start date — a "From" date is never an expiry.
+ */
+function expiryIn(text: string): string | null | undefined {
+  const end = text.match(RANGE_END);
+  const start = text.match(RANGE_START);
+  // With "To", the end is what follows it; a date after a bare "From" is a start date.
+  const tail = end ? text.slice((end.index ?? 0) + end[0].length) : start ? text.slice(0, start.index ?? 0) : text;
+  if (NO_EXPIRY.test(tail)) return null;
+  const dates = parseDates(tail);
+  // "Validity: 01/04/2022 - 31/03/2027" — the last date on a validity line is the end.
+  if (dates.length) return end ? dates[0] : dates[dates.length - 1];
+  return undefined;
+}
 
 function dateAfterLabel(lines: string[], label: RegExp): string | null {
   for (let i = 0; i < lines.length; i++) {
     const m = lines[i].match(label);
     if (!m) continue;
     const rest = lines[i].slice((m.index ?? 0) + m[0].length);
-    // "Validity: 01/04/2022 to 31/03/2027" — the last date on a validity line is the end.
+    if (label === UNTIL_LABEL) {
+      const here = expiryIn(rest);
+      if (here !== undefined) return here;
+      // The end can be on the next line ("Validity From: 01/04/2020" / "To: 31/03/2025");
+      // after a bare "From" only a line that starts with "To" can carry it.
+      const next = lines[i + 1];
+      const nextStartsRangeEnd = next ? next.search(RANGE_END) === next.search(/\S/) : false;
+      if (next && (!RANGE_START.test(rest) || nextStartsRangeEnd)) {
+        const there = expiryIn(next);
+        if (there !== undefined) return there;
+      }
+      continue;
+    }
     const dates = parseDates(rest);
-    if (dates.length) return label === UNTIL_LABEL ? dates[dates.length - 1] : dates[0];
+    if (dates.length) return dates[0];
     const next = lines[i + 1] ? parseDates(lines[i + 1]) : [];
-    if (next.length) return label === UNTIL_LABEL ? next[next.length - 1] : next[0];
+    if (next.length) return next[0];
   }
   return null;
 }

@@ -2,13 +2,14 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
-import { assertIsoDate } from "@/lib/dates";
+import { isoDateSchema } from "@/server/api/date-schema";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { requireSubscriptionAccess } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { pauseSubscription } from "@/server/services/subscriptions";
 
-const schema = z.object({ from: z.string(), until: z.string() });
+// TC-FLD-109: real calendar dates only (422 otherwise).
+const schema = z.object({ from: isoDateSchema, until: isoDateSchema });
 
 export const POST = route(
   async (request: NextRequest, context: RouteContext<{ id: string }>) => {
@@ -20,8 +21,8 @@ export const POST = route(
     return ok(
       await pauseSubscription(
         id,
-        assertIsoDate(body.from),
-        assertIsoDate(body.until),
+        body.from,
+        body.until,
         user,
       ),
     );

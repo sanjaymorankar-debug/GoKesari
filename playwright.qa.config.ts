@@ -17,6 +17,8 @@ const launchOptions = {
 };
 
 const remote = /^https:/.test(process.env.E2E_BASE_URL ?? "");
+/** Per site, so runs against different sites (or local servers) never wipe each other's evidence. */
+const host = new URL(process.env.E2E_BASE_URL ?? "http://localhost:3000").host.replace(/[^a-z0-9.-]/gi, "_");
 
 export default defineConfig({
   testDir: "./tests/qa",
@@ -26,8 +28,8 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
-  reporter: [["list"], ["json", { outputFile: "test-results/qa/playwright-report.json" }]],
-  outputDir: "test-results/qa/artifacts",
+  reporter: [["list"], ["json", { outputFile: `test-results/qa/playwright-report-${host}.json` }]],
+  outputDir: `test-results/qa/artifacts/${host}`,
   use: {
     baseURL: process.env.E2E_BASE_URL ?? "http://localhost:3000",
     trace: "retain-on-failure",

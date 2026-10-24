@@ -454,6 +454,19 @@ async function closeBroadcast(
   return true;
 }
 
+/** TC-DSP-011: a cancelled order's open broadcast ends with it; riders holding it see it expire. */
+export async function closeOpenBroadcastsForOrder(orderId: string, reason: string, client: DbClient = db): Promise<number> {
+  const open = await client
+    .select({ id: deliveryOfferBroadcasts.id })
+    .from(deliveryOfferBroadcasts)
+    .where(and(eq(deliveryOfferBroadcasts.orderId, orderId), eq(deliveryOfferBroadcasts.status, "OPEN")));
+  let closed = 0;
+  for (const broadcast of open) {
+    if (await closeBroadcast(broadcast.id, "CANCELLED", reason, new Date(), client)) closed += 1;
+  }
+  return closed;
+}
+
 /* ------------------------------------------------------------- rider side */
 
 async function loadRecipient(broadcastId: string, partnerUserId: string) {

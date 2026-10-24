@@ -6,6 +6,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { MAX_MRP_PAISE, MIN_PRICE_PAISE } from "@/lib/price-rules";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
@@ -16,7 +17,8 @@ export const dynamic = "force-dynamic";
 const schema = z.object({
   productId: z.string().uuid(),
   shopId: z.string().uuid().nullish(),
-  claimedMrpPaise: z.number().int().min(0),
+  // The printed MRP: at least 1 paisa, at most ₹10 lakh (TC-CAT-062).
+  claimedMrpPaise: z.number().int().min(MIN_PRICE_PAISE, "MRP must be more than ₹0.").max(MAX_MRP_PAISE, "MRP can be at most ₹10,00,000."),
   note: z.string().max(500).nullish(),
 });
 

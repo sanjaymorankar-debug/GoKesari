@@ -7,7 +7,8 @@ import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { rejectShop, toShopView } from "@/server/services/shops";
 
-const schema = z.object({ reason: z.string().min(3).max(500) });
+// Trimmed before the length check, and stored trimmed (TC-FLD-121).
+const schema = z.object({ reason: z.string().trim().min(3).max(500) });
 
 export const POST = route(
   async (request: NextRequest, context: RouteContext<{ id: string }>) => {

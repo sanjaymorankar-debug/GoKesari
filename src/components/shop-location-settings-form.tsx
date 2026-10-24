@@ -5,6 +5,7 @@ import { useState } from "react";
 
 import { Alert, Badge, Button, Card, Field, inputClass } from "@/components/ui";
 import { MapPicker, type MapPickerResult } from "@/components/map-picker";
+import { MAX_PREPARATION_MINUTES, MIN_PREPARATION_MINUTES } from "@/lib/shop-settings";
 
 export interface ShopLocationSettings {
   shopId: string;
@@ -17,6 +18,8 @@ export interface ShopLocationSettings {
   serviceRadiusKm: number;
   deliveryPincodes: string[];
   minOrderPaise: number;
+  /** TC-FLD-054: minutes to prepare an order. */
+  preparationTimeMinutes: number;
   ordersPaused: boolean;
 }
 
@@ -41,6 +44,7 @@ export function ShopLocationSettingsForm({ settings }: { settings: ShopLocationS
   const [serviceRadiusKm, setServiceRadiusKm] = useState(String(settings.serviceRadiusKm));
   const [zones, setZones] = useState(settings.deliveryPincodes.join(", "));
   const [minOrder, setMinOrder] = useState(String(settings.minOrderPaise / 100));
+  const [preparationMinutes, setPreparationMinutes] = useState(String(settings.preparationTimeMinutes));
   const [paused, setPaused] = useState(settings.ordersPaused);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -66,6 +70,7 @@ export function ShopLocationSettingsForm({ settings }: { settings: ShopLocationS
           .map((z) => z.trim())
           .filter(Boolean),
         minOrderPaise: Math.round(Number(minOrder || 0) * 100),
+        preparationTimeMinutes: Number(preparationMinutes),
         ordersPaused: paused,
       }),
     });
@@ -73,7 +78,8 @@ export function ShopLocationSettingsForm({ settings }: { settings: ShopLocationS
 
     if (!response.ok) {
       const payload = await response.json().catch(() => null);
-      setError(payload?.error?.message ?? "Could not save the location.");
+      const fields = payload?.error?.details?.fields as Record<string, string> | undefined;
+      setError(fields ? Object.values(fields).join(" ") : (payload?.error?.message ?? "Could not save the location."));
       return;
     }
     setSaved(true);
@@ -148,6 +154,22 @@ export function ShopLocationSettingsForm({ settings }: { settings: ShopLocationS
               value={minOrder}
               onChange={(e) => setMinOrder(e.target.value)}
               data-testid="min-order"
+            />
+          </Field>
+          {/* TC-FLD-054: delivery slots and late-order alerts use this; there was no screen for it. */}
+          <Field
+            label={`Preparation time per order (minutes, ${MIN_PREPARATION_MINUTES}–${MAX_PREPARATION_MINUTES})`}
+            hint="Delivery slots and late-order alerts allow this long to get an order ready."
+          >
+            <input
+              className={inputClass}
+              type="number"
+              min={MIN_PREPARATION_MINUTES}
+              max={MAX_PREPARATION_MINUTES}
+              step={1}
+              value={preparationMinutes}
+              onChange={(e) => setPreparationMinutes(e.target.value)}
+              data-testid="preparation-time"
             />
           </Field>
           <label className="flex items-center gap-2 text-sm text-ink-700">

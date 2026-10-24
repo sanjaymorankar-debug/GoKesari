@@ -12,9 +12,18 @@ import { IS_LOCAL } from "./target";
 
 const MAIL_DIR = process.env.QA_MAIL_DIR ?? join("test-results", "qa", "mail");
 
-/** Decodes quoted-printable soft breaks and =XX escapes, enough to find a code. */
+/** Decodes quoted-printable soft breaks and =XX escapes as UTF-8 bytes (Hindi text and "—" stay intact). */
 function decode(text: string) {
-  return text.replace(/=\r?\n/g, "").replace(/=([0-9A-F]{2})/g, (_, h: string) => String.fromCharCode(parseInt(h, 16)));
+  const soft = text.replace(/=\r?\n/g, "");
+  const bytes: number[] = [];
+  for (let i = 0; i < soft.length; i++) {
+    const hex = soft.slice(i + 1, i + 3);
+    if (soft[i] === "=" && /^[0-9A-F]{2}$/.test(hex)) {
+      bytes.push(parseInt(hex, 16));
+      i += 2;
+    } else bytes.push(...Buffer.from(soft[i], "utf8"));
+  }
+  return Buffer.from(bytes).toString("utf8");
 }
 
 /** Messages to `to` received after `since` (ms epoch), newest first. */
@@ -35,6 +44,12 @@ export async function waitForCode(to: string, since: number, timeoutMs = 30_000)
   const until = Date.now() + timeoutMs;
   while (Date.now() < until) {
     for (const m of messagesTo(to, since)) {
+      // The same inbox gets "1234 is your delivery code for order …": only "<code> is your Gokesari
+      // sign-in code" and "… email confirmation code" count, read from the subject when it has the code.
+      const subject = m.body.match(/^Subject: (.*)$/im)?.[1] ?? "";
+      if (/delivery code|pickup code/i.test(subject)) continue;
+      const fromSubject = subject.match(/^(\d{4,8}) is your Gokesari .*code/i)?.[1];
+      if (fromSubject) return fromSubject;
       const code = m.body.match(/\b(\d{4,8})\b(?=[^\d]*(?:is your|code|expires|valid))/i)?.[1] ?? m.body.match(/code[^\d]{0,40}(\d{4,8})/i)?.[1];
       if (code) return code;
     }

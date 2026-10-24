@@ -198,6 +198,29 @@ export default async function FinanceExceptionsPage() {
                 </ul>
               )}
             </Card>
+            {/* TC-COD-010: a negative net is held — collect it, or cancel the batch to carry it forward. */}
+            <Card className="p-4" data-testid="held-negative-batches">
+              <p className="mb-2 text-sm font-semibold">Held: negative net (owed to the platform)</p>
+              {empty(x.batchProblems.negativePayouts) && empty(x.batchProblems.negativeSettlements) ? (
+                <p className="text-sm text-ink-500">None.</p>
+              ) : (
+                <ul className="divide-y divide-cream-100 text-sm">
+                  {x.batchProblems.negativePayouts.map(({ payout: p, partnerName }) => (
+                    <li key={p.id} className="py-1.5" data-payout-id={p.id}>
+                      Rider {partnerName} · week {p.periodStart} · earnings <Money paise={p.grossPaise} /> · adjustments{" "}
+                      <Money paise={p.adjustmentsPaise} /> · net <Money paise={p.amountPaise} />
+                      <span className="block text-xs text-ink-500">Collect the cash from the rider, or cancel the payout to carry it into next week.</span>
+                    </li>
+                  ))}
+                  {x.batchProblems.negativeSettlements.map(({ settlement: s, shopName }) => (
+                    <li key={s.id} className="py-1.5" data-settlement-id={s.id}>
+                      Shop {shopName} · week {s.periodStart} · net <Money paise={s.netPayablePaise} />
+                      <span className="block text-xs text-ink-500">Collect it from the shop, or cancel the settlement to carry it into next week.</span>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </Card>
             <Card className="p-4">
               <p className="mb-2 text-sm font-semibold">Delivered 9+ days ago, not settled</p>
               {empty(x.batchProblems.unsettled) ? (

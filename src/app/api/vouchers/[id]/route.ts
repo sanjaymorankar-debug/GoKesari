@@ -2,6 +2,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { isoDateSchema } from "@/server/api/date-schema";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
@@ -16,8 +17,8 @@ const schema = z.object({
   bonusPercent: z.number().int().positive().max(100).optional(),
   minimumTopupPaise: z.number().int().min(0).optional(),
   maximumBonusPaise: z.number().int().min(0).nullish(),
-  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
-  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  startDate: isoDateSchema.optional(),
+  endDate: isoDateSchema.optional(),
   usageLimit: z.number().int().positive().nullish(),
   perCustomerLimit: z.number().int().positive().optional(),
   totalBudgetPaise: z.number().int().min(0).nullish(),
