@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 
+import { AddToListButton } from "@/components/purchase-lists/add-to-list-button";
 import { SafeImage } from "@/components/safe-image";
 import { categoryEmoji, priceUnitLabel } from "@/lib/board/product-look";
 import { discountPercent } from "@/lib/price-rules";
@@ -200,7 +201,7 @@ export function ProductCard({
       <div className="mt-auto">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
           {showMrp ? (
-            <span className="text-xs text-ink-500" data-testid="product-mrp">
+            <span className="text-xs text-ink-500" data-testid="card-mrp">
               MRP{" "}
               <span className="line-through">
                 <Money paise={product.mrpPaise!} />
@@ -375,6 +376,9 @@ export function ProductCard({
               Subscribe
             </Button>
           ) : null}
+
+          {/* docs/purchase-lists-2026-10: keep it on a weekly / monthly list (signed-in customers). */}
+          {signedIn ? <AddToListButton shopProductId={product.shopProductId} productName={product.productName} /> : null}
         </div>
       </div>
     </Card>

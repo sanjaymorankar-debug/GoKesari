@@ -21,7 +21,7 @@ import { join } from "node:path";
 import sharp from "sharp";
 
 import { as } from "./actors";
-import { db } from "./db";
+import { db, verifySellerDocument } from "./db";
 import { call, expectStatus, RUN, type Answer } from "./http";
 import { blocked, expect, need } from "./record";
 import { assertWritable, BASE_URL, HOST, IS_LOCAL } from "./target";
@@ -429,12 +429,7 @@ export async function registerShop(ctx: APIRequestContext, overrides: Record<str
  * the API under test.
  */
 export async function markDocumentsVerified(shopId: string, docTypes = ["PAN", "GSTIN", "SHOP_ACT", "FSSAI"]) {
-  for (const docType of docTypes) {
-    await db()`
-      insert into seller_verifications (shop_id, doc_type, status, verified_at)
-      values (${shopId}, ${docType}, 'VERIFIED', now())
-      on conflict (shop_id, doc_type) do update set status = 'VERIFIED', verified_at = now(), updated_at = now()`;
-  }
+  for (const docType of docTypes) await verifySellerDocument(shopId, docType);
 }
 
 /** A registered and approved shop of a fresh owner (local only). */

@@ -21,8 +21,9 @@
  *  USER              REPEATED_DISPUTES     MEDIUM  2+ disputed orders in 30 days
  *  USER              TOPUP_FAILURES        MEDIUM  5+ failed wallet top-ups in 24 hours
  *  USER              SHARED_PHONE          LOW     the same mobile number on 2+ active accounts
- *  USER              REFERRAL_ABUSE        MEDIUM  3+ tries at the own referral code, or referred friends' rewards refused
- *                                                  (e.g. delivered to the referrer's own address), in 30 days
+ *  USER              REFERRAL_ABUSE        MEDIUM  3+ tries at the own referral code, or 1+ referred friend's reward refused
+ *                                                  for a duplicate-account signal (same mobile, the referrer's own address,
+ *                                                  a mobile already rewarded), in 30 days
  *  USER              HIGH_VALUE_OUTLIER    MEDIUM  an order in 7 days ≥ ₹2,000 and ≥ 5× the customer's average over the 90 days
  *                                                  before it (3+ orders then), or ≥ ₹10,000 with fewer than 3 orders then.
  *                                                  PERSONAL + DIRECT orders only (B2B stock buying and subscription runs
@@ -149,21 +150,23 @@ function buildRules(t: RiskThresholds, otpMaxAttempts: number): Rule[] {
     subject: "USER",
     severity: "MEDIUM",
     label: "Repeated referral abuse",
-    // The own code tried (audit rows) plus friends' referrals refused at reward time, per referrer (TC-MKT-015).
-    query: sql`select x.subject_id, sum(x.n)::int as count, sum(x.own)::int as own_tries
+    // The own code tried (audit rows), and friends' referrals refused at reward time, per referrer
+    // (TC-MKT-015, SC-35). A refusal at reward time is a duplicate-account signal, so it weighs more.
+    query: sql`select x.subject_id, sum(x.own)::int as own_tries, sum(x.rejected)::int as rejected, sum(x.own + x.rejected)::int as count
       from (
-        select a.actor_id as subject_id, count(*) as n, count(*) as own from audit_logs a
+        select a.actor_id as subject_id, count(*) as own, 0 as rejected from audit_logs a
         where a.action = ${AUDIT_ACTIONS.CUSTOMER_REFERRAL_REFUSED} and a.actor_id is not null
           and a.created_at > now() - make_interval(days => ${t.referralAbuse.days})
         group by a.actor_id
         union all
-        select r.referrer_user_id, count(*), 0 from customer_referrals r
+        select r.referrer_user_id, 0, count(*) from customer_referrals r
         where r.status = 'REJECTED' and r.created_at > now() - make_interval(days => ${t.referralAbuse.days})
         group by r.referrer_user_id
       ) x
-      group by x.subject_id having sum(x.n) >= ${t.referralAbuse.count}`,
+      group by x.subject_id
+      having sum(x.own) >= ${t.referralAbuse.count} or sum(x.rejected) >= ${t.referralAbuse.rejected}`,
     describe: (r) =>
-      `${r.count} referral abuse attempts in ${t.referralAbuse.days} days (${r.own_tries} with the own code, ${Number(r.count) - Number(r.own_tries)} friends' rewards refused)`,
+      `Referral abuse in ${t.referralAbuse.days} days: ${r.own_tries} tries with the own code, ${r.rejected} referred friends' rewards refused (same mobile, own address or a mobile already rewarded)`,
   },
   {
     code: "HIGH_VALUE_OUTLIER",

@@ -131,7 +131,7 @@ export default async function ShopPage({
           </p>
           {shop.description ? (
             // The owner's line breaks are kept (TC-FLD-055); React still escapes the text.
-            <p className="mt-1 whitespace-pre-line text-sm text-ink-600">{shop.description}</p>
+            <p className="mt-1 whitespace-pre-line text-sm text-ink-600" data-testid="shop-description">{shop.description}</p>
           ) : null}
 
           <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3">

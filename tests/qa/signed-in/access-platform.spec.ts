@@ -291,14 +291,23 @@ qa("TC-FLD-127", "every form's API repeats the page's checks: missing field and 
   return out.join("; ");
 }, { ...signed, partial: "unknown fields: ignored by most forms; PATCH /api/shops/[id] refuses them (422) by its deliberate .strict() schema (src/app/api/shops/[id]/route.ts); the double-click half is the next check" });
 
+/** /profile/addresses with the new-address form open (a click before hydration opens nothing, so it clicks until the form is there). */
+async function openAddressForm(page: Page) {
+  await openPage(page, "/profile/addresses");
+  const add = page.getByRole("button", { name: /Add (a new )?address|New address|Add address/i }).first();
+  if (!(await add.count())) return;
+  await expect(async () => {
+    if (await add.isVisible()) await add.click();
+    await expect(page.getByLabel("Address line 1")).toBeVisible({ timeout: 3_000 });
+  }).toPass({ timeout: 45_000 });
+}
+
 qa("TC-FLD-127", "a double click on Save creates one record (address form)", async ({ browser }) => {
   const before = ((await call(await as("customer"), "GET", "/api/addresses")).body?.addresses ?? (await call(await as("customer"), "GET", "/api/addresses")).body) as { id: string; line1: string }[];
   const { context, page } = await pageAs(browser, "customer");
   const line1 = `QA double ${RUN}`;
   try {
-    await page.goto("/profile/addresses", { waitUntil: "domcontentloaded" });
-    const add = page.getByRole("button", { name: /Add (a new )?address|New address|Add address/i }).first();
-    if (await add.count()) await add.click();
+    await openAddressForm(page);
     await page.getByLabel("Address line 1").fill(line1);
     await page.getByLabel("City").fill("Pune");
     await page.getByLabel("PIN code").fill(need(world().location?.pincode, "a PIN"));
@@ -425,11 +434,10 @@ qa("TC-FLD-126", "keyboard and keypads: tab order follows the address form, Ente
   try {
     await page.goto("/wallet", { waitUntil: "domcontentloaded" });
     const amount = page.getByLabel("Amount in rupees");
-    if ((await amount.getAttribute("inputmode")) !== "numeric") bad.push("wallet amount is not numeric");
+    // Rupees and paise (₹10.55): the decimal keypad, or the numeric one.
+    if (!/^(numeric|decimal)$/.test((await amount.getAttribute("inputmode")) ?? "")) bad.push("wallet amount does not open a number keypad");
     out.push(`wallet amount inputmode=${await amount.getAttribute("inputmode")}`);
-    await page.goto("/profile/addresses", { waitUntil: "domcontentloaded" });
-    const add = page.getByRole("button", { name: /Add (a new )?address|New address|Add address/i }).first();
-    if (await add.count()) await add.click();
+    await openAddressForm(page);
     const pinField = page.getByLabel("PIN code");
     const phone = page.getByLabel("Recipient mobile (optional)");
     out.push(`address PIN inputmode=${await pinField.getAttribute("inputmode")}, mobile inputmode=${await phone.getAttribute("inputmode")}`);
@@ -471,9 +479,7 @@ qa("TC-FLD-125", "address form: required fields marked, messages beside the fiel
   const out: string[] = [];
   const bad: string[] = [];
   try {
-    await page.goto("/profile/addresses", { waitUntil: "domcontentloaded" });
-    const add = page.getByRole("button", { name: /Add (a new )?address|New address|Add address/i }).first();
-    if (await add.count()) await add.click();
+    await openAddressForm(page);
     const line1 = page.getByLabel("Address line 1");
     const city = page.getByLabel("City");
     const pin = page.getByLabel("PIN code");
@@ -505,17 +511,19 @@ qa("TC-FLD-125", "address form: required fields marked, messages beside the fiel
     out.push(`recipient mobile 12345: "${mobileMessage}" on the field`);
     if (!mobileMessage) bad.push("no message on the refused recipient mobile");
     await mobile.fill("");
-    // A value only the server refuses (line 1 over its 200-character limit; the field has no maxlength).
-    await line1.fill(`QA Flat 9 ${"x".repeat(200)}`);
+    // The field stops at the API's 200-character limit (maxlength) …
+    if ((await line1.getAttribute("maxlength")) !== "200") bad.push(`Address line 1 has maxlength ${await line1.getAttribute("maxlength")}, not the API's 200`);
+    // … and a value only the server refuses (line 1 of spaces passes the browser's "required") is shown on its field.
+    await line1.fill("   ");
     await page.getByRole("button", { name: /^Save/ }).first().click();
     await page.waitForTimeout(2500);
-    const alert = (await page.locator("main").innerText()).match(/Please check the highlighted fields\.|Could not save this address\.|200/)?.[0] ?? "";
+    const alert = (await page.locator("main").innerText()).match(/Please check [^.\n]*\.|Could not save this address\.|Enter the address\./)?.[0] ?? "";
     const beside = await line1.evaluate((el) => el.closest("label")?.querySelector(".text-red-600")?.textContent ?? "");
     const highlighted = await page.locator("main [aria-invalid=true], main .border-red-500, main .text-red-600").count();
     out.push(`server refusal: "${alert}"; beside Address line 1: "${beside}"; highlighted fields: ${highlighted}`);
     if (!alert) bad.push("no message after the server refused Address line 1");
-    if ((await city.inputValue()) !== "Pune" || !(await line1.inputValue()).startsWith("QA Flat 9")) bad.push("typed values were lost after the error");
-    if (alert && !beside) bad.push(`the server's message "${alert}" is shown at the top of the form and no field is highlighted (the refused one is Address line 1, over 200 characters)`);
+    if ((await city.inputValue()) !== "Pune" || (await pin.inputValue()) === "") bad.push("typed values were lost after the error");
+    if (alert && !beside) bad.push(`the server's message "${alert}" is shown at the top of the form and no field is highlighted (the refused one is Address line 1, spaces only)`);
   } finally {
     await context.close();
   }

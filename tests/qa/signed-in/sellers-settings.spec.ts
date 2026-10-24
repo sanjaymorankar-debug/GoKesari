@@ -254,7 +254,8 @@ qa("TC-FLD-055", "description: blank accepted; over the limit refused (no 500); 
     try {
       await page.goto(`/shops/${shop.slug}`);
       await page.getByText("Shop info, opening hours and reviews").click();
-      const p = page.getByTestId("shop-info").getByText("<script>alert(1)</script>", { exact: false });
+      // The description itself (a review can carry the same text).
+      const p = page.getByTestId("shop-info").getByTestId("shop-description").filter({ hasText: "<script>alert(1)</script>" });
       await expect(p).toBeVisible();
       shown = await p.innerText();
     } finally {

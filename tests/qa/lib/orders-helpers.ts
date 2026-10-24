@@ -18,7 +18,7 @@ import { encode } from "next-auth/jwt";
 import { as, pageAs } from "./actors";
 import { db } from "./db";
 import { messagesTo } from "./mail";
-import { addToCart, defaultAddress, deliveryCode, emptyCart, fulfil, offerFor, pickupCode, riderAction, sellable, shopOf, type Listing } from "./flows";
+import { addToCart, defaultAddress, deliveryCode, emptyCart, fulfil, offerFor, pickupCode, riderAction, sellable, shopListings, shopOf, type Listing } from "./flows";
 import { anonymous, call, expectStatus, poll, RUN, stash, unstash, why, type Answer } from "./http";
 import { blocked, need } from "./record";
 import { assertWritable, BASE_URL, IS_LOCAL } from "./target";
@@ -66,12 +66,9 @@ export async function listingOf(key: ListingKey): Promise<Listing> {
   return { ...row, shopId: shop.id, shopName: shop.name };
 }
 
-/** Online stock of a listing as the shop's public storefront reports it (null when not tracked/listed). */
+/** Online stock of a listing (null when not listed), as operations see it. */
 export async function stockOf(listing: Pick<Listing, "shopId" | "shopProductId">): Promise<number | null> {
-  const res = await call(await as("customer"), "GET", `/api/shops/${listing.shopId}/products?limit=100`);
-  expectStatus(res, 200, "storefront products");
-  const rows = (Array.isArray(res.body) ? res.body : (res.body?.products ?? [])) as { shopProductId: string; onlineStock: number; trackInventory: boolean }[];
-  const row = rows.find((r) => r.shopProductId === listing.shopProductId);
+  const row = (await shopListings(listing.shopId)).find((r) => r.shopProductId === listing.shopProductId);
   return row ? row.onlineStock : null;
 }
 

@@ -18,6 +18,7 @@ import { blocked, expect, need, qa } from "../lib/record";
 import { IS_LOCAL, IS_REMOTE } from "../lib/target";
 import { world, type Role } from "../lib/world";
 import { brief, getAs, listRules, openPage, redirectPath, sidewaysOverflow, societyId, watchErrors } from "../lib/access-helpers";
+import { pageRouteOf } from "../lib/routes";
 
 const signed = { tier: "signed" as const, timeout: 300_000 };
 
@@ -540,7 +541,15 @@ qa("TC-UX-001", "header and portal navigation by role: every link opens a workin
     try {
       await page.goto(home, { waitUntil: "domcontentloaded" });
       await page.waitForLoadState("networkidle", { timeout: 20_000 }).catch(() => {});
-      const links = (await navLinks(page)).slice(0, 80);
+      // At most three links per page: the shop and product tiles all open the same page (lib/routes.ts pageRouteOf).
+      const perPage = new Map<string, number>();
+      const links = (await navLinks(page))
+        .filter((link) => {
+          const route = pageRouteOf(link) ?? link;
+          perPage.set(route, (perPage.get(route) ?? 0) + 1);
+          return perPage.get(route)! <= 3;
+        })
+        .slice(0, 80);
       for (const link of links) {
         const res = await getAs(role, link);
         if (res.status >= 400 && res.status !== 405) dead.push(`${role}: ${link} → ${res.status}`);
@@ -554,7 +563,7 @@ qa("TC-UX-001", "header and portal navigation by role: every link opens a workin
   }
   expect(dead, `dead links: ${dead.join("; ")}`).toEqual([]);
   return `links checked per role: ${counts.join(", ")}`;
-}, { ...signed, timeout: 600_000, partial: "links read from each role's home portal page (header, menus, tiles); a link the role may not open redirects (not counted dead) — refusals are TC-RBAC-003/005" });
+}, { ...signed, timeout: IS_REMOTE ? 1_200_000 : 600_000, partial: "links read from each role's home portal page (header, menus, tiles), at most three per page they open; a link the role may not open redirects (not counted dead) — refusals are TC-RBAC-003/005" });
 
 qa("TC-UX-002", "phone viewport, signed in: home → search → shop → cart → checkout → orders without sideways scroll, menu reachable", async ({ browser }) => {
   const { context, page } = await pageAs(browser, "customer", { viewport: { width: 390, height: 844 }, isMobile: true, hasTouch: true });
@@ -633,11 +642,14 @@ qa("TC-UX-005", "admin edit screen: a changed field warns before the page is lef
   const { context, page } = await pageAs(browser, "admin");
   const dialogs: string[] = [];
   try {
-    await page.goto(`/admin/users/${victim.id}`, { waitUntil: "domcontentloaded" });
+    await openPage(page, `/admin/users/${victim.id}`);
     const name = page.getByLabel("Name");
     const was = await name.inputValue();
-    await name.fill(`${was} (unsaved ${RUN})`);
-    await expect(page.getByText(/Unsaved profile changes/)).toBeVisible();
+    // Typed before React hydrates (a slow test site), the change is not seen: type again until the form notices.
+    await expect(async () => {
+      await name.fill(`${was} (unsaved ${RUN})`);
+      await expect(page.getByText(/Unsaved profile changes/)).toBeVisible({ timeout: 3_000 });
+    }).toPass({ timeout: 45_000 });
     page.once("dialog", async (d) => {
       dialogs.push(d.type());
       await d.dismiss();

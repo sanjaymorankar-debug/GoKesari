@@ -131,6 +131,9 @@ qa("SC-29", "order paid online, invoiced and refunded to source: CAPTURED and re
           expectStatus(left.res, 201, "the second customer's online checkout");
           const leftOrder = need(left.order, "the abandoned order");
           await db()`update payment_intents set expires_at = now() - interval '1 minute' where purpose = 'ORDER' and reference_id = ${leftOrder.id}`;
+          // The sandbox gateway answers from its own order row, as a real gateway would: that expires too.
+          await db()`update payment_sandbox_orders set expires_at = now() - interval '1 minute'
+                     where gateway_order_id in (select gateway_order_id from payment_intents where purpose = 'ORDER' and reference_id = ${leftOrder.id})`;
           await cron("payments-reconcile");
           const leftStatus = await statusOf(leftOrder.id);
           const [w2] = await db()<{ balance: number }[]>`select balance_paise::int as balance from wallets where user_id = ${second.id}`;

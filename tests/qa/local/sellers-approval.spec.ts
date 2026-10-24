@@ -309,7 +309,7 @@ qa(["TC-ONB-022", "TC-ONB-023"], "fee payments: part then balance (PENDING → P
     const afterReverse = await shopRow(shop.id);
     expect(Number(afterReverse.amount_paid_paise)).toBe(30_000);
     expect(afterReverse.fee_payment_status).toBe("PARTIALLY_PAID");
-    expectStatus(await call(ops, "POST", "/api/shop-payments", { shopId: shop.id, paymentType: "REGISTRATION_FEE", amountPaise: 20_000, method: "UPI" }), 201, "pay again");
+    expectStatus(await call(ops, "POST", "/api/shop-payments", { shopId: shop.id, paymentType: "REGISTRATION_FEE", amountPaise: 20_000, method: "UPI", transactionId: `qa-${RUN}-2` }), 201, "pay again");
     expect((await shopRow(shop.id)).fee_payment_status).toBe("PAID");
     const approved = await call(ops, "POST", `/api/shops/${shop.id}/approve`, { classification: "GREEN" });
     expectStatus(approved, 200, "approve once paid");
@@ -541,7 +541,7 @@ qa(["TC-ONB-040", "TC-CAT-054"], "onboarding stages KYC_PENDING → PAYMENT_PEND
     await opsSees(/PAYMENT_PENDING/);
     seen.push("PAYMENT_PENDING");
     expect(await guestFinds(shop.name)).toBe(false);
-    expectStatus(await call(await as("ops"), "POST", "/api/shop-payments", { shopId: shop.id, paymentType: "REGISTRATION_FEE", amountPaise: 30_000, method: "UPI" }), 201, "fee paid");
+    expectStatus(await call(await as("ops"), "POST", "/api/shop-payments", { shopId: shop.id, paymentType: "REGISTRATION_FEE", amountPaise: 30_000, method: "UPI", transactionId: `qa-${RUN}-fee-${shop.id.slice(0, 8)}` }), 201, "fee paid");
     expect(await stage()).toBe("VERIFIED");
     await ownerSees(/verified/i);
     await opsSees(/VERIFIED/);

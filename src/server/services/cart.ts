@@ -23,7 +23,10 @@ import {
   shopProducts,
   shops,
   type Department,
+  type Product,
+  type ProductCategory,
   type Shop,
+  type ShopProduct,
 } from "@/server/db/schema";
 import { assertOnlinePurchasable, isOnlinePurchasable } from "./catalogue";
 import { getLiveOffers, priceWithOffers } from "./shop-offers";
@@ -268,6 +271,29 @@ export async function getCart(userId: string): Promise<CartSummary> {
     .innerJoin(shops, eq(shopProducts.shopId, shops.id))
     .where(eq(cartItems.cartId, cart.id));
 
+  const priced = await priceLines(
+    rows.map((row) => ({ lineId: row.item.id, quantity: row.item.quantity, sp: row.sp, product: row.product, category: row.category, shop: row.shop })),
+  );
+  return { cartId: cart.id, ...priced };
+}
+
+/** A line to price as the cart would: a cart line, or a purchase list's line before it goes to the cart. */
+export interface LineToPrice {
+  /** cart_items.id, or the purchase list item's id (returned as the line's cartItemId). */
+  lineId: string;
+  quantity: number;
+  sp: ShopProduct;
+  product: Product;
+  category: ProductCategory;
+  shop: Shop;
+}
+
+/**
+ * Prices lines with live shop prices and offers, grouped by shop with each
+ * shop's delivery fee — the cart's totals, and a purchase list's "check"
+ * (docs/purchase-lists-2026-10), so the two can never disagree.
+ */
+export async function priceLines(rows: LineToPrice[]): Promise<Omit<CartSummary, "cartId">> {
   const byShop = new Map<string, CartShopGroup>();
   // F8: live shop offers (none unless the rule is on) — checkout prices the same way.
   const offers = await getLiveOffers(rows.map((r) => r.shop.id));
@@ -283,7 +309,7 @@ export async function getCart(userId: string): Promise<CartSummary> {
         trackInventory: row.sp.trackInventory,
         onlineStock: row.sp.onlineStock,
       },
-      row.item.quantity,
+      row.quantity,
     );
 
     const priced = priceWithOffers(
@@ -292,10 +318,10 @@ export async function getCart(userId: string): Promise<CartSummary> {
       offers,
     );
     const unitPrice = priced.unitPricePaise ?? 0;
-    const quantityMilli = row.item.quantity * row.product.unitSizeMilli;
+    const quantityMilli = row.quantity * row.product.unitSizeMilli;
 
     const line: CartLine = {
-      cartItemId: row.item.id,
+      cartItemId: row.lineId,
       shopProductId: row.sp.id,
       productName: row.product.name,
       categoryName: row.category.name,
@@ -303,7 +329,7 @@ export async function getCart(userId: string): Promise<CartSummary> {
       unit: row.product.unit,
       unitSizeMilli: row.product.unitSizeMilli,
       imageUrl: row.sp.imageUrl ?? row.product.imageUrl,
-      quantity: row.item.quantity,
+      quantity: row.quantity,
       unitPricePaise: unitPrice,
       lineTotalPaise: unitPrice > 0 ? lineTotalPaise(unitPrice, quantityMilli) : 0,
       purchasable,
@@ -355,9 +381,8 @@ export async function getCart(userId: string): Promise<CartSummary> {
   );
 
   return {
-    cartId: cart.id,
     groups,
-    itemCount: rows.reduce((n, r) => n + r.item.quantity, 0),
+    itemCount: rows.reduce((n, r) => n + r.quantity, 0),
     subtotalPaise: sumPaise(groups.map((g) => g.subtotalPaise)),
     deliveryFeePaise: sumPaise(groups.map((g) => g.deliveryFeePaise)),
     taxPaise: sumPaise(groups.map((g) => g.taxPaise)),
@@ -409,7 +434,7 @@ async function assertPurchasableNow(
   );
 }
 
-function describeUnavailability(
+export function describeUnavailability(
   shopStatus: string,
   sp: {
     isActive: boolean;

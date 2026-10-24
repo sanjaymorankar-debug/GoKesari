@@ -122,6 +122,20 @@ describe("voucher creation & validation (TEST 10, 16, 17)", () => {
     ).rejects.toThrow();
   });
 
+  it("TC-FLD-114: refuses a code with spaces or symbols, naming the code field", async () => {
+    const admin = await createUserWithWallet({ role: "ADMIN" });
+    const start = new Date(Date.now() + 5.5 * 3_600_000).toISOString().slice(0, 10);
+    const end = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
+    for (const code of ["QA CODE 1", "QA<>!@#", "AB"]) {
+      await expect(
+        createVoucher({ name: "Bad Code", code, bonusPercent: 10, startDate: start, endDate: end }, ADMIN(admin.user.id)),
+        code,
+      ).rejects.toMatchObject({ details: { fields: { code: expect.stringMatching(/letters, digits/) } } });
+    }
+    const ok = await createVoucher({ name: "Good Code", code: "diwali-25", bonusPercent: 10, startDate: start, endDate: end }, ADMIN(admin.user.id));
+    expect(ok.code).toBe("DIWALI-25");
+  });
+
   it("rejects an end date before the start date", async () => {
     const admin = await createUserWithWallet({ role: "ADMIN" });
     await expect(

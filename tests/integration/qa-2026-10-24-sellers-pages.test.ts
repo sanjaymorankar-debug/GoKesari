@@ -94,7 +94,7 @@ describe("TC-CAT-050: every category of a big shop is reachable", () => {
   it("TC-CAT-008: a card shows the MRP struck through and the discount", async () => {
     const shop = await bigShop();
     const html = await render(shop.slug, { cat: "Late Category" });
-    expect(html).toMatch(/data-testid="product-mrp">MRP <span class="line-through">(<[^>]+>)*₹60</);
+    expect(html).toMatch(/data-testid="card-mrp">MRP <span class="line-through">(<[^>]+>)*₹60</);
     expect(html).toContain("3% off");
   });
 });
@@ -105,6 +105,6 @@ describe("TC-FLD-055: the shop description keeps its line breaks", () => {
     const shop = await createShop(owner.id, { name: "Lines Dairy" });
     await db.update(shops).set({ description: "Fresh milk daily\nOpen on Sundays\n<b>bold</b>" }).where(eq(shops.id, shop.id));
     const html = await render(shop.slug);
-    expect(html).toMatch(/class="[^"]*whitespace-pre-line[^"]*">Fresh milk daily\nOpen on Sundays\n&lt;b&gt;bold&lt;\/b&gt;/);
+    expect(html).toMatch(/class="[^"]*whitespace-pre-line[^"]*"[^>]*>Fresh milk daily\nOpen on Sundays\n&lt;b&gt;bold&lt;\/b&gt;/);
   });
 });

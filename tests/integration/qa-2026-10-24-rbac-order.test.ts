@@ -32,6 +32,7 @@ import { PUT as cancellationFeePut } from "@/app/api/shops/[id]/cancellation-fee
 import { POST as segmentsPost } from "@/app/api/shops/[id]/marketing/segments/route";
 import { PATCH as profileSetupPatch } from "@/app/api/shops/[id]/profile-setup/route";
 import { POST as staffPost } from "@/app/api/shops/[id]/staff/route";
+import { POST as priceRequestsPost } from "@/app/api/price-requests/route";
 import { PATCH as cannedPatch } from "@/app/api/support/canned-replies/[id]/route";
 import { POST as cannedPost } from "@/app/api/support/canned-replies/route";
 import { resetRateLimits } from "@/server/api/rate-limit";
@@ -59,6 +60,15 @@ describe("TC-RBAC-003: staff routes refuse a customer before reading the body", 
     signIn(await createUser(), "CUSTOMER");
     const res = await call(handler as never, `/api/x/${ID}`, { method, body: {}, params: { id: ID } });
     expect(res.status).toBe(403);
+  });
+
+  it("POST /api/price-requests: 403 for a customer who owns no shop; an owner acting as a customer still gets the validation", async () => {
+    signIn(await createUser(), "CUSTOMER");
+    expect((await call(priceRequestsPost as never, "/api/price-requests", { method: "POST", body: {} })).status).toBe(403);
+    const owner = await createUser({ role: "SHOP_OWNER" });
+    await createShop(owner.id);
+    signIn(owner, "CUSTOMER");
+    expect((await call(priceRequestsPost as never, "/api/price-requests", { method: "POST", body: {} })).status).toBe(422);
   });
 
   it("an admin still gets the route's validation", async () => {

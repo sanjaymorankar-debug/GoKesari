@@ -47,16 +47,15 @@ describe("REFERRAL_ABUSE", () => {
     expect(flag?.status).toBe("OPEN");
   });
 
-  it("counts friends' referrals refused at reward time towards the referrer", async () => {
+  it("flags a referrer as soon as one friend's reward is refused for a duplicate-account signal (SC-35)", async () => {
     const referrer = await createUser();
     await db.update(users).set({ createdAt: new Date(Date.now() - 10 * 86_400_000) }).where(eq(users.id, referrer.id));
     const code = await getOrCreateReferralCode(referrer.id);
-    await expect(applyReferralCode(referrer.id, code)).rejects.toThrow(/own referral code/);
-    for (let i = 0; i < 2; i += 1) {
-      const friend = await createUser();
-      await db.insert(customerReferrals).values({ referrerUserId: referrer.id, refereeUserId: friend.id, code, status: "REJECTED", rejectionReason: "Delivered to the referrer's own address." });
-    }
+    const friend = await createUser();
+    await db.insert(customerReferrals).values({ referrerUserId: referrer.id, refereeUserId: friend.id, code, status: "REJECTED", rejectionReason: "Delivered to the referrer's own address." });
     await runRiskRules(admin);
-    expect(await flagsOf(referrer.id)).toHaveLength(1);
+    const [flag] = await flagsOf(referrer.id);
+    expect(flag?.status).toBe("OPEN");
+    expect(await flagsOf(friend.id), "the friend is not flagged").toHaveLength(0);
   });
 });
