@@ -77,7 +77,18 @@ export async function shopListings(shopId: string, onlineOnly = false): Promise<
 export async function sellable(key: "A" | "B" = "A", minStock = 3, pick: "cheapest" | "priciest" = "cheapest"): Promise<Listing> {
   const shop = await shopOf(key);
   const preset = key === "A" ? (pick === "priciest" ? world().listings.premium : world().listings.packaged) : world().listings.sharedB;
-  if (preset && IS_LOCAL) return { ...preset, shopId: shop.id, shopName: shop.name };
+  if (preset && IS_LOCAL) {
+    // A long local run sells the preset out: the owner restocks it (a stock movement, as on the inventory screen).
+    const row = (await shopListings(shop.id)).find((r) => r.shopProductId === preset.shopProductId);
+    let stock = row?.trackInventory ? row.onlineStock : preset.stock;
+    if (row?.trackInventory && row.onlineStock < minStock + 5) {
+      assertWritable("restock a listing");
+      stock = row.onlineStock + 50;
+      const restock = await call(await as(key === "A" ? "shop" : "shopB"), "PATCH", `/api/shop-products/${preset.shopProductId}`, { onlineStock: stock });
+      expectStatus(restock, 200, `restock "${preset.name}"`);
+    }
+    return { ...preset, shopId: shop.id, shopName: shop.name, stock };
+  }
   const rows = await shopListings(shop.id, true);
   const sorted = rows
     .filter((p) => p.onlineSaleEnabled && p.isAvailable && (p.onlinePricePaise ?? 0) > 0 && (!p.trackInventory || p.onlineStock >= minStock))

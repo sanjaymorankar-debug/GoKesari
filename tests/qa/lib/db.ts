@@ -22,6 +22,19 @@ export function db() {
   return client;
 }
 
+/**
+ * A shop's seller document marked VERIFIED, with `fields` (column → value)
+ * set as well. seller_verifications is a seller table: on the split layout
+ * it is a foreign table, which takes no ON CONFLICT (…) DO UPDATE
+ * (CLAUDE.md), so the row is updated, and inserted only when there is none.
+ */
+export async function verifySellerDocument(shopId: string, docType: string, fields: Record<string, string | Date | null> = {}) {
+  const sql = db();
+  const row = { status: "VERIFIED", verified_at: new Date(), ...fields };
+  const updated = await sql`update seller_verifications set ${sql({ ...row, updated_at: new Date() })} where shop_id = ${shopId} and doc_type = ${docType} returning shop_id`;
+  if (!updated.length) await sql`insert into seller_verifications ${sql({ shop_id: shopId, doc_type: docType, ...row })}`;
+}
+
 export async function closeDb() {
   await client?.end({ timeout: 5 }).catch(() => {});
   client = null;

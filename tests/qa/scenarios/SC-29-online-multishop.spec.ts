@@ -154,6 +154,16 @@ qa("SC-29", "order paid online, invoiced and refunded to source: CAPTURED and re
 
 /* ------------------------------------------------------------------ SC-32 */
 
+/** A customer checkout that waits out the 15-a-minute limit once rather than mistake it for a refusal (the run checks out often). */
+async function checkoutPastLimit(body: Record<string, unknown>) {
+  let res = await api("customer", "POST", "/api/checkout", body);
+  if (res.status === 429) {
+    await new Promise((r) => setTimeout(r, 61_000));
+    res = await api("customer", "POST", "/api/checkout", body);
+  }
+  return res;
+}
+
 async function slotsOf(shop: string): Promise<{ key: string; date: string; label: string }[]> {
   const res = await api("customer", "GET", `/api/checkout/scheduled-slots?shopId=${shop}`);
   expectStatus(res, 200, "scheduled slots");
@@ -206,11 +216,11 @@ qa("SC-32", "multi-shop purchase: an expired coupon refused and a valid one appl
       // 3. Slots: the full one refused, then free ones.
       const address = (await db()<{ id: string }[]>`select id from addresses where user_id = ${userOf("customer").id!} and is_default limit 1`)[0]?.id ?? null;
       const base = { addressId: address, paymentMethod: "WALLET", couponCode: valid, acknowledgeClosedShopIds: [a, b], deliveryWindows: { [a]: "SCHEDULED", [b]: "SCHEDULED" } };
-      const full = await api("customer", "POST", "/api/checkout", { ...base, requestId: rid("full"), scheduledSlots: { [a]: slotsA[0].key, [b]: slotsB[0].key } });
+      const full = await checkoutPastLimit({ ...base, requestId: rid("full"), scheduledSlots: { [a]: slotsA[0].key, [b]: slotsB[0].key } });
       if (full.status < 400 || full.status >= 500) bad.push(`the full slot → ${full.status}`);
       // 4. Pays.
       const before = await walletBalance();
-      const res = await api("customer", "POST", "/api/checkout", { ...base, requestId: rid("ok"), scheduledSlots: { [a]: slotsA[1].key, [b]: slotsB[0].key } });
+      const res = await checkoutPastLimit({ ...base, requestId: rid("ok"), scheduledSlots: { [a]: slotsA[1].key, [b]: slotsB[0].key } });
       expectStatus(res, 201, "checkout");
       const ids = (res.body.orders as { id: string }[]).map((o) => o.id);
       const rows = await db()<{ id: string; shop_id: string; subtotal: number; discount: number; total: number; group: string | null; slot: Date | null; coupon: string | null }[]>`
