@@ -9,9 +9,10 @@ export default function CookiePolicyPage() {
       <p>Last updated: {CURRENT_POLICY_VERSION}</p>
 
       <p>
-        We use a small number of cookies, all of which are essential to
-        operating the site. We do not currently use third-party advertising
-        or cross-site tracking cookies.
+        We use a small number of first-party cookies to run the site: to
+        keep you signed in, to protect forms, and to remember choices such as
+        your delivery location. We do not currently use third-party
+        advertising or cross-site tracking cookies.
       </p>
 
       <h2>Cookies we use</h2>
@@ -24,6 +25,16 @@ export default function CookiePolicyPage() {
         <li>
           <strong>CSRF protection cookie</strong> — protects forms and
           payment actions from cross-site request forgery.
+        </li>
+        <li>
+          <strong>Delivery location cookie</strong> (<code>gk_location</code>)
+          — remembers the delivery area you chose or your device found, so
+          the shops near you are shown. Set only after you choose a location
+          or allow your device to share it; kept for 30 days or until you
+          clear it (&quot;Clear location&quot; under &quot;Deliver to&quot;). It holds
+          a place name and a position rounded to about 11 metres, never your
+          name or account. See the{" "}
+          <a href="/legal/privacy-policy">Privacy Policy</a>, section 2.
         </li>
       </ul>
 
