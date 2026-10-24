@@ -181,6 +181,7 @@ export const TABLE_OWNERSHIP = {
   accounts: "platform",
   sessions: "platform",
   verification_tokens: "platform",
+  revoked_sessions: "platform", // sessions ended by Sign out (TC-AUTH-034)
   login_otps: "platform",
   roles: "platform",
   permissions: "platform",
@@ -284,6 +285,11 @@ export const TABLE_OWNERSHIP = {
   home_banners: "platform",
   search_queries: "platform",
   /* <<< end WS-F */
+  //
+  /* >>> purchase lists (docs/purchase-lists-2026-10): a customer's weekly / monthly lists, next to carts */
+  purchase_lists: "customer",
+  purchase_list_items: "customer",
+  /* <<< end purchase lists */
   //
 } as const satisfies Record<string, DbOwner>;
 
