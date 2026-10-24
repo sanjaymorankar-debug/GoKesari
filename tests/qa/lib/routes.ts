@@ -31,6 +31,28 @@ export function pagePaths(): string[] {
 
 export const isDynamic = (path: string) => path.includes("[");
 
+let pageList: string[] | undefined;
+
+/**
+ * The page a link opens ("/shops/anand-dairy?tab=x" → "/shops/[slug]"): a
+ * static page first, else the dynamic page with the most fixed segments;
+ * null when no page matches.
+ */
+export function pageRouteOf(link: string): string | null {
+  pageList ??= pagePaths();
+  const path = link.split(/[?#]/)[0].replace(/(.)\/$/, "$1") || "/";
+  if (pageList.includes(path)) return path;
+  const segs = path.split("/").filter(Boolean);
+  const fixed = (p: string) => p.split("/").filter((s) => s && !s.startsWith("[")).length;
+  for (const pattern of pageList.filter(isDynamic).sort((a, b) => fixed(b) - fixed(a))) {
+    const parts = pattern.split("/").filter(Boolean);
+    const rest = parts.findIndex((s) => s.startsWith("[..."));
+    if (rest < 0 ? parts.length !== segs.length : segs.length <= rest) continue;
+    if (parts.slice(0, rest < 0 ? parts.length : rest).every((s, i) => s.startsWith("[") || s === segs[i])) return pattern;
+  }
+  return null;
+}
+
 /** A syntactically valid id that exists nowhere, for dynamic segments. */
 export const NO_SUCH_ID = "00000000-0000-4000-8000-000000000000";
 
