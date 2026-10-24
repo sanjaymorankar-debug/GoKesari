@@ -1345,6 +1345,20 @@
    "status": "Fixed (re-test pending)"
   },
   {
+   "id": "D-102",
+   "title": "Two simultaneous 'add to cart' of the same product: one answers 500 (new line) or one add is lost (existing line)",
+   "cases": [
+    "TC-CART-001",
+    "TC-LIST-021"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 test.gokesari.com (signed tier, purchase-lists run; build 487f11b)",
+   "actual": "POST /api/cart is fine one request at a time (Burger Bun and Bread, quantity 1 and 2, on an empty cart and onto an existing line: all 200, GET /api/cart 200 before and after). Two POSTs of the same product at the same moment on an empty cart: one 200, the other 500 {\"error\":{\"code\":\"INTERNAL\",\"message\":\"Something went wrong. Please try again.\"}} — 5 of 5 rounds on the staging customer2 account; the cart then holds one line ×2, so the failing request wrote nothing (the failure is in the add's insert, not in the cart read after it). Two POSTs of different products at once: both 200. Two POSTs of the same product at once when the line already exists: both 200 but 1 + 2 + 2 is saved as 3, not 5 (2 of 2 rounds) — a silent lost update. Four simultaneous GET /api/cart: all 200. First seen 15:21:59 UTC when another session used the same staging customer (TC-LIST-021 set-up; that session placed order DB-20261024-ITRVQT at 15:22:54 UTC). Cause: addToCart (src/server/services/cart.ts) reads the line and then inserts or updates it outside a transaction — the second insert hits the unique index cart_items_cart_product_unique (unhandled → 500), and two updates both write existing + quantity from the same read. Evidence: scratchpad qa2/cart-500-isolation.log and qa2/cart-race.log.",
+   "expected": "A double tap or two tabs never produce a 500 and never lose units: both adds succeed with the line holding the sum (within stock and the 99 cap), or one is refused with a clear message; the saved quantity matches what the answers report.",
+   "fix": "src/server/services/cart.ts: addToCart and setCartItemQuantity run in one transaction that first locks the customer's cart row (lockCart: select … for update on carts), so two changes at the same moment run one after the other and the second reads what the first wrote — no second insert into cart_items_cart_product_unique, no add written from a stale read. sendPurchaseListToCart (src/server/services/purchase-lists.ts) takes the same lock, so a list sent while the same product is added, or two lists sent at once, cannot clash either. The add checks stock against the resulting quantity and caps the line at 99 (a line already at 99 is refused with a message; more than 99 in one add is refused, as the API does). tests/integration/cart-concurrent-adds.test.ts, on both layouts: two and five adds at once on a new cart, an emptied cart and an existing line (1 + 2 + 2 = 5), the 99 cap, stock, and a quantity set or a list send at the same moment as an add.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
    "id": "E-01",
    "title": "The host's firewall answers some requests itself (SQL-like search text, bursts)",
    "cases": [

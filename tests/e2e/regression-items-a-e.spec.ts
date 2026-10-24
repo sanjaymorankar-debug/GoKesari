@@ -520,7 +520,8 @@ test("C5: rider photo + KYC document upload; access-checked links; ID card lists
 /* =========================================== C4 — voucher visibility */
 
 test("C4: operators and admins see voucher codes; customers and shop owners are refused", async ({ browser }) => {
-  const today = new Date().toISOString().slice(0, 10);
+  // Today in IST, as the site counts a voucher's dates.
+  const today = new Date(Date.now() + 5.5 * 3600_000).toISOString().slice(0, 10);
   const code = `E2E${RUN}`.toUpperCase().slice(0, 20);
   const created = await call(admin, "POST", "/api/vouchers", { name: "E2E voucher", code, bonusPercent: 10, startDate: today, endDate: today });
   expect(created.status, JSON.stringify(created.body)).toBe(201);

@@ -16,7 +16,8 @@
 import ExcelJS from "exceljs";
 import { and, count, desc, eq, gte, ilike, inArray, lte, or } from "drizzle-orm";
 
-import { isCalendarDate } from "@/lib/dates";
+import { isCalendarDate, todayIn } from "@/lib/dates";
+import { getEnv } from "@/lib/env";
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { formatPaise } from "@/lib/money";
 import { db, type DbClient } from "@/server/db";
@@ -43,8 +44,9 @@ interface Actor {
 /** Code default; the live cap is rule `vouchers.maxBonusPercent`. */
 export const MAX_VOUCHER_BONUS_PERCENT = 100;
 
+/** Today in the app's timezone (IST), not UTC: from 00:00 to 05:30 IST the UTC date is still yesterday. */
 function todayIso(): string {
-  return new Date().toISOString().slice(0, 10);
+  return todayIn(getEnv().APP_TIMEZONE);
 }
 
 /**
