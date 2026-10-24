@@ -32,6 +32,37 @@ silently switched off `position: sticky` for every header on the site — the
 no-sideways-scroll effect without a scroll container (browsers without `clip`
 keep `hidden`).
 
+### Finding the location by itself (24 Oct 2026)
+
+Owner report: "user location is not detected". Before, "Deliver to" stayed on
+"Set location" until the shopper opened it and tapped the GPS button. Now:
+
+- **Found by itself** (`src/components/auto-locate.tsx`, mounted in the site
+  header on every page): for a visitor or customer with no location yet — no
+  choice and no saved address — on home, shops, a shop, search and category
+  pages, the device's position is saved as the delivery location and the page
+  refreshes. Permission already given: no prompt. Not answered yet: asked
+  once per browser session. Refused: not asked again. A location chosen
+  while the device was answering is kept (`ifUnset` on POST /api/location).
+- **"Find your location"** button on the home page's "Set your location"
+  line; when it fails, the reason (blocked, location off, too slow, not
+  https, not supported) and a button to the PIN code box. The "Use my
+  current location" buttons use the same code (quick network fix, then one
+  GPS try) and give the same reasons instead of always "permission was not
+  given".
+- **Named place**: a device position is labelled after the nearest shop or
+  saved address within 2 km ("Kharadi, Pune"), from GoKesari's own data — no
+  Google call (MAPS_USAGE.md); no PIN code is guessed. "Current location"
+  when nothing is known there.
+- **Nearby screen**: the position it finds also becomes the delivery
+  location when none is chosen.
+
+Saved in the `gk_location` cookie on the device (30 days), as before — never
+in the database. In the app the phone's own location permission decides.
+Code: `src/lib/device-location.ts`; tests: `tests/unit/device-location.test.ts`,
+`tests/integration/device-location.test.ts`; results:
+`LOCATION_DETECT_TEST_RESULTS_2026-10-24.md`.
+
 ## Switching it off
 
 Rule **`homeDiscovery`** (Admin → Settings → Rules), on by default:

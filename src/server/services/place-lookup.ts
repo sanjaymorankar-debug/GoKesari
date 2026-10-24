@@ -61,8 +61,17 @@ function remember<T>(key: string, value: T): T {
 
 /* ------------------------------------------------------------ position */
 
-/** The area / city / PIN for a position, or null when nothing is known nearby. */
-export async function describePosition(latitude: number, longitude: number): Promise<PlaceName | null> {
+/**
+ * The area / city / PIN for a position, or null when nothing is known nearby.
+ * `google: false` answers from GoKesari's own data only — for saving a
+ * delivery location (POST /api/location), which must not cost a Maps call per
+ * visitor (MAPS_USAGE.md).
+ */
+export async function describePosition(
+  latitude: number,
+  longitude: number,
+  options: { google?: boolean } = {},
+): Promise<PlaceName | null> {
   const key = `pos:${latitude.toFixed(3)},${longitude.toFixed(3)}`;
   const hit = cached<PlaceName | null>(key);
   if (hit !== undefined) return hit;
@@ -81,6 +90,8 @@ export async function describePosition(latitude: number, longitude: number): Pro
   if (nearest && (nearest.area || nearest.city || nearest.pincode)) {
     return remember(key, { area: nearest.area?.trim() || null, city: nearest.city?.trim() || null, pincode: nearest.pincode });
   }
+  // Not remembered: the Nearby screen asking later may still ask Google.
+  if (options.google === false) return null;
   if (!isGeocodingConfigured()) return remember(key, null);
   const google = await googleGeocode({ latlng: `${latitude},${longitude}` }, "nearby_position_label").catch(() => null);
   return remember(key, google ? { area: google.area, city: google.city, pincode: google.pincode } : null);

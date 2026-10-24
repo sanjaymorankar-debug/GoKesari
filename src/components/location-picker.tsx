@@ -6,7 +6,10 @@ import { useState } from "react";
 
 import type { MapPickerResult } from "@/components/map-picker";
 import { Alert, Button, inputClass } from "@/components/ui";
+import { tr } from "@/lib/board/i18n";
+import { findDevicePosition } from "@/lib/device-location";
 import { isMapsAvailable } from "@/lib/geo/provider";
+import { LOCATION_PROBLEM_TEXT } from "@/lib/home-i18n";
 
 // Only needed once someone opens "Search an address", so the map picker (and
 // the Google Maps loader behind it) stays out of every page's initial bundle.
@@ -117,22 +120,16 @@ export function LocationPanel({
     });
   }
 
-  function useDevice() {
-    if (!("geolocation" in navigator)) {
-      setError("This device cannot share its location — enter a PIN code instead.");
-      return;
-    }
+  async function pickDevice() {
     setBusy(true);
     setError(null);
-    navigator.geolocation.getCurrentPosition(
-      (position) =>
-        void choose({ latitude: position.coords.latitude, longitude: position.coords.longitude }),
-      () => {
-        setBusy(false);
-        setError("Location permission was not given — enter a PIN code instead.");
-      },
-      { enableHighAccuracy: false, timeout: 10_000, maximumAge: 300_000 },
-    );
+    const found = await findDevicePosition();
+    if (found.ok) {
+      await choose({ latitude: found.position.latitude, longitude: found.position.longitude });
+    } else {
+      setBusy(false);
+      setError(tr(LOCATION_PROBLEM_TEXT[found.problem], "en"));
+    }
   }
 
   return (
@@ -175,7 +172,7 @@ export function LocationPanel({
 
         <div className="flex flex-wrap items-center gap-2">
           {/* Rows here are 8px apart, so 36px keeps the tap areas apart. */}
-          <Button size="sm" className="tap-target [--tap-h:36px]" disabled={busy} onClick={useDevice}>
+          <Button size="sm" className="tap-target [--tap-h:36px]" disabled={busy} onClick={() => void pickDevice()}>
             Use my current location
           </Button>
           <form

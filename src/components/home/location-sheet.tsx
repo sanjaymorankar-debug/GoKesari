@@ -14,7 +14,8 @@ import { createPortal } from "react-dom";
 
 import { Icon } from "@/components/board/icons";
 import { tr, type Lang } from "@/lib/board/i18n";
-import { HOME } from "@/lib/home-i18n";
+import { findDevicePosition } from "@/lib/device-location";
+import { HOME, LOCATION_PROBLEM_TEXT } from "@/lib/home-i18n";
 
 export function LocationSheet({
   lang,
@@ -68,21 +69,16 @@ export function LocationSheet({
     }
   }
 
-  function useDevice() {
-    if (!("geolocation" in navigator)) {
-      setError(tr(HOME.noGeolocation, lang));
-      return;
-    }
+  async function pickDevice() {
     setBusy("gps");
     setError(null);
-    navigator.geolocation.getCurrentPosition(
-      (position) => void choose({ latitude: position.coords.latitude, longitude: position.coords.longitude }, "gps"),
-      () => {
-        setBusy(null);
-        setError(tr(HOME.locationDenied, lang));
-      },
-      { enableHighAccuracy: false, timeout: 10_000, maximumAge: 300_000 },
-    );
+    const found = await findDevicePosition();
+    if (found.ok) {
+      await choose({ latitude: found.position.latitude, longitude: found.position.longitude }, "gps");
+    } else {
+      setBusy(null);
+      setError(tr(LOCATION_PROBLEM_TEXT[found.problem], lang));
+    }
   }
 
   // In a portal: the sticky header is its own stacking context, which would keep the sheet under the bottom navigation.
@@ -114,7 +110,7 @@ export function LocationSheet({
 
         <button
           type="button"
-          onClick={useDevice}
+          onClick={() => void pickDevice()}
           disabled={busy !== null}
           data-testid="location-gps"
           className="flex min-h-12 w-full items-center gap-3 rounded-xl border-2 border-kesari-600 px-3 text-left font-bold text-kesari-800 hover:bg-kesari-50 disabled:opacity-60"
