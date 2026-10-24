@@ -24,7 +24,7 @@ export interface Listing extends WorldListing {
   shopName: string;
 }
 
-interface StorefrontRow {
+export interface StorefrontRow {
   shopProductId: string;
   productId: string;
   productName: string;
@@ -51,6 +51,25 @@ export async function shopOf(key: "A" | "B" | "C" = "A") {
 }
 
 /**
+ * A shop's listings with their stock counts, as operations see them: a
+ * customer sees only whether a product is in stock (TC-SPI-027). The
+ * operations answer is the listing row itself (`id`, the product nested), so
+ * it is put in the storefront's shape here. `onlineOnly` keeps what is on
+ * sale online (active, available, in a category the shop carries).
+ */
+export async function shopListings(shopId: string, onlineOnly = false): Promise<StorefrontRow[]> {
+  const res = await call(await as("ops"), "GET", `/api/shops/${shopId}/products${onlineOnly ? "?onlineOnly=true" : ""}`);
+  expectStatus(res, 200, "the shop's listings");
+  type OpsRow = Omit<StorefrontRow, "shopProductId" | "productName"> & { id: string; product?: { name: string; mrpPaise?: number | null } };
+  return (res.body as OpsRow[]).map((r) => ({
+    ...r,
+    shopProductId: r.id,
+    productName: r.product?.name ?? "",
+    mrpPaise: r.product?.mrpPaise ?? null,
+  }));
+}
+
+/**
  * An in-stock, online-priced listing of a shop: the cheapest by default, or
  * the priciest (a basket that outgrows a wallet in few units). Locally the
  * world's packaged listing (cheapest) or its premium one (priciest).
@@ -59,10 +78,7 @@ export async function sellable(key: "A" | "B" = "A", minStock = 3, pick: "cheape
   const shop = await shopOf(key);
   const preset = key === "A" ? (pick === "priciest" ? world().listings.premium : world().listings.packaged) : world().listings.sharedB;
   if (preset && IS_LOCAL) return { ...preset, shopId: shop.id, shopName: shop.name };
-  // Operations see stock counts; a customer sees only whether a product is in stock (TC-SPI-027).
-  const res = await call(await as("ops"), "GET", `/api/shops/${shop.id}/products?limit=100`);
-  expectStatus(res, 200, "the shop's storefront");
-  const rows = (Array.isArray(res.body) ? res.body : (res.body?.products ?? [])) as StorefrontRow[];
+  const rows = await shopListings(shop.id, true);
   const sorted = rows
     .filter((p) => p.onlineSaleEnabled && p.isAvailable && (p.onlinePricePaise ?? 0) > 0 && (!p.trackInventory || p.onlineStock >= minStock))
     .sort((a, b) => (a.onlinePricePaise ?? 0) - (b.onlinePricePaise ?? 0));

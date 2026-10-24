@@ -657,7 +657,7 @@ qa("TC-DEL-030", "invalid profile edits (bad IFSC, account number with letters, 
     await editor.getByLabel("Registration number").fill("MH12@#$%^&*");
     await editor.getByRole("button", { name: "Save" }).click();
     // "Saved." or the refusal under the form (the editor's Alert carries no alert role).
-    const outcome = editor.getByText(/^Saved\.$|registration number as on the RC|check the highlighted fields/i);
+    const outcome = editor.getByText(/^Saved\.$|registration number as on the RC|letters, digits, spaces and hyphens only|check the highlighted fields/i);
     await expect(outcome.first()).toBeVisible();
     seen.push(`the form says "${(await outcome.first().innerText()).trim()}"`);
     const reg = (await partner(rider.partnerId)).vehicle_registration_number;

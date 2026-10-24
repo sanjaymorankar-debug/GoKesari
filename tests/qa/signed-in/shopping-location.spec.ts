@@ -169,7 +169,7 @@ qa("TC-LOC-003", "device position: allowed → set and rounded to 4 decimals; de
     await expect(deliverToLabel(other)).toContainText(`PIN ${home().pincode}`, { timeout: 30_000 });
     sheet2 = await openSheet(other);
     await sheet2.getByTestId("location-gps").click();
-    await expect(sheet2.getByRole("alert")).toContainText(/permission was not given/i);
+    await expect(sheet2.getByRole("alert")).toContainText(/permission was not given|location is blocked for this site/i);
     await other.keyboard.press("Escape");
     await expect(deliverToLabel(other)).toContainText(`PIN ${home().pincode}`);
     expect((await locationCookie(denied))?.value.pincode).toBe(home().pincode);

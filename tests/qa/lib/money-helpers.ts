@@ -23,7 +23,7 @@ import { expect, request as playwrightRequest, type APIRequestContext, type Page
 
 import { as, me } from "./actors";
 import { db } from "./db";
-import { addToCart, defaultAddress, emptyCart, type Listing } from "./flows";
+import { addToCart, defaultAddress, emptyCart, shopListings, type Listing } from "./flows";
 import { call, expectStatus, RUN, SLOW_MS, why, type Answer } from "./http";
 import { blocked, need } from "./record";
 import { assertWritable, BASE_URL, IS_LOCAL } from "./target";
@@ -362,11 +362,7 @@ export async function orderOf(role: Role, id: string): Promise<OrderRow | null> 
 
 /** Online stock of a listing (undefined when not tracked), as operations see it. */
 export async function onlineStock(listing: Pick<Listing, "shopId" | "shopProductId">): Promise<number | undefined> {
-  // Operations see stock counts; a customer sees only whether a product is in stock (TC-SPI-027).
-  const res = await call(await as("ops"), "GET", `/api/shops/${listing.shopId}/products?limit=100`);
-  expectStatus(res, 200, "storefront");
-  const rows = (Array.isArray(res.body) ? res.body : (res.body?.products ?? [])) as { shopProductId: string; trackInventory: boolean; onlineStock: number }[];
-  const row = rows.find((r) => r.shopProductId === listing.shopProductId);
+  const row = (await shopListings(listing.shopId)).find((r) => r.shopProductId === listing.shopProductId);
   return row?.trackInventory ? row.onlineStock : undefined;
 }
 
