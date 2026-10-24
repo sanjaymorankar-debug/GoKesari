@@ -105,6 +105,6 @@ describe("TC-FLD-055: the shop description keeps its line breaks", () => {
     const shop = await createShop(owner.id, { name: "Lines Dairy" });
     await db.update(shops).set({ description: "Fresh milk daily\nOpen on Sundays\n<b>bold</b>" }).where(eq(shops.id, shop.id));
     const html = await render(shop.slug);
-    expect(html).toMatch(/class="[^"]*whitespace-pre-line[^"]*">Fresh milk daily\nOpen on Sundays\n&lt;b&gt;bold&lt;\/b&gt;/);
+    expect(html).toMatch(/class="[^"]*whitespace-pre-line[^"]*"[^>]*>Fresh milk daily\nOpen on Sundays\n&lt;b&gt;bold&lt;\/b&gt;/);
   });
 });
