@@ -105,16 +105,34 @@ describe("recent and trending searches (F2)", () => {
     expect(await listRecentSearches(user.id)).toEqual([]);
   });
 
-  it("trends what at least two searches asked for, topped up with the defaults in the visitor's language", async () => {
-    const user = await createUser();
-    await recordSearch(null, "ghee");
-    await recordSearch(user.id, "ghee");
-    await recordSearch(null, "honey");
+  it("trends what at least two different signed-in people searched for, most people first, topped up with the defaults in the visitor's language", async () => {
+    const asha = await createUser();
+    const ravi = await createUser();
+    const meera = await createUser();
+    // Three people once each outrank two people with more searches between them.
+    for (const user of [asha, ravi, meera]) await recordSearch(user.id, "butter");
+    for (let i = 0; i < 3; i++) await recordSearch(asha.id, "ghee");
+    await recordSearch(ravi.id, "ghee");
+    // One person searching twice is still one person.
+    await recordSearch(asha.id, "cough syrup");
+    await recordSearch(asha.id, "cough syrup");
+    // A guest search kept before guests' searches stopped being saved has no account: not counted.
+    await db.insert(searchQueries).values([{ query: "honey" }, { query: "honey" }]);
     const trending = await listTrendingSearches("hi", 4);
-    expect(trending[0]).toEqual({ q: "ghee", label: "ghee" });
+    expect(trending.slice(0, 2)).toEqual([
+      { q: "butter", label: "butter" },
+      { q: "ghee", label: "ghee" },
+    ]);
+    expect(trending.map((t) => t.q)).not.toContain("cough syrup");
     expect(trending.map((t) => t.q)).not.toContain("honey");
     expect(trending).toHaveLength(4);
-    expect(trending[1]).toEqual({ q: "milk", label: "दूध" });
+    expect(trending[2]).toEqual({ q: "milk", label: "दूध" });
+  });
+
+  it("does not keep a search made while signed out", async () => {
+    await recordSearch(null, "honey");
+    await recordSearch(null, "honey");
+    expect(await db.select().from(searchQueries)).toEqual([]);
   });
 });
 

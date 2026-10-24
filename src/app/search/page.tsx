@@ -55,7 +55,7 @@ export default async function SearchPage({
     );
   }
 
-  // Recent searches (the account's) and trending (everyone's): the first page of a search only.
+  // Recent searches and trending (signed-in customers' only; a guest's search is not kept): the first page of a search only.
   if (!pageParam && !view) after(() => recordSearch(user?.id ?? null, query));
 
   const distances = location ? await serviceableShopIds(location) : undefined;
