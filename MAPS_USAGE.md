@@ -22,6 +22,8 @@ rationale in full.
 | Address search-as-you-type | Places API (Autocomplete) | Per session/request, per Google's Autocomplete billing model | Only while a user is actively typing in the picker's search box |
 | "Confirm location" | Geocoding API | Per request | **Exactly once** per shop registration, once per shop location edit (only if the pin actually moved), once per customer address save/edit (only if the pin moved) |
 | Live delivery tracking map (event layer) | Maps JavaScript API | Per map load | Once each time a customer presses **Track delivery** on a live order; the 5-second position updates move the marker on the already-loaded map (no further loads). Without a browser key, a plain "see where your rider is" link is shown instead |
+| Street address of the shopper's detected position — the "Deliver to" text and the Nearby screen's "Your location" (owner decision, 24 Oct 2026: "the exact address whenever possible") | Geocoding API (reverse) | Per request | Once per spot (positions rounded to ~11 m), remembered in server memory for a day; "Deliver to" then keeps it in the location cookie for 30 days, so a returning visitor is not looked up again. Purpose `position_address`. Without the server key: no call, and the area / city of the nearest GoKesari shop or address is shown instead |
+| Nearby screen, typed PIN code / area GoKesari has no shops or addresses for | Geocoding API | Per request | Only for places GoKesari has no data for; remembered for a day. Purpose `nearby_manual_place` |
 | Everything else (shop search, order checkout, map markers, admin views, rider assignment) | — none — | — | Zero calls; reads stored coordinates |
 
 ## What's logged vs. not

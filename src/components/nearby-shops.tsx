@@ -54,6 +54,8 @@ interface NearbyAnswer {
     longitude: number;
     source: "DEVICE" | "PLACE";
     place: { area: string | null; city: string | null; pincode: string | null } | null;
+    /** The street address of a device position, when Google knows it. */
+    address?: string | null;
   };
   radiusKm: NearbyRadiusKm;
   countsByRadius: Record<string, number>;
@@ -215,7 +217,7 @@ export function NearbyShops() {
 
   const origin = answer?.origin ?? null;
   const fromPlace = search?.kind === "place";
-  const placeText = placeLine(origin?.place ?? null);
+  const placeText = origin?.address ?? placeLine(origin?.place ?? null);
   const counts = answer?.countsByRadius ?? {};
   const shops = answer?.shops ?? [];
   const wider = widerRadius(radius);
@@ -237,7 +239,8 @@ export function NearbyShops() {
               <p className="text-base font-bold text-ink-900" data-testid="nearby-location">Finding your location…</p>
             ) : origin ? (
               <>
-                <p className="truncate text-base font-bold text-ink-900" data-testid="nearby-location">
+                {/* Two lines: a street address is longer than an area name. */}
+                <p className="line-clamp-2 break-words text-base font-bold text-ink-900" data-testid="nearby-location">
                   {placeText ?? (fromPlace ? search.query : `${origin.latitude.toFixed(5)}, ${origin.longitude.toFixed(5)}`)}
                 </p>
                 <p className="text-xs text-ink-600">

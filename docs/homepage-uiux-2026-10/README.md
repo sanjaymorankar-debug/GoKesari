@@ -50,10 +50,16 @@ Owner report: "user location is not detected". Before, "Deliver to" stayed on
   current location" buttons use the same code (quick network fix, then one
   GPS try) and give the same reasons instead of always "permission was not
   given".
-- **Named place**: a device position is labelled after the nearest shop or
-  saved address within 2 km ("Kharadi, Pune"), from GoKesari's own data — no
-  Google call (MAPS_USAGE.md); no PIN code is guessed. "Current location"
-  when nothing is known there.
+- **Exact address** (owner, 24 Oct 2026: "the exact address whenever
+  possible"): a device position is labelled with its street address from
+  Google reverse geocoding ("Eon Free Zone, Kharadi, Pune, Maharashtra
+  411014"), with Google's PIN code. One call per spot (~11 m), remembered for
+  a day and shared with the Nearby screen, which shows the same address
+  (MAPS_USAGE.md, purpose `position_address`). Without the server key, or
+  when Google has nothing: the area and city of the nearest shop or saved
+  address within 2 km ("Kharadi, Pune"), with no PIN code guessed; "Current
+  location" only when nothing is known at all. Headings keep the area
+  ("Shops near Kharadi").
 - **Nearby screen**: the position it finds also becomes the delivery
   location when none is chosen.
 

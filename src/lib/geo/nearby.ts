@@ -63,3 +63,19 @@ export function placeLine(place: { area?: string | null; city?: string | null; p
   const line = [unique.join(", "), place.pincode?.trim()].filter(Boolean).join(" ");
   return line || null;
 }
+
+/** A plus code ("XW2Q+H8") at the start of a Google address. */
+const PLUS_CODE_PREFIX = /^[23456789CFGHJMPQRVWX]{4,8}\+[23456789CFGHJMPQRVWX]{2,3}\s*,?\s*/i;
+
+/**
+ * A Google formatted address as the location line shows it: no plus code in
+ * front and no ", India" at the end — "Eon Free Zone, Kharadi, Pune,
+ * Maharashtra 411014". At most `max` characters, cut at a comma.
+ */
+export function cleanAddress(formatted: string | null | undefined, max = 120): string | null {
+  if (!formatted) return null;
+  let text = formatted.trim().replace(PLUS_CODE_PREFIX, "").replace(/,\s*India$/i, "").trim();
+  while (text.length > max && text.includes(",")) text = text.slice(0, text.lastIndexOf(",")).trim();
+  if (text.length > max) text = text.slice(0, max).trim();
+  return text || null;
+}

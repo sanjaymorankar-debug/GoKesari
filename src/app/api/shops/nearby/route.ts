@@ -6,7 +6,8 @@
  * GET ?q=411014&radiusKm=5                 from a typed PIN code or area (location refused / unavailable)
  *
  * radiusKm is 1, 3, 5 or 10 (default 5). Answers
- *   { origin: { latitude, longitude, source: "DEVICE" | "PLACE", place: { area, city, pincode } | null },
+ *   { origin: { latitude, longitude, source: "DEVICE" | "PLACE", place: { area, city, pincode } | null,
+ *               address: street address of a device position (Google, server key) | null },
  *     radiusKm, countsByRadius: { 1, 3, 5, 10 }, shops: [...] }
  * with approved live shops nearest first, distance worked out on the server
  * (Haversine). 404 when a typed place cannot be found.
@@ -19,7 +20,7 @@ import { parseNearbyRadius } from "@/lib/geo/nearby";
 import { parseQuery, route } from "@/server/api/handler";
 import { clientKey, enforceRateLimit } from "@/server/api/rate-limit";
 import { findNearbyShops, isValidPosition } from "@/server/services/nearby-shops";
-import { describePosition, findPlace } from "@/server/services/place-lookup";
+import { addressForPosition, describePosition, findPlace } from "@/server/services/place-lookup";
 
 export const dynamic = "force-dynamic";
 
@@ -40,10 +41,15 @@ export const GET = route(async (request: NextRequest) => {
   let origin: { latitude: number; longitude: number };
   let source: "DEVICE" | "PLACE";
   let place: { area: string | null; city: string | null; pincode: string | null } | null;
+  let address: string | null = null;
   if (query.lat != null && query.lng != null && isValidPosition(query.lat, query.lng)) {
     origin = { latitude: query.lat, longitude: query.lng };
     source = "DEVICE";
-    place = await describePosition(query.lat, query.lng).catch(() => null);
+    // Google's answer for the exact spot first; GoKesari's own nearest place when it has none.
+    const exact = await addressForPosition(query.lat, query.lng).catch(() => null);
+    address = exact?.address ?? null;
+    const fromGoogle = exact ? { area: exact.area, city: exact.city, pincode: exact.pincode } : null;
+    place = address ? fromGoogle : ((await describePosition(query.lat, query.lng, { google: false }).catch(() => null)) ?? fromGoogle);
   } else {
     const found = query.q ? await findPlace(query.q) : null;
     if (!found) throw new AppError("NOT_FOUND", "We couldn't find that PIN code or area. Check it, or try a nearby PIN code.");
@@ -54,7 +60,7 @@ export const GET = route(async (request: NextRequest) => {
 
   const result = await findNearbyShops(origin, radiusKm);
   return NextResponse.json(
-    { ...result, origin: { ...result.origin, source, place } },
+    { ...result, origin: { ...result.origin, source, place, address } },
     { headers: { "cache-control": "no-store" } },
   );
 });

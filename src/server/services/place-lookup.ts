@@ -1,10 +1,14 @@
 /**
  * Places for the Nearby screen (docs/nearby-referral-2026-10, feature 1):
  *
- *  - describePosition: the area / city / PIN shown at the top for the user's
- *    detected position — taken from the nearest shop or saved address with a
- *    map location within 2 km (GoKesari's own data, no cost); only when there
- *    is none, Google reverse geocoding, if the server key is set.
+ *  - addressForPosition: the street address of the user's detected position
+ *    — Google reverse geocoding, if the server key is set. Shown on the
+ *    Nearby screen and used as the "Deliver to" text (24 Oct 2026: "the exact
+ *    address whenever possible").
+ *  - describePosition: the area / city / PIN for the detected position —
+ *    taken from the nearest shop or saved address with a map location within
+ *    2 km (GoKesari's own data, no cost); only when there is none, the Google
+ *    answer above.
  *  - findPlace: the point to search from when location is refused or not
  *    available and the user types a PIN code or an area — the centre of the
  *    shops and saved addresses in that PIN code / area; only when there are
@@ -17,7 +21,7 @@
 import { sql } from "drizzle-orm";
 
 import { getEnv, isGeocodingConfigured } from "@/lib/env";
-import { isPincode } from "@/lib/geo/nearby";
+import { cleanAddress, isPincode } from "@/lib/geo/nearby";
 import { db } from "@/server/db";
 import { mapsApiCallLog } from "@/server/db/schema";
 
@@ -61,11 +65,41 @@ function remember<T>(key: string, value: T): T {
 
 /* ------------------------------------------------------------ position */
 
+export interface PositionAddress extends PlaceName {
+  /** The street address, e.g. "Eon Free Zone, Kharadi, Pune, Maharashtra 411014"; null when Google gave only a plus code. */
+  address: string | null;
+}
+
+const lookups = new Map<string, Promise<PositionAddress | null>>();
+
+/**
+ * The street address of a position, from Google reverse geocoding — null
+ * without the server key or when Google knows nothing there. Asked at the
+ * ~11 m a saved location keeps (4 decimals) and remembered for a day, so
+ * saving "Deliver to" and the Nearby screen share one call for one spot. A
+ * failed call is not remembered (the next one tries again) and throws.
+ */
+export async function addressForPosition(latitude: number, longitude: number): Promise<PositionAddress | null> {
+  if (!isGeocodingConfigured()) return null;
+  const point = `${latitude.toFixed(4)},${longitude.toFixed(4)}`;
+  const key = `addr:${point}`;
+  const hit = cached<PositionAddress | null>(key);
+  if (hit !== undefined) return hit;
+  const pending = lookups.get(key);
+  if (pending) return pending;
+  const lookup = googleGeocode({ latlng: point }, "position_address")
+    .then((g) =>
+      remember(key, g && (g.address || g.area || g.city || g.pincode) ? { address: g.address, area: g.area, city: g.city, pincode: g.pincode } : null),
+    )
+    .finally(() => lookups.delete(key));
+  lookups.set(key, lookup);
+  return lookup;
+}
+
 /**
  * The area / city / PIN for a position, or null when nothing is known nearby.
- * `google: false` answers from GoKesari's own data only — for saving a
- * delivery location (POST /api/location), which must not cost a Maps call per
- * visitor (MAPS_USAGE.md).
+ * `google: false` answers from GoKesari's own data only (the caller has
+ * already asked addressForPosition).
  */
 export async function describePosition(
   latitude: number,
@@ -90,10 +124,9 @@ export async function describePosition(
   if (nearest && (nearest.area || nearest.city || nearest.pincode)) {
     return remember(key, { area: nearest.area?.trim() || null, city: nearest.city?.trim() || null, pincode: nearest.pincode });
   }
-  // Not remembered: the Nearby screen asking later may still ask Google.
   if (options.google === false) return null;
   if (!isGeocodingConfigured()) return remember(key, null);
-  const google = await googleGeocode({ latlng: `${latitude},${longitude}` }, "nearby_position_label").catch(() => null);
+  const google = await addressForPosition(latitude, longitude).catch(() => null);
   return remember(key, google ? { area: google.area, city: google.city, pincode: google.pincode } : null);
 }
 
@@ -173,6 +206,8 @@ export async function geocodeShopAddress(
 interface GeocodeResult extends PlaceName {
   latitude: number | null;
   longitude: number | null;
+  /** The first answer's address that is not a bare plus code, cleaned (cleanAddress). */
+  address: string | null;
 }
 
 type Component = { long_name: string; types: string[] };
@@ -190,7 +225,7 @@ async function googleGeocode(params: Record<string, string>, purpose: string, en
     const body = (await response.json()) as {
       status: string;
       error_message?: string;
-      results?: { address_components: Component[]; geometry?: { location?: { lat: number; lng: number } } }[];
+      results?: { address_components: Component[]; formatted_address?: string; types?: string[]; geometry?: { location?: { lat: number; lng: number } } }[];
     };
     if (body.status === "ZERO_RESULTS") {
       success = true;
@@ -207,6 +242,7 @@ async function googleGeocode(params: Record<string, string>, purpose: string, en
       area: pick("sublocality_level_1", "sublocality", "neighborhood"),
       city: pick("locality", "administrative_area_level_3", "administrative_area_level_2"),
       pincode: pick("postal_code"),
+      address: cleanAddress(body.results.find((r) => !r.types?.includes("plus_code") && r.formatted_address)?.formatted_address),
     };
   } catch (error) {
     errorMessage = error instanceof Error ? error.message : "Unknown geocoding error";
@@ -222,4 +258,5 @@ async function googleGeocode(params: Record<string, string>, purpose: string, en
 /** For tests. */
 export function clearPlaceCache(): void {
   cache.clear();
+  lookups.clear();
 }

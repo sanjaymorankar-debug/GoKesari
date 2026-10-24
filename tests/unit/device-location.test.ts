@@ -17,7 +17,9 @@ import {
   type LocationEnv,
 } from "@/lib/device-location";
 import { LANGUAGES } from "@/lib/board/i18n";
+import { cleanAddress } from "@/lib/geo/nearby";
 import { LOCATION_PROBLEM_TEXT } from "@/lib/home-i18n";
+import { locationAreaName, parseLocation, shortLocationLabel } from "@/lib/location";
 
 type Answer = { coords: { latitude: number; longitude: number; accuracy: number } } | { code: number };
 
@@ -123,5 +125,32 @@ describe("wording", () => {
       for (const lang of LANGUAGES) expect(text[lang], `${problem} ${lang}`).toMatch(/\S/);
     }
     expect(new Set(Object.values(LOCATION_PROBLEM_TEXT)).size).toBe(5);
+  });
+});
+
+describe("the exact address as the location text", () => {
+  it("drops a plus code in front and ', India' at the end; a bare plus code alone is no address", () => {
+    expect(cleanAddress("HWX3+JW, Eon Free Zone, Kharadi, Pune, Maharashtra 411014, India")).toBe("Eon Free Zone, Kharadi, Pune, Maharashtra 411014");
+    expect(cleanAddress("12, Lane 5, Kharadi, Pune, Maharashtra 411014, India")).toBe("12, Lane 5, Kharadi, Pune, Maharashtra 411014");
+    expect(cleanAddress("Gateway of India, Apollo Bandar, Colaba, Mumbai, Maharashtra 400001, India")).toBe("Gateway of India, Apollo Bandar, Colaba, Mumbai, Maharashtra 400001");
+    expect(cleanAddress("HWX3+JW")).toBeNull();
+    expect(cleanAddress("")).toBeNull();
+    expect(cleanAddress(null)).toBeNull();
+  });
+
+  it("fits the 120 characters a location label keeps, cut at a comma", () => {
+    const long = "Building 4, Phase 2, Some Very Long Technology Park Name, Near The Big Landmark Junction, Kharadi, Pune, Maharashtra 411014, India";
+    const short = cleanAddress(long)!;
+    expect(short.length).toBeLessThanOrEqual(120);
+    expect(short).toBe("Building 4, Phase 2, Some Very Long Technology Park Name, Near The Big Landmark Junction, Kharadi, Pune");
+  });
+
+  it("headings use the saved area, not the building; older cookies without an area still read", () => {
+    const exact = { label: "Eon Free Zone, Kharadi, Pune, Maharashtra 411014", source: "DEVICE" as const, area: "Kharadi" };
+    expect(locationAreaName(exact)).toBe("Kharadi");
+    expect(shortLocationLabel(exact)).toBe("Eon Free Zone, Kharadi, Pune, Maharashtra 411014");
+    const old = parseLocation(JSON.stringify({ label: "Kharadi, Pune", pincode: null, latitude: 18.5515, longitude: 73.9348, source: "DEVICE", addressId: null }));
+    expect(old).toMatchObject({ label: "Kharadi, Pune", societyId: null });
+    expect(locationAreaName(old!)).toBe("Kharadi");
   });
 });
