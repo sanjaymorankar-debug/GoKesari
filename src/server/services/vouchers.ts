@@ -44,7 +44,7 @@ interface Actor {
 /** Code default; the live cap is rule `vouchers.maxBonusPercent`. */
 export const MAX_VOUCHER_BONUS_PERCENT = 100;
 
-/** Today in the business time zone (IST): the UTC date lags it from midnight to 05:30 IST. */
+/** Today in the app's timezone (IST), not UTC: from 00:00 to 05:30 IST the UTC date is still yesterday. */
 function todayIso(): string {
   return todayIn(getEnv().APP_TIMEZONE);
 }

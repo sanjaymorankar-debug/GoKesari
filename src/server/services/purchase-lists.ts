@@ -37,6 +37,7 @@ import { isOnlinePurchasable } from "./catalogue";
 import {
   describeUnavailability,
   getOrCreateCart,
+  lockCart,
   priceLines,
   type CartSummary,
   type LineToPrice,
@@ -586,7 +587,8 @@ export async function sendPurchaseListToCart(
       throw validationFailed("Nothing to order: set a quantity above 0 for at least one product.");
     }
 
-    const cart = await getOrCreateCart(userId, tx);
+    // The cart's lock too, as an add to cart takes it: the lines read here are not changed under us (D-102).
+    const cart = await lockCart(userId, tx);
     const inCart = await tx
       .select({ id: cartItems.id, shopProductId: cartItems.shopProductId, quantity: cartItems.quantity })
       .from(cartItems)

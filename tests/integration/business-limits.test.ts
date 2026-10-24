@@ -6,6 +6,8 @@
 import { and, eq, inArray } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { todayIn } from "@/lib/dates";
+import { getEnv } from "@/lib/env";
 import { RULES } from "@/server/config/rules";
 import { db } from "@/server/db";
 import { orderStatusHistory, orders, payments, platformSettings, riskFlags, grievances } from "@/server/db/schema";
@@ -114,7 +116,7 @@ describe("B — COD limits", () => {
 describe("B — voucher bonus cap", () => {
   it("default 100 %; an admin can lower it", async () => {
     const a = await admin();
-    const today = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10); // today in IST (APP_TIMEZONE)
+    const today = todayIn(getEnv().APP_TIMEZONE);
     const input = { name: "Big bonus", code: "BIG60", bonusPercent: 60, startDate: today, endDate: today };
     await setRule("vouchers", { maxBonusPercent: 50 }, a);
     await expect(createVoucher(input, a)).rejects.toThrow("at most 50%");

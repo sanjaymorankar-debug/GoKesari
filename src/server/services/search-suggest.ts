@@ -8,7 +8,7 @@
  * first. Submitting still goes to the existing /search?q= page; nothing here
  * changes what that page finds.
  */
-import { and, asc, count, desc, eq, gte, ilike, inArray, isNotNull, isNull, max, or, sql } from "drizzle-orm";
+import { and, asc, countDistinct, desc, eq, gte, ilike, inArray, isNotNull, isNull, max, or, sql } from "drizzle-orm";
 
 import { CUSTOMER_CATEGORIES } from "@/lib/board/menus";
 import { L, tr, type Lang, type Text } from "@/lib/board/i18n";
@@ -185,8 +185,14 @@ export const DEFAULT_TRENDING: readonly { q: string; label: Text }[] = [
   { q: "atta", label: L("Atta", "आटा", "पीठ") },
 ];
 
-/** Keeps one search. Never throws: a search must work even when this cannot be written. */
+/**
+ * Keeps one search of a signed-in customer. A search made while signed out is
+ * not kept: nothing would use it (trending counts accounts, a guest's recent
+ * searches stay in their browser). Never throws: a search must work even when
+ * this cannot be written.
+ */
 export async function recordSearch(userId: string | null, rawQuery: string): Promise<void> {
+  if (!userId) return;
   const query = normaliseQuery(rawQuery);
   if (query.length < SUGGEST_MIN_CHARS) return;
   try {
@@ -218,9 +224,12 @@ export async function clearRecentSearches(userId: string): Promise<void> {
 }
 
 /**
- * What people searched most in the last week (at least two searches each),
- * topped up with the defaults. Labels are the searches as typed, except the
- * defaults, which are in the visitor's language.
+ * What the most people searched for in the last week, topped up with the
+ * defaults. A search trends only once at least two different signed-in
+ * people made it, so one person's searches never show to everyone on their
+ * own. Searches made while signed out are not kept (recordSearch); any kept
+ * before that carry no account and are not counted. Labels are the searches
+ * as typed, except the defaults, which are in the visitor's language.
  */
 export async function listTrendingSearches(lang: Lang, limit = 6): Promise<{ q: string; label: string }[]> {
   const since = new Date(Date.now() - 7 * 86_400_000);
@@ -229,10 +238,10 @@ export async function listTrendingSearches(lang: Lang, limit = 6): Promise<{ q: 
     rows = await db
       .select({ query: searchQueries.query })
       .from(searchQueries)
-      .where(and(gte(searchQueries.createdAt, since), isNotNull(searchQueries.query)))
+      .where(and(gte(searchQueries.createdAt, since), isNotNull(searchQueries.userId)))
       .groupBy(searchQueries.query)
-      .having(sql`${count()} >= 2`)
-      .orderBy(desc(count()), asc(searchQueries.query))
+      .having(sql`${countDistinct(searchQueries.userId)} >= 2`)
+      .orderBy(desc(countDistinct(searchQueries.userId)), asc(searchQueries.query))
       .limit(limit);
   } catch (error) {
     console.error("[search] trending searches could not be read", error);

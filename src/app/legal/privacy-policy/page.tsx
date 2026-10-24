@@ -47,6 +47,32 @@ export default function PrivacyPolicyPage() {
           online. See section 2.
         </li>
         <li>
+          <strong>Search history</strong> — when you are signed in, what you
+          search for, saved with the time of the search and your account. We
+          do not save searches made while you are not signed in. We use your
+          searches to show you your recent searches, and to show what is
+          popular: a search made by at least two different signed-in people
+          in the last 7 days can appear under &quot;Trending&quot; for every
+          visitor, without any name or account, so one person&apos;s searches
+          never trend on their own. You can delete the searches saved with
+          your account at any time with &quot;Clear&quot; above your recent
+          searches in the search box.
+        </li>
+        <li>
+          <strong>App notification data</strong> — if you use the GoKesari
+          app and allow notifications, the app gives us a notification token
+          for your phone, with its platform (Android or iOS) and, when the app
+          provides them, a device identifier and the phone&apos;s name. We
+          store these with your account to send notifications to your phone.
+          You can turn notifications off at any time in your phone&apos;s
+          settings. A token stops being used for your account when Apple or
+          Google report that
+          it no longer works (for example after the app is removed), when the
+          same phone gets a new token, when someone else signs in to the app
+          on that phone, or when more phones are registered to your account
+          than we allow.
+        </li>
+        <li>
           <strong>Usage and device data</strong> — pages visited, actions
           taken (e.g. cart activity), IP address, and browser/device
           information, collected via server logs and essential session
@@ -117,6 +143,10 @@ export default function PrivacyPolicyPage() {
         <li>To create and secure your account and authenticate sign-in.</li>
         <li>To process orders, deliveries, subscriptions, and payments.</li>
         <li>To operate the wallet and voucher features you choose to use.</li>
+        <li>
+          To show your recent searches and the searches that are trending.
+        </li>
+        <li>To send notifications to the GoKesari app on your phone.</li>
         <li>To respond to support requests and grievances.</li>
         <li>To detect fraud, abuse, and rate-limit misuse of the platform.</li>
         <li>To comply with tax, accounting, and legal record-keeping obligations.</li>
@@ -150,6 +180,14 @@ export default function PrivacyPolicyPage() {
           <strong>OpenStreetMap Foundation</strong> (Nominatim) — a rounded
           position, with no name, account or contact details, to turn it
           into a readable address (section 2).
+        </li>
+        <li>
+          <strong>Expo</strong> (push notification service) — when we send a
+          notification to the GoKesari app: your phone&apos;s notification
+          token and the notification&apos;s title, text and the link it opens,
+          so it can be delivered. Expo passes the notification to Apple (for
+          iPhones) or Google (for Android phones), which deliver it to your
+          phone.
         </li>
         <li>
           <strong>The shop you order from</strong> — receives only what is
@@ -202,7 +240,10 @@ export default function PrivacyPolicyPage() {
         Account and order data is retained for as long as your account is
         active and thereafter as required for tax, accounting, dispute, and
         legal record-keeping purposes. Grievance records are retained to
-        demonstrate compliance with grievance-redressal timelines. You may
+        demonstrate compliance with grievance-redressal timelines. Searches
+        saved with your account are kept until you clear them. App
+        notification tokens are kept with your account, also after they stop
+        being used. You may
         request erasure of data that is not otherwise required to be retained
         by law (see &quot;Your rights&quot; below).
       </p>

@@ -21,6 +21,8 @@ vi.mock("@/server/auth", () => ({
   signOut: async () => {},
 }));
 
+import { todayIn } from "@/lib/dates";
+import { getEnv } from "@/lib/env";
 import { GET as listVouchersGet, POST as createVoucherPost } from "@/app/api/vouchers/route";
 import { createVoucher } from "@/server/services/vouchers";
 import { call } from "../helpers/http";
@@ -41,7 +43,7 @@ async function as(role: UserRole) {
 
 async function seedVoucher() {
   const admin = await createUser({ role: "ADMIN" });
-  const today = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10); // today in IST (APP_TIMEZONE)
+  const today = todayIn(getEnv().APP_TIMEZONE);
   await createVoucher(
     { name: "Diwali bonus", code: CODE, bonusPercent: 10, startDate: today, endDate: today, maximumBonusPaise: null, usageLimit: null, totalBudgetPaise: null },
     { id: admin.id, role: "ADMIN" },
@@ -78,7 +80,7 @@ describe("C4 — voucher code visibility", () => {
 
   it("an operator can see codes but still cannot create a voucher (admin only, unchanged)", async () => {
     await as("OPERATOR");
-    const today = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10); // today in IST (APP_TIMEZONE)
+    const today = todayIn(getEnv().APP_TIMEZONE);
     const res = await call(createVoucherPost, "/api/vouchers", {
       method: "POST",
       body: { name: "Op voucher", code: "OPS1", bonusPercent: 5, startDate: today, endDate: today },
