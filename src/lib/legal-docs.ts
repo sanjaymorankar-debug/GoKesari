@@ -6,7 +6,8 @@
  * adding a policy page only means adding one entry here plus the route.
  */
 
-export const CURRENT_POLICY_VERSION = "2026-08-21";
+/** 24 Oct 2026: Privacy Policy section 2 (location data) and the location cookie. */
+export const CURRENT_POLICY_VERSION = "2026-10-24";
 
 /**
  * Placeholders that MUST be replaced with real, verified details before this
