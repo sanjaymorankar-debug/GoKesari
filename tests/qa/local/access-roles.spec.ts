@@ -502,8 +502,11 @@ qa("TC-FLD-120", "admin user edit: blank and invalid values, another account's p
   const { context, page } = await pageAs(browser, "admin");
   try {
     await page.goto(`/admin/users/${user.id}`, { waitUntil: "domcontentloaded" });
-    await page.getByLabel("Name").fill("A");
-    await expect(page.getByText("A name needs 2–120 characters.")).toBeVisible();
+    // Typed before React hydrates, the change is not seen: type again until the form answers.
+    await expect(async () => {
+      await page.getByLabel("Name").fill("A");
+      await expect(page.getByText("A name needs 2–120 characters.")).toBeVisible({ timeout: 3_000 });
+    }).toPass({ timeout: 45_000 });
     await page.getByLabel("Name").fill("QA Field Name");
     await page.getByRole("radio", { name: "Suspended" }).check();
     await page.getByLabel("Reason").fill("QA cancel check");

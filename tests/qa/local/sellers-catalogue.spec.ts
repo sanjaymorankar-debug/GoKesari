@@ -997,7 +997,9 @@ qa("TC-CAT-067", "past orders keep the price and MRP of the time: after the owne
     expect(listed?.totalPaise).toBe(order.totalPaise);
   } finally {
     await call(await as("shop"), "PATCH", `/api/shops/${shopA}/prices`, { prices: [{ shopProductId: listing.shopProductId, pricePaise: listing.pricePaise }] });
-    await call(await as("admin"), "POST", "/api/mrp", { productId: listing.productId, mrpPaise: mrpBefore, source: "ADMIN", reason: "QA restore" });
+    // mrp_paise is a bigint: postgres.js reads it as a string, which the API refuses.
+    const restore = await call(await as("admin"), "POST", "/api/mrp", { productId: listing.productId, mrpPaise: mrpBefore == null ? null : Number(mrpBefore), source: "ADMIN", reason: "QA restore" });
+    expectStatus(restore, [200, 201], "restore the MRP");
   }
   return `${order.orderNumber} delivered at ₹${(listing.pricePaise ?? 0) / 100}; price → ₹59 and MRP → ₹65: lines ${JSON.stringify(before)} unchanged; restored`;
 }, { ...local, partial: "the shop settlement row is created by the payout cycle, not checked here" });

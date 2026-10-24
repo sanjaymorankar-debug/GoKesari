@@ -20,7 +20,7 @@ import { encode } from "next-auth/jwt";
 
 import { call } from "./http";
 import { blocked } from "./record";
-import { BASE_URL, HOST, IS_PROD, TARGET } from "./target";
+import { BASE_URL, HOST, IS_PROD, IS_REMOTE, TARGET } from "./target";
 import { ROLE_NAMES, world, type Role } from "./world";
 
 const AUTH_DIR = process.env.E2E_AUTH_DIR ?? ".e2e-auth";
@@ -68,6 +68,16 @@ export async function as(role: Role): Promise<APIRequestContext> {
 export async function pageAs(browser: Browser, role: Role, options: Parameters<Browser["newContext"]>[0] = {}): Promise<{ context: BrowserContext; page: Page }> {
   const context = await browser.newContext({ ...options, baseURL: BASE_URL, storageState: await storageFor(role) });
   const page = await context.newPage();
+  if (IS_REMOTE) {
+    // The test site serves a cold page in 8–10 s and hydrates after it: a click or a keystroke
+    // before React is ready is lost. Every visit waits for the network to settle (at most 10 s).
+    const goto = page.goto.bind(page);
+    page.goto = async (url, gotoOptions) => {
+      const res = await goto(url, gotoOptions);
+      await page.waitForLoadState("networkidle", { timeout: 10_000 }).catch(() => {});
+      return res;
+    };
+  }
   return { context, page };
 }
 

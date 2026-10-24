@@ -638,6 +638,13 @@
       "when": 1792125219436,
       "tag": "0090_purchase_lists",
       "breakpoints": true
+    },
+    {
+      "idx": 91,
+      "version": "7",
+      "when": 1792125279436,
+      "tag": "0091_drop_guest_searches",
+      "breakpoints": true
     }
   ]
 }

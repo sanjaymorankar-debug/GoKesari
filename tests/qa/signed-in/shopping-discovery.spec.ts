@@ -169,7 +169,7 @@ qa("TC-DISC-006", "product search lists only offers from shops that deliver to t
       expect(texts.some((t) => t.includes(shopName("B"))), "shop B's offer (does not deliver here) is not listed").toBe(false);
       const ours = cards.filter({ hasText: shopName("A") }).first();
       await expect(ours).toContainText(/· [\d.]+ km/);
-      await expect(ours.getByRole("link", { name: /Compare prices/ })).toBeVisible();
+      await expect(ours.getByRole("link", { name: /Compare (\d+ )?prices/ })).toBeVisible();
       // ?all=1 brings shop B's offer back.
       await open(page, `/search?q=${encodeURIComponent(a.name)}&all=1`);
       await expect(page.getByTestId("product-card").filter({ hasText: a.name }).filter({ hasText: shopName("B") }).first()).toBeVisible();
