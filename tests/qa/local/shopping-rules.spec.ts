@@ -268,7 +268,7 @@ qa(["TC-CART-029", "TC-CART-030"], "a couponed two-line order: a removed line is
     const items = (await ordersOf()).find((o) => o.id === order.id)!.items!;
     const breadLine = items.find((i) => i.productNameSnapshot === bread.name)!;
     expectStatus(await call(await as("shop"), "POST", `/api/orders/${order.id}/fulfilment`, { action: "accept" }), 200, "accept");
-    expectStatus(await call(await as("shop"), "POST", `/api/orders/${order.id}/fulfilment`, { action: "remove", itemId: breadLine.id, reason: "QA out of stock" }), 200, "remove a line");
+    expectStatus(await call(await as("shop"), "POST", `/api/orders/${order.id}/fulfilment`, { action: "remove", itemId: breadLine.id, reason: "Out of stock" }), 200, "remove a line");
     const afterLine = await walletOf();
     const lineRefund = afterLine - (start - charged);
     expect(lineRefund, "line refund never above the line").toBeLessThanOrEqual(bread.pricePaise!);
@@ -286,12 +286,15 @@ qa(["TC-CART-029", "TC-CART-030"], "a couponed two-line order: a removed line is
     await deliver(second.id);
     const [fin] = await db()`select goods_paise, discount_paise, commission_paise, shop_payable_paise from order_financials where order_id = ${second.id}`;
     expect(fin, "finance snapshot on delivery").toBeTruthy();
-    expect(Number(fin.discount_paise)).toBe(2000);
+    // The platform bears the coupon and any promotional wallet credit the payment spent (finance.ts).
+    const [debit] = await db()`select coalesce(sum(promotional_amount_paise), 0)::int as promo from wallet_transactions where order_id = ${second.id} and amount_paise < 0`;
+    const platformBorne = 2000 - Number(debit.promo);
+    expect(Number(fin.discount_paise), "coupon + promotional credit spent").toBe(platformBorne);
     expect(Number(fin.goods_paise), "goods at full value").toBe(2 * butter.pricePaise!);
     expect([Number(fin.goods_paise), Number(fin.goods_paise) - Number(fin.commission_paise)], "shop paid on the full goods (less commission), not on the discounted total").toContain(Number(fin.shop_payable_paise));
     const [platform] = await db()`select amount_paise from finance_ledger_entries where order_id = ${second.id} and entity_type = 'PLATFORM' and entry_type = 'PROMOTIONAL_DISCOUNT'`;
-    expect(Number(platform?.amount_paise), "platform ledger carries the discount").toBe(2000);
-    return `charged ${rupees(charged)}; bread removed → ${rupees(lineRefund)} back (line ${rupees(bread.pricePaise!)}); cancel → total ${rupees(refunded)} = charged; delivered ${second.orderNumber}: discount ₹20 on the platform ledger, shop payable = goods ${rupees(Number(fin.goods_paise))} − commission`;
+    expect(Number(platform?.amount_paise), "platform ledger carries the discount").toBe(platformBorne);
+    return `charged ${rupees(charged)}; bread removed → ${rupees(lineRefund)} back (line ${rupees(bread.pricePaise!)}); cancel → total ${rupees(refunded)} = charged; delivered ${second.orderNumber}: discount ${rupees(platformBorne)} (coupon ₹20${platformBorne > 2000 ? ` + promotional credit ${rupees(platformBorne - 2000)}` : ""}) on the platform ledger, shop payable = goods ${rupees(Number(fin.goods_paise))} − commission`;
   });
 }, { ...LOCAL, timeout: 300_000, partial: "refunds are capped at what was paid (the discount is used up by the last lines refunded — fulfilment.ts refundLine, README Decisions) rather than split pro rata" });
 

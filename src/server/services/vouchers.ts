@@ -316,6 +316,9 @@ const fieldError = (field: keyof VoucherInput, message: string) => validationFai
  * voucher gets all of them; an edit only re-checks what it changes, so an
  * existing voucher whose start (or even end) date has passed stays editable.
  */
+/** What a voucher code may hold once trimmed and upper-cased. */
+const VOUCHER_CODE = /^[A-Z0-9_-]{3,32}$/;
+
 interface VoucherCheckScope {
   /** The end date is new: it may not be in the past. */
   endDate: boolean;
@@ -333,6 +336,10 @@ function validateVoucherInput(
   }
   if ((input.applyMode ?? "CODE") === "CODE" && !input.code?.trim()) {
     throw validationFailed("A voucher code is required unless apply mode is AUTO_APPLY.");
+  }
+  // TC-FLD-114: a code a customer can type — letters, digits, "-" and "_", no spaces or symbols.
+  if (input.code?.trim() && !VOUCHER_CODE.test(input.code.trim().toUpperCase())) {
+    throw fieldError("code", "Use 3–32 letters, digits, - or _ for the code (no spaces or symbols).");
   }
   if (
     !Number.isFinite(input.bonusPercent) ||

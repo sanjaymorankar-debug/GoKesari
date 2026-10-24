@@ -826,7 +826,7 @@ export const RULES = {
       failedDeliveries: z.object({ count: int(1, 100), days: int(1, 365) }),
       codCashOverdueDays: int(1, 90),
       highRejection: z.object({ minOrders: int(1, 1000), percent: int(1, 100), days: int(1, 365) }),
-      referralAbuse: z.object({ count: int(1, 100), days: int(1, 365) }),
+      referralAbuse: z.object({ count: int(1, 100), rejected: int(1, 100), days: int(1, 365) }),
     }),
     defaults: {
       codRefusals: { count: 2, days: 90 },
@@ -840,7 +840,7 @@ export const RULES = {
       failedDeliveries: { count: 3, days: 7 },
       codCashOverdueDays: 7,
       highRejection: { minOrders: 10, percent: 30, days: 30 },
-      referralAbuse: { count: 3, days: 30 },
+      referralAbuse: { count: 3, rejected: 1, days: 30 },
     },
   },
   tracking: {

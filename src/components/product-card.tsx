@@ -200,7 +200,7 @@ export function ProductCard({
       <div className="mt-auto">
         <div className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
           {showMrp ? (
-            <span className="text-xs text-ink-500" data-testid="product-mrp">
+            <span className="text-xs text-ink-500" data-testid="card-mrp">
               MRP{" "}
               <span className="line-through">
                 <Money paise={product.mrpPaise!} />

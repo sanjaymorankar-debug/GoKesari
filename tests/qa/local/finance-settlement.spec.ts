@@ -812,8 +812,12 @@ qa("TC-FLD-116", "manual adjustment amount and reason: zero, text, 3 decimals an
       await panel.getByRole("button", { name: "Record adjustment" }).click();
       await expect(panel.getByText("Adjustment recorded — it goes into the next batch.")).toBeVisible();
       await fill("10.555", `QA three decimals ${RUN}`);
-      await panel.getByRole("button", { name: "Record adjustment" }).click();
-      await page.waitForTimeout(1500); // the form shows either an error or the notice; nothing else to wait on
+      // Refused on the form (Record adjustment off, a message on the amount — TC-FLD-099) or sent and refused.
+      const record = panel.getByRole("button", { name: "Record adjustment" });
+      if (await record.isEnabled()) {
+        await record.click();
+        await page.waitForTimeout(1500); // the form shows either an error or the notice; nothing else to wait on
+      } else await expect(panel.getByText(/at most 2 decimals/i), "the amount's message").toBeVisible();
     });
     const rows = await db()<{ id: string; amount: number; reason: string }[]>`select id, amount_paise::int as amount, reason from financial_adjustments where reason like ${`%${RUN}`} and reason like 'QA %' and created_at > now() - interval '10 minutes'`;
     for (const r of rows) if (/70\.50|deduction|three decimals/.test(r.reason)) made.push(r.id);

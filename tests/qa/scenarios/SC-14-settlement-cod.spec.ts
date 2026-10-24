@@ -107,9 +107,15 @@ qa("SC-14", "weekly settlement and payout: batches total gross − commission �
       if (batch.commissionPaise !== commission) bad.push(`commission ${batch.commissionPaise} ≠ Σ ${commission}`);
       if (batch.refundsPaise !== refunds) bad.push(`refunds ${batch.refundsPaise} ≠ Σ ${refunds}`);
       if (batch.netPayablePaise !== goods - commission + refunds + other) bad.push(`net ${batch.netPayablePaise} ≠ ${goods} − ${commission} + ${refunds} + ${other}`);
+      // The rider hands in the COD order's cash (dated last week): a payout whose cash held outweighs the
+      // earnings would be negative and cannot be paid (TC-COD-010), so the deposit comes before the payout.
+      const riderId = await partnerId("rider");
+      const deposit = await api("admin", "POST", "/api/admin/cod", { party: "RIDER", id: riderId, amountPaise: cod.totalPaise, reference: `QA-RCPT-${RUN}-S14`, requestId: rid("sc14dep") });
+      expectStatus(deposit, 201, "record the rider's cash deposit");
+      await db()`update financial_adjustments set created_at = ${lastWeek().inside} where id = ${deposit.body.id}`;
       const preparedPayouts = await api("admin", "POST", "/api/finance/rider-payouts", {});
       expectStatus(preparedPayouts, 201, "prepare last week's rider payouts");
-      const rider = await partnerId("rider");
+      const rider = riderId;
       const payout = need(((preparedPayouts.body as Payout[]) ?? []).find((p) => p.deliveryPartnerId === rider), "rider 1's new payout");
       const earnings = await db()<{ total: number; order_id: string | null }[]>`
         select e.total_paise::int as total, d.order_id from delivery_partner_earnings e left join delivery_orders d on d.id = e.delivery_order_id where e.payout_id = ${payout.id}`;
@@ -117,6 +123,7 @@ qa("SC-14", "weekly settlement and payout: batches total gross − commission �
       for (const o of mine) if (!earnings.some((e) => e.order_id === o.id)) bad.push(`rider's earning for ${o.orderNumber} is not in the payout`);
       const codHeld = riderAdjs.find((a) => a.type === "COD_CASH_COLLECTED" && a.order_id === cod.id);
       if (codHeld?.amount !== -cod.totalPaise) bad.push(`COD cash held in the payout ${codHeld?.amount ?? "missing"} (expected −${cod.totalPaise})`);
+      if (!riderAdjs.some((a) => a.type === "COD_CASH_DEPOSITED" && a.amount === cod.totalPaise)) bad.push("the cash deposit is not in the payout");
       const gross = earnings.reduce((s, e) => s + e.total, 0);
       const adjSum = riderAdjs.reduce((s, a) => s + a.amount, 0);
       if (payout.grossPaise !== gross || payout.amountPaise !== gross + adjSum) bad.push(`payout ${payout.amountPaise} ≠ gross ${gross} + adjustments ${adjSum}`);

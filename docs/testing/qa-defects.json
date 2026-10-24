@@ -1317,6 +1317,20 @@
    "status": "Fixed (re-test pending)"
   },
   {
+   "id": "D-99",
+   "title": "After the round-2 release, test.gokesari.com refused every session (sign-in did not stick)",
+   "cases": [
+    "TC-AUTH-001",
+    "TC-AUTH-034"
+   ],
+   "severity": "Blocker",
+   "found": "2026-10-24 test.gokesari.com, right after the round-2 fixes (PR #232) were deployed",
+   "actual": "Every saved session was refused and a fresh sign-in set the session cookie, but the next page treated the visitor as signed out (POST /signin 200, then /onboarding → /signin). The new sign-out check reads revoked_sessions on every request; when that read fails, the request has no session.",
+   "expected": "A signed-in visitor stays signed in; a failure of the sign-out list never signs everyone out.",
+   "fix": "src/server/auth-sessions.ts readSession: if the revoked_sessions check fails, the account is read on its own and the failure is logged once, so sessions keep working (only signed-out copies are not refused until the check works); tests/integration/auth-sessions-fallback.test.ts. PR #234.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
    "id": "E-01",
    "title": "The host's firewall answers some requests itself (SQL-like search text, bursts)",
    "cases": [

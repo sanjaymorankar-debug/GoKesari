@@ -41,6 +41,7 @@ import {
   type Listing,
 } from "../lib/finance-helpers";
 import { db } from "../lib/db";
+import { shopListings } from "../lib/flows";
 import { expectStatus, RUN } from "../lib/http";
 import { messagesTo } from "../lib/mail";
 import { expect, need, qa } from "../lib/record";
@@ -339,8 +340,8 @@ qa("TC-SPI-013", "an in-shop sale of 4 takes 4 off the stock with a movement and
   expect(await dbStock(listing.shopProductId), "12 − 4").toBe(8);
   const m = (await movements(listing.shopProductId, since)).find((x) => x.delta_units === -4);
   expect(m?.reason ?? "", "movement naming the sale").toMatch(/sale/i);
-  const card = await api("customer", "GET", `/api/shops/${shopId("A")}/products?limit=100`);
-  const row = (card.body as { shopProductId: string; onlineStock: number }[]).find((r) => r.shopProductId === listing.shopProductId);
+  // The count as operations see it; a customer's storefront answer says only "in stock" (TC-SPI-027).
+  const row = (await shopListings(listing.shopId)).find((r) => r.shopProductId === listing.shopProductId);
   expect(row?.onlineStock, "online availability follows").toBe(8);
   const screen = await asPage(browser, "shop", "/shop/accounts/sales", async (p) => p.locator("main").first().innerText());
   expect(screen).toMatch(/sale/i);
