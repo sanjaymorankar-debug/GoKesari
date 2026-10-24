@@ -136,6 +136,8 @@ export function CartView({
   const [couponInput, setCouponInput] = useState("");
   const [coupon, setCoupon] = useState<{ code: string; discountPaise: number; forTotal: number } | null>(null);
   const [couponError, setCouponError] = useState<string | null>(null);
+  // TC-CART-017: an optional note for the shop (gate code, "ring twice"); the checkout API takes up to 500 characters.
+  const [notes, setNotes] = useState("");
 
   const [checks, setChecks] = useState<ShopCartCheck[]>(initialChecks);
   // Adopt fresh server data when the prop changes (render-time sync, not an effect).
@@ -337,6 +339,7 @@ export function CartView({
         paymentMethod: payingCod ? "COD" : payingOnline ? "ONLINE" : "WALLET",
         acknowledgeClosedShopIds,
         ...(couponDiscountPaise > 0 && coupon ? { couponCode: coupon.code } : {}),
+        ...(notes.trim() ? { notes: notes.trim() } : {}),
         ...(buyerShopId ? { orderType: "B2B", buyerShopId } : { orderType: "PERSONAL" }),
       }),
     });
@@ -714,6 +717,20 @@ export function CartView({
                   </p>
                 ) : null}
               </div>
+            </Field>
+          </div>
+
+          <div className="mt-3">
+            <Field label="Note for the shop (optional)">
+              <textarea
+                className={inputClass}
+                rows={2}
+                maxLength={500}
+                placeholder="e.g. ring the bell twice, leave at the gate"
+                value={notes}
+                onChange={(e) => setNotes(e.target.value)}
+                data-testid="order-notes"
+              />
             </Field>
           </div>
 

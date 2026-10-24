@@ -1761,7 +1761,8 @@ export async function getMyActiveDeliveryDetail(userId: string): Promise<ActiveD
   const society = await getSocietyDeliveryNotes(row.societyId);
   const snapshot = row.deliveryAddressSnapshot;
   const pickedUp = active.status === "PICKED_UP";
-  const fullAddress = snapshot ? [snapshot.line1, snapshot.area, snapshot.city].filter(Boolean).join(", ") : null;
+  // Line 2 (flat, floor) is part of the address the rider needs at the door (TC-FLD-013).
+  const fullAddress = snapshot ? [snapshot.line1, snapshot.line2, snapshot.area, snapshot.city].filter(Boolean).join(", ") : null;
   const areaOnly = snapshot ? [snapshot.area, snapshot.city].filter(Boolean).join(", ") : null;
   const customerAddress = pickedUp ? fullAddress : areaOnly;
   const customerNotes =

@@ -8,6 +8,7 @@
  */
 import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, or, sql } from "drizzle-orm";
 
+import { likePattern } from "@/lib/like-pattern";
 import { AppError, conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { formatPaise } from "@/lib/money";
 import { parseGstin } from "@/lib/shop-identity";
@@ -1159,7 +1160,7 @@ export async function searchShops(
   if (filters.ids) conditions.push(inArray(shops.id, [...filters.ids]));
 
   if (filters.query) {
-    const term = `%${filters.query}%`;
+    const term = likePattern(filters.query);
     conditions.push(
       or(
         ilike(shops.name, term),
@@ -1179,8 +1180,8 @@ export async function searchShops(
       sql`exists (select 1 from shop_category_mapping m where m.shop_id = ${shops.id} and m.category_id = ${filters.categoryId})`,
     );
   }
-  if (filters.city) conditions.push(ilike(shops.city, `%${filters.city}%`));
-  if (filters.area) conditions.push(ilike(shops.area, `%${filters.area}%`));
+  if (filters.city) conditions.push(ilike(shops.city, likePattern(filters.city)));
+  if (filters.area) conditions.push(ilike(shops.area, likePattern(filters.area)));
   if (filters.pincode) conditions.push(eq(shops.pincode, filters.pincode));
   if (filters.classification) {
     conditions.push(eq(shops.classification, filters.classification));

@@ -17,6 +17,7 @@ import {
   outOfStock,
   validationFailed,
 } from "@/lib/errors";
+import { likePattern } from "@/lib/like-pattern";
 import { effectiveDescriptions } from "@/lib/product-text";
 import { db, type DbClient } from "@/server/db";
 import {
@@ -1114,7 +1115,7 @@ export async function listStorefrontProducts(options: {
     conditions.push(eq(shopProducts.onlineSaleEnabled, true));
   }
   if (options.query) {
-    const term = `%${options.query}%`;
+    const term = likePattern(options.query);
     conditions.push(
       or(
         ilike(products.name, term),

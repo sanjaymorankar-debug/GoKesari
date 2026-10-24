@@ -106,7 +106,7 @@ export async function getDeliveryNavigation(
   const tracking = await getRule("tracking");
   const label = toShop
     ? row.shopName
-    : [row.snapshot?.line1, row.snapshot?.area, row.snapshot?.city].filter(Boolean).join(", ") || "Customer";
+    : [row.snapshot?.line1, row.snapshot?.line2, row.snapshot?.area, row.snapshot?.city].filter(Boolean).join(", ") || "Customer";
 
   return {
     deliveryOrderId: delivery.id,

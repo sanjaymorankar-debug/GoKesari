@@ -18,6 +18,7 @@
  */
 import { and, desc, eq, gte, ilike, inArray, isNull, ne, or, sql } from "drizzle-orm";
 
+import { isIndianPhone, parseIndianMobile } from "@/lib/contact";
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { haversineDistanceKm, parseCoordinates } from "@/lib/geo/haversine";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
@@ -279,8 +280,9 @@ export async function updateSocietySettings(societyId: string, input: SocietySet
   ) {
     throw validationFailed("Boundary must be 50–3000 metres.");
   }
-  if (input.gateContactPhone && !/^[+\d][\d\s-]{5,17}$/.test(input.gateContactPhone.trim())) {
-    throw validationFailed("Enter a valid gate contact phone number.");
+  // TC-FLD-105: a mobile, or a landline with its STD code (10 digits after +91 / the trunk 0) — "123456" is neither.
+  if (input.gateContactPhone && !isIndianPhone(input.gateContactPhone)) {
+    throw validationFailed("Enter the gate contact's 10-digit mobile number, or a landline with its STD code.");
   }
   const [updated] = await db
     .update(societies)
@@ -542,8 +544,10 @@ async function assertSocietyMayListRiders(society: Society): Promise<void> {
 export async function addSocietyRider(societyId: string, mobile: string, preferred: boolean, actor: Actor) {
   const { society } = await requireSocietyRole(societyId, actor, ["ADMIN"]);
   await assertSocietyMayListRiders(society);
-  const digits = mobile.replace(/\D/g, "").slice(-10);
-  if (!/^[6-9]\d{9}$/.test(digits)) throw validationFailed("Enter the rider's 10-digit mobile number.");
+  // TC-FLD-106: the number as typed, +91 allowed — not its last 10 digits ("1" + a number, or letters in it, were accepted).
+  const parsed = parseIndianMobile(mobile);
+  if (!parsed.ok) throw validationFailed("Enter the rider's 10-digit mobile number.");
+  const digits = parsed.national;
   const partner = await db.query.deliveryPartners.findFirst({
     where: and(
       eq(deliveryPartners.status, "APPROVED"),

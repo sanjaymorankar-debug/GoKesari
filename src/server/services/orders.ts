@@ -15,7 +15,7 @@
  *  - **Per-shop split.** A cart spanning several shops becomes one order per
  *    shop, each paid for independently (§17).
  */
-import { and, desc, eq, gte, lte, inArray, like } from "drizzle-orm";
+import { and, desc, eq, gte, lte, inArray, isNull, like } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
 
 import { conflict, forbidden, invalidTransition, notFound, validationFailed } from "@/lib/errors";
@@ -1552,8 +1552,9 @@ async function loadAddressSnapshot(
   deliveryInstructions?: string | null;
   societyId?: string | null;
 } | null> {
+  // A deleted address cannot be delivered to (TC-FLD-025).
   const address = await db.query.addresses.findFirst({
-    where: and(eq(addresses.id, addressId), eq(addresses.userId, userId)),
+    where: and(eq(addresses.id, addressId), eq(addresses.userId, userId), isNull(addresses.deletedAt)),
   });
   if (!address) throw notFound("Address");
   return {

@@ -105,6 +105,8 @@ export default async function ShopPage({
                   shop.freeDeliveryAbovePaise ? `, free above ₹${(shop.freeDeliveryAbovePaise / 100).toFixed(0)}` : ""
                 }`
               : "Pickup only"}
+            {/* Shown before the cart refuses a smaller order (TC-DISC-013). */}
+            {shop.minOrderPaise > 0 ? ` · Minimum order ₹${(shop.minOrderPaise / 100).toFixed(0)}` : null}
           </p>
           {/* Products first: address, hours, owner and reviews open on request (they used to fill the first screen). */}
           <details className="mt-2" data-testid="shop-info">
@@ -167,6 +169,7 @@ export default async function ShopPage({
                         : ""
                     }`
                   : "Pickup only"}
+                {shop.minOrderPaise > 0 ? `; minimum order ₹${(shop.minOrderPaise / 100).toFixed(0)}` : null}
               </dd>
             </div>
           </dl>

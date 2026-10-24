@@ -149,6 +149,7 @@ export default async function ShopOrdersPage({ searchParams }: { searchParams: P
             })),
             fulfilmentPlan: plans.get(o.id) ?? null,
             hasAddress: o.deliveryAddressSnapshot != null,
+            notes: o.notes,
             deliveryFeePaise: o.deliveryFeePaise,
             deliveryStatus: deliveryOrders.get(o.id)?.status ?? null,
             pickupCode: deliveryOrders.get(o.id)?.pickupCode ?? null,

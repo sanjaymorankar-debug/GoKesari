@@ -6,6 +6,7 @@ import { useState } from "react";
 import { Alert, Badge, Button, Card, EmptyState, Field, inputClass } from "@/components/ui";
 import { MapPicker, type MapPickerResult } from "@/components/map-picker";
 import { ConfirmButton } from "@/components/confirm-button";
+import { mobileFieldDigits } from "@/lib/contact";
 
 export interface AddressRow {
   id: string;
@@ -268,7 +269,7 @@ export function AddressForm({
           <input
             className={inputClass}
             value={recipientPhone}
-            onChange={(e) => setRecipientPhone(e.target.value.replace(/\D/g, "").slice(0, 10))}
+            onChange={(e) => setRecipientPhone(mobileFieldDigits(e.target.value))}
             inputMode="numeric"
             pattern="[6-9]\d{9}"
           />

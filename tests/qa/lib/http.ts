@@ -54,6 +54,16 @@ export async function call(
   return { status: res.status(), body, text, headers, location: headers["location"] ?? null };
 }
 
+/**
+ * Whether a page answer came from the app (Next.js marks its page answers with
+ * "Vary: rsc, …") rather than from the host in front of it. The sites' host
+ * firewall sometimes answers a burst of requests itself (a 403, or a redirect
+ * to the same URL) for a minute or more (E-01 in docs/testing/qa-defects.json).
+ */
+export function fromApp(headers: Record<string, string>) {
+  return /\brsc\b/i.test(headers["vary"] ?? "") || Object.keys(headers).some((h) => h.startsWith("x-nextjs-"));
+}
+
 /** "HTTP 409: <message>" for an answer. */
 export function why(res: Answer) {
   const message = res.body?.error?.message ?? res.body?.error ?? res.body?.message ?? res.text.replace(/\s+/g, " ").slice(0, 200);

@@ -96,6 +96,8 @@ export interface ShopOrderRow {
   pickupQr?: { svg: string; expiresAt: string } | null;
   /** batch-2026-10 WS-B: printable packing slip with the QR. */
   packingSlipUrl?: string | null;
+  /** The customer's note for the shop, from checkout (TC-CART-017). */
+  notes?: string | null;
 }
 
 /** Fulfilment options switched on: the slots and delivery people the planner offers. */
@@ -226,6 +228,12 @@ function OrderRow({
           <Money paise={order.totalPaise} />
         </span>
       </div>
+
+      {order.notes ? (
+        <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-ink-800" data-testid="shop-order-notes">
+          <span className="font-medium">Note from the customer:</span> {order.notes}
+        </p>
+      ) : null}
 
       {order.invoiceUrl || order.proofPhotoUrl ? (
         <p className="mt-2 flex flex-wrap gap-3 text-xs">
