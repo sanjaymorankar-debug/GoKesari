@@ -64,6 +64,22 @@ export function fromApp(headers: Record<string, string>) {
   return /\brsc\b/i.test(headers["vary"] ?? "") || Object.keys(headers).some((h) => h.startsWith("x-nextjs-"));
 }
 
+/**
+ * A call that is looked at again on a deployed site when the host answered
+ * instead of the app (E-01): up to two more tries, 5 s and 20 s later. `host`
+ * is true when the last answer still did not come from the app. Only for calls
+ * the app refuses or that change nothing, since a try can be repeated.
+ */
+export async function callApp(ctx: APIRequestContext, method: Method, path: string, body?: unknown): Promise<Answer & { host: boolean }> {
+  let res = await call(ctx, method, path, body);
+  for (const wait of [5_000, 20_000]) {
+    if (!IS_REMOTE || fromApp(res.headers)) break;
+    await new Promise((r) => setTimeout(r, wait));
+    res = await call(ctx, method, path, body);
+  }
+  return { ...res, host: IS_REMOTE && !fromApp(res.headers) };
+}
+
 /** "HTTP 409: <message>" for an answer. */
 export function why(res: Answer) {
   const message = res.body?.error?.message ?? res.body?.error ?? res.body?.message ?? res.text.replace(/\s+/g, " ").slice(0, 200);

@@ -28,7 +28,7 @@ import {
 } from "../lib/flows";
 import { db } from "../lib/db";
 import { call, expectStatus, RUN, stash, unstash, why, type Answer } from "../lib/http";
-import { pagePaths } from "../lib/routes";
+import { auditActions, pagePaths } from "../lib/routes";
 import { expect, need, qa } from "../lib/record";
 import { IS_LOCAL } from "../lib/target";
 import { ROLE_NAMES, world, type Role } from "../lib/world";
@@ -592,11 +592,16 @@ qa("TC-RBAC-021", "audit log: admin sees every action with actor, role and befor
   expectStatus(edit, 200, "owner A edits own shop");
   const admin = await getAs("admin", "/admin/console/audit-log");
   expect(admin.status, "audit log for admin").toBe(200);
-  expect(admin.text, "admin sees identity actions (role grants)").toMatch(/user\.role_granted|user\.role_changed|setting/);
   expect(admin.text, "admin sees the actor's role").toMatch(/SHOP_OWNER|ADMIN|OPERATOR/);
   expect(admin.text, "admin sees before/after values").toMatch(/Before → After/);
   const ops = await getAs("ops", "/admin/console/audit-log");
   expect(ops.status, "audit log for operator").toBe(200);
+  // Both pages list the newest 100 entries: the admin's holds actions the operator's never does
+  // (sign-ins, role and settings changes, orders…), whatever happened on the site lately.
+  const known = auditActions();
+  const shown = (html: string) => known.filter((a) => html.includes(a));
+  const adminOnly = shown(admin.text).filter((a) => !shown(ops.text).includes(a));
+  expect(adminOnly.length, `admin sees actions the operator does not (admin's page: ${shown(admin.text).join(", ")})`).toBeGreaterThan(0);
   expect(ops.text, "operator view is labelled limited").toMatch(/Showing operational entries/);
   expect(ops.text, "operator sees the operational shop edit").toMatch(/shop\.updated/);
   expect(ops.text, "operator does not see role changes").not.toMatch(/user\.role_granted|user\.role_changed|user\.role_switched|user\.suspended/);
@@ -606,7 +611,7 @@ qa("TC-RBAC-021", "audit log: admin sees every action with actor, role and befor
     expect(refused(res, "/admin/console/audit-log"), `${role} on the audit log — ${brief(res)}`).toBe(true);
   }
   await call(await as("shop"), "PATCH", `/api/shops/${A.id}`, { description: description || null });
-  return "admin: role grants with actor role and before/after; operator: 'operational entries' with shop.updated only; customer and shop redirected";
+  return `admin: also ${adminOnly.slice(0, 6).join(", ")}, with actor role and before/after; operator: 'operational entries' with shop.updated, no role or settings changes; customer and shop redirected`;
 }, signed);
 
 /* ======================================================== IDOR */

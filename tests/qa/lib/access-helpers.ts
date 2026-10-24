@@ -12,7 +12,7 @@ import { randomUUID } from "node:crypto";
 import { encode } from "next-auth/jwt";
 
 import { as } from "./actors";
-import { db } from "./db";
+import { db, verifySellerDocument } from "./db";
 import { anonymous, call, expectStatus, RUN, type Answer, type Method } from "./http";
 import { waitForCode } from "./mail";
 import { apiRoutes, NO_SUCH_ID } from "./routes";
@@ -401,11 +401,13 @@ export async function readyForApproval(shopId: string) {
   const sql = db();
   for (const docType of ["PAN", "GSTIN", "SHOP_ACT", "FSSAI"]) {
     // A number on file (encrypted value present) and a future expiry: what a reviewed licence leaves behind.
-    const hash = `qa-${shopId}-${docType}`;
-    await sql`insert into seller_verifications (shop_id, doc_type, status, verified_at, number_encrypted, number_masked, number_hash, consent_given_at, valid_until)
-      values (${shopId}, ${docType}, 'VERIFIED', now(), 'qa-seeded', 'XXXX', ${hash}, now(), (now() + interval '1 year')::date)
-      on conflict (shop_id, doc_type) do update set status = 'VERIFIED', verified_at = now(), number_encrypted = 'qa-seeded', number_masked = 'XXXX',
-        number_hash = ${hash}, consent_given_at = now(), valid_until = (now() + interval '1 year')::date`;
+    await verifySellerDocument(shopId, docType, {
+      number_encrypted: "qa-seeded",
+      number_masked: "XXXX",
+      number_hash: `qa-${shopId}-${docType}`,
+      consent_given_at: new Date(),
+      valid_until: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10),
+    });
   }
   await sql`update shops set fee_payment_status = 'PAID', registration_fee_paise = 0 where id = ${shopId}`;
 }

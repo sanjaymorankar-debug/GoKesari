@@ -24,7 +24,7 @@ import { encode } from "next-auth/jwt";
 import { CURRENT_POLICY_VERSION } from "@/lib/legal-docs";
 
 import { as, me, pageAs } from "./actors";
-import { db } from "./db";
+import { db, verifySellerDocument } from "./db";
 import {
   addToCart,
   defaultAddress,
@@ -1084,10 +1084,7 @@ export async function approvedShop(label: string) {
   const reg = await call(owner.ctx, "POST", "/api/shops", body);
   expectStatus(reg, [200, 201], "register the shop");
   const id = reg.body.id as string;
-  for (const docType of ["PAN", "GSTIN", "SHOP_ACT", "FSSAI"]) {
-    await db()`insert into seller_verifications (shop_id, doc_type, status, verified_at) values (${id}, ${docType}, 'VERIFIED', now())
-      on conflict (shop_id, doc_type) do update set status = 'VERIFIED', verified_at = now(), updated_at = now()`;
-  }
+  for (const docType of ["PAN", "GSTIN", "SHOP_ACT", "FSSAI"]) await verifySellerDocument(id, docType);
   await db()`update shops set fee_payment_status = 'PAID', registration_fee_paise = 0 where id = ${id} and fee_payment_status <> 'PAID'`;
   expectStatus(await api("ops", "POST", `/api/shops/${id}/approve`, { classification: "GREEN" }), 200, "approve the shop");
   const [shop] = await db()<{ name: string; slug: string }[]>`select name, slug from shops where id = ${id}`;
