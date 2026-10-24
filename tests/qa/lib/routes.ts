@@ -31,11 +31,40 @@ export function pagePaths(): string[] {
 
 export const isDynamic = (path: string) => path.includes("[");
 
+let pageList: string[] | undefined;
+
+/**
+ * The page a link opens ("/shops/anand-dairy?tab=x" → "/shops/[slug]"): a
+ * static page first, else the dynamic page with the most fixed segments;
+ * null when no page matches.
+ */
+export function pageRouteOf(link: string): string | null {
+  pageList ??= pagePaths();
+  const path = link.split(/[?#]/)[0].replace(/(.)\/$/, "$1") || "/";
+  if (pageList.includes(path)) return path;
+  const segs = path.split("/").filter(Boolean);
+  const fixed = (p: string) => p.split("/").filter((s) => s && !s.startsWith("[")).length;
+  for (const pattern of pageList.filter(isDynamic).sort((a, b) => fixed(b) - fixed(a))) {
+    const parts = pattern.split("/").filter(Boolean);
+    const rest = parts.findIndex((s) => s.startsWith("[..."));
+    if (rest < 0 ? parts.length !== segs.length : segs.length <= rest) continue;
+    if (parts.slice(0, rest < 0 ? parts.length : rest).every((s, i) => s.startsWith("[") || s === segs[i])) return pattern;
+  }
+  return null;
+}
+
 /** A syntactically valid id that exists nowhere, for dynamic segments. */
 export const NO_SUCH_ID = "00000000-0000-4000-8000-000000000000";
 
 export function fill(path: string, value = NO_SUCH_ID) {
   return path.replace(/\[\.\.\.[^\]]+\]/g, "x").replace(/\[[^\]]+\]/g, value);
+}
+
+/** Every audit action the app records (AUDIT_ACTIONS in src/server/services/audit.ts), read from the checkout. */
+export function auditActions(): string[] {
+  const src = readFileSync(join(process.cwd(), "src", "server", "services", "audit.ts"), "utf8");
+  const block = src.slice(src.indexOf("export const AUDIT_ACTIONS"), src.indexOf("} as const", src.indexOf("export const AUDIT_ACTIONS")));
+  return [...new Set([...block.matchAll(/:\s*"([a-z_]+(?:\.[a-z_]+)+)"/g)].map((m) => m[1]))];
 }
 
 export interface ApiRoute {

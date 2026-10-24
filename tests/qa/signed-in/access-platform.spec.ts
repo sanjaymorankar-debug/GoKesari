@@ -291,14 +291,23 @@ qa("TC-FLD-127", "every form's API repeats the page's checks: missing field and 
   return out.join("; ");
 }, { ...signed, partial: "unknown fields: ignored by most forms; PATCH /api/shops/[id] refuses them (422) by its deliberate .strict() schema (src/app/api/shops/[id]/route.ts); the double-click half is the next check" });
 
+/** /profile/addresses with the new-address form open (a click before hydration opens nothing, so it clicks until the form is there). */
+async function openAddressForm(page: Page) {
+  await openPage(page, "/profile/addresses");
+  const add = page.getByRole("button", { name: /Add (a new )?address|New address|Add address/i }).first();
+  if (!(await add.count())) return;
+  await expect(async () => {
+    if (await add.isVisible()) await add.click();
+    await expect(page.getByLabel("Address line 1")).toBeVisible({ timeout: 3_000 });
+  }).toPass({ timeout: 45_000 });
+}
+
 qa("TC-FLD-127", "a double click on Save creates one record (address form)", async ({ browser }) => {
   const before = ((await call(await as("customer"), "GET", "/api/addresses")).body?.addresses ?? (await call(await as("customer"), "GET", "/api/addresses")).body) as { id: string; line1: string }[];
   const { context, page } = await pageAs(browser, "customer");
   const line1 = `QA double ${RUN}`;
   try {
-    await page.goto("/profile/addresses", { waitUntil: "domcontentloaded" });
-    const add = page.getByRole("button", { name: /Add (a new )?address|New address|Add address/i }).first();
-    if (await add.count()) await add.click();
+    await openAddressForm(page);
     await page.getByLabel("Address line 1").fill(line1);
     await page.getByLabel("City").fill("Pune");
     await page.getByLabel("PIN code").fill(need(world().location?.pincode, "a PIN"));
@@ -428,9 +437,7 @@ qa("TC-FLD-126", "keyboard and keypads: tab order follows the address form, Ente
     // Rupees and paise (₹10.55): the decimal keypad, or the numeric one.
     if (!/^(numeric|decimal)$/.test((await amount.getAttribute("inputmode")) ?? "")) bad.push("wallet amount does not open a number keypad");
     out.push(`wallet amount inputmode=${await amount.getAttribute("inputmode")}`);
-    await page.goto("/profile/addresses", { waitUntil: "domcontentloaded" });
-    const add = page.getByRole("button", { name: /Add (a new )?address|New address|Add address/i }).first();
-    if (await add.count()) await add.click();
+    await openAddressForm(page);
     const pinField = page.getByLabel("PIN code");
     const phone = page.getByLabel("Recipient mobile (optional)");
     out.push(`address PIN inputmode=${await pinField.getAttribute("inputmode")}, mobile inputmode=${await phone.getAttribute("inputmode")}`);
@@ -472,9 +479,7 @@ qa("TC-FLD-125", "address form: required fields marked, messages beside the fiel
   const out: string[] = [];
   const bad: string[] = [];
   try {
-    await page.goto("/profile/addresses", { waitUntil: "domcontentloaded" });
-    const add = page.getByRole("button", { name: /Add (a new )?address|New address|Add address/i }).first();
-    if (await add.count()) await add.click();
+    await openAddressForm(page);
     const line1 = page.getByLabel("Address line 1");
     const city = page.getByLabel("City");
     const pin = page.getByLabel("PIN code");
