@@ -95,9 +95,11 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
       title={SECTIONS[key]}
       description={shop.name}
       action={
-        <Link href={`/shops/${shop.slug}`} className="inline-flex min-h-11 items-center text-sm font-medium text-kesari-700 hover:underline">
-          View public page →
-        </Link>
+        shop.status === "APPROVED" ? (
+          <Link href={`/shops/${shop.slug}`} className="inline-flex min-h-11 items-center text-sm font-medium text-kesari-700 hover:underline">
+            View public page →
+          </Link>
+        ) : undefined
       }
     />
   );

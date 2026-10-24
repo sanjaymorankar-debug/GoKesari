@@ -93,13 +93,15 @@ export default async function ShopDashboardPage() {
     bankPrompt,
   });
   const docs = legalStatus.enabled ? legalStatus.documents : [];
+  // "Share" and "Public page" link to /shops/<slug>, which serves approved shops only; without a slug they are hidden.
+  const publicSlug = shop.status === "APPROVED" ? shop.slug : "";
 
   return (
     <>
       <HashRedirect map={OLD_SECTIONS} />
       {/* Touch screens: the approved Tile Board, every menu on one screen. */}
       <div className="lg:hidden">
-        <ShopBoard lang={lang} user={user} header={header} shop={{ name: shop.name, slug: shop.slug }} data={board} alerts={alerts} />
+        <ShopBoard lang={lang} user={user} header={header} shop={{ name: shop.name, slug: publicSlug }} data={board} alerts={alerts} />
       </div>
       {/* Wide screens: the Seller Central home. */}
       <div className="hidden lg:block">
@@ -112,7 +114,7 @@ export default async function ShopDashboardPage() {
           facts={board.facts}
           kpis={kpis}
           legal={legalStatus.enabled ? { blocking: docs.filter((d) => d.blocking).length, dueSoon: docs.filter((d) => !d.blocking && (d.deadline || d.expiringSoon)).length } : null}
-          groups={groupSellerMenus(visibleMenus(SHOP_MENUS, user.role, { shopSlug: shop.slug }, "shop"))}
+          groups={groupSellerMenus(visibleMenus(SHOP_MENUS, user.role, { shopSlug: publicSlug }, "shop"))}
         />
       </div>
     </>

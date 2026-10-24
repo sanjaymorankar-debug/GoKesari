@@ -13,7 +13,8 @@
    "actual": "19 write routes (15 handlers) answered a signed-out caller 404 NOT_FOUND or 422 VALIDATION_FAILED instead of 401: they validated the body or looked the record up first, so a guest learnt field names and whether an id exists. Nothing could be changed signed out.",
    "expected": "401 for every write API called without a session (TC-SEC-001); guards first (src/server/authz/guards.ts: 'Every mutating route handler and server action begins with one of these').",
    "fix": "requireUser() as the first statement of the 15 handlers (orders status/fulfilment/assign/fulfilment-plan, shop-products, excel-uploads, invoices einvoice/eway-bill, products, price-requests, marketing segments, admin payout batches).",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24 gokesari.com guest tier after release #242 (df923a2): TC-SEC-001, TC-RBAC-002 pass (docs/testing/qa-runs/2026-10-24-production-release-3.json)"
   },
   {
    "id": "D-02",
@@ -27,7 +28,8 @@
    "actual": "GET /api/shops/abc/products (and other id routes, e.g. PATCH /api/cart/items/undefined) → 500 INTERNAL: PostgreSQL 'invalid input syntax for type uuid' reached the generic error handler.",
    "expected": "404/422 for a malformed id, never a 500 (TC-SEC-002).",
    "fix": "toClientError() maps PostgreSQL 22P02 for type uuid to 404 NOT_FOUND (src/lib/errors.ts); unit test tests/unit/errors-invalid-id.test.ts.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24 gokesari.com guest tier after release #242 (df923a2): TC-SEC-002, TC-DISC-007 pass (docs/testing/qa-runs/2026-10-24-production-release-3.json)"
   },
   {
    "id": "D-03",
@@ -41,7 +43,8 @@
    "actual": "Every response carries 'X-Powered-By: Next.js'.",
    "expected": "No server details in responses (TC-SEC-010).",
    "fix": "poweredByHeader: false in next.config.ts.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24 gokesari.com guest tier after release #242 (df923a2): TC-SEC-010, TC-SEC-005 pass (docs/testing/qa-runs/2026-10-24-production-release-3.json)"
   },
   {
    "id": "D-04",
@@ -56,7 +59,8 @@
    "actual": "The location bar saved 'PIN 011001' and 'PIN 000000'; addresses, shop registration and settings, societies, delivery slots, price references and marketing segments accepted any 6 digits.",
    "expected": "Only a 6-digit PIN that does not start with 0 is accepted; others are refused with 422 and the previous location stays (TC-LOC-002, TC-FLD-020).",
    "fix": "/^[1-9]\\d{5}$/ in the location API and the services that store a PIN (addresses, shops, societies, shop profile, delivery slots, price references, marketing).",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24 gokesari.com guest tier after release #242 (df923a2): TC-LOC-002, TC-FLD-020, TC-FLD-016 pass (docs/testing/qa-runs/2026-10-24-production-release-3.json)"
   },
   {
    "id": "D-05",
@@ -69,7 +73,8 @@
    "actual": "GET https://test.gokesari.com/robots.txt → 404, so search engines may index the test site and its test shops.",
    "expected": "Search engines are disallowed on the test site (TC-SEC-008).",
    "fix": "src/app/robots.ts: Disallow / on every host but gokesari.com (isProductionSite); production keeps Allow /.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-SEC-008 pass in local round 3 (one database); local round 3 (split); production release 3"
   },
   {
    "id": "D-06",
@@ -82,7 +87,8 @@
    "actual": "/shops?q=411014 lists no shop although several approved shops are at PIN 411014 (e.g. 'Agtci', Kharadi): the free-text search matched name, area, city, description and category but not the PIN, and /shops has no separate PIN field.",
    "expected": "Shop search by name, category, area and PIN returns the matching approved shops (TC-DISC-004).",
    "fix": "searchShops() also matches shops.pincode (src/server/services/shops.ts); integration test in tests/integration/shop-categories.test.ts.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24 gokesari.com guest tier after release #242 (df923a2): TC-DISC-004 pass (docs/testing/qa-runs/2026-10-24-production-release-3.json)"
   },
   {
    "id": "D-07",
@@ -122,7 +128,8 @@
    "actual": "'+91 9876543210' in Recipient mobile was kept as '9198765432' — a different valid-looking number — and saved.",
    "expected": "+91 is stripped (or refused) the same way everywhere.",
    "fix": "mobileFieldDigits() (src/lib/contact.ts) strips +91 / a 12-digit 91… in every 10-digit mobile field.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-LOC-009, TC-FLD-012 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-10",
@@ -136,7 +143,8 @@
    "actual": "Hours 18:00–02:00 were never open: the check compared open ≤ now ≤ close within one day, so every order asked for the closed-shop confirmation.",
    "expected": "Open from the opening time until the close the next morning (IST).",
    "fix": "src/lib/shop-hours.ts: hours past midnight are open until the close the next morning (today's or yesterday's hours).",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-LOC-026, TC-FLD-052 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-11",
@@ -163,7 +171,8 @@
    "actual": "Deleting the default address → 204, then no address was marked default.",
    "expected": "Exactly one default address while any address remains.",
    "fix": "Deleting the default address makes the newest remaining one the default.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-018 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-13",
@@ -176,7 +185,8 @@
    "actual": "/shops?type=DAIRY → 'Show all Pune shops' → /shops?all=1&city=Pune; the type was gone.",
    "expected": "The toggle keeps the search, type, classification, delivery, open-now and sort filters.",
    "fix": "The near-me / all-shops toggle keeps the search, type, classification, delivery, open-now and sort filters.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-DISC-003 pass in staging round 3; local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-14",
@@ -190,7 +200,8 @@
    "actual": "/search?q=% (also _ and %%_) returned a full page of products and no 'nothing found' state; the term went into ILIKE unescaped.",
    "expected": "Symbols are searched as text.",
    "fix": "likePattern() escapes % and _ in product and shop searches.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24 gokesari.com guest tier after release #242 (df923a2): TC-DISC-007, TC-FLD-022 pass (docs/testing/qa-runs/2026-10-24-production-release-3.json)"
   },
   {
    "id": "D-15",
@@ -229,7 +240,8 @@
    "actual": "A session cookie copied before Sign out still worked afterwards: GET /api/wallet → 200, POST /api/cart → 200 (stateless 30-day JWT, no revocation).",
    "expected": "After sign-out the old session is refused everywhere (401 / sign-in page).",
    "fix": "Each session has an id; Sign out lists it in revoked_sessions (migration 0088) and every request refuses a listed id — a copied cookie gets 401.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-AUTH-034 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-18",
@@ -243,7 +255,8 @@
    "actual": "Submitting /signin with the Terms box unticked still mailed a code and created the account; the server recorded consent unconditionally.",
    "expected": "The server refuses a new account without consent.",
    "fix": "A new account needs the Terms box: verifyLoginOtp refuses TERMS_REQUIRED without it (existing accounts unaffected).",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-004, TC-MKT-002 pass in local round 3 (one database); local round 3 (split); production release 3"
   },
   {
    "id": "D-19",
@@ -256,7 +269,8 @@
    "actual": "'Email me a link' for a suspended account showed 'Something went wrong on our side' (AccessDenied unhandled).",
    "expected": "/signin?error=AccessDenied with the suspended notice.",
    "fix": "The email-link, dev and Google forms turn Auth.js's refusal into /signin?error=AccessDenied (suspended notice).",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-AUTH-027 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-20",
@@ -282,7 +296,8 @@
    "actual": "On a shared phone the next person saw 'Deliver to <previous user's spot>' after sign-out.",
    "expected": "Sign-out clears the location.",
    "fix": "Sign out deletes the location cookie.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-AUTH-038 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-22",
@@ -295,7 +310,8 @@
    "actual": "Sign-in writes auth.otp_verified; sign-out wrote no audit row.",
    "expected": "Sign-out is recorded in the audit log.",
    "fix": "Sign out writes auth.signed_out (user, IP, browser) once.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-AUTH-045 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-23",
@@ -323,7 +339,8 @@
    "actual": "Four attempts to use one's own referral code, then a risk-rules run, raised no flag (no rewards were paid in any of the abuse paths).",
    "expected": "Repeated abuse raises a risk flag.",
    "fix": "Own-code tries are recorded (customer_referral.refused); new risk rule REFERRAL_ABUSE flags 3+ tries or refused friend rewards in 30 days (rule riskRules.referralAbuse).",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-MKT-015, SC-35 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-25",
@@ -349,7 +366,8 @@
    "actual": "PATCH /api/societies/{id} with gateContactPhone '123456' → 200.",
    "expected": "The security contact must be a valid phone when given.",
    "fix": "Gate contact must be an Indian mobile or a landline with its STD code (isIndianPhone).",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-105 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-27",
@@ -362,7 +380,8 @@
    "actual": "'1'+rider number (11 digits) and '67456ab20809' were accepted and added that rider.",
    "expected": "Wrong length, letters and wrong first digit are refused; +91 is stripped.",
    "fix": "Rider mobile read with parseIndianMobile (as typed; +91 stripped), not its last 10 digits.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-106 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-28",
@@ -375,7 +394,8 @@
    "actual": "'abc' in 'At least this many delivered orders' was dropped and the segment saved as 'All customers'.",
    "expected": "The form refuses it and names the field.",
    "fix": "The segment form names the field and keeps Save / Preview off while a number field holds text.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-122 pass in staging round 3; local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-29",
@@ -419,7 +439,8 @@
    "actual": "Orders generated from a subscription had no address snapshot and no society, so the rider had no drop address.",
    "expected": "Each delivery carries the subscription's (or the default) address.",
    "fix": "Generation uses the subscription's address, else the customer's default; none → NO_ADDRESS (not charged, customer told); the subscribe page picks an address.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-SUB-013 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-32",
@@ -445,7 +466,8 @@
    "actual": "GET /api/finance/orders/<n> → payment: null although the payment intent was CAPTURED.",
    "expected": "The trace shows the online payment and its events.",
    "fix": "The money trace shows the online payment with its gateway reference, attempts, status history and refunds.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-PAY-026 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-34",
@@ -458,7 +480,8 @@
    "actual": "PATCH /api/subscriptions/<id> {quantityMilli:3000} on a CANCELLED subscription → 200.",
    "expected": "409: a finished subscription cannot change.",
    "fix": "Editing or overriding a finished subscription answers 409 (loadLiveSubscription).",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-SUB-008 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-35",
@@ -471,7 +494,8 @@
    "actual": "startDate '', '2026-02-31' or 'tomorrow' → 500; yesterday → 201.",
    "expected": "422 for bad or past dates.",
    "fix": "Shared isoDateSchema / todayOrLaterDateSchema: blank, impossible, text and past start dates → 422.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-108 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-36",
@@ -497,7 +521,8 @@
    "actual": "POST /api/subscriptions/<id>/skip {date:''} or 'next friday' → 500.",
    "expected": "422 for a date that is not a real YYYY-MM-DD.",
    "fix": "The same date schema on skip, override, pause, retry, renew, edit and deliveries routes → 422, not 500.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-109 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-38",
@@ -510,7 +535,8 @@
    "actual": "quantityMilli 2300 (2.3 L) accepted though the page cannot make it; stock taken in whole units while 2.3 L was charged.",
    "expected": "Only the page's steps and range are accepted.",
    "fix": "src/lib/subscription-quantity.ts: steps of 0.5 L / 0.5 kg (else one pack), at most 50 units, on the server and every quantity control.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-107 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-39",
@@ -523,7 +549,8 @@
    "actual": "PATCH /api/notifications {id: someone else's} → 200 (nothing changed).",
    "expected": "404 for a notification that is not the caller's.",
    "fix": "PATCH /api/notifications answers 404 for an id that is not the caller's.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-NTF-012 pass in staging round 3; local round 3 (one database); local round 3 (split); production release 3"
   },
   {
    "id": "D-40",
@@ -549,7 +576,8 @@
    "actual": "On /wallet 10.555 started a payment of ₹10.56.",
    "expected": "More than 2 decimals is refused.",
    "fix": "/wallet and the shop wallet read the amount as typed (parseRupeeInput): more than 2 decimals refused.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-030 pass in staging round 3; local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-42",
@@ -562,7 +590,8 @@
    "actual": "PATCH /api/wallet/settings {lowBalanceThresholdPaise: ₹10 crore} → 200.",
    "expected": "A sensible maximum.",
    "fix": "Low-balance threshold and auto-recharge figures capped at rule walletTopup.maxPaise.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-032 pass in staging round 3; local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-43",
@@ -575,7 +604,8 @@
    "actual": "With Pay online chosen the button still read 'Pay from wallet'; the 'Pay with' label wrapped all three radios.",
    "expected": "The button names the chosen method; each radio is labelled by its own text.",
    "fix": "The cart button names the chosen method; 'Pay with' is a fieldset, each radio named by its own label.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-PAY-001 pass in staging round 3; local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-44",
@@ -588,7 +618,8 @@
    "actual": "PATCH /api/delivery-orders/{id} {action:'accept'} by a suspended rider → 200 ASSIGNED; open offers were not withdrawn on suspension.",
    "expected": "The offer can no longer be accepted; it goes to another rider.",
    "fix": "Accept refuses a rider who may not work (409, checked on the locked row); suspending or deactivating withdraws open offers and the order is offered again.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-DEL-026 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-45",
@@ -602,7 +633,8 @@
    "actual": "The ranking subqueries compared the subquery's own id, so delivered/failed/declined/offers-today were always 0.",
    "expected": "A rider who declines more, or had more offers today, ranks lower.",
    "fix": "The ranking subqueries name delivery_partners.id in full, so declines, failures and offers today count.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-DSP-020, TC-DSP-021 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-46",
@@ -630,7 +662,8 @@
    "actual": "PAN 'ABC12', Aadhaar '12', 8- or 19-digit or lettered bank accounts and malformed IFSC codes were accepted.",
    "expected": "Each number is checked against its format with a clear message.",
    "fix": "src/lib/kyc/rider-details.ts checks PAN, Aadhaar (Verhoeff), IFSC and bank account for the application and change requests; field messages on the form.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-092, TC-FLD-093, TC-DEL-030 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-48",
@@ -657,7 +690,8 @@
    "actual": "'reactivate' needed no reason; 'approve' also moved SUSPENDED and REJECTED riders to APPROVED.",
    "expected": "Approve only from review; reactivating needs a reason.",
    "fix": "Approve only from REGISTERED / UNDER_REVIEW (409 otherwise); reactivate needs a reason, kept in the review note and audit.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-DEL-027 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-50",
@@ -670,7 +704,8 @@
    "actual": "Approve, reject and suspend send a notice; reactivate and deactivate did not.",
    "expected": "Every status change is notified.",
    "fix": "Notices delivery_partner.reactivated and delivery_partner.deactivated.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-DEL-015 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-51",
@@ -684,7 +719,8 @@
    "actual": "'mh12 ab 1234' stored as typed in one place, upper-cased in another; 'MH12@#$%^&*' accepted.",
    "expected": "One format everywhere; symbols refused.",
    "fix": "normaliseVehicleRegistration(): upper case, single spaces, Indian mark or BH series, at application and profile edit.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-091, TC-DEL-030 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-52",
@@ -697,7 +733,8 @@
    "actual": "After a cancel, GET /api/orders/{id}/assign still said 'Looking for a rider — attempt 1 of 10'.",
    "expected": "The search closes with the order.",
    "fix": "Cancelling an order stops its rider search and open broadcast; the dispatch sweep closes stale ones.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-DSP-011 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-53",
@@ -736,7 +773,8 @@
    "actual": "Phone 'not a phone' → 201; unknown ticket → 404 but an existing ticket with the wrong e-mail → 403.",
    "expected": "Phone checked; both lookups answer the same.",
    "fix": "A grievance phone is checked as an Indian mobile; an unknown ticket and a wrong e-mail get the same 404.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-101 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-56",
@@ -775,7 +813,8 @@
    "actual": "PATCH /api/shop-products/{id} {onlineSaleEnabled:true, onlinePricePaise:0} → 200; the product sells at ₹0.",
    "expected": "A price on sale is at least ₹0.01.",
    "fix": "A price on sale is ₹0.01 to ₹10 lakh in the service, every listing route and price proposals.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-CAT-004 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-59",
@@ -788,7 +827,8 @@
    "actual": "A shop with 662 products: category X and its products never appeared on /shops/{slug}?cat=X.",
    "expected": "Every product can be reached; a chosen category shows its products.",
    "fix": "The shop page counts categories in SQL and loads only the chosen category, a page at a time.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-CAT-050 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-60",
@@ -801,7 +841,8 @@
    "actual": "A 0 in a loose price cell was VALID (would set ₹0); a blank cell was INVALID_PRICE.",
    "expected": "0 is refused like everywhere else; blank means no change.",
    "fix": "Excel price list: 0 is invalid; a blank cell is no change for a product already listed.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-CAT-033 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-61",
@@ -814,7 +855,8 @@
    "actual": "GET /api/referral-codes?report=1 → 500 'Do not know how to serialize a BigInt'.",
    "expected": "The report is returned.",
    "fix": "The referral report returns numbers (no BigInt).",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-ONB-025 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-62",
@@ -828,7 +870,8 @@
    "actual": "Reject after suspend → 200 (SUSPENDED → REJECTED, two audit rows); reject of an APPROVED, trading shop → 200 and the owner was told the registration 'wasn't approved'.",
    "expected": "409: only a shop under review can be rejected.",
    "fix": "Only a pending, live shop can be rejected (409 otherwise); reasons trimmed before the 3–500 check.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-ONB-038, TC-FLD-121 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-63",
@@ -841,7 +884,8 @@
    "actual": "State codes 00 and 99, a wrong check character and a GSTIN carrying another PAN were accepted.",
    "expected": "Structure, state code, checksum and PAN are checked.",
    "fix": "parseGstin checks the state code (01–38, 97) and the check character; the GSTIN's PAN must match the shop's PAN on file.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-043 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-64",
@@ -854,7 +898,8 @@
    "actual": "'Period of Validity From 01/04/2020 To Not Applicable' was read as expired on 2020-04-01.",
    "expected": "No expiry date means no expiry.",
    "fix": "'To : Not Applicable' (or NA) means no expiry; a 'From' date is never read as the expiry.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-047 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-65",
@@ -867,7 +912,8 @@
    "actual": "'25:00', 'morning' and open = close were accepted.",
    "expected": "HH:MM 00:00–23:59 and open ≠ close.",
    "fix": "Opening hours HH:MM 00:00–23:59, opening ≠ closing on an open day, each day once; the settings form checks the same.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-052 pass in staging round 3; local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-66",
@@ -880,7 +926,8 @@
    "actual": "The pipeline dropped the sign of -5; the admin GST editor accepted 7 %.",
    "expected": "Negative and non-slab rates are refused.",
    "fix": "'-5' is no longer read as 5 %; non-slab rates are dropped with a warning in the pipeline and refused by the admin GST editor.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-078 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-67",
@@ -894,7 +941,8 @@
    "actual": "POST /api/mrp mrpPaise 0 and 10,000,000,000 → 200; an MRP correction claim of 0 → 201.",
    "expected": "MRP between ₹0.01 and a sane maximum.",
    "fix": "MRP and MRP correction claims ₹0.01 to ₹10 lakh (MAX_MRP_PAISE), in the routes and the product master.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-079, TC-CAT-062 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-68",
@@ -907,7 +955,8 @@
    "actual": "'Add existing product' offered it but POST /api/shops/{id}/products → 409 'already in your shop's catalogue' (soft-deleted listing counted).",
    "expected": "A removed product can be listed again.",
    "fix": "A removed product can be listed again (the soft-deleted listing is brought back).",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-CAT-034 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-69",
@@ -947,7 +996,8 @@
    "actual": "/shop/inventory saved '10.555' as ₹10.56.",
    "expected": "More than 2 decimals is refused.",
    "fix": "Price boxes read the amount as typed (parsePriceInput on the shared parseRupeeInput): more than 2 decimals, 0 and text refused.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-CAT-032 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-72",
@@ -960,7 +1010,8 @@
    "actual": "POST /api/shops/{id}/approve on a shop with deleted_at set → 200 APPROVED.",
    "expected": "Refused.",
    "fix": "Approving a closed (deleted) shop answers 409.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-ONB-043 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-73",
@@ -973,7 +1024,8 @@
    "actual": "Address '      ' → 201; '   12 Padded Road   ' stored untrimmed.",
    "expected": "Trimmed, then checked.",
    "fix": "Registration and settings text trimmed before its length check; spaces-only optional fields become empty.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-037 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-74",
@@ -986,7 +1038,8 @@
    "actual": "PATCH /api/shops/{id}/compliance accepted 13 or 15 digits or letters.",
    "expected": "14 digits, as the owner's own entry already checks.",
    "fix": "The stored FSSAI number uses the owner's own rule (14 digits).",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-044 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-75",
@@ -1013,7 +1066,8 @@
    "actual": "No field on any owner screen; PATCH {preparationTimeMinutes} → 422, though slots and alerts use it.",
    "expected": "The owner can set it within a range.",
    "fix": "Preparation time (5–240 min) in the owner's delivery settings.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-054 pass in staging round 3; local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-77",
@@ -1026,7 +1080,8 @@
    "actual": "The shop page collapsed the description's line breaks.",
    "expected": "Line breaks kept (text still escaped).",
    "fix": "The shop description keeps its line breaks (still escaped).",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-055 pass in staging round 3; local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-78",
@@ -1052,7 +1107,8 @@
    "actual": "The pipeline read '-1 kg' as 1000 g; the create-product API accepted unit 'bananas'.",
    "expected": "Negative or zero quantities flagged; only known units.",
    "fix": "The product master flags zero and negative quantities; products accept only the catalogue's units (a list on the form).",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-074 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-80",
@@ -1065,7 +1121,8 @@
    "actual": "An order at 01:30 IST on 24 Oct was listed under 23 Oct; orders placed 00:00–05:30 IST were filed under the previous day.",
    "expected": "The chosen day is the business day (IST).",
    "fix": "The order monitoring date filter uses IST business-day bounds, as analytics does.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-ADM-004 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-81",
@@ -1079,7 +1136,8 @@
    "actual": "A signed-in customer, or another shop's owner, sending an empty body got 422 VALIDATION_FAILED from payout batches, canned replies, cancellation fee, segments, profile setup and staff: the body was read before the permission check.",
    "expected": "403 before the body is read.",
    "fix": "Permission or shop access checked before the body on payout batches, canned replies, cancellation fee, segments, profile setup and staff. POST /api/price-requests keeps its order (an owner in the customer role may submit there).",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-RBAC-003, TC-RBAC-005 pass in staging round 3; local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-82",
@@ -1092,7 +1150,8 @@
    "actual": "Address line 1 over 200 characters → 'Please check the highlighted fields.' at the top and no field highlighted; the inputs had no length limit.",
    "expected": "The message shows on the field; inputs stop at the API's limits.",
    "fix": "The address form shows the server's message on its field and names the fields at the top; inputs stop at the API's limits.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-125 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-83",
@@ -1105,7 +1164,8 @@
    "actual": "POST /api/vouchers → 201 for each.",
    "expected": "Each refused with a field message.",
    "fix": "Vouchers: budget under ₹0.01, an end date already past, a budget below one maximum bonus and impossible dates refused with field messages (edits re-check changed fields only).",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-114 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-84",
@@ -1118,7 +1178,8 @@
    "actual": "'   QA …   ' stored as typed.",
    "expected": "Trimmed before the 3–500 check and stored trimmed.",
    "fix": "Reject and classification reasons are trimmed before the 3–500 check and stored trimmed.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-121 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-85",
@@ -1131,7 +1192,8 @@
    "actual": "Return accepted → 404 'Original wallet debit for this reference was not found'; the return stayed REFUND_INITIATED with no refund, credit note or gateway refund.",
    "expected": "The return is refunded the way the order was paid.",
    "fix": "refundDeliveredOrder refunds online orders to the payment (after commit) for returns, disputes and admin refunds.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: SC-29 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-86",
@@ -1144,7 +1206,8 @@
    "actual": "100 online / 100 in-shop, then a count of 37 → online 0, in-shop 37, not available online.",
    "expected": "A count sets the physical total without emptying the online channel.",
    "fix": "A count takes a shortfall from the in-shop count first, then online; an increase goes to the purchase channel.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: SC-23 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-87",
@@ -1158,7 +1221,8 @@
    "actual": "Unopened return accepted: stock 8 → 8, no movement.",
    "expected": "Stock goes back up by the returned units.",
    "fix": "Accepted UNOPENED returns go back in stock in the same transaction (stock ledger SALE_RETURN).",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-SPI-020, SC-26 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-88",
@@ -1172,7 +1236,8 @@
    "actual": "Both the original and the substitute were taken from stock.",
    "expected": "The original's unit goes back; only the substitute is taken.",
    "fix": "Approving a substitute puts the original product back in stock (ledger: sale return of the order).",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-SPI-010, SC-26 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-89",
@@ -1185,7 +1250,8 @@
    "actual": "A page opened at stock 10 saved 8 after an order took 4: stock became 8 (true 6).",
    "expected": "The save is refused with the current figure.",
    "fix": "The listing save sends the stock it was opened with; if it moved, 409 'Stock changed … it is now N'.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-SPI-022 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-90",
@@ -1198,7 +1264,8 @@
    "actual": "GET /api/shops/{id}/products as a customer returned onlineStock for every row.",
    "expected": "Only the shop and operations see the number; others see availability.",
    "fix": "The public products API returns inStock, not the count (owner, staff and operations still get counts). Product cards still receive stock capped at 99 for the quantity picker.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-SPI-027 pass in local round 3 (one database); local round 3 (split); production release 3"
   },
   {
    "id": "D-91",
@@ -1239,7 +1306,8 @@
    "actual": "The body is only 'Your order … is confirmed' and a link.",
    "expected": "Lines, fees, discount and total in the e-mail.",
    "fix": "The order-confirmed e-mail lists the lines, delivery fee, discount and total.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-SPI-004 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-94",
@@ -1252,7 +1320,8 @@
    "actual": "An out-of-stock row came first on the storefront.",
    "expected": "Buyable products first.",
    "fix": "Storefront lists buyable products first.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-SPI-023 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-95",
@@ -1297,7 +1366,8 @@
    "actual": "Prices of ₹10 crore, stock and thresholds of 99,999,999, a write-off of 1.5 packaged units, unit 'bananas' and pack size 0 or negative were accepted; a blank stock box saved 0; forms rounded ₹10.555.",
    "expected": "Sensible bounds, whole units for per-piece items, known units only, no silent rounding.",
    "fix": "Prices up to ₹10 lakh, stock and thresholds up to 10 lakh, whole units for packaged write-offs and counts, known units only; the stock box cannot be left blank.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-058, TC-FLD-059, TC-FLD-061, TC-FLD-062, TC-FLD-063, TC-FLD-065, TC-FLD-068 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-98",
@@ -1314,7 +1384,8 @@
    "actual": "A ₹10 crore registration fee, shop payment and adjustment were accepted; a payment with a blank or reused reference or a future date was accepted; forms rounded ₹10.555; the current, unfinished week (and a future one) could be settled.",
    "expected": "Bounds, a unique reference, no future dates, no rounding, finished weeks only.",
    "fix": "src/lib/money-limits.ts (₹10,00,000) on registration fees, shop payments, adjustments and COD deposits; non-cash shop payments need a reference, a reused one gets 409, a future date 422; only a finished week can be settled; the deposit, refund and adjustment forms refuse more than 2 decimals.",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-112, TC-FLD-113, TC-FLD-116, TC-FLD-117, TC-FLD-118 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-99",
@@ -1357,7 +1428,8 @@
    "actual": "src/server/services/vouchers.ts todayIso() used the UTC date, which lags India time from midnight to 05:30 IST: in that window a voucher could be created with yesterday's (IST) end date, and vouchers started and expired up to 5½ hours late.",
    "expected": "Voucher dates are judged in the business time zone (APP_TIMEZONE, IST), like the rest of the app.",
    "fix": "todayIso() → todayIn(getEnv().APP_TIMEZONE) — made the same way in PR #241 and PR #246; voucher tests take today in IST. Same UTC-date pattern remains in registration-fees, legal-documents, referrals and seller-verification (not failing; follow-up).",
-   "status": "Fixed (re-test pending)"
+   "status": "Fixed - retest passed",
+   "retest": "2026-10-24: TC-FLD-114 pass in local round 3 (one database); local round 3 (split)"
   },
   {
    "id": "D-102",
@@ -1399,6 +1471,19 @@
    "expected": "On wide screens the signed-in header shows a usable search box (or a visible search icon) and every nav link (Shops, Orders, Subscriptions) is clickable; nothing overlaps.",
    "fix": "Not fixed. The signed-in row (location pill, nav links, language switch, wallet, cart, bell, account) leaves the flexible search box no width; give it a minimum width or move the language switch / nav into the account menu below ~1600 px, and keep the voice button inside the box. Add a check (signed tier, 1280 px) that the search input is visible and 'Shops' receives its own click.",
    "status": "Open"
+  },
+  {
+   "id": "D-104",
+   "title": "Shop owner menu links to the public page of a shop that is not approved yet",
+   "cases": [
+    "TC-UX-001"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 test.gokesari.com round 3 (signed tier, shop owner whose newest shop is pending approval)",
+   "actual": "The shop board and Seller Central menus ('Share', 'Public page') and the manage pages' 'View public page →' link to /shops/<slug> for every shop; /shops/<slug> serves approved shops only, so a pending, rejected or suspended shop's owner gets a 404.",
+   "expected": "Links to the public page appear only for an approved shop (as the seller shell's store link and the catalogue's 'View my shop page' already do).",
+   "fix": "src/app/shop/page.tsx passes the slug to the menus only when the shop is APPROVED (the entries are then hidden); src/app/shop/manage/[section]/page.tsx shows 'View public page →' only for an approved shop. Unit test in tests/unit/tile-board.test.ts.",
+   "status": "Fixed (re-test pending)"
   }
  ]
 }

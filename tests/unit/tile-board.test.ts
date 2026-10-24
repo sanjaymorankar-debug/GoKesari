@@ -125,6 +125,13 @@ describe("resolveHref", () => {
     expect(visibleItems(items, "SHOP_OWNER", {})).toEqual([]);
     expect(visibleItems(items, "SHOP_OWNER", { shopSlug: "x" })[0].href).toBe("/shops/x");
   });
+
+  it("drops Share and Public page for a shop that is not approved (no public slug)", () => {
+    const links = (slug: string) =>
+      visibleMenus(SHOP_MENUS, "SHOP_OWNER", { shopSlug: slug }, "shop").flatMap((m) => [...m.items, ...m.more].map((i) => i.href));
+    expect(links("").filter((h) => h.startsWith("/shops/"))).toEqual([]);
+    expect(links("kesari-dairy").filter((h) => h === "/shops/kesari-dairy").length).toBeGreaterThanOrEqual(2);
+  });
 });
 
 describe("permission filtering", () => {
