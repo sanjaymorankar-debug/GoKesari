@@ -50,9 +50,15 @@ Before = 7 of 7 fail on both layouts; after = 7 of 7 pass on both layouts.
 
 ## Full suite (`npm test`)
 
-| Layout | Result |
-|---|---|
-| One database | (running) |
-| Seller / customer split (`DB_SPLIT_MODE=split`, built with `scripts/db-split/test-layout.ts`) | (running) |
+| Where | Layout | Result |
+|---|---|---|
+| CI `test`, commit `4c042c9` | One database | Pass |
+| CI `test-split`, commit `4c042c9` (blocking) | Seller / customer split (`DB_SPLIT_MODE=split`, built with `scripts/db-split/test-layout.ts`) | Pass |
+| Local, commit `8086328` | One database | 2,620 passed, 1 failed: `gst-compliance` "sorts sales into B2B, B2C large…" |
 
-Local PostgreSQL 16, Node 22.
+The one local failure is not from the checkout change. The D-100 base (#240) caps a
+cart line at 99 units, and that test orders 300 on one line; it fails the same way
+without the checkout change. `4c042c9` carries the test change from #241 (99 units
+at ₹1,020), and the file passes on both layouts (11 of 11).
+
+Local PostgreSQL 16 and CI PostgreSQL 18, Node 22.
