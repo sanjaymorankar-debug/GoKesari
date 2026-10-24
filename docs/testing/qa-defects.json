@@ -1331,6 +1331,20 @@
    "status": "Fixed (re-test pending)"
   },
   {
+   "id": "D-100",
+   "title": "On two databases, promoting a product-master record into the catalogue fails (duplicate product code)",
+   "cases": [
+    "TC-PMD-004",
+    "TC-FLD-075"
+   ],
+   "severity": "High",
+   "found": "2026-10-24 local, two-database (split) layout, build 7e4e920",
+   "actual": "POST /api/product-master/products/{id}/promote → 500 (\"duplicate key value violates unique constraint products_code_unique\", Key (code)=(P00381)). On the split layout the product master writes public.products in the seller database directly, so the product code came from the seller database's own copy of product_code_seq, which lags the core's (382 vs 1164); every other product insert goes through the core's foreign table and takes the core's sequence. On one database it works.",
+   "expected": "The promoted product gets the site's next product code and the promotion succeeds on both layouts.",
+   "fix": "src/server/pmd/db.ts catalogueProductCode(): on the split layout the code is drawn from the core's product_code_seq and inserted explicitly (src/server/pmd/services/catalogue-bridge.ts); on one database the column default applies as before. Test: tests/integration/pmd-review-bridge.test.ts (fails on the split layout without the fix: P00001 instead of P00016).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
    "id": "E-01",
    "title": "The host's firewall answers some requests itself (SQL-like search text, bursts)",
    "cases": [

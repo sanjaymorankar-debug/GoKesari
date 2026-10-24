@@ -160,6 +160,21 @@ export async function appSql(env: NodeJS.ProcessEnv = process.env): Promise<Sql>
   return (await goesToSellerDatabase(core, env)) ? pool("__pmdSellerSql", env.SELLER_DATABASE_URL) : core;
 }
 
+/**
+ * The code for a catalogue product the product master creates, when it writes
+ * to the seller database directly (split layout); null otherwise, and the
+ * column default applies. Every product the site creates goes through the
+ * core's foreign table and takes its code from the core's product_code_seq;
+ * the seller database's own copy of that sequence lags behind, so a default
+ * drawn there re-issues codes already used (products_code_unique → 500).
+ */
+export async function catalogueProductCode(env: NodeJS.ProcessEnv = process.env): Promise<string | null> {
+  const core = pool("__pmdSql", env.DATABASE_URL);
+  if (!(await goesToSellerDatabase(core, env))) return null;
+  const [row] = await core<{ code: string }[]>`SELECT 'P' || lpad(nextval('product_code_seq')::text, 5, '0') AS code`;
+  return row.code;
+}
+
 /** Whether the product master goes to SELLER_DATABASE_URL directly (see appSql). */
 export async function goesToSellerDatabase(core: Sql, env: Record<string, string | undefined> = process.env, options: { cached?: boolean } = {}): Promise<boolean> {
   if (env.DB_SPLIT_MODE !== "split" || !env.SELLER_DATABASE_URL) return false;
