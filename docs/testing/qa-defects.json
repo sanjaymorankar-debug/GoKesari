@@ -1328,7 +1328,9 @@
    "actual": "Right after the round-2 release (PR #232), every saved session was refused and a fresh sign-in did not stick (13:04–13:09 UTC: POST /signin 200, then /onboarding → /signin). Cause: 0088_revoked_sessions and the purchase-lists migration were written the same day with the same journal timestamp; the migrator applies only migrations newer than the newest one recorded, so on the test database, which recorded the other first, 0088 was skipped and revoked_sessions did not exist. The new per-request sign-out check read that table, failed, and the request had no session. Sessions worked again by 13:45 (the table was in place); sign-out revocation verified on the test site afterwards (a copied cookie is refused after Sign out).",
    "expected": "A signed-in visitor stays signed in; a failure of the sign-out list never signs everyone out.",
    "fix": "PR #231: 0089_repair_revoked_sessions recreates the table (IF NOT EXISTS) and the purchase-lists migration is renumbered 0090 with a later timestamp. PR #234: readSession (src/server/auth-sessions.ts) falls back to the account read and logs once when the sign-out list cannot be read, so a missing table never signs everyone out (tests/integration/auth-sessions-fallback.test.ts). PR #238: tests/unit/migration-journal.test.ts fails CI when a journal timestamp is not later than the one before it, or a migration file is missing from the journal.",
-   "status": "Fixed (re-test pending)"
+   "retest": "24 Oct 2026 15:05 and 16:00 UTC on test.gokesari.com (purchase-lists QA run, build 2853b3d): customer and customer2 signed in with emailed codes and stayed signed in — /api/auth/session returns the user, /orders loads signed in.",
+   "fixedIn": "#231 (0089_repair_revoked_sessions), #234 (sessions survive a failed read), #238 (journal guard)",
+   "status": "Fixed - retest passed"
   },
   {
    "id": "D-100",
@@ -1342,6 +1344,19 @@
    "actual": "POST /api/product-master/products/{id}/promote → 500 (\"duplicate key value violates unique constraint products_code_unique\", Key (code)=(P00381)). On the split layout the product master writes public.products in the seller database directly, so the product code came from the seller database's own copy of product_code_seq, which lags the core's (382 vs 1164); every other product insert goes through the core's foreign table and takes the core's sequence. On one database it works.",
    "expected": "The promoted product gets the site's next product code and the promotion succeeds on both layouts.",
    "fix": "src/server/pmd/db.ts catalogueProductCode(): on the split layout the code is drawn from the core's product_code_seq and inserted explicitly (src/server/pmd/services/catalogue-bridge.ts); on one database the column default applies as before. Test: tests/integration/pmd-review-bridge.test.ts (fails on the split layout without the fix: P00001 instead of P00016).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-101",
+   "title": "Vouchers took 'today' in UTC: from midnight to 05:30 IST a past end date was accepted",
+   "cases": [
+    "TC-FLD-114"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 CI (both layouts) at 02:09 IST on 25 Oct",
+   "actual": "src/server/services/vouchers.ts todayIso() used the UTC date, which lags India time from midnight to 05:30 IST: in that window a voucher could be created with yesterday's (IST) end date, and vouchers started and expired up to 5½ hours late.",
+   "expected": "Voucher dates are judged in the business time zone (APP_TIMEZONE, IST), like the rest of the app.",
+   "fix": "todayIso() → todayIn(getEnv().APP_TIMEZONE) — made the same way in PR #241 and PR #246; voucher tests take today in IST. Same UTC-date pattern remains in registration-fees, legal-documents, referrals and seller-verification (not failing; follow-up).",
    "status": "Fixed (re-test pending)"
   },
   {
@@ -1373,6 +1388,17 @@
    "expected": "Not an app defect: the case's own inputs (%, _, ', \", <script>, Hindi, long text) all render; the probe was narrowed to them. Recorded so a 403 on such text is not mistaken for an app error. The suite now tells the host's answers from the app's (app pages carry 'Vary: rsc'; lib/http.ts fromApp()): it looks again after a pause and records a host answer as a note or blocked, never as an app failure.",
    "fix": "None in the app (host configuration).",
    "status": "Not a defect"
+  },
+  {
+   "id": "D-103",
+   "title": "Signed-in desktop header: the search box collapses to 0 px and 'Search by voice' covers the Shops link",
+   "cases": [],
+   "severity": "Medium",
+   "found": "2026-10-24 test.gokesari.com (purchase-lists screenshots, staging customer; build 487f11b)",
+   "actual": "As a signed-in customer at 1024, 1280, 1366, 1440 and 1600 px the site header's search input (data-testid search-input) is 0 px wide and hidden, the header-search icon is hidden, and the voice-search button is drawn over the 'Shops' link: at 1280 px document.elementFromPoint at the centre of 'Shops' is BUTTON voice-search 'Search by voice', so clicking 'Shops' starts voice search. A guest's header at 1024–1366 px shows the box 345–367 px wide. Evidence: scratchpad qa2/evidence/header-customer-1280.png, qa2/screenshots/staging-1280-*.png. Not caused by purchase lists (the release's only net change to site-header.tsx is the 'My lists' account-menu entry); no case of the plan checks the signed-in desktop header row.",
+   "expected": "On wide screens the signed-in header shows a usable search box (or a visible search icon) and every nav link (Shops, Orders, Subscriptions) is clickable; nothing overlaps.",
+   "fix": "Not fixed. The signed-in row (location pill, nav links, language switch, wallet, cart, bell, account) leaves the flexible search box no width; give it a minimum width or move the language switch / nav into the account menu below ~1600 px, and keep the voice button inside the box. Add a check (signed tier, 1280 px) that the search input is visible and 'Shops' receives its own click.",
+   "status": "Open"
   }
  ]
 }

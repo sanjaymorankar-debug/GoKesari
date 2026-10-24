@@ -206,7 +206,7 @@ describe("a shop already live", () => {
     await expect(tryCheckout(sp.id)).rejects.toMatchObject({ code: "CONFLICT", message: expect.stringContaining("not taking new orders right now") });
     await expect(acceptOrder(placed.orders[0].id, { id: owner.id, role: "SHOP_OWNER" })).rejects.toMatchObject({ code: "CONFLICT" });
     expect((await getShopLegalStatus(shop.id)).restricted).toBe(true);
-    // Listed nearby as paused (the shop list says "Not taking new orders right now").
+    // Listed nearby as paused (the shop card says "Not taking orders online right now").
     const here = { label: "PIN 411001", pincode: "411001", latitude: null, longitude: null, source: "PINCODE" as const, addressId: null, societyId: null };
     expect((await listNearbyShops(here)).find((s) => s.id === shop.id)).toMatchObject({ deliversHere: false, ordersPaused: true });
 

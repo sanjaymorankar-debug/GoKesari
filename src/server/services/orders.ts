@@ -14,6 +14,9 @@
  *    instead of charging twice.
  *  - **Per-shop split.** A cart spanning several shops becomes one order per
  *    shop, each paid for independently (§17).
+ *  - **The cart.** Each shop's order is made from the shop's cart lines as they
+ *    are under the cart's lock, and exactly those lines leave the cart: a unit
+ *    added while checkout runs is ordered or stays in the cart, never dropped.
  */
 import { and, desc, eq, inArray, isNull, like, sql, type SQL } from "drizzle-orm";
 import { alias } from "drizzle-orm/pg-core";
@@ -45,10 +48,11 @@ import {
   type OrderStatus,
   type OrderType,
   type PaymentMethod,
+  type Shop,
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
-import { clearCartForShop, computeDeliveryFee, getCart } from "./cart";
+import { computeDeliveryFee, getCart, lockCartLinesForShop, removeCartLines, type CartLine, type LockedCartLine } from "./cart";
 import { consumeOnlineStock, loadPurchasableShopProduct, restockOnline } from "./catalogue";
 import { COD_LIMITS, assertCodAllowedForOrder, getCodEligibility, recordCodCollection } from "./cod";
 import { creditDeliveryEarnings } from "./delivery-earnings";
@@ -333,11 +337,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       }
       // Mandatory legal documents: a shop past its grace period takes no orders until it uploads them.
       await assertLegalDocsAllowOrders(shopRow.id);
-      if (addressSnapshot && shopRow.deliveryAvailable && group.subtotalPaise < shopRow.minOrderPaise) {
-        throw validationFailed(
-          `${shopRow.name} needs a minimum order of ₹${(shopRow.minOrderPaise / 100).toFixed(0)}; your items come to ₹${(group.subtotalPaise / 100).toFixed(0)}.`,
-        );
-      }
+      assertMinimumOrder(shopRow, group.subtotalPaise, addressSnapshot != null);
     }
   }
 
@@ -435,7 +435,22 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     let scheduledSlot: { start: Date; end: Date; date: string } | null = null;
     const acceptBy = await acceptByFor(new Date(), closedShops.get(group.shop.id) ?? null);
 
-    const { order, shopOwnerId } = await db.transaction(async (tx) => {
+    const placed = await db.transaction(async (tx) => {
+      // The cart's lock first, before any slot, coupon, stock or wallet lock. Its other holders
+      // (an add, a quantity change, a purchase list's send, another checkout) take none of those
+      // before it, so none can deadlock with this. Then this shop's lines as they are now: the
+      // order is made from them and exactly they leave the cart below. An add since the cart was
+      // read above is ordered with them; one from now on waits for this transaction and stays.
+      const inCart = await lockCartLinesForShop(input.userId, group.shop.id, tx);
+      // A double submit of this request that held the lock before us has placed the order.
+      const placedMeanwhile = await tx.query.orders.findFirst({ where: eq(orders.checkoutKey, idempotencyKey) });
+      if (placedMeanwhile) return { order: placedMeanwhile, deduplicated: true as const };
+      if (inCart.length === 0) {
+        throw conflict(
+          `Nothing from ${group.shop.name} is in your cart any more — it changed while this order was being placed. Check your cart and your orders.`,
+        );
+      }
+
       const lines: {
         shopProductId: string;
         productName: string;
@@ -449,9 +464,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       // Re-validate and re-price every line inside the transaction. The cart
       // view is a hint; this is the authority.
       const shopOffersLive = await getLiveOffers([group.shop.id], new Date(), tx);
-      for (const line of group.lines) {
-        if (!line.purchasable) continue;
-
+      for (const line of cartLinesToOrder(group.lines, inCart)) {
         const loaded = await loadPurchasableShopProduct(
           line.shopProductId,
           line.quantity,
@@ -485,6 +498,8 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
         .select()
         .from(shops)
         .where(eq(shops.id, group.shop.id));
+      // Again on the lines ordered: the cart may have changed since the check above.
+      assertMinimumOrder(shopRow, subtotalPaise, addressSnapshot != null);
       const deliveryFeePaise = computeDeliveryFee(shopRow, subtotalPaise);
       const taxPaise = 0;
       const couponShare = couponQuote?.shares.find((sh) => sh.shopId === group.shop.id)?.discountPaise ?? 0;
@@ -611,8 +626,8 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       // cleared) until the gateway captures the payment; confirmation, its event and
       // the notices then come from server/payments/order-payments.ts.
       if (paymentMethod === "ONLINE") {
-        await clearCartForShop(input.userId, group.shop.id, tx);
-        return { order: orderRow, shopOwnerId: shopRow.ownerId };
+        await removeCartLines(inCart.map((l) => l.id), tx);
+        return { order: orderRow, shopOwnerId: shopRow.ownerId, deduplicated: false as const };
       }
 
       const [confirmed] = await tx
@@ -725,16 +740,20 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
         );
       }
 
-      await clearCartForShop(input.userId, group.shop.id, tx);
-      return { order: confirmed, shopOwnerId: shopRow.ownerId };
+      await removeCartLines(inCart.map((l) => l.id), tx);
+      return { order: confirmed, shopOwnerId: shopRow.ownerId, deduplicated: false as const };
     });
 
-    created.push(order);
+    created.push(placed.order);
+    if (placed.deduplicated) {
+      anyDeduplicated = true;
+      continue;
+    }
     // Deliberately AFTER the transaction commits, using bare db — a failed
     // notification must never roll back a paid order (see
     // notifyOpenStockAlerts's own doc comment). Safe to call unconditionally:
     // it dedupes per alert id, so it never re-notifies about one already sent.
-    await notifyOpenStockAlerts(group.shop.id, shopOwnerId);
+    await notifyOpenStockAlerts(group.shop.id, placed.shopOwnerId);
   }
 
   // Event layer: the per-order risk rules run now, at placement, not at the next
@@ -763,6 +782,34 @@ async function resolveBuyerShop(input: CheckoutInput): Promise<string> {
     throw conflict("Only an approved shop can place business orders.");
   }
   return shop.id;
+}
+
+/**
+ * The shop's lines to order, from its lines under the cart's lock, in the
+ * order the cart showed them. A line that could not be bought online when the
+ * cart was read, and is unchanged since, is left out (it still leaves the cart
+ * with the rest, as before). Every other line is ordered — one added or changed
+ * since included, and refused like any line if it cannot be bought now.
+ */
+function cartLinesToOrder(read: CartLine[], inCart: LockedCartLine[]): LockedCartLine[] {
+  const position = new Map(read.map((l, i) => [l.cartItemId, i]));
+  const unorderable = new Set(read.filter((l) => !l.purchasable).map((l) => `${l.cartItemId}:${l.quantity}`));
+  return inCart
+    .filter((l) => !unorderable.has(`${l.id}:${l.quantity}`))
+    .sort((a, b) => (position.get(a.id) ?? read.length) - (position.get(b.id) ?? read.length));
+}
+
+/** A delivered order must meet the shop's minimum order value; a pickup order is exempt. */
+function assertMinimumOrder(
+  shop: Pick<Shop, "name" | "deliveryAvailable" | "minOrderPaise">,
+  subtotalPaise: number,
+  delivered: boolean,
+): void {
+  if (delivered && shop.deliveryAvailable && subtotalPaise < shop.minOrderPaise) {
+    throw validationFailed(
+      `${shop.name} needs a minimum order of ₹${(shop.minOrderPaise / 100).toFixed(0)}; your items come to ₹${(subtotalPaise / 100).toFixed(0)}.`,
+    );
+  }
 }
 
 /* --------------------------------------------------------- transitions */

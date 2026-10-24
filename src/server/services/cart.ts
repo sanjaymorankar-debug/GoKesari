@@ -10,7 +10,7 @@
  * shop*, and checkout produces one order per shop (§17).
  */
 import { cache } from "react";
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { notFound, validationFailed } from "@/lib/errors";
 import { lineTotalPaise, sumPaise } from "@/lib/money";
@@ -213,7 +213,39 @@ export async function clearCart(
   await client.delete(cartItems).where(eq(cartItems.cartId, cart.id));
 }
 
-/** Removes only the lines belonging to one shop — used after a per-shop checkout. */
+/** A cart line as checkout reads it under the cart's lock. */
+export interface LockedCartLine {
+  id: string;
+  shopProductId: string;
+  quantity: number;
+}
+
+/**
+ * One shop's lines in the user's cart, read under lockCart: what a checkout
+ * orders from that shop and then removes (removeCartLines). An add after the
+ * checkout's first read of the cart is in these lines; one from now on waits
+ * for the checkout's transaction — so no unit leaves the cart unordered.
+ */
+export async function lockCartLinesForShop(
+  userId: string,
+  shopId: string,
+  tx: DbClient,
+): Promise<LockedCartLine[]> {
+  const cart = await lockCart(userId, tx);
+  return tx
+    .select({ id: cartItems.id, shopProductId: cartItems.shopProductId, quantity: cartItems.quantity })
+    .from(cartItems)
+    .innerJoin(shopProducts, eq(cartItems.shopProductId, shopProducts.id))
+    .where(and(eq(cartItems.cartId, cart.id), eq(shopProducts.shopId, shopId)));
+}
+
+/** Removes exactly these lines — the ones a checkout read under the cart's lock. */
+export async function removeCartLines(cartItemIds: string[], tx: DbClient): Promise<void> {
+  if (cartItemIds.length === 0) return;
+  await tx.delete(cartItems).where(inArray(cartItems.id, cartItemIds));
+}
+
+/** Removes every line of one shop — the "cannot deliver here" resolution. */
 export async function clearCartForShop(
   userId: string,
   shopId: string,

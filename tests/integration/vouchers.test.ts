@@ -38,7 +38,7 @@ const ADMIN = (id: string) => ({ id, role: "ADMIN" as const });
  * A live window anchored to today: since TC-FLD-114 a new voucher whose end
  * date has passed is refused, so fixed September 2026 dates aged out.
  */
-const TODAY = new Date().toISOString().slice(0, 10);
+const TODAY = new Date(Date.now() + 330 * 60_000).toISOString().slice(0, 10); // today in IST (APP_TIMEZONE)
 const IN_30_DAYS = new Date(Date.now() + 30 * 86_400_000).toISOString().slice(0, 10);
 
 /**

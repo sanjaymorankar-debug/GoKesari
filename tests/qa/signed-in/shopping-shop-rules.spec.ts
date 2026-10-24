@@ -231,7 +231,7 @@ qa("TC-LOC-023", "pause new orders: the shop leaves the delivering lists, the ca
     expect((await shopAsOwner("A")).ordersPaused).toBe(true);
 
     await open(page, "/shops");
-    await expect(page.getByTestId("shop-card").filter({ hasText: shopName("A") }).first()).toContainText("Not taking new orders right now");
+    await expect(page.getByTestId("shop-card").filter({ hasText: shopName("A") }).first()).toContainText("Not taking orders online right now");
     await open(page, "/shops?delivery=true");
     await expect(page.getByTestId("shop-card").filter({ hasText: shopName("A") })).toHaveCount(0);
     await open(page, "/cart");
@@ -254,7 +254,7 @@ qa("TC-LOC-023", "pause new orders: the shop leaves the delivering lists, the ca
     const res = await checkoutAs("customer", { addressId: await homeAddressId(), paymentMethod: "WALLET" });
     expectStatus(res, 201, "after un-pausing");
     orderId = res.body.orders[0].id;
-    return "paused: 'Not taking new orders right now' on /shops, gone from ?delivery=true, cart warning + Remove these items, pay disabled, checkout refused; un-paused: all back, order placed";
+    return "paused: 'Not taking orders online right now' on /shops, gone from ?delivery=true, cart warning + Remove these items, pay disabled, checkout refused; un-paused: all back, order placed";
   } finally {
     await shopCtx.close();
     await context.close();
@@ -262,7 +262,7 @@ qa("TC-LOC-023", "pause new orders: the shop leaves the delivering lists, the ca
     if (orderId) await cancelOwn("customer", orderId);
     await clearCart("customer");
   }
-}, { ...SIGNED, partial: "a paused shop is still listed on /shops, marked 'Not taking new orders right now' (src/components/shop-grid.tsx), and is absent from the delivering filter" });
+}, { ...SIGNED, partial: "a paused shop is still listed on /shops, marked 'Not taking orders online right now' (src/components/shop-grid-view.tsx), and is absent from the delivering filter" });
 
 qa("TC-LOC-024", "a closed shop: the cart says it might be closed and when it opens; pay → No keeps the cart, Yes places the order; the API without the acknowledgement answers 409", async ({ browser }) => {
   const item = listing("packaged");
