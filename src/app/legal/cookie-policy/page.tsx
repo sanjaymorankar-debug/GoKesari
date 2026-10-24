@@ -83,6 +83,26 @@ export default function CookiePolicyPage() {
         </li>
       </ul>
 
+      <h2>Other storage in your browser</h2>
+      <p>
+        Besides cookies, the site keeps one list in your browser&apos;s local
+        storage:
+      </p>
+      <ul>
+        <li>
+          <strong>Recent searches</strong> (<code>gk_recent_searches</code>) —
+          remembers your last 6 searches on this device, so the search box can
+          offer them again when you are not signed in. Saved each time you
+          search from the search box; kept until you press &quot;Clear&quot;
+          above your recent searches in the search box or clear this
+          site&apos;s data in your browser, because local storage does not
+          expire by itself. The list stays in your browser and is not sent to
+          GoKesari. When you are signed in, the search box shows the recent
+          searches saved with your account instead, and &quot;Clear&quot;
+          removes those too.
+        </li>
+      </ul>
+
       <h2>Analytics</h2>
       <p>
         This site does not currently run third-party analytics or
