@@ -14,13 +14,19 @@
  *  4. Location refused, unavailable or not over HTTPS: a clear message and a
  *     PIN code / area box to search from instead. No shop in range: "No shops
  *     found within X km" with a button to widen the radius.
+ *  5. The position found also becomes the delivery location (POST
+ *     /api/location, a cookie on this device) when none is chosen yet, so
+ *     "Deliver to" and the rest of the site follow — a location already
+ *     chosen is kept (24 Oct 2026).
  */
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { Icon } from "@/components/board/icons";
 import { NearbyMap } from "@/components/nearby-map";
+import { saveDevicePosition } from "@/lib/device-location";
 import { NEARBY_RADII_KM, DEFAULT_NEARBY_RADIUS_KM, placeLine, widerRadius, type NearbyRadiusKm } from "@/lib/geo/nearby";
 
 export interface NearbyShop {
@@ -94,6 +100,7 @@ function problemFromError(error: GeolocationPositionError | { code?: number }): 
 }
 
 export function NearbyShops() {
+  const router = useRouter();
   const [phase, setPhase] = useState<"locating" | "loading" | "ready" | "problem">("locating");
   const [problem, setProblem] = useState<LocationProblem | null>(null);
   const [search, setSearch] = useState<Search | null>(null);
@@ -167,6 +174,9 @@ export function NearbyShops() {
           setSearch(next);
           setManualOpen(false);
           void load(next, km);
+          saveDevicePosition(next, { ifUnset: true })
+            .then((saved) => saved.saved && router.refresh())
+            .catch(() => {});
         },
         (err) => {
           answered = true;
@@ -177,7 +187,7 @@ export function NearbyShops() {
         { enableHighAccuracy: true, timeout: 20_000, maximumAge: 0 },
       );
     },
-    [load],
+    [load, router],
   );
 
   // Ask for the position as soon as the screen opens (the radius starts at 5 km).
@@ -414,7 +424,7 @@ export function NearbyShops() {
 
       {phase === "locating" ? (
         <p className="rounded-2xl border-2 border-[var(--gk-line)] bg-white p-4 text-sm text-ink-700">
-          Allow location when your browser or phone asks — it is used only to find shops near you and is not saved.
+          Allow location when your browser or phone asks — it is used only to find shops near you, and kept on this device as your delivery location if you have not chosen one.
         </p>
       ) : null}
     </div>

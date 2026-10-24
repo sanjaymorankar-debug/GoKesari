@@ -7,7 +7,8 @@ export const metadata = { title: "Nearby shops" };
 /**
  * Nearby (docs/nearby-referral-2026-10, feature 1): shops near the user's real
  * position, from the "Nearby" chip on the home board. Open to everyone; the
- * position is asked for in the browser and is not stored.
+ * position is asked for in the browser, and becomes the delivery location
+ * (a cookie on this device, not the database) only when none is chosen yet.
  */
 export default function NearbyShopsPage() {
   return (

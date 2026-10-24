@@ -19,6 +19,7 @@ import type { BannerSlide } from "@/lib/home-banners";
 import { HOME } from "@/lib/home-i18n";
 
 import type { AccountNavProps } from "./account-nav";
+import { FindLocationButton } from "./find-location-button";
 import { HeroCarousel } from "./hero-carousel";
 import { HomeHeader } from "./home-header";
 import { ProductTiles, type ProductTile } from "./product-tiles";
@@ -196,7 +197,8 @@ export function HomePage({ lang, header, data }: { lang: Lang; header: AccountNa
           {!data.hasLocation ? (
             <p className="mb-3 flex flex-wrap items-center gap-2 rounded-xl bg-white px-3 py-2 text-sm text-ink-700" data-testid="home-set-location">
               <Icon name="map-pin" size={16} className="text-kesari-700" />
-              {tr(HOME.setLocationPrompt, lang)}
+              <span className="min-w-0 flex-1">{tr(HOME.setLocationPrompt, lang)}</span>
+              <FindLocationButton lang={lang} />
             </p>
           ) : null}
           {data.shops.length > 0 ? (

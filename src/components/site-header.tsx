@@ -5,6 +5,7 @@ import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import clsx from "clsx";
 
+import { AutoLocate } from "@/components/auto-locate";
 import { LanguageSwitch } from "@/components/board/board-header";
 import { Icon, type IconName } from "@/components/board/icons";
 import { LocationPanel, OPEN_LOCATION_EVENT } from "@/components/location-picker";
@@ -359,6 +360,8 @@ export function SiteHeader({
       {locationOpen ? (
         <LocationPanel currentLabel={locationLabel} savedAddresses={savedAddresses} onClose={() => setLocationOpen(false)} />
       ) : null}
+      {/* Mounted on every page (also under the home page's own header): finds the location of whoever sees "Deliver to" without one. */}
+      <AutoLocate enabled={shopsForThem && !boardLink && !locationLabel} />
     </header>
   );
 }
