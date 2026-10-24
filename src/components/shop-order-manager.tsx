@@ -7,6 +7,8 @@ import { Alert, Badge, Button, Card, Money, StatusBadge } from "@/components/ui"
 import { FulfilmentPlanner, type PlannerPlan, type PlannerStaff } from "@/components/fulfilment-planner";
 import type { SlotDay } from "@/lib/fulfilment-options";
 import { formatQuantity } from "@/lib/money";
+import { SHOP_REMOVE_LINE_REASON } from "@/lib/order-line-removal";
+import { paymentMethodLabel } from "@/lib/payment-methods";
 import { formatScheduledSlot } from "@/lib/scheduled-slots";
 import { ConfirmButton } from "@/components/confirm-button";
 
@@ -49,6 +51,8 @@ export interface ShopOrderItem {
   productNameSnapshot: string;
   unitSnapshot: string;
   quantityMilli: number;
+  /** TC-SPI-008: the price per unit at sale. */
+  unitPricePaise?: number;
   lineTotalPaise: number;
   fulfilmentStatus: string;
   substituteNameSnapshot: string | null;
@@ -96,6 +100,8 @@ export interface ShopOrderRow {
   pickupQr?: { svg: string; expiresAt: string } | null;
   /** batch-2026-10 WS-B: printable packing slip with the QR. */
   packingSlipUrl?: string | null;
+  /** The customer's note for the shop, from checkout (TC-CART-017). */
+  notes?: string | null;
 }
 
 /** Fulfilment options switched on: the slots and delivery people the planner offers. */
@@ -212,6 +218,12 @@ function OrderRow({
             <Badge tone="info">{DELIVERY_STATUS_LABEL[order.deliveryStatus] ?? order.deliveryStatus}</Badge>
           ) : null}
           <span className="text-sm text-ink-500">{order.orderNumber}</span>
+          {/* TC-SPI-008: how the customer pays, for every method (cash on delivery also has its badge). */}
+          {paymentMethodLabel(order.paymentMethod) ? (
+            <span className="text-xs text-ink-500" data-testid="shop-order-payment">
+              Payment: {paymentMethodLabel(order.paymentMethod)}
+            </span>
+          ) : null}
           {order.scheduledSlot ? (
             <Badge tone="warning">Deliver {formatScheduledSlot(order.scheduledSlot.start, order.scheduledSlot.end)}</Badge>
           ) : null}
@@ -226,6 +238,12 @@ function OrderRow({
           <Money paise={order.totalPaise} />
         </span>
       </div>
+
+      {order.notes ? (
+        <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-ink-800" data-testid="shop-order-notes">
+          <span className="font-medium">Note from the customer:</span> {order.notes}
+        </p>
+      ) : null}
 
       {order.invoiceUrl || order.proofPhotoUrl ? (
         <p className="mt-2 flex flex-wrap gap-3 text-xs">
@@ -286,7 +304,7 @@ function OrderRow({
             editable={working && !busy}
             substitutes={substitutes}
             onPick={() => fulfil({ action: "pick", itemId: item.id })}
-            onRemove={() => fulfil({ action: "remove", itemId: item.id, reason: "Out of stock" })}
+            onRemove={() => fulfil({ action: "remove", itemId: item.id, reason: SHOP_REMOVE_LINE_REASON })}
             onSubstitute={(substituteShopProductId) =>
               fulfil({ action: "substitute", itemId: item.id, substituteShopProductId })
             }
@@ -415,6 +433,11 @@ function ItemRow({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <span className={item.fulfilmentStatus === "REMOVED" ? "line-through" : undefined}>
           {item.productNameSnapshot} · {formatQuantity(item.quantityMilli, item.unitSnapshot)}
+          {item.unitPricePaise != null ? (
+            <span className="ml-1 text-xs text-ink-500">
+              @ <Money paise={item.unitPricePaise} /> / {item.unitSnapshot}
+            </span>
+          ) : null}
           {ITEM_STATUS_LABEL[item.fulfilmentStatus] ? (
             <span className="ml-2 text-xs text-ink-500">({ITEM_STATUS_LABEL[item.fulfilmentStatus]})</span>
           ) : null}

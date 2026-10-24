@@ -3,6 +3,14 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { IDENTIFIER_REQUIRED_MESSAGE, parseGstin } from "@/lib/shop-identity";
+import {
+  deliveryFeePaiseSchema,
+  freeDeliveryAbovePaiseSchema,
+  openingHoursSchema,
+  optionalText,
+  requiredText,
+  shopImageUrlSchema,
+} from "@/lib/shop-settings";
 import { SHOP_TYPE_KEYS, type ShopTypeKey } from "@/lib/shop-types";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
@@ -36,44 +44,37 @@ export const GET = route(async (request: NextRequest) => {
 });
 
 const registerSchema = z.object({
+  // Text fields are trimmed before their length is checked, so "      " is not
+  // an address and "   12 Padded Road   " is stored as "12 Padded Road" (TC-FLD-037).
   name: z.string().trim().min(1, "Shop name is required.").min(2).max(120),
   ownerName: z.string().trim().min(1, "Shop owner name is required.").min(2).max(120),
   phone: z.string().regex(/^[6-9]\d{9}$/, "Enter a valid 10-digit mobile number"),
-  email: z.string().email().nullish(),
-  addressLine1: z.string().min(3).max(200),
-  addressLine2: z.string().max(200).nullish(),
-  area: z.string().max(120).nullish(),
-  city: z.string().min(2).max(120),
-  state: z.string().max(120).nullish(),
-  pincode: z.string().regex(/^\d{6}$/, "PIN code must be 6 digits"),
+  email: z.string().trim().email().nullish(),
+  addressLine1: requiredText(3, 200),
+  addressLine2: optionalText(200),
+  area: optionalText(120),
+  city: requiredText(2, 120),
+  state: optionalText(120),
+  pincode: z.string().trim().regex(/^\d{6}$/, "PIN code must be 6 digits"),
   latitude: z.string().nullish(),
   longitude: z.string().nullish(),
   pickupLatitude: z.string().nullish(),
   pickupLongitude: z.string().nullish(),
-  pickupInstructions: z.string().max(500).nullish(),
-  landmark: z.string().max(200).nullish(),
+  pickupInstructions: optionalText(500),
+  landmark: optionalText(200),
   shopType: z.enum(SHOP_TYPE_KEYS),
   /** Shop categories — at least one is required to register. */
   categoryIds: z
     .array(z.string().uuid())
     .min(1, "Please select at least one shop category.")
     .max(60),
-  logoUrl: z.string().url().nullish(),
-  photos: z.array(z.string().url()).max(10).default([]),
-  openingHours: z
-    .array(
-      z.object({
-        day: z.number().int().min(0).max(6),
-        open: z.string(),
-        close: z.string(),
-        closed: z.boolean().optional(),
-      }),
-    )
-    .default([]),
+  logoUrl: shopImageUrlSchema.nullish(),
+  photos: z.array(shopImageUrlSchema).max(10).default([]),
+  openingHours: openingHoursSchema.default([]),
   deliveryAvailable: z.boolean().default(false),
-  deliveryFeePaise: z.number().int().min(0).default(0),
-  freeDeliveryAbovePaise: z.number().int().min(0).nullish(),
-  description: z.string().max(1000).nullish(),
+  deliveryFeePaise: deliveryFeePaiseSchema.default(0),
+  freeDeliveryAbovePaise: freeDeliveryAbovePaiseSchema.nullish(),
+  description: optionalText(1000),
 
   /*
    * Business identifiers (GST included) — at least one is required (refinement below) so
@@ -83,7 +84,7 @@ const registerSchema = z.object({
    */
   shopActNumber: z.string().max(60).nullish(),
   panNumber: z.string().max(20).nullish(),
-  panHolderName: z.string().max(120).nullish(),
+  panHolderName: z.string().trim().max(120).nullish(),
   udyamNumber: z.string().max(40).nullish(),
   gstin: z.string().max(20).nullish(),
 

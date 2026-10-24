@@ -10,6 +10,8 @@ export type VerifyLoginCode = (input: {
   mobile: string | null;
   email: string | null;
   code: string;
+  /** The Terms & Privacy box: the server creates a new account only when it is ticked (TC-FLD-004). */
+  acceptedTerms: boolean;
 }) => Promise<{ error?: string } | void>;
 
 const inputClass =
@@ -76,6 +78,8 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
   function submitIdentifier(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
+    // The button is disabled until then; this also covers a form submitted another way (TC-FLD-004).
+    if (!agreed) return setError("Tick “I agree” above to continue.");
     const value = identifier.trim();
     if (value.includes("@")) {
       if (!isValidEmail(value)) return setError(EMAIL_HINT);
@@ -99,7 +103,7 @@ export function OtpLoginForm({ verify }: { verify: VerifyLoginCode }) {
     if (!/^\d{4,8}$/.test(code.trim())) return setError("Enter the code we sent you.");
     setBusy(true);
     setError(null);
-    const result = await verify({ mobile, email, code: code.trim() });
+    const result = await verify({ mobile, email, code: code.trim(), acceptedTerms: agreed });
     // On success the server action redirects and never returns here.
     if (result?.error) setError(result.error);
     setBusy(false);

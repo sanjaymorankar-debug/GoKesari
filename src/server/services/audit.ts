@@ -127,6 +127,7 @@ export const AUDIT_ACTIONS = {
   REFERRAL_CODE_ASSIGNED: "referral_code.assigned",
   CUSTOMER_REFERRAL_APPLIED: "customer_referral.applied",
   CUSTOMER_REFERRAL_DECIDED: "customer_referral.decided",
+  CUSTOMER_REFERRAL_REFUSED: "customer_referral.refused", // someone tried their own code (risk rule REFERRAL_ABUSE)
   PRODUCT_REMOVED: "shop_product.removed",
 
   /* ---------------------------------------------- product creation & approval */
@@ -320,6 +321,7 @@ export const AUDIT_ACTIONS = {
   PHONE_LINKED: "auth.phone_linked",
   PHONE_RELEASED: "auth.phone_released",
   EMAIL_CHANGED: "auth.email_changed",
+  SIGNED_OUT: "auth.signed_out", // QA TC-AUTH-045: Sign out, recorded like a sign-in (auth.otp_verified)
   PROFILE_UPDATED: "user.profile_updated",
   /* ------------------------------------------------- docs/four-features-2026-10 */
   ORDER_FULFILMENT_SET: "order.fulfilment_set",

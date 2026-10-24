@@ -22,6 +22,7 @@ import { and, desc, eq, sql } from "drizzle-orm";
 
 import { isUniqueViolation } from "@/lib/errors";
 import { insufficientBalance, notFound, validationFailed } from "@/lib/errors";
+import { formatPaise } from "@/lib/money";
 import { db, type DbClient } from "@/server/db";
 import {
   walletTransactions,
@@ -29,6 +30,7 @@ import {
   type Wallet,
   type WalletTransaction,
 } from "@/server/db/schema";
+import { getRule } from "./settings";
 
 export type WalletTxnType =
   | "TOP_UP"
@@ -339,6 +341,18 @@ export async function updateWalletSettings(
     settings.lowBalanceThresholdPaise < 0
   ) {
     throw validationFailed("Low balance threshold cannot be negative.");
+  }
+  // TC-FLD-032: no reminder (or recharge figure) above the largest single
+  // top-up the wallet takes (rule walletTopup.maxPaise, ₹1,00,000 by default) —
+  // ₹10 crore was accepted before.
+  const { maxPaise } = await getRule("walletTopup");
+  const tooLarge = [
+    settings.lowBalanceThresholdPaise,
+    settings.autoRechargeTriggerPaise,
+    settings.autoRechargeAmountPaise,
+  ].some((paise) => paise != null && paise > maxPaise);
+  if (tooLarge) {
+    throw validationFailed(`The amount can be at most ${formatPaise(maxPaise)} (the largest single top-up).`);
   }
   // DEF-07 (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): this setting
   // could previously be enabled and stored, but nothing anywhere ever read

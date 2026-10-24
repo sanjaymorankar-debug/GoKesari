@@ -50,7 +50,8 @@ export function ProductGrid({
             offlineSaleEnabled: p.offlineSaleEnabled,
             isAvailable: p.isAvailable,
             trackInventory: p.trackInventory,
-            onlineStock: p.onlineStock,
+            // The card needs only "is there any" and the stepper's limit (99), not the shop's count (TC-SPI-027).
+            onlineStock: p.trackInventory ? Math.min(p.onlineStock, 99) : p.onlineStock,
             subscribable: p.subscribable,
             shopName: p.shopName,
             shopSlug: p.shopSlug,
@@ -61,6 +62,7 @@ export function ProductGrid({
             offerTitle: p.offerTitle ?? null,
             shortDescription: p.shortDescription ?? null,
             detailsHref: `/products/${p.productId}?shop=${encodeURIComponent(p.shopSlug)}`,
+            mrpPaise: p.mrpPaise ?? null,
           }}
         />
       ))}

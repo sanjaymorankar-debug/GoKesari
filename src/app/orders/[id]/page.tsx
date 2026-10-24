@@ -6,6 +6,8 @@ import { TicketList, toRowView } from "@/components/aftercare/ticket-views";
 import { CancelOrderButton } from "@/components/cancel-order-button";
 import { Alert, Card, LinkButton, Money, PageHeader, StatusBadge } from "@/components/ui";
 import { formatQuantity } from "@/lib/money";
+import { customerCancellableStatuses } from "@/lib/order-cancellation";
+import { paymentMethodLabel } from "@/lib/payment-methods";
 import { getCurrentUser } from "@/server/authz/guards";
 import { assertOrderViewer, listChargesForOrder } from "@/server/aftercare/order-view";
 import { listRefundsForOrder } from "@/server/aftercare/refunds";
@@ -45,12 +47,11 @@ export default async function OrderDetailPage({
   ]);
   if (!order) notFound();
   const isBuyer = order.userId === user.id;
-  const cancellable: readonly string[] = [
-    ...(cancellationRule.customerMayCancelUntil === "PREPARING" ? ["CONFIRMED", "ACCEPTED", "PREPARING"] : ["CONFIRMED"]),
-    ...(afterPackingRule.enabled ? ["READY", "ASSIGNED"] : []),
-    "PICKED_UP",
-    "OUT_FOR_DELIVERY",
-  ];
+  // TC-ORD-008: the server's own D10 rule, shared with My Orders.
+  const cancellable: readonly string[] = customerCancellableStatuses({
+    customerMayCancelUntil: cancellationRule.customerMayCancelUntil,
+    afterPackingEnabled: afterPackingRule.enabled,
+  });
 
   return (
     <>
@@ -81,13 +82,20 @@ export default async function OrderDetailPage({
             <p className="text-sm font-medium text-ink-900">{order.shopName}</p>
             <p className="text-xs text-ink-500">
               {new Date(order.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })}
-              {order.paymentMethod === "COD" ? " · cash on delivery" : ""}
+              {/* TC-SPI-006: how the order is paid, whatever the method. */}
+              {paymentMethodLabel(order.paymentMethod) ? (
+                <span data-testid="order-payment-method"> · Payment: {paymentMethodLabel(order.paymentMethod)}</span>
+              ) : null}
             </p>
             <ul className="mt-3 space-y-1 text-sm text-ink-600">
               {order.items.map((item) => (
                 <li key={item.id} className="flex justify-between gap-3">
                   <span className={item.fulfilmentStatus === "REMOVED" ? "line-through" : undefined}>
                     {item.productNameSnapshot} · {formatQuantity(item.quantityMilli, item.unitSnapshot)}
+                    {/* TC-SPI-006: the price paid per unit at purchase. */}
+                    <span className="ml-1 text-xs text-ink-500" data-testid="order-line-unit-price">
+                      @ <Money paise={item.unitPricePaise} /> / {item.unitSnapshot}
+                    </span>
                   </span>
                   <Money paise={item.lineTotalPaise} />
                 </li>

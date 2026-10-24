@@ -272,7 +272,23 @@ export async function verifyAndCreditTopUp(input: {
   );
   if (alreadySettled) return alreadySettled;
 
-  const confirmed = await confirmCashfreeOrderPaid(input.gatewayOrderId);
+  // TC-PAY-004: a MOCK top-up (or any, while no Cashfree keys are set) has no
+  // Cashfree order to ask — never call Cashfree then. The payment is simply
+  // not confirmed (400), and is left open for the mock settle step.
+  if (payment.gateway !== "CASHFREE" || !isPaymentGatewayLive()) {
+    throw paymentVerificationFailed("This payment has not been completed, so nothing was added to your wallet.");
+  }
+
+  let confirmed: { cfPaymentId: string } | null;
+  try {
+    confirmed = await confirmCashfreeOrderPaid(input.gatewayOrderId);
+  } catch (error) {
+    // Cashfree could not be reached (network, DNS, its own 5xx): the payment's
+    // state is unknown, so it is not marked FAILED — the customer (or the
+    // webhook) can confirm it again. A 400, never a 500.
+    console.error("[cashfree] payment status check unreachable", input.gatewayOrderId, error);
+    throw paymentVerificationFailed("We could not reach the payment provider to confirm this payment. Please try again in a minute.");
+  }
   if (!confirmed) {
     await db
       .update(payments)
@@ -639,11 +655,15 @@ async function createCashfreeOrder(
 async function confirmCashfreeOrderPaid(
   gatewayOrderId: string,
 ): Promise<{ cfPaymentId: string } | null> {
+  // A rejected fetch (unreachable) propagates; the caller answers 400 without failing the payment.
   const response = await fetch(`${cashfreeApiBase()}/orders/${gatewayOrderId}/payments`, {
     method: "GET",
     headers: cashfreeHeaders(),
   });
 
+  if (response.status >= 500) {
+    throw new Error(`Cashfree answered ${response.status} for order ${gatewayOrderId}`);
+  }
   if (!response.ok) {
     console.error(
       "[cashfree] payment status check failed",

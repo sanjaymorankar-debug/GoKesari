@@ -127,6 +127,7 @@ describe("new user via mobile number", () => {
       mobile: "9876543210",
       email: "sanjay@example.com",
       code: lastCodeTo("sanjay@example.com"),
+      acceptedTerms: true, // a new account needs the Terms box ticked (TC-FLD-004)
     });
     expect(isNewUser).toBe(true);
     expect(user.email).toBe("sanjay@example.com");
@@ -174,7 +175,7 @@ describe("new user via mobile number", () => {
     expect(state.outbox.map((m) => m.to)).toEqual(["someone@example.com"]);
 
     await expect(
-      verifyLoginOtp({ mobile: "9444444444", email: "someone@example.com", code: lastCodeTo("someone@example.com") }),
+      verifyLoginOtp({ mobile: "9444444444", email: "someone@example.com", code: lastCodeTo("someone@example.com"), acceptedTerms: true }),
     ).rejects.toThrow(MOBILE_IN_USE);
     expect(await db.query.users.findFirst({ where: eq(users.email, "someone@example.com") })).toBeUndefined();
   });
@@ -225,7 +226,7 @@ describe("new user via email", () => {
   it("creates the account on the first verified code, then asks for details and the mobile number", async () => {
     const sent = await requestLoginOtp({ email: "new@example.com" });
     expect(sent).toMatchObject({ status: "SENT", maskedEmail: "ne***@example.com" });
-    const { user, isNewUser } = await verifyLoginOtp({ email: "new@example.com", code: lastCodeTo("new@example.com") });
+    const { user, isNewUser } = await verifyLoginOtp({ email: "new@example.com", code: lastCodeTo("new@example.com"), acceptedTerms: true });
     expect(isNewUser).toBe(true);
     expect(user.phoneE164).toBeNull();
     expect(nextOnboardingStep(await getProfile(user.id))).toBe("DETAILS");
@@ -255,7 +256,7 @@ describe("existing email-only user", () => {
 describe("skip and fill in later", () => {
   it("leaves the account usable and keeps prompting; checkout then asks for mobile and address", async () => {
     await requestLoginOtp({ email: "skipper@example.com" });
-    const { user } = await verifyLoginOtp({ email: "skipper@example.com", code: lastCodeTo("skipper@example.com") });
+    const { user } = await verifyLoginOtp({ email: "skipper@example.com", code: lastCodeTo("skipper@example.com"), acceptedTerms: true });
     // "Fill in later" saves nothing: still prompted on the next sign-in.
     expect(nextOnboardingStep(await getProfile(user.id))).toBe("DETAILS");
 
@@ -409,8 +410,8 @@ describe("wrong or expired code", () => {
     if (first !== second) {
       await expect(verifyLoginOtp({ email: "once@example.com", code: first })).rejects.toThrow(OTP_INVALID);
     }
-    await verifyLoginOtp({ email: "once@example.com", code: second });
-    await expect(verifyLoginOtp({ email: "once@example.com", code: second })).rejects.toThrow(OTP_INVALID);
+    await verifyLoginOtp({ email: "once@example.com", code: second, acceptedTerms: true });
+    await expect(verifyLoginOtp({ email: "once@example.com", code: second, acceptedTerms: true })).rejects.toThrow(OTP_INVALID);
   });
 
   it("a code requested for one mobile number cannot sign in with another", async () => {

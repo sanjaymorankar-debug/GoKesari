@@ -12,6 +12,7 @@ import { and, asc, count, desc, eq, gte, ilike, inArray, isNotNull, isNull, max,
 
 import { CUSTOMER_CATEGORIES } from "@/lib/board/menus";
 import { L, tr, type Lang, type Text } from "@/lib/board/i18n";
+import { likePattern } from "@/lib/like-pattern";
 import { SHOP_TYPES } from "@/lib/shop-types";
 import { db } from "@/server/db";
 import { productCategories, products, searchQueries, shopProducts, shops } from "@/server/db/schema";
@@ -55,10 +56,7 @@ export function normaliseQuery(raw: string): string {
   return raw.replace(/\s+/g, " ").trim().toLowerCase().slice(0, 80);
 }
 
-/** Escapes LIKE wildcards so "50%" or "a_b" match literally. */
-export function likePattern(query: string): string {
-  return `%${query.replace(/[\\%_]/g, (c) => `\\${c}`)}%`;
-}
+export { likePattern };
 
 /**
  * Category suggestions from fixed lists (no database): the home page's

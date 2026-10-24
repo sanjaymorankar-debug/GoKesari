@@ -397,11 +397,37 @@ export function emailByDefault(type: string): boolean {
 const escapeHtml = (value: string) =>
   value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 
-export function renderEmail(input: { title: string; body: string; actionUrl?: string | null; baseUrl?: string }): {
+/** A row under an e-mail's body: an order line, a fee, the total (TC-SPI-004). */
+export interface EmailDetailRow {
+  label: string;
+  value: string;
+}
+
+export function renderEmail(input: {
+  title: string;
+  body: string;
+  actionUrl?: string | null;
+  baseUrl?: string;
+  /** Rows shown under the body, e-mail only (the in-app notice, SMS and push keep the short body). */
+  detail?: EmailDetailRow[];
+}): {
   subject: string;
   text: string;
   html: string;
 } {
+  const rows = input.detail ?? [];
+  const detailText = rows.length ? `\n${rows.map((r) => `${r.label}: ${r.value}`).join("\n")}\n` : "";
+  const detailHtml = rows.length
+    ? `<table style="border-collapse:collapse;width:100%;color:#44403c;font-size:14px;margin:0 0 12px">` +
+      rows
+        .map(
+          (r) =>
+            `<tr><td style="padding:4px 0;border-bottom:1px solid #f5f5f4">${escapeHtml(r.label)}</td>` +
+            `<td style="padding:4px 0;border-bottom:1px solid #f5f5f4;text-align:right;white-space:nowrap">${escapeHtml(r.value)}</td></tr>`,
+        )
+        .join("") +
+      `</table>`
+    : "";
   // Only an in-app path ("/orders") or a full http(s) URL becomes a link; anything else is dropped.
   const raw = input.actionUrl ?? "";
   const link = raw.startsWith("/")
@@ -412,11 +438,12 @@ export function renderEmail(input: { title: string; body: string; actionUrl?: st
   const showLink = link !== null && /^https?:\/\//i.test(link);
   return {
     subject: `${input.title} — Gokesari`,
-    text: `${input.title}\n\n${input.body}\n${showLink ? `\n${link}\n` : ""}\nYou receive this because of your notification settings on Gokesari.`,
+    text: `${input.title}\n\n${input.body}\n${detailText}${showLink ? `\n${link}\n` : ""}\nYou receive this because of your notification settings on Gokesari.`,
     html:
       `<div style="font-family:system-ui,sans-serif;max-width:480px">` +
       `<h2 style="margin:0 0 8px;color:#1c1917">${escapeHtml(input.title)}</h2>` +
       `<p style="color:#44403c;line-height:1.5">${escapeHtml(input.body)}</p>` +
+      detailHtml +
       (showLink
         ? `<p><a href="${escapeHtml(link)}" style="display:inline-block;padding:10px 18px;background:#ea580c;color:#fff;border-radius:8px;text-decoration:none">Open in Gokesari</a></p>`
         : "") +

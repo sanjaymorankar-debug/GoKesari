@@ -45,6 +45,12 @@ export function ShopSettingsForm({
   }
 
   async function save() {
+    // Same rule as the server (TC-FLD-052): an open day needs a time to open and a different time to close.
+    const bad = hours.find((h) => !h.closed && (!h.open || !h.close || h.open === h.close));
+    if (bad) {
+      setError(`${DAY_NAMES[bad.day]}: set different opening and closing times, or mark the day closed.`);
+      return;
+    }
     setBusy(true);
     setError(null);
     setSaved(false);
@@ -57,7 +63,8 @@ export function ShopSettingsForm({
 
     if (!response.ok) {
       const payload = await response.json().catch(() => null);
-      setError(payload?.error?.message ?? "Could not save shop time.");
+      const fields = payload?.error?.details?.fields as Record<string, string> | undefined;
+      setError(fields ? Object.values(fields).join(" ") : (payload?.error?.message ?? "Could not save shop time."));
       return;
     }
     setSaved(true);

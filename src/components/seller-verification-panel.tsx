@@ -32,7 +32,7 @@ export interface PanelDocument {
 
 const PLACEHOLDERS: Record<SellerDocType, string> = {
   PAN: "ABCDE1234F",
-  GSTIN: "27ABCDE1234F1Z5",
+  GSTIN: "27AAPFU0939F1ZV",
   UDYAM: "UDYAM-MH-26-0012345",
   FSSAI: "14-digit number",
   SHOP_ACT: "As printed on the certificate",

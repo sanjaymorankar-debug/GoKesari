@@ -16,6 +16,7 @@
 import { and, desc, eq, inArray, isNull, ne } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
+import { MAX_PRICE_PAISE, MIN_PRICE_PAISE } from "@/lib/price-rules";
 import { db, type DbClient } from "@/server/db";
 import {
   priceUpdateBatches,
@@ -135,12 +136,14 @@ export async function submitPriceRequests(
     const created: PriceUpdateRequest[] = [];
 
     for (const change of input.changes) {
+      // A proposed price is 1 paisa to ₹10 lakh, like any other price (TC-CAT-004, TC-FLD-058).
       if (
         !Number.isInteger(change.proposedPricePaise) ||
-        change.proposedPricePaise < 0
+        change.proposedPricePaise < MIN_PRICE_PAISE ||
+        change.proposedPricePaise > MAX_PRICE_PAISE
       ) {
         throw validationFailed(
-          "Every proposed price must be a whole number of paise, zero or more.",
+          "Every proposed price must be a whole number of paise, more than ₹0 and at most ₹10,00,000.",
         );
       }
 

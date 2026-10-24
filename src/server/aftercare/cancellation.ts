@@ -16,7 +16,7 @@ import { db } from "@/server/db";
 import { orders, shops, type OrderStatus, type UserRole } from "@/server/db/schema";
 import { cancelOrder, ORDER_STATUS_LABELS } from "@/server/services/orders";
 import { getRule } from "@/server/services/settings";
-import { afterPackingCancellationOpen } from "./cancellation-fee";
+import { SELF_CANCEL_MESSAGES, selfCancelBlock } from "@/lib/order-cancellation";
 import {
   computeRefundBreakdown,
   findRefundForCancellation,
@@ -69,19 +69,18 @@ async function resolveActorFor(orderId: string, actor: Actor) {
   throw notFound("Order");
 }
 
-/** Mirrors cancelOrder's own checks (D10 and the rules) so the screen never offers what the server refuses. */
+/**
+ * cancelOrder's own checks (D10 and the rules) so the screen never offers what
+ * the server refuses — the one rule in lib/order-cancellation.ts (TC-ORD-008).
+ */
 async function blockedReasonFor(status: OrderStatus, selfService: boolean): Promise<string | null> {
   if (!canTransition(status, "CANCELLED")) return `This order is ${ORDER_STATUS_LABELS[status].toLowerCase()} and can no longer be cancelled.`;
   if (!selfService) return null;
-  if ((["FAILED", "RETURNED", "DISPUTED"] as OrderStatus[]).includes(status)) return "Please contact support about this order.";
-  const beforePacking = (["ACCEPTED", "PREPARING"] as OrderStatus[]).includes(status);
-  if (beforePacking && (await getRule("cancellation")).customerMayCancelUntil !== "PREPARING") {
-    return "This order is already being prepared. Please contact the shop to cancel it.";
-  }
-  if ((["READY", "ASSIGNED"] as OrderStatus[]).includes(status) && !(await afterPackingCancellationOpen(status))) {
-    return "This order is already being prepared. Please contact the shop to cancel it.";
-  }
-  return null;
+  const block = selfCancelBlock(status, {
+    customerMayCancelUntil: (await getRule("cancellation")).customerMayCancelUntil,
+    afterPackingEnabled: (await getRule("afterPackingCancellation")).enabled,
+  });
+  return block === "BEING_PREPARED" || block === "CONTACT_SUPPORT" ? SELF_CANCEL_MESSAGES[block] : null;
 }
 
 export async function quoteCancellation(orderId: string, actor: Actor): Promise<CancellationQuote> {

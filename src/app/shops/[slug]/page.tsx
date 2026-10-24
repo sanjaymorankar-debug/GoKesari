@@ -1,7 +1,7 @@
 import { notFound } from "next/navigation";
 import Link from "next/link";
 
-import { ListTabs, Pager, paginate } from "@/components/board/list-tabs";
+import { ListTabs, Pager } from "@/components/board/list-tabs";
 import { ProductGrid } from "@/components/product-grid";
 import { RatingBadge } from "@/components/rating-badge";
 import { Badge, Card, ClassificationBadge, EmptyState, PageHeader } from "@/components/ui";
@@ -10,7 +10,7 @@ import { shopTypeLabel } from "@/lib/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getBoardLang } from "@/server/board-lang";
 import { getCartLineQuantities } from "@/server/services/cart";
-import { listStorefrontProducts } from "@/server/services/catalogue";
+import { listStorefrontCategories, listStorefrontProducts } from "@/server/services/catalogue";
 import { getLiveOffers, listLiveOffersForShop, priceWithOffers } from "@/server/services/shop-offers";
 import { getPublicShopBySlug, isShopOpenNow } from "@/server/services/shops";
 import { getCustomerLocation } from "@/server/location";
@@ -20,6 +20,8 @@ import { serviceableShopIds } from "@/server/services/serviceability";
 export const dynamic = "force-dynamic";
 
 const DAY_NAMES = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+/** Products a page, within one category. */
+const PAGE_SIZE = 6;
 
 export async function generateMetadata({
   params,
@@ -43,9 +45,18 @@ export default async function ShopPage({
   const shop = await getPublicShopBySlug(slug);
   if (!shop) notFound();
 
-  const user = await getCurrentUser();
+  const [user, categories] = await Promise.all([getCurrentUser(), listStorefrontCategories(shop.id)]);
+  // One category at a time, one page at a time, straight from the database: the
+  // page used to load the first 100 products only, so a big shop's later
+  // categories never appeared (TC-CAT-050).
+  const activeEntry = categories.find((c) => c.categoryName === query.cat) ?? categories[0] ?? null;
+  const pageCount = Math.max(1, Math.ceil((activeEntry?.count ?? 0) / PAGE_SIZE));
+  // A page number out of range shows the nearest page.
+  const page = Math.min(pageCount, Math.max(1, Math.floor(Number(query.page) || 1)));
   const [listed, reviews, liveOffers, offerRows, cartLines] = await Promise.all([
-    listStorefrontProducts({ shopId: shop.id, limit: 100 }),
+    activeEntry
+      ? listStorefrontProducts({ shopId: shop.id, categoryId: activeEntry.categoryId, limit: PAGE_SIZE, offset: (page - 1) * PAGE_SIZE })
+      : [],
     listShopReviews(shop.id, 5),
     listLiveOffersForShop(shop.id),
     getLiveOffers([shop.id]),
@@ -61,23 +72,14 @@ export default async function ShopPage({
     return priced.offer ? { ...p, offerPricePaise: priced.unitPricePaise, offerTitle: priced.offer.title } : p;
   });
 
+  const open = isShopOpenNow(shop);
   // Products are grouped by category, per §16 — generic across all 44 shop
   // types rather than assuming dairy/bakery.
-  const byCategory = new Map<string, typeof products>();
-  for (const product of products) {
-    const key = product.categoryName;
-    const group = byCategory.get(key);
-    if (group) group.push(product);
-    else byCategory.set(key, [product]);
-  }
-  const open = isShopOpenNow(shop);
-  const categoryNames = [...byCategory.keys()];
-  const activeCategory = categoryNames.includes(query.cat ?? "") ? query.cat! : (categoryNames[0] ?? "");
-  const productPage = paginate(byCategory.get(activeCategory) ?? [], query.page, 6);
+  const activeCategory = activeEntry?.categoryName ?? "";
   // docs/homepage-uiux-2026-10 (F4): "Compare N prices" when other nearby shops sell the same product.
   const location = await getCustomerLocation(user?.id).catch(() => null);
   const nearby = location ? await serviceableShopIds(location).catch(() => null) : null;
-  const compareCounts = nearby ? await nearbyOfferCounts(productPage.rows.map((p) => p.productId), [...nearby.keys()]) : undefined;
+  const compareCounts = nearby ? await nearbyOfferCounts(products.map((p) => p.productId), [...nearby.keys()]) : undefined;
 
   return (
     <>
@@ -105,6 +107,8 @@ export default async function ShopPage({
                   shop.freeDeliveryAbovePaise ? `, free above ₹${(shop.freeDeliveryAbovePaise / 100).toFixed(0)}` : ""
                 }`
               : "Pickup only"}
+            {/* Shown before the cart refuses a smaller order (TC-DISC-013). */}
+            {shop.minOrderPaise > 0 ? ` · Minimum order ₹${(shop.minOrderPaise / 100).toFixed(0)}` : null}
           </p>
           {/* Products first: address, hours, owner and reviews open on request (they used to fill the first screen). */}
           <details className="mt-2" data-testid="shop-info">
@@ -126,7 +130,8 @@ export default async function ShopPage({
             Owner / Proprietor: <span className="font-medium text-ink-700">{shop.ownerName}</span>
           </p>
           {shop.description ? (
-            <p className="mt-1 text-sm text-ink-600">{shop.description}</p>
+            // The owner's line breaks are kept (TC-FLD-055); React still escapes the text.
+            <p className="mt-1 whitespace-pre-line text-sm text-ink-600" data-testid="shop-description">{shop.description}</p>
           ) : null}
 
           <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-3">
@@ -167,6 +172,7 @@ export default async function ShopPage({
                         : ""
                     }`
                   : "Pickup only"}
+                {shop.minOrderPaise > 0 ? `; minimum order ₹${(shop.minOrderPaise / 100).toFixed(0)}` : null}
               </dd>
             </div>
           </dl>
@@ -205,34 +211,34 @@ export default async function ShopPage({
         </Link>
       </div>
 
-      {products.length > 0 ? (
+      {categories.length > 0 ? (
         <section className="mb-8" data-testid="shop-products">
           {/* One category at a time, six products a page: the shop page used to list every product. */}
-          {categoryNames.length > 1 ? (
+          {categories.length > 1 ? (
             <ListTabs
               label="Product categories"
               active={activeCategory}
-              tabs={categoryNames.map((name) => ({
-                key: name,
-                label: name,
-                href: `/shops/${shop.slug}?cat=${encodeURIComponent(name)}`,
-                count: byCategory.get(name)?.length,
+              tabs={categories.map((c) => ({
+                key: c.categoryName,
+                label: c.categoryName,
+                href: `/shops/${shop.slug}?cat=${encodeURIComponent(c.categoryName)}`,
+                count: c.count,
               }))}
             />
           ) : (
             <PageHeader title={activeCategory} />
           )}
-          <ProductGrid products={productPage.rows} signedIn={Boolean(user)} cartLines={cartLines} compareCounts={compareCounts} />
+          <ProductGrid products={products} signedIn={Boolean(user)} cartLines={cartLines} compareCounts={compareCounts} />
           <Pager
             lang={lang}
-            page={productPage.page}
-            pageCount={productPage.pageCount}
+            page={page}
+            pageCount={pageCount}
             hrefFor={(n) => `/shops/${shop.slug}?cat=${encodeURIComponent(activeCategory)}&page=${n}`}
           />
         </section>
       ) : null}
 
-      {products.length === 0 ? (
+      {categories.length === 0 ? (
         <EmptyState
           title="This shop has not listed any products yet."
           description="Check back soon."

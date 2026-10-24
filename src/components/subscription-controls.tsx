@@ -18,6 +18,7 @@ export function SubscriptionControls({
   endDate = null,
   renewalReason = null,
   renewalDueDate = null,
+  stepMilli = MILLI_PER_UNIT / 2,
 }: {
   subscriptionId: string;
   status: string;
@@ -29,6 +30,8 @@ export function SubscriptionControls({
   endDate?: string | null;
   renewalReason?: "TERM_END" | "PAYMENT_DUE" | null;
   renewalDueDate?: string | null;
+  /** TC-FLD-107: the product's quantity step (src/lib/subscription-quantity.ts). */
+  stepMilli?: number;
 }) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
@@ -164,8 +167,8 @@ export function SubscriptionControls({
         <div className="mt-3 flex gap-2">
           <input
             type="number"
-            min={0.5}
-            step={0.5}
+            min={stepMilli / MILLI_PER_UNIT}
+            step={stepMilli / MILLI_PER_UNIT}
             value={quantity}
             onChange={(e) => setQuantity(e.target.value)}
             aria-label={`Standing quantity in ${unit}`}

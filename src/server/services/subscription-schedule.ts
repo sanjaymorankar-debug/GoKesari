@@ -122,17 +122,22 @@ export async function syncSubscriptionSchedule(
 }
 
 /**
- * A due delivery could not be generated because the product was unavailable:
- * the date is FAILED (reason UNAVAILABLE) with no order. Only a schedule-only
- * row is changed.
+ * A due delivery could not be generated because the product was unavailable
+ * (or, TC-SUB-013, the customer has no delivery address): the date is FAILED
+ * with that reason and no order. Only a schedule-only row is changed.
  */
-export async function markDeliveryUnavailable(subscriptionId: string, date: IsoDate, client: DbClient = db): Promise<void> {
+export async function markDeliveryUnavailable(
+  subscriptionId: string,
+  date: IsoDate,
+  client: DbClient = db,
+  reason: Extract<DeliverySkipReason, "UNAVAILABLE" | "NO_ADDRESS"> = "UNAVAILABLE",
+): Promise<void> {
   await client
     .insert(subscriptionDeliveries)
-    .values({ subscriptionId, deliveryDate: date, status: "FAILED", reason: "UNAVAILABLE" })
+    .values({ subscriptionId, deliveryDate: date, status: "FAILED", reason })
     .onConflictDoUpdate({
       target: [subscriptionDeliveries.subscriptionId, subscriptionDeliveries.deliveryDate],
-      set: { status: "FAILED", reason: "UNAVAILABLE" },
+      set: { status: "FAILED", reason },
       setWhere: sql`${subscriptionDeliveries.status} IN ('SCHEDULED', 'SKIPPED')`,
     });
 }

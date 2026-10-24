@@ -12,6 +12,7 @@ import { and, asc, eq } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { decryptSecret, encryptSecret } from "@/lib/pan-crypto";
+import { checkRiderDetails, normaliseVehicleRegistration } from "@/lib/kyc/rider-details";
 import { parsePhone } from "@/lib/phone";
 import { VEHICLE_TYPE_KEYS, type VehicleTypeKey } from "@/lib/vehicle-types";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
@@ -114,9 +115,11 @@ export async function updateMyRiderProfile(userId: string, patch: RiderProfilePa
     set.vehicleType = patch.vehicleType;
   }
   if (patch.vehicleRegistrationNumber !== undefined) {
-    const reg = clean(patch.vehicleRegistrationNumber)?.toUpperCase().replace(/\s+/g, " ") ?? null;
-    if (reg && reg.length > 30) throw validationFailed("The registration number is too long.");
-    set.vehicleRegistrationNumber = reg;
+    // TC-FLD-091 / TC-DEL-030: normalised and checked exactly as at application.
+    const raw = clean(patch.vehicleRegistrationNumber);
+    const reg = raw ? normaliseVehicleRegistration(raw) : null;
+    if (reg && !reg.ok) throw validationFailed(reg.error, { fields: { vehicleRegistrationNumber: reg.error } });
+    set.vehicleRegistrationNumber = reg ? reg.value : null;
   }
   if (patch.operatingRadiusKm !== undefined) {
     if (!Number.isInteger(patch.operatingRadiusKm) || patch.operatingRadiusKm < 1 || patch.operatingRadiusKm > 50) {
@@ -159,17 +162,22 @@ export async function requestSensitiveChange(
   for (const f of provided) {
     if (clean(values[f])!.length > 120) throw validationFailed(`${SENSITIVE_FIELD_LABELS[f]} is too long.`);
   }
-  if (values.panNumber && !/^[A-Z]{5}\d{4}[A-Z]$/.test(values.panNumber.trim().toUpperCase())) {
-    throw validationFailed("PAN must be 10 characters in the format AAAAA9999A.");
-  }
-  if (values.bankIfsc && !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(values.bankIfsc.trim().toUpperCase())) {
-    throw validationFailed("IFSC must be 11 characters, e.g. SBIN0001234.");
-  }
+  // TC-FLD-092 / TC-FLD-093 / TC-DEL-030: the application's rules (lib/kyc/rider-details.ts) —
+  // PAN, an Aadhaar number (by the new or the stored ID type), account 9–18 digits, IFSC.
+  const only = (f: SensitiveRiderField) => (provided.includes(f) ? clean(values[f]) : undefined);
+  const checked = checkRiderDetails({
+    panNumber: only("panNumber"),
+    governmentIdType: clean(values.governmentIdType) ?? partner.governmentIdType,
+    governmentIdNumber: only("governmentIdNumber"),
+    bankAccountNumber: only("bankAccountNumber"),
+    bankIfsc: only("bankIfsc"),
+  });
+  if (!checked.ok) throw validationFailed(checked.message, { fields: checked.fields });
   const payload: Record<string, string> = {};
   const masked: Record<string, string> = {};
   for (const f of provided) {
-    const v = clean(values[f])!;
-    payload[f] = f === "panNumber" || f === "bankIfsc" ? v.toUpperCase() : v;
+    const v = (checked.values as Partial<Record<SensitiveRiderField, string | null>>)[f] ?? clean(values[f])!;
+    payload[f] = v;
     masked[f] = f === "governmentIdType" || f === "bankAccountHolderName" ? v : maskTail(v);
   }
   // Encrypt before touching the database: no key means no request, never plaintext.

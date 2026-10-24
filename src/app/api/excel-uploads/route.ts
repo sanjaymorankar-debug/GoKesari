@@ -9,11 +9,13 @@ import type { NextRequest } from "next/server";
 
 import { validationFailed } from "@/lib/errors";
 import { ok, route } from "@/server/api/handler";
-import { requireShopAccess } from "@/server/authz/guards";
+import { requireShopAccess, requireUser } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { getSpreadsheetLimits, validateUpload } from "@/server/services/excel";
 
 export const POST = route(async (request: NextRequest) => {
+  // Signed in first: a guest gets 401 before the body or the record is read (TC-SEC-001).
+  await requireUser();
   const form = await request.formData().catch(() => null);
   if (!form) throw validationFailed("Expected a multipart file upload.");
 

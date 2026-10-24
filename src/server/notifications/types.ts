@@ -93,6 +93,9 @@ export const NOTIFICATION_TYPES = {
   DELIVERY_PARTNER_APPROVED: "delivery_partner.approved",
   DELIVERY_PARTNER_REJECTED: "delivery_partner.rejected",
   DELIVERY_PARTNER_SUSPENDED: "delivery_partner.suspended",
+  /** TC-DEL-015: the rider is told of a reactivation and a deactivation too. */
+  DELIVERY_PARTNER_REACTIVATED: "delivery_partner.reactivated",
+  DELIVERY_PARTNER_DEACTIVATED: "delivery_partner.deactivated",
   DELIVERY_PARTNER_CHANGE_DECIDED: "delivery_partner.change_decided",
   SHOP_PRODUCT_IMAGE_DECIDED: "shop.product_image_decided",
   /* -------------------- Module 1: shop staff and bulk photo upload */

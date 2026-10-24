@@ -1,0 +1,1364 @@
+{
+ "note": "Defects found by the automated QA suite (tests/qa). One entry per defect; 'cases' are the TC IDs whose check shows it. Status: Open (deferred) — not fixed in this round, with the reason; Open (owner decision) — needs a business decision first; Fixed (re-test pending) — fixed and covered by unit / integration tests, the site run still to confirm; Fixed in part; Fixed - retest passed (with fixedIn and retest); Not changed (by design); Not a defect.",
+ "defects": [
+  {
+   "id": "D-01",
+   "title": "Write APIs read the request before checking the session",
+   "cases": [
+    "TC-SEC-001",
+    "TC-RBAC-002"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local + test.gokesari.com (guest tier)",
+   "actual": "19 write routes (15 handlers) answered a signed-out caller 404 NOT_FOUND or 422 VALIDATION_FAILED instead of 401: they validated the body or looked the record up first, so a guest learnt field names and whether an id exists. Nothing could be changed signed out.",
+   "expected": "401 for every write API called without a session (TC-SEC-001); guards first (src/server/authz/guards.ts: 'Every mutating route handler and server action begins with one of these').",
+   "fix": "requireUser() as the first statement of the 15 handlers (orders status/fulfilment/assign/fulfilment-plan, shop-products, excel-uploads, invoices einvoice/eway-bill, products, price-requests, marketing segments, admin payout batches).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-02",
+   "title": "A malformed id in the URL answers 500",
+   "cases": [
+    "TC-SEC-002",
+    "TC-DISC-007"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local + test.gokesari.com",
+   "actual": "GET /api/shops/abc/products (and other id routes, e.g. PATCH /api/cart/items/undefined) → 500 INTERNAL: PostgreSQL 'invalid input syntax for type uuid' reached the generic error handler.",
+   "expected": "404/422 for a malformed id, never a 500 (TC-SEC-002).",
+   "fix": "toClientError() maps PostgreSQL 22P02 for type uuid to 404 NOT_FOUND (src/lib/errors.ts); unit test tests/unit/errors-invalid-id.test.ts.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-03",
+   "title": "Responses advertise the framework (X-Powered-By: Next.js)",
+   "cases": [
+    "TC-SEC-010",
+    "TC-SEC-005"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local + test.gokesari.com",
+   "actual": "Every response carries 'X-Powered-By: Next.js'.",
+   "expected": "No server details in responses (TC-SEC-010).",
+   "fix": "poweredByHeader: false in next.config.ts.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-04",
+   "title": "PIN codes starting with 0 (and 000000) are accepted",
+   "cases": [
+    "TC-LOC-002",
+    "TC-FLD-020",
+    "TC-FLD-016"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local + test.gokesari.com",
+   "actual": "The location bar saved 'PIN 011001' and 'PIN 000000'; addresses, shop registration and settings, societies, delivery slots, price references and marketing segments accepted any 6 digits.",
+   "expected": "Only a 6-digit PIN that does not start with 0 is accepted; others are refused with 422 and the previous location stays (TC-LOC-002, TC-FLD-020).",
+   "fix": "/^[1-9]\\d{5}$/ in the location API and the services that store a PIN (addresses, shops, societies, shop profile, delivery slots, price references, marketing).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-05",
+   "title": "No robots.txt on the test site",
+   "cases": [
+    "TC-SEC-008"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 test.gokesari.com",
+   "actual": "GET https://test.gokesari.com/robots.txt → 404, so search engines may index the test site and its test shops.",
+   "expected": "Search engines are disallowed on the test site (TC-SEC-008).",
+   "fix": "src/app/robots.ts: Disallow / on every host but gokesari.com (isProductionSite); production keeps Allow /.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-06",
+   "title": "Shop search by PIN code finds nothing",
+   "cases": [
+    "TC-DISC-004"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 gokesari.com (guest tier)",
+   "actual": "/shops?q=411014 lists no shop although several approved shops are at PIN 411014 (e.g. 'Agtci', Kharadi): the free-text search matched name, area, city, description and category but not the PIN, and /shops has no separate PIN field.",
+   "expected": "Shop search by name, category, area and PIN returns the matching approved shops (TC-DISC-004).",
+   "fix": "searchShops() also matches shops.pincode (src/server/services/shops.ts); integration test in tests/integration/shop-categories.test.ts.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-07",
+   "title": "A deleted address can still be used at checkout",
+   "cases": [
+    "TC-FLD-025"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "After DELETE /api/addresses/{id} → 204, POST /api/checkout with that addressId placed a CONFIRMED order delivering to it.",
+   "expected": "A deleted address can no longer be used; checkout refuses it.",
+   "fix": "Checkout reads only live addresses (loadAddressSnapshot filters deleted_at); a deleted address is refused.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-08",
+   "title": "The rider never sees address line 2 (flat, floor)",
+   "cases": [
+    "TC-FLD-013"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "After pickup /delivery-partner showed line 1, landmark and instructions but not line 2 ('Flat 12B, 3rd floor'); the navigation label had the same gap.",
+   "expected": "Both address lines as saved.",
+   "fix": "The rider's drop address and navigation label include address line 2.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-09",
+   "title": "'+91' typed in a mobile field becomes a different number",
+   "cases": [
+    "TC-LOC-009",
+    "TC-FLD-012"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "'+91 9876543210' in Recipient mobile was kept as '9198765432' — a different valid-looking number — and saved.",
+   "expected": "+91 is stripped (or refused) the same way everywhere.",
+   "fix": "mobileFieldDigits() (src/lib/contact.ts) strips +91 / a 12-digit 91… in every 10-digit mobile field.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-10",
+   "title": "Shops whose hours run past midnight always show Closed",
+   "cases": [
+    "TC-LOC-026",
+    "TC-FLD-052"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "Hours 18:00–02:00 were never open: the check compared open ≤ now ≤ close within one day, so every order asked for the closed-shop confirmation.",
+   "expected": "Open from the opening time until the close the next morning (IST).",
+   "fix": "src/lib/shop-hours.ts: hours past midnight are open until the close the next morning (today's or yesterday's hours).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-11",
+   "title": "Order notes never reach the shop",
+   "cases": [
+    "TC-CART-017",
+    "TC-FLD-028"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "The checkout API stored notes but the cart had no notes field, and /shop/orders never showed them.",
+   "expected": "The customer can leave a note; the shop sees it with the order.",
+   "fix": "Optional note on the cart (sent with checkout); 'Note from the customer' on the shop's order card.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-12",
+   "title": "Deleting the default address leaves no default",
+   "cases": [
+    "TC-FLD-018"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "Deleting the default address → 204, then no address was marked default.",
+   "expected": "Exactly one default address while any address remains.",
+   "fix": "Deleting the default address makes the newest remaining one the default.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-13",
+   "title": "'Show all shops' drops the type and other filters",
+   "cases": [
+    "TC-DISC-003"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "/shops?type=DAIRY → 'Show all Pune shops' → /shops?all=1&city=Pune; the type was gone.",
+   "expected": "The toggle keeps the search, type, classification, delivery, open-now and sort filters.",
+   "fix": "The near-me / all-shops toggle keeps the search, type, classification, delivery, open-now and sort filters.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-14",
+   "title": "'%' and '_' in a search match everything",
+   "cases": [
+    "TC-DISC-007",
+    "TC-FLD-022"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "/search?q=% (also _ and %%_) returned a full page of products and no 'nothing found' state; the term went into ILIKE unescaped.",
+   "expected": "Symbols are searched as text.",
+   "fix": "likePattern() escapes % and _ in product and shop searches.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-15",
+   "title": "The shop page does not show the minimum order",
+   "cases": [
+    "TC-DISC-013"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "With a ₹150 minimum, /shops/{slug} showed only the delivery fee line.",
+   "expected": "The minimum order is shown with the delivery terms.",
+   "fix": "The shop page shows the minimum order with the delivery terms.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-16",
+   "title": "A broken product photo stays broken (no placeholder)",
+   "cases": [
+    "TC-DISC-018"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "An image URL that fails before the page hydrates kept a broken <img>: onError never fired.",
+   "expected": "A broken photo shows the neutral placeholder.",
+   "fix": "SafeImage notices an image that failed before hydration and shows the placeholder.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-17",
+   "title": "A session cookie keeps working after sign-out",
+   "cases": [
+    "TC-AUTH-034"
+   ],
+   "severity": "High",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "A session cookie copied before Sign out still worked afterwards: GET /api/wallet → 200, POST /api/cart → 200 (stateless 30-day JWT, no revocation).",
+   "expected": "After sign-out the old session is refused everywhere (401 / sign-in page).",
+   "fix": "Each session has an id; Sign out lists it in revoked_sessions (migration 0088) and every request refuses a listed id — a copied cookie gets 401.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-18",
+   "title": "An account can be created without accepting the Terms",
+   "cases": [
+    "TC-FLD-004",
+    "TC-MKT-002"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "Submitting /signin with the Terms box unticked still mailed a code and created the account; the server recorded consent unconditionally.",
+   "expected": "The server refuses a new account without consent.",
+   "fix": "A new account needs the Terms box: verifyLoginOtp refuses TERMS_REQUIRED without it (existing accounts unaffected).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-19",
+   "title": "A suspended account's sign-in link shows an error page",
+   "cases": [
+    "TC-AUTH-027"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "'Email me a link' for a suspended account showed 'Something went wrong on our side' (AccessDenied unhandled).",
+   "expected": "/signin?error=AccessDenied with the suspended notice.",
+   "fix": "The email-link, dev and Google forms turn Auth.js's refusal into /signin?error=AccessDenied (suspended notice).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-20",
+   "title": "A rider who signs out stays online and gets offers",
+   "cases": [
+    "TC-AUTH-040"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "After the rider signed out, isOnline stayed true and the next READY order was offered to them.",
+   "expected": "Sign-out takes the rider offline.",
+   "fix": "Sign out sets an online rider offline (a rider mid-delivery keeps the job).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-21",
+   "title": "The previous user's delivery location survives sign-out",
+   "cases": [
+    "TC-AUTH-038"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "On a shared phone the next person saw 'Deliver to <previous user's spot>' after sign-out.",
+   "expected": "Sign-out clears the location.",
+   "fix": "Sign out deletes the location cookie.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-22",
+   "title": "Sign-out is not audited",
+   "cases": [
+    "TC-AUTH-045"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "Sign-in writes auth.otp_verified; sign-out wrote no audit row.",
+   "expected": "Sign-out is recorded in the audit log.",
+   "fix": "Sign out writes auth.signed_out (user, IP, browser) once.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-23",
+   "title": "After a session expires, sign-in does not return to the page asked for",
+   "cases": [
+    "TC-AUTH-044",
+    "SC-27"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "An expired session on /wallet → /signin, but after the code the person landed on '/'.",
+   "expected": "Signing in returns to the page that was asked for.",
+   "fix": "Not fixed: 145 pages redirect to /signin without a return path and /signin ignores callbackUrl. Needs one helper for the redirects plus /signin and onboarding honouring a same-site return path.",
+   "status": "Open (deferred)"
+  },
+  {
+   "id": "D-24",
+   "title": "No risk flag for repeated referral abuse",
+   "cases": [
+    "TC-MKT-015",
+    "SC-35"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "Four attempts to use one's own referral code, then a risk-rules run, raised no flag (no rewards were paid in any of the abuse paths).",
+   "expected": "Repeated abuse raises a risk flag.",
+   "fix": "Own-code tries are recorded (customer_referral.refused); new risk rule REFERRAL_ABUSE flags 3+ tries or refused friend rewards in 30 days (rule riskRules.referralAbuse).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-25",
+   "title": "A rewarded referral found fraudulent cannot be reversed",
+   "cases": [
+    "TC-MKT-017"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "A REWARDED referral cannot be flagged and there is no reversal mechanism.",
+   "expected": "A fraudulent rewarded referral is reversed with a ledger entry.",
+   "fix": "Not built: reversing a paid referral reward needs a decision on credit already spent (claw back or not) before a ledger reversal is added.",
+   "status": "Open (owner decision)"
+  },
+  {
+   "id": "D-26",
+   "title": "Society gate contact '123456' is accepted",
+   "cases": [
+    "TC-FLD-105"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "PATCH /api/societies/{id} with gateContactPhone '123456' → 200.",
+   "expected": "The security contact must be a valid phone when given.",
+   "fix": "Gate contact must be an Indian mobile or a landline with its STD code (isIndianPhone).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-27",
+   "title": "Society rider mobile is read as its last 10 digits",
+   "cases": [
+    "TC-FLD-106"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "'1'+rider number (11 digits) and '67456ab20809' were accepted and added that rider.",
+   "expected": "Wrong length, letters and wrong first digit are refused; +91 is stripped.",
+   "fix": "Rider mobile read with parseIndianMobile (as typed; +91 stripped), not its last 10 digits.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-28",
+   "title": "Text in a segment's number field is silently dropped",
+   "cases": [
+    "TC-FLD-122"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "'abc' in 'At least this many delivered orders' was dropped and the segment saved as 'All customers'.",
+   "expected": "The form refuses it and names the field.",
+   "fix": "The segment form names the field and keeps Save / Preview off while a number field holds text.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-29",
+   "title": "Reconciliation reports books that agree as UNMATCHED",
+   "cases": [
+    "TC-PAY-032",
+    "TC-COD-011",
+    "TC-FIN-021",
+    "TC-FIN-026",
+    "SC-14",
+    "SC-29"
+   ],
+   "severity": "High",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "Wallet, COD and online-paid orders showed actual 0; credited top-ups, settlements with a refund and paid payouts also mismatched: the correlated subqueries compared the subquery's own id, adjustments were ignored and online payments were not counted.",
+   "expected": "Matched orders reconcile; a changed order stands out.",
+   "fix": "Every correlated subquery of runReconciliation names its outer column; online payments (captured less refunds) count; refund-pending orders expect 0.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-30",
+   "title": "A shop cannot remove an unavailable line from an online-paid order",
+   "cases": [
+    "TC-PAY-029"
+   ],
+   "severity": "High",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "'Unavailable — remove & refund' → 404 'Original wallet debit for this reference was not found.' (the line refund always used the wallet ledger).",
+   "expected": "The line is removed and refunded the way the order was paid.",
+   "fix": "Removing a line or a cheaper substitute refunds the way the order was paid (refundOrderPart: wallet, the original online payment after commit, nothing for COD).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-31",
+   "title": "Subscription orders carry no delivery address",
+   "cases": [
+    "TC-SUB-013"
+   ],
+   "severity": "High",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "Orders generated from a subscription had no address snapshot and no society, so the rider had no drop address.",
+   "expected": "Each delivery carries the subscription's (or the default) address.",
+   "fix": "Generation uses the subscription's address, else the customer's default; none → NO_ADDRESS (not charged, customer told); the subscribe page picks an address.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-32",
+   "title": "Wallet 'Add money' is off-screen on a phone",
+   "cases": [
+    "TC-PAY-002"
+   ],
+   "severity": "High",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "On a 412 px phone the card was 748 px wide; presets, Apply and 'Proceed to payment' could not be tapped.",
+   "expected": "Everything fits and can be tapped at 360–412 px.",
+   "fix": "Wallet grid columns minmax(0,1fr) with min-w-0, so nothing widens the page on a phone.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-33",
+   "title": "Admin money trace shows no payment for an online-paid order",
+   "cases": [
+    "TC-PAY-026"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "GET /api/finance/orders/<n> → payment: null although the payment intent was CAPTURED.",
+   "expected": "The trace shows the online payment and its events.",
+   "fix": "The money trace shows the online payment with its gateway reference, attempts, status history and refunds.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-34",
+   "title": "A cancelled subscription can still be edited",
+   "cases": [
+    "TC-SUB-008"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "PATCH /api/subscriptions/<id> {quantityMilli:3000} on a CANCELLED subscription → 200.",
+   "expected": "409: a finished subscription cannot change.",
+   "fix": "Editing or overriding a finished subscription answers 409 (loadLiveSubscription).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-35",
+   "title": "Bad subscription start dates give 500; past dates accepted",
+   "cases": [
+    "TC-FLD-108"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "startDate '', '2026-02-31' or 'tomorrow' → 500; yesterday → 201.",
+   "expected": "422 for bad or past dates.",
+   "fix": "Shared isoDateSchema / todayOrLaterDateSchema: blank, impossible, text and past start dates → 422.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-36",
+   "title": "A negative rider payout is not flagged",
+   "cases": [
+    "TC-COD-010"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "COD netting gave −₹1,951.98 but the payout was an ordinary PENDING payout, not in /api/finance/exceptions.",
+   "expected": "A negative net is held and listed as an exception.",
+   "fix": "A negative payout cannot be approved, processed or paid (409) and negative payouts and settlements are listed in the exceptions.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-37",
+   "title": "Bad skip / pause / override dates give 500",
+   "cases": [
+    "TC-FLD-109"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "POST /api/subscriptions/<id>/skip {date:''} or 'next friday' → 500.",
+   "expected": "422 for a date that is not a real YYYY-MM-DD.",
+   "fix": "The same date schema on skip, override, pause, retry, renew, edit and deliveries routes → 422, not 500.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-38",
+   "title": "Off-step subscription quantities are accepted",
+   "cases": [
+    "TC-FLD-107"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "quantityMilli 2300 (2.3 L) accepted though the page cannot make it; stock taken in whole units while 2.3 L was charged.",
+   "expected": "Only the page's steps and range are accepted.",
+   "fix": "src/lib/subscription-quantity.ts: steps of 0.5 L / 0.5 kg (else one pack), at most 50 units, on the server and every quantity control.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-39",
+   "title": "Marking another user's notification read is not refused",
+   "cases": [
+    "TC-NTF-012"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "PATCH /api/notifications {id: someone else's} → 200 (nothing changed).",
+   "expected": "404 for a notification that is not the caller's.",
+   "fix": "PATCH /api/notifications answers 404 for an id that is not the caller's.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-40",
+   "title": "Verifying an unpaid top-up gives 500 when the gateway is unreachable",
+   "cases": [
+    "TC-PAY-004"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "POST /api/wallet/verify → 500 (fetch failed to the gateway) instead of a clear refusal.",
+   "expected": "400 PAYMENT_VERIFICATION_FAILED or a clear 'try again', never 500.",
+   "fix": "No gateway call for a mock payment or without keys; an unreachable gateway gives 400 'try again' and the payment is not failed.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-41",
+   "title": "Wallet amount 10.555 is rounded instead of refused",
+   "cases": [
+    "TC-FLD-030"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "On /wallet 10.555 started a payment of ₹10.56.",
+   "expected": "More than 2 decimals is refused.",
+   "fix": "/wallet and the shop wallet read the amount as typed (parseRupeeInput): more than 2 decimals refused.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-42",
+   "title": "Low-balance threshold has no upper limit",
+   "cases": [
+    "TC-FLD-032"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "PATCH /api/wallet/settings {lowBalanceThresholdPaise: ₹10 crore} → 200.",
+   "expected": "A sensible maximum.",
+   "fix": "Low-balance threshold and auto-recharge figures capped at rule walletTopup.maxPaise.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-43",
+   "title": "Cart button says 'Pay from wallet' when 'Pay online' is chosen",
+   "cases": [
+    "TC-PAY-001"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "With Pay online chosen the button still read 'Pay from wallet'; the 'Pay with' label wrapped all three radios.",
+   "expected": "The button names the chosen method; each radio is labelled by its own text.",
+   "fix": "The cart button names the chosen method; 'Pay with' is a fieldset, each radio named by its own label.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-44",
+   "title": "A suspended rider can still accept the offer in hand",
+   "cases": [
+    "TC-DEL-026"
+   ],
+   "severity": "High",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "PATCH /api/delivery-orders/{id} {action:'accept'} by a suspended rider → 200 ASSIGNED; open offers were not withdrawn on suspension.",
+   "expected": "The offer can no longer be accepted; it goes to another rider.",
+   "fix": "Accept refuses a rider who may not work (409, checked on the locked row); suspending or deactivating withdraws open offers and the order is offered again.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-45",
+   "title": "Rider reliability and fairness ranking never applies",
+   "cases": [
+    "TC-DSP-020",
+    "TC-DSP-021"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "The ranking subqueries compared the subquery's own id, so delivered/failed/declined/offers-today were always 0.",
+   "expected": "A rider who declines more, or had more offers today, ranks lower.",
+   "fix": "The ranking subqueries name delivery_partners.id in full, so declines, failures and offers today count.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-46",
+   "title": "No 'Cancel order' button after pickup",
+   "cases": [
+    "TC-ORD-008"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "The server allows a goods-only cancel at PICKED_UP / OUT_FOR_DELIVERY, but My Orders and the order page showed no button.",
+   "expected": "The button appears wherever the server allows a cancel.",
+   "fix": "One shared rule (src/lib/order-cancellation.ts) for the server, the cancellation quote and both My Orders pages.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-47",
+   "title": "Rider KYC and bank numbers are not format-checked",
+   "cases": [
+    "TC-FLD-092",
+    "TC-FLD-093",
+    "TC-DEL-030"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "PAN 'ABC12', Aadhaar '12', 8- or 19-digit or lettered bank accounts and malformed IFSC codes were accepted.",
+   "expected": "Each number is checked against its format with a clear message.",
+   "fix": "src/lib/kyc/rider-details.ts checks PAN, Aadhaar (Verhoeff), IFSC and bank account for the application and change requests; field messages on the form.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-48",
+   "title": "1.5 of a per-piece item can be returned",
+   "cases": [
+    "TC-RET-003",
+    "TC-FLD-094"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "A return of 1.5 of a packaged line → 201.",
+   "expected": "Per-piece lines are returned in whole pieces.",
+   "fix": "Lines sold by count are returned in whole pieces (the full remaining quantity always allowed); the form checks the same.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-49",
+   "title": "A suspended or rejected rider can be approved again with no reason",
+   "cases": [
+    "TC-DEL-027"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "'reactivate' needed no reason; 'approve' also moved SUSPENDED and REJECTED riders to APPROVED.",
+   "expected": "Approve only from review; reactivating needs a reason.",
+   "fix": "Approve only from REGISTERED / UNDER_REVIEW (409 otherwise); reactivate needs a reason, kept in the review note and audit.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-50",
+   "title": "No notice to the rider on reactivate or deactivate",
+   "cases": [
+    "TC-DEL-015"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "Approve, reject and suspend send a notice; reactivate and deactivate did not.",
+   "expected": "Every status change is notified.",
+   "fix": "Notices delivery_partner.reactivated and delivery_partner.deactivated.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-51",
+   "title": "Vehicle numbers are not normalised or checked",
+   "cases": [
+    "TC-FLD-091",
+    "TC-DEL-030"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "'mh12 ab 1234' stored as typed in one place, upper-cased in another; 'MH12@#$%^&*' accepted.",
+   "expected": "One format everywhere; symbols refused.",
+   "fix": "normaliseVehicleRegistration(): upper case, single spaces, Indian mark or BH series, at application and profile edit.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-52",
+   "title": "Cancelling during the rider search leaves the search running",
+   "cases": [
+    "TC-DSP-011"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "After a cancel, GET /api/orders/{id}/assign still said 'Looking for a rider — attempt 1 of 10'.",
+   "expected": "The search closes with the order.",
+   "fix": "Cancelling an order stops its rider search and open broadcast; the dispatch sweep closes stale ones.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-53",
+   "title": "The remove-line reason accepts anything",
+   "cases": [
+    "TC-FLD-083"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "Reason 'Banana' → 200.",
+   "expected": "Only the reasons the shop page offers.",
+   "fix": "The remove-line reason is one of the shop page's list ('Out of stock', 'Unavailable'; none = Unavailable).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-54",
+   "title": "The failed-delivery reason accepts anything",
+   "cases": [
+    "TC-FLD-087"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "Reason 'Banana' → 200.",
+   "expected": "Only the reasons the rider page offers.",
+   "fix": "The rider screen asks for a free-text reason, so any text within the length rules is valid. Turning it into a list is a product decision.",
+   "status": "Not changed (by design)"
+  },
+  {
+   "id": "D-55",
+   "title": "Grievance phone unchecked; ticket lookup reveals which tickets exist",
+   "cases": [
+    "TC-FLD-101"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "Phone 'not a phone' → 201; unknown ticket → 404 but an existing ticket with the wrong e-mail → 403.",
+   "expected": "Phone checked; both lookups answer the same.",
+   "fix": "A grievance phone is checked as an Indian mobile; an unknown ticket and a wrong e-mail get the same 404.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-56",
+   "title": "Admin refund form rounds 10.555 instead of refusing it",
+   "cases": [
+    "TC-FLD-099"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "/admin/finance 'Refund an order' refunded ₹10.56 for '10.555'.",
+   "expected": "More than 2 decimals is refused.",
+   "fix": "src/lib/rupee-input.ts refuses more than 2 decimals on the refund and adjustment forms.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-57",
+   "title": "Riders can be approved with no identity documents",
+   "cases": [
+    "TC-DEL-025"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "Approve with no rows in delivery_partner_documents → 200 APPROVED.",
+   "expected": "The plan expects KYC pending until documents are in; the application form calls ID details optional — owner decision.",
+   "fix": "Unchanged: approval needs no documents because the application calls ID details optional. Note: seller KYC refuses Aadhaar numbers on legal grounds while the rider form collects them.",
+   "status": "Open (owner decision)"
+  },
+  {
+   "id": "D-58",
+   "title": "A product can be put on sale at ₹0",
+   "cases": [
+    "TC-CAT-004"
+   ],
+   "severity": "High",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "PATCH /api/shop-products/{id} {onlineSaleEnabled:true, onlinePricePaise:0} → 200; the product sells at ₹0.",
+   "expected": "A price on sale is at least ₹0.01.",
+   "fix": "A price on sale is ₹0.01 to ₹10 lakh in the service, every listing route and price proposals.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-59",
+   "title": "The shop page shows only the first 100 products",
+   "cases": [
+    "TC-CAT-050"
+   ],
+   "severity": "High",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "A shop with 662 products: category X and its products never appeared on /shops/{slug}?cat=X.",
+   "expected": "Every product can be reached; a chosen category shows its products.",
+   "fix": "The shop page counts categories in SQL and loads only the chosen category, a page at a time.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-60",
+   "title": "Excel price list: 0 is valid, blank is an error",
+   "cases": [
+    "TC-CAT-033"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "A 0 in a loose price cell was VALID (would set ₹0); a blank cell was INVALID_PRICE.",
+   "expected": "0 is refused like everywhere else; blank means no change.",
+   "fix": "Excel price list: 0 is invalid; a blank cell is no change for a product already listed.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-61",
+   "title": "Referral performance report gives 500",
+   "cases": [
+    "TC-ONB-025"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "GET /api/referral-codes?report=1 → 500 'Do not know how to serialize a BigInt'.",
+   "expected": "The report is returned.",
+   "fix": "The referral report returns numbers (no BigInt).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-62",
+   "title": "A suspended or approved (trading) shop can be rejected",
+   "cases": [
+    "TC-ONB-038",
+    "TC-FLD-121"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "Reject after suspend → 200 (SUSPENDED → REJECTED, two audit rows); reject of an APPROVED, trading shop → 200 and the owner was told the registration 'wasn't approved'.",
+   "expected": "409: only a shop under review can be rejected.",
+   "fix": "Only a pending, live shop can be rejected (409 otherwise); reasons trimmed before the 3–500 check.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-63",
+   "title": "Invalid GSTINs are accepted",
+   "cases": [
+    "TC-FLD-043"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "State codes 00 and 99, a wrong check character and a GSTIN carrying another PAN were accepted.",
+   "expected": "Structure, state code, checksum and PAN are checked.",
+   "fix": "parseGstin checks the state code (01–38, 97) and the check character; the GSTIN's PAN must match the shop's PAN on file.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-64",
+   "title": "A GST certificate valid 'To: Not Applicable' is blocked as expired",
+   "cases": [
+    "TC-FLD-047"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "'Period of Validity From 01/04/2020 To Not Applicable' was read as expired on 2020-04-01.",
+   "expected": "No expiry date means no expiry.",
+   "fix": "'To : Not Applicable' (or NA) means no expiry; a 'From' date is never read as the expiry.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-65",
+   "title": "Impossible opening times are accepted",
+   "cases": [
+    "TC-FLD-052"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "'25:00', 'morning' and open = close were accepted.",
+   "expected": "HH:MM 00:00–23:59 and open ≠ close.",
+   "fix": "Opening hours HH:MM 00:00–23:59, opening ≠ closing on an open day, each day once; the settings form checks the same.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-66",
+   "title": "Product master: GST '-5' read as 5 %, 7 % accepted",
+   "cases": [
+    "TC-FLD-078"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "The pipeline dropped the sign of -5; the admin GST editor accepted 7 %.",
+   "expected": "Negative and non-slab rates are refused.",
+   "fix": "'-5' is no longer read as 5 %; non-slab rates are dropped with a warning in the pipeline and refused by the admin GST editor.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-67",
+   "title": "MRP of ₹0 or ₹10 crore accepted",
+   "cases": [
+    "TC-FLD-079",
+    "TC-CAT-062"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "POST /api/mrp mrpPaise 0 and 10,000,000,000 → 200; an MRP correction claim of 0 → 201.",
+   "expected": "MRP between ₹0.01 and a sane maximum.",
+   "fix": "MRP and MRP correction claims ₹0.01 to ₹10 lakh (MAX_MRP_PAISE), in the routes and the product master.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-68",
+   "title": "A product removed from a shop cannot be listed again",
+   "cases": [
+    "TC-CAT-034"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "'Add existing product' offered it but POST /api/shops/{id}/products → 409 'already in your shop's catalogue' (soft-deleted listing counted).",
+   "expected": "A removed product can be listed again.",
+   "fix": "A removed product can be listed again (the soft-deleted listing is brought back).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-69",
+   "title": "An owner cannot close their shop",
+   "cases": [
+    "TC-ONB-042"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "No control on /shop or /shop/manage; PATCH {status:'CLOSED'} → 422.",
+   "expected": "The owner can close the shop (open orders, payouts and wallet handled) — feature gap.",
+   "fix": "Not built: closing a shop needs decisions on open orders, payouts and the shop wallet.",
+   "status": "Open (owner decision)"
+  },
+  {
+   "id": "D-70",
+   "title": "Product card shows no MRP strike-through or discount",
+   "cases": [
+    "TC-CAT-008",
+    "SC-22"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "MRP ₹60 / price ₹58 read '… ₹58 each …' with no MRP and no % off.",
+   "expected": "MRP struck through and '% off' when the price is below the MRP.",
+   "fix": "Product cards show the MRP struck through and 'x% off' (rounded down, from 1 %).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-71",
+   "title": "Inventory form rounds 10.555 instead of refusing it",
+   "cases": [
+    "TC-CAT-032"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "/shop/inventory saved '10.555' as ₹10.56.",
+   "expected": "More than 2 decimals is refused.",
+   "fix": "Price boxes read the amount as typed (parsePriceInput on the shared parseRupeeInput): more than 2 decimals, 0 and text refused.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-72",
+   "title": "A closed (deleted) shop can be approved",
+   "cases": [
+    "TC-ONB-043"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "POST /api/shops/{id}/approve on a shop with deleted_at set → 200 APPROVED.",
+   "expected": "Refused.",
+   "fix": "Approving a closed (deleted) shop answers 409.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-73",
+   "title": "Shop address of spaces accepted; text not trimmed",
+   "cases": [
+    "TC-FLD-037"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "Address '      ' → 201; '   12 Padded Road   ' stored untrimmed.",
+   "expected": "Trimmed, then checked.",
+   "fix": "Registration and settings text trimmed before its length check; spaces-only optional fields become empty.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-74",
+   "title": "Stored FSSAI number accepts anything",
+   "cases": [
+    "TC-FLD-044"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "PATCH /api/shops/{id}/compliance accepted 13 or 15 digits or letters.",
+   "expected": "14 digits, as the owner's own entry already checks.",
+   "fix": "The stored FSSAI number uses the owner's own rule (14 digits).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-75",
+   "title": "No upper limit on minimum order, delivery fee or free-delivery threshold",
+   "cases": [
+    "TC-FLD-051",
+    "TC-FLD-053"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "₹10 crore accepted for each.",
+   "expected": "Sensible maxima.",
+   "fix": "Minimum order and free-delivery threshold up to ₹1 lakh, delivery fee up to ₹5,000.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-76",
+   "title": "No preparation-time setting for the shop",
+   "cases": [
+    "TC-FLD-054"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "No field on any owner screen; PATCH {preparationTimeMinutes} → 422, though slots and alerts use it.",
+   "expected": "The owner can set it within a range.",
+   "fix": "Preparation time (5–240 min) in the owner's delivery settings.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-77",
+   "title": "Line breaks in the shop description are dropped",
+   "cases": [
+    "TC-FLD-055"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "The shop page collapsed the description's line breaks.",
+   "expected": "Line breaks kept (text still escaped).",
+   "fix": "The shop description keeps its line breaks (still escaped).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-78",
+   "title": "A 'javascript:' logo URL is accepted; no logo upload",
+   "cases": [
+    "TC-FLD-056"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "logoUrl 'javascript:alert(1)' → 200; there is no logo upload control.",
+   "expected": "Only https: logo URLs; an upload control (feature gap).",
+   "fix": "Logo and photo addresses must be https or the site's own image path (javascript:, data:, http: → 422). Open (feature gap): there is no logo upload control.",
+   "status": "Fixed in part (re-test pending)"
+  },
+  {
+   "id": "D-79",
+   "title": "Product master: '-1 kg' read as 1 kg; any unit accepted",
+   "cases": [
+    "TC-FLD-074"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "The pipeline read '-1 kg' as 1000 g; the create-product API accepted unit 'bananas'.",
+   "expected": "Negative or zero quantities flagged; only known units.",
+   "fix": "The product master flags zero and negative quantities; products accept only the catalogue's units (a list on the form).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-80",
+   "title": "Order monitoring's date filter uses UTC days, not IST",
+   "cases": [
+    "TC-ADM-004"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "An order at 01:30 IST on 24 Oct was listed under 23 Oct; orders placed 00:00–05:30 IST were filed under the previous day.",
+   "expected": "The chosen day is the business day (IST).",
+   "fix": "The order monitoring date filter uses IST business-day bounds, as analytics does.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-81",
+   "title": "Some staff and shop routes answer 422 (field names) instead of 403",
+   "cases": [
+    "TC-RBAC-003",
+    "TC-RBAC-005"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "A signed-in customer, or another shop's owner, sending an empty body got 422 VALIDATION_FAILED from payout batches, canned replies, cancellation fee, segments, profile setup and staff: the body was read before the permission check.",
+   "expected": "403 before the body is read.",
+   "fix": "Permission or shop access checked before the body on payout batches, canned replies, cancellation fee, segments, profile setup and staff. POST /api/price-requests keeps its order (an owner in the customer role may submit there).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-82",
+   "title": "Address form: a server refusal highlights no field",
+   "cases": [
+    "TC-FLD-125"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "Address line 1 over 200 characters → 'Please check the highlighted fields.' at the top and no field highlighted; the inputs had no length limit.",
+   "expected": "The message shows on the field; inputs stop at the API's limits.",
+   "fix": "The address form shows the server's message on its field and names the fields at the top; inputs stop at the API's limits.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-83",
+   "title": "Vouchers with a ₹0 budget, past dates or a budget below one bonus are accepted",
+   "cases": [
+    "TC-FLD-114"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "POST /api/vouchers → 201 for each.",
+   "expected": "Each refused with a field message.",
+   "fix": "Vouchers: budget under ₹0.01, an end date already past, a budget below one maximum bonus and impossible dates refused with field messages (edits re-check changed fields only).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-84",
+   "title": "Reject and classification reasons are stored with outer spaces",
+   "cases": [
+    "TC-FLD-121"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "'   QA …   ' stored as typed.",
+   "expected": "Trimmed before the 3–500 check and stored trimmed.",
+   "fix": "Reject and classification reasons are trimmed before the 3–500 check and stored trimmed.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-85",
+   "title": "A return on an online-paid order is never refunded",
+   "cases": [
+    "SC-29"
+   ],
+   "severity": "High",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "Return accepted → 404 'Original wallet debit for this reference was not found'; the return stayed REFUND_INITIATED with no refund, credit note or gateway refund.",
+   "expected": "The return is refunded the way the order was paid.",
+   "fix": "refundDeliveredOrder refunds online orders to the payment (after commit) for returns, disputes and admin refunds.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-86",
+   "title": "A physical stock count makes the product unavailable online",
+   "cases": [
+    "SC-23"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "100 online / 100 in-shop, then a count of 37 → online 0, in-shop 37, not available online.",
+   "expected": "A count sets the physical total without emptying the online channel.",
+   "fix": "A count takes a shortfall from the in-shop count first, then online; an increase goes to the purchase channel.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-87",
+   "title": "A returned unopened unit is not put back in stock",
+   "cases": [
+    "TC-SPI-020",
+    "SC-26"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "Unopened return accepted: stock 8 → 8, no movement.",
+   "expected": "Stock goes back up by the returned units.",
+   "fix": "Accepted UNOPENED returns go back in stock in the same transaction (stock ledger SALE_RETURN).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-88",
+   "title": "A substitution does not give the original item's stock back",
+   "cases": [
+    "TC-SPI-010",
+    "SC-26"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "Both the original and the substitute were taken from stock.",
+   "expected": "The original's unit goes back; only the substitute is taken.",
+   "fix": "Approving a substitute puts the original product back in stock (ledger: sale return of the order).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-89",
+   "title": "A stale stock save overwrites a sale made meanwhile",
+   "cases": [
+    "TC-SPI-022"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "A page opened at stock 10 saved 8 after an order took 4: stock became 8 (true 6).",
+   "expected": "The save is refused with the current figure.",
+   "fix": "The listing save sends the stock it was opened with; if it moved, 409 'Stock changed … it is now N'.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-90",
+   "title": "The public storefront API shows exact stock",
+   "cases": [
+    "TC-SPI-027"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "GET /api/shops/{id}/products as a customer returned onlineStock for every row.",
+   "expected": "Only the shop and operations see the number; others see availability.",
+   "fix": "The public products API returns inStock, not the count (owner, staff and operations still get counts). Product cards still receive stock capped at 99 for the quantity picker.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-91",
+   "title": "Order lines record no MRP",
+   "cases": [
+    "TC-SPI-005",
+    "SC-25"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "order_items has no MRP column, so an order cannot show or prove the MRP at the time of sale.",
+   "expected": "Each line keeps the MRP it was sold under (schema change).",
+   "fix": "Not built: order_items has no MRP column; keeping the MRP per line needs a schema change and the invoice to show it.",
+   "status": "Open (deferred)"
+  },
+  {
+   "id": "D-92",
+   "title": "Order pages lack unit price and payment method",
+   "cases": [
+    "TC-SPI-006",
+    "TC-SPI-008"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "The customer's order page and the shop's order card show neither.",
+   "expected": "Both show each line's unit price and how the order is paid.",
+   "fix": "Unit price per line and the payment method on the customer's order page and the shop's order card.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-93",
+   "title": "The order e-mail has no lines or totals",
+   "cases": [
+    "TC-SPI-004"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "The body is only 'Your order … is confirmed' and a link.",
+   "expected": "Lines, fees, discount and total in the e-mail.",
+   "fix": "The order-confirmed e-mail lists the lines, delivery fee, discount and total.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-94",
+   "title": "Out-of-stock products are not listed after buyable ones",
+   "cases": [
+    "TC-SPI-023"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "An out-of-stock row came first on the storefront.",
+   "expected": "Buyable products first.",
+   "fix": "Storefront lists buyable products first.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-95",
+   "title": "Loose stock cannot hold decimals",
+   "cases": [
+    "TC-SPI-025"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "Stock 2.5 → 422; a count of 2.5 kg left 2; 250 g of a 1 kg-unit loose product cannot be sold.",
+   "expected": "Loose stock in grams / millilitres (design change: stock is whole units today).",
+   "fix": "Not built: stock is held in whole units; loose stock in grams / millilitres is a design change.",
+   "status": "Open (deferred)"
+  },
+  {
+   "id": "D-96",
+   "title": "Inventory page has no filters or sort",
+   "cases": [
+    "TC-SPI-026"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "No category, low-stock or out-of-stock filter and no sort on /shop/inventory.",
+   "expected": "Filters and sort (enhancement).",
+   "fix": "Not built: inventory filters and sort are an enhancement.",
+   "status": "Open (deferred)"
+  },
+  {
+   "id": "D-97",
+   "title": "Stock and price fields have no upper bounds; forms round decimals",
+   "cases": [
+    "TC-FLD-058",
+    "TC-FLD-059",
+    "TC-FLD-061",
+    "TC-FLD-062",
+    "TC-FLD-063",
+    "TC-FLD-065",
+    "TC-FLD-068"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "Prices of ₹10 crore, stock and thresholds of 99,999,999, a write-off of 1.5 packaged units, unit 'bananas' and pack size 0 or negative were accepted; a blank stock box saved 0; forms rounded ₹10.555.",
+   "expected": "Sensible bounds, whole units for per-piece items, known units only, no silent rounding.",
+   "fix": "Prices up to ₹10 lakh, stock and thresholds up to 10 lakh, whole units for packaged write-offs and counts, known units only; the stock box cannot be left blank.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-98",
+   "title": "Finance entries have no upper bounds; an unfinished week can be settled",
+   "cases": [
+    "TC-FLD-112",
+    "TC-FLD-113",
+    "TC-FLD-116",
+    "TC-FLD-117",
+    "TC-FLD-118"
+   ],
+   "severity": "Low",
+   "found": "2026-10-24 local (signed and local tiers)",
+   "actual": "A ₹10 crore registration fee, shop payment and adjustment were accepted; a payment with a blank or reused reference or a future date was accepted; forms rounded ₹10.555; the current, unfinished week (and a future one) could be settled.",
+   "expected": "Bounds, a unique reference, no future dates, no rounding, finished weeks only.",
+   "fix": "src/lib/money-limits.ts (₹10,00,000) on registration fees, shop payments, adjustments and COD deposits; non-cash shop payments need a reference, a reused one gets 409, a future date 422; only a finished week can be settled; the deposit, refund and adjustment forms refuse more than 2 decimals.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-99",
+   "title": "After the round-2 release, test.gokesari.com refused every session (sign-in did not stick)",
+   "cases": [
+    "TC-AUTH-001",
+    "TC-AUTH-034"
+   ],
+   "severity": "Blocker",
+   "found": "2026-10-24 test.gokesari.com, right after the round-2 fixes (PR #232) were deployed",
+   "actual": "Right after the round-2 release (PR #232), every saved session was refused and a fresh sign-in did not stick (13:04–13:09 UTC: POST /signin 200, then /onboarding → /signin). Cause: 0088_revoked_sessions and the purchase-lists migration were written the same day with the same journal timestamp; the migrator applies only migrations newer than the newest one recorded, so on the test database, which recorded the other first, 0088 was skipped and revoked_sessions did not exist. The new per-request sign-out check read that table, failed, and the request had no session. Sessions worked again by 13:45 (the table was in place); sign-out revocation verified on the test site afterwards (a copied cookie is refused after Sign out).",
+   "expected": "A signed-in visitor stays signed in; a failure of the sign-out list never signs everyone out.",
+   "fix": "PR #231: 0089_repair_revoked_sessions recreates the table (IF NOT EXISTS) and the purchase-lists migration is renumbered 0090 with a later timestamp. PR #234: readSession (src/server/auth-sessions.ts) falls back to the account read and logs once when the sign-out list cannot be read, so a missing table never signs everyone out (tests/integration/auth-sessions-fallback.test.ts). PR #238: tests/unit/migration-journal.test.ts fails CI when a journal timestamp is not later than the one before it, or a migration file is missing from the journal.",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-100",
+   "title": "On two databases, promoting a product-master record into the catalogue fails (duplicate product code)",
+   "cases": [
+    "TC-PMD-004",
+    "TC-FLD-075"
+   ],
+   "severity": "High",
+   "found": "2026-10-24 local, two-database (split) layout, build 7e4e920",
+   "actual": "POST /api/product-master/products/{id}/promote → 500 (\"duplicate key value violates unique constraint products_code_unique\", Key (code)=(P00381)). On the split layout the product master writes public.products in the seller database directly, so the product code came from the seller database's own copy of product_code_seq, which lags the core's (382 vs 1164); every other product insert goes through the core's foreign table and takes the core's sequence. On one database it works.",
+   "expected": "The promoted product gets the site's next product code and the promotion succeeds on both layouts.",
+   "fix": "src/server/pmd/db.ts catalogueProductCode(): on the split layout the code is drawn from the core's product_code_seq and inserted explicitly (src/server/pmd/services/catalogue-bridge.ts); on one database the column default applies as before. Test: tests/integration/pmd-review-bridge.test.ts (fails on the split layout without the fix: P00001 instead of P00016).",
+   "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "E-01",
+   "title": "The host's firewall answers some requests itself (SQL-like search text, bursts)",
+   "cases": [
+    "TC-DISC-004",
+    "TC-DISC-007",
+    "TC-FLD-022",
+    "TC-RBAC-002"
+   ],
+   "severity": "Info",
+   "found": "2026-10-24 test.gokesari.com",
+   "actual": "/search?q=';%20drop%20table%20shops;-- → 403 from the hosting firewall (Hostinger), before the app. During the long access sweeps on test.gokesari.com it also answered a burst itself for a minute or more: /shop/offers → 307 to itself and /search?q=दूध → 403, both fine from curl and on a second run.",
+   "expected": "Not an app defect: the case's own inputs (%, _, ', \", <script>, Hindi, long text) all render; the probe was narrowed to them. Recorded so a 403 on such text is not mistaken for an app error. The suite now tells the host's answers from the app's (app pages carry 'Vary: rsc'; lib/http.ts fromApp()): it looks again after a pause and records a host answer as a note or blocked, never as an app failure.",
+   "fix": "None in the app (host configuration).",
+   "status": "Not a defect"
+  }
+ ]
+}

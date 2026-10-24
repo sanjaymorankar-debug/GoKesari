@@ -19,7 +19,7 @@
  *     item would otherwise slip past its unique index.
  *   - Promotion is one transaction with its audit row; nothing half-happens.
  */
-import type { Sql, TransactionSql } from "../db";
+import { catalogueProductCode, type Sql, type TransactionSql } from "../db";
 import { toEan13, toUpcA } from "../normalize/identifiers";
 import { slugify } from "../taxonomy/categories";
 
@@ -211,14 +211,16 @@ export async function promoteToCatalogue(
     const packaged = !!(m.gtin || m.net_quantity_value);
     const { unit, netQuantity, netUnit } = displayUnit(m.net_quantity_value, m.net_quantity_unit);
     const slug = await uniqueSlug(tx, "products", `${m.brand_name ? m.brand_name + " " : ""}${m.product_name}`);
+    // On the split layout the code comes from the core's sequence (db.ts catalogueProductCode).
+    const code = await catalogueProductCode();
 
     const [p] = await tx<{ id: string; code: string }[]>`
       INSERT INTO public.products
-        (category_id, name, slug, description, brand_id, kind, gtin, variant, hsn_code, gst_rate_bp,
+        (code, category_id, name, slug, description, brand_id, kind, gtin, variant, hsn_code, gst_rate_bp,
          manufacturer_name, country_of_origin, net_quantity, net_quantity_unit, unit,
          mrp_paise, mrp_source, mrp_effective_from, mrp_verification_status, mrp_updated_at,
          approval_status, approved_by, approved_at, created_by)
-      VALUES (${category.id}, ${m.product_name}, ${slug}, ${m.long_description ?? m.short_description}, ${brandId},
+      VALUES (${code ?? tx`DEFAULT`}, ${category.id}, ${m.product_name}, ${slug}, ${m.long_description ?? m.short_description}, ${brandId},
               ${packaged ? "PACKAGED" : "LOOSE"}::product_kind, ${m.gtin ? catalogueGtin(m.gtin) : null}, ${m.variant_name},
               ${m.hsn_code}, ${m.gst_rate_bp}, ${m.manufacturer_name}, ${m.country_of_origin},
               ${netQuantity}, ${netUnit}, ${unit},

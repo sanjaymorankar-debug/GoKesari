@@ -5,7 +5,8 @@ import { useState } from "react";
 
 import { Alert, Button, Card, inputClass } from "@/components/ui";
 import { openCashfreeCheckout } from "@/lib/cashfree-checkout";
-import { formatPaiseCompact, rupeesToPaise } from "@/lib/money";
+import { formatPaiseCompact } from "@/lib/money";
+import { parseRupeeInput } from "@/lib/rupee-input";
 
 const PRESETS_PAISE = [50_000, 100_000, 200_000, 500_000];
 
@@ -64,12 +65,13 @@ export function ShopWalletTopUp({
   }
 
   function rechargeCustom() {
-    const rupees = Number(custom);
-    if (!Number.isFinite(rupees) || rupees <= 0) {
-      setError("Enter a valid amount.");
+    // TC-FLD-030 (same as the customer wallet): at most two decimals — never rounded and charged.
+    const parsed = parseRupeeInput(custom);
+    if (parsed.ok !== true || parsed.paise <= 0) {
+      setError(parsed.ok === false ? parsed.error : "Enter a valid amount.");
       return;
     }
-    void recharge(rupeesToPaise(rupees));
+    void recharge(parsed.paise);
   }
 
   return (

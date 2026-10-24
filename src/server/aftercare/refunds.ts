@@ -16,10 +16,12 @@
  * order_refunds records the choice and status (REQUESTED → PROCESSING →
  * SUCCESS | FAILED), order_refund_events the customer's timeline, and every
  * status reaches the customer by email and push (event order_refund.updated).
+ * A part of an order that continues (a removed line, a cheaper substitute —
+ * TC-PAY-029) is refunded the same way by refundOrderPart: one row per part.
  *
  * This module is imported by orders.ts (cancelOrder): it must not import it.
  */
-import { and, asc, desc, eq, inArray, sql } from "drizzle-orm";
+import { and, asc, desc, eq, inArray, ne, sql } from "drizzle-orm";
 
 import { conflict, notFound } from "@/lib/errors";
 import { formatPaise } from "@/lib/money";
@@ -282,9 +284,30 @@ async function setOrderStatus(tx: DbClient, orderId: string, from: OrderStatus, 
   await tx.insert(orderStatusHistory).values({ orderId, previousStatus: from, newStatus: to, changedBy: actorId, note });
 }
 
+const PART_KEY_PREFIX = "order-refund:part:";
+
+/** The order_refunds key of a part refund (removed line, cheaper substitute) of a continuing order. */
+function partRefundKey(orderId: string, key: string): string {
+  return `${PART_KEY_PREFIX}${orderId}:${key}`;
+}
+
+/**
+ * The wallet ledger key of a refund row. The cancellation keeps the key it
+ * always had; a part refund (TC-PAY-029) gets the per-line key the shop's line
+ * refunds have always used, so it can never collide with the cancellation's.
+ */
+function walletRefundKey(refund: Pick<OrderRefund, "orderId" | "idempotencyKey">): string {
+  const part = `${PART_KEY_PREFIX}${refund.orderId}:`;
+  return refund.idempotencyKey.startsWith(part)
+    ? `refund:order:${refund.orderId}:${refund.idempotencyKey.slice(part.length)}`
+    : `refund:order:${refund.orderId}`;
+}
+
+const isPartRefund = (refund: Pick<OrderRefund, "idempotencyKey">) => refund.idempotencyKey.startsWith(PART_KEY_PREFIX);
+
 /** Credits the wallet for a refund row: restores the original debit's split, or a plain customer-funded credit. */
 async function creditWallet(tx: DbClient, refund: OrderRefund, order: Order, actorId: string | null, description: string) {
-  const key = `refund:order:${order.id}`;
+  const key = walletRefundKey(refund);
   const hasDebit = await walletDebitFor(order, tx);
   if (hasDebit) {
     return refundOriginalDebit(
@@ -544,9 +567,11 @@ async function completeToWallet(tx: DbClient, refund: OrderRefund, order: Order,
     refund,
     order,
     actor?.id ?? null,
-    refund.deductionsPaise > 0
-      ? `Refund for cancelled order ${order.orderNumber} (${formatPaise(refund.deductionsPaise)} in charges kept)`
-      : `Refund for cancelled order ${order.orderNumber}`,
+    isPartRefund(refund)
+      ? (refund.reason ?? `Refund for order ${order.orderNumber}`)
+      : refund.deductionsPaise > 0
+        ? `Refund for cancelled order ${order.orderNumber} (${formatPaise(refund.deductionsPaise)} in charges kept)`
+        : `Refund for cancelled order ${order.orderNumber}`,
   );
   const [done] = await tx
     .update(orderRefunds)
@@ -562,6 +587,140 @@ async function completeToWallet(tx: DbClient, refund: OrderRefund, order: Order,
   await appendRefundEvent(tx, done, "SUCCESS", note, actor?.id ?? null);
   await announceRefund(tx, done, order.orderNumber, "has been added to your GoKesari wallet — it is ready to use now.", actor);
   return done;
+}
+
+/* ------------------------------------------- part of a continuing order */
+
+export type PartRefundRoute = "WALLET" | "ORIGINAL" | "NONE";
+
+export interface PartRefundResult {
+  route: PartRefundRoute;
+  /** The order_refunds row (online-paid orders only). */
+  refund: OrderRefund | null;
+  /** The wallet credit, when the money went to the wallet. */
+  walletTransactionId: string | null;
+}
+
+/**
+ * TC-PAY-029: refunds part of a paid order that carries on — a line the shop
+ * removed, or the difference to a cheaper substitute — the way the order was
+ * paid, exactly as a cancellation would be refunded:
+ *
+ *   paid from the wallet  → the original wallet debit, same split (as before);
+ *   paid online           → an order_refunds row, to the original method by
+ *                           default (refundMethodsFor), else the wallet. The
+ *                           gateway refund is only recorded here; the caller
+ *                           sends it after commit (sendRequestedOriginalRefunds)
+ *                           and the aftercare / payments jobs retry it;
+ *   cash on delivery, or not paid yet → nothing to give back: the amount
+ *                           still to collect simply drops with the order total.
+ *
+ * Runs inside the caller's transaction, under the order's row lock. `key`
+ * identifies the part (e.g. `line:<itemId>`): a replay refunds it once. Also
+ * used for a refund after delivery (finance.ts refundDeliveredOrder, N2), whose
+ * cash-on-delivery case stays a wallet credit there.
+ */
+export async function refundOrderPart(
+  tx: DbClient,
+  order: Order,
+  input: { amountPaise: number; key: string; description: string; actor: Actor },
+): Promise<PartRefundResult> {
+  if (input.amountPaise <= 0 || order.paidAt == null) return { route: "NONE", refund: null, walletTransactionId: null };
+  const payment = await paymentChannelFor(order, tx);
+  const actorId = input.actor?.id ?? null;
+  if (payment.channel === "COD") return { route: "NONE", refund: null, walletTransactionId: null };
+  if (payment.channel === "WALLET") {
+    const mutation = {
+      userId: order.userId,
+      idempotencyKey: `refund:order:${order.id}:${input.key}`,
+      description: input.description,
+      createdBy: actorId,
+      amountPaise: input.amountPaise,
+    };
+    let credited;
+    if (payment.hasWalletDebit) {
+      credited = await refundOriginalDebit({ ...mutation, referenceType: "orderId", referenceId: order.id }, tx);
+    } else {
+      // No wallet debit and no captured gateway payment on record: a plain wallet credit.
+      await getOrCreateWallet(order.userId, tx);
+      credited = await applyWalletMutation({ ...mutation, type: "REFUND", orderId: order.id, promotionalAmountPaise: 0 }, tx);
+    }
+    return { route: "WALLET", refund: null, walletTransactionId: credited.transaction.id };
+  }
+
+  const key = partRefundKey(order.id, input.key);
+  const prior = await tx.query.orderRefunds.findFirst({ where: eq(orderRefunds.idempotencyKey, key) });
+  if (prior) {
+    const route = prior.method === "ORIGINAL" && !prior.fellBackToWallet ? "ORIGINAL" : "WALLET";
+    return { route, refund: prior, walletTransactionId: prior.walletTransactionId };
+  }
+  const method: RefundMethod = (await refundMethodsFor("ONLINE"))[0];
+  const [held] = await tx.select({ totalPaise: orders.totalPaise }).from(orders).where(eq(orders.id, order.id));
+  const [refund] = await tx
+    .insert(orderRefunds)
+    .values({
+      orderId: order.id,
+      userId: order.userId,
+      method,
+      paymentChannel: "ONLINE",
+      status: "REQUESTED",
+      paidPaise: held?.totalPaise ?? order.totalPaise,
+      deductionsPaise: 0,
+      amountPaise: input.amountPaise,
+      breakdown: { kind: "PART", part: input.key, refundPaise: input.amountPaise },
+      reason: input.description,
+      gatewayIntentId: method === "ORIGINAL" ? (payment.intent?.id ?? null) : null,
+      idempotencyKey: key,
+      requestedBy: actorId,
+    })
+    .returning();
+  await appendRefundEvent(
+    tx,
+    refund,
+    "REQUESTED",
+    method === "WALLET"
+      ? `Refund of ${formatPaise(refund.amountPaise)} to your GoKesari wallet requested.`
+      : `Refund of ${formatPaise(refund.amountPaise)} to your original payment method requested.`,
+    actorId,
+  );
+  await recordAudit(
+    {
+      actorId,
+      actorRole: input.actor?.role ?? null,
+      action: AUDIT_ACTIONS.ORDER_REFUND_RECORDED,
+      entityType: "order",
+      entityId: order.id,
+      newValue: { refundId: refund.id, method, amountPaise: refund.amountPaise, part: input.key },
+    },
+    tx,
+  );
+  if (method === "WALLET") {
+    const done = await completeToWallet(tx, refund, order, input.actor, "Refunded to your GoKesari wallet.");
+    return { route: "WALLET", refund: done, walletTransactionId: done.walletTransactionId };
+  }
+  await announceRefund(tx, refund, order.orderNumber, "is on its way back to your original payment method.", input.actor);
+  return { route: "ORIGINAL", refund, walletTransactionId: null };
+}
+
+/**
+ * Another refund of the same order still on its way to the original method
+ * (a line refund and the cancellation's can be in flight together): the order
+ * becomes REFUNDED only once the last one settles.
+ */
+async function otherRefundOpen(tx: DbClient, orderId: string, refundId: string): Promise<boolean> {
+  const [open] = await tx
+    .select({ id: orderRefunds.id })
+    .from(orderRefunds)
+    .where(
+      and(
+        eq(orderRefunds.orderId, orderId),
+        eq(orderRefunds.method, "ORIGINAL"),
+        inArray(orderRefunds.status, ["REQUESTED", "PROCESSING"]),
+        ne(orderRefunds.id, refundId),
+      ),
+    )
+    .limit(1);
+  return Boolean(open);
 }
 
 /* --------------------------------------------- original payment method */
@@ -600,7 +759,9 @@ async function finishOriginal(
         .returning();
       await appendRefundEvent(tx, row, "SUCCESS", "Refunded to your original payment method.", null);
       await announceRefund(tx, row, order.orderNumber, "has been refunded to your original payment method.", null);
-      if (order.status === "REFUND_PENDING") await setOrderStatus(tx, order.id, "REFUND_PENDING", "REFUNDED", null, "Refunded to the original payment method");
+      if (order.status === "REFUND_PENDING" && !(await otherRefundOpen(tx, order.id, refund.id))) {
+        await setOrderStatus(tx, order.id, "REFUND_PENDING", "REFUNDED", null, "Refunded to the original payment method");
+      }
       return row;
     }
     // FAILED at the gateway: told, then (rule) credited to the wallet instead.
@@ -618,7 +779,9 @@ async function finishOriginal(
         .where(eq(orderRefunds.id, refund.id))
         .returning();
       const done = await completeToWallet(tx, retry, order, null, "Credited to your GoKesari wallet instead, because the gateway refund failed.");
-      if (order.status === "REFUND_PENDING") await setOrderStatus(tx, order.id, "REFUND_PENDING", "REFUNDED", null, "Gateway refund failed — wallet refunded");
+      if (order.status === "REFUND_PENDING" && !(await otherRefundOpen(tx, order.id, refund.id))) {
+        await setOrderStatus(tx, order.id, "REFUND_PENDING", "REFUNDED", null, "Gateway refund failed — wallet refunded");
+      }
       return done;
     }
     return failed;

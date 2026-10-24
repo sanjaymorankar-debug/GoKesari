@@ -8,7 +8,8 @@ import { Alert, Button, Card, Money, inputClass } from "@/components/ui";
 import { tr, type Lang } from "@/lib/board/i18n";
 import { HOME } from "@/lib/home-i18n";
 import { openCashfreeCheckout } from "@/lib/cashfree-checkout";
-import { TOPUP_PRESETS_PAISE, formatPaiseCompact, rupeesToPaise } from "@/lib/money";
+import { TOPUP_PRESETS_PAISE, formatPaiseCompact } from "@/lib/money";
+import { parseRupeeInput } from "@/lib/rupee-input";
 import type { WalletForecast } from "@/server/services/subscriptions";
 
 interface Transaction {
@@ -170,18 +171,25 @@ export function WalletView({
     return `${formatPaiseCompact(amountPaise)} added to your wallet.`;
   }
 
+  /** TC-FLD-030: at most two decimals (paise) — 10.555 is refused with a message, not rounded and charged. */
+  function typedPaise(onError: (message: string) => void): number | null {
+    const parsed = parseRupeeInput(custom);
+    if (parsed.ok === true && parsed.paise > 0) return parsed.paise;
+    onError(parsed.ok === false ? parsed.error : "Enter a valid amount.");
+    return null;
+  }
+
   function addCustom() {
-    const rupees = Number(custom);
-    if (!Number.isFinite(rupees) || rupees <= 0) {
-      setError("Enter a valid amount.");
-      return;
-    }
-    addMoney(rupeesToPaise(rupees));
+    const paise = typedPaise(setError);
+    if (paise !== null) addMoney(paise);
   }
 
   return (
-    <div className="grid gap-6 lg:grid-cols-[1fr_22rem]">
-      <div className="space-y-6">
+    // TC-PAY-002: the columns may shrink below their content (minmax(0, 1fr) and
+    // min-w-0) — a long transaction description no longer widens the page
+    // past a 360–412 px phone screen and pushes "Add money" off it.
+    <div className="grid grid-cols-1 gap-6 lg:grid-cols-[minmax(0,1fr)_22rem]">
+      <div className="min-w-0 space-y-6">
         <Card className="p-6">
           <p className="text-sm text-ink-500">Available balance</p>
           <p className="mt-1 text-4xl font-bold text-ink-900">
@@ -293,7 +301,7 @@ export function WalletView({
         </Card>
       </div>
 
-      <div className="lg:sticky lg:top-24 lg:self-start">
+      <div className="min-w-0 lg:sticky lg:top-24 lg:self-start">
         <Card id="add-money" className="p-5">
           <h2 className="text-base font-semibold text-ink-900">Add money</h2>
 
@@ -317,7 +325,8 @@ export function WalletView({
             <input
               type="number"
               min={1}
-              inputMode="numeric"
+              step={0.01}
+              inputMode="decimal"
               placeholder="Amount (₹)"
               aria-label="Amount in rupees"
               value={custom}
@@ -335,18 +344,14 @@ export function WalletView({
               onChange={(e) => setVoucherCode(e.target.value.toUpperCase())}
               placeholder="Voucher code (optional)"
               aria-label="Voucher code"
-              className={inputClass}
+              className={`${inputClass} min-w-0`}
             />
             <Button
               variant="secondary"
               disabled={voucherBusy || !custom}
               onClick={() => {
-                const rupees = Number(custom);
-                if (!Number.isFinite(rupees) || rupees <= 0) {
-                  setVoucherError("Enter an amount first.");
-                  return;
-                }
-                applyVoucher(rupeesToPaise(rupees));
+                const paise = typedPaise(setVoucherError);
+                if (paise !== null) applyVoucher(paise);
               }}
             >
               Apply

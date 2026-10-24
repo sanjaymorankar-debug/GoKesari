@@ -31,7 +31,7 @@ import {
   skipDate,
 } from "@/server/services/subscriptions";
 import { applyWalletMutation } from "@/server/services/wallet";
-import { createStandardMilkSetup, resetDatabase } from "../helpers/fixtures";
+import { createStandardMilkSetup, deliveryAddressId, resetDatabase } from "../helpers/fixtures";
 
 /**
  * Anchored to today, not fixed calendar dates. `setDailyOverride` and
@@ -50,6 +50,8 @@ async function setup(balancePaise = 500_000) {
   const fixture = await createStandardMilkSetup({
     customerBalancePaise: balancePaise,
   });
+  // TC-SUB-013: a delivery is generated only for a customer with a drop address.
+  await deliveryAddressId(fixture.customer.id);
   const subscription = await createSubscription({
     userId: fixture.customer.id,
     shopProductId: fixture.shopProduct.id,

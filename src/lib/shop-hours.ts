@@ -39,15 +39,33 @@ const toMinutes = (hhmm: string) => {
   return h * 60 + m;
 };
 
+type DayHours = NonNullable<Shop["openingHours"]>[number];
+
+/** Hours whose close is before their open ("18:00"–"02:00") run past midnight into the next morning. */
+const pastMidnight = (h: DayHours) => toMinutes(h.close) < toMinutes(h.open);
+
+/**
+ * The day's hours the shop is open under right now: today's, or yesterday's
+ * when they ran past midnight (TC-LOC-026). Null when it is closed.
+ */
+function openHoursNow(hours: DayHours[], now: Date): DayHours | null {
+  const clock = istClock(now);
+  const today = hours.find((h) => h.day === clock.day);
+  if (today && !today.closed) {
+    const opensAt = toMinutes(today.open);
+    if (pastMidnight(today) ? clock.minutes >= opensAt : clock.minutes >= opensAt && clock.minutes <= toMinutes(today.close)) {
+      return today;
+    }
+  }
+  const yesterday = hours.find((h) => h.day === (clock.day + 6) % 7);
+  if (yesterday && !yesterday.closed && pastMidnight(yesterday) && clock.minutes <= toMinutes(yesterday.close)) return yesterday;
+  return null;
+}
+
 export function isShopOpenNow(shop: Pick<Shop, "openingHours">, now: Date = new Date()): boolean {
   const hours = shop.openingHours;
   if (!hours || hours.length === 0) return true; // unset means always open
-
-  const clock = istClock(now);
-  const today = hours.find((h) => h.day === clock.day);
-  if (!today || today.closed) return false;
-
-  return clock.minutes >= toMinutes(today.open) && clock.minutes <= toMinutes(today.close);
+  return openHoursNow(hours, now) !== null;
 }
 
 /**
@@ -93,10 +111,8 @@ function formatClock(hhmm: string): string {
 export function shopHoursLabel(shop: Pick<Shop, "openingHours">, now: Date = new Date()): string {
   const hours = shop.openingHours;
   if (!hours || hours.length === 0) return "Open";
-  if (isShopOpenNow(shop, now)) {
-    const today = hours.find((h) => h.day === istClock(now).day);
-    return today ? `Open till ${formatClock(today.close)}` : "Open";
-  }
+  const current = openHoursNow(hours, now);
+  if (current) return `Open till ${formatClock(current.close)}`;
   const next = nextOpeningAt(shop, now);
   return next ? `Closed · opens ${formatShopTime(next)}` : "Closed";
 }

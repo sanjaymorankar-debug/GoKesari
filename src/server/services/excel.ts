@@ -19,6 +19,7 @@ import ExcelJS from "exceljs";
 import { and, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { conflict, notFound, validationFailed } from "@/lib/errors";
+import { MAX_PRICE_PAISE, MIN_PRICE_PAISE } from "@/lib/price-rules";
 import { db, type DbClient } from "@/server/db";
 import {
   excelUploadItems,
@@ -139,12 +140,29 @@ export function parseRupeesToPaise(raw: unknown): number | null {
   return paise;
 }
 
+/**
+ * Why a row's price cannot be used, or null when it can. A 0 is refused like
+ * every other price in the catalogue (TC-CAT-004): it would put the product on
+ * sale for nothing. Blank is "no price given" (TC-CAT-033).
+ */
+function priceProblem(row: { pricePaise: number | null; priceBlank: boolean }): string | null {
+  if (row.priceBlank) return "Price is missing.";
+  if (row.pricePaise == null) return "Price is not a valid amount.";
+  if (row.pricePaise < MIN_PRICE_PAISE) {
+    return "Price must be more than ₹0. Leave the cell empty to keep the product unpriced.";
+  }
+  if (row.pricePaise > MAX_PRICE_PAISE) return "Price can be at most ₹10,00,000.";
+  return null;
+}
+
 export interface ParsedRow {
   rowNumber: number;
   productCode: string;
   productName: string;
   unit: string;
   pricePaise: number | null;
+  /** The price cell is empty: "no change" for a product the shop lists (TC-CAT-033). */
+  priceBlank: boolean;
   /** GOODS uploads only. */
   category: string;
   subCategory: string;
@@ -248,6 +266,11 @@ async function parseWorkbook(
     const hasContent = Object.values(raw).some((v) => String(v ?? "") !== "");
     if (!hasContent) return;
 
+    // The first price column with something in it; a blank cell reads as "" (not
+    // null) after sanitiseCell, so `??` alone never reached Online / Offline Price.
+    const priceCell = [raw.price, raw.onlinePrice, raw.offlinePrice].find(
+      (v) => v != null && String(v) !== "",
+    );
     rows.push({
       rowNumber,
       productCode: String(raw.productCode ?? "").trim(),
@@ -257,9 +280,8 @@ async function parseWorkbook(
       subCategory: String(raw.subCategory ?? "").trim(),
       description: String(raw.description ?? "").trim(),
       specifications: String(raw.specifications ?? "").trim(),
-      pricePaise: parseRupeesToPaise(
-        raw.price ?? raw.onlinePrice ?? raw.offlinePrice,
-      ),
+      pricePaise: parseRupeesToPaise(priceCell),
+      priceBlank: priceCell === undefined,
       raw,
     });
   });
@@ -362,13 +384,25 @@ export async function validateUpload(
       // Found in THIS shop's own catalogue — a price update, exactly as PRICES
       // mode has always handled it. Identical for both modes.
       if (match) {
-        if (row.pricePaise == null) {
+        // TC-CAT-033: an empty price cell changes nothing — a loose product the
+        // template leaves blank stays unpriced, a priced one keeps its price.
+        if (row.priceBlank) {
+          return {
+            ...base,
+            matchedShopProductId: match.shopProductId,
+            previousPricePaise: match.onlinePricePaise,
+            status: "NO_CHANGE",
+            errorMessage: null,
+          };
+        }
+        const problem = priceProblem(row);
+        if (problem || row.pricePaise == null) {
           return {
             ...base,
             matchedShopProductId: match.shopProductId,
             previousPricePaise: match.onlinePricePaise,
             status: "INVALID_PRICE",
-            errorMessage: "Price is missing or not a valid amount.",
+            errorMessage: problem,
           };
         }
         const previous = match.onlinePricePaise;
@@ -432,12 +466,13 @@ export async function validateUpload(
               errorMessage: `${row.productCode} is in the "${central.categoryName}" category, which this shop does not carry. Add the category to the shop first.`,
             };
           }
-          if (row.pricePaise == null) {
+          const problem = priceProblem(row);
+          if (problem) {
             return {
               ...base,
               matchedProductId: central.id,
               status: "INVALID_PRICE",
-              errorMessage: "Price is missing or not a valid amount.",
+              errorMessage: problem,
             };
           }
           return {
@@ -481,11 +516,12 @@ export async function validateUpload(
         };
       }
 
-      if (row.pricePaise == null) {
+      const problem = priceProblem(row);
+      if (problem) {
         return {
           ...base,
           status: "INVALID_PRICE",
-          errorMessage: "Price is missing or not a valid amount.",
+          errorMessage: problem,
         };
       }
 
@@ -875,6 +911,7 @@ export async function getUploadPreview(uploadId: string): Promise<UploadPreview>
         description: String(raw.description ?? ""),
         specifications: String(raw.specifications ?? ""),
         pricePaise: i.parsedPricePaise,
+        priceBlank: [raw.price, raw.onlinePrice, raw.offlinePrice].every((v) => v == null || String(v) === ""),
         raw,
         status: i.status,
         errorMessage: i.errorMessage,
@@ -997,6 +1034,7 @@ export async function buildTemplate(
       ["Optional columns", "Product Name, Unit, Category, Online Price, Offline Price"],
       ["Price format", "Rupees, e.g. 72 or 72.50 — do not include the ₹ sign"],
       ["Do not", "change or delete the Product ID column"],
+      ["Empty price", "Leaves that product's price as it is — a loose product stays unpriced. 0 is not accepted as a price"],
       ["Note", "Rows with an unknown Product ID or an invalid price are reported and skipped"],
     ]);
   }
