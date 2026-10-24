@@ -9,7 +9,7 @@ import { Alert, Button, inputClass } from "@/components/ui";
 import { tr } from "@/lib/board/i18n";
 import { findDevicePosition } from "@/lib/device-location";
 import { isMapsAvailable } from "@/lib/geo/provider";
-import { LOCATION_PROBLEM_TEXT } from "@/lib/home-i18n";
+import { LOCATION_PROBLEM_TEXT, OSM_CREDIT } from "@/lib/home-i18n";
 
 // Only needed once someone opens "Search an address", so the map picker (and
 // the Google Maps loader behind it) stays out of every page's initial bundle.
@@ -213,6 +213,12 @@ export function LocationPanel({
             </>
           ) : null}
           <p className="mt-2 text-xs text-ink-500">
+            Address from your location:{" "}
+            <a href={OSM_CREDIT.href} target="_blank" rel="noopener noreferrer" className="underline">
+              {OSM_CREDIT.text}
+            </a>
+          </p>
+          <p className="mt-1 text-xs text-ink-500">
             Want to keep this place? <a href="/profile/addresses" className="underline">Save it as an address</a> to
             reuse it at checkout.
           </p>

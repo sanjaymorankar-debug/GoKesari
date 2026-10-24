@@ -28,6 +28,7 @@ import { Icon } from "@/components/board/icons";
 import { NearbyMap } from "@/components/nearby-map";
 import { saveDevicePosition } from "@/lib/device-location";
 import { NEARBY_RADII_KM, DEFAULT_NEARBY_RADIUS_KM, placeLine, widerRadius, type NearbyRadiusKm } from "@/lib/geo/nearby";
+import { OSM_CREDIT } from "@/lib/home-i18n";
 
 export interface NearbyShop {
   id: string;
@@ -54,6 +55,8 @@ interface NearbyAnswer {
     longitude: number;
     source: "DEVICE" | "PLACE";
     place: { area: string | null; city: string | null; pincode: string | null } | null;
+    /** The approximate street address of a device position, from OpenStreetMap. */
+    address?: string | null;
   };
   radiusKm: NearbyRadiusKm;
   countsByRadius: Record<string, number>;
@@ -215,7 +218,7 @@ export function NearbyShops() {
 
   const origin = answer?.origin ?? null;
   const fromPlace = search?.kind === "place";
-  const placeText = placeLine(origin?.place ?? null);
+  const placeText = origin?.address ?? placeLine(origin?.place ?? null);
   const counts = answer?.countsByRadius ?? {};
   const shops = answer?.shops ?? [];
   const wider = widerRadius(radius);
@@ -237,13 +240,22 @@ export function NearbyShops() {
               <p className="text-base font-bold text-ink-900" data-testid="nearby-location">Finding your location…</p>
             ) : origin ? (
               <>
-                <p className="truncate text-base font-bold text-ink-900" data-testid="nearby-location">
+                {/* Two lines: a street address is longer than an area name. */}
+                <p className="line-clamp-2 break-words text-base font-bold text-ink-900" data-testid="nearby-location">
                   {placeText ?? (fromPlace ? search.query : `${origin.latitude.toFixed(5)}, ${origin.longitude.toFixed(5)}`)}
                 </p>
                 <p className="text-xs text-ink-600">
                   {fromPlace
                     ? "From the PIN code / area you entered"
                     : `Detected by your device${search?.kind === "position" && search.accuracyM ? ` · accurate to about ${search.accuracyM} m` : ""}${placeText ? "" : " · area not known yet"}`}
+                  {!fromPlace && origin.address ? (
+                    <>
+                      {" · approximate address "}
+                      <a href={OSM_CREDIT.href} target="_blank" rel="noopener noreferrer" className="underline">
+                        {OSM_CREDIT.text}
+                      </a>
+                    </>
+                  ) : null}
                 </p>
               </>
             ) : phase === "loading" ? (

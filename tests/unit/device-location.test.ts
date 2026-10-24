@@ -17,7 +17,9 @@ import {
   type LocationEnv,
 } from "@/lib/device-location";
 import { LANGUAGES } from "@/lib/board/i18n";
+import { cleanAddress, formatOsmAddress } from "@/lib/geo/nearby";
 import { LOCATION_PROBLEM_TEXT } from "@/lib/home-i18n";
+import { locationAreaName, parseLocation, shortLocationLabel } from "@/lib/location";
 
 type Answer = { coords: { latitude: number; longitude: number; accuracy: number } } | { code: number };
 
@@ -123,5 +125,48 @@ describe("wording", () => {
       for (const lang of LANGUAGES) expect(text[lang], `${problem} ${lang}`).toMatch(/\S/);
     }
     expect(new Set(Object.values(LOCATION_PROBLEM_TEXT)).size).toBe(5);
+  });
+});
+
+describe("the approximate address as the location text (OpenStreetMap)", () => {
+  it("street, area, city and PIN code — whichever OpenStreetMap has, without repeats", () => {
+    expect(formatOsmAddress({ house_number: "12", road: "Lane 5", suburb: "Kharadi", city: "Pune", county: "Pune City", postcode: "411014" })).toEqual({
+      line: "12 Lane 5, Kharadi, Pune 411014",
+      area: "Kharadi",
+      city: "Pune",
+      pincode: "411014",
+    });
+    expect(formatOsmAddress({ amenity: "Eon Free Zone", road: "Kharadi Bypass", neighbourhood: "Kharadi", city: "Pune" })?.line).toBe(
+      "Eon Free Zone, Kharadi Bypass, Kharadi, Pune",
+    );
+    // A village: the area and the place are the same word; no road.
+    expect(formatOsmAddress({ village: "Wagholi", hamlet: "Wagholi", postcode: "412 207" })?.line).toBe("Wagholi 412207");
+    // A postcode that is not an Indian PIN code is left out.
+    expect(formatOsmAddress({ road: "MG Road", city: "Pune", postcode: "41101" })).toMatchObject({ line: "MG Road, Pune", pincode: null });
+    expect(formatOsmAddress({ postcode: "411014" })).toBeNull();
+    expect(formatOsmAddress(null)).toBeNull();
+  });
+
+  it("drops ', India' at the end", () => {
+    expect(cleanAddress("12, Lane 5, Kharadi, Pune, Maharashtra, 411014, India")).toBe("12, Lane 5, Kharadi, Pune, Maharashtra, 411014");
+    expect(cleanAddress("Gateway of India, Apollo Bandar, Colaba, Mumbai, India")).toBe("Gateway of India, Apollo Bandar, Colaba, Mumbai");
+    expect(cleanAddress("")).toBeNull();
+    expect(cleanAddress(null)).toBeNull();
+  });
+
+  it("fits the 120 characters a location label keeps, cut at a comma", () => {
+    const long = "Building 4, Phase 2, Some Very Long Technology Park Name, Near The Big Landmark Junction, Kharadi, Pune, Maharashtra 411014, India";
+    const short = cleanAddress(long)!;
+    expect(short.length).toBeLessThanOrEqual(120);
+    expect(short).toBe("Building 4, Phase 2, Some Very Long Technology Park Name, Near The Big Landmark Junction, Kharadi, Pune");
+  });
+
+  it("headings use the saved area, not the building; older cookies without an area still read", () => {
+    const exact = { label: "Eon Free Zone, Kharadi, Pune, Maharashtra 411014", source: "DEVICE" as const, area: "Kharadi" };
+    expect(locationAreaName(exact)).toBe("Kharadi");
+    expect(shortLocationLabel(exact)).toBe("Eon Free Zone, Kharadi, Pune, Maharashtra 411014");
+    const old = parseLocation(JSON.stringify({ label: "Kharadi, Pune", pincode: null, latitude: 18.5515, longitude: 73.9348, source: "DEVICE", addressId: null }));
+    expect(old).toMatchObject({ label: "Kharadi, Pune", societyId: null });
+    expect(locationAreaName(old!)).toBe("Kharadi");
   });
 });

@@ -198,6 +198,7 @@ export const HOME = {
     "ठिकाणासाठी सुरक्षित (https) पान लागते — पिन कोड टाका.",
   ),
   enterPincodeInstead: L("Enter PIN code", "पिन कोड डालें", "पिन कोड टाका"),
+  addressCredit: L("Address from your location:", "आपकी लोकेशन से पता:", "तुमच्या ठिकाणावरून पत्ता:"),
 
   // Footer (F5)
   footerCompany: L("Company", "कंपनी", "कंपनी"),
@@ -235,3 +236,6 @@ export const LOCATION_PROBLEM_TEXT: Readonly<Record<LocationProblem, Text>> = {
   INSECURE: HOME.locationInsecure,
   UNSUPPORTED: HOME.noGeolocation,
 };
+
+/** OpenStreetMap's licence (ODbL): credit it wherever an address found from it is shown. */
+export const OSM_CREDIT = { text: "© OpenStreetMap contributors", href: "https://www.openstreetmap.org/copyright" } as const;

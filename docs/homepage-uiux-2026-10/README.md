@@ -50,10 +50,18 @@ Owner report: "user location is not detected". Before, "Deliver to" stayed on
   current location" buttons use the same code (quick network fix, then one
   GPS try) and give the same reasons instead of always "permission was not
   given".
-- **Named place**: a device position is labelled after the nearest shop or
-  saved address within 2 km ("Kharadi, Pune"), from GoKesari's own data — no
-  Google call (MAPS_USAGE.md); no PIN code is guessed. "Current location"
-  when nothing is known there.
+- **Approximate address, free** (owner, 24 Oct 2026: a textual address for
+  the coordinates, "I don't want paid version"): a device position is
+  labelled with its approximate street address from OpenStreetMap
+  (Nominatim — free, no key, no Google): "12 Lane 5, Kharadi, Pune 411014".
+  One request per spot (~11 m), remembered for a day and shared with the
+  Nearby screen, which shows the same address; at most one request a second
+  (Nominatim's policy), "© OpenStreetMap contributors" shown with it.
+  `NOMINATIM_URL` switches the server, or `off`. No PIN code is saved from it
+  (approximate; discovery goes by distance). When OpenStreetMap has nothing or
+  is busy: the area and city of the nearest shop or saved address within
+  2 km ("Kharadi, Pune"); "Current location" only when nothing is known at
+  all. Headings keep the area ("Shops near Kharadi").
 - **Nearby screen**: the position it finds also becomes the delivery
   location when none is chosen.
 

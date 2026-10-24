@@ -8,10 +8,13 @@
  * DELETE clears the choice (discovery falls back to the default address, or
  * to showing every shop).
  *
- * A device position is named after the nearest shop or saved address within
- * 2 km ("Kharadi, Pune"), from GoKesari's own data — no Google call
- * (MAPS_USAGE.md — no per-visit Maps cost); "Current location" when nothing
- * is known there. With `ifUnset: true` (the automatic detection) a location
+ * A device position is labelled with its approximate street address from
+ * OpenStreetMap ("12 Lane 5, Kharadi, Pune 411014" — free, no Google call;
+ * one request per spot, remembered for a day — MAPS_USAGE.md). Otherwise with
+ * the area and city of the nearest shop or saved address within 2 km
+ * ("Kharadi, Pune"), from GoKesari's own data; "Current location" only when
+ * nothing is known there. No PIN code is saved from either: both are
+ * approximate, and discovery goes by distance. With `ifUnset: true` (the automatic detection) a location
  * already chosen, or the signed-in customer's saved address, is kept and the
  * answer says `saved: false`.
  *
@@ -35,7 +38,7 @@ import { getCurrentUser } from "@/server/authz/guards";
 import { unauthenticated } from "@/lib/errors";
 import { getCustomerLocation, locationFromAddress } from "@/server/location";
 import { getAddress } from "@/server/services/addresses";
-import { describePosition } from "@/server/services/place-lookup";
+import { addressForPosition, describePosition } from "@/server/services/place-lookup";
 
 const schema = z.union([
   z.object({ addressId: z.string().uuid() }),
@@ -65,16 +68,19 @@ export const POST = route(async (request: NextRequest) => {
       const current = await getCustomerLocation((await getCurrentUser())?.id);
       if (current) return ok({ ...current, saved: false });
     }
-    // The area and city only: the nearest known point can sit in the next PIN code, so none is guessed.
-    const place = body.label ? null : await describePosition(body.latitude, body.longitude, { google: false }).catch(() => null);
+    // The approximate street address from OpenStreetMap; else the area and city of the nearest known point.
+    const osm = body.label ? null : await addressForPosition(body.latitude, body.longitude).catch(() => null);
+    const named = body.label || osm ? null : await describePosition(body.latitude, body.longitude, { ownDataOnly: true }).catch(() => null);
+    const area = (osm ? (osm.area ?? osm.city) : (named?.area ?? named?.city))?.slice(0, 80) || null;
     location = {
-      label: body.label ?? placeLine(place ? { area: place.area, city: place.city } : null)?.slice(0, 120) ?? "Current location",
+      label: body.label ?? osm?.address ?? placeLine(named ? { area: named.area, city: named.city } : null)?.slice(0, 120) ?? "Current location",
       pincode: body.pincode ?? null,
       latitude: roundCoordinate(body.latitude),
       longitude: roundCoordinate(body.longitude),
       source: "DEVICE",
       addressId: null,
       societyId: null,
+      area,
     };
   } else {
     location = {
