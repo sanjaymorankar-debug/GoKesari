@@ -19,8 +19,9 @@ export default function CookiePolicyPage() {
       <ul>
         <li>
           <strong>Session/authentication cookie</strong> — keeps you signed
-          in between requests. Set by Auth.js when you sign in; removed when
-          you sign out or the session expires.
+          in between requests. Set by Auth.js when you sign in; lasts 30 days
+          from when it was last renewed (the site renews it as you use it
+          while signed in), and is removed when you sign out.
         </li>
         <li>
           <strong>CSRF protection cookie</strong> — protects forms and
@@ -82,20 +83,85 @@ export default function CookiePolicyPage() {
         </li>
       </ul>
 
+      <h2>Other storage in your browser</h2>
+      <p>
+        Besides cookies, the site keeps a few small items in your
+        browser&apos;s storage. Items in local storage stay until you clear
+        them; items in session storage are deleted when you close the tab,
+        or, in the GoKesari app, when you close the app.
+      </p>
+      <ul>
+        <li>
+          <strong>Recent searches</strong> (<code>gk_recent_searches</code>) —
+          remembers your last 6 searches on this device, so the search box can
+          offer them again when you are not signed in. Saved each time you
+          search from the search box; kept until you press &quot;Clear&quot;
+          above your recent searches in the search box or clear this
+          site&apos;s data in your browser, because local storage does not
+          expire by itself. The list stays in your browser and is not sent to
+          GoKesari. When you are signed in, the search box shows the recent
+          searches saved with your account instead, and &quot;Clear&quot;
+          removes those too.
+        </li>
+        <li>
+          <strong>Location prompt marker</strong>{" "}
+          (<code>gk-locate-asked</code>) — remembers that the site has already
+          asked your device for its location during this visit, so you are not
+          asked again on every page. Set the first time the site asks for your
+          location on a page that lists shops or products, when you have no
+          delivery location yet and have not already allowed or blocked
+          location for this site; kept in session storage, so it is deleted
+          when you close the tab. It holds only the value &quot;1&quot;.
+        </li>
+        <li>
+          <strong>App notification registration</strong>{" "}
+          (<code>gk-push:</code> followed by your email address or account ID)
+          — used only inside the GoKesari app: remembers that this
+          phone&apos;s notification token has already been registered with
+          your account, so the app is not asked for it again on every page.
+          Set after the token is registered while you are signed in to the
+          app; kept in session storage, so it is deleted when you close the
+          app. It holds this phone&apos;s notification token.
+        </li>
+      </ul>
+
       <h2>Analytics</h2>
       <p>
         This site does not currently run third-party analytics or
         advertising trackers. If that changes, this policy will be updated
         first and, where required, we will ask for your consent before any
-        non-essential cookie is set.
+        analytics or advertising cookie is set.
       </p>
 
       <h2>Managing cookies</h2>
       <p>
-        Because the cookies we use today are essential to signing in and
-        checking out, disabling them will prevent you from using
-        account-based features of the site. You can clear or block cookies
-        at any time from your browser settings.
+        You can clear or block cookies at any time from your browser
+        settings. What happens then depends on the cookie:
+      </p>
+      <ul>
+        <li>
+          <strong>Sign-in and security cookies</strong> (the session, CSRF
+          protection, app sign-in and Zoho Books connection cookies) are
+          needed for the site to work. If you block them, you cannot sign in,
+          check out or pay, sign in to the GoKesari app with Google, or
+          connect a shop to Zoho Books.
+        </li>
+        <li>
+          <strong>Cookies that remember your choices</strong> (the delivery
+          location, language, referral and seller shop cookies) are not
+          needed to use the site. If you block or clear them, the site still
+          works but forgets those choices: shops near you are found from your
+          saved delivery address if you are signed in and have one, otherwise
+          you choose your location again; the site goes back to English; a
+          friend&apos;s referral code is not filled in for you (you can still
+          type it in); and Seller Central opens your newest shop.
+        </li>
+      </ul>
+      <p>
+        We set the cookies that remember your choices only after you make
+        that choice, allow your device to share its location, or open a
+        referral link. You can also clear the delivery location cookie at any
+        time with &quot;Clear location&quot; under &quot;Deliver to&quot;.
       </p>
     </>
   );
