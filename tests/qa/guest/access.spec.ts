@@ -4,7 +4,7 @@
  * endpoint guarded by a secret refuses a call without it. Nothing here can
  * create or change anything — each request is one the server must refuse.
  */
-import { anonymous, call, fromApp, pace, refusesGuest, type Answer } from "../lib/http";
+import { anonymous, call, callApp, fromApp, pace, refusesGuest, type Answer } from "../lib/http";
 import { expect, qa } from "../lib/record";
 import { apiRoutes, fill, isDynamic, NO_SUCH_ID, pagePaths, PUBLIC_PAGES, PUBLIC_WRITES, SECRET_PREFIXES } from "../lib/routes";
 import { IS_PROD, IS_REMOTE, TARGET } from "../lib/target";
@@ -62,22 +62,28 @@ qa(["TC-SEC-001", "TC-RBAC-002"], "every write API refuses a caller without a se
   const guest = await anonymous();
   const writes = sessionWrites();
   const bad: string[] = [];
+  const hostAnswers: string[] = [];
   for (const w of writes) {
     await pace();
     // An empty JSON body and an id that exists nowhere: a route that checks the
     // session first answers 401; one that validates or looks up first leaks
     // field names or whether a record exists.
-    const res = await call(guest, w.method, fill(w.path), w.method === "DELETE" ? undefined : {});
-    if (res.status !== 401 && res.status !== 403) bad.push(`${w.method} ${w.path} → ${res.status} ${res.body?.error?.code ?? ""}`.trim());
+    const res = await callApp(guest, w.method, fill(w.path), w.method === "DELETE" ? undefined : {});
+    if (res.status === 401 || res.status === 403) continue;
+    // The host's own answer (E-01) reached no route: noted, not failed.
+    if (res.host) hostAnswers.push(`${w.method} ${w.path} → ${res.status}`);
+    else bad.push(`${w.method} ${w.path} → ${res.status} ${res.body?.error?.code ?? ""}`.trim());
   }
   await guest.dispose();
-  return summarize(bad, writes.length, "session-protected write endpoints not refusing a guest");
+  const done = summarize(bad, writes.length, "session-protected write endpoints not refusing a guest");
+  return hostAnswers.length ? `${done}; answered by the host, not the app (E-01): ${hostAnswers.join(", ")}` : done;
 }, { timeout: 600_000 });
 
 qa("TC-SEC-001", "public write endpoints refuse an empty call without a server error", async () => {
   const guest = await anonymous();
   const bad: string[] = [];
   const skippedRemote: string[] = [];
+  const hostAnswers: string[] = [];
   let total = 0;
   for (const r of apiRoutes().filter((x) => PUBLIC_WRITES[x.path])) {
     for (const method of r.methods.filter((m) => m !== "GET")) {
@@ -89,7 +95,11 @@ qa("TC-SEC-001", "public write endpoints refuse an empty call without a server e
         continue;
       }
       total += 1;
-      const res = await call(guest, method, fill(r.path), method === "DELETE" ? undefined : {});
+      const res = await callApp(guest, method, fill(r.path), method === "DELETE" ? undefined : {});
+      if (res.host) {
+        hostAnswers.push(`${method} ${r.path} → ${res.status}`);
+        continue;
+      }
       // Refused: validation (400/422), not found (404), signature/secret (401/403), not configured (503).
       // The referral-code check only reads (a blank code is valid while referral is optional): 200 is fine.
       const readOnly = r.path === "/api/shop-registrations/referral-check" && res.status === 200;
@@ -97,8 +107,10 @@ qa("TC-SEC-001", "public write endpoints refuse an empty call without a server e
     }
   }
   await guest.dispose();
-  const note = summarize(bad, total, "public write endpoints accepting an empty call");
-  return skippedRemote.length ? `${note}; not sent on this site (tight per-IP limits): ${skippedRemote.join(", ")}` : note;
+  const note = [summarize(bad, total, "public write endpoints accepting an empty call")];
+  if (skippedRemote.length) note.push(`not sent on this site (tight per-IP limits): ${skippedRemote.join(", ")}`);
+  if (hostAnswers.length) note.push(`answered by the host, not the app (E-01): ${hostAnswers.join(", ")}`);
+  return note.join("; ");
 });
 
 qa(["TC-DSP-022", "TC-SEC-001"], "cron endpoints refuse calls with no token and with a wrong token", async () => {

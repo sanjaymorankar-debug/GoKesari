@@ -5,7 +5,7 @@
  */
 import type { Page } from "@playwright/test";
 
-import { anonymous, call } from "../lib/http";
+import { anonymous, call, callApp } from "../lib/http";
 import { blocked, expect, qa } from "../lib/record";
 import { BASE_URL, IS_LOCAL, TARGET } from "../lib/target";
 
@@ -63,7 +63,8 @@ qa("TC-FLD-002", "the sign-in API refuses an over-long or malformed email withou
   // One call on a deployed site (the sign-in limit is per IP); all three locally.
   const emails = IS_LOCAL ? ["a".repeat(250) + "@x.com", "not-an-email", ""] : ["a".repeat(250) + "@x.com"];
   for (const email of emails) {
-    const res = await call(guest, "POST", "/api/otp/request", { email });
+    const res = await callApp(guest, "POST", "/api/otp/request", { email });
+    if (res.host) blocked(`the host firewall answered ${res.status} three times, not the app (E-01)`);
     expect(res.status, `email "${email.slice(0, 20)}…" — HTTP ${res.status}`).toBeGreaterThanOrEqual(400);
     expect(res.status).toBeLessThan(500);
     out.push(`${email.length} chars → ${res.status}`);
