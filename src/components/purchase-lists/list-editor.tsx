@@ -63,17 +63,31 @@ export function ListEditor({ list: initialList, initialItems }: { list: ListHead
   const [list, setList] = useState(initialList);
   const [items, setItems] = useState(initialItems);
   const [saving, setSaving] = useState(0);
+  const [removing, setRemoving] = useState<ReadonlySet<string>>(new Set());
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
   const [checking, setChecking] = useState(false);
   const [check, setCheck] = useState<PurchaseListCheck | null>(null);
+  // The latest change sent per item: an answer to an older one is ignored (it may arrive last).
+  const latest = useRef(new Map<string, number>());
+
+  // router.refresh() re-renders the page with the list as the server has it; adopt it once no
+  // change is on its way (render-time sync, not an effect).
+  const [seen, setSeen] = useState({ list: initialList, items: initialItems });
+  if ((seen.list !== initialList || seen.items !== initialItems) && saving === 0) {
+    setSeen({ list: initialList, items: initialItems });
+    setList(initialList);
+    setItems(initialItems);
+  }
 
   const activeItems = items.filter((i) => i.quantity > 0);
+  const orderableItems = activeItems.filter((i) => i.purchasable);
   const estimatedPaise = items.reduce((sum, i) => sum + estimate(i), 0);
-  const unavailableActive = activeItems.filter((i) => !i.purchasable).length;
+  const unavailableActive = activeItems.length - orderableItems.length;
 
   async function saveItem(itemId: string, change: { quantity?: number; note?: string | null }) {
-    const before = items;
+    const sent = (latest.current.get(itemId) ?? 0) + 1;
+    latest.current.set(itemId, sent);
     setItems((current) => current.map((i) => (i.itemId === itemId ? { ...i, ...change } : i)));
     setSaving((n) => n + 1);
     setError(null);
@@ -82,33 +96,46 @@ export function ListEditor({ list: initialList, initialItems }: { list: ListHead
         method: "PATCH",
         body: JSON.stringify(change),
       });
+      if (latest.current.get(itemId) !== sent) return;
       if (!ok) {
-        setItems(before);
         setError(errorMessage(payload, "Could not save that change."));
+        router.refresh();
         return;
       }
       const saved = payload as PurchaseListItemView;
       setItems((current) => current.map((i) => (i.itemId === itemId ? saved : i)));
     } catch {
-      setItems(before);
+      if (latest.current.get(itemId) !== sent) return;
       setError("Could not save that change. Check your connection.");
+      router.refresh();
     } finally {
       setSaving((n) => n - 1);
     }
   }
 
   async function removeItem(itemId: string) {
+    if (removing.has(itemId)) return;
+    setRemoving((current) => new Set(current).add(itemId));
     setSaving((n) => n + 1);
     setError(null);
     try {
-      const { ok, payload } = await send(`/api/purchase-lists/${list.id}/items/${itemId}`, { method: "DELETE" });
-      if (!ok) {
+      const response = await fetch(`/api/purchase-lists/${list.id}/items/${itemId}`, { method: "DELETE" });
+      // 404: it is already gone (removed in another tab, or by an earlier tap).
+      if (!response.ok && response.status !== 404) {
+        const payload = await response.json().catch(() => null);
         setError(errorMessage(payload, "Could not remove that product."));
         return;
       }
       setItems((current) => current.filter((i) => i.itemId !== itemId));
+    } catch {
+      setError("Could not remove that product. Check your connection.");
     } finally {
       setSaving((n) => n - 1);
+      setRemoving((current) => {
+        const next = new Set(current);
+        next.delete(itemId);
+        return next;
+      });
     }
   }
 
@@ -181,6 +208,22 @@ export function ListEditor({ list: initialList, initialItems }: { list: ListHead
           </Alert>
         ) : null}
 
+        {items.length > 0 ? (
+          <div className="flex items-center justify-between gap-3 rounded-xl border border-cream-200 bg-white p-3 lg:hidden" data-testid="list-check-bar">
+            <div className="text-sm">
+              <p className="font-semibold text-ink-900">
+                <Money paise={estimatedPaise} />
+              </p>
+              <p className="text-xs text-ink-500">
+                {orderableItems.length} of {items.length} to order
+              </p>
+            </div>
+            <Button onClick={() => void runCheck()} disabled={checking || saving > 0 || activeItems.length === 0}>
+              {checking ? "Checking…" : saving > 0 ? "Saving…" : "Check list"}
+            </Button>
+          </div>
+        ) : null}
+
         {items.length === 0 ? (
           <Card className="p-6 text-center" data-testid="list-empty">
             <p className="font-medium text-ink-900">This list is empty</p>
@@ -208,6 +251,7 @@ export function ListEditor({ list: initialList, initialItems }: { list: ListHead
                   onQuantity={(quantity) => void saveItem(item.itemId, { quantity })}
                   onNote={(note) => void saveItem(item.itemId, { note })}
                   onRemove={() => void removeItem(item.itemId)}
+                  removing={removing.has(item.itemId)}
                 />
               ))}
             </ul>
@@ -230,7 +274,7 @@ export function ListEditor({ list: initialList, initialItems }: { list: ListHead
             <div className="flex justify-between">
               <span className="text-ink-600">Products to order</span>
               <span className="font-medium tabular-nums" data-testid="list-active-count">
-                {activeItems.length} of {items.length}
+                {orderableItems.length} of {items.length}
               </span>
             </div>
             <div className="flex justify-between">
@@ -270,8 +314,8 @@ export function ListEditor({ list: initialList, initialItems }: { list: ListHead
               router.push("/cart");
               return;
             }
-            // Nothing went in: the cart and the list's dates are as they were.
-            if (result.added.length > 0) setList((l) => ({ ...l, lastOrderedAt: new Date().toISOString() }));
+            // The cart badge and the list's last-ordered / next-due dates, as the server now has them.
+            router.refresh();
           }}
           listId={list.id}
         />
@@ -286,12 +330,14 @@ function ItemRow({
   onQuantity,
   onNote,
   onRemove,
+  removing,
 }: {
   item: PurchaseListItemView;
   kind: ListKind;
   onQuantity: (quantity: number) => void;
   onNote: (note: string | null) => void;
   onRemove: () => void;
+  removing: boolean;
 }) {
   const [draft, setDraft] = useState(String(item.quantity));
   const [note, setNote] = useState(item.note ?? "");
@@ -382,8 +428,13 @@ function ItemRow({
             +
           </Button>
         </div>
-        <button type="button" className="min-h-9 text-xs font-medium text-red-700 hover:underline" onClick={onRemove}>
-          Remove
+        <button
+          type="button"
+          className="min-h-9 text-xs font-medium text-red-700 hover:underline disabled:text-ink-500"
+          onClick={onRemove}
+          disabled={removing}
+        >
+          {removing ? "Removing…" : "Remove"}
         </button>
       </div>
     </li>
@@ -601,11 +652,20 @@ function CheckDialog({
               </div>
             ))}
 
-            <div className="flex items-baseline justify-between rounded-xl bg-kesari-50 px-3 py-3">
-              <span className="text-sm font-semibold text-ink-900">Total to pay</span>
-              <span className="text-xl font-bold text-ink-900" data-testid="check-total">
-                <Money paise={preview.grandTotalPaise} />
-              </span>
+            <div className="rounded-xl bg-kesari-50 px-3 py-3">
+              <div className="flex items-baseline justify-between">
+                <span className="text-sm font-semibold text-ink-900">
+                  {check.cartItemCount > 0 && mode === "ADD" ? "Total for this list" : "Total to pay"}
+                </span>
+                <span className="text-xl font-bold text-ink-900" data-testid="check-total">
+                  <Money paise={preview.grandTotalPaise} />
+                </span>
+              </div>
+              {check.cartItemCount > 0 && mode === "ADD" ? (
+                <p className="mt-1 text-xs text-ink-600">
+                  Plus what is already in your cart. Stock is checked again for the combined quantity, and checkout shows the final total.
+                </p>
+              ) : null}
             </div>
 
             {leftOut.length > 0 ? (

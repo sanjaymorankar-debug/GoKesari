@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { Button, inputClass } from "@/components/ui";
 import { KIND_EMOJI, LIST_LIMITS, type ListKind } from "@/lib/purchase-lists";
@@ -15,9 +16,10 @@ interface ListOption {
 /**
  * "Add to list" on a product (docs/purchase-lists-2026-10): picks one of the
  * customer's weekly / monthly lists, or starts a new one, and puts the product
- * on it. The lists are fetched only when the picker opens, so a page of
- * product cards costs nothing extra. The picker opens in place (not as a
- * pop-over), so a card in a scrolling row cannot clip it.
+ * on it. The lists are fetched each time the picker opens (so a list made from
+ * another card is there too), never with the page. The picker is a sheet over
+ * the page — full width on a phone — so a narrow card or a scrolling row
+ * cannot squeeze or clip it.
  */
 export function AddToListButton({ shopProductId, productName }: { shopProductId: string; productName: string }) {
   const [open, setOpen] = useState(false);
@@ -26,26 +28,20 @@ export function AddToListButton({ shopProductId, productName }: { shopProductId:
   const [message, setMessage] = useState<{ tone: "ok" | "error"; text: string; listId?: string } | null>(null);
   const [newName, setNewName] = useState("");
   const [newKind, setNewKind] = useState<ListKind>("SHOPPING");
-  const ref = useRef<HTMLDivElement>(null);
+  const sheetRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
-    const onDown = (e: MouseEvent) => {
-      if (!ref.current?.contains(e.target as Node)) setOpen(false);
-    };
+    sheetRef.current?.focus();
     const onKey = (e: KeyboardEvent) => e.key === "Escape" && setOpen(false);
-    document.addEventListener("mousedown", onDown);
     document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("mousedown", onDown);
-      document.removeEventListener("keydown", onKey);
-    };
+    return () => document.removeEventListener("keydown", onKey);
   }, [open]);
 
   async function openPicker() {
-    setOpen((v) => !v);
+    setOpen(true);
     setMessage(null);
-    if (lists !== null) return;
+    setLists(null);
     try {
       const response = await fetch("/api/purchase-lists");
       const payload = await response.json().catch(() => null);
@@ -107,7 +103,7 @@ export function AddToListButton({ shopProductId, productName }: { shopProductId:
   }
 
   return (
-    <div ref={ref}>
+    <div>
       <Button
         size="sm"
         variant="ghost"
@@ -133,58 +129,84 @@ export function AddToListButton({ shopProductId, productName }: { shopProductId:
           ) : null}
         </p>
       ) : null}
-      {open ? (
+      {open ? createPortal(
         <div
-          className="mt-1 rounded-xl border border-cream-200 bg-white p-2 shadow-sm"
-          role="dialog"
-          aria-label="Choose a list"
-          data-testid="add-to-list-picker"
+          className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 sm:items-center sm:p-4"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setOpen(false);
+          }}
         >
-          <p className="px-1 pb-1 text-xs font-medium text-ink-500">Add to which list?</p>
-          {lists === null ? (
-            <p className="px-1 py-2 text-xs text-ink-500">Loading…</p>
-          ) : (
-            <ul className="max-h-48 overflow-y-auto">
-              {lists.map((list) => (
-                <li key={list.id}>
-                  <button
-                    type="button"
-                    disabled={busy}
-                    onClick={() => void addTo(list)}
-                    className="flex min-h-10 w-full items-center gap-2 rounded-lg px-2 text-left text-sm text-ink-800 hover:bg-cream-100"
-                  >
-                    <span aria-hidden>{KIND_EMOJI[list.kind]}</span>
-                    <span className="truncate">{list.name}</span>
-                  </button>
-                </li>
-              ))}
-            </ul>
-          )}
-          <form onSubmit={createAndAdd} className="mt-1 space-y-1.5 border-t border-cream-200 pt-2">
-            <input
-              className={`${inputClass} py-1.5 text-xs`}
-              placeholder="New list name"
-              aria-label="New list name"
-              value={newName}
-              maxLength={LIST_LIMITS.nameLength}
-              onChange={(e) => setNewName(e.target.value)}
-            />
-            <div className="flex gap-1">
-              <select
-                className={`${inputClass} py-1.5 text-xs`}
-                aria-label="New list type"
-                value={newKind}
-                onChange={(e) => setNewKind(e.target.value as ListKind)}
-              >
-                <option value="SHOPPING">Shopping</option>
-                <option value="MEDICINE">Medicines</option>
-              </select>
-              <Button type="submit" size="sm" disabled={busy || !newName.trim()}>
-                Create
-              </Button>
+          <div
+            ref={sheetRef}
+            tabIndex={-1}
+            className="max-h-[85vh] w-full overflow-y-auto rounded-t-2xl bg-white p-4 shadow-xl outline-none sm:max-w-sm sm:rounded-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-label={`Add ${productName} to a list`}
+            data-testid="add-to-list-picker"
+          >
+            <div className="mb-2 flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <p className="text-base font-semibold text-ink-900">Add to which list?</p>
+                <p className="truncate text-xs text-ink-500" title={productName}>
+                  {productName}
+                </p>
+              </div>
+              <button type="button" onClick={() => setOpen(false)} className="rounded-lg px-2 py-1 text-ink-500 hover:bg-cream-100" aria-label="Close">
+                ✕
+              </button>
             </div>
-          </form>
-        </div>
+            {lists === null ? (
+              <p className="py-3 text-sm text-ink-500">Loading…</p>
+            ) : lists.length === 0 ? (
+              <p className="py-2 text-sm text-ink-600">You have no lists yet — name your first one below.</p>
+            ) : (
+              <ul className="max-h-64 divide-y divide-cream-100 overflow-y-auto">
+                {lists.map((list) => (
+                  <li key={list.id}>
+                    <button
+                      type="button"
+                      disabled={busy}
+                      onClick={() => void addTo(list)}
+                      title={list.name}
+                      className="flex min-h-11 w-full items-center gap-2 rounded-lg px-2 text-left text-sm text-ink-800 hover:bg-cream-100"
+                    >
+                      <span aria-hidden>{KIND_EMOJI[list.kind]}</span>
+                      <span className="break-words">{list.name}</span>
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            )}
+            <form onSubmit={createAndAdd} className="mt-3 space-y-2 border-t border-cream-200 pt-3">
+              <p className="text-xs font-medium text-ink-600">Or start a new list</p>
+              <input
+                className={inputClass}
+                placeholder="New list name"
+                aria-label="New list name"
+                value={newName}
+                maxLength={LIST_LIMITS.nameLength}
+                onChange={(e) => setNewName(e.target.value)}
+              />
+              <div className="flex gap-2">
+                <select
+                  className={`${inputClass} flex-1`}
+                  aria-label="New list type"
+                  value={newKind}
+                  onChange={(e) => setNewKind(e.target.value as ListKind)}
+                >
+                  <option value="SHOPPING">🛒 Shopping</option>
+                  <option value="MEDICINE">💊 Medicines</option>
+                </select>
+                <Button type="submit" disabled={busy || !newName.trim()}>
+                  Create &amp; add
+                </Button>
+              </div>
+            </form>
+          </div>
+        </div>,
+        // On <body>, so no card, scrolling row or transformed parent can clip or move it.
+        document.body,
       ) : null}
     </div>
   );

@@ -42,7 +42,6 @@ interface Props {
 const CUSTOMER_NAV: { href: string; label: Text; auth?: boolean }[] = [
   { href: "/shops", label: UI.shops },
   { href: "/orders", label: UI.orders, auth: true },
-  { href: "/lists", label: L("My lists", "मेरी सूचियाँ", "माझ्या याद्या"), auth: true },
   { href: "/subscriptions", label: UI.subscriptions, auth: true },
 ];
 

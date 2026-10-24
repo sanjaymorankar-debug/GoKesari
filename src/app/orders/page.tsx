@@ -157,6 +157,8 @@ export default async function OrdersPage({
           { key: "active", label: tabLabels.active ?? "Active", href: `/orders?tab=active${typeParam}`, count: active.length, urgent: true },
           { key: "past", label: tabLabels.past ?? "Past", href: `/orders?tab=past${typeParam}`, count: past.length },
           { key: "returns", label: tabLabels.returns ?? "Returns", href: "/returns" },
+          // docs/purchase-lists-2026-10: the Orders tile's "Lists" lands here on phones.
+          { key: "lists", label: tabLabels.lists ?? "My lists", href: "/lists" },
         ]}
       />
 
