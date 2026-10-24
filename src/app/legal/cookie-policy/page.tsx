@@ -92,10 +92,33 @@ export default function CookiePolicyPage() {
 
       <h2>Managing cookies</h2>
       <p>
-        Because the cookies we use today are essential to signing in and
-        checking out, disabling them will prevent you from using
-        account-based features of the site. You can clear or block cookies
-        at any time from your browser settings.
+        You can clear or block cookies at any time from your browser
+        settings. What happens then depends on the cookie:
+      </p>
+      <ul>
+        <li>
+          <strong>Sign-in and security cookies</strong> (the session, CSRF
+          protection, app sign-in and Zoho Books connection cookies) are
+          needed for the site to work. If you block them, you cannot sign in,
+          check out or pay, sign in to the GoKesari app with Google, or
+          connect a shop to Zoho Books.
+        </li>
+        <li>
+          <strong>Cookies that remember your choices</strong> (the delivery
+          location, language, referral and seller shop cookies) are not
+          needed to use the site. If you block or clear them, the site still
+          works but forgets those choices: shops near you are found from your
+          saved delivery address if you are signed in and have one, otherwise
+          you choose your location again; the site goes back to English; a
+          friend&apos;s referral code is not filled in for you (you can still
+          type it in); and Seller Central opens your newest shop.
+        </li>
+      </ul>
+      <p>
+        We set the cookies that remember your choices only after you make
+        that choice, allow your device to share its location, or open a
+        referral link. You can also clear the delivery location cookie at any
+        time with &quot;Clear location&quot; under &quot;Deliver to&quot;.
       </p>
     </>
   );
