@@ -87,7 +87,7 @@ export default function CookiePolicyPage() {
         This site does not currently run third-party analytics or
         advertising trackers. If that changes, this policy will be updated
         first and, where required, we will ask for your consent before any
-        non-essential cookie is set.
+        analytics or advertising cookie is set.
       </p>
 
       <h2>Managing cookies</h2>
