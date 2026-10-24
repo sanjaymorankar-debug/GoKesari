@@ -270,7 +270,8 @@ export function ListEditor({ list: initialList, initialItems }: { list: ListHead
               router.push("/cart");
               return;
             }
-            setList((l) => ({ ...l, lastOrderedAt: new Date().toISOString() }));
+            // Nothing went in: the cart and the list's dates are as they were.
+            if (result.added.length > 0) setList((l) => ({ ...l, lastOrderedAt: new Date().toISOString() }));
           }}
           listId={list.id}
         />
@@ -519,7 +520,9 @@ function CheckDialog({
       <div ref={dialogRef} tabIndex={-1} className="max-h-[92vh] w-full overflow-y-auto rounded-t-2xl bg-white p-5 shadow-xl outline-none sm:max-w-lg sm:rounded-2xl" data-testid="list-check-dialog">
         <div className="flex items-start justify-between gap-2">
           <div>
-            <h2 className="text-lg font-semibold text-ink-900">{result ? "Sent to your cart" : "Confirm your order"}</h2>
+            <h2 className="text-lg font-semibold text-ink-900">
+              {!result ? "Confirm your order" : result.added.length > 0 ? "Sent to your cart" : "Nothing could be added"}
+            </h2>
             <p className="text-sm text-ink-500">{check.listName} · today&apos;s prices</p>
           </div>
           <button type="button" onClick={onClose} className="rounded-lg px-2 py-1 text-ink-500 hover:bg-cream-100" aria-label="Close">
@@ -529,9 +532,15 @@ function CheckDialog({
 
         {result ? (
           <div className="mt-4 space-y-3" data-testid="list-order-result">
-            <Alert tone="success" title={`${result.added.length} product${result.added.length === 1 ? "" : "s"} added to your cart`}>
-              Choose the delivery address, time and payment at checkout.
-            </Alert>
+            {result.added.length > 0 ? (
+              <Alert tone="success" title={`${result.added.length} product${result.added.length === 1 ? "" : "s"} added to your cart`}>
+                Choose the delivery address, time and payment at checkout.
+              </Alert>
+            ) : (
+              <Alert tone="warning" title="Your cart was not changed">
+                None of this list&apos;s products can be ordered right now. Lower a quantity or try again later.
+              </Alert>
+            )}
             {result.notAdded.length > 0 ? (
               <Alert tone="warning" title="Left out">
                 <ul className="list-disc pl-4">
@@ -544,9 +553,11 @@ function CheckDialog({
               </Alert>
             ) : null}
             <div className="flex flex-wrap gap-2">
-              <LinkButton href="/cart" className="flex-1">
-                Go to checkout
-              </LinkButton>
+              {result.added.length > 0 ? (
+                <LinkButton href="/cart" className="flex-1">
+                  Go to checkout
+                </LinkButton>
+              ) : null}
               <Button variant="secondary" onClick={onClose}>
                 Back to list
               </Button>

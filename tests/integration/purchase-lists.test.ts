@@ -7,7 +7,7 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { eq } from "drizzle-orm";
 
 import { db } from "@/server/db";
-import { notifications, purchaseListItems, purchaseLists, shopProducts } from "@/server/db/schema";
+import { notifications, purchaseListItems, purchaseLists, shopProducts, shops } from "@/server/db/schema";
 import { addToCart, getCart } from "@/server/services/cart";
 import {
   addPurchaseListItem,
@@ -24,6 +24,19 @@ import {
   updatePurchaseListItem,
 } from "@/server/services/purchase-lists";
 import { createCategory, createProduct, createShop, createShopProduct, createUser, resetDatabase } from "../helpers/fixtures";
+
+/** `count` shop products of one shop, priced ₹1, for the size limits. */
+async function manyShopProducts(count: number) {
+  const owner = await createUser({ role: "SHOP_OWNER" });
+  const category = await createCategory({ department: "DAIRY", name: "Bulk" });
+  const shop = await createShop(owner.id, { name: "Bulk Store" });
+  const out = [];
+  for (let i = 0; i < count; i += 1) {
+    const product = await createProduct(category.id, { name: `Item ${String(i).padStart(3, "0")}`, unit: "pc" });
+    out.push(await createShopProduct(shop.id, product.id, { onlinePricePaise: 100, onlineStock: 500 }));
+  }
+  return out;
+}
 
 beforeEach(resetDatabase);
 
@@ -272,5 +285,155 @@ describe("reminders", () => {
     const list = await createPurchaseList(customer.id, { name: "Monthly", remind: false });
     await addPurchaseListItem(customer.id, list.id, { shopProductId: milkSp.id });
     expect(await sendPurchaseListReminders(new Date(Date.now() + 40 * 24 * 3600 * 1000))).toEqual({ reminded: 0 });
+  });
+});
+
+describe("QA additions (purchase lists, 24 Oct 2026)", () => {
+  it("a list holds up to 100 products: the 101st is refused and nothing is added", async () => {
+    const customer = await createUser();
+    const sps = await manyShopProducts(101);
+    const list = await createPurchaseList(customer.id, { name: "Big" });
+    for (const sp of sps.slice(0, 100)) await addPurchaseListItem(customer.id, list.id, { shopProductId: sp.id });
+    await expect(addPurchaseListItem(customer.id, list.id, { shopProductId: sps[100].id })).rejects.toMatchObject({ code: "CONFLICT" });
+    // A product already on a full list is still answered as "already on it", not refused.
+    await expect(addPurchaseListItem(customer.id, list.id, { shopProductId: sps[0].id })).resolves.toMatchObject({ alreadyOnList: true });
+    expect(await db.select().from(purchaseListItems)).toHaveLength(100);
+  }, 180_000);
+
+  it("saving a cart into an existing list that would pass 100 products is refused and changes nothing", async () => {
+    const customer = await createUser();
+    const sps = await manyShopProducts(102);
+    const list = await createPurchaseList(customer.id, { name: "Nearly full" });
+    for (const sp of sps.slice(0, 99)) await addPurchaseListItem(customer.id, list.id, { shopProductId: sp.id, quantity: 1 });
+    await addToCart(customer.id, sps[0].id, 7); // already on the list
+    await addToCart(customer.id, sps[100].id, 1);
+    await addToCart(customer.id, sps[101].id, 1);
+
+    await expect(saveCartToList(customer.id, { listId: list.id })).rejects.toMatchObject({ code: "CONFLICT" });
+    const items = await db.select().from(purchaseListItems);
+    expect(items).toHaveLength(99);
+    expect(items.find((i) => i.shopProductId === sps[0].id)?.quantity).toBe(1);
+  }, 180_000);
+
+  // Regression (purchase lists QA, 24 Oct 2026, fixed): saveCartToList creates the new list before
+  // the transaction that fills it, so when filling fails (e.g. a cart of more than 100 products) an
+  // empty list is left behind under the customer's chosen name.
+  it("saving a too-big cart as a NEW list is refused and leaves no empty list behind", async () => {
+    const customer = await createUser();
+    const sps = await manyShopProducts(101);
+    for (const sp of sps) await addToCart(customer.id, sp.id, 1);
+    await expect(saveCartToList(customer.id, { name: "Everything" })).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await db.select().from(purchaseLists)).toHaveLength(0);
+  }, 180_000);
+
+  it("a shop that stops taking orders: the check shows its lines unavailable and the order leaves them out", async () => {
+    const { customer, shop, milkSp } = await setup();
+    const owner2 = await createUser({ role: "SHOP_OWNER" });
+    const category = await createCategory({ department: "BAKERY", name: "Bread" });
+    const bread = await createProduct(category.id, { name: "Brown Bread", unit: "pc" });
+    const bakery = await createShop(owner2.id, { name: "Bakery Two" });
+    const breadSp = await createShopProduct(bakery.id, bread.id, { onlinePricePaise: 4500, onlineStock: 20 });
+    const list = await createPurchaseList(customer.id, { name: "Weekly" });
+    await addPurchaseListItem(customer.id, list.id, { shopProductId: milkSp.id, quantity: 1 });
+    await addPurchaseListItem(customer.id, list.id, { shopProductId: breadSp.id, quantity: 2 });
+    await db.update(shops).set({ status: "SUSPENDED" }).where(eq(shops.id, shop.id));
+
+    const check = await checkPurchaseList(customer.id, list.id);
+    expect(check.preview.groups).toHaveLength(2);
+    const milkLine = check.preview.groups.flatMap((g) => g.lines).find((l) => l.productName === "Cow Milk");
+    expect(milkLine).toMatchObject({ purchasable: false, unavailableReason: "This shop is not accepting orders." });
+    expect(check.preview.subtotalPaise).toBe(2 * 4500);
+
+    const result = await sendPurchaseListToCart(customer.id, list.id, "ADD");
+    expect(result.added.map((a) => a.productName)).toEqual(["Brown Bread"]);
+    expect(result.notAdded).toEqual([expect.objectContaining({ productName: "Cow Milk", reason: "This shop is not accepting orders." })]);
+  });
+
+  it("an item whose product is out of stock is still shown on the list, with the reason", async () => {
+    const { customer, curdSp } = await setup();
+    const list = await createPurchaseList(customer.id, { name: "Weekly" });
+    await addPurchaseListItem(customer.id, list.id, { shopProductId: curdSp.id, quantity: 1 });
+    await db.update(shopProducts).set({ onlineStock: 0 }).where(eq(shopProducts.id, curdSp.id));
+    const detail = await getPurchaseList(customer.id, list.id);
+    expect(detail.items[0]).toMatchObject({ exists: true, purchasable: false, unavailableReason: "Out of stock.", lineTotalPaise: 0 });
+    expect(detail.estimatedSubtotalPaise).toBe(0);
+  });
+
+  // Regression (purchase lists QA, 24 Oct 2026, fixed): ADD caps a cart line at 99 silently — the
+  // result still says the list's full quantity was added. The spec says a line is never silently
+  // changed.
+  it("ADD never claims more units than it put in the cart (cart line capped at 99)", async () => {
+    const { customer, milkSp } = await setup();
+    await db.update(shopProducts).set({ onlineStock: 500 }).where(eq(shopProducts.id, milkSp.id));
+    await addToCart(customer.id, milkSp.id, 98);
+    const list = await createPurchaseList(customer.id, { name: "Weekly" });
+    await addPurchaseListItem(customer.id, list.id, { shopProductId: milkSp.id, quantity: 5 });
+
+    const result = await sendPurchaseListToCart(customer.id, list.id, "ADD");
+    const cart = await getCart(customer.id);
+    const inCart = cart.groups[0].lines[0].quantity;
+    const claimed = result.added.find((a) => a.productName === "Cow Milk")?.quantity ?? 0;
+    expect(claimed).toBe(inCart - 98);
+  });
+
+  it("deleting a list leaves the cart alone", async () => {
+    const { customer, milkSp } = await setup();
+    const list = await createPurchaseList(customer.id, { name: "Weekly" });
+    await addPurchaseListItem(customer.id, list.id, { shopProductId: milkSp.id, quantity: 2 });
+    await sendPurchaseListToCart(customer.id, list.id, "ADD");
+    await deletePurchaseList(customer.id, list.id);
+    expect((await getCart(customer.id)).itemCount).toBe(2);
+  });
+
+  it("reminds again for the next due date after the list is ordered", async () => {
+    const { customer, milkSp } = await setup();
+    const list = await createPurchaseList(customer.id, { name: "Weekly", frequency: "WEEKLY" });
+    await addPurchaseListItem(customer.id, list.id, { shopProductId: milkSp.id, quantity: 1 });
+    const day = 24 * 3600 * 1000;
+
+    expect(await sendPurchaseListReminders(new Date(Date.now() + 8 * day))).toEqual({ reminded: 1 });
+    // Ordered on day 9: due again on day 16.
+    await db.update(purchaseLists).set({ lastOrderedAt: new Date(Date.now() + 9 * day) }).where(eq(purchaseLists.id, list.id));
+    expect(await sendPurchaseListReminders(new Date(Date.now() + 12 * day))).toEqual({ reminded: 0 });
+    expect(await sendPurchaseListReminders(new Date(Date.now() + 17 * day))).toEqual({ reminded: 1 });
+    expect(await sendPurchaseListReminders(new Date(Date.now() + 18 * day))).toEqual({ reminded: 0 });
+    expect(await db.select().from(notifications).where(eq(notifications.userId, customer.id))).toHaveLength(2);
+  });
+
+  it("does not remind for a list whose products are all skipped (quantity 0)", async () => {
+    const { customer, milkSp } = await setup();
+    const list = await createPurchaseList(customer.id, { name: "Monthly" });
+    await addPurchaseListItem(customer.id, list.id, { shopProductId: milkSp.id, quantity: 0 });
+    expect(await sendPurchaseListReminders(new Date(Date.now() + 40 * 24 * 3600 * 1000))).toEqual({ reminded: 0 });
+  });
+
+  it("a re-run after a lost lastRemindedAt write never sends the same reminder twice (dedupe key)", async () => {
+    const { customer, milkSp } = await setup();
+    const list = await createPurchaseList(customer.id, { name: "Weekly", frequency: "WEEKLY" });
+    await addPurchaseListItem(customer.id, list.id, { shopProductId: milkSp.id, quantity: 1 });
+    const due = new Date(Date.now() + 8 * 24 * 3600 * 1000);
+    await sendPurchaseListReminders(due);
+    await db.update(purchaseLists).set({ lastRemindedAt: null }).where(eq(purchaseLists.id, list.id));
+    await sendPurchaseListReminders(due);
+    expect(await db.select().from(notifications).where(eq(notifications.userId, customer.id))).toHaveLength(1);
+  });
+
+  it("only the owner's lists are reminded, each to its own owner", async () => {
+    const { customer, milkSp } = await setup();
+    const other = await createUser();
+    const a = await createPurchaseList(customer.id, { name: "Mine", frequency: "WEEKLY" });
+    const b = await createPurchaseList(other.id, { name: "Theirs", frequency: "WEEKLY" });
+    await addPurchaseListItem(customer.id, a.id, { shopProductId: milkSp.id });
+    await addPurchaseListItem(other.id, b.id, { shopProductId: milkSp.id });
+    expect(await sendPurchaseListReminders(new Date(Date.now() + 8 * 24 * 3600 * 1000))).toEqual({ reminded: 2 });
+    const sent = await db.select().from(notifications);
+    expect(sent.map((n) => [n.userId, n.actionUrl]).sort()).toEqual([[customer.id, `/lists/${a.id}`], [other.id, `/lists/${b.id}`]].sort());
+  });
+
+  it("changing the frequency moves the due date", async () => {
+    const { customer } = await setup();
+    const list = await createPurchaseList(customer.id, { name: "Monthly" });
+    const weekly = await updatePurchaseList(customer.id, list.id, { frequency: "WEEKLY" });
+    expect(weekly.nextDueAt.getTime() - weekly.createdAt.getTime()).toBe(7 * 24 * 3600 * 1000);
   });
 });

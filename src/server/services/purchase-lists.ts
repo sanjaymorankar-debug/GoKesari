@@ -197,9 +197,13 @@ export interface SaveListInput {
   remind?: boolean;
 }
 
-export async function createPurchaseList(userId: string, input: SaveListInput): Promise<PurchaseListSummary> {
+export async function createPurchaseList(
+  userId: string,
+  input: SaveListInput,
+  client: DbClient = db,
+): Promise<PurchaseListSummary> {
   const name = checkName(input.name);
-  const [{ lists }] = await db
+  const [{ lists }] = await client
     .select({ lists: count() })
     .from(purchaseLists)
     .where(eq(purchaseLists.userId, userId));
@@ -207,7 +211,7 @@ export async function createPurchaseList(userId: string, input: SaveListInput): 
     throw conflict(`You can keep up to ${LIST_LIMITS.listsPerUser} lists. Delete one you no longer use first.`);
   }
   try {
-    const [list] = await db
+    const [list] = await client
       .insert(purchaseLists)
       .values({
         userId,
@@ -460,9 +464,11 @@ export async function saveCartToList(
     .where(eq(cartItems.cartId, cart.id));
   if (lines.length === 0) throw validationFailed("Your cart is empty — add products first.");
 
-  const listId = "listId" in target ? (await ownList(userId, target.listId)).id : (await createPurchaseList(userId, target)).id;
+  if ("listId" in target) await ownList(userId, target.listId);
 
-  await db.transaction(async (tx) => {
+  // A new list is created in the same transaction that fills it, so a refusal leaves no empty list behind.
+  const listId = await db.transaction(async (tx) => {
+    const listId = "listId" in target ? target.listId : (await createPurchaseList(userId, target, tx)).id;
     const existing = await tx
       .select({ id: purchaseListItems.id, shopProductId: purchaseListItems.shopProductId })
       .from(purchaseListItems)
@@ -482,6 +488,7 @@ export async function saveCartToList(
       }
     }
     await tx.update(purchaseLists).set({ updatedAt: new Date() }).where(eq(purchaseLists.id, listId));
+    return listId;
   });
   return getPurchaseList(userId, listId);
 }
@@ -532,6 +539,10 @@ export async function checkPurchaseList(userId: string, listId: string): Promise
  * finishes at checkout (address, delivery time, payment). A line that cannot
  * be bought online at that quantity right now is left out and reported, never
  * silently changed. The list is marked ordered, which moves its due date on.
+ *
+ * Everything is decided before anything is written: with nothing to order the
+ * request is refused, and when no line can go in the cart is left exactly as
+ * it was — REPLACE never empties a cart for nothing.
  */
 export async function sendPurchaseListToCart(
   userId: string,
@@ -541,28 +552,41 @@ export async function sendPurchaseListToCart(
   await ownList(userId, listId);
 
   // Built inside the transaction and returned from it, so a re-run on the split layout starts clean.
-  const outcome = await db.transaction(async (tx) => {
+  return db.transaction(async (tx) => {
     // One send of a list at a time (a double tap waits, then finds the cart already updated).
     await tx.select({ id: purchaseLists.id }).from(purchaseLists).where(eq(purchaseLists.id, listId)).for("update");
-    const cart = await getOrCreateCart(userId, tx);
-    if (mode === "REPLACE") await tx.delete(cartItems).where(eq(cartItems.cartId, cart.id));
+    const wanted = (await loadItemRows(listId, tx)).filter((row) => row.item.quantity > 0);
+    if (wanted.length === 0) {
+      throw validationFailed("Nothing to order: set a quantity above 0 for at least one product.");
+    }
 
+    const cart = await getOrCreateCart(userId, tx);
     const inCart = await tx
       .select({ id: cartItems.id, shopProductId: cartItems.shopProductId, quantity: cartItems.quantity })
       .from(cartItems)
       .where(eq(cartItems.cartId, cart.id));
-    const cartLine = new Map(inCart.map((l) => [l.shopProductId, l]));
+    // What each line will be added to: the cart as it is (ADD), or nothing (REPLACE).
+    const base = new Map(mode === "ADD" ? inCart.map((l) => [l.shopProductId, l]) : []);
 
     const added: ListToCartResult["added"] = [];
     const notAdded: ListToCartResult["notAdded"] = [];
-    for (const row of await loadItemRows(listId, tx)) {
-      if (row.item.quantity === 0) continue;
+    const writes: { shopProductId: string; quantity: number; cartItemId: string | null }[] = [];
+    for (const row of wanted) {
       if (!isComplete(row)) {
         notAdded.push({ shopProductId: row.item.shopProductId, productName: row.product?.name ?? "A product the shop no longer sells", reason: "No longer sold by this shop." });
         continue;
       }
-      const current = cartLine.get(row.item.shopProductId);
-      const quantity = Math.min(LIST_LIMITS.maxQuantity, (current?.quantity ?? 0) + row.item.quantity);
+      const current = base.get(row.item.shopProductId);
+      const already = current?.quantity ?? 0;
+      const quantity = Math.min(LIST_LIMITS.maxQuantity, already + row.item.quantity);
+      if (quantity <= already) {
+        notAdded.push({
+          shopProductId: row.item.shopProductId,
+          productName: row.product.name,
+          reason: `Your cart already has ${already} — the most one line can hold.`,
+        });
+        continue;
+      }
       if (!isOnlinePurchasable(purchasabilityOf(row.sp, row.shop.status), quantity)) {
         notAdded.push({
           shopProductId: row.item.shopProductId,
@@ -571,27 +595,29 @@ export async function sendPurchaseListToCart(
         });
         continue;
       }
-      if (current) {
-        await tx.update(cartItems).set({ quantity, updatedAt: new Date() }).where(eq(cartItems.id, current.id));
+      writes.push({ shopProductId: row.item.shopProductId, quantity, cartItemId: current?.id ?? null });
+      // What really went in: less than the list's quantity when the line hit the cart's cap.
+      added.push({ shopProductId: row.item.shopProductId, productName: row.product.name, quantity: quantity - already });
+    }
+
+    const unitsNow = inCart.reduce((n, l) => n + l.quantity, 0);
+    if (writes.length === 0) return { added, notAdded, cartItemCount: unitsNow };
+
+    if (mode === "REPLACE") await tx.delete(cartItems).where(eq(cartItems.cartId, cart.id));
+    for (const write of writes) {
+      if (write.cartItemId) {
+        await tx.update(cartItems).set({ quantity: write.quantity, updatedAt: new Date() }).where(eq(cartItems.id, write.cartItemId));
       } else {
-        await tx.insert(cartItems).values({ cartId: cart.id, shopProductId: row.item.shopProductId, quantity });
+        await tx.insert(cartItems).values({ cartId: cart.id, shopProductId: write.shopProductId, quantity: write.quantity });
       }
-      added.push({ shopProductId: row.item.shopProductId, productName: row.product.name, quantity: row.item.quantity });
     }
-    if (added.length > 0) {
-      await tx.update(purchaseLists).set({ lastOrderedAt: new Date(), updatedAt: new Date() }).where(eq(purchaseLists.id, listId));
-    }
+    await tx.update(purchaseLists).set({ lastOrderedAt: new Date(), updatedAt: new Date() }).where(eq(purchaseLists.id, listId));
     const [{ units }] = await tx
       .select({ units: sql<number>`coalesce(sum(${cartItems.quantity}), 0)`.mapWith(Number) })
       .from(cartItems)
       .where(eq(cartItems.cartId, cart.id));
     return { added, notAdded, cartItemCount: units };
   });
-
-  if (outcome.added.length === 0 && outcome.notAdded.length === 0) {
-    throw validationFailed("Nothing to order: set a quantity above 0 for at least one product.");
-  }
-  return outcome;
 }
 
 /* -------------------------------------------------------------- reminders */
