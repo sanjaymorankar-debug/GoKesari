@@ -225,4 +225,14 @@ describe("uncategorised shops and search", () => {
     await db.delete(shopCategoryMapping).where(eq(shopCategoryMapping.categoryId, created.id));
     await db.delete(shopCategories).where(eq(shopCategories.id, created.id));
   });
+
+  // TC-DISC-004 (QA run 24 Oct 2026, defect D-06): the search box is the only
+  // search on /shops, so a PIN typed there must find the shops at that PIN.
+  it("finds a shop by its PIN code typed in the search box", async () => {
+    const owner = await createUser();
+    const shop = await createShop(owner.id, { status: "APPROVED", name: "Pin Search Stores" });
+    const byPin = await searchShops({ query: "411001" });
+    expect(byPin.map((s) => s.id)).toContain(shop.id);
+    expect((await searchShops({ query: "411002" })).map((s) => s.id)).not.toContain(shop.id);
+  });
 });

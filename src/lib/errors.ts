@@ -122,6 +122,12 @@ export function toClientError(error: unknown): {
     };
   }
 
+  // A malformed id in the URL ("abc" where a uuid belongs) reaches PostgreSQL
+  // as invalid input: nothing by that id exists, so 404 — not a 500 (TC-SEC-002).
+  if (isInvalidUuidInput(error)) {
+    return { status: 404, body: { error: { code: "NOT_FOUND", message: "Not found." } } };
+  }
+
   console.error("[unhandled]", error);
   // Drizzle's "Failed query" hides the driver's reason (auth, TLS, network).
   const cause = error instanceof Error ? error.cause : undefined;
@@ -138,6 +144,19 @@ export function toClientError(error: unknown): {
       },
     },
   };
+}
+
+/** Postgres invalid_text_representation, as raised for a malformed uuid. */
+export const PG_INVALID_TEXT_REPRESENTATION = "22P02";
+
+/** True for "invalid input syntax for type uuid" — directly or as the cause Drizzle wraps. */
+export function isInvalidUuidInput(error: unknown): boolean {
+  for (const e of [error, error instanceof Error ? error.cause : undefined]) {
+    if (typeof e !== "object" || e === null) continue;
+    const { code, message } = e as { code?: unknown; message?: unknown };
+    if (code === PG_INVALID_TEXT_REPRESENTATION && typeof message === "string" && /type uuid/i.test(message)) return true;
+  }
+  return false;
 }
 
 /** Postgres unique-violation code, used to detect idempotency-key collisions. */

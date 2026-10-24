@@ -9,7 +9,7 @@ import { z } from "zod";
 
 import { notFound } from "@/lib/errors";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
-import { requireShopAccess } from "@/server/authz/guards";
+import { requireShopAccess, requireUser } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { shopProducts } from "@/server/db/schema";
@@ -25,6 +25,8 @@ const schema = z.object({
 });
 
 export const PATCH = route(async (request: NextRequest, context: RouteContext<{ id: string }>) => {
+  // Signed in first: a guest gets 401 before the body or the record is read (TC-SEC-001).
+  await requireUser();
   const { id } = await context.params;
   const [row] = await db.select({ shopId: shopProducts.shopId }).from(shopProducts).where(eq(shopProducts.id, id));
   if (!row) throw notFound("Product");

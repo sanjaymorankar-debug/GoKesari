@@ -134,7 +134,7 @@ export async function registerSociety(input: RegisterSocietyInput, actor: Actor)
   if (name.length < 3) throw validationFailed("Enter the society's name.");
   if (!input.addressLine1.trim()) throw validationFailed("Enter the society's address.");
   if (!input.city.trim()) throw validationFailed("Enter the city.");
-  if (!/^\d{6}$/.test(input.pincode.trim())) throw validationFailed("Enter a valid 6-digit PIN code.");
+  if (!/^[1-9]\d{5}$/.test(input.pincode.trim())) throw validationFailed("Enter a valid 6-digit PIN code.");
 
   return db.transaction(async (tx) => {
     const duplicate = await tx.query.societies.findFirst({

@@ -81,6 +81,8 @@ const BROWSER_OCR_FILES = [
 ];
 
 const nextConfig: NextConfig = {
+  // No "X-Powered-By: Next.js": responses do not advertise the framework (TC-SEC-010).
+  poweredByHeader: false,
   experimental: {
     // `next build` starts one worker per CPU minus one, and every worker loads
     // Next's SWC binary, which starts one thread per CPU of its own. Hostinger's

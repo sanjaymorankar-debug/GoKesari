@@ -35,7 +35,7 @@ export interface SaveAddressInput {
 function validate(input: SaveAddressInput): void {
   if (!input.line1.trim()) throw validationFailed("Enter the address.");
   if (!input.city.trim()) throw validationFailed("Enter the city.");
-  if (!/^\d{6}$/.test(input.pincode.trim())) {
+  if (!/^[1-9]\d{5}$/.test(input.pincode.trim())) {
     throw validationFailed("Enter a valid 6-digit PIN code.");
   }
   if (input.recipientPhone && !/^[6-9]\d{9}$/.test(input.recipientPhone.trim())) {

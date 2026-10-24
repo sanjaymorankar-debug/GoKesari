@@ -45,13 +45,14 @@ const schema = z.union([
   z.object({
     latitude: z.number().min(-90).max(90),
     longitude: z.number().min(-180).max(180),
-    pincode: z.string().regex(/^\d{6}$/).nullish(),
+    pincode: z.string().regex(/^[1-9]\d{5}$/).nullish(),
     /** Set when the customer picked the point by searching an address. */
     label: z.string().min(1).max(120).nullish(),
     /** The automatic detection: keep a location that is already chosen. */
     ifUnset: z.boolean().optional(),
   }),
-  z.object({ pincode: z.string().regex(/^\d{6}$/, "Enter a valid 6-digit PIN code.") }),
+  // An Indian PIN code never starts with 0 (TC-LOC-002, TC-FLD-020).
+  z.object({ pincode: z.string().regex(/^[1-9]\d{5}$/, "Enter a valid 6-digit PIN code.") }),
 ]);
 
 export const POST = route(async (request: NextRequest) => {

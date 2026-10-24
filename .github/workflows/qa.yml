@@ -1,0 +1,149 @@
+# QA suite (tests/qa — the test plan as Playwright UI + API checks).
+#
+#   guest   the production-safe tier against test.gokesari.com and gokesari.com:
+#           public pages, phone layout, sign-in form validation, and requests the
+#           server must refuse. Never signs in, writes or pays. Weekly + by hand.
+#   local   by hand only: the whole suite (guest, signed, local tiers) against a
+#           server built from this commit with its own PostgreSQL and test data
+#           (scripts/qa/local-up.sh). Longer — about an hour.
+#
+# Results: the "qa-results-*" artifact (test-results/qa and the collected
+# docs/testing/qa-runs file). Signed-in runs on test.gokesari.com need the
+# staging accounts' emailed codes, so they run from a Claude session
+# (.claude/agents/gokesari-qa.md), not here.
+# Actions minutes are limited (see ci.yml): weekly, not nightly.
+name: QA suite
+
+on:
+  schedule:
+    - cron: "43 0 * * 1" # Mondays 06:13 IST
+  workflow_dispatch:
+    inputs:
+      suite:
+        description: guest (both sites, production-safe) or local (everything, on a server built here)
+        type: choice
+        default: guest
+        options: [guest, local]
+      sites:
+        description: "guest only: which sites"
+        type: choice
+        default: both
+        options: [both, staging, production]
+  push:
+    # Registers the workflow when it changes; the jobs run on the schedule or by hand.
+    paths: [".github/workflows/qa.yml"]
+
+permissions:
+  contents: read
+
+jobs:
+  guest:
+    if: github.event_name == 'schedule' || (github.event_name == 'workflow_dispatch' && inputs.suite == 'guest')
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    strategy:
+      fail-fast: false
+      matrix:
+        site: [test.gokesari.com, gokesari.com]
+    steps:
+      - name: Skip a site that was not asked for
+        id: want
+        env:
+          SITES: ${{ inputs.sites || 'both' }}
+          SITE: ${{ matrix.site }}
+        run: |
+          want=yes
+          [ "$SITES" = staging ] && [ "$SITE" != test.gokesari.com ] && want=no
+          [ "$SITES" = production ] && [ "$SITE" != gokesari.com ] && want=no
+          echo "want=$want" >> "$GITHUB_OUTPUT"
+
+      - if: steps.want.outputs.want == 'yes'
+        uses: actions/checkout@v5
+
+      - if: steps.want.outputs.want == 'yes'
+        uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - if: steps.want.outputs.want == 'yes'
+        name: Install
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - if: steps.want.outputs.want == 'yes'
+        name: Production-safe tier
+        env:
+          E2E_BASE_URL: https://${{ matrix.site }}
+        run: npx playwright test -c playwright.qa.config.ts tests/qa/guest --reporter=line
+
+      - if: always() && steps.want.outputs.want == 'yes'
+        name: Collect
+        run: npx tsx scripts/qa/collect.ts --host "${{ matrix.site }}" --label "actions-${{ github.run_id }}" --note "QA workflow, guest tier" || true
+
+      - if: always() && steps.want.outputs.want == 'yes'
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-results-${{ matrix.site }}
+          path: |
+            test-results/qa
+            docs/testing/qa-runs
+          retention-days: 30
+
+  local:
+    if: github.event_name == 'workflow_dispatch' && inputs.suite == 'local'
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: postgres
+        ports: ["5432:5432"]
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install
+        run: |
+          npm ci --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: Build
+        env:
+          NODE_OPTIONS: --max-old-space-size=6144
+          AUTH_SECRET: qa-local-secret-not-used-anywhere-else
+          CRON_SECRET: qa-local-cron-secret
+          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/gk_qa
+        run: npx next build --webpack
+
+      - name: Local server and test data
+        run: bash scripts/qa/local-up.sh 3000 gk_qa
+
+      - name: Whole suite
+        run: |
+          source test-results/qa/local-3000.env
+          npx playwright test -c playwright.qa.config.ts --reporter=line
+
+      - if: always()
+        name: Collect
+        run: npx tsx scripts/qa/collect.ts --host localhost:3000 --label "actions-${{ github.run_id }}" --note "QA workflow, whole suite on a local build" || true
+
+      - if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: qa-results-local
+          path: |
+            test-results/qa
+            docs/testing/qa-runs
+          retention-days: 30

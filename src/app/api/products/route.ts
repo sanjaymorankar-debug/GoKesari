@@ -13,7 +13,7 @@ import { z } from "zod";
 import { imageRefSchema } from "@/lib/image-ref";
 
 import { ok, parseBody, route } from "@/server/api/handler";
-import { requireShopAccess } from "@/server/authz/guards";
+import { requireShopAccess, requireUser } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { shops } from "@/server/db/schema";
@@ -55,6 +55,8 @@ const schema = z
   });
 
 export const POST = route(async (request: NextRequest) => {
+  // Signed in first: a guest gets 401 before the body or the record is read (TC-SEC-001).
+  await requireUser();
   const body = await parseBody(request, schema);
 
   const { user } = await requireShopAccess(body.shopId, {

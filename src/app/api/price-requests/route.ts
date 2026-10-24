@@ -48,6 +48,8 @@ export const GET = route(async (request: NextRequest) => {
 });
 
 export const POST = route(async (request: NextRequest) => {
+  // Signed in first: a guest gets 401 before the body or the record is read (TC-SEC-001).
+  await requireUser();
   const body = await parseBody(request, submitSchema);
 
   // Ownership is checked against the shop, so an operator cannot propose

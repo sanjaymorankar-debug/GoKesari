@@ -4,7 +4,7 @@ import { eq } from "drizzle-orm";
 
 import { notFound } from "@/lib/errors";
 import { ok, route, type RouteContext } from "@/server/api/handler";
-import { requireShopAccess } from "@/server/authz/guards";
+import { requireShopAccess, requireUser } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { excelUploads } from "@/server/db/schema";
@@ -25,6 +25,8 @@ async function authorise(uploadId: string) {
 
 export const POST = route(
   async (_request: NextRequest, context: RouteContext<{ id: string }>) => {
+    // Signed in first: a guest gets 401 before the body or the record is read (TC-SEC-001).
+    await requireUser();
     const { id } = await context.params;
     const { user } = await authorise(id);
     return ok(await applyUpload(id, user));
@@ -34,6 +36,8 @@ export const POST = route(
 /** Discards a validated upload the operator decided not to confirm. */
 export const DELETE = route(
   async (_request: NextRequest, context: RouteContext<{ id: string }>) => {
+    // Signed in first: a guest gets 401 before the body or the record is read (TC-SEC-001).
+    await requireUser();
     const { id } = await context.params;
     const { user } = await authorise(id);
     await cancelUpload(id, user);
