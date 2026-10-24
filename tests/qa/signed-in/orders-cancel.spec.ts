@@ -371,9 +371,10 @@ qa("TC-ORD-011", "cancelling after a line was removed and another substituted re
     expectStatus(await setStatus(placed.id, "CANCELLED", "shop", "QA cancel after partial refund"), 200, "shop cancels");
     expect(await walletOf(), "the rest refunded once — back to the start, no double refund").toBe(start);
     if (before.packaged !== null) expect(await stockOf(packaged), "removed line not restocked").toBe(before.packaged - 1);
-    if (before.bread !== null) expect(await stockOf(bread), "the replaced line stays consumed").toBe(before.bread - 1);
+    // The replaced product goes back on sale when the substitute is taken instead (TC-SPI-010).
+    if (before.bread !== null) expect(await stockOf(bread), "the replaced line is back in stock").toBe(before.bread);
     if (before.milk !== null) expect(await stockOf(milk), "the substitute is restocked").toBe(before.milk);
-    return `${placed.orderNumber}: line refund ₹${removeLine.lineTotalPaise / 100}, cancel refund ₹${held / 100} (still held), wallet back to ${start}; stock butter −1, bread −1, milk (substitute) restored`;
+    return `${placed.orderNumber}: line refund ₹${removeLine.lineTotalPaise / 100}, cancel refund ₹${held / 100} (still held), wallet back to ${start}; stock butter −1 (removed, not restocked), bread back (replaced), milk (substitute) restored`;
   } finally {
     await abandon(placed.id);
   }
