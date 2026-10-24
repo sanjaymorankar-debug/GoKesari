@@ -4,7 +4,7 @@ import { z } from "zod";
 
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requireUser } from "@/server/authz/guards";
-import { addToCart, clearCart, getCart } from "@/server/services/cart";
+import { addToCart, CART_LINE_MAX_QUANTITY, clearCart, getCart } from "@/server/services/cart";
 
 export const dynamic = "force-dynamic";
 
@@ -15,7 +15,7 @@ export const GET = route(async () => {
 
 const addSchema = z.object({
   shopProductId: z.string().uuid(),
-  quantity: z.number().int().positive().max(99).default(1),
+  quantity: z.number().int().positive().max(CART_LINE_MAX_QUANTITY).default(1),
 });
 
 export const POST = route(async (request: NextRequest) => {

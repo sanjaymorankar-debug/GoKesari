@@ -4,10 +4,10 @@ import { z } from "zod";
 
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { requireUser } from "@/server/authz/guards";
-import { removeCartItem, setCartItemQuantity } from "@/server/services/cart";
+import { CART_LINE_MAX_QUANTITY, removeCartItem, setCartItemQuantity } from "@/server/services/cart";
 
 const patchSchema = z.object({
-  quantity: z.number().int().min(0).max(99),
+  quantity: z.number().int().min(0).max(CART_LINE_MAX_QUANTITY),
 });
 
 export const PATCH = route(

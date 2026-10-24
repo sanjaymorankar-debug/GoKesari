@@ -101,6 +101,23 @@ export async function getOrCreateCart(
   return created;
 }
 
+/** The most units one cart line holds — what the cart API takes and the product card offers. */
+export const CART_LINE_MAX_QUANTITY = 99;
+
+/**
+ * The user's cart, created if need be, locked until the transaction ends.
+ * Every add or quantity change (and a purchase list sent to the cart) takes
+ * this lock before it reads a line, so two at once — a double tap, two tabs —
+ * run one after the other: the second reads what the first wrote. Unlocked,
+ * the second insert of a new line hit cart_items_cart_product_unique (500),
+ * and two adds onto a line both wrote existing + quantity from one read (D-100).
+ */
+export async function lockCart(userId: string, tx: DbClient): Promise<{ id: string }> {
+  const cart = await getOrCreateCart(userId, tx);
+  await tx.select({ id: carts.id }).from(carts).where(eq(carts.id, cart.id)).for("update");
+  return cart;
+}
+
 export async function addToCart(
   userId: string,
   shopProductId: string,
@@ -110,29 +127,33 @@ export async function addToCart(
     throw validationFailed("Quantity must be a positive whole number.");
   }
 
-  const cart = await getOrCreateCart(userId);
+  await db.transaction(async (tx) => {
+    const cart = await lockCart(userId, tx);
 
-  const existing = await db.query.cartItems.findFirst({
-    where: and(
-      eq(cartItems.cartId, cart.id),
-      eq(cartItems.shopProductId, shopProductId),
-    ),
+    const existing = await tx.query.cartItems.findFirst({
+      where: and(
+        eq(cartItems.cartId, cart.id),
+        eq(cartItems.shopProductId, shopProductId),
+      ),
+    });
+    const already = existing?.quantity ?? 0;
+    // Capped at what one line holds; a line already above it (added before the cap) is not cut back.
+    const desiredQuantity = Math.max(already, Math.min(CART_LINE_MAX_QUANTITY, already + quantity));
+
+    // Validate against the *total* quantity that would result, not just the delta.
+    await assertPurchasableNow(shopProductId, desiredQuantity, tx);
+
+    if (existing) {
+      await tx
+        .update(cartItems)
+        .set({ quantity: desiredQuantity, updatedAt: new Date() })
+        .where(eq(cartItems.id, existing.id));
+    } else {
+      await tx
+        .insert(cartItems)
+        .values({ cartId: cart.id, shopProductId, quantity: desiredQuantity });
+    }
   });
-  const desiredQuantity = (existing?.quantity ?? 0) + quantity;
-
-  // Validate against the *total* quantity that would result, not just the delta.
-  await assertPurchasableNow(shopProductId, desiredQuantity);
-
-  if (existing) {
-    await db
-      .update(cartItems)
-      .set({ quantity: desiredQuantity, updatedAt: new Date() })
-      .where(eq(cartItems.id, existing.id));
-  } else {
-    await db
-      .insert(cartItems)
-      .values({ cartId: cart.id, shopProductId, quantity: desiredQuantity });
-  }
 
   return getCart(userId);
 }
@@ -145,23 +166,28 @@ export async function setCartItemQuantity(
   if (!Number.isInteger(quantity) || quantity < 0) {
     throw validationFailed("Quantity must be a whole number.");
   }
-  const cart = await getOrCreateCart(userId);
 
-  const item = await db.query.cartItems.findFirst({
-    where: and(eq(cartItems.id, cartItemId), eq(cartItems.cartId, cart.id)),
+  // Under the cart's lock too: an add running at the same time would otherwise write its stale
+  // read + quantity over this change.
+  await db.transaction(async (tx) => {
+    const cart = await lockCart(userId, tx);
+
+    const item = await tx.query.cartItems.findFirst({
+      where: and(eq(cartItems.id, cartItemId), eq(cartItems.cartId, cart.id)),
+    });
+    if (!item) throw notFound("Cart item");
+
+    if (quantity === 0) {
+      await tx.delete(cartItems).where(eq(cartItems.id, cartItemId));
+      return;
+    }
+
+    await assertPurchasableNow(item.shopProductId, quantity, tx);
+    await tx
+      .update(cartItems)
+      .set({ quantity, updatedAt: new Date() })
+      .where(eq(cartItems.id, cartItemId));
   });
-  if (!item) throw notFound("Cart item");
-
-  if (quantity === 0) {
-    await db.delete(cartItems).where(eq(cartItems.id, cartItemId));
-    return getCart(userId);
-  }
-
-  await assertPurchasableNow(item.shopProductId, quantity);
-  await db
-    .update(cartItems)
-    .set({ quantity, updatedAt: new Date() })
-    .where(eq(cartItems.id, cartItemId));
 
   return getCart(userId);
 }
@@ -411,8 +437,9 @@ export function computeDeliveryFee(
 async function assertPurchasableNow(
   shopProductId: string,
   quantity: number,
+  client: DbClient = db,
 ): Promise<void> {
-  const [row] = await db
+  const [row] = await client
     .select({ sp: shopProducts, shopStatus: shops.status })
     .from(shopProducts)
     .innerJoin(shops, eq(shopProducts.shopId, shops.id))
