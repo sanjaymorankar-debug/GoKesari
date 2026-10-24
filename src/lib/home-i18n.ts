@@ -7,7 +7,8 @@
  * Pure data, no server imports (shared by server and client components and
  * unit tests). Fixed board wording stays in lib/board/i18n.ts (UI).
  */
-import { L } from "@/lib/board/i18n";
+import { L, type Text } from "@/lib/board/i18n";
+import type { LocationProblem } from "@/lib/device-location";
 
 export const HOME = {
   // Header search (F2)
@@ -173,12 +174,31 @@ export const HOME = {
     "यह डिवाइस लोकेशन नहीं दे सकता — पिन कोड डालें।",
     "हे डिव्हाइस ठिकाण देऊ शकत नाही — पिन कोड टाका.",
   ),
-  locationDenied: L(
-    "Location permission was not given — enter a PIN code instead.",
-    "लोकेशन की अनुमति नहीं मिली — पिन कोड डालें।",
-    "ठिकाणाची परवानगी मिळाली नाही — पिन कोड टाका.",
-  ),
   locationFailed: L("That location could not be used.", "यह लोकेशन इस्तेमाल नहीं हो सकी।", "हे ठिकाण वापरता आले नाही."),
+  // Finding the location by itself, and the button that does it on request (24 Oct 2026)
+  findYourLocation: L("Find your location", "अपनी लोकेशन ढूँढें", "तुमचे ठिकाण शोधा"),
+  locationBlocked: L(
+    "Location is blocked for this site — allow it in your browser or phone settings, or enter a PIN code.",
+    "इस साइट के लिए लोकेशन बंद है — ब्राउज़र या फ़ोन की सेटिंग में इसे चालू करें, या पिन कोड डालें।",
+    "या साइटसाठी ठिकाण बंद आहे — ब्राउझर किंवा फोनच्या सेटिंगमध्ये ते सुरू करा, किंवा पिन कोड टाका.",
+  ),
+  locationOff: L(
+    "We couldn't find your location — turn on location (GPS) and try again, or enter a PIN code.",
+    "आपकी लोकेशन नहीं मिली — लोकेशन (GPS) चालू करके फिर कोशिश करें, या पिन कोड डालें।",
+    "तुमचे ठिकाण सापडले नाही — लोकेशन (GPS) सुरू करून पुन्हा प्रयत्न करा, किंवा पिन कोड टाका.",
+  ),
+  locationSlow: L(
+    "Finding your location took too long — try again in an open spot, or enter a PIN code.",
+    "लोकेशन ढूँढने में बहुत समय लगा — खुली जगह से फिर कोशिश करें, या पिन कोड डालें।",
+    "ठिकाण शोधायला खूप वेळ लागला — मोकळ्या जागेतून पुन्हा प्रयत्न करा, किंवा पिन कोड टाका.",
+  ),
+  locationInsecure: L(
+    "Location needs a secure (https) page — enter a PIN code instead.",
+    "लोकेशन के लिए सुरक्षित (https) पेज चाहिए — पिन कोड डालें।",
+    "ठिकाणासाठी सुरक्षित (https) पान लागते — पिन कोड टाका.",
+  ),
+  enterPincodeInstead: L("Enter PIN code", "पिन कोड डालें", "पिन कोड टाका"),
+  addressCredit: L("Address from your location:", "आपकी लोकेशन से पता:", "तुमच्या ठिकाणावरून पत्ता:"),
 
   // Footer (F5)
   footerCompany: L("Company", "कंपनी", "कंपनी"),
@@ -207,3 +227,15 @@ export const HOME = {
 export function fill(text: string, values: Record<string, string | number>): string {
   return text.replace(/\{(\w+)\}/g, (_, key: string) => String(values[key] ?? ""));
 }
+
+/** What to tell the shopper when the device could not give its location. */
+export const LOCATION_PROBLEM_TEXT: Readonly<Record<LocationProblem, Text>> = {
+  DENIED: HOME.locationBlocked,
+  UNAVAILABLE: HOME.locationOff,
+  TIMEOUT: HOME.locationSlow,
+  INSECURE: HOME.locationInsecure,
+  UNSUPPORTED: HOME.noGeolocation,
+};
+
+/** OpenStreetMap's licence (ODbL): credit it wherever an address found from it is shown. */
+export const OSM_CREDIT = { text: "© OpenStreetMap contributors", href: "https://www.openstreetmap.org/copyright" } as const;

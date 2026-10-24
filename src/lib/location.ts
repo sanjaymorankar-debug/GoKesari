@@ -25,6 +25,8 @@ export const customerLocationSchema = z
     addressId: z.string().uuid().nullable(),
     /** The address's society, when it is inside one (society-aware discovery). */
     societyId: z.string().uuid().nullable().default(null),
+    /** The area for headings ("Shops near Kharadi") when the label is a full street address. */
+    area: z.string().min(1).max(80).nullish(),
   })
   .refine((l) => l.pincode != null || (l.latitude != null && l.longitude != null), {
     message: "A location needs a PIN code or coordinates.",
@@ -68,9 +70,10 @@ export function shortLocationLabel(location: Pick<CustomerLocation, "label">): s
  * you" instead of repeating a number or "Current location".
  */
 export function locationAreaName(
-  location: Pick<CustomerLocation, "label" | "source">,
+  location: Pick<CustomerLocation, "label" | "source" | "area">,
 ): string | null {
   if (location.source === "PINCODE") return null;
+  if (location.area) return location.area;
   const short = shortLocationLabel(location);
   if (short === "Current location") return null;
   const first = short.split(",")[0]?.trim() ?? "";
