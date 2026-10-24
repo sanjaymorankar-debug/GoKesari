@@ -137,6 +137,8 @@ export const CUSTOMER_MENUS: readonly BoardMenu[] = [
       { key: "active", label: L("Active", "चालू", "चालू"), icon: "package", href: "/orders?tab=active", count: "activeOrders", urgent: true, auth: true },
       { key: "past", label: L("Past", "पुराने", "जुन्या"), icon: "history", href: "/orders?tab=past", count: "pastOrders", auth: true },
       { key: "returns", label: L("Returns", "वापसी", "परतावा"), icon: "undo-2", href: "/returns", count: "openReturns", auth: true },
+      // docs/purchase-lists-2026-10: weekly / monthly shopping and medicine lists, reordered in a few taps.
+      { key: "lists", label: L("My lists", "मेरी सूचियाँ", "माझ्या याद्या"), short: { en: "Lists" }, icon: "clipboard-check", href: "/lists", auth: true },
     ],
   },
   {

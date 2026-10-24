@@ -174,6 +174,8 @@ export const DAILY: readonly Job[] = [
   // a no-op on other days, and on a Sunday it closes a Saturday cycle a failed run missed.
   { name: "payout-cycle", run: payoutCycle },
   { name: "finance-weekly", weekday: 1, run: financeWeekly },
+  // docs/purchase-lists-2026-10: "time to reorder" for weekly / monthly lists that are due again.
+  { name: "purchase-list-reminders", run: async () => (await import("@/server/services/purchase-lists")).sendPurchaseListReminders() },
 ];
 
 /** The jobs of an every-minute run at `now`. */

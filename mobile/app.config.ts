@@ -58,6 +58,7 @@ const APP_LINK_PATH_PREFIXES = [
   "/grievance",
   "/invoices",
   "/legal",
+  "/lists",
   "/notifications",
   "/onboarding",
   "/operator",
