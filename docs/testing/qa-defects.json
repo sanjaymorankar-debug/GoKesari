@@ -1325,9 +1325,9 @@
    ],
    "severity": "Blocker",
    "found": "2026-10-24 test.gokesari.com, right after the round-2 fixes (PR #232) were deployed",
-   "actual": "Every saved session was refused and a fresh sign-in set the session cookie, but the next page treated the visitor as signed out (POST /signin 200, then /onboarding → /signin). The new sign-out check reads revoked_sessions on every request; when that read fails, the request has no session.",
+   "actual": "Right after the round-2 release (PR #232), every saved session was refused and a fresh sign-in did not stick (13:04–13:09 UTC: POST /signin 200, then /onboarding → /signin). Cause: 0088_revoked_sessions and the purchase-lists migration were written the same day with the same journal timestamp; the migrator applies only migrations newer than the newest one recorded, so on the test database, which recorded the other first, 0088 was skipped and revoked_sessions did not exist. The new per-request sign-out check read that table, failed, and the request had no session. Sessions worked again by 13:45 (the table was in place); sign-out revocation verified on the test site afterwards (a copied cookie is refused after Sign out).",
    "expected": "A signed-in visitor stays signed in; a failure of the sign-out list never signs everyone out.",
-   "fix": "src/server/auth-sessions.ts readSession: if the revoked_sessions check fails, the account is read on its own and the failure is logged once, so sessions keep working (only signed-out copies are not refused until the check works); tests/integration/auth-sessions-fallback.test.ts. PR #234.",
+   "fix": "PR #231: 0089_repair_revoked_sessions recreates the table (IF NOT EXISTS) and the purchase-lists migration is renumbered 0090 with a later timestamp. PR #234: readSession (src/server/auth-sessions.ts) falls back to the account read and logs once when the sign-out list cannot be read, so a missing table never signs everyone out (tests/integration/auth-sessions-fallback.test.ts). PR #238: tests/unit/migration-journal.test.ts fails CI when a journal timestamp is not later than the one before it, or a migration file is missing from the journal.",
    "status": "Fixed (re-test pending)"
   },
   {
