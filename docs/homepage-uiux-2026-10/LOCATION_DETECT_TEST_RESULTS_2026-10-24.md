@@ -52,3 +52,19 @@ Typecheck and ESLint on the changed files: clean.
 To check on staging: with the server Maps key set there, "Deliver to" shows
 the street address after allowing location; Admin → Maps & Location Usage
 lists `position_address` calls.
+
+## Run 3 — free approximate address (OpenStreetMap), replacing Google (24 Oct 2026, later)
+
+Owner: "I don't want paid version, just show textual address of
+coordinates". Run 2's Google lookup was replaced by OpenStreetMap
+(Nominatim) before merging. OpenStreetMap answered by a stub (this session
+cannot reach it); **not yet seen live on test.gokesari.com**.
+
+| Suite | One database | Split |
+|---|---|---|
+| `tests/unit/device-location.test.ts` (OpenStreetMap address formatting, PIN code check, ", India" dropped, 120-character cut, headings keep the area) | pass | pass |
+| `tests/integration/device-location.test.ts` (approximate address saved, no PIN code, never Google; one request per spot shared with Nearby; at most one a second; nothing there / failing → area and city, asked again next time; `NOMINATIM_URL` off and another server; "Current location"; searched address kept; ifUnset cases) | 11 / 11 pass | 11 / 11 pass |
+| `tests/integration/nearby-shops.test.ts` (unknown spot asked of OpenStreetMap, not Google) | pass | pass |
+
+38 tests across the three files on each layout. Typecheck and ESLint on the
+changed files: clean.

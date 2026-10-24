@@ -99,6 +99,16 @@ const serverEnvSchema = z.object({
   GOOGLE_MAPS_SERVER_API_KEY: z.string().optional(),
 
   /**
+   * The free OpenStreetMap (Nominatim) server that turns a shopper's detected
+   * position into an approximate street address for "Deliver to" and the
+   * Nearby screen (24 Oct 2026). Unset: the public nominatim.openstreetmap.org
+   * (one request a second, answers cached — its usage policy). Another
+   * Nominatim-compatible URL to move off it, or "off" to show only GoKesari's
+   * own area names.
+   */
+  NOMINATIM_URL: z.union([z.literal("off"), z.string().url()]).optional(),
+
+  /**
    * GST/PAN verification providers (marketplace GST-readiness follow-up).
    * No provider is chosen yet — absent in every environment today, so
    * verification runs in self-declared mode (see gst-pan-verification.ts):

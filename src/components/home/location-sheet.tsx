@@ -15,7 +15,7 @@ import { createPortal } from "react-dom";
 import { Icon } from "@/components/board/icons";
 import { tr, type Lang } from "@/lib/board/i18n";
 import { findDevicePosition } from "@/lib/device-location";
-import { HOME, LOCATION_PROBLEM_TEXT } from "@/lib/home-i18n";
+import { HOME, LOCATION_PROBLEM_TEXT, OSM_CREDIT } from "@/lib/home-i18n";
 
 export function LocationSheet({
   lang,
@@ -118,6 +118,12 @@ export function LocationSheet({
           <Icon name="locate-fixed" size={20} className="shrink-0" />
           {busy === "gps" ? tr(HOME.locating, lang) : tr(HOME.useCurrentLocation, lang)}
         </button>
+        <p className="mt-1 text-xs text-ink-600" data-testid="location-credit">
+          {tr(HOME.addressCredit, lang)}{" "}
+          <a href={OSM_CREDIT.href} target="_blank" rel="noopener noreferrer" className="underline">
+            {OSM_CREDIT.text}
+          </a>
+        </p>
 
         {savedAddresses.length > 0 ? (
           <div className="mt-4">

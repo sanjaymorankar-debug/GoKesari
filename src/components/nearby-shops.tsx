@@ -28,6 +28,7 @@ import { Icon } from "@/components/board/icons";
 import { NearbyMap } from "@/components/nearby-map";
 import { saveDevicePosition } from "@/lib/device-location";
 import { NEARBY_RADII_KM, DEFAULT_NEARBY_RADIUS_KM, placeLine, widerRadius, type NearbyRadiusKm } from "@/lib/geo/nearby";
+import { OSM_CREDIT } from "@/lib/home-i18n";
 
 export interface NearbyShop {
   id: string;
@@ -54,7 +55,7 @@ interface NearbyAnswer {
     longitude: number;
     source: "DEVICE" | "PLACE";
     place: { area: string | null; city: string | null; pincode: string | null } | null;
-    /** The street address of a device position, when Google knows it. */
+    /** The approximate street address of a device position, from OpenStreetMap. */
     address?: string | null;
   };
   radiusKm: NearbyRadiusKm;
@@ -247,6 +248,14 @@ export function NearbyShops() {
                   {fromPlace
                     ? "From the PIN code / area you entered"
                     : `Detected by your device${search?.kind === "position" && search.accuracyM ? ` · accurate to about ${search.accuracyM} m` : ""}${placeText ? "" : " · area not known yet"}`}
+                  {!fromPlace && origin.address ? (
+                    <>
+                      {" · approximate address "}
+                      <a href={OSM_CREDIT.href} target="_blank" rel="noopener noreferrer" className="underline">
+                        {OSM_CREDIT.text}
+                      </a>
+                    </>
+                  ) : null}
                 </p>
               </>
             ) : phase === "loading" ? (

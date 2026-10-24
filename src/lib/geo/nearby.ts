@@ -64,18 +64,61 @@ export function placeLine(place: { area?: string | null; city?: string | null; p
   return line || null;
 }
 
-/** A plus code ("XW2Q+H8") at the start of a Google address. */
-const PLUS_CODE_PREFIX = /^[23456789CFGHJMPQRVWX]{4,8}\+[23456789CFGHJMPQRVWX]{2,3}\s*,?\s*/i;
+/**
+ * An address as the location line shows it: no ", India" at the end, at most
+ * `max` characters, cut at a comma.
+ */
+export function cleanAddress(text: string | null | undefined, max = 120): string | null {
+  if (!text) return null;
+  let line = text.trim().replace(/,\s*India$/i, "").trim();
+  while (line.length > max && line.includes(",")) line = line.slice(0, line.lastIndexOf(",")).trim();
+  if (line.length > max) line = line.slice(0, max).trim();
+  return line || null;
+}
+
+/** The parts of an OpenStreetMap (Nominatim) reverse-geocoding answer the location line uses. */
+export interface OsmAddress {
+  house_number?: string;
+  road?: string;
+  building?: string;
+  amenity?: string;
+  shop?: string;
+  office?: string;
+  neighbourhood?: string;
+  suburb?: string;
+  quarter?: string;
+  city_district?: string;
+  hamlet?: string;
+  city?: string;
+  town?: string;
+  village?: string;
+  municipality?: string;
+  state_district?: string;
+  county?: string;
+  postcode?: string;
+}
+
+const firstOf = (...values: (string | undefined)[]) => values.map((v) => v?.trim()).find(Boolean) ?? null;
 
 /**
- * A Google formatted address as the location line shows it: no plus code in
- * front and no ", India" at the end — "Eon Free Zone, Kharadi, Pune,
- * Maharashtra 411014". At most `max` characters, cut at a comma.
+ * An OpenStreetMap address as the location line shows it — approximate,
+ * street level: "12 Lane 5, Kharadi, Pune 411014" (place name, street, area,
+ * city, PIN code — whichever OpenStreetMap has). Null when it has none.
  */
-export function cleanAddress(formatted: string | null | undefined, max = 120): string | null {
-  if (!formatted) return null;
-  let text = formatted.trim().replace(PLUS_CODE_PREFIX, "").replace(/,\s*India$/i, "").trim();
-  while (text.length > max && text.includes(",")) text = text.slice(0, text.lastIndexOf(",")).trim();
-  if (text.length > max) text = text.slice(0, max).trim();
-  return text || null;
+export function formatOsmAddress(
+  address: OsmAddress | null | undefined,
+): { line: string; area: string | null; city: string | null; pincode: string | null } | null {
+  if (!address) return null;
+  const a = address;
+  const place = firstOf(a.building, a.amenity, a.shop, a.office);
+  const street = firstOf([a.house_number?.trim(), a.road?.trim()].filter(Boolean).join(" "));
+  const area = firstOf(a.suburb, a.neighbourhood, a.quarter, a.city_district, a.hamlet);
+  const city = firstOf(a.city, a.town, a.village, a.municipality, a.state_district, a.county);
+  const pin = a.postcode?.replace(/\s/g, "") ?? "";
+  const pincode = isPincode(pin) ? pin : null;
+  const parts = [place, street, area, city].filter((p): p is string => Boolean(p));
+  const unique = parts.filter((p, i) => parts.findIndex((q) => q.toLowerCase() === p.toLowerCase()) === i);
+  if (unique.length === 0) return null;
+  const line = cleanAddress(`${unique.join(", ")}${pincode ? ` ${pincode}` : ""}`);
+  return line ? { line, area, city, pincode } : null;
 }

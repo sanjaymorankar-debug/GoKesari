@@ -20,11 +20,17 @@ const state = vi.hoisted(() => ({
   /** Google geocoding answers, by a substring of the request URL; anything else is ZERO_RESULTS. */
   google: [] as { match: string; body: unknown }[],
   googleCalls: [] as string[],
+  /** OpenStreetMap reverse lookups (the detected position's address); answered with nothing. */
+  osmCalls: [] as string[],
 }));
 
-// tests/setup.ts sets a placeholder server key: Google is answered here, never called.
+// tests/setup.ts sets a placeholder server key: Google is answered here, never called; so is OpenStreetMap.
 vi.stubGlobal("fetch", async (input: string | URL) => {
   const url = String(input);
+  if (url.startsWith("https://nominatim.openstreetmap.org/reverse?")) {
+    state.osmCalls.push(url);
+    return new Response(JSON.stringify({ error: "Unable to geocode" }), { status: 200 });
+  }
   if (!url.startsWith("https://maps.googleapis.com/")) throw new Error(`unexpected fetch ${url}`);
   state.googleCalls.push(url);
   const hit = state.google.find((g) => url.includes(g.match));
@@ -64,6 +70,7 @@ beforeEach(async () => {
   state.session = null;
   state.google = [];
   state.googleCalls = [];
+  state.osmCalls = [];
   ownerId = (await createUser({ role: "SHOP_OWNER" })).id;
 });
 
@@ -271,8 +278,9 @@ describe("location refused: search from a PIN code or area", () => {
     await shopAt("Somewhere", north(0.3));
     await db.update(shops).set({ pincode: "411014", area: "Kharadi" });
     expect(await describePosition(ME.latitude, ME.longitude)).toEqual({ area: "Kharadi", city: "Pune", pincode: "411014" });
-    expect(await describePosition(19.9, 75.3)).toBeNull(); // nothing known within 2 km, and Google has nothing either
-    expect(state.googleCalls).toHaveLength(1); // only for the unknown spot
+    expect(await describePosition(19.9, 75.3)).toBeNull(); // nothing known within 2 km, and OpenStreetMap has nothing either
+    expect(state.osmCalls).toHaveLength(1); // only for the unknown spot — free, never Google
+    expect(state.googleCalls).toHaveLength(0);
     const res = await nearby(`lat=${ME.latitude}&lng=${ME.longitude}`);
     expect(res.body.origin.place).toEqual({ area: "Kharadi", city: "Pune", pincode: "411014" });
   });

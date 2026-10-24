@@ -7,7 +7,7 @@
  *
  * radiusKm is 1, 3, 5 or 10 (default 5). Answers
  *   { origin: { latitude, longitude, source: "DEVICE" | "PLACE", place: { area, city, pincode } | null,
- *               address: street address of a device position (Google, server key) | null },
+ *               address: approximate street address of a device position (OpenStreetMap) | null },
  *     radiusKm, countsByRadius: { 1, 3, 5, 10 }, shops: [...] }
  * with approved live shops nearest first, distance worked out on the server
  * (Haversine). 404 when a typed place cannot be found.
@@ -45,11 +45,12 @@ export const GET = route(async (request: NextRequest) => {
   if (query.lat != null && query.lng != null && isValidPosition(query.lat, query.lng)) {
     origin = { latitude: query.lat, longitude: query.lng };
     source = "DEVICE";
-    // Google's answer for the exact spot first; GoKesari's own nearest place when it has none.
-    const exact = await addressForPosition(query.lat, query.lng).catch(() => null);
-    address = exact?.address ?? null;
-    const fromGoogle = exact ? { area: exact.area, city: exact.city, pincode: exact.pincode } : null;
-    place = address ? fromGoogle : ((await describePosition(query.lat, query.lng, { google: false }).catch(() => null)) ?? fromGoogle);
+    // OpenStreetMap's address for the spot first; GoKesari's own nearest place when it has none.
+    const osm = await addressForPosition(query.lat, query.lng).catch(() => null);
+    address = osm?.address ?? null;
+    place = osm
+      ? { area: osm.area, city: osm.city, pincode: osm.pincode }
+      : await describePosition(query.lat, query.lng, { ownDataOnly: true }).catch(() => null);
   } else {
     const found = query.q ? await findPlace(query.q) : null;
     if (!found) throw new AppError("NOT_FOUND", "We couldn't find that PIN code or area. Check it, or try a nearby PIN code.");

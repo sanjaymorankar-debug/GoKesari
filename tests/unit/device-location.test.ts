@@ -17,7 +17,7 @@ import {
   type LocationEnv,
 } from "@/lib/device-location";
 import { LANGUAGES } from "@/lib/board/i18n";
-import { cleanAddress } from "@/lib/geo/nearby";
+import { cleanAddress, formatOsmAddress } from "@/lib/geo/nearby";
 import { LOCATION_PROBLEM_TEXT } from "@/lib/home-i18n";
 import { locationAreaName, parseLocation, shortLocationLabel } from "@/lib/location";
 
@@ -128,12 +128,28 @@ describe("wording", () => {
   });
 });
 
-describe("the exact address as the location text", () => {
-  it("drops a plus code in front and ', India' at the end; a bare plus code alone is no address", () => {
-    expect(cleanAddress("HWX3+JW, Eon Free Zone, Kharadi, Pune, Maharashtra 411014, India")).toBe("Eon Free Zone, Kharadi, Pune, Maharashtra 411014");
-    expect(cleanAddress("12, Lane 5, Kharadi, Pune, Maharashtra 411014, India")).toBe("12, Lane 5, Kharadi, Pune, Maharashtra 411014");
-    expect(cleanAddress("Gateway of India, Apollo Bandar, Colaba, Mumbai, Maharashtra 400001, India")).toBe("Gateway of India, Apollo Bandar, Colaba, Mumbai, Maharashtra 400001");
-    expect(cleanAddress("HWX3+JW")).toBeNull();
+describe("the approximate address as the location text (OpenStreetMap)", () => {
+  it("street, area, city and PIN code — whichever OpenStreetMap has, without repeats", () => {
+    expect(formatOsmAddress({ house_number: "12", road: "Lane 5", suburb: "Kharadi", city: "Pune", county: "Pune City", postcode: "411014" })).toEqual({
+      line: "12 Lane 5, Kharadi, Pune 411014",
+      area: "Kharadi",
+      city: "Pune",
+      pincode: "411014",
+    });
+    expect(formatOsmAddress({ amenity: "Eon Free Zone", road: "Kharadi Bypass", neighbourhood: "Kharadi", city: "Pune" })?.line).toBe(
+      "Eon Free Zone, Kharadi Bypass, Kharadi, Pune",
+    );
+    // A village: the area and the place are the same word; no road.
+    expect(formatOsmAddress({ village: "Wagholi", hamlet: "Wagholi", postcode: "412 207" })?.line).toBe("Wagholi 412207");
+    // A postcode that is not an Indian PIN code is left out.
+    expect(formatOsmAddress({ road: "MG Road", city: "Pune", postcode: "41101" })).toMatchObject({ line: "MG Road, Pune", pincode: null });
+    expect(formatOsmAddress({ postcode: "411014" })).toBeNull();
+    expect(formatOsmAddress(null)).toBeNull();
+  });
+
+  it("drops ', India' at the end", () => {
+    expect(cleanAddress("12, Lane 5, Kharadi, Pune, Maharashtra, 411014, India")).toBe("12, Lane 5, Kharadi, Pune, Maharashtra, 411014");
+    expect(cleanAddress("Gateway of India, Apollo Bandar, Colaba, Mumbai, India")).toBe("Gateway of India, Apollo Bandar, Colaba, Mumbai");
     expect(cleanAddress("")).toBeNull();
     expect(cleanAddress(null)).toBeNull();
   });
