@@ -113,11 +113,11 @@ describe("recent and trending searches (F2)", () => {
     for (const user of [asha, ravi, meera]) await recordSearch(user.id, "butter");
     for (let i = 0; i < 3; i++) await recordSearch(asha.id, "ghee");
     await recordSearch(ravi.id, "ghee");
-    // One person searching twice is still one person; guests cannot be told apart, so they are not counted.
+    // One person searching twice is still one person.
     await recordSearch(asha.id, "cough syrup");
     await recordSearch(asha.id, "cough syrup");
-    await recordSearch(null, "honey");
-    await recordSearch(null, "honey");
+    // A guest search kept before guests' searches stopped being saved has no account: not counted.
+    await db.insert(searchQueries).values([{ query: "honey" }, { query: "honey" }]);
     const trending = await listTrendingSearches("hi", 4);
     expect(trending.slice(0, 2)).toEqual([
       { q: "butter", label: "butter" },
@@ -127,6 +127,12 @@ describe("recent and trending searches (F2)", () => {
     expect(trending.map((t) => t.q)).not.toContain("honey");
     expect(trending).toHaveLength(4);
     expect(trending[2]).toEqual({ q: "milk", label: "दूध" });
+  });
+
+  it("does not keep a search made while signed out", async () => {
+    await recordSearch(null, "honey");
+    await recordSearch(null, "honey");
+    expect(await db.select().from(searchQueries)).toEqual([]);
   });
 });
 

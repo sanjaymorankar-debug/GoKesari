@@ -185,8 +185,14 @@ export const DEFAULT_TRENDING: readonly { q: string; label: Text }[] = [
   { q: "atta", label: L("Atta", "आटा", "पीठ") },
 ];
 
-/** Keeps one search. Never throws: a search must work even when this cannot be written. */
+/**
+ * Keeps one search of a signed-in customer. A search made while signed out is
+ * not kept: nothing would use it (trending counts accounts, a guest's recent
+ * searches stay in their browser). Never throws: a search must work even when
+ * this cannot be written.
+ */
 export async function recordSearch(userId: string | null, rawQuery: string): Promise<void> {
+  if (!userId) return;
   const query = normaliseQuery(rawQuery);
   if (query.length < SUGGEST_MIN_CHARS) return;
   try {
@@ -221,9 +227,9 @@ export async function clearRecentSearches(userId: string): Promise<void> {
  * What the most people searched for in the last week, topped up with the
  * defaults. A search trends only once at least two different signed-in
  * people made it, so one person's searches never show to everyone on their
- * own; guests' searches carry no account to tell them apart, so they are not
- * counted. Labels are the searches as typed, except the defaults, which are
- * in the visitor's language.
+ * own. Searches made while signed out are not kept (recordSearch); any kept
+ * before that carry no account and are not counted. Labels are the searches
+ * as typed, except the defaults, which are in the visitor's language.
  */
 export async function listTrendingSearches(lang: Lang, limit = 6): Promise<{ q: string; label: string }[]> {
   const since = new Date(Date.now() - 7 * 86_400_000);

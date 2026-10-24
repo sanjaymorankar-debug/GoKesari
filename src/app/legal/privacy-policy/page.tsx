@@ -47,18 +47,16 @@ export default function PrivacyPolicyPage() {
           online. See section 2.
         </li>
         <li>
-          <strong>Search history</strong> — what you search for in the search
-          box, saved with the time of the search and, when you are signed in,
-          your account. Searches made while you are not signed in are saved
-          without any link to you. We use your own searches to show you your
-          recent searches, and signed-in people&apos;s searches to show what is
+          <strong>Search history</strong> — when you are signed in, what you
+          search for, saved with the time of the search and your account. We
+          do not save searches made while you are not signed in. We use your
+          searches to show you your recent searches, and to show what is
           popular: a search made by at least two different signed-in people
           in the last 7 days can appear under &quot;Trending&quot; for every
-          visitor, without any name or account. One person&apos;s searches
-          never trend on their own, and searches made while not signed in are
-          not counted. You can delete the searches
-          saved with your account at any time with &quot;Clear&quot; above
-          your recent searches in the search box.
+          visitor, without any name or account, so one person&apos;s searches
+          never trend on their own. You can delete the searches saved with
+          your account at any time with &quot;Clear&quot; above your recent
+          searches in the search box.
         </li>
         <li>
           <strong>App notification data</strong> — if you use the GoKesari
@@ -243,8 +241,7 @@ export default function PrivacyPolicyPage() {
         active and thereafter as required for tax, accounting, dispute, and
         legal record-keeping purposes. Grievance records are retained to
         demonstrate compliance with grievance-redressal timelines. Searches
-        saved with your account are kept until you clear them; searches made
-        while you were not signed in are kept without any link to you. App
+        saved with your account are kept until you clear them. App
         notification tokens are kept with your account, also after they stop
         being used. You may
         request erasure of data that is not otherwise required to be retained
