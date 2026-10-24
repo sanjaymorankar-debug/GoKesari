@@ -2,7 +2,7 @@
 
 Feature: [README.md](README.md) (PR #231). Plan: module "Purchase lists" in `test-cases.xlsx`, TC-LIST-001 … 028 (feature IDs PL-001 … PL-007).
 Checks: `tests/qa/guest/purchase-lists.spec.ts` (production-safe) and `tests/qa/signed-in/purchase-lists.spec.ts` (signed tier).
-Raw results: `docs/testing/qa-runs/2026-10-24-local-purchase-lists.json` and `docs/testing/qa-runs/2026-10-24-staging-purchase-lists.json`.
+Raw results: `docs/testing/qa-runs/2026-10-24-local-purchase-lists.json`, `docs/testing/qa-runs/2026-10-24-staging-purchase-lists.json` and `docs/testing/qa-runs/2026-10-24-production-purchase-lists-release.json`.
 
 ## Summary
 
@@ -10,7 +10,7 @@ Raw results: `docs/testing/qa-runs/2026-10-24-local-purchase-lists.json` and `do
 |---|---|---|---|
 | Local server (database gk_qa) | 49ba367 | 28 | 27 pass (6 of them partly covered), 1 manual (TC-LIST-028), 0 fail |
 | test.gokesari.com | 487f11b (PR #231 merged into staging as 2853b3d; migrations up to 0090) | 28 | 27 pass (6 partly covered), 1 manual, 0 fail in the latest results; 2 first-attempt failures explained below |
-| gokesari.com | — | guest checks only (TC-LIST-001, 002, 006 guest half) | Not run yet (after the release) |
+| gokesari.com | main 8e9c537 (PR #237, live 16:04:33 UTC) | guest checks only (TC-LIST-001, 002, 006 guest half) | 3 of 3 pass (5 rows, desktop and phone); the other 25 sign in or write, so they are not run on production by rule |
 
 "Partly covered" (Pass (partial) in the register): TC-LIST-006, 009, 013, 014, 017, 025 — what is not covered is named in each check (seller-side states such as "No longer sold" and an unapproved shop, which need seller data changed; the 99 cap on ADD is TC-LIST-020).
 **No defect was found in purchase lists.** Two defects outside the feature were found on staging (D-100, D-101 below).
@@ -29,6 +29,25 @@ This run is also the re-test of **D-99** (sign-in refused on test.gokesari.com a
 - **Cart regression** (`order-lifecycle -g "TC-CART-001|TC-CART-002"`): **blocked** — not by the site or its stock (the shop has stock: Bread 87, others 99+), but by the suite helper `sellable()` (`tests/qa/lib/flows.ts`), which still reads `onlineStock` from the public storefront API; since D-90 customers get `inStock` instead, so the helper finds no product. The purchase-lists checks exercised the cart through the app (TC-LIST-016/017/018/021/022 pass) and single-request add / read / empty of `/api/cart` all answered 200.
 - **Spec change for D-90:** the purchase-lists spec reads stock the way the app tells a customer (a throwaway "QA PL" list asks for 99 of each tracked product and its check says "Only N left in stock."), so TC-LIST-014 and 020 run on the new build (Bread: 87 left).
 - **Test data:** only "QA PL …" lists (all deleted; none left on either account); carts restored to how they were (both empty at the end); no order, no payment.
+
+## Production run (gokesari.com, 24 Oct 2026, 16:06–16:20 UTC) — guest tier only
+
+The release was checked from outside, as a guest: `tests/qa/guest` (110 checks with the phone repeats, 14.5 min). Nothing signed in, wrote, ordered or paid; signed and local checks are recorded "not run on production".
+
+- **Purchase lists — all pass:**
+  - TC-LIST-001 (desktop and phone): `/lists`, `/lists?kind=MEDICINE`, `/lists/<unknown id>` and `/lists/not-a-list-id` all answer 307 → /signin, and the browser lands on the sign-in page.
+  - TC-LIST-002: all 11 method/route pairs of `/api/purchase-lists` answer 401 UNAUTHENTICATED with a plausible body (no field errors, no 404 that would tell whether a list exists).
+  - TC-LIST-006, guest half (desktop and phone): a shop page (/shops/agtci-yivu6, 6 product cards) shows no "Add to list" to a guest.
+  - The guest write sweep (TC-SEC-001 / TC-RBAC-002) now covers 321 write endpoints (313 this morning): the 8 new purchase-lists write endpoints all refuse a guest.
+- **Whole guest tier: 85 pass, 11 fail, 1 skipped** (TC-QA-007, local only). **All 11 failures are pre-existing, not new:** they are exactly the 11 rows that failed on production in this morning's baseline (`docs/testing/qa-runs/2026-10-24-production-guest-baseline.json`, 08:36 UTC). No new failure, and none of them changed. Their fixes (D-01 … D-06, PR #228) are on staging, where the same checks pass today, but not on main, which carries only purchase lists:
+
+  | Case(s) | What production does | Defect (fixed on staging by #228) |
+  |---|---|---|
+  | TC-RBAC-002, TC-SEC-001 | The same 17 session-protected write endpoints read the request before refusing a guest (422 / 404 instead of 401); none of them is a purchase-lists route | D-01 |
+  | TC-DISC-007, TC-SEC-002 | `/api/shops/abc/products` and other malformed ids answer 500 | D-02 |
+  | TC-SEC-005, TC-SEC-010 | `X-Powered-By: Next.js` is still sent | D-03 |
+  | TC-LOC-002, TC-FLD-020 | The location dialog accepts the invalid PIN "011001" instead of staying open with the error | D-04 |
+  | TC-DISC-004, TC-DISC-007, TC-FLD-022 | Shop search by PIN "411014" finds nothing | D-06 |
 
 ## Results per case
 
@@ -77,8 +96,8 @@ Details, evidence and suggested fixes: `docs/testing/qa-defects.json`.
 ## Not covered here
 
 - TC-LIST-028 (daily reminder) — time-based; declared manual; covered by `tests/integration/purchase-lists.test.ts`.
-- gokesari.com — guest checks after the release (production is read-only: no sign-in, no lists, no cart).
+- gokesari.com — only the guest half of the feature (TC-LIST-001, 002, 006) can be checked there; production is read-only for QA (no sign-in, no lists, no cart).
 
 ## Where the files belong (owner's Mac)
 
-This was a cloud session; nothing was saved to the Mac. Save these in `/Users/agtci/Documents/Doc_GoKesari/Test_Cases_Tracking`: this file, `test-cases.xlsx`, `docs/testing/qa-runs/2026-10-24-*-purchase-lists.json` and, once rebuilt, `docs/testing/GOKESARI_MASTER_TEST_REGISTER.xlsx`.
+This was a cloud session; nothing was saved to the Mac. Save these in `/Users/agtci/Documents/Doc_GoKesari/Test_Cases_Tracking`: this file, `test-cases.xlsx`, `docs/testing/qa-runs/2026-10-24-*-purchase-lists*.json` (local, staging, production) and `docs/testing/GOKESARI_MASTER_TEST_REGISTER.xlsx` (rebuilt after the production run from every run in `docs/testing/qa-runs`; its statuses are written back into `test-cases.xlsx`).
