@@ -108,3 +108,14 @@ describe("TC-FLD-055: the shop description keeps its line breaks", () => {
     expect(html).toMatch(/class="[^"]*whitespace-pre-line[^"]*"[^>]*>Fresh milk daily\nOpen on Sundays\n&lt;b&gt;bold&lt;\/b&gt;/);
   });
 });
+
+describe("TC-DISC-002: a shop not taking orders stays listed, with a notice (owner, 24 Oct 2026)", () => {
+  it("shows the not-taking-orders banner on a paused shop's page, and none on an open one", async () => {
+    const owner = await createUser({ role: "SHOP_OWNER" });
+    const paused = await createShop(owner.id, { name: "Paused Dairy" });
+    await db.update(shops).set({ ordersPaused: true }).where(eq(shops.id, paused.id));
+    expect(await render(paused.slug)).toContain("This shop is not taking orders online right now.");
+    const open = await createShop((await createUser({ role: "SHOP_OWNER" })).id, { name: "Open Dairy" });
+    expect(await render(open.slug)).not.toContain('data-testid="shop-paused-banner"');
+  });
+});

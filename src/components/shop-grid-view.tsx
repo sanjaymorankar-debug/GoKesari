@@ -35,6 +35,8 @@ export interface ShopCardData {
   pickupOnly: boolean;
   /** Null when no customer location is known. */
   deliversHere: boolean | null;
+  /** Listed among nearby shops, but taking no orders online for now (paused, wallet minimum, legal document). */
+  ordersPaused: boolean;
 }
 
 type Toggle = "open" | "delivers";
@@ -189,6 +191,16 @@ function ShopBadges({ shop }: { shop: ShopCardData }) {
   );
 }
 
+/** The owner's decision: a paused shop stays listed, with this notice on its card. */
+function PausedNotice({ shop }: { shop: ShopCardData }) {
+  if (!shop.ordersPaused) return null;
+  return (
+    <p role="status" className="rounded-md bg-amber-50 px-2 py-1 text-xs font-medium text-amber-900" data-testid="shop-paused-notice">
+      Not taking orders online right now
+    </p>
+  );
+}
+
 const place = (shop: ShopCardData) => `${[shop.area, shop.city].filter(Boolean).join(", ")} · ${shop.pincode}`;
 
 function FulfilmentLine({ shop }: { shop: ShopCardData }) {
@@ -228,6 +240,7 @@ function ShopCard({ shop }: { shop: ShopCardData }) {
         {shop.ratingCount > 0 ? <RatingBadge avgX100={shop.ratingAvgX100} count={shop.ratingCount} /> : null}
         <p className="text-sm text-ink-500">{place(shop)}</p>
         <FulfilmentLine shop={shop} />
+        <PausedNotice shop={shop} />
 
         {/* The link's tap area covers the whole card. */}
         <Link
@@ -255,6 +268,7 @@ function ShopListRow({ shop }: { shop: ShopCardData }) {
           <ShopBadges shop={shop} />
         </div>
         <p className="truncate text-sm text-ink-500">{shop.fulfilment}</p>
+        <PausedNotice shop={shop} />
       </div>
       <p className="shrink-0 text-sm text-ink-500">{place(shop)}</p>
     </Link>

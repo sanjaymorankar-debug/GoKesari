@@ -43,12 +43,12 @@ async function comparisonRows(page: Page) {
 /** Shop cards in page order: name and the fulfilment line. */
 async function shopCards(page: Page, scope = page.locator("main")) {
   const cards = scope.getByTestId("shop-card");
-  const out: { name: string; text: string; km: number | null; delivers: boolean }[] = [];
+  const out: { name: string; text: string; km: number | null; delivers: boolean; paused: boolean }[] = [];
   for (let i = 0; i < (await cards.count()); i++) {
     const text = (await cards.nth(i).innerText()).replace(/\s+/g, " ");
     const name = (await cards.nth(i).getByRole("heading").first().innerText()).trim();
     const km = text.match(/· ([\d.]+) km/)?.[1];
-    out.push({ name, text, km: km ? Number(km) : null, delivers: /Delivers to you/.test(text) });
+    out.push({ name, text, km: km ? Number(km) : null, delivers: /Delivers to you/.test(text), paused: /Not taking orders online right now/.test(text) });
   }
   return out;
 }
@@ -86,16 +86,18 @@ qa("TC-DISC-002", "/shops with a location: delivering shops first, nearest first
     const ours = ["A", "B", "C"].map((k) => cards.find((c) => sameName(c.name, shopName(k as "A" | "B" | "C"))));
     for (const [i, card] of ours.entries()) expect(card, `shop ${"ABC"[i]} is listed`).toBeTruthy();
     for (const card of ours) expect(card!.text, `${card!.name} shows delivery and distance`).toMatch(/Delivers to you · [\d.]+ km/);
-    // Delivering shops come before the others; among those with a distance, nearest first.
-    const firstNotDelivering = cards.findIndex((c) => !c.delivers);
-    if (firstNotDelivering >= 0) expect(cards.slice(firstNotDelivering).every((c) => !c.delivers), "delivering shops first").toBe(true);
+    // Delivering shops come before the others; among those with a distance, nearest first. A shop not taking
+    // orders stays listed by distance with its notice (owner, 24 Oct 2026), so it is left out of the order check.
+    const ranked = cards.filter((c) => !c.paused);
+    const firstNotDelivering = ranked.findIndex((c) => !c.delivers);
+    if (firstNotDelivering >= 0) expect(ranked.slice(firstNotDelivering).every((c) => !c.delivers), "delivering shops first").toBe(true);
     const distances = cards.filter((c) => c.delivers && c.km != null).map((c) => c.km!);
     expect(distances, "nearest first").toEqual([...distances].sort((a, b) => a - b));
     return `${cards.length} shops; ours: ${ours.map((c) => `${c!.name} ${c!.km} km`).join(", ")}; distances in order ${distances.join(" ≤ ")}`;
   } finally {
     await context.close();
   }
-}, { ...SIGNED, mobile: true, partial: "the list also shows nearby shops that do not deliver (marked 'Pickup · outside its delivery area', after the delivering ones) — src/app/shops/page.tsx, superseding 'only delivering shops'" });
+}, { ...SIGNED, mobile: true, partial: "the list also shows nearby shops that do not deliver (marked 'Pickup · outside its delivery area', after the delivering ones) and shops not taking orders (listed by distance with 'Not taking orders online right now' — owner's decision, 24 Oct 2026) — src/app/shops/page.tsx, superseding 'only delivering shops'" });
 
 qa("TC-DISC-003", "'Show all shops' (?all=1) keeps the type filter", async ({ browser }) => {
   const { context, page } = await signedPage(browser, "customer");

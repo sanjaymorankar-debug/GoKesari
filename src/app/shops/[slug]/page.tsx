@@ -15,7 +15,7 @@ import { getLiveOffers, listLiveOffersForShop, priceWithOffers } from "@/server/
 import { getPublicShopBySlug, isShopOpenNow } from "@/server/services/shops";
 import { getCustomerLocation } from "@/server/location";
 import { nearbyOfferCounts } from "@/server/services/home-discovery";
-import { serviceableShopIds } from "@/server/services/serviceability";
+import { serviceableShopIds, withWalletGate } from "@/server/services/serviceability";
 
 export const dynamic = "force-dynamic";
 
@@ -44,6 +44,8 @@ export default async function ShopPage({
   const [{ slug }, query, lang] = await Promise.all([params, searchParams, getBoardLang()]);
   const shop = await getPublicShopBySlug(slug);
   if (!shop) notFound();
+  // Paused by the owner, below its wallet minimum or missing a legal document: still shown, with a notice.
+  const [{ ordersPaused: paused }] = await withWalletGate([shop]);
 
   const [user, categories] = await Promise.all([getCurrentUser(), listStorefrontCategories(shop.id)]);
   // One category at a time, one page at a time, straight from the database: the
@@ -101,6 +103,11 @@ export default async function ShopPage({
           <div className="mt-1">
             <RatingBadge avgX100={shop.ratingAvgX100} count={shop.ratingCount} />
           </div>
+          {paused ? (
+            <p role="status" className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm font-medium text-amber-900" data-testid="shop-paused-banner">
+              This shop is not taking orders online right now. You can still look through its products.
+            </p>
+          ) : null}
           <p className="mt-2 text-sm font-medium text-ink-700" data-testid="shop-delivery-line">
             {shop.deliveryAvailable
               ? `Delivery ₹${(shop.deliveryFeePaise / 100).toFixed(0)}${
