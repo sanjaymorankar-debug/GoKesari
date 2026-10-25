@@ -27,6 +27,7 @@ import { conflict, forbidden, invalidTransition, notFound, validationFailed } fr
 import { canTransition } from "@/lib/state-machines";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { formatPaise, formatQuantity, lineTotalPaise, sumPaise } from "@/lib/money";
+import { milliToStockUnits, quantityToMilli } from "@/lib/stock-quantity";
 import { formatShopTime, isShopOpenNow, nextOpeningAt } from "@/lib/shop-hours";
 import { db, isSerializationFailure, type DbClient } from "@/server/db";
 import {
@@ -471,7 +472,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           line.quantity,
           tx,
         );
-        const quantityMilli = line.quantity * loaded.product.unitSizeMilli;
+        const quantityMilli = quantityToMilli(line.quantity, loaded.product.unitSizeMilli);
         // F8: a live shop offer lowers the unit price (the same pricing as the cart).
         const unitPricePaise =
           priceWithOffers(
@@ -1154,8 +1155,9 @@ export async function cancelOrder(
     // Restocked regardless of payment status or who cancelled: checkout()
     // consumes stock unconditionally when the order is created, so its
     // reversal is unconditional too. quantityMilli / unitSizeMilli recovers
-    // the whole-unit quantity restockOnline expects (it was computed the
-    // other way around at checkout: quantityMilli = quantity * unitSizeMilli).
+    // the sellable units restockOnline expects (it was computed the other way
+    // around at checkout: quantityMilli = quantity * unitSizeMilli) — whole for
+    // packaged goods, exactly for loose ones (D-95).
     //
     // Slice 3: a REMOVED line is not restocked (the shop reported it
     // unavailable, so there is nothing to put back), and a SUBSTITUTED line
@@ -1180,18 +1182,19 @@ export async function cancelOrder(
     const unitSizes =
       restockLines.length > 0
         ? await tx
-            .select({ id: shopProducts.id, unitSizeMilli: products.unitSizeMilli })
+            .select({ id: shopProducts.id, unitSizeMilli: products.unitSizeMilli, kind: products.kind })
             .from(shopProducts)
             .innerJoin(products, eq(shopProducts.productId, products.id))
             .where(inArray(shopProducts.id, restockLines.map((l) => l.shopProductId)))
         : [];
-    const unitSizeById = new Map(unitSizes.map((u) => [u.id, u.unitSizeMilli]));
+    const productById = new Map(unitSizes.map((u) => [u.id, u]));
     const lines = restockLines.map((l) => ({
       ...l,
-      unitSizeMilli: unitSizeById.get(l.shopProductId) ?? 1000,
+      unitSizeMilli: productById.get(l.shopProductId)?.unitSizeMilli ?? 1000,
+      kind: productById.get(l.shopProductId)?.kind ?? ("PACKAGED" as const),
     }));
     for (const line of onlinePolicy?.stockAlreadyReleased ? [] : lines) {
-      const quantityUnits = Math.round(line.quantityMilli / line.unitSizeMilli);
+      const quantityUnits = milliToStockUnits(line.quantityMilli, line.unitSizeMilli, line.kind);
       if (quantityUnits > 0) {
         await restockOnline(
           line.shopProductId,

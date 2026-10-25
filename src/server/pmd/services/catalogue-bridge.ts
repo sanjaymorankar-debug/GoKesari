@@ -254,7 +254,7 @@ async function audit(tx: TransactionSql, actor: PromotionActor, action: string, 
 /** Which shops sell a master product, through the catalogue link (Section 30: "both reference MASTER_PRODUCT_ID"). */
 export async function shopsSellingMasterProduct(sql: Sql, masterProductId: string) {
   return sql<{ shop_id: string; shop_name: string; catalogue_product_code: string; online_price_paise: number | null; online_stock: number }[]>`
-    SELECT s.id AS shop_id, s.name AS shop_name, p.code AS catalogue_product_code, sp.online_price_paise, sp.online_stock
+    SELECT s.id AS shop_id, s.name AS shop_name, p.code AS catalogue_product_code, sp.online_price_paise, sp.online_stock::float8 AS online_stock
     FROM pmd.product_master pm
     JOIN pmd.catalogue_link cl ON cl.product_id = pm.product_id
     JOIN public.products p ON p.id = cl.catalogue_product_id

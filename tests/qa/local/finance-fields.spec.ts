@@ -198,7 +198,7 @@ qa("TC-FLD-061", "listing stock: −1, 1.5, text and out of range refused; a nor
     if (after !== 37) p.note(`the form saved a blank stock box as ${after} without a field message`);
   });
   return p.assert("stock");
-}, { ...local, partial: "decimals for loose goods are TC-SPI-025 (refused: whole steps only)" });
+}, { ...local, partial: "decimals for loose goods are TC-SPI-025 (accepted for loose goods, D-95)" });
 
 qa(["TC-FLD-062", "TC-FLD-063"], "low-stock threshold and reorder level / quantity: −1, 1.5, text and out of range refused; a normal value saves; blank falls back (threshold) or means no reorder hint", async () => {
   const listing = await freshListing({ name: "QA Threshold Jar", pricePaise: 3000, stock: 30 });

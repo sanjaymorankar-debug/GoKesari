@@ -45,6 +45,7 @@ import {
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { restockOnline } from "./catalogue";
+import { milliToStockUnits } from "@/lib/stock-quantity";
 import { refundDeliveredOrder } from "./finance";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { cancelLivePickup, createPickup, offerPickup, LIVE_PICKUP_STATUSES } from "./return-pickups";
@@ -647,14 +648,16 @@ async function restockUnopenedItems(tx: DbClient, ret: ReturnRequest, actor: Act
     shopProductId: i.fulfilmentStatus === "SUBSTITUTED" && i.substituteShopProductId ? i.substituteShopProductId : i.shopProductId,
   }));
   const sizes = await tx
-    .select({ id: shopProducts.id, unitSizeMilli: products.unitSizeMilli })
+    .select({ id: shopProducts.id, unitSizeMilli: products.unitSizeMilli, kind: products.kind })
     .from(shopProducts)
     .innerJoin(products, eq(shopProducts.productId, products.id))
     .where(inArray(shopProducts.id, lines.map((l) => l.shopProductId)));
-  const sizeById = new Map(sizes.map((s) => [s.id, s.unitSizeMilli]));
+  const sizeById = new Map(sizes.map((s) => [s.id, s]));
   const [order] = await tx.select({ orderNumber: orders.orderNumber }).from(orders).where(eq(orders.id, ret.orderId));
   for (const line of lines) {
-    const units = Math.floor(line.quantityMilli / (sizeById.get(line.shopProductId) ?? 1000));
+    const listing = sizeById.get(line.shopProductId);
+    // Whole packs of packaged goods; a loose good comes back exactly as returned (D-95).
+    const units = milliToStockUnits(line.quantityMilli, listing?.unitSizeMilli ?? 1000, listing?.kind ?? "PACKAGED", "floor");
     if (units <= 0) continue;
     await restockOnline(
       line.shopProductId,

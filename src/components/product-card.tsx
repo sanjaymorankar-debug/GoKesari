@@ -7,7 +7,9 @@ import { useState, useTransition } from "react";
 import { AddToListButton } from "@/components/purchase-lists/add-to-list-button";
 import { SafeImage } from "@/components/safe-image";
 import { categoryEmoji, priceUnitLabel } from "@/lib/board/product-look";
+import { formatQuantity } from "@/lib/money";
 import { discountPercent } from "@/lib/price-rules";
+import { cartQuantityStep, formatStock, quantityToMilli, roundStock, type ProductKind } from "@/lib/stock-quantity";
 import { AvailabilityBadge, Button, Card, Money } from "@/components/ui";
 import type { CartLineQuantity, CartSummary } from "@/server/services/cart";
 
@@ -25,6 +27,10 @@ export interface ProductCardData {
   trackInventory: boolean;
   onlineStock: number;
   subscribable: boolean;
+  /** D-95: a loose good steps in parts of a unit (250 g of a 1 kg listing); packaged goods in whole units. */
+  kind?: ProductKind;
+  /** Size of one sellable unit in milli of `unit` (1 kg → 1000). */
+  unitSizeMilli?: number;
   shopName?: string;
   shopSlug?: string;
   /** Catalogue product id — enables the "Compare prices" link (GS-021/022). */
@@ -92,6 +98,12 @@ export function ProductCard({
 
   // The cart API takes at most 99 of a line.
   const maxQuantity = Math.min(99, product.trackInventory ? product.onlineStock : 99);
+  // D-95: − / + move a loose good by 250 g / 250 ml where its unit allows; packaged goods by one.
+  const cartProduct = { kind: product.kind ?? ("PACKAGED" as const), unit: product.unit, unitSizeMilli: product.unitSizeMilli ?? 1000 };
+  const step = cartQuantityStep(cartProduct);
+  const loose = cartProduct.kind === "LOOSE";
+  /** A quantity as the customer reads it: "2" packs, or "250 g" / "1.5 kg" of a loose good. */
+  const shown = (q: number) => (loose ? formatQuantity(quantityToMilli(q, cartProduct.unitSizeMilli), product.unit) : formatStock(q));
   const disabled = busy || pending;
 
   /**
@@ -284,20 +296,20 @@ export function ProductCard({
                   className="tap-target [--tap-h:36px] [--tap-w:36px]"
                   disabled={disabled}
                   aria-label={`Decrease quantity of ${product.productName} in cart`}
-                  onClick={() => setCartQuantity(line.quantity - 1)}
+                  onClick={() => setCartQuantity(Math.max(0, roundStock(line.quantity - step)))}
                 >
                   −
                 </Button>
-                <span className="w-8 text-center text-sm font-medium tabular-nums" aria-live="polite">
-                  {line.quantity}
+                <span className={`${loose ? "min-w-8 px-1" : "w-8"} text-center text-sm font-medium tabular-nums`} aria-live="polite">
+                  {shown(line.quantity)}
                 </span>
                 <Button
                   size="sm"
                   variant="secondary"
                   className="tap-target [--tap-h:36px] [--tap-w:36px]"
-                  disabled={disabled || line.quantity >= maxQuantity}
+                  disabled={disabled || roundStock(line.quantity + step) > maxQuantity}
                   aria-label={`Increase quantity of ${product.productName} in cart`}
-                  onClick={() => setCartQuantity(line.quantity + 1)}
+                  onClick={() => setCartQuantity(roundStock(line.quantity + step))}
                 >
                   +
                 </Button>
@@ -323,22 +335,22 @@ export function ProductCard({
                       size="sm"
                       variant="secondary"
                       className="tap-target [--tap-h:36px] [--tap-w:36px]"
-                      disabled={disabled || quantity <= 1}
+                      disabled={disabled || quantity <= step}
                       aria-label={`Decrease quantity of ${product.productName} to add`}
-                      onClick={() => setQuantity(Math.max(1, quantity - 1))}
+                      onClick={() => setQuantity(Math.max(step, roundStock(quantity - step)))}
                     >
                       −
                     </Button>
-                    <span className="w-8 text-center text-sm font-medium tabular-nums" aria-live="polite">
-                      {quantity}
+                    <span className={`${loose ? "min-w-8 px-1" : "w-8"} text-center text-sm font-medium tabular-nums`} aria-live="polite">
+                      {shown(quantity)}
                     </span>
                     <Button
                       size="sm"
                       variant="secondary"
                       className="tap-target [--tap-h:36px] [--tap-w:36px]"
-                      disabled={disabled || quantity >= maxQuantity}
+                      disabled={disabled || roundStock(quantity + step) > maxQuantity}
                       aria-label={`Increase quantity of ${product.productName} to add`}
-                      onClick={() => setQuantity(Math.min(maxQuantity, quantity + 1))}
+                      onClick={() => setQuantity(Math.min(maxQuantity, roundStock(quantity + step)))}
                     >
                       +
                     </Button>

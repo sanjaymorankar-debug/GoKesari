@@ -325,6 +325,7 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
                 onlineSaleEnabled: p.onlineSaleEnabled,
                 offlineSaleEnabled: p.offlineSaleEnabled,
                 onlineStock: p.onlineStock,
+                kind: p.product.kind,
                 trackInventory: p.trackInventory,
                 isActive: p.isActive,
                 isAvailable: p.isAvailable,

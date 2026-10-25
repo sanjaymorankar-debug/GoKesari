@@ -18,7 +18,12 @@ export function db() {
   const url = process.env.E2E_DATABASE_URL;
   if (!url) blocked("E2E_DATABASE_URL (the local server's database) is not set");
   if (!/@(localhost|127\.0\.0\.1)(:\d+)?\//.test(url)) throw new Error("E2E_DATABASE_URL must point at a local database");
-  client ??= postgres(url, { max: 2, onnotice: () => {} });
+  // numeric as a number: stock counts and cart quantities are numeric(…, 3) since D-95 (0095/0096).
+  client ??= postgres(url, {
+    max: 2,
+    onnotice: () => {},
+    types: { numeric: { to: 1700, from: [1700], serialize: (x: unknown) => String(x), parse: (x: string) => Number(x) } },
+  });
   return client;
 }
 
