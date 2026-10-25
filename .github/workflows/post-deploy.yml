@@ -1,0 +1,63 @@
+# Post-deploy check — gokesari.com (incident 25 Oct 2026, E-02:
+# docs/gokesari-audit/INCIDENT_2026-10-25_production_hang.md).
+#
+# Every push to main makes Hostinger build and restart gokesari.com. This waits
+# for that deploy, then checks the site keeps answering (/, /shops,
+# /robots.txt: 200 for 4 rounds in a row, 45 s apart). A red run means the site
+# is not answering: restart the Node.js app (DEPLOYMENT.md §3, "After every
+# production deploy"). GitHub e-mails the person who pushed when a run fails.
+#
+# It also warns when this push lands within 10 minutes of the previous one on
+# main: two overlapping Hostinger deploys are what took the site down on
+# 25 Oct. Release one at a time (CLAUDE.md, "Production releases").
+#
+# Read-only: public pages only, no secrets, nothing written. About 8 Actions
+# minutes per release (see ci.yml on the minutes allowance). A newer push to
+# main cancels the older run, since a newer deploy replaces the older one.
+name: Post-deploy check
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      site:
+        description: Site to check now (no waiting for a deploy)
+        type: choice
+        default: https://gokesari.com
+        options: [https://gokesari.com, https://test.gokesari.com]
+
+concurrency:
+  group: post-deploy-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 2
+
+      - name: Warn about back-to-back releases
+        if: github.event_name == 'push'
+        run: |
+          now=$(git log -1 --format=%ct HEAD)
+          prev=$(git log -1 --format=%ct HEAD~1 2>/dev/null || echo 0)
+          gap=$(( now - prev ))
+          if [ "$prev" -gt 0 ] && [ "$gap" -lt 600 ]; then
+            msg="This push reached main ${gap}s after the previous one. Two Hostinger deploys may overlap (the 25 Oct outage, E-02). Release one at a time."
+            echo "::warning::$msg"
+            echo "⚠️ $msg" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Check the site answers
+        env:
+          SITE: ${{ inputs.site || 'https://gokesari.com' }}
+          # A push waits for Hostinger's build (about 4 minutes) and restart.
+          WAIT: ${{ github.event_name == 'push' && '240' || '0' }}
+        run: scripts/release/post-deploy-check.sh "$SITE" --wait "$WAIT" --rounds 4 --every 45 --deadline 600

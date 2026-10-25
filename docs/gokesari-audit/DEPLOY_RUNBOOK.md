@@ -246,6 +246,18 @@ The build runs `next build --webpack`. Both `dev` and `build` pass `--webpack`
 deliberately — see the comment on the `webpack()` hook in `next.config.ts`. Do
 not drop the flag from one without the other.
 
+**One production release at a time, and check the site after each one**
+(DEPLOYMENT.md §3, added after the 25 Oct 2026 outage, E-02):
+
+1. **Before you merge into `main`:** make sure no other release is in flight.
+   That means no other staging → main PR being merged, and the last gokesari.com
+   build in hPanel has finished.
+2. **After the merge:** wait for the **Post-deploy check** workflow to go green
+   (about 8 minutes). Or run `scripts/release/post-deploy-check.sh https://gokesari.com`.
+3. **If it fails:** restart the Node.js app (hPanel → Node.js → Restart). Then
+   run the check again. If it still fails, roll back (§9).
+4. Do not start §7 or the next release until the check is green.
+
 ---
 
 ## 6. Schedule the crons

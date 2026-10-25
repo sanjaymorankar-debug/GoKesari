@@ -48,6 +48,13 @@ Hostinger starts a build for every push to main and does not queue or cancel ove
 
 ## Recommendations
 
+Items 1 and 2 are now in the release steps (DEPLOYMENT.md §3, CLAUDE.md "Production releases"):
+- the **Post-deploy check** workflow (`.github/workflows/post-deploy.yml`) runs
+  on every push to main and warns on back-to-back releases;
+- `scripts/release/post-deploy-check.sh` runs the same check by hand.
+
+Items 3 and 4 are still open.
+
 1. **One release at a time.** Only one session or person merges into main at a time. Wait for the deploy to complete and the site to answer before the next merge. Releases from different sessions need coordinating; for example, check for an open staging → main PR and whether the last Hostinger build has finished.
 2. **Check the site after every production deploy.** After "Deployment completed", request `/` and `/shops`. If they don't answer within a minute, restart the app (`hosting_nodejs_restart-application`) and re-check. This could go in the release steps or a small workflow.
 3. **Uptime monitoring.** Add an external uptime check on gokesari.com (every 1–5 minutes) with an alert to the owner. This outage was seen only because a QA run happened to be waiting for the deploy.
