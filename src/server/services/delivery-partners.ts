@@ -14,7 +14,7 @@
  * anywhere non-terminal). Only APPROVED partners will be eligible for
  * delivery assignment once Slice C exists.
  */
-import { and, desc, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 
 import { AppError, conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { checkRiderDetails } from "@/lib/kyc/rider-details";
@@ -23,6 +23,7 @@ import { VEHICLE_TYPE_KEYS, type VehicleTypeKey } from "@/lib/vehicle-types";
 import { db, type DbClient } from "@/server/db";
 import {
   deliveryOrders,
+  deliveryPartnerDocuments,
   deliveryPartnerSessions,
   deliveryPartners,
   type DeliveryPartner,
@@ -30,7 +31,7 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
-import { assertRiderPhotoUrl } from "./rider-files";
+import { assertRiderPhotoUrl, RIDER_IDENTITY_DOC_TYPES } from "./rider-files";
 import { ACTIVE_ASSIGNMENT_STATUSES } from "./delivery-eligibility";
 import { grantRole } from "./roles";
 import { encryptKycInput, toPublicPartner, type PublicDeliveryPartner } from "./delivery-partner-kyc";
@@ -221,7 +222,7 @@ async function transition(
     reviewNotes: string | null;
     rejectionReason: string | null;
   }>,
-  guard?: (current: DeliveryPartner) => void,
+  guard?: (current: DeliveryPartner, tx: DbClient) => void | Promise<void>,
 ): Promise<PublicDeliveryPartner> {
   return db.transaction(async (tx) => {
     const [current] = await tx
@@ -233,7 +234,7 @@ async function transition(
     if (TERMINAL_STATUSES.includes(current.status)) {
       throw conflict("This delivery partner has been deactivated and cannot be changed.");
     }
-    guard?.(current);
+    await guard?.(current, tx);
 
     // Only an APPROVED partner may be online: leaving APPROVED, or entering it from another status (which also
     // clears an online flag left by an older build), always ends offline.
@@ -296,7 +297,7 @@ export async function approveDeliveryPartner(
     id,
     actor,
     { status: "APPROVED", reviewNotes: notes ?? null, rejectionReason: null },
-    (current) => {
+    async (current, tx) => {
       // TC-DEL-027: approve was also moving SUSPENDED and REJECTED riders to
       // APPROVED — a suspended rider comes back only through reactivate (with a reason).
       if (current.status !== "REGISTERED" && current.status !== "UNDER_REVIEW") {
@@ -304,6 +305,24 @@ export async function approveDeliveryPartner(
           current.status === "SUSPENDED"
             ? "This delivery partner is suspended. Reactivate them with a reason instead."
             : "Only an application that is registered or under review can be approved.",
+        );
+      }
+      // D-57 (owner, 25 Oct 2026): no approval without an identity document on file.
+      const [identity] = await tx
+        .select({ id: deliveryPartnerDocuments.id })
+        .from(deliveryPartnerDocuments)
+        .where(
+          and(
+            eq(deliveryPartnerDocuments.deliveryPartnerId, current.id),
+            inArray(deliveryPartnerDocuments.docType, [...RIDER_IDENTITY_DOC_TYPES]),
+            isNull(deliveryPartnerDocuments.replacedAt),
+            ne(deliveryPartnerDocuments.status, "REJECTED"),
+          ),
+        )
+        .limit(1);
+      if (!identity) {
+        throw conflict(
+          "This rider has no identity document on file. Ask them to upload an Aadhaar, PAN, driving licence or other identity document (Profile → Documents) before approving.",
         );
       }
     },
