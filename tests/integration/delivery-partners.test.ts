@@ -20,7 +20,7 @@ import {
   startDeliveryPartnerReview,
   suspendDeliveryPartner,
 } from "@/server/services/delivery-partners";
-import { createUser, resetDatabase } from "../helpers/fixtures";
+import { addRiderIdentityDocument, createUser, resetDatabase } from "../helpers/fixtures";
 
 const ADMIN = (id: string) => ({ id, role: "ADMIN" as const });
 
@@ -117,6 +117,7 @@ describe("verification state machine", () => {
     const admin = await createUser({ role: "ADMIN" });
     const partner = await registerDeliveryPartner(applicant.id, baseInput);
 
+    await addRiderIdentityDocument(partner.id); // D-57: approval needs an identity document
     const approved = await approveDeliveryPartner(partner.id, ADMIN(admin.id), "Looks good");
     expect(approved.status).toBe("APPROVED");
     expect(approved.reviewNotes).toBe("Looks good");
@@ -130,6 +131,7 @@ describe("verification state machine", () => {
     const underReview = await startDeliveryPartnerReview(partner.id, ADMIN(admin.id), "Checking documents");
     expect(underReview.status).toBe("UNDER_REVIEW");
 
+    await addRiderIdentityDocument(partner.id);
     const approved = await approveDeliveryPartner(partner.id, ADMIN(admin.id));
     expect(approved.status).toBe("APPROVED");
   });
@@ -157,6 +159,7 @@ describe("verification state machine", () => {
       suspendDeliveryPartner(partner.id, "policy violation", ADMIN(admin.id)),
     ).rejects.toMatchObject({ code: "CONFLICT" });
 
+    await addRiderIdentityDocument(partner.id);
     await approveDeliveryPartner(partner.id, ADMIN(admin.id));
     const suspended = await suspendDeliveryPartner(partner.id, "policy violation", ADMIN(admin.id));
     expect(suspended.status).toBe("SUSPENDED");
@@ -203,6 +206,7 @@ describe("queries and ownership", () => {
     const b = await createUser();
     const partnerA = await registerDeliveryPartner(a.id, baseInput);
     await registerDeliveryPartner(b.id, baseInput);
+    await addRiderIdentityDocument(partnerA.id);
     await approveDeliveryPartner(partnerA.id, ADMIN(admin.id));
 
     const approved = await listDeliveryPartners({ status: "APPROVED" });

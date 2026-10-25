@@ -70,7 +70,7 @@ import {
   suspendDeliveryPartner,
 } from "@/server/services/delivery-partners";
 import { call } from "../helpers/http";
-import { createUser, resetDatabase } from "../helpers/fixtures";
+import { addRiderIdentityDocument, createUser, resetDatabase } from "../helpers/fixtures";
 
 const ADMIN = (id: string) => ({ id, role: "ADMIN" as const });
 
@@ -224,7 +224,7 @@ describe("nothing sensitive leaves the service layer", () => {
       await requireOwnDeliveryPartnerProfile(applicant.id, registered.id),
       ...(await listDeliveryPartners()),
       await startDeliveryPartnerReview(registered.id, admin),
-      await approveDeliveryPartner(registered.id, admin),
+      await addRiderIdentityDocument(registered.id).then(() => approveDeliveryPartner(registered.id, admin)),
       await suspendDeliveryPartner(registered.id, "policy check", admin),
       await reactivateDeliveryPartner(registered.id, "policy check passed", admin),
       await goOnline(legacyUser.id, 18.52, 73.85),
@@ -272,6 +272,7 @@ describe("no route returns KYC", () => {
     expect(detail.status).toBe(200);
     expectNoKyc(detail.body);
 
+    await addRiderIdentityDocument(partnerId); // D-57: approval needs an identity document
     const approved = await call(transitionRoute, `/api/delivery-partner/${partnerId}`, {
       method: "PATCH",
       params: { id: partnerId },
@@ -306,6 +307,7 @@ describe("beyond KYC: staff ids, date of birth and coordinates", () => {
     signInAs(admin, "ADMIN");
     const act = (body: Record<string, unknown>) =>
       call(transitionRoute, `/api/delivery-partner/${partner.id}`, { method: "PATCH", params: { id: partner.id }, body });
+    await addRiderIdentityDocument(partner.id);
     const approved = await act({ action: "approve", notes: "documents checked" });
     await goOnline(riderUser.id, LIVE.latitude, LIVE.longitude); // a live position on the row from here on
     const suspended = await act({ action: "suspend", reason: "policy check" });
@@ -347,6 +349,7 @@ describe("beyond KYC: staff ids, date of birth and coordinates", () => {
     signInAs(riderUser, "CUSTOMER");
     const registered = await call(registerRoute, "/api/delivery-partner", { method: "POST", body: { ...baseInput, dateOfBirth: DOB } });
     expect(registered.status).toBe(201);
+    await addRiderIdentityDocument(registered.body.id);
     await approveDeliveryPartner(registered.body.id, ADMIN(admin.id), "documents checked");
 
     signInAs(riderUser, "DELIVERY_PARTNER");
