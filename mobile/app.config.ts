@@ -54,6 +54,7 @@ const APP_LINK_PATH_PREFIXES = [
   "/delivery/",
   "/delivery-partner",
   "/disputes",
+  "/driving-simulator",
   "/gig",
   "/grievance",
   "/invoices",
