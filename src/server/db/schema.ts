@@ -811,6 +811,15 @@ export const shops = pgTable(
     minOrderPaise: bigint("min_order_paise", { mode: "number" }).notNull().default(0),
     /** Owner switch: the shop keeps its listing but takes no new orders for now. */
     ordersPaused: boolean("orders_paused").notNull().default(false),
+    /**
+     * D-69: end of the paid membership, set from the registration / renewal payments.
+     * Past it (plus rule shopMembership.graceDays) the shop is not online. Null: no end date.
+     */
+    membershipValidUntil: timestamp("membership_valid_until", { withTimezone: true }),
+    /** D-69: the owner closed the shop permanently (status INACTIVE). No foreign key: users are customer-side. */
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    closedBy: uuid("closed_by"),
+    closureReason: text("closure_reason"),
     /** Rating aggregate (GS-059), maintained from visible order_ratings. Average × 100. */
     ratingAvgX100: integer("rating_avg_x100").notNull().default(0),
     ratingCount: integer("rating_count").notNull().default(0),
