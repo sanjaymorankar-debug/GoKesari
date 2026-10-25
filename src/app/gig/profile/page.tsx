@@ -57,7 +57,7 @@ export default async function GigProfilePage() {
     <div className="mx-auto max-w-3xl pb-10">
       <PageHeader
         title="My Delivery Profile"
-        description={`Applied on ${profile.createdAt.toLocaleDateString("en-IN", { dateStyle: "medium" })}`}
+        description={`Applied on ${profile.createdAt.toLocaleDateString("en-IN", { dateStyle: "medium", timeZone: "Asia/Kolkata" })}`}
         action={
           <div className="flex flex-wrap gap-2">
             <LinkButton href="/gig/orders" variant="secondary">

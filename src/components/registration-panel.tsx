@@ -76,7 +76,7 @@ export function RegistrationPanel({
               label="Registration date"
               value={
                 details.registrationDate
-                  ? new Date(details.registrationDate).toLocaleDateString("en-IN")
+                  ? new Date(details.registrationDate).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })
                   : "—"
               }
             />
@@ -171,7 +171,7 @@ export function RegistrationPanel({
                       {p.reference}
                     </td>
                     <td className="px-4 py-2">
-                      {new Date(p.paidAt).toLocaleDateString("en-IN")}
+                      {new Date(p.paidAt).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}
                     </td>
                     <td className="px-4 py-2">
                       <Badge>{p.paymentType.replace(/_/g, " ")}</Badge>

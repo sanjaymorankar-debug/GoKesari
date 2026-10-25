@@ -226,7 +226,7 @@ export default async function ProductComparePage({
                   {r.marketLocation ? ` · ${r.marketLocation}` : ""}
                   <span className="text-xs text-ink-500">
                     {" "}
-                    · {new Date(r.referencedAt).toLocaleDateString("en-IN", { dateStyle: "medium" })}
+                    · {new Date(r.referencedAt).toLocaleDateString("en-IN", { dateStyle: "medium", timeZone: "Asia/Kolkata" })}
                     {r.verificationStatus !== "VERIFIED" ? ` · ${r.verificationStatus.toLowerCase()}` : ""}
                   </span>
                 </span>

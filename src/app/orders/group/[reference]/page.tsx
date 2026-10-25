@@ -31,7 +31,7 @@ export default async function OrderGroupPage({
     <div className="mx-auto max-w-2xl space-y-4">
       <PageHeader
         title={`Order ${group.reference}`}
-        description={`${group.orders.length} shop${group.orders.length === 1 ? "" : "s"} · placed ${group.createdAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}`}
+        description={`${group.orders.length} shop${group.orders.length === 1 ? "" : "s"} · placed ${group.createdAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })}`}
       />
       {placed ? (
         <Alert tone="success" title="Order placed">

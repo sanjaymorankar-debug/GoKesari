@@ -34,7 +34,7 @@ export default async function MyReturnsPage() {
                   </p>
                   <p className="text-xs text-ink-500">
                     {r.shopName} · {r.itemCount} item{r.itemCount === 1 ? "" : "s"} ·{" "}
-                    {new Date(r.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium" })}
+                    {new Date(r.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium", timeZone: "Asia/Kolkata" })}
                   </p>
                 </div>
                 <div className="flex items-center gap-3">

@@ -26,7 +26,7 @@ const ACTIVE_LABEL: Record<string, string> = {
 };
 
 function formatWhen(date: Date): string {
-  return date.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+  return date.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" });
 }
 
 function formatKm(distanceKm: string | null): string | null {

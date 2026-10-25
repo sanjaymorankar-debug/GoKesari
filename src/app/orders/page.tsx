@@ -226,6 +226,7 @@ export default async function OrdersPage({
                 {new Date(order.createdAt).toLocaleString("en-IN", {
                   dateStyle: "medium",
                   timeStyle: "short",
+                  timeZone: "Asia/Kolkata",
                 })}
                 {order.deliveryDate && !order.scheduledSlotStart ? ` · for ${order.deliveryDate}` : ""}
               </p>

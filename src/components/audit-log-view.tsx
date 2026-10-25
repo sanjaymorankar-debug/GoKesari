@@ -55,7 +55,7 @@ export function AuditLogView({
             {rows.map((row) => (
               <tr key={row.id}>
                 <td className="whitespace-nowrap px-4 py-2 text-ink-500">
-                  {new Date(row.createdAt).toLocaleString("en-IN")}
+                  {new Date(row.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}
                 </td>
                 <td className="px-4 py-2">
                   <span className="text-ink-900">
