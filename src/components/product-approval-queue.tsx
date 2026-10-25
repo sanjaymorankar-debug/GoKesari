@@ -73,7 +73,7 @@ export function ProductApprovalQueue({ rows }: { rows: PendingProductRow[] }) {
                 <p className="text-xs text-ink-500">
                   {row.categoryName} · per {row.unit} · created by{" "}
                   {row.createdByName ?? "a shop owner"} on{" "}
-                  {new Date(row.createdAt).toLocaleDateString("en-IN")}
+                  {new Date(row.createdAt).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}
                 </p>
                 {row.description ? (
                   <p className="mt-1 text-sm text-ink-600">{row.description}</p>

@@ -119,7 +119,7 @@ export function ReturnCase({ detail }: { detail: ReturnDetail }) {
                 ? "rider assigned"
                 : "rider on the way"}
             {detail.pickup.scheduledFor
-              ? ` · ready from ${new Date(detail.pickup.scheduledFor).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}`
+              ? ` · ready from ${new Date(detail.pickup.scheduledFor).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })}`
               : ""}
           </p>
           {detail.pickup.handoverCode ? (
@@ -136,7 +136,7 @@ export function ReturnCase({ detail }: { detail: ReturnDetail }) {
         {detail.history.map((h) => (
           <li key={h.id}>
             <span className="font-medium text-ink-700">{RETURN_STATUS_LABELS[h.toStatus as ReturnStatus]}</span>{" "}
-            {new Date(h.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+            {new Date(h.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })}
             {h.note ? ` — ${h.note}` : ""}
           </li>
         ))}

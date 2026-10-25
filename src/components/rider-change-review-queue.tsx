@@ -62,7 +62,7 @@ function Row({ row }: { row: RiderChangeRow }) {
           <li key={k}>{LABELS[k] ?? k}: <span className="font-mono">{v}</span></li>
         ))}
       </ul>
-      <p className="text-xs text-ink-500">Requested {new Date(row.createdAt).toLocaleString("en-IN")}. Check the rider&apos;s documents before approving.</p>
+      <p className="text-xs text-ink-500">Requested {new Date(row.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}. Check the rider&apos;s documents before approving.</p>
       {error ? <Alert tone="danger">{error}</Alert> : null}
       <div className="flex flex-wrap gap-2">
         <Button size="sm" disabled={busy} onClick={() => decide("approve")}>Approve</Button>

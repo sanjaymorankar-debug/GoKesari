@@ -265,7 +265,7 @@ export function RiderNavigation({ initial }: { initial: NavigationView }) {
     };
   }, [offRoute, position, rerouting, nav.deliveryOrderId, nav.settings.rerouteCooldownSeconds, speak]);
 
-  const arrival = new Date(clock + etaSeconds * 1000).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
+  const arrival = new Date(clock + etaSeconds * 1000).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" });
 
   return (
     <div className="space-y-4" data-testid="rider-navigation">

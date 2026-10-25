@@ -61,7 +61,7 @@ export function ApiKeys({ keys }: { keys: KeyRow[] }) {
             <span>
               <span className="block font-mono">{k.prefix}…</span>
               <span className="block text-xs text-ink-500">
-                {k.label ?? "no label"} · used {k.useCount} time(s){k.lastUsedAt ? `, last ${new Date(k.lastUsedAt).toLocaleString("en-IN")}` : ""}
+                {k.label ?? "no label"} · used {k.useCount} time(s){k.lastUsedAt ? `, last ${new Date(k.lastUsedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}` : ""}
               </span>
             </span>
             {k.revokedAt ? <Badge tone="danger">Revoked</Badge> : <Button size="sm" variant="danger" onClick={() => void revoke(k.id)}>Revoke</Button>}

@@ -88,7 +88,7 @@ export function ShopStaffManager({ shopId, staff }: { shopId: string; staff: Mem
             <div>
               <p className="font-medium text-ink-900">{m.name ?? "—"}</p>
               <p className="text-xs text-ink-500">
-                {m.contact} · added {new Date(m.addedAt).toLocaleDateString("en-IN", { dateStyle: "medium" })}
+                {m.contact} · added {new Date(m.addedAt).toLocaleDateString("en-IN", { dateStyle: "medium", timeZone: "Asia/Kolkata" })}
               </p>
             </div>
             <Button size="sm" variant="ghost" disabled={busy} onClick={() => remove(m)}>
@@ -103,7 +103,7 @@ export function ShopStaffManager({ shopId, staff }: { shopId: string; staff: Mem
           <ul className="mt-2 space-y-1">
             {past.map((m) => (
               <li key={m.id} className="text-ink-500">
-                {m.name ?? m.contact} <Badge>removed {m.revokedAt ? new Date(m.revokedAt).toLocaleDateString("en-IN") : ""}</Badge>
+                {m.name ?? m.contact} <Badge>removed {m.revokedAt ? new Date(m.revokedAt).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" }) : ""}</Badge>
               </li>
             ))}
           </ul>

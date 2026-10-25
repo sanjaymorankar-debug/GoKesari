@@ -146,7 +146,7 @@ export function CouponAdmin({ rows, enabled }: { rows: CouponRow[]; enabled: boo
                   {r.discountType === "FLAT" ? <Money paise={r.flatPaise ?? 0} /> : `${r.percent}%`} off
                   {r.maxDiscountPaise ? <> (up to <Money paise={r.maxDiscountPaise} />)</> : null}
                   {r.minOrderPaise > 0 ? <> · min <Money paise={r.minOrderPaise} /></> : null}
-                  {r.expiresAt ? ` · until ${new Date(r.expiresAt).toLocaleDateString("en-IN")}` : ""}
+                  {r.expiresAt ? ` · until ${new Date(r.expiresAt).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}` : ""}
                 </p>
                 <p className="text-xs text-ink-500">
                   Used {r.uses}

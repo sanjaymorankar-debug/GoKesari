@@ -219,8 +219,8 @@ export function HomeBannerManager({ banners }: { banners: BannerRow[] }) {
                     {b.ctaHref}
                     {b.city ? ` · ${b.city}` : ""}
                     {b.pincode ? ` · PIN ${b.pincode}` : ""}
-                    {b.startsAt ? ` · from ${new Date(b.startsAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}` : ""}
-                    {b.endsAt ? ` · until ${new Date(b.endsAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}` : ""}
+                    {b.startsAt ? ` · from ${new Date(b.startsAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })}` : ""}
+                    {b.endsAt ? ` · until ${new Date(b.endsAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })}` : ""}
                   </span>
                 </span>
                 <span className="flex flex-wrap gap-1.5">
