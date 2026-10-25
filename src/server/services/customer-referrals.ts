@@ -13,13 +13,25 @@
  *     or when that mobile number has already earned a referral reward;
  *   - a referrer earns at most `maxRewardsPerReferrer` rewards.
  * Rewards are idempotent (wallet idempotency keys) and are decided once.
+ * A reward later found fraudulent can be reversed by an admin (D-25):
+ * reverseCustomerReferral takes it back from both wallets.
  */
 import { and, count, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { formatPaise } from "@/lib/money";
 import { db, type DbClient } from "@/server/db";
-import { addresses, customerReferralCodes, customerReferrals, orders, users, type CustomerReferral } from "@/server/db/schema";
+import {
+  addresses,
+  customerReferralCodes,
+  customerReferrals,
+  orders,
+  users,
+  walletTransactions,
+  wallets,
+  type CustomerReferral,
+  type UserRole,
+} from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { getRule } from "./settings";
@@ -171,7 +183,7 @@ export async function rewardReferralOnDelivery(orderId: string, tx: DbClient): P
     const reused = await tx
       .select({ id: customerReferrals.id })
       .from(customerReferrals)
-      .where(and(eq(customerReferrals.refereePhoneE164, phone), eq(customerReferrals.status, "REWARDED")));
+      .where(and(eq(customerReferrals.refereePhoneE164, phone), inArray(customerReferrals.status, ["REWARDED", "REVERSED"])));
     if (reused.length > 0) rejection = "This mobile number has already earned a referral reward.";
   }
   if (!rejection && order.deliveryAddressSnapshot) {
@@ -203,7 +215,8 @@ export async function rewardReferralOnDelivery(orderId: string, tx: DbClient): P
     .where(
       and(
         eq(customerReferrals.referrerUserId, referral.referrerUserId),
-        eq(customerReferrals.status, "REWARDED"),
+        // A reversed reward still uses up one of the referrer's rewards.
+        inArray(customerReferrals.status, ["REWARDED", "REVERSED"]),
         sql`coalesce(${customerReferrals.referrerRewardPaise}, 0) > 0`,
       ),
     );
@@ -258,6 +271,106 @@ export async function rewardReferralOnDelivery(orderId: string, tx: DbClient): P
     },
     tx,
   );
+}
+
+/**
+ * D-25: takes back a rewarded referral found fraudulent. Each reward is
+ * debited from its wallet as a REVERSAL pointing at the original credit. A
+ * wallet never goes below zero: when the credit was already spent, the
+ * balance is taken and the rest recorded as not recovered. The friend's
+ * mobile stays used, so it can't earn a reward again. Repeating the call
+ * returns the reversed referral unchanged.
+ */
+export async function reverseCustomerReferral(
+  referralId: string,
+  reason: string,
+  actor: { id: string; role: UserRole },
+): Promise<CustomerReferral> {
+  const note = reason.trim();
+  if (note.length < 5) throw validationFailed("Give the reason for reversing this reward.");
+  return db.transaction(async (tx) => {
+    const [row] = await tx.select().from(customerReferrals).where(eq(customerReferrals.id, referralId)).for("update");
+    if (!row) throw notFound("Customer referral");
+    if (row.status === "REVERSED") return row;
+    if (row.status !== "REWARDED") throw conflict("Only a rewarded referral can be reversed.");
+
+    const recovered: Record<"referrer" | "referee", number> = { referrer: 0, referee: 0 };
+    const credited: { userId: string; recovered: number }[] = [];
+    for (const [userId, reward, who] of [
+      [row.referrerUserId, row.referrerRewardPaise ?? 0, "referrer"],
+      [row.refereeUserId, row.refereeRewardPaise ?? 0, "referee"],
+    ] as const) {
+      if (reward <= 0) continue;
+      const original = await tx.query.walletTransactions.findFirst({ where: eq(walletTransactions.idempotencyKey, `referral:${row.id}:${who}`) });
+      if (!original) continue; // never paid
+      const [wallet] = await tx.select().from(wallets).where(eq(wallets.userId, userId)).for("update");
+      const take = Math.min(reward, Math.max(0, wallet?.balancePaise ?? 0));
+      if (take > 0) {
+        await applyWalletMutation(
+          {
+            userId,
+            amountPaise: take,
+            type: "REVERSAL",
+            idempotencyKey: `referral:${row.id}:${who}:reversal`,
+            reversalOfId: original.id,
+            createdBy: actor.id,
+            description: "Referral reward taken back after a review",
+          },
+          tx,
+        );
+      }
+      recovered[who] = take;
+      credited.push({ userId, recovered: take });
+    }
+
+    const [updated] = await tx
+      .update(customerReferrals)
+      .set({
+        status: "REVERSED",
+        reversedAt: new Date(),
+        reversedBy: actor.id,
+        reversalReason: note,
+        referrerRecoveredPaise: recovered.referrer,
+        refereeRecoveredPaise: recovered.referee,
+      })
+      .where(eq(customerReferrals.id, row.id))
+      .returning();
+    for (const c of credited) {
+      await notify(
+        {
+          userId: c.userId,
+          type: NOTIFICATION_TYPES.REFERRAL_REVERSED,
+          title: "Referral reward reversed",
+          body:
+            c.recovered > 0
+              ? `A referral reward was reversed after a review; ${formatPaise(c.recovered)} was taken back from your wallet.`
+              : "A referral reward was reversed after a review.",
+          actionUrl: "/wallet",
+        },
+        tx,
+      );
+    }
+    await recordAudit(
+      {
+        actorId: actor.id,
+        actorRole: actor.role,
+        action: AUDIT_ACTIONS.CUSTOMER_REFERRAL_REVERSED,
+        entityType: "customer_referral",
+        entityId: row.id,
+        previousValue: { status: row.status, referrerRewardPaise: row.referrerRewardPaise, refereeRewardPaise: row.refereeRewardPaise },
+        newValue: {
+          status: "REVERSED",
+          reason: note,
+          referrerRecoveredPaise: recovered.referrer,
+          refereeRecoveredPaise: recovered.referee,
+          referrerUnrecoveredPaise: (row.referrerRewardPaise ?? 0) - recovered.referrer,
+          refereeUnrecoveredPaise: (row.refereeRewardPaise ?? 0) - recovered.referee,
+        },
+      },
+      tx,
+    );
+    return updated;
+  });
 }
 
 /** Admin view: recent referrals with their outcome. */

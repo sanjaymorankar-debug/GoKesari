@@ -96,6 +96,12 @@ export default async function OrderDetailPage({
                     <span className="ml-1 text-xs text-ink-500" data-testid="order-line-unit-price">
                       @ <Money paise={item.unitPricePaise} /> / {item.unitSnapshot}
                     </span>
+                    {/* D-91: the MRP in force when the order was placed. */}
+                    {item.mrpPaise != null ? (
+                      <span className="ml-1 text-xs text-ink-500" data-testid="order-line-mrp">
+                        (MRP <Money paise={item.mrpPaise} />)
+                      </span>
+                    ) : null}
                   </span>
                   <Money paise={item.lineTotalPaise} />
                 </li>

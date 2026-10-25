@@ -23,6 +23,7 @@ import type { CustomerLocation } from "@/lib/location";
 import { db } from "@/server/db";
 import { shops, shopWallets, societies, societyShops, type Shop } from "@/server/db/schema";
 import { getRule } from "./settings";
+import { membershipLapsedShopIds, membershipOrderGate } from "./shop-membership";
 
 /** Upper bound of any shop's radius (the schema CHECK) — used for the SQL pre-filter. */
 const MAX_SERVICE_RADIUS_KM = 50;
@@ -57,10 +58,12 @@ type ServiceabilityShop = Pick<
  * check that reads `ordersPaused`. Nothing changes while the rule is off.
  */
 export async function walletOrderGate(): Promise<SQL> {
+  // D-69: a shop whose membership lapsed is closed the same way.
+  const membership = await membershipOrderGate();
   const rules = await getRule("shopWallet");
-  if (!rules.enabled) return sql`true`;
+  if (!rules.enabled) return membership;
   // Raw names: the correlated subquery must point at the outer shops row.
-  return sql`coalesce((select sw.balance_paise from shop_wallets sw where sw.shop_id = shops.id), 0) >= ${rules.minBalancePaise}`;
+  return sql`(coalesce((select sw.balance_paise from shop_wallets sw where sw.shop_id = shops.id), 0) >= ${rules.minBalancePaise} and ${membership})`;
 }
 
 /** The shops among `shopIds` customers cannot order from because their wallet is below the minimum. */
@@ -83,6 +86,8 @@ export async function withWalletGate<T extends Pick<Shop, "id" | "ordersPaused">
   // its grace period is closed the same way. Imported lazily: legal-documents.ts sits above this module.
   const { legallyBlockedShopIds } = await import("./legal-documents");
   for (const id of await legallyBlockedShopIds(rows.filter((r) => !r.ordersPaused && !blocked.has(r.id)).map((r) => r.id))) blocked.add(id);
+  // D-69: and a shop whose membership was not renewed.
+  for (const id of await membershipLapsedShopIds(rows.filter((r) => !r.ordersPaused && !blocked.has(r.id)).map((r) => r.id))) blocked.add(id);
   return blocked.size === 0 ? rows : rows.map((r) => (blocked.has(r.id) ? { ...r, ordersPaused: true } : r));
 }
 

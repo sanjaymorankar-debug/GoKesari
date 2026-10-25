@@ -17,6 +17,7 @@ import { db } from "../lib/db";
 import { addToCart, defaultAddress, emptyCart, sellable, shopOf, walletBalance } from "../lib/flows";
 import { call, expectStatus, RUN, why } from "../lib/http";
 import { expect, need, qa } from "../lib/record";
+import { testPng } from "../lib/finance-helpers";
 import { world, type Role } from "../lib/world";
 import {
   apiFor,
@@ -224,6 +225,8 @@ qa("TC-RBAC-011", "a shop owner who applies as a rider and is approved holds bot
     });
     expectStatus(applied, 201, "rider application");
     const partnerId = String(applied.body?.id ?? "");
+    // D-57: approval needs an identity document on file.
+    expectStatus(await call(ctx, "POST", "/api/delivery-partner/me/documents", undefined, { multipart: { docType: "DRIVING_LICENCE", file: { name: "licence.png", mimeType: "image/png", buffer: testPng(400, 260) } } }), 201, "upload an identity document");
     expectStatus(await call(await as("admin"), "PATCH", `/api/delivery-partner/${partnerId}`, { action: "approve" }), 200, "admin approves the rider");
   } finally {
     await ctx.dispose();
@@ -418,6 +421,8 @@ qa("TC-ADM-018", "reinstate: SUSPENDED → ACTIVE and audited; ACTIVE 409; unkno
     const applied = await call(ctx, "POST", "/api/delivery-partner", { fullName: "QA Reinstate Rider", mobile: user.mobile ?? "9876501235", vehicleType: "MOTORCYCLE", latitude: loc.lat, longitude: loc.lng, operatingRadiusKm: 5 });
     expectStatus(applied, 201, "rider application");
     partnerId = String(applied.body?.id);
+    // D-57: approval needs an identity document on file.
+    expectStatus(await call(ctx, "POST", "/api/delivery-partner/me/documents", undefined, { multipart: { docType: "DRIVING_LICENCE", file: { name: "licence.png", mimeType: "image/png", buffer: testPng(400, 260) } } }), 201, "upload an identity document");
   } finally {
     await ctx.dispose();
   }
