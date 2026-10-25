@@ -98,7 +98,7 @@ export function ReturnRequestForm({ order }: { order: ReturnableOrder }) {
     <div className="space-y-5" data-testid="return-form">
       {order.windowEndsAt ? (
         <p className="text-sm text-ink-500">
-          You can request a return until {new Date(order.windowEndsAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}.
+          You can request a return until {new Date(order.windowEndsAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })}.
         </p>
       ) : null}
 

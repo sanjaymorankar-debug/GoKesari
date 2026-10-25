@@ -81,7 +81,7 @@ const ACTION_LABEL: Record<RowView["action"], string> = { UPSERT: "Create or upd
 
 const money = (p: number | null | undefined) => (p == null ? "—" : formatPaiseCompact(p));
 const when = (iso: string | null) =>
-  iso ? new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit" }) : "—";
+  iso ? new Date(iso).toLocaleString("en-IN", { day: "numeric", month: "short", year: "numeric", hour: "2-digit", minute: "2-digit", timeZone: "Asia/Kolkata" }) : "—";
 
 async function readError(res: Response, fallback: string): Promise<string> {
   const body = await res.json().catch(() => null);

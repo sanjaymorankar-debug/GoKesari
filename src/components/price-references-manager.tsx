@@ -154,7 +154,7 @@ export function PriceReferencesManager({ queue, status }: { queue: ReferenceRow[
             </div>
             <p className="text-xs text-ink-500">
               {r.sourceName} ({r.sourceType.replace(/_/g, " ").toLowerCase()}){r.unitBasis ? ` · ${r.unitBasis}` : ""}
-              {r.marketLocation ? ` · ${r.marketLocation}` : ""} · observed {new Date(r.referencedAt).toLocaleDateString("en-IN")}
+              {r.marketLocation ? ` · ${r.marketLocation}` : ""} · observed {new Date(r.referencedAt).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}
               {r.referenceUrl ? (
                 <>
                   {" · "}

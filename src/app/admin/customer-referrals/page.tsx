@@ -61,7 +61,7 @@ export default async function CustomerReferralsPage() {
                       "—"
                     )}
                   </td>
-                  <td className="p-2">{r.createdAt.toLocaleDateString("en-IN")}</td>
+                  <td className="p-2">{r.createdAt.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}</td>
                 </tr>
               ))}
             </tbody>

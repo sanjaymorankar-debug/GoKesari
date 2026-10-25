@@ -63,7 +63,7 @@ export function RiderDocumentsPanel({ documents }: { documents: RiderDocumentRow
                 {d.label}
                 <span className="text-xs text-ink-500">
                   {" "}
-                  · uploaded {new Date(d.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium" })}
+                  · uploaded {new Date(d.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium", timeZone: "Asia/Kolkata" })}
                 </span>
                 {d.rejectionReason ? <span className="block text-xs text-red-700">{d.rejectionReason}</span> : null}
               </span>

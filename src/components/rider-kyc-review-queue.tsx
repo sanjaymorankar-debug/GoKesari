@@ -63,7 +63,7 @@ function Row({ doc }: { doc: RiderKycRow }) {
             {doc.label}
             <span className="text-xs text-ink-500">
               {" "}
-              · uploaded {new Date(doc.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium" })}
+              · uploaded {new Date(doc.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium", timeZone: "Asia/Kolkata" })}
             </span>
           </span>
           {doc.rejectionReason ? <span className="block text-xs text-red-700">{doc.rejectionReason}</span> : null}

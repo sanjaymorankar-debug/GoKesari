@@ -67,7 +67,7 @@ export default async function StatusChangesPage({
               </span>
               <span className="text-xs text-ink-500">
                 {r.actorId ? `by ${r.actorId.slice(0, 8)}` : "system"} ·{" "}
-                {r.createdAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                {r.createdAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })}
               </span>
             </div>
           ))}

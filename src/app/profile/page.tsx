@@ -185,6 +185,7 @@ export default async function ProfilePage({ searchParams }: { searchParams: Prom
                   {new Date(n.createdAt).toLocaleString("en-IN", {
                     dateStyle: "medium",
                     timeStyle: "short",
+                    timeZone: "Asia/Kolkata",
                   })}
                 </p>
               </li>

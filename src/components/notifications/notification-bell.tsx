@@ -40,10 +40,10 @@ const TEXT = {
 function when(iso: string, lang: Lang): string {
   const date = new Date(iso);
   const minutes = Math.round((Date.now() - date.getTime()) / 60_000);
-  if (minutes < 1) return lang === "en" ? "now" : date.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" });
+  if (minutes < 1) return lang === "en" ? "now" : date.toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" });
   if (minutes < 60) return `${minutes} min`;
   if (minutes < 24 * 60) return `${Math.round(minutes / 60)} h`;
-  return date.toLocaleDateString("en-IN", { day: "numeric", month: "short" });
+  return date.toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" });
 }
 
 export function NotificationBell({

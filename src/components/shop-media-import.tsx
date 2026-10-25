@@ -201,7 +201,7 @@ export function ShopMediaImport({
               </h2>
               <p className="text-xs text-ink-500">
                 {current.import.photoMode === "REPLACE" ? "Replaces existing photos" : "Adds to existing photos"} ·{" "}
-                {new Date(current.import.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                {new Date(current.import.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })}
               </p>
             </div>
             {current.import.status === "VALIDATED" ? (
@@ -281,7 +281,7 @@ export function ShopMediaImport({
                 </button>
                 <span className="text-xs text-ink-500">
                   {p.status.toLowerCase()} · {p.totals.applied ?? 0} applied ·{" "}
-                  {new Date(p.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium" })}
+                  {new Date(p.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium", timeZone: "Asia/Kolkata" })}
                 </span>
               </li>
             ))}

@@ -403,7 +403,7 @@ export default async function FinancePage({
                         {p.refundedPaise > 0 ? <> (refunded <Money paise={p.refundedPaise} />)</> : null} · ref{" "}
                         {p.gatewayPaymentId ?? p.gatewayOrderId ?? p.merchantOrderId}
                         <span className="block">
-                          {p.events.map((e) => `${e.toStatus} (${e.source}, ${e.at.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })})`).join(" → ")}
+                          {p.events.map((e) => `${e.toStatus} (${e.source}, ${e.at.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })})`).join(" → ")}
                         </span>
                         {p.refunds.map((r) => (
                           <span key={r.id} className="block">

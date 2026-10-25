@@ -37,7 +37,7 @@ export default async function SuspensionsPage() {
             <div className="flex flex-wrap items-center justify-between gap-2">
               <p className="font-semibold text-ink-900">{shopName}</p>
               <span className="text-xs text-ink-500">
-                since {suspension.effectiveAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                since {suspension.effectiveAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })}
               </span>
             </div>
             <p className="text-sm text-ink-600">Reason: {suspension.reason}</p>

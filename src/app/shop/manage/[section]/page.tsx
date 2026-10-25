@@ -169,7 +169,7 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
               <Alert tone="danger" title="Your shop is suspended">
                 <span className="block">
                   {suspension
-                    ? `Since ${suspension.effectiveAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}. Reason: ${suspension.reason}`
+                    ? `Since ${suspension.effectiveAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })}. Reason: ${suspension.reason}`
                     : "Please contact support for details."}
                 </span>
                 {suspension ? <span className="mt-1 block">What to do: {suspension.expectedAction}</span> : null}
