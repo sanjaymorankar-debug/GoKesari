@@ -6304,8 +6304,11 @@ export const customerReferrals = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     code: text("code").notNull(),
-    /** PENDING until the friend's first delivered order; then REWARDED, or REJECTED with a reason. */
-    status: text("status", { enum: ["PENDING", "REWARDED", "REJECTED"] }).notNull().default("PENDING"),
+    /**
+     * PENDING until the friend's first delivered order; then REWARDED, or REJECTED with a reason.
+     * REVERSED (D-25): a reward later found fraudulent, taken back from the wallets.
+     */
+    status: text("status", { enum: ["PENDING", "REWARDED", "REJECTED", "REVERSED"] }).notNull().default("PENDING"),
     rejectionReason: text("rejection_reason"),
     qualifyingOrderId: uuid("qualifying_order_id").references(() => orders.id, { onDelete: "set null" }),
     referrerRewardPaise: bigint("referrer_reward_paise", { mode: "number" }),
@@ -6313,6 +6316,12 @@ export const customerReferrals = pgTable(
     /** The friend's mobile when rewarded — one reward per mobile number. */
     refereePhoneE164: text("referee_phone_e164"),
     rewardedAt: timestamp("rewarded_at", { withTimezone: true }),
+    reversedAt: timestamp("reversed_at", { withTimezone: true }),
+    reversedBy: uuid("reversed_by").references(() => users.id, { onDelete: "set null" }),
+    reversalReason: text("reversal_reason"),
+    /** What the reversal took back from each wallet; less than the reward when the credit was already spent. */
+    referrerRecoveredPaise: bigint("referrer_recovered_paise", { mode: "number" }),
+    refereeRecoveredPaise: bigint("referee_recovered_paise", { mode: "number" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -6321,7 +6330,7 @@ export const customerReferrals = pgTable(
     index("customer_referrals_referrer_idx").on(t.referrerUserId),
     uniqueIndex("customer_referrals_rewarded_phone_uq")
       .on(t.refereePhoneE164)
-      .where(sql`${t.status} = 'REWARDED' AND ${t.refereePhoneE164} IS NOT NULL`),
+      .where(sql`${t.status} IN ('REWARDED', 'REVERSED') AND ${t.refereePhoneE164} IS NOT NULL`),
     check("customer_referrals_not_self", sql`${t.referrerUserId} <> ${t.refereeUserId}`),
   ],
 );

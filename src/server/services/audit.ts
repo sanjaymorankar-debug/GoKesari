@@ -127,6 +127,7 @@ export const AUDIT_ACTIONS = {
   REFERRAL_CODE_ASSIGNED: "referral_code.assigned",
   CUSTOMER_REFERRAL_APPLIED: "customer_referral.applied",
   CUSTOMER_REFERRAL_DECIDED: "customer_referral.decided",
+  CUSTOMER_REFERRAL_REVERSED: "customer_referral.reversed", // D-25: a fraudulent reward taken back
   CUSTOMER_REFERRAL_REFUSED: "customer_referral.refused", // someone tried their own code (risk rule REFERRAL_ABUSE)
   PRODUCT_REMOVED: "shop_product.removed",
 
