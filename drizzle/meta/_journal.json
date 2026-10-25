@@ -645,6 +645,13 @@
       "when": 1792125279436,
       "tag": "0091_drop_guest_searches",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1792900000000,
+      "tag": "0092_order_item_mrp",
+      "breakpoints": true
     }
   ]
 }
