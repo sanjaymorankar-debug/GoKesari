@@ -16,7 +16,6 @@ export const AUDIT_ACTIONS = {
   SHOP_REJECTED: "shop.rejected",
   SHOP_SUSPENDED: "shop.suspended",
   SHOP_REACTIVATED: "shop.reactivated",
-  SHOP_CLOSED: "shop.closed", // D-69: the owner closed the shop permanently
   SHOP_SUSPENSION_ORDER_RESOLVED: "shop.suspension_order_resolved",
   SHOP_UPDATED: "shop.updated",
 
@@ -128,7 +127,6 @@ export const AUDIT_ACTIONS = {
   REFERRAL_CODE_ASSIGNED: "referral_code.assigned",
   CUSTOMER_REFERRAL_APPLIED: "customer_referral.applied",
   CUSTOMER_REFERRAL_DECIDED: "customer_referral.decided",
-  CUSTOMER_REFERRAL_REVERSED: "customer_referral.reversed", // D-25: a fraudulent reward taken back
   CUSTOMER_REFERRAL_REFUSED: "customer_referral.refused", // someone tried their own code (risk rule REFERRAL_ABUSE)
   PRODUCT_REMOVED: "shop_product.removed",
 

@@ -18,7 +18,6 @@ import { db, type DbClient } from "@/server/db";
 import {
   orderItems,
   orders,
-  productCategories,
   products,
   shopProducts,
   shops,
@@ -417,8 +416,6 @@ export interface InventoryRow {
   productId: string;
   productCode: string;
   productName: string;
-  /** For the inventory page's category filter (D-96). */
-  categoryName: string | null;
   unit: string;
   onlinePricePaise: number | null;
   offlinePricePaise: number | null;
@@ -441,11 +438,10 @@ export interface InventoryRow {
 /** Every live listing with stock, reservations, effective thresholds and any open alert. */
 export async function listInventory(shopId: string): Promise<InventoryRow[]> {
   const rows = await db
-    .select({ sp: shopProducts, shop: shops, product: products, categoryName: productCategories.name })
+    .select({ sp: shopProducts, shop: shops, product: products })
     .from(shopProducts)
     .innerJoin(shops, eq(shopProducts.shopId, shops.id))
     .innerJoin(products, eq(shopProducts.productId, products.id))
-    .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
     .where(and(eq(shopProducts.shopId, shopId), isNull(shopProducts.deletedAt)));
   if (rows.length === 0) return [];
 
@@ -471,7 +467,7 @@ export async function listInventory(shopId: string): Promise<InventoryRow[]> {
     .from(stockAlerts)
     .where(and(eq(stockAlerts.shopId, shopId), eq(stockAlerts.status, "OPEN")));
 
-  return rows.map(({ sp, shop, product, categoryName }) => {
+  return rows.map(({ sp, shop, product }) => {
     const thresholds = resolveThresholds(sp, product, shop);
     const reserved = Math.round((reservedMilli.get(sp.id) ?? 0) / Math.max(1, product.unitSizeMilli));
     return {
@@ -479,7 +475,6 @@ export async function listInventory(shopId: string): Promise<InventoryRow[]> {
       productId: product.id,
       productCode: product.code,
       productName: product.name,
-      categoryName,
       unit: product.unit,
       onlinePricePaise: sp.onlinePricePaise,
       offlinePricePaise: sp.offlinePricePaise,

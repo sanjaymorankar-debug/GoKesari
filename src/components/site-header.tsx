@@ -38,19 +38,18 @@ interface Props {
   referralLinks?: { href: string; key: "referral" | "invite" }[];
 }
 
-/**
- * Customer destinations in the row on wide screens (on phones the home board holds them).
- * D-103: Orders and Subscriptions live in the account menu. With them in the row, a signed-in
- * header had no width left for the search box (0 px), and its voice button lay over "Shops".
- */
-const CUSTOMER_NAV: { href: string; label: Text }[] = [{ href: "/shops", label: UI.shops }];
+/** Customer destinations in the row on wide screens (on phones the home board holds them). */
+const CUSTOMER_NAV: { href: string; label: Text; auth?: boolean }[] = [
+  { href: "/shops", label: UI.shops },
+  { href: "/orders", label: UI.orders, auth: true },
+  { href: "/subscriptions", label: UI.subscriptions, auth: true },
+];
 
 /** Account menu destinations, in the page's language. */
 const ACCOUNT_NAV: { href: string; label: Text }[] = [
   { href: "/profile", label: L("My profile", "मेरी प्रोफ़ाइल", "माझे प्रोफाइल") },
   { href: "/wallet", label: L("My wallet", "मेरा वॉलेट", "माझे वॉलेट") },
   { href: "/orders", label: L("My orders", "मेरे ऑर्डर", "माझ्या ऑर्डर") },
-  { href: "/subscriptions", label: L("My subscriptions", "मेरे सब्सक्रिप्शन", "माझी सदस्यता") },
   { href: "/lists", label: L("My lists", "मेरी सूचियाँ", "माझ्या याद्या") },
   { href: "/society", label: L("My society", "मेरी सोसाइटी", "माझी सोसायटी") },
   { href: "/profile/bank-account", label: L("Bank account", "बैंक खाता", "बँक खाते") },
@@ -162,8 +161,7 @@ export function SiteHeader({
         <Link href="/" className="flex min-h-11 shrink-0 items-center gap-2 py-1" aria-label={`GoKesari — ${tr(UI.home, lang)}`}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/gk-mark.png" alt="" width={62} height={36} className="h-8 w-auto rounded-lg lg:h-10" />
-          {/* D-103: signed in, the row needs the wordmark's width for the search box; the logo stays. */}
-          <span className={clsx("hidden flex-col", !user && "xl:flex")}>
+          <span className="hidden flex-col xl:flex">
             <BrandWordmark className="text-lg leading-tight" />
             <BrandTagline className="text-xs leading-tight" />
           </span>
@@ -205,14 +203,14 @@ export function SiteHeader({
 
         {shopsForThem ? (
           // docs/homepage-uiux-2026-10 (F2): the same search, with suggestions, as the home page.
-          <SearchBox lang={lang} signedIn={Boolean(user)} className="mx-1 hidden flex-1 md:block md:min-w-44" />
+          <SearchBox lang={lang} signedIn={Boolean(user)} className="mx-1 hidden flex-1 md:block" />
         ) : (
           <span className="flex-1" />
         )}
 
         {shopsForThem && !boardLink ? (
           <nav className="hidden items-center gap-1 lg:flex" aria-label={tr(UI.board, lang)}>
-            {CUSTOMER_NAV.map((item) => (
+            {CUSTOMER_NAV.filter((i) => !i.auth || user).map((item) => (
               <Link
                 key={item.href}
                 href={item.href}

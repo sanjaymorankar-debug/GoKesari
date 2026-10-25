@@ -324,8 +324,8 @@
    "found": "2026-10-24 local (signed and local tiers)",
    "actual": "An expired session on /wallet → /signin, but after the code the person landed on '/'.",
    "expected": "Signing in returns to the page that was asked for.",
-   "fix": "Owner decision 25 Oct: return to the same page if signed in again within 24 h. src/proxy.ts remembers the page opened (httpOnly cookie gk_return_to, 24 h; page navigations only); every sign-in lands on /onboarding, which now sends a complete profile there (same-site paths only, src/lib/return-to.ts). Checked locally: expired session on /wallet → /signin → signed in → /wallet.",
-   "status": "Fixed - awaiting retest"
+   "fix": "Not fixed: 145 pages redirect to /signin without a return path and /signin ignores callbackUrl. Needs one helper for the redirects plus /signin and onboarding honouring a same-site return path.",
+   "status": "Open (deferred)"
   },
   {
    "id": "D-24",
@@ -352,8 +352,8 @@
    "found": "2026-10-24 local (signed and local tiers)",
    "actual": "A REWARDED referral cannot be flagged and there is no reversal mechanism.",
    "expected": "A fraudulent rewarded referral is reversed with a ledger entry.",
-   "fix": "Owner decision 25 Oct: yes. Admin → Customer referrals → 'Reverse reward' (WALLET_ADJUST, reason required) takes both rewards back as wallet REVERSAL entries pointing at the original credit (reversal_of_id), never below zero (the shortfall is recorded), marks the referral REVERSED, tells both customers and audits it; the friend's mobile can't earn again (migration 0093). Not done: TC-MKT-017 also expects risk flags raised for the pair; the reversal is a manual admin action.",
-   "status": "Fixed - awaiting retest"
+   "fix": "Not built: reversing a paid referral reward needs a decision on credit already spent (claw back or not) before a ledger reversal is added.",
+   "status": "Open (owner decision)"
   },
   {
    "id": "D-26",
@@ -799,8 +799,8 @@
    "found": "2026-10-24 local (signed and local tiers)",
    "actual": "Approve with no rows in delivery_partner_documents → 200 APPROVED.",
    "expected": "The plan expects KYC pending until documents are in; the application form calls ID details optional — owner decision.",
-   "fix": "Owner decision 25 Oct: riders can't be approved without identity documents. Approval refuses (409) unless an Aadhaar, PAN, driving licence or other identity document is on file and not rejected; a vehicle RC alone does not count (delivery-partners.ts approve guard, RIDER_IDENTITY_DOC_TYPES). Test: tests/integration/owner-decisions-2026-10-25.test.ts.",
-   "status": "Fixed - awaiting retest"
+   "fix": "Unchanged: approval needs no documents because the application calls ID details optional. Note: seller KYC refuses Aadhaar numbers on legal grounds while the rider form collects them.",
+   "status": "Open (owner decision)"
   },
   {
    "id": "D-58",
@@ -968,8 +968,8 @@
    "found": "2026-10-24 local (signed and local tiers)",
    "actual": "No control on /shop or /shop/manage; PATCH {status:'CLOSED'} → 422.",
    "expected": "The owner can close the shop (open orders, payouts and wallet handled) — feature gap.",
-   "fix": "Owner decision 25 Oct. /shop/manage/hours 'Shop status': 'Close shop for now' / 'Open shop' (orders_paused); 'Close shop permanently' with a reason and the shop name typed (POST /api/shops/[id]/close) — refused while an order is open; the shop becomes INACTIVE (lifecycle CLOSED), leaves search and the storefront, live subscriptions are cancelled; only operations reopen it (approval). Membership (rule shopMembership): a fee or renewal payment sets membership_valid_until (+12 months); 15 days after it ends the shop is not online until renewed (migration 0094).",
-   "status": "Fixed - awaiting retest"
+   "fix": "Not built: closing a shop needs decisions on open orders, payouts and the shop wallet.",
+   "status": "Open (owner decision)"
   },
   {
    "id": "D-70",
@@ -1278,8 +1278,8 @@
    "found": "2026-10-24 local (signed and local tiers)",
    "actual": "order_items has no MRP column, so an order cannot show or prove the MRP at the time of sale.",
    "expected": "Each line keeps the MRP it was sold under (schema change).",
-   "fix": "Owner decision 25 Oct: if a product has an MRP, show it. order_items.mrp_paise (and substitute_mrp_paise) record the MRP at the time of the order (migration 0092); the order page, the tax invoice snapshot, the invoice page and its text copy show it. A later master MRP change does not alter old orders.",
-   "status": "Fixed - awaiting retest"
+   "fix": "Not built: order_items has no MRP column; keeping the MRP per line needs a schema change and the invoice to show it.",
+   "status": "Open (deferred)"
   },
   {
    "id": "D-92",
@@ -1333,8 +1333,8 @@
    "found": "2026-10-24 local (signed and local tiers)",
    "actual": "Stock 2.5 → 422; a count of 2.5 kg left 2; 250 g of a 1 kg-unit loose product cannot be sold.",
    "expected": "Loose stock in grams / millilitres (design change: stock is whole units today).",
-   "fix": "Owner decision 25 Oct: loose stock should record decimals. Planned as a separate change: online/offline stock move from whole units to a decimal (milli) quantity across the stock ledger, triggers, inventory, imports and order reservation.",
-   "status": "Open (owner decided - in a follow-up change)"
+   "fix": "Not built: stock is held in whole units; loose stock in grams / millilitres is a design change.",
+   "status": "Open (deferred)"
   },
   {
    "id": "D-96",
@@ -1346,8 +1346,8 @@
    "found": "2026-10-24 local (signed and local tiers)",
    "actual": "No category, low-stock or out-of-stock filter and no sort on /shop/inventory.",
    "expected": "Filters and sort (enhancement).",
-   "fix": "Search (name or code), category, 'Low stock' and 'Out of stock' filters and a sort (name, available stock, price, status) on /shop/inventory, next to 'Needs a price'.",
-   "status": "Fixed - awaiting retest"
+   "fix": "Not built: inventory filters and sort are an enhancement.",
+   "status": "Open (deferred)"
   },
   {
    "id": "D-97",
@@ -1469,8 +1469,8 @@
    "found": "2026-10-24 test.gokesari.com (purchase-lists screenshots, staging customer; build 487f11b)",
    "actual": "As a signed-in customer at 1024, 1280, 1366, 1440 and 1600 px the site header's search input (data-testid search-input) is 0 px wide and hidden, the header-search icon is hidden, and the voice-search button is drawn over the 'Shops' link: at 1280 px document.elementFromPoint at the centre of 'Shops' is BUTTON voice-search 'Search by voice', so clicking 'Shops' starts voice search. A guest's header at 1024–1366 px shows the box 345–367 px wide. Evidence: scratchpad qa2/evidence/header-customer-1280.png, qa2/screenshots/staging-1280-*.png. Not caused by purchase lists (the release's only net change to site-header.tsx is the 'My lists' account-menu entry); no case of the plan checks the signed-in desktop header row.",
    "expected": "On wide screens the signed-in header shows a usable search box (or a visible search icon) and every nav link (Shops, Orders, Subscriptions) is clickable; nothing overlaps.",
-   "fix": "Orders and Subscriptions moved into the account menu for signed-in customers (the nav keeps Shops), the wordmark text hides when signed in, and the search box has a minimum width (md:min-w-44). At 1280 px signed in: search box 354 px, input 260 px, 'Shops' receives its own click (src/components/site-header.tsx).",
-   "status": "Fixed - awaiting retest"
+   "fix": "Not fixed. The signed-in row (location pill, nav links, language switch, wallet, cart, bell, account) leaves the flexible search box no width; give it a minimum width or move the language switch / nav into the account menu below ~1600 px, and keep the voice button inside the box. Add a check (signed tier, 1280 px) that the search input is visible and 'Shops' receives its own click.",
+   "status": "Open"
   },
   {
    "id": "D-104",

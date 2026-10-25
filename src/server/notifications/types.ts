@@ -112,8 +112,6 @@ export const NOTIFICATION_TYPES = {
   /** Module 3: a self-registered shop is approved (to the owner: SMS, WhatsApp, email when there is one). */
   SHOP_SELF_REGISTERED: "shop.self_registered",
   REFERRAL_REWARDED: "referral.rewarded",
-  /** D-25: a referral reward was taken back after a fraud review. */
-  REFERRAL_REVERSED: "referral.reversed",
   DELIVERY_OFFERED: "delivery.offered",
   SHOP_GST_VERIFIED: "shop.gst_verified",
   SHOP_GST_REJECTED: "shop.gst_rejected",

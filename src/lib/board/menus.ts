@@ -311,7 +311,7 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
     ],
     more: [
       { key: "today", label: L("Today's work", "आज का काम", "आजचे काम"), icon: "sunrise", href: "/shop/manage/today" },
-      { key: "hours", label: L("Open / close, hours", "खोलें / बंद करें, समय", "उघडा / बंद करा, वेळ"), icon: "clock", href: "/shop/manage/hours" },
+      { key: "hours", label: L("Hours & contact", "समय और संपर्क", "वेळ आणि संपर्क"), icon: "clock", href: "/shop/manage/hours" },
       { key: "gstPan", label: L("GST & PAN", "जीएसटी और पैन", "जीएसटी आणि पॅन"), icon: "file-text", href: "/shop/manage/gst-pan" },
       // docs/document-upload-2026-10: upload or photograph each document; it is read automatically.
       { key: "documents", label: L("Upload documents", "दस्तावेज़ अपलोड", "कागदपत्रे अपलोड"), icon: "file-check", href: "/shop/documents" },

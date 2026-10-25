@@ -98,10 +98,7 @@ export function ProfileSetupWizard({
   initial,
   hasDefaultAddress,
   referral = null,
-  returnTo = "/",
 }: {
-  /** Where to go when done (D-23: the page the person was on). */
-  returnTo?: string;
   initial: { name: string; gender: GenderValue | ""; mobile: string; email: string };
   hasDefaultAddress: boolean;
   /** Rule customerSignupReferral: ask a new customer for a referral code (prefilled from a /r/ link). */
@@ -120,7 +117,7 @@ export function ProfileSetupWizard({
   const [busy, setBusy] = useState(false);
 
   const finish = () => {
-    router.replace(returnTo);
+    router.replace("/");
     router.refresh();
   };
   const finishSetup = () => {
@@ -237,14 +234,14 @@ export function ProfileSetupWizard({
 }
 
 /** After an email sign-in with no mobile on file. "Not now" brings it back on the next sign-in. */
-export function MobilePromptDialog({ returnTo = "/" }: { returnTo?: string } = {}) {
+export function MobilePromptDialog() {
   const router = useRouter();
   const [mobile, setMobile] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
 
   const close = () => {
-    router.replace(returnTo);
+    router.replace("/");
     router.refresh();
   };
 

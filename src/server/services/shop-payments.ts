@@ -25,7 +25,6 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
-import { extendMembership } from "./shop-membership";
 import { autoApproveShopIfReady } from "./shops";
 
 interface Actor {
@@ -190,10 +189,6 @@ export async function recordPayment(
       .returning();
 
     const settlement = await recomputeShopSettlement(tx, shop.id);
-    // D-69: a registration fee or renewal extends the membership.
-    if (input.paymentType === "REGISTRATION_FEE" || input.paymentType === "RENEWAL") {
-      await extendMembership(tx, shop.id, payment.paidAt);
-    }
 
     await recordAudit(
       {

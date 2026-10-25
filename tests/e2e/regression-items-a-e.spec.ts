@@ -243,14 +243,6 @@ test("rider onboarding: register, admin approves, goes online", async ({ browser
   });
   expect(reg.status, JSON.stringify(reg.body)).toBe(201);
   riderPartnerId = reg.body.id;
-  // D-57: approval needs an identity document on file.
-  const licence = await rider.api.post("/api/delivery-partner/me/documents", {
-    multipart: {
-      docType: "DRIVING_LICENCE",
-      file: { name: "licence.png", mimeType: "image/png", buffer: Buffer.from("89504e470d0a1a0a0000000d49484452000001f4000001f40802000000" + "00".repeat(64), "hex") },
-    },
-  });
-  expect(licence.status()).toBe(201);
   const approve = await call(admin, "PATCH", `/api/delivery-partner/${riderPartnerId}`, { action: "approve" });
   expect(approve.status, JSON.stringify(approve.body)).toBe(200);
   const online = await call(rider, "PATCH", "/api/delivery-partner/status", { action: "online", latitude: LAT, longitude: LNG });
