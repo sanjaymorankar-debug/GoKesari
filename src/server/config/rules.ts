@@ -897,12 +897,6 @@ export const RULES = {
       fssaiExtraCategorySlugs: [],
     },
   },
-  shopMembership: {
-    description:
-      "Shop membership (D-69). Recording a registration fee or renewal payment extends the shop's membership by periodMonths (from the end of the current one, or from the payment when that has passed). When enabled, a shop whose membership ended more than graceDays ago is not online: customers see it as not taking orders and cannot check out from it, until a renewal is recorded. Shops with no end date (every shop registered before this rule, and shops that never paid a fee) are never affected. reminderDays: the owner's shop page warns this many days before the end.",
-    schema: z.object({ enabled: z.boolean(), periodMonths: int(1, 60), graceDays: int(0, 90), reminderDays: int(0, 90) }),
-    defaults: { enabled: true, periodMonths: 12, graceDays: 15, reminderDays: 30 },
-  },
   bankAccounts: {
     description:
       "Bank account verification. When enabled, shop owners and customers are prompted to add a bank account (holder name, account number and IFSC, or a UPI ID) and verify it with a payment of verificationAmountPaise through the payment gateway (UPI, debit card, credit card or net banking), refunded automatically. requireVerifiedForShopPayouts stops a shop settlement being sent to the bank or marked paid until the shop has a verified account. nameMatchThreshold is the name-match score (0–100) needed when the gateway reports the payer's name.",

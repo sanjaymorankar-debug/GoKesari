@@ -76,8 +76,6 @@ export interface InvoiceLine {
   qty?: number;
   unit?: string;
   uqc?: string;
-  /** D-91 (invoices issued from this release on): the MRP the line was sold under, per pack; null when none. */
-  mrpPaise?: number | null;
 }
 
 export interface InvoiceSnapshot {
@@ -261,7 +259,6 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
       qty: qtyMilli / 1000,
       unit,
       uqc: uqcFor(unit),
-      mrpPaise: (substituted ? item.substituteMrpPaise : item.mrpPaise) ?? null,
     });
   }
   const sum = (k: keyof Pick<InvoiceLine, "taxablePaise" | "cgstPaise" | "sgstPaise" | "igstPaise" | "grossPaise">) =>
@@ -520,7 +517,6 @@ export function invoiceTextLines(s: InvoiceSnapshot): PdfLine[] {
       `${pct(l.rateBp).padStart(6)}${money(l.taxablePaise).padStart(13)}${money(tax).padStart(12)}${money(l.grossPaise).padStart(12)}`;
     add(row.slice(0, W));
     if (name.length > 29) add(`   ${name.slice(29, 29 + W - 3)}`);
-    if (l.mrpPaise != null) add(`   MRP ${money(l.mrpPaise)}`);
   });
   add(rule);
   pair("Taxable value", money(s.totals.taxablePaise));

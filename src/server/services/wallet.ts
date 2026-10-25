@@ -65,8 +65,6 @@ export interface WalletMutation {
   paymentId?: string | null;
   voucherRedemptionId?: string | null;
   createdBy?: string | null;
-  /** On a REVERSAL: the entry it takes back. */
-  reversalOfId?: string | null;
   /**
    * Explicit override for the promotional slice of this movement (§27–§29).
    * Required-in-spirit for REFUND (restore the original purchase's exact
@@ -257,7 +255,6 @@ export async function applyWalletMutation(
         idempotencyKey: mutation.idempotencyKey,
         description: mutation.description,
         createdBy: mutation.createdBy ?? null,
-        reversalOfId: mutation.reversalOfId ?? null,
       })
       .returning();
 
