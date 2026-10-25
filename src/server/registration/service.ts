@@ -64,6 +64,7 @@ import { getRule } from "@/server/services/settings";
 import { referralCodeUses } from "@/server/services/referrals";
 import { isReferralRequired } from "@/server/services/referral-settings";
 import { nextReference } from "@/server/services/shop-payments";
+import { extendMembership } from "@/server/services/shop-membership";
 import { getOrCreateShopWallet } from "@/server/services/shop-wallet";
 import { verifyRegistrationOtp } from "./otp";
 
@@ -563,6 +564,7 @@ export async function approveRegistration(payment: RegistrationPayment, event: R
       note: `Self-registration fee, order ${payment.gatewayOrderId}${payment.gateway === "MOCK" ? " (test payment)" : ""}`,
       recordedBy: owner.id,
     });
+    await extendMembership(tx, shop.id, now); // D-69
     // No code (referral_required_shop OPTIONAL): nothing to redeem; payment alone approves the shop.
     if (reg.referralCodeId) {
       await tx.insert(referralRedemptions).values({ referralCodeId: reg.referralCodeId, shopId: shop.id, registrationFeePaise: reg.feePaise, redeemedBy: owner.id });
