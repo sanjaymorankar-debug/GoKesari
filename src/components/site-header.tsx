@@ -53,6 +53,7 @@ const ACCOUNT_NAV: { href: string; label: Text }[] = [
   { href: "/lists", label: L("My lists", "मेरी सूचियाँ", "माझ्या याद्या") },
   { href: "/society", label: L("My society", "मेरी सोसाइटी", "माझी सोसायटी") },
   { href: "/profile/bank-account", label: L("Bank account", "बैंक खाता", "बँक खाते") },
+  { href: "/driving-simulator", label: L("Driving Simulator", "ड्राइविंग सिमुलेटर", "ड्रायव्हिंग सिम्युलेटर") },
 ];
 
 /** A delivery partner's own pages (not one of the four board roles). */

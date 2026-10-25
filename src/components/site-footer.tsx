@@ -19,6 +19,7 @@ export function SiteFooter({ lang = "en" }: { lang?: Lang }) {
       links: [
         { href: "/about", label: tr(HOME.aboutUs, lang) },
         { href: "/contact", label: tr(HOME.contactUs, lang) },
+        { href: "/driving-simulator", label: "Driving Simulator" },
       ],
     },
     {
