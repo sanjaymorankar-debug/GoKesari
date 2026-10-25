@@ -107,6 +107,8 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
                   <td className="py-2 pr-2">
                     {l.description}
                     {l.rateAssumed ? " *" : ""}
+                    {/* D-91: the MRP the line was sold under (invoices from this release on). */}
+                    {l.mrpPaise != null ? <span className="block text-xs text-ink-500">MRP {formatPaise(l.mrpPaise)}</span> : null}
                   </td>
                   <td className="py-2 pr-2">{l.hsn ?? "—"}</td>
                   <td className="py-2 pr-2">{l.quantity}</td>

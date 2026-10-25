@@ -86,6 +86,7 @@ import { addToCart } from "@/server/services/cart";
 import { checkout } from "@/server/services/orders";
 import { call } from "../helpers/http";
 import {
+  addRiderIdentityDocument,
   createCategory,
   createDeliveryPartner,
   createOrder,
@@ -417,6 +418,7 @@ describe("TC-DEL-027 / TC-DEL-015: approve and reactivate rules; every decision 
     const admin = await createUser({ role: "ADMIN" });
     const a = await registerDeliveryPartner((await createUser()).id, { fullName: "Asha", mobile: "9876543210", vehicleType: "SCOOTER" });
     const b = await registerDeliveryPartner((await createUser()).id, { fullName: "Bala", mobile: "9876543211", vehicleType: "SCOOTER" });
+    await addRiderIdentityDocument(a.id); // D-57
     await approveDeliveryPartner(a.id, ADMIN(admin.id));
     await suspendDeliveryPartner(a.id, "documents expired", ADMIN(admin.id));
     await rejectDeliveryPartner(b.id, "documents unclear", ADMIN(admin.id));
@@ -448,6 +450,7 @@ describe("TC-DEL-027 / TC-DEL-015: approve and reactivate rules; every decision 
     const admin = await createUser({ role: "ADMIN" });
     const user = await createUser();
     const p = await registerDeliveryPartner(user.id, { fullName: "Asha", mobile: "9876543210", vehicleType: "SCOOTER" });
+    await addRiderIdentityDocument(p.id); // D-57
     await approveDeliveryPartner(p.id, ADMIN(admin.id));
     await suspendDeliveryPartner(p.id, "documents expired", ADMIN(admin.id));
     await reactivateDeliveryPartner(p.id, "documents renewed", ADMIN(admin.id));

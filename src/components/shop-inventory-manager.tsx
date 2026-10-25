@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 
 import { Alert, Badge, Button, Card, Field, Money, inputClass } from "@/components/ui";
 import { paiseToRupees } from "@/lib/money";
@@ -11,6 +11,7 @@ export interface InventoryRowView {
   shopProductId: string;
   productCode: string;
   productName: string;
+  categoryName: string | null;
   unit: string;
   /** The shop's own prices; both null until the owner sets one. */
   onlinePricePaise: number | null;
@@ -44,6 +45,19 @@ const SOURCE_LABEL: Record<string, string> = { LISTING: "this product", PRODUCT:
 
 const num = (v: string): number | null => (v.trim() === "" ? null : Number(v));
 
+/** D-96: how the stock table can be ordered. */
+const SORTS = {
+  name: "Name (A–Z)",
+  "available-asc": "Available: lowest first",
+  "available-desc": "Available: highest first",
+  "price-asc": "Price: lowest first",
+  "price-desc": "Price: highest first",
+  status: "Status: out of stock first",
+} as const;
+type SortKey = keyof typeof SORTS;
+const STATUS_ORDER = { OUT_OF_STOCK: 0, LOW_STOCK: 1, IN_STOCK: 2 } as const;
+const selectClass = inputClass.replace("w-full ", "");
+
 /** Stock levels, thresholds at shop / product / listing level, and open alerts for a shop. */
 export function ShopInventoryManager({ shopId, view }: { shopId: string; view: InventoryView }) {
   const router = useRouter();
@@ -61,11 +75,44 @@ export function ShopInventoryManager({ shopId, view }: { shopId: string; view: I
   const [priceErrors, setPriceErrors] = useState<Record<string, string>>({});
   const [priceMessage, setPriceMessage] = useState<{ tone: "success" | "danger"; text: string } | null>(null);
   const [needsPriceOnly, setNeedsPriceOnly] = useState(false);
+  // D-96: search, category, stock filters and sort for the stock table.
+  const [query, setQuery] = useState("");
+  const [category, setCategory] = useState("");
+  const [lowOnly, setLowOnly] = useState(false);
+  const [outOnly, setOutOnly] = useState(false);
+  const [sort, setSort] = useState<SortKey>("name");
 
   // The price shown and edited: online, else the in-shop one. Null means none set yet.
   const priceOf = (r: InventoryRowView) => r.onlinePricePaise ?? r.offlinePricePaise;
   const needsPriceCount = view.rows.filter((r) => priceOf(r) == null).length;
-  const shownRows = needsPriceOnly ? view.rows.filter((r) => priceOf(r) == null) : view.rows;
+  const categories = useMemo(
+    () => [...new Set(view.rows.map((r) => r.categoryName).filter((c): c is string => !!c))].sort((a, b) => a.localeCompare(b)),
+    [view.rows],
+  );
+  const shownRows = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    const rows = view.rows.filter(
+      (r) =>
+        (!needsPriceOnly || priceOf(r) == null) &&
+        (!q || r.productName.toLowerCase().includes(q) || r.productCode.toLowerCase().includes(q)) &&
+        (!category || r.categoryName === category) &&
+        // Both ticked: low or out of stock.
+        (!(lowOnly || outOnly) || (lowOnly && r.status === "LOW_STOCK") || (outOnly && r.status === "OUT_OF_STOCK")),
+    );
+    // Products without a price go last when sorting by price.
+    const price = (r: InventoryRowView, empty: number) => priceOf(r) ?? empty;
+    const byName = (a: InventoryRowView, b: InventoryRowView) => a.productName.localeCompare(b.productName);
+    const compare: Record<SortKey, (a: InventoryRowView, b: InventoryRowView) => number> = {
+      name: byName,
+      "available-asc": (a, b) => a.available - b.available || byName(a, b),
+      "available-desc": (a, b) => b.available - a.available || byName(a, b),
+      "price-asc": (a, b) => price(a, Infinity) - price(b, Infinity) || byName(a, b),
+      "price-desc": (a, b) => price(b, -Infinity) - price(a, -Infinity) || byName(a, b),
+      status: (a, b) => STATUS_ORDER[a.status] - STATUS_ORDER[b.status] || a.available - b.available || byName(a, b),
+    };
+    return [...rows].sort(compare[sort]);
+  }, [view.rows, needsPriceOnly, query, category, lowOnly, outOnly, sort]);
+  const filtered = shownRows.length !== view.rows.length;
 
   async function savePrices() {
     setPriceMessage(null);
@@ -231,6 +278,42 @@ export function ShopInventoryManager({ shopId, view }: { shopId: string; view: I
             </Button>
           </div>
         </div>
+        <div className="mb-2 flex flex-wrap items-center gap-2" data-testid="inventory-filters">
+          <input
+            type="search"
+            aria-label="Search products"
+            placeholder="Search by name or code"
+            className={`${inputClass} w-full sm:w-56`}
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+          />
+          <select aria-label="Category" className={selectClass} value={category} onChange={(e) => setCategory(e.target.value)}>
+            <option value="">All categories</option>
+            {categories.map((c) => (
+              <option key={c} value={c}>
+                {c}
+              </option>
+            ))}
+          </select>
+          <label className="flex min-h-10 items-center gap-1.5 text-sm text-ink-700">
+            <input type="checkbox" checked={lowOnly} onChange={(e) => setLowOnly(e.target.checked)} /> Low stock
+          </label>
+          <label className="flex min-h-10 items-center gap-1.5 text-sm text-ink-700">
+            <input type="checkbox" checked={outOnly} onChange={(e) => setOutOnly(e.target.checked)} /> Out of stock
+          </label>
+          <select aria-label="Sort" className={selectClass} value={sort} onChange={(e) => setSort(e.target.value as SortKey)}>
+            {(Object.keys(SORTS) as SortKey[]).map((k) => (
+              <option key={k} value={k}>
+                {SORTS[k]}
+              </option>
+            ))}
+          </select>
+          {filtered ? (
+            <span className="text-xs text-ink-500" data-testid="inventory-shown-count">
+              Showing {shownRows.length} of {view.rows.length}
+            </span>
+          ) : null}
+        </div>
         {priceMessage ? (
           <div className="mb-2">
             <Alert tone={priceMessage.tone}>{priceMessage.text}</Alert>
@@ -253,6 +336,13 @@ export function ShopInventoryManager({ shopId, view }: { shopId: string; view: I
               </tr>
             </thead>
             <tbody className="divide-y divide-cream-200">
+              {shownRows.length === 0 ? (
+                <tr>
+                  <td colSpan={10} className="px-3 py-6 text-center text-ink-500">
+                    No products match these filters.
+                  </td>
+                </tr>
+              ) : null}
               {shownRows.map((r) => (
                 <tr key={r.shopProductId} className="align-top">
                   <td className="px-3 py-2">

@@ -459,6 +459,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
         quantityUnits: number;
         quantityMilli: number;
         lineTotalPaise: number;
+        mrpPaise: number | null;
       }[] = [];
 
       // Re-validate and re-price every line inside the transaction. The cart
@@ -486,6 +487,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           quantityUnits: line.quantity,
           quantityMilli,
           lineTotalPaise: lineTotalPaise(unitPricePaise, quantityMilli),
+          mrpPaise: loaded.product.mrpPaise ?? null,
         });
       }
 
@@ -592,6 +594,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
           unitPricePaise: l.unitPricePaise,
           quantityMilli: l.quantityMilli,
           lineTotalPaise: l.lineTotalPaise,
+          mrpPaise: l.mrpPaise,
         })),
       );
 
@@ -1371,6 +1374,8 @@ export interface OrderDetail extends Order {
     unitPricePaise: number;
     quantityMilli: number;
     lineTotalPaise: number;
+    /** D-91: the product's MRP when it was sold; null when it had none. */
+    mrpPaise: number | null;
     fulfilmentStatus: OrderItemFulfilment;
     substituteNameSnapshot: string | null;
     substituteUnitSnapshot: string | null;

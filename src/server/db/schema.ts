@@ -811,6 +811,15 @@ export const shops = pgTable(
     minOrderPaise: bigint("min_order_paise", { mode: "number" }).notNull().default(0),
     /** Owner switch: the shop keeps its listing but takes no new orders for now. */
     ordersPaused: boolean("orders_paused").notNull().default(false),
+    /**
+     * D-69: end of the paid membership, set from the registration / renewal payments.
+     * Past it (plus rule shopMembership.graceDays) the shop is not online. Null: no end date.
+     */
+    membershipValidUntil: timestamp("membership_valid_until", { withTimezone: true }),
+    /** D-69: the owner closed the shop permanently (status INACTIVE). No foreign key: users are customer-side. */
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    closedBy: uuid("closed_by"),
+    closureReason: text("closure_reason"),
     /** Rating aggregate (GS-059), maintained from visible order_ratings. Average × 100. */
     ratingAvgX100: integer("rating_avg_x100").notNull().default(0),
     ratingCount: integer("rating_count").notNull().default(0),
@@ -1946,6 +1955,8 @@ export const orderItems = pgTable(
     /** Milli-units, so 2.5 L is exactly 2500. */
     quantityMilli: integer("quantity_milli").notNull(),
     lineTotalPaise: bigint("line_total_paise", { mode: "number" }).notNull(),
+    /** D-91: the product's MRP when it was sold (products.mrp_paise); null when it had none (loose goods). */
+    mrpPaise: bigint("mrp_paise", { mode: "number" }),
     /* ------------------------------------------ fulfilment (Slice 3) —
      * the original snapshot above is never rewritten; a substitute is
      * recorded alongside it so the order keeps its history. */
@@ -1958,6 +1969,8 @@ export const orderItems = pgTable(
     substituteQuantityMilli: integer("substitute_quantity_milli"),
     /** What the customer pays for the substitute — never more than the original line. */
     substituteLineTotalPaise: bigint("substitute_line_total_paise", { mode: "number" }),
+    /** D-91: the substitute's MRP when it was proposed. */
+    substituteMrpPaise: bigint("substitute_mrp_paise", { mode: "number" }),
     fulfilmentNote: text("fulfilment_note"),
     fulfilmentUpdatedAt: timestamp("fulfilment_updated_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -1970,6 +1983,10 @@ export const orderItems = pgTable(
     check(
       "order_items_amounts_non_negative",
       sql`${t.unitPricePaise} >= 0 AND ${t.lineTotalPaise} >= 0`,
+    ),
+    check(
+      "order_items_mrp_non_negative",
+      sql`(${t.mrpPaise} IS NULL OR ${t.mrpPaise} >= 0) AND (${t.substituteMrpPaise} IS NULL OR ${t.substituteMrpPaise} >= 0)`,
     ),
   ],
 );
@@ -6296,8 +6313,11 @@ export const customerReferrals = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     code: text("code").notNull(),
-    /** PENDING until the friend's first delivered order; then REWARDED, or REJECTED with a reason. */
-    status: text("status", { enum: ["PENDING", "REWARDED", "REJECTED"] }).notNull().default("PENDING"),
+    /**
+     * PENDING until the friend's first delivered order; then REWARDED, or REJECTED with a reason.
+     * REVERSED (D-25): a reward later found fraudulent, taken back from the wallets.
+     */
+    status: text("status", { enum: ["PENDING", "REWARDED", "REJECTED", "REVERSED"] }).notNull().default("PENDING"),
     rejectionReason: text("rejection_reason"),
     qualifyingOrderId: uuid("qualifying_order_id").references(() => orders.id, { onDelete: "set null" }),
     referrerRewardPaise: bigint("referrer_reward_paise", { mode: "number" }),
@@ -6305,6 +6325,12 @@ export const customerReferrals = pgTable(
     /** The friend's mobile when rewarded — one reward per mobile number. */
     refereePhoneE164: text("referee_phone_e164"),
     rewardedAt: timestamp("rewarded_at", { withTimezone: true }),
+    reversedAt: timestamp("reversed_at", { withTimezone: true }),
+    reversedBy: uuid("reversed_by").references(() => users.id, { onDelete: "set null" }),
+    reversalReason: text("reversal_reason"),
+    /** What the reversal took back from each wallet; less than the reward when the credit was already spent. */
+    referrerRecoveredPaise: bigint("referrer_recovered_paise", { mode: "number" }),
+    refereeRecoveredPaise: bigint("referee_recovered_paise", { mode: "number" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -6313,7 +6339,7 @@ export const customerReferrals = pgTable(
     index("customer_referrals_referrer_idx").on(t.referrerUserId),
     uniqueIndex("customer_referrals_rewarded_phone_uq")
       .on(t.refereePhoneE164)
-      .where(sql`${t.status} = 'REWARDED' AND ${t.refereePhoneE164} IS NOT NULL`),
+      .where(sql`${t.status} IN ('REWARDED', 'REVERSED') AND ${t.refereePhoneE164} IS NOT NULL`),
     check("customer_referrals_not_self", sql`${t.referrerUserId} <> ${t.refereeUserId}`),
   ],
 );
