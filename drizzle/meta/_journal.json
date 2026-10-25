@@ -666,6 +666,20 @@
       "when": 1792900200000,
       "tag": "0094_shop_closure_membership",
       "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1792900300000,
+      "tag": "0095_loose_stock_decimals",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1792900400000,
+      "tag": "0096_cart_loose_quantity",
+      "breakpoints": true
     }
   ]
 }

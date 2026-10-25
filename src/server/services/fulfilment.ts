@@ -24,6 +24,7 @@ import { and, eq } from "drizzle-orm";
 
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { lineTotalPaise } from "@/lib/money";
+import { milliToStockUnits, quantityToMilli } from "@/lib/stock-quantity";
 import { db, type DbClient } from "@/server/db";
 import {
   orderItems,
@@ -151,12 +152,15 @@ export async function proposeSubstitution(
       throw validationFailed("Choose a different product as the substitute.");
     }
 
-    const units = await wholeUnits(tx, item.shopProductId, item.quantityMilli);
-    const substitute = await loadPurchasableShopProduct(substituteShopProductId, units, tx);
+    const units = await stockUnits(tx, item.shopProductId, item.quantityMilli);
+    let substitute = await loadPurchasableShopProduct(substituteShopProductId, units, tx);
     if (substitute.shopId !== order.shopId) {
       throw validationFailed("The substitute must come from the same shop.");
     }
-    const substituteQuantityMilli = units * substitute.product.unitSizeMilli;
+    // D-95: a packaged substitute for part of a loose unit (250 g) is one whole pack.
+    const substituteUnits = substitute.product.kind === "LOOSE" ? units : Math.max(1, Math.round(units));
+    if (substituteUnits > units) substitute = await loadPurchasableShopProduct(substituteShopProductId, substituteUnits, tx);
+    const substituteQuantityMilli = quantityToMilli(substituteUnits, substitute.product.unitSizeMilli);
     const substituteLineTotal = Math.min(
       lineTotalPaise(substitute.unitPricePaise, substituteQuantityMilli),
       item.lineTotalPaise,
@@ -270,7 +274,7 @@ export async function decideSubstitution(
     }
 
     if (approve) {
-      const units = await wholeUnits(tx, item.substituteShopProductId, item.substituteQuantityMilli ?? 0);
+      const units = await stockUnits(tx, item.substituteShopProductId, item.substituteQuantityMilli ?? 0);
       await consumeOnlineStock(
         item.substituteShopProductId,
         units,
@@ -371,13 +375,15 @@ async function setItemStatus(
 }
 
 /** Whole sellable units a line represents (quantityMilli / the product's unit size). */
-async function wholeUnits(tx: DbClient, shopProductId: string, quantityMilli: number): Promise<number> {
+/** The sellable units a line's quantity takes from stock: at least one whole unit, or exactly for a loose good (D-95). */
+async function stockUnits(tx: DbClient, shopProductId: string, quantityMilli: number): Promise<number> {
   const [row] = await tx
-    .select({ unitSizeMilli: products.unitSizeMilli })
+    .select({ unitSizeMilli: products.unitSizeMilli, kind: products.kind })
     .from(shopProducts)
     .innerJoin(products, eq(shopProducts.productId, products.id))
     .where(eq(shopProducts.id, shopProductId));
   if (!row) throw notFound("Product");
+  if (row.kind === "LOOSE") return Math.max(0.001, milliToStockUnits(quantityMilli, row.unitSizeMilli, "LOOSE"));
   return Math.max(1, Math.round(quantityMilli / row.unitSizeMilli));
 }
 
@@ -394,7 +400,7 @@ async function trackedUnits(tx: DbClient, shopProductId: string, quantityMilli: 
     .from(shopProducts)
     .where(eq(shopProducts.id, shopProductId));
   if (!row?.trackInventory) return 0;
-  return wholeUnits(tx, shopProductId, quantityMilli);
+  return stockUnits(tx, shopProductId, quantityMilli);
 }
 
 async function refundLine(

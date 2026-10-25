@@ -425,8 +425,9 @@ export function extractRow(cells: CellValue[], map: FieldMap, columns: ColumnDef
   }
 
   // Quantity: never guessed. A blank cell leaves stock alone; a bad one too, with a warning.
+  // Up to three decimals are read (loose goods, D-95); a packaged product refuses a fraction at commit.
   const q = first("quantity");
-  const qty = N.wholeNumber(q);
+  const qty = N.stockQuantity(q);
   if (qty?.ok) fields.quantity = qty.value;
   else if (qty) {
     fields.quantityInvalid = qty.raw;
@@ -434,7 +435,9 @@ export function extractRow(cells: CellValue[], map: FieldMap, columns: ColumnDef
     warnings.push(
       n?.ok && n.value < 0
         ? `${label("quantity")}: ${qty.raw} is negative; stock left unchanged.`
-        : `${label("quantity")}: "${qty.raw}" is not a whole number; stock left unchanged.`,
+        : n?.ok
+          ? `${label("quantity")}: ${qty.raw} has more than 3 decimals; stock left unchanged.`
+          : `${label("quantity")}: "${qty.raw}" is not a whole number; stock left unchanged.`,
     );
   }
 

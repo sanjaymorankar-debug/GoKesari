@@ -17,6 +17,7 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { formatShopTime } from "@/lib/shop-hours";
+import { milliToStockUnits } from "@/lib/stock-quantity";
 import { db, type DbClient } from "@/server/db";
 import {
   orderGroups,
@@ -102,6 +103,7 @@ async function orderItemsInUnits(orderId: string, tx: DbClient) {
       shopProductId: orderItems.shopProductId,
       quantityMilli: orderItems.quantityMilli,
       unitSizeMilli: products.unitSizeMilli,
+      kind: products.kind,
       trackInventory: shopProducts.trackInventory,
     })
     .from(orderItems)
@@ -113,7 +115,7 @@ async function orderItemsInUnits(orderId: string, tx: DbClient) {
 /** Gives back the stock an unpaid online order held (same helper and ledger wording as a cancellation). */
 async function releaseStock(order: Order, tx: DbClient): Promise<void> {
   for (const line of await orderItemsInUnits(order.id, tx)) {
-    const units = Math.round(line.quantityMilli / (line.unitSizeMilli || 1000));
+    const units = milliToStockUnits(line.quantityMilli, line.unitSizeMilli || 1000, line.kind);
     if (units > 0 && line.trackInventory) {
       // "Order <n> cancelled" is the wording the stock ledger links back to the order (0078).
       await restockOnline(line.shopProductId, units, `Order ${order.orderNumber} cancelled`, null, tx);
@@ -124,7 +126,7 @@ async function releaseStock(order: Order, tx: DbClient): Promise<void> {
 /** Takes the stock again for a payment retry; throws OUT_OF_STOCK if it has gone meanwhile. */
 async function holdStock(order: Order, tx: DbClient): Promise<void> {
   for (const line of await orderItemsInUnits(order.id, tx)) {
-    const units = Math.round(line.quantityMilli / (line.unitSizeMilli || 1000));
+    const units = milliToStockUnits(line.quantityMilli, line.unitSizeMilli || 1000, line.kind);
     if (units > 0) await consumeOnlineStock(line.shopProductId, units, "Online order (payment retry)", tx, order.id);
   }
 }

@@ -53,6 +53,8 @@ export function ProductGrid({
             // The card needs only "is there any" and the stepper's limit (99), not the shop's count (TC-SPI-027).
             onlineStock: p.trackInventory ? Math.min(p.onlineStock, 99) : p.onlineStock,
             subscribable: p.subscribable,
+            kind: p.kind,
+            unitSizeMilli: p.unitSizeMilli,
             shopName: p.shopName,
             shopSlug: p.shopSlug,
             productId: compare ? p.productId : undefined,

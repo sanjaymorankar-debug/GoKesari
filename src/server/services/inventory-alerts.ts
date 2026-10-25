@@ -14,6 +14,7 @@
 import { and, count, eq, isNull, sql } from "drizzle-orm";
 
 import { forbidden, notFound, validationFailed } from "@/lib/errors";
+import { formatStock, milliToStockUnits, roundStock } from "@/lib/stock-quantity";
 import { db, type DbClient } from "@/server/db";
 import {
   orderItems,
@@ -175,7 +176,7 @@ export async function evaluateStockAlerts(
               : alertType === "REORDER"
                 ? `Time to reorder: ${product.name}`
                 : `Low stock: ${product.name}`,
-          body: `${product.name} is down to ${sp.onlineStock} unit(s).${suggestion}`,
+          body: `${product.name} is down to ${formatStock(sp.onlineStock)} unit(s).${suggestion}`,
           actionUrl: "/shop/inventory",
           dedupeKey: `stock-alert:${created.id}`,
         },
@@ -473,7 +474,7 @@ export async function listInventory(shopId: string): Promise<InventoryRow[]> {
 
   return rows.map(({ sp, shop, product, categoryName }) => {
     const thresholds = resolveThresholds(sp, product, shop);
-    const reserved = Math.round((reservedMilli.get(sp.id) ?? 0) / Math.max(1, product.unitSizeMilli));
+    const reserved = milliToStockUnits(reservedMilli.get(sp.id) ?? 0, product.unitSizeMilli, product.kind);
     return {
       shopProductId: sp.id,
       productId: product.id,
@@ -485,7 +486,7 @@ export async function listInventory(shopId: string): Promise<InventoryRow[]> {
       offlinePricePaise: sp.offlinePricePaise,
       available: sp.onlineStock,
       reserved,
-      onHand: sp.onlineStock + reserved,
+      onHand: roundStock(sp.onlineStock + reserved),
       offlineStock: sp.offlineStock,
       trackInventory: sp.trackInventory,
       status: sp.trackInventory ? stockStatus(sp.onlineStock, thresholds.lowStock) : ("IN_STOCK" as StockStatus),

@@ -100,7 +100,7 @@ qa("TC-SPI-002", "loose goods by weight at ₹60/kg: 500 g is ₹30 and 1.25 kg 
   return `500 g → ₹30.00 (500 milli), 1.25 kg → ₹75.00 (1250 milli); stock 400 → 393 steps of 250 g (100 kg → 98.25 kg)`;
 }, {
   ...local,
-  partial: "uses a loose product sold in 250 g steps; a loose product listed per 1 kg (the seeded paneer, unit size 1000) can be bought in whole kg only — see TC-SPI-025",
+  partial: "uses a loose product sold in 250 g steps; a loose product listed per 1 kg can also be bought in parts of a kg (250 g = 0.25) since D-95 — see TC-SPI-025",
 });
 
 qa("TC-SPI-003", "buying the whole stock: stock 0 and shown out of stock; one more is refused OUT_OF_STOCK with no debit", async ({ browser }) => {

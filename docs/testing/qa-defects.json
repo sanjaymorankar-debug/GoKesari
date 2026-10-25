@@ -1333,8 +1333,8 @@
    "found": "2026-10-24 local (signed and local tiers)",
    "actual": "Stock 2.5 → 422; a count of 2.5 kg left 2; 250 g of a 1 kg-unit loose product cannot be sold.",
    "expected": "Loose stock in grams / millilitres (design change: stock is whole units today).",
-   "fix": "Owner decision 25 Oct: loose stock should record decimals. Planned as a separate change: online/offline stock move from whole units to a decimal (milli) quantity across the stock ledger, triggers, inventory, imports and order reservation.",
-   "status": "Open (owner decided - in a follow-up change)"
+   "fix": "Owner decision 25 Oct: loose stock records decimals. Migration 0095 (seller): shop_products.online_stock / offline_stock, inventory_movements.delta/previous/new_units and stock_alerts.stock_at_alert become numeric(14,3); the ledger triggers convert exactly (round(x * 1000)). Migration 0096 (core): cart_items.quantity numeric(10,3). Rules in src/lib/stock-quantity.ts: a LOOSE product keeps up to 3 decimals (2.5 kg; 250 g of a 1 kg listing is 0.25), a PACKAGED one stays whole (refused with a message). The books keep a loose listing's count equal to the ledger (a count of 2.500 kg leaves 2.5); checkout, cancellation, returns, substitutes, unpaid-order release, subscription deliveries, the inventory page, the bulk upload and the shop-software stock sync use the exact amount for loose goods. Product card and cart step 250 g / 250 ml for loose kg / L / g / ml listings. Tests: tests/integration/loose-stock-decimals.test.ts, tests/unit/stock-quantity.test.ts.",
+   "status": "Fixed (re-test pending)"
   },
   {
    "id": "D-96",

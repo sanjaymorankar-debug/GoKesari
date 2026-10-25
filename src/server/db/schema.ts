@@ -63,6 +63,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   primaryKey,
@@ -71,6 +72,13 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+
+/**
+ * A stock figure in sellable units with three decimals (D-95): whole for
+ * packaged goods, up to 0.001 for loose ones (src/lib/stock-quantity.ts). Read
+ * as a number; the stock ledger holds the same figure ×1000 as qty_milli.
+ */
+const stockUnits = (name: string) => numeric(name, { precision: 14, scale: 3, mode: "number" });
 
 /* ------------------------------------------------------------------ enums */
 
@@ -1598,8 +1606,9 @@ export const shopProducts = pgTable(
       .notNull()
       .default(false),
     trackInventory: boolean("track_inventory").notNull().default(true),
-    onlineStock: integer("online_stock").notNull().default(0),
-    offlineStock: integer("offline_stock").notNull().default(0),
+    /** Sellable units; three decimals for loose goods (D-95). */
+    onlineStock: stockUnits("online_stock").notNull().default(0),
+    offlineStock: stockUnits("offline_stock").notNull().default(0),
 
     /* ------------------------------------------ per-shop stock thresholds
      * (Product Master / Inventory brief §15–§18). Deliberately per-shop,
@@ -1676,7 +1685,7 @@ export const stockAlerts = pgTable(
       .references(() => shops.id, { onDelete: "cascade" }),
     alertType: stockAlertTypeEnum("alert_type").notNull(),
     status: stockAlertStatusEnum("status").notNull().default("OPEN"),
-    stockAtAlert: integer("stock_at_alert").notNull(),
+    stockAtAlert: stockUnits("stock_at_alert").notNull(),
     thresholdAtAlert: integer("threshold_at_alert").notNull(),
     acknowledgedBy: uuid("acknowledged_by").references(() => users.id),
     acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
@@ -1728,9 +1737,9 @@ export const inventoryMovements = pgTable(
       .references(() => shopProducts.id, { onDelete: "cascade" }),
     channel: text("channel", { enum: ["ONLINE", "OFFLINE"] }).notNull(),
     /** Negative for consumption, positive for restock. */
-    deltaUnits: integer("delta_units").notNull(),
-    previousUnits: integer("previous_units").notNull(),
-    newUnits: integer("new_units").notNull(),
+    deltaUnits: stockUnits("delta_units").notNull(),
+    previousUnits: stockUnits("previous_units").notNull(),
+    newUnits: stockUnits("new_units").notNull(),
     reason: text("reason").notNull(),
     orderId: uuid("order_id"),
     createdBy: uuid("created_by").references(() => users.id),
@@ -1777,8 +1786,8 @@ export const cartItems = pgTable(
     shopProductId: uuid("shop_product_id")
       .notNull()
       .references(() => shopProducts.id, { onDelete: "cascade" }),
-    /** Number of sellable units (not milli-units) — carts sell whole units. */
-    quantity: integer("quantity").notNull(),
+    /** Sellable units (not milli-units): whole for packaged goods, up to three decimals for loose ones (D-95). */
+    quantity: numeric("quantity", { precision: 10, scale: 3, mode: "number" }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),

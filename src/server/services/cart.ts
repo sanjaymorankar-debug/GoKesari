@@ -14,6 +14,16 @@ import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { notFound, validationFailed } from "@/lib/errors";
 import { lineTotalPaise, sumPaise } from "@/lib/money";
+import {
+  cartQuantityProblem,
+  cartQuantityStep,
+  formatStock,
+  MAX_CART_LINE_QUANTITY,
+  quantityToMilli,
+  roundStock,
+  type CartQuantityProduct,
+  type ProductKind,
+} from "@/lib/stock-quantity";
 import { db, type DbClient } from "@/server/db";
 import {
   cartItems,
@@ -39,6 +49,10 @@ export interface CartLine {
   department: Department;
   unit: string;
   unitSizeMilli: number;
+  /** D-95: a loose good's line can be part of a unit (0.25 of a 1 kg listing is 250 g). */
+  kind: ProductKind;
+  /** The − / + step of this line on the cart page (0.25 for a loose 1 kg listing, else 1). */
+  quantityStep: number;
   imageUrl: string | null;
   quantity: number;
   unitPricePaise: number;
@@ -101,8 +115,24 @@ export async function getOrCreateCart(
   return created;
 }
 
-/** The most units one cart line holds — the API's limit per request, the product card's and a purchase list's. */
-const MAX_CART_LINE_QUANTITY = 99;
+/** The listing's kind and unit size: what a cart quantity may be (D-95). */
+async function cartProductOf(shopProductId: string, client: DbClient): Promise<CartQuantityProduct> {
+  const [row] = await client
+    .select({ kind: products.kind, unitSizeMilli: products.unitSizeMilli })
+    .from(shopProducts)
+    .innerJoin(products, eq(shopProducts.productId, products.id))
+    .where(eq(shopProducts.id, shopProductId))
+    .limit(1);
+  if (!row) throw notFound("Product");
+  return row;
+}
+
+/** A quantity no listing could take (the per-product rule follows once the product is known). */
+function assertQuantityInRange(quantity: number, allowZero: boolean): void {
+  if (!Number.isFinite(quantity) || quantity < 0 || (!allowZero && quantity === 0) || quantity > MAX_CART_LINE_QUANTITY) {
+    throw validationFailed(`Quantity must be a whole number from ${allowZero ? 0 : 1} to ${MAX_CART_LINE_QUANTITY}.`);
+  }
+}
 
 /**
  * The user's cart (created if need be), locked until the transaction ends.
@@ -124,12 +154,12 @@ export async function addToCart(
   shopProductId: string,
   quantity = 1,
 ): Promise<CartSummary> {
-  if (!Number.isInteger(quantity) || quantity <= 0 || quantity > MAX_CART_LINE_QUANTITY) {
-    throw validationFailed(`Quantity must be a whole number from 1 to ${MAX_CART_LINE_QUANTITY}.`);
-  }
+  assertQuantityInRange(quantity, false);
 
   await db.transaction(async (tx) => {
     const cart = await lockCart(userId, tx);
+    const problem = cartQuantityProblem(quantity, await cartProductOf(shopProductId, tx));
+    if (problem) throw validationFailed(problem);
 
     const existing = await tx.query.cartItems.findFirst({
       where: and(
@@ -139,10 +169,10 @@ export async function addToCart(
     });
     const already = existing?.quantity ?? 0;
     if (already >= MAX_CART_LINE_QUANTITY) {
-      throw validationFailed(`Your cart already has ${already} of this — a cart line holds at most ${MAX_CART_LINE_QUANTITY}.`);
+      throw validationFailed(`Your cart already has ${formatStock(already)} of this — a cart line holds at most ${MAX_CART_LINE_QUANTITY}.`);
     }
     // Capped rather than refused, so a double tap near the cap fills the line instead of failing.
-    const desiredQuantity = Math.min(MAX_CART_LINE_QUANTITY, already + quantity);
+    const desiredQuantity = roundStock(Math.min(MAX_CART_LINE_QUANTITY, already + quantity));
 
     // Validate against the *total* quantity that would result, not just the delta.
     await assertPurchasableNow(shopProductId, desiredQuantity, tx);
@@ -167,9 +197,7 @@ export async function setCartItemQuantity(
   cartItemId: string,
   quantity: number,
 ): Promise<CartSummary> {
-  if (!Number.isInteger(quantity) || quantity < 0 || quantity > MAX_CART_LINE_QUANTITY) {
-    throw validationFailed(`Quantity must be a whole number from 0 to ${MAX_CART_LINE_QUANTITY}.`);
-  }
+  assertQuantityInRange(quantity, true);
 
   await db.transaction(async (tx) => {
     const cart = await lockCart(userId, tx);
@@ -178,6 +206,8 @@ export async function setCartItemQuantity(
       where: and(eq(cartItems.id, cartItemId), eq(cartItems.cartId, cart.id)),
     });
     if (!item) throw notFound("Cart item");
+    const problem = cartQuantityProblem(quantity, await cartProductOf(item.shopProductId, tx), { allowZero: true });
+    if (problem) throw validationFailed(problem);
 
     if (quantity === 0) {
       await tx.delete(cartItems).where(eq(cartItems.id, cartItemId));
@@ -295,12 +325,17 @@ export async function getCartLineQuantities(
 /**
  * Units in the user's cart (getCart's itemCount) for the header badge: one
  * query rather than the full priced cart on every page. Never creates a cart.
+ * A loose good's line counts once, as in getCart.
  */
 async function getCartItemCountUncached(userId: string): Promise<number> {
   const [row] = await db
-    .select({ units: sql<number>`coalesce(sum(${cartItems.quantity}), 0)`.mapWith(Number) })
+    .select({
+      units: sql<number>`coalesce(sum(CASE WHEN ${products.kind} = 'LOOSE' THEN 1 ELSE ${cartItems.quantity} END), 0)`.mapWith(Number),
+    })
     .from(cartItems)
     .innerJoin(carts, eq(cartItems.cartId, carts.id))
+    .innerJoin(shopProducts, eq(cartItems.shopProductId, shopProducts.id))
+    .innerJoin(products, eq(shopProducts.productId, products.id))
     .where(eq(carts.userId, userId));
   return row?.units ?? 0;
 }
@@ -378,7 +413,7 @@ export async function priceLines(rows: LineToPrice[]): Promise<Omit<CartSummary,
       offers,
     );
     const unitPrice = priced.unitPricePaise ?? 0;
-    const quantityMilli = row.quantity * row.product.unitSizeMilli;
+    const quantityMilli = quantityToMilli(row.quantity, row.product.unitSizeMilli);
 
     const line: CartLine = {
       cartItemId: row.lineId,
@@ -388,6 +423,8 @@ export async function priceLines(rows: LineToPrice[]): Promise<Omit<CartSummary,
       department: row.category.department,
       unit: row.product.unit,
       unitSizeMilli: row.product.unitSizeMilli,
+      kind: row.product.kind,
+      quantityStep: cartQuantityStep(row.product),
       imageUrl: row.sp.imageUrl ?? row.product.imageUrl,
       quantity: row.quantity,
       unitPricePaise: unitPrice,
@@ -442,7 +479,8 @@ export async function priceLines(rows: LineToPrice[]): Promise<Omit<CartSummary,
 
   return {
     groups,
-    itemCount: rows.reduce((n, r) => n + r.quantity, 0),
+    // A loose good's line counts once (250 g is one item, not 0.25 of one).
+    itemCount: rows.reduce((n, r) => n + (r.product.kind === "LOOSE" ? 1 : r.quantity), 0),
     subtotalPaise: sumPaise(groups.map((g) => g.subtotalPaise)),
     deliveryFeePaise: sumPaise(groups.map((g) => g.deliveryFeePaise)),
     taxPaise: sumPaise(groups.map((g) => g.taxPaise)),
@@ -513,5 +551,5 @@ export function describeUnavailability(
   }
   if (!sp.isAvailable) return "Currently unavailable online.";
   if (sp.trackInventory && sp.onlineStock <= 0) return "Out of stock.";
-  return `Only ${sp.onlineStock} left in stock.`;
+  return `Only ${formatStock(sp.onlineStock)} left in stock.`;
 }

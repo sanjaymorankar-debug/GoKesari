@@ -261,7 +261,7 @@ export async function createCategory(
 
 export async function createProduct(
   categoryId: string,
-  overrides: { name?: string; unit?: string; subscribable?: boolean } = {},
+  overrides: { name?: string; unit?: string; subscribable?: boolean; kind?: "PACKAGED" | "LOOSE"; unitSizeMilli?: number } = {},
 ) {
   const name = overrides.name ?? "Cow Milk";
   const [product] = await db
@@ -271,8 +271,9 @@ export async function createProduct(
       name,
       slug: `${name.toLowerCase().replace(/\s+/g, "-")}-${uniq()}`,
       unit: overrides.unit ?? "L",
-      unitSizeMilli: 1000,
+      unitSizeMilli: overrides.unitSizeMilli ?? 1000,
       subscribable: overrides.subscribable ?? true,
+      ...(overrides.kind ? { kind: overrides.kind } : {}),
     })
     .returning();
   return product;

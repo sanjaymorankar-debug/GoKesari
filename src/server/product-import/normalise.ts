@@ -8,6 +8,7 @@
  */
 import { analyzeGtin } from "@/server/pmd/normalize/identifiers";
 import { parseGstRate, normalizeHsn } from "@/server/pmd/normalize/tax";
+import { hasMilliPrecision, roundStock } from "@/lib/stock-quantity";
 
 export type Parsed<T> = { ok: true; value: T } | { ok: false; raw: string } | null;
 
@@ -60,6 +61,18 @@ export function paise(raw: unknown): Parsed<number> {
 }
 
 /** A whole number ≥ 0 (stock, order limits, piece counts). "12.0" is 12; "12.5" and "-3" are invalid. */
+/**
+ * A stock quantity: 0 or more, with at most three decimals (D-95: 2.5 kg of a
+ * loose good). Whether a fraction may be applied depends on the product
+ * (packaged goods stay whole) and is decided when the row is committed.
+ */
+export function stockQuantity(raw: unknown): Parsed<number> {
+  const n = number(raw);
+  if (!n || !n.ok) return n;
+  if (n.value < 0 || !hasMilliPrecision(n.value)) return bad(String(raw));
+  return ok(roundStock(n.value));
+}
+
 export function wholeNumber(raw: unknown): Parsed<number> {
   const n = number(raw);
   if (!n || !n.ok) return n;
