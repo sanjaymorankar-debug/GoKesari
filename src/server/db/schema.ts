@@ -1946,6 +1946,8 @@ export const orderItems = pgTable(
     /** Milli-units, so 2.5 L is exactly 2500. */
     quantityMilli: integer("quantity_milli").notNull(),
     lineTotalPaise: bigint("line_total_paise", { mode: "number" }).notNull(),
+    /** D-91: the product's MRP when it was sold (products.mrp_paise); null when it had none (loose goods). */
+    mrpPaise: bigint("mrp_paise", { mode: "number" }),
     /* ------------------------------------------ fulfilment (Slice 3) —
      * the original snapshot above is never rewritten; a substitute is
      * recorded alongside it so the order keeps its history. */
@@ -1958,6 +1960,8 @@ export const orderItems = pgTable(
     substituteQuantityMilli: integer("substitute_quantity_milli"),
     /** What the customer pays for the substitute — never more than the original line. */
     substituteLineTotalPaise: bigint("substitute_line_total_paise", { mode: "number" }),
+    /** D-91: the substitute's MRP when it was proposed. */
+    substituteMrpPaise: bigint("substitute_mrp_paise", { mode: "number" }),
     fulfilmentNote: text("fulfilment_note"),
     fulfilmentUpdatedAt: timestamp("fulfilment_updated_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -1970,6 +1974,10 @@ export const orderItems = pgTable(
     check(
       "order_items_amounts_non_negative",
       sql`${t.unitPricePaise} >= 0 AND ${t.lineTotalPaise} >= 0`,
+    ),
+    check(
+      "order_items_mrp_non_negative",
+      sql`(${t.mrpPaise} IS NULL OR ${t.mrpPaise} >= 0) AND (${t.substituteMrpPaise} IS NULL OR ${t.substituteMrpPaise} >= 0)`,
     ),
   ],
 );

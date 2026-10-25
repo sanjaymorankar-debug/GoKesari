@@ -171,6 +171,7 @@ export async function proposeSubstitution(
         substituteUnitSnapshot: substitute.product.unit,
         substituteQuantityMilli,
         substituteLineTotalPaise: substituteLineTotal,
+        substituteMrpPaise: substitute.product.mrpPaise ?? null,
         fulfilmentNote: note?.trim() || null,
         fulfilmentUpdatedAt: new Date(),
       })

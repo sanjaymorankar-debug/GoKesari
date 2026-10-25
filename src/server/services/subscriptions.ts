@@ -1313,6 +1313,7 @@ async function generateOneDelivery(
         unitPricePaise,
         quantityMilli: resolution.quantityMilli,
         lineTotalPaise: totalPaise,
+        mrpPaise: row.product.mrpPaise ?? null,
       });
 
       // Claims the (subscription, date) slot. A concurrent run fails here.
