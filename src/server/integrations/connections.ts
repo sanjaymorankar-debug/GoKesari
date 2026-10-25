@@ -773,7 +773,10 @@ export async function searchProductsForMapping(shopId: string, q: string) {
       name: products.name,
       code: products.code,
       mrpPaise: products.mrpPaise,
-      listed: sql<boolean>`exists (select 1 from ${shopProducts} sp where sp.product_id = ${products.id} and sp.shop_id = ${shopId} and sp.deleted_at is null)`,
+      // GAP-016: the outer product is named in full. In a select list without a join Drizzle writes
+      // ${products.id} as a bare "id", which inside this subquery is the listing's own id, so no product
+      // was ever "listed" (see referrals.ts listReferralCodes).
+      listed: sql<boolean>`exists (select 1 from ${shopProducts} sp where sp.product_id = products.id and sp.shop_id = ${shopId} and sp.deleted_at is null)`,
     })
     .from(products)
     .where(
