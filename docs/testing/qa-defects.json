@@ -1486,6 +1486,20 @@
    "expected": "Links to the public page appear only for an approved shop (as the seller shell's store link and the catalogue's 'View my shop page' already do).",
    "fix": "src/app/shop/page.tsx passes the slug to the menus only when the shop is APPROVED (the entries are then hidden); src/app/shop/manage/[section]/page.tsx shows 'View public page →' only for an approved shop. Unit test in tests/unit/tile-board.test.ts.",
    "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "E-02",
+   "title": "gokesari.com stopped answering for about 14 minutes after two overlapping deploys",
+   "cases": [
+    "TC-PRE-001"
+   ],
+   "severity": "High",
+   "found": "2026-10-25 01:56 UTC, while waiting for the release #248 deploy",
+   "actual": "Two Hostinger builds of main ran at the same time (#248 at 01:47:13 and #249 at 01:48:33, the same files). After the second one restarted the app at 01:55 and a respawn at 01:57, every request (pages, API, static files) timed out; no error in the runtime log.",
+   "expected": "One deploy at a time; the site answers within a minute of 'Deployment completed'.",
+   "fix": "Recovered by restarting the Node.js app through the Hostinger API at 02:09:45 UTC (no rebuild). Prevention: one release at a time, a site check (and restart) after every production deploy, an external uptime monitor; ask Hostinger whether overlapping builds can be queued. See docs/gokesari-audit/INCIDENT_2026-10-25_production_hang.md.",
+   "status": "Open (owner decision)",
+   "retest": "2026-10-25 02:10-02:35 UTC: guest tier 96 pass, 0 fail after the restart (docs/testing/qa-runs/2026-10-25-production-release-4.json)"
   }
  ]
 }
