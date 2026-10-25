@@ -1484,6 +1484,19 @@
    "expected": "Links to the public page appear only for an approved shop (as the seller shell's store link and the catalogue's 'View my shop page' already do).",
    "fix": "src/app/shop/page.tsx passes the slug to the menus only when the shop is APPROVED (the entries are then hidden); src/app/shop/manage/[section]/page.tsx shows 'View public page →' only for an approved shop. Unit test in tests/unit/tile-board.test.ts.",
    "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "D-105",
+   "title": "Voucher Excel upload accepted an end date that has already passed (also yesterday, from 00:00 to 05:30 IST)",
+   "cases": [
+    "TC-FLD-114"
+   ],
+   "severity": "Medium",
+   "found": "2026-10-25 code check of TC-FLD-114 with the clock pinned to 00:30 IST (tests/integration/vouchers.test.ts)",
+   "actual": "The voucher form and API refuse a past end date in IST (D-101), but the Excel upload (validateVoucherUpload / applyVoucherUpload in src/server/services/vouchers.ts) checked only that End Date is on or after Start Date: a row ending yesterday, or any day already passed, was marked VALID and created as an ACTIVE voucher that could never be used. A row checked before midnight IST and applied after it was created too. The template's example row (fixed dates 2026-09-01 to 2026-09-30) had itself already ended.",
+   "expected": "The upload follows the form: a row whose End Date is before today in IST is invalid and is not created, also when the end date passed between reading the file and applying it.",
+   "fix": "parseVoucherWorkbook marks a row INVALID ('End Date has already passed') when End Date < today in APP_TIMEZONE; applyVoucherUpload re-checks each row and skips (marks INVALID) one whose end date passed since. The template's example runs from today for 30 days. Tests with Date pinned to 15 Jan 2030 00:30 IST: create, edit, upload and late apply; the template uploads as it is. Older upload tests moved off their fixed September 2026 dates.",
+   "status": "Fixed (re-test pending)"
   }
  ]
 }
