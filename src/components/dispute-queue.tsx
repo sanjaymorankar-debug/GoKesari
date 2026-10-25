@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { Fragment, useState } from "react";
+import { Fragment, useState, useTransition } from "react";
 
 import { Badge, Button, EmptyState, Money, inputClass } from "@/components/ui";
 import {
@@ -49,6 +49,14 @@ const STATUS_TONE: Record<DisputeStatus, "neutral" | "info" | "warning" | "dange
 
 const COLUMN_COUNT = 7;
 
+/** What the admin sees once an action has been saved (GAP-012). */
+function doneMessage(caseNumber: string, body: Record<string, unknown>): string {
+  if (body.action === "resolve") return `${caseNumber} resolved.`;
+  if (body.action === "escalate") return `${caseNumber} escalated to an administrator.`;
+  const to = typeof body.to === "string" ? DISPUTE_STATUS_LABELS[body.to as DisputeStatus] : undefined;
+  return to ? `${caseNumber} moved to ${to.toLowerCase()}.` : `${caseNumber} updated.`;
+}
+
 /** A random id per resolve, so a double click cannot refund twice. */
 const newRequestId = () =>
   (globalThis.crypto?.randomUUID?.() ?? `${Date.now()}-${Math.random()}`).replace(/-/g, "").slice(0, 32);
@@ -78,12 +86,19 @@ export function DisputeQueue({
 }) {
   const router = useRouter();
   const [openId, setOpenId] = useState<string | null>(null);
-  const [busy, setBusy] = useState(false);
+  const [saving, setSaving] = useState(false);
+  // GAP-012: the buttons stay disabled until the refreshed list is on screen, so a second
+  // click cannot reach a case that has already moved on (it used to answer 409).
+  const [refreshing, startRefresh] = useTransition();
+  const busy = saving || refreshing;
   const [error, setError] = useState<string | null>(null);
+  const [notice, setNotice] = useState<string | null>(null);
 
   async function act(id: string, body: Record<string, unknown>) {
-    setBusy(true);
+    setSaving(true);
     setError(null);
+    setNotice(null);
+    const caseNumber = rows.find((r) => r.id === id)?.caseNumber ?? "The case";
     try {
       const response = await fetch(`/api/disputes/${id}`, {
         method: "PATCH",
@@ -96,11 +111,12 @@ export function DisputeQueue({
         return;
       }
       setOpenId(null);
-      router.refresh();
+      setNotice(doneMessage(caseNumber, body));
+      startRefresh(() => router.refresh());
     } catch {
       setError("Could not reach the server. Check the connection and try again.");
     } finally {
-      setBusy(false);
+      setSaving(false);
     }
   }
 
@@ -143,6 +159,11 @@ export function DisputeQueue({
     <>
       {filters}
       {error ? <p className="mb-3 rounded bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p> : null}
+      {notice ? (
+        <p role="status" className="mb-3 rounded bg-green-50 px-3 py-2 text-sm text-green-800" data-testid="dispute-notice">
+          {notice}
+        </p>
+      ) : null}
       <div className="overflow-x-auto">
         <table className="w-full text-sm">
           <thead>

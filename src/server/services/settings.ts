@@ -17,36 +17,48 @@ import { AUDIT_ACTIONS, recordAudit } from "./audit";
 
 const CACHE_MS = 15_000;
 const cache = new Map<string, { at: number; value: unknown }>();
-const inflight = new Map<string, Promise<unknown>>();
+/** The one read of every rule in progress, shared by everyone who missed the cache. */
+let inflight: Promise<void> | null = null;
 
 /** Effective value: stored override merged over the code default. */
 export async function getRule<K extends RuleKey>(key: K): Promise<RuleValue<K>> {
   const hit = cache.get(key);
   if (hit && Date.now() - hit.at < CACHE_MS) return hit.value as RuleValue<K>;
-  // Callers asking for the same rule at once (one page render reads several) share one query.
-  const pending = inflight.get(key);
-  if (pending) return pending as Promise<RuleValue<K>>;
-  const read = readRule(key).finally(() => inflight.delete(key));
-  inflight.set(key, read);
-  return read;
+  // GAP-019: a miss reads every rule in one query. A checkout reads about eight
+  // rules, and one database round trip per rule added up on a cold checkout
+  // with a far database. Callers that miss at once share the read.
+  if (!inflight) inflight = readAllRules().finally(() => (inflight = null));
+  await inflight;
+  // A write landed while that read was running: read once more.
+  if (!cache.has(key)) await readAllRules();
+  return (cache.get(key)?.value ?? RULES[key].defaults) as RuleValue<K>;
 }
 
-async function readRule<K extends RuleKey>(key: K): Promise<RuleValue<K>> {
-  const def = RULES[key];
-  let value: unknown = def.defaults;
+/** Bumped by every write, so a read that started before it cannot cache the old value. */
+let generation = 0;
+
+async function readAllRules(): Promise<void> {
+  const startedAt = generation;
+  let stored = new Map<string, unknown>();
   try {
-    const [row] = await db.select().from(platformSettings).where(eq(platformSettings.key, key));
-    if (row) {
-      const merged = def.schema.safeParse({ ...(def.defaults as object), ...(row.value as object) });
+    const rows = await db.select().from(platformSettings);
+    stored = new Map(rows.map((r) => [r.key, r.value]));
+  } catch (error) {
+    console.error("[settings] read failed, using defaults", error);
+  }
+  if (generation !== startedAt) return;
+  const at = Date.now();
+  for (const key of Object.keys(RULES) as RuleKey[]) {
+    const def = RULES[key];
+    let value: unknown = def.defaults;
+    if (stored.has(key)) {
+      const merged = def.schema.safeParse({ ...(def.defaults as object), ...(stored.get(key) as object) });
       // A stored value that no longer validates (schema tightened later)
       // falls back to the safe default rather than breaking the flow.
       if (merged.success) value = merged.data;
     }
-  } catch (error) {
-    console.error("[settings] read failed, using defaults", key, error);
+    cache.set(key, { at, value });
   }
-  cache.set(key, { at: Date.now(), value });
-  return value as RuleValue<K>;
 }
 
 export async function listRules(): Promise<
@@ -90,7 +102,7 @@ export async function setRule<K extends RuleKey>(
       set: { value: parsed.data, updatedBy: actor.id, updatedAt: new Date() },
     });
   cache.delete(key);
-  inflight.delete(key);
+  generation += 1;
   await recordAudit({
     actorId: actor.id,
     actorRole: actor.role,
@@ -108,7 +120,7 @@ export async function resetRule(key: RuleKey, actor: { id: string; role: UserRol
   const previous = await getRule(key);
   await db.delete(platformSettings).where(eq(platformSettings.key, key));
   cache.delete(key);
-  inflight.delete(key);
+  generation += 1;
   await recordAudit({
     actorId: actor.id,
     actorRole: actor.role,
@@ -123,5 +135,6 @@ export async function resetRule(key: RuleKey, actor: { id: string; role: UserRol
 /** For tests: forget cached values. */
 export function clearRuleCache(): void {
   cache.clear();
-  inflight.clear();
+  inflight = null;
+  generation += 1;
 }

@@ -503,7 +503,10 @@ describe("pull: the shop's software decides stock and price", () => {
     const { shop, owner, cat, integration } = await connected();
     const paneer = await createProduct(cat.id, { name: "Fresh Paneer Loose", unit: "kg" });
     const loose = await createShopProduct(shop.id, paneer.id, { onlinePricePaise: null, onlineSaleEnabled: false, onlineStock: 0 });
-    const summary = await applyPulledItems(integration, [{ externalId: "P-9", name: "Paneer fresh loose", stock: 12, pricePaise: 42_000 }]);
+    // A reworded name (similarity 0.79) is only suggested. The same words in another order score
+    // 1.0 and are matched (≥ 0.9 among the shop's own products); this test used such a name while
+    // the "listed" flag was always false (GAP-016), so it never matched.
+    const summary = await applyPulledItems(integration, [{ externalId: "P-9", name: "Loose paneer (fresh, 1 kg)", stock: 12, pricePaise: 42_000 }]);
     expect(summary.suggested + summary.unmatched).toBe(1);
     const [link] = await db.select().from(integrationItemLinks).where(eq(integrationItemLinks.externalId, "P-9"));
     expect(link.matchStatus).toBe("SUGGESTED");
@@ -518,7 +521,7 @@ describe("pull: the shop's software decides stock and price", () => {
 
     // Ignored items stay ignored on the next pull.
     await updateItemLink(shop.id, link.id, { action: "ignore" }, ownerActor(owner.id));
-    expect(await applyPulledItems(integration, [{ externalId: "P-9", name: "Paneer fresh loose", stock: 1, pricePaise: 1 }])).toMatchObject({ ignored: 1 });
+    expect(await applyPulledItems(integration, [{ externalId: "P-9", name: "Loose paneer (fresh, 1 kg)", stock: 1, pricePaise: 1 }])).toMatchObject({ ignored: 1 });
   });
 });
 

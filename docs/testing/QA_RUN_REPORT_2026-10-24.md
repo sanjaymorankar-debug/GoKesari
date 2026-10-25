@@ -11,6 +11,15 @@ The 798-case plan is automated as Playwright UI and API checks (`tests/qa`): 863
 - **Not run on production:** the signed-in and local tiers. Production is guest-only by rule: no sign-in, order, payment, upload or submission.
 - **New features not yet checked on production:** the guest tier has no checks for the new features (the paused-shop notice, India-time voucher dates, the cart and checkout race fixes, the product-master fix). Integration tests cover them on both database layouts; the production run shows that public pages did not regress.
 
+## Update 25 Oct: release #248 (D-104) to gokesari.com
+
+- **Released:** #248 merged into main as 1ed8e09 at 01:47 UTC. CI passed on both database layouts. It carries the D-104 fix: the shop owner's menus link to the public page only when the shop is approved.
+- **Outage:** gokesari.com stopped answering from about 01:56 to 02:10 UTC (E-02). Another session merged #249 with the same files 75 seconds after #248, so two Hostinger deploys overlapped. A restart of the Node.js app (no rebuild) brought the site back. Details and recommendations: `docs/gokesari-audit/INCIDENT_2026-10-25_production_hang.md`.
+- **Retest after the restart:** the guest tier passed **96, failed 0 and was blocked 0** (68 cases, desktop and phone; one skip, TC-QA-007).
+  - No page took longer than 5 s; the home page was the slowest at 3.1 s.
+  - Results: `docs/testing/qa-runs/2026-10-25-production-release-4.json`.
+- **Not checked:** D-104 itself needs a signed-in shop owner, so it can't be checked on production and stays "Fixed (re-test pending)" until the next signed-in run on staging.
+
 ## Per site (latest run of each case; from the master register)
 
 | Site | Pass | Pass (partial) | Fail | Blocked | Manual | Skipped (rule) |
