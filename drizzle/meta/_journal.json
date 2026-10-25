@@ -652,6 +652,13 @@
       "when": 1792900000000,
       "tag": "0092_order_item_mrp",
       "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1792900100000,
+      "tag": "0093_customer_referral_reversal",
+      "breakpoints": true
     }
   ]
 }

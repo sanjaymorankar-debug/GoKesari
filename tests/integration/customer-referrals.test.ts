@@ -7,15 +7,17 @@ import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
-import { addresses, customerReferrals, orders, platformSettings, users, wallets } from "@/server/db/schema";
+import { addresses, customerReferrals, orders, platformSettings, users, walletTransactions, wallets } from "@/server/db/schema";
 import {
   applyReferralCode,
   canApplyReferralCode,
   getOrCreateReferralCode,
   getReferralSummary,
+  reverseCustomerReferral,
 } from "@/server/services/customer-referrals";
 import { updateOrderStatus } from "@/server/services/orders";
 import { clearRuleCache, setRule } from "@/server/services/settings";
+import { applyWalletMutation } from "@/server/services/wallet";
 import { createOrder, createShop, createUser, resetDatabase } from "../helpers/fixtures";
 
 let admin = { id: "", role: "ADMIN" as const };
@@ -152,5 +154,59 @@ describe("customer referrals", () => {
       expect(await promo(friend.id)).toBe(3000);
       expect(await promo(r.id)).toBe(5000); // only the first counts for the referrer
     }
+  });
+});
+
+describe("D-25: reversing a rewarded referral found fraudulent", () => {
+  it("takes both rewards back as REVERSAL entries, never below zero, once", async () => {
+    await enable();
+    const r = await referrer();
+    const friend = await createUser();
+    await applyReferralCode(friend.id, await getOrCreateReferralCode(r.id));
+    await expect(reverseCustomerReferral((await db.query.customerReferrals.findFirst())!.id, "Same device as the referrer", admin)).rejects.toMatchObject({
+      code: "CONFLICT", // still pending: nothing to reverse
+    });
+    await deliverOrderFor(friend.id);
+    // The referrer has already spent 3,000 of the 5,000 credit.
+    await applyWalletMutation({ userId: r.id, amountPaise: 3000, type: "PRODUCT_PURCHASE", idempotencyKey: "spent", description: "order" });
+
+    const [referral] = await db.select().from(customerReferrals).where(eq(customerReferrals.refereeUserId, friend.id));
+    await expect(reverseCustomerReferral(referral.id, "no", admin)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    const reversed = await reverseCustomerReferral(referral.id, "Same device as the referrer", admin);
+    expect(reversed).toMatchObject({ status: "REVERSED", reversedBy: admin.id, referrerRecoveredPaise: 2000, refereeRecoveredPaise: 3000 });
+    expect(await promo(r.id)).toBe(0);
+    expect(await promo(friend.id)).toBe(0);
+
+    const reversals = await db.select().from(walletTransactions).where(eq(walletTransactions.type, "REVERSAL"));
+    expect(reversals.map((t) => t.amountPaise).sort((a, b) => a - b)).toEqual([-3000, -2000]);
+    for (const t of reversals) {
+      const [original] = await db.select().from(walletTransactions).where(eq(walletTransactions.id, t.reversalOfId!));
+      expect(original).toMatchObject({ type: "PROMOTIONAL_CREDIT", userId: t.userId });
+    }
+
+    // A second call changes nothing.
+    await reverseCustomerReferral(referral.id, "Same device as the referrer", admin);
+    expect(await db.select().from(walletTransactions).where(eq(walletTransactions.type, "REVERSAL"))).toHaveLength(2);
+    expect(await getReferralSummary(r.id)).toMatchObject({ rewarded: 0, earnedPaise: 0 });
+  });
+
+  it("keeps the friend's mobile used: a new account on it earns nothing", async () => {
+    await enable();
+    const r = await referrer();
+    const friend = await createUser();
+    await db.update(users).set({ phoneE164: "+919800000001" }).where(eq(users.id, friend.id));
+    await applyReferralCode(friend.id, await getOrCreateReferralCode(r.id));
+    await deliverOrderFor(friend.id);
+    const [referral] = await db.select().from(customerReferrals).where(eq(customerReferrals.refereeUserId, friend.id));
+    await reverseCustomerReferral(referral.id, "Fake account farm", admin);
+
+    await db.update(users).set({ phoneE164: null }).where(eq(users.id, friend.id));
+    const again = await createUser();
+    await db.update(users).set({ phoneE164: "+919800000001" }).where(eq(users.id, again.id));
+    await applyReferralCode(again.id, await getOrCreateReferralCode(r.id));
+    await deliverOrderFor(again.id, "7 Other Lane");
+    const [second] = await db.select().from(customerReferrals).where(eq(customerReferrals.refereeUserId, again.id));
+    expect(second).toMatchObject({ status: "REJECTED", rejectionReason: expect.stringMatching(/already earned/) });
+    expect(await promo(again.id)).toBe(0);
   });
 });
