@@ -448,6 +448,11 @@ export interface ReturnDetail {
   viewer: "CUSTOMER" | "SHOP" | "STAFF";
   /** Actions the viewer may take right now — the UI shows exactly these. */
   actions: string[];
+  /**
+   * Shop / support only: a rider return that has not reached the shop yet. Nobody completes it by hand —
+   * they wait for the rider to bring the goods back, then press "Goods received" (GAP-013).
+   */
+  awaitingRider: boolean;
 }
 
 export async function getReturnDetail(returnId: string, actor: Actor): Promise<ReturnDetail> {
@@ -531,6 +536,10 @@ export async function getReturnDetail(returnId: string, actor: Actor): Promise<R
       : null,
     viewer,
     actions,
+    awaitingRider:
+      viewer !== "CUSTOMER" &&
+      ret.pickupRequired &&
+      ["APPROVED", "PICKUP_ASSIGNED", "PICKUP_SCHEDULED", "RIDER_EN_ROUTE"].includes(s),
   };
 }
 

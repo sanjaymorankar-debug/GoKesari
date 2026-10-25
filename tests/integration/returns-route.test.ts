@@ -161,6 +161,10 @@ describe("GET /api/returns/[id]", () => {
     expect(Object.keys(r.body.pickup).sort()).toEqual(["scheduledFor", "status"]);
     expect(r.body.pickup.status).toBe("PENDING");
     expect(r.body.actions).toContain("retry_pickup");
+    // GAP-013: no manual completion while the rider has not brought the goods back — the shop is told to wait.
+    expect(r.body.actions).not.toContain("complete_pickup");
+    expect(r.body.actions).not.toContain("receive");
+    expect(r.body.awaitingRider).toBe(true);
     expectNoRowLeaks(r.body, [customer.id, owner.id]);
   });
 
@@ -173,6 +177,7 @@ describe("GET /api/returns/[id]", () => {
     const r = await call(returnGet, `/api/returns/${ret.id}`, { params: { id: ret.id } });
     expect(r.status).toBe(200);
     expect(r.body.viewer).toBe("CUSTOMER");
+    expect(r.body.awaitingRider).toBe(false);
     expect(r.body.customerName).toBeNull();
     expect(r.body.pickup).toMatchObject({ status: "PENDING", handoverCode: pickup.handoverCode });
     expect(Object.keys(r.body.ret).sort()).toEqual(RET_KEYS);

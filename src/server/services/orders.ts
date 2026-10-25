@@ -206,6 +206,36 @@ export interface CheckoutResult {
   parentReference?: string | null;
 }
 
+/** A settled promise: lets reads start together while their errors are still raised in a fixed order. */
+type Settled<T> = { ok: true; value: T } | { ok: false; error: unknown };
+function settled<T>(p: Promise<T>): Promise<Settled<T>> {
+  return p.then(
+    (value) => ({ ok: true as const, value }),
+    (error: unknown) => ({ ok: false as const, error }),
+  );
+}
+function unwrap<T>(r: Settled<T>): T {
+  if (!r.ok) throw r.error;
+  return r.value;
+}
+
+/**
+ * GAP-019: where a checkout spends its time. Silent unless the whole checkout is slow (see
+ * CHECKOUT_SLOW_LOG_MS), then one log line with each step's milliseconds — the profile the far database needs.
+ */
+function checkoutTimer(): (step: string, finish?: boolean) => void {
+  const started = Date.now();
+  let last = started;
+  const steps: string[] = [];
+  return (step, finish = false) => {
+    const now = Date.now();
+    steps.push(`${step}=${now - last}ms`);
+    last = now;
+    const threshold = Number(process.env.CHECKOUT_SLOW_LOG_MS ?? 5000);
+    if (finish && now - started >= threshold) console.warn(`[checkout] slow: ${now - started}ms (${steps.join(", ")})`);
+  };
+}
+
 export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   if (!input.requestId?.trim()) {
     throw validationFailed("A checkout request id is required.");
@@ -221,22 +251,35 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     return { orders: replayed, deduplicated: true, ...(parentReference ? { parentReference } : {}) };
   }
 
-  // Mandatory referral code (rule customerSignupReferral.required): a new customer's first order needs one.
-  if ((input.orderType ?? "PERSONAL") === "PERSONAL") await assertSignupReferralForFirstOrder(input.userId);
-
+  const lap = checkoutTimer();
   const orderType: OrderType = input.orderType ?? "PERSONAL";
-  const buyerShopId = orderType === "B2B" ? await resolveBuyerShop(input) : null;
+
+  // GAP-019: these reads do not depend on each other, so they run together instead of one round trip after
+  // another (the database is far from the web server). Their errors are still raised in the old order below.
+  const referralCheck = settled(
+    orderType === "PERSONAL" ? assertSignupReferralForFirstOrder(input.userId) : Promise.resolve(),
+  );
+  const buyerShopCheck = settled(orderType === "B2B" ? resolveBuyerShop(input) : Promise.resolve(null));
+  const cartRead = settled(getCart(input.userId));
+  const buyerRead = settled(
+    db.select({ phoneE164: users.phoneE164 }).from(users).where(eq(users.id, input.userId)),
+  );
+
+  // Mandatory referral code (rule customerSignupReferral.required): a new customer's first order needs one.
+  unwrap(await referralCheck);
+  const buyerShopId = unwrap(await buyerShopCheck);
   if (orderType === "PERSONAL" && input.buyerShopId) {
     throw validationFailed("A personal order cannot be placed for a shop.");
   }
 
-  const cart = await getCart(input.userId);
+  const cart = unwrap(await cartRead);
   if (cart.groups.length === 0) {
     throw validationFailed("Your cart is empty.");
   }
 
   // The delivery partner (or the shop, for a pickup) must be able to call the buyer.
-  const [buyer] = await db.select({ phoneE164: users.phoneE164 }).from(users).where(eq(users.id, input.userId));
+  const [buyer] = unwrap(await buyerRead);
+  lap("checks");
   if (!buyer?.phoneE164) {
     throw validationFailed(
       "Add your mobile number in My Profile before placing an order — the delivery partner needs it to reach you.",
@@ -263,8 +306,14 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   const acknowledged = new Set(input.acknowledgeClosedShopIds ?? []);
   const unconfirmed: string[] = [];
   const checkedAt = new Date();
+  // One read of every shop in the cart, used by the checks below (GAP-019).
+  const cartShopRows = await db
+    .select()
+    .from(shops)
+    .where(inArray(shops.id, purchasableGroups.map((g) => g.shop.id)));
+  const cartShopById = new Map(cartShopRows.map((r) => [r.id, r]));
   for (const group of purchasableGroups) {
-    const [shopRow] = await db.select().from(shops).where(eq(shops.id, group.shop.id));
+    const shopRow = cartShopById.get(group.shop.id);
     if (!shopRow || isShopOpenNow(shopRow, checkedAt)) continue;
     closedShops.set(shopRow.id, nextOpeningAt(shopRow, checkedAt));
     if (!acknowledged.has(shopRow.id)) unconfirmed.push(shopRow.name);
@@ -305,7 +354,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       societyId: orderSocietyId,
     };
     for (const group of purchasableGroups) {
-      const [shopRow] = await db.select().from(shops).where(eq(shops.id, group.shop.id));
+      const shopRow = cartShopById.get(group.shop.id);
       if (!shopRow?.deliveryAvailable || partners.has(shopRow.id)) continue;
       const check = shopServiceability(shopRow, location);
       if (!check.deliversHere) {
@@ -319,17 +368,16 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   // A shop whose prepaid wallet is below the minimum is paused too (rule
   // shopWallet): it could not accept the order, so it is never placed.
   {
-    const groupShops = await withWalletGate(
-      await db
-        .select()
-        .from(shops)
-        .where(inArray(shops.id, purchasableGroups.map((g) => g.shop.id))),
-    );
+    const groupShops = await withWalletGate(cartShopRows);
     // A personal order from a shop that delivers needs a saved delivery address.
     // Business orders and shops that only offer pickup are unchanged.
     if (orderType === "PERSONAL" && !addressSnapshot && groupShops.some((s) => s.deliveryAvailable)) {
       throw validationFailed("Add a delivery address before placing this order.", { missing: "address" });
     }
+    // Each shop's legal-document check is started now and read in order below (GAP-019).
+    const legalChecks = new Map(
+      groupShops.filter((s) => !s.ordersPaused).map((s) => [s.id, settled(assertLegalDocsAllowOrders(s.id))]),
+    );
     for (const group of purchasableGroups) {
       const shopRow = groupShops.find((s) => s.id === group.shop.id);
       if (!shopRow) continue;
@@ -337,7 +385,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
         throw conflict(`${shopRow.name} is not taking new orders right now.`);
       }
       // Mandatory legal documents: a shop past its grace period takes no orders until it uploads them.
-      await assertLegalDocsAllowOrders(shopRow.id);
+      unwrap((await legalChecks.get(shopRow.id)) ?? { ok: true, value: undefined });
       assertMinimumOrder(shopRow, group.subtotalPaise, addressSnapshot != null);
     }
   }
@@ -436,6 +484,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
     let scheduledSlot: { start: Date; end: Date; date: string } | null = null;
     const acceptBy = await acceptByFor(new Date(), closedShops.get(group.shop.id) ?? null);
 
+    lap("before-order");
     const placed = await db.transaction(async (tx) => {
       // The cart's lock first, before any slot, coupon, stock or wallet lock. Its other holders
       // (an add, a quantity change, a purchase list's send, another checkout) take none of those
@@ -748,6 +797,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       return { order: confirmed, shopOwnerId: shopRow.ownerId, deduplicated: false as const };
     });
 
+    lap("order");
     created.push(placed.order);
     if (placed.deduplicated) {
       anyDeduplicated = true;
@@ -763,6 +813,7 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   // Event layer: the per-order risk rules run now, at placement, not at the next
   // hourly scan. After commit and never throwing — a check must not block an order.
   if (created.length > 0) await checkRiskForUser(input.userId, "ORDER_PLACED");
+  lap("done", true);
 
   return { orders: created, deduplicated: anyDeduplicated, ...(orderGroup ? { parentReference: orderGroup.reference } : {}) };
 }
