@@ -142,6 +142,13 @@ export function ReturnCase({ detail }: { detail: ReturnDetail }) {
         ))}
       </ol>
 
+      {detail.awaitingRider ? (
+        <Alert tone="info">
+          Waiting for the rider to collect the goods and bring them back to the shop. Once they are in the shop, press
+          &quot;Goods received&quot; to complete the return.
+        </Alert>
+      ) : null}
+
       {detail.actions.length > 0 ? (
         <div className="space-y-3 border-t border-cream-100 pt-3">
           <div className="flex flex-wrap gap-2">
