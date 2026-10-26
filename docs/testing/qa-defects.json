@@ -1429,7 +1429,7 @@
    "expected": "Voucher dates are judged in the business time zone (APP_TIMEZONE, IST), like the rest of the app.",
    "fix": "todayIso() → todayIn(getEnv().APP_TIMEZONE) — made the same way in PR #241 and PR #246; voucher tests take today in IST. Same UTC-date pattern remains in registration-fees, legal-documents, referrals and seller-verification (not failing; follow-up).",
    "status": "Fixed - retest passed",
-   "retest": "2026-10-24: TC-FLD-114 pass in local round 3 (one database); local round 3 (split)"
+   "retest": "2026-10-24: TC-FLD-114 pass in local round 3 (one database); local round 3 (split); 25 Oct 2026 19:03 UTC (00:33 IST, 26 Oct) on test.gokesari.com, build 59a6163: inside the window where the dates differ (UTC 2026-10-25, IST 2026-10-26), the staging admin's POST /api/vouchers with an end date of 2026-10-25 (yesterday in IST, today in UTC) was refused with HTTP 422, endDate: \"The end date has already passed — choose today or a later date.\" No voucher was created. TC-FLD-114 pass on staging."
   },
   {
    "id": "D-102",
