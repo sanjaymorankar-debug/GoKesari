@@ -19,19 +19,25 @@ export const GET = route(async (request: NextRequest) => {
   const categories = await listShopCategories({
     activeOnly: !(staff && p.get("all") === "1"),
     query: p.get("q") ?? undefined,
+    withShopCounts: staff,
   });
   return ok({
     categories: categories.map((c) => ({
       id: c.id,
       name: c.name,
       description: c.description,
+      groupName: c.groupName,
       status: c.status,
       ...(staff ? { shopCount: c.shopCount } : {}),
     })),
   });
 });
 
-const schema = z.object({ name: z.string().min(2).max(80), description: z.string().max(300).nullish() });
+const schema = z.object({
+  name: z.string().min(2).max(80),
+  description: z.string().max(300).nullish(),
+  groupName: z.string().max(60).nullish(),
+});
 
 export const POST = route(async (request: NextRequest) => {
   const user = await requireRole("OPERATOR", "ADMIN");

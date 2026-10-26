@@ -353,7 +353,7 @@ describe("TC-FLD-037: registration text is trimmed before it is checked", () => 
       phone: "9876543210",
       city: "Pune",
       pincode: "411001",
-      shopType: "DAIRY",
+      shopType: "DAIRY", annualTurnoverRupees: 1_500_000,
       categoryIds: await shopCategoryIds(),
       shopActNumber: "PII-KOTHRUD-II-12345",
     };
@@ -402,7 +402,7 @@ describe("TC-FLD-043: GSTIN structure, state code, check character and PAN", () 
       method: "POST",
       body: {
         name: "Gst Dairy", ownerName: "Ramesh Patil", phone: "9876543210", addressLine1: "1 Main Road", city: "Pune", pincode: "411001",
-        shopType: "DAIRY", categoryIds: await shopCategoryIds(), panNumber: "ABCPE1234F", panHolderName: "Ramesh Patil", gstin: gstin("27", "ZZZPZ9999Z"),
+        shopType: "DAIRY", annualTurnoverRupees: 1_500_000, categoryIds: await shopCategoryIds(), panNumber: "ABCPE1234F", panHolderName: "Ramesh Patil", gstin: gstin("27", "ZZZPZ9999Z"),
       },
     });
     expect(res.status).toBe(422);

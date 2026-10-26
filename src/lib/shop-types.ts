@@ -239,6 +239,28 @@ export const SHOP_TYPES = [
     label: "Online Store / E-commerce",
     standardGoods: ["Apparel", "electronics", "groceries", "home goods", "beauty products", "books", "toys", "accessories"],
   },
+  /*
+   * Professional practices and offices (owner request, 26 Oct 2026). They offer
+   * services, not goods: the registration form hides delivery for them
+   * (isProfessionalShopType). The specialities — CA, advocate, dentist, … —
+   * are shop categories (admin-editable, grouped in the picker), seeded by
+   * drizzle/0098_professional_registration.sql.
+   */
+  {
+    key: "PROFESSIONAL_OFFICE",
+    label: "Professional office — CA, CS, advocate, tax consultant",
+    standardGoods: ["Accounting", "audit", "tax filing", "GST returns", "company law", "legal advice", "notary services"],
+  },
+  {
+    key: "DOCTOR_CLINIC",
+    label: "Doctor / clinic",
+    standardGoods: ["Consultation", "diagnosis", "treatment", "dental care", "physiotherapy", "diagnostic tests"],
+  },
+  {
+    key: "CONSULTING_SERVICES",
+    label: "Consultancy and other services",
+    standardGoods: ["Management consulting", "IT services", "recruitment", "coaching", "architecture", "interior design", "insurance", "financial advice"],
+  },
 ] as const satisfies readonly ShopTypeDefinition[];
 
 export type ShopTypeKey = (typeof SHOP_TYPES)[number]["key"];
@@ -283,6 +305,17 @@ export const FOOD_SHOP_TYPE_KEYS: readonly ShopTypeKey[] = [
   "FAST_FOOD",
   "CAFE",
 ];
+
+/** Practices and offices that offer services rather than goods — no delivery, "practice" wording. */
+export const PROFESSIONAL_SHOP_TYPE_KEYS: readonly ShopTypeKey[] = [
+  "PROFESSIONAL_OFFICE",
+  "DOCTOR_CLINIC",
+  "CONSULTING_SERVICES",
+];
+
+export function isProfessionalShopType(key: string): boolean {
+  return (PROFESSIONAL_SHOP_TYPE_KEYS as readonly string[]).includes(key);
+}
 
 export function isFoodBusinessShopType(key: string): boolean {
   return (FOOD_SHOP_TYPE_KEYS as readonly string[]).includes(key);

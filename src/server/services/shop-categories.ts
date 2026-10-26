@@ -39,7 +39,12 @@ const slugify = (value: string) =>
 /* --------------------------------------------------------- category list */
 
 export async function listShopCategories(
-  options: { activeOnly?: boolean; query?: string } = {},
+  options: {
+    activeOnly?: boolean;
+    query?: string;
+    /** Count each category's shops (staff screens). Off for pickers: a count per row on every form load. */
+    withShopCounts?: boolean;
+  } = {},
   client: DbClient = db,
 ): Promise<(ShopCategory & { shopCount: number })[]> {
   const conditions = [
@@ -52,10 +57,14 @@ export async function listShopCategories(
       name: shopCategories.name,
       slug: shopCategories.slug,
       description: shopCategories.description,
+      groupName: shopCategories.groupName,
       status: shopCategories.status,
       createdAt: shopCategories.createdAt,
       updatedAt: shopCategories.updatedAt,
-      shopCount: sql<number>`(select count(*)::int from ${shopCategoryMapping} m join ${shops} s on s.id = m.shop_id
+      shopCount:
+        options.withShopCounts === false
+          ? sql<number>`0`
+          : sql<number>`(select count(*)::int from ${shopCategoryMapping} m join ${shops} s on s.id = m.shop_id
         where m.category_id = shop_categories.id and s.deleted_at is null)`,
     })
     .from(shopCategories)
@@ -64,7 +73,7 @@ export async function listShopCategories(
 }
 
 export async function createShopCategory(
-  input: { name: string; description?: string | null },
+  input: { name: string; description?: string | null; groupName?: string | null },
   actor: Actor,
 ): Promise<ShopCategory> {
   if (!isStaff(actor.role)) throw forbidden("Only operations can manage shop categories.");
@@ -80,7 +89,7 @@ export async function createShopCategory(
 
   const [row] = await db
     .insert(shopCategories)
-    .values({ name, slug, description: input.description?.trim() || null })
+    .values({ name, slug, description: input.description?.trim() || null, groupName: input.groupName?.trim() || null })
     .returning();
   await recordAudit({
     actorId: actor.id,
@@ -111,7 +120,7 @@ export interface ShopCategorySnapshot {
  */
 export async function updateShopCategory(
   id: string,
-  patch: { name?: string; description?: string | null; status?: "ACTIVE" | "INACTIVE" },
+  patch: { name?: string; description?: string | null; groupName?: string | null; status?: "ACTIVE" | "INACTIVE" },
   actor: Actor,
 ): Promise<ShopCategory & { previous: ShopCategorySnapshot }> {
   if (!isStaff(actor.role)) throw forbidden("Only operations can manage shop categories.");
@@ -131,6 +140,7 @@ export async function updateShopCategory(
     set.name = name;
   }
   if (patch.description !== undefined) set.description = patch.description?.trim() || null;
+  if (patch.groupName !== undefined) set.groupName = patch.groupName?.trim() || null;
   if (patch.status !== undefined) set.status = patch.status;
 
   const [row] = await db.update(shopCategories).set(set).where(eq(shopCategories.id, id)).returning();
@@ -140,8 +150,8 @@ export async function updateShopCategory(
     action: AUDIT_ACTIONS.SHOP_CATEGORY_SAVED,
     entityType: "shop_category",
     entityId: id,
-    previousValue: { name: current.name, status: current.status, description: current.description },
-    newValue: { name: row.name, status: row.status, description: row.description },
+    previousValue: { name: current.name, status: current.status, description: current.description, groupName: current.groupName },
+    newValue: { name: row.name, status: row.status, description: row.description, groupName: row.groupName },
   });
   return { ...row, previous: { name: current.name, description: current.description, status: current.status } };
 }

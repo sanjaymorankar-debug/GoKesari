@@ -6,6 +6,7 @@
  *   - Kesari/Green classification is writable only by OPERATOR/ADMIN, and every
  *     change is recorded with who/when/why.
  */
+import { cache } from "react";
 import { and, asc, desc, eq, gte, ilike, inArray, isNull, lte, or, sql } from "drizzle-orm";
 
 import { parseSellerFssai } from "@/lib/kyc/doc-formats";
@@ -13,6 +14,7 @@ import { likePattern } from "@/lib/like-pattern";
 import { AppError, conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { formatPaise } from "@/lib/money";
 import { panBlindIndex } from "@/lib/pan-crypto";
+import { feeForTurnover, MAX_ANNUAL_TURNOVER_RUPEES } from "@/lib/registration-fee";
 import { GSTIN_PAN_MISMATCH_MESSAGE, gstinPan, parseGstin } from "@/lib/shop-identity";
 import {
   MAX_DELIVERY_FEE_PAISE,
@@ -89,6 +91,12 @@ export interface RegisterShopInput {
   deliveryFeePaise?: number;
   freeDeliveryAbovePaise?: number | null;
   description?: string | null;
+  /**
+   * Declared annual turnover in whole rupees. With rule registrationFeeByTurnover
+   * on, it sets the registration fee (unless an operator overrides the fee).
+   * POST /api/shops requires it for a self-service registration.
+   */
+  annualTurnoverRupees?: number | null;
 
   /* --------------------------- business identifiers (shop-duplicates.ts).
    * Each optional here; POST /api/shops requires at least one. Checked
@@ -265,13 +273,26 @@ export async function registerShop(
     if (!owner) throw notFound("Owner");
   }
 
+  const turnover = input.annualTurnoverRupees ?? null;
+  if (turnover !== null && (!Number.isSafeInteger(turnover) || turnover < 0 || turnover > MAX_ANNUAL_TURNOVER_RUPEES)) {
+    throw validationFailed("Please check the highlighted fields.", {
+      fields: { annualTurnover: "Enter the annual turnover in whole rupees." },
+    });
+  }
+
   // The fee is SNAPSHOTTED here (§12): a later change to the schedule must
-  // never alter what this shop was charged.
-  const scheduled = await resolveFeeForNewRegistration();
+  // never alter what this shop was charged. With a declared turnover it comes
+  // from rule registrationFeeByTurnover; otherwise from the flat schedule.
+  const [scheduled, turnoverRule] = await Promise.all([
+    resolveFeeForNewRegistration(),
+    getRule("registrationFeeByTurnover"),
+  ]);
+  const turnoverFee =
+    turnoverRule.enabled && turnover !== null ? feeForTurnover(turnover, turnoverRule) : null;
   const registrationFeePaise =
     privileged && input.registrationFeePaise !== undefined
       ? input.registrationFeePaise
-      : scheduled.amountPaise;
+      : (turnoverFee ?? scheduled.amountPaise);
 
   if (registrationFeePaise < 0 || !Number.isInteger(registrationFeePaise)) {
     throw validationFailed("Registration fee must be a whole number of paise.");
@@ -340,17 +361,45 @@ export async function registerShop(
 
   type Outcome =
     | { kind: "blocked"; match: DuplicateMatch }
+    | { kind: "waiting"; shop: { id: string; name: string } }
     | { kind: "created"; shop: Shop }
     | { kind: "resubmitted"; shop: Shop; previous: Shop; matchedOn: DuplicateMatchReason };
 
   let outcome: Outcome;
   try {
     outcome = await db.transaction(async (tx): Promise<Outcome> => {
+      // The owner lock serialises two self-service submissions of different
+      // shops by one owner (the check after the duplicate match below). Taken
+      // before the shop keys, always in this order.
+      if (!privileged) {
+        await tx.execute(
+          sql`SELECT pg_advisory_xact_lock(hashtextextended(${`shop-registration-owner:${ownerId}`}, 0))`,
+        );
+      }
       // Lock, then look: a simultaneous second submission of the same shop
       // (a double-click, a second tab) waits here, then sees this one.
       await lockRegistrationKeys(tx, candidate);
       const { blocking, rejectedOwn } = await findRegistrationMatches(tx, candidate);
       if (blocking) return { kind: "blocked", match: blocking };
+
+      // One registration under review per owner (owner request, 26 Oct 2026):
+      // while one waits for approval, Submit stays off on the form and a crafted
+      // request for another shop is refused here. Operators registering on
+      // someone's behalf are exempt.
+      if (!privileged) {
+        const [waiting] = await tx
+          .select({ id: shops.id, name: shops.name })
+          .from(shops)
+          .where(
+            and(
+              eq(shops.ownerId, ownerId),
+              eq(shops.status, "PENDING_APPROVAL"),
+              isNull(shops.deletedAt),
+            ),
+          )
+          .limit(1);
+        if (waiting) return { kind: "waiting", shop: waiting };
+      }
 
       if (rejectedOwn) {
         const [previous] = await tx
@@ -389,7 +438,9 @@ export async function registerShop(
             (privileged ? input.registrationDate : null) ??
             new Date().toISOString().slice(0, 10),
           registrationFeePaise,
-          registrationFeeId: scheduled.feeId,
+          // Provenance: the schedule row only when the fee came from it.
+          registrationFeeId: turnoverFee === null ? scheduled.feeId : null,
+          annualTurnoverRupees: turnover,
           feePaymentStatus: registrationFeePaise > 0 ? "PENDING" : "PAID",
           slug: uniqueSlug(input.name),
           ...details,
@@ -415,6 +466,13 @@ export async function registerShop(
       throw conflict("This Shop Act licence number is already registered to another shop.");
     }
     outcome = { kind: "blocked", match: blocking };
+  }
+
+  if (outcome.kind === "waiting") {
+    throw conflict(
+      `${outcome.shop.name} is already waiting for approval. You'll be notified once it's reviewed — you can add another shop after that.`,
+      { reason: "REGISTRATION_PENDING", shopId: outcome.shop.id },
+    );
   }
 
   if (outcome.kind === "blocked") {
@@ -1205,13 +1263,19 @@ export async function getPublicShopBySlug(
   });
 }
 
-export async function listShopsForOwner(ownerId: string): Promise<Shop[]> {
+async function listShopsForOwnerUncached(ownerId: string): Promise<Shop[]> {
   return db
     .select()
     .from(shops)
     .where(and(eq(shops.ownerId, ownerId), isNull(shops.deletedAt)))
     .orderBy(desc(shops.createdAt));
 }
+
+/**
+ * Memoised for one server render: the Seller Central layout and the page under
+ * it both ask for the owner's shops; API routes and actions call straight through.
+ */
+export const listShopsForOwner = cache(listShopsForOwnerUncached);
 
 export interface ShopSearchFilters {
   query?: string;

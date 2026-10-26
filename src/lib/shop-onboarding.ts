@@ -61,9 +61,9 @@ export function ownerNextAction(facts: OnboardingFacts): NextAction {
       };
     case "PAYMENT_PENDING":
       return {
-        text: `Your documents are verified. Pay the registration fee of ${formatPaiseCompact(facts.feeOutstandingPaise)} to GoKesari; operations records it and your shop moves to final approval.`,
-        href: "/shop/manage/registration",
-        linkLabel: "See registration fee",
+        text: `Your documents are verified. Pay the registration fee of ${formatPaiseCompact(facts.feeOutstandingPaise)} online and your shop moves to final approval.`,
+        href: "/shop/registration-fee",
+        linkLabel: "Pay the registration fee",
       };
     case "VERIFIED":
       return {

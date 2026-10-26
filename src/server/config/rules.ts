@@ -683,6 +683,17 @@ export const RULES = {
     }),
     defaults: { enabled: false, holdHours: 24, maxPendingPerMobile: 3, classification: "GREEN" },
   },
+  registrationFeeByTurnover: {
+    description:
+      "One-time shop registration fee on Add my shop (/shop/register), set from the annual turnover the owner declares (src/lib/registration-fee.ts). Turnover up to and including thresholdRupees pays upToFeePaise; above it pays aboveFeePaise. enabled: off → the flat registration fee schedule (Admin → Registration fee) applies instead. Each shop keeps the fee it registered with; a change here never alters it.",
+    schema: z.object({
+      enabled: z.boolean(),
+      thresholdRupees: int(1, 1_000_000_000_000),
+      upToFeePaise: int(0, 100_000_000),
+      aboveFeePaise: int(0, 100_000_000),
+    }),
+    defaults: { enabled: true, thresholdRupees: 2_00_00_000, upToFeePaise: 99_900, aboveFeePaise: 4_99_900 },
+  },
   shopProductMedia: {
     description:
       "Shop product photos and descriptions (Module 1): photos per shop listing, upload size, the three WebP sizes made from every photo, description lengths, and bulk ZIP/CSV limits. The first photo of a listing is its main photo; a listing with none shows the master product's photos.",

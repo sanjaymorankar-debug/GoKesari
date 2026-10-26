@@ -5,6 +5,7 @@ import { ShopRegisterForm } from "@/components/shop-register-form";
 import { Alert, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { isReferralRequired } from "@/server/services/referral-settings";
+import { listShopCategories } from "@/server/services/shop-categories";
 import { listShopsForOwner } from "@/server/services/shops";
 import { getRule } from "@/server/services/settings";
 
@@ -15,20 +16,30 @@ export default async function RegisterShopPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
 
-  // Only the signed-in owner's own shops — nothing about anyone else's.
-  const ownShops = await listShopsForOwner(user.id);
+  // Every read at once: each one is a round trip to the database, and they
+  // used to run one after another on every visit.
+  const [ownShops, referralRequired, selfRegistration, feeRule, categories] = await Promise.all([
+    // Only the signed-in owner's own shops — nothing about anyone else's.
+    listShopsForOwner(user.id),
+    // docs/nearby-referral-2026-10: the admin's setting referral_required_shop, read live.
+    isReferralRequired("shop"),
+    // Module 3: with a referral code a shop can register and pay online, approved on payment.
+    getRule("selfRegistration"),
+    // The one-time fee by annual turnover, shown on the form before Submit.
+    getRule("registrationFeeByTurnover"),
+    // The category picker's list, so the form does not fetch it after loading.
+    listShopCategories({ activeOnly: true, withShopCounts: false }).catch(() => undefined),
+  ]);
   const pending = ownShops.filter((s) => s.status === "PENDING_APPROVAL");
   const rejected = ownShops.find((s) => s.status === "REJECTED");
-  // docs/nearby-referral-2026-10: the admin's setting referral_required_shop, read live.
-  const referralRequired = await isReferralRequired("shop");
-  // Module 3: with a referral code a shop can register and pay online, approved on payment.
-  const selfService = (await getRule("selfRegistration")).enabled;
+  const selfService = selfRegistration.enabled;
+  const waiting = pending[0];
 
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeader
         title="Add my shop"
-        description="Tell us about your dairy or bakery. An operator reviews every registration."
+        description="Tell us about your shop, clinic or office. An operator reviews every registration."
       />
       {pending.length > 0 ? (
         <div className="mb-4">
@@ -37,7 +48,7 @@ export default async function RegisterShopPage() {
             title={`Already waiting for approval: ${pending.map((s) => s.name).join(", ")}`}
           >
             You&apos;ll be notified once it&apos;s reviewed, and you don&apos;t need to submit it
-            again. Use this form only to add a different shop.
+            again. You can add another shop after that.
           </Alert>
         </div>
       ) : rejected ? (
@@ -63,7 +74,22 @@ export default async function RegisterShopPage() {
           chosen here.
         </Alert>
       </div>
-      <ShopRegisterForm referralRequired={referralRequired} />
+      <ShopRegisterForm
+        referralRequired={referralRequired}
+        feeRule={feeRule}
+        pending={
+          waiting
+            ? {
+                id: waiting.id,
+                name: waiting.name,
+                feeDue:
+                  waiting.feePaymentStatus !== "PAID" &&
+                  (waiting.registrationFeePaise ?? 0) > waiting.amountPaidPaise,
+              }
+            : null
+        }
+        initialCategories={categories?.map((c) => ({ id: c.id, name: c.name, status: c.status, groupName: c.groupName }))}
+      />
     </div>
   );
 }

@@ -1,12 +1,20 @@
 "use client";
 
-import { ShopCategoryPicker } from "@/components/shop-category-picker";
+import Link from "next/link";
+
+import { ShopCategoryPicker, type PickerCategory } from "@/components/shop-category-picker";
 import { useRouter } from "next/navigation";
 import { useRef, useState, type FormEvent } from "react";
 
 import { Alert, Button, Card, Field, inputClass } from "@/components/ui";
 import { MapPicker, type MapPickerResult } from "@/components/map-picker";
-import { rupeesToPaise } from "@/lib/money";
+import { formatPaiseCompact, rupeesToPaise } from "@/lib/money";
+import {
+  feeForTurnover,
+  formatRupeesIndian,
+  parseTurnoverRupees,
+  type TurnoverFeeRule,
+} from "@/lib/registration-fee";
 import {
   IDENTIFIER_REQUIRED_MESSAGE,
   parseGstin,
@@ -16,7 +24,7 @@ import {
   type ParseResult,
   type ShopIdentifierField,
 } from "@/lib/shop-identity";
-import { SHOP_TYPES } from "@/lib/shop-types";
+import { isProfessionalShopType, SHOP_TYPES } from "@/lib/shop-types";
 import { ReferralRequestDialog, type ReferralRequestPrefill } from "@/components/referral-request-dialog";
 
 /**
@@ -30,7 +38,25 @@ import { ReferralRequestDialog, type ReferralRequestPrefill } from "@/components
  * This form only surfaces that early — a pre-check when the owner leaves an
  * identifier or PIN code field — and makes sure one registration is sent
  * once, however many times Submit is clicked.
+ *
+ * One registration under review per owner (owner request, 26 Oct 2026): with
+ * one already waiting (`pending`), every field and Submit stay off and the page
+ * points at its fee payment instead. The server refuses it too (registerShop).
+ *
+ * The one-time registration fee follows the declared annual turnover
+ * (src/lib/registration-fee.ts) and is shown before Submit; the server computes
+ * it again. After Submit the owner goes to the fee payment page.
  */
+
+const SHOP_GROUP = SHOP_TYPES.filter((t) => !isProfessionalShopType(t.key));
+const PROFESSIONAL_GROUP = SHOP_TYPES.filter((t) => isProfessionalShopType(t.key));
+
+/** Category groups to list first in the picker for each professional shop type. */
+const CATEGORY_GROUPS_FOR: Record<string, readonly string[]> = {
+  PROFESSIONAL_OFFICE: ["Finance and legal"],
+  DOCTOR_CLINIC: ["Medical — doctors and clinics"],
+  CONSULTING_SERVICES: ["Consulting and services"],
+};
 
 /** Fields the duplicate pre-check runs on when the owner leaves them. */
 type CheckedField = ShopIdentifierField | "pincode";
@@ -56,9 +82,18 @@ const FORMAT_CHECKS: Record<ShopIdentifierField, (raw: string) => ParseResult<un
 
 export function ShopRegisterForm({
   referralRequired = false,
+  feeRule = null,
+  pending = null,
+  initialCategories,
 }: {
   /** Admin setting referral_required_shop is MANDATORY (docs/nearby-referral-2026-10). Otherwise the field is optional. */
   referralRequired?: boolean;
+  /** Rule registrationFeeByTurnover; null or disabled → no turnover question. */
+  feeRule?: TurnoverFeeRule | null;
+  /** The owner's registration already waiting for approval: the form stays off. */
+  pending?: { id: string; name: string; feeDue: boolean } | null;
+  /** Active shop categories, read by the server page. */
+  initialCategories?: PickerCategory[];
 } = {}) {
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
@@ -75,6 +110,13 @@ export function ShopRegisterForm({
   const [checks, setChecks] = useState<Partial<Record<CheckedField, CheckResult>>>({});
   const [panEntered, setPanEntered] = useState(false);
   const [deliveryAvailable, setDeliveryAvailable] = useState(false);
+  const [shopType, setShopType] = useState("");
+  const [turnover, setTurnover] = useState("");
+  const professional = isProfessionalShopType(shopType);
+  const askTurnover = feeRule?.enabled === true;
+  const turnoverRupees = parseTurnoverRupees(turnover);
+  const feePreview = askTurnover && feeRule && turnoverRupees !== null ? feeForTurnover(turnoverRupees, feeRule) : null;
+  const locked = pending !== null;
   const [categoryIds, setCategoryIds] = useState<string[]>([]);
   const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number } | null>(
     null,
@@ -185,6 +227,11 @@ export function ShopRegisterForm({
     const invalid: Record<string, string> = {};
     if (!get("name")) invalid.name = "Shop name is required.";
     if (!get("ownerName")) invalid.ownerName = "Shop owner name is required.";
+    if (askTurnover && turnoverRupees === null) {
+      invalid.annualTurnover = turnover.trim()
+        ? "Enter the annual turnover in whole rupees, e.g. 1500000."
+        : "Enter your annual turnover — it sets the registration fee.";
+    }
     if (!get("shopActNumber") && !get("panNumber") && !get("udyamNumber") && !get("gstin")) {
       invalid.identifiers = IDENTIFIER_REQUIRED_MESSAGE;
     }
@@ -238,6 +285,7 @@ export function ShopRegisterForm({
           shopType: get("shopType"),
           categoryIds,
           description: get("description") || null,
+          annualTurnoverRupees: askTurnover ? turnoverRupees : null,
           shopActNumber: get("shopActNumber") || null,
           panNumber: get("panNumber") || null,
           panHolderName: get("panHolderName") || null,
@@ -245,9 +293,10 @@ export function ShopRegisterForm({
           gstin: get("gstin") || null,
           // docs/nearby-referral-2026-10: sent whenever entered — an optional code must still be valid.
           referralCode: referralCode.trim() || null,
-          deliveryAvailable,
+          // A practice or office offers services: nothing to deliver.
+          deliveryAvailable: deliveryAvailable && !professional,
           deliveryFeePaise:
-            deliveryAvailable && deliveryFee ? rupeesToPaise(Number(deliveryFee)) : 0,
+            deliveryAvailable && !professional && deliveryFee ? rupeesToPaise(Number(deliveryFee)) : 0,
           // Sensible default hours; the owner can refine them later.
           openingHours: [0, 1, 2, 3, 4, 5, 6].map((day) => ({
             day,
@@ -267,13 +316,19 @@ export function ShopRegisterForm({
     if (!response.ok) {
       const fields = payload?.error?.details?.fields;
       if (fields && typeof fields === "object") setFieldErrors(fields);
-      // "Already registered" is not a mistake in what the owner typed.
-      setErrorTone(payload?.error?.details?.reason === "DUPLICATE_SHOP" ? "warning" : "danger");
+      // "Already registered" / "already waiting" is not a mistake in what the owner typed.
+      const reason = payload?.error?.details?.reason;
+      setErrorTone(reason === "DUPLICATE_SHOP" || reason === "REGISTRATION_PENDING" ? "warning" : "danger");
       setError(payload?.error?.message ?? "Could not register the shop.");
       return false;
     }
-    // Next step of registration: upload the mandatory documents (docs/document-upload-2026-10).
-    router.push(typeof payload?.id === "string" ? `/shop/documents?shop=${payload.id}` : "/shop/documents");
+    // Next step: pay the one-time registration fee, then upload the mandatory
+    // documents (docs/document-upload-2026-10) — the fee page links on to them.
+    const id = typeof payload?.id === "string" ? payload.id : null;
+    const feeDue = (payload?.registrationFeePaise ?? 0) > (payload?.amountPaidPaise ?? 0) && payload?.feePaymentStatus !== "PAID";
+    router.push(
+      id && feeDue ? `/shop/registration-fee?shop=${id}` : id ? `/shop/documents?shop=${id}` : "/shop/documents",
+    );
     router.refresh();
     return true;
   }
@@ -309,7 +364,25 @@ export function ShopRegisterForm({
   return (
     <Card className="p-6">
       {requestPrefill ? <ReferralRequestDialog prefill={requestPrefill} onClose={() => setRequestPrefill(null)} /> : null}
-      <form ref={formRef} onSubmit={handleSubmit} className="grid gap-4 sm:grid-cols-2">
+      {pending ? (
+        <div className="mb-4" data-testid="registration-locked">
+          <Alert tone="warning" title="Submit is off while your registration is under review">
+            {pending.feeDue ? (
+              <>
+                <Link href={`/shop/registration-fee?shop=${pending.id}`} className="font-semibold underline">
+                  Pay the registration fee for {pending.name}
+                </Link>{" "}
+                so the review can go ahead.
+              </>
+            ) : (
+              <>{pending.name} has been sent for review — nothing more to do for now.</>
+            )}
+          </Alert>
+        </div>
+      ) : null}
+      <form ref={formRef} onSubmit={handleSubmit}>
+        {/* disabled: every field is off while a registration waits (pending). */}
+        <fieldset disabled={locked} className="grid min-w-0 gap-4 sm:grid-cols-2 disabled:opacity-60">
         <div className="sm:col-span-2">
           <Field label="Shop name *" error={errorFor("name")}>
             <input name="name" required className={inputClass} />
@@ -422,18 +495,37 @@ export function ShopRegisterForm({
         <div className="sm:col-span-2">
           <Field
             label="Shop type"
-            hint="We'll suggest the right products to list based on this."
+            hint={
+              professional
+                ? "Pick your speciality under categories below — e.g. CA, Advocate, Dentist."
+                : "We'll suggest the right products to list based on this."
+            }
             error={errorFor("shopType")}
           >
-            <select name="shopType" required defaultValue="" className={inputClass}>
+            <select
+              name="shopType"
+              required
+              value={shopType}
+              onChange={(e) => setShopType(e.target.value)}
+              className={inputClass}
+            >
               <option value="" disabled>
                 Select a shop type
               </option>
-              {SHOP_TYPES.map((t) => (
-                <option key={t.key} value={t.key}>
-                  {t.label}
-                </option>
-              ))}
+              <optgroup label="Shops and stores">
+                {SHOP_GROUP.map((t) => (
+                  <option key={t.key} value={t.key}>
+                    {t.label}
+                  </option>
+                ))}
+              </optgroup>
+              <optgroup label="Professional offices and practices">
+                {PROFESSIONAL_GROUP.map((t) => (
+                  <option key={t.key} value={t.key}>
+                    {t.label}
+                  </option>
+                ))}
+              </optgroup>
             </select>
           </Field>
         </div>
@@ -444,7 +536,13 @@ export function ShopRegisterForm({
             hint="Choose every kind of business your shop runs — you can pick several and change them later."
             error={errorFor("categoryIds")}
           >
-            <ShopCategoryPicker value={categoryIds} onChange={setCategoryIds} error={null} />
+            <ShopCategoryPicker
+              value={categoryIds}
+              onChange={setCategoryIds}
+              error={null}
+              initialCategories={initialCategories}
+              firstGroups={CATEGORY_GROUPS_FOR[shopType] ?? []}
+            />
           </Field>
         </div>
 
@@ -530,23 +628,58 @@ export function ShopRegisterForm({
         ) : null}
 
         <div className="sm:col-span-2">
-          <Field label="About your shop (optional)">
+          <Field label={professional ? "About your practice / office (optional)" : "About your shop (optional)"}>
             <textarea name="description" rows={3} className={inputClass} />
           </Field>
         </div>
 
-        <div className="sm:col-span-2">
-          <label className="flex items-center gap-2 text-sm text-ink-700">
-            <input
-              type="checkbox"
-              checked={deliveryAvailable}
-              onChange={(e) => setDeliveryAvailable(e.target.checked)}
-            />
-            We deliver to customers
-          </label>
-        </div>
+        {askTurnover && feeRule ? (
+          <div className="rounded-lg border border-kesari-100 bg-kesari-50 p-4 sm:col-span-2">
+            <Field
+              label="Annual turnover (₹) *"
+              hint={`Last financial year, in rupees — e.g. 1500000 for ₹15 lakh. Up to ${formatRupeesIndian(feeRule.thresholdRupees)}: ${formatPaiseCompact(feeRule.upToFeePaise)}; above: ${formatPaiseCompact(feeRule.aboveFeePaise)}.`}
+              error={errorFor("annualTurnover")}
+            >
+              <input
+                name="annualTurnover"
+                required
+                inputMode="numeric"
+                autoComplete="off"
+                maxLength={20}
+                value={turnover}
+                onChange={(e) => setTurnover(e.target.value)}
+                className={inputClass}
+              />
+            </Field>
+            <p className="mt-2 text-sm text-ink-700" aria-live="polite" data-testid="registration-fee-preview">
+              One-time registration fee:{" "}
+              {feePreview !== null ? (
+                <strong>{formatPaiseCompact(feePreview)}</strong>
+              ) : (
+                <span className="text-ink-500">enter your turnover to see it</span>
+              )}
+              {turnoverRupees !== null ? (
+                <span className="text-ink-500"> · turnover {formatRupeesIndian(turnoverRupees)}</span>
+              ) : null}
+            </p>
+            <p className="mt-1 text-xs text-ink-500">You pay it online on the next screen, after you submit.</p>
+          </div>
+        ) : null}
 
-        {deliveryAvailable ? (
+        {professional ? null : (
+          <div className="sm:col-span-2">
+            <label className="flex items-center gap-2 text-sm text-ink-700">
+              <input
+                type="checkbox"
+                checked={deliveryAvailable}
+                onChange={(e) => setDeliveryAvailable(e.target.checked)}
+              />
+              We deliver to customers
+            </label>
+          </div>
+        )}
+
+        {deliveryAvailable && !professional ? (
           <Field label="Delivery fee (₹)">
             <input
               name="deliveryFee"
@@ -568,7 +701,7 @@ export function ShopRegisterForm({
           <Button
             type="submit"
             size="lg"
-            disabled={submitting}
+            disabled={submitting || locked}
             aria-busy={submitting}
             className="w-full"
           >
@@ -597,11 +730,14 @@ export function ShopRegisterForm({
                 </svg>
                 Submitting…
               </>
+            ) : locked ? (
+              "Waiting for approval"
             ) : (
               "Submit for approval"
             )}
           </Button>
         </div>
+        </fieldset>
       </form>
     </Card>
   );

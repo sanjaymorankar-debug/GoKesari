@@ -680,6 +680,20 @@
       "when": 1792900400000,
       "tag": "0096_cart_loose_quantity",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1792986800000,
+      "tag": "0097_professional_shop_types",
+      "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1792986900000,
+      "tag": "0098_professional_registration",
+      "breakpoints": true
     }
   ]
 }

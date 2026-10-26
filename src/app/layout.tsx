@@ -47,10 +47,27 @@ export default async function RootLayout({
 }: Readonly<{ children: React.ReactNode }>) {
   // Header state is resolved server-side so the cart count and balance are
   // always authoritative rather than optimistic client state.
+  //
+  // Every read starts at once. Each is a round trip to the database, and this
+  // layout wraps every page: one after another they cost a round trip each on
+  // every visit (several hundred ms on mobile with a far database).
   const user = await getCurrentUser();
-  const [cartCount, balancePaise, unread, roles, addresses, staffShops] = user
-    ? await Promise.all([
-        getCartItemCount(user.id).catch(() => 0),
+  const homeDiscoveryRule = getRule("homeDiscovery").catch(() => ({ enabled: true }));
+  const signedIn = user
+    ? Promise.all([
+        // The cart total for the phones' floating cart bar is read only when
+        // there is a cart — chained behind the count, beside the other reads.
+        getCartItemCount(user.id)
+          .catch(() => 0)
+          .then(async (count) => ({
+            count,
+            totalPaise:
+              count > 0 && (await homeDiscoveryRule).enabled
+                ? await getCart(user.id)
+                    .then((c) => c.grandTotalPaise)
+                    .catch(() => null)
+                : null,
+          })),
         // No wallet row yet is a balance of zero; a failed read hides the pill
         // rather than showing a wrong ₹0.
         getWalletByUserId(user.id)
@@ -63,28 +80,34 @@ export default async function RootLayout({
         listAddresses(user.id).catch(() => []),
         // Module 1: shops this user may edit product photos for as staff.
         listShopsWhereStaff(user.id).catch(() => []),
+        // Referral links (docs/four-features-2026-10) for every signed-in user, when their rules are on.
+        Promise.all([isSignupReferralAsked(), getRule("customerReferrals")])
+          .then(([signup, friends]) => [
+            ...(signup ? [{ href: "/referral", key: "referral" as const }] : []),
+            ...(friends.enabled ? [{ href: "/refer", key: "invite" as const }] : []),
+          ])
+          .catch(() => []),
       ])
-    : [0, null, 0, [], [], []];
-  // The same location every page filters by (cookie, else the default address).
-  const location = await getCustomerLocation(user?.id).catch(() => null);
-  // Referral links (docs/four-features-2026-10) for every signed-in user, when their rules are on.
-  const referralLinks = user
-    ? await Promise.all([isSignupReferralAsked(), getRule("customerReferrals")])
-        .then(([signup, friends]) => [
-          ...(signup ? [{ href: "/referral", key: "referral" as const }] : []),
-          ...(friends.enabled ? [{ href: "/refer", key: "invite" as const }] : []),
-        ])
-        .catch(() => [])
-    : [];
-  const lang = await getBoardLang();
-  // docs/homepage-uiux-2026-10: phones' bottom navigation and floating cart bar (rule homeDiscovery).
-  const homeDiscovery = await getRule("homeDiscovery").catch(() => ({ enabled: true }));
-  const cartTotalPaise =
-    user && homeDiscovery.enabled && cartCount > 0
-      ? await getCart(user.id)
-          .then((c) => c.grandTotalPaise)
-          .catch(() => null)
-      : null;
+    : null;
+  const [signedInState, location, lang, homeDiscovery] = await Promise.all([
+    signedIn,
+    // The same location every page filters by (cookie, else the default address).
+    getCustomerLocation(user?.id).catch(() => null),
+    getBoardLang(),
+    // docs/homepage-uiux-2026-10: phones' bottom navigation and floating cart bar (rule homeDiscovery).
+    homeDiscoveryRule,
+  ]);
+  const [cart, balancePaise, unread, roles, addresses, staffShops, referralLinks] = signedInState ?? [
+    { count: 0, totalPaise: null },
+    null,
+    0,
+    [],
+    [],
+    [],
+    [],
+  ];
+  const cartCount = cart.count;
+  const cartTotalPaise = cart.totalPaise;
 
   return (
     <html lang="en">

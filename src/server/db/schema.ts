@@ -866,6 +866,12 @@ export const shops = pgTable(
     registrationFeePaise: bigint("registration_fee_paise", { mode: "number" }),
     /** Which fee row was in force at registration — provenance for the snapshot. */
     registrationFeeId: uuid("registration_fee_id"),
+    /**
+     * Annual turnover the owner declared on Add my shop, in whole rupees. The
+     * registration fee above was set from it (rule registrationFeeByTurnover,
+     * src/lib/registration-fee.ts). Null for shops registered before it was asked.
+     */
+    annualTurnoverRupees: bigint("annual_turnover_rupees", { mode: "number" }),
     referralCodeId: uuid("referral_code_id"),
     /**
      * Module 3 (docs/three-modules-2026-10): how the shop came in. SELF_SERVICE
@@ -1054,6 +1060,8 @@ export const shopCategories = pgTable(
     name: text("name").notNull(),
     slug: text("slug").notNull(),
     description: text("description"),
+    /** Heading the category is listed under in the picker ("Medical — doctors and clinics"); null → "Other". */
+    groupName: text("group_name"),
     status: text("status", { enum: ["ACTIVE", "INACTIVE"] }).notNull().default("ACTIVE"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
