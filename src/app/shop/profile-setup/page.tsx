@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 
 import { ProfileSetupForm } from "@/components/registration/profile-setup-form";
 import { PageHeader } from "@/components/ui";
-import { SHOP_TYPES } from "@/lib/shop-types";
+import { listShopTypes } from "@/server/services/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
 import { db } from "@/server/db";
 import { shops } from "@/server/db/schema";
@@ -31,7 +31,7 @@ export default async function ProfileSetupPage({ searchParams }: { searchParams:
         missing={view.missing}
         categories={view.categories}
         fssai={view.fssai}
-        shopTypes={SHOP_TYPES.map((t) => ({ key: t.key, label: t.label }))}
+        shopTypes={(await listShopTypes()).map((t) => ({ key: t.key, label: t.label }))}
       />
     </div>
   );

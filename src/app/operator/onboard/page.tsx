@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 import { OnboardWizard } from "@/components/batch-d/onboard-wizard";
 import { PageHeader } from "@/components/ui";
 import { maskEmailAddress } from "@/lib/contact";
-import { SHOP_TYPES } from "@/lib/shop-types";
+import { listShopTypes } from "@/server/services/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { listOpenOnboardings } from "@/server/services/operator-limited";
@@ -27,7 +27,7 @@ export default async function OnboardPage({ searchParams }: { searchParams: Prom
       <PageHeader title="Onboard a shop" description="The owner confirms with a code sent to their email; then register the shop and collect the fee online." />
       <OnboardWizard
         key={resume?.id ?? "new"}
-        shopTypes={SHOP_TYPES.map((t) => ({ value: t.key, label: t.label }))}
+        shopTypes={(await listShopTypes()).map((t) => ({ value: t.key, label: t.label }))}
         categories={categories.map((c) => ({ value: c.id, label: c.name }))}
         resume={resume ? { sessionId: resume.id, ownerEmail: resume.ownerEmail, status: resume.status } : null}
       />

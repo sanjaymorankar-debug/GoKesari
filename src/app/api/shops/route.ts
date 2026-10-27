@@ -11,7 +11,7 @@ import {
   requiredText,
   shopImageUrlSchema,
 } from "@/lib/shop-settings";
-import { SHOP_TYPE_KEYS, type ShopTypeKey } from "@/lib/shop-types";
+import { SHOP_TYPE_KEY_PATTERN } from "@/lib/shop-types";
 import { NextResponse } from "next/server";
 
 import { ok, parseBody, route } from "@/server/api/handler";
@@ -45,10 +45,7 @@ export const GET = route(async (request: NextRequest) => {
       city: p.get("city") ?? undefined,
       area: p.get("area") ?? undefined,
       pincode: p.get("pincode") ?? undefined,
-      shopType:
-        type && (SHOP_TYPE_KEYS as readonly string[]).includes(type)
-          ? (type as ShopTypeKey)
-          : undefined,
+      shopType: type && SHOP_TYPE_KEY_PATTERN.test(type) ? type : undefined,
       classification: (p.get("classification") as "KESARI" | "GREEN") ?? undefined,
       deliveryOnly: p.get("delivery") === "true",
       limit: Number(p.get("limit") ?? 24),
@@ -78,7 +75,7 @@ const registerSchema = z.object({
   pickupLongitude: z.string().nullish(),
   pickupInstructions: optionalText(500),
   landmark: optionalText(200),
-  shopType: z.enum(SHOP_TYPE_KEYS),
+  shopType: z.string().regex(SHOP_TYPE_KEY_PATTERN),
   /** Shop categories — at least one is required to register. */
   categoryIds: z
     .array(z.string().uuid())

@@ -16,7 +16,7 @@ import {
   requiredText,
   shopImageUrlSchema,
 } from "@/lib/shop-settings";
-import { SHOP_TYPE_KEYS } from "@/lib/shop-types";
+import { SHOP_TYPE_KEY_PATTERN } from "@/lib/shop-types";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { getShopAccess, requireShopAccess } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
@@ -65,7 +65,7 @@ const schema = z
     pickupLongitude: z.string().nullish(),
     pickupInstructions: optionalText(500),
     landmark: optionalText(200),
-    shopType: z.enum(SHOP_TYPE_KEYS).optional(),
+    shopType: z.string().regex(SHOP_TYPE_KEY_PATTERN).optional(),
     // https or the site's own uploads only — it is rendered as <img src> (TC-FLD-056).
     logoUrl: shopImageUrlSchema.nullish(),
     photos: z.array(shopImageUrlSchema).max(10).optional(),

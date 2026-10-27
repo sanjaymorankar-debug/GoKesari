@@ -8,6 +8,7 @@
  */
 import { getEnv, isPaymentGatewayLive, kycConfigProblem } from "@/lib/env";
 import { isFoodBusinessShopType } from "@/lib/shop-types";
+import { loadShopTypeRegistry } from "./shop-types";
 import { LEGAL_DOCS, LEGAL_ENTITY } from "@/lib/legal-docs";
 import { db } from "@/server/db";
 import { sellerVerifications, shops } from "@/server/db/schema";
@@ -28,6 +29,7 @@ function isPlaceholder(value: string): boolean {
 }
 
 export async function getComplianceChecklist(): Promise<ComplianceItem[]> {
+  await loadShopTypeRegistry();
   const approvedShops = await db.query.shops.findMany({
     where: and(eq(shops.status, "APPROVED"), isNull(shops.deletedAt)),
   });

@@ -5,7 +5,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
-import { SHOP_TYPE_KEYS } from "@/lib/shop-types";
+import { SHOP_TYPE_KEY_PATTERN } from "@/lib/shop-types";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
@@ -13,7 +13,7 @@ import { listCommissionRates, setCommissionRate } from "@/server/services/financ
 
 const schema = z.object({
   scope: z.enum(["DEFAULT", "SHOP_TYPE", "SHOP"]),
-  shopType: z.enum(SHOP_TYPE_KEYS).nullish(),
+  shopType: z.string().regex(SHOP_TYPE_KEY_PATTERN).nullish(),
   shopId: z.string().uuid().nullish(),
   /** Basis points: 500 = 5%. */
   rateBp: z.number().int().min(0).max(5000),

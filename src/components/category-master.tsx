@@ -15,7 +15,8 @@ import { useState } from "react";
 
 import { postJson } from "@/components/save-changes-bar";
 import { Alert, Badge, Button, Card, Field, inputClass } from "@/components/ui";
-import { SHOP_TYPES } from "@/lib/shop-types";
+import { shopTypeLabel } from "@/lib/shop-types";
+import { useShopTypes } from "@/components/use-shop-types";
 
 export interface CategoryMasterItem {
   id: string;
@@ -41,7 +42,7 @@ interface Impact {
   shopsNeedingGeneral: number;
 }
 
-const aisleLabel = (key: string) => SHOP_TYPES.find((t) => t.key === key)?.label ?? key;
+const aisleLabel = (key: string) => shopTypeLabel(key);
 
 export function CategoryMaster({ categories }: { categories: CategoryMasterItem[] }) {
   return (
@@ -60,6 +61,7 @@ export function CategoryMaster({ categories }: { categories: CategoryMasterItem[
 }
 
 function AddCategory() {
+  const shopTypes = useShopTypes();
   const router = useRouter();
   const [name, setName] = useState("");
   const [description, setDescription] = useState("");
@@ -104,7 +106,7 @@ function AddCategory() {
           </Field>
           <Field label="Customer aisle" hint="Where customers find these products when browsing.">
             <select className={inputClass} value={department} onChange={(e) => setDepartment(e.target.value)}>
-              {SHOP_TYPES.map((t) => (
+              {shopTypes.map((t) => (
                 <option key={t.key} value={t.key}>
                   {t.label}
                 </option>

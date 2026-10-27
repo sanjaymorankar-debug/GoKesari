@@ -239,27 +239,105 @@ export const SHOP_TYPES = [
     label: "Online Store / E-commerce",
     standardGoods: ["Apparel", "electronics", "groceries", "home goods", "beauty products", "books", "toys", "accessories"],
   },
+  {
+    key: "FIRECRACKER_SHOP",
+    label: "Firecracker Shop",
+    standardGoods: ["Sparklers", "flower pots", "rockets", "ground chakras", "bijli crackers", "garland crackers", "sky shots", "gift boxes", "matches"],
+  },
+  {
+    key: "TENT_HOUSE",
+    label: "Tent House",
+    standardGoods: ["Tents", "shamianas", "chairs", "tables", "stage and platforms", "carpets", "lighting", "utensils and crockery", "sound systems", "decor drapes"],
+  },
+  {
+    key: "EVENT_MANAGEMENT",
+    label: "Event Management",
+    standardGoods: ["Wedding planning", "birthday and party planning", "corporate events", "stage and decor", "catering coordination", "photography and videography", "DJ and entertainment", "invitation and gifting"],
+  },
+  {
+    key: "CONSULTANT",
+    label: "Consultants (various)",
+    standardGoods: ["Business consulting", "legal advice", "tax and accounting", "financial planning", "education and career counselling", "IT consulting", "architecture and interiors", "HR and recruitment"],
+  },
+  {
+    key: "DOCTOR_CLINIC",
+    label: "Doctor's Clinic",
+    standardGoods: ["General consultation", "follow-up visits", "health check-ups", "vaccinations", "minor procedures", "prescriptions", "lab test referrals"],
+  },
+  {
+    key: "SUPER_SPECIALITY_CLINIC",
+    label: "Super Speciality Clinic",
+    standardGoods: ["Specialist consultation", "cardiology", "orthopaedics", "neurology", "oncology", "diagnostics and imaging", "day-care procedures", "second opinions"],
+  },
 ] as const satisfies readonly ShopTypeDefinition[];
 
-export type ShopTypeKey = (typeof SHOP_TYPES)[number]["key"];
+/** Shape of every shop type key; whether the key exists is checked against the database (`assertShopType`). */
+export const SHOP_TYPE_KEY_PATTERN = /^[A-Z][A-Z0-9_]{1,59}$/;
 
-/** Enum values for Drizzle's pgEnum — keep in sync with SHOP_TYPES above. */
+/** The types built into the code. Staff can add more (`shop_types` table); see below. */
+export type BuiltInShopTypeKey = (typeof SHOP_TYPES)[number]["key"];
+
+/**
+ * Any shop type key: a built-in or one staff added from the admin screen. The
+ * database column is plain text, so a type needs no deploy or migration.
+ */
+export type ShopTypeKey = string;
+
+/** Keys of the built-in types only. Use `listShopTypes()` (server) for built-ins plus staff-added. */
 export const SHOP_TYPE_KEYS = SHOP_TYPES.map((t) => t.key) as [
-  ShopTypeKey,
-  ...ShopTypeKey[],
+  BuiltInShopTypeKey,
+  ...BuiltInShopTypeKey[],
 ];
 
-export const SHOP_TYPE_LABELS: Record<ShopTypeKey, string> = Object.fromEntries(
+export const SHOP_TYPE_LABELS: Record<string, string> = Object.fromEntries(
   SHOP_TYPES.map((t) => [t.key, t.label]),
-) as Record<ShopTypeKey, string>;
+);
+
+/** "TENT_HOUSE" → "Tent House": the label shown for a staff-added type this code has not been told about. */
+export function humanizeShopTypeKey(key: string): string {
+  return key
+    .toLowerCase()
+    .split("_")
+    .filter(Boolean)
+    .map((w) => w[0].toUpperCase() + w.slice(1))
+    .join(" ");
+}
 
 export function shopTypeLabel(key: string): string {
-  return SHOP_TYPE_LABELS[key as ShopTypeKey] ?? key;
+  return SHOP_TYPE_LABELS[key] ?? humanizeShopTypeKey(key);
 }
 
 export function standardGoodsFor(key: string): readonly string[] {
   return SHOP_TYPES.find((t) => t.key === key)?.standardGoods ?? [];
 }
+
+/** A staff-added type, as the admin screen and the pickers see it. */
+export interface CustomShopType {
+  key: string;
+  label: string;
+  standardGoods: readonly string[];
+  isFood: boolean;
+}
+
+/**
+ * Remember staff-added types for the sync helpers above and below. The server
+ * calls this whenever it loads the list (`services/shop-types.ts`), so labels
+ * and the food flag are right in server code. Client code gets types as props.
+ */
+export function registerCustomShopTypes(types: readonly CustomShopType[]): void {
+  for (const k of Object.keys(SHOP_TYPE_LABELS)) {
+    if (!BUILT_IN_KEYS.has(k)) delete SHOP_TYPE_LABELS[k];
+  }
+  CUSTOM_FOOD_KEYS.clear();
+  for (const t of types) {
+    if (BUILT_IN_KEYS.has(t.key)) continue;
+    SHOP_TYPE_LABELS[t.key] = t.label;
+    if (t.isFood) CUSTOM_FOOD_KEYS.add(t.key);
+  }
+}
+
+const BUILT_IN_KEYS: ReadonlySet<string> = new Set(SHOP_TYPES.map((t) => t.key));
+const CUSTOM_FOOD_KEYS = new Set<string>();
 
 /**
  * Shop types that manufacture, process, or sell food to consumers — these
@@ -269,7 +347,7 @@ export function standardGoodsFor(key: string): readonly string[] {
  * rather than "everything except a few exclusions" — new shop types default
  * to NOT requiring FSSAI fields until explicitly added here.
  */
-export const FOOD_SHOP_TYPE_KEYS: readonly ShopTypeKey[] = [
+export const FOOD_SHOP_TYPE_KEYS: readonly BuiltInShopTypeKey[] = [
   "GROCERY_KIRANA",
   "SUPERMARKET",
   "CONVENIENCE_STORE",
@@ -285,5 +363,5 @@ export const FOOD_SHOP_TYPE_KEYS: readonly ShopTypeKey[] = [
 ];
 
 export function isFoodBusinessShopType(key: string): boolean {
-  return (FOOD_SHOP_TYPE_KEYS as readonly string[]).includes(key);
+  return (FOOD_SHOP_TYPE_KEYS as readonly string[]).includes(key) || CUSTOM_FOOD_KEYS.has(key);
 }

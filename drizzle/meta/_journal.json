@@ -680,6 +680,13 @@
       "when": 1792900400000,
       "tag": "0096_cart_loose_quantity",
       "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1792900500000,
+      "tag": "0097_admin_managed_shop_types",
+      "breakpoints": true
     }
   ]
 }

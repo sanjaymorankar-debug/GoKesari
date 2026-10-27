@@ -16,7 +16,7 @@ import {
   type ParseResult,
   type ShopIdentifierField,
 } from "@/lib/shop-identity";
-import { SHOP_TYPES } from "@/lib/shop-types";
+import { useShopTypes } from "@/components/use-shop-types";
 import { ReferralRequestDialog, type ReferralRequestPrefill } from "@/components/referral-request-dialog";
 
 /**
@@ -60,6 +60,7 @@ export function ShopRegisterForm({
   /** Admin setting referral_required_shop is MANDATORY (docs/nearby-referral-2026-10). Otherwise the field is optional. */
   referralRequired?: boolean;
 } = {}) {
+  const shopTypes = useShopTypes();
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   // Set synchronously on the first submit, before React has re-rendered the
@@ -429,7 +430,7 @@ export function ShopRegisterForm({
               <option value="" disabled>
                 Select a shop type
               </option>
-              {SHOP_TYPES.map((t) => (
+              {shopTypes.map((t) => (
                 <option key={t.key} value={t.key}>
                   {t.label}
                 </option>
