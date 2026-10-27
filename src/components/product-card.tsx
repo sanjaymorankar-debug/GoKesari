@@ -175,11 +175,11 @@ export function ProductCard({
       {product.shopName ? (
         <div className="mb-2 min-w-0" data-testid="card-seller">
           {product.shopOwnerName ? (
-            <p className="truncate text-sm font-bold text-ink-900" data-testid="card-owner">
+            <p className="line-clamp-2 break-words text-sm font-bold leading-tight text-ink-900" data-testid="card-owner">
               {product.shopOwnerName}
             </p>
           ) : null}
-          <p className={product.shopOwnerName ? "truncate text-xs font-medium text-ink-600" : "truncate text-sm font-bold text-ink-900"} data-testid="card-shop">
+          <p className={product.shopOwnerName ? "mt-0.5 line-clamp-2 break-words text-xs font-medium text-ink-600" : "line-clamp-2 break-words text-sm font-bold text-ink-900"} data-testid="card-shop">
             {product.shopName}
           </p>
         </div>
