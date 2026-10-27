@@ -156,7 +156,7 @@ export default async function SubscriptionDetailPage({
                       {event.note ? <span className="text-xs text-ink-500"> · {event.note}</span> : null}
                     </span>
                     <span className="text-xs text-ink-500">
-                      {new Date(event.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium" })}
+                      {new Date(event.createdAt).toLocaleDateString("en-IN", { dateStyle: "medium", timeZone: "Asia/Kolkata" })}
                     </span>
                   </li>
                 ))}

@@ -117,7 +117,7 @@ export default async function ProductMasterPage() {
                       <td className="p-3 text-right">{r.productsLinked}</td>
                       <td className="p-3 text-right">{r.reviewQueued}</td>
                       <td className="p-3 text-right">{r.errorCount}</td>
-                      <td className="p-3 text-ink-500">{new Date(r.startedAt).toLocaleString("en-IN")}</td>
+                      <td className="p-3 text-ink-500">{new Date(r.startedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}</td>
                     </tr>
                   ))}
                   {report.recentRuns.length === 0 ? (
@@ -131,7 +131,7 @@ export default async function ProductMasterPage() {
               </table>
             </Card>
             <p className="mt-2 text-xs text-ink-500">
-              Snapshot computed {report.computedAt ? new Date(report.computedAt).toLocaleString("en-IN") : "just now"}. Counts refresh after every run.
+              Snapshot computed {report.computedAt ? new Date(report.computedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" }) : "just now"}. Counts refresh after every run.
             </p>
           </Section>
         </>

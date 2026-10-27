@@ -4,6 +4,7 @@ import Link from "next/link";
 import { Card, PageHeader } from "@/components/ui";
 import { LEGAL_ENTITY } from "@/lib/legal-docs";
 import { isFoodBusinessShopType } from "@/lib/shop-types";
+import { loadShopTypeRegistry } from "@/server/services/shop-types";
 import { getPublicVerifiedDocuments } from "@/server/services/seller-verification";
 import { getPublicShopBySlug, shopCustomerContact } from "@/server/services/shops";
 
@@ -32,6 +33,7 @@ export default async function ShopContactPage({
   const { slug } = await params;
   const shop = await getPublicShopBySlug(slug);
   if (!shop) notFound();
+  await loadShopTypeRegistry();
   const verified = await getPublicVerifiedDocuments(shop.id);
   // C1: only the numbers the shopkeeper entered for customers (rule shopContact).
   const contact = await shopCustomerContact(shop);
@@ -41,7 +43,7 @@ export default async function ShopContactPage({
       <PageHeader
         title="Seller information"
         description={
-          <Link href={`/shops/${slug}`} className="text-kesari-600 hover:underline">
+          <Link prefetch={false} href={`/shops/${slug}`} className="text-kesari-600 hover:underline">
             ← Back to {shop.name}
           </Link>
         }

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 
+import { ReverseReferralButton } from "@/components/customer-referral-reverse";
 import { Badge, Card, EmptyState, Money, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { listCustomerReferrals } from "@/server/services/customer-referrals";
@@ -17,7 +18,7 @@ export default async function CustomerReferralsPage() {
     <div className="mx-auto max-w-4xl space-y-4">
       <PageHeader
         title="Customer referrals"
-        description="Rewards are paid automatically on the friend's first delivered order; duplicate-account signals block the reward."
+        description="Rewards are paid automatically on the friend's first delivered order; duplicate-account signals block the reward. A reward found fraudulent can be reversed: it is taken back from both wallets."
       />
       {rows.length === 0 ? (
         <EmptyState title="No customer referrals yet." />
@@ -39,19 +40,28 @@ export default async function CustomerReferralsPage() {
                   <td className="p-2">{r.referrerName}</td>
                   <td className="p-2">{r.refereeName}</td>
                   <td className="p-2">
-                    <Badge tone={r.status === "REWARDED" ? "success" : r.status === "REJECTED" ? "danger" : "info"}>{r.status.toLowerCase()}</Badge>
+                    <Badge tone={r.status === "REWARDED" ? "success" : r.status === "REJECTED" || r.status === "REVERSED" ? "danger" : "info"}>
+                      {r.status.toLowerCase()}
+                    </Badge>
                     {r.rejectionReason ? <p className="text-xs text-ink-500">{r.rejectionReason}</p> : null}
+                    {r.reversalReason ? <p className="text-xs text-ink-500">{r.reversalReason}</p> : null}
                   </td>
                   <td className="p-2">
                     {r.status === "REWARDED" ? (
                       <>
                         <Money paise={r.referrerRewardPaise ?? 0} /> + <Money paise={r.refereeRewardPaise ?? 0} />
+                        <ReverseReferralButton referralId={r.id} />
                       </>
+                    ) : r.status === "REVERSED" ? (
+                      <p className="text-xs text-ink-600">
+                        Taken back <Money paise={(r.referrerRecoveredPaise ?? 0) + (r.refereeRecoveredPaise ?? 0)} /> of{" "}
+                        <Money paise={(r.referrerRewardPaise ?? 0) + (r.refereeRewardPaise ?? 0)} />
+                      </p>
                     ) : (
                       "—"
                     )}
                   </td>
-                  <td className="p-2">{r.createdAt.toLocaleDateString("en-IN")}</td>
+                  <td className="p-2">{r.createdAt.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}</td>
                 </tr>
               ))}
             </tbody>

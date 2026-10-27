@@ -163,7 +163,7 @@ export function ShopOffersManager({
                     {r.targetType === "CATEGORY" ? `all ${r.targetName}` : r.targetName}
                   </p>
                   <p className="text-xs text-ink-500">
-                    {new Date(r.startsAt).toLocaleDateString("en-IN")} – {new Date(r.endsAt).toLocaleDateString("en-IN")}
+                    {new Date(r.startsAt).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })} – {new Date(r.endsAt).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}
                   </p>
                 </div>
                 {!ended ? (

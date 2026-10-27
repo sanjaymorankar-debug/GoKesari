@@ -17,6 +17,7 @@ import {
 } from "@/components/ui";
 import { paiseToRupees } from "@/lib/money";
 import { MAX_STOCK_UNITS, parsePriceInput } from "@/lib/price-rules";
+import { formatStock, type ProductKind } from "@/lib/stock-quantity";
 
 interface ManagedProduct {
   id: string;
@@ -30,6 +31,8 @@ interface ManagedProduct {
   onlineSaleEnabled: boolean;
   offlineSaleEnabled: boolean;
   onlineStock: number;
+  /** D-95: a loose good's stock can have decimals (2.5 kg); a packaged one is whole. */
+  kind?: ProductKind;
   trackInventory: boolean;
   isActive: boolean;
   isAvailable: boolean;
@@ -205,10 +208,15 @@ function ProductRow({ product }: { product: ManagedProduct }) {
     const offline = offlinePrice.trim() ? parsePriceInput(offlinePrice) : null;
     if (online && !online.ok) return setError(`Online price: ${online.error}`);
     if (offline && !offline.ok) return setError(`In-shop price: ${offline.error}`);
-    // Stock: a whole number; an empty box is refused, not saved as 0 (TC-FLD-061).
+    // Stock: a whole number (up to 3 decimals for loose goods, D-95); an empty box is refused, not saved as 0 (TC-FLD-061).
     const stockText = stock.trim();
-    if (!/^\d+$/.test(stockText) || Number(stockText) > MAX_STOCK_UNITS) {
-      setError(`Enter the online stock as a whole number from 0 to ${MAX_STOCK_UNITS.toLocaleString("en-IN")}.`);
+    const loose = product.kind === "LOOSE";
+    if (!(loose ? /^\d+(\.\d{1,3})?$/ : /^\d+$/).test(stockText) || Number(stockText) > MAX_STOCK_UNITS) {
+      setError(
+        loose
+          ? `Enter the online stock from 0 to ${MAX_STOCK_UNITS.toLocaleString("en-IN")}, with at most 3 decimals (for example 2.5).`
+          : `Enter the online stock as a whole number from 0 to ${MAX_STOCK_UNITS.toLocaleString("en-IN")}.`,
+      );
       return;
     }
     const stockChanged = Number(stockText) !== product.onlineStock;
@@ -298,7 +306,7 @@ function ProductRow({ product }: { product: ManagedProduct }) {
             outOfStock={product.trackInventory && product.onlineStock <= 0}
           />
           {product.trackInventory ? (
-            <Badge>{product.onlineStock} in stock</Badge>
+            <Badge>{formatStock(product.onlineStock)} in stock</Badge>
           ) : null}
           <a
             href={`/shop/products/${product.id}/images`}
@@ -364,10 +372,11 @@ function ProductRow({ product }: { product: ManagedProduct }) {
           </label>
 
           <label className="text-sm text-ink-700">
-            Online stock
+            Online stock{product.kind === "LOOSE" ? ` (${product.unit}, decimals allowed)` : ""}
             <input
               type="number"
               min={0}
+              step={product.kind === "LOOSE" ? 0.001 : 1}
               value={stock}
               onChange={(e) => setStock(e.target.value)}
               className={inputClass}

@@ -54,7 +54,7 @@ function Row({ row }: { row: PendingImageRow }) {
       <SafeImage src={row.url} alt={row.productName} className="h-48 w-full rounded object-contain bg-cream-50" />
       <p className="text-sm font-medium text-ink-900">{row.productName}</p>
       <p className="text-xs text-ink-500">
-        {row.shopName ?? "Catalogue photo"} · {new Date(row.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+        {row.shopName ?? "Catalogue photo"} · {new Date(row.createdAt).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })}
       </p>
       {error ? <Alert tone="danger">{error}</Alert> : null}
       {rejecting ? (

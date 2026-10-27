@@ -702,7 +702,11 @@ export async function freshRider(label: string, options: { approve?: boolean; ex
   });
   expectStatus(res, 201, "rider application");
   const partnerId = String(res.body.id);
-  if (options.approve) expectStatus(await call(await as("ops"), "PATCH", `/api/delivery-partner/${partnerId}`, { action: "approve" }), 200, "approve the rider");
+  if (options.approve) {
+    // D-57 (owner, 25 Oct 2026): a rider is approved only with an identity document on file.
+    expectStatus(await upload(user.ctx, "/api/delivery-partner/me/documents", { name: "licence.png", mimeType: "image/png", buffer: png(400, 260) }, { docType: "DRIVING_LICENCE" }), 201, "upload an identity document");
+    expectStatus(await call(await as("ops"), "PATCH", `/api/delivery-partner/${partnerId}`, { action: "approve" }), 200, "approve the rider");
+  }
   return { ...user, partnerId };
 }
 

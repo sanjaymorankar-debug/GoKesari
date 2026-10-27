@@ -3,7 +3,7 @@ import { notFound } from "next/navigation";
 import { Pager, paginate } from "@/components/board/list-tabs";
 import { ProductGrid } from "@/components/product-grid";
 import { EmptyState, PageHeader } from "@/components/ui";
-import { SHOP_TYPES, type ShopTypeKey } from "@/lib/shop-types";
+import { listShopTypes } from "@/server/services/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getCartLineQuantities } from "@/server/services/cart";
 import { getBoardLang } from "@/server/board-lang";
@@ -14,8 +14,8 @@ import { serviceableShopIds } from "@/server/services/serviceability";
 
 export const dynamic = "force-dynamic";
 
-function findShopType(type: string) {
-  return SHOP_TYPES.find((t) => t.key === type);
+async function findShopType(type: string) {
+  return (await listShopTypes()).find((t) => t.key === type);
 }
 
 export async function generateMetadata({
@@ -24,7 +24,7 @@ export async function generateMetadata({
   params: Promise<{ type: string }>;
 }) {
   const { type } = await params;
-  return { title: findShopType(type)?.label ?? "Category" };
+  return { title: (await findShopType(type))?.label ?? "Category" };
 }
 
 const PAGE_SIZE = 6;
@@ -38,13 +38,13 @@ export default async function CategoryPage({
   searchParams: Promise<{ page?: string }>;
 }) {
   const [{ type }, query, lang] = await Promise.all([params, searchParams, getBoardLang()]);
-  const shopType = findShopType(type);
+  const shopType = await findShopType(type);
   if (!shopType) notFound();
 
   const user = await getCurrentUser();
   const [products, cartLines] = await Promise.all([
     listStorefrontProducts({
-      department: type as ShopTypeKey,
+      department: type,
       limit: 60,
     }),
     user ? getCartLineQuantities(user.id) : null,

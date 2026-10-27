@@ -73,6 +73,28 @@ Every change — feature, fix, migration, test — must work on **both** layouts
   database stays the customer database; the separate `*_CUSTOMER_*` databases
   are not used.
 
+# Production releases: one at a time, checked after every deploy
+
+On 25 Oct 2026, two sessions merged the same release into `main` 75 s apart.
+The two Hostinger deploys overlapped, and gokesari.com stopped answering for
+14 minutes ([incident note](docs/gokesari-audit/INCIDENT_2026-10-25_production_hang.md)).
+Steps: [DEPLOYMENT.md §3](DEPLOYMENT.md), "One production release at a time"
+and "After every production deploy".
+
+- **Before merging anything into `main`** (code or docs), check that no other
+  release is in flight:
+  - list the open PRs into `main`;
+  - look at the latest "Post-deploy check" run and the latest Hostinger build
+    for gokesari.com.
+  - If one is running, wait. Never open a second staging → main PR for code
+    another one already carries.
+- **After the merge:**
+  - wait for the **Post-deploy check** workflow to pass, or run
+    `scripts/release/post-deploy-check.sh https://gokesari.com`;
+  - only then report the release as done or merge the next one;
+  - if the check fails, restart the Node.js app (hPanel, or
+    `hosting_nodejs_restart-application`), re-run the check, and tell the owner.
+
 # Payment testing on staging: Cashfree sandbox test data
 
 For any payment test on test.gokesari.com (staging), use Cashfree **sandbox**

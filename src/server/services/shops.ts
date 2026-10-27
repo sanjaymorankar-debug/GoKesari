@@ -41,6 +41,7 @@ import { resolveLocationVerification } from "./geocoding";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { attributeShopToCode } from "./referrals";
 import { applyShopCategories } from "./shop-categories";
+import { assertShopType, isKnownShopType } from "./shop-types";
 import { resolveFeeForNewRegistration } from "./registration-fees";
 import { getRule } from "./settings";
 import { missingMandatoryDocuments, onboardingApprovalBlocker } from "./shop-onboarding";
@@ -264,6 +265,8 @@ export async function registerShop(
     });
     if (!owner) throw notFound("Owner");
   }
+
+  await assertShopType(input.shopType);
 
   // The fee is SNAPSHOTTED here (§12): a later change to the schedule must
   // never alter what this shop was charged.
@@ -954,6 +957,9 @@ export async function updateShop(
   input: UpdateShopInput,
   actor: { id: string; role: UserRole },
 ): Promise<Shop> {
+  if (input.shopType && !(await isKnownShopType(input.shopType))) {
+    throw validationFailed("Shop type: choose a valid shop type.");
+  }
   if (input.pincode && !/^[1-9]\d{5}$/.test(input.pincode)) {
     throw validationFailed("PIN code must be 6 digits and not start with 0.");
   }
@@ -1256,6 +1262,15 @@ export async function searchShops(
         // A shop's categories also make it findable ("dairy" finds a shop tagged Dairy).
         sql`exists (select 1 from shop_category_mapping m join shop_categories c on c.id = m.category_id
           where m.shop_id = ${shops.id} and c.status = 'ACTIVE' and c.name ilike ${term})`,
+        // GAP-011: a shop that sells a matching product is found too ("milk" finds the dairies
+        // selling milk), on the same terms the storefront lists a product.
+        sql`exists (select 1 from shop_products sp_q
+          join products p_q on p_q.id = sp_q.product_id
+          join product_categories pc_q on pc_q.id = p_q.category_id
+          where sp_q.shop_id = ${shops.id} and sp_q.is_active and sp_q.deleted_at is null and p_q.is_active
+            and (p_q.name ilike ${term} or pc_q.name ilike ${term})
+            and exists (select 1 from shop_product_categories spc_q
+              where spc_q.shop_id = sp_q.shop_id and spc_q.category_id = p_q.category_id))`,
       )!,
     );
   }

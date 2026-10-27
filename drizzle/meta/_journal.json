@@ -645,6 +645,48 @@
       "when": 1792125279436,
       "tag": "0091_drop_guest_searches",
       "breakpoints": true
+    },
+    {
+      "idx": 92,
+      "version": "7",
+      "when": 1792900000000,
+      "tag": "0092_order_item_mrp",
+      "breakpoints": true
+    },
+    {
+      "idx": 93,
+      "version": "7",
+      "when": 1792900100000,
+      "tag": "0093_customer_referral_reversal",
+      "breakpoints": true
+    },
+    {
+      "idx": 94,
+      "version": "7",
+      "when": 1792900200000,
+      "tag": "0094_shop_closure_membership",
+      "breakpoints": true
+    },
+    {
+      "idx": 95,
+      "version": "7",
+      "when": 1792900300000,
+      "tag": "0095_loose_stock_decimals",
+      "breakpoints": true
+    },
+    {
+      "idx": 96,
+      "version": "7",
+      "when": 1792900400000,
+      "tag": "0096_cart_loose_quantity",
+      "breakpoints": true
+    },
+    {
+      "idx": 97,
+      "version": "7",
+      "when": 1792987100000,
+      "tag": "0097_admin_managed_shop_types",
+      "breakpoints": true
     }
   ]
 }

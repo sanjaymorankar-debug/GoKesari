@@ -88,7 +88,7 @@ export default async function SearchPage({
       {location ? (
         <p className="mb-6 text-xs text-ink-500">
           {nearOnly ? "Showing only shops that deliver to you. " : "Showing all shops. "}
-          <Link
+          <Link prefetch={false}
             href={`/search?q=${encodeURIComponent(query)}${nearOnly ? "&all=1" : ""}`}
             className="font-medium text-kesari-600 hover:underline"
           >

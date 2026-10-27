@@ -119,12 +119,12 @@ async function resolveOperationalCategory(tx: TransactionSql, m: MasterForPromot
   if (l2) {
     const [byName] = await tx<{ id: string }[]>`
       SELECT id FROM public.product_categories
-      WHERE department = ${m.gokesari_department}::department AND lower(name) = lower(${l2}) AND deleted_at IS NULL LIMIT 1`;
+      WHERE department::text = ${m.gokesari_department} AND lower(name) = lower(${l2}) AND deleted_at IS NULL LIMIT 1`;
     if (byName) return byName;
   }
   const [dflt] = await tx<{ id: string }[]>`
     SELECT id FROM public.product_categories
-    WHERE department = ${m.gokesari_department}::department AND deleted_at IS NULL ORDER BY sort_order, created_at LIMIT 1`;
+    WHERE department::text = ${m.gokesari_department} AND deleted_at IS NULL ORDER BY sort_order, created_at LIMIT 1`;
   return dflt ?? null;
 }
 
@@ -254,7 +254,7 @@ async function audit(tx: TransactionSql, actor: PromotionActor, action: string, 
 /** Which shops sell a master product, through the catalogue link (Section 30: "both reference MASTER_PRODUCT_ID"). */
 export async function shopsSellingMasterProduct(sql: Sql, masterProductId: string) {
   return sql<{ shop_id: string; shop_name: string; catalogue_product_code: string; online_price_paise: number | null; online_stock: number }[]>`
-    SELECT s.id AS shop_id, s.name AS shop_name, p.code AS catalogue_product_code, sp.online_price_paise, sp.online_stock
+    SELECT s.id AS shop_id, s.name AS shop_name, p.code AS catalogue_product_code, sp.online_price_paise, sp.online_stock::float8 AS online_stock
     FROM pmd.product_master pm
     JOIN pmd.catalogue_link cl ON cl.product_id = pm.product_id
     JOIN public.products p ON p.id = cl.catalogue_product_id

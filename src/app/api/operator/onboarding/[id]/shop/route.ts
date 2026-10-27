@@ -8,7 +8,7 @@ import type { NextRequest } from "next/server";
 import { z } from "zod";
 
 import { IDENTIFIER_REQUIRED_MESSAGE, parseGstin } from "@/lib/shop-identity";
-import { SHOP_TYPE_KEYS } from "@/lib/shop-types";
+import { SHOP_TYPE_KEY_PATTERN } from "@/lib/shop-types";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
@@ -32,7 +32,7 @@ const schema = z
     latitude: z.string().nullish(),
     longitude: z.string().nullish(),
     landmark: z.string().max(200).nullish(),
-    shopType: z.enum(SHOP_TYPE_KEYS),
+    shopType: z.string().regex(SHOP_TYPE_KEY_PATTERN),
     categoryIds: z.array(z.string().uuid()).min(1, "Please select at least one shop category.").max(60),
     deliveryAvailable: z.boolean().default(false),
     description: z.string().max(1000).nullish(),

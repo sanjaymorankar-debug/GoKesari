@@ -56,7 +56,7 @@ export default async function ShopDisputesPage({ searchParams }: { searchParams:
                 </Link>
                 <p className="text-sm text-ink-600">
                   Order {d.orderNumber} · {DISPUTE_REASON_LABELS[d.reason]} · {formatPaise(d.disputedAmountPaise)} ·{" "}
-                  {d.createdAt.toLocaleDateString("en-IN")}
+                  {d.createdAt.toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}
                 </p>
               </div>
               <Badge tone={isDisputeTerminal(d.status) ? "neutral" : "warning"}>{DISPUTE_STATUS_LABELS[d.status]}</Badge>

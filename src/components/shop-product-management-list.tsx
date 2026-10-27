@@ -114,13 +114,13 @@ export function ShopProductManagementList({ shops, canSuspend = false }: { shops
                   </td>
                   <td className="px-4 py-2">{s.productCount}</td>
                   <td className="px-4 py-2">
-                    <Link
+                    <Link prefetch={false}
                       href={`/admin/shops/${s.id}/products`}
                       className="text-sm font-medium text-kesari-600 hover:underline"
                     >
                       Manage products →
                     </Link>
-                    <Link
+                    <Link prefetch={false}
                       href={`/admin/shops/${s.id}/categories`}
                       className="ml-3 text-sm font-medium text-kesari-600 hover:underline"
                     >

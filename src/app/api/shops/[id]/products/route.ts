@@ -60,8 +60,9 @@ const schema = z
     onlinePricePaise: z.number().int().min(MIN_PRICE_PAISE, PRICE_MIN_MESSAGE).max(MAX_PRICE_PAISE, PRICE_MAX_MESSAGE).nullish(),
     offlinePricePaise: z.number().int().min(MIN_PRICE_PAISE, PRICE_MIN_MESSAGE).max(MAX_PRICE_PAISE, PRICE_MAX_MESSAGE).nullish(),
     trackInventory: z.boolean().default(true),
-    onlineStock: z.number().int().min(0).max(MAX_STOCK_UNITS, STOCK_MAX_MESSAGE).default(0),
-    offlineStock: z.number().int().min(0).max(MAX_STOCK_UNITS, STOCK_MAX_MESSAGE).default(0),
+    // Whole for packaged goods, up to three decimals for loose ones — checked against the product (D-95).
+    onlineStock: z.number().min(0).max(MAX_STOCK_UNITS, STOCK_MAX_MESSAGE).default(0),
+    offlineStock: z.number().min(0).max(MAX_STOCK_UNITS, STOCK_MAX_MESSAGE).default(0),
     isActive: z.boolean().default(true),
     isAvailable: z.boolean().default(true),
   })

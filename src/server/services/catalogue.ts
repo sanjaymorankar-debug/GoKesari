@@ -20,6 +20,7 @@ import {
 import { likePattern } from "@/lib/like-pattern";
 import { MAX_PRICE_PAISE, MIN_PRICE_PAISE } from "@/lib/price-rules";
 import { effectiveDescriptions } from "@/lib/product-text";
+import { formatStock, hasMilliPrecision, roundStock, stockQuantityProblem, type ProductKind } from "@/lib/stock-quantity";
 import { db, type DbClient } from "@/server/db";
 import {
   inventoryMovements,
@@ -724,6 +725,20 @@ function validatePricing(
   }
 }
 
+/**
+ * D-95: a listing's stock is 0 to 10,00,000 sellable units — whole for a
+ * packaged product, up to three decimals for a loose one (2.5 kg).
+ */
+function assertStockFigures(input: { onlineStock?: number; offlineStock?: number }, kind: ProductKind): void {
+  for (const [value, label] of [
+    [input.onlineStock, "Online stock"],
+    [input.offlineStock, "In-shop stock"],
+  ] as const) {
+    const problem = value === undefined ? null : stockQuantityProblem(value, kind, label);
+    if (problem) throw validationFailed(problem);
+  }
+}
+
 export async function createShopProduct(
   input: UpsertShopProductInput,
   actor: { id: string; role: "SHOP_OWNER" | "OPERATOR" | "ADMIN" },
@@ -734,6 +749,7 @@ export async function createShopProduct(
   const [visibility] = await client
     .select({
       categoryName: productCategories.name,
+      kind: products.kind,
       carried: sql<boolean>`${shopCarriesProductCategory(input.shopId, products.categoryId)}`,
     })
     .from(products)
@@ -746,6 +762,7 @@ export async function createShopProduct(
       `This product is in the "${visibility.categoryName}" category, which this shop does not carry. Add the category to the shop first.`,
     );
   }
+  assertStockFigures(input, visibility.kind);
   // A selling price above an (enforced) MRP is refused — see mrp-governance.ts.
   await assertPriceWithinMrp(
     input.productId,
@@ -771,8 +788,8 @@ export async function createShopProduct(
     onlineSaleEnabled: input.onlineSaleEnabled,
     offlineSaleEnabled: input.offlineSaleEnabled,
     trackInventory: input.trackInventory ?? true,
-    onlineStock: input.onlineStock ?? 0,
-    offlineStock: input.offlineStock ?? 0,
+    onlineStock: roundStock(input.onlineStock ?? 0),
+    offlineStock: roundStock(input.offlineStock ?? 0),
     isActive: input.isActive ?? true,
     isAvailable: input.isAvailable ?? true,
   };
@@ -913,10 +930,19 @@ export async function updateShopProduct(
       .where(eq(shopProducts.id, shopProductId))
       .for("update");
     if (!current) throw notFound("Product");
+    if (patch.onlineStock !== undefined || patch.offlineStock !== undefined) {
+      const [product] = await tx.select({ kind: products.kind }).from(products).where(eq(products.id, current.productId));
+      assertStockFigures(patch, product?.kind ?? "PACKAGED");
+      patch = {
+        ...patch,
+        ...(patch.onlineStock !== undefined ? { onlineStock: roundStock(patch.onlineStock) } : {}),
+        ...(patch.offlineStock !== undefined ? { offlineStock: roundStock(patch.offlineStock) } : {}),
+      };
+    }
     if (
       options.expectedOnlineStock !== undefined &&
       patch.onlineStock !== undefined &&
-      current.onlineStock !== options.expectedOnlineStock
+      current.onlineStock !== roundStock(options.expectedOnlineStock)
     ) {
       throw conflict(
         `Stock changed since you opened this page — it is now ${current.onlineStock}. Check it and save again.`,
@@ -1021,7 +1047,7 @@ export async function updateShopProduct(
         await tx.insert(inventoryMovements).values({
           shopProductId,
           channel,
-          deltaUnits: after - before,
+          deltaUnits: roundStock(after - before),
           previousUnits: before,
           newUnits: after,
           reason: "Manual stock update",
@@ -1115,6 +1141,8 @@ export interface StorefrontProduct {
   department: Department;
   unit: string;
   unitSizeMilli: number;
+  /** D-95: loose goods can be bought in parts of a unit (250 g of a 1 kg listing). */
+  kind: ProductKind;
   imageUrl: string | null;
   onlinePricePaise: number | null;
   offlinePricePaise: number | null;
@@ -1126,6 +1154,8 @@ export interface StorefrontProduct {
   subscribable: boolean;
   shopId: string;
   shopName: string;
+  /** The shop owner's name — the first line of a product card. */
+  shopOwnerName: string;
   shopSlug: string;
   shopClassification: "KESARI" | "GREEN" | null;
   /** F8: the product's category (for shop offers). */
@@ -1181,16 +1211,22 @@ function storefrontConditions(options: StorefrontFilters) {
     conditions.push(eq(shopProducts.onlineSaleEnabled, true));
   }
   if (options.query) {
-    const term = likePattern(options.query);
-    conditions.push(
-      or(
-        ilike(products.name, term),
-        ilike(productCategories.name, term),
-        ilike(shops.name, term),
-        ilike(shops.area, term),
-        eq(shops.pincode, options.query),
-      )!,
-    );
+    // Every word must match something — product, category, shop, owner or area — in any order,
+    // so "badam milk agtci" finds Badam Milk at Agtci. A 6-digit PIN code matches the shop's PIN.
+    const words = options.query.split(/\s+/).filter(Boolean).slice(0, 6);
+    for (const word of words) {
+      const term = likePattern(word);
+      conditions.push(
+        or(
+          ilike(products.name, term),
+          ilike(productCategories.name, term),
+          ilike(shops.name, term),
+          ilike(shops.ownerName, term),
+          ilike(shops.area, term),
+          eq(shops.pincode, word),
+        )!,
+      );
+    }
   }
   return conditions;
 }
@@ -1265,6 +1301,7 @@ export async function listStorefrontProducts(
     department: r.category.department,
     unit: r.product.unit,
     unitSizeMilli: r.product.unitSizeMilli,
+    kind: r.product.kind,
     imageUrl: r.sp.imageUrl ?? r.product.imageUrl,
     onlinePricePaise: r.sp.onlinePricePaise,
     offlinePricePaise: r.sp.offlinePricePaise,
@@ -1276,6 +1313,7 @@ export async function listStorefrontProducts(
     subscribable: r.product.subscribable,
     shopId: r.shop.id,
     shopName: r.shop.name,
+    shopOwnerName: r.shop.ownerName,
     shopSlug: r.shop.slug,
     shopClassification: r.shop.classification,
     shortDescription: effectiveDescriptions(r.sp, r.product.description).shortDescription,
@@ -1298,7 +1336,7 @@ export interface PurchasabilityContext {
 /**
  * The §14 rule, expressed once.
  *
- * `requiredUnits` is in whole sellable units; stock is tracked per unit.
+ * `requiredUnits` is in sellable units (parts of one for loose goods, D-95).
  * Throws a specific, customer-readable error rather than a generic denial so
  * the UI can explain exactly why (§53).
  */
@@ -1329,7 +1367,7 @@ export function assertOnlinePurchasable(
     throw outOfStock(
       ctx.onlineStock <= 0
         ? "This product is currently unavailable online."
-        : `Only ${ctx.onlineStock} left in stock.`,
+        : `Only ${formatStock(ctx.onlineStock)} left in stock.`,
     );
   }
 }
@@ -1416,6 +1454,7 @@ export async function consumeOnlineStock(
   client: DbClient,
   orderId?: string,
 ): Promise<void> {
+  units = roundStock(units);
   const [current] = await client
     .select()
     .from(shopProducts)
@@ -1473,9 +1512,11 @@ export async function restockOnline(
   /** The order the goods come back from (a return, TC-SPI-020): the stock ledger records a SALE_RETURN of it. */
   orderId?: string | null,
 ): Promise<ShopProduct> {
-  if (!Number.isInteger(units) || units <= 0) {
-    throw validationFailed("Restock quantity must be a positive whole number.");
+  // Whole units for packaged goods; a loose good's part of a unit comes back as it went (D-95).
+  if (!hasMilliPrecision(units) || units <= 0) {
+    throw validationFailed("Restock quantity must be more than 0, with at most 3 decimals.");
   }
+  units = roundStock(units);
   const run = async (tx: DbClient): Promise<ShopProduct> => {
     const [current] = await tx
       .select()
@@ -1487,7 +1528,7 @@ export async function restockOnline(
     const [updated] = await tx
       .update(shopProducts)
       .set({
-        onlineStock: current.onlineStock + units,
+        onlineStock: sql`${shopProducts.onlineStock} + ${units}`,
         updatedAt: new Date(),
       })
       .where(eq(shopProducts.id, shopProductId))

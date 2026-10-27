@@ -3,7 +3,7 @@
  * client-safe checks shared by the form and the server.
  */
 import { parsePhone } from "./phone";
-import { SHOP_TYPE_KEYS } from "./shop-types";
+import { SHOP_TYPE_KEY_PATTERN, SHOP_TYPE_KEYS } from "./shop-types";
 
 export interface ReferralRequestInput {
   name: string;
@@ -36,7 +36,7 @@ export function checkReferralRequest(input: ReferralRequestInput): { ok: true; v
   if (name.length < 2 || name.length > 80) fields.name = "Enter your name.";
   const phone = parsePhone("+91", input.mobile ?? "");
   if (!phone.ok) fields.mobile = "Enter a valid 10-digit mobile number.";
-  if (!(SHOP_TYPE_KEYS as readonly string[]).includes(input.shopType)) fields.shopType = "Choose the type of shop.";
+  if (!SHOP_TYPE_KEY_PATTERN.test(input.shopType ?? "")) fields.shopType = "Choose the type of shop.";
   const area = text(input.area ?? "");
   if (area.length < 2 || area.length > 120) fields.area = "Enter the area or locality.";
   const city = text(input.city ?? "");

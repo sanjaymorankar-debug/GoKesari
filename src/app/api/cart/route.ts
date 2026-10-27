@@ -15,7 +15,8 @@ export const GET = route(async () => {
 
 const addSchema = z.object({
   shopProductId: z.string().uuid(),
-  quantity: z.number().int().positive().max(99).default(1),
+  // Whole for packaged goods, parts of a unit for loose ones — checked against the product (D-95).
+  quantity: z.number().positive().max(99).default(1),
 });
 
 export const POST = route(async (request: NextRequest) => {

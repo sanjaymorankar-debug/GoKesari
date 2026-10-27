@@ -221,7 +221,7 @@ export function DisputeCase({ view, justOpened = false }: { view: DisputeCaseVie
         </div>
         <p className="text-sm text-ink-600">
           Order {view.orderNumber} · {view.shopName} · {DISPUTE_REASON_LABELS[view.reason]} ·{" "}
-          {formatPaise(view.disputedAmountPaise)} · opened {new Date(view.createdAt).toLocaleString("en-IN")}
+          {formatPaise(view.disputedAmountPaise)} · opened {new Date(view.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}
         </p>
         <p className="whitespace-pre-line text-sm text-ink-800">{view.description}</p>
         <Photos images={view.images} />
@@ -240,7 +240,7 @@ export function DisputeCase({ view, justOpened = false }: { view: DisputeCaseVie
               >
                 <p className="text-xs text-ink-500">
                   <span className="font-medium text-ink-700">{c.authorLabel}</span> ·{" "}
-                  {new Date(c.createdAt).toLocaleString("en-IN")}
+                  {new Date(c.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}
                   {c.internal ? " · internal note (support only)" : ""}
                 </p>
                 <p className="mt-1 whitespace-pre-line text-sm text-ink-800">{c.body}</p>

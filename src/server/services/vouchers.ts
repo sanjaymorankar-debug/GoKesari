@@ -16,7 +16,7 @@
 import ExcelJS from "exceljs";
 import { and, count, desc, eq, gte, ilike, inArray, lte, or } from "drizzle-orm";
 
-import { isCalendarDate, todayIn } from "@/lib/dates";
+import { addDays, isCalendarDate, todayIn } from "@/lib/dates";
 import { getEnv } from "@/lib/env";
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { formatPaise } from "@/lib/money";
@@ -734,6 +734,7 @@ async function parseVoucherWorkbook(
     throw validationFailed(`File is too large. The limit is ${spreadsheetMaxBytes / 1024 / 1024} MB.`);
   }
   const { maxBonusPercent } = await getRule("vouchers");
+  const today = todayIso();
 
   const workbook = new ExcelJS.Workbook();
   try {
@@ -813,6 +814,11 @@ async function parseVoucherWorkbook(
     }
     if (endDate < startDate) {
       rows.push({ ...base, status: "INVALID", errorMessage: "End Date must be on or after Start Date." });
+      return;
+    }
+    // TC-FLD-114: as on the form, a voucher that has already ended can never be used.
+    if (endDate < today) {
+      rows.push({ ...base, status: "INVALID", errorMessage: "End Date has already passed — choose today or a later date." });
       return;
     }
 
@@ -913,8 +919,17 @@ export async function applyVoucherUpload(
       .where(and(eq(voucherUploadItems.uploadId, uploadId), eq(voucherUploadItems.status, "VALID")));
 
     let created = 0;
+    const today = todayIso();
     for (const item of items) {
       const raw = item.rawData as unknown as VoucherUploadPreviewRow;
+      // TC-FLD-114: checked when the file was read, but the end date may have passed since.
+      if (raw.endDate! < today) {
+        await tx
+          .update(voucherUploadItems)
+          .set({ status: "INVALID", errorMessage: "End Date passed before the upload was applied." })
+          .where(eq(voucherUploadItems.id, item.id));
+        continue;
+      }
       const [voucher] = await tx
         .insert(vouchers)
         .values({
@@ -991,7 +1006,9 @@ export async function buildVoucherTemplate(): Promise<ArrayBuffer> {
   const sheet = workbook.addWorksheet("Vouchers");
   sheet.columns = VOUCHER_TEMPLATE_COLUMNS.map((header) => ({ header, width: 16 }));
   sheet.getRow(1).font = { bold: true };
-  sheet.addRow(["Diwali 10% Bonus", "DIWALI10", 10, 500, 500, "2026-09-01", "2026-09-30"]);
+  // The example runs from today for 30 days, so the template uploads as it is (TC-FLD-114).
+  const today = todayIso();
+  sheet.addRow(["Diwali 10% Bonus", "DIWALI10", 10, 500, 500, today, addDays(today, 29)]);
 
   const notes = workbook.addWorksheet("How to use");
   notes.addRows([

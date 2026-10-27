@@ -134,7 +134,7 @@ export function PendingPriceApprovals({
                   {showShop && row.shopName ? `${row.shopName} · ` : ""}
                   Proposed by {row.source === "OPERATOR" ? "Operator" : row.source === "ADMIN" ? "Admin" : "Shop owner"}
                   {" · "}
-                  {new Date(row.createdAt).toLocaleDateString("en-IN")}
+                  {new Date(row.createdAt).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}
                 </p>
               </div>
 

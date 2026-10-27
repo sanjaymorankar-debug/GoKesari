@@ -344,6 +344,8 @@ qa("TC-DEL-015", "the rider is notified of each review decision (approve, reject
   const a = await freshRider("del015n");
   const b = await freshRider("del015m");
   try {
+    // D-57: approval needs an identity document on file.
+    expectStatus(await upload(a.ctx, "/api/delivery-partner/me/documents", { name: "licence.png", mimeType: "image/png", buffer: png(400, 260) }, { docType: "DRIVING_LICENCE" }), 201, "upload an identity document");
     const steps: [Rider, string, Record<string, unknown>][] = [
       [a, "approve", { action: "approve" }],
       [a, "suspend", { action: "suspend", reason: "QA: suspended for the notice check" }],

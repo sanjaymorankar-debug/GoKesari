@@ -163,7 +163,7 @@ export default async function RiskPage({
                 ) : null}
               </div>
               <p className="text-xs text-ink-500">
-                First seen {f.firstDetectedAt.toLocaleString("en-IN")} · last {f.lastDetectedAt.toLocaleString("en-IN")} · detected {f.occurrences}×
+                First seen {f.firstDetectedAt.toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} · last {f.lastDetectedAt.toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })} · detected {f.occurrences}×
               </p>
               {f.reviewNote ? <p className="text-xs text-ink-600">Review: {f.reviewNote}</p> : null}
               {f.status === "OPEN" ? (

@@ -18,7 +18,7 @@ export default function NearbyShopsPage() {
           <h1 className="text-2xl font-bold tracking-tight text-ink-900">Nearby shops</h1>
           <p className="text-sm text-ink-700">Registered GoKesari shops near you, nearest first.</p>
         </div>
-        <Link href="/shops" className="inline-flex min-h-11 items-center whitespace-nowrap text-sm font-semibold text-kesari-800 hover:underline">
+        <Link prefetch={false} href="/shops" className="inline-flex min-h-11 items-center whitespace-nowrap text-sm font-semibold text-kesari-800 hover:underline">
           All shops →
         </Link>
       </div>

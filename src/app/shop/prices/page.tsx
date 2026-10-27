@@ -90,7 +90,7 @@ export default async function ShopPricesPage() {
                   <tr key={row.request.id}>
                     <td className="px-4 py-2 text-ink-500">
                       {row.request.decidedAt
-                        ? new Date(row.request.decidedAt).toLocaleDateString("en-IN")
+                        ? new Date(row.request.decidedAt).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })
                         : "—"}
                     </td>
                     <td className="px-4 py-2 text-ink-900">

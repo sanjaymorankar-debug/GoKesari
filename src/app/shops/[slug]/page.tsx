@@ -201,7 +201,7 @@ export default async function ShopPage({
                 <span className="font-medium">{o.title}</span> — {o.label} on {o.appliesTo}
                 <span className="text-xs text-ink-500">
                   {" "}
-                  · until {o.endsAt.toLocaleDateString("en-IN", { day: "numeric", month: "short" })}
+                  · until {o.endsAt.toLocaleDateString("en-IN", { day: "numeric", month: "short", timeZone: "Asia/Kolkata" })}
                 </span>
               </li>
             ))}
@@ -210,7 +210,7 @@ export default async function ShopPage({
       ) : null}
 
       <div className="mb-6">
-        <Link
+        <Link prefetch={false}
           href={`/shops/${shop.slug}/contact`}
           className="text-sm font-medium text-kesari-600 hover:underline"
         >

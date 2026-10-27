@@ -16,6 +16,7 @@ export const AUDIT_ACTIONS = {
   SHOP_REJECTED: "shop.rejected",
   SHOP_SUSPENDED: "shop.suspended",
   SHOP_REACTIVATED: "shop.reactivated",
+  SHOP_CLOSED: "shop.closed", // D-69: the owner closed the shop permanently
   SHOP_SUSPENSION_ORDER_RESOLVED: "shop.suspension_order_resolved",
   SHOP_UPDATED: "shop.updated",
 
@@ -127,6 +128,7 @@ export const AUDIT_ACTIONS = {
   REFERRAL_CODE_ASSIGNED: "referral_code.assigned",
   CUSTOMER_REFERRAL_APPLIED: "customer_referral.applied",
   CUSTOMER_REFERRAL_DECIDED: "customer_referral.decided",
+  CUSTOMER_REFERRAL_REVERSED: "customer_referral.reversed", // D-25: a fraudulent reward taken back
   CUSTOMER_REFERRAL_REFUSED: "customer_referral.refused", // someone tried their own code (risk rule REFERRAL_ABUSE)
   PRODUCT_REMOVED: "shop_product.removed",
 
@@ -276,6 +278,7 @@ export const AUDIT_ACTIONS = {
   PRODUCT_IMAGE_CHANGED: "product_image.changed",
   PRODUCT_IMAGE_MODERATED: "product_image.moderated",
   SHOP_CATEGORY_SAVED: "shop_category.saved",
+  SHOP_TYPE_SAVED: "shop_type.saved",
   SHOP_CATEGORIES_CHANGED: "shop.categories_changed",
   /* Category master and shop ↔ product-category links. */
   PRODUCT_CATEGORY_CREATED: "product_category.created",

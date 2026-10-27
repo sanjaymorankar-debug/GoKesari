@@ -35,12 +35,13 @@ const schema = z.object({
   onlinePricePaise: z.number().int().min(MIN_PRICE_PAISE, PRICE_MIN_MESSAGE).max(MAX_PRICE_PAISE, PRICE_MAX_MESSAGE).nullish(),
   offlinePricePaise: z.number().int().min(MIN_PRICE_PAISE, PRICE_MIN_MESSAGE).max(MAX_PRICE_PAISE, PRICE_MAX_MESSAGE).nullish(),
   trackInventory: z.boolean().optional(),
-  onlineStock: z.number().int().min(0).max(MAX_STOCK_UNITS, STOCK_MAX_MESSAGE).optional(),
-  offlineStock: z.number().int().min(0).max(MAX_STOCK_UNITS, STOCK_MAX_MESSAGE).optional(),
+  // Whole for packaged goods, up to three decimals for loose ones — checked against the product (D-95).
+  onlineStock: z.number().min(0).max(MAX_STOCK_UNITS, STOCK_MAX_MESSAGE).optional(),
+  offlineStock: z.number().min(0).max(MAX_STOCK_UNITS, STOCK_MAX_MESSAGE).optional(),
   isActive: z.boolean().optional(),
   isAvailable: z.boolean().optional(),
   /** The online stock the page showed when opened; a changed row answers 409 (TC-SPI-022). */
-  expectedOnlineStock: z.number().int().min(0).optional(),
+  expectedOnlineStock: z.number().min(0).optional(),
 });
 
 export const PATCH = route(

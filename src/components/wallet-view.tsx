@@ -273,9 +273,11 @@ export function WalletView({
                     </p>
                     <p className="text-xs text-ink-500">
                       {t.type.replace(/_/g, " ").toLowerCase()} ·{" "}
+                      {/* GAP-017: India time on the server too, or the server's UTC text mismatches the browser's (React #418). */}
                       {new Date(t.createdAt).toLocaleString("en-IN", {
                         dateStyle: "medium",
                         timeStyle: "short",
+                        timeZone: "Asia/Kolkata",
                       })}
                     </p>
                   </div>

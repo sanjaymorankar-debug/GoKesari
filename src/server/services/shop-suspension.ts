@@ -226,7 +226,7 @@ export async function suspendShopWithPolicy(
     started.shop.ownerId,
     {
       shopName: started.shop.name,
-      effectiveAt: started.suspension.effectiveAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" }),
+      effectiveAt: started.suspension.effectiveAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" }),
       reason,
       impact: parts.length ? parts.join(" ") : "You had no open orders.",
       expectedAction,

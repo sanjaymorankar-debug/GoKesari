@@ -25,6 +25,7 @@ import {
 import { AppError, conflict, notFound, validationFailed } from "@/lib/errors";
 import { formatPaise, lineTotalPaise } from "@/lib/money";
 import { subscriptionQuantityProblem } from "@/lib/subscription-quantity";
+import { milliToStockUnits } from "@/lib/stock-quantity";
 import { getEnv } from "@/lib/env";
 import { db, type DbClient } from "@/server/db";
 import {
@@ -1222,9 +1223,8 @@ async function generateOneDelivery(
     .limit(1);
   if (!row) return "UNAVAILABLE";
 
-  const unitsNeeded = Math.ceil(
-    resolution.quantityMilli / row.product.unitSizeMilli,
-  );
+  // Whole units of a packaged good (rounded up); exactly the amount of a loose one (0.5 L of a 1 L listing, D-95).
+  const unitsNeeded = milliToStockUnits(resolution.quantityMilli, row.product.unitSizeMilli, row.product.kind, "ceil");
   const purchasable = isOnlinePurchasable(
     {
       shopStatus: row.shop.status,
@@ -1313,6 +1313,7 @@ async function generateOneDelivery(
         unitPricePaise,
         quantityMilli: resolution.quantityMilli,
         lineTotalPaise: totalPaise,
+        mrpPaise: row.product.mrpPaise ?? null,
       });
 
       // Claims the (subscription, date) slot. A concurrent run fails here.

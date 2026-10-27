@@ -23,7 +23,8 @@ import { UserRoleManager } from "@/components/user-role-manager";
 import { VoucherManager } from "@/components/voucher-manager";
 import { VoucherUpload } from "@/components/voucher-upload";
 import { formatPaiseCompact } from "@/lib/money";
-import { shopTypeLabel } from "@/lib/shop-types";
+import { isFoodBusinessShopType, shopTypeLabel } from "@/lib/shop-types";
+import { loadShopTypeRegistry } from "@/server/services/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS, type Permission } from "@/server/authz/permissions";
 import { db } from "@/server/db";
@@ -95,6 +96,7 @@ export default async function AdminConsoleSectionPage({
   if (user.role !== "ADMIN" && user.role !== "OPERATOR") redirect("/");
   const { section } = await params;
   if (!(section in SECTIONS)) notFound();
+  await loadShopTypeRegistry();
   const key = section as SectionKey;
   const needs: readonly Permission[] = SECTIONS[key].needs;
   if (needs.length > 0 && !needs.some((p) => can(user.role, p))) redirect("/admin");
@@ -208,6 +210,7 @@ export default async function AdminConsoleSectionPage({
                     id: s.id,
                     name: s.name,
                     shopType: s.shopType,
+                    isFood: isFoodBusinessShopType(s.shopType),
                     city: s.city,
                     legalBusinessName: s.legalBusinessName,
                     gstin: s.gstin,

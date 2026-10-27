@@ -52,6 +52,9 @@ const DELIVERY_STATUS_LABELS: Record<string, string> = {
   CANCELLED: "Finding a rider",
 };
 
+/** An order without a fulfilment plan is a GoKesari delivery; a plan says so explicitly. */
+const byGoKesariRider = (plan?: { option: string }) => (plan?.option ?? "GOKESARI_PARTNER") === "GOKESARI_PARTNER";
+
 export const metadata = { title: "My Orders" };
 export const dynamic = "force-dynamic";
 
@@ -64,6 +67,9 @@ export default async function OrdersPage({
   if (!user) redirect("/signin");
 
   const params = await searchParams;
+  // GAP-014: tabs with their own page (an old link or a typed ?tab=returns) open that page, not the Active list.
+  const ownPage = params.tab === "returns" ? "/returns" : params.tab === "lists" ? "/lists" : null;
+  if (ownPage) redirect(ownPage);
   // Personal and business (B2B) orders are separate flows, listed apart.
   const showBusiness = can(user.role, PERMISSIONS.ORDER_PLACE_B2B);
   const orderType = showBusiness && params.type === "business" ? "B2B" : "PERSONAL";
@@ -226,6 +232,7 @@ export default async function OrdersPage({
                 {new Date(order.createdAt).toLocaleString("en-IN", {
                   dateStyle: "medium",
                   timeStyle: "short",
+                  timeZone: "Asia/Kolkata",
                 })}
                 {order.deliveryDate && !order.scheduledSlotStart ? ` · for ${order.deliveryDate}` : ""}
               </p>
@@ -285,9 +292,11 @@ export default async function OrdersPage({
                 ))}
               </ul>
 
-              {order.refundedPaise > 0 ? (
+              {/* GAP-018: the delivery fee given back for a pickup is shown on the fulfilment card, not as "unavailable items". */}
+              {order.refundedPaise - (fulfilmentPlans.get(order.id)?.deliveryFeeRefundedPaise ?? 0) > 0 ? (
                 <p className="mt-2 text-xs text-ink-500">
-                  <Money paise={order.refundedPaise} /> refunded to your wallet for unavailable items.
+                  <Money paise={order.refundedPaise - (fulfilmentPlans.get(order.id)?.deliveryFeeRefundedPaise ?? 0)} /> refunded to
+                  your wallet for unavailable items.
                 </p>
               ) : null}
 
@@ -320,7 +329,8 @@ export default async function OrdersPage({
                 />
               ) : null}
 
-              {deliveryOrders.has(order.id) ? (
+              {/* GAP-018: no rider line once the shop has changed the order to pickup or its own delivery. */}
+              {deliveryOrders.has(order.id) && byGoKesariRider(fulfilmentPlans.get(order.id)) ? (
                 <p className="mt-3 border-t border-cream-100 pt-3 text-sm text-ink-600">
                   {DELIVERY_STATUS_LABELS[deliveryOrders.get(order.id)!.status]} ·{" "}
                   {deliveryOrders.get(order.id)!.partnerName}
@@ -333,7 +343,7 @@ export default async function OrdersPage({
                 start only when the customer opens it; the panel's own API
                 decides what this viewer may see.
               */}
-              {deliveryOrders.has(order.id) && isTrackableOrderStatus(order.status) ? (
+              {deliveryOrders.has(order.id) && byGoKesariRider(fulfilmentPlans.get(order.id)) && isTrackableOrderStatus(order.status) ? (
                 <div className="mt-3">
                   <TrackDeliveryButton orderId={order.id} />
                 </div>

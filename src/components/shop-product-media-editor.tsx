@@ -460,7 +460,7 @@ export function ShopProductMediaEditor({ shopId, initial }: { shopId: string; in
                 <p className="text-xs text-ink-500">
                   {c.actorName ?? "Someone"}
                   {c.via ? ` (${VIA_LABEL[c.via] ?? c.via.toLowerCase()})` : ""} ·{" "}
-                  {new Date(c.at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+                  {new Date(c.at).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })}
                 </p>
               </li>
             ))}

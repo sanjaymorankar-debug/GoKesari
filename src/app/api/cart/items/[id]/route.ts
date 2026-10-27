@@ -7,7 +7,8 @@ import { requireUser } from "@/server/authz/guards";
 import { removeCartItem, setCartItemQuantity } from "@/server/services/cart";
 
 const patchSchema = z.object({
-  quantity: z.number().int().min(0).max(99),
+  // Whole for packaged goods, parts of a unit for loose ones — checked against the product (D-95).
+  quantity: z.number().min(0).max(99),
 });
 
 export const PATCH = route(

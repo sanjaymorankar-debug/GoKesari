@@ -896,7 +896,7 @@ function ReturnPickupPanel({ pickup, onDone }: { pickup: ActiveReturnPickupView;
           {pickup.customerNotes ? <p className="text-ink-500">Note: {pickup.customerNotes}</p> : null}
           {pickup.scheduledFor ? (
             <p className="text-ink-500">
-              Ready from {new Date(pickup.scheduledFor).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}
+              Ready from {new Date(pickup.scheduledFor).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })}
             </p>
           ) : null}
           {pickup.navigationUrl ? (

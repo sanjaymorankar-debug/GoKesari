@@ -141,6 +141,56 @@ Promotion is a merge of `staging` into `main`, which is also the human approval
 gate. Give each environment its **own database** and its own Cashfree keys — use
 Cashfree sandbox keys on staging so no real money moves.
 
+### One production release at a time
+
+Every push to `main` makes Hostinger build and restart gokesari.com, and it
+does not queue or cancel builds that overlap. On 25 Oct 2026 two releases of the
+same code reached `main` 75 seconds apart (#248, #249). Their deploys
+overlapped, and the site stopped answering for 14 minutes until the app was
+restarted (E-02,
+[incident note](docs/gokesari-audit/INCIDENT_2026-10-25_production_hang.md)).
+So:
+
+1. Before merging into `main`, check that no other release is in flight: no
+   other staging → main PR being merged, and the last Hostinger build for
+   gokesari.com finished (the build list on the site's Node.js page in hPanel).
+2. Merge **one** release.
+3. Wait for the post-deploy check below to pass before the next merge into
+   `main`, even a docs-only one (it still rebuilds and restarts the site).
+
+### After every production deploy
+
+The **Post-deploy check** workflow (`.github/workflows/post-deploy.yml`) runs on
+every push to `main`:
+- it waits about 4 minutes for Hostinger's build and restart;
+- it then needs `/`, `/shops` and `/robots.txt` to answer 200 for four rounds
+  in a row, 45 s apart;
+- it fails if that hasn't happened 10 minutes later, and GitHub e-mails the
+  person who pushed;
+- it also warns when the push came less than 10 minutes after the previous one.
+
+The same check runs by hand, from any machine:
+
+```bash
+scripts/release/post-deploy-check.sh https://gokesari.com
+```
+
+**If it fails:**
+
+1. Restart the Node.js app: hPanel → Websites → gokesari.com → Node.js →
+   **Restart**, or `hosting_nodejs_restart-application` from a Claude session
+   with the Hostinger tools. A restart doesn't rebuild or change data.
+2. Run the check again (Actions → Post-deploy check → Run workflow, or the
+   script).
+3. If it still fails:
+   - read the build log and the runtime log in hPanel → Node.js;
+   - roll back (§9);
+   - record what happened, as in the incident note above.
+
+The guest QA tier (`.github/workflows/qa.yml`, or the gokesari-qa agent) is the
+fuller production check after a release. The post-deploy check only says
+whether the site answers.
+
 ## 4. Run migrations
 
 Migrations are plain SQL under `drizzle/` and are not run automatically

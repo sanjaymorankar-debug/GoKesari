@@ -10,7 +10,7 @@
  */
 import ExcelJS from "exceljs";
 import { and, eq } from "drizzle-orm";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PERMISSIONS, can } from "@/server/authz/permissions";
 import { db } from "@/server/db";
@@ -24,6 +24,7 @@ import {
   updateVoucher,
   validateVoucherUpload,
   applyVoucherUpload,
+  buildVoucherTemplate,
 } from "@/server/services/vouchers";
 import {
   createPayment,
@@ -354,8 +355,8 @@ describe("voucher Excel upload (TEST 21, 22, 23)", () => {
   it("uploads a valid voucher list matching the §16 example (TEST 21)", async () => {
     const admin = await createUserWithWallet({ role: "ADMIN" });
     const buffer = await buildVoucherWorkbook([
-      ["Diwali 10%", "DIWALI10", 10, 500, 500, "2026-09-01", "2026-09-30"],
-      ["Festive 15%", "FESTIVE15", 15, 1000, 1000, "2026-09-01", "2026-09-15"],
+      ["Diwali 10%", "DIWALI10", 10, 500, 500, TODAY, IN_30_DAYS],
+      ["Festive 15%", "FESTIVE15", 15, 1000, 1000, TODAY, IN_30_DAYS],
     ]);
 
     const preview = await validateVoucherUpload(
@@ -375,9 +376,9 @@ describe("voucher Excel upload (TEST 21, 22, 23)", () => {
   it("rejects invalid rows without corrupting the rest of the upload (TEST 22)", async () => {
     const admin = await createUserWithWallet({ role: "ADMIN" });
     const buffer = await buildVoucherWorkbook([
-      ["Good Voucher", "GOOD1", 10, 500, 500, "2026-09-01", "2026-09-30"],
-      ["Bad Percent", "BADPCT", -5, 500, 500, "2026-09-01", "2026-09-30"],
-      ["Bad Dates", "BADDATE", 10, 500, 500, "2026-09-30", "2026-09-01"],
+      ["Good Voucher", "GOOD1", 10, 500, 500, TODAY, IN_30_DAYS],
+      ["Bad Percent", "BADPCT", -5, 500, 500, TODAY, IN_30_DAYS],
+      ["Bad Dates", "BADDATE", 10, 500, 500, IN_30_DAYS, TODAY],
     ]);
 
     const preview = await validateVoucherUpload(
@@ -398,8 +399,8 @@ describe("voucher Excel upload (TEST 21, 22, 23)", () => {
   it("flags duplicate voucher codes within the same file (TEST 23)", async () => {
     const admin = await createUserWithWallet({ role: "ADMIN" });
     const buffer = await buildVoucherWorkbook([
-      ["First", "SAME1", 10, 500, 500, "2026-09-01", "2026-09-30"],
-      ["Second", "SAME1", 15, 500, 500, "2026-09-01", "2026-09-30"],
+      ["First", "SAME1", 10, 500, 500, TODAY, IN_30_DAYS],
+      ["Second", "SAME1", 15, 500, 500, TODAY, IN_30_DAYS],
     ]);
 
     const preview = await validateVoucherUpload(
@@ -410,17 +411,88 @@ describe("voucher Excel upload (TEST 21, 22, 23)", () => {
     expect(preview.rows[1].status).toBe("DUPLICATE_IN_FILE");
   });
 
+  it("the template's example row uploads as it is: its dates run from today (TC-FLD-114)", async () => {
+    const admin = await createUserWithWallet({ role: "ADMIN" });
+    const preview = await validateVoucherUpload({ fileName: "template.xlsx", buffer: await buildVoucherTemplate() }, ADMIN(admin.user.id));
+    expect(preview.rows.map((r) => [r.code, r.status, r.startDate])).toEqual([["DIWALI10", "VALID", TODAY]]);
+  });
+
   it("flags a code that already exists as a voucher", async () => {
     const admin = await createUserWithWallet({ role: "ADMIN" });
     await createVoucherFixture({ code: "EXISTING1" });
 
     const buffer = await buildVoucherWorkbook([
-      ["Existing", "EXISTING1", 10, 500, 500, "2026-09-01", "2026-09-30"],
+      ["Existing", "EXISTING1", 10, 500, 500, TODAY, IN_30_DAYS],
     ]);
     const preview = await validateVoucherUpload(
       { fileName: "vouchers.xlsx", buffer },
       ADMIN(admin.user.id),
     );
     expect(preview.rows[0].status).toBe("DUPLICATE_EXISTING");
+  });
+});
+
+/**
+ * TC-FLD-114 / D-101 in the window where UTC and India disagree on the date:
+ * from 00:00 to 05:30 IST the UTC date is still yesterday, so a check made
+ * against the UTC date lets yesterday's end date through. Only Date is faked
+ * (the database driver keeps real timers).
+ */
+describe("TC-FLD-114: between 00:00 and 05:30 IST, yesterday is already past", () => {
+  const AT_0030_IST = new Date("2030-01-14T19:00:00Z"); // 15 Jan 2030, 00:30 IST; still 14 Jan in UTC
+  const YESTERDAY = "2030-01-14";
+  const TODAY_IST = "2030-01-15";
+
+  beforeEach(async () => {
+    await resetDatabase();
+    vi.useFakeTimers({ toFake: ["Date"], now: AT_0030_IST });
+  });
+  afterEach(() => vi.useRealTimers());
+
+  it("refuses a new voucher ending yesterday and accepts one ending today", async () => {
+    const admin = await createUserWithWallet({ role: "ADMIN" });
+    await expect(
+      createVoucher({ name: "Late night", code: "LATE1", bonusPercent: 10, startDate: "2030-01-01", endDate: YESTERDAY }, ADMIN(admin.user.id)),
+    ).rejects.toMatchObject({ code: "VALIDATION_FAILED", details: { fields: { endDate: expect.stringMatching(/already passed/) } } });
+    const ok = await createVoucher(
+      { name: "Late night", code: "LATE2", bonusPercent: 10, startDate: "2030-01-01", endDate: TODAY_IST },
+      ADMIN(admin.user.id),
+    );
+    expect(ok.endDate).toBe(TODAY_IST);
+    expect(resolveEffectiveStatus({ ...ok, endDate: YESTERDAY })).toBe("EXPIRED");
+  });
+
+  it("refuses moving an existing voucher's end date to yesterday", async () => {
+    const admin = await createUserWithWallet({ role: "ADMIN" });
+    const voucher = await createVoucherFixture({ code: "MOVE1", startDate: "2030-01-01", endDate: "2030-02-28" });
+    await expect(updateVoucher(voucher.id, { endDate: YESTERDAY }, ADMIN(admin.user.id))).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+    });
+  });
+
+  it("an Excel row ending yesterday is invalid and is not created; one ending today is", async () => {
+    const admin = await createUserWithWallet({ role: "ADMIN" });
+    const buffer = await buildVoucherWorkbook([
+      ["Ended", "XLENDED", 10, 500, 500, "2030-01-01", YESTERDAY],
+      ["Ends today", "XLTODAY", 10, 500, 500, "2030-01-01", TODAY_IST],
+    ]);
+    const preview = await validateVoucherUpload({ fileName: "vouchers.xlsx", buffer }, ADMIN(admin.user.id));
+    expect(preview.rows.map((r) => r.status)).toEqual(["INVALID", "VALID"]);
+    expect(preview.rows[0].errorMessage).toMatch(/already passed/);
+
+    await applyVoucherUpload(preview.uploadId, ADMIN(admin.user.id));
+    expect((await db.select().from(vouchers)).map((v) => v.code)).toEqual(["XLTODAY"]);
+  });
+
+  it("a row checked yesterday whose end date passed before the upload is applied is not created", async () => {
+    const admin = await createUserWithWallet({ role: "ADMIN" });
+    vi.setSystemTime(new Date("2030-01-13T19:00:00Z")); // 14 Jan, 00:30 IST: ending 14 Jan is still fine
+    const buffer = await buildVoucherWorkbook([["Ends 14 Jan", "XLSTALE", 10, 500, 500, "2030-01-01", YESTERDAY]]);
+    const preview = await validateVoucherUpload({ fileName: "vouchers.xlsx", buffer }, ADMIN(admin.user.id));
+    expect(preview.rows[0].status).toBe("VALID");
+
+    vi.setSystemTime(AT_0030_IST); // applied the next day after midnight IST
+    expect(await applyVoucherUpload(preview.uploadId, ADMIN(admin.user.id))).toEqual({ created: 0 });
+    expect(await db.select().from(vouchers)).toHaveLength(0);
   });
 });

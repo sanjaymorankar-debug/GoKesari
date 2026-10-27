@@ -65,6 +65,8 @@ qa("SC-20", "multi-role user: a shop owner approved as a rider delivers another 
     const applied = await call(me.ctx, "POST", "/api/delivery-partner", { fullName: "QA Owner Rider", mobile: me.mobile, vehicleType: "SCOOTER", latitude: HOME().lat, longitude: HOME().lng, operatingRadiusKm: 10 });
     expectStatus(applied, 201, "apply as a rider");
     partner = applied.body.id as string;
+    // D-57: approval needs an identity document on file.
+    expectStatus(await call(me.ctx, "POST", "/api/delivery-partner/me/documents", undefined, { multipart: { docType: "DRIVING_LICENCE", file: { name: "licence.png", mimeType: "image/png", buffer: testPng(400, 260) } } }), 201, "upload an identity document");
     await api("ops", "PATCH", `/api/delivery-partner/${partner}`, { action: "start_review" });
     expectStatus(await api("ops", "PATCH", `/api/delivery-partner/${partner}`, { action: "approve", notes: "QA: documents seen" }), 200, "operations approve");
     const roles = await call(me.ctx, "GET", "/api/me/roles");

@@ -23,6 +23,7 @@
 import { and, eq, inArray, isNull, or, sql } from "drizzle-orm";
 
 import { AppError } from "@/lib/errors";
+import { milliToStockUnits, roundStock } from "@/lib/stock-quantity";
 import { db } from "@/server/db";
 import {
   integrationItemLinks,
@@ -110,7 +111,10 @@ export async function autoMatch(shopId: string, item: CanonicalItem): Promise<Ma
       id: products.id,
       name: products.name,
       score: sql<number>`similarity(lower(${products.name}), ${name})`,
-      listed: sql<boolean>`exists (select 1 from ${shopProducts} sp where sp.product_id = ${products.id} and sp.shop_id = ${shopId} and sp.deleted_at is null)`,
+      // GAP-016: the outer product is named in full. In a select list without a join Drizzle writes
+      // ${products.id} as a bare "id", which inside this subquery is the listing's own id, so no product
+      // was ever "listed" (see referrals.ts listReferralCodes).
+      listed: sql<boolean>`exists (select 1 from ${shopProducts} sp where sp.product_id = products.id and sp.shop_id = ${shopId} and sp.deleted_at is null)`,
     })
     .from(products)
     .where(and(isNull(products.deletedAt), sql`similarity(lower(${products.name}), ${name}) > 0.45`))
@@ -139,6 +143,7 @@ async function reservedUnits(integrationId: string, listing: ShopProduct): Promi
     .select({
       milli: sql<number>`coalesce(sum(${orderItems.quantityMilli}), 0)::bigint`,
       size: products.unitSizeMilli,
+      kind: products.kind,
     })
     .from(orderItems)
     .innerJoin(orders, eq(orders.id, orderItems.orderId))
@@ -157,9 +162,9 @@ async function reservedUnits(integrationId: string, listing: ShopProduct): Promi
         ),
       ),
     )
-    .groupBy(products.unitSizeMilli);
+    .groupBy(products.unitSizeMilli, products.kind);
   if (!row) return 0;
-  return Math.round(Number(row.milli) / Math.max(1, row.size));
+  return milliToStockUnits(Number(row.milli), row.size, row.kind);
 }
 
 const rupees = (p: number) => `₹${(p / 100).toFixed(2)}`;
@@ -182,7 +187,12 @@ async function applyToListing(
     });
   }
   const price = options.price && item.pricePaise && item.pricePaise > 0 ? item.pricePaise : null;
-  const stock = options.stock && item.stock != null ? Math.max(0, Math.floor(item.stock)) : null;
+  // Whole units of a packaged product; a loose one keeps the software's decimals (2.5 kg, D-95).
+  const productId = listing?.productId ?? link.productId;
+  const [kindRow] = productId ? await db.select({ kind: products.kind }).from(products).where(eq(products.id, productId)) : [];
+  const loose = kindRow?.kind === "LOOSE";
+  const stock =
+    options.stock && item.stock != null ? (loose ? roundStock(Math.max(0, item.stock)) : Math.max(0, Math.floor(item.stock))) : null;
 
   if (!listing && link.productId) {
     try {
@@ -211,7 +221,7 @@ async function applyToListing(
 
   const patch: Parameters<typeof updateShopProduct>[1] = {};
   if (stock != null && listing.trackInventory) {
-    const online = Math.max(0, stock - (await reservedUnits(integrationId, listing)));
+    const online = roundStock(Math.max(0, stock - (await reservedUnits(integrationId, listing))));
     if (online !== listing.onlineStock) patch.onlineStock = online;
     if (options.stockTo === "BOTH" && stock !== listing.offlineStock) patch.offlineStock = stock;
   }

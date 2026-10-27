@@ -2,17 +2,18 @@
  * Stock ledger service (docs/inventory-accounting-2026-10, Part 1).
  *
  * Current stock of a listing = the sum of its inv_stock_ledger rows. The
- * listing's own counts (shop_products.online_stock / offline_stock, whole
- * units, which checkout reads) are kept equal to the ledger:
+ * listing's own counts (shop_products.online_stock / offline_stock, which
+ * checkout reads) are kept equal to the ledger:
  *
- *   online_stock  = floor(ONLINE ledger total / 1000)
- *   offline_stock = floor(OFFLINE ledger total / 1000)
+ *   loose goods:    online_stock = ONLINE ledger total / 1000 (three decimals, D-95)
+ *   packaged goods: online_stock = floor(ONLINE ledger total / 1000)
+ *   (offline_stock the same from the OFFLINE total)
  *
  * Changes made by the existing code (orders, cancellations, the catalogue
  * screen) arrive through the database triggers of migration 0076. Changes
  * made here (purchases, corrections, write-offs, adjustments) write their
  * own ledger rows — with cost, batch and source document — then move the
- * listing's count by the whole units gained or lost, and also write the
+ * listing's count by the units gained or lost, and also write the
  * existing inventory_movements history, with the triggers switched off for
  * the transaction so nothing is counted twice.
  */
@@ -21,6 +22,7 @@ import { and, asc, eq, inArray, isNull, lte, sql } from "drizzle-orm";
 import { notFound, validationFailed } from "@/lib/errors";
 import type { StockMovementType, StockSourceType, ValuationMethod } from "@/lib/accounts/constants";
 import { sellableUnitLabel } from "@/lib/accounts/units";
+import { roundStock, type ProductKind } from "@/lib/stock-quantity";
 import { batchBalances, valueStock, type ValuationEntry } from "@/lib/accounts/valuation";
 import { db, type DbClient } from "@/server/db";
 import {
@@ -56,7 +58,8 @@ export interface StockPosting {
   createdBy: string | null;
 }
 
-const floorUnits = (milli: number) => Math.floor(milli / 1000);
+/** A ledger total → the listing's count: exactly for a loose good, whole units for a packaged one. */
+const listingUnits = (milli: number, kind: ProductKind) => (kind === "LOOSE" ? roundStock(milli / 1000) : Math.floor(milli / 1000));
 
 async function channelTotal(shopProductId: string, channel: "ONLINE" | "OFFLINE", client: DbClient): Promise<number> {
   const [row] = await client
@@ -86,7 +89,12 @@ export async function postStock(entries: StockPosting[], client: DbClient): Prom
       .where(eq(shopProducts.id, e.shopProductId))
       .for("update");
     if (!listing || listing.shopId !== e.shopId) throw notFound("Product");
-    // The count comes from the ledger (seller rows); a posting that leaves the whole units as they were does not update the listing.
+    const [product] = await client
+      .select({ kind: products.kind })
+      .from(shopProducts)
+      .innerJoin(products, eq(shopProducts.productId, products.id))
+      .where(eq(shopProducts.id, e.shopProductId));
+    // The count comes from the ledger (seller rows); a posting that leaves the count as it was does not update the listing.
     await touchSellerRow(client, shopProducts, listing.id);
     const before = await channelTotal(e.shopProductId, e.channel, client);
     const [row] = await client
@@ -130,7 +138,7 @@ export async function postStock(entries: StockPosting[], client: DbClient): Prom
     }
     const current = e.channel === "ONLINE" ? listing.onlineStock : listing.offlineStock;
     // Keep the count equal to the ledger even if it had drifted before.
-    const target = floorUnits(after);
+    const target = listingUnits(after, product?.kind ?? "PACKAGED");
     if (target !== current) {
       await client
         .update(shopProducts)
@@ -139,7 +147,7 @@ export async function postStock(entries: StockPosting[], client: DbClient): Prom
       await client.insert(inventoryMovements).values({
         shopProductId: e.shopProductId,
         channel: e.channel,
-        deltaUnits: target - current,
+        deltaUnits: roundStock(target - current),
         previousUnits: current,
         newUnits: target,
         reason: `${e.movementType.toLowerCase().replace(/_/g, " ")}${e.docRef ? ` ${e.docRef}` : ""} (books)`.slice(0, 200),
@@ -276,10 +284,10 @@ export async function stockSummary(shopId: string, options: { asOf?: string; met
     const fallback = setting?.lastPurchaseRatePaise ?? 0;
     const v = valueStock(asEntries(entries), method, fallback);
     const t = resolveThresholds(sp, p, shop);
-    const units = floorUnits(v.qtyMilli);
+    const units = listingUnits(v.qtyMilli, p.kind);
     const online = entries.filter((e) => e.channel === "ONLINE").reduce((n, e) => n + e.qtyMilli, 0);
     const offline = entries.filter((e) => e.channel === "OFFLINE").reduce((n, e) => n + e.qtyMilli, 0);
-    const drift = !options.asOf && (floorUnits(online) !== sp.onlineStock || floorUnits(offline) !== sp.offlineStock);
+    const drift = !options.asOf && (listingUnits(online, p.kind) !== sp.onlineStock || listingUnits(offline, p.kind) !== sp.offlineStock);
     let nearestExpiry: string | null = null;
     if (setting?.trackBatches) {
       const inbound = entries.filter((e) => e.batchId && e.qtyMilli > 0).map((e) => ({ batchId: e.batchId!, qtyMilli: e.qtyMilli, expiryDate: batches.find((b) => b.id === e.batchId)?.expiryDate ?? null }));
@@ -390,14 +398,18 @@ export async function listingLedger(shopId: string, shopProductId: string, limit
 export async function ledgerDrift(shopId: string): Promise<{ shopProductId: string; channel: string; ledgerUnits: number; stockUnits: number }[]> {
   const rows = await db.execute<{ shop_product_id: string; channel: string; ledger_units: number; stock_units: number }>(sql`
     SELECT sp.id AS shop_product_id, c.channel,
-           floor(coalesce(sum(l.qty_milli), 0) / 1000.0)::int AS ledger_units,
+           CASE WHEN p.kind = 'LOOSE' THEN coalesce(sum(l.qty_milli), 0) / 1000.0
+                ELSE floor(coalesce(sum(l.qty_milli), 0) / 1000.0) END AS ledger_units,
            CASE WHEN c.channel = 'ONLINE' THEN sp.online_stock ELSE sp.offline_stock END AS stock_units
       FROM shop_products sp
+      JOIN products p ON p.id = sp.product_id
       CROSS JOIN (VALUES ('ONLINE'), ('OFFLINE')) AS c(channel)
       LEFT JOIN inv_stock_ledger l ON l.shop_product_id = sp.id AND l.channel = c.channel
      WHERE sp.shop_id = ${shopId}
-     GROUP BY sp.id, c.channel, sp.online_stock, sp.offline_stock
-    HAVING floor(coalesce(sum(l.qty_milli), 0) / 1000.0)::int <> CASE WHEN c.channel = 'ONLINE' THEN sp.online_stock ELSE sp.offline_stock END
+     GROUP BY sp.id, p.kind, c.channel, sp.online_stock, sp.offline_stock
+    HAVING CASE WHEN p.kind = 'LOOSE' THEN coalesce(sum(l.qty_milli), 0) / 1000.0
+                ELSE floor(coalesce(sum(l.qty_milli), 0) / 1000.0) END
+           <> CASE WHEN c.channel = 'ONLINE' THEN sp.online_stock ELSE sp.offline_stock END
   `);
   return [...rows].map((r) => ({ shopProductId: r.shop_product_id, channel: r.channel, ledgerUnits: Number(r.ledger_units), stockUnits: Number(r.stock_units) }));
 }

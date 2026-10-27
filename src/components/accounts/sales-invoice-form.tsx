@@ -8,6 +8,7 @@ import { invoiceTotals, isInterState, lineTax, grossPaise, STANDARD_GST_RATES_BP
 import { GST_STATES, isValidGstin } from "@/lib/gst-states";
 import { accountsApi, qty, rupees } from "./api";
 import { FormError, parseRupees } from "./payment-forms";
+import { formatStock } from "@/lib/stock-quantity";
 
 /** The fields of GET stock/listings this form uses. */
 interface Listing {
@@ -290,7 +291,7 @@ export function SalesInvoiceForm({ shopId, shopQuery = "", sellerState, today }:
                               {s.name} <span className="font-normal text-ink-600">· {s.sellableUnit}</span>
                             </span>
                             <span className="shrink-0 text-xs text-ink-600">
-                              {s.offlineStock + s.onlineStock} in stock{s.gstRateBp != null ? ` · GST ${pct(s.gstRateBp)}` : ""}
+                              {formatStock(s.offlineStock + s.onlineStock)} in stock{s.gstRateBp != null ? ` · GST ${pct(s.gstRateBp)}` : ""}
                             </span>
                           </button>
                         </li>

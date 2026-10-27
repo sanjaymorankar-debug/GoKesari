@@ -14,7 +14,8 @@ import {
 import { Alert, Card, EmptyState, Money, PageHeader, Section, StatusBadge } from "@/components/ui";
 import { addDays, isIsoDate, todayIn } from "@/lib/dates";
 import { getEnv } from "@/lib/env";
-import { SHOP_TYPES, shopTypeLabel } from "@/lib/shop-types";
+import { shopTypeLabel } from "@/lib/shop-types";
+import { listShopTypes } from "@/server/services/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getRule } from "@/server/services/settings";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
@@ -181,7 +182,7 @@ export default async function FinancePage({
           )}
           {canManage ? (
             <CommissionRateForm
-              shopTypes={SHOP_TYPES.map((t) => ({ key: t.key, label: t.label }))}
+              shopTypes={(await listShopTypes()).map((t) => ({ key: t.key, label: t.label }))}
               shops={shopList.map((s) => ({ id: s.id, name: s.name }))}
             />
           ) : null}
@@ -403,7 +404,7 @@ export default async function FinancePage({
                         {p.refundedPaise > 0 ? <> (refunded <Money paise={p.refundedPaise} />)</> : null} · ref{" "}
                         {p.gatewayPaymentId ?? p.gatewayOrderId ?? p.merchantOrderId}
                         <span className="block">
-                          {p.events.map((e) => `${e.toStatus} (${e.source}, ${e.at.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })})`).join(" → ")}
+                          {p.events.map((e) => `${e.toStatus} (${e.source}, ${e.at.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })})`).join(" → ")}
                         </span>
                         {p.refunds.map((r) => (
                           <span key={r.id} className="block">

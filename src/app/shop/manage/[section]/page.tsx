@@ -12,6 +12,7 @@ import { ShopGstPanForm } from "@/components/shop-gst-pan-form";
 import { ShopLocationSettingsForm } from "@/components/shop-location-settings-form";
 import { ShopProductManager } from "@/components/shop-product-manager";
 import { ShopSettingsForm } from "@/components/shop-settings-form";
+import { ShopStatusPanel, type ShopOpenState } from "@/components/shop-status-panel";
 import { ShopWalletBanner } from "@/components/shop-wallet-banner";
 import { DeliveryStatusBadge, SubscriptionDeliveryList } from "@/components/subscription-delivery-list";
 import { UnsavedChangesProvider } from "@/components/unsaved-changes-guard";
@@ -47,6 +48,7 @@ import { getReferralCodeById } from "@/server/services/referrals";
 import { getRule } from "@/server/services/settings";
 import { missedAcceptances30d } from "@/server/services/shop-acceptance";
 import { getShopCategories } from "@/server/services/shop-categories";
+import { membershipStatus } from "@/server/services/shop-membership";
 import { getShopOnboarding } from "@/server/services/shop-onboarding";
 import { listPaymentsForShop } from "@/server/services/shop-payments";
 import { getActiveSuspension } from "@/server/services/shop-suspension";
@@ -67,7 +69,7 @@ const SECTIONS = {
   today: "Today's work",
   products: "Products — on/off and stock",
   location: "Delivery area and location",
-  hours: "Opening hours and contact",
+  hours: "Open or close the shop, hours and contact",
   "gst-pan": "GST and PAN",
   "shop-types": "Shop types I sell",
   registration: "Registration and fee",
@@ -167,7 +169,7 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
               <Alert tone="danger" title="Your shop is suspended">
                 <span className="block">
                   {suspension
-                    ? `Since ${suspension.effectiveAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" })}. Reason: ${suspension.reason}`
+                    ? `Since ${suspension.effectiveAt.toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" })}. Reason: ${suspension.reason}`
                     : "Please contact support for details."}
                 </span>
                 {suspension ? <span className="mt-1 block">What to do: {suspension.expectedAction}</span> : null}
@@ -323,6 +325,7 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
                 onlineSaleEnabled: p.onlineSaleEnabled,
                 offlineSaleEnabled: p.offlineSaleEnabled,
                 onlineStock: p.onlineStock,
+                kind: p.product.kind,
                 trackInventory: p.trackInventory,
                 isActive: p.isActive,
                 isAvailable: p.isAvailable,
@@ -366,10 +369,37 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
         </>
       );
 
-    case "hours":
+    case "hours": {
+      // D-69: open / close for now, membership, close permanently.
+      const membership = membershipStatus(shop, await getRule("shopMembership"));
+      const day = (d: Date | null) =>
+        d ? d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: getEnv().APP_TIMEZONE }) : null;
+      const state: ShopOpenState =
+        shop.status === "INACTIVE"
+          ? "CLOSED"
+          : shop.status === "SUSPENDED"
+            ? "SUSPENDED"
+            : shop.status === "APPROVED"
+              ? shop.ordersPaused
+                ? "PAUSED"
+                : membership.state === "LAPSED"
+                  ? "LAPSED"
+                  : "OPEN"
+              : "PENDING";
       return (
         <>
           {header}
+          <div className="mb-8">
+            <ShopStatusPanel
+              view={{
+                shopId: shop.id,
+                shopName: shop.name,
+                state,
+                closedOn: day(shop.closedAt),
+                membership: { state: membership.state, validUntil: day(membership.validUntil), offlineFrom: day(membership.offlineFrom) },
+              }}
+            />
+          </div>
           <div className="mb-8">
             <ShopSettingsForm shopId={shop.id} initialHours={shop.openingHours} />
           </div>
@@ -378,6 +408,7 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
           </div>
         </>
       );
+    }
 
     case "gst-pan":
       return (

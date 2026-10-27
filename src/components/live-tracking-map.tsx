@@ -129,7 +129,7 @@ export function LiveTrackingMap({ orderId }: { orderId: string }) {
 
   const { riderLocation, etaMinutes, distanceToDestinationKm, etaSource, estimatedArrivalAt } = tracking;
   const arrival = estimatedArrivalAt
-    ? new Date(estimatedArrivalAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit" })
+    ? new Date(estimatedArrivalAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })
     : null;
 
   return (
@@ -169,7 +169,7 @@ export function LiveTrackingMap({ orderId }: { orderId: string }) {
           ) : null}
           <RiderMap latitude={riderLocation.latitude} longitude={riderLocation.longitude} />
           <p className="text-xs text-ink-500">
-            Rider location updated at {new Date(riderLocation.recordedAt).toLocaleTimeString()}
+            Rider location updated at {new Date(riderLocation.recordedAt).toLocaleTimeString("en-IN", { hour: "numeric", minute: "2-digit", timeZone: "Asia/Kolkata" })}
           </p>
         </div>
       )}

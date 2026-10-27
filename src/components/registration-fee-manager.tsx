@@ -93,7 +93,7 @@ export function RegistrationFeeManager({
         {active ? (
           <p className="mt-1 text-xs text-ink-500">
             In force since{" "}
-            {new Date(active.effectiveFrom).toLocaleDateString("en-IN")}
+            {new Date(active.effectiveFrom).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}
           </p>
         ) : null}
 
@@ -161,7 +161,7 @@ export function RegistrationFeeManager({
                 {history.map((h) => (
                   <tr key={h.id}>
                     <td className="px-4 py-2">
-                      {new Date(h.createdAt).toLocaleDateString("en-IN")}
+                      {new Date(h.createdAt).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}
                     </td>
                     <td className="px-4 py-2">
                       {h.previousAmountPaise != null ? (
@@ -174,7 +174,7 @@ export function RegistrationFeeManager({
                       <Money paise={h.newAmountPaise} />
                     </td>
                     <td className="px-4 py-2">
-                      {new Date(h.effectiveFrom).toLocaleDateString("en-IN")}
+                      {new Date(h.effectiveFrom).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}
                     </td>
                     <td className="px-4 py-2 text-ink-500">{h.reason ?? "—"}</td>
                   </tr>

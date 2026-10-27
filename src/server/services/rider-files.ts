@@ -38,6 +38,8 @@ interface Actor {
 
 export const RIDER_DOC_TYPES = ["AADHAAR", "PAN", "DRIVING_LICENCE", "VEHICLE_RC", "OTHER"] as const;
 export type RiderDocType = (typeof RIDER_DOC_TYPES)[number];
+/** D-57: the documents that prove who the rider is; one of them, not rejected, is needed before approval. */
+export const RIDER_IDENTITY_DOC_TYPES = ["AADHAAR", "PAN", "DRIVING_LICENCE", "OTHER"] as const satisfies readonly RiderDocType[];
 export const RIDER_DOC_LABELS: Record<RiderDocType, string> = {
   AADHAAR: "Aadhaar card",
   PAN: "PAN card",

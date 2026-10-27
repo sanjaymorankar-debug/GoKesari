@@ -14,10 +14,12 @@
 import { and, count, eq, isNull, sql } from "drizzle-orm";
 
 import { forbidden, notFound, validationFailed } from "@/lib/errors";
+import { formatStock, milliToStockUnits, roundStock } from "@/lib/stock-quantity";
 import { db, type DbClient } from "@/server/db";
 import {
   orderItems,
   orders,
+  productCategories,
   products,
   shopProducts,
   shops,
@@ -174,7 +176,7 @@ export async function evaluateStockAlerts(
               : alertType === "REORDER"
                 ? `Time to reorder: ${product.name}`
                 : `Low stock: ${product.name}`,
-          body: `${product.name} is down to ${sp.onlineStock} unit(s).${suggestion}`,
+          body: `${product.name} is down to ${formatStock(sp.onlineStock)} unit(s).${suggestion}`,
           actionUrl: "/shop/inventory",
           dedupeKey: `stock-alert:${created.id}`,
         },
@@ -416,6 +418,8 @@ export interface InventoryRow {
   productId: string;
   productCode: string;
   productName: string;
+  /** For the inventory page's category filter (D-96). */
+  categoryName: string | null;
   unit: string;
   onlinePricePaise: number | null;
   offlinePricePaise: number | null;
@@ -438,10 +442,11 @@ export interface InventoryRow {
 /** Every live listing with stock, reservations, effective thresholds and any open alert. */
 export async function listInventory(shopId: string): Promise<InventoryRow[]> {
   const rows = await db
-    .select({ sp: shopProducts, shop: shops, product: products })
+    .select({ sp: shopProducts, shop: shops, product: products, categoryName: productCategories.name })
     .from(shopProducts)
     .innerJoin(shops, eq(shopProducts.shopId, shops.id))
     .innerJoin(products, eq(shopProducts.productId, products.id))
+    .leftJoin(productCategories, eq(products.categoryId, productCategories.id))
     .where(and(eq(shopProducts.shopId, shopId), isNull(shopProducts.deletedAt)));
   if (rows.length === 0) return [];
 
@@ -467,20 +472,21 @@ export async function listInventory(shopId: string): Promise<InventoryRow[]> {
     .from(stockAlerts)
     .where(and(eq(stockAlerts.shopId, shopId), eq(stockAlerts.status, "OPEN")));
 
-  return rows.map(({ sp, shop, product }) => {
+  return rows.map(({ sp, shop, product, categoryName }) => {
     const thresholds = resolveThresholds(sp, product, shop);
-    const reserved = Math.round((reservedMilli.get(sp.id) ?? 0) / Math.max(1, product.unitSizeMilli));
+    const reserved = milliToStockUnits(reservedMilli.get(sp.id) ?? 0, product.unitSizeMilli, product.kind);
     return {
       shopProductId: sp.id,
       productId: product.id,
       productCode: product.code,
       productName: product.name,
+      categoryName,
       unit: product.unit,
       onlinePricePaise: sp.onlinePricePaise,
       offlinePricePaise: sp.offlinePricePaise,
       available: sp.onlineStock,
       reserved,
-      onHand: sp.onlineStock + reserved,
+      onHand: roundStock(sp.onlineStock + reserved),
       offlineStock: sp.offlineStock,
       trackInventory: sp.trackInventory,
       status: sp.trackInventory ? stockStatus(sp.onlineStock, thresholds.lowStock) : ("IN_STOCK" as StockStatus),

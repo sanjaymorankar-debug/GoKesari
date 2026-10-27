@@ -12,6 +12,7 @@ import { clearRuleCache } from "@/server/services/settings";
 import {
   addresses,
   deliveryOrders,
+  deliveryPartnerDocuments,
   deliveryPartners,
   orders,
   payments,
@@ -20,6 +21,7 @@ import {
   shopProductCategories,
   shopProducts,
   shops,
+  storedImages,
   users,
   vouchers,
   wallets,
@@ -259,7 +261,7 @@ export async function createCategory(
 
 export async function createProduct(
   categoryId: string,
-  overrides: { name?: string; unit?: string; subscribable?: boolean } = {},
+  overrides: { name?: string; unit?: string; subscribable?: boolean; kind?: "PACKAGED" | "LOOSE"; unitSizeMilli?: number } = {},
 ) {
   const name = overrides.name ?? "Cow Milk";
   const [product] = await db
@@ -269,8 +271,9 @@ export async function createProduct(
       name,
       slug: `${name.toLowerCase().replace(/\s+/g, "-")}-${uniq()}`,
       unit: overrides.unit ?? "L",
-      unitSizeMilli: 1000,
+      unitSizeMilli: overrides.unitSizeMilli ?? 1000,
       subscribable: overrides.subscribable ?? true,
+      ...(overrides.kind ? { kind: overrides.kind } : {}),
     })
     .returning();
   return product;
@@ -394,6 +397,33 @@ export async function createDeliveryPartner(
     })
     .returning();
   return partner;
+}
+
+/**
+ * D-57: puts an identity document (SUBMITTED, as a rider's upload leaves it) on file
+ * for a rider, so the application can be approved.
+ */
+export async function addRiderIdentityDocument(
+  deliveryPartnerId: string,
+  docType: "AADHAAR" | "PAN" | "DRIVING_LICENCE" | "OTHER" = "DRIVING_LICENCE",
+) {
+  const [image] = await db
+    .insert(storedImages)
+    .values({
+      purpose: "RIDER_KYC_DOC",
+      contentType: "image/webp",
+      sizeBytes: 4,
+      width: 1,
+      height: 1,
+      sha256: `test-${deliveryPartnerId}-${docType}`,
+      data: Buffer.from("test"),
+    })
+    .returning({ id: storedImages.id });
+  const [doc] = await db
+    .insert(deliveryPartnerDocuments)
+    .values({ deliveryPartnerId, docType, storedImageId: image.id })
+    .returning();
+  return doc;
 }
 
 /**

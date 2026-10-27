@@ -7,7 +7,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
-import { SHOP_TYPE_KEYS } from "@/lib/shop-types";
+import { SHOP_TYPE_KEY_PATTERN } from "@/lib/shop-types";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
@@ -31,7 +31,7 @@ export const GET = route(async (request: NextRequest) => {
 const schema = z.object({
   name: z.string().min(2).max(80),
   description: z.string().max(300).nullish(),
-  department: z.enum(SHOP_TYPE_KEYS).nullish(),
+  department: z.string().regex(SHOP_TYPE_KEY_PATTERN).nullish(),
 });
 
 export const POST = route(async (request: NextRequest) => {

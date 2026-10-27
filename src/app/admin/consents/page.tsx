@@ -97,7 +97,7 @@ function SummaryCard({ summary, policyVersion }: { summary: ConsentTypeSummary; 
 }
 
 function when(value: Date): string {
-  return new Date(value).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short" });
+  return new Date(value).toLocaleString("en-IN", { dateStyle: "medium", timeStyle: "short", timeZone: "Asia/Kolkata" });
 }
 
 /**

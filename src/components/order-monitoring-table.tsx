@@ -119,9 +119,11 @@ export function OrderMonitoringTable({
                   <tr className="border-b hover:bg-gray-50">
                     <td className="px-4 py-3 font-medium">#{order.orderNumber}</td>
                     <td className="px-4 py-3 text-gray-600">
+                      {/* GAP-017: India time on the server too, or the server's UTC text mismatches the browser's (React #418). */}
                       {new Date(order.createdAt).toLocaleString("en-IN", {
                         dateStyle: "short",
                         timeStyle: "short",
+                        timeZone: "Asia/Kolkata",
                       })}
                     </td>
                     <td className="px-4 py-3 text-gray-700">{order.shopName}</td>

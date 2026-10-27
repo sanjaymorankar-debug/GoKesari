@@ -36,6 +36,7 @@ import { createHash } from "node:crypto";
 import { and, asc, desc, eq, inArray, isNull, lt, or, sql } from "drizzle-orm";
 
 import { AppError, conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
+import { roundStock } from "@/lib/stock-quantity";
 import {
   EMPTY_COUNTS,
   plannedStock,
@@ -90,7 +91,7 @@ export interface ImportActor {
 /** An import with no progress for this long (the server restarted) may be resumed. */
 const STALLED_AFTER_MS = 5 * 60_000;
 const ROW_INSERT_CHUNK = 500;
-/** Largest stock a row may set (shop_products.online_stock is a 32-bit integer). */
+/** Largest stock a row may set (shop_products.online_stock is numeric(14, 3)). */
 const MAX_STOCK = 1_000_000_000;
 
 /* ================================================================ access */
@@ -307,6 +308,9 @@ function planRow(f: ImportFields, mergedFields: ImportFields[], ctx: PlanContext
     fileQtySum: q.sum,
   };
   const base = { action, productId: res.product?.virtual ? null : (res.product?.id ?? listing?.productId ?? null), listingId: listing && !listing.virtual ? listing.id : null };
+  if (q.last != null && !Number.isInteger(q.last)) {
+    messages.push(`Quantity ${q.last} has decimals: it applies to a loose product (kg, litre); a packaged product's stock is left unchanged.`);
+  }
 
   if (res.matchType === "NAME") messages.push(`Matched by name and brand to catalogue product ${res.product?.code || ""} "${res.product?.name ?? ""}".`.replace("  ", " "));
   if (res.matchType === "BARCODE" && res.product && !res.product.virtual) messages.push(`Matched by barcode to catalogue product ${res.product.code} "${res.product.name}".`);
@@ -731,15 +735,25 @@ async function nextSku(tx: DbClient, shopId: string): Promise<string> {
   return `GK-${shopId.slice(0, 8).toUpperCase()}-${String(row.n).padStart(5, "0")}`;
 }
 
+/** D-95: a packaged product's stock is whole; a loose one keeps up to three decimals. */
+async function fractionRefused(tx: DbClient, productId: string, quantity: number, messages: string[]): Promise<boolean> {
+  if (Number.isInteger(quantity)) return false;
+  const [product] = await tx.select({ kind: products.kind }).from(products).where(eq(products.id, productId));
+  if (product?.kind === "LOOSE") return false;
+  messages.push(`Quantity ${quantity} is not a whole number for a packaged product; stock left unchanged.`);
+  return true;
+}
+
 /** Sets or adds the stock of one listing, under its row lock, with a ledger row. */
 async function applyStock(tx: DbClient, ctx: CommitContext, listingId: string, quantity: number, mode: InventoryMode, messages: string[]): Promise<void> {
   const [current] = await tx
-    .select({ stock: shopProducts.onlineStock })
+    .select({ stock: shopProducts.onlineStock, productId: shopProducts.productId })
     .from(shopProducts)
     .where(eq(shopProducts.id, listingId))
     .for("update");
   if (!current) return;
-  const target = mode === "ADD" ? current.stock + quantity : quantity;
+  if (await fractionRefused(tx, current.productId, quantity, messages)) return;
+  const target = roundStock(mode === "ADD" ? current.stock + quantity : quantity);
   if (target > MAX_STOCK) {
     messages.push(`Quantity ${quantity} would make the stock larger than allowed; stock left unchanged.`);
     return;
@@ -757,7 +771,7 @@ async function applyStock(tx: DbClient, ctx: CommitContext, listingId: string, q
   await tx.insert(inventoryMovements).values({
     shopProductId: listingId,
     channel: "ONLINE",
-    deltaUnits: updated.stock - current.stock,
+    deltaUnits: roundStock(updated.stock - current.stock),
     previousUnits: current.stock,
     newUnits: updated.stock,
     reason: `Bulk upload (${mode === "ADD" ? "add" : "set"})`,
@@ -1115,14 +1129,15 @@ async function commitRow(tx: DbClient, ctx: CommitContext, row: ProductImportRow
     }
     const price = f.pricePaise != null && (await priceAllowed(tx, product.id, f.pricePaise, f.mrpPaise ?? null, messages)) ? f.pricePaise : null;
     if (quantity != null && quantity > MAX_STOCK) messages.push(`Quantity ${quantity} is larger than allowed; stock left at 0.`);
+    const stock = quantity != null && (await fractionRefused(tx, product.id, quantity, messages)) ? null : quantity;
     listing = await createOrRestoreListing(tx, ctx, product, null, {
       pricePaise: ctx.applyPrices ? price : null,
-      stock: quantity,
+      stock,
       maxOrderQty: f.maxOrderQty ?? null,
     });
     if (price != null && !ctx.applyPrices) proposePrice(ctx, listing.id, price, messages);
     await upsertDetails(tx, ctx, listing, f, parsed.attributes, true, messages, true);
-    if (quantity == null && f.quantityInvalid == null) messages.push("No quantity: the product is not orderable until stock is set.");
+    if (stock == null && quantity == null && f.quantityInvalid == null) messages.push("No quantity: the product is not orderable until stock is set.");
     return { status: "created", messages, productId: listing.productId, listingId: listing.id, matchType };
   }
   if (listing.deleted) {

@@ -62,3 +62,33 @@ without the checkout change. `4c042c9` carries the test change from #241 (99 uni
 at ₹1,020), and the file passes on both layouts (11 of 11).
 
 Local PostgreSQL 16 and CI PostgreSQL 18, Node 22.
+
+## Re-test on test.gokesari.com, 25 Oct 2026
+
+Build `0523754` (#247, which carries #243), deployed 24 Oct 23:51 UTC. The
+staging customer (signed in with the emailed code) put 2 Burger Buns of the
+E2E Four Features Bakery in the cart, started a wallet checkout and added 3 more
+of the same product while it ran. A plain checkout took 43 s on the site, so
+the add was started at 10 % … 110 % of that.
+
+| Add started at | Checkout | Add | Ordered | Left in cart | Result |
+|---|---|---|---|---|---|
+| 10 % (4.3 s) | 201 | 200 | 5 | 0 | Pass |
+| 30 % (13.0 s) | 201 | 200 | 5 | 0 | Pass |
+| 50 % (21.7 s) | 201 | 200 | 2 | 3 | Pass |
+| 70 % (30.4 s) | 201 | 200 | 2 | 3 | Pass |
+| 90 % (39.1 s) | 201 | 200 | 2 | 3 | Pass |
+| 110 % (47.8 s) | 307 from the host | — | 2 | not read | Not decided |
+
+No unit left the cart unordered. The last round's checkout reached the app
+(order `DB-20261025-ULYQD8`, 2 units) but the host's firewall answered the
+client with a 307 (E-01), so its cart was not read; it does not count either
+way.
+
+Clean-up: all 8 orders of the run (one timing checkout, six rounds, and
+`ULYQD8`) were cancelled with a full refund. The wallet ended at ₹2,400 as it
+began, and the cart ended empty as it began.
+
+The same evening the concurrent add itself (D-102, TC-CART-001) was re-tested
+on build `e44252b`: two adds at once gave [200, 200] and the sum, 8 of 8
+rounds (`docs/testing/qa-defects.json`, D-102).

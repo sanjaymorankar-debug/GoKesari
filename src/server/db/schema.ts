@@ -41,7 +41,7 @@ import {
   VALUATION_METHODS,
   VOUCHER_TYPES,
 } from "@/lib/accounts/constants";
-import { SHOP_TYPE_KEYS } from "@/lib/shop-types";
+import type { ShopTypeKey } from "@/lib/shop-types";
 import {
   IMPORT_JOB_STATUSES,
   IMPORT_MATCH_TYPES,
@@ -63,6 +63,7 @@ import {
   index,
   integer,
   jsonb,
+  numeric,
   pgEnum,
   pgTable,
   primaryKey,
@@ -71,6 +72,13 @@ import {
   uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
+
+/**
+ * A stock figure in sellable units with three decimals (D-95): whole for
+ * packaged goods, up to 0.001 for loose ones (src/lib/stock-quantity.ts). Read
+ * as a number; the stock ledger holds the same figure ×1000 as qty_milli.
+ */
+const stockUnits = (name: string) => numeric(name, { precision: 14, scale: 3, mode: "number" });
 
 /* ------------------------------------------------------------------ enums */
 
@@ -110,11 +118,12 @@ export const shopStatusEnum = pgEnum("shop_status", [
 ]);
 
 /**
- * A shop's primary business category — one of the 44 standard shop types
- * (grocery, dairy, bakery, pharmacy, jewellery, ...). Source of truth is
- * `src/lib/shop-types.ts`; add new types there, not here.
+ * Shop types are plain text keys, not a database enum, so staff can add a type
+ * from the admin screen without a migration (migration 0097). The built-in
+ * types live in `src/lib/shop-types.ts`; types staff add are rows of
+ * `shop_types`. A key is valid when it is one of those two.
  */
-export const shopTypeEnum = pgEnum("shop_type", SHOP_TYPE_KEYS);
+export const shopTypeColumn = (name: string) => text(name).$type<ShopTypeKey>();
 
 /** Operator/Admin-controlled quality classification. Shop owners cannot change this. */
 export const classificationEnum = pgEnum("shop_classification", [
@@ -156,11 +165,11 @@ export const identityVerificationSourceEnum = pgEnum("identity_verification_sour
 ]);
 
 /**
- * Which shop type a product category belongs to. Reuses the same value set as
- * shopTypeEnum: a catalogue category is always scoped to one shop type (e.g.
- * "Milk" → DAIRY, "Rice" → GROCERY_KIRANA).
+ * Which shop type a product category belongs to (a shop type key, text like
+ * `shops.shop_type`): a catalogue category is always scoped to one shop type
+ * (e.g. "Milk" → DAIRY, "Rice" → GROCERY_KIRANA).
  */
-export const departmentEnum = pgEnum("department", SHOP_TYPE_KEYS);
+export type Department = ShopTypeKey;
 
 /**
  * Order lifecycle. Mapping to the approved state machine (workbook "State
@@ -772,7 +781,7 @@ export const shops = pgTable(
     pincode: text("pincode").notNull(),
     latitude: text("latitude"),
     longitude: text("longitude"),
-    shopType: shopTypeEnum("shop_type").notNull(),
+    shopType: shopTypeColumn("shop_type").notNull(),
     status: shopStatusEnum("status").notNull().default("PENDING_APPROVAL"),
     // Only OPERATOR/ADMIN may write this column (enforced in the service layer).
     classification: classificationEnum("classification"),
@@ -811,6 +820,15 @@ export const shops = pgTable(
     minOrderPaise: bigint("min_order_paise", { mode: "number" }).notNull().default(0),
     /** Owner switch: the shop keeps its listing but takes no new orders for now. */
     ordersPaused: boolean("orders_paused").notNull().default(false),
+    /**
+     * D-69: end of the paid membership, set from the registration / renewal payments.
+     * Past it (plus rule shopMembership.graceDays) the shop is not online. Null: no end date.
+     */
+    membershipValidUntil: timestamp("membership_valid_until", { withTimezone: true }),
+    /** D-69: the owner closed the shop permanently (status INACTIVE). No foreign key: users are customer-side. */
+    closedAt: timestamp("closed_at", { withTimezone: true }),
+    closedBy: uuid("closed_by"),
+    closureReason: text("closure_reason"),
     /** Rating aggregate (GS-059), maintained from visible order_ratings. Average × 100. */
     ratingAvgX100: integer("rating_avg_x100").notNull().default(0),
     ratingCount: integer("rating_count").notNull().default(0),
@@ -1047,6 +1065,28 @@ export const shopCategories = pgTable(
   ],
 );
 
+/**
+ * Shop types staff added from the admin screen, on top of the built-in ones in
+ * `src/lib/shop-types.ts`. `key` is the value stored in `shops.shop_type`;
+ * never rename it. `created_by` has no foreign key (users are in the customer
+ * database on the split layout).
+ */
+export const shopTypes = pgTable(
+  "shop_types",
+  {
+    key: text("key").primaryKey(),
+    label: text("label").notNull(),
+    standardGoods: text("standard_goods").array().notNull().default(sql`'{}'::text[]`),
+    /** Needs an FSSAI licence, like the built-in food types. */
+    isFood: boolean("is_food").notNull().default(false),
+    status: text("status", { enum: ["ACTIVE", "INACTIVE"] }).notNull().default("ACTIVE"),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("shop_types_label_unique").on(sql`lower(${t.label})`)],
+);
+
 /** Many-to-many: one shop, many categories; one category, many shops. */
 export const shopCategoryMapping = pgTable(
   "shop_category_mapping",
@@ -1277,7 +1317,7 @@ export const productCategories = pgTable(
   "product_categories",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    department: departmentEnum("department").notNull(),
+    department: shopTypeColumn("department").notNull(),
     name: text("name").notNull(),
     slug: text("slug").notNull(),
     description: text("description"),
@@ -1589,8 +1629,9 @@ export const shopProducts = pgTable(
       .notNull()
       .default(false),
     trackInventory: boolean("track_inventory").notNull().default(true),
-    onlineStock: integer("online_stock").notNull().default(0),
-    offlineStock: integer("offline_stock").notNull().default(0),
+    /** Sellable units; three decimals for loose goods (D-95). */
+    onlineStock: stockUnits("online_stock").notNull().default(0),
+    offlineStock: stockUnits("offline_stock").notNull().default(0),
 
     /* ------------------------------------------ per-shop stock thresholds
      * (Product Master / Inventory brief §15–§18). Deliberately per-shop,
@@ -1667,7 +1708,7 @@ export const stockAlerts = pgTable(
       .references(() => shops.id, { onDelete: "cascade" }),
     alertType: stockAlertTypeEnum("alert_type").notNull(),
     status: stockAlertStatusEnum("status").notNull().default("OPEN"),
-    stockAtAlert: integer("stock_at_alert").notNull(),
+    stockAtAlert: stockUnits("stock_at_alert").notNull(),
     thresholdAtAlert: integer("threshold_at_alert").notNull(),
     acknowledgedBy: uuid("acknowledged_by").references(() => users.id),
     acknowledgedAt: timestamp("acknowledged_at", { withTimezone: true }),
@@ -1719,9 +1760,9 @@ export const inventoryMovements = pgTable(
       .references(() => shopProducts.id, { onDelete: "cascade" }),
     channel: text("channel", { enum: ["ONLINE", "OFFLINE"] }).notNull(),
     /** Negative for consumption, positive for restock. */
-    deltaUnits: integer("delta_units").notNull(),
-    previousUnits: integer("previous_units").notNull(),
-    newUnits: integer("new_units").notNull(),
+    deltaUnits: stockUnits("delta_units").notNull(),
+    previousUnits: stockUnits("previous_units").notNull(),
+    newUnits: stockUnits("new_units").notNull(),
     reason: text("reason").notNull(),
     orderId: uuid("order_id"),
     createdBy: uuid("created_by").references(() => users.id),
@@ -1768,8 +1809,8 @@ export const cartItems = pgTable(
     shopProductId: uuid("shop_product_id")
       .notNull()
       .references(() => shopProducts.id, { onDelete: "cascade" }),
-    /** Number of sellable units (not milli-units) — carts sell whole units. */
-    quantity: integer("quantity").notNull(),
+    /** Sellable units (not milli-units): whole for packaged goods, up to three decimals for loose ones (D-95). */
+    quantity: numeric("quantity", { precision: 10, scale: 3, mode: "number" }).notNull(),
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
       .defaultNow(),
@@ -1946,6 +1987,8 @@ export const orderItems = pgTable(
     /** Milli-units, so 2.5 L is exactly 2500. */
     quantityMilli: integer("quantity_milli").notNull(),
     lineTotalPaise: bigint("line_total_paise", { mode: "number" }).notNull(),
+    /** D-91: the product's MRP when it was sold (products.mrp_paise); null when it had none (loose goods). */
+    mrpPaise: bigint("mrp_paise", { mode: "number" }),
     /* ------------------------------------------ fulfilment (Slice 3) —
      * the original snapshot above is never rewritten; a substitute is
      * recorded alongside it so the order keeps its history. */
@@ -1958,6 +2001,8 @@ export const orderItems = pgTable(
     substituteQuantityMilli: integer("substitute_quantity_milli"),
     /** What the customer pays for the substitute — never more than the original line. */
     substituteLineTotalPaise: bigint("substitute_line_total_paise", { mode: "number" }),
+    /** D-91: the substitute's MRP when it was proposed. */
+    substituteMrpPaise: bigint("substitute_mrp_paise", { mode: "number" }),
     fulfilmentNote: text("fulfilment_note"),
     fulfilmentUpdatedAt: timestamp("fulfilment_updated_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true })
@@ -1970,6 +2015,10 @@ export const orderItems = pgTable(
     check(
       "order_items_amounts_non_negative",
       sql`${t.unitPricePaise} >= 0 AND ${t.lineTotalPaise} >= 0`,
+    ),
+    check(
+      "order_items_mrp_non_negative",
+      sql`(${t.mrpPaise} IS NULL OR ${t.mrpPaise} >= 0) AND (${t.substituteMrpPaise} IS NULL OR ${t.substituteMrpPaise} >= 0)`,
     ),
   ],
 );
@@ -4899,7 +4948,7 @@ export const commissionRates = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     scope: commissionScopeEnum("scope").notNull(),
     /** Set for SHOP_TYPE. */
-    shopType: shopTypeEnum("shop_type"),
+    shopType: shopTypeColumn("shop_type"),
     /** Set for SHOP. */
     shopId: uuid("shop_id").references(() => shops.id, { onDelete: "restrict" }),
     /** Basis points: 500 = 5.00%. */
@@ -6073,7 +6122,6 @@ export type ReconciliationRecord = typeof reconciliationRecords.$inferSelect;
 export type OrderItemFulfilment = (typeof orderItemFulfilmentEnum.enumValues)[number];
 export type ShopStatus = (typeof shopStatusEnum.enumValues)[number];
 export type Classification = (typeof classificationEnum.enumValues)[number];
-export type Department = (typeof departmentEnum.enumValues)[number];
 export type PaymentMethod = (typeof paymentMethodEnum.enumValues)[number];
 export type UserRoleGrant = typeof userRoleGrants.$inferSelect;
 export type CustomerSegment = typeof customerSegments.$inferSelect;
@@ -6107,6 +6155,7 @@ export type ExternalPriceReference = typeof externalPriceReferences.$inferSelect
 export type ExternalPriceReferenceHistoryRow = typeof externalPriceReferenceHistory.$inferSelect;
 export type MrpCorrection = typeof mrpCorrections.$inferSelect;
 export type ShopCategory = typeof shopCategories.$inferSelect;
+export type ShopTypeRow = typeof shopTypes.$inferSelect;
 export type ShopCategoryMapping = typeof shopCategoryMapping.$inferSelect;
 
 /* ------------------------------------------------ delivery slot capacity (F5)
@@ -6296,8 +6345,11 @@ export const customerReferrals = pgTable(
       .notNull()
       .references(() => users.id, { onDelete: "cascade" }),
     code: text("code").notNull(),
-    /** PENDING until the friend's first delivered order; then REWARDED, or REJECTED with a reason. */
-    status: text("status", { enum: ["PENDING", "REWARDED", "REJECTED"] }).notNull().default("PENDING"),
+    /**
+     * PENDING until the friend's first delivered order; then REWARDED, or REJECTED with a reason.
+     * REVERSED (D-25): a reward later found fraudulent, taken back from the wallets.
+     */
+    status: text("status", { enum: ["PENDING", "REWARDED", "REJECTED", "REVERSED"] }).notNull().default("PENDING"),
     rejectionReason: text("rejection_reason"),
     qualifyingOrderId: uuid("qualifying_order_id").references(() => orders.id, { onDelete: "set null" }),
     referrerRewardPaise: bigint("referrer_reward_paise", { mode: "number" }),
@@ -6305,6 +6357,12 @@ export const customerReferrals = pgTable(
     /** The friend's mobile when rewarded — one reward per mobile number. */
     refereePhoneE164: text("referee_phone_e164"),
     rewardedAt: timestamp("rewarded_at", { withTimezone: true }),
+    reversedAt: timestamp("reversed_at", { withTimezone: true }),
+    reversedBy: uuid("reversed_by").references(() => users.id, { onDelete: "set null" }),
+    reversalReason: text("reversal_reason"),
+    /** What the reversal took back from each wallet; less than the reward when the credit was already spent. */
+    referrerRecoveredPaise: bigint("referrer_recovered_paise", { mode: "number" }),
+    refereeRecoveredPaise: bigint("referee_recovered_paise", { mode: "number" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
@@ -6313,7 +6371,7 @@ export const customerReferrals = pgTable(
     index("customer_referrals_referrer_idx").on(t.referrerUserId),
     uniqueIndex("customer_referrals_rewarded_phone_uq")
       .on(t.refereePhoneE164)
-      .where(sql`${t.status} = 'REWARDED' AND ${t.refereePhoneE164} IS NOT NULL`),
+      .where(sql`${t.status} IN ('REWARDED', 'REVERSED') AND ${t.refereePhoneE164} IS NOT NULL`),
     check("customer_referrals_not_self", sql`${t.referrerUserId} <> ${t.refereeUserId}`),
   ],
 );

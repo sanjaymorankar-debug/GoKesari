@@ -22,6 +22,7 @@ import { tr, type Lang } from "@/lib/board/i18n";
 import { payButtonLabel } from "@/lib/checkout-payment";
 import { HOME } from "@/lib/home-i18n";
 import { formatQuantity } from "@/lib/money";
+import { quantityToMilli, roundStock } from "@/lib/stock-quantity";
 import { formatShopTime, isShopOpenNow, nextOpeningAt } from "@/lib/shop-hours";
 import type { CartSummary } from "@/server/services/cart";
 import type { CartIssue, ShopCartCheck } from "@/server/services/cart-validation";
@@ -397,7 +398,7 @@ export function CartView({
           <Card key={group.shop.id} className="overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-cream-200 bg-cream-50 px-4 py-3">
               <div className="flex items-center gap-2">
-                <Link
+                <Link prefetch={false}
                   href={`/shops/${group.shop.slug}`}
                   className="font-medium text-ink-900 hover:underline"
                 >
@@ -460,7 +461,7 @@ export function CartView({
                             <Money paise={line.listUnitPricePaise} />
                           </span>
                         ) : null}
-                        <Money paise={line.unitPricePaise} /> × {line.quantity}
+                        <Money paise={line.unitPricePaise} /> × {lineQuantity(line)}
                         {line.offerTitle ? (
                           <span className="ml-2" data-testid="cart-offer">
                             <Badge tone="success">{line.offerTitle}</Badge>
@@ -490,13 +491,13 @@ export function CartView({
                         disabled={busy}
                         aria-label={`Decrease ${line.productName}`}
                         onClick={() =>
-                          updateQuantity(line.cartItemId, line.quantity - 1)
+                          updateQuantity(line.cartItemId, Math.max(0, roundStock(line.quantity - line.quantityStep)))
                         }
                       >
                         −
                       </Button>
-                      <span className="w-8 text-center text-sm tabular-nums">
-                        {line.quantity}
+                      <span className={`${line.kind === "LOOSE" ? "min-w-8 px-1" : "w-8"} text-center text-sm tabular-nums`}>
+                        {lineQuantity(line)}
                       </span>
                       <Button
                         size="sm"
@@ -504,7 +505,7 @@ export function CartView({
                         disabled={busy}
                         aria-label={`Increase ${line.productName}`}
                         onClick={() =>
-                          updateQuantity(line.cartItemId, line.quantity + 1)
+                          updateQuantity(line.cartItemId, roundStock(line.quantity + line.quantityStep))
                         }
                       >
                         +
@@ -768,7 +769,7 @@ export function CartView({
                     {relevantOpenOrders.map((o) => (
                       <li key={o.id} className="flex flex-wrap items-center justify-between gap-2" data-testid="open-order">
                         <span>
-                          <Link href="/orders" className="font-medium underline">
+                          <Link prefetch={false} href="/orders" className="font-medium underline">
                             {o.orderNumber}
                           </Link>{" "}
                           · {o.shopName} — <strong>{o.statusLabel}</strong> · <Money paise={o.totalPaise} />
@@ -961,4 +962,9 @@ function SlotPicker({
       {!chosen ? <p className="text-xs text-amber-700">Pick a delivery time to place the order.</p> : null}
     </div>
   );
+}
+
+/** A cart line's quantity as the customer reads it: "2", or "250 g" / "1.5 kg" of a loose good (D-95). */
+function lineQuantity(line: CartSummary["groups"][number]["lines"][number]): string | number {
+  return line.kind === "LOOSE" ? formatQuantity(quantityToMilli(line.quantity, line.unitSizeMilli), line.unit) : line.quantity;
 }
