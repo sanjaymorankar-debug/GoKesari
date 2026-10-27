@@ -12,6 +12,8 @@ import {
   shopImageUrlSchema,
 } from "@/lib/shop-settings";
 import { SHOP_TYPE_KEYS, type ShopTypeKey } from "@/lib/shop-types";
+import { NextResponse } from "next/server";
+
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
@@ -20,13 +22,25 @@ import { assertRegistrationReferralCode, attributeRegistrationReferral } from "@
 
 export const dynamic = "force-dynamic";
 
+/** Short in-memory cache keyed by query string: repeated identical searches skip the DB. */
+const SEARCH_TTL_MS = 60_000;
+const searchCache = new Map<string, { at: number; body: unknown }>();
+const CACHE_HEADERS = { "Cache-Control": "public, s-maxage=60, stale-while-revalidate=300" };
+
 export const GET = route(async (request: NextRequest) => {
-  const p = new URL(request.url).searchParams;
+  const url = new URL(request.url);
+  // Search results are public, so anonymous requests are cacheable by the CDN too.
+  const anonymous = !request.headers.get("cookie") && !request.headers.get("authorization");
+  const cacheKey = url.searchParams.toString();
+  const hit = searchCache.get(cacheKey);
+  if (hit && Date.now() - hit.at < SEARCH_TTL_MS) {
+    return NextResponse.json(hit.body, { headers: anonymous ? CACHE_HEADERS : undefined });
+  }
+  const p = url.searchParams;
   const type = p.get("type");
   // Search is public: the service returns only APPROVED shops, and only
   // their public card columns.
-  return ok(
-    await searchShops({
+  const body = await searchShops({
       query: p.get("q") ?? undefined,
       city: p.get("city") ?? undefined,
       area: p.get("area") ?? undefined,
@@ -39,8 +53,10 @@ export const GET = route(async (request: NextRequest) => {
       deliveryOnly: p.get("delivery") === "true",
       limit: Number(p.get("limit") ?? 24),
       offset: Number(p.get("offset") ?? 0),
-    }),
-  );
+  });
+  if (searchCache.size > 200) searchCache.clear();
+  searchCache.set(cacheKey, { at: Date.now(), body });
+  return NextResponse.json(body, { headers: anonymous ? CACHE_HEADERS : undefined });
 });
 
 const registerSchema = z.object({

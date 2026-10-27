@@ -41,7 +41,7 @@ export default async function ShopContactPage({
       <PageHeader
         title="Seller information"
         description={
-          <Link href={`/shops/${slug}`} className="text-kesari-600 hover:underline">
+          <Link prefetch={false} href={`/shops/${slug}`} className="text-kesari-600 hover:underline">
             ← Back to {shop.name}
           </Link>
         }

@@ -136,6 +136,8 @@ const nextConfig: NextConfig = {
     "/api/inbound/bill-email": OCR_RUNTIME_FILES,
     "/shop/accounts/share": OCR_RUNTIME_FILES,
   },
+  // next/image optimisation would occupy Node processes on Hostinger; serve images as-is.
+  images: { unoptimized: true },
   // Hostinger installs production dependencies only, so `typescript` is absent
   // when the build starts and Next never reads the "@/*" paths in tsconfig.json.
   // Declaring the alias here keeps webpack resolving "@/..." either way.

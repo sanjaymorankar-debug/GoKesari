@@ -243,7 +243,7 @@ function ShopCard({ shop }: { shop: ShopCardData }) {
         <PausedNotice shop={shop} />
 
         {/* The link's tap area covers the whole card. */}
-        <Link
+        <Link prefetch={false}
           href={`/shops/${shop.slug}`}
           aria-label={`View shop: ${shop.name}`}
           className="mt-auto pt-2 text-sm font-medium text-kesari-600 after:absolute after:inset-0 hover:underline"
@@ -257,7 +257,7 @@ function ShopCard({ shop }: { shop: ShopCardData }) {
 
 function ShopListRow({ shop }: { shop: ShopCardData }) {
   return (
-    <Link
+    <Link prefetch={false}
       href={`/shops/${shop.slug}`}
       className="flex flex-wrap items-center gap-x-4 gap-y-1 rounded-xl border border-cream-200 bg-white p-3 hover:border-kesari-300 hover:bg-cream-50 sm:flex-nowrap"
       data-testid="shop-card"

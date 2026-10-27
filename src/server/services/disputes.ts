@@ -382,6 +382,7 @@ export async function advanceDispute(
     throw validationFailed("Use the escalate action, which records why.");
   }
 
+  await escalateOnTouch(disputeId);
   return db.transaction(async (tx) => {
     const dispute = await lockDispute(tx, disputeId);
     const parties = await disputeParties(tx, dispute);
@@ -544,6 +545,7 @@ export async function addDisputeComment(disputeId: string, input: AddCommentInpu
   if (body.length < 2) throw validationFailed("Write a message.");
   if (body.length > 2000) throw validationFailed("Keep the message under 2,000 characters.");
 
+  await escalateOnTouch(disputeId);
   return db.transaction(async (tx) => {
     const dispute = await lockDispute(tx, disputeId);
     const parties = await disputeParties(tx, dispute);
@@ -761,7 +763,10 @@ export async function resolveDispute(
  * them to L2, so a second run in the same minute finds nothing. One case
  * failing does not stop the sweep — the others are independent.
  */
-export async function runDisputeEscalationSweep(now = new Date()): Promise<{
+export async function runDisputeEscalationSweep(
+  now = new Date(),
+  onlyDisputeId?: string,
+): Promise<{
   considered: number;
   escalated: number;
   failed: number;
@@ -782,7 +787,14 @@ export async function runDisputeEscalationSweep(now = new Date()): Promise<{
       awaitingResponseSince: orderDisputes.awaitingResponseSince,
     })
     .from(orderDisputes)
-    .where(and(eq(orderDisputes.level, "L1"), inArray(orderDisputes.status, LIVE_STATUSES), or(...conditions)))
+    .where(
+      and(
+        eq(orderDisputes.level, "L1"),
+        inArray(orderDisputes.status, LIVE_STATUSES),
+        or(...conditions),
+        onlyDisputeId ? eq(orderDisputes.id, onlyDisputeId) : undefined,
+      ),
+    )
     .orderBy(orderDisputes.createdAt)
     .limit(200);
 
@@ -814,6 +826,24 @@ export async function runDisputeEscalationSweep(now = new Date()): Promise<{
   return { considered: stale.length, escalated, failed };
 }
 
+/**
+ * "Escalate on next touch": no scheduler needed. Called when a case is viewed
+ * or acted on (`disputeId`) and when the operations queue loads (no id = all
+ * overdue cases, bounded by the sweep's 200-row limit). Safe to race:
+ * `escalateDispute` locks the row and refuses an already-escalated case, so
+ * concurrent callers escalate it once. Never throws — a failed touch-check must
+ * not break the page. Off with DISPUTE_ESCALATE_ON_TOUCH=false.
+ */
+export async function escalateOnTouch(disputeId?: string): Promise<number> {
+  if (process.env.DISPUTE_ESCALATE_ON_TOUCH === "false") return 0;
+  try {
+    return (await runDisputeEscalationSweep(new Date(), disputeId)).escalated;
+  } catch (error) {
+    console.error("[disputes] escalate-on-touch failed", error);
+    return 0;
+  }
+}
+
 /* ------------------------------------------------------------------- reads */
 
 export interface DisputeFilters {
@@ -843,6 +873,7 @@ export interface DisputeListRow {
 }
 
 export async function listDisputes(filters: DisputeFilters = {}): Promise<DisputeListRow[]> {
+  await escalateOnTouch();
   const conditions = [];
   if (filters.status) conditions.push(eq(orderDisputes.status, filters.status));
   if (filters.level) conditions.push(eq(orderDisputes.level, filters.level));
@@ -915,6 +946,7 @@ export interface DisputeDetail {
  * each caller to omit them.
  */
 export async function getDispute(disputeId: string, actor: Actor): Promise<DisputeDetail | null> {
+  await escalateOnTouch(disputeId);
   const [row] = await db
     .select({ dispute: orderDisputes, orderNumber: orders.orderNumber })
     .from(orderDisputes)

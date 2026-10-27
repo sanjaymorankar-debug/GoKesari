@@ -189,7 +189,7 @@ function CategoryRow({ category }: { category: CategoryMasterItem }) {
           </p>
         </div>
         <div className="flex flex-wrap gap-2">
-          <Link
+          <Link prefetch={false}
             href={`/product-categories/products?category=${category.id}`}
             className="rounded-md px-2 py-1 font-medium text-kesari-700 underline"
           >

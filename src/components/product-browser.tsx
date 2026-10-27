@@ -108,8 +108,8 @@ export function ProductBrowser({
 
       {total > PAGE_SIZE ? (
         <div className="flex gap-3 text-sm">
-          {offset > 0 ? <Link href={href(Math.max(0, offset - PAGE_SIZE))} className="text-kesari-700 underline">← Previous</Link> : null}
-          {offset + PAGE_SIZE < total ? <Link href={href(offset + PAGE_SIZE)} className="text-kesari-700 underline">Next →</Link> : null}
+          {offset > 0 ? <Link prefetch={false} href={href(Math.max(0, offset - PAGE_SIZE))} className="text-kesari-700 underline">← Previous</Link> : null}
+          {offset + PAGE_SIZE < total ? <Link prefetch={false} href={href(offset + PAGE_SIZE)} className="text-kesari-700 underline">Next →</Link> : null}
         </div>
       ) : null}
     </div>
