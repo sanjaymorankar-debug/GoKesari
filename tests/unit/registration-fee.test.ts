@@ -1,7 +1,8 @@
 /**
  * One-time registration fee by declared annual turnover (owner request,
  * 26 Oct 2026): up to ₹2 crore → ₹999, above ₹2 crore → ₹4,999, both set by
- * rule registrationFeeByTurnover. And the professional shop types that come
+ * rule registrationFeeByTurnover — switched off by default since 27 Oct 2026
+ * (a flat ₹999 for now, from Admin → Registration fee). And the professional shop types that come
  * with it.
  */
 import { describe, expect, it } from "vitest";
@@ -10,12 +11,17 @@ import { feeForTurnover, formatRupeesIndian, parseTurnoverRupees } from "@/lib/r
 import { isFoodBusinessShopType, isProfessionalShopType, SHOP_TYPE_KEYS } from "@/lib/shop-types";
 import { RULES } from "@/server/config/rules";
 
-const rule = RULES.registrationFeeByTurnover.defaults;
+const rule = { ...RULES.registrationFeeByTurnover.defaults, enabled: true };
 const CRORE = 1_00_00_000;
 
 describe("registration fee by turnover — the default rule", () => {
-  it("is on, with the owner's tiers: up to ₹2 crore ₹999, above ₹4,999", () => {
-    expect(rule).toEqual({ enabled: true, thresholdRupees: 2 * CRORE, upToFeePaise: 99_900, aboveFeePaise: 4_99_900 });
+  it("is off for now (flat fee), keeping the owner's tiers: up to ₹2 crore ₹999, above ₹4,999", () => {
+    expect(RULES.registrationFeeByTurnover.defaults).toEqual({
+      enabled: false,
+      thresholdRupees: 2 * CRORE,
+      upToFeePaise: 99_900,
+      aboveFeePaise: 4_99_900,
+    });
     expect(RULES.registrationFeeByTurnover.schema.safeParse(rule).success).toBe(true);
   });
 

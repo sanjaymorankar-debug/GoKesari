@@ -692,7 +692,9 @@ export const RULES = {
       upToFeePaise: int(0, 100_000_000),
       aboveFeePaise: int(0, 100_000_000),
     }),
-    defaults: { enabled: true, thresholdRupees: 2_00_00_000, upToFeePaise: 99_900, aboveFeePaise: 4_99_900 },
+    // Owner, 27 Oct 2026: off for now — every shop pays the flat fee (₹999, set in
+    // Admin → Registration fee). The tiers are kept for when it is switched on.
+    defaults: { enabled: false, thresholdRupees: 2_00_00_000, upToFeePaise: 99_900, aboveFeePaise: 4_99_900 },
   },
   shopProductMedia: {
     description:

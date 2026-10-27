@@ -2,6 +2,7 @@
  * Shop categories: many-to-many mapping, owner/admin editing, search relevance,
  * uncategorised flagging, and independence from shop type and products.
  */
+import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -82,7 +83,8 @@ describe("seeded categories", () => {
     signIn(admin);
     const created = await call(categoriesPost, "/api/shop-categories", {
       method: "POST",
-      body: { name: "Company Law Consultant", groupName: " Finance and legal " },
+      // Categories survive resetDatabase(): a unique name per run.
+      body: { name: `Company Law Consultant ${randomUUID().slice(0, 8)}`, groupName: " Finance and legal " },
     });
     expect(created.status).toBe(201);
     expect(created.body.groupName).toBe("Finance and legal");

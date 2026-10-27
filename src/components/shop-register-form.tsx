@@ -83,6 +83,7 @@ const FORMAT_CHECKS: Record<ShopIdentifierField, (raw: string) => ParseResult<un
 export function ShopRegisterForm({
   referralRequired = false,
   feeRule = null,
+  flatFeePaise = 0,
   pending = null,
   initialCategories,
 }: {
@@ -90,6 +91,8 @@ export function ShopRegisterForm({
   referralRequired?: boolean;
   /** Rule registrationFeeByTurnover; null or disabled → no turnover question. */
   feeRule?: TurnoverFeeRule | null;
+  /** The flat registration fee (Admin → Registration fee), charged when the turnover is not asked. */
+  flatFeePaise?: number;
   /** The owner's registration already waiting for approval: the form stays off. */
   pending?: { id: string; name: string; feeDue: boolean } | null;
   /** Active shop categories, read by the server page. */
@@ -661,6 +664,13 @@ export function ShopRegisterForm({
               {turnoverRupees !== null ? (
                 <span className="text-ink-500"> · turnover {formatRupeesIndian(turnoverRupees)}</span>
               ) : null}
+            </p>
+            <p className="mt-1 text-xs text-ink-500">You pay it online on the next screen, after you submit.</p>
+          </div>
+        ) : flatFeePaise > 0 ? (
+          <div className="rounded-lg border border-kesari-100 bg-kesari-50 p-4 sm:col-span-2">
+            <p className="text-sm text-ink-700" data-testid="registration-fee-preview">
+              One-time registration fee: <strong>{formatPaiseCompact(flatFeePaise)}</strong>
             </p>
             <p className="mt-1 text-xs text-ink-500">You pay it online on the next screen, after you submit.</p>
           </div>

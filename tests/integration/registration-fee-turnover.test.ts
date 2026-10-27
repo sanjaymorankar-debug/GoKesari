@@ -1,8 +1,10 @@
 /**
- * Add my shop: the one-time registration fee by declared annual turnover, and
- * the owner paying it online (owner request, 26 Oct 2026).
+ * Add my shop: the one-time registration fee, and the owner paying it online.
  *
- *   - turnover up to ₹2 crore → ₹999; above → ₹4,999 (rule registrationFeeByTurnover)
+ *   - owner, 27 Oct 2026: a flat ₹999 for now (Admin → Registration fee); the
+ *     form asks no turnover
+ *   - owner, 26 Oct 2026, kept switched off: turnover up to ₹2 crore → ₹999;
+ *     above → ₹4,999 (rule registrationFeeByTurnover)
  *   - the fee is computed on the server and snapshotted on the shop
  *   - a self-service registration must declare its turnover
  *   - the owner pays through the sandbox gateway; the shop's fee becomes PAID
@@ -75,9 +77,30 @@ beforeEach(async () => {
   resetRateLimits();
   clearRuleCache();
   await resetDatabase();
+  // As configured on the sites: a flat ₹999.
+  await setRegistrationFee({ amountPaise: 99_900 }, asActor(await createUser({ role: "ADMIN" })));
 });
 
-describe("the fee follows the declared turnover", () => {
+/** Switches the turnover tiers on, as an admin would. */
+async function turnoverRuleOn() {
+  await setRule("registrationFeeByTurnover", { enabled: true }, asActor(await createUser({ role: "ADMIN" })));
+  clearRuleCache();
+}
+
+describe("a flat ₹999 by default", () => {
+  it("charges every new shop the flat fee, whatever turnover it declares", async () => {
+    for (const turnover of [null, 15_00_000, 50 * CRORE]) {
+      const shop = await registerShop(shopInput(turnover), asActor(await createUser()));
+      expect(shop.registrationFeePaise, `turnover ${turnover}`).toBe(99_900);
+      expect(shop.feePaymentStatus).toBe("PENDING");
+      expect(shop.registrationFeeId).not.toBeNull();
+    }
+  });
+});
+
+describe("the fee follows the declared turnover (when an admin switches it on)", () => {
+  beforeEach(turnoverRuleOn);
+
   it("₹999 up to and including ₹2 crore, ₹4,999 above — snapshotted with the turnover", async () => {
     const cases: [number, number][] = [
       [15_00_000, 99_900],
@@ -113,7 +136,7 @@ describe("the fee follows the declared turnover", () => {
   it("follows an admin's new amounts for new shops and leaves registered shops as they were", async () => {
     const admin = await createUser({ role: "ADMIN" });
     const before = await registerShop(shopInput(1 * CRORE), asActor(await createUser()));
-    await setRule("registrationFeeByTurnover", { upToFeePaise: 1_49_900 }, asActor(admin));
+    await setRule("registrationFeeByTurnover", { enabled: true, upToFeePaise: 1_49_900 }, asActor(admin));
     clearRuleCache();
     const after = await registerShop(shopInput(1 * CRORE), asActor(await createUser()));
 
@@ -153,7 +176,20 @@ describe("POST /api/shops (Add my shop)", () => {
     return [row.id];
   }
 
-  it("requires the turnover from a self-service registration and computes the fee itself", async () => {
+  it("asks no turnover by default and computes the fee itself", async () => {
+    const owner = await createUser();
+    signIn(owner);
+    // A fee in the body is an operator-only field: ignored for the owner.
+    const created = await call(registerRoute, "/api/shops", {
+      method: "POST",
+      body: { ...shopInput(null), categoryIds: await categoryIds(), registrationFeePaise: 100 },
+    });
+    expect(created.status, JSON.stringify(created.body)).toBe(201);
+    expect(created.body).toMatchObject({ registrationFeePaise: 99_900, annualTurnoverRupees: null, feePaymentStatus: "PENDING" });
+  });
+
+  it("with the turnover rule on, requires the turnover and computes the fee itself", async () => {
+    await turnoverRuleOn();
     const owner = await createUser();
     signIn(owner);
     const ids = await categoryIds();

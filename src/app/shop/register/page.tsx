@@ -5,6 +5,7 @@ import { ShopRegisterForm } from "@/components/shop-register-form";
 import { Alert, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { isReferralRequired } from "@/server/services/referral-settings";
+import { resolveFeeForNewRegistration } from "@/server/services/registration-fees";
 import { listShopCategories } from "@/server/services/shop-categories";
 import { listShopsForOwner } from "@/server/services/shops";
 import { getRule } from "@/server/services/settings";
@@ -18,15 +19,17 @@ export default async function RegisterShopPage() {
 
   // Every read at once: each one is a round trip to the database, and they
   // used to run one after another on every visit.
-  const [ownShops, referralRequired, selfRegistration, feeRule, categories] = await Promise.all([
+  const [ownShops, referralRequired, selfRegistration, feeRule, flatFee, categories] = await Promise.all([
     // Only the signed-in owner's own shops — nothing about anyone else's.
     listShopsForOwner(user.id),
     // docs/nearby-referral-2026-10: the admin's setting referral_required_shop, read live.
     isReferralRequired("shop"),
     // Module 3: with a referral code a shop can register and pay online, approved on payment.
     getRule("selfRegistration"),
-    // The one-time fee by annual turnover, shown on the form before Submit.
+    // The one-time registration fee, shown on the form before Submit: by
+    // turnover when that rule is on, otherwise the flat fee.
     getRule("registrationFeeByTurnover"),
+    resolveFeeForNewRegistration(),
     // The category picker's list, so the form does not fetch it after loading.
     listShopCategories({ activeOnly: true, withShopCounts: false }).catch(() => undefined),
   ]);
@@ -77,6 +80,7 @@ export default async function RegisterShopPage() {
       <ShopRegisterForm
         referralRequired={referralRequired}
         feeRule={feeRule}
+        flatFeePaise={flatFee.amountPaise}
         pending={
           waiting
             ? {

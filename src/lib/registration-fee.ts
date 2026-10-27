@@ -1,6 +1,7 @@
 /**
- * One-time shop registration fee by declared annual turnover (owner decision,
- * 26 Oct 2026): turnover up to the threshold (₹2 crore) pays the lower fee
+ * One-time shop registration fee by declared annual turnover (owner request,
+ * 26 Oct 2026; switched off on 27 Oct 2026 — for now every shop pays the flat
+ * fee from Admin → Registration fee, ₹999): turnover up to the threshold (₹2 crore) pays the lower fee
  * (₹999), turnover above it pays the higher one (₹4,999). The threshold and both
  * amounts are the admin rule `registrationFeeByTurnover`
  * (src/server/config/rules.ts), so they change without a deploy.
