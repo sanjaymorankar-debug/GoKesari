@@ -311,7 +311,7 @@ function CatalogueTile({ tile, shopId }: { tile: ShopCatalogueTile; shopId: stri
               </Button>
             ) : null}
           </div>
-          <Link
+          <Link prefetch={false}
             href={`/shop/products/${tile.shopProductId}/media`}
             className="text-xs font-medium text-kesari-700 hover:underline"
             aria-label={`Photos and description of ${tile.productName}`}

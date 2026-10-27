@@ -188,7 +188,7 @@ export default async function ShopsPage({
               ? `Not finding what you need nearby? Widen the search to ${city ? `all of ${city}` : "every shop on GoKesari"}.`
               : `Showing shops beyond your area${params.city ? ` in ${params.city}` : ""}.`}
           </p>
-          <Link
+          <Link prefetch={false}
             href={nearToggleHref(params, nearOnly, city)}
             className="tap-target whitespace-nowrap rounded-lg border border-cream-200 bg-white px-3.5 py-2 text-sm font-medium text-ink-900 hover:bg-cream-100"
           >

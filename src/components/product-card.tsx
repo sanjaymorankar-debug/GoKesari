@@ -181,7 +181,7 @@ export function ProductCard({
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold text-ink-900">
             {product.detailsHref ? (
-              <Link href={product.detailsHref} className="hover:text-kesari-700">
+              <Link prefetch={false} href={product.detailsHref} className="hover:text-kesari-700">
                 {product.productName}
               </Link>
             ) : (
@@ -256,7 +256,7 @@ export function ProductCard({
         ) : null}
 
         {product.productId && (product.compareCount ?? 0) >= 2 ? (
-          <Link
+          <Link prefetch={false}
             href={`/search/compare?product=${encodeURIComponent(product.productId)}`}
             data-testid="compare-n-prices"
             className="mt-1.5 inline-flex min-h-9 items-center gap-1 self-start rounded-full bg-indigo-50 px-2.5 text-xs font-bold text-indigo-800 hover:bg-indigo-100"
@@ -264,7 +264,7 @@ export function ProductCard({
             <span aria-hidden>⚖</span> Compare {product.compareCount} prices
           </Link>
         ) : product.productId ? (
-          <Link
+          <Link prefetch={false}
             href={`/products/${product.productId}`}
             className="mt-1 inline-flex min-h-11 items-center text-sm font-medium text-kesari-700 hover:underline"
           >
