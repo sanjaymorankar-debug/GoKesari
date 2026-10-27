@@ -56,6 +56,7 @@ export function ProductGrid({
             kind: p.kind,
             unitSizeMilli: p.unitSizeMilli,
             shopName: p.shopName,
+            shopOwnerName: p.shopOwnerName,
             shopSlug: p.shopSlug,
             productId: compare ? p.productId : undefined,
             compareCount: compare ? (compareCounts?.get(p.productId) ?? 0) : 0,

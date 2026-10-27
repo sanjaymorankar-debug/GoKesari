@@ -1154,6 +1154,8 @@ export interface StorefrontProduct {
   subscribable: boolean;
   shopId: string;
   shopName: string;
+  /** The shop owner's name — the first line of a product card. */
+  shopOwnerName: string;
   shopSlug: string;
   shopClassification: "KESARI" | "GREEN" | null;
   /** F8: the product's category (for shop offers). */
@@ -1209,16 +1211,22 @@ function storefrontConditions(options: StorefrontFilters) {
     conditions.push(eq(shopProducts.onlineSaleEnabled, true));
   }
   if (options.query) {
-    const term = likePattern(options.query);
-    conditions.push(
-      or(
-        ilike(products.name, term),
-        ilike(productCategories.name, term),
-        ilike(shops.name, term),
-        ilike(shops.area, term),
-        eq(shops.pincode, options.query),
-      )!,
-    );
+    // Every word must match something — product, category, shop, owner or area — in any order,
+    // so "badam milk agtci" finds Badam Milk at Agtci. A 6-digit PIN code matches the shop's PIN.
+    const words = options.query.split(/\s+/).filter(Boolean).slice(0, 6);
+    for (const word of words) {
+      const term = likePattern(word);
+      conditions.push(
+        or(
+          ilike(products.name, term),
+          ilike(productCategories.name, term),
+          ilike(shops.name, term),
+          ilike(shops.ownerName, term),
+          ilike(shops.area, term),
+          eq(shops.pincode, word),
+        )!,
+      );
+    }
   }
   return conditions;
 }
@@ -1305,6 +1313,7 @@ export async function listStorefrontProducts(
     subscribable: r.product.subscribable,
     shopId: r.shop.id,
     shopName: r.shop.name,
+    shopOwnerName: r.shop.ownerName,
     shopSlug: r.shop.slug,
     shopClassification: r.shop.classification,
     shortDescription: effectiveDescriptions(r.sp, r.product.description).shortDescription,

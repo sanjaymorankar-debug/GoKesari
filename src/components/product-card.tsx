@@ -32,6 +32,8 @@ export interface ProductCardData {
   /** Size of one sellable unit in milli of `unit` (1 kg → 1000). */
   unitSizeMilli?: number;
   shopName?: string;
+  /** Shown bold on the first line of the card, the shop name under it. */
+  shopOwnerName?: string;
   shopSlug?: string;
   /** Catalogue product id — enables the "Compare prices" link (GS-021/022). */
   productId?: string;
@@ -170,6 +172,18 @@ export function ProductCard({
       data-testid="product-card"
       data-product-name={product.productName}
     >
+      {product.shopName ? (
+        <div className="mb-2 min-w-0" data-testid="card-seller">
+          {product.shopOwnerName ? (
+            <p className="truncate text-sm font-bold text-ink-900" data-testid="card-owner">
+              {product.shopOwnerName}
+            </p>
+          ) : null}
+          <p className={product.shopOwnerName ? "truncate text-xs font-medium text-ink-600" : "truncate text-sm font-bold text-ink-900"} data-testid="card-shop">
+            {product.shopName}
+          </p>
+        </div>
+      ) : null}
       <SafeImage
         src={product.imageUrl}
         size="medium"
@@ -203,11 +217,8 @@ export function ProductCard({
         />
       </div>
 
-      {product.shopName && product.shopSlug ? (
-        <p className="mb-2 text-xs text-ink-500">
-          at {product.shopName}
-          {product.distanceKm != null ? ` · ${product.distanceKm} km` : null}
-        </p>
+      {product.distanceKm != null && product.shopName ? (
+        <p className="mb-2 text-xs text-ink-500">{product.distanceKm} km away</p>
       ) : null}
 
       <div className="mt-auto">
