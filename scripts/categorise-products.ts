@@ -391,7 +391,7 @@ async function apply() {
         const [taken] = await tx`SELECT 1 FROM product_categories WHERE slug = ${base}`;
         const [row] = await tx<CategoryRow[]>`
           INSERT INTO product_categories (department, name, slug, description, created_by)
-          VALUES (${target?.department ?? "GENERAL_TRADING"}::department, ${name}, ${taken ? `${base}-${Date.now().toString(36)}` : base},
+          VALUES (${target?.department ?? "GENERAL_TRADING"}, ${name}, ${taken ? `${base}-${Date.now().toString(36)}` : base},
                   ${target?.description ?? null}, ${actor.id})
           RETURNING id, name, slug, department::text AS department, is_system`;
         byName.set(name.toLowerCase(), row);

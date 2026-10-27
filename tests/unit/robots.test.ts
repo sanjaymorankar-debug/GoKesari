@@ -16,8 +16,8 @@ describe("robots.txt", () => {
     expect(robots()).toEqual({ rules: { userAgent: "*", disallow: "/" } });
   });
 
-  it("lets search engines crawl gokesari.com", () => {
+  it("lets search engines crawl gokesari.com, except the API, the cart and search results", () => {
     env.production = true;
-    expect(robots()).toEqual({ rules: { userAgent: "*", allow: "/" } });
+    expect(robots()).toEqual({ rules: { userAgent: "*", allow: "/", disallow: ["/api/", "/cart", "/search"] } });
   });
 });

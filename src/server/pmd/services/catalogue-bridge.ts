@@ -119,12 +119,12 @@ async function resolveOperationalCategory(tx: TransactionSql, m: MasterForPromot
   if (l2) {
     const [byName] = await tx<{ id: string }[]>`
       SELECT id FROM public.product_categories
-      WHERE department = ${m.gokesari_department}::department AND lower(name) = lower(${l2}) AND deleted_at IS NULL LIMIT 1`;
+      WHERE department::text = ${m.gokesari_department} AND lower(name) = lower(${l2}) AND deleted_at IS NULL LIMIT 1`;
     if (byName) return byName;
   }
   const [dflt] = await tx<{ id: string }[]>`
     SELECT id FROM public.product_categories
-    WHERE department = ${m.gokesari_department}::department AND deleted_at IS NULL ORDER BY sort_order, created_at LIMIT 1`;
+    WHERE department::text = ${m.gokesari_department} AND deleted_at IS NULL ORDER BY sort_order, created_at LIMIT 1`;
   return dflt ?? null;
 }
 
