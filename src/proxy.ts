@@ -4,8 +4,8 @@
  * Runs before routes render, in the same Node process, so it costs no extra
  * process and — importantly — opens no database connection.
  *
- *  1. /api/cron/*  — CRON_ROUTES_ENABLED !== "true" (the default): 410 Gone
- *     straight away. When enabled: the x-cron-secret header (or the legacy
+ *  1. /api/cron/* except every-minute, hourly, daily — CRON_ROUTES_ENABLED !== "true"
+ *     (the default): 410 Gone straight away. When enabled: the x-cron-secret header (or the legacy
  *     "Authorization: Bearer") must equal CRON_SECRET, compared in constant
  *     time, else 401 — all before any handler or DB work.
  *  2. Test site (TEST_SITE_BASIC_AUTH="user:pass" set): HTTP basic auth on every
@@ -51,7 +51,11 @@ export function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
 
   if (pathname.startsWith("/api/cron/") || pathname === "/api/cron") {
-    if (process.env.CRON_ROUTES_ENABLED !== "true") {
+    // The three consolidated entry points (docs/cron-schedule.md) are the live safety net
+    // (timeouts, payment reconcile, payouts) and stay on; only the legacy per-job
+    // routes are retired unless CRON_ROUTES_ENABLED=true.
+    const entryPoint = /^\/api\/cron\/(every-minute|hourly|daily)\/?$/.test(pathname);
+    if (!entryPoint && process.env.CRON_ROUTES_ENABLED !== "true") {
       return NextResponse.json({ error: "Gone", message: "Scheduled endpoints are disabled." }, { status: 410 });
     }
     const secret = process.env.CRON_SECRET ?? "";
