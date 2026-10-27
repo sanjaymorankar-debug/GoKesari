@@ -86,7 +86,7 @@ export function RegistrationFeeManager({
       {notice ? <Alert tone="success" title="Saved">{notice}</Alert> : null}
 
       <Card className="p-4">
-        <p className="text-xs text-ink-500">Current registration fee</p>
+        <p className="text-xs text-ink-500">Current registration fee (before GST)</p>
         <p className="mt-1 text-3xl font-bold text-ink-900">
           {active ? <Money paise={active.amountPaise} /> : "Not configured"}
         </p>
@@ -99,12 +99,12 @@ export function RegistrationFeeManager({
 
         <div className="mt-4 grid gap-3 sm:grid-cols-3">
           <label className="block">
-            <span className="text-xs text-ink-500">New fee (₹)</span>
+            <span className="text-xs text-ink-500">New fee (₹, before GST)</span>
             <input
               value={amount}
               onChange={(e) => setAmount(e.target.value)}
               inputMode="decimal"
-              placeholder="6000"
+              placeholder="999"
               className={inputClass}
             />
           </label>
@@ -134,7 +134,8 @@ export function RegistrationFeeManager({
           </Button>
           <p className="text-xs text-ink-500">
             Only shops registering on or after the effective date pay the new
-            amount. Shops already registered keep the fee they were charged.
+            amount, plus GST (Admin → Statutory). Shops already registered keep
+            the fee they were charged.
           </p>
         </div>
       </Card>

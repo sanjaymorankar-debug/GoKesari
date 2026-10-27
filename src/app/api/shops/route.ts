@@ -85,6 +85,8 @@ const registerSchema = z.object({
    * the flat fee instead.
    */
   annualTurnoverRupees: z.number().int().min(0).max(MAX_ANNUAL_TURNOVER_RUPEES).nullish(),
+  /** A registration-fee coupon; the server prices it (services/registration-fee-coupons.ts). */
+  couponCode: z.string().trim().max(40).nullish(),
 
   /*
    * Business identifiers (GST included) — at least one is required (refinement below) so

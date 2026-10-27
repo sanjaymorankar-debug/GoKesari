@@ -48,6 +48,8 @@ import { createUser, resetDatabase } from "../helpers/fixtures";
 import { call } from "../helpers/http";
 
 const CRORE = 1_00_00_000;
+/** The total payable on a base fee: 18% GST added (owner, 27 Oct 2026). */
+const withGst = (basePaise: number) => basePaise + Math.round((basePaise * 1800) / 10_000);
 let counter = 0;
 
 function shopInput(turnover: number | null, extra: Record<string, unknown> = {}) {
@@ -91,7 +93,8 @@ describe("a flat ₹999 by default", () => {
   it("charges every new shop the flat fee, whatever turnover it declares", async () => {
     for (const turnover of [null, 15_00_000, 50 * CRORE]) {
       const shop = await registerShop(shopInput(turnover), asActor(await createUser()));
-      expect(shop.registrationFeePaise, `turnover ${turnover}`).toBe(99_900);
+      expect(shop.registrationFeePaise, `turnover ${turnover}`).toBe(withGst(99_900));
+      expect(shop.registrationFeeBasePaise).toBe(99_900);
       expect(shop.feePaymentStatus).toBe("PENDING");
       expect(shop.registrationFeeId).not.toBeNull();
     }
@@ -111,7 +114,7 @@ describe("the fee follows the declared turnover (when an admin switches it on)",
     for (const [turnover, fee] of cases) {
       const owner = await createUser();
       const shop = await registerShop(shopInput(turnover), asActor(owner));
-      expect(shop.registrationFeePaise, `turnover ${turnover}`).toBe(fee);
+      expect(shop.registrationFeePaise, `turnover ${turnover}`).toBe(withGst(fee));
       expect(shop.annualTurnoverRupees).toBe(turnover);
       expect(shop.feePaymentStatus).toBe("PENDING");
       // Provenance: not the flat schedule's row.
@@ -124,12 +127,12 @@ describe("the fee follows the declared turnover (when an admin switches it on)",
     await setRegistrationFee({ amountPaise: 10_000 }, asActor(admin));
 
     const noTurnover = await registerShop(shopInput(null), asActor(await createUser()));
-    expect(noTurnover.registrationFeePaise).toBe(10_000);
+    expect(noTurnover.registrationFeePaise).toBe(withGst(10_000));
 
     await setRule("registrationFeeByTurnover", { enabled: false }, asActor(admin));
     clearRuleCache();
     const ruleOff = await registerShop(shopInput(50 * CRORE), asActor(await createUser()));
-    expect(ruleOff.registrationFeePaise).toBe(10_000);
+    expect(ruleOff.registrationFeePaise).toBe(withGst(10_000));
     expect(ruleOff.registrationFeeId).not.toBeNull();
   });
 
@@ -140,9 +143,9 @@ describe("the fee follows the declared turnover (when an admin switches it on)",
     clearRuleCache();
     const after = await registerShop(shopInput(1 * CRORE), asActor(await createUser()));
 
-    expect(after.registrationFeePaise).toBe(1_49_900);
+    expect(after.registrationFeePaise).toBe(withGst(1_49_900));
     const [kept] = await db.select().from(shops).where(eq(shops.id, before.id));
-    expect(kept.registrationFeePaise).toBe(99_900);
+    expect(kept.registrationFeePaise).toBe(withGst(99_900));
   });
 
   it("an operator's fee override still wins", async () => {
@@ -185,7 +188,7 @@ describe("POST /api/shops (Add my shop)", () => {
       body: { ...shopInput(null), categoryIds: await categoryIds(), registrationFeePaise: 100 },
     });
     expect(created.status, JSON.stringify(created.body)).toBe(201);
-    expect(created.body).toMatchObject({ registrationFeePaise: 99_900, annualTurnoverRupees: null, feePaymentStatus: "PENDING" });
+    expect(created.body).toMatchObject({ registrationFeePaise: withGst(99_900), annualTurnoverRupees: null, feePaymentStatus: "PENDING" });
   });
 
   it("with the turnover rule on, requires the turnover and computes the fee itself", async () => {
@@ -204,7 +207,7 @@ describe("POST /api/shops (Add my shop)", () => {
       body: { ...shopInput(3 * CRORE), categoryIds: ids, registrationFeePaise: 100 },
     });
     expect(created.status, JSON.stringify(created.body)).toBe(201);
-    expect(created.body).toMatchObject({ registrationFeePaise: 4_99_900, annualTurnoverRupees: 3 * CRORE, feePaymentStatus: "PENDING" });
+    expect(created.body).toMatchObject({ registrationFeePaise: withGst(4_99_900), annualTurnoverRupees: 3 * CRORE, feePaymentStatus: "PENDING" });
   });
 
   it("refuses a second, different shop while the first waits for approval", async () => {
@@ -228,7 +231,7 @@ describe("POST /api/shops (Add my shop)", () => {
       body: { ...shopInput(40_00_000, { shopType: "DOCTOR_CLINIC", name: "Ekdant Dental Clinic" }), categoryIds: await categoryIds() },
     });
     expect(res.status, JSON.stringify(res.body)).toBe(201);
-    expect(res.body).toMatchObject({ shopType: "DOCTOR_CLINIC", registrationFeePaise: 99_900 });
+    expect(res.body).toMatchObject({ shopType: "DOCTOR_CLINIC", registrationFeePaise: withGst(99_900) });
   });
 });
 
@@ -240,7 +243,7 @@ describe("the owner pays the fee online", () => {
 
     const first = await call(feeRoute, `/api/shops/${shop.id}/registration-fee`, { method: "POST", params: { id: shop.id } });
     expect(first.status, JSON.stringify(first.body)).toBe(201);
-    expect(first.body.amountPaise).toBe(99_900);
+    expect(first.body.amountPaise).toBe(withGst(99_900));
     expect(typeof first.body.redirectUrl).toBe("string");
 
     // A second press reuses the open checkout: one payment, not two.
@@ -253,11 +256,11 @@ describe("the owner pays the fee online", () => {
 
     const settled = await checkRegistrationFeePayment(shop.id, first.body.intentId, owner.id);
     expect(settled.feePaymentStatus).toBe("PAID");
-    expect(settled.amountPaidPaise).toBe(99_900);
+    expect(settled.amountPaidPaise).toBe(withGst(99_900));
     expect(registrationFeeDue(settled)).toBe(0);
     const ledger = await db.select().from(shopPayments).where(eq(shopPayments.shopId, shop.id));
     expect(ledger).toHaveLength(1);
-    expect(ledger[0]).toMatchObject({ paymentType: "REGISTRATION_FEE", method: "ONLINE", amountPaise: 99_900 });
+    expect(ledger[0]).toMatchObject({ paymentType: "REGISTRATION_FEE", method: "ONLINE", amountPaise: withGst(99_900) });
 
     // Paid: nothing more can be charged.
     const after = await call(feeRoute, `/api/shops/${shop.id}/registration-fee`, { method: "POST", params: { id: shop.id } });

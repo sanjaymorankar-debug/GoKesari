@@ -9,6 +9,7 @@ import { useRef, useState, type FormEvent } from "react";
 import { Alert, Button, Card, Field, inputClass } from "@/components/ui";
 import { MapPicker, type MapPickerResult } from "@/components/map-picker";
 import { formatPaiseCompact, rupeesToPaise } from "@/lib/money";
+import { RegistrationFeeSummary, type AppliedCoupon } from "@/components/registration-fee-summary";
 import {
   feeForTurnover,
   formatRupeesIndian,
@@ -83,7 +84,7 @@ const FORMAT_CHECKS: Record<ShopIdentifierField, (raw: string) => ParseResult<un
 export function ShopRegisterForm({
   referralRequired = false,
   feeRule = null,
-  flatFeePaise = 0,
+  feeQuote = null,
   pending = null,
   initialCategories,
 }: {
@@ -91,8 +92,8 @@ export function ShopRegisterForm({
   referralRequired?: boolean;
   /** Rule registrationFeeByTurnover; null or disabled → no turnover question. */
   feeRule?: TurnoverFeeRule | null;
-  /** The flat registration fee (Admin → Registration fee), charged when the turnover is not asked. */
-  flatFeePaise?: number;
+  /** The base fee (Admin → Registration fee) and the GST rate on it, read by the server page. */
+  feeQuote?: { basePaise: number; gstRateBp: number } | null;
   /** The owner's registration already waiting for approval: the form stays off. */
   pending?: { id: string; name: string; feeDue: boolean } | null;
   /** Active shop categories, read by the server page. */
@@ -115,10 +116,13 @@ export function ShopRegisterForm({
   const [deliveryAvailable, setDeliveryAvailable] = useState(false);
   const [shopType, setShopType] = useState("");
   const [turnover, setTurnover] = useState("");
+  const [coupon, setCoupon] = useState<AppliedCoupon | null>(null);
   const professional = isProfessionalShopType(shopType);
   const askTurnover = feeRule?.enabled === true;
   const turnoverRupees = parseTurnoverRupees(turnover);
   const feePreview = askTurnover && feeRule && turnoverRupees !== null ? feeForTurnover(turnoverRupees, feeRule) : null;
+  // The base fee before coupon and GST: by turnover while that rule is on, else the flat fee.
+  const feeBasePaise = askTurnover ? feePreview : (feeQuote?.basePaise ?? null);
   const locked = pending !== null;
   const [categoryIds, setCategoryIds] = useState<string[]>([]);
   const [coordinates, setCoordinates] = useState<{ latitude: number; longitude: number } | null>(
@@ -289,6 +293,7 @@ export function ShopRegisterForm({
           categoryIds,
           description: get("description") || null,
           annualTurnoverRupees: askTurnover ? turnoverRupees : null,
+          couponCode: coupon?.code ?? null,
           shopActNumber: get("shopActNumber") || null,
           panNumber: get("panNumber") || null,
           panHolderName: get("panHolderName") || null,
@@ -650,30 +655,31 @@ export function ShopRegisterForm({
                 autoComplete="off"
                 maxLength={20}
                 value={turnover}
-                onChange={(e) => setTurnover(e.target.value)}
+                onChange={(e) => {
+                  setTurnover(e.target.value);
+                  // The discount was priced on the old fee.
+                  setCoupon(null);
+                }}
                 className={inputClass}
               />
             </Field>
-            <p className="mt-2 text-sm text-ink-700" aria-live="polite" data-testid="registration-fee-preview">
-              One-time registration fee:{" "}
-              {feePreview !== null ? (
-                <strong>{formatPaiseCompact(feePreview)}</strong>
-              ) : (
-                <span className="text-ink-500">enter your turnover to see it</span>
-              )}
-              {turnoverRupees !== null ? (
-                <span className="text-ink-500"> · turnover {formatRupeesIndian(turnoverRupees)}</span>
-              ) : null}
-            </p>
-            <p className="mt-1 text-xs text-ink-500">You pay it online on the next screen, after you submit.</p>
+            {feePreview === null ? (
+              <p className="mt-2 text-sm text-ink-500">Enter your turnover to see the registration fee.</p>
+            ) : turnoverRupees !== null ? (
+              <p className="mt-2 text-xs text-ink-500">Turnover {formatRupeesIndian(turnoverRupees)}</p>
+            ) : null}
           </div>
-        ) : flatFeePaise > 0 ? (
-          <div className="rounded-lg border border-kesari-100 bg-kesari-50 p-4 sm:col-span-2">
-            <p className="text-sm text-ink-700" data-testid="registration-fee-preview">
-              One-time registration fee: <strong>{formatPaiseCompact(flatFeePaise)}</strong>
-            </p>
-            <p className="mt-1 text-xs text-ink-500">You pay it online on the next screen, after you submit.</p>
-          </div>
+        ) : null}
+
+        {feeQuote && feeBasePaise !== null && feeBasePaise > 0 ? (
+          <RegistrationFeeSummary
+            basePaise={feeBasePaise}
+            gstRateBp={feeQuote.gstRateBp}
+            turnoverRupees={askTurnover ? turnoverRupees : null}
+            coupon={coupon}
+            onCoupon={setCoupon}
+            serverError={errorFor("couponCode")}
+          />
         ) : null}
 
         {professional ? null : (

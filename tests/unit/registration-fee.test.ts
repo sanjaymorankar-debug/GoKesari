@@ -7,7 +7,14 @@
  */
 import { describe, expect, it } from "vitest";
 
-import { feeForTurnover, formatRupeesIndian, parseTurnoverRupees } from "@/lib/registration-fee";
+import {
+  feeForTurnover,
+  formatGstRate,
+  formatRupeesIndian,
+  parseTurnoverRupees,
+  registrationCouponDiscount,
+  registrationFeeBreakdown,
+} from "@/lib/registration-fee";
 import { isFoodBusinessShopType, isProfessionalShopType, SHOP_TYPE_KEYS } from "@/lib/shop-types";
 import { RULES } from "@/server/config/rules";
 
@@ -81,5 +88,48 @@ describe("professional shop types", () => {
     }
     expect(isProfessionalShopType("DAIRY")).toBe(false);
     expect(isProfessionalShopType("BAKERY")).toBe(false);
+  });
+});
+
+describe("the fee as paid: base, less a coupon, plus GST (owner, 27 Oct 2026)", () => {
+  it("₹999 + 18% GST = ₹1,178.82", () => {
+    expect(registrationFeeBreakdown(99_900, 0, 1800)).toEqual({
+      basePaise: 99_900,
+      discountPaise: 0,
+      taxablePaise: 99_900,
+      gstRateBp: 1800,
+      gstPaise: 17_982,
+      totalPaise: 1_17_882,
+    });
+  });
+
+  it("charges GST on the fee after the coupon", () => {
+    expect(registrationFeeBreakdown(99_900, 20_000, 1800)).toMatchObject({ taxablePaise: 79_900, gstPaise: 14_382, totalPaise: 94_282 });
+  });
+
+  it("never discounts below zero; a full discount leaves nothing to pay", () => {
+    expect(registrationFeeBreakdown(99_900, 5_00_000, 1800)).toMatchObject({ discountPaise: 99_900, gstPaise: 0, totalPaise: 0 });
+  });
+
+  it("splits back exactly as GoKesari's fee invoice reads a GST-inclusive fee", () => {
+    for (let base = 1; base <= 10_00_000; base += 997) {
+      const { taxablePaise, totalPaise } = registrationFeeBreakdown(base, 0, 1800);
+      expect(Math.round((totalPaise * 10_000) / (10_000 + 1800)), String(base)).toBe(taxablePaise);
+    }
+  });
+
+  it("prices flat and percentage coupons on the base fee, capped", () => {
+    const flat = { discountType: "FLAT" as const, flatPaise: 20_000, percent: null, maxDiscountPaise: null };
+    const pct = { discountType: "PERCENT" as const, flatPaise: null, percent: 50, maxDiscountPaise: null };
+    expect(registrationCouponDiscount(flat, 99_900)).toBe(20_000);
+    expect(registrationCouponDiscount({ ...flat, flatPaise: 2_00_000 }, 99_900)).toBe(99_900);
+    expect(registrationCouponDiscount(pct, 99_900)).toBe(49_950);
+    expect(registrationCouponDiscount({ ...pct, maxDiscountPaise: 30_000 }, 99_900)).toBe(30_000);
+  });
+
+  it("shows the rate as a percentage", () => {
+    expect(formatGstRate(1800)).toBe("18%");
+    expect(formatGstRate(1250)).toBe("12.5%");
+    expect(formatGstRate(0)).toBe("0%");
   });
 });

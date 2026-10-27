@@ -14,7 +14,7 @@ import { likePattern } from "@/lib/like-pattern";
 import { AppError, conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { formatPaise } from "@/lib/money";
 import { panBlindIndex } from "@/lib/pan-crypto";
-import { feeForTurnover, MAX_ANNUAL_TURNOVER_RUPEES } from "@/lib/registration-fee";
+import { MAX_ANNUAL_TURNOVER_RUPEES, registrationCouponDiscount, registrationFeeBreakdown } from "@/lib/registration-fee";
 import { GSTIN_PAN_MISMATCH_MESSAGE, gstinPan, parseGstin } from "@/lib/shop-identity";
 import {
   MAX_DELIVERY_FEE_PAISE,
@@ -43,7 +43,7 @@ import { resolveLocationVerification } from "./geocoding";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { attributeShopToCode } from "./referrals";
 import { applyShopCategories } from "./shop-categories";
-import { resolveFeeForNewRegistration } from "./registration-fees";
+import { baseRegistrationFee, lockRegistrationFeeCoupon, registrationFeeGstRateBp } from "./registration-fee-coupons";
 import { getRule } from "./settings";
 import { missingMandatoryDocuments, onboardingApprovalBlocker } from "./shop-onboarding";
 import { assertFssaiAllowsApproval } from "./document-uploads";
@@ -97,6 +97,11 @@ export interface RegisterShopInput {
    * POST /api/shops requires it for a self-service registration.
    */
   annualTurnoverRupees?: number | null;
+  /**
+   * A registration-fee coupon (services/registration-fee-coupons.ts): reduces
+   * the base fee before GST. Ignored when an operator sets the fee.
+   */
+  couponCode?: string | null;
 
   /* --------------------------- business identifiers (shop-duplicates.ts).
    * Each optional here; POST /api/shops requires at least one. Checked
@@ -281,22 +286,16 @@ export async function registerShop(
   }
 
   // The fee is SNAPSHOTTED here (§12): a later change to the schedule must
-  // never alter what this shop was charged. With a declared turnover it comes
-  // from rule registrationFeeByTurnover; otherwise from the flat schedule.
-  const [scheduled, turnoverRule] = await Promise.all([
-    resolveFeeForNewRegistration(),
-    getRule("registrationFeeByTurnover"),
-  ]);
-  const turnoverFee =
-    turnoverRule.enabled && turnover !== null ? feeForTurnover(turnover, turnoverRule) : null;
-  const registrationFeePaise =
-    privileged && input.registrationFeePaise !== undefined
-      ? input.registrationFeePaise
-      : (turnoverFee ?? scheduled.amountPaise);
-
-  if (registrationFeePaise < 0 || !Number.isInteger(registrationFeePaise)) {
+  // never alter what this shop was charged. Owner, 27 Oct 2026: the base fee
+  // (flat, or by turnover when that rule is on), less a coupon, plus GST — the
+  // total is registration_fee_paise. An operator's fee is taken as the total.
+  const override = privileged && input.registrationFeePaise !== undefined ? input.registrationFeePaise : null;
+  if (override !== null && (override < 0 || !Number.isInteger(override))) {
     throw validationFailed("Registration fee must be a whole number of paise.");
   }
+  const [base, gstRateBp] =
+    override === null ? await Promise.all([baseRegistrationFee(turnover), registrationFeeGstRateBp()]) : [null, 0];
+  const couponCode = override === null ? input.couponCode?.trim() || null : null;
 
   // What the owner typed — shared by a new registration and a resubmission.
   // Text is stored without its outer spaces; spaces alone are no value (TC-FLD-037).
@@ -430,6 +429,18 @@ export async function registerShop(
         return { kind: "resubmitted", shop, previous, matchedOn: rejectedOwn.reason };
       }
 
+      // The coupon is locked and its limits checked again here, so two
+      // registrations can never both take its last use.
+      const coupon = couponCode ? await lockRegistrationFeeCoupon(tx, couponCode, ownerId) : null;
+      const fee = base
+        ? registrationFeeBreakdown(
+            base.basePaise,
+            coupon ? registrationCouponDiscount(coupon, base.basePaise) : 0,
+            gstRateBp,
+          )
+        : null;
+      const registrationFeePaise = fee ? fee.totalPaise : override!;
+
       const [shop] = await tx
         .insert(shops)
         .values({
@@ -438,8 +449,14 @@ export async function registerShop(
             (privileged ? input.registrationDate : null) ??
             new Date().toISOString().slice(0, 10),
           registrationFeePaise,
-          // Provenance: the schedule row only when the fee came from it.
-          registrationFeeId: turnoverFee === null ? scheduled.feeId : null,
+          // Provenance: the schedule row only when the base came from it.
+          registrationFeeId: base?.feeId ?? null,
+          registrationFeeBasePaise: fee?.basePaise ?? null,
+          registrationFeeDiscountPaise: fee?.discountPaise ?? null,
+          registrationFeeGstPaise: fee?.gstPaise ?? null,
+          registrationFeeGstRateBp: fee?.gstRateBp ?? null,
+          registrationFeeCouponId: coupon?.id ?? null,
+          registrationFeeCouponCode: coupon?.code ?? null,
           annualTurnoverRupees: turnover,
           feePaymentStatus: registrationFeePaise > 0 ? "PENDING" : "PAID",
           slug: uniqueSlug(input.name),

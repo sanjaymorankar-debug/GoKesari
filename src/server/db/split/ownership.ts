@@ -100,6 +100,7 @@ export const TABLE_OWNERSHIP = {
   registration_fees: "seller",
   registration_fee_tiers: "seller",
   registration_fee_history: "seller",
+  registration_fee_coupons: "seller",
   registration_payments: "seller",
   referral_codes: "seller",
   referral_code_requests: "seller",

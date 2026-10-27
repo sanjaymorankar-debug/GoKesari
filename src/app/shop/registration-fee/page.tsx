@@ -3,7 +3,7 @@ import { redirect } from "next/navigation";
 
 import { RegistrationFeePayButton } from "@/components/registration-fee-pay-button";
 import { Alert, Badge, Card, LinkButton, Money, PageHeader } from "@/components/ui";
-import { formatRupeesIndian } from "@/lib/registration-fee";
+import { formatGstRate, formatRupeesIndian } from "@/lib/registration-fee";
 import { getCurrentUser } from "@/server/authz/guards";
 import {
   checkRegistrationFeePayment,
@@ -77,7 +77,28 @@ export default async function RegistrationFeePage({
         </div>
 
         <dl className="grid grid-cols-2 gap-y-1 text-sm">
-          <dt className="text-ink-500">One-time registration fee</dt>
+          {shop.registrationFeeBasePaise !== null && shop.registrationFeeGstRateBp !== null ? (
+            <>
+              {/* Owner, 27 Oct 2026: base fee, less a coupon, plus GST. */}
+              <dt className="text-ink-500">Registration fee</dt>
+              <dd className="text-right text-ink-900">
+                <Money paise={shop.registrationFeeBasePaise} />
+              </dd>
+              {(shop.registrationFeeDiscountPaise ?? 0) > 0 ? (
+                <>
+                  <dt className="text-green-700">Coupon {shop.registrationFeeCouponCode}</dt>
+                  <dd className="text-right text-green-700">
+                    − <Money paise={shop.registrationFeeDiscountPaise ?? 0} />
+                  </dd>
+                </>
+              ) : null}
+              <dt className="text-ink-500">GST ({formatGstRate(shop.registrationFeeGstRateBp)})</dt>
+              <dd className="text-right text-ink-900">
+                <Money paise={shop.registrationFeeGstPaise ?? 0} />
+              </dd>
+            </>
+          ) : null}
+          <dt className="text-ink-500">One-time registration fee{shop.registrationFeeGstRateBp !== null ? " (total)" : ""}</dt>
           <dd className="text-right font-medium text-ink-900">
             <Money paise={fee} />
           </dd>

@@ -694,6 +694,13 @@
       "when": 1792986900000,
       "tag": "0098_professional_registration",
       "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1792987000000,
+      "tag": "0099_registration_fee_coupons_gst",
+      "breakpoints": true
     }
   ]
 }

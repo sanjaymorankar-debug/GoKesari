@@ -51,3 +51,47 @@ export function formatRupeesIndian(rupees: number): string {
   }
   return `₹${rupees.toLocaleString("en-IN")}`;
 }
+
+/* ------------------------------------------- fee with coupon and GST (27 Oct 2026) */
+
+/**
+ * The one-time registration fee as the owner pays it: the base fee, less a
+ * coupon, plus GST on what is left. The total is what is charged; GoKesari's
+ * fee invoice later reads it as GST-inclusive and splits it back the same way.
+ */
+export interface RegistrationFeeBreakdown {
+  basePaise: number;
+  discountPaise: number;
+  taxablePaise: number;
+  gstRateBp: number;
+  gstPaise: number;
+  totalPaise: number;
+}
+
+/** GST rounded to the paisa, as on GoKesari's fee invoices. */
+export function registrationFeeBreakdown(basePaise: number, discountPaise: number, gstRateBp: number): RegistrationFeeBreakdown {
+  const discount = Math.max(0, Math.min(discountPaise, basePaise));
+  const taxablePaise = basePaise - discount;
+  const gstPaise = Math.round((taxablePaise * gstRateBp) / 10_000);
+  return { basePaise, discountPaise: discount, taxablePaise, gstRateBp, gstPaise, totalPaise: taxablePaise + gstPaise };
+}
+
+export interface RegistrationFeeCouponTerms {
+  discountType: "FLAT" | "PERCENT";
+  flatPaise: number | null;
+  percent: number | null;
+  maxDiscountPaise: number | null;
+}
+
+/** A coupon's discount on the base fee: never more than the base. */
+export function registrationCouponDiscount(coupon: RegistrationFeeCouponTerms, basePaise: number): number {
+  const raw =
+    coupon.discountType === "FLAT" ? (coupon.flatPaise ?? 0) : Math.floor((basePaise * (coupon.percent ?? 0)) / 100);
+  const capped = coupon.maxDiscountPaise != null ? Math.min(raw, coupon.maxDiscountPaise) : raw;
+  return Math.max(0, Math.min(capped, basePaise));
+}
+
+/** "18%" or "12.5%" from basis points. */
+export function formatGstRate(rateBp: number): string {
+  return `${rateBp % 100 === 0 ? rateBp / 100 : (rateBp / 100).toFixed(2).replace(/0+$/, "")}%`;
+}
