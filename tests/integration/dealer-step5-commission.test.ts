@@ -55,7 +55,7 @@ import {
 } from "@/server/dealers/commission";
 import { decideDealer } from "@/server/dealers/service";
 import { setFeatureFlag } from "@/server/services/feature-flags";
-import { recordPayment } from "@/server/services/shop-payments";
+import { recordPayment, waiveRegistrationFee } from "@/server/services/shop-payments";
 import { approveShop } from "@/server/services/shops";
 import { call } from "../helpers/http";
 import { createCategory, createProduct, createShop, createShopProduct, createUser, resetDatabase } from "../helpers/fixtures";
@@ -366,5 +366,15 @@ describe("a shop approved without its documents (0109; owner, 28 Oct)", () => {
     for (const docType of ["PAN", "GSTIN", "SHOP_ACT"] as const) await db.insert(sellerVerifications).values({ shopId: shop.id, docType, status: "VERIFIED", providerId: "mock", verifiedAt: new Date() });
     await approveShop(shop.id, { classification: "GREEN" }, admin);
     expect((await entries(shop.id)).find((e) => e.milestone === "ACTIVATED")).toMatchObject({ status: "EARNED", note: null });
+  });
+});
+
+describe("a shop whose fee an admin waived (approval queue, 28 Oct)", () => {
+  it("no percentage commission or rating bonus on a fee that was never collected", async () => {
+    const { dealer } = await newDealer("Rated", { rating: 6.5 });
+    const shop = await attributedShop(dealer.id);
+    await waiveRegistrationFee(shop.id, "pilot shop, fee waived", admin);
+    const [registered] = (await entries(shop.id)).filter((e) => e.milestone === "REGISTERED");
+    expect(registered).toMatchObject({ feePaise: 0, bonusPaise: 0, amountPaise: 10_000 });
   });
 });
