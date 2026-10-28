@@ -293,6 +293,13 @@ export const TABLE_OWNERSHIP = {
   purchase_list_items: "customer",
   /* <<< end purchase lists */
   //
+  /* >>> dealer programme (docs/dealer-programme) */
+  feature_flags: "platform",
+  feature_flag_changes: "platform",
+  geo_areas: "seller",
+  geo_area_pincodes: "seller",
+  /* <<< end dealer programme */
+  //
 } as const satisfies Record<string, DbOwner>;
 
 export type OwnedTable = keyof typeof TABLE_OWNERSHIP;

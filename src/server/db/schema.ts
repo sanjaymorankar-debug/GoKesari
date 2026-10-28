@@ -92,6 +92,7 @@ export const userRoleEnum = pgEnum("user_role", [
    * entity and its scoped permissions land (Wave 8, decision D5). */
   "SOCIETY_ADMIN",
   "OPERATOR_LIMITED", // batch-2026-10 WS-D (F8.4.2: onboards shops for their owners; own shops only)
+  "DEALER", // docs/dealer-programme (0101): authorised dealers and their salespeople; own records only
 ]);
 
 /**
@@ -9403,3 +9404,90 @@ export const purchaseListItems = pgTable(
 export type PurchaseListItem = typeof purchaseListItems.$inferSelect;
 
 /* <<< end purchase lists */
+
+/* >>> dealer programme (docs/dealer-programme) */
+
+/** Admin-controlled feature flags (0102). Seeded OFF; read live by services/feature-flags.ts. */
+export const FEATURE_FLAG_KEYS = [
+  "dealer_programme_enabled",
+  "gov_verification_auto_approval_enabled",
+  "dealer_rating_bonus_enabled",
+  "paid_support_services_enabled",
+] as const;
+export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
+
+export const featureFlags = pgTable("feature_flags", {
+  key: text("key", { enum: FEATURE_FLAG_KEYS }).primaryKey(),
+  enabled: boolean("enabled").notNull().default(false),
+  /** geo_areas codes of DISTRICT rows (seller database: no foreign key). NULL = every district. */
+  districtCodes: text("district_codes").array(),
+  updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type FeatureFlag = typeof featureFlags.$inferSelect;
+
+/** Who changed a flag, from what to what, why and when. Append-only. */
+export const featureFlagChanges = pgTable(
+  "feature_flag_changes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    flagKey: text("flag_key", { enum: FEATURE_FLAG_KEYS }).notNull(),
+    oldValue: jsonb("old_value").$type<{ enabled: boolean; districtCodes: string[] | null }>().notNull(),
+    newValue: jsonb("new_value").$type<{ enabled: boolean; districtCodes: string[] | null }>().notNull(),
+    reason: text("reason").notNull(),
+    changedBy: uuid("changed_by").references(() => users.id, { onDelete: "set null" }),
+    changedByEmail: text("changed_by_email"),
+    changedByRole: text("changed_by_role"),
+    changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("feature_flag_changes_key_idx").on(t.flagKey, t.changedAt)],
+);
+export type FeatureFlagChange = typeof featureFlagChanges.$inferSelect;
+
+/** Maharashtra → Region → District → Taluka/City → Locality (0103). */
+export const GEO_LEVELS = ["STATE", "REGION", "DISTRICT", "TALUKA", "LOCALITY"] as const;
+export type GeoLevel = (typeof GEO_LEVELS)[number];
+
+export const geoAreas = pgTable(
+  "geo_areas",
+  {
+    code: text("code").primaryKey(),
+    name: text("name").notNull(),
+    level: text("level", { enum: GEO_LEVELS }).notNull(),
+    parentCode: text("parent_code").references((): AnyPgColumn => geoAreas.code, { onDelete: "restrict" }),
+    /** Districts: the region part of a dealer code (GKS-MH-PUN-…). */
+    shortCode: text("short_code"),
+    status: text("status", { enum: ["ACTIVE", "INACTIVE"] }).notNull().default("ACTIVE"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("geo_areas_parent_idx").on(t.parentCode),
+    uniqueIndex("geo_areas_district_short_code_unique").on(t.shortCode).where(sql`${t.level} = 'DISTRICT'`),
+    check("geo_areas_level", sql`${t.level} in ('STATE', 'REGION', 'DISTRICT', 'TALUKA', 'LOCALITY')`),
+    check("geo_areas_status", sql`${t.status} in ('ACTIVE', 'INACTIVE')`),
+    check("geo_areas_parent", sql`(${t.level} = 'STATE') = (${t.parentCode} IS NULL)`),
+    check("geo_areas_short_code", sql`${t.shortCode} IS NULL OR ${t.shortCode} ~ '^[A-Z]{2,4}$'`),
+  ],
+);
+export type GeoArea = typeof geoAreas.$inferSelect;
+
+/** A PIN code belongs to the area with the longest matching prefix. */
+export const geoAreaPincodes = pgTable(
+  "geo_area_pincodes",
+  {
+    pincodePrefix: text("pincode_prefix").notNull(),
+    areaCode: text("area_code")
+      .notNull()
+      .references(() => geoAreas.code, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ name: "geo_area_pincodes_pk", columns: [t.pincodePrefix, t.areaCode] }),
+    index("geo_area_pincodes_prefix_idx").on(t.pincodePrefix),
+    check("geo_area_pincodes_prefix", sql`${t.pincodePrefix} ~ '^[1-9][0-9]{0,5}$'`),
+  ],
+);
+export type GeoAreaPincode = typeof geoAreaPincodes.$inferSelect;
+
+/* <<< end dealer programme */

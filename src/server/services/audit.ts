@@ -353,6 +353,8 @@ export const AUDIT_ACTIONS = {
   CUSTOMER_REFERRAL_REQUEST_CREATED: "customer_referral_request.created",
   CUSTOMER_REFERRAL_REQUEST_DECIDED: "customer_referral_request.decided",
   REFERRAL_SETTING_CHANGED: "referral_setting.changed",
+  FEATURE_FLAG_CHANGED: "feature_flag.changed", // docs/dealer-programme
+  GEO_AREA_SAVED: "geo_area.saved", // docs/dealer-programme
   DELIVERY_OFFER_BROADCAST: "delivery_order.offer_broadcast", // batch-2026-10 WS-B
   DELIVERY_BROADCAST_ACCEPTED: "delivery_order.broadcast_accepted", // batch-2026-10 WS-B
   DELIVERY_BROADCAST_CLOSED: "delivery_order.broadcast_closed", // batch-2026-10 WS-B

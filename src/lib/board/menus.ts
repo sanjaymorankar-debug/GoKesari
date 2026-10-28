@@ -492,6 +492,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "testMessages", label: L("Test messages", "टेस्ट संदेश", "चाचणी संदेश"), icon: "message-square", href: "/admin/test-messages", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
       // docs/nearby-referral-2026-10, feature 2: Mandatory / Optional referral code — admin only.
       { key: "referralSettings", label: L("Referral settings", "रेफ़रल सेटिंग", "रेफरल सेटिंग्ज"), icon: "toggle-right", href: "/admin/referral-settings", permission: ADMIN_ONLY },
+      // docs/dealer-programme: the programme's on/off switches, per district — admin only.
+      { key: "featureFlags", label: L("Feature flags", "फ़ीचर फ़्लैग", "फीचर फ्लॅग"), icon: "toggle-right", href: "/admin/feature-flags", permission: ADMIN_ONLY },
       { key: "broadcasts", label: L("Broadcasts", "प्रसारण संदेश", "प्रसारण संदेश"), icon: "megaphone", href: "/admin/broadcasts", permission: PERMISSIONS.BROADCAST_MANAGE }, // batch-2026-10 WS-F
       { key: "homeBanners", label: L("Home banners", "होम बैनर", "होम बॅनर"), icon: "images", href: "/admin/home-banners", permission: PERMISSIONS.HOME_BANNER_MANAGE }, // docs/homepage-uiux-2026-10
     ],
