@@ -311,6 +311,7 @@ export const TABLE_OWNERSHIP = {
   dealer_attribution_disputes: "seller",
   shop_auto_approval_log: "seller",
   shop_document_waivers: "seller", // approval without seller documents (0109)
+  shop_registration_drafts: "seller",
   dealer_commission_rules: "seller",
   dealer_commission_settings: "seller",
   dealer_rating_slabs: "seller",
