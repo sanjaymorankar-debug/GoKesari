@@ -24,6 +24,7 @@ import {
   MIN_PREPARATION_MINUTES,
 } from "@/lib/shop-settings";
 import type { ShopTypeKey } from "@/lib/shop-types";
+import { runOrDefer, type Defer } from "@/server/api/defer";
 import { db } from "@/server/db";
 import {
   notifications,
@@ -750,8 +751,12 @@ export async function approveShop(
   shopId: string,
   input: { classification: Classification },
   actor: { id: string; role: UserRole },
-  /** An admin approves without the seller documents (0109), with a written reason. */
-  options: { waiveDocuments?: { reason: string } } = {},
+  /**
+   * The route passes `after`: the owner's notice and the commission milestone
+   * run once the answer is sent (the audit is in the transaction). Without it
+   * they run before returning.
+   */
+  options: { defer?: Defer; waiveDocuments?: { reason: string } } = {},
 ): Promise<Shop> {
   let approved: Shop;
   try {
@@ -761,16 +766,21 @@ export async function approveShop(
     throw error;
   }
 
-  // The duplicate-registration message promises the owner a notification.
-  await notify({
-    userId: approved.ownerId,
-    type: NOTIFICATION_TYPES.SHOP_APPROVED,
-    title: "Your shop is approved",
-    body: `${approved.name} is now live on GoKesari.`,
-    actionUrl: "/shop",
-  });
-  // docs/dealer-programme: an approved shop is the ACTIVATED commission milestone.
-  await checkCommissionMilestonesSafely(shopId, actor);
+  const followUp = async () => {
+    // The duplicate-registration message promises the owner a notification.
+    await notify({
+      userId: approved.ownerId,
+      type: NOTIFICATION_TYPES.SHOP_APPROVED,
+      title: "Your shop is approved",
+      body: `${approved.name} is now live on GoKesari.`,
+      actionUrl: "/shop",
+    });
+    // docs/dealer-programme: an approved shop is the ACTIVATED commission milestone.
+    await checkCommissionMilestonesSafely(shopId, actor);
+  };
+  // The approval is saved: a follow-up that fails is logged, never turned into a failed answer.
+  const runFollowUp = () => followUp().catch((error) => console.error("[shops] approval follow-up failed", shopId, error));
+  await runOrDefer(runFollowUp, options.defer);
   return approved;
 }
 

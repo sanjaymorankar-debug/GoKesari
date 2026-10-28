@@ -35,6 +35,7 @@ import { maskEmailAddress, normalizeEmail } from "@/lib/contact";
 import { AppError, conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { decryptBytes } from "@/lib/pan-crypto";
 import { SELLER_DOC_LABELS, type SellerDocType, type SellerVerificationStatus } from "@/lib/kyc/doc-formats";
+import { runOrDefer, type Defer } from "@/server/api/defer";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db, type DbClient } from "@/server/db";
 import {
@@ -661,6 +662,8 @@ export async function decideShopDocument(
   verificationId: string,
   input: { decision: "approve" | "reject"; reason: string },
   actor: OperatorActor,
+  /** The route passes `after`: the audit and the decision's follow-ups run once the answer is sent. */
+  options: { defer?: Defer } = {},
 ): Promise<SellerVerificationView> {
   assertRole(actor);
   if (!can(actor.role, PERMISSIONS.OPERATOR_LIMITED_VERIFY_DOCS)) throw forbidden("You cannot review documents.");
@@ -668,15 +671,22 @@ export async function decideShopDocument(
   if (!row) throw notFound("Document");
   await assertOwnShop(row.shopId, actor);
   if (input.decision === "reject" && input.reason.trim().length < 3) throw validationFailed("Give the reason the document is rejected.");
-  const view = await adminDecideVerification(verificationId, input, { id: actor.id, role: actor.role }, { scopedReviewer: true });
-  await audit(actor, AUDIT_ACTIONS.OPLTD_DOCUMENT_DECIDED, "shop", row.shopId, {
+  const view = await adminDecideVerification(
     verificationId,
-    docType: row.docType,
-    decision: input.decision,
-    reason: input.reason.trim() || null,
-    from: row.status,
-    to: view.status,
-  });
+    input,
+    { id: actor.id, role: actor.role },
+    { scopedReviewer: true, defer: options.defer },
+  );
+  const auditDecision = () =>
+    audit(actor, AUDIT_ACTIONS.OPLTD_DOCUMENT_DECIDED, "shop", row.shopId, {
+      verificationId,
+      docType: row.docType,
+      decision: input.decision,
+      reason: input.reason.trim() || null,
+      from: row.status,
+      to: view.status,
+    }).catch((error) => console.error("[operator-limited] decision audit failed", verificationId, error));
+  await runOrDefer(auditDecision, options.defer);
   return view;
 }
 

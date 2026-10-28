@@ -1,5 +1,5 @@
 /** Decide one seller document: { decision: "approve" | "reject" | "more_info", reason }. A reason is required to reject or to ask for more information. */
-import type { NextRequest } from "next/server";
+import { after, type NextRequest } from "next/server";
 import { z } from "zod";
 
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
@@ -18,5 +18,6 @@ export const POST = route(async (request: NextRequest, context: RouteContext<{ i
   const user = await requirePermission(PERMISSIONS.SHOP_GST_PAN_VERIFY);
   enforceRateLimit(`seller-verification-review:${user.id}`, RATE_LIMITS.MUTATION);
   const body = await parseBody(request, schema);
-  return ok(await adminDecideVerification(id, body, user));
+  // Audit, seller notice and the auto-approval check run after the answer.
+  return ok(await adminDecideVerification(id, body, user, { defer: after }));
 });

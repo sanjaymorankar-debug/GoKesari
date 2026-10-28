@@ -2,7 +2,7 @@
  * Approve a pending shop and assign its classification (§8, §10).
  * `waiveDocuments` (admin only): approve without the seller documents, with a written reason (0109).
  */
-import type { NextRequest } from "next/server";
+import { after, type NextRequest } from "next/server";
 import { z } from "zod";
 
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
@@ -20,6 +20,6 @@ export const POST = route(
     const user = await requirePermission(PERMISSIONS.SHOP_APPROVE);
     const { id } = await context.params;
     const { classification, waiveDocuments } = await parseBody(request, schema);
-    return ok(toShopView(await approveShop(id, { classification }, user, { waiveDocuments })));
+    return ok(toShopView(await approveShop(id, { classification }, user, { defer: after, waiveDocuments })));
   },
 );
