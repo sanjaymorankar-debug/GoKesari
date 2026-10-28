@@ -68,6 +68,8 @@ const baseShop = {
   pincode: "411004",
   shopType: "DAIRY" as const,
 };
+/** What the form posts: Add my shop asks for the annual turnover (it sets the registration fee). */
+const formShop = { ...baseShop, annualTurnoverRupees: 1_500_000 };
 
 type Actor = { id: string; role: UserRole };
 
@@ -191,8 +193,12 @@ describe("while the first registration is pending or approved", () => {
   });
 
   it("allows the same PAN for a branch at a different place", async () => {
+    const admin = await createUser({ role: "ADMIN" });
     const owner = await createUser();
-    await register(asActor(owner), { panNumber: PAN, panHolderName: "Ramesh Patil" });
+    const first = await register(asActor(owner), { panNumber: PAN, panHolderName: "Ramesh Patil" });
+    // One registration under review per owner: the branch comes once the first is approved.
+    await verifySellerDocuments(first.id);
+    await approveShop(first.id, { classification: "KESARI" }, asActor(admin));
 
     const branch = await register(asActor(owner), {
       name: "Shree Dairy Kothrud",
@@ -202,6 +208,39 @@ describe("while the first registration is pending or approved", () => {
       panHolderName: "Ramesh Patil",
     });
     expect(branch.resubmitted).toBe(false);
+    expect(await shopCount()).toBe(2);
+  });
+
+  it("refuses the owner's second, different shop while the first waits for approval", async () => {
+    const owner = await createUser();
+    const first = await register(asActor(owner), { panNumber: PAN, panHolderName: "Ramesh Patil" });
+
+    await expect(
+      register(asActor(owner), {
+        name: "Shree Dairy Kothrud",
+        addressLine1: "5 Paud Road",
+        pincode: "411038",
+        shopActNumber: SHOP_ACT,
+      }),
+    ).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: expect.stringContaining("already waiting for approval"),
+      details: { reason: "REGISTRATION_PENDING", shopId: first.id },
+    });
+    expect(await shopCount()).toBe(1);
+  });
+
+  it("lets an operator register a second shop for an owner whose first is pending", async () => {
+    const operator = await createUser({ role: "ADMIN" });
+    const owner = await createUser();
+    await register(asActor(owner), { panNumber: PAN, panHolderName: "Ramesh Patil" });
+
+    const second = await registerShop(
+      { ...baseShop, name: "Shree Dairy Kothrud", addressLine1: "5 Paud Road", pincode: "411038", shopActNumber: SHOP_ACT, ownerId: owner.id },
+      asActor(operator),
+      { privileged: true },
+    );
+    expect(second.ownerId).toBe(owner.id);
     expect(await shopCount()).toBe(2);
   });
 
@@ -433,7 +472,7 @@ describe("POST /api/shops", () => {
     const owner = await createUser();
     signIn(owner);
 
-    const result = await call(registerRoute, "/api/shops", { method: "POST", body: { ...baseShop, categoryIds } });
+    const result = await call(registerRoute, "/api/shops", { method: "POST", body: { ...formShop, categoryIds } });
     expect(result.status).toBe(422);
     expect(result.body.error.details.fields).toEqual({
       identifiers: "Please enter at least one of PAN, Udyam Aadhaar, GST or Shop Act number.",
@@ -448,7 +487,7 @@ describe("POST /api/shops", () => {
     for (const blank of [{ name: "   " }, { ownerName: "   " }]) {
       const result = await call(registerRoute, "/api/shops", {
         method: "POST",
-        body: { ...baseShop, ...blank, categoryIds, shopActNumber: SHOP_ACT },
+        body: { ...formShop, ...blank, categoryIds, shopActNumber: SHOP_ACT },
       });
       expect(result.status).toBe(422);
       expect(Object.keys(result.body.error.details.fields)).toEqual(Object.keys(blank));
@@ -462,7 +501,7 @@ describe("POST /api/shops", () => {
 
     const result = await call(registerRoute, "/api/shops", {
       method: "POST",
-      body: { ...baseShop, categoryIds, gstin: " 27abcde1234f1z0 " },
+      body: { ...formShop, categoryIds, gstin: " 27abcde1234f1z0 " },
     });
     expect(result.status).toBe(201);
     const [row] = await db.select().from(shops).where(eq(shops.id, result.body.id));
@@ -477,7 +516,7 @@ describe("POST /api/shops", () => {
 
     const result = await call(registerRoute, "/api/shops", {
       method: "POST",
-      body: { ...baseShop, categoryIds, shopActNumber: SHOP_ACT, gstin: "27ABCDE1234F" },
+      body: { ...formShop, categoryIds, shopActNumber: SHOP_ACT, gstin: "27ABCDE1234F" },
     });
     expect(result.status).toBe(422);
     expect(Object.keys(result.body.error.details.fields)).toEqual(["gstin"]);
@@ -490,7 +529,7 @@ describe("POST /api/shops", () => {
 
     const result = await call(registerRoute, "/api/shops", {
       method: "POST",
-      body: { ...baseShop, categoryIds, gstin: "27ABCDE1234F1Z0", panNumber: "ABCD1234", panHolderName: "Ramesh Patil" },
+      body: { ...formShop, categoryIds, gstin: "27ABCDE1234F1Z0", panNumber: "ABCD1234", panHolderName: "Ramesh Patil" },
     });
     expect(result.status).toBe(422);
     expect(Object.keys(result.body.error.details.fields)).toEqual(["panNumber"]);
@@ -503,7 +542,7 @@ describe("POST /api/shops", () => {
 
     const result = await call(registerRoute, "/api/shops", {
       method: "POST",
-      body: { ...baseShop, categoryIds, udyamNumber: "udyam-mh-12-1234567" },
+      body: { ...formShop, categoryIds, udyamNumber: "udyam-mh-12-1234567" },
     });
     expect(result.status).toBe(201);
     const [row] = await db.select().from(shops).where(eq(shops.id, result.body.id));
@@ -517,14 +556,14 @@ describe("POST /api/shops", () => {
 
     const created = await call(registerRoute, "/api/shops", {
       method: "POST",
-      body: { ...baseShop, categoryIds, shopActNumber: SHOP_ACT },
+      body: { ...formShop, categoryIds, shopActNumber: SHOP_ACT },
     });
     expect(created.status).toBe(201);
     expect(created.body.resubmitted).toBe(false);
 
     const duplicate = await call(registerRoute, "/api/shops", {
       method: "POST",
-      body: { ...baseShop, categoryIds, shopActNumber: SHOP_ACT },
+      body: { ...formShop, categoryIds, shopActNumber: SHOP_ACT },
     });
     expect(duplicate.status).toBe(409);
     expect(duplicate.body.error.details.reason).toBe("DUPLICATE_SHOP");
@@ -533,7 +572,7 @@ describe("POST /api/shops", () => {
     await rejectShop(created.body.id, "Wrong shop type", asActor(admin));
     const resubmitted = await call(registerRoute, "/api/shops", {
       method: "POST",
-      body: { ...baseShop, categoryIds, shopType: "BAKERY", shopActNumber: SHOP_ACT },
+      body: { ...formShop, categoryIds, shopType: "BAKERY", shopActNumber: SHOP_ACT },
     });
     expect(resubmitted.status).toBe(200);
     expect(resubmitted.body.resubmitted).toBe(true);

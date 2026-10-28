@@ -53,7 +53,7 @@ export { PAYMENT_INTENT_STATUSES } from "@/lib/payment-intent-states";
 export type PaymentIntentStatus = PaymentIntentStatusValue;
 
 /** What a payment is for. Each purpose's capture handler lives in purpose-handlers.ts. */
-export type PaymentPurpose = "ORDER" | "ORDER_GROUP" | "SHOP_REGISTRATION_FEE";
+export type PaymentPurpose = "ORDER" | "ORDER_GROUP" | "SHOP_REGISTRATION_FEE" | "SUPPORT_SERVICE";
 
 export interface PaymentIntentRef {
   id: string;

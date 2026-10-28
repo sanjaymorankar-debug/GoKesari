@@ -12,7 +12,9 @@ export default async function JoinPage({ searchParams }: { searchParams: Promise
   const open = (await getRule("selfRegistration")).enabled;
   // docs/nearby-referral-2026-10: Mandatory / Optional by the admin's setting, read live.
   const referralRequired = await isReferralRequired("shop");
-  const code = typeof params.code === "string" ? params.code.toUpperCase().slice(0, 32) : "";
+  // ?code= (distributors' links) or ?ref= (dealer share links, docs/dealer-programme).
+  const given = typeof params.code === "string" ? params.code : typeof params.ref === "string" ? params.ref : "";
+  const code = given.toUpperCase().slice(0, 32);
   return (
     <div className="mx-auto max-w-md">
       <PageHeader title="Register your shop" description={`Shop name, mobile number, ${referralRequired ? "the referral code from your distributor" : "a referral code if you have one"}, and the fee. Your shop goes live as soon as the payment is confirmed.`} />

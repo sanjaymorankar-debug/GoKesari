@@ -12,8 +12,12 @@ import { auditLogs, type UserRole } from "@/server/db/schema";
 
 export const AUDIT_ACTIONS = {
   SHOP_REGISTERED: "shop.registered",
+  /** docs/shop-onboarding-wizard-2026-10: a GSTIN / PAN checked in the onboarding wizard, before the shop exists. Masked numbers only. */
+  SHOP_REGISTRATION_DRAFT_CHECKED: "shop_registration_draft.checked",
   SHOP_APPROVED: "shop.approved",
   SHOP_REJECTED: "shop.rejected",
+  SHOP_APPROVED_WITHOUT_DOCUMENTS: "shop.approved_without_documents",
+  SHOP_DOCUMENTS_REMINDED: "shop.documents_reminded",
   SHOP_SUSPENDED: "shop.suspended",
   SHOP_REACTIVATED: "shop.reactivated",
   SHOP_CLOSED: "shop.closed", // D-69: the owner closed the shop permanently
@@ -120,6 +124,7 @@ export const AUDIT_ACTIONS = {
 
   /* ------------------------------------------ registration, fees, referrals */
   REGISTRATION_FEE_CHANGED: "registration_fee.changed",
+  REGISTRATION_FEE_COUPON_SAVED: "registration_fee_coupon.saved",
   SHOP_REGISTRATION_UPDATED: "shop.registration_updated",
   SHOP_PAYMENT_RECORDED: "shop_payment.recorded",
   SHOP_PAYMENT_REVERSED: "shop_payment.reversed",
@@ -352,6 +357,43 @@ export const AUDIT_ACTIONS = {
   CUSTOMER_REFERRAL_REQUEST_CREATED: "customer_referral_request.created",
   CUSTOMER_REFERRAL_REQUEST_DECIDED: "customer_referral_request.decided",
   REFERRAL_SETTING_CHANGED: "referral_setting.changed",
+  FEATURE_FLAG_CHANGED: "feature_flag.changed", // docs/dealer-programme
+  GEO_AREA_SAVED: "geo_area.saved", // docs/dealer-programme
+  DEALER_APPLICATION_SAVED: "dealer.application_saved", // docs/dealer-programme
+  DEALER_APPLICATION_SUBMITTED: "dealer.application_submitted", // docs/dealer-programme
+  DEALER_STATUS_CHANGED: "dealer.status_changed", // docs/dealer-programme
+  DEALER_DOCUMENT_UPLOADED: "dealer.document_uploaded", // docs/dealer-programme
+  DEALER_DOCUMENT_REVIEWED: "dealer.document_reviewed", // docs/dealer-programme
+  DEALER_DOCUMENT_VIEWED: "dealer.document_viewed", // docs/dealer-programme
+  DEALER_DOC_REQUIREMENT_CHANGED: "dealer.document_requirement_changed", // docs/dealer-programme
+  DEALER_PAN_REVEALED: "dealer.pan_revealed", // docs/dealer-programme
+  DEALER_BANK_REVEALED: "dealer.bank_revealed", // docs/dealer-programme
+  DEALER_BANK_CHECKED: "dealer.bank_checked", // docs/dealer-programme
+  DEALER_CODE_ISSUED: "dealer.code_issued", // docs/dealer-programme
+  DEALER_CODE_STATUS_CHANGED: "dealer.code_status_changed", // docs/dealer-programme
+  DEALER_CODE_REPLACED: "dealer.code_replaced", // docs/dealer-programme
+  DEALER_SALESPERSON_SAVED: "dealer.salesperson_saved", // docs/dealer-programme
+  DEALER_ATTRIBUTION_RECORDED: "dealer.attribution_recorded", // docs/dealer-programme
+  DEALER_ATTRIBUTION_CHANGED: "dealer.attribution_changed", // docs/dealer-programme
+  DEALER_LEAD_SAVED: "dealer.lead_saved", // docs/dealer-programme
+  DEALER_ASSISTED_STEP: "dealer.assisted_registration", // docs/dealer-programme
+  DEALER_DISPUTE_SAVED: "dealer.dispute_saved", // docs/dealer-programme
+  DEALER_COMMISSION_SETTINGS_CHANGED: "dealer.commission_settings_changed", // docs/dealer-programme
+  DEALER_COMMISSION_RULE_CHANGED: "dealer.commission_rule_changed", // docs/dealer-programme
+  DEALER_COMMISSION_ACCRUED: "dealer.commission_accrued", // docs/dealer-programme
+  DEALER_COMMISSION_REVERSED: "dealer.commission_reversed", // docs/dealer-programme
+  DEALER_COMMISSION_APPROVED: "dealer.commission_approved", // docs/dealer-programme
+  DEALER_COMMISSION_CAP_OVERRIDE: "dealer.commission_cap_override", // docs/dealer-programme
+  DEALER_COMMISSION_HOLD: "dealer.commission_hold", // docs/dealer-programme
+  DEALER_PAYOUT_SAVED: "dealer.payout_saved", // docs/dealer-programme
+  DEALER_RATING_SLAB_CHANGED: "dealer.rating_slab_changed", // docs/dealer-programme
+  DEALER_RATING_CHANGED: "dealer.rating_changed", // docs/dealer-programme
+  SUPPORT_SERVICE_REQUESTED: "support_service.requested", // docs/dealer-programme
+  SUPPORT_SERVICE_PAID: "support_service.paid", // docs/dealer-programme
+  SUPPORT_SERVICE_CANCELLED: "support_service.cancelled", // docs/dealer-programme
+  SUPPORT_SERVICE_REFUNDED: "support_service.refunded", // docs/dealer-programme
+  SUPPORT_SERVICE_CHARGE_CHANGED: "support_service.charge_changed", // docs/dealer-programme
+  GEO_AREA_TARGET_SET: "geo_area.target_set", // docs/dealer-programme step 8
   DELIVERY_OFFER_BROADCAST: "delivery_order.offer_broadcast", // batch-2026-10 WS-B
   DELIVERY_BROADCAST_ACCEPTED: "delivery_order.broadcast_accepted", // batch-2026-10 WS-B
   DELIVERY_BROADCAST_CLOSED: "delivery_order.broadcast_closed", // batch-2026-10 WS-B

@@ -101,6 +101,7 @@ export const TABLE_OWNERSHIP = {
   registration_fees: "seller",
   registration_fee_tiers: "seller",
   registration_fee_history: "seller",
+  registration_fee_coupons: "seller",
   registration_payments: "seller",
   referral_codes: "seller",
   referral_code_requests: "seller",
@@ -291,6 +292,38 @@ export const TABLE_OWNERSHIP = {
   purchase_lists: "customer",
   purchase_list_items: "customer",
   /* <<< end purchase lists */
+  //
+  /* >>> dealer programme (docs/dealer-programme) */
+  feature_flags: "platform",
+  feature_flag_changes: "platform",
+  geo_areas: "seller",
+  geo_area_pincodes: "seller",
+  dealers: "seller",
+  dealer_document_requirements: "seller",
+  dealer_documents: "seller",
+  dealer_territories: "seller",
+  geo_area_targets: "seller", // docs/dealer-programme step 8
+  dealer_salespeople: "seller",
+  dealer_codes: "seller",
+  dealer_leads: "seller",
+  shop_attributions: "seller",
+  dealer_assisted_sessions: "seller",
+  dealer_attribution_disputes: "seller",
+  shop_auto_approval_log: "seller",
+  shop_document_waivers: "seller", // approval without seller documents (0109)
+  shop_registration_drafts: "seller",
+  dealer_commission_rules: "seller",
+  dealer_commission_settings: "seller",
+  dealer_rating_slabs: "seller",
+  dealer_rating_history: "seller",
+  dealer_payout_batches: "seller",
+  dealer_commission_ledger: "seller",
+  support_service_types: "platform",
+  support_service_charges: "platform",
+  support_service_settings: "platform",
+  support_service_requests: "platform",
+  support_service_files: "platform",
+  /* <<< end dealer programme */
   //
 } as const satisfies Record<string, DbOwner>;
 

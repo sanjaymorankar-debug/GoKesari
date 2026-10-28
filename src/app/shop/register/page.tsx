@@ -5,30 +5,52 @@ import { ShopRegisterForm } from "@/components/shop-register-form";
 import { Alert, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { isReferralRequired } from "@/server/services/referral-settings";
+import { baseRegistrationFee, registrationFeeGstRateBp } from "@/server/services/registration-fee-coupons";
+import { listShopCategories } from "@/server/services/shop-categories";
 import { listShopsForOwner } from "@/server/services/shops";
 import { getRule } from "@/server/services/settings";
+import { isFeatureEnabled } from "@/server/services/feature-flags";
 
 export const metadata = { title: "Add my shop" };
 export const dynamic = "force-dynamic";
 
-export default async function RegisterShopPage() {
+export default async function RegisterShopPage({ searchParams }: { searchParams: Promise<{ ref?: string | string[] }> }) {
+  // docs/dealer-programme: a dealer's share link (/shop/register?ref=CODE) fills in the referral code.
+  const rawRef = (await searchParams).ref;
+  const ref = typeof rawRef === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{2,31}$/.test(rawRef.trim()) ? rawRef.trim().toUpperCase() : null;
   const user = await getCurrentUser();
-  if (!user) redirect("/signin");
+  if (!user) redirect(ref ? `/signin?callbackUrl=${encodeURIComponent(`/shop/register?ref=${ref}`)}` : "/signin");
 
-  // Only the signed-in owner's own shops — nothing about anyone else's.
-  const ownShops = await listShopsForOwner(user.id);
+  // Every read at once: each one is a round trip to the database, and they
+  // used to run one after another on every visit.
+  const [ownShops, referralRequired, selfRegistration, feeRule, baseFee, gstRateBp, categories, dealerProgramme] = await Promise.all([
+    // Only the signed-in owner's own shops — nothing about anyone else's.
+    listShopsForOwner(user.id),
+    // docs/nearby-referral-2026-10: the admin's setting referral_required_shop, read live.
+    isReferralRequired("shop"),
+    // Module 3: with a referral code a shop can register and pay online, approved on payment.
+    getRule("selfRegistration"),
+    // The one-time registration fee, shown on the form before Submit: the base
+    // fee (by turnover when that rule is on, otherwise the flat fee) plus GST.
+    getRule("registrationFeeByTurnover"),
+    baseRegistrationFee(null),
+    // No GST rate in force: the form shows no breakdown and Submit reports it.
+    registrationFeeGstRateBp().catch(() => null),
+    // The category picker's list, so the form does not fetch it after loading.
+    listShopCategories({ activeOnly: true, withShopCounts: false }).catch(() => undefined),
+    // docs/dealer-programme: the optional Employee ID / name field exists only while the programme is on.
+    isFeatureEnabled("dealer_programme_enabled"),
+  ]);
   const pending = ownShops.filter((s) => s.status === "PENDING_APPROVAL");
   const rejected = ownShops.find((s) => s.status === "REJECTED");
-  // docs/nearby-referral-2026-10: the admin's setting referral_required_shop, read live.
-  const referralRequired = await isReferralRequired("shop");
-  // Module 3: with a referral code a shop can register and pay online, approved on payment.
-  const selfService = (await getRule("selfRegistration")).enabled;
+  const selfService = selfRegistration.enabled;
+  const waiting = pending[0];
 
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeader
         title="Add my shop"
-        description="Tell us about your dairy or bakery. An operator reviews every registration."
+        description="Tell us about your shop, clinic or office. An operator reviews every registration."
       />
       {pending.length > 0 ? (
         <div className="mb-4">
@@ -37,7 +59,7 @@ export default async function RegisterShopPage() {
             title={`Already waiting for approval: ${pending.map((s) => s.name).join(", ")}`}
           >
             You&apos;ll be notified once it&apos;s reviewed, and you don&apos;t need to submit it
-            again. Use this form only to add a different shop.
+            again. You can add another shop after that.
           </Alert>
         </div>
       ) : rejected ? (
@@ -63,7 +85,25 @@ export default async function RegisterShopPage() {
           chosen here.
         </Alert>
       </div>
-      <ShopRegisterForm referralRequired={referralRequired} />
+      <ShopRegisterForm
+        referralRequired={referralRequired}
+        initialReferralCode={ref}
+        showEmployeeField={dealerProgramme}
+        feeRule={feeRule}
+        feeQuote={gstRateBp === null ? null : { basePaise: baseFee.basePaise, gstRateBp }}
+        pending={
+          waiting
+            ? {
+                id: waiting.id,
+                name: waiting.name,
+                feeDue:
+                  waiting.feePaymentStatus !== "PAID" &&
+                  (waiting.registrationFeePaise ?? 0) > waiting.amountPaidPaise,
+              }
+            : null
+        }
+        initialCategories={categories?.map((c) => ({ id: c.id, name: c.name, status: c.status, groupName: c.groupName }))}
+      />
     </div>
   );
 }

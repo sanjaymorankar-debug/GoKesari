@@ -68,7 +68,9 @@ describe("registration fee schedule", () => {
       },
       { id: applicant.id, role: "CUSTOMER" },
     );
-    expect(shop.registrationFeePaise).toBe(500_000);
+    // The total charged: the fee plus 18% GST (owner, 27 Oct 2026).
+    expect(shop.registrationFeePaise).toBe(590_000);
+    expect(shop.registrationFeeBasePaise).toBe(500_000);
 
     // The fee goes up AFTER Shop A registered.
     await setRegistrationFee({ amountPaise: 600_000 }, ADMIN(admin.id));
@@ -77,7 +79,7 @@ describe("registration fee schedule", () => {
       .select()
       .from(shops)
       .where(eq(shops.id, shop.id));
-    expect(reloaded.registrationFeePaise).toBe(500_000);
+    expect(reloaded.registrationFeePaise).toBe(590_000);
 
     // ...and a shop registering now picks up the new amount.
     expect((await resolveFeeForNewRegistration()).amountPaise).toBe(600_000);

@@ -3,6 +3,8 @@
 export const NOTIFICATION_TYPES = {
   SHOP_APPROVED: "shop.approved",
   SHOP_REJECTED: "shop.rejected",
+  /** To the shop owner, sent by operations: upload the seller documents still missing. */
+  SHOP_DOCUMENTS_REMINDER: "shop.documents_reminder",
   /** DEF-02 (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): a shop previously learned about a new order only by refreshing /shop/orders. */
   SHOP_NEW_ORDER: "shop.new_order",
   /** To the shop: an order arrived while the shop is closed (customer confirmed they want to wait). */
@@ -308,6 +310,31 @@ export const NOTIFICATION_TYPES = {
   /** To the customer: a weekly / monthly list is due again — update the quantities and order. */
   PURCHASE_LIST_DUE: "list.due",
   /* <<< end purchase lists */
+  //
+  /* >>> dealer programme (docs/dealer-programme) */
+  /** To the applicant: the dealer application was received and waits for approval. */
+  DEALER_APPLICATION_RECEIVED: "dealer.application_received",
+  /** To the dealer: approved (with the code), rejected, suspended, reactivated or terminated, with the reason. */
+  DEALER_STATUS_CHANGED: "dealer.status_changed",
+  /** To the dealer: a document was rejected; upload it again. */
+  DEALER_DOCUMENT_REJECTED: "dealer.document_rejected",
+  /** To the dealer: a shop was attributed to them (code, dealer-assisted or lead). */
+  DEALER_SHOP_ATTRIBUTED: "dealer.shop_attributed",
+  /** To the dealer: their lead was closed because the shop registered with another dealer. */
+  DEALER_LEAD_CLOSED: "dealer.lead_closed",
+  /** To the dealer: an attribution claim was decided. */
+  DEALER_DISPUTE_DECIDED: "dealer.dispute_decided",
+  /** To the shop owner: a dealer registered the shop for them; pay the registration fee to finish. */
+  DEALER_ASSISTED_SHOP_REGISTERED: "dealer.assisted_shop_registered",
+  /** To the dealer: a shop counted for them was approved. */
+  DEALER_SHOP_APPROVED: "dealer.shop_approved",
+  /** To the dealer: a payout was made, with the bank reference. */
+  DEALER_PAYOUT_PAID: "dealer.payout_paid",
+  /** To the dealer: an admin lowered the rating, with the reason. */
+  DEALER_RATING_CHANGED: "dealer.rating_changed",
+  /** To the shop owner: approved instantly on GST/PAN verification + payment — ready for product upload (email). */
+  SHOP_READY_FOR_PRODUCT_UPLOAD: "shop.ready_for_product_upload",
+  /* <<< end dealer programme */
   //
 } as const;
 

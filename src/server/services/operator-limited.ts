@@ -35,6 +35,7 @@ import { maskEmailAddress, normalizeEmail } from "@/lib/contact";
 import { AppError, conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { decryptBytes } from "@/lib/pan-crypto";
 import { SELLER_DOC_LABELS, type SellerDocType, type SellerVerificationStatus } from "@/lib/kyc/doc-formats";
+import { runOrDefer, type Defer } from "@/server/api/defer";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db, type DbClient } from "@/server/db";
 import {
@@ -54,6 +55,7 @@ import { requestShopOnboardingConsentOtp, verifyShopOnboardingConsentOtp } from 
 import { createPaymentIntent, getPaymentIntent, type PaymentIntentRef } from "@/server/payments/intents";
 import { AUDIT_ACTIONS, recordAudit, type AuditAction } from "./audit";
 import { assertRegistrationReferralCode, attributeRegistrationReferral } from "./referral-requests";
+import { recordShopAttributionSafely } from "@/server/dealers/attribution";
 import { adminDecideVerification, getShopVerificationSummary, type SellerVerificationView } from "./seller-verification";
 import { getRule } from "./settings";
 import { recordPayment } from "./shop-payments";
@@ -148,7 +150,7 @@ export async function startOwnerConsent(
 }
 
 /** The owner's account for the verified email: the existing one, or a new customer account (email verified by the code). */
-async function ownerAccountFor(email: string): Promise<{ id: string; created: boolean }> {
+export async function ownerAccountFor(email: string): Promise<{ id: string; created: boolean }> {
   const [existing] = await db.select().from(users).where(and(eq(users.email, email), isNull(users.deletedAt)));
   if (existing) {
     if (existing.status !== "ACTIVE") throw forbidden("The owner's account is suspended or closed, so a shop cannot be registered for it.");
@@ -245,6 +247,8 @@ export async function submitOnboardedShop(
     .set({ onboardedByUserId: actor.id, updatedAt: new Date() })
     .where(and(eq(shops.id, shop.id), or(isNull(shops.onboardedByUserId), eq(shops.onboardedByUserId, actor.id))));
   if (referralCode) await attributeRegistrationReferral(shop, referralCode, actor);
+  // docs/dealer-programme: which dealer the code belongs to (after the commit, never blocking).
+  await recordShopAttributionSafely(shop.id, actor);
 
   const [after] = await db.select().from(shops).where(eq(shops.id, shop.id));
   const feeDue = Math.max(0, (after.registrationFeePaise ?? 0) - after.amountPaidPaise);
@@ -658,6 +662,8 @@ export async function decideShopDocument(
   verificationId: string,
   input: { decision: "approve" | "reject"; reason: string },
   actor: OperatorActor,
+  /** The route passes `after`: the audit and the decision's follow-ups run once the answer is sent. */
+  options: { defer?: Defer } = {},
 ): Promise<SellerVerificationView> {
   assertRole(actor);
   if (!can(actor.role, PERMISSIONS.OPERATOR_LIMITED_VERIFY_DOCS)) throw forbidden("You cannot review documents.");
@@ -665,15 +671,22 @@ export async function decideShopDocument(
   if (!row) throw notFound("Document");
   await assertOwnShop(row.shopId, actor);
   if (input.decision === "reject" && input.reason.trim().length < 3) throw validationFailed("Give the reason the document is rejected.");
-  const view = await adminDecideVerification(verificationId, input, { id: actor.id, role: actor.role }, { scopedReviewer: true });
-  await audit(actor, AUDIT_ACTIONS.OPLTD_DOCUMENT_DECIDED, "shop", row.shopId, {
+  const view = await adminDecideVerification(
     verificationId,
-    docType: row.docType,
-    decision: input.decision,
-    reason: input.reason.trim() || null,
-    from: row.status,
-    to: view.status,
-  });
+    input,
+    { id: actor.id, role: actor.role },
+    { scopedReviewer: true, defer: options.defer },
+  );
+  const auditDecision = () =>
+    audit(actor, AUDIT_ACTIONS.OPLTD_DOCUMENT_DECIDED, "shop", row.shopId, {
+      verificationId,
+      docType: row.docType,
+      decision: input.decision,
+      reason: input.reason.trim() || null,
+      from: row.status,
+      to: view.status,
+    }).catch((error) => console.error("[operator-limited] decision audit failed", verificationId, error));
+  await runOrDefer(auditDecision, options.defer);
   return view;
 }
 

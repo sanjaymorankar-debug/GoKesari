@@ -67,6 +67,7 @@ import { nextReference } from "@/server/services/shop-payments";
 import { extendMembership } from "@/server/services/shop-membership";
 import { getOrCreateShopWallet } from "@/server/services/shop-wallet";
 import { verifyRegistrationOtp } from "./otp";
+import { recordShopAttributionSafely } from "@/server/dealers/attribution";
 
 /* ---------------------------------------------------------------- helpers */
 
@@ -447,7 +448,10 @@ export async function processRegistrationPaymentEvent(event: RegistrationPayment
     }
     return { outcome: "MISMATCH", reason: "The amount paid is not the registration fee." };
   }
-  return approveRegistration(payment, event);
+  const outcome = await approveRegistration(payment, event);
+  // docs/dealer-programme: which dealer brought the shop — after the commit, never blocking the approval.
+  if (outcome.outcome === "APPROVED") await recordShopAttributionSafely(outcome.shopId, { id: outcome.ownerId, role: "SHOP_OWNER" });
+  return outcome;
 }
 
 function commissionAmount(type: "FLAT" | "PERCENT", value: number, basePaise: number): number {

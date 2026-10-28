@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 
 import { Alert, Badge, Button, Card, EmptyState, Money, inputClass } from "@/components/ui";
 import { rupeesToPaise } from "@/lib/money";
@@ -177,8 +177,8 @@ export function ShopFinanceManager({
                 const fee = s.registrationFeePaise ?? 0;
                 const outstanding = Math.max(0, fee - s.amountPaidPaise);
                 return (
-                  <>
-                    <tr key={s.id}>
+                  <Fragment key={s.id}>
+                    <tr>
                       <td className="px-4 py-2 font-medium text-ink-900">
                         {s.registrationNumber}
                       </td>
@@ -234,7 +234,7 @@ export function ShopFinanceManager({
                         </td>
                       </tr>
                     ) : null}
-                  </>
+                  </Fragment>
                 );
               })}
             </tbody>

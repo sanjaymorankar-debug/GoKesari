@@ -29,6 +29,7 @@ import { submitGstin } from "@/server/services/gst-pan-verification";
 import { fssaiBlocksRegistration, fssaiStatus } from "@/server/services/document-uploads";
 import { shopSellsFood } from "@/server/services/seller-verification";
 import { assertShopType } from "@/server/services/shop-types";
+import { recordShopAttributionSafely } from "@/server/dealers/attribution";
 
 type Actor = { id: string; role: UserRole };
 
@@ -170,6 +171,8 @@ export async function saveProfileSetup(shopId: string, input: z.infer<typeof pro
   if (complete && !shop.profileCompletedAt) {
     await db.update(shops).set({ profileCompletedAt: now }).where(and(eq(shops.id, shopId), isNull(shops.profileCompletedAt)));
     await recordAudit({ actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.SHOP_PROFILE_COMPLETED, entityType: "shop", entityId: shopId });
+    // docs/dealer-programme: a self-registered shop gets its PIN code (district) only now.
+    await recordShopAttributionSafely(shopId, actor);
   }
   return { complete, missing: view.missing, gstin: gstinCheck, warnings };
 }

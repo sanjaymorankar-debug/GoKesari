@@ -58,6 +58,9 @@ export function createMockAdapter(now: () => number = Date.now): KycAdapter {
           record.tradeName = name;
           record.linkedPan = req.number.slice(2, 12);
           record.stateCode = req.number.slice(0, 2);
+          // The onboarding wizard fills the shop's address from the GST record.
+          record.address = "Shop No 4, Main Market, Shivajinagar, Pune, Maharashtra, 411001";
+          record.entityType = req.number[5] === "P" ? "Proprietorship" : "Private Limited Company";
           if (digits === "8888") record.docStatus = "cancelled";
           break;
         case "UDYAM":

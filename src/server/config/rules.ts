@@ -6,6 +6,7 @@
  */
 import { z } from "zod";
 import { LEGAL_ENTITY } from "@/lib/legal-docs";
+import { DEFAULT_TURNOVER_SLABS, MAX_TURNOVER_SLABS, turnoverSlabsProblem, upgradeLegacyTurnoverRule } from "@/lib/registration-fee";
 
 const int = (min: number, max: number) => z.number().int().min(min).max(max);
 
@@ -682,6 +683,57 @@ export const RULES = {
       classification: z.enum(["KESARI", "GREEN"]),
     }),
     defaults: { enabled: false, holdHours: 24, maxPendingPerMobile: 3, classification: "GREEN" },
+  },
+  dealerProgramme: {
+    description:
+      "Dealer programme (docs/dealer-programme). leadWindowDays: how long a dealer's documented lead (with the owner's consent) reserves a shop that registers without a code. maxOpenLeadsPerDealer: open leads a dealer may hold at once (stops mass reservation). duplicateDistanceMeters: a new shop this close to another with a similar name (nameSimilarity 0–100) is flagged as a likely duplicate. assistedConsentMinutes: how long the owner's code keeps a dealer-assisted registration open. The programme itself is switched on in Admin → Settings → Feature flags.",
+    schema: z.object({
+      leadWindowDays: int(1, 365),
+      maxOpenLeadsPerDealer: int(1, 10_000),
+      duplicateDistanceMeters: int(10, 5_000),
+      nameSimilarity: int(50, 100),
+      assistedConsentMinutes: int(5, 24 * 60),
+    }),
+    defaults: { leadWindowDays: 30, maxOpenLeadsPerDealer: 200, duplicateDistanceMeters: 150, nameSimilarity: 80, assistedConsentMinutes: 60 },
+  },
+  dealerPerformanceScore: {
+    description:
+      "Dealer performance score (docs/dealer-programme, GKS-AN-001) — for analysis and ranking only; the onboarding rating drives commission. Weights in % (they must add up to 100): activatedShops — shops that went live, against the best dealer in the same district; registrationQuality — registrations not rejected, not duplicates and not reversed; activity30 — live shops with an order in the last 30 days; costPerActivatedShop — commission per live shop, cheapest in the district scores highest; coverage — areas of the dealer's territory with at least one of its shops (not a duplicate or rejected one). Shown in Admin → Dealers → Analytics.",
+    schema: z
+      .object({
+        activatedShops: int(0, 100),
+        registrationQuality: int(0, 100),
+        activity30: int(0, 100),
+        costPerActivatedShop: int(0, 100),
+        coverage: int(0, 100),
+      })
+      .refine((w) => w.activatedShops + w.registrationQuality + w.activity30 + w.costPerActivatedShop + w.coverage === 100, { message: "The weights must add up to 100." }),
+    defaults: { activatedShops: 35, registrationQuality: 20, activity30: 20, costPerActivatedShop: 15, coverage: 10 },
+  },
+  registrationFeeByTurnover: {
+    description:
+      "One-time shop registration fee on Add my shop (/shop/register), by the annual turnover the owner declares, in slabs (src/lib/registration-fee.ts): slabs is a list of { upToRupees, feePaise } — turnover up to a slab's upToRupees pays its feePaise; the last slab has upToRupees null and covers everything above. An admin adds or removes slabs (up to 20) in Admin → Registration fees → Fee by turnover. Fees are before GST (added at the PLATFORM_FEE_GST rate). enabled: off → the flat registration fee schedule (Admin → Registration fee) applies instead. Each shop keeps the fee it registered with; a change here never alters it. A value saved in the older three-slab form (slab1UpToRupees … slab3FeePaise) is read as the same three slabs.",
+    schema: z.preprocess(
+      upgradeLegacyTurnoverRule,
+      z
+        .object({
+          enabled: z.boolean(),
+          slabs: z
+            .array(z.object({ upToRupees: int(1, 1_000_000_000_000).nullable(), feePaise: int(0, 100_000_000) }))
+            .min(1)
+            .max(MAX_TURNOVER_SLABS),
+        })
+        .superRefine((v, ctx) => {
+          const problem = turnoverSlabsProblem(v.slabs);
+          if (problem) ctx.addIssue({ code: "custom", message: problem, path: ["slabs"] });
+        }),
+    ),
+    // Owner, 28 Oct 2026: on — up to ₹2 crore, up to ₹10 crore, above ₹10 crore.
+    // The fees are starting values; the admin sets them, and adds slabs, in Admin → Registration fees.
+    defaults: {
+      enabled: true,
+      slabs: DEFAULT_TURNOVER_SLABS,
+    },
   },
   shopProductMedia: {
     description:

@@ -42,6 +42,7 @@ import {
   VOUCHER_TYPES,
 } from "@/lib/accounts/constants";
 import type { ShopTypeKey } from "@/lib/shop-types";
+import { DEALER_BANK_STATUSES, DEALER_CODE_KINDS, DEALER_CODE_STATUSES, DEALER_DOC_TYPES, DEALER_STATUSES, DEALER_TYPES } from "@/lib/dealers";
 import {
   IMPORT_JOB_STATUSES,
   IMPORT_MATCH_TYPES,
@@ -92,6 +93,7 @@ export const userRoleEnum = pgEnum("user_role", [
    * entity and its scoped permissions land (Wave 8, decision D5). */
   "SOCIETY_ADMIN",
   "OPERATOR_LIMITED", // batch-2026-10 WS-D (F8.4.2: onboards shops for their owners; own shops only)
+  "DEALER", // docs/dealer-programme (0101): authorised dealers and their salespeople; own records only
 ]);
 
 /**
@@ -867,6 +869,25 @@ export const shops = pgTable(
     registrationFeePaise: bigint("registration_fee_paise", { mode: "number" }),
     /** Which fee row was in force at registration — provenance for the snapshot. */
     registrationFeeId: uuid("registration_fee_id"),
+    /**
+     * Annual turnover the owner declared on Add my shop, in whole rupees. The
+     * registration fee above was set from it (rule registrationFeeByTurnover,
+     * src/lib/registration-fee.ts). Null for shops registered before it was asked.
+     */
+    annualTurnoverRupees: bigint("annual_turnover_rupees", { mode: "number" }),
+    /**
+     * How registrationFeePaise was made up (owner, 27 Oct 2026): the base fee,
+     * less a registration-fee coupon, plus GST at the rate in force (Admin →
+     * Statutory, PLATFORM_FEE_GST) — registrationFeePaise is the total payable.
+     * Null for shops registered before the breakdown was kept.
+     */
+    registrationFeeBasePaise: bigint("registration_fee_base_paise", { mode: "number" }),
+    registrationFeeDiscountPaise: bigint("registration_fee_discount_paise", { mode: "number" }),
+    registrationFeeGstPaise: bigint("registration_fee_gst_paise", { mode: "number" }),
+    registrationFeeGstRateBp: integer("registration_fee_gst_rate_bp"),
+    /** The registration-fee coupon applied, if any (registration_fee_coupons). */
+    registrationFeeCouponId: uuid("registration_fee_coupon_id"),
+    registrationFeeCouponCode: text("registration_fee_coupon_code"),
     referralCodeId: uuid("referral_code_id"),
     /**
      * Module 3 (docs/three-modules-2026-10): how the shop came in. SELF_SERVICE
@@ -1055,6 +1076,8 @@ export const shopCategories = pgTable(
     name: text("name").notNull(),
     slug: text("slug").notNull(),
     description: text("description"),
+    /** Heading the category is listed under in the picker ("Medical — doctors and clinics"); null → "Other". */
+    groupName: text("group_name"),
     status: text("status", { enum: ["ACTIVE", "INACTIVE"] }).notNull().default("ACTIVE"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -3781,6 +3804,45 @@ export const registrationFeeHistory = pgTable(
   },
   (t) => [index("registration_fee_history_created_idx").on(t.createdAt)],
 );
+
+/**
+ * Coupon codes that reduce the one-time registration fee on Add my shop (owner,
+ * 27 Oct 2026). Admin only. GST is charged on the fee after the discount. A use
+ * is a shop registered with the code (shops.registration_fee_coupon_id).
+ */
+export const registrationFeeCoupons = pgTable(
+  "registration_fee_coupons",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Stored upper-case; matched case-insensitively. */
+    code: text("code").notNull(),
+    description: text("description"),
+    discountType: text("discount_type", { enum: ["FLAT", "PERCENT"] }).notNull(),
+    /** FLAT: paise off the base fee. */
+    flatPaise: bigint("flat_paise", { mode: "number" }),
+    /** PERCENT: whole percent off the base fee (1–100), optionally capped. */
+    percent: integer("percent"),
+    maxDiscountPaise: bigint("max_discount_paise", { mode: "number" }),
+    startsAt: timestamp("starts_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    /** Shops that may register with it in all (null = unlimited). */
+    usageLimit: integer("usage_limit"),
+    /** Shops one owner may register with it (null = unlimited). */
+    perOwnerLimit: integer("per_owner_limit").default(1),
+    active: boolean("active").notNull().default(true),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("registration_fee_coupons_code_uq").on(t.code),
+    check(
+      "registration_fee_coupons_amount_valid",
+      sql`(${t.discountType} = 'FLAT' AND ${t.flatPaise} > 0) OR (${t.discountType} = 'PERCENT' AND ${t.percent} BETWEEN 1 AND 100)`,
+    ),
+  ],
+);
+export type RegistrationFeeCoupon = typeof registrationFeeCoupons.$inferSelect;
 
 /* -------------------------------------------------------- referral codes */
 
@@ -7845,7 +7907,7 @@ export const paymentIntents = pgTable(
   "payment_intents",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE"] }).notNull(),
+    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE"] }).notNull(),
     /** The order id, order-group id or shop id — a plain UUID (no FK: the purposes point at different tables). */
     referenceId: uuid("reference_id").notNull(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
@@ -9343,3 +9405,790 @@ export const purchaseListItems = pgTable(
 export type PurchaseListItem = typeof purchaseListItems.$inferSelect;
 
 /* <<< end purchase lists */
+
+/* >>> dealer programme (docs/dealer-programme) */
+
+/** Admin-controlled feature flags (0102). Seeded OFF; read live by services/feature-flags.ts. */
+export const FEATURE_FLAG_KEYS = [
+  "dealer_programme_enabled",
+  "gov_verification_auto_approval_enabled",
+  "dealer_rating_bonus_enabled",
+  "paid_support_services_enabled",
+] as const;
+export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
+
+export const featureFlags = pgTable("feature_flags", {
+  key: text("key", { enum: FEATURE_FLAG_KEYS }).primaryKey(),
+  enabled: boolean("enabled").notNull().default(false),
+  /** geo_areas codes of DISTRICT rows (seller database: no foreign key). NULL = every district. */
+  districtCodes: text("district_codes").array(),
+  updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type FeatureFlag = typeof featureFlags.$inferSelect;
+
+/** Who changed a flag, from what to what, why and when. Append-only. */
+export const featureFlagChanges = pgTable(
+  "feature_flag_changes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    flagKey: text("flag_key", { enum: FEATURE_FLAG_KEYS }).notNull(),
+    oldValue: jsonb("old_value").$type<{ enabled: boolean; districtCodes: string[] | null }>().notNull(),
+    newValue: jsonb("new_value").$type<{ enabled: boolean; districtCodes: string[] | null }>().notNull(),
+    reason: text("reason").notNull(),
+    changedBy: uuid("changed_by").references(() => users.id, { onDelete: "set null" }),
+    changedByEmail: text("changed_by_email"),
+    changedByRole: text("changed_by_role"),
+    changedAt: timestamp("changed_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("feature_flag_changes_key_idx").on(t.flagKey, t.changedAt)],
+);
+export type FeatureFlagChange = typeof featureFlagChanges.$inferSelect;
+
+/** Maharashtra → Region → District → Taluka/City → Locality (0103). */
+export const GEO_LEVELS = ["STATE", "REGION", "DISTRICT", "TALUKA", "LOCALITY"] as const;
+export type GeoLevel = (typeof GEO_LEVELS)[number];
+
+export const geoAreas = pgTable(
+  "geo_areas",
+  {
+    code: text("code").primaryKey(),
+    name: text("name").notNull(),
+    level: text("level", { enum: GEO_LEVELS }).notNull(),
+    parentCode: text("parent_code").references((): AnyPgColumn => geoAreas.code, { onDelete: "restrict" }),
+    /** Districts: the region part of a dealer code (GKS-MH-PUN-…). */
+    shortCode: text("short_code"),
+    status: text("status", { enum: ["ACTIVE", "INACTIVE"] }).notNull().default("ACTIVE"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("geo_areas_parent_idx").on(t.parentCode),
+    uniqueIndex("geo_areas_district_short_code_unique").on(t.shortCode).where(sql`${t.level} = 'DISTRICT'`),
+    check("geo_areas_level", sql`${t.level} in ('STATE', 'REGION', 'DISTRICT', 'TALUKA', 'LOCALITY')`),
+    check("geo_areas_status", sql`${t.status} in ('ACTIVE', 'INACTIVE')`),
+    check("geo_areas_parent", sql`(${t.level} = 'STATE') = (${t.parentCode} IS NULL)`),
+    check("geo_areas_short_code", sql`${t.shortCode} IS NULL OR ${t.shortCode} ~ '^[A-Z]{2,4}$'`),
+  ],
+);
+export type GeoArea = typeof geoAreas.$inferSelect;
+
+/** How many shops GoKesari aims to have in an area — "target vs registered" on the coverage map (GKS-GEO-001). Admin-set. */
+export const geoAreaTargets = pgTable(
+  "geo_area_targets",
+  {
+    areaCode: text("area_code")
+      .primaryKey()
+      .references(() => geoAreas.code, { onDelete: "restrict" }),
+    targetShops: integer("target_shops").notNull(),
+    note: text("note"),
+    /** A user on the customer side: no foreign key (two-database layout). */
+    updatedBy: uuid("updated_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("geo_area_targets_target", sql`${t.targetShops} >= 0 AND ${t.targetShops} <= 100000`)],
+);
+export type GeoAreaTarget = typeof geoAreaTargets.$inferSelect;
+
+/** A PIN code belongs to the area with the longest matching prefix. */
+export const geoAreaPincodes = pgTable(
+  "geo_area_pincodes",
+  {
+    pincodePrefix: text("pincode_prefix").notNull(),
+    areaCode: text("area_code")
+      .notNull()
+      .references(() => geoAreas.code, { onDelete: "cascade" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    primaryKey({ name: "geo_area_pincodes_pk", columns: [t.pincodePrefix, t.areaCode] }),
+    index("geo_area_pincodes_prefix_idx").on(t.pincodePrefix),
+    check("geo_area_pincodes_prefix", sql`${t.pincodePrefix} ~ '^[1-9][0-9]{0,5}$'`),
+  ],
+);
+export type GeoAreaPincode = typeof geoAreaPincodes.$inferSelect;
+
+/** Authorised dealers (0104). Approval, codes and commission go through src/server/dealers. */
+export const dealers = pgTable(
+  "dealers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** The dealer's GoKesari account (users is a core table: no foreign key). */
+    userId: uuid("user_id"),
+    legalName: text("legal_name").notNull(),
+    contactName: text("contact_name").notNull(),
+    dealerType: text("dealer_type", { enum: DEALER_TYPES }).notNull(),
+    mobileE164: text("mobile_e164"),
+    mobileVerifiedAt: timestamp("mobile_verified_at", { withTimezone: true }),
+    mobileVerificationMethod: text("mobile_verification_method", { enum: ["OTP", "ADMIN_CALL", "LEGACY"] }),
+    email: text("email"),
+    emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
+    /** AES-GCM (src/lib/pan-crypto.ts); shown masked, revealed to admins with an audit entry. */
+    panEnc: text("pan_enc"),
+    panHash: text("pan_hash"),
+    panLast4: text("pan_last4"),
+    gstin: text("gstin"),
+    shopActNumber: text("shop_act_number"),
+    addressLine1: text("address_line1"),
+    addressLine2: text("address_line2"),
+    city: text("city"),
+    pincode: text("pincode"),
+    state: text("state"),
+    bankHolderName: text("bank_holder_name"),
+    bankAccountEnc: text("bank_account_enc"),
+    bankAccountLast4: text("bank_account_last4"),
+    bankIfsc: text("bank_ifsc"),
+    bankStatus: text("bank_status", { enum: DEALER_BANK_STATUSES }).notNull().default("NOT_PROVIDED"),
+    bankStatusReason: text("bank_status_reason"),
+    bankVerifiedAt: timestamp("bank_verified_at", { withTimezone: true }),
+    bankCheckRef: text("bank_check_ref"),
+    agreementVersion: text("agreement_version"),
+    agreementAcceptedAt: timestamp("agreement_accepted_at", { withTimezone: true }),
+    agreementStart: date("agreement_start"),
+    agreementEnd: date("agreement_end"),
+    status: text("status", { enum: DEALER_STATUSES }).notNull().default("DRAFT"),
+    statusReason: text("status_reason"),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decidedBy: uuid("decided_by"),
+    /** GoKesari Direct: holds codes that had no distributor; earns no commission. */
+    isInternal: boolean("is_internal").notNull().default(false),
+    legacyDistributorId: uuid("legacy_distributor_id").references(() => distributors.id, { onDelete: "set null" }),
+    source: text("source", { enum: ["APPLICATION", "LEGACY_MIGRATION", "ADMIN"] }).notNull().default("APPLICATION"),
+    /** 0107: onboarding rating (0–10, steps of 0.5). start_rating is the floor an admin may set; rating_override a manual downgrade until the next slab. */
+    startRating: numeric("start_rating", { precision: 3, scale: 1, mode: "number" }).notNull().default(5),
+    rating: numeric("rating", { precision: 3, scale: 1, mode: "number" }).notNull().default(5),
+    ratingOverride: numeric("rating_override", { precision: 3, scale: 1, mode: "number" }),
+    ratingOverrideUntilShops: integer("rating_override_until_shops"),
+    activatedShops: integer("activated_shops").notNull().default(0),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("dealers_user_unique").on(t.userId).where(sql`${t.userId} IS NOT NULL`),
+    uniqueIndex("dealers_legacy_distributor_unique").on(t.legacyDistributorId).where(sql`${t.legacyDistributorId} IS NOT NULL`),
+    uniqueIndex("dealers_internal_unique").on(t.isInternal).where(sql`${t.isInternal}`),
+    uniqueIndex("dealers_pan_unique").on(t.panHash).where(sql`${t.panHash} IS NOT NULL AND ${t.status} <> 'REJECTED'`),
+    index("dealers_status_idx").on(t.status),
+    check("dealers_type", sql`${t.dealerType} in ('INDIVIDUAL', 'PROPRIETORSHIP', 'PARTNERSHIP', 'COMPANY')`),
+    check("dealers_status", sql`${t.status} in ('DRAFT', 'PENDING', 'APPROVED', 'SUSPENDED', 'REJECTED', 'TERMINATED')`),
+    check("dealers_bank_status", sql`${t.bankStatus} in ('NOT_PROVIDED', 'PENDING', 'VERIFIED', 'FAILED')`),
+    check("dealers_mobile_method", sql`${t.mobileVerificationMethod} IS NULL OR ${t.mobileVerificationMethod} in ('OTP', 'ADMIN_CALL', 'LEGACY')`),
+    check("dealers_source", sql`${t.source} in ('APPLICATION', 'LEGACY_MIGRATION', 'ADMIN')`),
+    check("dealers_agreement_dates", sql`${t.agreementEnd} IS NULL OR ${t.agreementStart} IS NULL OR ${t.agreementEnd} >= ${t.agreementStart}`),
+  ],
+);
+export type Dealer = typeof dealers.$inferSelect;
+
+/** Which documents each dealer type must upload (admin-editable). */
+export const dealerDocumentRequirements = pgTable(
+  "dealer_document_requirements",
+  {
+    dealerType: text("dealer_type", { enum: DEALER_TYPES }).notNull(),
+    docType: text("doc_type", { enum: DEALER_DOC_TYPES }).notNull(),
+    required: boolean("required").notNull(),
+    updatedBy: uuid("updated_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ name: "dealer_document_requirements_pk", columns: [t.dealerType, t.docType] })],
+);
+
+/** A dealer's uploaded document; the file is encrypted (encryptBytes). */
+export const dealerDocuments = pgTable(
+  "dealer_documents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "cascade" }),
+    docType: text("doc_type", { enum: DEALER_DOC_TYPES }).notNull(),
+    fileName: text("file_name").notNull(),
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    content: bytea("content").notNull(),
+    status: text("status", { enum: ["SUBMITTED", "ACCEPTED", "REJECTED"] }).notNull().default("SUBMITTED"),
+    reviewNote: text("review_note"),
+    reviewedBy: uuid("reviewed_by"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    uploadedBy: uuid("uploaded_by"),
+    uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("dealer_documents_dealer_idx").on(t.dealerId, t.docType)],
+);
+export type DealerDocument = typeof dealerDocuments.$inferSelect;
+
+/** Areas a dealer works in. Never exclusive: several dealers may share a locality. */
+export const dealerTerritories = pgTable(
+  "dealer_territories",
+  {
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "cascade" }),
+    areaCode: text("area_code")
+      .notNull()
+      .references(() => geoAreas.code, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ name: "dealer_territories_pk", columns: [t.dealerId, t.areaCode] }), index("dealer_territories_area_idx").on(t.areaCode)],
+);
+
+/** A dealer's employee (salesperson), told apart by the dealer's own Employee ID. */
+export const dealerSalespeople = pgTable(
+  "dealer_salespeople",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "cascade" }),
+    employeeId: text("employee_id").notNull(),
+    name: text("name").notNull(),
+    mobileE164: text("mobile_e164"),
+    userId: uuid("user_id"),
+    status: text("status", { enum: ["ACTIVE", "INACTIVE"] }).notNull().default("ACTIVE"),
+    source: text("source", { enum: ["DEALER", "ADMIN", "LEGACY_MIGRATION"] }).notNull().default("DEALER"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("dealer_salespeople_employee_unique").on(t.dealerId, sql`lower(${t.employeeId})`)],
+);
+export type DealerSalesperson = typeof dealerSalespeople.$inferSelect;
+
+/**
+ * Links a referral code to its dealer (and employee). The referral_codes row
+ * stays the code everyone validates; its status is kept in step with this one.
+ */
+export const dealerCodes = pgTable(
+  "dealer_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    referralCodeId: uuid("referral_code_id")
+      .notNull()
+      .references(() => referralCodes.id, { onDelete: "cascade" }),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "cascade" }),
+    salespersonId: uuid("salesperson_id").references(() => dealerSalespeople.id, { onDelete: "set null" }),
+    kind: text("kind", { enum: DEALER_CODE_KINDS }).notNull(),
+    status: text("status", { enum: DEALER_CODE_STATUSES }).notNull().default("ACTIVE"),
+    replacedById: uuid("replaced_by_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("dealer_codes_referral_code_unique").on(t.referralCodeId),
+    index("dealer_codes_dealer_idx").on(t.dealerId, t.status),
+    index("dealer_codes_salesperson_idx").on(t.salespersonId).where(sql`${t.salespersonId} IS NOT NULL`),
+  ],
+);
+export type DealerCode = typeof dealerCodes.$inferSelect;
+
+/** A dealer's documented lead (0105): reserves the shop for the attribution window, with the owner's consent. */
+export const dealerLeads = pgTable(
+  "dealer_leads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "cascade" }),
+    salespersonId: uuid("salesperson_id").references(() => dealerSalespeople.id, { onDelete: "set null" }),
+    shopName: text("shop_name").notNull(),
+    ownerName: text("owner_name"),
+    phoneE164: text("phone_e164").notNull(),
+    gstin: text("gstin"),
+    pincode: text("pincode"),
+    latitude: text("latitude"),
+    longitude: text("longitude"),
+    consentAt: timestamp("consent_at", { withTimezone: true }).notNull(),
+    consentNote: text("consent_note"),
+    status: text("status", { enum: ["OPEN", "CONVERTED", "EXPIRED", "CLOSED"] }).notNull().default("OPEN"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    closedReason: text("closed_reason"),
+    convertedShopId: uuid("converted_shop_id"),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("dealer_leads_open_unique").on(t.dealerId, t.phoneE164).where(sql`${t.status} = 'OPEN'`),
+    index("dealer_leads_phone_idx").on(t.phoneE164, t.status),
+    index("dealer_leads_dealer_idx").on(t.dealerId, t.status, t.createdAt),
+    check("dealer_leads_status", sql`${t.status} in ('OPEN', 'CONVERTED', 'EXPIRED', 'CLOSED')`),
+    check("dealer_leads_phone", sql`${t.phoneE164} ~ '^\\+91[6-9][0-9]{9}$'`),
+  ],
+);
+export type DealerLead = typeof dealerLeads.$inferSelect;
+
+export const ATTRIBUTION_SOURCES = ["CODE_AT_REGISTRATION", "DEALER_ASSISTED", "LEAD", "ADMIN"] as const;
+export type AttributionSource = (typeof ATTRIBUTION_SOURCES)[number];
+
+/** Which dealer (and employee) brought a shop (0105). One row per shop; written after registration. */
+export const shopAttributions = pgTable(
+  "shop_attributions",
+  {
+    shopId: uuid("shop_id")
+      .primaryKey()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "restrict" }),
+    salespersonId: uuid("salesperson_id").references(() => dealerSalespeople.id, { onDelete: "set null" }),
+    referralCodeId: uuid("referral_code_id").references(() => referralCodes.id, { onDelete: "set null" }),
+    leadId: uuid("lead_id").references(() => dealerLeads.id, { onDelete: "set null" }),
+    source: text("source", { enum: ATTRIBUTION_SOURCES }).notNull(),
+    /** What was typed in the optional Employee ID / name field. */
+    employeeText: text("employee_text"),
+    /** DUPLICATE: the shop already looks registered; BRANCH: another shop of the same owner. */
+    matchKind: text("match_kind", { enum: ["NONE", "DUPLICATE", "BRANCH"] }).notNull().default("NONE"),
+    matchedShopId: uuid("matched_shop_id"),
+    matchReasons: text("match_reasons").array().notNull().default(sql`'{}'::text[]`),
+    status: text("status", { enum: ["ACTIVE", "REVERSED"] }).notNull().default("ACTIVE"),
+    note: text("note"),
+    /** 0107: when the shop reached the ACTIVATED milestone (counted for the dealer's rating). */
+    activatedAt: timestamp("activated_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("shop_attributions_dealer_idx").on(t.dealerId, t.createdAt),
+    index("shop_attributions_salesperson_idx").on(t.salespersonId).where(sql`${t.salespersonId} IS NOT NULL`),
+    check("shop_attributions_source", sql`${t.source} in ('CODE_AT_REGISTRATION', 'DEALER_ASSISTED', 'LEAD', 'ADMIN')`),
+    check("shop_attributions_match", sql`${t.matchKind} in ('NONE', 'DUPLICATE', 'BRANCH')`),
+    check("shop_attributions_status", sql`${t.status} in ('ACTIVE', 'REVERSED')`),
+  ],
+);
+export type ShopAttribution = typeof shopAttributions.$inferSelect;
+
+/** A dealer registering a shop for its owner (0105): the owner's code first, then the shop. */
+export const dealerAssistedSessions = pgTable(
+  "dealer_assisted_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "cascade" }),
+    salespersonId: uuid("salesperson_id").references(() => dealerSalespeople.id, { onDelete: "set null" }),
+    ownerName: text("owner_name").notNull(),
+    ownerMobileE164: text("owner_mobile_e164").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    ownerUserId: uuid("owner_user_id"),
+    otpChannel: text("otp_channel", { enum: ["SMS", "EMAIL"] }).notNull(),
+    status: text("status", { enum: ["OTP_SENT", "OWNER_VERIFIED", "SHOP_SUBMITTED", "CANCELLED"] }).notNull().default("OTP_SENT"),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    consentExpiresAt: timestamp("consent_expires_at", { withTimezone: true }),
+    shopId: uuid("shop_id"),
+    createdBy: uuid("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("dealer_assisted_sessions_dealer_idx").on(t.dealerId, t.createdAt),
+    check("dealer_assisted_sessions_channel", sql`${t.otpChannel} in ('SMS', 'EMAIL')`),
+    check("dealer_assisted_sessions_status", sql`${t.status} in ('OTP_SENT', 'OWNER_VERIFIED', 'SHOP_SUBMITTED', 'CANCELLED')`),
+  ],
+);
+export type DealerAssistedSession = typeof dealerAssistedSessions.$inferSelect;
+
+/** A dealer's claim that a shop is theirs (0105); an admin upholds or rejects it. */
+export const dealerAttributionDisputes = pgTable(
+  "dealer_attribution_disputes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id").references(() => shops.id, { onDelete: "set null" }),
+    leadId: uuid("lead_id").references(() => dealerLeads.id, { onDelete: "set null" }),
+    claimedPhoneE164: text("claimed_phone_e164").notNull(),
+    note: text("note").notNull(),
+    /** support_tickets.id (core table: no foreign key). */
+    ticketId: uuid("ticket_id"),
+    status: text("status", { enum: ["OPEN", "UPHELD", "REJECTED"] }).notNull().default("OPEN"),
+    resolutionNote: text("resolution_note"),
+    resolvedBy: uuid("resolved_by"),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdBy: uuid("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("dealer_attribution_disputes_status_idx").on(t.status, t.createdAt),
+    check("dealer_attribution_disputes_status", sql`${t.status} in ('OPEN', 'UPHELD', 'REJECTED')`),
+  ],
+);
+export type DealerAttributionDispute = typeof dealerAttributionDisputes.$inferSelect;
+
+/** Instant approval on GST/PAN verification + online payment (0106): every decision, with its evidence. Append-only. */
+export const shopAutoApprovalLog = pgTable(
+  "shop_auto_approval_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    rule: text("rule", { enum: ["GOV_VERIFICATION"] }).notNull().default("GOV_VERIFICATION"),
+    outcome: text("outcome", { enum: ["APPROVED", "PENDING"] }).notNull(),
+    reasons: text("reasons").array().notNull().default(sql`'{}'::text[]`),
+    evidence: jsonb("evidence").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("shop_auto_approval_log_shop_idx").on(t.shopId, t.createdAt),
+    index("shop_auto_approval_log_outcome_idx").on(t.outcome, t.createdAt),
+    check("shop_auto_approval_log_outcome", sql`${t.outcome} in ('APPROVED', 'PENDING')`),
+    check("shop_auto_approval_log_rule", sql`${t.rule} in ('GOV_VERIFICATION')`),
+  ],
+);
+export type ShopAutoApprovalLog = typeof shopAutoApprovalLog.$inferSelect;
+
+/**
+ * Approval without seller documents (0109): an admin's written override for a shop whose
+ * mandatory documents are not verified. Append-only; any row makes the shop KYC-complete
+ * for its onboarding stage (shop_kyc_complete). waived_by is a customer-side user: no foreign key.
+ */
+export const shopDocumentWaivers = pgTable(
+  "shop_document_waivers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    missingDocTypes: text("missing_doc_types").array().notNull().default(sql`'{}'::text[]`),
+    reason: text("reason").notNull(),
+    waivedBy: uuid("waived_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("shop_document_waivers_shop_idx").on(t.shopId, t.createdAt)],
+);
+export type ShopDocumentWaiver = typeof shopDocumentWaivers.$inferSelect;
+
+export const DRAFT_CHECK_STATUSES = ["NOT_SUBMITTED", "PENDING", "VERIFIED", "FAILED", "EXPIRED", "MANUAL_REVIEW"] as const;
+export type DraftCheckStatus = (typeof DRAFT_CHECK_STATUSES)[number];
+
+/**
+ * Onboarding wizard (0108, docs/shop-onboarding-wizard-2026-10): a registration
+ * in progress, before its shop row exists. GSTIN first — its government record
+ * fills the shop's name and address, and the PAN inside it is checked in the
+ * background; or PAN alone with the "not GST-registered" declaration. Numbers
+ * are stored like seller_verifications: ciphertext, masked form and blind index.
+ * One OPEN draft per owner. owner_id is a platform user: no foreign key (seller
+ * database), checked in the service.
+ */
+export const shopRegistrationDrafts = pgTable(
+  "shop_registration_drafts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerId: uuid("owner_id").notNull(),
+    status: text("status", { enum: ["OPEN", "SUBMITTED", "ABANDONED"] }).notNull().default("OPEN"),
+    /** GSTIN: the GST record leads. PAN_ONLY: no GSTIN, PAN + declaration. */
+    route: text("route", { enum: ["GSTIN", "PAN_ONLY"] }),
+
+    gstinEncrypted: text("gstin_encrypted"),
+    gstinMasked: text("gstin_masked"),
+    gstinHash: text("gstin_hash"),
+    gstStatus: text("gst_status", { enum: DRAFT_CHECK_STATUSES }).notNull().default("NOT_SUBMITTED"),
+    /** Normalised source fields (legal and trade name, address, state, PIN, constitution) — never the raw response. */
+    gstRecord: jsonb("gst_record").$type<Record<string, unknown>>().notNull().default({}),
+    gstProviderId: text("gst_provider_id"),
+    gstProviderRef: text("gst_provider_ref"),
+    gstErrorCode: text("gst_error_code"),
+    gstIdempotencyKey: text("gst_idempotency_key"),
+    gstCheckedAt: timestamp("gst_checked_at", { withTimezone: true }),
+    gstVerifiedAt: timestamp("gst_verified_at", { withTimezone: true }),
+
+    panEncrypted: text("pan_encrypted"),
+    panMasked: text("pan_masked"),
+    panHash: text("pan_hash"),
+    panStatus: text("pan_status", { enum: DRAFT_CHECK_STATUSES }).notNull().default("NOT_SUBMITTED"),
+    panRecord: jsonb("pan_record").$type<Record<string, unknown>>().notNull().default({}),
+    /** 0–100: the PAN holder's name against the GST legal / trade name (GSTIN route only). */
+    panNameMatchScore: integer("pan_name_match_score"),
+    panProviderId: text("pan_provider_id"),
+    panProviderRef: text("pan_provider_ref"),
+    panErrorCode: text("pan_error_code"),
+    panIdempotencyKey: text("pan_idempotency_key"),
+    panCheckedAt: timestamp("pan_checked_at", { withTimezone: true }),
+    panVerifiedAt: timestamp("pan_verified_at", { withTimezone: true }),
+
+    /** PAN_ONLY: the "this shop is not GST-registered" declaration, reviewed by an admin once the shop exists. */
+    noGstDeclaredAt: timestamp("no_gst_declared_at", { withTimezone: true }),
+    noGstDeclarationVersion: text("no_gst_declaration_version"),
+
+    /** DPDP Act 2023: consent to the government checks, with the notice version shown. */
+    consentGivenAt: timestamp("consent_given_at", { withTimezone: true }),
+    consentVersion: text("consent_version"),
+    /** Paid-check limit: owner submissions in the current one-hour window. */
+    checkWindowStartedAt: timestamp("check_window_started_at", { withTimezone: true }),
+    checksInWindow: integer("checks_in_window").notNull().default(0),
+
+    /** Set when the wizard creates the shop from this draft. */
+    shopId: uuid("shop_id").references((): AnyPgColumn => shops.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("shop_registration_drafts_open_owner_unique").on(t.ownerId).where(sql`${t.status} = 'OPEN'`),
+    index("shop_registration_drafts_gstin_hash_idx").on(t.gstinHash).where(sql`${t.gstinHash} IS NOT NULL`),
+    index("shop_registration_drafts_status_idx").on(t.status, t.updatedAt),
+    check("shop_registration_drafts_status", sql`${t.status} in ('OPEN', 'SUBMITTED', 'ABANDONED')`),
+    check("shop_registration_drafts_route", sql`${t.route} IS NULL OR ${t.route} in ('GSTIN', 'PAN_ONLY')`),
+  ],
+);
+export type ShopRegistrationDraft = typeof shopRegistrationDrafts.$inferSelect;
+
+export const COMMISSION_MILESTONES = ["REGISTERED", "VERIFIED_CATALOGUE", "ACTIVATED"] as const;
+export type CommissionMilestone = (typeof COMMISSION_MILESTONES)[number];
+export const COMMISSION_STATUSES = ["EARNED", "PENDING", "APPROVED", "PAID", "REVERSED", "ON_HOLD"] as const;
+export type CommissionStatus = (typeof COMMISSION_STATUSES)[number];
+
+/** Commission rules (0107): versioned — an edit adds a new version; accruals keep the version they were earned under. ADMIN only. */
+export const dealerCommissionRules = pgTable(
+  "dealer_commission_rules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ruleKey: uuid("rule_key").notNull(),
+    version: integer("version").notNull(),
+    shopScope: text("shop_scope", { enum: ["STANDARD", "WHOLESALE", "ALL"] }).notNull().default("STANDARD"),
+    /** geo_areas DISTRICT code; NULL = every district. */
+    districtCode: text("district_code"),
+    milestone: text("milestone", { enum: COMMISSION_MILESTONES }).notNull(),
+    fixedPaise: integer("fixed_paise").notNull().default(0),
+    /** Basis points of the registration fee actually paid (before GST). */
+    percentBp: integer("percent_bp").notNull().default(0),
+    effectiveFrom: date("effective_from").notNull(),
+    effectiveTo: date("effective_to"),
+    status: text("status", { enum: ["ACTIVE", "SUPERSEDED", "DISABLED"] }).notNull().default("ACTIVE"),
+    changeReason: text("change_reason").notNull(),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("dealer_commission_rules_version_unique").on(t.ruleKey, t.version),
+    index("dealer_commission_rules_lookup_idx").on(t.milestone, t.status),
+  ],
+);
+export type DealerCommissionRule = typeof dealerCommissionRules.$inferSelect;
+
+/** One row: the per-shop cap, how a fixed rule's bonus is figured, the catalogue size, branch eligibility. ADMIN only. */
+export const dealerCommissionSettings = pgTable("dealer_commission_settings", {
+  id: text("id").primaryKey().default("default"),
+  capPaise: integer("cap_paise").notNull().default(99900),
+  fixedBonusBase: text("fixed_bonus_base", { enum: ["FEE", "BASE_AMOUNT"] }).notNull().default("FEE"),
+  catalogueMinProducts: integer("catalogue_min_products").notNull().default(10),
+  branchEligible: boolean("branch_eligible").notNull().default(false),
+  updatedBy: uuid("updated_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type DealerCommissionSettings = typeof dealerCommissionSettings.$inferSelect;
+
+/** Rating slabs (0107): cumulative activated shops → rating. ADMIN only. */
+export const dealerRatingSlabs = pgTable(
+  "dealer_rating_slabs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    minShops: integer("min_shops").notNull(),
+    rating: numeric("rating", { precision: 3, scale: 1, mode: "number" }).notNull(),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("dealer_rating_slabs_min_unique").on(t.minShops)],
+);
+export type DealerRatingSlab = typeof dealerRatingSlabs.$inferSelect;
+
+export const dealerRatingHistory = pgTable(
+  "dealer_rating_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "cascade" }),
+    oldRating: numeric("old_rating", { precision: 3, scale: 1, mode: "number" }).notNull(),
+    newRating: numeric("new_rating", { precision: 3, scale: 1, mode: "number" }).notNull(),
+    kind: text("kind", { enum: ["AUTO", "START", "MANUAL"] }).notNull(),
+    activatedShops: integer("activated_shops").notNull(),
+    reason: text("reason").notNull(),
+    changedBy: uuid("changed_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("dealer_rating_history_dealer_idx").on(t.dealerId, t.createdAt)],
+);
+export type DealerRatingHistory = typeof dealerRatingHistory.$inferSelect;
+
+/** A payout to one dealer (0107): the bank transfer is made outside GoKesari; its reference is recorded here. */
+export const dealerPayoutBatches = pgTable(
+  "dealer_payout_batches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "restrict" }),
+    status: text("status", { enum: ["DRAFT", "PAID", "CANCELLED"] }).notNull().default("DRAFT"),
+    totalPaise: integer("total_paise").notNull(),
+    paymentReference: text("payment_reference"),
+    note: text("note"),
+    createdBy: uuid("created_by").notNull(),
+    paidBy: uuid("paid_by"),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("dealer_payout_batches_dealer_idx").on(t.dealerId, t.createdAt)],
+);
+export type DealerPayoutBatch = typeof dealerPayoutBatches.$inferSelect;
+
+/** The commission ledger (0107): accruals per milestone, reversals (negative) and adjustments. */
+export const dealerCommissionLedger = pgTable(
+  "dealer_commission_ledger",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "restrict" }),
+    salespersonId: uuid("salesperson_id").references(() => dealerSalespeople.id, { onDelete: "set null" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    milestone: text("milestone", { enum: COMMISSION_MILESTONES }).notNull(),
+    kind: text("kind", { enum: ["ACCRUAL", "REVERSAL", "ADJUSTMENT"] }).notNull().default("ACCRUAL"),
+    ruleId: uuid("rule_id").references(() => dealerCommissionRules.id, { onDelete: "restrict" }),
+    ruleVersion: integer("rule_version"),
+    feePaise: integer("fee_paise").notNull().default(0),
+    basePaise: integer("base_paise").notNull().default(0),
+    rating: numeric("rating", { precision: 3, scale: 1, mode: "number" }),
+    bonusBp: integer("bonus_bp").notNull().default(0),
+    bonusPaise: integer("bonus_paise").notNull().default(0),
+    amountPaise: integer("amount_paise").notNull(),
+    status: text("status", { enum: COMMISSION_STATUSES }).notNull().default("EARNED"),
+    /** ON_HOLD rows remember the status they were held from. */
+    heldFromStatus: text("held_from_status", { enum: COMMISSION_STATUSES }),
+    /** The part of a milestone above the per-shop cap: PENDING until an admin overrides. */
+    aboveCap: boolean("above_cap").notNull().default(false),
+    reversesId: uuid("reverses_id").references((): AnyPgColumn => dealerCommissionLedger.id, { onDelete: "restrict" }),
+    payoutBatchId: uuid("payout_batch_id").references(() => dealerPayoutBatches.id, { onDelete: "set null" }),
+    approvedBy: uuid("approved_by"),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    note: text("note"),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("dealer_commission_ledger_accrual_unique").on(t.shopId, t.milestone, t.aboveCap).where(sql`${t.kind} = 'ACCRUAL'`),
+    index("dealer_commission_ledger_dealer_idx").on(t.dealerId, t.status, t.createdAt),
+    index("dealer_commission_ledger_shop_idx").on(t.shopId),
+    index("dealer_commission_ledger_batch_idx").on(t.payoutBatchId).where(sql`${t.payoutBatchId} IS NOT NULL`),
+  ],
+);
+export type DealerCommissionEntry = typeof dealerCommissionLedger.$inferSelect;
+
+export const SUPPORT_CHARGE_MODELS = ["FREE", "PER_REQUEST", "PER_ITEM", "PER_BATCH"] as const;
+export type SupportChargeModel = (typeof SUPPORT_CHARGE_MODELS)[number];
+
+/** Support services offered to shops (0108): general support, product upload, price update. */
+export const supportServiceTypes = pgTable("support_service_types", {
+  key: text("key").primaryKey(),
+  label: text("label").notNull(),
+  description: text("description").notNull(),
+  /** What the quantity counts ("products"); null when the service is one request. */
+  unitLabel: text("unit_label"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  status: text("status", { enum: ["ACTIVE", "INACTIVE"] }).notNull().default("ACTIVE"),
+});
+export type SupportServiceType = typeof supportServiceTypes.$inferSelect;
+
+/** A service's charge (0108): versioned, ADMIN only. Requests keep the version they were priced with. */
+export const supportServiceCharges = pgTable(
+  "support_service_charges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serviceKey: text("service_key")
+      .notNull()
+      .references(() => supportServiceTypes.key, { onDelete: "restrict" }),
+    version: integer("version").notNull(),
+    chargeModel: text("charge_model", { enum: SUPPORT_CHARGE_MODELS }).notNull(),
+    amountPaise: integer("amount_paise").notNull().default(0),
+    /** PER_BATCH: items per batch (e.g. 50). */
+    batchSize: integer("batch_size"),
+    gstApplicable: boolean("gst_applicable").notNull().default(true),
+    gstRateBp: integer("gst_rate_bp").notNull().default(1800),
+    freeQuotaPerMonth: integer("free_quota_per_month").notNull().default(0),
+    effectiveFrom: date("effective_from").notNull(),
+    effectiveTo: date("effective_to"),
+    status: text("status", { enum: ["ACTIVE", "SUPERSEDED"] }).notNull().default("ACTIVE"),
+    changeReason: text("change_reason").notNull(),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("support_service_charges_version_unique").on(t.serviceKey, t.version)],
+);
+export type SupportServiceCharge = typeof supportServiceCharges.$inferSelect;
+
+export const supportServiceSettings = pgTable("support_service_settings", {
+  id: text("id").primaryKey().default("default"),
+  refundPercentBeforeWork: integer("refund_percent_before_work").notNull().default(100),
+  freeForManagedBilling: boolean("free_for_managed_billing").notNull().default(true),
+  updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type SupportServiceSettings = typeof supportServiceSettings.$inferSelect;
+
+/** One shop's request for a support service (0108): priced, paid (or free), then a help-desk ticket. */
+export const supportServiceRequests = pgTable(
+  "support_service_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    receiptNumber: text("receipt_number").notNull(),
+    /** shops.id (seller database: no foreign key; checked by the service). */
+    shopId: uuid("shop_id").notNull(),
+    requestedBy: uuid("requested_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    /** Set when a dealer raised it for a shop they brought (seller database: no foreign key). */
+    dealerId: uuid("dealer_id"),
+    serviceKey: text("service_key")
+      .notNull()
+      .references(() => supportServiceTypes.key, { onDelete: "restrict" }),
+    chargeId: uuid("charge_id")
+      .notNull()
+      .references(() => supportServiceCharges.id, { onDelete: "restrict" }),
+    quantity: integer("quantity").notNull().default(1),
+    description: text("description").notNull(),
+    basePaise: integer("base_paise").notNull().default(0),
+    gstPaise: integer("gst_paise").notNull().default(0),
+    totalPaise: integer("total_paise").notNull().default(0),
+    freeReason: text("free_reason", { enum: ["FREE_SERVICE", "MONTHLY_QUOTA", "MANAGED_BILLING"] }),
+    status: text("status", { enum: ["AWAITING_PAYMENT", "PAID", "CANCELLED", "REFUNDED"] }).notNull().default("AWAITING_PAYMENT"),
+    paymentMethod: text("payment_method", { enum: ["WALLET", "ONLINE", "FREE"] }),
+    paymentIntentId: uuid("payment_intent_id").references(() => paymentIntents.id, { onDelete: "set null" }),
+    walletReference: text("wallet_reference"),
+    ticketId: uuid("ticket_id").references(() => supportTickets.id, { onDelete: "set null" }),
+    refundPaise: integer("refund_paise").notNull().default(0),
+    refundReason: text("refund_reason"),
+    refundedAt: timestamp("refunded_at", { withTimezone: true }),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("support_service_requests_receipt_unique").on(t.receiptNumber),
+    index("support_service_requests_shop_idx").on(t.shopId, t.createdAt),
+    index("support_service_requests_status_idx").on(t.status, t.createdAt),
+  ],
+);
+export type SupportServiceRequest = typeof supportServiceRequests.$inferSelect;
+
+export const supportServiceFiles = pgTable(
+  "support_service_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => supportServiceRequests.id, { onDelete: "cascade" }),
+    fileName: text("file_name").notNull(),
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    content: bytea("content").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("support_service_files_request_idx").on(t.requestId)],
+);
+
+/* <<< end dealer programme */

@@ -23,7 +23,7 @@ export default async function ShopCategoriesPage() {
       />
       <UnsavedChangesProvider>
         <ShopCategoriesAdmin
-          categories={categories.map((c) => ({ id: c.id, name: c.name, description: c.description, status: c.status, shopCount: c.shopCount }))}
+          categories={categories.map((c) => ({ id: c.id, name: c.name, description: c.description, groupName: c.groupName, status: c.status, shopCount: c.shopCount }))}
           uncategorised={uncategorised}
         />
       </UnsavedChangesProvider>

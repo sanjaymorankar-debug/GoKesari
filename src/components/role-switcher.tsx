@@ -17,6 +17,7 @@ export const ROLE_LABEL: Record<string, string> = {
   DELIVERY_PARTNER: "Delivery partner",
   SOCIETY_ADMIN: "Society admin",
   OPERATOR_LIMITED: "Operator (limited)", // batch-2026-10 WS-D
+  DEALER: "Dealer", // docs/dealer-programme
 };
 
 const ROLE_HOME: Record<string, string> = {
@@ -27,6 +28,7 @@ const ROLE_HOME: Record<string, string> = {
   DELIVERY_PARTNER: "/delivery-partner",
   SOCIETY_ADMIN: "/society",
   OPERATOR_LIMITED: "/operator", // batch-2026-10 WS-D
+  DEALER: "/dealer", // docs/dealer-programme
 };
 
 /** Header control to switch the active role; shown only to users holding more than one. */

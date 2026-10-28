@@ -45,6 +45,7 @@ import {
   listProductsVisibleToShop,
   shopCarriesProductCategory,
 } from "./product-categories";
+import { checkCommissionMilestonesSafely } from "@/server/dealers/commission";
 
 /* ------------------------------------------------------------ categories */
 
@@ -495,7 +496,11 @@ export async function createProductForShop(
     return { product, shopProduct, reusedExisting: false, similarWarning: similar };
   };
 
-  return client ? run(client) : db.transaction(run);
+  if (client) return run(client);
+  const result = await db.transaction(run);
+  // docs/dealer-programme: a growing catalogue may complete the dealer's "verified + catalogue" milestone.
+  await checkCommissionMilestonesSafely(input.shopId);
+  return result;
 }
 
 export async function listPendingProductApprovals(): Promise<
@@ -844,6 +849,8 @@ export async function createShopProduct(
     },
     client,
   );
+  // docs/dealer-programme: a growing catalogue may complete the dealer's "verified + catalogue" milestone.
+  if (client === db) await checkCommissionMilestonesSafely(created.shopId);
   return created;
 }
 

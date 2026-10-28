@@ -12,6 +12,7 @@ import type { CustomerLocation } from "@/lib/location";
 import { lineTotalPaise, MILLI_PER_UNIT } from "@/lib/money";
 import type { AuthenticatedUser } from "@/server/authz/guards";
 import { listAddresses } from "@/server/services/addresses";
+import { enabledFeatureKeys } from "@/server/services/feature-flags";
 import {
   customerCounts,
   getActiveOrder,
@@ -109,6 +110,8 @@ export async function loadCustomerBoard(user: AuthenticatedUser | null, location
 export interface ShopBoardData {
   counts: Counts;
   facts: ShopFacts;
+  /** Feature flags that are on (docs/dealer-programme): tiles that exist only with a feature. */
+  features: string[];
 }
 
 /**
@@ -118,18 +121,24 @@ export interface ShopBoardData {
 export const loadShopCounts = cache((shopId: string): Promise<Counts> => shopCounts(shopId));
 
 export async function loadShopBoard(shopId: string, user: AuthenticatedUser): Promise<ShopBoardData> {
-  const [counts, facts] = await Promise.all([loadShopCounts(shopId), shopBoardFacts(shopId, user)]);
-  return { counts, facts };
+  const [counts, facts, features] = await Promise.all([loadShopCounts(shopId), shopBoardFacts(shopId, user), enabledFeatureKeys()]);
+  return { counts, facts, features };
 }
 
 export interface StaffBoardData {
   counts: Counts;
   alerts: OperatorAlerts;
+  /** Feature flags that are on, for tiles that exist only with a feature (docs/dealer-programme). */
+  features: string[];
 }
 
 export async function loadStaffBoard(role: "ADMIN" | "OPERATOR"): Promise<StaffBoardData> {
-  const [counts, alerts] = await Promise.all([staffCounts(role), role === "OPERATOR" ? operatorAlerts() : Promise.resolve({})]);
-  return { counts, alerts };
+  const [counts, alerts, features] = await Promise.all([
+    staffCounts(role),
+    role === "OPERATOR" ? operatorAlerts() : Promise.resolve({}),
+    enabledFeatureKeys(),
+  ]);
+  return { counts, alerts, features };
 }
 
 /** Tomorrow as a calendar date in the app's time zone (for labels). */

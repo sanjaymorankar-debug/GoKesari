@@ -82,6 +82,7 @@ import { addCategoryToShop, ensureGeneralCategory } from "./product-categories";
 import { initialStatus, listImages } from "./product-images";
 import { getRule } from "./settings";
 import { attachProcessedPhoto, lockListing } from "./shop-media";
+import { checkCommissionMilestonesSafely } from "@/server/dealers/commission";
 
 export interface ImportActor {
   id: string;
@@ -1358,6 +1359,8 @@ export async function runCommit(jobId: string, actor: ImportActor, options: Comm
   });
 
   if (imagesQueued > 0) await runImageImport(jobId, actor, { fetcher: options.fetcher ?? fetchImage });
+  // docs/dealer-programme: an import may complete the dealer's "verified + catalogue" milestone.
+  await checkCommissionMilestonesSafely(job.shopId);
   return getJobView(jobId);
 }
 

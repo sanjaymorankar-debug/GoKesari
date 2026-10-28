@@ -31,7 +31,13 @@ function matches(stored: string, mobileE164: string, code: string): boolean {
   return a.length === b.length && timingSafeEqual(a, b);
 }
 
-export async function sendRegistrationOtp(mobileE164: string, ip: string | null): Promise<{ resendAfterSeconds: number; expiryMinutes: number }> {
+export async function sendRegistrationOtp(
+  mobileE164: string,
+  ip: string | null,
+  /** The SMS wording (docs/dealer-programme reuses the code for a dealer's mobile); default: shop registration. */
+  smsText: (code: string, expiryMinutes: number) => string = (code, minutes) =>
+    `${code} is your GoKesari shop registration code. It expires in ${minutes} minutes. Do not share it.`,
+): Promise<{ resendAfterSeconds: number; expiryMinutes: number }> {
   if (!isTextChannelAvailable("SMS")) {
     throw new AppError("CONFLICT", "Registration by mobile is not available right now (SMS is not set up). Please try again later.");
   }
@@ -68,7 +74,7 @@ export async function sendRegistrationOtp(mobileE164: string, ip: string | null)
       ipAddress: ip,
     });
   });
-  await sendText("SMS", mobileE164, `${code} is your GoKesari shop registration code. It expires in ${rules.expiryMinutes} minutes. Do not share it.`, "registration-otp");
+  await sendText("SMS", mobileE164, smsText(code, rules.expiryMinutes), "registration-otp");
   return { resendAfterSeconds: rules.resendCooldownSeconds, expiryMinutes: rules.expiryMinutes };
 }
 

@@ -119,6 +119,10 @@ export const TEMPLATES: Record<string, Template> = {
   [T.SECURITY_ACCOUNT_STATUS]: t("Account status changed", "Your account was {{status}}. {{detail}}"),
   [T.SHOP_APPROVED]: t("Shop approved", "{{shopName}} is approved and can start selling."),
   [T.SHOP_REJECTED]: t("Shop not approved", "{{shopName}} was not approved: {{reason}}"),
+  [T.SHOP_DOCUMENTS_REMINDER]: t(
+    "Upload your documents to go live",
+    "{{shopName}} is waiting for your documents: {{documents}}. Upload them so we can verify them and approve your shop.",
+  ),
   [T.SHOP_STAFF_ADDED]: t(
     "You can now edit a shop's products",
     "{{ownerName}} added you to {{shopName}}: you can add and change its product photos and descriptions.",
@@ -366,6 +370,30 @@ export const TEMPLATES: Record<string, Template> = {
     "Time to reorder: {{listName}}",
     "Your {{frequency}} list \"{{listName}}\" is due. Update the quantities and order it in a minute.",
     false,
+  ),
+  // docs/dealer-programme
+  [T.DEALER_APPLICATION_RECEIVED]: t(
+    "Dealer application received",
+    "Thank you, {{legalName}}. Your GoKesari dealer application is with our team for approval. We will tell you when it is decided.",
+  ),
+  [T.DEALER_STATUS_CHANGED]: t("Dealer account: {{statusLabel}}", "Your GoKesari dealer account is now {{statusLabel}}. {{detail}}"),
+  [T.DEALER_SHOP_ATTRIBUTED]: t("New shop: {{shopName}}", "{{shopName}} ({{area}}) registered and is counted for you{{employee}}. It earns commission as it completes the onboarding milestones."),
+  [T.DEALER_LEAD_CLOSED]: t("Lead closed: {{shopName}}", "Your lead for {{shopName}} was closed: {{reason}}. If you believe the shop is yours, raise a claim from your dealer page."),
+  [T.DEALER_DISPUTE_DECIDED]: t("Your claim was {{decision}}", "Your claim about the shop with mobile ending {{phoneTail}} was {{decision}}. {{note}}"),
+  [T.DEALER_ASSISTED_SHOP_REGISTERED]: t(
+    "{{dealerName}} registered your shop",
+    "{{dealerName}}, an authorised GoKesari dealer, registered {{shopName}} for you. Open My shop to pay the registration fee and finish your registration.",
+  ),
+  [T.DEALER_PAYOUT_PAID]: t("Commission paid: {{amount}}", "GoKesari paid you {{amount}} in dealer commission (bank reference {{reference}}). Your statement is on your dealer page."),
+  [T.DEALER_RATING_CHANGED]: t("Your dealer rating is now {{rating}}", "GoKesari changed your onboarding rating to {{rating}}. Reason: {{reason}}. It applies to commission earned from now on."),
+  [T.DEALER_SHOP_APPROVED]: t("Shop approved: {{shopName}}", "{{shopName}}, counted for you, is approved and can now add products and take orders."),
+  [T.SHOP_READY_FOR_PRODUCT_UPLOAD]: t(
+    "Registration successful — {{shopName}} is ready for product upload",
+    "Your GST/PAN was verified with the government records and your registration fee is received, so {{shopName}} (shop ID {{shopId}}) is approved. Add your products now: {{addProductsUrl}} — or upload many at once from Excel: {{bulkUploadUrl}}",
+  ),
+  [T.DEALER_DOCUMENT_REJECTED]: t(
+    "Dealer document needs another upload",
+    "Your {{docLabel}} was not accepted: {{note}} Please upload it again from your dealer application.",
   ),
   /* <<< end purchase lists */
   //

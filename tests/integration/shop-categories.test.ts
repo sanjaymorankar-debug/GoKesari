@@ -2,6 +2,7 @@
  * Shop categories: many-to-many mapping, owner/admin editing, search relevance,
  * uncategorised flagging, and independence from shop type and products.
  */
+import { randomUUID } from "node:crypto";
 import { eq, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -60,6 +61,48 @@ describe("seeded categories", () => {
     expect(res.status).toBe(200);
     expect(res.body.categories.length).toBeGreaterThan(10);
     expect(res.body.categories[0]).not.toHaveProperty("shopCount");
+  });
+
+  it("include the professional and office categories, under their group headings", async () => {
+    const res = await call(categoriesGet, "/api/shop-categories");
+    const byName = new Map(
+      res.body.categories.map((c: { name: string; groupName: string | null }) => [c.name, c.groupName]),
+    );
+    expect(byName.get("Chartered Accountant (CA)")).toBe("Finance and legal");
+    expect(byName.get("Advocate / Lawyer")).toBe("Finance and legal");
+    expect(byName.get("Dentist")).toBe("Medical — doctors and clinics");
+    expect(byName.get("Dermatologist")).toBe("Medical — doctors and clinics");
+    expect(byName.get("IT / Software Consultant")).toBe("Consulting and services");
+    // The existing shop categories keep no group: "Shops and stores" in the picker.
+    expect(byName.has("Dairy Shop")).toBe(true);
+    expect(byName.get("Dairy Shop")).toBeNull();
+  });
+
+  it("lets operations set and change a category's group", async () => {
+    const admin = await createUser({ role: "ADMIN" });
+    signIn(admin);
+    const created = await call(categoriesPost, "/api/shop-categories", {
+      method: "POST",
+      // Categories survive resetDatabase(): a unique name per run.
+      body: { name: `Company Law Consultant ${randomUUID().slice(0, 8)}`, groupName: " Finance and legal " },
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.groupName).toBe("Finance and legal");
+
+    const moved = await call(categoryPatch, `/api/shop-categories/${created.body.id}`, {
+      method: "PATCH",
+      params: { id: created.body.id },
+      body: { groupName: "Consulting and services" },
+    });
+    expect(moved.status).toBe(200);
+    expect(moved.body.groupName).toBe("Consulting and services");
+
+    const cleared = await call(categoryPatch, `/api/shop-categories/${created.body.id}`, {
+      method: "PATCH",
+      params: { id: created.body.id },
+      body: { groupName: "" },
+    });
+    expect(cleared.body.groupName).toBeNull();
   });
 
   it("filters by search text", async () => {

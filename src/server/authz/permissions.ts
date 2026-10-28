@@ -333,6 +333,16 @@ export const PERMISSIONS = {
    */
   HOME_BANNER_MANAGE: "home-banner:manage",
   /* <<< end homepage UI/UX upgrade */
+  //
+  /* >>> dealer programme (docs/dealer-programme) */
+  /**
+   * The dealer portal (/dealer): own profile, code, salespeople, shops, leads
+   * and commission. Scope "own dealer only" is enforced by the dealer services
+   * (the dealer row linked to the user), not by this capability name. Every
+   * route also needs the dealer_programme_enabled flag.
+   */
+  DEALER_PORTAL: "dealer:portal",
+  /* <<< end dealer programme */
 } as const;
 
 export type Permission = (typeof PERMISSIONS)[keyof typeof PERMISSIONS];
@@ -506,6 +516,24 @@ const SOCIETY_ADMIN_PERMISSIONS: readonly Permission[] = [...CUSTOMER_PERMISSION
  * REFERRAL_MANAGE, SHOP_GST_PAN_VERIFY (that would open every shop's
  * documents), USER_VIEW_ANY and AUDIT_LOG_VIEW*.
  */
+/**
+ * docs/dealer-programme: an authorised dealer, or one of a dealer's
+ * salespeople. Personal shopping is kept (a dealer is usually a customer too),
+ * plus the dealer portal. Deliberately absent: anything that reads or changes
+ * other shops, commission rules, payouts, settings or the audit log — commission
+ * configuration is ADMIN only and checked again in the services.
+ */
+const DEALER_PERMISSIONS: readonly Permission[] = [
+  PERMISSIONS.ORDER_PLACE,
+  PERMISSIONS.ORDER_VIEW_OWN,
+  PERMISSIONS.ORDER_CANCEL_OWN,
+  PERMISSIONS.WALLET_VIEW_OWN,
+  PERMISSIONS.WALLET_TOPUP_OWN,
+  PERMISSIONS.SUBSCRIPTION_MANAGE_OWN,
+  PERMISSIONS.SUPPORT_TICKET_RAISE,
+  PERMISSIONS.DEALER_PORTAL,
+];
+
 const OPERATOR_LIMITED_PERMISSIONS: readonly Permission[] = [
   PERMISSIONS.ORDER_PLACE,
   PERMISSIONS.ORDER_VIEW_OWN,
@@ -527,6 +555,7 @@ export const ROLE_PERMISSIONS: Readonly<
   DELIVERY_PARTNER: DELIVERY_PARTNER_PERMISSIONS,
   SOCIETY_ADMIN: SOCIETY_ADMIN_PERMISSIONS,
   OPERATOR_LIMITED: OPERATOR_LIMITED_PERMISSIONS, // batch-2026-10 WS-D
+  DEALER: DEALER_PERMISSIONS, // docs/dealer-programme
 };
 
 const PERMISSION_SETS: Readonly<Record<UserRole, ReadonlySet<Permission>>> = {
@@ -537,6 +566,7 @@ const PERMISSION_SETS: Readonly<Record<UserRole, ReadonlySet<Permission>>> = {
   DELIVERY_PARTNER: new Set(DELIVERY_PARTNER_PERMISSIONS),
   SOCIETY_ADMIN: new Set(SOCIETY_ADMIN_PERMISSIONS),
   OPERATOR_LIMITED: new Set(OPERATOR_LIMITED_PERMISSIONS), // batch-2026-10 WS-D
+  DEALER: new Set(DEALER_PERMISSIONS), // docs/dealer-programme
 };
 
 export function can(role: UserRole, permission: Permission): boolean {
@@ -562,6 +592,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
   DELIVERY_PARTNER: "Delivery Partner",
   SOCIETY_ADMIN: "Society Admin",
   OPERATOR_LIMITED: "Operator (Limited)", // batch-2026-10 WS-D
+  DEALER: "Dealer", // docs/dealer-programme
 };
 
 export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
@@ -717,4 +748,7 @@ export const PERMISSION_DESCRIPTIONS: Record<Permission, string> = {
   [PERMISSIONS.HOME_BANNER_MANAGE]: "Create, schedule, reorder and switch on or off the home page's hero banners",
   /* <<< end WS-F */
   //
+  /* >>> dealer programme (docs/dealer-programme) */
+  [PERMISSIONS.DEALER_PORTAL]: "Use the dealer portal for one's own dealer: code, salespeople, shops, leads and commission",
+  /* <<< end dealer programme */
 };

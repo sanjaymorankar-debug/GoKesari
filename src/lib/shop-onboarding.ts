@@ -35,6 +35,14 @@ export interface OnboardingFacts {
   missingDocuments: string[];
   /** Registration fee still owed, in paise (0 when paid or waived). */
   feeOutstandingPaise: number;
+  /** Of missingDocuments: never sent by the owner. Absent when not known. */
+  notUploadedDocuments?: string[];
+  /** Of missingDocuments: sent and waiting for a check. */
+  inReviewDocuments?: string[];
+  /** Of missingDocuments: not accepted or expired — the owner must send them again. */
+  sendAgainDocuments?: string[];
+  /** Seller documents the owner has sent so far, any status. */
+  documentsUploaded?: number;
 }
 
 export interface NextAction {
@@ -61,9 +69,9 @@ export function ownerNextAction(facts: OnboardingFacts): NextAction {
       };
     case "PAYMENT_PENDING":
       return {
-        text: `Your documents are verified. Pay the registration fee of ${formatPaiseCompact(facts.feeOutstandingPaise)} to GoKesari; operations records it and your shop moves to final approval.`,
-        href: "/shop/manage/registration",
-        linkLabel: "See registration fee",
+        text: `Your documents are verified. Pay the registration fee of ${formatPaiseCompact(facts.feeOutstandingPaise)} online and your shop moves to final approval.`,
+        href: "/shop/registration-fee",
+        linkLabel: "Pay the registration fee",
       };
     case "VERIFIED":
       return {
@@ -77,14 +85,25 @@ export function ownerNextAction(facts: OnboardingFacts): NextAction {
 /** The one thing operations should do now. */
 export function adminNextAction(facts: OnboardingFacts): NextAction {
   switch (facts.stage) {
-    case "KYC_PENDING":
-      return {
-        text: facts.missingDocuments.length
-          ? `Waiting on documents: ${list(facts.missingDocuments)}. Review any in the seller verification queue.`
-          : "Documents submitted and waiting on review.",
-        href: "/admin/seller-verification",
-        linkLabel: "Seller verification queue",
-      };
+    case "KYC_PENDING": {
+      const queue = { href: "/admin/seller-verification", linkLabel: "Seller verification queue" };
+      if (!facts.missingDocuments.length) return { text: "Documents submitted and waiting on review.", ...queue };
+      // Without the per-document split, the old wording.
+      if (!facts.notUploadedDocuments) {
+        return { text: `Waiting on documents: ${list(facts.missingDocuments)}. Review any in the seller verification queue.`, ...queue };
+      }
+      if (facts.documentsUploaded === 0) {
+        return {
+          text: `The owner has not uploaded any documents yet. Needed: ${list(facts.missingDocuments)}. Nothing to review — remind the owner to upload.`,
+          ...queue,
+        };
+      }
+      const parts: string[] = [];
+      if (facts.inReviewDocuments?.length) parts.push(`To review: ${list(facts.inReviewDocuments)}.`);
+      if (facts.sendAgainDocuments?.length) parts.push(`Not accepted, owner must upload again: ${list(facts.sendAgainDocuments)}.`);
+      if (facts.notUploadedDocuments.length) parts.push(`Not uploaded yet: ${list(facts.notUploadedDocuments)}.`);
+      return { text: parts.join(" "), ...queue };
+    }
     case "PAYMENT_PENDING":
       return {
         text: `Documents verified. Record the registration fee (${formatPaiseCompact(facts.feeOutstandingPaise)} outstanding) or waive it.`,
@@ -98,4 +117,20 @@ export function adminNextAction(facts: OnboardingFacts): NextAction {
         linkLabel: "Approve",
       };
   }
+}
+
+const CHANNEL_WORDS: Record<string, string> = {
+  IN_APP: "in the app",
+  EMAIL: "by e-mail",
+  SMS: "by SMS",
+  WHATSAPP: "on WhatsApp",
+  PUSH: "by push notification",
+};
+
+/** "Reminder sent to Asha in the app and by e-mail." — only the channels the server queued. */
+export function reminderSentText(ownerName: string, channels: string[]): string {
+  const words = channels.map((c) => CHANNEL_WORDS[c]).filter(Boolean);
+  if (words.length === 0) return `Reminder recorded for ${ownerName}, but no channel could deliver it.`;
+  const joined = words.length === 1 ? words[0] : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+  return `Reminder sent to ${ownerName} ${joined}.`;
 }

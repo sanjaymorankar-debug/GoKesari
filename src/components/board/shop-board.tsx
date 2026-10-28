@@ -31,7 +31,7 @@ interface Props {
  * left, its submenu chips on the right.
  */
 export function ShopBoard({ lang, user, header, shop, data, alerts = [] }: Props) {
-  const params = { shopSlug: shop.slug };
+  const params = { shopSlug: shop.slug, features: data.features };
   const menus = visibleMenus(SHOP_MENUS, user.role, params, "shop");
   const doNow = visibleItems(SHOP_DO_NOW, user.role, params);
   const ticks = { bankVerified: data.facts.bankVerified, shopVerified: data.facts.shopVerified };

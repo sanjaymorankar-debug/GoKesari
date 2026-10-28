@@ -32,6 +32,7 @@ import { AppError, conflict, forbidden, notFound, validationFailed } from "@/lib
 import { decryptBytes, decryptSecret, docBlindIndex, encryptBytes, encryptSecret } from "@/lib/pan-crypto";
 import { isFoodBusinessShopType } from "@/lib/shop-types";
 import { listShopTypes, loadShopTypeRegistry } from "./shop-types";
+import { runOrDefer, type Defer } from "@/server/api/defer";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db, type DbClient } from "@/server/db";
 import {
@@ -906,8 +907,12 @@ export async function adminDecideVerification(
    * has already checked that this actor may review THIS shop (an Operator-Limited
    * user and a shop they onboarded), so the global reviewer capability is not
    * required. Default: the global check, as before.
+   *
+   * `defer` runs the follow-ups (audit, seller notice, auto-approval check) once
+   * the decision is saved. The route passes `after`, so the reviewer gets the
+   * answer without waiting for them; without it they run before returning.
    */
-  options: { scopedReviewer?: boolean } = {},
+  options: { scopedReviewer?: boolean; defer?: Defer } = {},
 ): Promise<SellerVerificationView> {
   if (!options.scopedReviewer && !isReviewer(actor)) throw forbidden("You can't review seller documents.");
   const reason = input.reason.trim();
@@ -966,17 +971,19 @@ export async function adminDecideVerification(
     return u;
   });
 
-  await recordAudit({
-    actorId: actor.id,
-    actorRole: actor.role,
-    action: input.decision === "approve" ? AUDIT_ACTIONS.SELLER_DOCUMENT_APPROVED : AUDIT_ACTIONS.SELLER_DOCUMENT_REJECTED,
-    entityType: "shop",
-    entityId: row.shopId,
-    previousValue: { docType: row.docType, status: row.status },
-    newValue: { docType: row.docType, status: toStatus, numberMasked: row.numberMasked, reason: reason || null },
-  });
-  const shop = await db.query.shops.findFirst({ where: eq(shops.id, row.shopId) });
-  if (shop) {
+  const followUp = async () => {
+    // The audit first: it lands within a round trip of the answer.
+    await recordAudit({
+      actorId: actor.id,
+      actorRole: actor.role,
+      action: input.decision === "approve" ? AUDIT_ACTIONS.SELLER_DOCUMENT_APPROVED : AUDIT_ACTIONS.SELLER_DOCUMENT_REJECTED,
+      entityType: "shop",
+      entityId: row.shopId,
+      previousValue: { docType: row.docType, status: row.status },
+      newValue: { docType: row.docType, status: toStatus, numberMasked: row.numberMasked, reason: reason || null },
+    });
+    const shop = await db.query.shops.findFirst({ where: eq(shops.id, row.shopId) });
+    if (!shop) return;
     const label = SELLER_DOC_LABELS[row.docType];
     await emitEvent({
       type: "seller_document.decided",
@@ -1000,13 +1007,17 @@ export async function adminDecideVerification(
               ? `${shop.name}'s ${label} was not accepted: ${reason}`
               : null,
       },
-    });
+    }).catch((error) => console.error("[seller-verification] decision notice failed", row.id, error));
     if (toStatus === "VERIFIED") {
       await autoApproveShopIfReady(shop.id).catch((error) =>
         console.error("[seller-verification] auto-approval check failed", shop.id, error),
       );
     }
-  }
+  };
+  // The decision is saved: a follow-up that fails is logged, never turned into a failed answer.
+  const runFollowUp = () =>
+    followUp().catch((error) => console.error("[seller-verification] decision follow-up failed", row.id, error));
+  await runOrDefer(runFollowUp, options.defer);
   return toView(updated);
 }
 

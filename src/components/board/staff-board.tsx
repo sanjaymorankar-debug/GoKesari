@@ -31,8 +31,8 @@ const REVIEW_NOW = L("Disputes waiting for an administrator", "एडमिन �
 export function StaffBoard({ lang, user, header, data }: Props) {
   const isAdmin = user.role === "ADMIN";
   const board = isAdmin ? "admin" : "operator";
-  const menus = visibleMenus(isAdmin ? ADMIN_MENUS : OPERATOR_MENUS, user.role, {}, board);
-  const doNow = visibleItems(isAdmin ? ADMIN_DO_NOW : OPERATOR_DO_NOW, user.role);
+  const menus = visibleMenus(isAdmin ? ADMIN_MENUS : OPERATOR_MENUS, user.role, { features: data.features }, board);
+  const doNow = visibleItems(isAdmin ? ADMIN_DO_NOW : OPERATOR_DO_NOW, user.role, { features: data.features });
   const { attention, escalated } = data.alerts;
 
   return (

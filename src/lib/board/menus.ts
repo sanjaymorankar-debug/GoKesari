@@ -61,7 +61,10 @@ export type Counts = Partial<Record<CountKey, number>>;
 export type TickKey = "bankVerified" | "shopVerified";
 
 /** Values for `{placeholders}` in links. */
-export type LinkParams = Partial<Record<"shopSlug" | "subscriptionId" | "activeOrderNumber", string>>;
+export type LinkParams = Partial<Record<"shopSlug" | "subscriptionId" | "activeOrderNumber", string>> & {
+  /** Feature flags that are on (docs/dealer-programme); an entry naming another `feature` is hidden. */
+  features?: readonly string[];
+};
 
 export interface BoardItem {
   key: string;
@@ -80,6 +83,8 @@ export interface BoardItem {
   permission?: Permission | readonly Permission[];
   /** Customer board: needs an account, so a signed-out visitor goes to sign-in. */
   auth?: boolean;
+  /** Shown only while this feature flag is on (docs/dealer-programme): pass the flags in LinkParams.features. */
+  feature?: string;
 }
 
 export interface BoardMenu extends BoardItem {
@@ -318,6 +323,8 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       { key: "publicPage", label: L("Public page", "सार्वजनिक पेज", "सार्वजनिक पान"), icon: "store", href: "/shops/{shopSlug}" },
       // batch-2026-10 WS-C: help desk tickets and the after-packing cancellation fee.
       { key: "support", label: L("Support tickets", "सहायता टिकट", "मदत तिकिटे"), icon: "life-buoy", href: "/shop/support" },
+      // docs/dealer-programme (GKS-SP-001): paid help — product upload, price update, general support. Only while that flag is on.
+      { key: "supportServices", label: L("Support services", "सहायता सेवाएँ", "मदत सेवा"), icon: "headset", href: "/shop/support-services", feature: "paid_support_services_enabled" },
       { key: "cancellationFee", label: L("Cancellation fee", "रद्द करने का शुल्क", "रद्द शुल्क"), icon: "receipt", href: "/shop/settings/cancellation-fee", permission: PERMISSIONS.SHOP_CANCELLATION_FEE_MANAGE_OWN },
     ],
   },
@@ -373,10 +380,14 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "compliance", label: L("Compliance & GST/PAN", "अनुपालन व जीएसटी/पैन", "अनुपालन व जीएसटी/पॅन"), icon: "scroll-text", href: "/admin/console/compliance", permission: COMPLIANCE },
       { key: "registrations", label: L("Registrations", "पंजीकरण", "नोंदण्या"), icon: "user-plus", href: "/admin/shop-registrations", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
       { key: "autoApproved", label: L("Auto-approved", "स्वतः मंज़ूर", "स्वयं मंजूर"), icon: "circle-check", href: "/admin/shops/auto-approved", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
+      // docs/dealer-programme (GKS-SH-004): instant approvals on GST/PAN + payment, with evidence. Only while that flag is on.
+      { key: "instantApprovals", label: L("Instant approvals", "तुरंत मंज़ूरी", "तात्काळ मंजुरी"), icon: "circle-check", href: "/admin/shops/instant-approvals", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE, feature: "gov_verification_auto_approval_enabled" },
       { key: "selfRegistration", label: L("Self-registration", "स्व-पंजीकरण", "स्व-नोंदणी"), icon: "sliders-horizontal", href: "/admin/self-registration", permission: PERMISSIONS.REFERRAL_MANAGE },
       { key: "fees", label: L("Registration fees", "पंजीकरण शुल्क", "नोंदणी शुल्क"), icon: "receipt", href: "/admin/console/registration-fees", permission: STAFF },
       { key: "referralCodes", label: L("Referral codes", "रेफ़रल कोड", "रेफरल कोड"), icon: "ticket", href: "/admin/console/referral-codes", permission: PERMISSIONS.REFERRAL_MANAGE },
       { key: "referralRequests", label: L("Referral requests", "रेफ़रल अनुरोध", "रेफरल विनंत्या"), icon: "message-square", href: "/admin/referral-requests", permission: PERMISSIONS.REFERRAL_MANAGE },
+      // docs/dealer-programme: dealer approval queue and dealers (admin decides; operator reads). Only while the programme is on.
+      { key: "dealers", label: L("Dealers", "डीलर", "डीलर"), icon: "users", href: "/admin/dealers", permission: PERMISSIONS.REFERRAL_MANAGE, feature: "dealer_programme_enabled" },
       // docs/nearby-referral-2026-10, feature 1: shops left out of Nearby because they have no map location.
       { key: "missingLocation", label: L("Shops without location", "बिना लोकेशन दुकानें", "लोकेशन नसलेली दुकाने"), icon: "map-pin", href: "/admin/shops/missing-location", permission: PERMISSIONS.SHOP_APPROVE },
     ],
@@ -458,6 +469,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
     more: [
       { key: "helpdesk", label: L("Help desk", "हेल्प डेस्क", "मदत कक्ष"), icon: "life-buoy", href: "/admin/support", permission: PERMISSIONS.SUPPORT_TICKET_MANAGE },
       { key: "cannedReplies", label: L("Canned replies", "तैयार जवाब", "तयार उत्तरे"), icon: "message-square", href: "/admin/support/canned-replies", permission: PERMISSIONS.SUPPORT_CANNED_REPLY_MANAGE },
+      // docs/dealer-programme (GKS-SP-001): paid support services — charges, requests, refunds. Only while that flag is on.
+      { key: "supportServices", label: L("Support services", "सहायता सेवाएँ", "मदत सेवा"), icon: "headset", href: "/admin/support-services", permission: PERMISSIONS.SUPPORT_TICKET_MANAGE, feature: "paid_support_services_enabled" },
     ],
   },
   {
@@ -492,6 +505,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "testMessages", label: L("Test messages", "टेस्ट संदेश", "चाचणी संदेश"), icon: "message-square", href: "/admin/test-messages", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
       // docs/nearby-referral-2026-10, feature 2: Mandatory / Optional referral code — admin only.
       { key: "referralSettings", label: L("Referral settings", "रेफ़रल सेटिंग", "रेफरल सेटिंग्ज"), icon: "toggle-right", href: "/admin/referral-settings", permission: ADMIN_ONLY },
+      // docs/dealer-programme: the programme's on/off switches, per district — admin only.
+      { key: "featureFlags", label: L("Feature flags", "फ़ीचर फ़्लैग", "फीचर फ्लॅग"), icon: "toggle-right", href: "/admin/feature-flags", permission: ADMIN_ONLY },
       { key: "broadcasts", label: L("Broadcasts", "प्रसारण संदेश", "प्रसारण संदेश"), icon: "megaphone", href: "/admin/broadcasts", permission: PERMISSIONS.BROADCAST_MANAGE }, // batch-2026-10 WS-F
       { key: "homeBanners", label: L("Home banners", "होम बैनर", "होम बॅनर"), icon: "images", href: "/admin/home-banners", permission: PERMISSIONS.HOME_BANNER_MANAGE }, // docs/homepage-uiux-2026-10
     ],
@@ -524,10 +539,14 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "compliance", label: L("Compliance & GST/PAN", "अनुपालन व जीएसटी/पैन", "अनुपालन व जीएसटी/पॅन"), icon: "scroll-text", href: "/admin/console/compliance", permission: COMPLIANCE },
       { key: "registrations", label: L("Registrations", "पंजीकरण", "नोंदण्या"), icon: "user-plus", href: "/admin/shop-registrations", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
       { key: "autoApproved", label: L("Auto-approved", "स्वतः मंज़ूर", "स्वयं मंजूर"), icon: "circle-check", href: "/admin/shops/auto-approved", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
+      // docs/dealer-programme (GKS-SH-004): instant approvals on GST/PAN + payment, with evidence. Only while that flag is on.
+      { key: "instantApprovals", label: L("Instant approvals", "तुरंत मंज़ूरी", "तात्काळ मंजुरी"), icon: "circle-check", href: "/admin/shops/instant-approvals", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE, feature: "gov_verification_auto_approval_enabled" },
       { key: "selfRegistration", label: L("Self-registration", "स्व-पंजीकरण", "स्व-नोंदणी"), icon: "sliders-horizontal", href: "/admin/self-registration", permission: PERMISSIONS.REFERRAL_MANAGE },
       { key: "fees", label: L("Registration fees", "पंजीकरण शुल्क", "नोंदणी शुल्क"), icon: "receipt", href: "/admin/console/registration-fees", permission: STAFF },
       { key: "referralCodes", label: L("Referral codes", "रेफ़रल कोड", "रेफरल कोड"), icon: "ticket", href: "/admin/console/referral-codes", permission: PERMISSIONS.REFERRAL_MANAGE },
       { key: "referralRequests", label: L("Referral requests", "रेफ़रल अनुरोध", "रेफरल विनंत्या"), icon: "message-square", href: "/admin/referral-requests", permission: PERMISSIONS.REFERRAL_MANAGE },
+      // docs/dealer-programme: dealer approval queue and dealers (admin decides; operator reads). Only while the programme is on.
+      { key: "dealers", label: L("Dealers", "डीलर", "डीलर"), icon: "users", href: "/admin/dealers", permission: PERMISSIONS.REFERRAL_MANAGE, feature: "dealer_programme_enabled" },
       { key: "missingLocation", label: L("Shops without location", "बिना लोकेशन दुकानें", "लोकेशन नसलेली दुकाने"), icon: "map-pin", href: "/admin/shops/missing-location", permission: PERMISSIONS.SHOP_APPROVE },
     ],
   },
@@ -590,6 +609,8 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
     more: [
       { key: "consent", label: L("Consent records", "सहमति रिकॉर्ड", "संमती नोंदी"), icon: "file-check", href: "/admin/consents", permission: PERMISSIONS.CONSENT_VIEW },
       { key: "helpdesk", label: L("Help desk", "हेल्प डेस्क", "मदत कक्ष"), icon: "life-buoy", href: "/admin/support", permission: PERMISSIONS.SUPPORT_TICKET_MANAGE }, // batch-2026-10 WS-C
+      // docs/dealer-programme (GKS-SP-001): paid support services — charges, requests, refunds. Only while that flag is on.
+      { key: "supportServices", label: L("Support services", "सहायता सेवाएँ", "मदत सेवा"), icon: "headset", href: "/admin/support-services", permission: PERMISSIONS.SUPPORT_TICKET_MANAGE, feature: "paid_support_services_enabled" },
     ],
   },
   {
@@ -666,7 +687,7 @@ export function isPermitted(entry: Pick<BoardItem, "permission">, role: UserRole
 export function resolveHref(href: string, params: LinkParams, fallbackHref?: string): string | null {
   let missing = false;
   const resolved = href.replace(/\{(\w+)\}/g, (_, name: string) => {
-    const value = params[name as keyof LinkParams];
+    const value = params[name as Exclude<keyof LinkParams, "features">];
     if (!value) {
       missing = true;
       return "";
@@ -696,6 +717,7 @@ export function visibleMenus(menus: readonly BoardMenu[], role: UserRole, params
   const out: ResolvedMenu[] = [];
   for (const menu of menus) {
     if (menu.permission && !isPermitted(menu, role)) continue;
+    if (menu.feature && !params.features?.includes(menu.feature)) continue;
     const items = visibleItems(menu.items, role, params);
     const more = visibleItems(menu.more ?? [], role, params);
     if (items.length === 0 && more.length === 0) continue;
@@ -717,6 +739,7 @@ export function visibleMenus(menus: readonly BoardMenu[], role: UserRole, params
 export function visibleItems(items: readonly BoardItem[], role: UserRole, params: LinkParams = {}): Resolved<BoardItem>[] {
   return items.flatMap((item) => {
     if (!isPermitted(item, role)) return [];
+    if (item.feature && !params.features?.includes(item.feature)) return [];
     const href = resolveHref(item.href, params, item.fallbackHref);
     return href ? [{ ...item, href }] : [];
   });

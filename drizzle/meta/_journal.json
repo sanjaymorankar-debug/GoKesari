@@ -687,6 +687,104 @@
       "when": 1792987100000,
       "tag": "0097_admin_managed_shop_types",
       "breakpoints": true
+    },
+    {
+      "idx": 98,
+      "version": "7",
+      "when": 1792987200000,
+      "tag": "0098_professional_registration",
+      "breakpoints": true
+    },
+    {
+      "idx": 99,
+      "version": "7",
+      "when": 1792987300000,
+      "tag": "0099_registration_fee_coupons_gst",
+      "breakpoints": true
+    },
+    {
+      "idx": 100,
+      "version": "7",
+      "when": 1792987400000,
+      "tag": "0100_shop_referral_mandatory",
+      "breakpoints": true
+    },
+    {
+      "idx": 101,
+      "version": "7",
+      "when": 1793073500000,
+      "tag": "0101_dealer_role",
+      "breakpoints": true
+    },
+    {
+      "idx": 102,
+      "version": "7",
+      "when": 1793073600000,
+      "tag": "0102_feature_flags",
+      "breakpoints": true
+    },
+    {
+      "idx": 103,
+      "version": "7",
+      "when": 1793073700000,
+      "tag": "0103_geo_areas",
+      "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1793073800000,
+      "tag": "0104_dealers",
+      "breakpoints": true
+    },
+    {
+      "idx": 105,
+      "version": "7",
+      "when": 1793073900000,
+      "tag": "0105_dealer_attribution",
+      "breakpoints": true
+    },
+    {
+      "idx": 106,
+      "version": "7",
+      "when": 1793074000000,
+      "tag": "0106_shop_auto_approval_log",
+      "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1793074100000,
+      "tag": "0107_dealer_commission",
+      "breakpoints": true
+    },
+    {
+      "idx": 108,
+      "version": "7",
+      "when": 1793074200000,
+      "tag": "0108_support_services",
+      "breakpoints": true
+    },
+    {
+      "idx": 109,
+      "version": "7",
+      "when": 1793160600000,
+      "tag": "0109_shop_document_waivers",
+      "breakpoints": true
+    },
+    {
+      "idx": 110,
+      "version": "7",
+      "when": 1793160700000,
+      "tag": "0110_geo_area_targets",
+      "breakpoints": true
+    },
+    {
+      "idx": 111,
+      "version": "7",
+      "when": 1793160800000,
+      "tag": "0111_shop_registration_drafts",
+      "breakpoints": true
     }
   ]
 }

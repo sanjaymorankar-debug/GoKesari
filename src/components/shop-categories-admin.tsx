@@ -25,6 +25,8 @@ export interface CategoryRow {
   id: string;
   name: string;
   description: string | null;
+  /** Picker heading; null → "Shops and stores". */
+  groupName: string | null;
   status: string;
   shopCount: number;
 }
@@ -39,6 +41,7 @@ export interface UncategorisedShop {
 interface CategoryDraft {
   name: string;
   description: string;
+  groupName: string;
   status: "ACTIVE" | "INACTIVE";
 }
 
@@ -112,11 +115,11 @@ const CATEGORY_PAGE = 8;
 
 function CreateCategory() {
   const router = useRouter();
-  const empty = { name: "", description: "" };
+  const empty = { name: "", description: "", groupName: "" };
   const [draft, setDraft] = useState(empty);
 
   const trimmedName = draft.name.trim();
-  const dirty = draft.name !== empty.name || draft.description !== empty.description;
+  const dirty = draft.name !== empty.name || draft.description !== empty.description || draft.groupName !== empty.groupName;
   const clientError = dirty && trimmedName.length > 0 && trimmedName.length < 2 ? "A category name needs at least 2 characters." : null;
 
   const save = useSaveChanges({
@@ -126,6 +129,7 @@ function CreateCategory() {
       await postJson("/api/shop-categories", "POST", {
         name: trimmedName,
         description: draft.description.trim() || null,
+        groupName: draft.groupName.trim() || null,
       });
       setDraft(empty);
       router.refresh();
@@ -154,6 +158,14 @@ function CreateCategory() {
               onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
             />
           </Field>
+          <Field label="Group (optional)" hint="Heading in the registration picker, e.g. Medical — doctors and clinics. Blank: Shops and stores.">
+            <input
+              className={inputClass}
+              value={draft.groupName}
+              maxLength={60}
+              onChange={(e) => setDraft((d) => ({ ...d, groupName: e.target.value }))}
+            />
+          </Field>
         </div>
         {clientError ? <Alert tone="danger">{clientError}</Alert> : null}
         <SaveChangesBar
@@ -173,6 +185,7 @@ function CategoryEditRow({ category }: { category: CategoryRow }) {
   const initial: CategoryDraft = {
     name: category.name,
     description: category.description ?? "",
+    groupName: category.groupName ?? "",
     status: category.status === "ACTIVE" ? "ACTIVE" : "INACTIVE",
   };
   const [baseline, setBaseline] = useState(initial);
@@ -184,7 +197,10 @@ function CategoryEditRow({ category }: { category: CategoryRow }) {
 
   const trimmedName = draft.name.trim();
   const dirty =
-    draft.name !== baseline.name || draft.description !== baseline.description || draft.status !== baseline.status;
+    draft.name !== baseline.name ||
+    draft.description !== baseline.description ||
+    draft.groupName !== baseline.groupName ||
+    draft.status !== baseline.status;
 
   const clientError =
     trimmedName.length < 2 || trimmedName.length > 80 ? "A category name needs 2–80 characters." : null;
@@ -209,6 +225,7 @@ function CategoryEditRow({ category }: { category: CategoryRow }) {
       await postJson(`/api/shop-categories/${category.id}`, "PATCH", {
         name: trimmedName,
         description: draft.description.trim() || null,
+        groupName: draft.groupName.trim() || null,
         status: draft.status,
       });
       const settled = { ...draft, name: trimmedName };
@@ -240,6 +257,7 @@ function CategoryEditRow({ category }: { category: CategoryRow }) {
         <span>
           <span className="font-medium text-ink-900">{baseline.name}</span>{" "}
           <Badge tone={baseline.status === "ACTIVE" ? "success" : "neutral"}>{baseline.status.toLowerCase()}</Badge>
+          {baseline.groupName ? <span className="ml-2 text-xs text-ink-500">· {baseline.groupName}</span> : null}
           {baseline.description ? <span className="ml-2 text-ink-500">{baseline.description}</span> : null}
         </span>
         <span className="flex flex-wrap items-center gap-2">
@@ -279,6 +297,16 @@ function CategoryEditRow({ category }: { category: CategoryRow }) {
                 maxLength={300}
                 onChange={(e) => setDraft((d) => ({ ...d, description: e.target.value }))}
                 aria-label="Description"
+              />
+            </Field>
+            <Field label="Group">
+              <input
+                className={inputClass}
+                value={draft.groupName}
+                maxLength={60}
+                placeholder="Shops and stores"
+                onChange={(e) => setDraft((d) => ({ ...d, groupName: e.target.value }))}
+                aria-label="Group"
               />
             </Field>
           </div>
@@ -327,5 +355,6 @@ function describeCategoryChange(before: CategoryDraft, after: CategoryDraft): st
   if (before.name !== after.name) parts.push(`${before.name} → ${after.name}`);
   if (before.status !== after.status) parts.push(after.status === "ACTIVE" ? "activated" : "deactivated");
   if (before.description !== after.description) parts.push("description changed");
+  if (before.groupName !== after.groupName) parts.push(`group: ${after.groupName || "Shops and stores"}`);
   return `Category updated: ${parts.length > 0 ? parts.join(", ") : after.name}`;
 }

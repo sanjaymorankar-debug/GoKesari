@@ -27,6 +27,7 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { extendMembership } from "./shop-membership";
 import { autoApproveShopIfReady } from "./shops";
+import { reverseShopCommissionSafely } from "@/server/dealers/commission";
 
 interface Actor {
   id: string;
@@ -222,6 +223,8 @@ export async function recordPayment(
       console.error("[shop-payments] auto-approval check failed", input.shopId, error),
     );
   }
+  // docs/dealer-programme: a refunded registration fee takes back the dealer's commission for the shop.
+  if (input.paymentType === "REFUND" && client === db) await reverseShopCommissionSafely(input.shopId, "registration fee refunded", actor);
   return recorded;
 }
 
@@ -235,7 +238,7 @@ export async function reversePayment(
   reason: string,
   actor: Actor,
 ): Promise<{ reversal: ShopPayment; amountPaidPaise: number; feePaymentStatus: FeePaymentStatus }> {
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const [original] = await tx
       .select()
       .from(shopPayments)
@@ -287,6 +290,9 @@ export async function reversePayment(
 
     return { reversal, ...settlement };
   });
+  // docs/dealer-programme: a fee no longer settled takes back the dealer's commission for the shop.
+  if (result.feePaymentStatus !== "PAID") await reverseShopCommissionSafely(result.reversal.shopId, `registration fee payment reversed: ${reason}`, actor);
+  return result;
 }
 
 export async function listPaymentsForShop(shopId: string): Promise<ShopPayment[]> {

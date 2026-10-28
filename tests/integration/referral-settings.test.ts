@@ -191,6 +191,7 @@ function shopBody(extra: Record<string, unknown> = {}) {
     city: "Pune",
     pincode: "411004",
     shopType: "DAIRY",
+    annualTurnoverRupees: 1_500_000,
     categoryIds,
     shopActNumber: `PII/KOTHRUD/II/${20000 + counter}`,
     ...extra,
@@ -217,6 +218,8 @@ describe("shop registration (Add my shop, POST /api/shops) follows referral_requ
     expect(invalid.status).toBe(422); // an entered code must be valid, optional or not
     expect(invalid.body.error.details.fields.referralCode).toContain("does not exist");
 
+    // One registration under review per owner: the next shop comes from another account.
+    signIn(await createUser(), "CUSTOMER");
     const valid = await register(shopBody({ referralCode: "good-code-1" }));
     expect(valid.status, JSON.stringify(valid.body)).toBe(201);
     const [row] = await db.select().from(shops).where(eq(shops.id, valid.body.id));
@@ -235,6 +238,7 @@ describe("shop registration (Add my shop, POST /api/shops) follows referral_requ
     expect(kept.status).toBe("PENDING_APPROVAL");
     expect(kept.deletedAt).toBeNull();
     await setReferralSetting("referral_required_shop", "OPTIONAL", admin);
+    signIn(await createUser(), "CUSTOMER"); // the first shop is still under review
     expect((await call(shopRegisterRoute, "/api/shops", { method: "POST", body: shopBody() })).status).toBe(201);
   });
 });
