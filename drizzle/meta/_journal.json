@@ -792,6 +792,13 @@
       "when": 1793160900000,
       "tag": "0112_more_licences",
       "breakpoints": true
+    },
+    {
+      "idx": 113,
+      "version": "7",
+      "when": 1793161000000,
+      "tag": "0113_onboarding_wizard_step2",
+      "breakpoints": true
     }
   ]
 }

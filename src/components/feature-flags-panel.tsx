@@ -9,7 +9,8 @@ export type FeatureFlagKey =
   | "dealer_programme_enabled"
   | "gov_verification_auto_approval_enabled"
   | "dealer_rating_bonus_enabled"
-  | "paid_support_services_enabled";
+  | "paid_support_services_enabled"
+  | "shop_onboarding_wizard_enabled";
 
 interface FlagValue {
   enabled: boolean;

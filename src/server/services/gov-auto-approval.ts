@@ -33,12 +33,12 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { getEnv } from "@/lib/env";
 import { SELLER_DOC_LABELS } from "@/lib/kyc/doc-formats";
 import { db } from "@/server/db";
-import { sellerVerifications, shopAutoApprovalLog, shopPayments, shops, type Shop } from "@/server/db/schema";
+import { sellerVerifications, shopAutoApprovalLog, shopPayments, shopRegistrationDrafts, shops, type Shop } from "@/server/db/schema";
 import { findLikelyDuplicate } from "@/server/dealers/attribution";
 import { flagCoversDistrict, getFeatureFlag } from "./feature-flags";
 import { districtCodeForPincode } from "./geo-areas";
 import { getRule } from "./settings";
-import { missingMandatoryDocuments } from "./shop-onboarding";
+import { deferredReviewDocTypes, missingMandatoryDocuments } from "./shop-onboarding";
 
 /** Payment methods only a verified gateway webhook writes. */
 export const GATEWAY_CONFIRMED_METHODS = ["ONLINE", "CASHFREE", "RAZORPAY"] as const;
@@ -49,11 +49,26 @@ export interface GovDecision {
   evidence: Record<string, unknown>;
 }
 
-/** Is the instant-approval rule on for this shop's district? */
-export async function govAutoApprovalApplies(shop: Pick<Shop, "pincode">): Promise<boolean> {
+/**
+ * Is the instant-approval rule on for this shop? Its district's flag decides — except for a
+ * shop registered through the onboarding wizard, which is approved this way in every district
+ * (owner decision B, 28 Oct 2026; docs/shop-onboarding-wizard-2026-10).
+ */
+export async function govAutoApprovalApplies(shop: Pick<Shop, "id" | "pincode">): Promise<boolean> {
+  if (await isWizardShop(shop.id)) return true;
   const flag = await getFeatureFlag("gov_verification_auto_approval_enabled");
   if (!flag.enabled) return false;
   return flagCoversDistrict(flag, await districtCodeForPincode(shop.pincode));
+}
+
+/** The shop was created from an onboarding-wizard draft. */
+export async function isWizardShop(shopId: string): Promise<boolean> {
+  const [row] = await db
+    .select({ id: shopRegistrationDrafts.id })
+    .from(shopRegistrationDrafts)
+    .where(and(eq(shopRegistrationDrafts.shopId, shopId), inArray(shopRegistrationDrafts.status, ["SUBMITTED", "COMPLETED"])))
+    .limit(1);
+  return Boolean(row);
 }
 
 type VerificationRow = typeof sellerVerifications.$inferSelect;
@@ -130,8 +145,10 @@ export async function decideGovAutoApproval(shop: Shop): Promise<GovDecision> {
   else if (fee > 0 && gatewayPaise < fee) reasons.push("registration fee not confirmed by the payment gateway");
 
   // The documents every approval needs today (the database refuses an approval without them).
-  const missing = await missingMandatoryDocuments(shop);
+  const missing = await missingMandatoryDocuments(shop, db, { countDeferred: true });
   evidence.documentsMissing = missing;
+  const deferred = [...(await deferredReviewDocTypes(shop.id))];
+  if (deferred.length) evidence.documentsInReviewAfterApproval = deferred;
   if (missing.length) reasons.push(`documents not yet verified: ${missing.map((d) => SELLER_DOC_LABELS[d]).join(", ")}`);
 
   // Another owner's shop with the same GSTIN, PAN or mobile.

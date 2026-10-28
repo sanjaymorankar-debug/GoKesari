@@ -70,6 +70,7 @@ describe("feature flags", () => {
       ["gov_verification_auto_approval_enabled", false],
       ["dealer_rating_bonus_enabled", false],
       ["paid_support_services_enabled", false],
+      ["shop_onboarding_wizard_enabled", false],
     ]);
     await expect(requireFeature("dealer_programme_enabled")).rejects.toMatchObject({
       status: 404,
@@ -152,7 +153,7 @@ describe("feature flags", () => {
     signIn(admin, "ADMIN");
     const res = await call(flagsGet, "/api/admin/feature-flags");
     expect(res.status).toBe(200);
-    expect(res.body.flags).toHaveLength(4);
+    expect(res.body.flags).toHaveLength(5);
     expect(res.body.districts.length).toBeGreaterThanOrEqual(36);
     expect(res.body.districts.map((d: { code: string }) => d.code)).toContain("MH-PUN");
   });
