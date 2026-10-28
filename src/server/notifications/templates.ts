@@ -373,6 +373,13 @@ export const TEMPLATES: Record<string, Template> = {
     "Thank you, {{legalName}}. Your GoKesari dealer application is with our team for approval. We will tell you when it is decided.",
   ),
   [T.DEALER_STATUS_CHANGED]: t("Dealer account: {{statusLabel}}", "Your GoKesari dealer account is now {{statusLabel}}. {{detail}}"),
+  [T.DEALER_SHOP_ATTRIBUTED]: t("New shop: {{shopName}}", "{{shopName}} ({{area}}) registered and is counted for you{{employee}}. It earns commission as it completes the onboarding milestones."),
+  [T.DEALER_LEAD_CLOSED]: t("Lead closed: {{shopName}}", "Your lead for {{shopName}} was closed: {{reason}}. If you believe the shop is yours, raise a claim from your dealer page."),
+  [T.DEALER_DISPUTE_DECIDED]: t("Your claim was {{decision}}", "Your claim about the shop with mobile ending {{phoneTail}} was {{decision}}. {{note}}"),
+  [T.DEALER_ASSISTED_SHOP_REGISTERED]: t(
+    "{{dealerName}} registered your shop",
+    "{{dealerName}}, an authorised GoKesari dealer, registered {{shopName}} for you. Open My shop to pay the registration fee and finish your registration.",
+  ),
   [T.DEALER_DOCUMENT_REJECTED]: t(
     "Dealer document needs another upload",
     "Your {{docLabel}} was not accepted: {{note}} Please upload it again from your dealer application.",

@@ -9660,4 +9660,136 @@ export const dealerCodes = pgTable(
 );
 export type DealerCode = typeof dealerCodes.$inferSelect;
 
+/** A dealer's documented lead (0105): reserves the shop for the attribution window, with the owner's consent. */
+export const dealerLeads = pgTable(
+  "dealer_leads",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "cascade" }),
+    salespersonId: uuid("salesperson_id").references(() => dealerSalespeople.id, { onDelete: "set null" }),
+    shopName: text("shop_name").notNull(),
+    ownerName: text("owner_name"),
+    phoneE164: text("phone_e164").notNull(),
+    gstin: text("gstin"),
+    pincode: text("pincode"),
+    latitude: text("latitude"),
+    longitude: text("longitude"),
+    consentAt: timestamp("consent_at", { withTimezone: true }).notNull(),
+    consentNote: text("consent_note"),
+    status: text("status", { enum: ["OPEN", "CONVERTED", "EXPIRED", "CLOSED"] }).notNull().default("OPEN"),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    closedReason: text("closed_reason"),
+    convertedShopId: uuid("converted_shop_id"),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("dealer_leads_open_unique").on(t.dealerId, t.phoneE164).where(sql`${t.status} = 'OPEN'`),
+    index("dealer_leads_phone_idx").on(t.phoneE164, t.status),
+    index("dealer_leads_dealer_idx").on(t.dealerId, t.status, t.createdAt),
+    check("dealer_leads_status", sql`${t.status} in ('OPEN', 'CONVERTED', 'EXPIRED', 'CLOSED')`),
+    check("dealer_leads_phone", sql`${t.phoneE164} ~ '^\\+91[6-9][0-9]{9}$'`),
+  ],
+);
+export type DealerLead = typeof dealerLeads.$inferSelect;
+
+export const ATTRIBUTION_SOURCES = ["CODE_AT_REGISTRATION", "DEALER_ASSISTED", "LEAD", "ADMIN"] as const;
+export type AttributionSource = (typeof ATTRIBUTION_SOURCES)[number];
+
+/** Which dealer (and employee) brought a shop (0105). One row per shop; written after registration. */
+export const shopAttributions = pgTable(
+  "shop_attributions",
+  {
+    shopId: uuid("shop_id")
+      .primaryKey()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "restrict" }),
+    salespersonId: uuid("salesperson_id").references(() => dealerSalespeople.id, { onDelete: "set null" }),
+    referralCodeId: uuid("referral_code_id").references(() => referralCodes.id, { onDelete: "set null" }),
+    leadId: uuid("lead_id").references(() => dealerLeads.id, { onDelete: "set null" }),
+    source: text("source", { enum: ATTRIBUTION_SOURCES }).notNull(),
+    /** What was typed in the optional Employee ID / name field. */
+    employeeText: text("employee_text"),
+    /** DUPLICATE: the shop already looks registered; BRANCH: another shop of the same owner. */
+    matchKind: text("match_kind", { enum: ["NONE", "DUPLICATE", "BRANCH"] }).notNull().default("NONE"),
+    matchedShopId: uuid("matched_shop_id"),
+    matchReasons: text("match_reasons").array().notNull().default(sql`'{}'::text[]`),
+    status: text("status", { enum: ["ACTIVE", "REVERSED"] }).notNull().default("ACTIVE"),
+    note: text("note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("shop_attributions_dealer_idx").on(t.dealerId, t.createdAt),
+    index("shop_attributions_salesperson_idx").on(t.salespersonId).where(sql`${t.salespersonId} IS NOT NULL`),
+    check("shop_attributions_source", sql`${t.source} in ('CODE_AT_REGISTRATION', 'DEALER_ASSISTED', 'LEAD', 'ADMIN')`),
+    check("shop_attributions_match", sql`${t.matchKind} in ('NONE', 'DUPLICATE', 'BRANCH')`),
+    check("shop_attributions_status", sql`${t.status} in ('ACTIVE', 'REVERSED')`),
+  ],
+);
+export type ShopAttribution = typeof shopAttributions.$inferSelect;
+
+/** A dealer registering a shop for its owner (0105): the owner's code first, then the shop. */
+export const dealerAssistedSessions = pgTable(
+  "dealer_assisted_sessions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "cascade" }),
+    salespersonId: uuid("salesperson_id").references(() => dealerSalespeople.id, { onDelete: "set null" }),
+    ownerName: text("owner_name").notNull(),
+    ownerMobileE164: text("owner_mobile_e164").notNull(),
+    ownerEmail: text("owner_email").notNull(),
+    ownerUserId: uuid("owner_user_id"),
+    otpChannel: text("otp_channel", { enum: ["SMS", "EMAIL"] }).notNull(),
+    status: text("status", { enum: ["OTP_SENT", "OWNER_VERIFIED", "SHOP_SUBMITTED", "CANCELLED"] }).notNull().default("OTP_SENT"),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    consentExpiresAt: timestamp("consent_expires_at", { withTimezone: true }),
+    shopId: uuid("shop_id"),
+    createdBy: uuid("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("dealer_assisted_sessions_dealer_idx").on(t.dealerId, t.createdAt),
+    check("dealer_assisted_sessions_channel", sql`${t.otpChannel} in ('SMS', 'EMAIL')`),
+    check("dealer_assisted_sessions_status", sql`${t.status} in ('OTP_SENT', 'OWNER_VERIFIED', 'SHOP_SUBMITTED', 'CANCELLED')`),
+  ],
+);
+export type DealerAssistedSession = typeof dealerAssistedSessions.$inferSelect;
+
+/** A dealer's claim that a shop is theirs (0105); an admin upholds or rejects it. */
+export const dealerAttributionDisputes = pgTable(
+  "dealer_attribution_disputes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id").references(() => shops.id, { onDelete: "set null" }),
+    leadId: uuid("lead_id").references(() => dealerLeads.id, { onDelete: "set null" }),
+    claimedPhoneE164: text("claimed_phone_e164").notNull(),
+    note: text("note").notNull(),
+    /** support_tickets.id (core table: no foreign key). */
+    ticketId: uuid("ticket_id"),
+    status: text("status", { enum: ["OPEN", "UPHELD", "REJECTED"] }).notNull().default("OPEN"),
+    resolutionNote: text("resolution_note"),
+    resolvedBy: uuid("resolved_by"),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdBy: uuid("created_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("dealer_attribution_disputes_status_idx").on(t.status, t.createdAt),
+    check("dealer_attribution_disputes_status", sql`${t.status} in ('OPEN', 'UPHELD', 'REJECTED')`),
+  ],
+);
+export type DealerAttributionDispute = typeof dealerAttributionDisputes.$inferSelect;
+
 /* <<< end dealer programme */

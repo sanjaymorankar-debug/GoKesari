@@ -684,6 +684,18 @@ export const RULES = {
     }),
     defaults: { enabled: false, holdHours: 24, maxPendingPerMobile: 3, classification: "GREEN" },
   },
+  dealerProgramme: {
+    description:
+      "Dealer programme (docs/dealer-programme). leadWindowDays: how long a dealer's documented lead (with the owner's consent) reserves a shop that registers without a code. maxOpenLeadsPerDealer: open leads a dealer may hold at once (stops mass reservation). duplicateDistanceMeters: a new shop this close to another with a similar name (nameSimilarity 0–100) is flagged as a likely duplicate. assistedConsentMinutes: how long the owner's code keeps a dealer-assisted registration open. The programme itself is switched on in Admin → Settings → Feature flags.",
+    schema: z.object({
+      leadWindowDays: int(1, 365),
+      maxOpenLeadsPerDealer: int(1, 10_000),
+      duplicateDistanceMeters: int(10, 5_000),
+      nameSimilarity: int(50, 100),
+      assistedConsentMinutes: int(5, 24 * 60),
+    }),
+    defaults: { leadWindowDays: 30, maxOpenLeadsPerDealer: 200, duplicateDistanceMeters: 150, nameSimilarity: 80, assistedConsentMinutes: 60 },
+  },
   registrationFeeByTurnover: {
     description:
       "One-time shop registration fee on Add my shop (/shop/register), by the annual turnover the owner declares, in slabs (src/lib/registration-fee.ts): slabs is a list of { upToRupees, feePaise } — turnover up to a slab's upToRupees pays its feePaise; the last slab has upToRupees null and covers everything above. An admin adds or removes slabs (up to 20) in Admin → Registration fees → Fee by turnover. Fees are before GST (added at the PLATFORM_FEE_GST rate). enabled: off → the flat registration fee schedule (Admin → Registration fee) applies instead. Each shop keeps the fee it registered with; a change here never alters it. A value saved in the older three-slab form (slab1UpToRupees … slab3FeePaise) is read as the same three slabs.",

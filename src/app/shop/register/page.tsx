@@ -9,17 +9,21 @@ import { baseRegistrationFee, registrationFeeGstRateBp } from "@/server/services
 import { listShopCategories } from "@/server/services/shop-categories";
 import { listShopsForOwner } from "@/server/services/shops";
 import { getRule } from "@/server/services/settings";
+import { isFeatureEnabled } from "@/server/services/feature-flags";
 
 export const metadata = { title: "Add my shop" };
 export const dynamic = "force-dynamic";
 
-export default async function RegisterShopPage() {
+export default async function RegisterShopPage({ searchParams }: { searchParams: Promise<{ ref?: string | string[] }> }) {
+  // docs/dealer-programme: a dealer's share link (/shop/register?ref=CODE) fills in the referral code.
+  const rawRef = (await searchParams).ref;
+  const ref = typeof rawRef === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{2,31}$/.test(rawRef.trim()) ? rawRef.trim().toUpperCase() : null;
   const user = await getCurrentUser();
-  if (!user) redirect("/signin");
+  if (!user) redirect(ref ? `/signin?callbackUrl=${encodeURIComponent(`/shop/register?ref=${ref}`)}` : "/signin");
 
   // Every read at once: each one is a round trip to the database, and they
   // used to run one after another on every visit.
-  const [ownShops, referralRequired, selfRegistration, feeRule, baseFee, gstRateBp, categories] = await Promise.all([
+  const [ownShops, referralRequired, selfRegistration, feeRule, baseFee, gstRateBp, categories, dealerProgramme] = await Promise.all([
     // Only the signed-in owner's own shops — nothing about anyone else's.
     listShopsForOwner(user.id),
     // docs/nearby-referral-2026-10: the admin's setting referral_required_shop, read live.
@@ -34,6 +38,8 @@ export default async function RegisterShopPage() {
     registrationFeeGstRateBp().catch(() => null),
     // The category picker's list, so the form does not fetch it after loading.
     listShopCategories({ activeOnly: true, withShopCounts: false }).catch(() => undefined),
+    // docs/dealer-programme: the optional Employee ID / name field exists only while the programme is on.
+    isFeatureEnabled("dealer_programme_enabled"),
   ]);
   const pending = ownShops.filter((s) => s.status === "PENDING_APPROVAL");
   const rejected = ownShops.find((s) => s.status === "REJECTED");
@@ -81,6 +87,8 @@ export default async function RegisterShopPage() {
       </div>
       <ShopRegisterForm
         referralRequired={referralRequired}
+        initialReferralCode={ref}
+        showEmployeeField={dealerProgramme}
         feeRule={feeRule}
         feeQuote={gstRateBp === null ? null : { basePaise: baseFee.basePaise, gstRateBp }}
         pending={

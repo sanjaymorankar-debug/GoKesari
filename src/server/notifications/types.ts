@@ -316,6 +316,14 @@ export const NOTIFICATION_TYPES = {
   DEALER_STATUS_CHANGED: "dealer.status_changed",
   /** To the dealer: a document was rejected; upload it again. */
   DEALER_DOCUMENT_REJECTED: "dealer.document_rejected",
+  /** To the dealer: a shop was attributed to them (code, dealer-assisted or lead). */
+  DEALER_SHOP_ATTRIBUTED: "dealer.shop_attributed",
+  /** To the dealer: their lead was closed because the shop registered with another dealer. */
+  DEALER_LEAD_CLOSED: "dealer.lead_closed",
+  /** To the dealer: an attribution claim was decided. */
+  DEALER_DISPUTE_DECIDED: "dealer.dispute_decided",
+  /** To the shop owner: a dealer registered the shop for them; pay the registration fee to finish. */
+  DEALER_ASSISTED_SHOP_REGISTERED: "dealer.assisted_shop_registered",
   /* <<< end dealer programme */
   //
 } as const;

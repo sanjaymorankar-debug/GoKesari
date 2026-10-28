@@ -369,6 +369,11 @@ export const AUDIT_ACTIONS = {
   DEALER_CODE_STATUS_CHANGED: "dealer.code_status_changed", // docs/dealer-programme
   DEALER_CODE_REPLACED: "dealer.code_replaced", // docs/dealer-programme
   DEALER_SALESPERSON_SAVED: "dealer.salesperson_saved", // docs/dealer-programme
+  DEALER_ATTRIBUTION_RECORDED: "dealer.attribution_recorded", // docs/dealer-programme
+  DEALER_ATTRIBUTION_CHANGED: "dealer.attribution_changed", // docs/dealer-programme
+  DEALER_LEAD_SAVED: "dealer.lead_saved", // docs/dealer-programme
+  DEALER_ASSISTED_STEP: "dealer.assisted_registration", // docs/dealer-programme
+  DEALER_DISPUTE_SAVED: "dealer.dispute_saved", // docs/dealer-programme
   DELIVERY_OFFER_BROADCAST: "delivery_order.offer_broadcast", // batch-2026-10 WS-B
   DELIVERY_BROADCAST_ACCEPTED: "delivery_order.broadcast_accepted", // batch-2026-10 WS-B
   DELIVERY_BROADCAST_CLOSED: "delivery_order.broadcast_closed", // batch-2026-10 WS-B

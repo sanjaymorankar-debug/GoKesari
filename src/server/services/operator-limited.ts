@@ -54,6 +54,7 @@ import { requestShopOnboardingConsentOtp, verifyShopOnboardingConsentOtp } from 
 import { createPaymentIntent, getPaymentIntent, type PaymentIntentRef } from "@/server/payments/intents";
 import { AUDIT_ACTIONS, recordAudit, type AuditAction } from "./audit";
 import { assertRegistrationReferralCode, attributeRegistrationReferral } from "./referral-requests";
+import { recordShopAttributionSafely } from "@/server/dealers/attribution";
 import { adminDecideVerification, getShopVerificationSummary, type SellerVerificationView } from "./seller-verification";
 import { getRule } from "./settings";
 import { recordPayment } from "./shop-payments";
@@ -148,7 +149,7 @@ export async function startOwnerConsent(
 }
 
 /** The owner's account for the verified email: the existing one, or a new customer account (email verified by the code). */
-async function ownerAccountFor(email: string): Promise<{ id: string; created: boolean }> {
+export async function ownerAccountFor(email: string): Promise<{ id: string; created: boolean }> {
   const [existing] = await db.select().from(users).where(and(eq(users.email, email), isNull(users.deletedAt)));
   if (existing) {
     if (existing.status !== "ACTIVE") throw forbidden("The owner's account is suspended or closed, so a shop cannot be registered for it.");
@@ -245,6 +246,8 @@ export async function submitOnboardedShop(
     .set({ onboardedByUserId: actor.id, updatedAt: new Date() })
     .where(and(eq(shops.id, shop.id), or(isNull(shops.onboardedByUserId), eq(shops.onboardedByUserId, actor.id))));
   if (referralCode) await attributeRegistrationReferral(shop, referralCode, actor);
+  // docs/dealer-programme: which dealer the code belongs to (after the commit, never blocking).
+  await recordShopAttributionSafely(shop.id, actor);
 
   const [after] = await db.select().from(shops).where(eq(shops.id, shop.id));
   const feeDue = Math.max(0, (after.registrationFeePaise ?? 0) - after.amountPaidPaise);

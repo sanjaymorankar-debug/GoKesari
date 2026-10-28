@@ -88,6 +88,8 @@ export function ShopRegisterForm({
   feeQuote = null,
   pending = null,
   initialCategories,
+  initialReferralCode = null,
+  showEmployeeField = false,
 }: {
   /** Admin setting referral_required_shop is MANDATORY (docs/nearby-referral-2026-10). Otherwise the field is optional. */
   referralRequired?: boolean;
@@ -99,6 +101,10 @@ export function ShopRegisterForm({
   pending?: { id: string; name: string; feeDue: boolean } | null;
   /** Active shop categories, read by the server page. */
   initialCategories?: PickerCategory[];
+  /** docs/dealer-programme: the code from a dealer's share link (?ref=), filled in for the owner. */
+  initialReferralCode?: string | null;
+  /** docs/dealer-programme: the optional Employee ID / name of the dealer's employee who helped (programme on). */
+  showEmployeeField?: boolean;
 } = {}) {
   const shopTypes = useShopTypes();
   const router = useRouter();
@@ -131,7 +137,7 @@ export function ShopRegisterForm({
     null,
   );
   // Referral code (feature 4): checked as the owner leaves the field; the server checks again.
-  const [referralCode, setReferralCode] = useState("");
+  const [referralCode, setReferralCode] = useState(initialReferralCode ?? "");
   const [referralCheck, setReferralCheck] = useState<{ valid: boolean; message: string | null } | null>(null);
   const [requestPrefill, setRequestPrefill] = useState<ReferralRequestPrefill | null>(null);
 
@@ -303,6 +309,7 @@ export function ShopRegisterForm({
           gstin: get("gstin") || null,
           // docs/nearby-referral-2026-10: sent whenever entered — an optional code must still be valid.
           referralCode: referralCode.trim() || null,
+          ...(showEmployeeField ? { employeeId: get("employeeId") || null } : {}),
           // A practice or office offers services: nothing to deliver.
           deliveryAvailable: deliveryAvailable && !professional,
           deliveryFeePaise:
@@ -456,6 +463,14 @@ export function ShopRegisterForm({
             </div>
           </Field>
         </div>
+
+        {showEmployeeField ? (
+          <div className="sm:col-span-2" data-testid="employee-id-field">
+            <Field label="Employee ID or name (optional)" hint="If a GoKesari dealer's employee helped you, their ID or name, so their work is counted.">
+              <input name="employeeId" autoComplete="off" maxLength={120} className={inputClass} aria-label="Employee ID or name" />
+            </Field>
+          </div>
+        ) : null}
 
         <div className="sm:col-span-2">
           <p className="mb-2 text-sm font-medium text-ink-700">Shop location</p>

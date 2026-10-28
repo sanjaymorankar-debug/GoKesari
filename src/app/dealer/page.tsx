@@ -3,12 +3,18 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { DealerPortal } from "@/components/dealer/dealer-portal";
+import { DealerWork } from "@/components/dealer/dealer-work";
 import { Alert, Badge, LinkButton, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { activeCodeFor, codeQrSvg, shareLinkFor, whatsappShareFor } from "@/server/dealers/codes";
 import { originFromHeaders } from "@/server/dealers/http";
+import { listDealerShops, listDisputes } from "@/server/dealers/disputes";
+import { listLeads } from "@/server/dealers/leads";
 import { dealerView, getDealerForUser, listSalespeople } from "@/server/dealers/service";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { getRule } from "@/server/services/settings";
+import { listShopCategories } from "@/server/services/shop-categories";
+import { listShopTypes } from "@/server/services/shop-types";
 
 export const metadata = { title: "Dealer" };
 export const dynamic = "force-dynamic";
@@ -44,7 +50,17 @@ export default async function DealerPage() {
 
   const origin = originFromHeaders(await headers());
   const code = await activeCodeFor(dealer.id, null);
-  const employees = await listSalespeople(dealer.id);
+  const [employees, shops, leads, claims, shopTypes, categories, feeRule] = await Promise.all([
+    listSalespeople(dealer.id),
+    listDealerShops(dealer.id),
+    listLeads(dealer.id),
+    listDisputes({ dealerId: dealer.id }),
+    listShopTypes(),
+    listShopCategories({ activeOnly: true, withShopCounts: false }).catch(() => []),
+    getRule("registrationFeeByTurnover"),
+  ]);
+  // Dates become ISO strings for the client component.
+  const iso = (rows: object[]) => JSON.parse(JSON.stringify(rows));
   return (
     <div className="mx-auto max-w-3xl space-y-4 px-4 py-6">
       <PageHeader title={dealer.legalName} description="Authorised GoKesari dealer" />
@@ -57,6 +73,15 @@ export default async function DealerPage() {
         legalName={dealer.legalName}
         code={code ? { code, shareLink: shareLinkFor(origin, code), whatsapp: whatsappShareFor(origin, code, dealer.legalName), qrSvg: await codeQrSvg(origin, code) } : null}
         employees={employees}
+      />
+      <DealerWork
+        employees={employees}
+        shops={iso(shops)}
+        leads={iso(leads)}
+        claims={iso(claims)}
+        shopTypes={shopTypes.filter((t) => t.status === "ACTIVE").map((t) => ({ key: t.key, label: t.label }))}
+        categories={categories.map((c) => ({ id: c.id, name: c.name, status: c.status, groupName: c.groupName ?? null }))}
+        askTurnover={feeRule.enabled}
       />
     </div>
   );
