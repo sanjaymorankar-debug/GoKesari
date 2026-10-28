@@ -150,6 +150,36 @@ describe("the fee follows the declared turnover slab (on by default)", () => {
     expect(kept.registrationFeePaise).toBe(withGst(99_900));
   });
 
+  it("charges the fee of a slab the admin added (four slabs), and refuses slabs whose limits do not rise", async () => {
+    const admin = await createUser({ role: "ADMIN" });
+    await setRule(
+      "registrationFeeByTurnover",
+      {
+        enabled: true,
+        slabs: [
+          { upToRupees: 2 * CRORE, feePaise: 99_900 },
+          { upToRupees: 10 * CRORE, feePaise: 4_99_900 },
+          { upToRupees: 50 * CRORE, feePaise: 9_99_900 },
+          { upToRupees: null, feePaise: 24_99_900 },
+        ],
+      },
+      asActor(admin),
+    );
+    clearRuleCache();
+    const third = await registerShop(shopInput(20 * CRORE), asActor(await createUser()));
+    const fourth = await registerShop(shopInput(80 * CRORE), asActor(await createUser()));
+    expect(third.registrationFeePaise).toBe(withGst(9_99_900));
+    expect(fourth.registrationFeePaise).toBe(withGst(24_99_900));
+
+    await expect(
+      setRule(
+        "registrationFeeByTurnover",
+        { enabled: true, slabs: [{ upToRupees: 10 * CRORE, feePaise: 1 }, { upToRupees: 5 * CRORE, feePaise: 2 }, { upToRupees: null, feePaise: 3 }] },
+        asActor(admin),
+      ),
+    ).rejects.toMatchObject({ status: 422 });
+  });
+
   it("an operator's fee override still wins", async () => {
     const operator = await createUser({ role: "ADMIN" });
     const owner = await createUser();

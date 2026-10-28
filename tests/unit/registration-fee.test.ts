@@ -1,8 +1,10 @@
 /**
- * One-time registration fee by declared annual turnover, in three slabs (owner,
- * 28 Oct 2026): up to ₹2 crore, up to ₹10 crore, above ₹10 crore — limits and
- * fees set by the admin rule registrationFeeByTurnover, GST on top. And the
- * professional shop types that come with it.
+ * One-time registration fee by declared annual turnover, in slabs (owner,
+ * 28 Oct 2026): three to start — up to ₹2 crore, up to ₹10 crore, above
+ * ₹10 crore — and the admin may add or remove slabs (up to 20). Limits and fees
+ * are the admin rule registrationFeeByTurnover, GST on top; a value saved in the
+ * older three-slab form still reads. And the professional shop types that come
+ * with it.
  */
 import { describe, expect, it } from "vitest";
 
@@ -15,6 +17,7 @@ import {
   registrationFeeBreakdown,
   turnoverSlab,
   turnoverSlabLabel,
+  type TurnoverFeeRule,
 } from "@/lib/registration-fee";
 import { isFoodBusinessShopType, isProfessionalShopType, SHOP_TYPE_KEYS } from "@/lib/shop-types";
 import { RULES } from "@/server/config/rules";
@@ -26,11 +29,11 @@ describe("registration fee by turnover slab — the default rule", () => {
   it("is on, with slabs up to ₹2 crore, up to ₹10 crore and above", () => {
     expect(rule).toEqual({
       enabled: true,
-      slab1UpToRupees: 2 * CRORE,
-      slab2UpToRupees: 10 * CRORE,
-      slab1FeePaise: 99_900,
-      slab2FeePaise: 4_99_900,
-      slab3FeePaise: 9_99_900,
+      slabs: [
+        { upToRupees: 2 * CRORE, feePaise: 99_900 },
+        { upToRupees: 10 * CRORE, feePaise: 4_99_900 },
+        { upToRupees: null, feePaise: 9_99_900 },
+      ],
     });
     expect(RULES.registrationFeeByTurnover.schema.safeParse(rule).success).toBe(true);
   });
@@ -63,18 +66,113 @@ describe("registration fee by turnover slab — the default rule", () => {
   });
 
   it("follows an admin's change of limits and fees", () => {
-    const changed = { ...rule, slab1UpToRupees: 1 * CRORE, slab2UpToRupees: 5 * CRORE, slab1FeePaise: 0, slab2FeePaise: 2_49_900, slab3FeePaise: 14_99_900 };
+    const changed: TurnoverFeeRule = {
+      enabled: true,
+      slabs: [
+        { upToRupees: 1 * CRORE, feePaise: 0 },
+        { upToRupees: 5 * CRORE, feePaise: 2_49_900 },
+        { upToRupees: null, feePaise: 14_99_900 },
+      ],
+    };
     expect(feeForTurnover(1 * CRORE, changed)).toBe(0);
     expect(feeForTurnover(1 * CRORE + 1, changed)).toBe(2_49_900);
     expect(feeForTurnover(5 * CRORE + 1, changed)).toBe(14_99_900);
   });
 
-  it("refuses a negative fee, a zero limit, or slab 2's limit not above slab 1's", () => {
+  it("refuses, in the older three-slab form, a negative fee, a zero limit, or slab 2's limit not above slab 1's", () => {
     const schema = RULES.registrationFeeByTurnover.schema;
     expect(schema.safeParse({ ...rule, slab3FeePaise: -1 }).success).toBe(false);
     expect(schema.safeParse({ ...rule, slab1UpToRupees: 0 }).success).toBe(false);
     expect(schema.safeParse({ ...rule, slab2UpToRupees: 2 * CRORE }).success).toBe(false);
     expect(schema.safeParse({ ...rule, slab2UpToRupees: 1 * CRORE }).success).toBe(false);
+  });
+});
+
+describe("registration fee by turnover slab — more slabs (owner, 28 Oct 2026)", () => {
+  const schema = RULES.registrationFeeByTurnover.schema;
+  const five: TurnoverFeeRule = {
+    enabled: true,
+    slabs: [
+      { upToRupees: 50_00_000, feePaise: 49_900 },
+      { upToRupees: 2 * CRORE, feePaise: 99_900 },
+      { upToRupees: 10 * CRORE, feePaise: 4_99_900 },
+      { upToRupees: 50 * CRORE, feePaise: 9_99_900 },
+      { upToRupees: null, feePaise: 19_99_900 },
+    ],
+  };
+
+  it("accepts five slabs and charges each turnover its own slab's fee", () => {
+    expect(schema.safeParse(five).success).toBe(true);
+    const cases: [number, number, number][] = [
+      [0, 1, 49_900],
+      [50_00_000, 1, 49_900],
+      [50_00_001, 2, 99_900],
+      [2 * CRORE, 2, 99_900],
+      [10 * CRORE, 3, 4_99_900],
+      [50 * CRORE, 4, 9_99_900],
+      [50 * CRORE + 1, 5, 19_99_900],
+    ];
+    for (const [t, slab, fee] of cases) {
+      expect(turnoverSlab(t, five), String(t)).toBe(slab);
+      expect(feeForTurnover(t, five), String(t)).toBe(fee);
+    }
+    expect([1, 2, 3, 4, 5].map((n) => turnoverSlabLabel(n, five))).toEqual([
+      "Up to ₹50 lakh",
+      "₹50 lakh – ₹2 crore",
+      "₹2 crore – ₹10 crore",
+      "₹10 crore – ₹50 crore",
+      "Above ₹50 crore",
+    ]);
+  });
+
+  it("accepts one slab for every turnover, and up to 20 slabs", () => {
+    const one: TurnoverFeeRule = { enabled: true, slabs: [{ upToRupees: null, feePaise: 99_900 }] };
+    expect(schema.safeParse(one).success).toBe(true);
+    expect(feeForTurnover(500 * CRORE, one)).toBe(99_900);
+    expect(turnoverSlabLabel(1, one)).toBe("Any turnover");
+    const twenty = Array.from({ length: 20 }, (_, i) => ({ upToRupees: i === 19 ? null : (i + 1) * CRORE, feePaise: 1_000 * (i + 1) }));
+    expect(schema.safeParse({ enabled: true, slabs: twenty }).success).toBe(true);
+    expect(schema.safeParse({ enabled: true, slabs: [...twenty.slice(0, 19).map((s) => s), { upToRupees: 25 * CRORE, feePaise: 1 }, twenty[19]] }).success).toBe(false);
+  });
+
+  it("refuses no slabs, a last slab with a limit, a middle slab without one, and limits not rising", () => {
+    expect(schema.safeParse({ enabled: true, slabs: [] }).success).toBe(false);
+    expect(schema.safeParse({ enabled: true, slabs: [{ upToRupees: CRORE, feePaise: 1 }] }).success).toBe(false);
+    expect(
+      schema.safeParse({ enabled: true, slabs: [{ upToRupees: null, feePaise: 1 }, { upToRupees: null, feePaise: 2 }] }).success,
+    ).toBe(false);
+    expect(
+      schema.safeParse({
+        enabled: true,
+        slabs: [
+          { upToRupees: 5 * CRORE, feePaise: 1 },
+          { upToRupees: 2 * CRORE, feePaise: 2 },
+          { upToRupees: null, feePaise: 3 },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
+  it("reads a value saved in the older three-slab form as the same three slabs", () => {
+    const old = {
+      enabled: true,
+      slab1UpToRupees: 1 * CRORE,
+      slab2UpToRupees: 5 * CRORE,
+      slab1FeePaise: 0,
+      slab2FeePaise: 2_49_900,
+      slab3FeePaise: 14_99_900,
+    };
+    // As the settings service reads it: the stored value merged over the defaults.
+    const parsed = schema.safeParse({ ...rule, ...old });
+    expect(parsed.success).toBe(true);
+    expect(parsed.data).toEqual({
+      enabled: true,
+      slabs: [
+        { upToRupees: 1 * CRORE, feePaise: 0 },
+        { upToRupees: 5 * CRORE, feePaise: 2_49_900 },
+        { upToRupees: null, feePaise: 14_99_900 },
+      ],
+    });
   });
 });
 

@@ -6,6 +6,7 @@
  */
 import { z } from "zod";
 import { LEGAL_ENTITY } from "@/lib/legal-docs";
+import { DEFAULT_TURNOVER_SLABS, MAX_TURNOVER_SLABS, turnoverSlabsProblem, upgradeLegacyTurnoverRule } from "@/lib/registration-fee";
 
 const int = (min: number, max: number) => z.number().int().min(min).max(max);
 
@@ -685,29 +686,27 @@ export const RULES = {
   },
   registrationFeeByTurnover: {
     description:
-      "One-time shop registration fee on Add my shop (/shop/register), by the annual turnover the owner declares, in three slabs (src/lib/registration-fee.ts): turnover up to slab1UpToRupees pays slab1FeePaise; up to slab2UpToRupees pays slab2FeePaise; above it pays slab3FeePaise. Fees are before GST (added at the PLATFORM_FEE_GST rate). enabled: off → the flat registration fee schedule (Admin → Registration fee) applies instead. Each shop keeps the fee it registered with; a change here never alters it.",
-    schema: z
-      .object({
-        enabled: z.boolean(),
-        slab1UpToRupees: int(1, 1_000_000_000_000),
-        slab2UpToRupees: int(1, 1_000_000_000_000),
-        slab1FeePaise: int(0, 100_000_000),
-        slab2FeePaise: int(0, 100_000_000),
-        slab3FeePaise: int(0, 100_000_000),
-      })
-      .refine((v) => v.slab2UpToRupees > v.slab1UpToRupees, {
-        message: "Slab 2's limit must be above slab 1's.",
-        path: ["slab2UpToRupees"],
-      }),
+      "One-time shop registration fee on Add my shop (/shop/register), by the annual turnover the owner declares, in slabs (src/lib/registration-fee.ts): slabs is a list of { upToRupees, feePaise } — turnover up to a slab's upToRupees pays its feePaise; the last slab has upToRupees null and covers everything above. An admin adds or removes slabs (up to 20) in Admin → Registration fees → Fee by turnover. Fees are before GST (added at the PLATFORM_FEE_GST rate). enabled: off → the flat registration fee schedule (Admin → Registration fee) applies instead. Each shop keeps the fee it registered with; a change here never alters it. A value saved in the older three-slab form (slab1UpToRupees … slab3FeePaise) is read as the same three slabs.",
+    schema: z.preprocess(
+      upgradeLegacyTurnoverRule,
+      z
+        .object({
+          enabled: z.boolean(),
+          slabs: z
+            .array(z.object({ upToRupees: int(1, 1_000_000_000_000).nullable(), feePaise: int(0, 100_000_000) }))
+            .min(1)
+            .max(MAX_TURNOVER_SLABS),
+        })
+        .superRefine((v, ctx) => {
+          const problem = turnoverSlabsProblem(v.slabs);
+          if (problem) ctx.addIssue({ code: "custom", message: problem, path: ["slabs"] });
+        }),
+    ),
     // Owner, 28 Oct 2026: on — up to ₹2 crore, up to ₹10 crore, above ₹10 crore.
-    // The fees are starting values; the admin sets them in Admin → Registration fees.
+    // The fees are starting values; the admin sets them, and adds slabs, in Admin → Registration fees.
     defaults: {
       enabled: true,
-      slab1UpToRupees: 2_00_00_000,
-      slab2UpToRupees: 10_00_00_000,
-      slab1FeePaise: 99_900,
-      slab2FeePaise: 4_99_900,
-      slab3FeePaise: 9_99_900,
+      slabs: DEFAULT_TURNOVER_SLABS,
     },
   },
   shopProductMedia: {

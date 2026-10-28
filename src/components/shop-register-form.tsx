@@ -666,9 +666,9 @@ export function ShopRegisterForm({
               />
             </Field>
             <ul className="mt-3 space-y-1 text-sm" data-testid="turnover-slabs">
-              {([1, 2, 3] as const).map((slab) => {
+              {feeRule.slabs.map(({ feePaise: fee }, i) => {
+                const slab = i + 1;
                 const current = turnoverRupees !== null && turnoverSlab(turnoverRupees, feeRule) === slab;
-                const fee = slab === 1 ? feeRule.slab1FeePaise : slab === 2 ? feeRule.slab2FeePaise : feeRule.slab3FeePaise;
                 return (
                   <li
                     key={slab}
