@@ -298,6 +298,12 @@ export const TABLE_OWNERSHIP = {
   feature_flag_changes: "platform",
   geo_areas: "seller",
   geo_area_pincodes: "seller",
+  dealers: "seller",
+  dealer_document_requirements: "seller",
+  dealer_documents: "seller",
+  dealer_territories: "seller",
+  dealer_salespeople: "seller",
+  dealer_codes: "seller",
   /* <<< end dealer programme */
   //
 } as const satisfies Record<string, DbOwner>;

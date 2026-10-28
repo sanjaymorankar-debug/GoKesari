@@ -309,6 +309,15 @@ export const NOTIFICATION_TYPES = {
   PURCHASE_LIST_DUE: "list.due",
   /* <<< end purchase lists */
   //
+  /* >>> dealer programme (docs/dealer-programme) */
+  /** To the applicant: the dealer application was received and waits for approval. */
+  DEALER_APPLICATION_RECEIVED: "dealer.application_received",
+  /** To the dealer: approved (with the code), rejected, suspended, reactivated or terminated, with the reason. */
+  DEALER_STATUS_CHANGED: "dealer.status_changed",
+  /** To the dealer: a document was rejected; upload it again. */
+  DEALER_DOCUMENT_REJECTED: "dealer.document_rejected",
+  /* <<< end dealer programme */
+  //
 } as const;
 
 export type NotificationType =

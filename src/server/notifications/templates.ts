@@ -367,6 +367,16 @@ export const TEMPLATES: Record<string, Template> = {
     "Your {{frequency}} list \"{{listName}}\" is due. Update the quantities and order it in a minute.",
     false,
   ),
+  // docs/dealer-programme
+  [T.DEALER_APPLICATION_RECEIVED]: t(
+    "Dealer application received",
+    "Thank you, {{legalName}}. Your GoKesari dealer application is with our team for approval. We will tell you when it is decided.",
+  ),
+  [T.DEALER_STATUS_CHANGED]: t("Dealer account: {{statusLabel}}", "Your GoKesari dealer account is now {{statusLabel}}. {{detail}}"),
+  [T.DEALER_DOCUMENT_REJECTED]: t(
+    "Dealer document needs another upload",
+    "Your {{docLabel}} was not accepted: {{note}} Please upload it again from your dealer application.",
+  ),
   /* <<< end purchase lists */
   //
 };

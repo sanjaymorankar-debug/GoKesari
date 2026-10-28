@@ -94,6 +94,13 @@ export async function getFeatureFlag(key: FeatureFlagKey): Promise<FeatureFlagVi
   return (await getFeatureFlags())[key];
 }
 
+/** Keys of the flags that are on anywhere (for menus: an entry of a feature that is off is hidden). */
+export async function enabledFeatureKeys(): Promise<FeatureFlagKey[]> {
+  return Object.values(await getFeatureFlags())
+    .filter((f) => f.enabled)
+    .map((f) => f.key);
+}
+
 /** True when the flag's district list covers this district (NULL list = every district). */
 export function flagCoversDistrict(flag: Pick<FeatureFlagView, "enabled" | "districtCodes">, districtCode: string | null | undefined): boolean {
   if (!flag.enabled) return false;

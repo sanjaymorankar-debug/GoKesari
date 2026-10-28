@@ -195,7 +195,7 @@ Answers: Q1 — distributor = dealer with its code; employees by optional Employ
 | Step | Modules | Migration | Lands on |
 |---|---|---|---|
 | 1 | Flags, geo areas (Pune pilot seed), `DEALER` role — **done 28 Oct** | 0101 role (both), 0102 flags (core), 0103 geo (seller) | staging |
-| 2 | GKS-DR-001…004 (dealers, documents, codes, employees), legacy migration | 0104 | staging |
+| 2 | GKS-DR-001…004 (dealers, documents, codes, employees), legacy migration — **done 28 Oct** (`/dealer/apply`, `/dealer`, `/admin/dealers`) | 0104 (seller) | staging |
 | 3 | GKS-SH-001…003, GKS-RA-001 (attribution, leads, dealer-assisted, duplicates), fee slabs by shop type | 0105 | staging |
 | 4 | GKS-SH-004 auto-approval + e-mail | 0106 | staging |
 | 5 | GKS-CM-001…003 (rules, ledger, payouts, rating) | 0107 | staging |

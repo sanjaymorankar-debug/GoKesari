@@ -25,9 +25,9 @@ export default async function AdminMenuPage({ params }: { params: Promise<{ key:
   const { key } = await params;
 
   const board = user.role === "ADMIN" ? "admin" : "operator";
-  const menu = visibleMenus(board === "admin" ? ADMIN_MENUS : OPERATOR_MENUS, user.role, {}, board).find((m) => m.key === key);
+  const [lang, data] = await Promise.all([getBoardLang(), loadStaffBoard(user.role)]);
+  const menu = visibleMenus(board === "admin" ? ADMIN_MENUS : OPERATOR_MENUS, user.role, { features: data.features }, board).find((m) => m.key === key);
   if (!menu) notFound();
 
-  const [lang, data] = await Promise.all([getBoardLang(), loadStaffBoard(user.role)]);
   return <MenuHub lang={lang} menu={menu} counts={data.counts} boardHref="/admin" />;
 }

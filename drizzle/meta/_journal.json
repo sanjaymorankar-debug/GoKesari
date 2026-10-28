@@ -729,6 +729,13 @@
       "when": 1793073700000,
       "tag": "0103_geo_areas",
       "breakpoints": true
+    },
+    {
+      "idx": 104,
+      "version": "7",
+      "when": 1793073800000,
+      "tag": "0104_dealers",
+      "breakpoints": true
     }
   ]
 }

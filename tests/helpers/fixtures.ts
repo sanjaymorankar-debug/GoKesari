@@ -59,6 +59,8 @@ function pgErrorCode(error: unknown): string | undefined {
  */
 /** The tables resetDatabase() names; TRUNCATE … CASCADE reaches the rest through foreign keys. */
 const RESET_TABLES = [
+  // docs/dealer-programme: not linked to users, so the users cascade does not reach them.
+  "dealers",
   "grievances",
   "user_consents",
   "delivery_partner_earnings",

@@ -110,6 +110,8 @@ const after0055 = () => journal.entries.filter((e) => e.when > whenOf("0055_")).
 /** Puts the database back on 0055 with the releases' own rollback scripts. */
 const backToMigration0055 = () =>
   withTemp(async (sql) => {
+    // docs/dealer-programme (0104): its tables point at distributors (0071) and referral_codes, so they go first.
+    await sql.unsafe(readFileSync("scripts/rollback-0104.sql", "utf8"));
     // docs/inventory-accounting-2026-10 (0078), docs/product-import-2026-10 (0077), docs/inventory-accounting-2026-10 (0076), docs/document-upload-2026-10 (0075),
     // docs/nearby-referral-2026-10 (0074, referral settings),
     // docs/four-features-2026-10 (0073, bank account checks; 0072, customer referral requests), docs/three-modules-2026-10 (0068–0071),

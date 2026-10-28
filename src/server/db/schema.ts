@@ -42,6 +42,7 @@ import {
   VOUCHER_TYPES,
 } from "@/lib/accounts/constants";
 import type { ShopTypeKey } from "@/lib/shop-types";
+import { DEALER_BANK_STATUSES, DEALER_CODE_KINDS, DEALER_CODE_STATUSES, DEALER_DOC_TYPES, DEALER_STATUSES, DEALER_TYPES } from "@/lib/dealers";
 import {
   IMPORT_JOB_STATUSES,
   IMPORT_MATCH_TYPES,
@@ -9489,5 +9490,174 @@ export const geoAreaPincodes = pgTable(
   ],
 );
 export type GeoAreaPincode = typeof geoAreaPincodes.$inferSelect;
+
+/** Authorised dealers (0104). Approval, codes and commission go through src/server/dealers. */
+export const dealers = pgTable(
+  "dealers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** The dealer's GoKesari account (users is a core table: no foreign key). */
+    userId: uuid("user_id"),
+    legalName: text("legal_name").notNull(),
+    contactName: text("contact_name").notNull(),
+    dealerType: text("dealer_type", { enum: DEALER_TYPES }).notNull(),
+    mobileE164: text("mobile_e164"),
+    mobileVerifiedAt: timestamp("mobile_verified_at", { withTimezone: true }),
+    mobileVerificationMethod: text("mobile_verification_method", { enum: ["OTP", "ADMIN_CALL", "LEGACY"] }),
+    email: text("email"),
+    emailVerifiedAt: timestamp("email_verified_at", { withTimezone: true }),
+    /** AES-GCM (src/lib/pan-crypto.ts); shown masked, revealed to admins with an audit entry. */
+    panEnc: text("pan_enc"),
+    panHash: text("pan_hash"),
+    panLast4: text("pan_last4"),
+    gstin: text("gstin"),
+    shopActNumber: text("shop_act_number"),
+    addressLine1: text("address_line1"),
+    addressLine2: text("address_line2"),
+    city: text("city"),
+    pincode: text("pincode"),
+    state: text("state"),
+    bankHolderName: text("bank_holder_name"),
+    bankAccountEnc: text("bank_account_enc"),
+    bankAccountLast4: text("bank_account_last4"),
+    bankIfsc: text("bank_ifsc"),
+    bankStatus: text("bank_status", { enum: DEALER_BANK_STATUSES }).notNull().default("NOT_PROVIDED"),
+    bankStatusReason: text("bank_status_reason"),
+    bankVerifiedAt: timestamp("bank_verified_at", { withTimezone: true }),
+    bankCheckRef: text("bank_check_ref"),
+    agreementVersion: text("agreement_version"),
+    agreementAcceptedAt: timestamp("agreement_accepted_at", { withTimezone: true }),
+    agreementStart: date("agreement_start"),
+    agreementEnd: date("agreement_end"),
+    status: text("status", { enum: DEALER_STATUSES }).notNull().default("DRAFT"),
+    statusReason: text("status_reason"),
+    submittedAt: timestamp("submitted_at", { withTimezone: true }),
+    decidedAt: timestamp("decided_at", { withTimezone: true }),
+    decidedBy: uuid("decided_by"),
+    /** GoKesari Direct: holds codes that had no distributor; earns no commission. */
+    isInternal: boolean("is_internal").notNull().default(false),
+    legacyDistributorId: uuid("legacy_distributor_id").references(() => distributors.id, { onDelete: "set null" }),
+    source: text("source", { enum: ["APPLICATION", "LEGACY_MIGRATION", "ADMIN"] }).notNull().default("APPLICATION"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("dealers_user_unique").on(t.userId).where(sql`${t.userId} IS NOT NULL`),
+    uniqueIndex("dealers_legacy_distributor_unique").on(t.legacyDistributorId).where(sql`${t.legacyDistributorId} IS NOT NULL`),
+    uniqueIndex("dealers_internal_unique").on(t.isInternal).where(sql`${t.isInternal}`),
+    uniqueIndex("dealers_pan_unique").on(t.panHash).where(sql`${t.panHash} IS NOT NULL AND ${t.status} <> 'REJECTED'`),
+    index("dealers_status_idx").on(t.status),
+    check("dealers_type", sql`${t.dealerType} in ('INDIVIDUAL', 'PROPRIETORSHIP', 'PARTNERSHIP', 'COMPANY')`),
+    check("dealers_status", sql`${t.status} in ('DRAFT', 'PENDING', 'APPROVED', 'SUSPENDED', 'REJECTED', 'TERMINATED')`),
+    check("dealers_bank_status", sql`${t.bankStatus} in ('NOT_PROVIDED', 'PENDING', 'VERIFIED', 'FAILED')`),
+    check("dealers_mobile_method", sql`${t.mobileVerificationMethod} IS NULL OR ${t.mobileVerificationMethod} in ('OTP', 'ADMIN_CALL', 'LEGACY')`),
+    check("dealers_source", sql`${t.source} in ('APPLICATION', 'LEGACY_MIGRATION', 'ADMIN')`),
+    check("dealers_agreement_dates", sql`${t.agreementEnd} IS NULL OR ${t.agreementStart} IS NULL OR ${t.agreementEnd} >= ${t.agreementStart}`),
+  ],
+);
+export type Dealer = typeof dealers.$inferSelect;
+
+/** Which documents each dealer type must upload (admin-editable). */
+export const dealerDocumentRequirements = pgTable(
+  "dealer_document_requirements",
+  {
+    dealerType: text("dealer_type", { enum: DEALER_TYPES }).notNull(),
+    docType: text("doc_type", { enum: DEALER_DOC_TYPES }).notNull(),
+    required: boolean("required").notNull(),
+    updatedBy: uuid("updated_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ name: "dealer_document_requirements_pk", columns: [t.dealerType, t.docType] })],
+);
+
+/** A dealer's uploaded document; the file is encrypted (encryptBytes). */
+export const dealerDocuments = pgTable(
+  "dealer_documents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "cascade" }),
+    docType: text("doc_type", { enum: DEALER_DOC_TYPES }).notNull(),
+    fileName: text("file_name").notNull(),
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    content: bytea("content").notNull(),
+    status: text("status", { enum: ["SUBMITTED", "ACCEPTED", "REJECTED"] }).notNull().default("SUBMITTED"),
+    reviewNote: text("review_note"),
+    reviewedBy: uuid("reviewed_by"),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    uploadedBy: uuid("uploaded_by"),
+    uploadedAt: timestamp("uploaded_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("dealer_documents_dealer_idx").on(t.dealerId, t.docType)],
+);
+export type DealerDocument = typeof dealerDocuments.$inferSelect;
+
+/** Areas a dealer works in. Never exclusive: several dealers may share a locality. */
+export const dealerTerritories = pgTable(
+  "dealer_territories",
+  {
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "cascade" }),
+    areaCode: text("area_code")
+      .notNull()
+      .references(() => geoAreas.code, { onDelete: "restrict" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ name: "dealer_territories_pk", columns: [t.dealerId, t.areaCode] }), index("dealer_territories_area_idx").on(t.areaCode)],
+);
+
+/** A dealer's employee (salesperson), told apart by the dealer's own Employee ID. */
+export const dealerSalespeople = pgTable(
+  "dealer_salespeople",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "cascade" }),
+    employeeId: text("employee_id").notNull(),
+    name: text("name").notNull(),
+    mobileE164: text("mobile_e164"),
+    userId: uuid("user_id"),
+    status: text("status", { enum: ["ACTIVE", "INACTIVE"] }).notNull().default("ACTIVE"),
+    source: text("source", { enum: ["DEALER", "ADMIN", "LEGACY_MIGRATION"] }).notNull().default("DEALER"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    deactivatedAt: timestamp("deactivated_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("dealer_salespeople_employee_unique").on(t.dealerId, sql`lower(${t.employeeId})`)],
+);
+export type DealerSalesperson = typeof dealerSalespeople.$inferSelect;
+
+/**
+ * Links a referral code to its dealer (and employee). The referral_codes row
+ * stays the code everyone validates; its status is kept in step with this one.
+ */
+export const dealerCodes = pgTable(
+  "dealer_codes",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    referralCodeId: uuid("referral_code_id")
+      .notNull()
+      .references(() => referralCodes.id, { onDelete: "cascade" }),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "cascade" }),
+    salespersonId: uuid("salesperson_id").references(() => dealerSalespeople.id, { onDelete: "set null" }),
+    kind: text("kind", { enum: DEALER_CODE_KINDS }).notNull(),
+    status: text("status", { enum: DEALER_CODE_STATUSES }).notNull().default("ACTIVE"),
+    replacedById: uuid("replaced_by_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("dealer_codes_referral_code_unique").on(t.referralCodeId),
+    index("dealer_codes_dealer_idx").on(t.dealerId, t.status),
+    index("dealer_codes_salesperson_idx").on(t.salespersonId).where(sql`${t.salespersonId} IS NOT NULL`),
+  ],
+);
+export type DealerCode = typeof dealerCodes.$inferSelect;
 
 /* <<< end dealer programme */

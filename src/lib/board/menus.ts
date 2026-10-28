@@ -61,7 +61,10 @@ export type Counts = Partial<Record<CountKey, number>>;
 export type TickKey = "bankVerified" | "shopVerified";
 
 /** Values for `{placeholders}` in links. */
-export type LinkParams = Partial<Record<"shopSlug" | "subscriptionId" | "activeOrderNumber", string>>;
+export type LinkParams = Partial<Record<"shopSlug" | "subscriptionId" | "activeOrderNumber", string>> & {
+  /** Feature flags that are on (docs/dealer-programme); an entry naming another `feature` is hidden. */
+  features?: readonly string[];
+};
 
 export interface BoardItem {
   key: string;
@@ -80,6 +83,8 @@ export interface BoardItem {
   permission?: Permission | readonly Permission[];
   /** Customer board: needs an account, so a signed-out visitor goes to sign-in. */
   auth?: boolean;
+  /** Shown only while this feature flag is on (docs/dealer-programme): pass the flags in LinkParams.features. */
+  feature?: string;
 }
 
 export interface BoardMenu extends BoardItem {
@@ -377,6 +382,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "fees", label: L("Registration fees", "पंजीकरण शुल्क", "नोंदणी शुल्क"), icon: "receipt", href: "/admin/console/registration-fees", permission: STAFF },
       { key: "referralCodes", label: L("Referral codes", "रेफ़रल कोड", "रेफरल कोड"), icon: "ticket", href: "/admin/console/referral-codes", permission: PERMISSIONS.REFERRAL_MANAGE },
       { key: "referralRequests", label: L("Referral requests", "रेफ़रल अनुरोध", "रेफरल विनंत्या"), icon: "message-square", href: "/admin/referral-requests", permission: PERMISSIONS.REFERRAL_MANAGE },
+      // docs/dealer-programme: dealer approval queue and dealers (admin decides; operator reads). Only while the programme is on.
+      { key: "dealers", label: L("Dealers", "डीलर", "डीलर"), icon: "users", href: "/admin/dealers", permission: PERMISSIONS.REFERRAL_MANAGE, feature: "dealer_programme_enabled" },
       // docs/nearby-referral-2026-10, feature 1: shops left out of Nearby because they have no map location.
       { key: "missingLocation", label: L("Shops without location", "बिना लोकेशन दुकानें", "लोकेशन नसलेली दुकाने"), icon: "map-pin", href: "/admin/shops/missing-location", permission: PERMISSIONS.SHOP_APPROVE },
     ],
@@ -530,6 +537,8 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "fees", label: L("Registration fees", "पंजीकरण शुल्क", "नोंदणी शुल्क"), icon: "receipt", href: "/admin/console/registration-fees", permission: STAFF },
       { key: "referralCodes", label: L("Referral codes", "रेफ़रल कोड", "रेफरल कोड"), icon: "ticket", href: "/admin/console/referral-codes", permission: PERMISSIONS.REFERRAL_MANAGE },
       { key: "referralRequests", label: L("Referral requests", "रेफ़रल अनुरोध", "रेफरल विनंत्या"), icon: "message-square", href: "/admin/referral-requests", permission: PERMISSIONS.REFERRAL_MANAGE },
+      // docs/dealer-programme: dealer approval queue and dealers (admin decides; operator reads). Only while the programme is on.
+      { key: "dealers", label: L("Dealers", "डीलर", "डीलर"), icon: "users", href: "/admin/dealers", permission: PERMISSIONS.REFERRAL_MANAGE, feature: "dealer_programme_enabled" },
       { key: "missingLocation", label: L("Shops without location", "बिना लोकेशन दुकानें", "लोकेशन नसलेली दुकाने"), icon: "map-pin", href: "/admin/shops/missing-location", permission: PERMISSIONS.SHOP_APPROVE },
     ],
   },
@@ -668,7 +677,7 @@ export function isPermitted(entry: Pick<BoardItem, "permission">, role: UserRole
 export function resolveHref(href: string, params: LinkParams, fallbackHref?: string): string | null {
   let missing = false;
   const resolved = href.replace(/\{(\w+)\}/g, (_, name: string) => {
-    const value = params[name as keyof LinkParams];
+    const value = params[name as Exclude<keyof LinkParams, "features">];
     if (!value) {
       missing = true;
       return "";
@@ -698,6 +707,7 @@ export function visibleMenus(menus: readonly BoardMenu[], role: UserRole, params
   const out: ResolvedMenu[] = [];
   for (const menu of menus) {
     if (menu.permission && !isPermitted(menu, role)) continue;
+    if (menu.feature && !params.features?.includes(menu.feature)) continue;
     const items = visibleItems(menu.items, role, params);
     const more = visibleItems(menu.more ?? [], role, params);
     if (items.length === 0 && more.length === 0) continue;
@@ -719,6 +729,7 @@ export function visibleMenus(menus: readonly BoardMenu[], role: UserRole, params
 export function visibleItems(items: readonly BoardItem[], role: UserRole, params: LinkParams = {}): Resolved<BoardItem>[] {
   return items.flatMap((item) => {
     if (!isPermitted(item, role)) return [];
+    if (item.feature && !params.features?.includes(item.feature)) return [];
     const href = resolveHref(item.href, params, item.fallbackHref);
     return href ? [{ ...item, href }] : [];
   });

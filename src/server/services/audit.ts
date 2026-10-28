@@ -355,6 +355,20 @@ export const AUDIT_ACTIONS = {
   REFERRAL_SETTING_CHANGED: "referral_setting.changed",
   FEATURE_FLAG_CHANGED: "feature_flag.changed", // docs/dealer-programme
   GEO_AREA_SAVED: "geo_area.saved", // docs/dealer-programme
+  DEALER_APPLICATION_SAVED: "dealer.application_saved", // docs/dealer-programme
+  DEALER_APPLICATION_SUBMITTED: "dealer.application_submitted", // docs/dealer-programme
+  DEALER_STATUS_CHANGED: "dealer.status_changed", // docs/dealer-programme
+  DEALER_DOCUMENT_UPLOADED: "dealer.document_uploaded", // docs/dealer-programme
+  DEALER_DOCUMENT_REVIEWED: "dealer.document_reviewed", // docs/dealer-programme
+  DEALER_DOCUMENT_VIEWED: "dealer.document_viewed", // docs/dealer-programme
+  DEALER_DOC_REQUIREMENT_CHANGED: "dealer.document_requirement_changed", // docs/dealer-programme
+  DEALER_PAN_REVEALED: "dealer.pan_revealed", // docs/dealer-programme
+  DEALER_BANK_REVEALED: "dealer.bank_revealed", // docs/dealer-programme
+  DEALER_BANK_CHECKED: "dealer.bank_checked", // docs/dealer-programme
+  DEALER_CODE_ISSUED: "dealer.code_issued", // docs/dealer-programme
+  DEALER_CODE_STATUS_CHANGED: "dealer.code_status_changed", // docs/dealer-programme
+  DEALER_CODE_REPLACED: "dealer.code_replaced", // docs/dealer-programme
+  DEALER_SALESPERSON_SAVED: "dealer.salesperson_saved", // docs/dealer-programme
   DELIVERY_OFFER_BROADCAST: "delivery_order.offer_broadcast", // batch-2026-10 WS-B
   DELIVERY_BROADCAST_ACCEPTED: "delivery_order.broadcast_accepted", // batch-2026-10 WS-B
   DELIVERY_BROADCAST_CLOSED: "delivery_order.broadcast_closed", // batch-2026-10 WS-B
