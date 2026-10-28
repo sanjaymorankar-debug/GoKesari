@@ -245,7 +245,7 @@ export function ShopFinanceManager({
   );
 }
 
-function RecordPaymentForm({
+export function RecordPaymentForm({
   shopId,
   suggestedPaise,
   onDone,
