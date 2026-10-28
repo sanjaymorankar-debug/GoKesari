@@ -406,9 +406,16 @@ describe("legacy distributors (owner, 28 Oct 2026)", () => {
     const plain = await createReferralCode({ code: "PUNE-LAUNCH", label: "Pune launch" }, admin);
     const before = await db.select().from(referralCodes);
 
+    // The migration's data steps (its INSERTs), twice: they must be idempotent. Only the INSERTs — on the split
+    // layout the core holds foreign tables, where the CREATE TABLE / INDEX statements cannot run.
     const migration = readFileSync("drizzle/0104_dealers.sql", "utf8");
+    const inserts = migration
+      .split("--> statement-breakpoint")
+      .map((s) => s.trim())
+      .filter((s) => /^\s*INSERT INTO/m.test(s) && !/CREATE (TABLE|UNIQUE INDEX|INDEX)/.test(s));
+    expect(inserts).toHaveLength(5);
     for (let run = 0; run < 2; run++) {
-      for (const statement of migration.split("--> statement-breakpoint").map((s) => s.trim()).filter(Boolean)) await db.execute(sql.raw(statement));
+      for (const statement of inserts) await db.execute(sql.raw(statement));
     }
 
     const all = await db.select().from(dealers);
