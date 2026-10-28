@@ -385,6 +385,10 @@ export const TEMPLATES: Record<string, Template> = {
     "{{dealerName}}, an authorised GoKesari dealer, registered {{shopName}} for you. Open My shop to pay the registration fee and finish your registration.",
   ),
   [T.DEALER_PAYOUT_PAID]: t("Commission paid: {{amount}}", "GoKesari paid you {{amount}} in dealer commission (bank reference {{reference}}). Your statement is on your dealer page."),
+  [T.DEALER_COMMISSION_STATEMENT]: t(
+    "Your commission statement for {{month}}",
+    "{{month}}: {{registrations}} shops registered through you, {{earned}} commission earned. Payout for the month: {{payout}} — GoKesari transfers it to your bank account and you'll get the UTR when it is paid. See and download the full statement on your dealer page.",
+  ),
   [T.DEALER_RATING_CHANGED]: t("Your dealer rating is now {{rating}}", "GoKesari changed your onboarding rating to {{rating}}. Reason: {{reason}}. It applies to commission earned from now on."),
   [T.DEALER_SHOP_APPROVED]: t("Shop approved: {{shopName}}", "{{shopName}}, counted for you, is approved and can now add products and take orders."),
   [T.SHOP_READY_FOR_PRODUCT_UPLOAD]: t(
