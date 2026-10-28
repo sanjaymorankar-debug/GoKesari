@@ -15,6 +15,7 @@ import { ProductApprovalQueue } from "@/components/product-approval-queue";
 import { ReferralManager } from "@/components/referral-manager";
 import { RegistrationFeeCouponManager } from "@/components/registration-fee-coupon-manager";
 import { RegistrationFeeManager } from "@/components/registration-fee-manager";
+import { RegistrationFeeSlabsEditor } from "@/components/registration-fee-slabs-editor";
 import { ReleaseMobileForm } from "@/components/release-mobile-form";
 import { ShopApprovalPanel } from "@/components/shop-approval-panel";
 import { ShopComplianceManager } from "@/components/shop-compliance-manager";
@@ -24,6 +25,7 @@ import { UserRoleManager } from "@/components/user-role-manager";
 import { VoucherManager } from "@/components/voucher-manager";
 import { VoucherUpload } from "@/components/voucher-upload";
 import { formatPaiseCompact } from "@/lib/money";
+import { formatGstRate } from "@/lib/registration-fee";
 import { isFoodBusinessShopType, shopTypeLabel } from "@/lib/shop-types";
 import { loadShopTypeRegistry } from "@/server/services/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -40,7 +42,7 @@ import { getMaskedPan, listPendingGstPanVerifications } from "@/server/services/
 import { getMapsUsageSummary } from "@/server/services/maps-usage";
 import { listAllPending } from "@/server/services/price-requests";
 import { getReferralPerformance, listReferralCodes } from "@/server/services/referrals";
-import { listRegistrationFeeCoupons } from "@/server/services/registration-fee-coupons";
+import { listRegistrationFeeCoupons, registrationFeeGstRateBp } from "@/server/services/registration-fee-coupons";
 import { getActiveFee, listFeeHistory } from "@/server/services/registration-fees";
 import { listRolesForUsers } from "@/server/services/roles";
 import { getRegistrationFeeReport } from "@/server/services/shop-payments";
@@ -380,12 +382,16 @@ export default async function AdminConsoleSectionPage({
 
     case "registration-fees": {
       const canManageFee = can(user.role, PERMISSIONS.REGISTRATION_FEE_MANAGE);
-      const [feeReport, financeShops, activeFee, feeHistory, feeCoupons] = await Promise.all([
+      // The fee slabs are an admin rule (PUT /api/admin/settings is ADMIN only).
+      const canEditSlabs = canManageFee && user.role === "ADMIN";
+      const [feeReport, financeShops, activeFee, feeHistory, feeCoupons, feeSlabs, feeGstRateBp] = await Promise.all([
         getRegistrationFeeReport(),
         searchShopsAdmin({ limit: 500 }),
         canManageFee ? getActiveFee() : Promise.resolve(undefined),
         canManageFee ? listFeeHistory() : Promise.resolve([]),
         canManageFee ? listRegistrationFeeCoupons() : Promise.resolve([]),
+        canEditSlabs ? getRule("registrationFeeByTurnover") : Promise.resolve(null),
+        canEditSlabs ? registrationFeeGstRateBp().catch(() => null) : Promise.resolve(null),
       ]);
       return (
         <>
@@ -419,6 +425,11 @@ export default async function AdminConsoleSectionPage({
               canRecordPayment={can(user.role, PERMISSIONS.PAYMENT_RECORD)}
             />
           </Section>
+          {feeSlabs ? (
+            <Section id="fee-slabs" title="Fee by turnover">
+              <RegistrationFeeSlabsEditor rule={feeSlabs} gstLabel={feeGstRateBp !== null ? formatGstRate(feeGstRateBp) : null} />
+            </Section>
+          ) : null}
           {canManageFee ? (
             <Section id="fee-configuration" title="Registration fee configuration">
               <RegistrationFeeManager

@@ -12,6 +12,8 @@ import { formatPaiseCompact, rupeesToPaise } from "@/lib/money";
 import { RegistrationFeeSummary, type AppliedCoupon } from "@/components/registration-fee-summary";
 import {
   feeForTurnover,
+  turnoverSlab,
+  turnoverSlabLabel,
   formatRupeesIndian,
   parseTurnoverRupees,
   type TurnoverFeeRule,
@@ -645,7 +647,7 @@ export function ShopRegisterForm({
           <div className="rounded-lg border border-kesari-100 bg-kesari-50 p-4 sm:col-span-2">
             <Field
               label="Annual turnover (₹) *"
-              hint={`Last financial year, in rupees — e.g. 1500000 for ₹15 lakh. Up to ${formatRupeesIndian(feeRule.thresholdRupees)}: ${formatPaiseCompact(feeRule.upToFeePaise)}; above: ${formatPaiseCompact(feeRule.aboveFeePaise)}.`}
+              hint="Last financial year, in rupees — e.g. 1500000 for ₹15 lakh."
               error={errorFor("annualTurnover")}
             >
               <input
@@ -663,10 +665,29 @@ export function ShopRegisterForm({
                 className={inputClass}
               />
             </Field>
+            <ul className="mt-3 space-y-1 text-sm" data-testid="turnover-slabs">
+              {([1, 2, 3] as const).map((slab) => {
+                const current = turnoverRupees !== null && turnoverSlab(turnoverRupees, feeRule) === slab;
+                const fee = slab === 1 ? feeRule.slab1FeePaise : slab === 2 ? feeRule.slab2FeePaise : feeRule.slab3FeePaise;
+                return (
+                  <li
+                    key={slab}
+                    className={`flex justify-between gap-3 rounded px-2 py-1 ${current ? "bg-white font-semibold text-ink-900 ring-1 ring-kesari-300" : "text-ink-600"}`}
+                  >
+                    <span>
+                      Slab {slab}: {turnoverSlabLabel(slab, feeRule)}
+                    </span>
+                    <span>{formatPaiseCompact(fee)} + GST</span>
+                  </li>
+                );
+              })}
+            </ul>
             {feePreview === null ? (
               <p className="mt-2 text-sm text-ink-500">Enter your turnover to see the registration fee.</p>
             ) : turnoverRupees !== null ? (
-              <p className="mt-2 text-xs text-ink-500">Turnover {formatRupeesIndian(turnoverRupees)}</p>
+              <p className="mt-2 text-xs text-ink-500">
+                Turnover {formatRupeesIndian(turnoverRupees)} — slab {turnoverSlab(turnoverRupees, feeRule)}
+              </p>
             ) : null}
           </div>
         ) : null}

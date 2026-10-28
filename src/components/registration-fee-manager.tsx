@@ -86,7 +86,10 @@ export function RegistrationFeeManager({
       {notice ? <Alert tone="success" title="Saved">{notice}</Alert> : null}
 
       <Card className="p-4">
-        <p className="text-xs text-ink-500">Current registration fee (before GST)</p>
+        <p className="text-xs text-ink-500">
+          Flat registration fee (before GST) — charged while the fee by turnover is off, or when no
+          turnover is declared
+        </p>
         <p className="mt-1 text-3xl font-bold text-ink-900">
           {active ? <Money paise={active.amountPaise} /> : "Not configured"}
         </p>

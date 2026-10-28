@@ -1,10 +1,10 @@
 /**
- * One-time shop registration fee by declared annual turnover (owner request,
- * 26 Oct 2026; switched off on 27 Oct 2026 — for now every shop pays the flat
- * fee from Admin → Registration fee, ₹999): turnover up to the threshold (₹2 crore) pays the lower fee
- * (₹999), turnover above it pays the higher one (₹4,999). The threshold and both
- * amounts are the admin rule `registrationFeeByTurnover`
- * (src/server/config/rules.ts), so they change without a deploy.
+ * One-time shop registration fee by declared annual turnover, in three slabs
+ * (owner, 28 Oct 2026): slab 1 up to ₹2 crore, slab 2 up to ₹10 crore, slab 3
+ * above ₹10 crore. Both limits and the three fees are the admin rule
+ * `registrationFeeByTurnover` (src/server/config/rules.ts; Admin → Registration
+ * fees → Fee by turnover), so they change without a deploy. GST is added on top
+ * (registrationFeeBreakdown below).
  *
  * Pure — shared by the registration form (to show the fee before submit) and
  * the server (which computes the fee it actually charges; a fee sent by the
@@ -13,19 +13,38 @@
 
 export interface TurnoverFeeRule {
   enabled: boolean;
-  /** Turnover up to and including this many rupees pays `upToFeePaise`. */
-  thresholdRupees: number;
-  upToFeePaise: number;
-  aboveFeePaise: number;
+  /** Turnover up to and including this many rupees is slab 1. */
+  slab1UpToRupees: number;
+  /** Turnover above slab 1, up to and including this many rupees, is slab 2; above it, slab 3. */
+  slab2UpToRupees: number;
+  slab1FeePaise: number;
+  slab2FeePaise: number;
+  slab3FeePaise: number;
+}
+
+export type TurnoverSlab = 1 | 2 | 3;
+
+/** The slab a declared annual turnover (whole rupees, zero or more) falls in. */
+export function turnoverSlab(turnoverRupees: number, rule: TurnoverFeeRule): TurnoverSlab {
+  if (turnoverRupees <= rule.slab1UpToRupees) return 1;
+  return turnoverRupees <= rule.slab2UpToRupees ? 2 : 3;
+}
+
+/** The fee (before GST) for a declared annual turnover. */
+export function feeForTurnover(turnoverRupees: number, rule: TurnoverFeeRule): number {
+  const slab = turnoverSlab(turnoverRupees, rule);
+  return slab === 1 ? rule.slab1FeePaise : slab === 2 ? rule.slab2FeePaise : rule.slab3FeePaise;
+}
+
+/** "Up to ₹2 crore", "₹2 crore – ₹10 crore", "Above ₹10 crore". */
+export function turnoverSlabLabel(slab: TurnoverSlab, rule: TurnoverFeeRule): string {
+  if (slab === 1) return `Up to ${formatRupeesIndian(rule.slab1UpToRupees)}`;
+  if (slab === 2) return `${formatRupeesIndian(rule.slab1UpToRupees)} – ${formatRupeesIndian(rule.slab2UpToRupees)}`;
+  return `Above ${formatRupeesIndian(rule.slab2UpToRupees)}`;
 }
 
 /** Largest annual turnover accepted on the form: ₹1 lakh crore. */
 export const MAX_ANNUAL_TURNOVER_RUPEES = 1_000_000_000_000;
-
-/** The fee for a declared annual turnover (whole rupees, zero or more). */
-export function feeForTurnover(turnoverRupees: number, rule: TurnoverFeeRule): number {
-  return turnoverRupees > rule.thresholdRupees ? rule.aboveFeePaise : rule.upToFeePaise;
-}
 
 /**
  * Parses what the owner typed into the turnover field: whole rupees, commas and

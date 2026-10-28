@@ -229,7 +229,8 @@ describe("the owner's screens", () => {
     const created = await call(registerRoute, "/api/shops", {
       method: "POST",
       // A fee in the body is ignored for the owner; the server prices it.
-      body: { ...shopInput({ couponCode: c.code }), categoryIds: await categoryIds(), registrationFeePaise: 100 },
+      // Turnover ₹15 lakh: slab 1, ₹999 — the owner must declare it while the slabs are on.
+      body: { ...shopInput({ couponCode: c.code, annualTurnoverRupees: 15_00_000 }), categoryIds: await categoryIds(), registrationFeePaise: 100 },
     });
     expect(created.status, JSON.stringify(created.body)).toBe(201);
     expect(created.body).toMatchObject({ registrationFeePaise: 94_282, feePaymentStatus: "PENDING" });

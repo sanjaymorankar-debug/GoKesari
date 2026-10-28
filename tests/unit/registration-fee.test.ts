@@ -1,9 +1,8 @@
 /**
- * One-time registration fee by declared annual turnover (owner request,
- * 26 Oct 2026): up to ₹2 crore → ₹999, above ₹2 crore → ₹4,999, both set by
- * rule registrationFeeByTurnover — switched off by default since 27 Oct 2026
- * (a flat ₹999 for now, from Admin → Registration fee). And the professional shop types that come
- * with it.
+ * One-time registration fee by declared annual turnover, in three slabs (owner,
+ * 28 Oct 2026): up to ₹2 crore, up to ₹10 crore, above ₹10 crore — limits and
+ * fees set by the admin rule registrationFeeByTurnover, GST on top. And the
+ * professional shop types that come with it.
  */
 import { describe, expect, it } from "vitest";
 
@@ -14,46 +13,68 @@ import {
   parseTurnoverRupees,
   registrationCouponDiscount,
   registrationFeeBreakdown,
+  turnoverSlab,
+  turnoverSlabLabel,
 } from "@/lib/registration-fee";
 import { isFoodBusinessShopType, isProfessionalShopType, SHOP_TYPE_KEYS } from "@/lib/shop-types";
 import { RULES } from "@/server/config/rules";
 
-const rule = { ...RULES.registrationFeeByTurnover.defaults, enabled: true };
+const rule = RULES.registrationFeeByTurnover.defaults;
 const CRORE = 1_00_00_000;
 
-describe("registration fee by turnover — the default rule", () => {
-  it("is off for now (flat fee), keeping the owner's tiers: up to ₹2 crore ₹999, above ₹4,999", () => {
-    expect(RULES.registrationFeeByTurnover.defaults).toEqual({
-      enabled: false,
-      thresholdRupees: 2 * CRORE,
-      upToFeePaise: 99_900,
-      aboveFeePaise: 4_99_900,
+describe("registration fee by turnover slab — the default rule", () => {
+  it("is on, with slabs up to ₹2 crore, up to ₹10 crore and above", () => {
+    expect(rule).toEqual({
+      enabled: true,
+      slab1UpToRupees: 2 * CRORE,
+      slab2UpToRupees: 10 * CRORE,
+      slab1FeePaise: 99_900,
+      slab2FeePaise: 4_99_900,
+      slab3FeePaise: 9_99_900,
     });
     expect(RULES.registrationFeeByTurnover.schema.safeParse(rule).success).toBe(true);
   });
 
-  it("charges ₹999 up to and including ₹2 crore", () => {
-    expect(feeForTurnover(0, rule)).toBe(99_900);
-    expect(feeForTurnover(15_00_000, rule)).toBe(99_900);
-    expect(feeForTurnover(1 * CRORE, rule)).toBe(99_900);
-    expect(feeForTurnover(2 * CRORE, rule)).toBe(99_900);
+  it("puts turnover up to and including ₹2 crore in slab 1", () => {
+    for (const t of [0, 15_00_000, 2 * CRORE]) {
+      expect(turnoverSlab(t, rule)).toBe(1);
+      expect(feeForTurnover(t, rule)).toBe(99_900);
+    }
   });
 
-  it("charges ₹4,999 above ₹2 crore", () => {
-    expect(feeForTurnover(2 * CRORE + 1, rule)).toBe(4_99_900);
-    expect(feeForTurnover(50 * CRORE, rule)).toBe(4_99_900);
+  it("puts turnover above ₹2 crore, up to and including ₹10 crore, in slab 2", () => {
+    for (const t of [2 * CRORE + 1, 5 * CRORE, 10 * CRORE]) {
+      expect(turnoverSlab(t, rule)).toBe(2);
+      expect(feeForTurnover(t, rule)).toBe(4_99_900);
+    }
   });
 
-  it("follows an admin's change of threshold and amounts", () => {
-    const changed = { enabled: true, thresholdRupees: 1 * CRORE, upToFeePaise: 1_49_900, aboveFeePaise: 5_99_900 };
-    expect(feeForTurnover(1 * CRORE, changed)).toBe(1_49_900);
-    expect(feeForTurnover(1 * CRORE + 1, changed)).toBe(5_99_900);
+  it("puts turnover above ₹10 crore in slab 3", () => {
+    for (const t of [10 * CRORE + 1, 500 * CRORE]) {
+      expect(turnoverSlab(t, rule)).toBe(3);
+      expect(feeForTurnover(t, rule)).toBe(9_99_900);
+    }
   });
 
-  it("refuses a negative fee or threshold in the rule", () => {
+  it("names the slabs the way the form and admin screen show them", () => {
+    expect(turnoverSlabLabel(1, rule)).toBe("Up to ₹2 crore");
+    expect(turnoverSlabLabel(2, rule)).toBe("₹2 crore – ₹10 crore");
+    expect(turnoverSlabLabel(3, rule)).toBe("Above ₹10 crore");
+  });
+
+  it("follows an admin's change of limits and fees", () => {
+    const changed = { ...rule, slab1UpToRupees: 1 * CRORE, slab2UpToRupees: 5 * CRORE, slab1FeePaise: 0, slab2FeePaise: 2_49_900, slab3FeePaise: 14_99_900 };
+    expect(feeForTurnover(1 * CRORE, changed)).toBe(0);
+    expect(feeForTurnover(1 * CRORE + 1, changed)).toBe(2_49_900);
+    expect(feeForTurnover(5 * CRORE + 1, changed)).toBe(14_99_900);
+  });
+
+  it("refuses a negative fee, a zero limit, or slab 2's limit not above slab 1's", () => {
     const schema = RULES.registrationFeeByTurnover.schema;
-    expect(schema.safeParse({ ...rule, upToFeePaise: -1 }).success).toBe(false);
-    expect(schema.safeParse({ ...rule, thresholdRupees: 0 }).success).toBe(false);
+    expect(schema.safeParse({ ...rule, slab3FeePaise: -1 }).success).toBe(false);
+    expect(schema.safeParse({ ...rule, slab1UpToRupees: 0 }).success).toBe(false);
+    expect(schema.safeParse({ ...rule, slab2UpToRupees: 2 * CRORE }).success).toBe(false);
+    expect(schema.safeParse({ ...rule, slab2UpToRupees: 1 * CRORE }).success).toBe(false);
   });
 });
 
