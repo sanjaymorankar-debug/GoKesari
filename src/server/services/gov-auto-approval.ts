@@ -177,6 +177,9 @@ export async function listGovDecisions(filter: { outcome?: "APPROVED" | "PENDING
       seen.add(r.log.shopId);
     }
     if (filter.outcome && r.log.outcome !== filter.outcome) continue;
+    // "Pending" means still waiting: a shop approved since by a person (or without its
+    // documents, 0109) or rejected is no longer pending, whatever its last decision said.
+    if (filter.outcome === "PENDING" && r.shopStatus !== "PENDING_APPROVAL") continue;
     out.push({
       id: r.log.id,
       shopId: r.log.shopId,

@@ -19,6 +19,8 @@ import { db } from "@/server/db";
 import { auditLogs, dealers, notifications, sellerVerifications, shopAttributions, shopAutoApprovalLog, shops } from "@/server/db/schema";
 import { KycUnavailableError, setKycAdapterForTests, type KycAdapter, type ProviderOutcome, type SourceRecord, type VerifyRequest } from "@/server/kyc";
 import { setFeatureFlag } from "@/server/services/feature-flags";
+import { listGovDecisions } from "@/server/services/gov-auto-approval";
+import { approveShop } from "@/server/services/shops";
 import { adminDecideVerification, declareNoGstin, submitSellerDocument } from "@/server/services/seller-verification";
 import { runSellerVerificationSweep } from "@/server/services/seller-verification-jobs";
 import { recordPayment } from "@/server/services/shop-payments";
@@ -234,5 +236,44 @@ describe("flag off, or another district (scenario 30)", () => {
     await payOnline(shop.id);
     expect(await statusOf(shop.id)).toBe("PENDING_APPROVAL");
     expect(await db.select().from(shopAutoApprovalLog)).toHaveLength(0);
+  });
+});
+
+describe("with the shop approval queue's changes (0109 waiver, deferred follow-ups)", () => {
+  it("a shop an admin approves without its documents leaves the instant-approval Pending list; the dealer board says approved by admin", async () => {
+    goodSource();
+    const { shop, actor } = await pendingShop();
+    await verify(shop.id, actor, "PAN", "AAPFU0939F");
+    await verify(shop.id, actor, "GSTIN", "27AAPFU0939F1ZV");
+    await payOnline(shop.id);
+    // No Shop Act: the instant rule waits and says so.
+    expect(await statusOf(shop.id)).toBe("PENDING_APPROVAL");
+    expect((await listGovDecisions({ outcome: "PENDING" })).map((r) => r.shopId)).toContain(shop.id);
+
+    await approveShop(shop.id, { classification: "GREEN" }, admin, { waiveDocuments: { reason: "Shop Act applied for, approved for the pilot" } });
+    expect(await statusOf(shop.id)).toBe("APPROVED");
+    expect((await listGovDecisions({ outcome: "PENDING" })).map((r) => r.shopId)).not.toContain(shop.id);
+    // Still in the full history, with the shop's status now.
+    expect((await listGovDecisions()).find((r) => r.shopId === shop.id)).toMatchObject({ outcome: "PENDING", shopStatus: "APPROVED" });
+  });
+
+  it("a reviewer's decision with deferred follow-ups still approves instantly once the follow-ups run", async () => {
+    goodSource();
+    const { shop, actor } = await pendingShop();
+    await verify(shop.id, actor, "PAN", "AAPFU0939F");
+    await verify(shop.id, actor, "GSTIN", "27AAPFU0939F1ZV");
+    await payOnline(shop.id);
+    // The Shop Act goes to a person (manual review), whose approval is the last step.
+    scripted((req) => (req.docType === "SHOP_ACT" ? ({ kind: "unsupported", reason: "Shop Act is checked by a person" } as ProviderOutcome) : found({ name: "GANESH TRADERS", tradeName: "GANESH TRADERS", linkedPan: req.number.slice(2, 12) })));
+    await verify(shop.id, actor, "SHOP_ACT", "PMC/SHOP/12345");
+    const [row] = await db.select().from(sellerVerifications).where(and(eq(sellerVerifications.shopId, shop.id), eq(sellerVerifications.docType, "SHOP_ACT")));
+    expect(row.status).toBe("MANUAL_REVIEW");
+    const tasks: (() => Promise<void>)[] = [];
+    await adminDecideVerification(row.id, { decision: "approve", reason: "" }, admin, { defer: (t) => void tasks.push(t) });
+    // The answer came back before the follow-ups: not approved yet.
+    expect(await statusOf(shop.id)).toBe("PENDING_APPROVAL");
+    for (const t of tasks) await t();
+    expect(await statusOf(shop.id)).toBe("APPROVED");
+    expect((await lastLog(shop.id)).outcome).toBe("APPROVED");
   });
 });
