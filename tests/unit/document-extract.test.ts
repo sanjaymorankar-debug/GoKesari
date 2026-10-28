@@ -6,9 +6,11 @@
 import { describe, expect, it } from "vitest";
 
 import { gstinCheckChar, looksLikeAadhaar } from "@/lib/kyc/doc-formats";
+import { checkLicenceName } from "@/lib/legal-documents";
 import {
   assessExtraction,
   detectDocType,
+  detectUploadType,
   extractDocumentFields,
   normaliseOcrText,
   parseDates,
@@ -207,5 +209,66 @@ describe("validateConfirmedFields", () => {
     expect(validateConfirmedFields("FSSAI", { number: "1234", validUntil: "2027-01-01" }, TODAY)).toHaveProperty("number");
     expect(validateConfirmedFields("PAN", { number: "ABCDE12345" }, TODAY)).toHaveProperty("number");
     expect(validateConfirmedFields("PAN", { number: "ABCPE1234F" }, TODAY)).toEqual({});
+  });
+});
+
+describe("Scan a document: which document is it, and the optional licences", () => {
+  const lines = (text: string) => normaliseOcrText(text).lines;
+
+  it.each([
+    ["PUNE MUNICIPAL CORPORATION\nTRADE LICENCE\nLicence No : PMC/TL/2026/012345\nName of Trader : RAMESH KUMAR SHARMA", "TRADE_LICENCE"],
+    ["Health Licence\nEating House Licence No. 4567/2026", "TRADE_LICENCE"],
+    ["Government of Maharashtra\nLegal Metrology Organisation\nCertificate of Verification\nCertificate No : LM/PUN/12345", "LEGAL_METROLOGY"],
+    ["Department of Weights & Measures\nLicence No. 123/2025", "LEGAL_METROLOGY"],
+    ["Maharashtra Fire and Emergency Services\nFire NOC No : MFS/2026/889", "FIRE_NOC"],
+    ["Licence to sell, stock or exhibit for sale Insecticides\nInsecticides Rules, 1971\nLicence No: AG/INS/778", "AGRI_INPUT_LICENCE"],
+    ["Fertiliser (Control) Order, 1985\nAuthorisation letter No. 991/2026", "AGRI_INPUT_LICENCE"],
+    ["Seeds Licence\nUnder Seeds (Control) Order 1983\nLicence No: SD/445", "AGRI_INPUT_LICENCE"],
+  ])("recognises %j as %s", (text, type) => {
+    expect(detectDocType(lines(text))).toBe(type);
+  });
+
+  it("takes the document's own heading over another document it mentions further down", () => {
+    const text = "PUNE MUNICIPAL CORPORATION\nTRADE LICENCE\nLicence No : PMC/TL/2026/012345\nFSSAI Licence No : 11521998000123";
+    expect(detectDocType(lines(text))).toBe("TRADE_LICENCE");
+    const fssai = "Food Safety and Standards Authority of India\nLicense Number : 11521998000123\nMunicipal Trade Licence No: 7781";
+    expect(detectDocType(lines(fssai))).toBe("FSSAI");
+  });
+
+  it("still detects the existing documents", () => {
+    expect(detectUploadType("INCOME TAX DEPARTMENT\nGOVT. OF INDIA\nABCPE1234F")).toBe("PAN");
+    expect(detectUploadType("Food Safety and Standards Authority of India\nLicense Number : 11521998000123")).toBe("FSSAI");
+    expect(detectUploadType("Government of Maharashtra\nShops and Establishments\nIntimation receipt")).toBe("SHOP_ACT");
+  });
+
+  it("falls back to a number only one document carries when the wording is unreadable", () => {
+    const first14 = "27ABCPE1234F1Z";
+    const gstin = first14 + gstinCheckChar(first14);
+    expect(detectUploadType(`blurred heading\n${gstin}`)).toBe("GSTIN");
+    expect(detectUploadType("UDYAM-MH-26-0012345")).toBe("UDYAM");
+    expect(detectUploadType("RAMESH KUMAR\nABCPE1234F")).toBe("PAN");
+    expect(detectUploadType("A blurred page with no heading and 12345")).toBeNull();
+  });
+
+  it("reads the number, name and expiry off a trade licence and a fire NOC", () => {
+    const trade = extractDocumentFields(
+      `PUNE MUNICIPAL CORPORATION\nTRADE LICENCE\nLicence No : PMC/TL/2026/012345\nName of Trader : RAMESH KUMAR SHARMA\nValid Upto : 31/03/2027`,
+      "TRADE_LICENCE",
+    ).fields;
+    expect(trade).toMatchObject({ detectedType: "TRADE_LICENCE", number: "PMC/TL/2026/012345", name: "RAMESH KUMAR SHARMA", validUntil: "2027-03-31" });
+    const noc = extractDocumentFields("Maharashtra Fire and Emergency Services\nNOC No : MFS/2026/889\nValid till 30-06-2027", "FIRE_NOC").fields;
+    expect(noc).toMatchObject({ detectedType: "FIRE_NOC", number: "MFS/2026/889", validUntil: "2027-06-30" });
+  });
+
+  it("does not require an expiry date for the optional licences", () => {
+    expect(validateConfirmedFields("TRADE_LICENCE", { number: "PMC/TL/2026/012345" }, TODAY)).toEqual({});
+    expect(validateConfirmedFields("OTHER_LICENCE", { number: "EXP/123", validUntil: "2020-01-01" }, TODAY).validUntil).toMatch(/expired/);
+  });
+
+  it("checks the name of an Other licence and keys it by name", () => {
+    expect(checkLicenceName("  Explosives   licence ")).toEqual({ ok: true, name: "Explosives licence", key: "EXPLOSIVES-LICENCE" });
+    expect(checkLicenceName("ab").ok).toBe(false);
+    expect(checkLicenceName("<script>").ok).toBe(false);
+    expect(checkLicenceName(null).ok).toBe(false);
   });
 });

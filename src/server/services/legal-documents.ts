@@ -11,6 +11,12 @@
  * drug licence) or the issuing council (medical registration), and an
  * uploaded copy, which operations approve or reject with a reason.
  *
+ * The optional licences (trade licence, legal metrology, fire NOC, seeds /
+ * fertiliser / pesticide, Other licence — docs/document-upload-2026-10, "More
+ * licences") use the same register and review. They are required only where
+ * the rule's otherRequirements names them; otherwise holding one never gates
+ * approval or orders, whatever its state.
+ *
  * Gating, with rule legalDocuments on:
  *  - a new shop cannot be approved (go live) until each required document is
  *    submitted;
@@ -31,6 +37,7 @@ import {
   LEGAL_DOC_LABELS,
   LEGAL_DOC_NEEDS,
   checkExpiryDate,
+  checkLicenceName,
   maskLegalNumber,
   parseLegalDocNumber,
   type LegalDocKey,
@@ -86,6 +93,10 @@ export async function requiredLegalDocTypes(shop: Pick<Shop, "id" | "shopType">,
   if (rule.drugLicenceShopTypes.includes(shop.shopType) || inAny(rule.drugLicenceCategorySlugs)) required.push("DRUG_LICENCE");
   if (rule.medicalRegistrationShopTypes.includes(shop.shopType) || inAny(rule.medicalRegistrationCategorySlugs)) {
     required.push("MEDICAL_REGISTRATION");
+  }
+  for (const extra of rule.otherRequirements) {
+    if (required.includes(extra.docType)) continue;
+    if (extra.shopTypes.includes(shop.shopType) || inAny(extra.categorySlugs)) required.push(extra.docType);
   }
   return required;
 }
@@ -172,6 +183,8 @@ export interface LegalDocView {
   id: string | null;
   docType: LegalDocType;
   label: string;
+  /** OTHER_LICENCE: the name the owner gave it (also the label). */
+  licenceName: string | null;
   state: LegalDocState;
   numberMasked: string | null;
   issuingCouncil: string | null;
@@ -190,6 +203,8 @@ export interface ShopLegalStatus {
   shopId: string;
   shopName: string;
   documents: LegalDocView[];
+  /** Optional licences the shop has submitted (never blocking). */
+  additional: LegalDocView[];
   /** At least one required document is blocking orders. */
   restricted: boolean;
   /** Earliest deadline among documents still in their grace period. */
@@ -212,11 +227,17 @@ async function filesFor(documentIds: string[]) {
   return map;
 }
 
+/** "Other licence" rows are known by the name the owner gave them. */
+export function legalDocLabel(row: Pick<ShopLegalDocument, "docType" | "licenceName">): string {
+  return row.docType === "OTHER_LICENCE" && row.licenceName ? row.licenceName : LEGAL_DOC_LABELS[row.docType];
+}
+
 function toView(row: ShopLegalDocument, evaluation: LegalDocEvaluation, files: LegalDocView["files"]): LegalDocView {
   return {
     id: row.id,
     docType: row.docType,
-    label: LEGAL_DOC_LABELS[row.docType],
+    label: legalDocLabel(row),
+    licenceName: row.licenceName,
     state: evaluation.state,
     numberMasked: maskLegalNumber(row.numberLast4),
     issuingCouncil: row.issuingCouncil,
@@ -236,20 +257,29 @@ export async function getShopLegalStatus(shopId: string): Promise<ShopLegalStatu
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
   if (!shop) throw notFound("Shop");
   const rule = await getRule("legalDocuments");
-  if (!rule.enabled) return { enabled: false, shopId, shopName: shop.name, documents: [], restricted: false, graceUntil: null };
+  if (!rule.enabled) return { enabled: false, shopId, shopName: shop.name, documents: [], additional: [], restricted: false, graceUntil: null };
 
   const required = await requiredLegalDocTypes(shop);
-  const rows = (await ensureRows(shop, required)).filter((r) => required.includes(r.docType));
-  const files = await filesFor(rows.map((r) => r.id));
+  const all = await ensureRows(shop, required);
+  const rows = all.filter((r) => required.includes(r.docType));
+  const optional = all.filter((r) => !required.includes(r.docType) && r.status !== "NOT_SUBMITTED");
+  const files = await filesFor([...rows, ...optional].map((r) => r.id));
   const documents = rows
     .sort((a, b) => required.indexOf(a.docType) - required.indexOf(b.docType))
     .map((row) => toView(row, evaluateLegalDoc(row, rule), files.get(row.id) ?? []));
+  // Not required, so never blocking and never a deadline, whatever its state.
+  const additional = optional.map((row) => ({
+    ...toView(row, evaluateLegalDoc(row, rule), files.get(row.id) ?? []),
+    blocking: false,
+    deadline: null,
+  }));
   const pending = documents.filter((d) => !d.blocking && d.deadline != null && (d.state === "MISSING" || d.state === "REJECTED" || d.state === "EXPIRED"));
   return {
     enabled: true,
     shopId,
     shopName: shop.name,
     documents,
+    additional,
     restricted: documents.some((d) => d.blocking),
     graceUntil: pending.map((d) => d.deadline!).sort()[0] ?? null,
   };
@@ -313,7 +343,7 @@ export async function assertLegalDocsAllowApproval(shop: Shop, client: DbClient 
   if (required.length === 0) return;
   const rows = await ensureRows(shop, required, client);
   const missing = required.filter((type) => {
-    const row = rows.find((r) => r.docType === type);
+    const row = rows.find((r) => r.docType === type && r.licenceKey === "");
     return !row || !evaluateLegalDoc(row, rule).satisfied;
   });
   if (missing.length > 0) {
@@ -330,6 +360,8 @@ export interface SubmitLegalDocInput {
   number: string;
   expiryDate?: string | null;
   issuingCouncil?: string | null;
+  /** OTHER_LICENCE: the licence's name (required there, ignored for the other types). */
+  licenceName?: string | null;
   file: Buffer;
   actor: Actor;
 }
@@ -344,7 +376,8 @@ export async function submitLegalDocument(input: SubmitLegalDocInput): Promise<L
   const parsed = parseLegalDocNumber(input.docType, input.number);
   if (!parsed.ok) fields.number = parsed.error;
   let expiryDate: string | null = null;
-  if (needs.expiry) {
+  // Required for FSSAI and the drug licence; kept (and reminded about) wherever else it is given.
+  if (needs.expiry || input.expiryDate) {
     const checked = checkExpiryDate(input.expiryDate, istToday());
     if (checked.ok) expiryDate = checked.date;
     else fields.expiryDate = checked.error;
@@ -353,6 +386,18 @@ export async function submitLegalDocument(input: SubmitLegalDocInput): Promise<L
   if (needs.council) {
     council = (input.issuingCouncil ?? "").trim().replace(/\s+/g, " ");
     if (council.length < 3 || council.length > 120) fields.issuingCouncil = "Enter the council that issued the registration.";
+  } else if (needs.authority && input.issuingCouncil?.trim()) {
+    council = input.issuingCouncil.trim().replace(/\s+/g, " ");
+    if (council.length < 3 || council.length > 120) fields.issuingCouncil = "Enter the authority that issued the licence (3–120 characters).";
+  }
+  let licenceName: string | null = null;
+  let licenceKey = "";
+  if (needs.licenceName) {
+    const checked = checkLicenceName(input.licenceName);
+    if (checked.ok) {
+      licenceName = checked.name;
+      licenceKey = checked.key;
+    } else fields.licenceName = checked.error;
   }
   if (input.file.length === 0) fields.file = "Attach a copy of the document.";
   const maxBytes = (await getRule("uploads")).sellerDocumentMaxBytes ?? MAX_FILE_BYTES;
@@ -370,6 +415,7 @@ export async function submitLegalDocument(input: SubmitLegalDocInput): Promise<L
       numberEncrypted: encryptSecret(parsed.ok ? parsed.normalized : ""),
       numberLast4: parsed.ok ? parsed.last4 : null,
       issuingCouncil: council,
+      licenceName,
       expiryDate,
       submittedAt: now,
       submittedBy: input.actor.id,
@@ -380,8 +426,8 @@ export async function submitLegalDocument(input: SubmitLegalDocInput): Promise<L
       updatedAt: now,
     };
     const saved = await upsertRow(tx, shopLegalDocuments, {
-      keys: [shopLegalDocuments.shopId, shopLegalDocuments.docType],
-      values: { shopId: shop.id, docType: input.docType, ...values },
+      keys: [shopLegalDocuments.shopId, shopLegalDocuments.docType, shopLegalDocuments.licenceKey],
+      values: { shopId: shop.id, docType: input.docType, licenceKey, ...values },
       set: values,
     });
     await tx.insert(shopLegalDocumentFiles).values({
@@ -400,7 +446,7 @@ export async function submitLegalDocument(input: SubmitLegalDocInput): Promise<L
         action: AUDIT_ACTIONS.SHOP_LEGAL_DOCUMENT_SUBMITTED,
         entityType: "shop_legal_document",
         entityId: saved.id,
-        newValue: { shopId: shop.id, docType: input.docType, numberLast4: saved.numberLast4, expiryDate, issuingCouncil: council, contentType },
+        newValue: { shopId: shop.id, docType: input.docType, licenceName, numberLast4: saved.numberLast4, expiryDate, issuingCouncil: council, contentType },
       },
       tx,
     );
@@ -409,7 +455,7 @@ export async function submitLegalDocument(input: SubmitLegalDocInput): Promise<L
         type: "shop.legal_document_submitted",
         subjectId: shop.id,
         actor: input.actor,
-        payload: { shopId: shop.id, shopName: shop.name, ownerId: shop.ownerId, docLabel: LEGAL_DOC_LABELS[input.docType] },
+        payload: { shopId: shop.id, shopName: shop.name, ownerId: shop.ownerId, docLabel: legalDocLabel(saved) },
       },
       tx,
     );
@@ -480,7 +526,7 @@ export async function decideLegalDocument(
             shopId: shop.id,
             shopName: shop.name,
             ownerId: shop.ownerId,
-            docLabel: LEGAL_DOC_LABELS[current.docType],
+            docLabel: legalDocLabel(current),
             decision: input.decision === "approve" ? "approved" : "rejected",
             reason: input.decision === "reject" ? reason : null,
           },
@@ -610,7 +656,7 @@ export async function runLegalDocumentSweep(now: Date = new Date()): Promise<{ s
         shopId: doc.shopId,
         shopName,
         ownerId,
-        docLabel: LEGAL_DOC_LABELS[doc.docType],
+        docLabel: legalDocLabel(doc),
         expiryLabel: formatSlotDay(doc.expiryDate!),
       },
       idempotencyKey: `legal-doc-expiring:${doc.id}:${doc.expiryDate}`,
