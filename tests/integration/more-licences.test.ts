@@ -46,7 +46,7 @@ afterEach(async () => {
   clearRuleCache();
 });
 
-function useText(text: string) {
+function readerReturns(text: string) {
   setDocumentReaderForTests(async () => ({ text, engine: "tesseract", confidence: 92, imageMinSide: 1500 }));
 }
 
@@ -66,7 +66,7 @@ const enableLegal = (overrides: Record<string, unknown> = {}) => setRule("legalD
 describe("Scan a document", () => {
   it("files a scanned trade licence under Trade licence, read as if uploaded on its card", async () => {
     const { shop, actor } = await setup();
-    useText(tradeText);
+    readerReturns(tradeText);
     const view = await readUploadedDocument({ shopId: shop.id, docType: AUTO_DETECT, file: await photo(), source: "CAMERA", actor });
     expect(view.docType).toBe("TRADE_LICENCE");
     expect(view.fields).toMatchObject({ detectedType: "TRADE_LICENCE", number: "PMC/TL/2026/012345", validUntil: `${NEXT_YEAR}-03-31` });
@@ -80,7 +80,7 @@ describe("Scan a document", () => {
 
   it("files a scanned PAN card under PAN", async () => {
     const { shop, actor } = await setup();
-    useText("INCOME TAX DEPARTMENT\nGOVT. OF INDIA\nRAMESH KUMAR SHARMA\nPermanent Account Number\nABCPE1234F");
+    readerReturns("INCOME TAX DEPARTMENT\nGOVT. OF INDIA\nRAMESH KUMAR SHARMA\nPermanent Account Number\nABCPE1234F");
     const view = await readUploadedDocument({ shopId: shop.id, docType: AUTO_DETECT, file: await photo(), actor });
     expect(view.docType).toBe("PAN");
     expect(view.fields?.number).toBe("ABCPE1234F");
@@ -88,7 +88,7 @@ describe("Scan a document", () => {
 
   it("stores nothing when it can't tell which document it is, and says to use the card", async () => {
     const { shop, actor } = await setup();
-    useText("Some certificate\nIssued to Ramesh Kumar Sharma\nNo. 4471/22");
+    readerReturns("Some certificate\nIssued to Ramesh Kumar Sharma\nNo. 4471/22");
     await expect(readUploadedDocument({ shopId: shop.id, docType: AUTO_DETECT, file: await photo(), actor })).rejects.toThrow(
       /couldn't tell which document this is/,
     );
@@ -97,7 +97,7 @@ describe("Scan a document", () => {
 
   it("files a drug licence the shop isn't asked for, so the owner can still review and submit it", async () => {
     const { shop, actor } = await setup();
-    useText(`Drugs and Cosmetics Act\nFORM 20\nLicence No : MH-PZ1-123456\nValid Upto : 31/12/${NEXT_YEAR}`);
+    readerReturns(`Drugs and Cosmetics Act\nFORM 20\nLicence No : MH-PZ1-123456\nValid Upto : 31/12/${NEXT_YEAR}`);
     const view = await readUploadedDocument({ shopId: shop.id, docType: AUTO_DETECT, file: await photo(), actor });
     expect(view.docType).toBe("DRUG_LICENCE");
     const item = (await getDocumentChecklist(shop.id, actor)).items.find((i) => i.docType === "DRUG_LICENCE");
@@ -109,7 +109,7 @@ describe("More licences", () => {
   it("submits a trade licence to the register for review; it never gates the shop", async () => {
     await enableLegal();
     const { shop, actor } = await setup();
-    useText(tradeText);
+    readerReturns(tradeText);
     const view = await readUploadedDocument({ shopId: shop.id, docType: "TRADE_LICENCE", file: await photo(), actor });
     const confirmed = await confirmUploadedDocument({
       shopId: shop.id,
@@ -144,7 +144,7 @@ describe("More licences", () => {
   it("keeps several named Other licences side by side; the same name replaces its own copy", async () => {
     const { shop, actor } = await setup();
     const submit = async (licenceName: string, number: string) => {
-      useText(`Licence\nLicence No : ${number}`);
+      readerReturns(`Licence\nLicence No : ${number}`);
       const view = await readUploadedDocument({ shopId: shop.id, docType: "OTHER_LICENCE", file: await photo(), actor });
       return confirmUploadedDocument({ shopId: shop.id, uploadId: view.id, fields: { number, licenceName }, consentGiven: true, actor });
     };
@@ -166,7 +166,7 @@ describe("More licences", () => {
 
   it("refuses an Other licence without its name", async () => {
     const { shop, actor } = await setup();
-    useText("Licence\nLicence No : EXP/2026/111");
+    readerReturns("Licence\nLicence No : EXP/2026/111");
     const view = await readUploadedDocument({ shopId: shop.id, docType: "OTHER_LICENCE", file: await photo(), actor });
     await expect(
       confirmUploadedDocument({ shopId: shop.id, uploadId: view.id, fields: { number: "EXP/2026/111" }, consentGiven: true, actor }),
@@ -185,7 +185,7 @@ describe("More licences", () => {
     expect(item?.requirement).toBe("required");
     expect((await getDocumentChecklist(shop.id, actor)).missing).toContain("TRADE_LICENCE");
 
-    useText(tradeText);
+    readerReturns(tradeText);
     const view = await readUploadedDocument({ shopId: shop.id, docType: "TRADE_LICENCE", file: await photo(), actor });
     await confirmUploadedDocument({ shopId: shop.id, uploadId: view.id, fields: { number: "PMC/TL/2026/012345" }, consentGiven: true, actor });
     await expect(assertLegalDocsAllowApproval(row)).resolves.toBeUndefined();
