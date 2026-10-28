@@ -6,18 +6,6 @@ import { useState } from "react";
 import { ShopCategoryPicker, type PickerCategory } from "@/components/shop-category-picker";
 import { Alert, Badge, Button, Card, Field, inputClass } from "@/components/ui";
 
-export interface WorkShop {
-  shopId: string;
-  name: string;
-  place: string;
-  status: string;
-  source: string;
-  employee: string | null;
-  employeeText: string | null;
-  matchKind: string;
-  attributedAt: string;
-}
-
 export interface WorkLead {
   id: string;
   shopName: string;
@@ -45,13 +33,6 @@ interface Employee {
   status: string;
 }
 
-const SOURCE: Record<string, string> = {
-  CODE_AT_REGISTRATION: "your code",
-  DEALER_ASSISTED: "registered by you",
-  LEAD: "your lead",
-  ADMIN: "claim upheld",
-};
-
 async function send<T>(url: string, init: RequestInit): Promise<T> {
   const res = await fetch(url, init);
   const payload = await res.json().catch(() => null);
@@ -72,7 +53,6 @@ const json = (body: unknown, method = "POST"): RequestInit => ({ method, headers
  */
 export function DealerWork({
   employees,
-  shops,
   leads,
   claims,
   shopTypes,
@@ -80,7 +60,6 @@ export function DealerWork({
   askTurnover,
 }: {
   employees: Employee[];
-  shops: WorkShop[];
   leads: WorkLead[];
   claims: WorkClaim[];
   shopTypes: { key: string; label: string }[];
@@ -127,7 +106,7 @@ export function DealerWork({
       {error ? <Alert tone="danger" title="Could not do that">{error}</Alert> : null}
       {notice ? <Alert tone="success">{notice}</Alert> : null}
 
-      <Card className="space-y-3 p-4" data-testid="dealer-register-shop">
+      <Card className="space-y-3 p-4" id="dealer-register-shop" data-testid="dealer-register-shop">
         <h2 className="text-base font-bold text-ink-900">Register a shop for its owner</h2>
         <p className="text-sm text-ink-700">
           The owner confirms with a code sent to them, and pays the registration fee from their own account. Your code is attached
@@ -283,7 +262,7 @@ export function DealerWork({
         )}
       </Card>
 
-      <Card className="space-y-3 p-4" data-testid="dealer-leads">
+      <Card className="space-y-3 p-4" id="dealer-leads" data-testid="dealer-leads">
         <h2 className="text-base font-bold text-ink-900">Leads</h2>
         <p className="text-sm text-ink-700">Log a shop you visited. If it registers without a code within the window, it is counted for the dealer who logged it first.</p>
         <div className="grid gap-3 sm:grid-cols-3">
@@ -347,24 +326,7 @@ export function DealerWork({
         </ul>
       </Card>
 
-      <Card className="space-y-2 p-4" data-testid="dealer-shops">
-        <h2 className="text-base font-bold text-ink-900">Your shops ({shops.length})</h2>
-        {shops.length === 0 ? <p className="text-sm text-ink-500">No shops yet.</p> : null}
-        <ul className="divide-y divide-cream-200 text-sm">
-          {shops.map((s) => (
-            <li key={s.shopId} className="py-2">
-              <span className="font-semibold">{s.name}</span> · {s.place} <Badge>{s.status.toLowerCase().replace("_", " ")}</Badge>{" "}
-              {s.matchKind !== "NONE" ? <Badge tone="warning">{s.matchKind === "BRANCH" ? "branch" : "possible duplicate"}</Badge> : null}
-              <span className="block text-xs text-ink-500">
-                {SOURCE[s.source] ?? s.source} · {s.attributedAt.slice(0, 10)}
-                {s.employee ? ` · ${s.employee}` : s.employeeText ? ` · employee typed: "${s.employeeText}" (not matched)` : ""}
-              </span>
-            </li>
-          ))}
-        </ul>
-      </Card>
-
-      <Card className="space-y-3 p-4" data-testid="dealer-claims">
+      <Card className="space-y-3 p-4" id="dealer-claims" data-testid="dealer-claims">
         <h2 className="text-base font-bold text-ink-900">Claim a shop</h2>
         <p className="text-sm text-ink-700">If a shop you brought was counted for someone else, tell us. GoKesari decides from the evidence.</p>
         <div className="grid gap-3 sm:grid-cols-2">

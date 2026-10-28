@@ -115,7 +115,7 @@ export function DealerPortal({ legalName, code, employees }: { legalName: string
         <Alert tone="warning">Your code is not active. Contact GoKesari.</Alert>
       )}
 
-      <Card className="space-y-3 p-4">
+      <Card className="space-y-3 p-4" id="dealer-employees">
         <h2 className="text-base font-bold text-ink-900">Your employees</h2>
         <p className="text-sm text-ink-700">
           Add the people who visit shops for {legalName}. Each gets a code; shops they bring are counted for them. Commission is paid

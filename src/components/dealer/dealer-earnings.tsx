@@ -37,7 +37,7 @@ export function DealerEarnings({
   const progress = rating.next ? Math.min(100, Math.round(((rating.activatedShops - prevMin) / Math.max(1, rating.next.minShops - prevMin)) * 100)) : 100;
   return (
     <div className="space-y-4" data-testid="dealer-earnings">
-      <Card className="space-y-2 p-4" data-testid="dealer-rating">
+      <Card className="space-y-2 p-4" id="dealer-rating" data-testid="dealer-rating">
         <h2 className="text-base font-bold text-ink-900">Your onboarding rating</h2>
         <p className="text-3xl font-bold text-ink-900">
           {rating.rating.toFixed(1)} <span className="text-base font-semibold text-leaf-700">{bonusOn ? `+${(rating.bonusBp / 100).toFixed(1)}% commission` : ""}</span>
@@ -70,7 +70,7 @@ export function DealerEarnings({
         ) : null}
       </Card>
 
-      <Card className="space-y-3 p-4" data-testid="dealer-commission">
+      <Card className="space-y-3 p-4" id="dealer-commission" data-testid="dealer-commission">
         <div className="flex flex-wrap items-center justify-between gap-2">
           <h2 className="text-base font-bold text-ink-900">Your commission</h2>
           <a href="/api/dealer/commission/statement" className="inline-flex min-h-11 items-center rounded-lg border border-cream-200 px-3 text-sm font-medium text-ink-700 hover:bg-cream-100">

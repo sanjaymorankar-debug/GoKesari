@@ -3,14 +3,16 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { DealerPortal } from "@/components/dealer/dealer-portal";
+import { DealerBoard } from "@/components/dealer/dealer-board";
 import { DealerEarnings } from "@/components/dealer/dealer-earnings";
+import { dealerPerformance } from "@/server/dealers/performance";
 import { DealerWork } from "@/components/dealer/dealer-work";
 import { applicableRates, commissionSummary, listLedger, ratingView } from "@/server/dealers/commission";
 import { Alert, Badge, LinkButton, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { activeCodeFor, codeQrSvg, shareLinkFor, whatsappShareFor } from "@/server/dealers/codes";
 import { originFromHeaders } from "@/server/dealers/http";
-import { listDealerShops, listDisputes } from "@/server/dealers/disputes";
+import { listDisputes } from "@/server/dealers/disputes";
 import { listLeads } from "@/server/dealers/leads";
 import { dealerView, getDealerForUser, listSalespeople } from "@/server/dealers/service";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
@@ -52,9 +54,9 @@ export default async function DealerPage() {
 
   const origin = originFromHeaders(await headers());
   const code = await activeCodeFor(dealer.id, null);
-  const [employees, shops, leads, claims, shopTypes, categories, feeRule, rating, summary, rates, entries, bonusOn] = await Promise.all([
+  const [employees, performance, leads, claims, shopTypes, categories, feeRule, rating, summary, rates, entries, bonusOn] = await Promise.all([
     listSalespeople(dealer.id),
-    listDealerShops(dealer.id),
+    dealerPerformance(dealer.id),
     listLeads(dealer.id),
     listDisputes({ dealerId: dealer.id }),
     listShopTypes(),
@@ -76,6 +78,15 @@ export default async function DealerPage() {
         {dealer.agreementStart && dealer.agreementEnd ? <span>Agreement {dealer.agreementStart} to {dealer.agreementEnd}</span> : null}
         <Link className="underline" href="/dealer/apply">Your details</Link>
       </p>
+      <DealerBoard
+        data={iso([performance])[0]}
+        ratingText={rating.rating.toFixed(1)}
+        bonusText={bonusOn ? `+${(rating.bonusBp / 100).toFixed(1)}% commission` : "rating bonus off"}
+        earnedPaise={summary.earned + summary.approved + summary.paid + summary.pending}
+        openLeads={leads.filter((l) => l.status === "OPEN").length}
+        openClaims={claims.filter((c) => c.status === "OPEN").length}
+        activeEmployees={employees.filter((e) => e.status === "ACTIVE").length}
+      />
       <DealerPortal
         legalName={dealer.legalName}
         code={code ? { code, shareLink: shareLinkFor(origin, code), whatsapp: whatsappShareFor(origin, code, dealer.legalName), qrSvg: await codeQrSvg(origin, code) } : null}
@@ -84,7 +95,6 @@ export default async function DealerPage() {
       <DealerEarnings rating={iso([rating])[0]} summary={summary} rates={rates} entries={iso(entries)} bonusOn={bonusOn} />
       <DealerWork
         employees={employees}
-        shops={iso(shops)}
         leads={iso(leads)}
         claims={iso(claims)}
         shopTypes={shopTypes.filter((t) => t.status === "ACTIVE").map((t) => ({ key: t.key, label: t.label }))}

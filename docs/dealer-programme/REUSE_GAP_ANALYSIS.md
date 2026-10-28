@@ -199,7 +199,7 @@ Answers: Q1 — distributor = dealer with its code; employees by optional Employ
 | 3 | GKS-SH-001…003, GKS-RA-001 (attribution, leads, dealer-assisted with owner code, duplicates, claims, `?ref=` link, optional Employee ID) — **done 28 Oct**; fee slabs stay by turnover (owner, 28 Oct) | 0105 (seller) | staging |
 | 4 | GKS-SH-004 auto-approval + e-mail — **done 28 Oct** (Admin → Shops → Instant approvals; see §3.4 note on Shop Act) | 0106 (seller) | staging |
 | 5 | GKS-CM-001…003 (rules, ledger, payouts, rating) — **done 28 Oct** (Admin → Dealers → Commission, rating & payouts; the dealer page shows rating and commission) | 0107 (seller) | staging |
-| 6 | GKS-DB-001 dealer board, admin screens | — | staging |
+| 6 | GKS-DB-001 dealer board (tiles, pending, performance by day/week/month, shops by stage and approval, employees, areas), admin dealer list with rating / shops / commission, document requirements editor — **done 28 Oct** | — | staging |
 | 7 | GKS-SP-001 support services | 0108 (core) | staging |
 | 8 | GKS-GEO-001, GKS-AN-001/002 (P1) | — | staging |
 | 9 | App link paths, APK + iOS builds | — | workflows |

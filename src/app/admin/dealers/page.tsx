@@ -4,7 +4,9 @@ import { notFound, redirect } from "next/navigation";
 import { Badge, PageHeader } from "@/components/ui";
 import { DEALER_STATUS_LABELS, DEALER_STATUSES, DEALER_TYPE_LABELS, type DealerStatus } from "@/lib/dealers";
 import { getCurrentUser } from "@/server/authz/guards";
-import { listDealers } from "@/server/dealers/service";
+import { DocRequirementsAdmin } from "@/components/dealer/doc-requirements-admin";
+import { dealersOverview } from "@/server/dealers/performance";
+import { listDealers, listDocumentRequirements } from "@/server/dealers/service";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
 
 export const metadata = { title: "Dealers" };
@@ -30,7 +32,10 @@ export default async function AdminDealersPage({ searchParams }: { searchParams:
   if (user.role !== "ADMIN" && user.role !== "OPERATOR") redirect("/");
   const params = await searchParams;
   const status = (DEALER_STATUSES as readonly string[]).includes(params.status ?? "") ? (params.status as DealerStatus) : "PENDING";
-  const rows = await listDealers({ status, q: params.q?.slice(0, 80) });
+  const [rows, overview, requirements] = await Promise.all([listDealers({ status, q: params.q?.slice(0, 80) }), dealersOverview(), listDocumentRequirements()]);
+  const stats = new Map(overview.map((o) => [o.id, o]));
+  // Approved / all: highest rating first (the rating list across dealers).
+  if (status === "APPROVED" || (params.status ?? "") === "ALL") rows.sort((x, y) => (stats.get(y.id)?.rating ?? 0) - (stats.get(x.id)?.rating ?? 0));
   const filters: (DealerStatus | "ALL")[] = ["PENDING", "APPROVED", "SUSPENDED", "REJECTED", "TERMINATED", "DRAFT", "ALL"];
 
   return (
@@ -69,12 +74,23 @@ export default async function AdminDealersPage({ searchParams }: { searchParams:
                     {d.isInternal ? " · internal" : d.source === "LEGACY_MIGRATION" ? " · former distributor" : ""}
                   </span>
                 </span>
-                <Badge tone={TONE[d.status]}>{d.statusLabel}</Badge>
+                <span className="flex flex-wrap items-center gap-2 text-sm text-ink-700">
+                  {stats.get(d.id) && !d.isInternal && d.status !== "DRAFT" && d.status !== "PENDING" ? (
+                    <span data-testid="dealer-stats">
+                      ★ {stats.get(d.id)!.rating.toFixed(1)} · {stats.get(d.id)!.registeredShops} shops ({stats.get(d.id)!.activatedShops} live) · ₹
+                      {(stats.get(d.id)!.earnedPaise / 100).toLocaleString("en-IN")} earned
+                    </span>
+                  ) : null}
+                  <Badge tone={TONE[d.status]}>{d.statusLabel}</Badge>
+                </span>
               </Link>
             </li>
           ))}
         </ul>
       )}
+      <div className="mt-6">
+        <DocRequirementsAdmin isAdmin={user.role === "ADMIN"} requirements={requirements} />
+      </div>
     </div>
   );
 }
