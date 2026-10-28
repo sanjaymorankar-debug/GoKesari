@@ -9,9 +9,10 @@ GoKesari Authorized Dealer & Merchant Acquisition Programme · 28 Oct 2026 · br
   onboarding-wizard, seller-verification and split checks run beside them, 209 of 209 pass.
 - **CI on GitHub:** the full suite passes on the one-database and the two-database layouts, up to
   `c89cf0b`. Runs for the later commits were still queued when this report was written.
-- **Staging (test.gokesari.com):** 45 cases — 21 passed, 1 failed (fixed since), 23 blocked.
-  The blocked cases need signed-in operator, shop-owner and dealer test accounts, and a Cashfree
-  sandbox payment; see §4.
+- **Staging (test.gokesari.com):** first pass 45 cases — 21 passed, 1 failed (fixed), 23 blocked
+  on sign-ins. Second pass with all test accounts signed in: 20 more passed, 2 failed. One failure
+  is fixed in code (D-2); one is open (D-3: a gateway-paid shop is not approved and its dealer gets
+  no commission — needs the staging server's logs). See §3.
 - **Production:** not released. All four feature flags stay **off** there.
 
 ---
@@ -92,6 +93,23 @@ Full table: [STAGING_TEST_RESULTS_2026-10-28.md](STAGING_TEST_RESULTS_2026-10-28
   columns are off to the side.
 - The Google map on `/shop/register` did not load in headless Chrome. Check it in a normal browser.
 
+**Second pass** (operator, shop-owner and customer accounts signed in; payments through the test
+site's sandbox gateway, no money):
+
+- **Passed:** operator refused on flags, commission and targets; dealer application → approval →
+  code `GKS-MH-PUN-EZJTJG`, link, QR; employee E01; lead; dealer-assisted registration with the
+  owner's e-mailed code; attribution shown to the dealer; dealer board; rates and CSV statement.
+- **Support services, shop side:** price for 120 products ₹1,766.46; free request → ticket;
+  wallet shortfall 402 → test credit → paid → ticket; cancel → refunded to the wallet, ticket
+  closed; online payment → paid, ticket. `/dealer` and `/shop/support-services` fit 375 px.
+- **D-2 — fixed in code (`3bf5a33`):** after a gateway-paid registration fee, the approval check
+  and dealer commission were on a 2-second timer that never ran on staging. They now run right
+  after the capture commits, in the same request; tests prove it.
+- **D-3 — open:** for the paid test shop (BKS-000032), even a direct trigger logged no new
+  instant-approval decision and no commission, with no visible error. Needs the staging logs.
+- **Waived fees (`d8fc985`):** the approval queue can now waive a shop's fee; a waived fee now
+  counts as a zero base, so no percentage commission or bonus is paid on it.
+
 **Feature flags on staging:** all four are on for Pune (`MH-PUN`) only, since 28 Oct 16:36 UTC.
 
 ---
@@ -100,13 +118,9 @@ Full table: [STAGING_TEST_RESULTS_2026-10-28.md](STAGING_TEST_RESULTS_2026-10-28
 
 | What | Needs |
 |---|---|
-| Operator is refused on flags, commission and area targets | An operator session on staging (sign-in code by e-mail) |
-| Dealer application → approval → code, link, QR, employees | A dealer-applicant account and its mobile OTP; the owner's go-ahead to approve a test dealer on staging |
-| Shop registered through a dealer: attribution, leads, duplicates, dealer-assisted | The test dealer above and a shop-owner session |
-| Instant approval with a gateway-paid fee | A shop-owner session and a payment through the "Sandbox payment" workflow (Cashfree sandbox data only) |
-| Commission ledger, rating, dealer board | The flows above |
-| Support services from the shop side: wallet pay, ticket, cancel and refund, online pay | A shop-owner session, a shop-wallet credit, and the "Sandbox payment" workflow |
-| `/dealer` and `/shop/support-services` at phone width | Dealer and shop-owner sessions |
+| D-3: instant approval and dealer commission after a gateway-paid fee | The staging server's logs (Hostinger) to find why the check does not run; then a fresh shop paid through the sandbox gateway once `3bf5a33` is live |
+| Commission ledger to payout, rating rise | Commission accruing on staging (after D-3) |
+| Duplicate warning on staging | Covered by automated tests only |
 
 No real cards, UPI IDs or bank accounts were used. No money moved.
 
