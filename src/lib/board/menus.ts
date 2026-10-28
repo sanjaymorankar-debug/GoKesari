@@ -605,6 +605,7 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
     more: [
       { key: "priceApprovals", label: L("Price approvals", "दाम मंज़ूरी", "दर मंजुरी"), icon: "badge-check", href: "/admin/console/price-approvals", permission: PERMISSIONS.PRICE_REQUEST_DECIDE_ANY },
       { key: "shopCategories", label: L("Shop categories", "दुकान श्रेणियाँ", "दुकान वर्ग"), icon: "store", href: "/admin/shop-categories", permission: PERMISSIONS.CATEGORY_MANAGE },
+      { key: "shopTypes", label: L("Shop types", "दुकान के प्रकार", "दुकानाचे प्रकार"), icon: "store", href: "/admin/shop-types", permission: PERMISSIONS.CATEGORY_MANAGE },
       { key: "productCategories", label: L("Product categories", "उत्पाद श्रेणियाँ", "उत्पादन वर्ग"), icon: "list-tree", href: "/product-categories", permission: PERMISSIONS.CATALOGUE_BROWSE },
       { key: "productBrowser", label: L("Product browser", "प्रोडक्ट ब्राउज़र", "उत्पादन ब्राउझर"), icon: "search", href: "/admin/product-browser", permission: PERMISSIONS.PMD_VIEW }, // batch-2026-10 WS-D
     ],

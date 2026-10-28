@@ -684,21 +684,21 @@
     {
       "idx": 97,
       "version": "7",
-      "when": 1792986800000,
-      "tag": "0097_professional_shop_types",
+      "when": 1792987100000,
+      "tag": "0097_admin_managed_shop_types",
       "breakpoints": true
     },
     {
       "idx": 98,
       "version": "7",
-      "when": 1792986900000,
+      "when": 1792987200000,
       "tag": "0098_professional_registration",
       "breakpoints": true
     },
     {
       "idx": 99,
       "version": "7",
-      "when": 1792987000000,
+      "when": 1792987300000,
       "tag": "0099_registration_fee_coupons_gst",
       "breakpoints": true
     }

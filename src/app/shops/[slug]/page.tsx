@@ -210,7 +210,7 @@ export default async function ShopPage({
       ) : null}
 
       <div className="mb-6">
-        <Link
+        <Link prefetch={false}
           href={`/shops/${shop.slug}/contact`}
           className="text-sm font-medium text-kesari-600 hover:underline"
         >

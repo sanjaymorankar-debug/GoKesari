@@ -81,7 +81,7 @@ describe("the turnover field", () => {
 
 describe("professional shop types", () => {
   it("are registrable shop types, not food businesses", () => {
-    for (const key of ["PROFESSIONAL_OFFICE", "DOCTOR_CLINIC", "CONSULTING_SERVICES"]) {
+    for (const key of ["PROFESSIONAL_OFFICE", "CONSULTANT", "DOCTOR_CLINIC", "SUPER_SPECIALITY_CLINIC"]) {
       expect(SHOP_TYPE_KEYS).toContain(key);
       expect(isProfessionalShopType(key)).toBe(true);
       expect(isFoodBusinessShopType(key)).toBe(false);

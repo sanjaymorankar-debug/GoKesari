@@ -13,6 +13,6 @@ import { isProductionSite } from "@/lib/env";
 export const dynamic = "force-dynamic";
 
 export default function robots(): MetadataRoute.Robots {
-  if (isProductionSite()) return { rules: { userAgent: "*", allow: "/" } };
+  if (isProductionSite()) return { rules: { userAgent: "*", allow: "/", disallow: ["/api/", "/cart", "/search"] } };
   return { rules: { userAgent: "*", disallow: "/" } };
 }

@@ -10,6 +10,8 @@ export interface ComplianceShopRow {
   id: string;
   name: string;
   shopType: string;
+  /** Set by the server so staff-added food types count (the browser does not know them). */
+  isFood?: boolean;
   city: string;
   legalBusinessName: string | null;
   gstin: string | null;
@@ -29,7 +31,7 @@ export function ShopComplianceManager({ shops }: { shops: ComplianceShopRow[] })
   const [openFor, setOpenFor] = useState<string | null>(null);
 
   const isMissing = (s: ComplianceShopRow) =>
-    !s.legalBusinessName || (isFoodBusinessShopType(s.shopType) && !s.fssaiLicenseNumber);
+    !s.legalBusinessName || ((s.isFood ?? isFoodBusinessShopType(s.shopType)) && !s.fssaiLicenseNumber);
 
   const filtered = shops.filter((s) => {
     if (missingOnly && !isMissing(s)) return false;
@@ -81,7 +83,7 @@ export function ShopComplianceManager({ shops }: { shops: ComplianceShopRow[] })
             </thead>
             <tbody className="divide-y divide-cream-200">
               {filtered.map((s) => {
-                const foodBusiness = isFoodBusinessShopType(s.shopType);
+                const foodBusiness = s.isFood ?? isFoodBusinessShopType(s.shopType);
                 return (
                   <>
                     <tr key={s.id}>

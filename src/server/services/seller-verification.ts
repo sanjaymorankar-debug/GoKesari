@@ -30,7 +30,8 @@ import {
 } from "@/lib/kyc/doc-formats";
 import { AppError, conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { decryptBytes, decryptSecret, docBlindIndex, encryptBytes, encryptSecret } from "@/lib/pan-crypto";
-import { FOOD_SHOP_TYPE_KEYS, isFoodBusinessShopType } from "@/lib/shop-types";
+import { isFoodBusinessShopType } from "@/lib/shop-types";
+import { listShopTypes, loadShopTypeRegistry } from "./shop-types";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db, type DbClient } from "@/server/db";
 import {
@@ -164,7 +165,9 @@ export function stateCodeForPincode(pincode: string | null | undefined): string 
 
 /** A shop sells food if its type is a food business or any category it carries is in a food aisle. */
 export async function shopSellsFood(shop: Pick<Shop, "id" | "shopType">): Promise<boolean> {
+  await loadShopTypeRegistry();
   if (isFoodBusinessShopType(shop.shopType)) return true;
+  const foodDepartments = (await listShopTypes()).filter((t) => t.isFood).map((t) => t.key);
   const [row] = await db
     .select({ n: count() })
     .from(shopProductCategories)
@@ -172,7 +175,7 @@ export async function shopSellsFood(shop: Pick<Shop, "id" | "shopType">): Promis
     .where(
       and(
         eq(shopProductCategories.shopId, shop.id),
-        inArray(productCategories.department, FOOD_SHOP_TYPE_KEYS as (typeof FOOD_SHOP_TYPE_KEYS)[number][]),
+        inArray(productCategories.department, foodDepartments),
       ),
     );
   return (row?.n ?? 0) > 0;

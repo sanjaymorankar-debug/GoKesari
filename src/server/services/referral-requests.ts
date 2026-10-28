@@ -17,6 +17,7 @@ import { AppError, conflict, forbidden, notFound, validationFailed } from "@/lib
 import { maskPhone } from "@/lib/phone";
 import { checkReferralRequest, referralRequestReference, type ReferralRequestInput } from "@/lib/referral-requests";
 import { shopTypeLabel } from "@/lib/shop-types";
+import { assertShopType } from "./shop-types";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
 import { referralCodeRequests, referralCodes, type ReferralCodeRequest, type ReferralRequestStatus, type UserRole } from "@/server/db/schema";
@@ -189,6 +190,7 @@ export async function createReferralRequest(
   const checked = checkReferralRequest(input);
   if (!checked.ok) throw validationFailed(Object.values(checked.fields)[0], { fields: checked.fields });
   const request = checked.value;
+  await assertShopType(request.shopType);
   const rule = await getRule("shopReferral");
 
   const row = await db.transaction(async (tx) => {

@@ -398,7 +398,7 @@ export function CartView({
           <Card key={group.shop.id} className="overflow-hidden">
             <div className="flex flex-wrap items-center justify-between gap-2 border-b border-cream-200 bg-cream-50 px-4 py-3">
               <div className="flex items-center gap-2">
-                <Link
+                <Link prefetch={false}
                   href={`/shops/${group.shop.slug}`}
                   className="font-medium text-ink-900 hover:underline"
                 >
@@ -769,7 +769,7 @@ export function CartView({
                     {relevantOpenOrders.map((o) => (
                       <li key={o.id} className="flex flex-wrap items-center justify-between gap-2" data-testid="open-order">
                         <span>
-                          <Link href="/orders" className="font-medium underline">
+                          <Link prefetch={false} href="/orders" className="font-medium underline">
                             {o.orderNumber}
                           </Link>{" "}
                           · {o.shopName} — <strong>{o.statusLabel}</strong> · <Money paise={o.totalPaise} />

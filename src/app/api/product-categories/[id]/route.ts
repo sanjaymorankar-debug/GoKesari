@@ -8,7 +8,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
-import { SHOP_TYPE_KEYS } from "@/lib/shop-types";
+import { SHOP_TYPE_KEY_PATTERN } from "@/lib/shop-types";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { requireAnyPermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
@@ -22,7 +22,7 @@ const schema = z.object({
   name: z.string().min(2).max(80).optional(),
   description: z.string().max(300).nullish(),
   isActive: z.boolean().optional(),
-  department: z.enum(SHOP_TYPE_KEYS).optional(),
+  department: z.string().regex(SHOP_TYPE_KEY_PATTERN).optional(),
 });
 
 export const PATCH = route(async (request: NextRequest, context: RouteContext<{ id: string }>) => {

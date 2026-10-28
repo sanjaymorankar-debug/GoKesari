@@ -7,7 +7,8 @@ import { EmptyState, LinkButton } from "@/components/ui";
 import { locationAreaName, shortLocationLabel } from "@/lib/location";
 import { isShopOpenNow } from "@/lib/shop-hours";
 import { parseShopSort } from "@/lib/shop-sort";
-import { SHOP_TYPE_KEYS, shopTypeLabel, type ShopTypeKey } from "@/lib/shop-types";
+import { shopTypeLabel } from "@/lib/shop-types";
+import { isKnownShopType, loadShopTypeRegistry } from "@/server/services/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getCustomerLocation } from "@/server/location";
 import { listNearbyShops } from "@/server/services/serviceability";
@@ -67,9 +68,8 @@ export default async function ShopsPage({
   const nearOnly = Boolean(location) && params.all !== "1";
   const nearby = location ? await listNearbyShops(location) : [];
   const nearbyById = new Map(nearby.map((shop) => [shop.id, shop]));
-  const shopType = (SHOP_TYPE_KEYS as readonly string[]).includes(params.type ?? "")
-    ? (params.type as ShopTypeKey)
-    : undefined;
+  await loadShopTypeRegistry();
+  const shopType = (await isKnownShopType(params.type ?? "")) ? params.type : undefined;
 
   // Text and place filters run in the database (they also match a shop's
   // categories); type, open-now and delivers-to-me are applied below so the
@@ -188,7 +188,7 @@ export default async function ShopsPage({
               ? `Not finding what you need nearby? Widen the search to ${city ? `all of ${city}` : "every shop on GoKesari"}.`
               : `Showing shops beyond your area${params.city ? ` in ${params.city}` : ""}.`}
           </p>
-          <Link
+          <Link prefetch={false}
             href={nearToggleHref(params, nearOnly, city)}
             className="tap-target whitespace-nowrap rounded-lg border border-cream-200 bg-white px-3.5 py-2 text-sm font-medium text-ink-900 hover:bg-cream-100"
           >

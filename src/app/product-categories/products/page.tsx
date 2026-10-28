@@ -32,7 +32,7 @@ export default async function ProductsByCategoryPage({
         title={current ? `Products — ${current.name}` : "Products by category"}
         description="The published catalogue. Filter by category or search by name, product ID or brand."
         action={
-          <Link href="/product-categories" className="text-sm font-medium text-kesari-600 hover:underline">
+          <Link prefetch={false} href="/product-categories" className="text-sm font-medium text-kesari-600 hover:underline">
             ← Product categories
           </Link>
         }

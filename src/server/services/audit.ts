@@ -279,6 +279,7 @@ export const AUDIT_ACTIONS = {
   PRODUCT_IMAGE_CHANGED: "product_image.changed",
   PRODUCT_IMAGE_MODERATED: "product_image.moderated",
   SHOP_CATEGORY_SAVED: "shop_category.saved",
+  SHOP_TYPE_SAVED: "shop_type.saved",
   SHOP_CATEGORIES_CHANGED: "shop.categories_changed",
   /* Category master and shop ↔ product-category links. */
   PRODUCT_CATEGORY_CREATED: "product_category.created",

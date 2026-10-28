@@ -32,6 +32,8 @@ export interface ProductCardData {
   /** Size of one sellable unit in milli of `unit` (1 kg → 1000). */
   unitSizeMilli?: number;
   shopName?: string;
+  /** Shown bold on the first line of the card, the shop name under it. */
+  shopOwnerName?: string;
   shopSlug?: string;
   /** Catalogue product id — enables the "Compare prices" link (GS-021/022). */
   productId?: string;
@@ -170,6 +172,18 @@ export function ProductCard({
       data-testid="product-card"
       data-product-name={product.productName}
     >
+      {product.shopName ? (
+        <div className="mb-2 min-w-0" data-testid="card-seller">
+          {product.shopOwnerName ? (
+            <p className="line-clamp-2 break-words text-sm font-bold leading-tight text-ink-900" data-testid="card-owner">
+              {product.shopOwnerName}
+            </p>
+          ) : null}
+          <p className={product.shopOwnerName ? "mt-0.5 line-clamp-2 break-words text-xs font-medium text-ink-600" : "line-clamp-2 break-words text-sm font-bold text-ink-900"} data-testid="card-shop">
+            {product.shopName}
+          </p>
+        </div>
+      ) : null}
       <SafeImage
         src={product.imageUrl}
         size="medium"
@@ -181,7 +195,7 @@ export function ProductCard({
         <div className="min-w-0">
           <h3 className="truncate text-sm font-semibold text-ink-900">
             {product.detailsHref ? (
-              <Link href={product.detailsHref} className="hover:text-kesari-700">
+              <Link prefetch={false} href={product.detailsHref} className="hover:text-kesari-700">
                 {product.productName}
               </Link>
             ) : (
@@ -203,11 +217,8 @@ export function ProductCard({
         />
       </div>
 
-      {product.shopName && product.shopSlug ? (
-        <p className="mb-2 text-xs text-ink-500">
-          at {product.shopName}
-          {product.distanceKm != null ? ` · ${product.distanceKm} km` : null}
-        </p>
+      {product.distanceKm != null && product.shopName ? (
+        <p className="mb-2 text-xs text-ink-500">{product.distanceKm} km away</p>
       ) : null}
 
       <div className="mt-auto">
@@ -256,7 +267,7 @@ export function ProductCard({
         ) : null}
 
         {product.productId && (product.compareCount ?? 0) >= 2 ? (
-          <Link
+          <Link prefetch={false}
             href={`/search/compare?product=${encodeURIComponent(product.productId)}`}
             data-testid="compare-n-prices"
             className="mt-1.5 inline-flex min-h-9 items-center gap-1 self-start rounded-full bg-indigo-50 px-2.5 text-xs font-bold text-indigo-800 hover:bg-indigo-100"
@@ -264,7 +275,7 @@ export function ProductCard({
             <span aria-hidden>⚖</span> Compare {product.compareCount} prices
           </Link>
         ) : product.productId ? (
-          <Link
+          <Link prefetch={false}
             href={`/products/${product.productId}`}
             className="mt-1 inline-flex min-h-11 items-center text-sm font-medium text-kesari-700 hover:underline"
           >

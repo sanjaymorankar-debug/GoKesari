@@ -44,6 +44,7 @@ import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { attributeShopToCode } from "./referrals";
 import { applyShopCategories } from "./shop-categories";
 import { baseRegistrationFee, lockRegistrationFeeCoupon, registrationFeeGstRateBp } from "./registration-fee-coupons";
+import { assertShopType, isKnownShopType } from "./shop-types";
 import { getRule } from "./settings";
 import { missingMandatoryDocuments, onboardingApprovalBlocker } from "./shop-onboarding";
 import { assertFssaiAllowsApproval } from "./document-uploads";
@@ -284,6 +285,8 @@ export async function registerShop(
       fields: { annualTurnover: "Enter the annual turnover in whole rupees." },
     });
   }
+
+  await assertShopType(input.shopType);
 
   // The fee is SNAPSHOTTED here (§12): a later change to the schedule must
   // never alter what this shop was charged. Owner, 27 Oct 2026: the base fee
@@ -1029,6 +1032,9 @@ export async function updateShop(
   input: UpdateShopInput,
   actor: { id: string; role: UserRole },
 ): Promise<Shop> {
+  if (input.shopType && !(await isKnownShopType(input.shopType))) {
+    throw validationFailed("Shop type: choose a valid shop type.");
+  }
   if (input.pincode && !/^[1-9]\d{5}$/.test(input.pincode)) {
     throw validationFailed("PIN code must be 6 digits and not start with 0.");
   }

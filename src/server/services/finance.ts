@@ -23,6 +23,7 @@ import { getEnv } from "@/lib/env";
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { formatPaise } from "@/lib/money";
 import type { ShopTypeKey } from "@/lib/shop-types";
+import { assertShopType } from "./shop-types";
 import type { RuleValue } from "@/server/config/rules";
 import { db, type DbClient } from "@/server/db";
 import {
@@ -177,6 +178,7 @@ export async function setCommissionRate(
   const shopType = input.scope === "SHOP_TYPE" ? input.shopType ?? null : null;
   const shopId = input.scope === "SHOP" ? input.shopId ?? null : null;
   if (input.scope === "SHOP_TYPE" && !shopType) throw validationFailed("Choose the shop type.");
+  if (shopType) await assertShopType(shopType);
   if (input.scope === "SHOP" && !shopId) throw validationFailed("Choose the shop.");
 
   return db.transaction(async (tx) => {

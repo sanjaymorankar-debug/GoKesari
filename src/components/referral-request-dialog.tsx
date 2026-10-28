@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 
 import { Alert, Button, Field, inputClass } from "@/components/ui";
 import { checkReferralRequest } from "@/lib/referral-requests";
-import { SHOP_TYPES } from "@/lib/shop-types";
+import { useShopTypes } from "@/components/use-shop-types";
 
 type LocationState =
   | { status: "asking" }
@@ -28,6 +28,7 @@ export interface ReferralRequestPrefill {
  * then carries only the address they type, marked "location not shared".
  */
 export function ReferralRequestDialog({ prefill, onClose }: { prefill: ReferralRequestPrefill; onClose: () => void }) {
+  const shopTypes = useShopTypes();
   const [location, setLocation] = useState<LocationState>({ status: "asking" });
   const [values, setValues] = useState({
     name: prefill.name ?? "",
@@ -147,7 +148,7 @@ export function ReferralRequestDialog({ prefill, onClose }: { prefill: ReferralR
                     <option value="" disabled>
                       Select a shop type
                     </option>
-                    {SHOP_TYPES.map((t) => (
+                    {shopTypes.map((t) => (
                       <option key={t.key} value={t.key}>
                         {t.label}
                       </option>

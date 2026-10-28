@@ -41,7 +41,7 @@ import {
   VALUATION_METHODS,
   VOUCHER_TYPES,
 } from "@/lib/accounts/constants";
-import { SHOP_TYPE_KEYS } from "@/lib/shop-types";
+import type { ShopTypeKey } from "@/lib/shop-types";
 import {
   IMPORT_JOB_STATUSES,
   IMPORT_MATCH_TYPES,
@@ -118,11 +118,12 @@ export const shopStatusEnum = pgEnum("shop_status", [
 ]);
 
 /**
- * A shop's primary business category — one of the 44 standard shop types
- * (grocery, dairy, bakery, pharmacy, jewellery, ...). Source of truth is
- * `src/lib/shop-types.ts`; add new types there, not here.
+ * Shop types are plain text keys, not a database enum, so staff can add a type
+ * from the admin screen without a migration (migration 0097). The built-in
+ * types live in `src/lib/shop-types.ts`; types staff add are rows of
+ * `shop_types`. A key is valid when it is one of those two.
  */
-export const shopTypeEnum = pgEnum("shop_type", SHOP_TYPE_KEYS);
+export const shopTypeColumn = (name: string) => text(name).$type<ShopTypeKey>();
 
 /** Operator/Admin-controlled quality classification. Shop owners cannot change this. */
 export const classificationEnum = pgEnum("shop_classification", [
@@ -164,11 +165,11 @@ export const identityVerificationSourceEnum = pgEnum("identity_verification_sour
 ]);
 
 /**
- * Which shop type a product category belongs to. Reuses the same value set as
- * shopTypeEnum: a catalogue category is always scoped to one shop type (e.g.
- * "Milk" → DAIRY, "Rice" → GROCERY_KIRANA).
+ * Which shop type a product category belongs to (a shop type key, text like
+ * `shops.shop_type`): a catalogue category is always scoped to one shop type
+ * (e.g. "Milk" → DAIRY, "Rice" → GROCERY_KIRANA).
  */
-export const departmentEnum = pgEnum("department", SHOP_TYPE_KEYS);
+export type Department = ShopTypeKey;
 
 /**
  * Order lifecycle. Mapping to the approved state machine (workbook "State
@@ -780,7 +781,7 @@ export const shops = pgTable(
     pincode: text("pincode").notNull(),
     latitude: text("latitude"),
     longitude: text("longitude"),
-    shopType: shopTypeEnum("shop_type").notNull(),
+    shopType: shopTypeColumn("shop_type").notNull(),
     status: shopStatusEnum("status").notNull().default("PENDING_APPROVAL"),
     // Only OPERATOR/ADMIN may write this column (enforced in the service layer).
     classification: classificationEnum("classification"),
@@ -1085,6 +1086,28 @@ export const shopCategories = pgTable(
   ],
 );
 
+/**
+ * Shop types staff added from the admin screen, on top of the built-in ones in
+ * `src/lib/shop-types.ts`. `key` is the value stored in `shops.shop_type`;
+ * never rename it. `created_by` has no foreign key (users are in the customer
+ * database on the split layout).
+ */
+export const shopTypes = pgTable(
+  "shop_types",
+  {
+    key: text("key").primaryKey(),
+    label: text("label").notNull(),
+    standardGoods: text("standard_goods").array().notNull().default(sql`'{}'::text[]`),
+    /** Needs an FSSAI licence, like the built-in food types. */
+    isFood: boolean("is_food").notNull().default(false),
+    status: text("status", { enum: ["ACTIVE", "INACTIVE"] }).notNull().default("ACTIVE"),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("shop_types_label_unique").on(sql`lower(${t.label})`)],
+);
+
 /** Many-to-many: one shop, many categories; one category, many shops. */
 export const shopCategoryMapping = pgTable(
   "shop_category_mapping",
@@ -1315,7 +1338,7 @@ export const productCategories = pgTable(
   "product_categories",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    department: departmentEnum("department").notNull(),
+    department: shopTypeColumn("department").notNull(),
     name: text("name").notNull(),
     slug: text("slug").notNull(),
     description: text("description"),
@@ -4985,7 +5008,7 @@ export const commissionRates = pgTable(
     id: uuid("id").primaryKey().defaultRandom(),
     scope: commissionScopeEnum("scope").notNull(),
     /** Set for SHOP_TYPE. */
-    shopType: shopTypeEnum("shop_type"),
+    shopType: shopTypeColumn("shop_type"),
     /** Set for SHOP. */
     shopId: uuid("shop_id").references(() => shops.id, { onDelete: "restrict" }),
     /** Basis points: 500 = 5.00%. */
@@ -6159,7 +6182,6 @@ export type ReconciliationRecord = typeof reconciliationRecords.$inferSelect;
 export type OrderItemFulfilment = (typeof orderItemFulfilmentEnum.enumValues)[number];
 export type ShopStatus = (typeof shopStatusEnum.enumValues)[number];
 export type Classification = (typeof classificationEnum.enumValues)[number];
-export type Department = (typeof departmentEnum.enumValues)[number];
 export type PaymentMethod = (typeof paymentMethodEnum.enumValues)[number];
 export type UserRoleGrant = typeof userRoleGrants.$inferSelect;
 export type CustomerSegment = typeof customerSegments.$inferSelect;
@@ -6193,6 +6215,7 @@ export type ExternalPriceReference = typeof externalPriceReferences.$inferSelect
 export type ExternalPriceReferenceHistoryRow = typeof externalPriceReferenceHistory.$inferSelect;
 export type MrpCorrection = typeof mrpCorrections.$inferSelect;
 export type ShopCategory = typeof shopCategories.$inferSelect;
+export type ShopTypeRow = typeof shopTypes.$inferSelect;
 export type ShopCategoryMapping = typeof shopCategoryMapping.$inferSelect;
 
 /* ------------------------------------------------ delivery slot capacity (F5)

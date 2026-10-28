@@ -17,7 +17,7 @@ import { and, count, eq, isNull } from "drizzle-orm";
 import { z } from "zod";
 
 import { gstState } from "@/lib/gst-states";
-import { SHOP_TYPE_KEYS } from "@/lib/shop-types";
+import { SHOP_TYPE_KEY_PATTERN } from "@/lib/shop-types";
 import { forbidden, notFound, validationFailed } from "@/lib/errors";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { db } from "@/server/db";
@@ -28,6 +28,7 @@ import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { submitGstin } from "@/server/services/gst-pan-verification";
 import { fssaiBlocksRegistration, fssaiStatus } from "@/server/services/document-uploads";
 import { shopSellsFood } from "@/server/services/seller-verification";
+import { assertShopType } from "@/server/services/shop-types";
 
 type Actor = { id: string; role: UserRole };
 
@@ -38,7 +39,7 @@ export const profileSetupSchema = z.object({
   city: z.string().trim().min(2, "Enter the city or town.").max(80),
   state: z.string().trim().max(60).nullish(),
   pincode: z.string().trim().regex(/^[1-9]\d{5}$/, "PIN code must be 6 digits and not start with 0."),
-  shopType: z.enum(SHOP_TYPE_KEYS),
+  shopType: z.string().regex(SHOP_TYPE_KEY_PATTERN),
   gstin: z.string().trim().max(20).nullish(),
   // docs/nearby-referral-2026-10: the shop's map pin (map or "use my current location"), so it shows in Nearby.
   latitude: z.number().min(-90).max(90).nullish(),
@@ -116,6 +117,8 @@ export async function saveProfileSetup(shopId: string, input: z.infer<typeof pro
       warnings.push(`The GSTIN is registered in ${gstState(gstinStateCode)?.name ?? `state ${gstinStateCode}`}, but the address is in ${addressState.name}. A shop's GSTIN must be from the state it sells from.`);
     }
   }
+
+  if (input.shopType !== shop.shopType) await assertShopType(input.shopType);
 
   const now = new Date();
   // A new pin is checked the same way as everywhere else (Google when configured; otherwise kept, not verified).

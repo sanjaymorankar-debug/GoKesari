@@ -25,7 +25,8 @@ import {
   type ParseResult,
   type ShopIdentifierField,
 } from "@/lib/shop-identity";
-import { isProfessionalShopType, SHOP_TYPES } from "@/lib/shop-types";
+import { isProfessionalShopType } from "@/lib/shop-types";
+import { useShopTypes } from "@/components/use-shop-types";
 import { ReferralRequestDialog, type ReferralRequestPrefill } from "@/components/referral-request-dialog";
 
 /**
@@ -49,14 +50,12 @@ import { ReferralRequestDialog, type ReferralRequestPrefill } from "@/components
  * it again. After Submit the owner goes to the fee payment page.
  */
 
-const SHOP_GROUP = SHOP_TYPES.filter((t) => !isProfessionalShopType(t.key));
-const PROFESSIONAL_GROUP = SHOP_TYPES.filter((t) => isProfessionalShopType(t.key));
-
 /** Category groups to list first in the picker for each professional shop type. */
 const CATEGORY_GROUPS_FOR: Record<string, readonly string[]> = {
   PROFESSIONAL_OFFICE: ["Finance and legal"],
   DOCTOR_CLINIC: ["Medical — doctors and clinics"],
-  CONSULTING_SERVICES: ["Consulting and services"],
+  SUPER_SPECIALITY_CLINIC: ["Medical — doctors and clinics"],
+  CONSULTANT: ["Consulting and services"],
 };
 
 /** Fields the duplicate pre-check runs on when the owner leaves them. */
@@ -99,6 +98,7 @@ export function ShopRegisterForm({
   /** Active shop categories, read by the server page. */
   initialCategories?: PickerCategory[];
 } = {}) {
+  const shopTypes = useShopTypes();
   const router = useRouter();
   const formRef = useRef<HTMLFormElement>(null);
   // Set synchronously on the first submit, before React has re-rendered the
@@ -521,14 +521,14 @@ export function ShopRegisterForm({
                 Select a shop type
               </option>
               <optgroup label="Shops and stores">
-                {SHOP_GROUP.map((t) => (
+                {shopTypes.filter((t) => !isProfessionalShopType(t.key)).map((t) => (
                   <option key={t.key} value={t.key}>
                     {t.label}
                   </option>
                 ))}
               </optgroup>
               <optgroup label="Professional offices and practices">
-                {PROFESSIONAL_GROUP.map((t) => (
+                {shopTypes.filter((t) => isProfessionalShopType(t.key)).map((t) => (
                   <option key={t.key} value={t.key}>
                     {t.label}
                   </option>

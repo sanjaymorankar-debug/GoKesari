@@ -25,7 +25,7 @@ export default async function CategoryMasterPage({ searchParams }: { searchParam
         title="Product categories"
         description="Every product belongs to one category. A shop sees every product in the categories it carries. General is permanent: removing any other category moves its products to General."
         action={
-          <Link href="/product-categories/products" className="text-sm font-medium text-kesari-600 hover:underline">
+          <Link prefetch={false} href="/product-categories/products" className="text-sm font-medium text-kesari-600 hover:underline">
             Browse all products →
           </Link>
         }

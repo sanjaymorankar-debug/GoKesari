@@ -1,6 +1,7 @@
 import { redirect } from "next/navigation";
 
 import { DisputeQueue } from "@/components/dispute-queue";
+import { RunEscalationSweepButton } from "@/components/run-escalation-sweep-button";
 import { PageHeader } from "@/components/ui";
 import { DISPUTE_STATUSES, type DisputeStatus } from "@/lib/dispute-states";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -50,6 +51,7 @@ export default async function DisputesPage({
         title="Disputes"
         description={`${counts.live} open · ${counts.escalated} escalated · ${counts.overdue} past the ${rules.resolveTargetHours} h resolve target. Automatic: ${escalation}. An escalated case can only be taken forward by an administrator.`}
       />
+      {user.role === "ADMIN" ? <RunEscalationSweepButton /> : null}
       <DisputeQueue
         rows={rows.map((r) => ({
           id: r.id,

@@ -169,7 +169,7 @@ export function TomorrowDeliveryCard({
             className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-xl border border-cream-200 px-3 py-2.5"
           >
             <div className="min-w-0 flex-1 basis-40">
-              <Link
+              <Link prefetch={false}
                 href={`/subscriptions/${line.subscriptionId}`}
                 className={`block truncate text-sm font-semibold hover:underline ${line.skipped ? "text-ink-500 line-through" : "text-ink-900"}`}
               >
@@ -250,7 +250,7 @@ export function TomorrowDeliveryCard({
               Undo skip
             </button>
           ) : null}
-          <Link
+          <Link prefetch={false}
             href="/subscriptions"
             className="tap-target rounded-lg bg-kesari-600 px-3 py-2 text-sm font-medium text-white hover:bg-kesari-800"
           >
@@ -267,7 +267,7 @@ export function TomorrowDeliveryCard({
               ? `That does not cover tomorrow's ${formatPaiseCompact(totalPaise)}. Top up so tomorrow is not missed.`
               : `That covers tomorrow only. Top up so ${following!.dayName} is not missed.`}
           </p>
-          <Link
+          <Link prefetch={false}
             href="/wallet"
             className="tap-target rounded-lg bg-kesari-800 px-3 py-2 text-sm font-medium text-white hover:bg-kesari-700"
           >

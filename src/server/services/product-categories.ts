@@ -37,6 +37,7 @@ import {
 } from "@/server/db/schema";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { assertShopType } from "./shop-types";
 import { STAFF_ROLES } from "./roles";
 import { getRule } from "./settings";
 
@@ -256,6 +257,7 @@ export async function createProductCategory(
     throw forbidden("You do not have permission to add categories.");
   }
   const name = validateName(input.name);
+  if (input.department) await assertShopType(input.department, "Department");
   await assertNameFree(name, null, client);
 
   const [row] = await client
@@ -330,7 +332,10 @@ export async function updateProductCategory(
   }
   if (patch.description !== undefined) set.description = patch.description?.trim() || null;
   if (patch.isActive !== undefined) set.isActive = patch.isActive;
-  if (patch.department !== undefined) set.department = patch.department;
+  if (patch.department !== undefined) {
+    if (patch.department !== current.department) await assertShopType(patch.department, "Department");
+    set.department = patch.department;
+  }
 
   const [row] = await db.update(productCategories).set(set).where(eq(productCategories.id, id)).returning();
   await recordAudit({

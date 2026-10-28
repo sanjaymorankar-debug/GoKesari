@@ -24,6 +24,7 @@ export const TABLE_OWNERSHIP = {
   /* ------------------------------------------------------------ seller */
   shops: "seller",
   shop_categories: "seller",
+  shop_types: "seller",
   shop_category_mapping: "seller",
   shop_classification_history: "seller",
   shop_delivery_staff: "seller",

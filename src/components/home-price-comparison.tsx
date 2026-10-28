@@ -19,7 +19,7 @@ export function HomePriceComparison({ products, lang = "en" }: { products: Compa
               <SafeImage src={p.imageUrl} alt={p.productName} className="h-full w-full object-cover" />
             </div>
             <div className="min-w-0">
-              <Link href={`/products/${p.productId}`} className="font-medium text-ink-900 hover:underline">
+              <Link prefetch={false} href={`/products/${p.productId}`} className="font-medium text-ink-900 hover:underline">
                 {p.productName}
               </Link>
               <p className="text-xs text-ink-500">{formatQuantity(p.unitSizeMilli, p.unit)}</p>
@@ -37,7 +37,7 @@ export function HomePriceComparison({ products, lang = "en" }: { products: Compa
                 className={`flex items-center justify-between gap-2 rounded-md px-2 py-1 ${price.cheapest ? "bg-leaf-50 font-semibold text-leaf-800" : "text-ink-700"}`}
                 data-testid={price.cheapest ? "cheapest-price" : "compared-price"}
               >
-                <Link href={`/shops/${price.shopSlug}`} className="min-w-0 truncate hover:underline">
+                <Link prefetch={false} href={`/shops/${price.shopSlug}`} className="min-w-0 truncate hover:underline">
                   {price.shopName}
                   {price.distanceKm != null ? <span className="text-xs font-normal text-ink-500"> · {price.distanceKm} km</span> : null}
                 </Link>
@@ -58,7 +58,7 @@ export function HomePriceComparison({ products, lang = "en" }: { products: Compa
             ))}
           </ul>
           <div className="mt-auto pt-3">
-            <Link
+            <Link prefetch={false}
               href={`/products/${p.productId}`}
               aria-label={`Compare all shops: ${p.productName}`}
               data-accent="smart"
