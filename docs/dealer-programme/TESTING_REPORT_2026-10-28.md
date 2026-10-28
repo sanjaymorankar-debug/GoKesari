@@ -13,7 +13,8 @@ GoKesari Authorized Dealer & Merchant Acquisition Programme · 28 Oct 2026 · br
   on sign-ins. Second pass with all test accounts signed in: 20 more passed, plus instant approval,
   commission and the rating once the check ran. One real fault (D-2) — after a gateway payment
   nothing re-ran the approval check — is fixed in code. See §3.
-- **Production:** not released. All four feature flags stay **off** there.
+- **Production:** released 28 Oct in two releases — #268 (ea7eecb) and release 2 (`8d6ef40`,
+  merged 17:57 UTC; post-deploy check 5/5 healthy). All four feature flags are **off** there.
 
 ---
 
@@ -134,7 +135,7 @@ No real cards, UPI IDs or bank accounts were used. No money moved.
 |---|---|---|---|
 | Local | All steps | Tests switch them per case | Migrations 0101–0111 |
 | Staging | All steps | All on, Pune only | 0101–0111 applied (Test database run on `ea7eecb`) |
-| Production | Not released | All off | Not migrated |
+| Production | Released 28 Oct: #268 (ea7eecb) and release 2 (8d6ef40), post-deploy checks passed | All off (checked) | 0098–0111 applied |
 
 **Production release** goes staging → main as one release, with a post-deploy check, in an
 owner-approved window. Staging also carries other work that would ship with it: the approval
