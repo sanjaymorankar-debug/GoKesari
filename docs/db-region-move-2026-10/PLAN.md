@@ -226,7 +226,9 @@ Lessons, written into the steps for D:
 5. **No pushes during the window.** Another session pushed `staging` at 11:12 UTC, mid-window. It did no harm (no migration, the database was read-only), but a migration in it would have failed the build. For production: nobody merges into `main` and nobody pushes `staging` until writes are open.
 
 Still to do for staging:
-- [x] Owner: GitHub secrets `TEST_DATABASE_URL`, `TEST_SELLER_DATABASE_URL` and `TEST_CUSTOMER_DATABASE_URL` point at the Singapore project (done 28 Oct 2026). To confirm: Actions → "Test database" → `verify`; its summary must name host `ep-hidden-star-b3k0l6ih.c-4.ap-southeast-1.aws.neon.tech`.
+- [x] Owner: GitHub secrets `TEST_DATABASE_URL`, `TEST_SELLER_DATABASE_URL` and `TEST_CUSTOMER_DATABASE_URL` point at the Singapore project (done 28 Oct 2026).
+- [ ] Owner: repository / `test` environment variable **`TEST_DATABASE_HOST`** → `ep-hidden-star-b3k0l6ih.c-4.ap-southeast-1.aws.neon.tech`. `scripts/test-db/guard.sh` compares the secret with it. Missed at first, so the "Test database" run for `bf53b23` stopped at its guard and migrations 0108–0110 did not reach the Singapore test database.
+- [ ] Owner: `MIGRATE_ON_BUILD=true` on test.gokesari.com. Then re-run "Test database" → `migrate` (or redeploy the test site) to apply 0108–0110. To confirm: Actions → "Test database" → `verify`; its summary must name host `ep-hidden-star-b3k0l6ih.c-4.ap-southeast-1.aws.neon.tech`.
 - [ ] Redeploy `staging` on Hostinger (dealer pages), with `MIGRATE_ON_BUILD=true`, then re-run TC-RBAC-002 / TC-AUTH-033.
 - [ ] Keep the Ohio test project (`GoKesari-test`, frozen) until **4 Nov 2026**, then delete it on the owner's word.
 - [ ] Backup dumps of the old test databases are only in the session scratchpad. Keep a copy elsewhere if wanted.
@@ -286,8 +288,9 @@ Guest QA on gokesari.com, latest result per check: **87 pass, 6 fail, 3 blocked,
 - Search with `<script>` is blocked by Hostinger's firewall (E-01).
 
 Still to do for production:
-- [ ] Owner: set `MIGRATE_ON_BUILD=true` again on gokesari.com (hPanel). It takes effect on the next deploy.
-- [ ] Owner: point the GitHub secrets `PROD_DATABASE_URL`, `PROD_SELLER_DATABASE_URL` and `PROD_CUSTOMER_DATABASE_URL` at `ep-calm-salad-ao1homrr.c-2.ap-southeast-1.aws.neon.tech` (same database names). If the repository variables `PROD_DATABASE_HOST` / `PROD_DATABASE_NAME` exist, update the host too: `scripts/prod-db/guard.sh` compares the secret with them. Then run "Production database → verify".
+- [x] Owner: `MIGRATE_ON_BUILD=true` set again on gokesari.com (28 Oct); the rebuild it triggered passed the post-deploy check (5/5, 13:59 UTC).
+- [x] Owner: `production` environment secrets and `PROD_DATABASE_HOST` updated to Singapore (28 Oct). Still to do: run "Production database" → `verify` once to prove them.
+- [ ] (was) Owner: point the GitHub secrets `PROD_DATABASE_URL`, `PROD_SELLER_DATABASE_URL` and `PROD_CUSTOMER_DATABASE_URL` at `ep-calm-salad-ao1homrr.c-2.ap-southeast-1.aws.neon.tech` (same database names). If the repository variables `PROD_DATABASE_HOST` / `PROD_DATABASE_NAME` exist, update the host too: `scripts/prod-db/guard.sh` compares the secret with them. Then run "Production database → verify".
 - [ ] Keep the Ohio production project (`GoKesari-prod`, frozen) until **11 Nov 2026**, then delete it on the owner's word.
 - [ ] Backup dumps are only in the session scratchpad (`backup-prod-20261028-1245`). Keep a copy elsewhere if wanted.
 - [ ] Optional, for speed: production compute min 0.5 CU with scale-to-zero off (no cold start after quiet spells).
