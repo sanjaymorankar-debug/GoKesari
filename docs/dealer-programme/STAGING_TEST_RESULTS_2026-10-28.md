@@ -221,3 +221,27 @@ response. Finding the cause needs the staging server's logs (Hostinger).
 requests on "E2E Referral MV2SJM8P-3" (one refunded), and a ₹600 test credit in that shop's wallet.
 
 **Second pass totals:** 20 pass, 2 fail (D-2 fixed in code, D-3 open), 1 left to automated tests.
+
+### D-3 resolved — same cause as D-2 (28 Oct, 17:14 UTC)
+
+Read-only queries on the staging database (Neon project GoKesari-test-sg) showed:
+- The fee was recorded online at 17:00:09.
+- No approval decision was logged after 16:59:50.
+- Every flag was on for Pune.
+
+The approval check runs when a document's status **changes**. Both of the earlier re-triggers
+re-verified documents that were already VERIFIED, so they did nothing. Moving the PAN to manual
+review and back to verified (a real status change) ran the check at 17:14:02:
+- **instant approval:** BKS-000032 APPROVED, decision logged with no reasons, lifecycle ACTIVE;
+- **commission:** the dealer earned ₹100 (REGISTERED) and ₹150 (ACTIVATED); the shop counts as
+  activated for the rating;
+- **e-mail:** the owner received "Registration successful — QA Assisted Clothing (staging) is ready
+  for product upload".
+
+So the only fault was D-2: after a gateway payment, nothing re-ran the check. Fixed in `3bf5a33`.
+
+| # | Case | Result |
+|---|---|---|
+| 4.2 | Instant approval with a gateway-paid fee | PASS once the check runs (D-2 fixed in code) |
+| CM-002 | Registration and activation commission accrue | PASS (₹100 + ₹150 earned) |
+| CM-003 | Live shop counts for the rating | PASS (activated 17:14:09) |

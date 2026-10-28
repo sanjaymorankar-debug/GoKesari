@@ -10,9 +10,9 @@ GoKesari Authorized Dealer & Merchant Acquisition Programme · 28 Oct 2026 · br
 - **CI on GitHub:** the full suite passes on the one-database and the two-database layouts, up to
   `c89cf0b`. Runs for the later commits were still queued when this report was written.
 - **Staging (test.gokesari.com):** first pass 45 cases — 21 passed, 1 failed (fixed), 23 blocked
-  on sign-ins. Second pass with all test accounts signed in: 20 more passed, 2 failed. One failure
-  is fixed in code (D-2); one is open (D-3: a gateway-paid shop is not approved and its dealer gets
-  no commission — needs the staging server's logs). See §3.
+  on sign-ins. Second pass with all test accounts signed in: 20 more passed, plus instant approval,
+  commission and the rating once the check ran. One real fault (D-2) — after a gateway payment
+  nothing re-ran the approval check — is fixed in code. See §3.
 - **Production:** not released. All four feature flags stay **off** there.
 
 ---
@@ -105,8 +105,10 @@ site's sandbox gateway, no money):
 - **D-2 — fixed in code (`3bf5a33`):** after a gateway-paid registration fee, the approval check
   and dealer commission were on a 2-second timer that never ran on staging. They now run right
   after the capture commits, in the same request; tests prove it.
-- **D-3 — open:** for the paid test shop (BKS-000032), even a direct trigger logged no new
-  instant-approval decision and no commission, with no visible error. Needs the staging logs.
+- **D-3 — closed, same cause as D-2:** the check runs only when a document's status changes, so
+  the first re-triggers did nothing. With a real status change, the paid shop was approved
+  instantly, the dealer earned ₹100 + ₹150, the shop counted for the rating, and the owner got
+  the "ready for product upload" e-mail.
 - **Waived fees (`d8fc985`):** the approval queue can now waive a shop's fee; a waived fee now
   counts as a zero base, so no percentage commission or bonus is paid on it.
 
@@ -118,8 +120,8 @@ site's sandbox gateway, no money):
 
 | What | Needs |
 |---|---|
-| D-3: instant approval and dealer commission after a gateway-paid fee | The staging server's logs (Hostinger) to find why the check does not run; then a fresh shop paid through the sandbox gateway once `3bf5a33` is live |
-| Commission ledger to payout, rating rise | Commission accruing on staging (after D-3) |
+| D-2 fix on staging: a new shop paid through the sandbox gateway is approved without any other trigger | A fresh shop (another owner account) once `3bf5a33` is deployed |
+| Commission approval and payout with a bank reference | An admin pass on the ₹250 now earned by the test dealer (no money moves) |
 | Duplicate warning on staging | Covered by automated tests only |
 
 No real cards, UPI IDs or bank accounts were used. No money moved.
