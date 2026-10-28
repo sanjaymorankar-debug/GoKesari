@@ -2,6 +2,8 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { validationFailed } from "@/lib/errors";
+import { MAX_ANNUAL_TURNOVER_RUPEES } from "@/lib/registration-fee";
 import { IDENTIFIER_REQUIRED_MESSAGE, parseGstin } from "@/lib/shop-identity";
 import {
   deliveryFeePaiseSchema,
@@ -17,6 +19,7 @@ import { NextResponse } from "next/server";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
+import { getRule } from "@/server/services/settings";
 import { registerShop, searchShops, toShopView } from "@/server/services/shops";
 import { assertRegistrationReferralCode, attributeRegistrationReferral } from "@/server/services/referral-requests";
 
@@ -88,6 +91,15 @@ const registerSchema = z.object({
   deliveryFeePaise: deliveryFeePaiseSchema.default(0),
   freeDeliveryAbovePaise: freeDeliveryAbovePaiseSchema.nullish(),
   description: optionalText(1000),
+  /**
+   * Annual turnover in whole rupees; sets the one-time registration fee (rule
+   * registrationFeeByTurnover). Required for a self-service registration while
+   * the rule is on — checked in POST below, so a request cannot skip it to pay
+   * the flat fee instead.
+   */
+  annualTurnoverRupees: z.number().int().min(0).max(MAX_ANNUAL_TURNOVER_RUPEES).nullish(),
+  /** A registration-fee coupon; the server prices it (services/registration-fee-coupons.ts). */
+  couponCode: z.string().trim().max(40).nullish(),
 
   /*
    * Business identifiers (GST included) — at least one is required (refinement below) so
@@ -146,6 +158,11 @@ export const POST = route(async (request: NextRequest) => {
   const privileged = can(user.role, PERMISSIONS.SHOP_REGISTRATION_MANAGE);
   // Referral code (docs/four-features-2026-10): with rule shopReferral.required a
   // self-service registration needs a valid code — checked before anything is saved.
+  if (!privileged && body.annualTurnoverRupees == null && (await getRule("registrationFeeByTurnover")).enabled) {
+    throw validationFailed("Please check the highlighted fields.", {
+      fields: { annualTurnover: "Enter your annual turnover — it sets the registration fee." },
+    });
+  }
   const referralCode = privileged ? null : await assertRegistrationReferralCode(body.referralCode);
   const result = await registerShop(body, user, { privileged });
   if (referralCode) await attributeRegistrationReferral(result, referralCode, user);

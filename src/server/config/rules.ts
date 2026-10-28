@@ -683,6 +683,33 @@ export const RULES = {
     }),
     defaults: { enabled: false, holdHours: 24, maxPendingPerMobile: 3, classification: "GREEN" },
   },
+  registrationFeeByTurnover: {
+    description:
+      "One-time shop registration fee on Add my shop (/shop/register), by the annual turnover the owner declares, in three slabs (src/lib/registration-fee.ts): turnover up to slab1UpToRupees pays slab1FeePaise; up to slab2UpToRupees pays slab2FeePaise; above it pays slab3FeePaise. Fees are before GST (added at the PLATFORM_FEE_GST rate). enabled: off → the flat registration fee schedule (Admin → Registration fee) applies instead. Each shop keeps the fee it registered with; a change here never alters it.",
+    schema: z
+      .object({
+        enabled: z.boolean(),
+        slab1UpToRupees: int(1, 1_000_000_000_000),
+        slab2UpToRupees: int(1, 1_000_000_000_000),
+        slab1FeePaise: int(0, 100_000_000),
+        slab2FeePaise: int(0, 100_000_000),
+        slab3FeePaise: int(0, 100_000_000),
+      })
+      .refine((v) => v.slab2UpToRupees > v.slab1UpToRupees, {
+        message: "Slab 2's limit must be above slab 1's.",
+        path: ["slab2UpToRupees"],
+      }),
+    // Owner, 28 Oct 2026: on — up to ₹2 crore, up to ₹10 crore, above ₹10 crore.
+    // The fees are starting values; the admin sets them in Admin → Registration fees.
+    defaults: {
+      enabled: true,
+      slab1UpToRupees: 2_00_00_000,
+      slab2UpToRupees: 10_00_00_000,
+      slab1FeePaise: 99_900,
+      slab2FeePaise: 4_99_900,
+      slab3FeePaise: 9_99_900,
+    },
+  },
   shopProductMedia: {
     description:
       "Shop product photos and descriptions (Module 1): photos per shop listing, upload size, the three WebP sizes made from every photo, description lengths, and bulk ZIP/CSV limits. The first photo of a listing is its main photo; a listing with none shows the master product's photos.",

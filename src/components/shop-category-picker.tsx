@@ -8,7 +8,12 @@ export interface PickerCategory {
   id: string;
   name: string;
   status?: string;
+  /** Heading the category is listed under; null/absent → "Shops and stores". */
+  groupName?: string | null;
 }
+
+const DEFAULT_GROUP = "Shops and stores";
+const groupOf = (c: PickerCategory) => c.groupName?.trim() || DEFAULT_GROUP;
 
 /**
  * Searchable multi-select for shop categories.
@@ -16,24 +21,35 @@ export interface PickerCategory {
  * - shows how many are selected and a clear message when none are
  * - categories a shop already has but that were since retired stay visible so
  *   they can be kept or removed (they cannot be newly added)
+ * - listed under their group's heading (shops and stores, finance and legal,
+ *   medical, consulting …); `firstGroups` lists the groups that fit the chosen
+ *   shop type first
+ * - `initialCategories` from the server page skips the request after load
  */
 export function ShopCategoryPicker({
   value,
   onChange,
   error,
   retained = [],
+  initialCategories,
+  firstGroups = [],
 }: {
   value: string[];
   onChange: (ids: string[]) => void;
   error?: string | null;
   /** The shop's current categories — lets inactive ones remain listed. */
   retained?: PickerCategory[];
+  /** The active category list, read by the server page alongside its own data. */
+  initialCategories?: PickerCategory[];
+  /** Group headings to list before the others (e.g. the medical groups for a clinic). */
+  firstGroups?: readonly string[];
 }) {
-  const [all, setAll] = useState<PickerCategory[] | null>(null);
+  const [all, setAll] = useState<PickerCategory[] | null>(initialCategories ?? null);
   const [loadError, setLoadError] = useState(false);
   const [query, setQuery] = useState("");
 
   useEffect(() => {
+    if (initialCategories) return;
     let cancelled = false;
     fetch("/api/shop-categories")
       .then((r) => (r.ok ? r.json() : Promise.reject()))
@@ -42,7 +58,7 @@ export function ShopCategoryPicker({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [initialCategories]);
 
   const options = useMemo(() => {
     const byId = new Map<string, PickerCategory>();
@@ -52,6 +68,15 @@ export function ShopCategoryPicker({
   }, [all, retained]);
 
   const shown = options.filter((c) => c.name.toLowerCase().includes(query.trim().toLowerCase()));
+  const groups = (() => {
+    const byGroup = new Map<string, PickerCategory[]>();
+    for (const c of shown) byGroup.set(groupOf(c), [...(byGroup.get(groupOf(c)) ?? []), c]);
+    const rank = (g: string) => {
+      const first = firstGroups.indexOf(g);
+      return first >= 0 ? first : g === DEFAULT_GROUP ? firstGroups.length : firstGroups.length + 1;
+    };
+    return [...byGroup.entries()].sort(([a], [b]) => rank(a) - rank(b) || a.localeCompare(b));
+  })();
   const selected = new Set(value);
   const selectable = shown.filter((c) => c.status !== "INACTIVE" || selected.has(c.id));
 
@@ -90,29 +115,36 @@ export function ShopCategoryPicker({
         {all === null && !loadError ? <p className="p-2 text-sm text-ink-500">Loading categories…</p> : null}
         {loadError ? <p className="p-2 text-sm text-red-700">Could not load categories. Refresh and try again.</p> : null}
         {all !== null && shown.length === 0 ? <p className="p-2 text-sm text-ink-500">No category matches “{query}”.</p> : null}
-        <div className="grid gap-x-4 sm:grid-cols-2">
-          {shown.map((c) => {
-            const retired = c.status === "INACTIVE";
-            return (
-              <label
-                key={c.id}
-                className={`flex items-center gap-2 rounded px-2 py-1.5 text-sm ${retired && !selected.has(c.id) ? "text-ink-500" : "text-ink-800 hover:bg-cream-50"}`}
-              >
-                <input
-                  type="checkbox"
-                  checked={selected.has(c.id)}
-                  disabled={retired && !selected.has(c.id)}
-                  onChange={() => toggle(c.id)}
-                  className="h-4 w-4 accent-kesari-600"
-                />
-                <span>
-                  {c.name}
-                  {retired ? <span className="ml-1 text-xs text-ink-500">(retired)</span> : null}
-                </span>
-              </label>
-            );
-          })}
-        </div>
+        {groups.map(([group, items]) => (
+          <div key={group} className="mb-2 last:mb-0">
+            {groups.length > 1 ? (
+              <p className="px-2 pb-1 pt-2 text-xs font-semibold uppercase tracking-wide text-ink-500">{group}</p>
+            ) : null}
+            <div className="grid gap-x-4 sm:grid-cols-2">
+              {items.map((c) => {
+                const retired = c.status === "INACTIVE";
+                return (
+                  <label
+                    key={c.id}
+                    className={`flex items-center gap-2 rounded px-2 py-1.5 text-sm ${retired && !selected.has(c.id) ? "text-ink-500" : "text-ink-800 hover:bg-cream-50"}`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selected.has(c.id)}
+                      disabled={retired && !selected.has(c.id)}
+                      onChange={() => toggle(c.id)}
+                      className="h-4 w-4 accent-kesari-600"
+                    />
+                    <span>
+                      {c.name}
+                      {retired ? <span className="ml-1 text-xs text-ink-500">(retired)</span> : null}
+                    </span>
+                  </label>
+                );
+              })}
+            </div>
+          </div>
+        ))}
       </div>
 
       <p className="text-xs text-ink-500" aria-live="polite" data-testid="category-count">

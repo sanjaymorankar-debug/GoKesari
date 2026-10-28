@@ -867,6 +867,25 @@ export const shops = pgTable(
     registrationFeePaise: bigint("registration_fee_paise", { mode: "number" }),
     /** Which fee row was in force at registration — provenance for the snapshot. */
     registrationFeeId: uuid("registration_fee_id"),
+    /**
+     * Annual turnover the owner declared on Add my shop, in whole rupees. The
+     * registration fee above was set from it (rule registrationFeeByTurnover,
+     * src/lib/registration-fee.ts). Null for shops registered before it was asked.
+     */
+    annualTurnoverRupees: bigint("annual_turnover_rupees", { mode: "number" }),
+    /**
+     * How registrationFeePaise was made up (owner, 27 Oct 2026): the base fee,
+     * less a registration-fee coupon, plus GST at the rate in force (Admin →
+     * Statutory, PLATFORM_FEE_GST) — registrationFeePaise is the total payable.
+     * Null for shops registered before the breakdown was kept.
+     */
+    registrationFeeBasePaise: bigint("registration_fee_base_paise", { mode: "number" }),
+    registrationFeeDiscountPaise: bigint("registration_fee_discount_paise", { mode: "number" }),
+    registrationFeeGstPaise: bigint("registration_fee_gst_paise", { mode: "number" }),
+    registrationFeeGstRateBp: integer("registration_fee_gst_rate_bp"),
+    /** The registration-fee coupon applied, if any (registration_fee_coupons). */
+    registrationFeeCouponId: uuid("registration_fee_coupon_id"),
+    registrationFeeCouponCode: text("registration_fee_coupon_code"),
     referralCodeId: uuid("referral_code_id"),
     /**
      * Module 3 (docs/three-modules-2026-10): how the shop came in. SELF_SERVICE
@@ -1055,6 +1074,8 @@ export const shopCategories = pgTable(
     name: text("name").notNull(),
     slug: text("slug").notNull(),
     description: text("description"),
+    /** Heading the category is listed under in the picker ("Medical — doctors and clinics"); null → "Other". */
+    groupName: text("group_name"),
     status: text("status", { enum: ["ACTIVE", "INACTIVE"] }).notNull().default("ACTIVE"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
@@ -3781,6 +3802,45 @@ export const registrationFeeHistory = pgTable(
   },
   (t) => [index("registration_fee_history_created_idx").on(t.createdAt)],
 );
+
+/**
+ * Coupon codes that reduce the one-time registration fee on Add my shop (owner,
+ * 27 Oct 2026). Admin only. GST is charged on the fee after the discount. A use
+ * is a shop registered with the code (shops.registration_fee_coupon_id).
+ */
+export const registrationFeeCoupons = pgTable(
+  "registration_fee_coupons",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** Stored upper-case; matched case-insensitively. */
+    code: text("code").notNull(),
+    description: text("description"),
+    discountType: text("discount_type", { enum: ["FLAT", "PERCENT"] }).notNull(),
+    /** FLAT: paise off the base fee. */
+    flatPaise: bigint("flat_paise", { mode: "number" }),
+    /** PERCENT: whole percent off the base fee (1–100), optionally capped. */
+    percent: integer("percent"),
+    maxDiscountPaise: bigint("max_discount_paise", { mode: "number" }),
+    startsAt: timestamp("starts_at", { withTimezone: true }),
+    expiresAt: timestamp("expires_at", { withTimezone: true }),
+    /** Shops that may register with it in all (null = unlimited). */
+    usageLimit: integer("usage_limit"),
+    /** Shops one owner may register with it (null = unlimited). */
+    perOwnerLimit: integer("per_owner_limit").default(1),
+    active: boolean("active").notNull().default(true),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("registration_fee_coupons_code_uq").on(t.code),
+    check(
+      "registration_fee_coupons_amount_valid",
+      sql`(${t.discountType} = 'FLAT' AND ${t.flatPaise} > 0) OR (${t.discountType} = 'PERCENT' AND ${t.percent} BETWEEN 1 AND 100)`,
+    ),
+  ],
+);
+export type RegistrationFeeCoupon = typeof registrationFeeCoupons.$inferSelect;
 
 /* -------------------------------------------------------- referral codes */
 

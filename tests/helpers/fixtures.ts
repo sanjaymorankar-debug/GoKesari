@@ -76,6 +76,7 @@ const RESET_TABLES = [
   "shop_payments",
   "referral_redemptions",
   "referral_codes",
+  "registration_fee_coupons",
   "registration_fee_history",
   "registration_fees",
   "voucher_redemptions",

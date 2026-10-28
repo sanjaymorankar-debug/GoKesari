@@ -134,7 +134,8 @@ beforeEach(async () => {
   await db.execute(sql`TRUNCATE TABLE shop_onboarding_sessions`);
   const [cat] = await db.insert(shopCategories).values({ name: `Dairy WSD ${uniq()}`, slug: `dairy-wsd-${uniq()}` }).returning();
   categoryId = cat.id;
-  // The registration fee in force (₹5,000), as an admin sets it.
+  // The registration fee in force (₹5,000), as an admin sets it. Shops are
+  // charged it plus 18% GST: ₹5,900 (owner, 27 Oct 2026).
   const feeAdmin = await createUser({ role: "ADMIN", email: `fee-admin-${uniq()}@test.local` });
   await setRegistrationFee({ amountPaise: 500_000 }, { id: feeAdmin.id, role: "ADMIN" });
 });
@@ -284,7 +285,7 @@ describe("Operator-Limited role (F8.4.2)", () => {
     expect(fee.status).toBe(201);
     expect(fee.body.linkUrl).toMatch(/^https:\/\/pay\.example\.test\/l\//);
     expect(state.created).toHaveLength(1);
-    expect(state.created[0]).toMatchObject({ purpose: "SHOP_REGISTRATION_FEE", referenceId: shopId, userId: ownerUserId, mode: "LINK", amountPaise: 500000 });
+    expect(state.created[0]).toMatchObject({ purpose: "SHOP_REGISTRATION_FEE", referenceId: shopId, userId: ownerUserId, mode: "LINK", amountPaise: 590000 });
     const again = await call(feePost, `/api/operator/onboarding/${sessionId}/fee`, { method: "POST", body: { mode: "LINK" }, params: { id: sessionId } });
     expect(again.body.linkUrl).toBe(fee.body.linkUrl);
     expect(state.created).toHaveLength(1);
@@ -303,7 +304,7 @@ describe("Operator-Limited role (F8.4.2)", () => {
     const fee = await call(feePost, `/api/operator/onboarding/${sessionId}/fee`, { method: "POST", body: { mode: "CHECKOUT" }, params: { id: sessionId } });
     expect(fee.body.checkoutUrl).toMatch(/\/c\//);
     const intentId = [...state.intents.keys()][0];
-    const intent = { id: intentId, purpose: "SHOP_REGISTRATION_FEE" as const, referenceId: shopId, userId: ownerUserId, amountPaise: 500000, refundedPaise: 0, status: "CAPTURED" as const, gateway: "SANDBOX" as const, gatewayOrderId: "go_1", gatewayPaymentId: "pay_1" };
+    const intent = { id: intentId, purpose: "SHOP_REGISTRATION_FEE" as const, referenceId: shopId, userId: ownerUserId, amountPaise: 590000, refundedPaise: 0, status: "CAPTURED" as const, gateway: "SANDBOX" as const, gatewayOrderId: "go_1", gatewayPaymentId: "pay_1" };
     const handler = CAPTURED_HANDLERS.SHOP_REGISTRATION_FEE!;
     await db.transaction(async (tx) => handler(intent, tx));
     await db.transaction(async (tx) => handler(intent, tx)); // replayed webhook
@@ -328,7 +329,7 @@ describe("Operator-Limited role (F8.4.2)", () => {
     await call(feePost, `/api/operator/onboarding/${sessionId}/fee`, { method: "POST", body: { mode: "LINK" }, params: { id: sessionId } });
     const intentId = [...state.intents.keys()][0];
     await db.transaction((tx) =>
-      CAPTURED_HANDLERS.SHOP_REGISTRATION_FEE!({ id: intentId, purpose: "SHOP_REGISTRATION_FEE", referenceId: shopId, userId: ownerUserId, amountPaise: 500000, refundedPaise: 0, status: "CAPTURED", gateway: "SANDBOX", gatewayOrderId: null, gatewayPaymentId: "pay_2" }, tx),
+      CAPTURED_HANDLERS.SHOP_REGISTRATION_FEE!({ id: intentId, purpose: "SHOP_REGISTRATION_FEE", referenceId: shopId, userId: ownerUserId, amountPaise: 590000, refundedPaise: 0, status: "CAPTURED", gateway: "SANDBOX", gatewayOrderId: null, gatewayPaymentId: "pay_2" }, tx),
     );
     expect((await finishFeeCapture(shopId, intentId)).approved).toBe(false);
     const [shop] = await db.select().from(shops).where(eq(shops.id, shopId));

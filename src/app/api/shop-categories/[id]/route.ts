@@ -1,7 +1,7 @@
 /**
  * One shop category (operator / admin).
  *   GET    the shops using it
- *   PATCH { name?, description?, status? }  rename, describe, activate / deactivate
+ *   PATCH { name?, description?, groupName?, status? }  rename, describe, regroup, activate / deactivate
  */
 import type { NextRequest } from "next/server";
 import { z } from "zod";
@@ -21,6 +21,7 @@ export const GET = route(async (_request: NextRequest, context: RouteContext<{ i
 const schema = z.object({
   name: z.string().min(2).max(80).optional(),
   description: z.string().max(300).nullish(),
+  groupName: z.string().max(60).nullish(),
   status: z.enum(["ACTIVE", "INACTIVE"]).optional(),
 });
 

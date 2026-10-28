@@ -86,6 +86,7 @@ function shopBody(extra: Record<string, unknown> = {}) {
     city: "Pune",
     pincode: "411004",
     shopType: "DAIRY",
+    annualTurnoverRupees: 1_500_000,
     categoryIds,
     shopActNumber: `PII/KOTHRUD/II/${10000 + shopActCounter}`,
     ...extra,
@@ -132,6 +133,7 @@ describe("referral code on shop registration", () => {
     const owner = await createUser();
     signIn(owner, "CUSTOMER");
     expect((await register(shopBody({ referralCode: "two-shops" }))).status).toBe(201);
+    signIn(await createUser(), "CUSTOMER"); // one registration under review per owner
     expect((await register(shopBody({ referralCode: "TWO-SHOPS" }))).status).toBe(201);
     const counts = Object.fromEntries((await listReferralCodes()).map((c) => [c.code, c.shopCount]));
     expect(counts).toMatchObject({ "TWO-SHOPS": 2, "NO-SHOPS": 0 });

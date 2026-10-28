@@ -243,6 +243,7 @@ describe("the shop owner's action responses", () => {
         city: "Pune",
         pincode: "411004",
         shopType: "DAIRY",
+        annualTurnoverRupees: 1_500_000,
         categoryIds: [category.id],
         panNumber: PAN,
         panHolderName: "Ramesh Patil",

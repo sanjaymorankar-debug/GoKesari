@@ -120,6 +120,7 @@ export const AUDIT_ACTIONS = {
 
   /* ------------------------------------------ registration, fees, referrals */
   REGISTRATION_FEE_CHANGED: "registration_fee.changed",
+  REGISTRATION_FEE_COUPON_SAVED: "registration_fee_coupon.saved",
   SHOP_REGISTRATION_UPDATED: "shop.registration_updated",
   SHOP_PAYMENT_RECORDED: "shop_payment.recorded",
   SHOP_PAYMENT_REVERSED: "shop_payment.reversed",
