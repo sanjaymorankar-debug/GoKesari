@@ -374,6 +374,16 @@ export const AUDIT_ACTIONS = {
   DEALER_LEAD_SAVED: "dealer.lead_saved", // docs/dealer-programme
   DEALER_ASSISTED_STEP: "dealer.assisted_registration", // docs/dealer-programme
   DEALER_DISPUTE_SAVED: "dealer.dispute_saved", // docs/dealer-programme
+  DEALER_COMMISSION_SETTINGS_CHANGED: "dealer.commission_settings_changed", // docs/dealer-programme
+  DEALER_COMMISSION_RULE_CHANGED: "dealer.commission_rule_changed", // docs/dealer-programme
+  DEALER_COMMISSION_ACCRUED: "dealer.commission_accrued", // docs/dealer-programme
+  DEALER_COMMISSION_REVERSED: "dealer.commission_reversed", // docs/dealer-programme
+  DEALER_COMMISSION_APPROVED: "dealer.commission_approved", // docs/dealer-programme
+  DEALER_COMMISSION_CAP_OVERRIDE: "dealer.commission_cap_override", // docs/dealer-programme
+  DEALER_COMMISSION_HOLD: "dealer.commission_hold", // docs/dealer-programme
+  DEALER_PAYOUT_SAVED: "dealer.payout_saved", // docs/dealer-programme
+  DEALER_RATING_SLAB_CHANGED: "dealer.rating_slab_changed", // docs/dealer-programme
+  DEALER_RATING_CHANGED: "dealer.rating_changed", // docs/dealer-programme
   DELIVERY_OFFER_BROADCAST: "delivery_order.offer_broadcast", // batch-2026-10 WS-B
   DELIVERY_BROADCAST_ACCEPTED: "delivery_order.broadcast_accepted", // batch-2026-10 WS-B
   DELIVERY_BROADCAST_CLOSED: "delivery_order.broadcast_closed", // batch-2026-10 WS-B

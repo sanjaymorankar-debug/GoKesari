@@ -59,6 +59,7 @@ import { grantRole, revokeRole } from "@/server/services/roles";
 import { getRule } from "@/server/services/settings";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { activeCodeFor, dealerCodeFor, issueCode, listDealerCodes, replaceCode, salespersonCode, setCodesStatus } from "./codes";
+import { holdDealerCommission } from "./commission";
 
 export interface DealerActor {
   id: string;
@@ -857,6 +858,9 @@ export async function decideDealer(dealerId: string, decision: DealerDecision, a
     // "does not hold this role" (never signed in as a dealer) is fine.
     await revokeRole(userId, "DEALER", { id: actor.id, role: actor.role }).catch(() => undefined);
   }
+  // Commission (step 5): a suspended or terminated dealer's open entries wait for an admin; reactivation releases them.
+  if (decision.action === "SUSPEND" || decision.action === "TERMINATE") await holdDealerCommission(dealerId, true, actor);
+  if (decision.action === "REACTIVATE") await holdDealerCommission(dealerId, false, actor);
   return result;
 }
 

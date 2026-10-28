@@ -9538,6 +9538,12 @@ export const dealers = pgTable(
     isInternal: boolean("is_internal").notNull().default(false),
     legacyDistributorId: uuid("legacy_distributor_id").references(() => distributors.id, { onDelete: "set null" }),
     source: text("source", { enum: ["APPLICATION", "LEGACY_MIGRATION", "ADMIN"] }).notNull().default("APPLICATION"),
+    /** 0107: onboarding rating (0–10, steps of 0.5). start_rating is the floor an admin may set; rating_override a manual downgrade until the next slab. */
+    startRating: numeric("start_rating", { precision: 3, scale: 1, mode: "number" }).notNull().default(5),
+    rating: numeric("rating", { precision: 3, scale: 1, mode: "number" }).notNull().default(5),
+    ratingOverride: numeric("rating_override", { precision: 3, scale: 1, mode: "number" }),
+    ratingOverrideUntilShops: integer("rating_override_until_shops"),
+    activatedShops: integer("activated_shops").notNull().default(0),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -9721,6 +9727,8 @@ export const shopAttributions = pgTable(
     matchReasons: text("match_reasons").array().notNull().default(sql`'{}'::text[]`),
     status: text("status", { enum: ["ACTIVE", "REVERSED"] }).notNull().default("ACTIVE"),
     note: text("note"),
+    /** 0107: when the shop reached the ACTIVATED milestone (counted for the dealer's rating). */
+    activatedAt: timestamp("activated_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -9814,5 +9822,149 @@ export const shopAutoApprovalLog = pgTable(
   ],
 );
 export type ShopAutoApprovalLog = typeof shopAutoApprovalLog.$inferSelect;
+
+export const COMMISSION_MILESTONES = ["REGISTERED", "VERIFIED_CATALOGUE", "ACTIVATED"] as const;
+export type CommissionMilestone = (typeof COMMISSION_MILESTONES)[number];
+export const COMMISSION_STATUSES = ["EARNED", "PENDING", "APPROVED", "PAID", "REVERSED", "ON_HOLD"] as const;
+export type CommissionStatus = (typeof COMMISSION_STATUSES)[number];
+
+/** Commission rules (0107): versioned — an edit adds a new version; accruals keep the version they were earned under. ADMIN only. */
+export const dealerCommissionRules = pgTable(
+  "dealer_commission_rules",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ruleKey: uuid("rule_key").notNull(),
+    version: integer("version").notNull(),
+    shopScope: text("shop_scope", { enum: ["STANDARD", "WHOLESALE", "ALL"] }).notNull().default("STANDARD"),
+    /** geo_areas DISTRICT code; NULL = every district. */
+    districtCode: text("district_code"),
+    milestone: text("milestone", { enum: COMMISSION_MILESTONES }).notNull(),
+    fixedPaise: integer("fixed_paise").notNull().default(0),
+    /** Basis points of the registration fee actually paid (before GST). */
+    percentBp: integer("percent_bp").notNull().default(0),
+    effectiveFrom: date("effective_from").notNull(),
+    effectiveTo: date("effective_to"),
+    status: text("status", { enum: ["ACTIVE", "SUPERSEDED", "DISABLED"] }).notNull().default("ACTIVE"),
+    changeReason: text("change_reason").notNull(),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("dealer_commission_rules_version_unique").on(t.ruleKey, t.version),
+    index("dealer_commission_rules_lookup_idx").on(t.milestone, t.status),
+  ],
+);
+export type DealerCommissionRule = typeof dealerCommissionRules.$inferSelect;
+
+/** One row: the per-shop cap, how a fixed rule's bonus is figured, the catalogue size, branch eligibility. ADMIN only. */
+export const dealerCommissionSettings = pgTable("dealer_commission_settings", {
+  id: text("id").primaryKey().default("default"),
+  capPaise: integer("cap_paise").notNull().default(99900),
+  fixedBonusBase: text("fixed_bonus_base", { enum: ["FEE", "BASE_AMOUNT"] }).notNull().default("FEE"),
+  catalogueMinProducts: integer("catalogue_min_products").notNull().default(10),
+  branchEligible: boolean("branch_eligible").notNull().default(false),
+  updatedBy: uuid("updated_by"),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type DealerCommissionSettings = typeof dealerCommissionSettings.$inferSelect;
+
+/** Rating slabs (0107): cumulative activated shops → rating. ADMIN only. */
+export const dealerRatingSlabs = pgTable(
+  "dealer_rating_slabs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    minShops: integer("min_shops").notNull(),
+    rating: numeric("rating", { precision: 3, scale: 1, mode: "number" }).notNull(),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("dealer_rating_slabs_min_unique").on(t.minShops)],
+);
+export type DealerRatingSlab = typeof dealerRatingSlabs.$inferSelect;
+
+export const dealerRatingHistory = pgTable(
+  "dealer_rating_history",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "cascade" }),
+    oldRating: numeric("old_rating", { precision: 3, scale: 1, mode: "number" }).notNull(),
+    newRating: numeric("new_rating", { precision: 3, scale: 1, mode: "number" }).notNull(),
+    kind: text("kind", { enum: ["AUTO", "START", "MANUAL"] }).notNull(),
+    activatedShops: integer("activated_shops").notNull(),
+    reason: text("reason").notNull(),
+    changedBy: uuid("changed_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("dealer_rating_history_dealer_idx").on(t.dealerId, t.createdAt)],
+);
+export type DealerRatingHistory = typeof dealerRatingHistory.$inferSelect;
+
+/** A payout to one dealer (0107): the bank transfer is made outside GoKesari; its reference is recorded here. */
+export const dealerPayoutBatches = pgTable(
+  "dealer_payout_batches",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "restrict" }),
+    status: text("status", { enum: ["DRAFT", "PAID", "CANCELLED"] }).notNull().default("DRAFT"),
+    totalPaise: integer("total_paise").notNull(),
+    paymentReference: text("payment_reference"),
+    note: text("note"),
+    createdBy: uuid("created_by").notNull(),
+    paidBy: uuid("paid_by"),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("dealer_payout_batches_dealer_idx").on(t.dealerId, t.createdAt)],
+);
+export type DealerPayoutBatch = typeof dealerPayoutBatches.$inferSelect;
+
+/** The commission ledger (0107): accruals per milestone, reversals (negative) and adjustments. */
+export const dealerCommissionLedger = pgTable(
+  "dealer_commission_ledger",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    dealerId: uuid("dealer_id")
+      .notNull()
+      .references(() => dealers.id, { onDelete: "restrict" }),
+    salespersonId: uuid("salesperson_id").references(() => dealerSalespeople.id, { onDelete: "set null" }),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "restrict" }),
+    milestone: text("milestone", { enum: COMMISSION_MILESTONES }).notNull(),
+    kind: text("kind", { enum: ["ACCRUAL", "REVERSAL", "ADJUSTMENT"] }).notNull().default("ACCRUAL"),
+    ruleId: uuid("rule_id").references(() => dealerCommissionRules.id, { onDelete: "restrict" }),
+    ruleVersion: integer("rule_version"),
+    feePaise: integer("fee_paise").notNull().default(0),
+    basePaise: integer("base_paise").notNull().default(0),
+    rating: numeric("rating", { precision: 3, scale: 1, mode: "number" }),
+    bonusBp: integer("bonus_bp").notNull().default(0),
+    bonusPaise: integer("bonus_paise").notNull().default(0),
+    amountPaise: integer("amount_paise").notNull(),
+    status: text("status", { enum: COMMISSION_STATUSES }).notNull().default("EARNED"),
+    /** ON_HOLD rows remember the status they were held from. */
+    heldFromStatus: text("held_from_status", { enum: COMMISSION_STATUSES }),
+    /** The part of a milestone above the per-shop cap: PENDING until an admin overrides. */
+    aboveCap: boolean("above_cap").notNull().default(false),
+    reversesId: uuid("reverses_id").references((): AnyPgColumn => dealerCommissionLedger.id, { onDelete: "restrict" }),
+    payoutBatchId: uuid("payout_batch_id").references(() => dealerPayoutBatches.id, { onDelete: "set null" }),
+    approvedBy: uuid("approved_by"),
+    approvedAt: timestamp("approved_at", { withTimezone: true }),
+    note: text("note"),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("dealer_commission_ledger_accrual_unique").on(t.shopId, t.milestone, t.aboveCap).where(sql`${t.kind} = 'ACCRUAL'`),
+    index("dealer_commission_ledger_dealer_idx").on(t.dealerId, t.status, t.createdAt),
+    index("dealer_commission_ledger_shop_idx").on(t.shopId),
+    index("dealer_commission_ledger_batch_idx").on(t.payoutBatchId).where(sql`${t.payoutBatchId} IS NOT NULL`),
+  ],
+);
+export type DealerCommissionEntry = typeof dealerCommissionLedger.$inferSelect;
 
 /* <<< end dealer programme */

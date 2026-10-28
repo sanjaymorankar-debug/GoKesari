@@ -65,6 +65,7 @@ import {
   type DuplicateMatchReason,
   type RegistrationCandidate,
 } from "./shop-duplicates";
+import { checkCommissionMilestonesSafely } from "@/server/dealers/commission";
 
 export interface RegisterShopInput {
   name: string;
@@ -762,6 +763,8 @@ export async function approveShop(
     body: `${approved.name} is now live on GoKesari.`,
     actionUrl: "/shop",
   });
+  // docs/dealer-programme: an approved shop is the ACTIVATED commission milestone.
+  await checkCommissionMilestonesSafely(shopId, actor);
   return approved;
 }
 
@@ -773,6 +776,14 @@ export async function approveShop(
  * changes nothing, when the rule is off or anything is still outstanding.
  */
 export async function autoApproveShopIfReady(shopId: string): Promise<boolean> {
+  // docs/dealer-programme (GKS-CM-001): called after a fee payment and a document check — milestones may be reached.
+  await checkCommissionMilestonesSafely(shopId);
+  const approvedNow = await autoApproveShopIfReadyInner(shopId);
+  if (approvedNow) await checkCommissionMilestonesSafely(shopId);
+  return approvedNow;
+}
+
+async function autoApproveShopIfReadyInner(shopId: string): Promise<boolean> {
   // docs/dealer-programme (GKS-SH-004): instant approval on government GST/PAN verification + online payment,
   // where that flag is on. When it cannot approve, the existing rule below decides exactly as before.
   if (await approveOnGovVerification(shopId)) return true;

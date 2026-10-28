@@ -5,6 +5,7 @@ import { z } from "zod";
 import { DealerAdminDetail } from "@/components/dealer/dealer-admin-detail";
 import { PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
+import { ratingView } from "@/server/dealers/commission";
 import { dealerAccountEmail, dealerView, getDealer, listSalespeople } from "@/server/dealers/service";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
 
@@ -26,7 +27,12 @@ export default async function AdminDealerPage({ params }: { params: Promise<{ id
   if (!id.success) notFound();
   const dealer = await getDealer(id.data).catch(() => null);
   if (!dealer) notFound();
-  const [view, email, employees] = await Promise.all([dealerView(dealer), dealerAccountEmail(dealer), listSalespeople(dealer.id)]);
+  const [view, email, employees, rating] = await Promise.all([
+    dealerView(dealer),
+    dealerAccountEmail(dealer),
+    listSalespeople(dealer.id),
+    dealer.status === "DRAFT" || dealer.status === "PENDING" || dealer.isInternal ? Promise.resolve(null) : ratingView(dealer.id),
+  ]);
 
   return (
     <div className="mx-auto max-w-4xl px-4 py-6">
@@ -39,6 +45,7 @@ export default async function AdminDealerPage({ params }: { params: Promise<{ id
         dealer={JSON.parse(JSON.stringify(view))}
         employees={JSON.parse(JSON.stringify(employees))}
         today={new Date().toISOString().slice(0, 10)}
+        rating={rating ? JSON.parse(JSON.stringify(rating)) : null}
       />
     </div>
   );

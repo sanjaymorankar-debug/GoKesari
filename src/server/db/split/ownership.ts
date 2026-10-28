@@ -309,6 +309,12 @@ export const TABLE_OWNERSHIP = {
   dealer_assisted_sessions: "seller",
   dealer_attribution_disputes: "seller",
   shop_auto_approval_log: "seller",
+  dealer_commission_rules: "seller",
+  dealer_commission_settings: "seller",
+  dealer_rating_slabs: "seller",
+  dealer_rating_history: "seller",
+  dealer_payout_batches: "seller",
+  dealer_commission_ledger: "seller",
   /* <<< end dealer programme */
   //
 } as const satisfies Record<string, DbOwner>;

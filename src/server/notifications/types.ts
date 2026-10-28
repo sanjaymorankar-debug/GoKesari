@@ -326,6 +326,10 @@ export const NOTIFICATION_TYPES = {
   DEALER_ASSISTED_SHOP_REGISTERED: "dealer.assisted_shop_registered",
   /** To the dealer: a shop counted for them was approved. */
   DEALER_SHOP_APPROVED: "dealer.shop_approved",
+  /** To the dealer: a payout was made, with the bank reference. */
+  DEALER_PAYOUT_PAID: "dealer.payout_paid",
+  /** To the dealer: an admin lowered the rating, with the reason. */
+  DEALER_RATING_CHANGED: "dealer.rating_changed",
   /** To the shop owner: approved instantly on GST/PAN verification + payment — ready for product upload (email). */
   SHOP_READY_FOR_PRODUCT_UPLOAD: "shop.ready_for_product_upload",
   /* <<< end dealer programme */

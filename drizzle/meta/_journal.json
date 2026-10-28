@@ -750,6 +750,13 @@
       "when": 1793074000000,
       "tag": "0106_shop_auto_approval_log",
       "breakpoints": true
+    },
+    {
+      "idx": 107,
+      "version": "7",
+      "when": 1793074100000,
+      "tag": "0107_dealer_commission",
+      "breakpoints": true
     }
   ]
 }

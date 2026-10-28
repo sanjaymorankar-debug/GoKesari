@@ -49,6 +49,7 @@ import { flagCoversDistrict, getFeatureFlag } from "@/server/services/feature-fl
 import { districtCodeForPincode } from "@/server/services/geo-areas";
 import { notify } from "@/server/services/notifications";
 import { getRule } from "@/server/services/settings";
+import { checkCommissionMilestonesSafely } from "./commission";
 
 interface Actor {
   id: string;
@@ -345,7 +346,10 @@ export async function recordShopAttribution(shopId: string, actor: Actor, option
 /** Never lets a dealer-attribution problem break a registration: logs and returns null. */
 export async function recordShopAttributionSafely(shopId: string, actor: Actor, options: AttributionOptions = {}): Promise<ShopAttribution | null> {
   try {
-    return await recordShopAttribution(shopId, actor, options);
+    const attribution = await recordShopAttribution(shopId, actor, options);
+    // A shop attributed after its fee was paid (or approval) has already reached milestones.
+    if (attribution) await checkCommissionMilestonesSafely(shopId, actor);
+    return attribution;
   } catch (error) {
     console.error("[dealers] could not record the shop's dealer attribution", shopId, error instanceof Error ? error.message : error);
     return null;

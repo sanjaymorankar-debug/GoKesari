@@ -63,7 +63,20 @@ const addYear = (iso: string) => {
  * document, reveal PAN or account number with a reason (audited), the
  * decision, replacing a code, and switching an employee off or on.
  */
-export function DealerAdminDetail({ isAdmin, dealer, employees, today }: { isAdmin: boolean; dealer: Dealer; employees: Employee[]; today: string }) {
+export function DealerAdminDetail({
+  isAdmin,
+  dealer,
+  employees,
+  today,
+  rating,
+}: {
+  isAdmin: boolean;
+  dealer: Dealer;
+  employees: Employee[];
+  today: string;
+  /** Step 5: the onboarding rating, when the dealer has been approved. */
+  rating?: { rating: number; startRating: number; activatedShops: number; bonusBp: number; override: { rating: number } | null; next: { minShops: number; rating: number } | null } | null;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -186,6 +199,37 @@ export function DealerAdminDetail({ isAdmin, dealer, employees, today }: { isAdm
           </div>
         </dl>
       </Card>
+
+      {rating ? (
+        <Card className="space-y-2 p-4" data-testid="dealer-admin-rating">
+          <h2 className="text-base font-bold text-ink-900">Onboarding rating</h2>
+          <p className="text-sm">
+            <span className="text-2xl font-bold">{rating.rating.toFixed(1)}</span> (+{(rating.bonusBp / 100).toFixed(1)}%) · {rating.activatedShops} activated shops · starting rating {rating.startRating.toFixed(1)}
+            {rating.override ? " · lowered by an admin" : ""}
+            {rating.next ? ` · next: ${rating.next.rating.toFixed(1)} at ${rating.next.minShops} shops` : ""}
+          </p>
+          {isAdmin ? (
+            <div className="flex flex-wrap gap-2">
+              {(["START", "DOWNGRADE"] as const).map((action) => (
+                <Button
+                  key={action}
+                  size="sm"
+                  variant="secondary"
+                  disabled={busy !== null}
+                  onClick={() => {
+                    const value = window.prompt(action === "START" ? "Starting rating for this dealer (e.g. 6.0):" : "Lower the rating to (e.g. 5.0):");
+                    if (!value) return;
+                    const why = window.prompt("Reason (kept in the audit log; a lowered rating is shown to the dealer):");
+                    if (why) void post(`/api/admin/dealers/${dealer.id}/rating`, { action, rating: Number(value), reason: why }, `rating-${action}`, "Rating updated.");
+                  }}
+                >
+                  {action === "START" ? "Set starting rating" : "Lower rating"}
+                </Button>
+              ))}
+            </div>
+          ) : null}
+        </Card>
+      ) : null}
 
       <Card className="space-y-2 p-4">
         <h2 className="text-base font-bold text-ink-900">Documents</h2>

@@ -3,7 +3,9 @@ import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
 import { DealerPortal } from "@/components/dealer/dealer-portal";
+import { DealerEarnings } from "@/components/dealer/dealer-earnings";
 import { DealerWork } from "@/components/dealer/dealer-work";
+import { applicableRates, commissionSummary, listLedger, ratingView } from "@/server/dealers/commission";
 import { Alert, Badge, LinkButton, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { activeCodeFor, codeQrSvg, shareLinkFor, whatsappShareFor } from "@/server/dealers/codes";
@@ -50,7 +52,7 @@ export default async function DealerPage() {
 
   const origin = originFromHeaders(await headers());
   const code = await activeCodeFor(dealer.id, null);
-  const [employees, shops, leads, claims, shopTypes, categories, feeRule] = await Promise.all([
+  const [employees, shops, leads, claims, shopTypes, categories, feeRule, rating, summary, rates, entries, bonusOn] = await Promise.all([
     listSalespeople(dealer.id),
     listDealerShops(dealer.id),
     listLeads(dealer.id),
@@ -58,6 +60,11 @@ export default async function DealerPage() {
     listShopTypes(),
     listShopCategories({ activeOnly: true, withShopCounts: false }).catch(() => []),
     getRule("registrationFeeByTurnover"),
+    ratingView(dealer.id),
+    commissionSummary(dealer.id),
+    applicableRates(),
+    listLedger({ dealerId: dealer.id }),
+    isFeatureEnabled("dealer_rating_bonus_enabled"),
   ]);
   // Dates become ISO strings for the client component.
   const iso = (rows: object[]) => JSON.parse(JSON.stringify(rows));
@@ -74,6 +81,7 @@ export default async function DealerPage() {
         code={code ? { code, shareLink: shareLinkFor(origin, code), whatsapp: whatsappShareFor(origin, code, dealer.legalName), qrSvg: await codeQrSvg(origin, code) } : null}
         employees={employees}
       />
+      <DealerEarnings rating={iso([rating])[0]} summary={summary} rates={rates} entries={iso(entries)} bonusOn={bonusOn} />
       <DealerWork
         employees={employees}
         shops={iso(shops)}

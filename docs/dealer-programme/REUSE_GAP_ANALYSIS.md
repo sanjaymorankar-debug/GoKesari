@@ -115,7 +115,7 @@ With `gov_verification_auto_approval_enabled` on, `autoApproveShopIfReady` appro
 
 ### 3.5 Commission and rating
 
-- Milestones: `REGISTERED` (shop created with attribution), `VERIFIED_CATALOGUE` (verification VERIFIED and ≥ N live products, N rule default 10), `ACTIVATED` (shop APPROVED, not paused, accepting orders). Pilot defaults ₹100 / ₹150 / ₹150 for standard shops; wholesale configured separately.
+- Milestones (as built 28 Oct): `REGISTERED` = attributed and the registration fee paid; `VERIFIED_CATALOGUE` = every mandatory seller document verified and at least N active products (N admin-set, default 10); `ACTIVATED` = the shop approved. Each accrues once per shop from the hooks (attribution, fee payment, document check, approval, product creation and import) — no cron. "Fee actually paid" = the fee before GST, after any coupon. Pilot defaults ₹100 / ₹150 / ₹150 for standard shops; wholesale configured separately.
 - Amount = fixed ₹ + % × fee actually paid. Rating bonus = (rating − 5.0) percentage points, added to the % for percentage rules; for fixed rules applied to the fee paid (or to the base amount — admin setting).
 - Each ledger row stores rule id + version, rating at accrual, milestone, dealer, salesperson, shop, approver. Cap per shop (default ₹999 = below the ₹1,000 fee) blocks accrual above it unless an admin override row exists.
 - Rating recount when a shop activates or a commission is reversed: count activated, non-duplicate, non-reversed shops; take the highest slab reached, but never below an admin-set start rating; admin manual downgrade overrides until the next slab is crossed (audited, visible to the dealer). Applies to accruals after the change only.
@@ -198,7 +198,7 @@ Answers: Q1 — distributor = dealer with its code; employees by optional Employ
 | 2 | GKS-DR-001…004 (dealers, documents, codes, employees), legacy migration — **done 28 Oct** (`/dealer/apply`, `/dealer`, `/admin/dealers`) | 0104 (seller) | staging |
 | 3 | GKS-SH-001…003, GKS-RA-001 (attribution, leads, dealer-assisted with owner code, duplicates, claims, `?ref=` link, optional Employee ID) — **done 28 Oct**; fee slabs stay by turnover (owner, 28 Oct) | 0105 (seller) | staging |
 | 4 | GKS-SH-004 auto-approval + e-mail — **done 28 Oct** (Admin → Shops → Instant approvals; see §3.4 note on Shop Act) | 0106 (seller) | staging |
-| 5 | GKS-CM-001…003 (rules, ledger, payouts, rating) | 0107 | staging |
+| 5 | GKS-CM-001…003 (rules, ledger, payouts, rating) — **done 28 Oct** (Admin → Dealers → Commission, rating & payouts; the dealer page shows rating and commission) | 0107 (seller) | staging |
 | 6 | GKS-DB-001 dealer board, admin screens | — | staging |
 | 7 | GKS-SP-001 support services | 0108 (core) | staging |
 | 8 | GKS-GEO-001, GKS-AN-001/002 (P1) | — | staging |
