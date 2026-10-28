@@ -26,8 +26,10 @@ import {
 import type { ShopTypeKey } from "@/lib/shop-types";
 import { db } from "@/server/db";
 import {
+  notifications,
   referralCodes,
   shopClassificationHistory,
+  shopDocumentWaivers,
   shops,
   users,
   type Classification,
@@ -46,7 +48,9 @@ import { applyShopCategories } from "./shop-categories";
 import { baseRegistrationFee, lockRegistrationFeeCoupon, registrationFeeGstRateBp } from "./registration-fee-coupons";
 import { assertShopType, isKnownShopType } from "./shop-types";
 import { getRule } from "./settings";
-import { missingMandatoryDocuments, onboardingApprovalBlocker } from "./shop-onboarding";
+import { getShopOnboarding, missingMandatoryDocuments, onboardingApprovalBlocker } from "./shop-onboarding";
+import { todayIn } from "@/lib/dates";
+import { getEnv } from "@/lib/env";
 import { decideGovAutoApproval, govAutoApprovalApplies, logGovDecision } from "./gov-auto-approval";
 import { sendReadyForProductUpload } from "./shop-ready-email";
 import { assertFssaiAllowsApproval } from "./document-uploads";
@@ -746,10 +750,12 @@ export async function approveShop(
   shopId: string,
   input: { classification: Classification },
   actor: { id: string; role: UserRole },
+  /** An admin approves without the seller documents (0109), with a written reason. */
+  options: { waiveDocuments?: { reason: string } } = {},
 ): Promise<Shop> {
   let approved: Shop;
   try {
-    approved = await approveShopTransaction(shopId, input, actor);
+    approved = await approveShopTransaction(shopId, input, actor, options.waiveDocuments);
   } catch (error) {
     if (isShopActUniqueViolation(error)) throw conflict(SHOP_ACT_TAKEN_MESSAGE);
     throw error;
@@ -766,6 +772,51 @@ export async function approveShop(
   // docs/dealer-programme: an approved shop is the ACTIVATED commission milestone.
   await checkCommissionMilestonesSafely(shopId, actor);
   return approved;
+}
+
+/**
+ * Operations nudge a pending shop's owner to upload the seller documents still
+ * missing (in-app, e-mail and SMS). At most once a day per shop: a second press
+ * the same day sends nothing and says so.
+ */
+export async function remindShopDocuments(
+  shopId: string,
+  actor: { id: string; role: UserRole },
+): Promise<{ sent: boolean; documents: string[] }> {
+  const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
+  if (!shop || shop.deletedAt) throw notFound("Shop");
+  if (shop.status !== "PENDING_APPROVAL") throw conflict("Only a shop waiting for approval can be reminded.");
+  const facts = (await getShopOnboarding([shopId])).get(shopId);
+  // Documents sent and waiting for a check are ours to review, not the owner's to send.
+  const documents = facts ? [...(facts.notUploadedDocuments ?? []), ...(facts.sendAgainDocuments ?? [])] : [];
+  if (documents.length === 0) throw conflict(`${shop.name} has nothing left to upload.`);
+
+  const dedupeKey = `shop-documents-reminder:${shopId}:${todayIn(getEnv().APP_TIMEZONE)}`;
+  const [already] = await db
+    .select({ id: notifications.id })
+    .from(notifications)
+    .where(eq(notifications.dedupeKey, dedupeKey))
+    .limit(1);
+  if (already) return { sent: false, documents };
+
+  await notify({
+    userId: shop.ownerId,
+    type: NOTIFICATION_TYPES.SHOP_DOCUMENTS_REMINDER,
+    vars: { shopName: shop.name, documents: documents.join(", ") },
+    actionUrl: "/shop/verification",
+    channels: ["SMS"],
+    dedupeKey,
+    metadata: { shopId, documents },
+  });
+  await recordAudit({
+    actorId: actor.id,
+    actorRole: actor.role,
+    action: AUDIT_ACTIONS.SHOP_DOCUMENTS_REMINDED,
+    entityType: "shop",
+    entityId: shopId,
+    newValue: { documents },
+  });
+  return { sent: true, documents };
 }
 
 /**
@@ -880,9 +931,11 @@ function approveShopTransaction(
   input: { classification: Classification },
   /** `id: null` — approved automatically (autoApproveShopIfReady). */
   actor: { id: string | null; role: UserRole | null },
+  /** An admin approves without the seller documents (0109), with a written reason. */
+  waiveDocuments?: { reason: string },
 ): Promise<Shop> {
   return db.transaction(async (tx) => {
-    const [shop] = await tx
+    let [shop] = await tx
       .select()
       .from(shops)
       .where(eq(shops.id, shopId))
@@ -894,6 +947,37 @@ function approveShopTransaction(
     }
     if (shop.status === "APPROVED") {
       throw conflict("This shop is already approved.");
+    }
+    if (waiveDocuments) {
+      if (actor.role !== "ADMIN" || !actor.id) throw forbidden("Only an admin can approve a shop without its documents.");
+      const missing = await missingMandatoryDocuments(shop, tx);
+      if (missing.length > 0) {
+        await tx.insert(shopDocumentWaivers).values({
+          shopId,
+          missingDocTypes: missing,
+          reason: waiveDocuments.reason,
+          waivedBy: actor.id,
+        });
+        // The waiver makes the shop KYC-complete: touch it so the trigger moves it out of
+        // KYC_PENDING first (only VERIFIED may go ACTIVE).
+        [shop] = await tx
+          .update(shops)
+          .set({ statusActorId: actor.id, updatedAt: new Date() })
+          .where(eq(shops.id, shopId))
+          .returning();
+        await recordAudit(
+          {
+            actorId: actor.id,
+            actorRole: actor.role,
+            action: AUDIT_ACTIONS.SHOP_APPROVED_WITHOUT_DOCUMENTS,
+            entityType: "shop",
+            entityId: shopId,
+            previousValue: { lifecycleStatus: "KYC_PENDING" },
+            newValue: { waivedDocuments: missing, reason: waiveDocuments.reason },
+          },
+          tx,
+        );
+      }
     }
     // SM-002: documents, then fee — the order of the onboarding stages.
     const blocker = await onboardingApprovalBlocker(shop, tx);

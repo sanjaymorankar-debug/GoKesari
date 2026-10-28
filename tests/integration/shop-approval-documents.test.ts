@@ -1,0 +1,177 @@
+/**
+ * Shop approval queue, documents: the queue tells "nothing uploaded" apart from
+ * "uploaded, waiting for review", operations can remind the owner to upload,
+ * and an admin can approve without the seller documents with a written reason
+ * (migration 0109, shop_document_waivers).
+ */
+import { and, eq } from "drizzle-orm";
+import { beforeEach, describe, expect, it } from "vitest";
+
+import { adminNextAction } from "@/lib/shop-onboarding";
+import { db } from "@/server/db";
+import {
+  auditLogs,
+  notifications,
+  platformSettings,
+  sellerVerifications,
+  shopDocumentWaivers,
+  shops,
+  statusChanges,
+} from "@/server/db/schema";
+import { upsertRow } from "@/server/db/split/upsert";
+import { getShopOnboarding } from "@/server/services/shop-onboarding";
+import { clearRuleCache } from "@/server/services/settings";
+import { approveShop, remindShopDocuments } from "@/server/services/shops";
+import { createShop, createUser, resetDatabase, verifySellerDocuments } from "../helpers/fixtures";
+
+const ADMIN = (id: string) => ({ id, role: "ADMIN" as const });
+const OPERATOR = (id: string) => ({ id, role: "OPERATOR" as const });
+
+beforeEach(async () => {
+  await resetDatabase();
+  await db.delete(platformSettings).where(eq(platformSettings.key, "statusModels"));
+  clearRuleCache();
+});
+
+/** A non-food shop waiting for approval with its fee settled. */
+async function pendingShop() {
+  const owner = await createUser({ role: "SHOP_OWNER" });
+  const shop = await createShop(owner.id, { status: "PENDING_APPROVAL", shopType: "HARDWARE_STORE", registrationFeePaise: 0 });
+  await db.update(shops).set({ feePaymentStatus: "PAID" }).where(eq(shops.id, shop.id));
+  return { owner, shop };
+}
+
+async function submit(shopId: string, docType: "PAN" | "GSTIN" | "SHOP_ACT", status: "PENDING" | "FAILED") {
+  await upsertRow(db, sellerVerifications, {
+    keys: [sellerVerifications.shopId, sellerVerifications.docType],
+    values: { shopId, docType, status },
+    set: { status },
+  });
+}
+
+describe("queue wording", () => {
+  it("says plainly when the owner has uploaded nothing", async () => {
+    const { shop } = await pendingShop();
+    const facts = (await getShopOnboarding([shop.id])).get(shop.id)!;
+    expect(facts.documentsUploaded).toBe(0);
+    expect(facts.notUploadedDocuments).toEqual(["PAN", "GST number (GSTIN)", expect.stringMatching(/Shop Act/)]);
+    expect(adminNextAction(facts).text).toMatch(/has not uploaded any documents yet.*remind the owner/);
+  });
+
+  it("splits what to review, what was not accepted and what is not uploaded", async () => {
+    const { shop } = await pendingShop();
+    await submit(shop.id, "PAN", "PENDING");
+    await submit(shop.id, "GSTIN", "FAILED");
+    const facts = (await getShopOnboarding([shop.id])).get(shop.id)!;
+    expect(facts.inReviewDocuments).toEqual(["PAN"]);
+    expect(facts.sendAgainDocuments).toEqual(["GST number (GSTIN)"]);
+    const text = adminNextAction(facts).text;
+    expect(text).toContain("To review: PAN.");
+    expect(text).toContain("Not accepted, owner must upload again: GST number (GSTIN).");
+    expect(text).toMatch(/Not uploaded yet: .*Shop Act/);
+  });
+});
+
+describe("remind owner to upload", () => {
+  it("notifies the owner once a day with what is missing, and audits it", async () => {
+    const { owner, shop } = await pendingShop();
+    const operator = await createUser({ role: "OPERATOR" });
+    await submit(shop.id, "PAN", "PENDING"); // being reviewed: not the owner's to send
+
+    const first = await remindShopDocuments(shop.id, OPERATOR(operator.id));
+    expect(first.sent).toBe(true);
+    expect(first.documents).not.toContain("PAN");
+    const sent = await db.select().from(notifications).where(eq(notifications.userId, owner.id));
+    expect(sent).toHaveLength(1);
+    expect(sent[0].body).toMatch(/GST number \(GSTIN\)/);
+    expect(sent[0].actionUrl).toBe("/shop/verification");
+
+    const second = await remindShopDocuments(shop.id, OPERATOR(operator.id));
+    expect(second.sent).toBe(false);
+    expect(await db.select().from(notifications).where(eq(notifications.userId, owner.id))).toHaveLength(1);
+
+    const audit = await db
+      .select()
+      .from(auditLogs)
+      .where(and(eq(auditLogs.entityId, shop.id), eq(auditLogs.action, "shop.documents_reminded")));
+    expect(audit).toHaveLength(1);
+  });
+
+  it("refuses when the owner has nothing left to upload", async () => {
+    const { shop } = await pendingShop();
+    const operator = await createUser({ role: "OPERATOR" });
+    await verifySellerDocuments(shop.id, ["PAN", "GSTIN", "SHOP_ACT"]);
+    await expect(remindShopDocuments(shop.id, OPERATOR(operator.id))).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+});
+
+describe("approve without documents", () => {
+  it("lets an admin approve a KYC_PENDING shop with a reason, and records the waiver", async () => {
+    const { shop } = await pendingShop();
+    const admin = await createUser({ role: "ADMIN" });
+    const reason = "Documents checked in person at the shop";
+
+    const approved = await approveShop(shop.id, { classification: "GREEN" }, ADMIN(admin.id), {
+      waiveDocuments: { reason },
+    });
+    expect(approved.status).toBe("APPROVED");
+    expect(approved.lifecycleStatus).toBe("ACTIVE");
+
+    const [waiver] = await db.select().from(shopDocumentWaivers).where(eq(shopDocumentWaivers.shopId, shop.id));
+    expect(waiver).toMatchObject({ reason, waivedBy: admin.id, missingDocTypes: ["PAN", "GSTIN", "SHOP_ACT"] });
+
+    const moves = await db
+      .select({ from: statusChanges.fromStatus, to: statusChanges.toStatus })
+      .from(statusChanges)
+      .where(eq(statusChanges.entityId, shop.id));
+    // Both moves happen in one transaction (same timestamp), so no order is asserted.
+    expect(moves).toEqual(
+      expect.arrayContaining([
+        { from: "KYC_PENDING", to: "VERIFIED" },
+        { from: "VERIFIED", to: "ACTIVE" },
+      ]),
+    );
+    const audit = await db
+      .select()
+      .from(auditLogs)
+      .where(and(eq(auditLogs.entityId, shop.id), eq(auditLogs.action, "shop.approved_without_documents")));
+    expect(audit).toHaveLength(1);
+  });
+
+  it("is refused to an operator, and changes nothing", async () => {
+    const { shop } = await pendingShop();
+    const operator = await createUser({ role: "OPERATOR" });
+    await expect(
+      approveShop(shop.id, { classification: "GREEN" }, OPERATOR(operator.id), {
+        waiveDocuments: { reason: "Operator should not be able to do this" },
+      }),
+    ).rejects.toMatchObject({ code: "FORBIDDEN" });
+    expect(await db.select().from(shopDocumentWaivers)).toHaveLength(0);
+    const [after] = await db.select().from(shops).where(eq(shops.id, shop.id));
+    expect(after.lifecycleStatus).toBe("KYC_PENDING");
+  });
+
+  it("still requires the registration fee, and leaves no waiver behind", async () => {
+    const owner = await createUser({ role: "SHOP_OWNER" });
+    const admin = await createUser({ role: "ADMIN" });
+    const shop = await createShop(owner.id, { status: "PENDING_APPROVAL", shopType: "HARDWARE_STORE", registrationFeePaise: 500_000 });
+    await expect(
+      approveShop(shop.id, { classification: "GREEN" }, ADMIN(admin.id), {
+        waiveDocuments: { reason: "Documents checked in person at the shop" },
+      }),
+    ).rejects.toMatchObject({ code: "CONFLICT", details: { feePaymentStatus: "PENDING" } });
+    expect(await db.select().from(shopDocumentWaivers)).toHaveLength(0);
+    const [after] = await db.select().from(shops).where(eq(shops.id, shop.id));
+    expect(after.status).toBe("PENDING_APPROVAL");
+    expect(after.lifecycleStatus).toBe("KYC_PENDING");
+  });
+
+  it("does not loosen the normal Approve for a shop without documents", async () => {
+    const { shop } = await pendingShop();
+    const admin = await createUser({ role: "ADMIN" });
+    await expect(approveShop(shop.id, { classification: "GREEN" }, ADMIN(admin.id))).rejects.toMatchObject({
+      code: "CONFLICT",
+      details: { lifecycleStatus: "KYC_PENDING" },
+    });
+  });
+});

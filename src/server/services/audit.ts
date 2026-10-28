@@ -14,6 +14,8 @@ export const AUDIT_ACTIONS = {
   SHOP_REGISTERED: "shop.registered",
   SHOP_APPROVED: "shop.approved",
   SHOP_REJECTED: "shop.rejected",
+  SHOP_APPROVED_WITHOUT_DOCUMENTS: "shop.approved_without_documents",
+  SHOP_DOCUMENTS_REMINDED: "shop.documents_reminded",
   SHOP_SUSPENDED: "shop.suspended",
   SHOP_REACTIVATED: "shop.reactivated",
   SHOP_CLOSED: "shop.closed", // D-69: the owner closed the shop permanently

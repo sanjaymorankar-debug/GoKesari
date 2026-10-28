@@ -124,6 +124,7 @@ export default async function AdminConsoleSectionPage({
             approvalGateOn={statusModelsRule.enforceTransitions}
             canApprove={can(user.role, PERMISSIONS.SHOP_APPROVE)}
             canClassify={can(user.role, PERMISSIONS.SHOP_SET_CLASSIFICATION)}
+            canWaiveDocuments={user.role === "ADMIN"}
           />
         </>
       );
@@ -635,6 +636,10 @@ function serialiseShop(shop: typeof shops.$inferSelect, onboarding?: ShopOnboard
     // SM-002: stage, missing documents and fee owed drive the badge and "Next".
     onboardingStage: onboarding?.stage ?? null,
     missingDocuments: onboarding?.missingDocuments ?? [],
+    notUploadedDocuments: onboarding?.notUploadedDocuments ?? [],
+    inReviewDocuments: onboarding?.inReviewDocuments ?? [],
+    sendAgainDocuments: onboarding?.sendAgainDocuments ?? [],
+    documentsUploaded: onboarding?.documentsUploaded ?? 0,
     feeOutstandingPaise: onboarding?.feeOutstandingPaise ?? 0,
   };
 }

@@ -41,6 +41,12 @@ export interface AdminShop {
   /** SM-002 stage while awaiting approval; null for shops past onboarding. */
   onboardingStage: ShopOnboardingStage | null;
   missingDocuments: string[];
+  /** Of missingDocuments: never uploaded / waiting for a check / must be sent again. */
+  notUploadedDocuments: string[];
+  inReviewDocuments: string[];
+  sendAgainDocuments: string[];
+  /** Seller documents the owner has sent so far, any status. */
+  documentsUploaded: number;
   feeOutstandingPaise: number;
 }
 
@@ -79,12 +85,15 @@ export function ShopApprovalPanel({
   approved,
   canApprove,
   canClassify,
+  canWaiveDocuments = false,
   approvalGateOn = true,
 }: {
   pending: AdminShop[];
   approved: AdminShop[];
   canApprove: boolean;
   canClassify: boolean;
+  /** Admin only: approve a shop without its seller documents, with a reason. */
+  canWaiveDocuments?: boolean;
   /** statusModels.enforceTransitions — when off, Approve is offered at any stage. */
   approvalGateOn?: boolean;
 }) {
@@ -122,7 +131,13 @@ export function ShopApprovalPanel({
         ) : (
           <div className="space-y-3">
             {shown.map((shop) => (
-              <PendingShopRow key={shop.id} shop={shop} canApprove={canApprove} approvalGateOn={approvalGateOn} />
+              <PendingShopRow
+                key={shop.id}
+                shop={shop}
+                canApprove={canApprove}
+                canWaiveDocuments={canWaiveDocuments}
+                approvalGateOn={approvalGateOn}
+              />
             ))}
           </div>
         )}
@@ -153,17 +168,24 @@ export function ShopApprovalPanel({
 function PendingShopRow({
   shop,
   canApprove,
+  canWaiveDocuments,
   approvalGateOn,
 }: {
   shop: AdminShop;
   canApprove: boolean;
+  canWaiveDocuments: boolean;
   approvalGateOn: boolean;
 }) {
   const stage = shop.onboardingStage;
-  const next = stage
-    ? adminNextAction({ stage, missingDocuments: shop.missingDocuments, feeOutstandingPaise: shop.feeOutstandingPaise })
-    : null;
+  const next = stage ? adminNextAction({ stage, ...shop }) : null;
   const approveBlocked = approvalGateOn && stage !== "VERIFIED";
+  const nothingUploaded = stage === "KYC_PENDING" && shop.documentsUploaded === 0;
+  // Only what the owner has to send: documents waiting for our check are not theirs to chase.
+  const canRemind = stage === "KYC_PENDING" && shop.notUploadedDocuments.length + shop.sendAgainDocuments.length > 0;
+  const canWaive = canWaiveDocuments && approvalGateOn && stage === "KYC_PENDING";
+  const [notice, setNotice] = useState<string | null>(null);
+  const [waiving, setWaiving] = useState(false);
+  const [waiveReason, setWaiveReason] = useState("");
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -176,18 +198,30 @@ function PendingShopRow({
   async function act(path: string, body: unknown) {
     setBusy(true);
     setError(null);
+    setNotice(null);
     const response = await fetch(`/api/shops/${shop.id}/${path}`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     });
     setBusy(false);
+    const payload = await response.json().catch(() => null);
     if (!response.ok) {
-      const payload = await response.json().catch(() => null);
       setError(payload?.error?.message ?? "Action failed.");
-      return;
+      return null;
     }
     router.refresh();
+    return payload;
+  }
+
+  async function remind() {
+    const result = (await act("remind-documents", {})) as { sent: boolean } | null;
+    if (!result) return;
+    setNotice(
+      result.sent
+        ? `Reminder sent to ${shop.ownerName} (app, e-mail and SMS).`
+        : `${shop.ownerName} was already reminded today. You can remind again tomorrow.`,
+    );
   }
 
   return (
@@ -204,6 +238,7 @@ function PendingShopRow({
           <div className="mt-1.5 flex flex-wrap gap-1.5">
             <Badge>{shop.shopType}</Badge>
             {stage ? <OnboardingStageBadge stage={stage} /> : <Badge tone="warning">pending</Badge>}
+            {nothingUploaded ? <Badge tone="danger">no documents uploaded</Badge> : null}
             <FeeBadge shop={shop} />
           </div>
           {next ? (
@@ -255,6 +290,20 @@ function PendingShopRow({
                 Reject
               </Button>
             </div>
+            {canRemind || canWaive ? (
+              <div className="flex flex-wrap justify-end gap-2">
+                {canRemind ? (
+                  <Button size="sm" variant="secondary" disabled={busy} onClick={remind}>
+                    Remind owner to upload
+                  </Button>
+                ) : null}
+                {canWaive ? (
+                  <Button size="sm" variant="secondary" disabled={busy} onClick={() => setWaiving((v) => !v)}>
+                    Approve without documents
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
           </div>
         ) : (
           <Badge>View only</Badge>
@@ -277,6 +326,38 @@ function PendingShopRow({
           >
             Confirm
           </Button>
+        </div>
+      ) : null}
+
+      {waiving ? (
+        <div className="mt-3 space-y-2 rounded-lg border border-cream-200 p-3">
+          <p className="text-sm text-ink-700">
+            Approve {shop.name} as {classification === "KESARI" ? "Kesari" : "Green"} without verified documents (
+            {shop.missingDocuments.join(", ")}). The shop goes live now; your name and reason are recorded. The
+            registration fee and any licence the shop type needs are still checked.
+          </p>
+          <div className="flex gap-2">
+            <input
+              value={waiveReason}
+              onChange={(e) => setWaiveReason(e.target.value)}
+              placeholder="Reason for approving without documents"
+              className={inputClass}
+              aria-label="Reason for approving without documents"
+            />
+            <Button
+              size="sm"
+              disabled={busy || waiveReason.trim().length < 10}
+              onClick={() => act("approve", { classification, waiveDocuments: { reason: waiveReason } })}
+            >
+              Confirm approval
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {notice ? (
+        <div className="mt-3">
+          <Alert tone="success">{notice}</Alert>
         </div>
       ) : null}
 

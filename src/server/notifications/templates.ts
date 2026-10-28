@@ -119,6 +119,10 @@ export const TEMPLATES: Record<string, Template> = {
   [T.SECURITY_ACCOUNT_STATUS]: t("Account status changed", "Your account was {{status}}. {{detail}}"),
   [T.SHOP_APPROVED]: t("Shop approved", "{{shopName}} is approved and can start selling."),
   [T.SHOP_REJECTED]: t("Shop not approved", "{{shopName}} was not approved: {{reason}}"),
+  [T.SHOP_DOCUMENTS_REMINDER]: t(
+    "Upload your documents to go live",
+    "{{shopName}} is waiting for your documents: {{documents}}. Upload them so we can verify them and approve your shop.",
+  ),
   [T.SHOP_STAFF_ADDED]: t(
     "You can now edit a shop's products",
     "{{ownerName}} added you to {{shopName}}: you can add and change its product photos and descriptions.",

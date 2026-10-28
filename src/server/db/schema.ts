@@ -9823,6 +9823,27 @@ export const shopAutoApprovalLog = pgTable(
 );
 export type ShopAutoApprovalLog = typeof shopAutoApprovalLog.$inferSelect;
 
+/**
+ * Approval without seller documents (0109): an admin's written override for a shop whose
+ * mandatory documents are not verified. Append-only; any row makes the shop KYC-complete
+ * for its onboarding stage (shop_kyc_complete). waived_by is a customer-side user: no foreign key.
+ */
+export const shopDocumentWaivers = pgTable(
+  "shop_document_waivers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    missingDocTypes: text("missing_doc_types").array().notNull().default(sql`'{}'::text[]`),
+    reason: text("reason").notNull(),
+    waivedBy: uuid("waived_by").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("shop_document_waivers_shop_idx").on(t.shopId, t.createdAt)],
+);
+export type ShopDocumentWaiver = typeof shopDocumentWaivers.$inferSelect;
+
 export const COMMISSION_MILESTONES = ["REGISTERED", "VERIFIED_CATALOGUE", "ACTIVATED"] as const;
 export type CommissionMilestone = (typeof COMMISSION_MILESTONES)[number];
 export const COMMISSION_STATUSES = ["EARNED", "PENDING", "APPROVED", "PAID", "REVERSED", "ON_HOLD"] as const;
