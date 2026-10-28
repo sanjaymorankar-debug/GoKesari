@@ -3,6 +3,19 @@
 Plan, 28 Oct 2026. Status: **done: both sites moved to Singapore on 28 Oct 2026.** test.gokesari.com (part C) and gokesari.com (part D). Old Ohio projects kept frozen as fallback.
 before each site moves (production in an owner-approved window).
 
+## Open items (28 Oct 2026, after both moves)
+
+The move itself is done. Four follow-ups, set aside by the owner for now:
+
+| # | Item | Who | Why it matters |
+|---|---|---|---|
+| 1 | Run "Production database" → `verify` once, on `main` | Owner (GitHub Actions) | Proves the updated `production` secrets in a real run. The guard refuses unless the secret points at `ep-calm-salad-ao1homrr.c-2.ap-southeast-1.aws.neon.tech` / `neondb`. |
+| 2 | Check that the scheduled jobs (`every-minute`, `hourly`, `daily`) run on both sites | Owner + a session | The database counters show almost no every-minute runs on 28 Oct: production 0 in ~15 min, test 2 in ~1 h. Those jobs do order timeouts, notification retries, payment reconciliation and scheduled announcements. Check Hostinger's cron list and the `[cron:every-minute]` log lines. |
+| 3 | Decide on the Neon plan for production | Owner (billing) | The account is on the free plan (`free_v3`), so Neon refuses to switch off scale-to-zero. The first visitor after ~5 idle minutes waits ~2–3 s. A keep-awake ping is **not** safe on the free plan: running all day can use up the monthly compute hours and suspend the database. Decide items 2 and 3 together, because a running every-minute job also keeps the database awake. |
+| 4 | Delete the old Ohio projects | Owner's word, then a session | `GoKesari-test` (frozen) after **4 Nov 2026**; `GoKesari-prod` (frozen) after **11 Nov 2026**. Until then they are the fallback. |
+
+Related, not part of the move: the approval speed-up (`ede4260`, replies once the decision is saved) is on `staging` and reaches gokesari.com with the next staging → `main` release.
+
 ## Why
 
 The app runs on Hostinger in **Mumbai**. Both Neon projects are in **AWS us-east-2
