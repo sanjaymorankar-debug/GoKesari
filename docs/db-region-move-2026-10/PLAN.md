@@ -226,7 +226,7 @@ Lessons, written into the steps for D:
 5. **No pushes during the window.** Another session pushed `staging` at 11:12 UTC, mid-window. It did no harm (no migration, the database was read-only), but a migration in it would have failed the build. For production: nobody merges into `main` and nobody pushes `staging` until writes are open.
 
 Still to do for staging:
-- [ ] Owner: point the GitHub secrets `TEST_DATABASE_URL`, `TEST_SELLER_DATABASE_URL` and `TEST_CUSTOMER_DATABASE_URL` at the Singapore project (`ep-hidden-star-b3k0l6ih.c-4.ap-southeast-1.aws.neon.tech`, same database names). Until then the test-db workflows, backups and CI against test still read Ohio.
+- [x] Owner: GitHub secrets `TEST_DATABASE_URL`, `TEST_SELLER_DATABASE_URL` and `TEST_CUSTOMER_DATABASE_URL` point at the Singapore project (done 28 Oct 2026). To confirm: Actions → "Test database" → `verify`; its summary must name host `ep-hidden-star-b3k0l6ih.c-4.ap-southeast-1.aws.neon.tech`.
 - [ ] Redeploy `staging` on Hostinger (dealer pages), with `MIGRATE_ON_BUILD=true`, then re-run TC-RBAC-002 / TC-AUTH-033.
 - [ ] Keep the Ohio test project (`GoKesari-test`, frozen) until **4 Nov 2026**, then delete it on the owner's word.
 - [ ] Backup dumps of the old test databases are only in the session scratchpad. Keep a copy elsewhere if wanted.
