@@ -55,7 +55,8 @@ fi
 used=$(psql "$DST_URL" -X -v ON_ERROR_STOP=1 -tAc "
   select count(*) from pg_class c join pg_namespace n on n.oid = c.relnamespace
    where c.relkind in ('r','p','f','v','m','S')
-     and n.nspname not in ('pg_catalog','information_schema','neon_auth') and n.nspname not like 'pg\_toast%'")
+     and n.nspname not in ('pg_catalog','information_schema','neon_auth') and n.nspname not like 'pg\_toast%'
+     and not exists (select 1 from pg_depend d where d.classid = 'pg_class'::regclass and d.objid = c.oid and d.deptype = 'e')")
 [ "$used" = "0" ] || fail "The target already holds $used tables, views or sequences. Drop and recreate '$dst_db' to start again."
 
 src_ext=$(extensions "$SRC_URL")

@@ -1,6 +1,6 @@
 # Move the GoKesari databases to Neon Singapore (aws-ap-southeast-1)
 
-Plan, 28 Oct 2026. Status: **part A done (28 Oct 2026); nothing frozen or moved**. Needs the owner's approval
+Plan, 28 Oct 2026. Status: **part A and rehearsal B done (28 Oct 2026); nothing frozen or moved**. Needs the owner's approval
 before each site moves (production in an owner-approved window).
 
 ## Why
@@ -53,16 +53,18 @@ Until that last step, the old database is untouched and is the rollback.
 | Step | Staging | Production |
 |---|---|---|
 | Freeze (read-only + drop app connections) | 1 min | 1 min |
-| Dump core + seller | 1–2 min | 1–2 min |
-| Restore into Singapore (parallel, `-j 8`) | 3–8 min | 3–6 min |
-| Fix the `gk_seller` link, compare row counts | 3–5 min | 3–5 min |
+| Copy core + seller from the owner's Mac, the two at once (measured in B: seller 4.4 min, core 6.3 min, one after the other) | ~7–9 min | ~6.5 min |
+| Relink + compare both (measured: 2 s + 24 s) | 1–2 min | 1 min |
 | Hostinger env change + redeploy (build ~4 min, restart ~15 s) | 5–6 min | 5–6 min |
 | Smoke test on the new database, still read-only | 5 min | 5 min |
-| **Read-only window (pages work, writes fail)** | **~20–30 min** | **~20–30 min** |
+| **Read-only window (pages work, writes fail)** | **~20–25 min** | **~20–25 min** |
 | **Full outage** (app restart at the end of the redeploy) | ~15–60 s | ~15–60 s |
 | Rollback before writes are opened (one more redeploy) | +6 min read-only | +6 min read-only |
 
-The staging run and the production rehearsal (step B) give the real figures. If the restore takes much longer than 10 minutes, run it from a machine in India (see the note in step C5).
+Rehearsal B measured the copy (see its results). Most of the copy time is `pg_dump` asking Ohio
+for the catalogue one query at a time: 278 ms per round trip from the Mac. Run the seller and core
+copies **at the same time** (two terminals) to bring 10.7 min down to about 6.5. A dump taken from
+a US machine would take seconds, but the restore must then come from India.
 
 Production window: a low-traffic time, e.g. **02:00–04:00 IST**, with no release in flight (CLAUDE.md "Production releases").
 
@@ -120,10 +122,27 @@ Status 28 Oct 2026: steps 1–4 **done**; step 5 and the workflow action are sti
 
 ## B. Rehearsal on production data (no impact: it only reads)
 
-1. Run `copy.sh` from the **production** databases into `GoKesari-prod-sg` **without** freezing, then `relink.sh` and `compare.sh`. Counts may differ slightly because production keeps writing; that is expected here.
-2. Note the time each step took. That is the production downtime estimate.
-3. Point a **local** build at the Singapore copy (`DATABASE_URL` + `SELLER_DATABASE_URL`, `DB_SPLIT_MODE=split`) and open `/`, `/shops` and the admin pages. Check that they read through the `gk_seller` link.
-4. Empty the Singapore databases again (drop and recreate the three databases from A2/A3) so the real copy starts clean. No production data may be left in a project nobody watches.
+**Done 28 Oct 2026, 10:10–10:34 UTC.** Run from the owner's Mac (India), not frozen, into
+`GoKesari-prod-sg`. Then emptied again: `neondb` and `PROD_SELLER_DATABASE_URL` dropped and
+recreated with the extensions, no foreign server or user mapping left. Neon keeps 6 h of history
+of that project, so the copy can be restored from it until about 16:35 UTC on 28 Oct.
+
+| Step | Time | Result |
+|---|---|---|
+| Round trip per query from the Mac | Ohio 278 ms, Singapore 71 ms | about 4× shorter |
+| `copy.sh` seller (`PROD_SELLER_DATABASE_URL`, 2.2 MB dump) | 265 s (dump 166, restore 91) | ok |
+| `copy.sh` core (`neondb`, 1.9 MB dump) | 377 s (dump 256, restore 114) | ok |
+| Before relink | — | the new core's `gk_seller` still pointed at the **Ohio** seller: the relink step is essential |
+| `relink.sh` | 2 s | `gk_seller` → Singapore seller, 13 shops read through the link |
+| `compare.sh` seller | 15 s | **same**: 257 tables, 730 rows, 29 sequences, all objects |
+| `compare.sh` core | 9 s | **same**: 520 tables (incl. 141 foreign, read through the link), 1,866 rows, 52 sequences, all objects |
+| `switch.ts status` on the copy | — | `split`, parked copy present, as production |
+| 8 home-page-like queries (core + seller through the link), from the Mac | Ohio 2.3 s, Singapore 0.72 s | 3.2× faster |
+
+Findings:
+- Fixed in `copy.sh`: the "target must be empty" check counted the views of `pg_stat_statements`. Extension objects are now ignored.
+- The app was **not** started against the copy. With production data, its delivery timer and cron would send real e-mails, SMS and push to real customers. The app is checked on staging (C10) instead, where the data is test data.
+- `switch.ts check-back` says the **split cannot be switched back any more**: migrations changed seller tables since the switch. The copy matches production on this, so it is an existing state, not caused by the move. The plan does not rely on it: rollback is R1/R2/R3 below.
 
 ## C. Move staging (test.gokesari.com) first
 
@@ -141,9 +160,9 @@ Status 28 Oct 2026: steps 1–4 **done**; step 5 and the workflow action are sti
    The app reconnects automatically and is now read-only.
 3. Note the time (UTC). This is the start of the window.
 4. **Hostinger (test site) → environment variables:** set `MIGRATE_ON_BUILD=false` for now. Leave the rest as is.
-5. **Copy:** `copy.sh` for `gokesari_seller` first, then `neondb`. Also copy `neondb_test`, `Test_Shop_owners` and `gokesari_customer`, so the old project can be retired.
+5. **Copy** with `REQUIRE_FROZEN=yes`, from the owner's Mac, the two databases **at the same time** in two terminals: `copy.sh` for `gokesari_seller` and for `neondb`. Neither needs the other: the link is fixed afterwards in step 6. Copy `neondb_test`, `Test_Shop_owners` and `gokesari_customer` **before** the freeze, to keep the window short. The site works on `neondb` + `gokesari_seller` only; check first whether anything still writes to the other three.
 
-   If the restore over the Ohio→Singapore distance is slow (thousands of DDL statements, each a round trip), run it from the owner's Mac (India, ~60 ms to Singapore) rather than a US GitHub runner. Keep `-j 8` either way.
+   Rehearsal B took 4.4 min (seller) and 6.3 min (core) one after the other, almost all of it `pg_dump` waiting on Ohio (278 ms per round trip).
 6. **Relink** on the new `neondb` (the dump brought over the old host and the old password):
    ```sql
    alter server gk_seller options (set host '<new Singapore endpoint host>');
@@ -223,7 +242,7 @@ Extra rules:
 - No code change is needed for the move itself. The scripts in A4 are new tooling.
 - No migration is needed.
 - The split layout, `DB_SPLIT_MODE`, table names and database names stay as they are. Only hosts and passwords change.
-- `switch-back` keeps working, because the parked schemas are copied too. If the 7-day rollback window of the split is over, run `drop-parked` **before** the move to make the copy smaller.
+- The parked schemas are copied too. A `switch-back` of the split is already impossible on production (migrations changed seller tables since the switch; see B), so `drop-parked` before the move would only make the copy smaller. That is the owner's call.
 
 ## Checklist for the owner
 
