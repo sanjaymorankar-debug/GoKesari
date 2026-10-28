@@ -1,6 +1,6 @@
 # Dealer commission monthly payout — test results (29 Oct 2026)
 
-Branch `claude/dealer-monthly-payout`, based on staging 745086e. Migration 0113. Local PostgreSQL 18
+Branch `claude/dealer-monthly-payout`, based on staging 745086e, staging 45cb376 merged in. Migration 0114 (renumbered from 0113: the onboarding wizard took 0113). Local PostgreSQL 18
 (Postgres.app). Run by Claude.
 
 ## New tests — `tests/integration/dealer-monthly-payout.test.ts`
@@ -40,6 +40,12 @@ fallback settings). Payout tests that rely on the old default set it off explici
 `dealer-monthly-payout`, `dealer-step5-commission`, `dealer-step6-dashboard`, split ownership and
 migration journal: **40 / 40 on two databases**; with `migrate-on-build` added, **46 / 46 on one
 database**.
+
+## After merging staging (onboarding wizard, 0113) — migration renumbered to 0114
+
+Dealer steps 1, 4, 5, 6 and the monthly payout, onboarding wizard step 2, cron schedule, split
+ownership, migration journal: **93 / 93 on each layout**. `migrate-on-build` (rolls back through
+0114 and 0113 and re-applies): **6 / 6**.
 
 ## Not covered here
 

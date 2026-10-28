@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { OnboardingWizard, type WizardState } from "@/components/registration/onboarding-wizard";
 import { ShopRegisterForm } from "@/components/shop-register-form";
 import { Alert, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -10,13 +11,19 @@ import { listShopCategories } from "@/server/services/shop-categories";
 import { listShopsForOwner } from "@/server/services/shops";
 import { getRule } from "@/server/services/settings";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { getWizardDraft } from "@/server/services/shop-registration-wizard";
 
 export const metadata = { title: "Add my shop" };
 export const dynamic = "force-dynamic";
 
-export default async function RegisterShopPage({ searchParams }: { searchParams: Promise<{ ref?: string | string[] }> }) {
+export default async function RegisterShopPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ ref?: string | string[]; wizard?: string | string[]; form?: string | string[] }>;
+}) {
+  const params = await searchParams;
   // docs/dealer-programme: a dealer's share link (/shop/register?ref=CODE) fills in the referral code.
-  const rawRef = (await searchParams).ref;
+  const rawRef = params.ref;
   const ref = typeof rawRef === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{2,31}$/.test(rawRef.trim()) ? rawRef.trim().toUpperCase() : null;
   const user = await getCurrentUser();
   if (!user) redirect(ref ? `/signin?callbackUrl=${encodeURIComponent(`/shop/register?ref=${ref}`)}` : "/signin");
@@ -41,6 +48,23 @@ export default async function RegisterShopPage({ searchParams }: { searchParams:
     // docs/dealer-programme: the optional Employee ID / name field exists only while the programme is on.
     isFeatureEnabled("dealer_programme_enabled"),
   ]);
+  // docs/shop-onboarding-wizard-2026-10: the step-by-step wizard when its flag is on (or ?wizard=1, for
+  // testing on staging); ?form=1 keeps the long form reachable for operators.
+  const wizardOn = params.form !== "1" && (params.wizard === "1" || (await isFeatureEnabled("shop_onboarding_wizard_enabled")));
+  if (wizardOn) {
+    const draft = await getWizardDraft(user);
+    return (
+      <div className="mx-auto max-w-2xl">
+        <PageHeader title="Add my shop" description="A few quick steps. We check your documents with the government records as you go." />
+        <OnboardingWizard
+          initial={draft ? (JSON.parse(JSON.stringify(draft)) as WizardState) : null}
+          initialCategories={categories?.map((c) => ({ id: c.id, name: c.name, status: c.status, groupName: c.groupName }))}
+          dealerProgramme={dealerProgramme}
+        />
+      </div>
+    );
+  }
+
   const pending = ownShops.filter((s) => s.status === "PENDING_APPROVAL");
   const rejected = ownShops.find((s) => s.status === "REJECTED");
   const selfService = selfRegistration.enabled;

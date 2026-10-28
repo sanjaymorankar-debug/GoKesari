@@ -6,7 +6,7 @@
 -- paid, carried forward). The bank transfer stays an admin's step (its UTR recorded as today).
 -- dealer_commission_months: one row per closed month (the guard that makes the close run once).
 -- closed_by is a platform user: no foreign key across the split.
--- ADDITIVE ONLY; idempotent. Rollback: scripts/rollback-0113.sql
+-- ADDITIVE ONLY; idempotent. Rollback: scripts/rollback-0114.sql
 ALTER TABLE "dealer_commission_settings" ADD COLUMN IF NOT EXISTS "payout_day_of_month" integer DEFAULT 5 NOT NULL;--> statement-breakpoint
 ALTER TABLE "dealer_commission_settings" ADD COLUMN IF NOT EXISTS "auto_approve_at_month_end" boolean DEFAULT true NOT NULL;--> statement-breakpoint
 ALTER TABLE "dealer_commission_settings" DROP CONSTRAINT IF EXISTS "dealer_commission_settings_payout_day";--> statement-breakpoint
