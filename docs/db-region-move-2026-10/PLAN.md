@@ -1,6 +1,6 @@
 # Move the GoKesari databases to Neon Singapore (aws-ap-southeast-1)
 
-Plan, 28 Oct 2026. Status: **part A and rehearsal B done (28 Oct 2026); nothing frozen or moved**. Needs the owner's approval
+Plan, 28 Oct 2026. Status: **test.gokesari.com moved to Singapore on 28 Oct 2026** (part C done). Production (part D) not started. Needs the owner's approval
 before each site moves (production in an owner-approved window).
 
 ## Why
@@ -193,6 +193,43 @@ Findings:
     - Point the GitHub secrets `TEST_DATABASE_URL` and `TEST_SELLER_DATABASE_URL` (and `TEST_CUSTOMER_DATABASE_URL`) at the new project.
     - Run "Test database → verify" and "→ backup".
 13. **Keep the old test project read-only for 7 days**, then delete it (owner confirms).
+
+### C — what happened, 28 Oct 2026 (test.gokesari.com)
+
+| Time (UTC) | Step |
+|---|---|
+| 10:38–10:43 | Backup: `pg_dump` of all five old test databases, in parallel, 325 s (about 10 MB). The GitHub backup workflow could not be started: `gh` is not installed on the owner's Mac. |
+| **10:43:53** | **Freeze.** All five old databases read-only (not only core + seller, so nothing could be missed); 15 app connections ended. |
+| 10:44–10:51 | Copy of the five in parallel, `REQUIRE_FROZEN=yes`: seller 292 s, core 421 s, customer 126 s. `neondb_test` and `Test_Shop_owners` stopped on a script bug (below) and were copied after the fix: 76 s. |
+| 10:52–10:55 | Relink: the new core's link still pointed at the Ohio seller, and was moved to the Singapore seller (30 shops through the link). Compare: **all five identical**. Core: 553 tables, 67,719 rows, 51 sequences. Seller: 277 / 31,785 / 29. Customer: 101 / 4,723 / 5. `neondb_test`: 54 / 16 / 4. `Test_Shop_owners`: empty. |
+| 10:55:09 | Singapore copy frozen too; `switch.ts status` → `split`. |
+| — | Owner set `DATABASE_URL`, `SELLER_DATABASE_URL` (Singapore, `?sslmode=require` only) and `MIGRATE_ON_BUILD=false` on Hostinger, then redeployed. |
+| 11:55–12:08 | Read-only checks on the new database. **App connections only on Singapore, none on Ohio.** Home page 0.53–0.60 s (was 1.8–2.1 s). Post-deploy check 5/5 healthy. Guest QA: 85 pass, 8 fail, 3 blocked by the host firewall (E-01). None of the failures came from the move (see below). |
+| **12:14:09** | **Writes opened** on Singapore. The app's 8 pre-reset connections were ended so the pool reconnected writable. A test write passed, including a seller table through the link. |
+| 12:16 | TC-PAY-005 / TC-PAY-022 (they failed only because the database was read-only) **pass**. The app's webhook rows land in Singapore; none in Ohio since the freeze. |
+
+**Read-only window: 1 h 30 min.** Of that, the database work took 11 min (10:43:53 → 10:55:09). The rest was waiting for the Hostinger change, the redeploy and the checks. For production, have the env values typed in hPanel before the freeze, and the owner at hand: the window should then be ~20–25 min.
+
+The guest QA failures, none caused by the move:
+- **Dealer pages and APIs answer 404** (TC-RBAC-002, TC-AUTH-033, TC-SEC-001). The redeployed build does not contain the dealer programme, though `staging` does. Redeploy `staging` (no migration is pending; the Singapore database already has 0107).
+- **Retired cron routes answer 410** (TC-DSP-022, TC-SEC-001). This is intended (`src/proxy.ts`, `CRON_ROUTES_ENABLED`); the check should accept 410.
+- **Webhook with a bad signature answered 500** (TC-PAY-005, TC-PAY-022). It saves a row first, which failed while read-only. It passed once writes were open.
+
+Lessons, written into the steps for D:
+1. **Script bugs found and fixed** (commit `41fd6ef`).
+   - `copy.sh` stopped on a database without extensions: an empty array counts as unbound under `set -u` in macOS bash 3.2.
+   - Worse: a failed run still **exited 0**. The EXIT trap's status replaced the error, so a failed copy looked successful.
+   - Both scripts now count any exit before their last line as a failure.
+2. **Lifting the freeze.** `alter database … reset default_transaction_read_only` must run from the `postgres` database, after `set default_transaction_read_only = off`. From a frozen database the session itself is read-only.
+3. **After lifting the freeze**, end the app's connections that were opened before it (or restart the app). The connection pool keeps read-only sessions otherwise.
+4. **Extensions must match.** Create in each new database only the extensions its old one has, plus `pg_stat_statements`. Otherwise compare reports the difference. On staging, `gokesari_customer`, `neondb_test` and `Test_Shop_owners` had none, and the extras were dropped before compare.
+5. **No pushes during the window.** Another session pushed `staging` at 11:12 UTC, mid-window. It did no harm (no migration, the database was read-only), but a migration in it would have failed the build. For production: nobody merges into `main` and nobody pushes `staging` until writes are open.
+
+Still to do for staging:
+- [ ] Owner: point the GitHub secrets `TEST_DATABASE_URL`, `TEST_SELLER_DATABASE_URL` and `TEST_CUSTOMER_DATABASE_URL` at the Singapore project (`ep-hidden-star-b3k0l6ih.c-4.ap-southeast-1.aws.neon.tech`, same database names). Until then the test-db workflows, backups and CI against test still read Ohio.
+- [ ] Redeploy `staging` on Hostinger (dealer pages), with `MIGRATE_ON_BUILD=true`, then re-run TC-RBAC-002 / TC-AUTH-033.
+- [ ] Keep the Ohio test project (`GoKesari-test`, frozen) until **4 Nov 2026**, then delete it on the owner's word.
+- [ ] Backup dumps of the old test databases are only in the session scratchpad. Keep a copy elsewhere if wanted.
 
 ## D. Move production (gokesari.com), only after staging has run cleanly for a few days
 
