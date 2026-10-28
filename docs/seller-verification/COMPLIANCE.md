@@ -106,6 +106,7 @@ needed.
 ## 8. Before production — checklist
 
 - [ ] Lawyer reviews: consent text, GST declaration text, privacy policy §5, seller terms "Document verification", Shop Act applicability, retention period.
+- [ ] ⚖ L+CA (owner decision B, 28 Oct 2026; migration 0112): an onboarding-wizard shop goes live right after payment with its **Shop Act still in admin review** and — on the no-GSTIN route — its **"not GST-registered" declaration still in review**. Confirm that listing a seller before these are checked is acceptable (Maharashtra Shops and Establishments Act 2017; CGST s.24(ix) / s.52 for e-commerce suppliers without GSTIN), and how long an unreviewed shop may sell. Until signed off, keep `shop_onboarding_wizard_enabled` off on gokesari.com.
 - [ ] CA reviews: GST declaration and enrolment path, TCS (s.52), restaurant GST (s.9(5)) before listing restaurants.
 - [ ] Gokesari's own FSSAI e-commerce licence obtained.
 - [ ] Data processing agreement signed with Gridlines (and IDfy if used).

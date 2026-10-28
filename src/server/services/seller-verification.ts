@@ -674,6 +674,164 @@ export async function declareNoGstin(input: {
   return toView(row.updated);
 }
 
+/* ---------------------------------------- from the onboarding wizard (0112) */
+
+/** A check the onboarding wizard already ran on the owner's draft, before the shop existed. */
+export interface RegistrationCheck {
+  docType: SellerDocType;
+  status: SellerVerificationStatus;
+  numberEncrypted: string;
+  numberMasked: string;
+  numberHash: string;
+  /** Plain number, only to keep the shop's public seller details in step (GSTIN, FSSAI). */
+  normalized: string;
+  verifiedName: string | null;
+  nameMatchScore: number | null;
+  validUntil: string | null;
+  details: Record<string, unknown>;
+  providerId: string | null;
+  providerRef: string | null;
+  errorCode: string | null;
+  idempotencyKey: string | null;
+  consentGivenAt: Date | null;
+  consentVersion: string | null;
+  checkedAt: Date | null;
+  verifiedAt: Date | null;
+}
+
+/**
+ * Onboarding wizard (docs/shop-onboarding-wizard-2026-10): the shop is created
+ * from the owner's draft, and each government check already done there becomes
+ * the shop's seller verification — with the vendor's reference, so instant
+ * approval sees a provider-verified row and the daily job retries one still
+ * PENDING. Runs inside the registration's transaction; no vendor call.
+ */
+export async function importRegistrationCheck(
+  tx: DbClient,
+  shopId: string,
+  check: RegistrationCheck,
+  actor: Actor,
+  draftId: string,
+): Promise<void> {
+  await tx.insert(sellerVerifications).values({ shopId, docType: check.docType }).onConflictDoNothing(); // the only unique key is (shop_id, doc_type)
+  const [current] = await tx
+    .select()
+    .from(sellerVerifications)
+    .where(and(eq(sellerVerifications.shopId, shopId), eq(sellerVerifications.docType, check.docType)))
+    .for("update");
+  const now = new Date();
+  const [row] = await tx
+    .update(sellerVerifications)
+    .set({
+      status: check.status,
+      numberEncrypted: check.numberEncrypted,
+      numberMasked: check.numberMasked,
+      numberHash: check.numberHash,
+      verifiedName: check.verifiedName,
+      nameMatchScore: check.nameMatchScore,
+      validUntil: check.validUntil,
+      details: { ...check.details, source: "ONBOARDING_WIZARD", draftId },
+      providerId: check.providerId,
+      providerRef: check.providerRef,
+      lastErrorCode: check.errorCode,
+      idempotencyKey: check.idempotencyKey,
+      attemptCount: current.attemptCount + 1,
+      lastAttemptAt: check.checkedAt ?? now,
+      consentGivenAt: check.consentGivenAt ?? now,
+      consentVersion: check.consentVersion ?? SELLER_VERIFICATION_CONSENT_VERSION,
+      submittedBy: actor.id,
+      submittedAt: check.checkedAt ?? now,
+      verifiedAt: check.status === "VERIFIED" ? (check.verifiedAt ?? now) : null,
+      reviewerId: null,
+      reviewedAt: null,
+      reviewNote: null,
+      updatedAt: now,
+    })
+    .where(eq(sellerVerifications.id, current.id))
+    .returning();
+  const base = { verificationId: row.id, shopId, docType: check.docType, ...actorFields(actor, null) };
+  await recordEvent(tx, {
+    ...base,
+    eventType: "CONSENT_GIVEN",
+    note: `Consent notice ${row.consentVersion} (onboarding wizard)`,
+    details: { purpose: "seller_document_verification", numberMasked: check.numberMasked, draftId },
+  });
+  await recordEvent(tx, {
+    ...base,
+    eventType: "VENDOR_RESULT",
+    fromStatus: current.status,
+    toStatus: check.status,
+    providerId: check.providerId,
+    providerRef: check.providerRef,
+    errorCode: check.errorCode,
+    note: "Checked in the onboarding wizard before the shop was created",
+    details: { numberMasked: check.numberMasked, docStatus: check.details.docStatus ?? null, draftId },
+  });
+  const record = check.status === "VERIFIED" ? ({ docStatus: "active", name: check.verifiedName, tradeName: (check.details.tradeName as string | null) ?? undefined } as SourceRecord) : null;
+  await writeThrough(tx, shopId, check.docType, check.status, check.normalized, record, null);
+}
+
+/**
+ * Onboarding wizard, no-GSTIN route: the owner's "not GST-registered"
+ * declaration, as declareNoGstin() records it — waiting for an admin's review.
+ */
+export async function importRegistrationGstDeclaration(
+  tx: DbClient,
+  shopId: string,
+  declaration: { declaredAt: Date; version: string },
+  actor: Actor,
+  draftId: string,
+): Promise<void> {
+  await tx.insert(sellerVerifications).values({ shopId, docType: "GSTIN" }).onConflictDoNothing(); // the only unique key is (shop_id, doc_type)
+  const [current] = await tx
+    .select()
+    .from(sellerVerifications)
+    .where(and(eq(sellerVerifications.shopId, shopId), eq(sellerVerifications.docType, "GSTIN")))
+    .for("update");
+  const now = new Date();
+  await tx
+    .update(sellerVerifications)
+    .set({
+      status: "MANUAL_REVIEW",
+      numberEncrypted: null,
+      numberMasked: null,
+      numberHash: null,
+      verifiedName: null,
+      nameMatchScore: null,
+      validUntil: null,
+      providerId: null,
+      providerRef: null,
+      lastErrorCode: "gst_declaration_review",
+      idempotencyKey: null,
+      details: { declaredNotRegistered: true, declarationVersion: declaration.version, enrolmentNumber: null, source: "ONBOARDING_WIZARD", draftId },
+      consentGivenAt: declaration.declaredAt,
+      consentVersion: declaration.version,
+      submittedBy: actor.id,
+      submittedAt: declaration.declaredAt,
+      verifiedAt: null,
+      reviewerId: null,
+      reviewedAt: null,
+      reviewNote: null,
+      updatedAt: now,
+    })
+    .where(eq(sellerVerifications.id, current.id));
+  await recordEvent(tx, {
+    verificationId: current.id,
+    shopId,
+    docType: "GSTIN",
+    ...actorFields(actor, null),
+    eventType: "DECLARED_NOT_APPLICABLE",
+    fromStatus: current.status,
+    toStatus: "MANUAL_REVIEW",
+    note: `GST declaration ${declaration.version} (onboarding wizard)`,
+    details: { enrolmentNumberGiven: false, draftId },
+  });
+  await tx
+    .update(shops)
+    .set({ gstStatus: "NOT_REGISTERED", gstin: null, gstTradeName: null, gstVerificationSource: "SELF_DECLARED", gstVerifiedAt: null, gstVerifiedBy: null, updatedAt: now })
+    .where(eq(shops.id, shopId));
+}
+
 /** File type from the bytes, never the name or declared type. */
 export function detectDocumentFile(data: Buffer): SellerVerificationFile["contentType"] | null {
   if (data.length > 5 && data.subarray(0, 5).toString("latin1") === "%PDF-") return "application/pdf";

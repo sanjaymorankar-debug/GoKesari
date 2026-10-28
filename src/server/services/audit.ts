@@ -14,6 +14,8 @@ export const AUDIT_ACTIONS = {
   SHOP_REGISTERED: "shop.registered",
   /** docs/shop-onboarding-wizard-2026-10: a GSTIN / PAN checked in the onboarding wizard, before the shop exists. Masked numbers only. */
   SHOP_REGISTRATION_DRAFT_CHECKED: "shop_registration_draft.checked",
+  /** docs/shop-onboarding-wizard-2026-10 step 2: the shop created from the wizard's draft, its checks copied. Masked numbers only. */
+  SHOP_REGISTRATION_DRAFT_SUBMITTED: "shop_registration_draft.submitted",
   SHOP_APPROVED: "shop.approved",
   SHOP_REJECTED: "shop.rejected",
   SHOP_APPROVED_WITHOUT_DOCUMENTS: "shop.approved_without_documents",

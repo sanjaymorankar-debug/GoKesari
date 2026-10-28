@@ -13,6 +13,7 @@ email that already exist are reused, not rebuilt.
 | PAN when GSTIN is verified | Take the PAN out of the GSTIN and check it with the government in the background (one extra paid call, no typing) |
 | Shop Act (Maharashtra cannot be checked online) | Shop goes live after payment; an admin checks the Shop Act upload afterwards and can suspend the shop |
 | FSSAI | "Do you have FSSAI?" asked of every shop; compulsory for food shops |
+| Go-live (decision **B**, 28 Oct 2026) | Every wizard shop whose GSTIN/PAN checks pass goes **live right after payment, in every district**, whatever the per-district flag `gov_verification_auto_approval_enabled` says; the Shop Act (and, without a GSTIN, the "not GST-registered" declaration) is reviewed by an admin afterwards. ⚖ Needs lawyer / CA sign-off before gokesari.com (COMPLIANCE.md §8) |
 
 ## Steps
 
@@ -71,8 +72,8 @@ the owner continue; the daily job retries it, and approval waits for it.
 | Build step | State |
 |---|---|
 | 1. Draft + GSTIN-first with silent PAN + GST record fill | **Built** (branch `claude/onboarding-wizard-step1`): migration 0111 (rollback `scripts/rollback-0111.sql`), `src/server/services/shop-registration-draft.ts`, `GET /api/shops/registration-draft`, `POST /api/shops/registration-draft/gstin`, `POST /api/shops/registration-draft/pan`; tests `tests/integration/onboarding-wizard-step1.test.ts` on both layouts. The mock vendor's GSTIN answer now carries an address and constitution so staging shows the fill. |
-| 2. Wizard screen steps 1–7, resume, draft → shop (copy checks to `seller_verifications`) | Not started |
-| 3. Shop Act rule change + payment → complete + email | Not started |
+| 2. Wizard screen steps 1–7, resume, draft → shop (copy checks to `seller_verifications`) | **Built** (branch `claude/onboarding-wizard-step2-b1ade0`): screen `src/components/registration/onboarding-wizard.tsx` on `/shop/register` behind flag `shop_onboarding_wizard_enabled` (always at `/shop/register?wizard=1`; `?form=1` = long form); service `src/server/services/shop-registration-wizard.ts`; routes `…/registration-draft/details`, `/documents`, `/location`, `/submit`; migration 0112 (rollback `scripts/rollback-0112.sql`). |
+| 3. Shop Act rule change + payment → complete + email | **Built** (same branch): table `shop_deferred_document_reviews`; `shop_kyc_complete()` counts a listed document while PENDING / MANUAL_REVIEW; wizard shops approved on payment in every district (`govAutoApprovalApplies`); draft → COMPLETED on approval; "ready for product upload" email after commit. Tests `tests/integration/onboarding-wizard-step2.test.ts` on both layouts. |
 | 4. Staging run, QA register | Not started |
 
 Step 1 API, for the screen:
@@ -81,3 +82,47 @@ Step 1 API, for the screen:
 - `POST …/gstin` `{ gstin, consent: true }` → GSTIN checked; if verified, the PAN inside it is checked too. Returns statuses (masked numbers), `prefill` (shop name = GST trade name else legal name, legal name, owner name for a proprietor, constitution, address, state code, PIN) and `canContinue`.
 - `POST …/pan` `{ pan, declaration: true, consent: true }` → no-GSTIN route.
 - `canContinue` is true for VERIFIED, and for PENDING (government source down — re-checked later) or MANUAL_REVIEW (an admin checks it); false for FAILED / EXPIRED. 409 `DUPLICATE_SHOP` when a live shop already has the GSTIN; `RATE_LIMITED` after the hourly limit (`sellerVerification.maxChecksPerShopPerHour`).
+
+### Step 2 — how it works
+
+Wizard order: GSTIN (or PAN + declaration) → **shop details** (shop type, categories, phone,
+turnover; name and address from the GST record) → Udyam ("Do you have it?") → FSSAI (asked of every
+shop; a food shop type cannot answer no) → Shop Act → map pin → review → **Create my shop and pay** →
+Cashfree checkout (the existing `/api/shops/[id]/registration-fee`) → live.
+
+- Every answer is the whole wizard (`GET /api/shops/registration-draft`): `nextStep` is one of
+  `IDENTITY, DETAILS, UDYAM, FSSAI, SHOP_ACT, LOCATION, REVIEW, PAYMENT, WAITING, DONE`, so a returning
+  owner resumes where they left off. Each document carries `status`, a masked number and the message
+  to show; VERIFIED / PENDING / MANUAL_REVIEW let the owner go on, FAILED / EXPIRED do not.
+- Udyam, FSSAI and Shop Act checks (`POST …/documents`) follow step 1's rules: format check first,
+  consent, row claimed under the draft lock, verified number reused, in-flight check joined, hourly
+  limit shared with step 1, vendor call outside the transaction, numbers as ciphertext + masked +
+  blind index (the typed form of a Shop Act number too). The document rules are
+  `applyDocumentChecks` (name, FSSAI expiry and premises PIN) — the same as for a live shop.
+- **Draft → shop** (`POST …/submit`): `registerShop` (duplicate checks, fee snapshot, coupon, role)
+  with a hook that, in the same transaction, copies GSTIN, PAN, Udyam, FSSAI and Shop Act into
+  `seller_verifications` with provider id, reference, consent and events (`importRegistrationCheck`),
+  records the no-GSTIN declaration (`importRegistrationGstDeclaration`), lists the Shop Act (and the
+  declaration) in `shop_deferred_document_reviews` and marks the draft SUBMITTED. On the no-GSTIN
+  route the PAN holder's name is matched against the owner / shop name here; a mismatch goes to review.
+- **Payment → live**: the Cashfree capture runs `autoApproveShopIfReady` as before. For a wizard shop
+  `govAutoApprovalApplies` is true in every district; the decision still needs GSTIN/PAN verified by
+  the government source, the fee through the gateway, no duplicate, and every mandatory document
+  verified — except those listed for review afterwards. FSSAI is never deferred: a food shop whose
+  FSSAI check is still pending is paid but waits (`WAITING`). On approval the draft is COMPLETED and
+  `sendReadyForProductUpload` sends the in-app notice and email (after commit, via the outbox).
+- A shop outside the wizard keeps today's rule (Shop Act must be verified; district flag decides).
+- Dealer commission: a wizard shop live with its Shop Act in review has its ACTIVATED commission held
+  until the Shop Act is verified, as for an admin's document waiver (0109).
+
+Open points for the owner:
+
+1. ⚖ Lawyer / CA sign-off on going live before the Shop Act (and the no-GST declaration) is reviewed.
+2. What happens if the admin **rejects** the Shop Act after go-live: today the shop stays live until an
+   admin suspends it (the existing suspend button); automatic suspension is not built.
+3. With rule `legalDocuments.enabled` on, a food shop also needs its FSSAI certificate uploaded before
+   approval — the wizard does not take uploads, so such a shop waits for the upload.
+4. Food detection before the shop exists uses the shop type only; a general shop that picks a food
+   category is caught by the FSSAI approval gate instead (it waits after payment).
+5. Switch `shop_onboarding_wizard_enabled` on for test.gokesari.com first (Admin → Feature flags).
+

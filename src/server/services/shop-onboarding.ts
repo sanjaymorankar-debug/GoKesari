@@ -6,13 +6,13 @@
  * module adds what the screens need around it — which mandatory documents
  * are still missing and how much fee is owed — and the approval gate.
  */
-import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
+import { count, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { SELLER_DOC_LABELS, SELLER_DOC_TYPES, type SellerDocType } from "@/lib/kyc/doc-formats";
 import { isOnboardingStage, type OnboardingFacts } from "@/lib/shop-onboarding";
 import { SHOP_LIFECYCLE_STATUSES, type ShopLifecycleStatus } from "@/lib/status-models";
 import { db, type DbClient } from "@/server/db";
-import { sellerVerifications, shopDocumentWaivers, shops, type Shop } from "@/server/db/schema";
+import { sellerVerifications, shopDeferredDocumentReviews, shopDocumentWaivers, shops, type Shop } from "@/server/db/schema";
 import { isMandatory } from "./seller-verification-checks";
 import { getRule } from "./settings";
 
@@ -102,25 +102,46 @@ export async function onboardingApprovalBlocker(shop: Shop, client: DbClient = d
   const rule = await getRule("statusModels");
   if (!rule.enforceTransitions) return null;
   if (await hasDocumentWaiver(shop.id, client)) return null;
-  const missing = await missingMandatoryDocuments(shop, client);
+  const missing = await missingMandatoryDocuments(shop, client, { countDeferred: true });
   if (missing.length === 0) return null;
   return `${shop.name} cannot be approved until its seller documents are verified. Not yet verified: ${missing
     .map((d) => SELLER_DOC_LABELS[d])
     .join(", ")}.`;
 }
 
-/** Mandatory seller documents not yet VERIFIED for this shop (whatever the statusModels rule says). */
-export async function missingMandatoryDocuments(shop: Pick<Shop, "id" | "shopType">, client: DbClient = db) {
+/**
+ * Mandatory seller documents not yet VERIFIED for this shop (whatever the statusModels rule says).
+ * With `countDeferred` — the approval gates — a document listed in shop_deferred_document_reviews
+ * (owner decision B, 0112: an onboarding-wizard shop's Shop Act, or its no-GSTIN declaration)
+ * counts as done while it still waits for its review, exactly as shop_kyc_complete() counts it.
+ */
+export async function missingMandatoryDocuments(
+  shop: Pick<Shop, "id" | "shopType">,
+  client: DbClient = db,
+  options: { countDeferred?: boolean } = {},
+) {
   const [row] = await client
     .select({ sellsFood: sql<boolean>`shop_sells_food(${shop.id}, ${shop.shopType}::text)` })
     .from(shops)
     .where(eq(shops.id, shop.id));
-  const verified = await client
-    .select({ docType: sellerVerifications.docType })
+  const rows = await client
+    .select({ docType: sellerVerifications.docType, status: sellerVerifications.status })
     .from(sellerVerifications)
-    .where(and(eq(sellerVerifications.shopId, shop.id), eq(sellerVerifications.status, "VERIFIED")));
-  const have = new Set(verified.map((v) => v.docType));
+    .where(eq(sellerVerifications.shopId, shop.id));
+  const deferred = options.countDeferred ? await deferredReviewDocTypes(shop.id, client) : new Set<string>();
+  const have = new Set(
+    rows.filter((v) => v.status === "VERIFIED" || (deferred.has(v.docType) && IN_REVIEW.has(v.status))).map((v) => v.docType),
+  );
   return SELLER_DOC_TYPES.filter((d) => isMandatory(d, { isFoodBusiness: row?.sellsFood ?? false }) && !have.has(d));
+}
+
+/** Documents this shop may go live with while an admin still reviews them (0112). */
+export async function deferredReviewDocTypes(shopId: string, client: DbClient = db): Promise<Set<string>> {
+  const rows = await client
+    .select({ docType: shopDeferredDocumentReviews.docType })
+    .from(shopDeferredDocumentReviews)
+    .where(eq(shopDeferredDocumentReviews.shopId, shopId));
+  return new Set(rows.map((r) => r.docType));
 }
 
 /** An admin approved this shop without its seller documents (0109). Commission milestones ignore it. */

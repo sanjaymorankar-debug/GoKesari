@@ -11,6 +11,7 @@ import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { submitDraftPan } from "@/server/services/shop-registration-draft";
+import { getWizardDraft } from "@/server/services/shop-registration-wizard";
 
 export const dynamic = "force-dynamic";
 
@@ -24,13 +25,13 @@ export const POST = route(async (request: NextRequest) => {
   const user = await requirePermission(PERMISSIONS.SHOP_CREATE);
   enforceRateLimit(`registration-draft:${user.id}`, RATE_LIMITS.MUTATION);
   const body = await parseBody(request, schema);
-  return ok(
-    await submitDraftPan({
-      pan: body.pan,
-      declarationAccepted: body.declaration,
-      consentGiven: body.consent,
-      actor: user,
-      ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null,
-    }),
-  );
+  await submitDraftPan({
+    pan: body.pan,
+    declarationAccepted: body.declaration,
+    consentGiven: body.consent,
+    actor: user,
+    ipAddress: request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null,
+  });
+  // The whole wizard, so the screen moves on to the next step from one answer.
+  return ok(await getWizardDraft(user));
 });
