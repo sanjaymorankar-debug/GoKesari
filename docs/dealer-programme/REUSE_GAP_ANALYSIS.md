@@ -200,7 +200,7 @@ Answers: Q1 — distributor = dealer with its code; employees by optional Employ
 | 4 | GKS-SH-004 auto-approval + e-mail — **done 28 Oct** (Admin → Shops → Instant approvals; see §3.4 note on Shop Act) | 0106 (seller) | staging |
 | 5 | GKS-CM-001…003 (rules, ledger, payouts, rating) — **done 28 Oct** (Admin → Dealers → Commission, rating & payouts; the dealer page shows rating and commission) | 0107 (seller) | staging |
 | 6 | GKS-DB-001 dealer board (tiles, pending, performance by day/week/month, shops by stage and approval, employees, areas), admin dealer list with rating / shops / commission, document requirements editor — **done 28 Oct** | — | staging |
-| 7 | GKS-SP-001 support services | 0108 (core) | staging |
+| 7 | GKS-SP-001 support services: general support (free), product upload and price update at admin-set, versioned charges (per request / item / batch, GST, free monthly quota), live price before submitting, files, pay from the shop wallet or online (`SUPPORT_SERVICE` payment purpose), a help-desk ticket per paid request, cancel before work starts for the admin-set refund %, admin refunds, managed-billing shops not charged twice, the shop's own dealer may ask; shop page `/shop/support-services`, admin page `/admin/support-services` — **done 28 Oct** | 0108 (core) | staging |
 | 8 | GKS-GEO-001, GKS-AN-001/002 (P1) | — | staging |
 | 9 | App link paths, APK + iOS builds | — | workflows |
 | 10 | Full suite on Test, report, tracker; Prod with flags off | — | main (one release) |

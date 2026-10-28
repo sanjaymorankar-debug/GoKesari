@@ -7907,7 +7907,7 @@ export const paymentIntents = pgTable(
   "payment_intents",
   {
     id: uuid("id").primaryKey().defaultRandom(),
-    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE"] }).notNull(),
+    purpose: text("purpose", { enum: ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE"] }).notNull(),
     /** The order id, order-group id or shop id — a plain UUID (no FK: the purposes point at different tables). */
     referenceId: uuid("reference_id").notNull(),
     userId: uuid("user_id").references(() => users.id, { onDelete: "set null" }),
@@ -9966,5 +9966,117 @@ export const dealerCommissionLedger = pgTable(
   ],
 );
 export type DealerCommissionEntry = typeof dealerCommissionLedger.$inferSelect;
+
+export const SUPPORT_CHARGE_MODELS = ["FREE", "PER_REQUEST", "PER_ITEM", "PER_BATCH"] as const;
+export type SupportChargeModel = (typeof SUPPORT_CHARGE_MODELS)[number];
+
+/** Support services offered to shops (0108): general support, product upload, price update. */
+export const supportServiceTypes = pgTable("support_service_types", {
+  key: text("key").primaryKey(),
+  label: text("label").notNull(),
+  description: text("description").notNull(),
+  /** What the quantity counts ("products"); null when the service is one request. */
+  unitLabel: text("unit_label"),
+  sortOrder: integer("sort_order").notNull().default(0),
+  status: text("status", { enum: ["ACTIVE", "INACTIVE"] }).notNull().default("ACTIVE"),
+});
+export type SupportServiceType = typeof supportServiceTypes.$inferSelect;
+
+/** A service's charge (0108): versioned, ADMIN only. Requests keep the version they were priced with. */
+export const supportServiceCharges = pgTable(
+  "support_service_charges",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    serviceKey: text("service_key")
+      .notNull()
+      .references(() => supportServiceTypes.key, { onDelete: "restrict" }),
+    version: integer("version").notNull(),
+    chargeModel: text("charge_model", { enum: SUPPORT_CHARGE_MODELS }).notNull(),
+    amountPaise: integer("amount_paise").notNull().default(0),
+    /** PER_BATCH: items per batch (e.g. 50). */
+    batchSize: integer("batch_size"),
+    gstApplicable: boolean("gst_applicable").notNull().default(true),
+    gstRateBp: integer("gst_rate_bp").notNull().default(1800),
+    freeQuotaPerMonth: integer("free_quota_per_month").notNull().default(0),
+    effectiveFrom: date("effective_from").notNull(),
+    effectiveTo: date("effective_to"),
+    status: text("status", { enum: ["ACTIVE", "SUPERSEDED"] }).notNull().default("ACTIVE"),
+    changeReason: text("change_reason").notNull(),
+    createdBy: uuid("created_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("support_service_charges_version_unique").on(t.serviceKey, t.version)],
+);
+export type SupportServiceCharge = typeof supportServiceCharges.$inferSelect;
+
+export const supportServiceSettings = pgTable("support_service_settings", {
+  id: text("id").primaryKey().default("default"),
+  refundPercentBeforeWork: integer("refund_percent_before_work").notNull().default(100),
+  freeForManagedBilling: boolean("free_for_managed_billing").notNull().default(true),
+  updatedBy: uuid("updated_by").references(() => users.id, { onDelete: "set null" }),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type SupportServiceSettings = typeof supportServiceSettings.$inferSelect;
+
+/** One shop's request for a support service (0108): priced, paid (or free), then a help-desk ticket. */
+export const supportServiceRequests = pgTable(
+  "support_service_requests",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    receiptNumber: text("receipt_number").notNull(),
+    /** shops.id (seller database: no foreign key; checked by the service). */
+    shopId: uuid("shop_id").notNull(),
+    requestedBy: uuid("requested_by")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    /** Set when a dealer raised it for a shop they brought (seller database: no foreign key). */
+    dealerId: uuid("dealer_id"),
+    serviceKey: text("service_key")
+      .notNull()
+      .references(() => supportServiceTypes.key, { onDelete: "restrict" }),
+    chargeId: uuid("charge_id")
+      .notNull()
+      .references(() => supportServiceCharges.id, { onDelete: "restrict" }),
+    quantity: integer("quantity").notNull().default(1),
+    description: text("description").notNull(),
+    basePaise: integer("base_paise").notNull().default(0),
+    gstPaise: integer("gst_paise").notNull().default(0),
+    totalPaise: integer("total_paise").notNull().default(0),
+    freeReason: text("free_reason", { enum: ["FREE_SERVICE", "MONTHLY_QUOTA", "MANAGED_BILLING"] }),
+    status: text("status", { enum: ["AWAITING_PAYMENT", "PAID", "CANCELLED", "REFUNDED"] }).notNull().default("AWAITING_PAYMENT"),
+    paymentMethod: text("payment_method", { enum: ["WALLET", "ONLINE", "FREE"] }),
+    paymentIntentId: uuid("payment_intent_id").references(() => paymentIntents.id, { onDelete: "set null" }),
+    walletReference: text("wallet_reference"),
+    ticketId: uuid("ticket_id").references(() => supportTickets.id, { onDelete: "set null" }),
+    refundPaise: integer("refund_paise").notNull().default(0),
+    refundReason: text("refund_reason"),
+    refundedAt: timestamp("refunded_at", { withTimezone: true }),
+    paidAt: timestamp("paid_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("support_service_requests_receipt_unique").on(t.receiptNumber),
+    index("support_service_requests_shop_idx").on(t.shopId, t.createdAt),
+    index("support_service_requests_status_idx").on(t.status, t.createdAt),
+  ],
+);
+export type SupportServiceRequest = typeof supportServiceRequests.$inferSelect;
+
+export const supportServiceFiles = pgTable(
+  "support_service_files",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    requestId: uuid("request_id")
+      .notNull()
+      .references(() => supportServiceRequests.id, { onDelete: "cascade" }),
+    fileName: text("file_name").notNull(),
+    mimeType: text("mime_type").notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    content: bytea("content").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("support_service_files_request_idx").on(t.requestId)],
+);
 
 /* <<< end dealer programme */

@@ -323,6 +323,8 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
       { key: "publicPage", label: L("Public page", "सार्वजनिक पेज", "सार्वजनिक पान"), icon: "store", href: "/shops/{shopSlug}" },
       // batch-2026-10 WS-C: help desk tickets and the after-packing cancellation fee.
       { key: "support", label: L("Support tickets", "सहायता टिकट", "मदत तिकिटे"), icon: "life-buoy", href: "/shop/support" },
+      // docs/dealer-programme (GKS-SP-001): paid help — product upload, price update, general support. Only while that flag is on.
+      { key: "supportServices", label: L("Support services", "सहायता सेवाएँ", "मदत सेवा"), icon: "headset", href: "/shop/support-services", feature: "paid_support_services_enabled" },
       { key: "cancellationFee", label: L("Cancellation fee", "रद्द करने का शुल्क", "रद्द शुल्क"), icon: "receipt", href: "/shop/settings/cancellation-fee", permission: PERMISSIONS.SHOP_CANCELLATION_FEE_MANAGE_OWN },
     ],
   },
@@ -467,6 +469,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
     more: [
       { key: "helpdesk", label: L("Help desk", "हेल्प डेस्क", "मदत कक्ष"), icon: "life-buoy", href: "/admin/support", permission: PERMISSIONS.SUPPORT_TICKET_MANAGE },
       { key: "cannedReplies", label: L("Canned replies", "तैयार जवाब", "तयार उत्तरे"), icon: "message-square", href: "/admin/support/canned-replies", permission: PERMISSIONS.SUPPORT_CANNED_REPLY_MANAGE },
+      // docs/dealer-programme (GKS-SP-001): paid support services — charges, requests, refunds. Only while that flag is on.
+      { key: "supportServices", label: L("Support services", "सहायता सेवाएँ", "मदत सेवा"), icon: "headset", href: "/admin/support-services", permission: PERMISSIONS.SUPPORT_TICKET_MANAGE, feature: "paid_support_services_enabled" },
     ],
   },
   {
@@ -605,6 +609,8 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
     more: [
       { key: "consent", label: L("Consent records", "सहमति रिकॉर्ड", "संमती नोंदी"), icon: "file-check", href: "/admin/consents", permission: PERMISSIONS.CONSENT_VIEW },
       { key: "helpdesk", label: L("Help desk", "हेल्प डेस्क", "मदत कक्ष"), icon: "life-buoy", href: "/admin/support", permission: PERMISSIONS.SUPPORT_TICKET_MANAGE }, // batch-2026-10 WS-C
+      // docs/dealer-programme (GKS-SP-001): paid support services — charges, requests, refunds. Only while that flag is on.
+      { key: "supportServices", label: L("Support services", "सहायता सेवाएँ", "मदत सेवा"), icon: "headset", href: "/admin/support-services", permission: PERMISSIONS.SUPPORT_TICKET_MANAGE, feature: "paid_support_services_enabled" },
     ],
   },
   {

@@ -110,6 +110,8 @@ export async function loadCustomerBoard(user: AuthenticatedUser | null, location
 export interface ShopBoardData {
   counts: Counts;
   facts: ShopFacts;
+  /** Feature flags that are on (docs/dealer-programme): tiles that exist only with a feature. */
+  features: string[];
 }
 
 /**
@@ -119,8 +121,8 @@ export interface ShopBoardData {
 export const loadShopCounts = cache((shopId: string): Promise<Counts> => shopCounts(shopId));
 
 export async function loadShopBoard(shopId: string, user: AuthenticatedUser): Promise<ShopBoardData> {
-  const [counts, facts] = await Promise.all([loadShopCounts(shopId), shopBoardFacts(shopId, user)]);
-  return { counts, facts };
+  const [counts, facts, features] = await Promise.all([loadShopCounts(shopId), shopBoardFacts(shopId, user), enabledFeatureKeys()]);
+  return { counts, facts, features };
 }
 
 export interface StaffBoardData {

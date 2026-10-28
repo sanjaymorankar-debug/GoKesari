@@ -24,4 +24,8 @@ export const CAPTURED_HANDLERS: Partial<Record<PaymentPurpose, CapturedHandler>>
   SHOP_REGISTRATION_FEE: (intent, client) => onShopRegistrationFeeCaptured(intent, client),
   /* <<< end WS-D */
   //
+  /* >>> dealer programme (docs/dealer-programme, step 7) */
+  // A support-service request paid online: marked paid in the capture transaction; its ticket opens after commit.
+  SUPPORT_SERVICE: async (intent, client) => (await import("@/server/services/support-services")).onSupportServicePaymentCaptured(intent, client as never),
+  /* <<< end dealer programme */
 };

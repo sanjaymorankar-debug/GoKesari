@@ -315,6 +315,11 @@ export const TABLE_OWNERSHIP = {
   dealer_rating_history: "seller",
   dealer_payout_batches: "seller",
   dealer_commission_ledger: "seller",
+  support_service_types: "platform",
+  support_service_charges: "platform",
+  support_service_settings: "platform",
+  support_service_requests: "platform",
+  support_service_files: "platform",
   /* <<< end dealer programme */
   //
 } as const satisfies Record<string, DbOwner>;

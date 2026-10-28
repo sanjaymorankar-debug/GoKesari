@@ -719,6 +719,20 @@ export async function changeTicketStatus(ticketId: string, to: TicketStatus, act
   });
 }
 
+/**
+ * The request behind a ticket was withdrawn before work started (docs/dealer-programme,
+ * paid support services): resolved with the note, then closed, in one go — the
+ * requester could not close an open ticket themselves. Already resolved or closed: left as is.
+ */
+export async function closeWithdrawnTicket(ticketId: string, actor: SystemActor, note: string): Promise<void> {
+  await db.transaction(async (tx) => {
+    const [ticket] = await tx.select().from(supportTickets).where(eq(supportTickets.id, ticketId)).for("update");
+    if (!ticket || ticket.status === "CLOSED") return;
+    const resolved = ticket.status === "RESOLVED" ? ticket : await moveTicket(tx, ticket, "RESOLVED", actor, note);
+    await moveTicket(tx, resolved, "CLOSED", actor, note);
+  });
+}
+
 export async function assignTicket(ticketId: string, assigneeId: string | null, actor: Actor): Promise<SupportTicket> {
   if (!isSupportStaff(actor.role)) throw notFound("Ticket");
   return db.transaction(async (tx) => {

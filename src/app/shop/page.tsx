@@ -114,7 +114,7 @@ export default async function ShopDashboardPage() {
           facts={board.facts}
           kpis={kpis}
           legal={legalStatus.enabled ? { blocking: docs.filter((d) => d.blocking).length, dueSoon: docs.filter((d) => !d.blocking && (d.deadline || d.expiringSoon)).length } : null}
-          groups={groupSellerMenus(visibleMenus(SHOP_MENUS, user.role, { shopSlug: publicSlug }, "shop"))}
+          groups={groupSellerMenus(visibleMenus(SHOP_MENUS, user.role, { shopSlug: publicSlug, features: board.features }, "shop"))}
         />
       </div>
     </>
