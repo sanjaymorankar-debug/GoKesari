@@ -461,6 +461,8 @@ export async function submitLegalDocument(input: SubmitLegalDocInput): Promise<L
     );
     return saved;
   });
+  // The last licence a pending shop was waiting for: the approval rules may now pass.
+  await approvalCheckAfterLicence(row.shopId);
   const rule = await getRule("legalDocuments");
   return toView(row, evaluateLegalDoc(row, rule), (await filesFor([row.id])).get(row.id) ?? []);
 }
@@ -536,7 +538,22 @@ export async function decideLegalDocument(
     }
     return updated;
   });
+  if (input.decision === "approve") await approvalCheckAfterLicence(row.shopId);
   return toView(row, evaluateLegalDoc(row, rule), (await filesFor([row.id])).get(row.id) ?? []);
+}
+
+/**
+ * A licence saved or approved can be the last thing a pending shop waited for
+ * (FSSAI, drug licence…): run the auto-approval check, as a document check does.
+ * Imported lazily (shops.ts imports this module). Never fails the caller.
+ */
+async function approvalCheckAfterLicence(shopId: string): Promise<void> {
+  try {
+    const { autoApproveShopIfReady } = await import("./shops");
+    await autoApproveShopIfReady(shopId);
+  } catch (error) {
+    console.error("[legal-documents] auto-approval check failed", shopId, error);
+  }
 }
 
 /** An uploaded licence, for its shop's owner or a reviewer. Reviewer views are audited. */

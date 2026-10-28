@@ -17,6 +17,8 @@
  * Full numbers exist only in memory during a check and as ciphertext at rest.
  * Views, events and logs carry the masked form only.
  */
+import { stateCodeFromName } from "@/lib/indian-states";
+import { stateForPincode } from "@/lib/pincode-state";
 import { and, asc, count, eq, gte, inArray, isNotNull, like, lt, or, sql } from "drizzle-orm";
 
 import { GST_DECLARATION_VERSION, parseGstEnrolmentNumber, SELLER_VERIFICATION_CONSENT_VERSION } from "@/lib/kyc/consent";
@@ -156,12 +158,12 @@ async function loadShopFor(shopId: string, actor: Actor): Promise<Shop> {
 
 /**
  * Two-letter state for state-specific lookups (Shop Act) and the GSTIN state
- * check. Shops store a PIN code but no state; PIN codes 40xxxx–44xxxx are
- * Maharashtra. Elsewhere the state is unknown and the state check is skipped.
+ * check, for any Indian PIN code (lib/pincode-state: Goa's 403xxx is GA, not
+ * MH); where a PIN prefix spans two states, the shop's own state field decides.
+ * Unknown: the state check is skipped.
  */
-export function stateCodeForPincode(pincode: string | null | undefined): string | undefined {
-  const prefix = Number((pincode ?? "").slice(0, 2));
-  return prefix >= 40 && prefix <= 44 ? "MH" : undefined;
+export function stateCodeForPincode(pincode: string | null | undefined, stateName?: string | null): string | undefined {
+  return stateForPincode(pincode) ?? stateCodeFromName(stateName) ?? undefined;
 }
 
 /** A shop sells food if its type is a food business or any category it carries is in a food aisle. */
@@ -188,7 +190,7 @@ export async function shopFacts(shop: Shop): Promise<ShopFacts> {
     legalBusinessName: shop.legalBusinessName,
     shopName: shop.name,
     pincode: shop.pincode,
-    stateCode: stateCodeForPincode(shop.pincode),
+    stateCode: stateCodeForPincode(shop.pincode, shop.state),
     isFoodBusiness: await shopSellsFood(shop),
   };
 }
@@ -371,6 +373,12 @@ async function runCheck(
     const pan = siblings.find((s) => s.docType === "PAN" && s.numberHash);
     if (pan) gstinPanMatchesShopPan = pan.numberHash === embeddedPanHash;
   }
+  // The other order: a PAN checked after the GSTIN must be the PAN inside that GSTIN.
+  let panMatchesShopGstin: boolean | null = null;
+  if (docType === "PAN") {
+    const gstin = siblings.find((s) => s.docType === "GSTIN" && typeof (s.details as Record<string, unknown> | null)?.embeddedPanHash === "string");
+    if (gstin) panMatchesShopGstin = docBlindIndex("PAN", doc.normalized) === (gstin.details as Record<string, unknown>).embeddedPanHash;
+  }
 
   const checked = applyDocumentChecks({
     docType,
@@ -384,9 +392,13 @@ async function runCheck(
 
   let status = checked.status;
   let errorCode = checked.errorCode ?? result.errorCode;
+  if (status === "VERIFIED" && panMatchesShopGstin === false) {
+    status = "MANUAL_REVIEW";
+    errorCode = "pan_gstin_mismatch";
+  }
   const details: Record<string, unknown> = {
     ...recordDetails(result.record),
-    panLinked: checked.checks.panLinked,
+    panLinked: checked.checks.panLinked ?? panMatchesShopGstin,
     stateMatch: checked.checks.stateMatch,
     pincodeMatch: checked.checks.pincodeMatch,
     matchedShopName: checked.checks.matchedShopName,
@@ -407,6 +419,15 @@ async function runCheck(
     }
   }
   if (consistency) details.consistencyScore = consistency.score;
+  // A periodic re-check of a document a reviewer approved keeps the approval unless the
+  // source itself now says it is not active (cancelled, suspended, expired…): the same
+  // name / state / consistency doubts were already settled by that person.
+  const reviewerApproved = claim.previousStatus === "VERIFIED" && claim.row.reviewerId !== null && claim.row.reviewedAt !== null;
+  const sourceActive = result.status === "VERIFIED" || result.record?.docStatus === "active";
+  if (reviewerApproved && status === "MANUAL_REVIEW" && sourceActive) {
+    status = "VERIFIED";
+    errorCode = null;
+  }
 
   const updated = await db.transaction(async (tx) => {
     const [row] = await tx
@@ -514,6 +535,7 @@ const REVIEW_REASONS: Record<string, string> = {
   name_not_returned: "the government record gave no name to compare",
   name_mismatch: "the name on the record does not match the shop's",
   gstin_pan_mismatch: "the GSTIN is not linked to the shop's PAN",
+  pan_gstin_mismatch: "the PAN is not the one inside the shop's GSTIN",
   state_mismatch: "the GSTIN's state is not the shop's state",
   expiry_not_returned: "the record has no expiry date",
   address_mismatch: "the address on the record does not match the shop's",
@@ -930,6 +952,14 @@ export async function adminDecideVerification(
   const now = new Date();
 
   const updated = await db.transaction(async (tx) => {
+    // Locked and compared with what the reviewer saw: a second reviewer, or a number the
+    // seller resubmitted meanwhile, must not be decided blind.
+    const [locked] = await tx.select().from(sellerVerifications).where(eq(sellerVerifications.id, row.id)).for("update");
+    if (!locked || locked.status !== row.status || locked.idempotencyKey !== row.idempotencyKey || locked.numberHash !== row.numberHash) {
+      throw conflict("This document changed while you were looking at it. Reload it and decide again.");
+    }
+    if (input.decision === "approve" && locked.status === "VERIFIED") throw conflict("This document is already verified.");
+    if (input.decision === "approve" && locked.status === "PENDING") throw conflict("The check for this document is still running. Wait for its result.");
     const [u] = await tx
       .update(sellerVerifications)
       .set({
@@ -942,7 +972,7 @@ export async function adminDecideVerification(
         reviewNote: reason || null,
         updatedAt: now,
       })
-      .where(eq(sellerVerifications.id, row.id))
+      .where(and(eq(sellerVerifications.id, row.id), eq(sellerVerifications.status, row.status)))
       .returning();
     await recordEvent(tx, {
       verificationId: row.id,

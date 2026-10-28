@@ -14,6 +14,7 @@
  * Any failed check moves a vendor-VERIFIED document to MANUAL_REVIEW with a
  * reason code; nothing here ever turns a failure into a pass.
  */
+import { stateCodeFromName } from "@/lib/indian-states";
 import { bestNameMatch } from "@/lib/kyc/name-match";
 import type { SellerDocType, SellerVerificationStatus } from "@/lib/kyc/doc-formats";
 import type { SourceRecord } from "@/server/kyc";
@@ -23,7 +24,7 @@ export const GST_STATE_CODES: Record<string, string> = {
   "01": "JK", "02": "HP", "03": "PB", "04": "CH", "05": "UK", "06": "HR", "07": "DL", "08": "RJ",
   "09": "UP", "10": "BR", "11": "SK", "12": "AR", "13": "NL", "14": "MN", "15": "MZ", "16": "TR",
   "17": "ML", "18": "AS", "19": "WB", "20": "JH", "21": "OD", "22": "CG", "23": "MP", "24": "GJ",
-  "25": "DD", "26": "DN", "27": "MH", "28": "AP", "29": "KA", "30": "GA", "31": "LD", "32": "KL",
+  "25": "DN", "26": "DN", "27": "MH", "28": "AP", "29": "KA", "30": "GA", "31": "LD", "32": "KL",
   "33": "TN", "34": "PY", "35": "AN", "36": "TS", "37": "AP", "38": "LA",
 };
 
@@ -33,8 +34,8 @@ export function toStateCode(raw: string | null | undefined): string | null {
   const s = raw.trim().toUpperCase();
   if (/^\d{2}$/.test(s)) return GST_STATE_CODES[s] ?? null;
   if (/^[A-Z]{2}$/.test(s)) return s;
-  if (s.startsWith("MAHARASHTRA")) return "MH";
-  return null;
+  // A state's name ("Karnataka", "Tamil Nadu"…), any state of India.
+  return stateCodeFromName(s);
 }
 
 export interface ShopFacts {

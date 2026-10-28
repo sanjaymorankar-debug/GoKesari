@@ -103,8 +103,12 @@ export async function decideGovAutoApproval(shop: Shop): Promise<GovDecision> {
     const gst = sourceCheck(latest("GSTIN"), rule.nameMatchAutoApprove, productionKyc);
     evidence.gstin = gst.evidence;
     if (!gst.ok) reasons.push(`GSTIN: ${gst.reason}`);
-    // With both given, a verified PAN is recorded too (the GSTIN's own check already tied it to this PAN).
-    if (latest("PAN")) evidence.pan = sourceCheck(latest("PAN"), rule.nameMatchAutoApprove, productionKyc).evidence;
+    // With both given, a verified PAN is recorded too, and it must be the PAN inside the GSTIN
+    // (whichever was checked first — a PAN added after the GSTIN is compared here as well).
+    const panRow = latest("PAN");
+    if (panRow) evidence.pan = sourceCheck(panRow, rule.nameMatchAutoApprove, productionKyc).evidence;
+    const embedded = (latest("GSTIN")?.details as Record<string, unknown> | null)?.embeddedPanHash;
+    if (panRow?.numberHash && typeof embedded === "string" && panRow.numberHash !== embedded) reasons.push("PAN is not the one inside the GSTIN");
   } else {
     const pan = sourceCheck(latest("PAN"), rule.nameMatchAutoApprove, productionKyc);
     evidence.pan = pan.evidence;
