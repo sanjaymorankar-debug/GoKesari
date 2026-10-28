@@ -13,7 +13,7 @@
 --      NEEDS LAWYER / CA SIGN-OFF (docs/seller-verification/COMPLIANCE.md) before production.
 -- All three tables are seller-side; the foreign keys stay inside the seller database.
 -- ADDITIVE ONLY (the function is replaced with a superset); idempotent.
--- Rollback: scripts/rollback-0112.sql
+-- Rollback: scripts/rollback-0113.sql
 ALTER TABLE "shop_registration_drafts" ADD COLUMN IF NOT EXISTS "details" jsonb DEFAULT '{}'::jsonb NOT NULL;--> statement-breakpoint
 ALTER TABLE "shop_registration_drafts" ADD COLUMN IF NOT EXISTS "has_udyam" boolean;--> statement-breakpoint
 ALTER TABLE "shop_registration_drafts" ADD COLUMN IF NOT EXISTS "has_fssai" boolean;--> statement-breakpoint

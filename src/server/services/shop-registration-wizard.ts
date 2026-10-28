@@ -18,7 +18,7 @@
  *   WAITING / DONE  the payment webhook runs the instant approval; a wizard
  *             shop is approved in every district (owner decision B) with its
  *             Shop Act — and a no-GSTIN declaration — left for an admin's
- *             review (shop_deferred_document_reviews, 0112)
+ *             review (shop_deferred_document_reviews, 0113)
  *
  * Same safeguards as step 1: format check before any paid call, explicit
  * consent, the draft row claimed under a lock, a verified number served from

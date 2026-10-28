@@ -6547,7 +6547,17 @@ export type OrderFulfilmentArrangement = typeof orderFulfilmentArrangements.$inf
  * Additive: migration 0062, rollback scripts/rollback-0062.sql.
  * =================================================================== */
 
-export const LEGAL_DOC_TYPES = ["FSSAI", "DRUG_LICENCE", "MEDICAL_REGISTRATION"] as const;
+export const LEGAL_DOC_TYPES = [
+  "FSSAI",
+  "DRUG_LICENCE",
+  "MEDICAL_REGISTRATION",
+  // Optional licences (migration 0112, docs/document-upload-2026-10 "More licences").
+  "TRADE_LICENCE",
+  "LEGAL_METROLOGY",
+  "FIRE_NOC",
+  "AGRI_INPUT_LICENCE",
+  "OTHER_LICENCE",
+] as const;
 export type LegalDocType = (typeof LEGAL_DOC_TYPES)[number];
 export const LEGAL_DOC_STATUSES = ["NOT_SUBMITTED", "SUBMITTED", "APPROVED", "REJECTED"] as const;
 export type LegalDocStatus = (typeof LEGAL_DOC_STATUSES)[number];
@@ -6571,8 +6581,12 @@ export const shopLegalDocuments = pgTable(
     status: text("status", { enum: LEGAL_DOC_STATUSES }).notNull().default("NOT_SUBMITTED"),
     numberEncrypted: text("number_encrypted"),
     numberLast4: text("number_last4"),
-    /** MEDICAL_REGISTRATION: the council that issued it. */
+    /** MEDICAL_REGISTRATION: the council that issued it. The optional licences: the issuing authority, if given. */
     issuingCouncil: text("issuing_council"),
+    /** OTHER_LICENCE: the licence's name as the owner typed it. */
+    licenceName: text("licence_name"),
+    /** '' for every type but OTHER_LICENCE, where it is the upper-cased name — one row per named licence. */
+    licenceKey: text("licence_key").notNull().default(""),
     /** FSSAI and DRUG_LICENCE: the licence's expiry date. */
     expiryDate: date("expiry_date"),
     /** A shop already live when the requirement applied: may trade without it until then. */
@@ -6588,7 +6602,7 @@ export const shopLegalDocuments = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("shop_legal_documents_shop_type_uq").on(t.shopId, t.docType),
+    uniqueIndex("shop_legal_documents_shop_type_key_uq").on(t.shopId, t.docType, t.licenceKey),
     index("shop_legal_documents_status_idx").on(t.status, t.submittedAt),
   ],
 );
@@ -7015,7 +7029,20 @@ export type ReferralSettingChange = typeof referralSettingChanges.$inferSelect;
  * data and kept only encrypted; `flags` hold codes and messages, no content.
  * Seller-owned (docs/db-split-2026-10).
  */
-export const SELLER_DOCUMENT_UPLOAD_TYPES = ["PAN", "GSTIN", "UDYAM", "FSSAI", "SHOP_ACT", "DRUG_LICENCE", "MEDICAL_REGISTRATION"] as const;
+export const SELLER_DOCUMENT_UPLOAD_TYPES = [
+  "PAN",
+  "GSTIN",
+  "UDYAM",
+  "FSSAI",
+  "SHOP_ACT",
+  "DRUG_LICENCE",
+  "MEDICAL_REGISTRATION",
+  "TRADE_LICENCE",
+  "LEGAL_METROLOGY",
+  "FIRE_NOC",
+  "AGRI_INPUT_LICENCE",
+  "OTHER_LICENCE",
+] as const;
 export const SELLER_DOCUMENT_UPLOAD_STATUSES = ["EXTRACTED", "CONFIRMED", "DISCARDED"] as const;
 
 export const sellerDocumentUploads = pgTable(
@@ -9879,7 +9906,7 @@ export const shopRegistrationDrafts = pgTable(
   {
     id: uuid("id").primaryKey().defaultRandom(),
     ownerId: uuid("owner_id").notNull(),
-    /** OPEN while the owner fills it in; SUBMITTED once the shop exists (payment next); COMPLETED once the shop is live (0112). */
+    /** OPEN while the owner fills it in; SUBMITTED once the shop exists (payment next); COMPLETED once the shop is live (0113). */
     status: text("status", { enum: ["OPEN", "SUBMITTED", "COMPLETED", "ABANDONED"] }).notNull().default("OPEN"),
     /** GSTIN: the GST record leads. PAN_ONLY: no GSTIN, PAN + declaration. */
     route: text("route", { enum: ["GSTIN", "PAN_ONLY"] }),
@@ -9922,7 +9949,7 @@ export const shopRegistrationDrafts = pgTable(
     checkWindowStartedAt: timestamp("check_window_started_at", { withTimezone: true }),
     checksInWindow: integer("checks_in_window").notNull().default(0),
 
-    /** Step 2 (0112): the shop details step — see DraftShopDetails in services/shop-registration-draft.ts. */
+    /** Step 2 (0113): the shop details step — see DraftShopDetails in services/shop-registration-draft.ts. */
     details: jsonb("details").$type<Record<string, unknown>>().notNull().default({}),
     /** "Do you have Udyam / FSSAI?" — null until answered. */
     hasUdyam: boolean("has_udyam"),
@@ -9955,7 +9982,7 @@ export const DRAFT_CHECK_DOC_TYPES = ["UDYAM", "FSSAI", "SHOP_ACT"] as const;
 export type DraftCheckDocType = (typeof DRAFT_CHECK_DOC_TYPES)[number];
 
 /**
- * Onboarding wizard step 2 (0112): the draft's Udyam, FSSAI and Shop Act checks,
+ * Onboarding wizard step 2 (0113): the draft's Udyam, FSSAI and Shop Act checks,
  * one row per document, stored like seller_verifications (ciphertext, masked form,
  * blind index). Copied to seller_verifications when the shop is created.
  */
@@ -9992,7 +10019,7 @@ export const shopRegistrationDraftChecks = pgTable(
 export type ShopRegistrationDraftCheck = typeof shopRegistrationDraftChecks.$inferSelect;
 
 /**
- * Owner decision B (0112, docs/shop-onboarding-wizard-2026-10): a mandatory seller
+ * Owner decision B (0113, docs/shop-onboarding-wizard-2026-10): a mandatory seller
  * document a shop may go live with while an admin still reviews it (Shop Act; the
  * no-GSTIN declaration). shop_kyc_complete counts it while PENDING / MANUAL_REVIEW.
  */

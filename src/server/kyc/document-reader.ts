@@ -202,7 +202,7 @@ export async function pdfText(data: Buffer): Promise<string> {
 async function readWithClaude(
   data: Buffer,
   contentType: string,
-  docType: UploadDocType,
+  docType: UploadDocType | null,
 ): Promise<ReadResult | null> {
   const [{ default: Anthropic }, { zodOutputFormat }, { z }] = await Promise.all([
     import("@anthropic-ai/sdk"),
@@ -210,7 +210,21 @@ async function readWithClaude(
     import("zod"),
   ]);
   const schema = z.object({
-    document_type: z.enum(["PAN", "GSTIN", "UDYAM", "FSSAI", "SHOP_ACT", "DRUG_LICENCE", "MEDICAL_REGISTRATION", "OTHER", "UNREADABLE"]),
+    document_type: z.enum([
+      "PAN",
+      "GSTIN",
+      "UDYAM",
+      "FSSAI",
+      "SHOP_ACT",
+      "DRUG_LICENCE",
+      "MEDICAL_REGISTRATION",
+      "TRADE_LICENCE",
+      "LEGAL_METROLOGY",
+      "FIRE_NOC",
+      "AGRI_INPUT_LICENCE",
+      "OTHER",
+      "UNREADABLE",
+    ]),
     number: z.string().nullable(),
     name: z.string().nullable(),
     address: z.string().nullable(),
@@ -238,7 +252,11 @@ async function readWithClaude(
           {
             type: "text",
             text:
-              `This should be an Indian shop's ${UPLOAD_DOC_LABELS[docType]}. Read it and fill the fields exactly as printed. ` +
+              (docType
+                ? `This should be an Indian shop's ${UPLOAD_DOC_LABELS[docType]}. Read it and fill the fields exactly as printed. `
+                : "This is one of an Indian shop's registrations or licences. Say which one it is in document_type " +
+                  "(TRADE_LICENCE for a municipal trade or health licence, LEGAL_METROLOGY for weights and measures, " +
+                  "AGRI_INPUT_LICENCE for a seeds, fertiliser or pesticide licence, OTHER if none fits) and fill the fields exactly as printed. ") +
               "Dates as YYYY-MM-DD. valid_until is the expiry / 'valid up to' date. name is the licensee, proprietor or business name the document is issued to. " +
               "Use null for anything not on the document. Never copy an Aadhaar number into any field. " +
               "If the image is too blurred or cut off to read, set document_type to UNREADABLE.",
@@ -268,7 +286,8 @@ async function readWithClaude(
 
 /* ---------------------------------------------------------------- entry */
 
-type ReaderOverride = (data: Buffer, contentType: string, docType: UploadDocType) => Promise<ReadResult>;
+/** docType null: "Scan a document" — the owner didn't say which document it is. */
+type ReaderOverride = (data: Buffer, contentType: string, docType: UploadDocType | null) => Promise<ReadResult>;
 let readerOverride: ReaderOverride | null = null;
 
 /** Tests only: replace the engines with a fixed reader (null restores them). */
@@ -292,7 +311,8 @@ async function imageMinSide(data: Buffer): Promise<number | null> {
 export async function readDocument(
   data: Buffer,
   contentType: string,
-  docType: UploadDocType,
+  /** Null when the owner scanned a document without saying which one it is. */
+  docType: UploadDocType | null,
   browserRead?: BrowserReadInput | null,
 ): Promise<ReadResult> {
   if (readerOverride) return readerOverride(data, contentType, docType);

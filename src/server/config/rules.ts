@@ -926,7 +926,7 @@ export const RULES = {
   },
   legalDocuments: {
     description:
-      "Mandatory legal documents by shop category. When enabled, a shop that sells food needs an FSSAI licence, a pharmacy a drug licence and a doctor / clinic a medical registration (number, expiry or issuing council, and an uploaded copy). A new shop cannot be approved until they are submitted; a live shop gets graceDays to upload before it can no longer accept orders. Owners are reminded expiryReminderDays before a licence expires. The shop types and shop-category slugs that need each document are listed here.",
+      "Mandatory legal documents by shop category. When enabled, a shop that sells food needs an FSSAI licence, a pharmacy a drug licence and a doctor / clinic a medical registration (number, expiry or issuing council, and an uploaded copy). A new shop cannot be approved until they are submitted; a live shop gets graceDays to upload before it can no longer accept orders. Owners are reminded expiryReminderDays before a licence expires. The shop types and shop-category slugs that need each document are listed here. otherRequirements makes an optional licence (trade licence, legal metrology, fire NOC, seeds / fertiliser / pesticide) mandatory for the shop types or categories it lists; empty, they stay optional.",
     schema: z.object({
       enabled: z.boolean(),
       graceDays: int(0, 90),
@@ -937,6 +937,19 @@ export const RULES = {
       medicalRegistrationCategorySlugs: z.array(z.string().max(80)).max(50),
       /** On top of the food detection seller verification already uses (food shop types and food aisles). */
       fssaiExtraCategorySlugs: z.array(z.string().max(80)).max(50),
+      /**
+       * The optional licences (trade licence, legal metrology, fire NOC, seeds / fertiliser /
+       * pesticide) made mandatory for some shop types or category slugs. Empty: all optional.
+       */
+      otherRequirements: z
+        .array(
+          z.object({
+            docType: z.enum(["TRADE_LICENCE", "LEGAL_METROLOGY", "FIRE_NOC", "AGRI_INPUT_LICENCE"]),
+            shopTypes: z.array(z.string().max(60)).max(20),
+            categorySlugs: z.array(z.string().max(80)).max(50),
+          }),
+        )
+        .max(20),
     }),
     defaults: {
       enabled: false,
@@ -947,6 +960,7 @@ export const RULES = {
       medicalRegistrationShopTypes: [],
       medicalRegistrationCategorySlugs: ["doctor-clinic"],
       fssaiExtraCategorySlugs: [],
+      otherRequirements: [],
     },
   },
   shopMembership: {

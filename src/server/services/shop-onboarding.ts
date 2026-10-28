@@ -112,7 +112,7 @@ export async function onboardingApprovalBlocker(shop: Shop, client: DbClient = d
 /**
  * Mandatory seller documents not yet VERIFIED for this shop (whatever the statusModels rule says).
  * With `countDeferred` — the approval gates — a document listed in shop_deferred_document_reviews
- * (owner decision B, 0112: an onboarding-wizard shop's Shop Act, or its no-GSTIN declaration)
+ * (owner decision B, 0113: an onboarding-wizard shop's Shop Act, or its no-GSTIN declaration)
  * counts as done while it still waits for its review, exactly as shop_kyc_complete() counts it.
  */
 export async function missingMandatoryDocuments(
@@ -135,7 +135,7 @@ export async function missingMandatoryDocuments(
   return SELLER_DOC_TYPES.filter((d) => isMandatory(d, { isFoodBusiness: row?.sellsFood ?? false }) && !have.has(d));
 }
 
-/** Documents this shop may go live with while an admin still reviews them (0112). */
+/** Documents this shop may go live with while an admin still reviews them (0113). */
 export async function deferredReviewDocTypes(shopId: string, client: DbClient = db): Promise<Set<string>> {
   const rows = await client
     .select({ docType: shopDeferredDocumentReviews.docType })

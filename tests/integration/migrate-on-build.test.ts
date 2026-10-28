@@ -111,6 +111,7 @@ const after0055 = () => journal.entries.filter((e) => e.when > whenOf("0055_")).
 const backToMigration0055 = () =>
   withTemp(async (sql) => {
     // docs/dealer-programme (0104): its tables point at distributors (0071) and referral_codes, so they go first.
+    await sql.unsafe(readFileSync("scripts/rollback-0113.sql", "utf8"));
     await sql.unsafe(readFileSync("scripts/rollback-0112.sql", "utf8"));
     await sql.unsafe(readFileSync("scripts/rollback-0111.sql", "utf8"));
     await sql.unsafe(readFileSync("scripts/rollback-0110.sql", "utf8"));

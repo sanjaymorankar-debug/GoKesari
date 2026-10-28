@@ -1,7 +1,7 @@
 # Onboarding wizard step 2 — test results (28 Oct 2026)
 
 Branch `claude/onboarding-wizard-step2-b1ade0`, based on staging after step 1 (PR #267).
-Migration 0112 (staging is at 0111). Local PostgreSQL 18 (Postgres.app), built-in mock KYC
+Migration 0113 (renumbered from 0112: staging took 0112 for "More licences"). Local PostgreSQL 18 (Postgres.app), built-in mock KYC
 vendor, sandbox payment gateway (in-process — no Cashfree call). Run by Claude.
 
 ## New tests — `tests/integration/onboarding-wizard-step2.test.ts`
@@ -56,7 +56,7 @@ on to the next step, and the payment step's wording matches where the gateway re
 
 Pre-existing failures, none from this change:
 
-- `migrate-on-build` and `split-migrate`: every test passes — including rolling back through 0112 and
+- `migrate-on-build` and `split-migrate`: every test passes — including rolling back through 0113 and
   re-applying it — but the clean-up hook (dropping the scratch database) times out on local PostgreSQL 18.
 - `product-import-parser` and `product-import` (`PUZZLES.xlsm`): the empty row is not counted as skipped.
 - `pmd-sources` streaming .xlsx reader: intermittent.

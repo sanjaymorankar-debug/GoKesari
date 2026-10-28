@@ -674,7 +674,7 @@ export async function declareNoGstin(input: {
   return toView(row.updated);
 }
 
-/* ---------------------------------------- from the onboarding wizard (0112) */
+/* ---------------------------------------- from the onboarding wizard (0113) */
 
 /** A check the onboarding wizard already ran on the owner's draft, before the shop existed. */
 export interface RegistrationCheck {

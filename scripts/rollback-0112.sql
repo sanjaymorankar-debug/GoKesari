@@ -1,35 +1,16 @@
--- Rollback for 0112_onboarding_wizard_step2 (docs/shop-onboarding-wizard-2026-10, step 2).
+-- Rollback for 0112_more_licences (docs/document-upload-2026-10, "More licences").
 -- Seller database. Run only after the previous release's code is live, then delete the 0112 row
--- from drizzle.__drizzle_migrations. Wizard shops still pending with a Shop Act (or GST
--- declaration) in review go back to KYC_PENDING until an admin verifies it; shops already live
--- are not affected. Drafts past OPEN are kept as SUBMITTED. Run before rollback-0111.sql.
+-- from drizzle.__drizzle_migrations. The optional licences (trade licence, legal metrology, fire
+-- NOC, seeds / fertiliser / pesticide, Other licence) and their uploads are deleted — back up first.
+-- FSSAI, drug licence and medical registration rows are kept.
 BEGIN;
-DROP TRIGGER IF EXISTS shop_deferred_document_reviews_shop_onboarding ON shop_deferred_document_reviews;
-CREATE OR REPLACE FUNCTION shop_kyc_complete(p_shop uuid, p_type text)
-RETURNS boolean LANGUAGE sql STABLE AS $$
-  SELECT EXISTS (SELECT 1 FROM shop_document_waivers w WHERE w.shop_id = p_shop)
-      OR NOT EXISTS (
-    SELECT 1
-      FROM unnest(ARRAY['PAN', 'GSTIN', 'SHOP_ACT']
-                  || CASE WHEN shop_sells_food(p_shop, p_type) THEN ARRAY['FSSAI'] ELSE ARRAY[]::text[] END) AS req(doc)
-     WHERE NOT EXISTS (
-       SELECT 1 FROM seller_verifications v
-        WHERE v.shop_id = p_shop AND v.doc_type::text = req.doc AND v.status = 'VERIFIED'))
-$$;
-DROP TABLE IF EXISTS "shop_deferred_document_reviews";
-DROP TABLE IF EXISTS "shop_registration_draft_checks";
-UPDATE "shop_registration_drafts" SET "status" = 'SUBMITTED' WHERE "status" = 'COMPLETED';
-ALTER TABLE "shop_registration_drafts" DROP CONSTRAINT IF EXISTS "shop_registration_drafts_status";
-ALTER TABLE "shop_registration_drafts" ADD CONSTRAINT "shop_registration_drafts_status" CHECK ("status" in ('OPEN', 'SUBMITTED', 'ABANDONED'));
-DROP INDEX IF EXISTS "shop_registration_drafts_shop_idx";
-ALTER TABLE "shop_registration_drafts"
-  DROP COLUMN IF EXISTS "details",
-  DROP COLUMN IF EXISTS "has_udyam",
-  DROP COLUMN IF EXISTS "has_fssai",
-  DROP COLUMN IF EXISTS "latitude",
-  DROP COLUMN IF EXISTS "longitude",
-  DROP COLUMN IF EXISTS "location_address",
-  DROP COLUMN IF EXISTS "location_confirmed_at",
-  DROP COLUMN IF EXISTS "submitted_at",
-  DROP COLUMN IF EXISTS "completed_at";
+DELETE FROM "seller_document_uploads" WHERE "doc_type" IN ('TRADE_LICENCE', 'LEGAL_METROLOGY', 'FIRE_NOC', 'AGRI_INPUT_LICENCE', 'OTHER_LICENCE');
+-- shop_legal_document_files rows go with their documents (ON DELETE CASCADE).
+DELETE FROM "shop_legal_documents" WHERE "doc_type" IN ('TRADE_LICENCE', 'LEGAL_METROLOGY', 'FIRE_NOC', 'AGRI_INPUT_LICENCE', 'OTHER_LICENCE');
+ALTER TABLE "seller_document_uploads" DROP CONSTRAINT IF EXISTS "seller_document_uploads_doc_type";
+ALTER TABLE "seller_document_uploads" ADD CONSTRAINT "seller_document_uploads_doc_type" CHECK ("seller_document_uploads"."doc_type" in ('PAN', 'GSTIN', 'UDYAM', 'FSSAI', 'SHOP_ACT', 'DRUG_LICENCE', 'MEDICAL_REGISTRATION'));
+CREATE UNIQUE INDEX IF NOT EXISTS "shop_legal_documents_shop_type_uq" ON "shop_legal_documents" USING btree ("shop_id","doc_type");
+DROP INDEX IF EXISTS "shop_legal_documents_shop_type_key_uq";
+ALTER TABLE "shop_legal_documents" DROP COLUMN IF EXISTS "licence_key";
+ALTER TABLE "shop_legal_documents" DROP COLUMN IF EXISTS "licence_name";
 COMMIT;

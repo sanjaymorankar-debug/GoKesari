@@ -53,6 +53,7 @@ export const POST = route(async (request: NextRequest, context: RouteContext<{ i
       number,
       expiryDate: text("expiryDate"),
       issuingCouncil: text("issuingCouncil"),
+      licenceName: text("licenceName"),
       file: Buffer.from(await file.arrayBuffer()),
       actor: user,
     }),
