@@ -44,6 +44,7 @@ import {
   checkCommissionMilestones,
   commissionAmount,
   createPayoutBatch,
+  DOCUMENTS_HOLD_NOTE,
   listCommissionRules,
   markPayoutPaid,
   ratingView,
@@ -310,5 +311,60 @@ describe("suspension (scenario 5, commission side)", () => {
     expect((await entries(shop.id))[0]).toMatchObject({ status: "ON_HOLD", heldFromStatus: "EARNED" });
     await decideDealer(dealer.id, { action: "REACTIVATE", reason: "documents fine" }, admin);
     expect((await entries(shop.id))[0]).toMatchObject({ status: "EARNED", heldFromStatus: null });
+  });
+});
+
+describe("a shop approved without its documents (0109; owner, 28 Oct)", () => {
+  it("activation commission and rating credit wait for the documents; a dealer's reactivation does not release them; verification does", async () => {
+    const { dealer } = await newDealer();
+    const shop = await attributedShop(dealer.id);
+    await payFee(shop.id);
+    await approveShop(shop.id, { classification: "GREEN" }, admin, { waiveDocuments: { reason: "Shop Act applied for, approved for the pilot" } });
+
+    const activation = async () => (await entries(shop.id)).find((e) => e.milestone === "ACTIVATED")!;
+    expect(await activation()).toMatchObject({ status: "ON_HOLD", heldFromStatus: "EARNED", amountPaise: 15_000, note: DOCUMENTS_HOLD_NOTE });
+    expect((await entries(shop.id)).find((e) => e.milestone === "REGISTERED")?.status).toBe("EARNED");
+    const [a] = await db.select().from(shopAttributions).where(eq(shopAttributions.shopId, shop.id));
+    expect(a.activatedAt).toBeNull();
+    expect((await db.select().from(dealers).where(eq(dealers.id, dealer.id)))[0].activatedShops).toBe(0);
+    // An admin cannot approve it for payout while it waits.
+    expect(await approveEntries([(await activation()).id], admin)).toBe(0);
+
+    // Suspending and reactivating the dealer leaves the document hold alone.
+    await decideDealer(dealer.id, { action: "SUSPEND", reason: "documents being re-checked" }, admin);
+    await decideDealer(dealer.id, { action: "REACTIVATE", reason: "documents fine" }, admin);
+    expect(await activation()).toMatchObject({ status: "ON_HOLD", note: DOCUMENTS_HOLD_NOTE });
+
+    // The documents are verified: released, and the shop counts for the rating.
+    for (const docType of ["PAN", "GSTIN", "SHOP_ACT"] as const) await db.insert(sellerVerifications).values({ shopId: shop.id, docType, status: "VERIFIED", providerId: "mock", verifiedAt: new Date() });
+    await checkCommissionMilestones(shop.id);
+    expect(await activation()).toMatchObject({ status: "EARNED", heldFromStatus: null, note: null });
+    expect((await db.select().from(shopAttributions).where(eq(shopAttributions.shopId, shop.id)))[0].activatedAt).not.toBeNull();
+    expect((await db.select().from(dealers).where(eq(dealers.id, dealer.id)))[0].activatedShops).toBe(1);
+    const released = await db.select().from(auditLogs).where(and(eq(auditLogs.entityType, "shop"), eq(auditLogs.entityId, shop.id), eq(auditLogs.action, "dealer.commission_hold")));
+    expect(released.length).toBeGreaterThan(0);
+  });
+
+  it("verified while the dealer is suspended: stays held under the dealer's suspension, released on reactivation", async () => {
+    const { dealer } = await newDealer();
+    const shop = await attributedShop(dealer.id);
+    await payFee(shop.id);
+    await approveShop(shop.id, { classification: "GREEN" }, admin, { waiveDocuments: { reason: "Shop Act applied for, approved for the pilot" } });
+    await decideDealer(dealer.id, { action: "SUSPEND", reason: "documents being re-checked" }, admin);
+    for (const docType of ["PAN", "GSTIN", "SHOP_ACT"] as const) await db.insert(sellerVerifications).values({ shopId: shop.id, docType, status: "VERIFIED", providerId: "mock", verifiedAt: new Date() });
+    await checkCommissionMilestones(shop.id);
+    const activation = async () => (await entries(shop.id)).find((e) => e.milestone === "ACTIVATED")!;
+    expect(await activation()).toMatchObject({ status: "ON_HOLD", note: null });
+    await decideDealer(dealer.id, { action: "REACTIVATE", reason: "documents fine" }, admin);
+    expect((await activation()).status).toBe("EARNED");
+  });
+
+  it("a shop approved with its documents is not affected", async () => {
+    const { dealer } = await newDealer();
+    const shop = await attributedShop(dealer.id);
+    await payFee(shop.id);
+    for (const docType of ["PAN", "GSTIN", "SHOP_ACT"] as const) await db.insert(sellerVerifications).values({ shopId: shop.id, docType, status: "VERIFIED", providerId: "mock", verifiedAt: new Date() });
+    await approveShop(shop.id, { classification: "GREEN" }, admin);
+    expect((await entries(shop.id)).find((e) => e.milestone === "ACTIVATED")).toMatchObject({ status: "EARNED", note: null });
   });
 });

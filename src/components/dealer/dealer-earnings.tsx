@@ -30,7 +30,7 @@ export function DealerEarnings({
   rating: Rating;
   summary: Record<"earned" | "pending" | "approved" | "paid" | "reversed" | "onHold", number>;
   rates: { milestone: string; shopScope: string; districtCode: string | null; fixedPaise: number; percentBp: number }[];
-  entries: { id: string; shopName: string; milestone: string; kind: string; status: string; amountPaise: number; bonusBp: number; createdAt: string }[];
+  entries: { id: string; shopName: string; milestone: string; kind: string; status: string; amountPaise: number; bonusBp: number; createdAt: string; note?: string | null }[];
   bonusOn: boolean;
 }) {
   const prevMin = [...rating.slabs].filter((s) => s.minShops <= rating.activatedShops).pop()?.minShops ?? 0;
@@ -110,6 +110,9 @@ export function DealerEarnings({
               <span>
                 {e.createdAt.slice(0, 10)} · {e.shopName} · {MILESTONE[e.milestone]}
                 {e.kind === "REVERSAL" ? " (reversal)" : ""}
+                {e.status === "ON_HOLD" && e.note?.startsWith("held: shop approved without its documents") ? (
+                  <span className="block text-xs text-ink-500">On hold until the shop&apos;s documents are verified — then it is released and the shop counts for your rating.</span>
+                ) : null}
               </span>
               <span>
                 {rs(e.amountPaise)} <Badge tone={e.status === "PAID" ? "success" : e.status === "REVERSED" ? "danger" : "info"}>{e.status.toLowerCase().replace("_", " ")}</Badge>

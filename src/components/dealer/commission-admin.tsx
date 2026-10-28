@@ -396,6 +396,7 @@ export function CommissionAdmin({
                       {MILESTONE[e.milestone]}
                       {e.kind !== "ACCRUAL" ? ` (${e.kind.toLowerCase()})` : ""}
                       {e.aboveCap ? " · above cap" : ""}
+                      {e.status === "ON_HOLD" && e.note?.startsWith("held: shop approved without its documents") ? <span className="block text-xs text-ink-500">approved without documents — released when they are verified</span> : null}
                     </td>
                     <td className="p-1">
                       {rs(e.amountPaise)}

@@ -37,7 +37,7 @@
  * (checked here, not only in routes). Every change is audited with the old
  * value, the new value and the reason.
  */
-import { and, asc, desc, eq, gte, inArray, isNull, lte, ne, or, sql } from "drizzle-orm";
+import { and, asc, desc, eq, gte, inArray, isNull, like, lte, ne, or, sql } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { db, type DbClient } from "@/server/db";
@@ -67,7 +67,7 @@ import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { flagCoversDistrict, getFeatureFlag } from "@/server/services/feature-flags";
 import { districtCodeForPincode } from "@/server/services/geo-areas";
 import { notify } from "@/server/services/notifications";
-import { missingMandatoryDocuments } from "@/server/services/shop-onboarding";
+import { hasDocumentWaiver, missingMandatoryDocuments } from "@/server/services/shop-onboarding";
 
 interface Actor {
   id: string;
@@ -75,6 +75,13 @@ interface Actor {
 }
 
 const WHOLESALE_TYPES = new Set(["WHOLESALE_STORE"]);
+/**
+ * Note on an ACTIVATED entry held because an admin approved the shop without its
+ * seller documents (0109, owner 28 Oct 2026): released — with the shop's rating
+ * credit — once the documents are verified. Only that release (or an admin)
+ * frees it; a dealer's reactivation does not.
+ */
+export const DOCUMENTS_HOLD_NOTE = "held: shop approved without its documents — released when they are verified";
 const today = () => new Date().toISOString().slice(0, 10);
 
 function requireAdmin(actor: Actor, what: string) {
@@ -322,13 +329,21 @@ export async function checkCommissionMilestones(shopId: string, actor: Actor | n
   if (!flagCoversDistrict(flag, district)) return [];
 
   const settings = await getCommissionSettings();
+  const missing = await missingMandatoryDocuments(row.shop);
+  // Approved by an admin without its documents (0109) and still not verified: activation is held.
+  const awaitingDocuments = missing.length > 0 && (await hasDocumentWaiver(shopId));
   const reached: CommissionMilestone[] = [];
   if (row.shop.feePaymentStatus === "PAID") reached.push("REGISTERED");
-  if ((await missingMandatoryDocuments(row.shop)).length === 0 && (await activeProducts(shopId, db)) >= settings.catalogueMinProducts) reached.push("VERIFIED_CATALOGUE");
+  if (missing.length === 0 && (await activeProducts(shopId, db)) >= settings.catalogueMinProducts) reached.push("VERIFIED_CATALOGUE");
   if (row.shop.status === "APPROVED") reached.push("ACTIVATED");
 
   const out: DealerCommissionEntry[] = [];
-  for (const milestone of reached) out.push(...(await accrue(row.shop, row.a.dealerId, row.a.salespersonId, milestone, district, settings, actor)));
+  for (const milestone of reached) {
+    out.push(...(await accrue(row.shop, row.a.dealerId, row.a.salespersonId, milestone, district, settings, actor, { holdForDocuments: milestone === "ACTIVATED" && awaitingDocuments })));
+  }
+  // No rating credit until the documents are verified; then the held activation is released.
+  if (awaitingDocuments) return out;
+  await releaseDocumentHold(shopId, actor);
   if (reached.includes("ACTIVATED") && !row.a.activatedAt) {
     await db.update(shopAttributions).set({ activatedAt: new Date(), updatedAt: new Date() }).where(and(eq(shopAttributions.shopId, shopId), isNull(shopAttributions.activatedAt)));
     await recountRating(row.a.dealerId, "a shop activated", null);
@@ -354,6 +369,7 @@ async function accrue(
   district: string | null,
   settings: DealerCommissionSettings,
   actor: Actor | null,
+  options: { holdForDocuments?: boolean } = {},
 ): Promise<DealerCommissionEntry[]> {
   return db.transaction(async (tx) => {
     // The dealer row is the gate: the cap sums this shop's other entries (split layout: touched after the lock).
@@ -383,7 +399,8 @@ async function accrue(
     const room = Math.max(0, settings.capPaise - net);
     const within = Math.min(amount.totalPaise, room);
     const above = amount.totalPaise - within;
-    const held = dealer.status === "APPROVED" ? null : "EARNED";
+    const held = dealer.status === "APPROVED" && !options.holdForDocuments ? null : "EARNED";
+    const docsNote = options.holdForDocuments ? DOCUMENTS_HOLD_NOTE : null;
     const common = {
       dealerId,
       salespersonId,
@@ -401,7 +418,7 @@ async function accrue(
     };
     const rows = [];
     if (within > 0 || above === 0) {
-      rows.push({ ...common, amountPaise: within, aboveCap: false, status: (held ? "ON_HOLD" : "EARNED") as CommissionStatus, heldFromStatus: held as CommissionStatus | null });
+      rows.push({ ...common, amountPaise: within, aboveCap: false, status: (held ? "ON_HOLD" : "EARNED") as CommissionStatus, heldFromStatus: held as CommissionStatus | null, note: docsNote });
     }
     if (above > 0) {
       rows.push({
@@ -410,7 +427,7 @@ async function accrue(
         aboveCap: true,
         status: (held ? "ON_HOLD" : "PENDING") as CommissionStatus,
         heldFromStatus: (held ? "PENDING" : null) as CommissionStatus | null,
-        note: `above the per-shop cap of ₹${(settings.capPaise / 100).toLocaleString("en-IN")} — needs an admin override`,
+        note: [docsNote, `above the per-shop cap of ₹${(settings.capPaise / 100).toLocaleString("en-IN")} — needs an admin override`].filter(Boolean).join("; "),
       });
     }
     // dealer_commission_ledger has more than one unique key, so no ON CONFLICT: the check above (under the dealer lock) guards it.
@@ -422,7 +439,7 @@ async function accrue(
         action: AUDIT_ACTIONS.DEALER_COMMISSION_ACCRUED,
         entityType: "shop",
         entityId: shop.id,
-        newValue: { dealerId, milestone, ruleId: rule.id, ruleVersion: rule.version, feePaise: fee, ...amount, capPaise: settings.capPaise, abovePaise: above, held: Boolean(held) },
+        newValue: { dealerId, milestone, ruleId: rule.id, ruleVersion: rule.version, feePaise: fee, ...amount, capPaise: settings.capPaise, abovePaise: above, held: Boolean(held), heldForDocuments: Boolean(docsNote) },
       },
       tx,
     );
@@ -565,7 +582,10 @@ export async function holdDealerCommission(dealerId: string, hold: boolean, acto
       for (const e of open) await tx.update(dealerCommissionLedger).set({ status: "ON_HOLD", heldFromStatus: e.status, updatedAt: new Date() }).where(eq(dealerCommissionLedger.id, e.id));
       return open.length;
     }
-    const held = await tx.select().from(dealerCommissionLedger).where(and(eq(dealerCommissionLedger.dealerId, dealerId), eq(dealerCommissionLedger.status, "ON_HOLD")));
+    // Entries held for a shop's documents stay held: only the documents release them.
+    const held = (await tx.select().from(dealerCommissionLedger).where(and(eq(dealerCommissionLedger.dealerId, dealerId), eq(dealerCommissionLedger.status, "ON_HOLD")))).filter(
+      (e) => !e.note?.startsWith(DOCUMENTS_HOLD_NOTE),
+    );
     for (const e of held) await tx.update(dealerCommissionLedger).set({ status: e.heldFromStatus ?? "EARNED", heldFromStatus: null, updatedAt: new Date() }).where(eq(dealerCommissionLedger.id, e.id));
     return held.length;
   });
@@ -573,6 +593,44 @@ export async function holdDealerCommission(dealerId: string, hold: boolean, acto
     await recordAudit({ actorId: actor?.id ?? null, actorRole: actor?.role ?? null, action: AUDIT_ACTIONS.DEALER_COMMISSION_HOLD, entityType: "dealer", entityId: dealerId, newValue: { hold, entries: rows } });
   }
   return rows;
+}
+
+/**
+ * The shop's documents are now verified: entries held for them go back to their
+ * status (still ON_HOLD, without the note, while the dealer itself is on hold),
+ * audited. Called from checkCommissionMilestones; nothing to do for most shops.
+ */
+async function releaseDocumentHold(shopId: string, actor: Actor | null): Promise<number> {
+  const released = await db.transaction(async (tx) => {
+    const held = await tx
+      .select()
+      .from(dealerCommissionLedger)
+      .where(and(eq(dealerCommissionLedger.shopId, shopId), eq(dealerCommissionLedger.status, "ON_HOLD"), like(dealerCommissionLedger.note, `${DOCUMENTS_HOLD_NOTE}%`)))
+      .for("update");
+    if (held.length === 0) return [];
+    const statusOf = new Map((await tx.select({ id: dealers.id, status: dealers.status }).from(dealers).where(inArray(dealers.id, [...new Set(held.map((e) => e.dealerId))]))).map((d) => [d.id, d.status]));
+    const rows = held.map((e) => ({ e, dealerStatus: statusOf.get(e.dealerId) }));
+    for (const { e, dealerStatus } of rows) {
+      const note = e.note!.slice(DOCUMENTS_HOLD_NOTE.length).replace(/^; /, "") || null;
+      const status = dealerStatus === "APPROVED" ? (e.heldFromStatus ?? "EARNED") : "ON_HOLD";
+      await tx
+        .update(dealerCommissionLedger)
+        .set({ status, heldFromStatus: status === "ON_HOLD" ? e.heldFromStatus : null, note, updatedAt: new Date() })
+        .where(eq(dealerCommissionLedger.id, e.id));
+    }
+    return rows;
+  });
+  if (released.length) {
+    await recordAudit({
+      actorId: actor?.id ?? null,
+      actorRole: actor?.role ?? null,
+      action: AUDIT_ACTIONS.DEALER_COMMISSION_HOLD,
+      entityType: "shop",
+      entityId: shopId,
+      newValue: { released: true, reason: "the shop's documents are verified", entries: released.map((r) => r.e.id) },
+    });
+  }
+  return released.length;
 }
 
 /** ADMIN only: release one held entry (back to its status) after a decision. */
