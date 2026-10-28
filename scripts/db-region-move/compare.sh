@@ -58,7 +58,9 @@ SQL
 
 where() { node -e 'const u = new URL(process.argv[1]); console.log(`${decodeURIComponent(u.pathname.slice(1))} on ${u.hostname}`)' "$1"; }
 work=$(mktemp -d "${TMPDIR:-/tmp}/region-compare.XXXXXX")
-trap 'rm -rf "$work"' EXIT
+# bash 3.2 (macOS) can stop on an error with status 0; an exit before the end always counts as a failure.
+finished=no
+trap 'status=$?; rm -rf "$work"; [ "$finished" = yes ] || exit $(( status ? status : 1 ))' EXIT
 
 echo "Old: $(where "$OLD_URL")"
 echo "New: $(where "$NEW_URL")"
@@ -70,6 +72,7 @@ rows=$(awk '$1 == "rows" { s += $3 } END { print s + 0 }' "$work/old")
 sequences=$(grep -c '^sequence ' "$work/old" || true)
 if diff -u --label old --label new "$work/old" "$work/new" > "$work/diff"; then
   echo "SAME: $tables tables ($rows rows), $sequences sequences, every schema's objects and the extensions match."
+  finished=yes
 else
   echo "DIFFERENT (- old, + new):"
   grep -E '^[-+][^-+]' "$work/diff"

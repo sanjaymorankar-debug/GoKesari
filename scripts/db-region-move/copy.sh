@@ -67,12 +67,14 @@ exclude_ext=()
 while read -r ext; do [ -n "$ext" ] && exclude_ext+=("--exclude-extension=$ext"); done <<< "$src_ext"
 
 work=$(mktemp -d "${TMPDIR:-/tmp}/region-move.XXXXXX")
-trap 'rm -rf "$work"' EXIT
+# bash 3.2 (macOS) can stop on an error with status 0; an exit before the end always counts as a failure.
+finished=no
+trap 'status=$?; rm -rf "$work"; [ "$finished" = yes ] || exit $(( status ? status : 1 ))' EXIT
 start=$(date +%s)
 
 echo "Dumping…"
 pg_dump "$SRC_URL" --format=custom --no-owner --no-privileges --exclude-schema=neon_auth \
-  "${exclude_ext[@]}" --file="$work/db.dump"
+  ${exclude_ext[@]+"${exclude_ext[@]}"} --file="$work/db.dump"
 dumped=$(date +%s)
 echo "  $(( $(stat -f %z "$work/db.dump" 2>/dev/null || stat -c %s "$work/db.dump") / 1024 )) KiB in $((dumped - start)) s"
 
@@ -86,3 +88,4 @@ echo "Analyzing…"
 psql "$DST_URL" -X -v ON_ERROR_STOP=1 -qc "analyze"
 echo "Copied $src_where → $dst_where in $(( $(date +%s) - start )) s."
 echo "Next: relink.sh (core database only), then compare.sh."
+finished=yes
