@@ -46,7 +46,7 @@ export default async function AdminDealersPage({ searchParams }: { searchParams:
       <PageHeader title="Dealers" description="Applications waiting for approval, and every dealer. Only an admin approves, rejects, suspends or terminates; every decision is logged." />
       <p className="mb-3 text-sm">
         <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/commission">Commission, rating & payouts</Link> ·{" "}
-        <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/claims">Attribution claims</Link> — dealers who say a shop is theirs.
+        <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/claims">Attribution claims</Link> — dealers who say a shop is theirs. · <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/analytics">Coverage & analytics</Link>
       </p>
       <nav className="mb-3 flex flex-wrap gap-2" aria-label="Filter by status">
         {filters.map((f) => (

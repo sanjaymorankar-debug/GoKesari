@@ -391,6 +391,7 @@ export const AUDIT_ACTIONS = {
   SUPPORT_SERVICE_CANCELLED: "support_service.cancelled", // docs/dealer-programme
   SUPPORT_SERVICE_REFUNDED: "support_service.refunded", // docs/dealer-programme
   SUPPORT_SERVICE_CHARGE_CHANGED: "support_service.charge_changed", // docs/dealer-programme
+  GEO_AREA_TARGET_SET: "geo_area.target_set", // docs/dealer-programme step 8
   DELIVERY_OFFER_BROADCAST: "delivery_order.offer_broadcast", // batch-2026-10 WS-B
   DELIVERY_BROADCAST_ACCEPTED: "delivery_order.broadcast_accepted", // batch-2026-10 WS-B
   DELIVERY_BROADCAST_CLOSED: "delivery_order.broadcast_closed", // batch-2026-10 WS-B

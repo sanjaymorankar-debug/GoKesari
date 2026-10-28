@@ -696,6 +696,20 @@ export const RULES = {
     }),
     defaults: { leadWindowDays: 30, maxOpenLeadsPerDealer: 200, duplicateDistanceMeters: 150, nameSimilarity: 80, assistedConsentMinutes: 60 },
   },
+  dealerPerformanceScore: {
+    description:
+      "Dealer performance score (docs/dealer-programme, GKS-AN-001) — for analysis and ranking only; the onboarding rating drives commission. Weights in % (they must add up to 100): activatedShops — shops that went live, against the best dealer in the same district; registrationQuality — registrations not rejected, not duplicates and not reversed; activity30 — live shops with an order in the last 30 days; costPerActivatedShop — commission per live shop, cheapest in the district scores highest; coverage — areas of the dealer's territory with at least one of its shops (not a duplicate or rejected one). Shown in Admin → Dealers → Analytics.",
+    schema: z
+      .object({
+        activatedShops: int(0, 100),
+        registrationQuality: int(0, 100),
+        activity30: int(0, 100),
+        costPerActivatedShop: int(0, 100),
+        coverage: int(0, 100),
+      })
+      .refine((w) => w.activatedShops + w.registrationQuality + w.activity30 + w.costPerActivatedShop + w.coverage === 100, { message: "The weights must add up to 100." }),
+    defaults: { activatedShops: 35, registrationQuality: 20, activity30: 20, costPerActivatedShop: 15, coverage: 10 },
+  },
   registrationFeeByTurnover: {
     description:
       "One-time shop registration fee on Add my shop (/shop/register), by the annual turnover the owner declares, in slabs (src/lib/registration-fee.ts): slabs is a list of { upToRupees, feePaise } — turnover up to a slab's upToRupees pays its feePaise; the last slab has upToRupees null and covers everything above. An admin adds or removes slabs (up to 20) in Admin → Registration fees → Fee by turnover. Fees are before GST (added at the PLATFORM_FEE_GST rate). enabled: off → the flat registration fee schedule (Admin → Registration fee) applies instead. Each shop keeps the fee it registered with; a change here never alters it. A value saved in the older three-slab form (slab1UpToRupees … slab3FeePaise) is read as the same three slabs.",

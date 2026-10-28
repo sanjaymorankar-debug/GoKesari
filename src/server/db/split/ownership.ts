@@ -302,6 +302,7 @@ export const TABLE_OWNERSHIP = {
   dealer_document_requirements: "seller",
   dealer_documents: "seller",
   dealer_territories: "seller",
+  geo_area_targets: "seller", // docs/dealer-programme step 8
   dealer_salespeople: "seller",
   dealer_codes: "seller",
   dealer_leads: "seller",

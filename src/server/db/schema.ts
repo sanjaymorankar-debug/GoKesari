@@ -9473,6 +9473,23 @@ export const geoAreas = pgTable(
 );
 export type GeoArea = typeof geoAreas.$inferSelect;
 
+/** How many shops GoKesari aims to have in an area — "target vs registered" on the coverage map (GKS-GEO-001). Admin-set. */
+export const geoAreaTargets = pgTable(
+  "geo_area_targets",
+  {
+    areaCode: text("area_code")
+      .primaryKey()
+      .references(() => geoAreas.code, { onDelete: "restrict" }),
+    targetShops: integer("target_shops").notNull(),
+    note: text("note"),
+    /** A user on the customer side: no foreign key (two-database layout). */
+    updatedBy: uuid("updated_by"),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [check("geo_area_targets_target", sql`${t.targetShops} >= 0 AND ${t.targetShops} <= 100000`)],
+);
+export type GeoAreaTarget = typeof geoAreaTargets.$inferSelect;
+
 /** A PIN code belongs to the area with the longest matching prefix. */
 export const geoAreaPincodes = pgTable(
   "geo_area_pincodes",
