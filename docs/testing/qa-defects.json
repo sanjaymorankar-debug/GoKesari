@@ -1513,6 +1513,17 @@
    "expected": "The upload follows the form: a row whose End Date is before today in IST is invalid and is not created, also when the end date passed between reading the file and applying it.",
    "fix": "parseVoucherWorkbook marks a row INVALID ('End Date has already passed') when End Date < today in APP_TIMEZONE; applyVoucherUpload re-checks each row and skips (marks INVALID) one whose end date passed since. The template's example runs from today for 30 days. Tests with Date pinned to 15 Jan 2030 00:30 IST: create, edit, upload and late apply; the template uploads as it is. Older upload tests moved off their fixed September 2026 dates.",
    "status": "Fixed (re-test pending)"
+  },
+  {
+   "id": "E-03",
+   "title": "gokesari.com did not answer for about 4 h 15 min after the #261 release (25 Oct 09:59-14:15 UTC)",
+   "cases": [],
+   "severity": "High",
+   "found": "2026-10-25 production (post-deploy check)",
+   "actual": "After the #261 release (the code of #254) the build and publish succeeded, but the Node app restarted every few seconds with no error and every request got 503 or no answer. test.gokesari.com ran the same code throughout. An API restart at 12:38 did not help; rolling back to the 24 Oct code (#262, deployed 13:02) did not help either; the site answered again at 14:15 UTC with no further change from our side.",
+   "expected": "gokesari.com answers within a minute of a deploy.",
+   "fix": "Not fixed. Cause not proven: most likely the hosting account's process / memory limits (the account also runs six Bkesari / Ladwani Node apps created that day). Owner: check the account's resource use, ask Hostinger support, add uptime monitoring with an alert; re-release #254 (and the rest of staging) in one agreed window. Report: docs/gokesari-audit/GOKESARI_STAGING_VS_MAIN_REPORT_2026-10-26.md.",
+   "status": "Open"
   }
  ]
 }
