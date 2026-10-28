@@ -61,6 +61,8 @@ function pgErrorCode(error: unknown): string | undefined {
 const RESET_TABLES = [
   // docs/dealer-programme: not linked to users, so the users cascade does not reach them.
   "dealers",
+  // docs/shop-onboarding-wizard-2026-10: owner_id has no foreign key to users either.
+  "shop_registration_drafts",
   "grievances",
   "user_consents",
   "delivery_partner_earnings",

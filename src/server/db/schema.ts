@@ -9861,6 +9861,80 @@ export const shopDocumentWaivers = pgTable(
 );
 export type ShopDocumentWaiver = typeof shopDocumentWaivers.$inferSelect;
 
+export const DRAFT_CHECK_STATUSES = ["NOT_SUBMITTED", "PENDING", "VERIFIED", "FAILED", "EXPIRED", "MANUAL_REVIEW"] as const;
+export type DraftCheckStatus = (typeof DRAFT_CHECK_STATUSES)[number];
+
+/**
+ * Onboarding wizard (0108, docs/shop-onboarding-wizard-2026-10): a registration
+ * in progress, before its shop row exists. GSTIN first — its government record
+ * fills the shop's name and address, and the PAN inside it is checked in the
+ * background; or PAN alone with the "not GST-registered" declaration. Numbers
+ * are stored like seller_verifications: ciphertext, masked form and blind index.
+ * One OPEN draft per owner. owner_id is a platform user: no foreign key (seller
+ * database), checked in the service.
+ */
+export const shopRegistrationDrafts = pgTable(
+  "shop_registration_drafts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    ownerId: uuid("owner_id").notNull(),
+    status: text("status", { enum: ["OPEN", "SUBMITTED", "ABANDONED"] }).notNull().default("OPEN"),
+    /** GSTIN: the GST record leads. PAN_ONLY: no GSTIN, PAN + declaration. */
+    route: text("route", { enum: ["GSTIN", "PAN_ONLY"] }),
+
+    gstinEncrypted: text("gstin_encrypted"),
+    gstinMasked: text("gstin_masked"),
+    gstinHash: text("gstin_hash"),
+    gstStatus: text("gst_status", { enum: DRAFT_CHECK_STATUSES }).notNull().default("NOT_SUBMITTED"),
+    /** Normalised source fields (legal and trade name, address, state, PIN, constitution) — never the raw response. */
+    gstRecord: jsonb("gst_record").$type<Record<string, unknown>>().notNull().default({}),
+    gstProviderId: text("gst_provider_id"),
+    gstProviderRef: text("gst_provider_ref"),
+    gstErrorCode: text("gst_error_code"),
+    gstIdempotencyKey: text("gst_idempotency_key"),
+    gstCheckedAt: timestamp("gst_checked_at", { withTimezone: true }),
+    gstVerifiedAt: timestamp("gst_verified_at", { withTimezone: true }),
+
+    panEncrypted: text("pan_encrypted"),
+    panMasked: text("pan_masked"),
+    panHash: text("pan_hash"),
+    panStatus: text("pan_status", { enum: DRAFT_CHECK_STATUSES }).notNull().default("NOT_SUBMITTED"),
+    panRecord: jsonb("pan_record").$type<Record<string, unknown>>().notNull().default({}),
+    /** 0–100: the PAN holder's name against the GST legal / trade name (GSTIN route only). */
+    panNameMatchScore: integer("pan_name_match_score"),
+    panProviderId: text("pan_provider_id"),
+    panProviderRef: text("pan_provider_ref"),
+    panErrorCode: text("pan_error_code"),
+    panIdempotencyKey: text("pan_idempotency_key"),
+    panCheckedAt: timestamp("pan_checked_at", { withTimezone: true }),
+    panVerifiedAt: timestamp("pan_verified_at", { withTimezone: true }),
+
+    /** PAN_ONLY: the "this shop is not GST-registered" declaration, reviewed by an admin once the shop exists. */
+    noGstDeclaredAt: timestamp("no_gst_declared_at", { withTimezone: true }),
+    noGstDeclarationVersion: text("no_gst_declaration_version"),
+
+    /** DPDP Act 2023: consent to the government checks, with the notice version shown. */
+    consentGivenAt: timestamp("consent_given_at", { withTimezone: true }),
+    consentVersion: text("consent_version"),
+    /** Paid-check limit: owner submissions in the current one-hour window. */
+    checkWindowStartedAt: timestamp("check_window_started_at", { withTimezone: true }),
+    checksInWindow: integer("checks_in_window").notNull().default(0),
+
+    /** Set when the wizard creates the shop from this draft. */
+    shopId: uuid("shop_id").references((): AnyPgColumn => shops.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("shop_registration_drafts_open_owner_unique").on(t.ownerId).where(sql`${t.status} = 'OPEN'`),
+    index("shop_registration_drafts_gstin_hash_idx").on(t.gstinHash).where(sql`${t.gstinHash} IS NOT NULL`),
+    index("shop_registration_drafts_status_idx").on(t.status, t.updatedAt),
+    check("shop_registration_drafts_status", sql`${t.status} in ('OPEN', 'SUBMITTED', 'ABANDONED')`),
+    check("shop_registration_drafts_route", sql`${t.route} IS NULL OR ${t.route} in ('GSTIN', 'PAN_ONLY')`),
+  ],
+);
+export type ShopRegistrationDraft = typeof shopRegistrationDrafts.$inferSelect;
+
 export const COMMISSION_MILESTONES = ["REGISTERED", "VERIFIED_CATALOGUE", "ACTIVATED"] as const;
 export type CommissionMilestone = (typeof COMMISSION_MILESTONES)[number];
 export const COMMISSION_STATUSES = ["EARNED", "PENDING", "APPROVED", "PAID", "REVERSED", "ON_HOLD"] as const;
