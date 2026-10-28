@@ -324,6 +324,10 @@ export const NOTIFICATION_TYPES = {
   DEALER_DISPUTE_DECIDED: "dealer.dispute_decided",
   /** To the shop owner: a dealer registered the shop for them; pay the registration fee to finish. */
   DEALER_ASSISTED_SHOP_REGISTERED: "dealer.assisted_shop_registered",
+  /** To the dealer: a shop counted for them was approved. */
+  DEALER_SHOP_APPROVED: "dealer.shop_approved",
+  /** To the shop owner: approved instantly on GST/PAN verification + payment — ready for product upload (email). */
+  SHOP_READY_FOR_PRODUCT_UPLOAD: "shop.ready_for_product_upload",
   /* <<< end dealer programme */
   //
 } as const;

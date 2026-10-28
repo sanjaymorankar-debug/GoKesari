@@ -47,6 +47,8 @@ import { baseRegistrationFee, lockRegistrationFeeCoupon, registrationFeeGstRateB
 import { assertShopType, isKnownShopType } from "./shop-types";
 import { getRule } from "./settings";
 import { missingMandatoryDocuments, onboardingApprovalBlocker } from "./shop-onboarding";
+import { decideGovAutoApproval, govAutoApprovalApplies, logGovDecision } from "./gov-auto-approval";
+import { sendReadyForProductUpload } from "./shop-ready-email";
 import { assertFssaiAllowsApproval } from "./document-uploads";
 import { assertLegalDocsAllowApproval } from "./legal-documents";
 import { emitEvent } from "@/server/events/emit";
@@ -771,6 +773,9 @@ export async function approveShop(
  * changes nothing, when the rule is off or anything is still outstanding.
  */
 export async function autoApproveShopIfReady(shopId: string): Promise<boolean> {
+  // docs/dealer-programme (GKS-SH-004): instant approval on government GST/PAN verification + online payment,
+  // where that flag is on. When it cannot approve, the existing rule below decides exactly as before.
+  if (await approveOnGovVerification(shopId)) return true;
   const rule = await getRule("sellerVerification");
   if (!rule.autoApproveShop) return false;
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
@@ -802,6 +807,54 @@ export async function autoApproveShopIfReady(shopId: string): Promise<boolean> {
     body: `${approved.name} is now live on GoKesari.`,
     actionUrl: "/shop",
   });
+  await emitEvent({
+    type: "shop.auto_approved",
+    subjectId: shopId,
+    payload: { shopName: approved.name },
+    idempotencyKey: `shop-auto-approved:${shopId}:${approved.approvedAt?.toISOString()}`,
+  });
+  return true;
+}
+
+/**
+ * The instant approval (services/gov-auto-approval.ts): logs the decision with
+ * its evidence; on approval sends the owner the "ready for product upload"
+ * email and tells the attributed dealer. False when the flag is off for the
+ * shop's district or anything is outstanding (the shop stays pending).
+ */
+async function approveOnGovVerification(shopId: string): Promise<boolean> {
+  const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
+  if (!shop || shop.status !== "PENDING_APPROVAL" || shop.deletedAt) return false;
+  if (!(await govAutoApprovalApplies(shop))) return false;
+  const decision = await decideGovAutoApproval(shop);
+  if (!decision.approve) {
+    await logGovDecision(shopId, "PENDING", decision.reasons, decision.evidence);
+    return false;
+  }
+  const rule = await getRule("sellerVerification");
+  let approved: Shop;
+  try {
+    approved = await approveShopTransaction(
+      shopId,
+      { classification: shop.classification ?? rule.autoApproveClassification },
+      { id: null, role: null },
+    );
+  } catch (error) {
+    // A shop-type document (FSSAI, licence) missing, or approved meanwhile: the admin path decides.
+    if (error instanceof AppError && error.code === "CONFLICT") {
+      await logGovDecision(shopId, "PENDING", [error.message], decision.evidence);
+      return false;
+    }
+    throw error;
+  }
+  await logGovDecision(shopId, "APPROVED", [], decision.evidence);
+  await recordAudit({
+    action: AUDIT_ACTIONS.SHOP_AUTO_APPROVED,
+    entityType: "shop",
+    entityId: shopId,
+    newValue: { classification: approved.classification, rule: "GOV_VERIFICATION", evidence: decision.evidence },
+  });
+  await sendReadyForProductUpload(approved);
   await emitEvent({
     type: "shop.auto_approved",
     subjectId: shopId,

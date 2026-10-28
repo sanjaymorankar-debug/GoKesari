@@ -9792,4 +9792,27 @@ export const dealerAttributionDisputes = pgTable(
 );
 export type DealerAttributionDispute = typeof dealerAttributionDisputes.$inferSelect;
 
+/** Instant approval on GST/PAN verification + online payment (0106): every decision, with its evidence. Append-only. */
+export const shopAutoApprovalLog = pgTable(
+  "shop_auto_approval_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    rule: text("rule", { enum: ["GOV_VERIFICATION"] }).notNull().default("GOV_VERIFICATION"),
+    outcome: text("outcome", { enum: ["APPROVED", "PENDING"] }).notNull(),
+    reasons: text("reasons").array().notNull().default(sql`'{}'::text[]`),
+    evidence: jsonb("evidence").$type<Record<string, unknown>>().notNull().default({}),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("shop_auto_approval_log_shop_idx").on(t.shopId, t.createdAt),
+    index("shop_auto_approval_log_outcome_idx").on(t.outcome, t.createdAt),
+    check("shop_auto_approval_log_outcome", sql`${t.outcome} in ('APPROVED', 'PENDING')`),
+    check("shop_auto_approval_log_rule", sql`${t.rule} in ('GOV_VERIFICATION')`),
+  ],
+);
+export type ShopAutoApprovalLog = typeof shopAutoApprovalLog.$inferSelect;
+
 /* <<< end dealer programme */

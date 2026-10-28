@@ -380,6 +380,11 @@ export const TEMPLATES: Record<string, Template> = {
     "{{dealerName}} registered your shop",
     "{{dealerName}}, an authorised GoKesari dealer, registered {{shopName}} for you. Open My shop to pay the registration fee and finish your registration.",
   ),
+  [T.DEALER_SHOP_APPROVED]: t("Shop approved: {{shopName}}", "{{shopName}}, counted for you, is approved and can now add products and take orders."),
+  [T.SHOP_READY_FOR_PRODUCT_UPLOAD]: t(
+    "Registration successful — {{shopName}} is ready for product upload",
+    "Your GST/PAN was verified with the government records and your registration fee is received, so {{shopName}} (shop ID {{shopId}}) is approved. Add your products now: {{addProductsUrl}} — or upload many at once from Excel: {{bulkUploadUrl}}",
+  ),
   [T.DEALER_DOCUMENT_REJECTED]: t(
     "Dealer document needs another upload",
     "Your {{docLabel}} was not accepted: {{note}} Please upload it again from your dealer application.",

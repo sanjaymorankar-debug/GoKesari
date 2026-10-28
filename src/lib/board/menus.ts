@@ -378,6 +378,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "compliance", label: L("Compliance & GST/PAN", "अनुपालन व जीएसटी/पैन", "अनुपालन व जीएसटी/पॅन"), icon: "scroll-text", href: "/admin/console/compliance", permission: COMPLIANCE },
       { key: "registrations", label: L("Registrations", "पंजीकरण", "नोंदण्या"), icon: "user-plus", href: "/admin/shop-registrations", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
       { key: "autoApproved", label: L("Auto-approved", "स्वतः मंज़ूर", "स्वयं मंजूर"), icon: "circle-check", href: "/admin/shops/auto-approved", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
+      // docs/dealer-programme (GKS-SH-004): instant approvals on GST/PAN + payment, with evidence. Only while that flag is on.
+      { key: "instantApprovals", label: L("Instant approvals", "तुरंत मंज़ूरी", "तात्काळ मंजुरी"), icon: "circle-check", href: "/admin/shops/instant-approvals", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE, feature: "gov_verification_auto_approval_enabled" },
       { key: "selfRegistration", label: L("Self-registration", "स्व-पंजीकरण", "स्व-नोंदणी"), icon: "sliders-horizontal", href: "/admin/self-registration", permission: PERMISSIONS.REFERRAL_MANAGE },
       { key: "fees", label: L("Registration fees", "पंजीकरण शुल्क", "नोंदणी शुल्क"), icon: "receipt", href: "/admin/console/registration-fees", permission: STAFF },
       { key: "referralCodes", label: L("Referral codes", "रेफ़रल कोड", "रेफरल कोड"), icon: "ticket", href: "/admin/console/referral-codes", permission: PERMISSIONS.REFERRAL_MANAGE },
@@ -533,6 +535,8 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       { key: "compliance", label: L("Compliance & GST/PAN", "अनुपालन व जीएसटी/पैन", "अनुपालन व जीएसटी/पॅन"), icon: "scroll-text", href: "/admin/console/compliance", permission: COMPLIANCE },
       { key: "registrations", label: L("Registrations", "पंजीकरण", "नोंदण्या"), icon: "user-plus", href: "/admin/shop-registrations", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
       { key: "autoApproved", label: L("Auto-approved", "स्वतः मंज़ूर", "स्वयं मंजूर"), icon: "circle-check", href: "/admin/shops/auto-approved", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE },
+      // docs/dealer-programme (GKS-SH-004): instant approvals on GST/PAN + payment, with evidence. Only while that flag is on.
+      { key: "instantApprovals", label: L("Instant approvals", "तुरंत मंज़ूरी", "तात्काळ मंजुरी"), icon: "circle-check", href: "/admin/shops/instant-approvals", permission: PERMISSIONS.SHOP_REGISTRATION_MANAGE, feature: "gov_verification_auto_approval_enabled" },
       { key: "selfRegistration", label: L("Self-registration", "स्व-पंजीकरण", "स्व-नोंदणी"), icon: "sliders-horizontal", href: "/admin/self-registration", permission: PERMISSIONS.REFERRAL_MANAGE },
       { key: "fees", label: L("Registration fees", "पंजीकरण शुल्क", "नोंदणी शुल्क"), icon: "receipt", href: "/admin/console/registration-fees", permission: STAFF },
       { key: "referralCodes", label: L("Referral codes", "रेफ़रल कोड", "रेफरल कोड"), icon: "ticket", href: "/admin/console/referral-codes", permission: PERMISSIONS.REFERRAL_MANAGE },

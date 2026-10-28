@@ -308,6 +308,7 @@ export const TABLE_OWNERSHIP = {
   shop_attributions: "seller",
   dealer_assisted_sessions: "seller",
   dealer_attribution_disputes: "seller",
+  shop_auto_approval_log: "seller",
   /* <<< end dealer programme */
   //
 } as const satisfies Record<string, DbOwner>;
