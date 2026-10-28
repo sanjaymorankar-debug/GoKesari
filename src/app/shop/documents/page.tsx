@@ -40,6 +40,8 @@ export default async function ShopDocumentsPage({ searchParams }: { searchParams
     status: item.status,
     validUntil: item.validUntil,
     done: item.done,
+    additional: item.additional,
+    held: item.held,
     latest: item.latest
       ? {
           id: item.latest.id,
@@ -61,7 +63,7 @@ export default async function ShopDocumentsPage({ searchParams }: { searchParams
     <div className="mx-auto max-w-3xl space-y-6" data-testid="shop-documents-page">
       <PageHeader
         title={`Upload your documents — ${shop.name}`}
-        description="Upload a file or take a photo of each document. We read the number, name, address and validity for you — you only check them and click Verify & Approve. Files are stored encrypted; only our verification team can open them."
+        description="Scan any document, or upload a file or take a photo on its card. We read the number, name, address and validity for you — you only check them and click Verify & Approve. Files are stored encrypted; only our verification team can open them."
         action={
           <Link href="/shop/verification" className="text-sm font-medium text-kesari-600 hover:underline">
             Verification status →

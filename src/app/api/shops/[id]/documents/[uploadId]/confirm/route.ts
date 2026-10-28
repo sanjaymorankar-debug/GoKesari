@@ -22,6 +22,7 @@ const body = z.object({
   validFrom: z.string().trim().max(10).nullish(),
   validUntil: z.string().trim().max(10).nullish(),
   issuingCouncil: z.string().trim().max(120).nullish(),
+  licenceName: z.string().trim().max(80).nullish(),
   consent: z.literal(true, { message: "Please agree to the verification consent." }),
 });
 
