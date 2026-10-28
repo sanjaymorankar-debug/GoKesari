@@ -5,12 +5,13 @@
  * (migration 0109, shop_document_waivers).
  */
 import { and, eq } from "drizzle-orm";
-import { beforeEach, describe, expect, it } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { adminNextAction } from "@/lib/shop-onboarding";
+import { adminNextAction, reminderSentText } from "@/lib/shop-onboarding";
 import { db } from "@/server/db";
 import {
   auditLogs,
+  notificationDeliveries,
   notifications,
   platformSettings,
   sellerVerifications,
@@ -19,6 +20,7 @@ import {
   statusChanges,
 } from "@/server/db/schema";
 import { upsertRow } from "@/server/db/split/upsert";
+import { emailChannel, smsChannel } from "@/server/notifications/channels";
 import { getShopOnboarding } from "@/server/services/shop-onboarding";
 import { clearRuleCache } from "@/server/services/settings";
 import { approveShop, remindShopDocuments } from "@/server/services/shops";
@@ -26,6 +28,10 @@ import { createShop, createUser, resetDatabase, verifySellerDocuments } from "..
 
 const ADMIN = (id: string) => ({ id, role: "ADMIN" as const });
 const OPERATOR = (id: string) => ({ id, role: "OPERATOR" as const });
+
+afterEach(() => {
+  vi.restoreAllMocks();
+});
 
 beforeEach(async () => {
   await resetDatabase();
@@ -95,6 +101,41 @@ describe("remind owner to upload", () => {
       .from(auditLogs)
       .where(and(eq(auditLogs.entityId, shop.id), eq(auditLogs.action, "shop.documents_reminded")));
     expect(audit).toHaveLength(1);
+  });
+
+  it("names only the channels that can deliver: no SMS where no provider is set up", async () => {
+    const { owner, shop } = await pendingShop();
+    const operator = await createUser({ role: "OPERATOR" });
+    vi.spyOn(emailChannel, "isAvailable").mockReturnValue(true);
+    vi.spyOn(smsChannel, "isAvailable").mockReturnValue(false);
+
+    const result = await remindShopDocuments(shop.id, OPERATOR(operator.id));
+    expect(result.channels).toEqual(["IN_APP", "EMAIL"]);
+    const queued = await db.select().from(notificationDeliveries).where(eq(notificationDeliveries.userId, owner.id));
+    expect(queued.map((d) => d.channel)).toEqual(["EMAIL"]); // no SMS row to be skipped later
+    expect(reminderSentText("Asha", result.channels)).toBe("Reminder sent to Asha in the app and by e-mail.");
+  });
+
+  it("includes SMS when a provider is set up and the owner has a mobile number", async () => {
+    const { shop } = await pendingShop();
+    const operator = await createUser({ role: "OPERATOR" });
+    vi.spyOn(emailChannel, "isAvailable").mockReturnValue(true);
+    vi.spyOn(smsChannel, "isAvailable").mockReturnValue(true);
+
+    const result = await remindShopDocuments(shop.id, OPERATOR(operator.id));
+    expect(result.channels).toEqual(expect.arrayContaining(["IN_APP", "EMAIL", "SMS"]));
+    expect(result.channels).toHaveLength(3);
+  });
+
+  it("leaves e-mail out when e-mail is not set up on the server", async () => {
+    const { shop } = await pendingShop();
+    const operator = await createUser({ role: "OPERATOR" });
+    vi.spyOn(emailChannel, "isAvailable").mockReturnValue(false);
+    vi.spyOn(smsChannel, "isAvailable").mockReturnValue(false);
+
+    const result = await remindShopDocuments(shop.id, OPERATOR(operator.id));
+    expect(result.channels).toEqual(["IN_APP"]);
+    expect(reminderSentText("Asha", result.channels)).toBe("Reminder sent to Asha in the app.");
   });
 
   it("refuses when the owner has nothing left to upload", async () => {

@@ -27,6 +27,7 @@ import type { ShopTypeKey } from "@/lib/shop-types";
 import { runOrDefer, type Defer } from "@/server/api/defer";
 import { db } from "@/server/db";
 import {
+  notificationDeliveries,
   notifications,
   referralCodes,
   shopClassificationHistory,
@@ -44,6 +45,7 @@ import { grantRole } from "./roles";
 import { uniqueSlug } from "./catalogue";
 import { resolveLocationVerification } from "./geocoding";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
+import { getChannelProvider, smsChannel } from "@/server/notifications/channels";
 import { attributeShopToCode } from "./referrals";
 import { applyShopCategories } from "./shop-categories";
 import { baseRegistrationFee, lockRegistrationFeeCoupon, registrationFeeGstRateBp } from "./registration-fee-coupons";
@@ -786,13 +788,14 @@ export async function approveShop(
 
 /**
  * Operations nudge a pending shop's owner to upload the seller documents still
- * missing (in-app, e-mail and SMS). At most once a day per shop: a second press
- * the same day sends nothing and says so.
+ * missing (in-app and e-mail, plus SMS where an SMS provider is set up). At most
+ * once a day per shop: a second press the same day sends nothing and says so.
+ * `channels` names what was actually written or queued, for the confirmation.
  */
 export async function remindShopDocuments(
   shopId: string,
   actor: { id: string; role: UserRole },
-): Promise<{ sent: boolean; documents: string[] }> {
+): Promise<{ sent: boolean; documents: string[]; channels: ReminderChannel[] }> {
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
   if (!shop || shop.deletedAt) throw notFound("Shop");
   if (shop.status !== "PENDING_APPROVAL") throw conflict("Only a shop waiting for approval can be reminded.");
@@ -807,26 +810,53 @@ export async function remindShopDocuments(
     .from(notifications)
     .where(eq(notifications.dedupeKey, dedupeKey))
     .limit(1);
-  if (already) return { sent: false, documents };
+  if (already) return { sent: false, documents, channels: [] };
 
   await notify({
     userId: shop.ownerId,
     type: NOTIFICATION_TYPES.SHOP_DOCUMENTS_REMINDER,
     vars: { shopName: shop.name, documents: documents.join(", ") },
     actionUrl: "/shop/verification",
-    channels: ["SMS"],
+    // Only ask for SMS where it can go out: otherwise it is a skipped delivery, not a message.
+    channels: smsChannel.isAvailable() ? ["SMS"] : [],
     dedupeKey,
     metadata: { shopId, documents },
   });
+  const channels = await reminderChannels(dedupeKey, shop.ownerId);
   await recordAudit({
     actorId: actor.id,
     actorRole: actor.role,
     action: AUDIT_ACTIONS.SHOP_DOCUMENTS_REMINDED,
     entityType: "shop",
     entityId: shopId,
-    newValue: { documents },
+    newValue: { documents, channels },
   });
-  return { sent: true, documents };
+  return { sent: true, documents, channels };
+}
+
+export type ReminderChannel = "IN_APP" | "EMAIL" | "SMS" | "PUSH" | "WHATSAPP";
+
+/**
+ * The in-app notice, if written, and the outbound deliveries queued with it that can
+ * go out: not skipped, the channel set up on this server, and an address for the owner.
+ */
+async function reminderChannels(dedupeKey: string, ownerId: string): Promise<ReminderChannel[]> {
+  const [row] = await db
+    .select({ id: notifications.id })
+    .from(notifications)
+    .where(eq(notifications.dedupeKey, dedupeKey))
+    .limit(1);
+  if (!row) return [];
+  const queued = await db
+    .select({ channel: notificationDeliveries.channel })
+    .from(notificationDeliveries)
+    .where(and(eq(notificationDeliveries.notificationId, row.id), sql`${notificationDeliveries.status} <> 'SKIPPED'`));
+  const [owner] = await db.select({ email: users.email, phoneE164: users.phoneE164 }).from(users).where(eq(users.id, ownerId));
+  const deliverable = queued.filter(({ channel }) => {
+    const provider = channel === "IN_APP" ? null : getChannelProvider(channel);
+    return provider !== null && provider.isAvailable() && Boolean(owner && provider.addressFor(owner));
+  });
+  return ["IN_APP", ...new Set(deliverable.map((q) => q.channel as ReminderChannel))];
 }
 
 /**

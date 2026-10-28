@@ -118,3 +118,19 @@ export function adminNextAction(facts: OnboardingFacts): NextAction {
       };
   }
 }
+
+const CHANNEL_WORDS: Record<string, string> = {
+  IN_APP: "in the app",
+  EMAIL: "by e-mail",
+  SMS: "by SMS",
+  WHATSAPP: "on WhatsApp",
+  PUSH: "by push notification",
+};
+
+/** "Reminder sent to Asha in the app and by e-mail." — only the channels the server queued. */
+export function reminderSentText(ownerName: string, channels: string[]): string {
+  const words = channels.map((c) => CHANNEL_WORDS[c]).filter(Boolean);
+  if (words.length === 0) return `Reminder recorded for ${ownerName}, but no channel could deliver it.`;
+  const joined = words.length === 1 ? words[0] : `${words.slice(0, -1).join(", ")} and ${words[words.length - 1]}`;
+  return `Reminder sent to ${ownerName} ${joined}.`;
+}

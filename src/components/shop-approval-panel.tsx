@@ -16,6 +16,7 @@ import {
 import { formatPaiseCompact } from "@/lib/money";
 import {
   adminNextAction,
+  reminderSentText,
   ONBOARDING_STAGE_LABELS,
   ONBOARDING_STAGE_TONES,
   SHOP_ONBOARDING_STAGES,
@@ -215,11 +216,11 @@ function PendingShopRow({
   }
 
   async function remind() {
-    const result = (await act("remind-documents", {})) as { sent: boolean } | null;
+    const result = (await act("remind-documents", {})) as { sent: boolean; channels: string[] } | null;
     if (!result) return;
     setNotice(
       result.sent
-        ? `Reminder sent to ${shop.ownerName} (app, e-mail and SMS).`
+        ? reminderSentText(shop.ownerName, result.channels)
         : `${shop.ownerName} was already reminded today. You can remind again tomorrow.`,
     );
   }
