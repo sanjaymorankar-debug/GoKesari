@@ -9,10 +9,12 @@ GoKesari Authorized Dealer & Merchant Acquisition Programme · 28 Oct 2026 · br
   onboarding-wizard, seller-verification and split checks run beside them, 209 of 209 pass.
 - **CI on GitHub:** the full suite passes on the one-database and the two-database layouts, up to
   `c89cf0b`. Runs for the later commits were still queued when this report was written.
-- **Staging (test.gokesari.com):** 45 cases — 21 passed, 1 failed (fixed since), 23 blocked.
-  The blocked cases need signed-in operator, shop-owner and dealer test accounts, and a Cashfree
-  sandbox payment; see §4.
-- **Production:** not released. All four feature flags stay **off** there.
+- **Staging (test.gokesari.com):** first pass 45 cases — 21 passed, 1 failed (fixed), 23 blocked
+  on sign-ins. Second pass with all test accounts signed in: 20 more passed, plus instant approval,
+  commission and the rating once the check ran. One real fault (D-2) — after a gateway payment
+  nothing re-ran the approval check — is fixed in code. See §3.
+- **Production:** released 28 Oct in two releases — #268 (ea7eecb) and release 2 (`8d6ef40`,
+  merged 17:57 UTC; post-deploy check 5/5 healthy). All four feature flags are **off** there.
 
 ---
 
@@ -92,6 +94,25 @@ Full table: [STAGING_TEST_RESULTS_2026-10-28.md](STAGING_TEST_RESULTS_2026-10-28
   columns are off to the side.
 - The Google map on `/shop/register` did not load in headless Chrome. Check it in a normal browser.
 
+**Second pass** (operator, shop-owner and customer accounts signed in; payments through the test
+site's sandbox gateway, no money):
+
+- **Passed:** operator refused on flags, commission and targets; dealer application → approval →
+  code `GKS-MH-PUN-EZJTJG`, link, QR; employee E01; lead; dealer-assisted registration with the
+  owner's e-mailed code; attribution shown to the dealer; dealer board; rates and CSV statement.
+- **Support services, shop side:** price for 120 products ₹1,766.46; free request → ticket;
+  wallet shortfall 402 → test credit → paid → ticket; cancel → refunded to the wallet, ticket
+  closed; online payment → paid, ticket. `/dealer` and `/shop/support-services` fit 375 px.
+- **D-2 — fixed in code (`3bf5a33`):** after a gateway-paid registration fee, the approval check
+  and dealer commission were on a 2-second timer that never ran on staging. They now run right
+  after the capture commits, in the same request; tests prove it.
+- **D-3 — closed, same cause as D-2:** the check runs only when a document's status changes, so
+  the first re-triggers did nothing. With a real status change, the paid shop was approved
+  instantly, the dealer earned ₹100 + ₹150, the shop counted for the rating, and the owner got
+  the "ready for product upload" e-mail.
+- **Waived fees (`d8fc985`):** the approval queue can now waive a shop's fee; a waived fee now
+  counts as a zero base, so no percentage commission or bonus is paid on it.
+
 **Feature flags on staging:** all four are on for Pune (`MH-PUN`) only, since 28 Oct 16:36 UTC.
 
 ---
@@ -100,13 +121,9 @@ Full table: [STAGING_TEST_RESULTS_2026-10-28.md](STAGING_TEST_RESULTS_2026-10-28
 
 | What | Needs |
 |---|---|
-| Operator is refused on flags, commission and area targets | An operator session on staging (sign-in code by e-mail) |
-| Dealer application → approval → code, link, QR, employees | A dealer-applicant account and its mobile OTP; the owner's go-ahead to approve a test dealer on staging |
-| Shop registered through a dealer: attribution, leads, duplicates, dealer-assisted | The test dealer above and a shop-owner session |
-| Instant approval with a gateway-paid fee | A shop-owner session and a payment through the "Sandbox payment" workflow (Cashfree sandbox data only) |
-| Commission ledger, rating, dealer board | The flows above |
-| Support services from the shop side: wallet pay, ticket, cancel and refund, online pay | A shop-owner session, a shop-wallet credit, and the "Sandbox payment" workflow |
-| `/dealer` and `/shop/support-services` at phone width | Dealer and shop-owner sessions |
+| D-2 fix on staging: a new shop paid through the sandbox gateway is approved without any other trigger | A fresh shop (another owner account) once `3bf5a33` is deployed |
+| Commission approval and payout with a bank reference | An admin pass on the ₹250 now earned by the test dealer (no money moves) |
+| Duplicate warning on staging | Covered by automated tests only |
 
 No real cards, UPI IDs or bank accounts were used. No money moved.
 
@@ -118,7 +135,7 @@ No real cards, UPI IDs or bank accounts were used. No money moved.
 |---|---|---|---|
 | Local | All steps | Tests switch them per case | Migrations 0101–0111 |
 | Staging | All steps | All on, Pune only | 0101–0111 applied (Test database run on `ea7eecb`) |
-| Production | Not released | All off | Not migrated |
+| Production | Released 28 Oct: #268 (ea7eecb) and release 2 (8d6ef40), post-deploy checks passed | All off (checked) | 0098–0111 applied |
 
 **Production release** goes staging → main as one release, with a post-deploy check, in an
 owner-approved window. Staging also carries other work that would ship with it: the approval

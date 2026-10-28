@@ -277,6 +277,8 @@ export async function ruleFor(shop: Pick<Shop, "shopType">, districtCode: string
 
 /** The registration fee actually paid, before GST, after any coupon. */
 export function feeBasePaise(shop: Pick<Shop, "registrationFeeBasePaise" | "registrationFeeDiscountPaise" | "registrationFeePaise" | "registrationFeeGstPaise">): number {
+  // A fee an admin waived for this shop (its fee set to zero; the base stays on record): nothing was collected.
+  if (shop.registrationFeePaise != null && Number(shop.registrationFeePaise) === 0) return 0;
   if (shop.registrationFeeBasePaise != null) return Math.max(0, Number(shop.registrationFeeBasePaise) - Number(shop.registrationFeeDiscountPaise ?? 0));
   return Math.max(0, Number(shop.registrationFeePaise ?? 0) - Number(shop.registrationFeeGstPaise ?? 0));
 }

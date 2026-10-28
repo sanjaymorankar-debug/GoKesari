@@ -165,3 +165,83 @@ No sign-in codes were requested. Production was not changed (one guest GET).
 3. Run the payment cases (4.2, 7.7) through the "Sandbox payment" workflow with Cashfree sandbox data only.
 4. Fix D-1, re-run 2.6 and 6.2.
 5. After the production release, re-run F.2 (expect the JSON `FEATURE_NOT_AVAILABLE`).
+
+---
+
+## Second pass — 28 Oct 2026, 16:50–17:25 UTC
+
+The operator, shop-owner and both customer test accounts were signed in with their e-mailed codes
+(owner's mailbox, sign-in messages only). One customer account applied as a dealer; the other was
+the owner in a dealer-assisted registration. Payments used the test site's own sandbox gateway
+("Test payment page — no money moves"); no card, UPI or bank details were entered anywhere.
+
+| # | Case | Result | Evidence |
+|---|---|---|---|
+| 1.3 | Operator refused on feature flags | PASS | `PUT /api/admin/feature-flags` 403; `/admin/feature-flags` redirects home |
+| 5.2 | Operator refused on commission rules | PASS | `POST /api/admin/dealer-commission` 403 |
+| 8.3 | Operator reads analytics, cannot set a target | PASS | `GET` 200; `POST /api/admin/dealer-analytics` 403 |
+| 2.2 | Dealer application with documents | PASS | Individual type; PAN, address and bank proof uploaded; submitted with agreement 2026-10-28 |
+| 2.3 | Admin approval | PASS | Documents accepted; approved with mobile confirmed by call and bank verified by document |
+| 2.4 | Code, share link, QR | PASS | `GKS-MH-PUN-EZJTJG`, `/shop/register?ref=GKS-MH-PUN-EZJTJG`, QR SVG, WhatsApp link |
+| 2.5 | Employee with Employee ID | PASS | E01 "QA Field Employee", code `GKS-FE-WD6WN9` |
+| 3.4 | Lead with owner consent | PASS | Open until 27 Nov (30 days) |
+| SH-002 | Dealer-assisted registration | PASS | Owner code e-mailed (SMS not set up on staging), confirmed, shop BKS-000032 registered |
+| 3.3 | Attribution shown to the dealer | PASS | Source DEALER_ASSISTED, employee "QA Field Employee", no duplicate flag |
+| 6.1 | Dealer board | PASS | `/dealer` 200, Support services link per shop |
+| 5.3 | Dealer sees rates, commission, statement | PASS | Rates ₹100 / ₹150 / ₹150; statement CSV downloads |
+| 7.1 | Shop page with three services | PASS | `/shop/support-services` 200 for the shop owner |
+| 7.2 | Price for 120 products | PASS | ₹1,766.46 (3 × ₹499 + 18% GST) |
+| 7.3 | Free general support opens a ticket | PASS | Paid (free), ticket TKT-000003 |
+| 7.4 | Priced request paid from the wallet | PASS | First 402 with shortfall ₹588.82; after a ₹600 test credit: paid, ticket TKT-000004 |
+| 7.5 | Cancel before work → refund | PASS | Refunded ₹588.82 to the wallet; ticket closed |
+| 7.7 | Online payment | PASS | Sandbox checkout "Pay (success)" → request paid online, ticket TKT-000005 |
+| P.1 | `/dealer` at 375 px | PASS | No sideways scroll, no page errors |
+| P.2 | `/shop/support-services` at 375 px | PASS | No sideways scroll, no page errors |
+| 4.2 | Instant approval after a gateway-paid fee | **FAIL** | D-2 / D-3 below |
+| CM-002 | Registration commission after the fee | **FAIL** | D-3 below |
+| 3.5 | Duplicate warning | Not run on staging | Covered by automated tests (step 3) |
+
+**D-2 (fixed in code, `3bf5a33`).** After the registration fee was paid through the gateway, the
+step that runs the approval check and the dealer's commission was scheduled on a 2-second timer
+after the capture transaction. On staging it never ran (no decision logged after the payment).
+Capture follow-ups now run right after the commit, in the same request. New tests prove it locally
+(`dealer-step4`, `dealer-step7`). Not yet re-tested on staging: the test shop's fee is already paid.
+
+**D-3 (open).** For the same shop (BKS-000032: fee paid online, PAN and Shop Act verified by the
+test provider, GST declaration accepted), a direct trigger — submitting a newly verified PAN — still
+logged no new instant-approval decision and accrued no dealer commission. No error reaches the API
+response. Finding the cause needs the staging server's logs (Hostinger).
+
+**Also seen:** the dealer's ₹1 bank check stays "waiting" with Cashfree's sandbox test account
+(1111222233 / TEST0001234). The dealer was approved with "bank verified by document".
+
+**Created on staging in this pass (test data, clean up when done):** dealer "QA Staging Test Dealer"
+(account `gk-cust`), employee E01, lead "QA Lead Kirana (staging)", shop BKS-000032
+"QA Assisted Clothing (staging)" (owner `gk-lc14`, fee ₹1,178.82 paid in the sandbox), three support
+requests on "E2E Referral MV2SJM8P-3" (one refunded), and a ₹600 test credit in that shop's wallet.
+
+**Second pass totals:** 20 pass, 2 fail (D-2 fixed in code, D-3 open), 1 left to automated tests.
+
+### D-3 resolved — same cause as D-2 (28 Oct, 17:14 UTC)
+
+Read-only queries on the staging database (Neon project GoKesari-test-sg) showed:
+- The fee was recorded online at 17:00:09.
+- No approval decision was logged after 16:59:50.
+- Every flag was on for Pune.
+
+The approval check runs when a document's status **changes**. Both of the earlier re-triggers
+re-verified documents that were already VERIFIED, so they did nothing. Moving the PAN to manual
+review and back to verified (a real status change) ran the check at 17:14:02:
+- **instant approval:** BKS-000032 APPROVED, decision logged with no reasons, lifecycle ACTIVE;
+- **commission:** the dealer earned ₹100 (REGISTERED) and ₹150 (ACTIVATED); the shop counts as
+  activated for the rating;
+- **e-mail:** the owner received "Registration successful — QA Assisted Clothing (staging) is ready
+  for product upload".
+
+So the only fault was D-2: after a gateway payment, nothing re-ran the check. Fixed in `3bf5a33`.
+
+| # | Case | Result |
+|---|---|---|
+| 4.2 | Instant approval with a gateway-paid fee | PASS once the check runs (D-2 fixed in code) |
+| CM-002 | Registration and activation commission accrue | PASS (₹100 + ₹150 earned) |
+| CM-003 | Live shop counts for the rating | PASS (activated 17:14:09) |

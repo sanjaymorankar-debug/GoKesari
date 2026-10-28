@@ -51,7 +51,7 @@ ws.columns = [
   { header: "Production", key: "prod", width: 26 },
 ];
 for (const [id, module, what, priority, step, migration, commit] of MODULES) {
-  ws.addRow({ id, module, what, priority, step, migration, commit, built: "Done", ci: "PASS", staging: staging[id] ?? "Not run", prod: "Not released (flags off)" });
+  ws.addRow({ id, module, what, priority, step, migration, commit, built: "Done", ci: "PASS", staging: staging[id] ?? "Not run", prod: staging.__prod ?? "Not released (flags off)" });
 }
 const header = ws.getRow(1);
 header.font = { bold: true, color: { argb: "FFFFFFFF" } };
@@ -82,7 +82,7 @@ for (const [flag, what] of [
   ["dealer_rating_bonus_enabled", "Rating bonus on commission"],
   ["paid_support_services_enabled", "Paid Support services page"],
 ]) {
-  flags.addRow({ flag, what, staging: staging.__flags ?? "Off", prod: "Off" });
+  flags.addRow({ flag, what, staging: staging.__flags ?? "Off", prod: staging.__prodFlags ?? "Off" });
 }
 flags.getRow(1).font = { bold: true };
 
