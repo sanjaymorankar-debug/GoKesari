@@ -98,7 +98,7 @@ function requireReason(reason: string | null | undefined, min = 5): string {
 
 export async function getCommissionSettings(client: DbClient = db): Promise<DealerCommissionSettings> {
   const [row] = await client.select().from(dealerCommissionSettings).where(eq(dealerCommissionSettings.id, "default"));
-  return row ?? { id: "default", capPaise: 99_900, fixedBonusBase: "FEE", catalogueMinProducts: 10, branchEligible: false, payoutDayOfMonth: 5, autoApproveAtMonthEnd: false, updatedBy: null, updatedAt: new Date(0) };
+  return row ?? { id: "default", capPaise: 99_900, fixedBonusBase: "FEE", catalogueMinProducts: 10, branchEligible: false, payoutDayOfMonth: 5, autoApproveAtMonthEnd: true, updatedBy: null, updatedAt: new Date(0) };
 }
 
 export async function setCommissionSettings(

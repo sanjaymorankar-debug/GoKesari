@@ -10004,8 +10004,8 @@ export const dealerCommissionSettings = pgTable("dealer_commission_settings", {
   branchEligible: boolean("branch_eligible").notNull().default(false),
   /** Monthly payout (0113): the day (1–28, IST) the previous month is closed and its payouts drafted. */
   payoutDayOfMonth: integer("payout_day_of_month").notNull().default(5),
-  /** At the month's close, approve EARNED entries of that month first (an admin still pays). */
-  autoApproveAtMonthEnd: boolean("auto_approve_at_month_end").notNull().default(false),
+  /** At the month's close, approve EARNED entries of that month first (an admin still pays). On by default (owner, 29 Oct 2026). */
+  autoApproveAtMonthEnd: boolean("auto_approve_at_month_end").notNull().default(true),
   updatedBy: uuid("updated_by"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });

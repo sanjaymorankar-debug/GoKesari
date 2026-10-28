@@ -9,9 +9,10 @@ report of the registrations each dealer brought.
    paid, verified + catalogue, activated) under the rules in Admin → Dealers → Commission.
 2. **The close (the 5th, 05:00 IST).** The daily job `dealer-monthly-payout` (in `/api/cron/daily`)
    closes the previous calendar month once:
-   - With **"approve at the month's close"** on, that month's earned commission is approved first.
-     Off (the default), only what an admin approved goes in. Commission above the per-shop cap and
-     commission on hold are never included.
+   - **"Approve at the month's close"** is on by default (owner, 29 Oct 2026): that month's earned
+     commission is approved first, so no admin approval is needed before the payout. Switched off,
+     only what an admin approved goes in. Commission above the per-shop cap and commission on hold
+     are never included, either way.
    - One **draft payout per dealer**: every approved entry up to the end of the month (anything
      approved late from earlier months included), netted with reversals not yet settled. A dealer who
      owes money back (net ≤ 0) gets no payout; the amount is carried to the next month.
@@ -23,7 +24,7 @@ report of the registrations each dealer brought.
    never moves automatically. A cancelled draft's entries go into the next month's payout.
 4. **Close early.** An admin can close last month before the payout day ("Close <month> now").
 5. **Settings** (admin, audited with a reason): payout day 1–28 (default 5) and approval at the close
-   (default off).
+   (default on).
 
 ## The dealer's statement
 
@@ -46,8 +47,8 @@ Migration 0113 (`-- split: seller`, rollback `scripts/rollback-0113.sql`):
 
 ## For the owner to decide
 
-- Should approval at the month's close be **on**? Off means an admin must approve entries before the 5th,
-  or they wait for the next month.
+- ~~Should approval at the month's close be on?~~ Decided 29 Oct 2026: **on**. Earned commission is
+  approved automatically at the close; an admin still checks the drafts and makes the bank transfer.
 - ⚖ CA: **TDS u/s 194H** on commission (deduct, deposit, Form 16A) and **GST** on the dealer's invoice
   for the commission (registered dealers invoice GoKesari). Not handled: the statement shows gross
   commission. The payout amount should become net of TDS once the CA confirms the rate and threshold.

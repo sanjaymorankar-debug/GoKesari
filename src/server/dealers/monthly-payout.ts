@@ -4,9 +4,9 @@
  * On the payout day (dealer_commission_settings.payout_day_of_month, default the
  * 5th, in the app's time zone) the previous calendar month is closed — once:
  *
- *   1. with auto_approve_at_month_end on, the month's EARNED accruals (not above
- *      the cap, not held) are approved first; otherwise only what an admin
- *      approved goes in;
+ *   1. with auto_approve_at_month_end on (the default, owner 29 Oct 2026), the
+ *      month's EARNED accruals (not above the cap, not held) are approved first;
+ *      switched off, only what an admin approved goes in;
  *   2. per dealer, a DRAFT payout of every APPROVED entry up to the month's end
  *      (earlier months' leftovers included), netted with reversals not yet
  *      settled — as createPayoutBatch() does by hand. A net of zero or less is

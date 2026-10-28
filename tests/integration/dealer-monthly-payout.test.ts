@@ -5,7 +5,8 @@
  * with reversals — and every dealer gets that month's statement.
  *
  *   - before the payout day nothing happens; on it the month closes, once
- *   - only approved entries are paid unless auto-approval at the close is on;
+ *   - auto-approval at the close is on by default (owner, 29 Oct 2026); switched
+ *     off, only approved entries are paid;
  *     above-cap and held entries never; this month's entries wait for next month
  *   - reversals owed back are carried forward, not paid as a negative payout
  *   - a cancelled draft's entries go into the next month's payout
@@ -32,13 +33,14 @@ import {
   dealerCommissionLedger,
   dealerCommissionMonths,
   dealerCommissionRules,
+  dealerCommissionSettings,
   dealerPayoutBatches,
   dealers,
   notifications,
   shopAttributions,
   shops,
 } from "@/server/db/schema";
-import { approveEntries, cancelPayout, markPayoutPaid, reverseEntry, setCommissionSettings } from "@/server/dealers/commission";
+import { approveEntries, cancelPayout, getCommissionSettings, markPayoutPaid, reverseEntry, setCommissionSettings } from "@/server/dealers/commission";
 import {
   closeCommissionMonth,
   dealerMonthStatement,
@@ -162,6 +164,13 @@ describe("the daily job closes the month on the payout day, once", () => {
     await approveEntries([a.entry.id], admin);
     const result = await runMonthlyDealerPayout(new Date("2026-10-09T06:00:00+05:30"));
     expect(result).toMatchObject({ month: SEPT, payouts: [{ totalPaise: 10_000 }] });
+  });
+
+  it("approval at the close is on by default (owner, 29 Oct 2026): a fresh settings row and the fallback both say so", async () => {
+    await db.delete(dealerCommissionSettings);
+    expect((await getCommissionSettings()).autoApproveAtMonthEnd).toBe(true);
+    const [row] = await db.insert(dealerCommissionSettings).values({}).returning();
+    expect(row.autoApproveAtMonthEnd).toBe(true);
   });
 
   it("with auto-approval at the close, September's earned commission is approved and paid; above-cap and held entries are not; October's waits", async () => {

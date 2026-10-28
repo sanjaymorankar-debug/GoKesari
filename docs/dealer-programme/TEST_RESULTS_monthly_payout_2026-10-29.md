@@ -7,14 +7,15 @@ Branch `claude/dealer-monthly-payout`, based on staging 745086e. Migration 0113.
 
 | Layout | Result |
 |---|---|
-| One database | **11 / 11 passed** |
-| Two databases (seller tables through postgres_fdw) | **11 / 11 passed** |
+| One database | **12 / 12 passed** |
+| Two databases (seller tables through postgres_fdw) | **12 / 12 passed** |
 
 | # | Case | Result |
 |---|---|---|
 | 1 | Months: previous month, IST month bounds, labels | Pass |
 | 2 | Before the 5th nothing; on the 5th a DRAFT payout of September's approved commission (only approved — an earned entry waits); statement notice to the dealer (2 shops, ₹200 earned, ₹100 payout, link to the month); a second run and an admin close change nothing; audited | Pass |
 | 3 | A missed run catches up later in the month | Pass |
+| 4a | Approve-at-close is **on by default** (owner, 29 Oct 2026): a fresh settings row and the built-in fallback both have it on | Pass |
 | 4 | Approve-at-close on: September's earned entry approved and paid; held and above-cap entries not; an October entry waits | Pass |
 | 5 | Approved commission left from an earlier month is paid with this one; the statement lists the payout's entries | Pass |
 | 6 | A reversal owed back (after an earlier payout) is carried forward — no negative payout; the statement shows it | Pass |
@@ -31,6 +32,14 @@ journal: **142 / 142 on each layout**. The cron-schedule test was updated for th
 `dealer-monthly-payout` (it lists every job).
 
 The full suite was not run locally for this branch; CI's `test` and `test-split` jobs run it on the PR.
+
+## Re-run after the default change (29 Oct 2026)
+
+Owner decision: approve-at-close on by default (migration column default, schema default and the
+fallback settings). Payout tests that rely on the old default set it off explicitly, as before.
+`dealer-monthly-payout`, `dealer-step5-commission`, `dealer-step6-dashboard`, split ownership and
+migration journal: **40 / 40 on two databases**; with `migrate-on-build` added, **46 / 46 on one
+database**.
 
 ## Not covered here
 
