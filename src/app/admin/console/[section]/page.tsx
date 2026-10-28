@@ -125,6 +125,8 @@ export default async function AdminConsoleSectionPage({
             canApprove={can(user.role, PERMISSIONS.SHOP_APPROVE)}
             canClassify={can(user.role, PERMISSIONS.SHOP_SET_CLASSIFICATION)}
             canWaiveDocuments={user.role === "ADMIN"}
+            canRecordPayment={can(user.role, PERMISSIONS.PAYMENT_RECORD)}
+            canWaiveFee={user.role === "ADMIN"}
           />
         </>
       );

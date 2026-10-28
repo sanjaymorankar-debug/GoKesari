@@ -31,11 +31,12 @@ export default async function AdminDealersPage({ searchParams }: { searchParams:
   if (!user) redirect("/signin");
   if (user.role !== "ADMIN" && user.role !== "OPERATOR") redirect("/");
   const params = await searchParams;
-  const status = (DEALER_STATUSES as readonly string[]).includes(params.status ?? "") ? (params.status as DealerStatus) : "PENDING";
+  const status: DealerStatus | "ALL" =
+    params.status === "ALL" ? "ALL" : (DEALER_STATUSES as readonly string[]).includes(params.status ?? "") ? (params.status as DealerStatus) : "PENDING";
   const [rows, overview, requirements] = await Promise.all([listDealers({ status, q: params.q?.slice(0, 80) }), dealersOverview(), listDocumentRequirements()]);
   const stats = new Map(overview.map((o) => [o.id, o]));
   // Approved / all: highest rating first (the rating list across dealers).
-  if (status === "APPROVED" || (params.status ?? "") === "ALL") rows.sort((x, y) => (stats.get(y.id)?.rating ?? 0) - (stats.get(x.id)?.rating ?? 0));
+  if (status === "APPROVED" || status === "ALL") rows.sort((x, y) => (stats.get(y.id)?.rating ?? 0) - (stats.get(x.id)?.rating ?? 0));
   const filters: (DealerStatus | "ALL")[] = ["PENDING", "APPROVED", "SUSPENDED", "REJECTED", "TERMINATED", "DRAFT", "ALL"];
 
   return (

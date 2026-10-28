@@ -1,5 +1,7 @@
 "use client";
 
+import Link from "next/link";
+
 import clsx from "clsx";
 import { useState } from "react";
 
@@ -72,12 +74,15 @@ export function DealerBoard({
   openLeads,
   openClaims,
   activeEmployees,
+  supportServicesOn = false,
 }: {
   data: BoardData;
   ratingText: string;
   bonusText: string;
   earnedPaise: number;
   openLeads: number;
+  /** Paid support services on: each shop links to its Support services page (GKS-SP-001). */
+  supportServicesOn?: boolean;
   openClaims: number;
   activeEmployees: number;
 }) {
@@ -190,6 +195,11 @@ export function DealerBoard({
                 {s.district ? ` · ${s.district}` : ""} · {s.attributedAt.slice(0, 10)}
                 {s.employee ? ` · ${s.employee}` : ""} · commission {rs(s.commissionPaise)}
               </span>
+              {supportServicesOn ? (
+                <Link href={`/shop/support-services?shopId=${s.shopId}`} className="inline-flex min-h-11 items-center text-xs font-semibold text-kesari-800 underline">
+                  Support services for this shop
+                </Link>
+              ) : null}
             </li>
           ))}
         </ul>

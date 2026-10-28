@@ -24,6 +24,7 @@ import { emailChannel, smsChannel } from "@/server/notifications/channels";
 import { getShopOnboarding } from "@/server/services/shop-onboarding";
 import { clearRuleCache } from "@/server/services/settings";
 import { approveShop, remindShopDocuments } from "@/server/services/shops";
+import { recordPayment, waiveRegistrationFee } from "@/server/services/shop-payments";
 import { createShop, createUser, resetDatabase, verifySellerDocuments } from "../helpers/fixtures";
 
 const ADMIN = (id: string) => ({ id, role: "ADMIN" as const });
@@ -214,5 +215,57 @@ describe("approve without documents", () => {
       code: "CONFLICT",
       details: { lifecycleStatus: "KYC_PENDING" },
     });
+  });
+});
+
+describe("waive the registration fee from the queue", () => {
+  async function unpaidShop() {
+    const owner = await createUser({ role: "SHOP_OWNER" });
+    return createShop(owner.id, { status: "PENDING_APPROVAL", shopType: "HARDWARE_STORE", registrationFeePaise: 10_000 });
+  }
+
+  it("lets an admin waive it with a reason; the shop then reads as settled and can be approved", async () => {
+    const shop = await unpaidShop();
+    const admin = await createUser({ role: "ADMIN" });
+    const result = await waiveRegistrationFee(shop.id, "Launch offer agreed with the owner", ADMIN(admin.id));
+    expect(result.feePaymentStatus).toBe("PAID");
+    const [after] = await db.select().from(shops).where(eq(shops.id, shop.id));
+    expect(after.registrationFeePaise).toBe(0);
+    expect(after.feePaymentStatus).toBe("PAID");
+    const audit = await db
+      .select()
+      .from(auditLogs)
+      .where(and(eq(auditLogs.entityId, shop.id), eq(auditLogs.action, "shop.registration_fee_waived")));
+    expect(audit).toHaveLength(1);
+
+    const approved = await approveShop(shop.id, { classification: "GREEN" }, ADMIN(admin.id), {
+      waiveDocuments: { reason: "Documents checked in person at the shop" },
+    });
+    expect(approved.lifecycleStatus).toBe("ACTIVE");
+  });
+
+  it("is refused to an operator", async () => {
+    const shop = await unpaidShop();
+    const operator = await createUser({ role: "OPERATOR" });
+    await expect(waiveRegistrationFee(shop.id, "Operator should not waive", OPERATOR(operator.id))).rejects.toMatchObject({
+      code: "FORBIDDEN",
+    });
+  });
+
+  it("is refused once part of the fee is paid, and for a settled fee", async () => {
+    const shop = await unpaidShop();
+    const admin = await createUser({ role: "ADMIN" });
+    await recordPayment({ shopId: shop.id, paymentType: "REGISTRATION_FEE", amountPaise: 4_000 }, ADMIN(admin.id));
+    await expect(waiveRegistrationFee(shop.id, "Launch offer agreed with the owner", ADMIN(admin.id))).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: expect.stringMatching(/already paid/),
+    });
+    await recordPayment({ shopId: shop.id, paymentType: "REGISTRATION_FEE", amountPaise: 6_000 }, ADMIN(admin.id));
+    await expect(waiveRegistrationFee(shop.id, "Launch offer agreed with the owner", ADMIN(admin.id))).rejects.toMatchObject({
+      code: "CONFLICT",
+      message: expect.stringMatching(/already settled/),
+    });
+    const [after] = await db.select().from(shops).where(eq(shops.id, shop.id));
+    expect(after.registrationFeePaise).toBe(10_000);
   });
 });

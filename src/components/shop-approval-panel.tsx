@@ -14,6 +14,7 @@ import {
   inputClass,
 } from "@/components/ui";
 import { formatPaiseCompact } from "@/lib/money";
+import { RecordPaymentForm } from "@/components/shop-finance-manager";
 import {
   adminNextAction,
   reminderSentText,
@@ -87,6 +88,8 @@ export function ShopApprovalPanel({
   canApprove,
   canClassify,
   canWaiveDocuments = false,
+  canRecordPayment = false,
+  canWaiveFee = false,
   approvalGateOn = true,
 }: {
   pending: AdminShop[];
@@ -95,6 +98,10 @@ export function ShopApprovalPanel({
   canClassify: boolean;
   /** Admin only: approve a shop without its seller documents, with a reason. */
   canWaiveDocuments?: boolean;
+  /** Record a registration-fee payment from the queue (PAYMENT_RECORD). */
+  canRecordPayment?: boolean;
+  /** Admin only: waive a pending shop's registration fee, with a reason. */
+  canWaiveFee?: boolean;
   /** statusModels.enforceTransitions — when off, Approve is offered at any stage. */
   approvalGateOn?: boolean;
 }) {
@@ -137,6 +144,8 @@ export function ShopApprovalPanel({
                 shop={shop}
                 canApprove={canApprove}
                 canWaiveDocuments={canWaiveDocuments}
+                canRecordPayment={canRecordPayment}
+                canWaiveFee={canWaiveFee}
                 approvalGateOn={approvalGateOn}
               />
             ))}
@@ -170,11 +179,15 @@ function PendingShopRow({
   shop,
   canApprove,
   canWaiveDocuments,
+  canRecordPayment,
+  canWaiveFee,
   approvalGateOn,
 }: {
   shop: AdminShop;
   canApprove: boolean;
   canWaiveDocuments: boolean;
+  canRecordPayment: boolean;
+  canWaiveFee: boolean;
   approvalGateOn: boolean;
 }) {
   const stage = shop.onboardingStage;
@@ -187,6 +200,10 @@ function PendingShopRow({
   const [notice, setNotice] = useState<string | null>(null);
   const [waiving, setWaiving] = useState(false);
   const [waiveReason, setWaiveReason] = useState("");
+  const feeDue = shop.feePaymentStatus !== "PAID";
+  const outstandingPaise = Math.max(0, (shop.registrationFeePaise ?? 0) - shop.amountPaidPaise);
+  const [feeAction, setFeeAction] = useState<"record" | "waive" | null>(null);
+  const [feeReason, setFeeReason] = useState("");
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -291,6 +308,30 @@ function PendingShopRow({
                 Reject
               </Button>
             </div>
+            {feeDue && (canRecordPayment || canWaiveFee) ? (
+              <div className="flex flex-wrap justify-end gap-2">
+                {canRecordPayment ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() => setFeeAction((v) => (v === "record" ? null : "record"))}
+                  >
+                    Record fee payment
+                  </Button>
+                ) : null}
+                {canWaiveFee && shop.amountPaidPaise === 0 ? (
+                  <Button
+                    size="sm"
+                    variant="secondary"
+                    disabled={busy}
+                    onClick={() => setFeeAction((v) => (v === "waive" ? null : "waive"))}
+                  >
+                    Waive fee
+                  </Button>
+                ) : null}
+              </div>
+            ) : null}
             {canRemind || canWaive ? (
               <div className="flex flex-wrap justify-end gap-2">
                 {canRemind ? (
@@ -327,6 +368,53 @@ function PendingShopRow({
           >
             Confirm
           </Button>
+        </div>
+      ) : null}
+
+      {feeAction === "record" ? (
+        <div className="mt-3 rounded-lg border border-cream-200 p-3">
+          <p className="mb-2 text-sm text-ink-700">
+            Record a registration-fee payment received for {shop.name} ({formatPaiseCompact(outstandingPaise)} outstanding).
+          </p>
+          <RecordPaymentForm
+            shopId={shop.id}
+            suggestedPaise={outstandingPaise}
+            onDone={() => {
+              setFeeAction(null);
+              setNotice("Payment recorded.");
+              router.refresh();
+            }}
+          />
+        </div>
+      ) : null}
+
+      {feeAction === "waive" ? (
+        <div className="mt-3 space-y-2 rounded-lg border border-cream-200 p-3">
+          <p className="text-sm text-ink-700">
+            Waive {shop.name}&apos;s registration fee of {formatPaiseCompact(outstandingPaise)}. The fee becomes zero and
+            reads as settled; your name and reason are recorded. Other shops&apos; fees are not changed.
+          </p>
+          <div className="flex gap-2">
+            <input
+              value={feeReason}
+              onChange={(e) => setFeeReason(e.target.value)}
+              placeholder="Reason for waiving the fee"
+              className={inputClass}
+              aria-label="Reason for waiving the fee"
+            />
+            <Button
+              size="sm"
+              disabled={busy || feeReason.trim().length < 10}
+              onClick={async () => {
+                if (await act("waive-fee", { reason: feeReason })) {
+                  setFeeAction(null);
+                  setNotice("Registration fee waived.");
+                }
+              }}
+            >
+              Confirm waiver
+            </Button>
+          </div>
         </div>
       ) : null}
 

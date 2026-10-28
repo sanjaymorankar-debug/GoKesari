@@ -13,7 +13,8 @@
  */
 import { and, desc, eq, isNull, sql } from "drizzle-orm";
 
-import { conflict, notFound, validationFailed } from "@/lib/errors";
+import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
+import { formatPaise } from "@/lib/money";
 import { db, type DbClient } from "@/server/db";
 import {
   shopPayments,
@@ -366,4 +367,62 @@ export async function getRegistrationFeeReport(): Promise<{
     partiallyPaid: totals.partiallyPaid,
     unpaid: totals.unpaid,
   };
+}
+
+/**
+ * Waives one pending shop's registration fee (admin only, with a reason): the
+ * shop's fee snapshot becomes zero and its settlement is recomputed from the
+ * ledger, so it reads PAID like a shop registered with a waived fee. Refused
+ * once anything has been paid (record the rest, or refund first) and for a
+ * shop already approved. The fee tariff for other shops is untouched.
+ */
+export async function waiveRegistrationFee(
+  shopId: string,
+  reason: string,
+  actor: Actor,
+): Promise<{ amountPaidPaise: number; feePaymentStatus: FeePaymentStatus }> {
+  if (actor.role !== "ADMIN") throw forbidden("Only an admin can waive a registration fee.");
+  const waived = await db.transaction(async (tx) => {
+    const [shop] = await tx
+      .select({
+        id: shops.id,
+        name: shops.name,
+        status: shops.status,
+        registrationFeePaise: shops.registrationFeePaise,
+        amountPaidPaise: shops.amountPaidPaise,
+        feePaymentStatus: shops.feePaymentStatus,
+      })
+      .from(shops)
+      .where(and(eq(shops.id, shopId), isNull(shops.deletedAt)))
+      .for("update")
+      .limit(1);
+    if (!shop) throw notFound("Shop");
+    if (shop.status !== "PENDING_APPROVAL") throw conflict("Only a shop waiting for approval can have its fee waived.");
+    if (shop.feePaymentStatus === "PAID") throw conflict(`${shop.name}'s registration fee is already settled.`);
+    if (shop.amountPaidPaise !== 0) {
+      throw conflict(
+        `${shop.name} has already paid ${formatPaise(shop.amountPaidPaise)}. Record the rest of the fee, or refund it before waiving.`,
+      );
+    }
+    await tx.update(shops).set({ registrationFeePaise: 0, updatedAt: new Date() }).where(eq(shops.id, shop.id));
+    const settlement = await recomputeShopSettlement(tx, shop.id);
+    await recordAudit(
+      {
+        actorId: actor.id,
+        actorRole: actor.role,
+        action: AUDIT_ACTIONS.SHOP_REGISTRATION_FEE_WAIVED,
+        entityType: "shop",
+        entityId: shop.id,
+        previousValue: { registrationFeePaise: shop.registrationFeePaise, feePaymentStatus: shop.feePaymentStatus },
+        newValue: { registrationFeePaise: 0, feePaymentStatus: settlement.feePaymentStatus, reason },
+      },
+      tx,
+    );
+    return settlement;
+  });
+  // Event layer: a settled fee may be the last thing a pending shop was waiting for.
+  await autoApproveShopIfReady(shopId).catch((error) =>
+    console.error("[shop-payments] auto-approval check failed", shopId, error),
+  );
+  return waived;
 }

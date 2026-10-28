@@ -368,7 +368,7 @@ export async function payOnline(requestId: string, actor: Actor) {
  * transaction): the request is paid when the amount is right; its ticket is
  * opened after the commit.
  */
-export async function onSupportServicePaymentCaptured(intent: PaymentIntentRef, client: typeof db): Promise<void> {
+export async function onSupportServicePaymentCaptured(intent: PaymentIntentRef, client: typeof db, afterCommit?: (task: () => Promise<void>) => void): Promise<void> {
   const [req] = await client.select().from(supportServiceRequests).where(eq(supportServiceRequests.id, intent.referenceId)).for("update");
   if (!req) return;
   if (req.status !== "AWAITING_PAYMENT") return;
@@ -381,9 +381,13 @@ export async function onSupportServicePaymentCaptured(intent: PaymentIntentRef, 
     .set({ status: "PAID", paymentMethod: "ONLINE", paymentIntentId: intent.id, paidAt: new Date(), updatedAt: new Date() })
     .where(eq(supportServiceRequests.id, req.id));
   await recordAudit({ action: AUDIT_ACTIONS.SUPPORT_SERVICE_PAID, entityType: "support_service_request", entityId: req.id, newValue: { method: "ONLINE", intentId: intent.id, totalPaise: req.totalPaise } }, client);
-  const after = () => void ensureTicket(req.id).catch((e) => console.error("[support-services] ticket after payment failed", req.id, e));
-  if (client === db) after();
-  else setTimeout(after, 2_000).unref?.();
+  const after = async () => {
+    await ensureTicket(req.id).catch((e) => console.error("[support-services] ticket after payment failed", req.id, e));
+  };
+  if (client === db) await after();
+  // After the capture commits, in the same request (a timer may never run once the answer is sent).
+  else if (afterCommit) afterCommit(after);
+  else setTimeout(() => void after(), 2_000).unref?.();
 }
 
 const SERVICE_LABEL: Record<string, string> = { GENERAL: "General support", PRODUCT_UPLOAD: "Product upload", PRICE_UPDATE: "Price update" };

@@ -54,7 +54,7 @@ export default async function DealerPage() {
 
   const origin = originFromHeaders(await headers());
   const code = await activeCodeFor(dealer.id, null);
-  const [employees, performance, leads, claims, shopTypes, categories, feeRule, rating, summary, rates, entries, bonusOn] = await Promise.all([
+  const [employees, performance, leads, claims, shopTypes, categories, feeRule, rating, summary, rates, entries, bonusOn, supportServicesOn] = await Promise.all([
     listSalespeople(dealer.id),
     dealerPerformance(dealer.id),
     listLeads(dealer.id),
@@ -67,6 +67,7 @@ export default async function DealerPage() {
     applicableRates(),
     listLedger({ dealerId: dealer.id }),
     isFeatureEnabled("dealer_rating_bonus_enabled"),
+    isFeatureEnabled("paid_support_services_enabled"),
   ]);
   // Dates become ISO strings for the client component.
   const iso = (rows: object[]) => JSON.parse(JSON.stringify(rows));
@@ -86,6 +87,7 @@ export default async function DealerPage() {
         openLeads={leads.filter((l) => l.status === "OPEN").length}
         openClaims={claims.filter((c) => c.status === "OPEN").length}
         activeEmployees={employees.filter((e) => e.status === "ACTIVE").length}
+        supportServicesOn={supportServicesOn}
       />
       <DealerPortal
         legalName={dealer.legalName}

@@ -744,7 +744,7 @@ function assertRegistrationFeeSettled(shop: Shop): void {
         : `${formatPaise(shop.amountPaidPaise)} of ${formatPaise(fee)} collected — ${formatPaise(outstanding)} outstanding.`;
 
   throw conflict(
-    `${shop.name} cannot be approved until its registration fee is settled. ${detail} Record the payment first, or set the fee to zero to waive it.`,
+    `${shop.name} cannot be approved until its registration fee is settled. ${detail} Record the payment first, or have an admin waive the fee (both from the approval queue).`,
     { feePaymentStatus: shop.feePaymentStatus, registrationFeePaise: fee, amountPaidPaise: shop.amountPaidPaise },
   );
 }

@@ -16,8 +16,9 @@ import { and, eq } from "drizzle-orm";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
-import { auditLogs, dealers, notifications, sellerVerifications, shopAttributions, shopAutoApprovalLog, shops } from "@/server/db/schema";
+import { auditLogs, dealers, notifications, paymentIntents, sellerVerifications, shopAttributions, shopAutoApprovalLog, shops } from "@/server/db/schema";
 import { KycUnavailableError, setKycAdapterForTests, type KycAdapter, type ProviderOutcome, type SourceRecord, type VerifyRequest } from "@/server/kyc";
+import { applyGatewayState } from "@/server/payments/processing";
 import { setFeatureFlag } from "@/server/services/feature-flags";
 import { listGovDecisions } from "@/server/services/gov-auto-approval";
 import { approveShop } from "@/server/services/shops";
@@ -273,6 +274,25 @@ describe("with the shop approval queue's changes (0109 waiver, deferred follow-u
     // The answer came back before the follow-ups: not approved yet.
     expect(await statusOf(shop.id)).toBe("PENDING_APPROVAL");
     for (const t of tasks) await t();
+    expect(await statusOf(shop.id)).toBe("APPROVED");
+    expect((await lastLog(shop.id)).outcome).toBe("APPROVED");
+  });
+});
+
+describe("fee paid through the gateway's webhook (staging finding, 28 Oct)", () => {
+  it("the capture approves the shop before the webhook is answered — no timer", async () => {
+    goodSource();
+    const { shop, owner, actor } = await pendingShop();
+    await verify(shop.id, actor, "PAN", "AAPFU0939F");
+    await verify(shop.id, actor, "GSTIN", "27AAPFU0939F1ZV");
+    await otherDocuments(shop.id, actor);
+    const [intent] = await db
+      .insert(paymentIntents)
+      .values({ purpose: "SHOP_REGISTRATION_FEE", referenceId: shop.id, userId: owner.id, amountPaise: 99_900, gateway: "SANDBOX", merchantOrderId: `gk_${shop.id.slice(0, 8)}`, gatewayOrderId: `go_${shop.id.slice(0, 8)}`, description: "fee", idempotencyKey: `fee:${shop.id}` } as never)
+      .returning();
+    const result = await applyGatewayState(intent.id, { gatewayOrderId: `go_${shop.id.slice(0, 8)}`, status: "CAPTURED", amountPaise: 99_900, gatewayPaymentId: "pay_wh_1", method: "UPI" }, { source: "WEBHOOK" });
+    expect(result.outcome).toBe("MOVED");
+    // Straight after the call: no 2-second timer to wait for.
     expect(await statusOf(shop.id)).toBe("APPROVED");
     expect((await lastLog(shop.id)).outcome).toBe("APPROVED");
   });
