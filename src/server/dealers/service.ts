@@ -27,12 +27,15 @@ import {
   DEALER_AGREEMENT_VERSION,
   DEALER_DOC_LABELS,
   DEALER_DOC_TYPES,
+  DEALER_TYPES,
   DEALER_STATUS_LABELS,
   type DealerDocType,
   type DealerStatus,
   type DealerType,
 } from "@/lib/dealers";
 import { isPanEncryptionConfigured } from "@/lib/env";
+import { indianState, stateCodeFromName, stateCodeOfArea } from "@/lib/indian-states";
+import { stateForPincode } from "@/lib/pincode-state";
 import { AppError, conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { decryptBytes, decryptSecret, encryptBytes, encryptSecret, maskPan, panBlindIndex } from "@/lib/pan-crypto";
 import { db, type DbClient } from "@/server/db";
@@ -53,7 +56,7 @@ import { verifyRegistrationOtp, sendRegistrationOtp } from "@/server/registratio
 import { bankCheckConfig, bankCheckDecision, callCashfreeBav } from "@/server/services/bank-account-check";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { flagCoversDistrict, getFeatureFlag } from "@/server/services/feature-flags";
-import { geoAncestry } from "@/server/services/geo-areas";
+import { addDistrict, geoAncestry, getGeoArea } from "@/server/services/geo-areas";
 import { notify } from "@/server/services/notifications";
 import { grantRole, revokeRole } from "@/server/services/roles";
 import { getRule } from "@/server/services/settings";
@@ -304,7 +307,8 @@ async function validateTerritories(codes: string[]): Promise<string[]> {
   if (wanted.length === 0) throw validationFailed("Choose at least one district or area you will work in.", { fields: { territories: "Choose at least one area." } });
   if (wanted.length > 50) throw validationFailed("Choose at most 50 areas.", { fields: { territories: "At most 50." } });
   const rows = await db.select({ code: geoAreas.code, level: geoAreas.level, status: geoAreas.status }).from(geoAreas).where(inArray(geoAreas.code, wanted));
-  const ok = new Set(rows.filter((r) => r.status === "ACTIVE" && ["DISTRICT", "TALUKA", "LOCALITY"].includes(r.level)).map((r) => r.code));
+  // A whole state, a district, or a city / locality (a region is only a grouping).
+  const ok = new Set(rows.filter((r) => r.status === "ACTIVE" && ["STATE", "DISTRICT", "TALUKA", "LOCALITY"].includes(r.level)).map((r) => r.code));
   const bad = wanted.filter((c) => !ok.has(c));
   if (bad.length) throw validationFailed(`Unknown area: ${bad.join(", ")}.`, { fields: { territories: "Choose areas from the list." } });
   return wanted;
@@ -393,7 +397,8 @@ export async function saveApplication(input: DealerApplicationInput, actor: Deal
       addressLine2: clean(input.addressLine2),
       city,
       pincode,
-      state: clean(input.state, 60) ?? "Maharashtra",
+      // The state given, else the PIN code's (no default state).
+      state: clean(input.state, 60) ?? indianState(stateForPincode(pincode))?.name ?? null,
       ...(bank && bankChanged
         ? {
             bankHolderName: bank.holderName,
@@ -724,13 +729,23 @@ export type DealerDecision =
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-async function districtShortCode(dealerId: string, client: DbClient): Promise<string> {
-  const districts = await territoryDistricts(dealerId, client);
+/**
+ * The state and district that go into a dealer's code: a district of the
+ * dealer's areas (one where the programme is open first), its state; else a
+ * state among the areas; else the state of the dealer's address or PIN code.
+ */
+async function codePlace(dealer: Dealer, client: DbClient): Promise<{ state: string; district: string | null }> {
+  const districts = await territoryDistricts(dealer.id, client);
   const flag = await getFeatureFlag("dealer_programme_enabled");
-  const open = districts.filter((d) => flagCoversDistrict(flag, d.code) && d.shortCode);
-  const pick = open[0] ?? districts.find((d) => d.shortCode);
-  if (!pick?.shortCode) throw validationFailed("The dealer has no district in their areas; a code cannot be made.");
-  return pick.shortCode;
+  const pick = districts.find((d) => flagCoversDistrict(flag, d.code) && d.shortCode) ?? districts.find((d) => d.shortCode);
+  if (pick?.shortCode) {
+    const state = stateCodeOfArea(pick.code);
+    if (state) return { state, district: pick.shortCode };
+  }
+  const states = (await territoryCodes(dealer.id, client)).map(stateCodeOfArea).filter((s): s is string => Boolean(s));
+  const state = states[0] ?? stateCodeFromName(dealer.state) ?? stateForPincode(dealer.pincode);
+  if (!state) throw validationFailed("Choose the dealer's state (or a district) first; a code cannot be made.");
+  return { state, district: null };
 }
 
 async function salespeopleCodes(dealerId: string, client: DbClient, onlyActivePeople: boolean): Promise<string[]> {
@@ -797,11 +812,11 @@ export async function decideDealer(dealerId: string, decision: DealerDecision, a
       if (!dealer.mobileVerifiedAt) Object.assign(extra, { mobileVerifiedAt: now, mobileVerificationMethod: "ADMIN_CALL" });
       Object.assign(extra, { agreementStart: decision.agreementStart, agreementEnd: decision.agreementEnd });
       to = "APPROVED";
-      const short = await districtShortCode(dealer.id, tx);
+      const place = await codePlace(dealer, tx);
       const existing = (await listDealerCodes(dealer.id, tx)).find((c) => c.kind !== "SALESPERSON" && c.status === "ACTIVE");
       code =
         existing?.code ??
-        (await issueCode(tx, { dealerId: dealer.id, kind: "DEALER", makeCode: () => dealerCodeFor(short), label: `Dealer: ${dealer.legalName}`, referrerName: dealer.legalName, referrerUserId: dealer.userId }, actor)).code;
+        (await issueCode(tx, { dealerId: dealer.id, kind: "DEALER", makeCode: () => dealerCodeFor(place.state, place.district), label: `Dealer: ${dealer.legalName}`, referrerName: dealer.legalName, referrerUserId: dealer.userId }, actor)).code;
       if (dealer.userId) await grantRole(dealer.userId, "DEALER", { source: "ADMIN", grantedBy: actor.id, activateIfCustomer: true }, tx);
     } else if (decision.action === "REJECT") {
       to = "REJECTED";
@@ -865,6 +880,112 @@ export async function decideDealer(dealerId: string, decision: DealerDecision, a
 }
 
 /** ADMIN only: replace the dealer's own code (or an employee's), keeping history. */
+export interface AdminDealerInput {
+  legalName: string;
+  contactName: string;
+  dealerType: DealerType;
+  /** Two-letter state or UT code (KA, MH, DL…). */
+  stateCode: string;
+  /** An existing district of that state (area code), or the name of a new one to add. */
+  districtCode?: string | null;
+  newDistrictName?: string | null;
+  /** The dealer's sign-in e-mail: links an existing account and gives it the DEALER role. */
+  email?: string | null;
+  mobile?: string | null;
+  city?: string | null;
+  pincode?: string | null;
+  agreementStart?: string | null;
+  agreementEnd?: string | null;
+  reason: string;
+}
+
+/**
+ * ADMIN only: adds a dealer directly (source ADMIN) for any state and district
+ * of India — a district not yet on the list is added under the state — and
+ * approves it at once with a generated code GKS-<state>-<district>-<6>
+ * (unique; the database refuses a duplicate and a new one is drawn). With the
+ * e-mail of an existing account, that account becomes the dealer's sign-in.
+ * Documents, bank and agreement can follow from the dealer page. Audited.
+ */
+export async function createDealerByAdmin(input: AdminDealerInput, actor: DealerActor): Promise<{ dealer: Dealer; code: string }> {
+  if (actor.role !== "ADMIN") throw forbidden("Only an admin can add a dealer.");
+  const legalName = clean(input.legalName, 120);
+  const contactName = clean(input.contactName, 120);
+  if (!legalName) throw validationFailed("Enter the legal or business name.", { fields: { legalName: "Required." } });
+  if (!contactName) throw validationFailed("Enter the owner's or representative's name.", { fields: { contactName: "Required." } });
+  if (!(DEALER_TYPES as readonly string[]).includes(input.dealerType)) throw validationFailed("Choose the dealer type.", { fields: { dealerType: "Required." } });
+  const why = clean(input.reason, 300);
+  if (!why || why.length < 5) throw validationFailed("Say why the dealer is added directly.", { fields: { reason: "Required." } });
+  const state = await getGeoArea((input.stateCode ?? "").trim().toUpperCase());
+  if (!state || state.level !== "STATE") throw validationFailed("Choose the state.", { fields: { stateCode: "Choose a state or union territory." } });
+  const mobileRaw = (input.mobile ?? "").replace(/\D/g, "").replace(/^91(?=\d{10}$)/, "");
+  if (mobileRaw && !MOBILE.test(mobileRaw)) throw validationFailed("Enter a 10-digit Indian mobile number.", { fields: { mobile: "10 digits." } });
+  const pincode = clean(input.pincode, 6);
+  if (pincode && !/^[1-9]\d{5}$/.test(pincode)) throw validationFailed("PIN code: 6 digits.", { fields: { pincode: "6 digits." } });
+  const start = clean(input.agreementStart, 10) ?? new Date().toISOString().slice(0, 10);
+  const end = clean(input.agreementEnd, 10) ?? `${Number(start.slice(0, 4)) + 1}${start.slice(4)}`;
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(start) || !/^\d{4}-\d{2}-\d{2}$/.test(end) || end < start) throw validationFailed("Agreement dates: YYYY-MM-DD, the end not before the start.", { fields: { agreementEnd: "Check the dates." } });
+
+  // The district: one of the state's, or a new one (its short code is generated).
+  let territory = state.code;
+  if (input.districtCode) {
+    const district = await getGeoArea(input.districtCode.trim().toUpperCase());
+    if (!district || district.level !== "DISTRICT" || stateCodeOfArea(district.code) !== state.code) throw validationFailed("Choose a district of that state.", { fields: { districtCode: "Not in this state." } });
+    territory = district.code;
+  } else if (clean(input.newDistrictName, 80)) {
+    territory = (await addDistrict(state.code, clean(input.newDistrictName, 80)!, actor)).code;
+  }
+
+  const email = clean(input.email, 200)?.toLowerCase() ?? null;
+  const [user] = email ? await db.select({ id: users.id }).from(users).where(eq(sql`lower(${users.email})`, email)).limit(1) : [];
+  if (email && !user) throw validationFailed("No account has that e-mail. Ask the dealer to sign in to GoKesari once, or leave the e-mail empty.", { fields: { email: "No account." } });
+  if (user && (await getDealerForUser(user.id))) throw conflict("That account is already a dealer.");
+
+  const now = new Date();
+  const result = await db.transaction(async (tx) => {
+    const [dealer] = await tx
+      .insert(dealers)
+      .values({
+        userId: user?.id ?? null,
+        legalName,
+        contactName,
+        dealerType: input.dealerType,
+        mobileE164: mobileRaw ? `+91${mobileRaw}` : null,
+        email,
+        city: clean(input.city, 80),
+        pincode,
+        state: state.name,
+        status: "APPROVED",
+        statusChangedAt: now,
+        source: "ADMIN",
+        agreementStart: start,
+        agreementEnd: end,
+      } as never)
+      .returning();
+    await tx.insert(dealerTerritories).values({ dealerId: dealer.id, areaCode: territory });
+    const place = await codePlace(dealer, tx);
+    const { code } = await issueCode(
+      tx,
+      { dealerId: dealer.id, kind: "DEALER", makeCode: () => dealerCodeFor(place.state, place.district), label: `Dealer: ${dealer.legalName}`, referrerName: dealer.legalName, referrerUserId: dealer.userId },
+      actor,
+    );
+    if (dealer.userId) await grantRole(dealer.userId, "DEALER", { source: "ADMIN", grantedBy: actor.id, activateIfCustomer: true }, tx);
+    await recordAudit(
+      {
+        actorId: actor.id,
+        actorRole: actor.role,
+        action: AUDIT_ACTIONS.DEALER_CREATED_BY_ADMIN,
+        entityType: "dealer",
+        entityId: dealer.id,
+        newValue: { legalName, dealerType: input.dealerType, state: state.code, territory, code, linkedAccount: Boolean(user), reason: why },
+      },
+      tx,
+    );
+    return { dealer, code };
+  });
+  return result;
+}
+
 export async function replaceDealerCode(dealerId: string, dealerCodeId: string, reason: string, actor: DealerActor) {
   if (actor.role !== "ADMIN") throw forbidden("Only an admin can replace a code.");
   const why = clean(reason, 300);
@@ -873,8 +994,8 @@ export async function replaceDealerCode(dealerId: string, dealerCodeId: string, 
     const dealer = await getDealer(dealerId, tx);
     const [dc] = await tx.select().from(dealerCodes).where(and(eq(dealerCodes.id, dealerCodeId), eq(dealerCodes.dealerId, dealerId)));
     if (!dc) throw notFound("Code");
-    const short = dc.salespersonId ? null : await districtShortCode(dealerId, tx);
-    return replaceCode(tx, dealerCodeId, () => (short ? dealerCodeFor(short) : salespersonCode()), `Dealer: ${dealer.legalName}`, actor, why);
+    const place = dc.salespersonId ? null : await codePlace(dealer, tx);
+    return replaceCode(tx, dealerCodeId, () => (place ? dealerCodeFor(place.state, place.district) : salespersonCode()), `Dealer: ${dealer.legalName}`, actor, why);
   });
 }
 

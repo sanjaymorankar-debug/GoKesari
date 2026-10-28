@@ -1,8 +1,9 @@
 /**
  * Dealer and employee referral codes (docs/dealer-programme, GKS-DR-003/004).
  *
- *   dealer    GKS-MH-<district short code>-<6>   e.g. GKS-MH-PUN-7K4Q9X
- *   employee  GKS-FE-<6>                         e.g. GKS-FE-8P2M5N
+ *   dealer    GKS-<state>-<district short code>-<6>   e.g. GKS-MH-PUN-7K4Q9X, GKS-KA-BLR-3H8W2C
+ *             GKS-<state>-<6>  while the dealer's state has no district yet  e.g. GKS-TN-5R7K2P
+ *   employee  GKS-FE-<6>                                   e.g. GKS-FE-8P2M5N
  *
  * The random part comes from crypto.randomInt over an alphabet without
  * 0/O and 1/I/L. Every code is a row of `referral_codes` — the table the shop
@@ -46,8 +47,10 @@ export function randomCodePart(length = DEALER_CODE_RANDOM_LENGTH): string {
   return out;
 }
 
-export function dealerCodeFor(districtShortCode: string): string {
-  return `GKS-MH-${districtShortCode.toUpperCase()}-${randomCodePart()}`;
+/** A new dealer code for a state (two letters) and, when known, a district short code. */
+export function dealerCodeFor(stateCode: string, districtShortCode?: string | null): string {
+  const parts = ["GKS", stateCode.toUpperCase(), ...(districtShortCode ? [districtShortCode.toUpperCase()] : []), randomCodePart()];
+  return parts.join("-");
 }
 
 export function salespersonCode(): string {

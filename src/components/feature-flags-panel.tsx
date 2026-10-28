@@ -46,7 +46,7 @@ function when(iso: string): string {
 
 function describe(value: FlagValue, names: Map<string, string>): string {
   if (!value.enabled) return "Off";
-  if (value.districtCodes === null) return "On — every district";
+  if (value.districtCodes === null) return "On — all of India";
   return `On — ${value.districtCodes.map((c) => names.get(c) ?? c).join(", ")}`;
 }
 
@@ -173,7 +173,7 @@ export function FeatureFlagsPanel({
                       checked={draft.districtCodes === null}
                       onChange={() => update(flag.key, { districtCodes: null })}
                     />
-                    Every district
+                    All of India
                   </label>
                   <label className="inline-flex min-h-11 items-center gap-2">
                     <input
@@ -182,7 +182,7 @@ export function FeatureFlagsPanel({
                       checked={draft.districtCodes !== null}
                       onChange={() => update(flag.key, { districtCodes: draft.districtCodes ?? [] })}
                     />
-                    Chosen districts only
+                    Chosen states / districts only
                   </label>
                 </div>
                 {draft.districtCodes !== null ? (

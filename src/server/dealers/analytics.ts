@@ -362,10 +362,13 @@ export async function dealerScores(now = new Date()): Promise<{ weights: RuleVal
       for (const area of idx.byCode.values()) if (area.code !== code && idx.chain(area.code).includes(code)) territoryAreas.add(area.code);
     }
     const withShops = [...territoryAreas].filter((c) => shopAreas.has(c)).length;
-    const district = idx.districtOf(idx.resolve(d.pincode));
+    const place = idx.resolve(d.pincode);
+    const district = idx.districtOf(place);
+    // Compared within the district; where a state has no districts yet, within the state.
+    const state = idx.chain(place).map((c) => idx.byCode.get(c)).find((a) => a?.level === "STATE");
     return {
       d,
-      peerGroup: d.isInternal ? "GoKesari Direct" : (district?.name ?? "District not known"),
+      peerGroup: d.isInternal ? "GoKesari Direct" : (district?.name ?? state?.name ?? "District not known"),
       registered: mine.length,
       activated: activated.length,
       poor,

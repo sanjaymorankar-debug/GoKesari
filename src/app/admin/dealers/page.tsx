@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound, redirect } from "next/navigation";
 
+import { AddDealerForm } from "@/components/dealer/add-dealer-form";
 import { Badge, PageHeader } from "@/components/ui";
 import { DEALER_STATUS_LABELS, DEALER_STATUSES, DEALER_TYPE_LABELS, type DealerStatus } from "@/lib/dealers";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -8,6 +9,7 @@ import { DocRequirementsAdmin } from "@/components/dealer/doc-requirements-admin
 import { dealersOverview } from "@/server/dealers/performance";
 import { listDealers, listDocumentRequirements } from "@/server/dealers/service";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { listStates } from "@/server/services/geo-areas";
 
 export const metadata = { title: "Dealers" };
 export const dynamic = "force-dynamic";
@@ -49,6 +51,7 @@ export default async function AdminDealersPage({ searchParams }: { searchParams:
         <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/commission">Commission, rating & payouts</Link> ·{" "}
         <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/claims">Attribution claims</Link> — dealers who say a shop is theirs. · <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/analytics">Coverage & analytics</Link>
       </p>
+      {user.role === "ADMIN" ? <AddDealerForm states={(await listStates()).map((a) => ({ code: a.code, name: a.name }))} /> : null}
       <nav className="mb-3 flex flex-wrap gap-2" aria-label="Filter by status">
         {filters.map((f) => (
           <Link

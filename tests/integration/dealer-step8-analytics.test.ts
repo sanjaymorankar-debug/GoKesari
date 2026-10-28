@@ -110,7 +110,7 @@ describe("performance score (GKS-AN-001)", () => {
   it("weights the five parts and ranks dealers within their district", async () => {
     const a = await dealerWith("Dealer A");
     const b = await dealerWith("Dealer B");
-    // Only Pune PIN codes are seeded: a dealer elsewhere falls in "District not known".
+    // Only Pune's district PIN codes are seeded: a Nashik dealer is compared within its state.
     const other = await dealerWith("Nashik Dealer", "422001");
     await db.insert(dealerTerritories).values([
       { dealerId: a.id, areaCode: "MH-PUN-PMC-KOTHRUD" },
@@ -139,7 +139,7 @@ describe("performance score (GKS-AN-001)", () => {
     expect([rowA.rank, rowB.rank]).toEqual([1, 2]);
     expect(rowA.facts.costPerActivatedPaise).toBe(20_000);
     // A dealer outside Pune is compared only with dealers in its own group.
-    expect(rows.find((r) => r.dealerId === other.id)).toMatchObject({ peerGroup: "District not known", peers: 1, rank: 1 });
+    expect(rows.find((r) => r.dealerId === other.id)).toMatchObject({ peerGroup: "Maharashtra", peers: 1, rank: 1 });
 
     // Admin-set weights change the score (they must add up to 100).
     await expect(setRule("dealerPerformanceScore", { activatedShops: 90 }, admin)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
