@@ -1,6 +1,6 @@
 # Move the GoKesari databases to Neon Singapore (aws-ap-southeast-1)
 
-Plan, 28 Oct 2026. Status: **test.gokesari.com moved to Singapore on 28 Oct 2026** (part C done). Production (part D) not started. Needs the owner's approval
+Plan, 28 Oct 2026. Status: **done: both sites moved to Singapore on 28 Oct 2026.** test.gokesari.com (part C) and gokesari.com (part D). Old Ohio projects kept frozen as fallback.
 before each site moves (production in an owner-approved window).
 
 ## Why
@@ -258,6 +258,40 @@ Extra rules:
    - DEPLOYMENT.md (database location);
    - `docs/db-split-2026-10/CODE_SPLIT_PLAN.md` (`gk_seller` host);
    - CLAUDE.md "Two databases" if it names hosts.
+
+### D — what happened, 28 Oct 2026 (gokesari.com)
+
+The owner asked for production straight after staging. That was safe because production had **no orders, no active subscriptions and 2 sign-ups in the last day**, so a read-only window affected nobody.
+- **Release check:** no open PR into `main`; the last production deploy (27 Oct, `f7c0032`) passed its post-deploy check.
+- **Migrations:** `main` and the production database both had 98 migrations, so the redeploy applied nothing.
+- **Hostinger values:** given to the owner and typed into hPanel **before** the freeze.
+
+| Time (UTC) | Step |
+|---|---|
+| 12:45–12:50 | Backup of the three production databases (`pg_dump`, parallel, 257 s, 4.7 MB) to the session scratchpad. |
+| **12:50:33** | **Freeze**: `neondb`, `PROD_SELLER_DATABASE_URL` and `PROD_CUSTOMER_DATABASE_URL` read-only (set from the `postgres` database); 8 app connections ended. |
+| 12:50–12:57 | Copy, three in parallel, `REQUIRE_FROZEN=yes`, 387 s: seller 268 s, core 380 s, customer 119 s. |
+| 12:57 | **Relink**: the core's link moved from the Ohio seller to the Singapore seller (13 shops through the link). **Compare: all three identical.** Core: 520 tables, 1,866 rows, 52 sequences. Seller: 257 / 730 / 29. Customer: 107 / 460 / 5. |
+| 12:57:54 | Singapore copy frozen; `switch.ts status` → `split`. |
+| — | Owner saved `DATABASE_URL`, `SELLER_DATABASE_URL` (Singapore) and `MIGRATE_ON_BUILD=false`, and redeployed. |
+| 13:13–13:21 | Read-only checks. **App connections only on Singapore (15), none on Ohio.** Home page 0.57–0.87 s (was 1.8–2.1 s), `/shops` 0.33 s. Post-deploy check 5/5. |
+| **13:23:28** | **Writes opened.** Pre-reset app connections ended (pool reconnected writable); test write ok. |
+| 13:24–13:28 | TC-PAY-005 / TC-PAY-022 pass. The app's audit rows land in Singapore, none in Ohio since the freeze. **Post-deploy check 5/5 after the writes opened.** |
+
+**Read-only window: 32 min 55 s** (12:50:33 → 13:23:28), against 1 h 30 min on staging. Values prepared before the freeze saved most of the difference.
+
+Guest QA on gokesari.com, latest result per check: **87 pass, 6 fail, 3 blocked, 1 skipped.** None of the failures came from the move:
+- Dealer pages and APIs answer 404: the dealer programme is not released to production yet.
+- Retired cron routes answer 410: intended; the check should accept 410.
+- Search with `<script>` is blocked by Hostinger's firewall (E-01).
+
+Still to do for production:
+- [ ] Owner: set `MIGRATE_ON_BUILD=true` again on gokesari.com (hPanel). It takes effect on the next deploy.
+- [ ] Owner: point the GitHub secrets `PROD_DATABASE_URL`, `PROD_SELLER_DATABASE_URL` and `PROD_CUSTOMER_DATABASE_URL` at `ep-calm-salad-ao1homrr.c-2.ap-southeast-1.aws.neon.tech` (same database names). If the repository variables `PROD_DATABASE_HOST` / `PROD_DATABASE_NAME` exist, update the host too: `scripts/prod-db/guard.sh` compares the secret with them. Then run "Production database → verify".
+- [ ] Keep the Ohio production project (`GoKesari-prod`, frozen) until **11 Nov 2026**, then delete it on the owner's word.
+- [ ] Backup dumps are only in the session scratchpad (`backup-prod-20261028-1245`). Keep a copy elsewhere if wanted.
+- [ ] Optional, for speed: production compute min 0.5 CU with scale-to-zero off (no cold start after quiet spells).
+- [ ] Next speed step: take the follow-up work out of the approval request (see the diagnosis report).
 
 ## Rollback
 
