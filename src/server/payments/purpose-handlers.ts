@@ -8,7 +8,15 @@ import type { DbClient } from "@/server/db";
 import type { PaymentIntentRef, PaymentPurpose } from "./intents";
 import { onShopRegistrationFeeCaptured } from "@/server/services/operator-limited"; // batch-2026-10 WS-D
 
-export type CapturedHandler = (intent: PaymentIntentRef, client: DbClient) => Promise<void>;
+/**
+ * Work that must wait for the capture to commit (it locks rows the capture
+ * transaction holds, or tells people about it). The payments service runs it
+ * right after the commit, in the same request — never on a timer, which a
+ * host may not run once the response is sent.
+ */
+export type AfterCommit = (task: () => Promise<void>) => void;
+
+export type CapturedHandler = (intent: PaymentIntentRef, client: DbClient, afterCommit?: AfterCommit) => Promise<void>;
 
 export const CAPTURED_HANDLERS: Partial<Record<PaymentPurpose, CapturedHandler>> = {
   /* >>> batch-2026-10 WS-A (payments, OTP, reference prices) — add entries below this line only */
@@ -21,11 +29,11 @@ export const CAPTURED_HANDLERS: Partial<Record<PaymentPurpose, CapturedHandler>>
   /* >>> batch-2026-10 WS-D (operator-limited, product master data) — add entries below this line only */
   // F8.4.2: the registration fee of an operator-onboarded shop (link or in-session). Records the fee on the
   // shop's ledger in the capture transaction; the existing auto-approval rule runs after commit.
-  SHOP_REGISTRATION_FEE: (intent, client) => onShopRegistrationFeeCaptured(intent, client),
+  SHOP_REGISTRATION_FEE: (intent, client, afterCommit) => onShopRegistrationFeeCaptured(intent, client, afterCommit),
   /* <<< end WS-D */
   //
   /* >>> dealer programme (docs/dealer-programme, step 7) */
   // A support-service request paid online: marked paid in the capture transaction; its ticket opens after commit.
-  SUPPORT_SERVICE: async (intent, client) => (await import("@/server/services/support-services")).onSupportServicePaymentCaptured(intent, client as never),
+  SUPPORT_SERVICE: async (intent, client, afterCommit) => (await import("@/server/services/support-services")).onSupportServicePaymentCaptured(intent, client as never, afterCommit),
   /* <<< end dealer programme */
 };

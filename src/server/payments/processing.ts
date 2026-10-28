@@ -72,7 +72,12 @@ export async function applyGatewayState(
   state: GatewayOrderState,
   context: { source: IntentSource; webhookEventId?: string | null },
 ): Promise<ApplyResult> {
-  return db.transaction(async (tx) => {
+  // Work the capture handlers leave for after the commit. Only the attempt that commits keeps its
+  // list: a transaction re-run from the start (split layout, 40001) collects it afresh.
+  let afterCommit: (() => Promise<void>)[] = [];
+  const result = await db.transaction(async (tx) => {
+    const tasks: (() => Promise<void>)[] = [];
+    afterCommit = tasks;
     const row = await lockIntent(tx, intentId);
     if (!row) return { outcome: "NOT_FOUND" as const, status: null };
     const touch = {
@@ -111,7 +116,7 @@ export async function applyGatewayState(
         webhookEventId,
         patch: { gatewayPaymentId: state.gatewayPaymentId, method: state.method, capturedAt: new Date(), endedAt: new Date() },
       });
-      await CAPTURED_HANDLERS[row.purpose]?.(toIntentRef(captured), tx);
+      await CAPTURED_HANDLERS[row.purpose]?.(toIntentRef(captured), tx, (task) => void tasks.push(task));
       return { outcome: "MOVED" as const, status: captured.status };
     }
 
@@ -130,6 +135,12 @@ export async function applyGatewayState(
     });
     return { outcome: "MOVED" as const, status: moved.status };
   });
+  // Committed: run the follow-ups now, in this request. A failing one is logged, never turned into a
+  // failed capture (the capture is saved; the sweeps re-check what a follow-up missed).
+  for (const task of afterCommit) {
+    await task().catch((error) => console.error("[payments] after-capture step failed", intentId, error));
+  }
+  return result;
 }
 
 /**

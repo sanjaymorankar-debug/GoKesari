@@ -390,7 +390,12 @@ export async function requestRegistrationFee(
  * auto-approval check runs after the commit (it locks the shop row this
  * transaction holds, so it must not run inside it).
  */
-export async function onShopRegistrationFeeCaptured(intent: PaymentIntentRef, client: DbClient): Promise<void> {
+export async function onShopRegistrationFeeCaptured(
+  intent: PaymentIntentRef,
+  client: DbClient,
+  /** From the payments service: runs the step after the capture commits, in the same request. */
+  afterCommit?: (task: () => Promise<void>) => void,
+): Promise<void> {
   const transactionId = `${intent.gateway}:${intent.gatewayPaymentId ?? intent.id}`;
   const [shop] = await client.select().from(shops).where(eq(shops.id, intent.referenceId));
   if (!shop) {
@@ -430,11 +435,14 @@ export async function onShopRegistrationFeeCaptured(intent: PaymentIntentRef, cl
     },
     client,
   );
-  const finish = () =>
-    void finishFeeCapture(shop.id, intent.id).catch((e) => console.error("[operator-limited] after-capture step failed", shop.id, e));
-  if (client === db) finish();
-  // Inside the capture transaction: run once it has committed (the sweep is the safety net).
-  else setTimeout(finish, 2_000).unref?.();
+  const finish = async () => {
+    await finishFeeCapture(shop.id, intent.id).catch((e) => console.error("[operator-limited] after-capture step failed", shop.id, e));
+  };
+  if (client === db) await finish();
+  // Inside the capture transaction: once it has committed (the sweep is the safety net). A timer
+  // was used before; the host may not run it once the webhook's answer is sent.
+  else if (afterCommit) afterCommit(finish);
+  else setTimeout(() => void finish(), 2_000).unref?.();
 }
 
 /** After the fee's commit: the existing auto-approval rule, then the people involved are told. Idempotent. */

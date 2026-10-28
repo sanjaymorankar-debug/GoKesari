@@ -33,6 +33,7 @@ import {
   supportTickets,
 } from "@/server/db/schema";
 import type { PaymentIntentRef } from "@/server/payments/intents";
+import { applyGatewayState } from "@/server/payments/processing";
 import { setFeatureFlag } from "@/server/services/feature-flags";
 import { applyShopWalletEntry } from "@/server/services/shop-wallet";
 import {
@@ -260,5 +261,19 @@ describe("who may ask (scenario 67)", () => {
     const off = await call(listGet, `/api/support-services?shopId=${shopId}`);
     expect(off.status).toBe(404);
     expect(off.body.error.details.reason).toBe("FEATURE_NOT_AVAILABLE");
+  });
+});
+
+describe("online payment through the gateway's webhook (staging finding, 28 Oct)", () => {
+  it("the capture marks the request paid and opens its ticket before the webhook is answered", async () => {
+    const r = await createSupportRequest({ shopId, serviceKey: "PRODUCT_UPLOAD", quantity: 50, description: DESC }, owner);
+    const [intent] = await db
+      .insert(paymentIntents)
+      .values({ purpose: "SUPPORT_SERVICE", referenceId: r.id, userId: owner.id, amountPaise: 58_882, gateway: "SANDBOX", merchantOrderId: `SSR-W-${r.id.slice(0, 8)}`, gatewayOrderId: `go_${r.id.slice(0, 8)}`, description: "test", idempotencyKey: `support-service:${r.id}` } as never)
+      .returning();
+    await applyGatewayState(intent.id, { gatewayOrderId: `go_${r.id.slice(0, 8)}`, status: "CAPTURED", amountPaise: 58_882, gatewayPaymentId: "pay_wh_2", method: "UPI" }, { source: "WEBHOOK" });
+    const [row] = await db.select().from(supportServiceRequests).where(eq(supportServiceRequests.id, r.id));
+    expect(row).toMatchObject({ status: "PAID", paymentMethod: "ONLINE" });
+    expect(row.ticketId).toBeTruthy();
   });
 });
