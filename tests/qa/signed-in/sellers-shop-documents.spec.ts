@@ -3,13 +3,15 @@
  * "Shops missing documents" list (owner decision 29 Oct 2026, docs/shop-documents-2026-10).
  *
  * Not in test-cases.xlsx yet (the plan dates from 3–4 Oct): the checks carry their own IDs,
- * SD-01 … SD-06, as in docs/shop-documents-2026-10/STAGING_TEST_RESULTS_2026-10-29.md.
+ * SD-01 … SD-07, as in docs/shop-documents-2026-10/STAGING_TEST_RESULTS_2026-10-29.md.
  *
  * Signed tier: the staging shop-owner test account registers a QA shop through the long form's
  * endpoint (POST /api/shops) and verifies one document with the mock KYC vendor; the operator
- * and the admin only look. Nothing here approves, rejects or suspends a shop, or changes a
- * setting or a flag (QA agent rule 2): the "Confirm approval" click is left to a person.
- * The fee is paid outside this file, through the "Sandbox payment" workflow.
+ * only looks. The admin waives that QA shop's fee in SD-03w (the owner's fee-waiver flow for
+ * test shops, 29 Oct 2026) and otherwise only looks. Nothing here approves, rejects or suspends
+ * a shop, or changes a setting or a flag (QA agent rule 2): the "Confirm approval" click is left
+ * to a person. SD-03 (a Cashfree sandbox payment) needs the "Sandbox payment" workflow; it and
+ * SD-03w are alternatives for one shop — a waiver is refused once anything is paid.
  *
  * Runs in file order, one worker; the shop is handed on with stash() / unstash().
  */
@@ -291,6 +293,81 @@ qa("SD-03", "fee paid with the Cashfree sandbox: fee PAID, the shop stays PENDIN
   return `sandbox run ${paid.runId} (${paid.instrument}); feePaymentStatus PAID, amountPaid ₹${(view.body.amountPaidPaise ?? 0) / 100}, status ${view.body.status}; page "Payment received", "with our team for review" (${file})`;
 }, signed);
 
+/* ----------------------------------------------------------------- SD-03w */
+
+const WAIVE_REASON = "QA: shop documents test, fee waived (owner-approved)";
+
+qa("SD-03w", "admin waives the fee from the approval queue (Waive fee → reason → Confirm waiver): the fee reads settled ('fee waived', ₹0), the shop stays PENDING_APPROVAL — a promised shop is never approved automatically", async ({ browser }) => {
+  // The owner's fee-waiver flow for test shops (owner, 29 Oct 2026): Admin console → Shops,
+  // "Waive fee" (shop-approval-panel.tsx) → POST /api/shops/{id}/waive-fee → waiveRegistrationFee.
+  // Acts on the QA shop this file registered, and only while nothing has been paid.
+  const shop = theShop();
+  const before = await api("shop", "GET", `/api/shops/${shop.id}`);
+  expectStatus(before, 200, "the shop before the waiver");
+  if (before.body.status !== "PENDING_APPROVAL") blocked(`the QA shop is ${before.body.status}, not PENDING_APPROVAL`);
+  const alreadyWaived = before.body.feePaymentStatus === "PAID" && (before.body.registrationFeePaise ?? 0) === 0;
+  if (!alreadyWaived && before.body.amountPaidPaise !== 0) blocked(`the QA shop has paid ₹${before.body.amountPaidPaise / 100}; a waiver is refused once anything is paid`);
+
+  const shots: string[] = [];
+  const { context, page } = await pageAs(browser, "admin", { viewport: { width: 1280, height: 900 } });
+  try {
+    await page.goto("/admin/console/shops");
+    const findCard = () =>
+      page.getByText(shop.name, { exact: true }).first().locator("xpath=ancestor::div[contains(concat(' ', normalize-space(@class), ' '), ' p-4 ')][1]");
+    let card = findCard();
+    await expect(card).toBeVisible();
+    if (!alreadyWaived) {
+      await expect(card.getByText(/^fee due · /)).toBeVisible();
+      await card.scrollIntoViewIfNeeded();
+      shots.push(await shot(page, "sd03w-queue-fee-due-1280.png"));
+      await card.getByRole("button", { name: "Waive fee" }).click();
+      await expect(card.getByText(new RegExp(`Waive ${shop.name}.s registration fee of .*The fee becomes zero and reads as settled`))).toBeVisible();
+      const reason = card.getByLabel("Reason for waiving the fee");
+      const confirm = card.getByRole("button", { name: "Confirm waiver" });
+      await expect(confirm, "disabled without a reason").toBeDisabled();
+      await reason.pressSequentially(WAIVE_REASON, { delay: 10 });
+      await expect(confirm, "enabled with a reason of 10+ characters").toBeEnabled();
+      shots.push(await shot(page, "sd03w-queue-waive-reason-1280.png"));
+      await confirm.click();
+      await expect(page.getByText("Registration fee waived.")).toBeVisible({ timeout: 60_000 });
+      shots.push(await shot(page, "sd03w-queue-waive-confirmed-1280.png"));
+      await page.goto("/admin/console/shops");
+      card = findCard();
+    }
+    await expect(card.getByText("fee waived", { exact: true })).toBeVisible();
+    await expect(card.getByRole("button", { name: "Waive fee" }), "no Waive fee once settled").toHaveCount(0);
+    await expect(card.getByTestId("approve-on-promise"), "still waits for a person").toBeVisible();
+    await card.scrollIntoViewIfNeeded();
+    shots.push(await shot(page, "sd03w-queue-fee-waived-1280.png"));
+  } finally {
+    await context.close();
+  }
+
+  // The settlement, and no automatic approval (the event layer runs after the waiver).
+  await new Promise((r) => setTimeout(r, 5_000));
+  const after = await api("shop", "GET", `/api/shops/${shop.id}`);
+  expectStatus(after, 200, "the shop after the waiver");
+  expect(after.body.registrationFeePaise, "fee snapshot after the waiver").toBe(0);
+  expect(after.body.amountPaidPaise, "nothing paid").toBe(0);
+  expect(after.body.feePaymentStatus, "the fee reads settled").toBe("PAID");
+  expect(after.body.status, "a promised shop is not approved automatically").toBe("PENDING_APPROVAL");
+
+  // The owner's fee page: nothing to pay, with the team for review.
+  const owner = await pageAs(browser, "shop", { viewport: { width: 390, height: 844 } });
+  let feeText = "";
+  try {
+    await owner.page.goto(`/shop/registration-fee?shop=${shop.id}`);
+    await expect(owner.page.getByText("Nothing to pay", { exact: true })).toBeVisible();
+    await expect(owner.page.getByText("Your registration is with our team for review.", { exact: false })).toBeVisible();
+    await expect(owner.page.getByRole("button", { name: /^Pay ₹/ })).toHaveCount(0);
+    feeText = (await owner.page.locator("dl").first().innerText()).replace(/\s+/g, " ").trim();
+    shots.push(await shot(owner.page, "sd03w-fee-page-waived-390.png"));
+  } finally {
+    await owner.context.close();
+  }
+  return `${alreadyWaived ? "fee already waived on an earlier run" : `admin: queue "fee due" → Waive fee → reason "${WAIVE_REASON}" → Confirm waiver → "Registration fee waived."`}; queue badge "fee waived", no Waive fee, Approve on promise still shown; API registrationFee ₹0, paid ₹0, feePaymentStatus PAID, status ${after.body.status} after 5 s; owner fee page "Nothing to pay", "with our team for review", no Pay button; breakdown "${feeText}" (${shots.join(", ")})`;
+}, signed);
+
 /* ------------------------------------------------------------------ SD-04 */
 
 qa("SD-04", "operator queue: the promised shop shows 'documents promised by <date>' and 'Approve on promise' with a confirm step; a shop without a promise has no such button", async ({ browser }) => {
@@ -368,6 +445,45 @@ qa("SD-05", "admin 'Shops missing documents': filters Live / Suspended / Awaitin
   }
   return `QA shop (${status}) listed under view "${view}" with GSTIN + Shop Act, "Reminders: 0 of 3"${shop.promisedBy ? `, "promised by ${shop.promisedBy}"` : ""}; filters present; no horizontal scroll at 390 / 1280 on all three views; counts at 390 — ${notes.join("; ")} (${shots.join(", ")})`;
 }, { ...signed, partial: "the shop is checked under 'Awaiting approval' unless it was approved — the Live view after approval needs the approval step (rule 2)" });
+
+/* ------------------------------------------------------------------ SD-07 */
+
+qa("SD-07", "shop owner's view: the dashboard shows the shop's state (live once approved, else 'Awaiting approval'); the verification page still lists GSTIN and Shop Act as 'Still needed'", async ({ browser }) => {
+  const shop = theShop();
+  const status = (await api("shop", "GET", `/api/shops/${shop.id}`)).body.status as string;
+  const live = status === "APPROVED";
+  const shots: string[] = [];
+  const { context, page } = await pageAs(browser, "shop", { viewport: { width: 390, height: 844 } });
+  try {
+    // The dashboard works on the shop chosen in the switcher (cookie gk_shop), else the newest.
+    await context.addCookies([{ name: "gk_shop", value: shop.id, url: "https://test.gokesari.com" }]);
+    await page.goto("/shop");
+    await expect(page.getByText(shop.name).filter({ visible: true }).first(), "the dashboard is on the QA shop").toBeVisible();
+    let approvalText = "";
+    if (live) {
+      await expect(page.getByRole("status").filter({ hasText: "Awaiting approval" }), "no approval alert once live").toHaveCount(0);
+      await expect(page.getByText("Pending approval", { exact: true })).toHaveCount(0);
+    } else {
+      const alert = page.getByRole("status").filter({ hasText: "Awaiting approval" });
+      await expect(alert).toBeVisible();
+      approvalText = (await alert.innerText()).replace(/\s+/g, " ").trim();
+    }
+    shots.push(await shot(page, `sd07-owner-dashboard-${live ? "live" : "pending"}-390.png`));
+    await page.goto(`/shop/verification?shop=${shop.id}`);
+    const needed = page.getByText("Still needed", { exact: true });
+    await expect(needed).toBeVisible();
+    const neededText = (await needed.locator("xpath=..").innerText()).replace(/\s+/g, " ").trim();
+    expect(neededText).toMatch(/GST number \(GSTIN\)/);
+    expect(neededText).toMatch(/Shop Act/);
+    await expect(page.getByTestId("verification-PAN").getByText("Verified", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("verification-GSTIN").getByText("Not submitted", { exact: true })).toBeVisible();
+    await expect(page.getByTestId("verification-SHOP_ACT").getByText("Not submitted", { exact: true })).toBeVisible();
+    shots.push(await shot(page, `sd07-owner-verification-${live ? "live" : "pending"}-390.png`));
+    return `shop ${status}: dashboard ${live ? "shows no approval alert (live)" : `shows "${approvalText}"`}; verification page "${neededText}", PAN Verified, GSTIN and Shop Act Not submitted (${shots.join(", ")})`;
+  } finally {
+    await context.close();
+  }
+}, { ...signed, partial: "the 'live' state needs the approval (SD-04 Confirm approval), which the QA agent does not run on staging without the owner's own go-ahead" });
 
 /* ------------------------------------------------------------------ SD-06 */
 
