@@ -31,6 +31,7 @@ import {
   type DuplicateMatch,
   type RegistrationCandidate,
   type ShopIdentity,
+  assertGstinNotHeldByOtherOwner,
 } from "./shop-duplicates";
 
 interface Actor {
@@ -72,6 +73,7 @@ export async function submitGstin(shopId: string, gstin: string, actor: Actor): 
   if (!parsed.ok) throw validationFailed(parsed.error);
   const normalized = parsed.value;
   const shop = await loadOwnedShop(shopId, actor);
+  await assertGstinNotHeldByOtherOwner(normalized, shop.ownerId);
   // A shop whose PAN is on file can only declare a GSTIN issued on that PAN.
   if (shop.panHash && panBlindIndex(gstinPan(normalized)) !== shop.panHash) {
     throw validationFailed(GSTIN_PAN_MISMATCH_MESSAGE);
@@ -155,6 +157,18 @@ export async function setGstNotRegistered(shopId: string, actor: Actor): Promise
   return updated;
 }
 
+/**
+ * Owner decision, 29 Oct 2026: the seller-verification records are the source of a document's
+ * state; a decision made on this queue is recorded there too (lazy import: that module imports
+ * the shop services, which import this one).
+ */
+async function mirrorDecision(shop: Shop, docType: "GSTIN" | "PAN", approve: boolean, reason: string | null, actor: Actor): Promise<void> {
+  const number = docType === "GSTIN" ? shop.gstin : shop.panNumberEncrypted ? decryptPan(shop.panNumberEncrypted) : null;
+  if (!number) return;
+  const { recordLegacyGstPanDecision } = await import("./seller-verification");
+  await recordLegacyGstPanDecision({ shopId: shop.id, docType, number, approve, reason, actor });
+}
+
 /** Admin confirms a self-declared GSTIN after checking it themselves (no provider configured). */
 export async function adminVerifyGst(
   shopId: string,
@@ -190,6 +204,7 @@ export async function adminVerifyGst(
     newValue: { gstStatus: "REGISTERED" },
   });
 
+  await mirrorDecision(updated, "GSTIN", true, null, actor);
   await notify({
     userId: shop.ownerId,
     type: NOTIFICATION_TYPES.SHOP_GST_VERIFIED,
@@ -222,6 +237,7 @@ export async function adminRejectGst(shopId: string, reason: string, actor: Acto
     newValue: { gstStatus: "VERIFICATION_FAILED", reason },
   });
 
+  await mirrorDecision(updated, "GSTIN", false, reason.trim(), actor);
   await notify({
     userId: shop.ownerId,
     type: NOTIFICATION_TYPES.SHOP_GST_REJECTED,
@@ -364,6 +380,7 @@ export async function adminVerifyPan(shopId: string, actor: Actor): Promise<Shop
     newValue: { panStatus: "VERIFIED" },
   });
 
+  await mirrorDecision(updated, "PAN", true, null, actor);
   await notify({
     userId: shop.ownerId,
     type: NOTIFICATION_TYPES.SHOP_PAN_VERIFIED,
@@ -396,6 +413,7 @@ export async function adminRejectPan(shopId: string, reason: string, actor: Acto
     newValue: { panStatus: "VERIFICATION_FAILED", reason },
   });
 
+  await mirrorDecision(updated, "PAN", false, reason.trim(), actor);
   await notify({
     userId: shop.ownerId,
     type: NOTIFICATION_TYPES.SHOP_PAN_REJECTED,

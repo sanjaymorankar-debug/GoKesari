@@ -6,7 +6,9 @@
  *   - live shops missing documents are reminded on the 1st and 15th (India time), reminder N of 3,
  *     e-mailed even when the owner switched shop e-mails off; at the run after the 3rd the shop is
  *     suspended automatically and the owner is e-mailed why
- *   - a promise is kept until its date; documents waiting for our check are not chased; a shop
+ *   - (later the same day) a shop approved without documents, on a waiver or the promise, has
+ *     3 months (graceDays) and is reminded every 15 days until then
+ *   - documents waiting for our check are not chased; a shop
  *     whose documents are complete starts a fresh count; the rule switches it all off
  */
 import { and, eq } from "drizzle-orm";
@@ -161,13 +163,49 @@ describe("the 1st / 15th follow-up", () => {
     expect(audits.map((a) => (a.newValue as { outcome: string }).outcome).sort()).toEqual(["REMINDED", "REMINDED", "REMINDED", "SUSPENDED"]);
   });
 
-  it("a promise is kept until its date, whatever the reminders say", async () => {
-    const { shop } = await liveShopMissingDocuments();
-    await db.update(shops).set({ documentsPromisedAt: new Date("2026-11-20T00:00:00Z"), documentsDueAt: new Date("2026-12-20T00:00:00Z") }).where(eq(shops.id, shop.id));
-    for (const day of ["2026-11-01", "2026-11-15", "2026-12-01"]) await runShopDocumentFollowUp(day, new Date(`${day}T00:30:00Z`));
-    expect(await runShopDocumentFollowUp("2026-12-15", new Date("2026-12-15T00:30:00Z"))).toMatchObject({ waiting: 1, suspended: 0 });
+  // Owner decision, 29 Oct 2026 (later): approved without documents, on a waiver or the promise → 3 months,
+  // reminded on every reminder day until then, suspended at the first run after.
+  it("a shop approved on the promise has 3 months from its approval, reminded every 15 days, then suspended", async () => {
+    const { owner, shop } = await liveShopMissingDocuments();
+    await db
+      .update(shops)
+      .set({ approvedAt: new Date("2026-11-01T00:00:00Z"), documentsPromisedAt: new Date("2026-10-25T00:00:00Z"), documentsDueAt: new Date("2026-11-24T00:00:00Z") })
+      .where(eq(shops.id, shop.id));
+    for (const day of ["2026-11-01", "2026-11-15", "2026-12-01", "2026-12-15", "2027-01-01", "2027-01-15"]) {
+      expect(await runShopDocumentFollowUp(day, new Date(`${day}T00:30:00Z`))).toMatchObject({ reminded: 1, suspended: 0 });
+    }
     expect((await shopRow(shop.id)).status).toBe("APPROVED");
-    expect(await runShopDocumentFollowUp("2027-01-01", new Date("2027-01-01T00:30:00Z"))).toMatchObject({ suspended: 1 });
+    const notes = await noticesOf(owner.id, "shop.documents_follow_up");
+    expect(notes.map((n) => n.title).sort()).toEqual([1, 2, 3, 4, 5, 6].map((n) => `Submit your shop documents — reminder ${n}`));
+    expect(notes[0].body).toMatch(/they are due by 30 Jan 2027\..*If they are still missing on 30 Jan 2027, your shop will be suspended automatically\. We will remind you every 15 days/);
+    expect(await runShopDocumentFollowUp("2027-02-01", new Date("2027-02-01T00:30:00Z"))).toMatchObject({ suspended: 1, reminded: 0 });
+    expect((await shopRow(shop.id)).status).toBe("SUSPENDED");
+    const [suspended] = await noticesOf(owner.id, "shop.suspended");
+    expect(suspended.body).toMatch(/Shop documents not submitted within 90 days of approval without them: GST number \(GSTIN\), Shop Act/);
+  });
+
+  it("a shop approved with a waiver has 3 months from its latest waiver; a new waiver gives 3 more", async () => {
+    const { shop } = await liveShopMissingDocuments();
+    await db.insert(shopDocumentWaivers).values({ shopId: shop.id, missingDocTypes: ["GSTIN", "SHOP_ACT"], reason: "Known trader", waivedBy: admin.id, createdAt: new Date("2026-11-01T00:00:00Z") });
+    for (const day of ["2026-11-01", "2026-11-15", "2026-12-01", "2026-12-15", "2027-01-01", "2027-01-15"]) {
+      await runShopDocumentFollowUp(day, new Date(`${day}T00:30:00Z`));
+    }
+    expect(await remindersOf(shop.id)).toHaveLength(6);
+    expect((await shopRow(shop.id)).status).toBe("APPROVED");
+    // A second waiver on 20 Jan: due 20 Apr, not 30 Jan.
+    await db.insert(shopDocumentWaivers).values({ shopId: shop.id, missingDocTypes: ["GSTIN", "SHOP_ACT"], reason: "Extended", waivedBy: admin.id, createdAt: new Date("2027-01-20T00:00:00Z") });
+    expect(await runShopDocumentFollowUp("2027-02-01", new Date("2027-02-01T00:30:00Z"))).toMatchObject({ reminded: 1, suspended: 0 });
+    expect(await runShopDocumentFollowUp("2027-04-15", new Date("2027-04-15T00:30:00Z"))).toMatchObject({ reminded: 1, suspended: 0 });
+    expect(await runShopDocumentFollowUp("2027-05-01", new Date("2027-05-01T00:30:00Z"))).toMatchObject({ suspended: 1 });
+    expect((await shopRow(shop.id)).status).toBe("SUSPENDED");
+  });
+
+  it("the grace is a setting (graceDays)", async () => {
+    const { shop } = await liveShopMissingDocuments();
+    await setRule("shopDocumentFollowUp", { graceDays: 30 }, admin);
+    await db.insert(shopDocumentWaivers).values({ shopId: shop.id, missingDocTypes: ["GSTIN"], reason: "Known trader", waivedBy: admin.id, createdAt: new Date("2026-11-01T00:00:00Z") });
+    expect(await runShopDocumentFollowUp("2026-11-15", new Date("2026-11-15T00:30:00Z"))).toMatchObject({ reminded: 1 });
+    expect(await runShopDocumentFollowUp("2026-12-01", new Date("2026-12-01T00:30:00Z"))).toMatchObject({ suspended: 1 });
   });
 
   it("documents waiting for our check are not chased; complete documents clear the count", async () => {

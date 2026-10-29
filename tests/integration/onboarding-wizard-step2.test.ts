@@ -287,7 +287,7 @@ describe("Udyam, FSSAI and Shop Act checks", () => {
 });
 
 describe("a food shop may promise FSSAI, but is not approved without it", () => {
-  it("a dairy answers FSSAI 'not now': the review lists it missing and asks for the 30-day promise", async () => {
+  it("a dairy answers FSSAI 'not now': the review lists it missing and asks for the promise (90 days)", async () => {
     await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
     let view = await saveDraftDetails({ actor: owner, details: details({ shopType: "DAIRY" }) });
     expect(view).toMatchObject({ foodShop: true, fssai: { has: true, required: true, done: false } });
@@ -296,7 +296,7 @@ describe("a food shop may promise FSSAI, but is not approved without it", () => 
     expect(view).toMatchObject({ fssai: { has: false, required: true, done: true }, nextStep: "SHOP_ACT" });
     await doc("SHOP_ACT", SHOP_ACT_OK);
     view = await saveDraftLocation({ actor: owner, latitude: 18.5308, longitude: 73.8475 });
-    expect(view.documents).toMatchObject({ missing: ["FSSAI"], inReview: [], canSubmit: true, needsTeamApproval: true, promised: false, promiseDays: 30 });
+    expect(view.documents).toMatchObject({ missing: ["FSSAI"], inReview: [], canSubmit: true, needsTeamApproval: true, promised: false, promiseDays: 90 });
     expect(view.documents.verified.sort()).toEqual(["GSTIN", "PAN", "SHOP_ACT"]);
 
     await expect(submitDraftForPayment({ actor: owner })).rejects.toMatchObject({
@@ -398,7 +398,7 @@ describe("draft → shop → payment (owner decision 29 Oct 2026: documents befo
     expect(ready.title).toMatch(/Registration successful/);
   });
 
-  it("Shop Act still in review: payment needs the 30-day promise, then the shop waits for GoKesari's team", async () => {
+  it("Shop Act still in review: payment needs the promise (90 days), then the shop waits for GoKesari's team", async () => {
     const view = await walkToReview();
     expect(view.documents).toMatchObject({ missing: ["SHOP_ACT"], canSubmit: true, needsTeamApproval: true });
     await expect(submitDraftForPayment({ actor: owner })).rejects.toMatchObject({ code: "VALIDATION_FAILED", details: { reason: "DOCUMENTS_PROMISE_REQUIRED" } });
@@ -409,7 +409,7 @@ describe("draft → shop → payment (owner decision 29 Oct 2026: documents befo
     const shop = await shopRow(shopId);
     expect(shop.documentsPromisedAt!.getTime()).toBeGreaterThanOrEqual(before - 1000);
     const days = (shop.documentsDueAt!.getTime() - shop.documentsPromisedAt!.getTime()) / 86_400_000;
-    expect(days).toBe(30);
+    expect(days).toBe(90); // owner decision 29 Oct 2026: 3 months
     expect((await verifications(shopId)).find((r) => r.docType === "SHOP_ACT")).toMatchObject({ status: "MANUAL_REVIEW", lastErrorCode: "vendor_unsupported" });
     expect(await db.select().from(shopDeferredDocumentReviews).where(eq(shopDeferredDocumentReviews.shopId, shopId))).toHaveLength(0);
     const [promise] = await db.select().from(auditLogs).where(and(eq(auditLogs.action, "shop.documents_promised"), eq(auditLogs.entityId, shopId)));

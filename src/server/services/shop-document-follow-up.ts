@@ -6,6 +6,11 @@
  * suspended automatically (suspendShopWithPolicy, no person) and the owner is told why. A shop
  * that promised its documents is not suspended before its promised date.
  *
+ * Owner decision, 29 Oct 2026 (later the same day): a shop approved without its documents (a
+ * waiver, shop_document_waivers) or on the promise is given graceDays (3 months) instead — from
+ * its latest waiver, or from its approval for a promise. It is reminded on every reminder day
+ * (every 15 days) until then, however many reminders that is, and suspended at the first run after.
+ *
  * Chased: a mandatory document (PAN, GSTIN, Shop Act, FSSAI for food) never given, or one that
  * must be sent again (FAILED / EXPIRED). A document waiting for GoKesari's check
  * (PENDING / MANUAL_REVIEW, the "not GST-registered" declaration included) is the team's to
@@ -22,7 +27,7 @@ import { getEnv } from "@/lib/env";
 import { SELLER_DOC_LABELS, SELLER_DOC_TYPES, type SellerDocType } from "@/lib/kyc/doc-formats";
 import type { RuleValue } from "@/server/config/rules";
 import { db } from "@/server/db";
-import { sellerVerifications, shopDocumentReminders, shops, type Shop } from "@/server/db/schema";
+import { sellerVerifications, shopDocumentReminders, shopDocumentWaivers, shops, type Shop } from "@/server/db/schema";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { notify } from "./notifications";
@@ -150,11 +155,12 @@ export async function runShopDocumentFollowUp(
   }
   result.cleared = done.length;
 
+  const lastWaiver = await latestWaivers(candidates.filter((c) => c.missing.length > 0).map((c) => c.shop.id));
   for (const c of candidates) {
     if (c.missing.length === 0) continue;
     result.checked += 1;
     try {
-      const outcome = await followUpShop(c, today, now, rule);
+      const outcome = await followUpShop(c, today, now, rule, graceUntil(c.shop, lastWaiver.get(c.shop.id) ?? null, rule.graceDays));
       if (outcome === "REMINDED") result.reminded += 1;
       else if (outcome === "SUSPENDED") result.suspended += 1;
       else if (outcome === "WAITING") result.waiting += 1;
@@ -168,21 +174,59 @@ export async function runShopDocumentFollowUp(
 
 type Rule = RuleValue<"shopDocumentFollowUp">;
 
+/** Each shop's latest document waiver (an admin's approval without documents). */
+async function latestWaivers(shopIds: string[]): Promise<Map<string, Date>> {
+  const out = new Map<string, Date>();
+  for (let i = 0; i < shopIds.length; i += CHUNK) {
+    const rows = await db
+      .select({ shopId: shopDocumentWaivers.shopId, at: sql<Date>`max(${shopDocumentWaivers.createdAt})`.mapWith((v) => new Date(v)) })
+      .from(shopDocumentWaivers)
+      .where(inArray(shopDocumentWaivers.shopId, shopIds.slice(i, i + CHUNK)))
+      .groupBy(shopDocumentWaivers.shopId);
+    for (const r of rows) out.set(r.shopId, r.at);
+  }
+  return out;
+}
+
+/**
+ * The end of a waived or promised shop's grace: graceDays after its latest waiver, or after its
+ * approval when it promised its documents (never before the promised date). Null for other shops.
+ */
+export function graceUntil(
+  shop: Pick<Shop, "approvedAt" | "documentsPromisedAt" | "documentsDueAt">,
+  lastWaiverAt: Date | null,
+  graceDays: number,
+): Date | null {
+  const ends: number[] = [];
+  const day = 24 * 60 * 60 * 1000;
+  if (lastWaiverAt) ends.push(lastWaiverAt.getTime() + graceDays * day);
+  if (shop.documentsPromisedAt) {
+    const from = shop.approvedAt ?? shop.documentsPromisedAt;
+    ends.push(from.getTime() + graceDays * day);
+    if (shop.documentsDueAt) ends.push(shop.documentsDueAt.getTime());
+  }
+  return ends.length > 0 ? new Date(Math.max(...ends)) : null;
+}
+
 async function followUpShop(
   c: ShopMissingDocuments,
   today: IsoDate,
   now: Date,
   rule: Rule,
+  grace: Date | null,
 ): Promise<"REMINDED" | "SUSPENDED" | "WAITING" | "DONE_TODAY"> {
   const { shop } = c;
   if (c.lastReminderOn === today) return "DONE_TODAY";
   const labels = c.missing.map((d) => SELLER_DOC_LABELS[d]).join(", ");
   const max = rule.remindersBeforeSuspension;
+  const graceOver = grace !== null && grace.getTime() <= now.getTime();
 
-  if (c.remindersSent >= max) {
+  if (graceOver || (grace === null && c.remindersSent >= max)) {
     // A promise is kept until its date, whatever the reminders say.
-    if (shop.documentsDueAt && shop.documentsDueAt.getTime() > now.getTime()) return "WAITING";
-    const reason = `Shop documents not submitted after ${max} reminders: ${labels}.`;
+    if (grace === null && shop.documentsDueAt && shop.documentsDueAt.getTime() > now.getTime()) return "WAITING";
+    const reason = grace
+      ? `Shop documents not submitted within ${rule.graceDays} days of approval without them: ${labels}.`
+      : `Shop documents not submitted after ${max} reminders: ${labels}.`;
     await suspendShopWithPolicy(
       shop.id,
       {
@@ -198,7 +242,7 @@ async function followUpShop(
       action: AUDIT_ACTIONS.SHOP_DOCUMENTS_FOLLOW_UP,
       entityType: "shop",
       entityId: shop.id,
-      newValue: { outcome: "SUSPENDED", missing: c.missing, remindersSent: c.remindersSent, day: today },
+      newValue: { outcome: "SUSPENDED", missing: c.missing, remindersSent: c.remindersSent, day: today, graceUntil: grace?.toISOString() ?? null },
     });
     return "SUSPENDED";
   }
@@ -212,18 +256,25 @@ async function followUpShop(
     .returning({ id: shopDocumentReminders.id });
   if (!row) return "DONE_TODAY";
 
-  const next = formatDisplayDate(nextFollowUpDay(today, rule.reminderDaysOfMonth));
+  const nextDay = nextFollowUpDay(today, rule.reminderDaysOfMonth);
+  const next = formatDisplayDate(nextDay);
+  const graceLabel = grace ? formatDisplayDate(todayIn(getEnv().APP_TIMEZONE, grace)) : null;
   await notify({
     userId: shop.ownerId,
     type: NOTIFICATION_TYPES.SHOP_DOCUMENTS_FOLLOW_UP,
     vars: {
       shopName: shop.name,
       reminderNo,
-      maxReminders: max,
+      maxReminders: grace ? "" : ` of ${max}`,
       documents: labels,
-      deadline: shop.documentsDueAt ? `You promised to provide them by ${documentsDueLabel(shop.documentsDueAt)}.` : "",
-      warning:
-        reminderNo >= max
+      deadline: grace
+        ? `Your shop was approved before its documents; they are due by ${graceLabel}.`
+        : shop.documentsDueAt
+          ? `You promised to provide them by ${documentsDueLabel(shop.documentsDueAt)}.`
+          : "",
+      warning: grace
+        ? `If they are still missing on ${graceLabel}, your shop will be suspended automatically. We will remind you every 15 days until then.`
+        : reminderNo >= max
           ? `This is the last reminder: if they are still missing on ${next}, your shop will be suspended automatically.`
           : `If they are still missing after reminder ${max}, your shop will be suspended automatically.`,
     },

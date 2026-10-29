@@ -34,7 +34,7 @@ import { createHash } from "node:crypto";
 import { and, eq, isNotNull, isNull, ne, or, sql, type SQL } from "drizzle-orm";
 
 import { conflict, validationFailed, type AppError } from "@/lib/errors";
-import { decryptPan, encryptPan, maskPan, panBlindIndex } from "@/lib/pan-crypto";
+import { decryptPan, docBlindIndex, encryptPan, maskPan, panBlindIndex } from "@/lib/pan-crypto";
 import {
   looseKey,
   maskTail,
@@ -44,7 +44,7 @@ import {
   type ShopActNumber,
 } from "@/lib/shop-identity";
 import { db, type DbClient } from "@/server/db";
-import { shops, type Shop, type ShopStatus, type UserRole } from "@/server/db/schema";
+import { sellerVerifications, shops, type Shop, type ShopStatus, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 
 export type DuplicateMatchReason = "SHOP_ACT" | "PAN" | "UDYAM" | "NAME_AND_PIN";
@@ -533,4 +533,74 @@ export async function backfillShopPanHashes(options: {
     result.hashed += 1;
   }
   return result;
+}
+
+/* ------------------------------------------------- GSTIN and Shop Act owners
+ * Owner decision, 29 Oct 2026. A GSTIN belongs to one business: one owner may
+ * use it for several of their shops (GST lets one registration cover every
+ * place of business in a state), but another owner's account may not. A Shop
+ * Act licence covers exactly one establishment, so no second live shop may use
+ * it, whoever owns it. A number counts as used once it is on a live shop
+ * (not deleted, not REJECTED), or is verified or being checked for one. */
+
+/** Seller-verification statuses that hold a number for a shop. */
+const HOLDING = ["PENDING", "VERIFIED", "MANUAL_REVIEW"] as const;
+
+const liveShop = and(isNull(shops.deletedAt), ne(shops.status, "REJECTED"));
+
+/** Another owner's live shop that uses this GSTIN (normalised), or null. */
+export async function gstinHeldByOtherOwner(gstin: string, ownerId: string, client: DbClient = db): Promise<{ shopId: string } | null> {
+  const hash = docBlindIndex("GSTIN", gstin);
+  const [row] = await client
+    .select({ shopId: shops.id })
+    .from(shops)
+    .leftJoin(
+      sellerVerifications,
+      and(eq(sellerVerifications.shopId, shops.id), eq(sellerVerifications.docType, "GSTIN"), eq(sellerVerifications.numberHash, hash)),
+    )
+    .where(
+      and(
+        liveShop,
+        ne(shops.ownerId, ownerId),
+        or(eq(shops.gstin, gstin), sql`${sellerVerifications.status} IN (${sql.join(HOLDING.map((s) => sql`${s}`), sql`, `)})`),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+/** Another live shop (any owner) that uses this Shop Act licence (its matching key), or null. */
+export async function shopActHeldByOtherShop(key: string, shopId: string | null, client: DbClient = db): Promise<{ shopId: string } | null> {
+  const hash = docBlindIndex("SHOP_ACT", key);
+  const [row] = await client
+    .select({ shopId: shops.id })
+    .from(shops)
+    .leftJoin(
+      sellerVerifications,
+      and(eq(sellerVerifications.shopId, shops.id), eq(sellerVerifications.docType, "SHOP_ACT"), eq(sellerVerifications.numberHash, hash)),
+    )
+    .where(
+      and(
+        liveShop,
+        shopId ? ne(shops.id, shopId) : undefined,
+        or(eq(shops.shopActKey, key), sql`${sellerVerifications.status} IN (${sql.join(HOLDING.map((s) => sql`${s}`), sql`, `)})`),
+      ),
+    )
+    .limit(1);
+  return row ?? null;
+}
+
+export const GSTIN_OTHER_OWNER_MESSAGE =
+  "This GSTIN is registered to another account's shop on GoKesari. If the business is yours, sign in with the account that registered it, or contact support.";
+export const SHOP_ACT_OTHER_SHOP_MESSAGE =
+  "This Shop Act licence is already used by another shop on GoKesari. Each shop needs the licence for its own premises; contact support if this is a mistake.";
+
+/** Refuses a GSTIN that another owner's shop uses (CONFLICT, reason DUPLICATE_GSTIN). */
+export async function assertGstinNotHeldByOtherOwner(gstin: string, ownerId: string, client: DbClient = db): Promise<void> {
+  if (await gstinHeldByOtherOwner(gstin, ownerId, client)) throw conflict(GSTIN_OTHER_OWNER_MESSAGE, { reason: "DUPLICATE_GSTIN" });
+}
+
+/** Refuses a Shop Act licence that another live shop uses (CONFLICT, reason DUPLICATE_SHOP_ACT). */
+export async function assertShopActNotHeldByOtherShop(key: string, shopId: string | null, client: DbClient = db): Promise<void> {
+  if (await shopActHeldByOtherShop(key, shopId, client)) throw conflict(SHOP_ACT_OTHER_SHOP_MESSAGE, { reason: "DUPLICATE_SHOP_ACT" });
 }

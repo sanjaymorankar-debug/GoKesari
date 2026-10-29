@@ -13,6 +13,9 @@ export interface ShopGstPanSettings {
   gstin: string | null;
   panStatus: PanStatus;
   panMasked: string | null;
+  /** Copied onto the shop once verified (Documents page); shown here read-only. */
+  udyamNumber?: string | null;
+  shopActNumber?: string | null;
 }
 
 const GST_STATUS_TONE: Record<GstStatus, "success" | "warning" | "danger" | "neutral"> = {
@@ -231,6 +234,20 @@ export function ShopGstPanForm({ settings }: { settings: ShopGstPanSettings }) {
           ) : null}
         </div>
       </div>
+
+      <dl className="mt-4 grid gap-2 border-t border-ink-100 pt-3 text-sm sm:grid-cols-2" data-testid="other-registrations">
+        <div>
+          <dt className="text-ink-600">Udyam registration</dt>
+          <dd className="font-medium text-ink-900">{settings.udyamNumber ?? "Not on file"}</dd>
+        </div>
+        <div>
+          <dt className="text-ink-600">Shop Act licence</dt>
+          <dd className="font-medium text-ink-900">{settings.shopActNumber ?? "Not on file"}</dd>
+        </div>
+        <p className="text-xs text-ink-500 sm:col-span-2">
+          Verified on the <a className="underline" href="/shop/documents">Documents</a> page; add or change them there.
+        </p>
+      </dl>
 
       {error ? (
         <div className="mt-3">
