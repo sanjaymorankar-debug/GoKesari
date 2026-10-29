@@ -1,8 +1,8 @@
 /**
  * Territory areas (docs/dealer-programme, step 1).
  *
- * GET ?parent=CODE | ?level=DISTRICT | ?pincode=411038  → areas below a parent, of a level,
- *     or the area a PIN code maps to (signed in; no personal data)
+ * GET ?parent=CODE | ?level=DISTRICT | ?pincode=411038 | ?state=KA → areas below a parent, of a
+ *     level, the area a PIN code maps to, or a state's districts (signed in; no personal data)
  * POST { code, name, level, parentCode, shortCode?, status?, pincodePrefixes? } → ADMIN only
  */
 import type { NextRequest } from "next/server";
@@ -11,7 +11,7 @@ import { z } from "zod";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requireRole, requireUser } from "@/server/authz/guards";
 import { GEO_LEVELS } from "@/server/db/schema";
-import { areaForPincode, listGeoAreas, saveGeoArea } from "@/server/services/geo-areas";
+import { areaForPincode, listDistrictsOf, listGeoAreas, saveGeoArea } from "@/server/services/geo-areas";
 
 export const dynamic = "force-dynamic";
 
@@ -30,6 +30,8 @@ export const GET = route(async (request: NextRequest) => {
   const params = request.nextUrl.searchParams;
   const pincode = params.get("pincode");
   if (pincode) return ok({ place: await areaForPincode(pincode) });
+  const state = params.get("state");
+  if (state) return ok({ areas: await listDistrictsOf(state.slice(0, 4)) });
   const level = params.get("level");
   const areas = await listGeoAreas({
     parentCode: params.get("parent") ?? undefined,

@@ -21,6 +21,7 @@
  * reason is required, and every change is written to `feature_flag_changes`
  * and the audit log.
  */
+import { stateCodeOfArea } from "@/lib/indian-states";
 import { desc, eq, sql } from "drizzle-orm";
 
 import { AppError, forbidden, validationFailed } from "@/lib/errors";
@@ -33,7 +34,7 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
-import { listDistricts } from "./geo-areas";
+import { listDistricts, listStates } from "./geo-areas";
 
 export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   dealer_programme_enabled: "Dealer programme",
@@ -53,7 +54,7 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
   paid_support_services_enabled:
     "The Support Services page for shop owners: general support, product upload and price update, with the charges set by an admin.",
   shop_onboarding_wizard_enabled:
-    "Add my shop opens the step-by-step wizard (GSTIN → details → Udyam → FSSAI → Shop Act → map → payment). A wizard shop whose GST/PAN checks pass goes live right after payment in every district, with its Shop Act reviewed by an admin afterwards. Off: the long form. The wizard is always reachable at /shop/register?wizard=1 for testing.",
+    "Add my shop opens the step-by-step wizard (GSTIN → details → Udyam → FSSAI → Shop Act → map → payment). The fee is paid once a document is verified (any missing one is promised within 30 days); a shop with every document verified goes live right after payment, a promised one waits for an admin or operator. Off: the long form for everyone, and the wizard's steps are refused; only an admin can open the wizard, at /shop/register?wizard=1, for testing.",
 };
 
 export interface FeatureFlagView {
@@ -108,7 +109,10 @@ export async function enabledFeatureKeys(): Promise<FeatureFlagKey[]> {
 export function flagCoversDistrict(flag: Pick<FeatureFlagView, "enabled" | "districtCodes">, districtCode: string | null | undefined): boolean {
   if (!flag.enabled) return false;
   if (flag.districtCodes === null) return true;
-  return districtCode != null && flag.districtCodes.includes(districtCode);
+  if (districtCode == null) return false;
+  // The list may name whole states ("KA") as well as districts ("MH-PUN").
+  const state = stateCodeOfArea(districtCode);
+  return flag.districtCodes.includes(districtCode) || (state != null && flag.districtCodes.includes(state));
 }
 
 /**
@@ -132,8 +136,9 @@ export async function requireFeature(key: FeatureFlagKey, options: { districtCod
 }
 
 /**
- * Changes one flag. ADMIN only, a reason of at least 5 characters, and district
- * codes that are active DISTRICT rows of geo_areas (an empty list is refused —
+ * Changes one flag. ADMIN only, a reason of at least 5 characters, and area
+ * codes that are active STATE or DISTRICT rows of geo_areas — a whole state
+ * ("KA") or a district ("MH-PUN") — (an empty list is refused —
  * switch the flag off instead). Saving the value it already has changes and
  * logs nothing.
  */
@@ -152,12 +157,12 @@ export async function setFeatureFlag(
   if (value.districtCodes !== null) {
     const wanted = [...new Set(value.districtCodes.map((c) => c.trim().toUpperCase()).filter(Boolean))].sort();
     if (wanted.length === 0) {
-      throw validationFailed("Choose at least one district, or every district.", { fields: { districtCodes: "Choose at least one district." } });
+      throw validationFailed("Choose at least one state or district, or all of India.", { fields: { districtCodes: "Choose at least one state or district." } });
     }
-    const known = new Set((await listDistricts()).filter((d) => d.status === "ACTIVE").map((d) => d.code));
+    const known = new Set([...(await listStates()), ...(await listDistricts())].filter((d) => d.status === "ACTIVE").map((d) => d.code));
     const unknown = wanted.filter((c) => !known.has(c));
     if (unknown.length) {
-      throw validationFailed(`Unknown district: ${unknown.join(", ")}.`, { fields: { districtCodes: "Choose districts from the list." } });
+      throw validationFailed(`Unknown state or district: ${unknown.join(", ")}.`, { fields: { districtCodes: "Choose states or districts from the list." } });
     }
     districtCodes = wanted;
   }

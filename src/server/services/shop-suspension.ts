@@ -114,7 +114,12 @@ export interface SuspensionResult {
  */
 export async function suspendShopWithPolicy(
   shopId: string,
-  input: { reason: string; expectedAction?: string | null },
+  input: {
+    reason: string;
+    expectedAction?: string | null;
+    /** The owner's notice is sent even with shop e-mails switched off (the documents follow-up). */
+    mandatoryNotice?: boolean;
+  },
   actor: Actor | null,
 ): Promise<SuspensionResult> {
   const reason = input.reason.trim();
@@ -231,7 +236,7 @@ export async function suspendShopWithPolicy(
       impact: parts.length ? parts.join(" ") : "You had no open orders.",
       expectedAction,
     },
-    { actionUrl: "/shop", dedupeKey: `shop-suspended:${started.suspension.id}` },
+    { actionUrl: "/shop", dedupeKey: `shop-suspended:${started.suspension.id}`, mandatory: input.mandatoryNotice },
   );
 
   const [suspension] = await db.select().from(shopSuspensions).where(eq(shopSuspensions.id, started.suspension.id));

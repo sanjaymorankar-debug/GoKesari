@@ -6,7 +6,7 @@ import { PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getCommissionSettings, listCommissionRules, listLedger, listPayouts, listRatingSlabs } from "@/server/dealers/commission";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
-import { listDistricts } from "@/server/services/geo-areas";
+import { listDistricts, listStates } from "@/server/services/geo-areas";
 
 export const metadata = { title: "Dealer commission" };
 export const dynamic = "force-dynamic";
@@ -17,13 +17,14 @@ export default async function DealerCommissionPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
   if (user.role !== "ADMIN" && user.role !== "OPERATOR") redirect("/");
-  const [rules, settings, slabs, ledger, payouts, districts] = await Promise.all([
+  const [rules, settings, slabs, ledger, payouts, districts, states] = await Promise.all([
     listCommissionRules({ all: true }),
     getCommissionSettings(),
     listRatingSlabs(),
     listLedger(),
     listPayouts(),
     listDistricts(),
+    listStates(),
   ]);
   const plain = (v: unknown) => JSON.parse(JSON.stringify(v));
   return (
@@ -39,7 +40,8 @@ export default async function DealerCommissionPage() {
         slabs={plain(slabs)}
         ledger={plain(ledger)}
         payouts={plain(payouts)}
-        districts={districts.map((d) => ({ code: d.code, name: d.name }))}
+        // A rule may cover a whole state or one district.
+        districts={[...states.map((s) => ({ code: s.code, name: `${s.name} (whole state)` })), ...districts.map((d) => ({ code: d.code, name: `${d.name} (${d.code.split("-")[0]})` }))]}
       />
     </div>
   );

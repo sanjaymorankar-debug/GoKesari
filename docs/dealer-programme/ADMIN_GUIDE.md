@@ -29,7 +29,9 @@ Every change needs a written reason and is kept in the audit log.
 | `dealer_rating_bonus_enabled` | The rating bonus on top of commission |
 | `paid_support_services_enabled` | The paid Support services page for shops |
 
-Each flag can be on for **every district** or only for chosen districts (the Pune pilot is `MH-PUN`).
+Each flag can be on for **all of India**, or only for chosen **states** and **districts**. A state
+(`KA`, `TN`, …, listed as "Karnataka (whole state)") covers every district in it, including
+districts added later; a district (the Pune pilot is `MH-PUN`) covers only itself.
 Off means the site behaves exactly as before. Turn a flag off at any time; nothing is deleted.
 
 **Production:** all four are off. Switch them on only in an approved window, Pune first.
@@ -53,6 +55,21 @@ shops brought, live shops and commission.
 
 **Suspending** puts the dealer's unpaid commission on hold; **reactivating** releases it.
 A code can be suspended or replaced (the old code stops working; shops keep their attribution).
+
+**Adding a dealer directly** (admins only): **Add dealer** at the top of `/admin/dealers`.
+1. Choose the **state or union territory** (all 28 states and 8 UTs are listed).
+2. Choose one of its **districts**, "Whole state (no district)", or **+ Add a new district…** and
+   type its name. A new district gets a short code automatically (Mysuru → `MYS`); typing a
+   district that already exists in that state reuses it.
+3. Optionally give the dealer's **sign-in e-mail** (an existing GoKesari account; one dealer per
+   account), mobile, city and PIN code, and the **reason** (kept in the audit log).
+4. The dealer is approved at once with a unique code: `GKS-<state>-<district>-<6 characters>`
+   (`GKS-KA-MYS-GVERY9`), or `GKS-<state>-<6 characters>` with no district (`GKS-TN-FGXFW9`).
+   The six characters are random from a set without look-alike letters, checked against every
+   existing code. Documents, bank details and the agreement can follow on the dealer's page.
+
+**Commission rules** can be set for all of India, a state or a district; the most specific one
+that matches the shop's area wins (district, then state, then all of India).
 
 **Legacy distributors** were moved in as dealers with their existing codes. Codes with no
 distributor sit under **GoKesari Direct** (internal; earns no commission).

@@ -26,6 +26,7 @@ import {
   redirectUrlOf,
 } from "@/server/payments/intents";
 import { reconcileIntent } from "@/server/payments/processing";
+import { assertDocumentsAllowPayment } from "./shop-document-gate";
 
 interface Owner {
   id: string;
@@ -57,6 +58,8 @@ export async function startRegistrationFeeCheckout(
   const shop = await ownShopForFee(shopId, owner.id);
   const due = registrationFeeDue(shop);
   if (due === 0) throw conflict("Nothing is due: the registration fee is already settled.");
+  // Owner decision 29 Oct 2026: documents verified (or the 30-day promise) before the fee.
+  await assertDocumentsAllowPayment(shop);
 
   const previous = await listIntentsFor("SHOP_REGISTRATION_FEE", shop.id);
   // A checkout still open for this owner and amount is reused — pressing Pay

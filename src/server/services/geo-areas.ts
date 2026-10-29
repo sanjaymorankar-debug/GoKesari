@@ -1,9 +1,10 @@
 /**
- * Territory hierarchy (docs/dealer-programme, step 1):
- * Maharashtra → Region (division) → District → Taluka/City → Locality.
+ * Territory hierarchy (docs/dealer-programme): State → (Region) → District →
+ * Taluka/City → Locality, for every state and union territory of India.
  *
- * `geo_areas` (seller database, seeded by migration 0103 with the state, its
- * divisions and 36 districts, and Pune's cities and first localities) and
+ * `geo_areas` (seller database: 0103 seeded Maharashtra with its divisions,
+ * districts and Pune's localities; 0113 every other state and UT, each with
+ * its PIN prefixes; an admin adds a state's districts as it starts) and
  * `geo_area_pincodes`: a PIN code belongs to the area with the longest
  * matching prefix, so a locality's 6-digit PIN wins over its district's "411".
  * Used for feature-flag districts, dealer territories and coverage reports.
@@ -12,19 +13,21 @@
  */
 import { asc, eq, inArray, sql } from "drizzle-orm";
 
+import { districtShortCode } from "@/lib/indian-states";
+
 import { forbidden, notFound, validationFailed } from "@/lib/errors";
 import { db } from "@/server/db";
 import { upsertRow } from "@/server/db/split/upsert";
 import { GEO_LEVELS, geoAreaPincodes, geoAreas, type GeoArea, type GeoLevel, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 
-/** The level a child of each level must have. */
-export const CHILD_LEVEL: Record<GeoLevel, GeoLevel | null> = {
-  STATE: "REGION",
-  REGION: "DISTRICT",
-  DISTRICT: "TALUKA",
-  TALUKA: "LOCALITY",
-  LOCALITY: null,
+/** The levels a child of each level may have (a state's districts may sit under a region, as in Maharashtra, or directly under it). */
+export const CHILD_LEVELS: Record<GeoLevel, readonly GeoLevel[]> = {
+  STATE: ["REGION", "DISTRICT"],
+  REGION: ["DISTRICT"],
+  DISTRICT: ["TALUKA"],
+  TALUKA: ["LOCALITY"],
+  LOCALITY: [],
 };
 
 export const GEO_LEVEL_LABELS: Record<GeoLevel, string> = {
@@ -40,6 +43,41 @@ const PIN_PREFIX = /^[1-9][0-9]{0,5}$/;
 
 export async function listDistricts(): Promise<GeoArea[]> {
   return db.select().from(geoAreas).where(eq(geoAreas.level, "DISTRICT")).orderBy(asc(geoAreas.name));
+}
+
+/** Every state and union territory, by name. */
+export async function listStates(): Promise<GeoArea[]> {
+  return db.select().from(geoAreas).where(eq(geoAreas.level, "STATE")).orderBy(asc(geoAreas.name));
+}
+
+/** A state's districts (directly under it or under one of its regions), by name. */
+export async function listDistrictsOf(stateCode: string): Promise<GeoArea[]> {
+  return db
+    .select()
+    .from(geoAreas)
+    .where(sql`${geoAreas.level} = 'DISTRICT' and ${geoAreas.code} like ${stateCode.toUpperCase() + "-%"}`)
+    .orderBy(asc(geoAreas.name));
+}
+
+/**
+ * ADMIN: adds a district to a state — directly under it — with a generated
+ * short code (unique among districts) and the code "<STATE>-<SHORT>". An
+ * existing district of that name in the state is returned as it is.
+ */
+export async function addDistrict(stateCode: string, name: string, actor: { id: string; role: UserRole }, pincodePrefixes: string[] = []): Promise<GeoArea> {
+  const state = await getGeoArea(stateCode.toUpperCase());
+  if (!state || state.level !== "STATE") throw notFound("State");
+  const clean = name.trim().replace(/\s+/g, " ");
+  const same = (await listDistrictsOf(state.code)).find((d) => d.name.toLowerCase() === clean.toLowerCase());
+  if (same) return same;
+  const taken = new Set((await listDistricts()).map((d) => d.shortCode).filter((c): c is string => Boolean(c)));
+  let short: string;
+  try {
+    short = districtShortCode(clean, taken);
+  } catch {
+    throw validationFailed("Give the district's name.", { fields: { district: "At least two letters." } });
+  }
+  return saveGeoArea({ code: `${state.code}-${short}`, name: clean, level: "DISTRICT", parentCode: state.code, shortCode: short, pincodePrefixes }, actor);
 }
 
 export async function listGeoAreas(options: { parentCode?: string; level?: GeoLevel } = {}): Promise<GeoArea[]> {
@@ -94,9 +132,17 @@ export async function areaForPincode(pincode: string | null | undefined): Promis
   return { area, district: chain.find((a) => a.level === "DISTRICT") ?? null };
 }
 
-/** The district code for a PIN code, or null when the PIN is not mapped. */
+/**
+ * The area used for flags, commission rules and dealer districts: the PIN's
+ * district when one is mapped, else its state (e.g. "KA" before Karnataka's
+ * districts are added); null when the PIN is not mapped at all.
+ */
 export async function districtCodeForPincode(pincode: string | null | undefined): Promise<string | null> {
-  return (await areaForPincode(pincode))?.district?.code ?? null;
+  const place = await areaForPincode(pincode);
+  if (!place) return null;
+  if (place.district) return place.district.code;
+  const chain = await geoAncestry(place.area.code);
+  return chain.find((a) => a.level === "STATE")?.code ?? null;
 }
 
 export interface GeoAreaInput {
@@ -122,14 +168,17 @@ export async function saveGeoArea(input: GeoAreaInput, actor: { id: string; role
   if (name.length < 2 || name.length > 80) throw validationFailed("Give the area a name.", { fields: { name: "2 to 80 characters." } });
   const parent = await getGeoArea(input.parentCode);
   if (!parent) throw notFound("Parent area");
-  if (CHILD_LEVEL[parent.level] !== input.level) {
-    throw validationFailed(`A ${GEO_LEVEL_LABELS[parent.level]} holds ${CHILD_LEVEL[parent.level] ? GEO_LEVEL_LABELS[CHILD_LEVEL[parent.level]!] : "nothing"}.`, {
+  const allowed = CHILD_LEVELS[parent.level];
+  if (!allowed.includes(input.level)) {
+    throw validationFailed(`A ${GEO_LEVEL_LABELS[parent.level]} holds ${allowed.length ? allowed.map((l) => GEO_LEVEL_LABELS[l]).join(" or ") : "nothing"}.`, {
       fields: { level: "Wrong level for this parent." },
     });
   }
-  const shortCode = input.shortCode?.trim().toUpperCase() || null;
+  let shortCode = input.shortCode?.trim().toUpperCase() || null;
   if (input.level === "DISTRICT" && !shortCode) {
-    throw validationFailed("A district needs a short code (it goes into dealer codes).", { fields: { shortCode: "2 to 4 capital letters." } });
+    // Generated from the name, unique among districts (it goes into dealer codes).
+    const taken = new Set((await listDistricts()).filter((d) => d.code !== code).map((d) => d.shortCode).filter((c): c is string => Boolean(c)));
+    shortCode = districtShortCode(name, taken);
   }
   if (shortCode && !/^[A-Z]{2,4}$/.test(shortCode)) throw validationFailed("Short code: 2 to 4 capital letters.", { fields: { shortCode: "2 to 4 capital letters." } });
   const prefixes = [...new Set((input.pincodePrefixes ?? []).map((p) => p.trim()).filter(Boolean))];
@@ -167,4 +216,40 @@ export async function saveGeoArea(input: GeoAreaInput, actor: { id: string; role
     const [saved] = await tx.select().from(geoAreas).where(eq(geoAreas.code, code));
     return saved;
   });
+}
+
+export interface OpenArea {
+  code: string;
+  name: string;
+  /** null for a state; the state for its districts; the district or city above the rest. */
+  parent: string | null;
+}
+
+/**
+ * The areas a dealer may choose where a feature is open: every state when the
+ * flag covers all of India, else the states it names whole and the named
+ * districts' states; under each state its districts (all of them for a whole
+ * state, only the named ones otherwise), then their cities and localities.
+ */
+export async function openAreasFor(districtCodes: readonly string[] | null): Promise<OpenArea[]> {
+  const [states, districts] = await Promise.all([listStates(), listDistricts()]);
+  const named = new Set(districtCodes ?? []);
+  const stateOf = (code: string) => code.split("-")[0];
+  const out: OpenArea[] = [];
+  for (const state of states) {
+    if (state.status !== "ACTIVE") continue;
+    const whole = districtCodes === null || named.has(state.code);
+    const mine = districts.filter((d) => d.status === "ACTIVE" && stateOf(d.code) === state.code && (whole || named.has(d.code)));
+    if (!whole && mine.length === 0) continue;
+    out.push({ code: state.code, name: state.name, parent: null });
+    for (const d of mine) {
+      out.push({ code: d.code, name: d.name, parent: state.code });
+      for (const city of await listGeoAreas({ parentCode: d.code })) {
+        if (city.status !== "ACTIVE") continue;
+        out.push({ code: city.code, name: city.name, parent: d.code });
+        for (const loc of await listGeoAreas({ parentCode: city.code })) if (loc.status === "ACTIVE") out.push({ code: loc.code, name: loc.name, parent: city.code });
+      }
+    }
+  }
+  return out;
 }

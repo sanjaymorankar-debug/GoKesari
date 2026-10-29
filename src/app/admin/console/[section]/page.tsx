@@ -643,6 +643,10 @@ function serialiseShop(shop: typeof shops.$inferSelect, onboarding?: ShopOnboard
     sendAgainDocuments: onboarding?.sendAgainDocuments ?? [],
     documentsUploaded: onboarding?.documentsUploaded ?? 0,
     feeOutstandingPaise: onboarding?.feeOutstandingPaise ?? 0,
+    // 29 Oct 2026: the owner promised the missing documents — flagged for inspection.
+    documentsPromisedAt: shop.documentsPromisedAt?.toISOString() ?? null,
+    documentsDueAt: shop.documentsDueAt?.toISOString() ?? null,
+    documentsOverdue: shop.documentsDueAt !== null && shop.documentsDueAt.getTime() < Date.now(),
   };
 }
 

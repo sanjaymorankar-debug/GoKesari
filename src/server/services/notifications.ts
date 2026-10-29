@@ -84,6 +84,11 @@ export interface NotifyInput {
    * batch (broadcasts write hundreds of notifications per chunk). Default: send at once, as before.
    */
   deferDelivery?: boolean;
+  /**
+   * In-app and e-mail are sent even when the user switched this category off — a notice the
+   * account depends on (the documents follow-up and the suspension it leads to, 29 Oct 2026).
+   */
+  mandatory?: boolean;
 }
 
 /* -------------------------------------------------------------- preferences */
@@ -120,8 +125,11 @@ export async function notify(input: NotifyInput, client: DbClient = db): Promise
     const category = categoryOf(input.type);
     const prefs = await loadPreferences(input.userId, client);
 
+    const enabled = (channel: Channel, defaultOn: boolean) =>
+      (input.mandatory && (channel === "IN_APP" || channel === "EMAIL")) || channelEnabled(prefs, category, channel, defaultOn);
+
     let notificationId: string | null = null;
-    if (channelEnabled(prefs, category, "IN_APP", true)) {
+    if (enabled("IN_APP", true)) {
       const [row] = await client
         .insert(notifications)
         .values({
@@ -145,16 +153,14 @@ export async function notify(input: NotifyInput, client: DbClient = db): Promise
 
     // Outbound channels: the template's email default plus anything the caller asked for, minus user opt-outs.
     const wanted = new Set<OutboundChannel>();
-    if (emailByDefault(input.type)) wanted.add("EMAIL");
+    if (emailByDefault(input.type) || input.mandatory) wanted.add("EMAIL");
     for (const channel of input.channels ?? []) if (channel !== "IN_APP") wanted.add(channel);
     // A user who switched a category's channel ON gets it for every event in that category.
     for (const channel of OUTBOUND_CHANNELS) if (prefs.get(`${category}:${channel}`) === true) wanted.add(channel);
     // batch-2026-10 WS-F: push is on by default for app users in the rule's categories (rule push; off → unchanged).
     if (!wanted.has("PUSH") && (await pushOnByDefault(input.userId, category, client))) wanted.add("PUSH");
 
-    const outbound = [...wanted].filter((channel) =>
-      channelEnabled(prefs, category, channel, wanted.has(channel)),
-    );
+    const outbound = [...wanted].filter((channel) => enabled(channel, wanted.has(channel)));
     if (outbound.length > 0) {
       const rules = await getRule("notifications");
       const short = renderEmail({ title, body, actionUrl: input.actionUrl, baseUrl: getEnv().AUTH_URL });
@@ -190,7 +196,7 @@ export function notifyEvent(
   type: NotificationType,
   userId: string,
   vars: Record<string, string | number | null | undefined>,
-  extra: Pick<NotifyInput, "actionUrl" | "dedupeKey" | "metadata"> = {},
+  extra: Pick<NotifyInput, "actionUrl" | "dedupeKey" | "metadata" | "mandatory"> = {},
 ): Promise<void> {
   return notify({ type, userId, vars, ...extra });
 }
