@@ -335,6 +335,8 @@ export const NOTIFICATION_TYPES = {
   DEALER_SHOP_APPROVED: "dealer.shop_approved",
   /** To the dealer: a payout was made, with the bank reference. */
   DEALER_PAYOUT_PAID: "dealer.payout_paid",
+  /** docs/dealer-programme: the month closed — registrations, commission earned, the payout drafted. */
+  DEALER_COMMISSION_STATEMENT: "dealer.commission_statement",
   /** To the dealer: an admin lowered the rating, with the reason. */
   DEALER_RATING_CHANGED: "dealer.rating_changed",
   /** To the shop owner: approved instantly on GST/PAN verification + payment — ready for product upload (email). */

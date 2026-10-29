@@ -115,7 +115,7 @@ The build-time script does report the number. `npm run build` runs
 ```
 [migrate-on-build] applied 2 new migration(s); 58 recorded, newest 1791397744411.
 [migrate-on-build] applied 0 new migration(s); 58 recorded, newest 1791397744411.
-[migrate-on-build] skipped: MIGRATE_ON_BUILD is not "true". Migrations are applied by hand (npm run db:migrate).
+[migrate-on-build] skipped: MIGRATE_ON_BUILD is not "true". Migrations run only through the "Test database" and "Production database" workflows (DEPLOYMENT.md §4).
 ```
 
 A failure prints `[migrate-on-build] FAILED: …` and stops the build before any
