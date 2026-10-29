@@ -35,7 +35,9 @@ vi.mock("@/server/auth", () => ({
 
 import { gstinCheckChar } from "@/lib/kyc/doc-formats";
 import { GET as draftRoute } from "@/app/api/shops/registration-draft/route";
+import { POST as detailsRoute } from "@/app/api/shops/registration-draft/details/route";
 import { POST as documentsRoute } from "@/app/api/shops/registration-draft/documents/route";
+import { POST as locationRoute } from "@/app/api/shops/registration-draft/location/route";
 import { POST as submitRoute } from "@/app/api/shops/registration-draft/submit/route";
 import { resetRateLimits } from "@/server/api/rate-limit";
 import { db } from "@/server/db";
@@ -57,15 +59,19 @@ import { finishFeeCapture } from "@/server/services/operator-limited";
 import { startRegistrationFeeCheckout } from "@/server/services/registration-fee-payment";
 import { setRegistrationFee } from "@/server/services/registration-fees";
 import { submitSellerDocument } from "@/server/services/seller-verification";
+import { setFeatureFlag } from "@/server/services/feature-flags";
 import { clearRuleCache } from "@/server/services/settings";
 import { submitDraftGstin, submitDraftPan } from "@/server/services/shop-registration-draft";
 import {
   answerDraftDocument,
   getWizardDraft,
+  requireWizardAvailable,
   saveDraftDetails,
   saveDraftLocation,
+  showsWizard,
   submitDraftDocument,
   submitDraftForPayment,
+  wizardAvailableFor,
   type DraftShopDetails,
 } from "@/server/services/shop-registration-wizard";
 import { registerShop } from "@/server/services/shops";
@@ -448,12 +454,19 @@ describe("a shop outside the wizard keeps today's rule", () => {
   });
 });
 
+/** Switches the wizard flag, as an admin does on Admin → Feature flags. */
+async function setWizardFlag(enabled: boolean) {
+  const a = await createUser({ role: "ADMIN" });
+  await setFeatureFlag("shop_onboarding_wizard_enabled", { enabled, districtCodes: null }, "wizard flag (test)", { id: a.id, email: a.email, role: "ADMIN" });
+}
+
 describe("HTTP routes", () => {
   const signIn = () => {
     state.session = { user: { id: owner.id, email: owner.email, name: owner.name, image: null, role: "CUSTOMER", status: "ACTIVE" } };
   };
 
   it("GET resumes the wizard; documents and submit answer with the next step; signed-out is refused", async () => {
+    await setWizardFlag(true);
     expect((await call(draftRoute, "/api/shops/registration-draft")).status).toBe(401);
     signIn();
     expect((await call(draftRoute, "/api/shops/registration-draft")).body).toBeNull();
@@ -473,5 +486,70 @@ describe("HTTP routes", () => {
     expect(early.status).toBe(409);
     const resumed = await call(draftRoute, "/api/shops/registration-draft");
     expect(resumed.body.nextStep).toBe("SHOP_ACT");
+  });
+});
+
+describe("who may use the wizard (shop_onboarding_wizard_enabled)", () => {
+  const as = (user: { id: string; email: string; name: string | null }, role: UserRole) => {
+    state.session = { user: { id: user.id, email: user.email, name: user.name, image: null, role, status: "ACTIVE" } };
+  };
+  const routes = [
+    () => call(detailsRoute, "/api/shops/registration-draft/details", { method: "POST", body: details() }),
+    () => call(documentsRoute, "/api/shops/registration-draft/documents", { method: "POST", body: { docType: "UDYAM", has: false } }),
+    () => call(locationRoute, "/api/shops/registration-draft/location", { method: "POST", body: { latitude: 18.53, longitude: 73.85 } }),
+    () => call(submitRoute, "/api/shops/registration-draft/submit", { method: "POST" }),
+  ];
+
+  it("flag off, not an admin: ?wizard=1 shows the long form and every wizard step is refused (404), nothing saved", async () => {
+    await setWizardFlag(false);
+    expect(await showsWizard(owner, { wizard: "1" })).toBe(false);
+    expect(await showsWizard(owner, {})).toBe(false);
+    expect(await showsWizard({ role: "OPERATOR" }, { wizard: "1" })).toBe(false);
+    expect(await wizardAvailableFor(owner)).toBe(false);
+    await expect(requireWizardAvailable(owner)).rejects.toMatchObject({ code: "NOT_FOUND" });
+
+    await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
+    as(owner, "CUSTOMER");
+    for (const r of routes) {
+      const res = await r();
+      expect(res.status).toBe(404);
+      expect(res.body.error.details.reason).toBe("FEATURE_NOT_AVAILABLE");
+    }
+    const [draft] = await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.ownerId, owner.id));
+    expect(draft.details).not.toHaveProperty("name");
+    expect(draft.status).toBe("OPEN");
+    expect(await db.select().from(shops).where(eq(shops.ownerId, owner.id))).toHaveLength(0);
+  });
+
+  it("flag off, an admin: ?wizard=1 opens the wizard (without it, the long form) and the steps work", async () => {
+    await setWizardFlag(false);
+    const a = await createUser({ role: "ADMIN" });
+    const admin = { id: a.id, email: a.email, name: a.name ?? null, role: "ADMIN" as const };
+    expect(await showsWizard(admin, { wizard: "1" })).toBe(true);
+    expect(await showsWizard(admin, {})).toBe(false);
+    expect(await showsWizard(admin, { wizard: "1", form: "1" })).toBe(false);
+
+    await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: admin });
+    as(admin, "ADMIN");
+    const saved = await routes[0]();
+    expect(saved.status).toBe(200);
+    expect(saved.body.nextStep).toBe("UDYAM");
+    const udyam = await routes[1]();
+    expect(udyam.status).toBe(200);
+    expect(udyam.body.nextStep).toBe("FSSAI");
+  });
+
+  it("flag on: everyone gets the wizard (?form=1 still the long form) and the steps work", async () => {
+    await setWizardFlag(true);
+    expect(await showsWizard(owner, {})).toBe(true);
+    expect(await showsWizard(owner, { wizard: "1" })).toBe(true);
+    expect(await showsWizard(owner, { form: "1" })).toBe(false);
+    expect(await wizardAvailableFor(owner)).toBe(true);
+
+    await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
+    as(owner, "CUSTOMER");
+    const saved = await routes[0]();
+    expect(saved.status).toBe(200);
+    expect(saved.body.nextStep).toBe("UDYAM");
   });
 });
