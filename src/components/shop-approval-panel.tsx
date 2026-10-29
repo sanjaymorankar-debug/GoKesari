@@ -53,6 +53,8 @@ export interface AdminShop {
   /** The owner ticked "I will provide all relevant documents within 30 days" (ISO times). */
   documentsPromisedAt: string | null;
   documentsDueAt: string | null;
+  /** The promised date has passed. */
+  documentsOverdue: boolean;
 }
 
 const dueLabel = (iso: string) =>
@@ -62,7 +64,7 @@ const dueLabel = (iso: string) =>
 function PromiseBadge({ shop }: { shop: AdminShop }) {
   if (!shop.documentsPromisedAt) return null;
   const due = shop.documentsDueAt ?? shop.documentsPromisedAt;
-  const overdue = new Date(due).getTime() < Date.now();
+  const overdue = shop.documentsOverdue;
   return (
     <Badge tone={overdue ? "danger" : "warning"}>
       {overdue ? "documents overdue since" : "documents promised by"} {dueLabel(due)}

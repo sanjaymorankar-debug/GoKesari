@@ -167,13 +167,13 @@ export default async function RegistrationFeePage({
               <div className="space-y-3" data-testid="documents-before-fee">
                 <Alert tone="warning" title="Documents first">
                   {gate.verified.length === 0
-                    ? "Get at least one document verified (PAN or GSTIN) before paying the registration fee."
+                    ? "Get at least one of your documents verified (for example your PAN) before paying the registration fee."
                     : `Not verified yet: ${gate.missing.map((d) => SELLER_DOC_LABELS[d]).join(", ")}. Verify them, or promise to provide them, before paying.`}
                 </Alert>
                 {gate.verified.length > 0 ? (
                   <p className="text-sm text-ink-600">Verified: {gate.verified.map((d) => SELLER_DOC_LABELS[d]).join(", ")}</p>
                 ) : null}
-                <LinkButton href="/shop/verification" className="w-full">
+                <LinkButton href={`/shop/verification?shop=${shop.id}`} className="w-full">
                   Verify my documents
                 </LinkButton>
                 <p className="text-center text-sm text-ink-500">

@@ -57,11 +57,16 @@ export interface ShopMissingDocuments {
   withTeam: SellerDocType[];
   remindersSent: number;
   lastReminderOn: string | null;
+  /** The promised date has passed. */
+  overdue: boolean;
 }
 
 /** Live shops with a mandatory document not verified — the admin "Missing documents" list and the job's input. */
-export async function shopsMissingDocuments(options: { statuses?: Shop["status"][] } = {}): Promise<ShopMissingDocuments[]> {
+export async function shopsMissingDocuments(
+  options: { statuses?: Shop["status"][]; now?: Date } = {},
+): Promise<ShopMissingDocuments[]> {
   const statuses = options.statuses ?? ["APPROVED"];
+  const now = (options.now ?? new Date()).getTime();
   const rows = await db
     .select({
       shop: {
@@ -110,6 +115,7 @@ export async function shopsMissingDocuments(options: { statuses?: Shop["status"]
         withTeam: notVerified.filter((d) => WITH_THE_TEAM.has(status.get(d) ?? "")),
         remindersSent: sent.length,
         lastReminderOn: sent.at(-1) ?? null,
+        overdue: row.shop.documentsDueAt !== null && row.shop.documentsDueAt.getTime() < now,
       });
     }
   }
@@ -221,7 +227,7 @@ async function followUpShop(
           ? `This is the last reminder: if they are still missing on ${next}, your shop will be suspended automatically.`
           : `If they are still missing after reminder ${max}, your shop will be suspended automatically.`,
     },
-    actionUrl: "/shop/verification",
+    actionUrl: `/shop/verification?shop=${shop.id}`,
     dedupeKey: `shop-documents-follow-up:${shop.id}:${today}`,
     mandatory: true,
   });

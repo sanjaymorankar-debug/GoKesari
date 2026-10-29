@@ -36,7 +36,6 @@ export default async function ShopsMissingDocumentsPage({ searchParams }: { sear
   const today = todayIn(getEnv().APP_TIMEZONE);
   // Counted from today itself: today is the next one when it is a reminder day.
   const next = formatDisplayDate(nextFollowUpDay(addDays(today, -1), rule.reminderDaysOfMonth));
-  const now = Date.now();
 
   return (
     <div className="mx-auto max-w-5xl">
@@ -74,7 +73,7 @@ export default async function ShopsMissingDocumentsPage({ searchParams }: { sear
             {rows.length} shop{rows.length === 1 ? "" : "s"}
           </p>
           {rows.map((r) => {
-            const overdue = r.shop.documentsDueAt !== null && r.shop.documentsDueAt.getTime() < now;
+            const overdue = r.overdue;
             return (
               <Card key={r.shop.id} className="p-4">
                 <div className="flex flex-wrap items-start justify-between gap-3">
