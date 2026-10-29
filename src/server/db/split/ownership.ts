@@ -320,6 +320,7 @@ export const TABLE_OWNERSHIP = {
   dealer_rating_slabs: "seller",
   dealer_rating_history: "seller",
   dealer_payout_batches: "seller",
+  dealer_commission_months: "seller", // monthly payout close (0116)
   dealer_commission_ledger: "seller",
   support_service_types: "platform",
   support_service_charges: "platform",

@@ -121,6 +121,8 @@ export async function getCommissionSettings(client: DbClient = db): Promise<Deal
       fixedBonusBase: "FEE",
       catalogueMinProducts: 10,
       branchEligible: false,
+      payoutDayOfMonth: 5,
+      autoApproveAtMonthEnd: true,
       commissionModel: "BASE_PERCENT",
       basePercentBp: 4000,
       ratingStepBp: 100,
@@ -131,7 +133,7 @@ export async function getCommissionSettings(client: DbClient = db): Promise<Deal
 }
 
 type SettingsPatch = Partial<
-  Pick<DealerCommissionSettings, "capPaise" | "fixedBonusBase" | "catalogueMinProducts" | "branchEligible" | "commissionModel" | "basePercentBp" | "ratingStepBp">
+  Pick<DealerCommissionSettings, "capPaise" | "fixedBonusBase" | "catalogueMinProducts" | "branchEligible" | "payoutDayOfMonth" | "autoApproveAtMonthEnd" | "commissionModel" | "basePercentBp" | "ratingStepBp">
 >;
 
 const settingsAudit = (s: DealerCommissionSettings) => ({
@@ -139,6 +141,8 @@ const settingsAudit = (s: DealerCommissionSettings) => ({
   fixedBonusBase: s.fixedBonusBase,
   catalogueMinProducts: s.catalogueMinProducts,
   branchEligible: s.branchEligible,
+  payoutDayOfMonth: s.payoutDayOfMonth,
+  autoApproveAtMonthEnd: s.autoApproveAtMonthEnd,
   commissionModel: s.commissionModel,
   basePercentBp: s.basePercentBp,
   ratingStepBp: s.ratingStepBp,
@@ -162,6 +166,9 @@ export async function setCommissionSettings(
   if (patch.capPaise != null && (!Number.isInteger(patch.capPaise) || patch.capPaise < 0 || patch.capPaise > 100_000_000)) throw validationFailed("Cap: whole paise, 0 or more.");
   if (patch.catalogueMinProducts != null && (!Number.isInteger(patch.catalogueMinProducts) || patch.catalogueMinProducts < 1 || patch.catalogueMinProducts > 10_000)) {
     throw validationFailed("Catalogue size: 1 to 10,000 products.");
+  }
+  if (patch.payoutDayOfMonth != null && (!Number.isInteger(patch.payoutDayOfMonth) || patch.payoutDayOfMonth < 1 || patch.payoutDayOfMonth > 28)) {
+    throw validationFailed("Payout day: 1 to 28 of the month.");
   }
   if (patch.commissionModel != null && patch.commissionModel !== "BASE_PERCENT" && patch.commissionModel !== "MILESTONE_RULES") {
     throw validationFailed("Commission model: BASE_PERCENT or MILESTONE_RULES.");

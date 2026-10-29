@@ -4,7 +4,10 @@ import { notFound, redirect } from "next/navigation";
 import { CommissionAdmin } from "@/components/dealer/commission-admin";
 import { PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
+import { todayIn } from "@/lib/dates";
+import { getEnv } from "@/lib/env";
 import { getCommissionSettings, listCommissionRules, listLedger, listPayouts, listRatingSlabs } from "@/server/dealers/commission";
+import { listClosedMonths, monthLabel, previousMonth } from "@/server/dealers/monthly-payout";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { listDistricts, listStates } from "@/server/services/geo-areas";
 
@@ -17,7 +20,7 @@ export default async function DealerCommissionPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
   if (user.role !== "ADMIN" && user.role !== "OPERATOR") redirect("/");
-  const [rules, settings, slabs, ledger, payouts, districts, states] = await Promise.all([
+  const [rules, settings, slabs, ledger, payouts, districts, states, months] = await Promise.all([
     listCommissionRules({ all: true }),
     getCommissionSettings(),
     listRatingSlabs(),
@@ -25,7 +28,11 @@ export default async function DealerCommissionPage() {
     listPayouts(),
     listDistricts(),
     listStates(),
+    listClosedMonths(),
   ]);
+  // The month before this one, if it is not closed yet: the admin may close it before the payout day.
+  const lastMonth = previousMonth(todayIn(getEnv().APP_TIMEZONE));
+  const closableMonth = months.some((m) => m.periodMonth === lastMonth) ? null : { month: lastMonth, label: monthLabel(lastMonth) };
   const plain = (v: unknown) => JSON.parse(JSON.stringify(v));
   return (
     <div className="mx-auto max-w-5xl px-4 py-6">
@@ -40,6 +47,8 @@ export default async function DealerCommissionPage() {
         slabs={plain(slabs)}
         ledger={plain(ledger)}
         payouts={plain(payouts)}
+        months={plain(months)}
+        closableMonth={closableMonth}
         // A rule may cover a whole state or one district.
         districts={[...states.map((s) => ({ code: s.code, name: `${s.name} (whole state)` })), ...districts.map((d) => ({ code: d.code, name: `${d.name} (${d.code.split("-")[0]})` }))]}
       />

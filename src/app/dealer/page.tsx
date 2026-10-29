@@ -5,9 +5,11 @@ import { notFound, redirect } from "next/navigation";
 import { DealerPortal } from "@/components/dealer/dealer-portal";
 import { DealerBoard } from "@/components/dealer/dealer-board";
 import { DealerEarnings } from "@/components/dealer/dealer-earnings";
+import { DealerStatements } from "@/components/dealer/dealer-statements";
 import { dealerPerformance } from "@/server/dealers/performance";
 import { DealerWork } from "@/components/dealer/dealer-work";
-import { applicableRates, commissionSummary, dealerRateView, listLedger, ratingView } from "@/server/dealers/commission";
+import { applicableRates, commissionSummary, dealerRateView, getCommissionSettings, listLedger, ratingView } from "@/server/dealers/commission";
+import { dealerMonthStatement, statementMonths } from "@/server/dealers/monthly-payout";
 import { Alert, Badge, LinkButton, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { activeCodeFor, codeQrSvg, shareLinkFor, whatsappShareFor } from "@/server/dealers/codes";
@@ -28,7 +30,9 @@ export const dynamic = "force-dynamic";
  * application stands; an approved dealer gets their code, QR, share links and
  * employees. Not there at all while the programme is off.
  */
-export default async function DealerPage() {
+export default async function DealerPage({ searchParams }: { searchParams: Promise<{ statement?: string | string[] }> }) {
+  const rawStatement = (await searchParams).statement;
+  const openStatement = typeof rawStatement === "string" && /^\d{4}-\d{2}$/.test(rawStatement) ? rawStatement : null;
   if (!(await isFeatureEnabled("dealer_programme_enabled"))) notFound();
   const user = await getCurrentUser();
   if (!user) redirect("/signin?callbackUrl=/dealer");
@@ -70,6 +74,9 @@ export default async function DealerPage() {
     isFeatureEnabled("paid_support_services_enabled"),
     dealerRateView(dealer.id),
   ]);
+  // Monthly statements: this month so far and the closed months (owner, 28 Oct 2026).
+  const [months, commissionSettings] = await Promise.all([statementMonths(), getCommissionSettings()]);
+  const statements = await Promise.all(months.map((m) => dealerMonthStatement(dealer.id, m)));
   // Dates become ISO strings for the client component.
   const iso = (rows: object[]) => JSON.parse(JSON.stringify(rows));
   return (
@@ -96,6 +103,7 @@ export default async function DealerPage() {
         employees={employees}
       />
       <DealerEarnings rating={iso([rating])[0]} summary={summary} rates={rates} myRate={myRate} entries={iso(entries)} bonusOn={bonusOn} />
+      <DealerStatements statements={iso(statements)} payoutDay={commissionSettings.payoutDayOfMonth} open={openStatement} />
       <DealerWork
         employees={employees}
         leads={iso(leads)}

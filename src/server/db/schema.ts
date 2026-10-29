@@ -9596,7 +9596,7 @@ export const dealers = pgTable(
     ratingOverrideUntilShops: integer("rating_override_until_shops"),
     activatedShops: integer("activated_shops").notNull().default(0),
     /**
-     * 0116 (owner, 29 Oct 2026): this dealer's own base commission, % of the
+     * 0117 (owner, 29 Oct 2026): this dealer's own base commission, % of the
      * registration fee paid in basis points, and own change per rating point
      * (basis points per 1.0 of rating above or below 5.0). Null: the default in
      * dealer_commission_settings.
@@ -10122,7 +10122,7 @@ export const dealerCommissionSettings = pgTable("dealer_commission_settings", {
   catalogueMinProducts: integer("catalogue_min_products").notNull().default(10),
   branchEligible: boolean("branch_eligible").notNull().default(false),
   /**
-   * 0116 (owner, 29 Oct 2026). BASE_PERCENT: a dealer earns one base % of the
+   * 0117 (owner, 29 Oct 2026). BASE_PERCENT: a dealer earns one base % of the
    * registration fee paid (before GST, after any coupon), all when the shop is
    * approved; each rating point above or below 5.0 moves it by ratingStepBp.
    * MILESTONE_RULES: the earlier fixed / % rules per milestone.
@@ -10132,6 +10132,10 @@ export const dealerCommissionSettings = pgTable("dealer_commission_settings", {
   basePercentBp: integer("base_percent_bp").notNull().default(4000),
   /** Default change per 1.0 of rating above or below 5.0, basis points (100 = 1 percentage point). */
   ratingStepBp: integer("rating_step_bp").notNull().default(100),
+  /** Monthly payout (0116): the day (1–28, IST) the previous month is closed and its payouts drafted. */
+  payoutDayOfMonth: integer("payout_day_of_month").notNull().default(5),
+  /** At the month's close, approve EARNED entries of that month first (an admin still pays). On by default (owner, 29 Oct 2026). */
+  autoApproveAtMonthEnd: boolean("auto_approve_at_month_end").notNull().default(true),
   updatedBy: uuid("updated_by"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -10182,7 +10186,10 @@ export const dealerPayoutBatches = pgTable(
     totalPaise: integer("total_paise").notNull(),
     paymentReference: text("payment_reference"),
     note: text("note"),
-    createdBy: uuid("created_by").notNull(),
+    /** Monthly payout (0116): the month closed into this payout ("2026-10"); null for one made by hand. */
+    periodMonth: text("period_month"),
+    /** Null for a payout the monthly job drafted (0116). */
+    createdBy: uuid("created_by"),
     paidBy: uuid("paid_by"),
     paidAt: timestamp("paid_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -10190,6 +10197,19 @@ export const dealerPayoutBatches = pgTable(
   (t) => [index("dealer_payout_batches_dealer_idx").on(t.dealerId, t.createdAt)],
 );
 export type DealerPayoutBatch = typeof dealerPayoutBatches.$inferSelect;
+
+/** Monthly payout (0116): one row per closed month — the guard that makes a close run once. */
+export const dealerCommissionMonths = pgTable("dealer_commission_months", {
+  periodMonth: text("period_month").primaryKey(),
+  closedAt: timestamp("closed_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Null when the scheduled job closed it. */
+  closedBy: uuid("closed_by"),
+  autoApproved: integer("auto_approved").notNull().default(0),
+  payouts: integer("payouts").notNull().default(0),
+  totalPaise: integer("total_paise").notNull().default(0),
+  summary: jsonb("summary").$type<Record<string, unknown>>().notNull().default({}),
+});
+export type DealerCommissionMonth = typeof dealerCommissionMonths.$inferSelect;
 
 /** The commission ledger (0107): accruals per milestone, reversals (negative) and adjustments. */
 export const dealerCommissionLedger = pgTable(

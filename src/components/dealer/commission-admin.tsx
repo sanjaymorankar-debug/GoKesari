@@ -27,6 +27,16 @@ interface Settings {
   commissionModel: "BASE_PERCENT" | "MILESTONE_RULES";
   basePercentBp: number;
   ratingStepBp: number;
+  payoutDayOfMonth: number;
+  autoApproveAtMonthEnd: boolean;
+}
+interface ClosedMonth {
+  periodMonth: string;
+  closedAt: string;
+  closedBy: string | null;
+  autoApproved: number;
+  payouts: number;
+  totalPaise: number;
 }
 interface Entry {
   id: string;
@@ -51,6 +61,7 @@ interface Payout {
   status: string;
   totalPaise: number;
   paymentReference: string | null;
+  periodMonth?: string | null;
   createdAt: string;
 }
 
@@ -76,6 +87,8 @@ export function CommissionAdmin({
   slabs,
   ledger,
   payouts,
+  months = [],
+  closableMonth = null,
   districts,
 }: {
   isAdmin: boolean;
@@ -84,6 +97,10 @@ export function CommissionAdmin({
   slabs: { minShops: number; rating: number }[];
   ledger: Entry[];
   payouts: Payout[];
+  /** Monthly payout (owner, 28 Oct 2026): the months already closed, newest first. */
+  months?: ClosedMonth[];
+  /** The last month that is over and not yet closed — "close now" offers it. */
+  closableMonth?: { month: string; label: string } | null;
   districts: { code: string; name: string }[];
 }) {
   const router = useRouter();
@@ -98,6 +115,8 @@ export function CommissionAdmin({
     base: settings.fixedBonusBase,
     catalogue: String(settings.catalogueMinProducts),
     branch: settings.branchEligible,
+    payoutDay: String(settings.payoutDayOfMonth),
+    autoApprove: settings.autoApproveAtMonthEnd,
     model: settings.commissionModel,
     basePercent: String(settings.basePercentBp / 100),
     step: String(settings.ratingStepBp / 100),
@@ -333,6 +352,13 @@ export function CommissionAdmin({
             <label className="flex min-h-11 items-center gap-2 text-sm">
               <input type="checkbox" checked={s.branch} onChange={(e) => setS((v) => ({ ...v, branch: e.target.checked }))} disabled={!isAdmin} />A new branch of an existing shop earns commission
             </label>
+            <Field label="Monthly payout day (1–28)" hint="On this day the month before is closed: a draft payout per dealer, and each dealer's statement.">
+              <input className={inputClass} inputMode="numeric" value={s.payoutDay} onChange={(e) => setS((v) => ({ ...v, payoutDay: e.target.value }))} disabled={!isAdmin} />
+            </Field>
+            <label className="flex min-h-11 items-center gap-2 text-sm">
+              <input type="checkbox" checked={s.autoApprove} onChange={(e) => setS((v) => ({ ...v, autoApprove: e.target.checked }))} disabled={!isAdmin} />
+              At the month&apos;s close, approve that month&apos;s earned commission automatically (an admin still pays)
+            </label>
           </div>
           <div className="rounded-xl bg-cream-50 p-3 text-sm text-ink-700" data-testid="bonus-example">
             <p className="font-semibold">Worked example — fee ₹1,000, dealer rating 6.0 (+1.0%):</p>
@@ -354,6 +380,8 @@ export function CommissionAdmin({
                       fixedBonusBase: s.base,
                       catalogueMinProducts: Number(s.catalogue),
                       branchEligible: s.branch,
+                      payoutDayOfMonth: Number(s.payoutDay),
+                      autoApproveAtMonthEnd: s.autoApprove,
                       commissionModel: s.model,
                       basePercentBp: toBp(s.basePercent) ?? undefined,
                       ratingStepBp: toBp(s.step) ?? undefined,
@@ -492,6 +520,40 @@ export function CommissionAdmin({
             </table>
           </div>
 
+          <h2 className="pt-2 text-base font-bold">Monthly payout</h2>
+          <p className="text-sm text-ink-700" data-testid="monthly-payout">
+            On day {settings.payoutDayOfMonth} of each month the month before is closed automatically: one draft payout per dealer with their approved
+            commission up to that month&apos;s end{settings.autoApproveAtMonthEnd ? " (that month's earned commission is approved first)" : " (only what an admin has approved)"},
+            and every dealer gets their statement. Then pay each draft below and record the bank reference.
+          </p>
+          {isAdmin && closableMonth ? (
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={busy}
+              onClick={() => {
+                if (window.confirm(`Close ${closableMonth.label} now? Draft payouts are made and every dealer is sent the statement. This runs once per month.`)) {
+                  void post({ action: "closeMonth", month: closableMonth.month }, `${closableMonth.label} closed.`, false);
+                }
+              }}
+            >
+              Close {closableMonth.label} now
+            </Button>
+          ) : null}
+          {months.length ? (
+            <ul className="divide-y divide-cream-200 text-sm" data-testid="closed-months">
+              {months.map((m) => (
+                <li key={m.periodMonth} className="flex flex-wrap justify-between gap-2 py-2">
+                  <span>{m.periodMonth}</span>
+                  <span>
+                    {m.payouts} payouts · {rs(m.totalPaise)} · closed {m.closedAt.slice(0, 10)} {m.closedBy ? "by an admin" : "automatically"}
+                    {m.autoApproved ? ` · ${m.autoApproved} entries approved at close` : ""}
+                  </span>
+                </li>
+              ))}
+            </ul>
+          ) : null}
+
           <h2 className="pt-2 text-base font-bold">Payouts</h2>
           <p className="text-sm text-ink-700">A payout gathers a dealer&apos;s approved commission (less any reversal). Pay it by bank transfer, then record the reference here.</p>
           {isAdmin ? (
@@ -507,7 +569,8 @@ export function CommissionAdmin({
             {payouts.map((p) => (
               <li key={p.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <span>
-                  {ledger.find((e) => e.dealerId === p.dealerId)?.dealerName ?? "Dealer"} · {rs(p.totalPaise)} · {p.createdAt.slice(0, 10)} <Badge tone={p.status === "PAID" ? "success" : "neutral"}>{p.status.toLowerCase()}</Badge>
+                  {ledger.find((e) => e.dealerId === p.dealerId)?.dealerName ?? "Dealer"} · {rs(p.totalPaise)} · {p.periodMonth ? `${p.periodMonth} · ` : ""}
+                  {p.createdAt.slice(0, 10)} <Badge tone={p.status === "PAID" ? "success" : "neutral"}>{p.status.toLowerCase()}</Badge>
                   {p.paymentReference ? <span className="text-ink-500"> · ref {p.paymentReference}</span> : null}
                 </span>
                 {isAdmin && p.status === "DRAFT" ? (

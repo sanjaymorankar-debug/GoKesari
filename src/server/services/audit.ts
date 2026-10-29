@@ -386,13 +386,14 @@ export const AUDIT_ACTIONS = {
   DEALER_DISPUTE_SAVED: "dealer.dispute_saved", // docs/dealer-programme
   DEALER_COMMISSION_SETTINGS_CHANGED: "dealer.commission_settings_changed", // docs/dealer-programme
   DEALER_COMMISSION_RULE_CHANGED: "dealer.commission_rule_changed", // docs/dealer-programme
-  DEALER_COMMISSION_RATES_CHANGED: "dealer.commission_rates_changed", // one dealer's base % and rating step (0116)
+  DEALER_COMMISSION_RATES_CHANGED: "dealer.commission_rates_changed", // one dealer's base % and rating step (0117)
   DEALER_COMMISSION_ACCRUED: "dealer.commission_accrued", // docs/dealer-programme
   DEALER_COMMISSION_REVERSED: "dealer.commission_reversed", // docs/dealer-programme
   DEALER_COMMISSION_APPROVED: "dealer.commission_approved", // docs/dealer-programme
   DEALER_COMMISSION_CAP_OVERRIDE: "dealer.commission_cap_override", // docs/dealer-programme
   DEALER_COMMISSION_HOLD: "dealer.commission_hold", // docs/dealer-programme
   DEALER_PAYOUT_SAVED: "dealer.payout_saved", // docs/dealer-programme
+  DEALER_COMMISSION_MONTH_CLOSED: "dealer.commission_month_closed", // docs/dealer-programme: monthly payout drafted
   DEALER_RATING_SLAB_CHANGED: "dealer.rating_slab_changed", // docs/dealer-programme
   DEALER_RATING_CHANGED: "dealer.rating_changed", // docs/dealer-programme
   SUPPORT_SERVICE_REQUESTED: "support_service.requested", // docs/dealer-programme

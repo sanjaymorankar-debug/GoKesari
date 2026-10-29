@@ -818,7 +818,14 @@
       "idx": 116,
       "version": "7",
       "when": 1793161500000,
-      "tag": "0116_dealer_base_commission",
+      "tag": "0116_dealer_monthly_payout",
+      "breakpoints": true
+    },
+    {
+      "idx": 117,
+      "version": "7",
+      "when": 1793161600000,
+      "tag": "0117_dealer_base_commission",
       "breakpoints": true
     }
   ]
