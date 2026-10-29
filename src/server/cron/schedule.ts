@@ -174,6 +174,9 @@ export const DAILY: readonly Job[] = [
   // a no-op on other days, and on a Sunday it closes a Saturday cycle a failed run missed.
   { name: "payout-cycle", run: payoutCycle },
   { name: "finance-weekly", weekday: 1, run: financeWeekly },
+  // docs/dealer-programme: dealer commission monthly — on the payout day (default the 5th) the month
+  // before is closed once: draft payouts and statements; a no-op on other days.
+  { name: "dealer-monthly-payout", run: async () => (await import("@/server/dealers/monthly-payout")).runMonthlyDealerPayout() },
   // docs/purchase-lists-2026-10: "time to reorder" for weekly / monthly lists that are due again.
   { name: "purchase-list-reminders", run: async () => (await import("@/server/services/purchase-lists")).sendPurchaseListReminders() },
   // docs/shop-documents-2026-10: live shops missing documents — reminders on the 1st and 15th, suspension after the 3rd.

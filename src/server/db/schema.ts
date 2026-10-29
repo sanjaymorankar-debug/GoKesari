@@ -10111,6 +10111,10 @@ export const dealerCommissionSettings = pgTable("dealer_commission_settings", {
   fixedBonusBase: text("fixed_bonus_base", { enum: ["FEE", "BASE_AMOUNT"] }).notNull().default("FEE"),
   catalogueMinProducts: integer("catalogue_min_products").notNull().default(10),
   branchEligible: boolean("branch_eligible").notNull().default(false),
+  /** Monthly payout (0116): the day (1–28, IST) the previous month is closed and its payouts drafted. */
+  payoutDayOfMonth: integer("payout_day_of_month").notNull().default(5),
+  /** At the month's close, approve EARNED entries of that month first (an admin still pays). On by default (owner, 29 Oct 2026). */
+  autoApproveAtMonthEnd: boolean("auto_approve_at_month_end").notNull().default(true),
   updatedBy: uuid("updated_by"),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
@@ -10161,7 +10165,10 @@ export const dealerPayoutBatches = pgTable(
     totalPaise: integer("total_paise").notNull(),
     paymentReference: text("payment_reference"),
     note: text("note"),
-    createdBy: uuid("created_by").notNull(),
+    /** Monthly payout (0116): the month closed into this payout ("2026-10"); null for one made by hand. */
+    periodMonth: text("period_month"),
+    /** Null for a payout the monthly job drafted (0116). */
+    createdBy: uuid("created_by"),
     paidBy: uuid("paid_by"),
     paidAt: timestamp("paid_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
@@ -10169,6 +10176,19 @@ export const dealerPayoutBatches = pgTable(
   (t) => [index("dealer_payout_batches_dealer_idx").on(t.dealerId, t.createdAt)],
 );
 export type DealerPayoutBatch = typeof dealerPayoutBatches.$inferSelect;
+
+/** Monthly payout (0116): one row per closed month — the guard that makes a close run once. */
+export const dealerCommissionMonths = pgTable("dealer_commission_months", {
+  periodMonth: text("period_month").primaryKey(),
+  closedAt: timestamp("closed_at", { withTimezone: true }).notNull().defaultNow(),
+  /** Null when the scheduled job closed it. */
+  closedBy: uuid("closed_by"),
+  autoApproved: integer("auto_approved").notNull().default(0),
+  payouts: integer("payouts").notNull().default(0),
+  totalPaise: integer("total_paise").notNull().default(0),
+  summary: jsonb("summary").$type<Record<string, unknown>>().notNull().default({}),
+});
+export type DealerCommissionMonth = typeof dealerCommissionMonths.$inferSelect;
 
 /** The commission ledger (0107): accruals per milestone, reversals (negative) and adjustments. */
 export const dealerCommissionLedger = pgTable(

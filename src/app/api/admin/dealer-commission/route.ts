@@ -8,6 +8,7 @@
  *   saveSlab {minShops, rating, reason} · deleteSlab {minShops, reason}
  *   approve {ids, capOverride?, reason?} · reverse {id, reason} · release {id, reason}
  *   createPayout {dealerId, note?} · payoutPaid {batchId, reference} · cancelPayout {batchId}
+ *   closeMonth {month: "YYYY-MM"} — the monthly payout now, instead of waiting for the payout day
  */
 import type { NextRequest } from "next/server";
 import { z } from "zod";
@@ -34,6 +35,7 @@ import {
   setCommissionSettings,
 } from "@/server/dealers/commission";
 import { requireDealerProgramme } from "@/server/dealers/http";
+import { closeCommissionMonth, listClosedMonths } from "@/server/dealers/monthly-payout";
 
 export const dynamic = "force-dynamic";
 
@@ -62,6 +64,8 @@ const schema = z.discriminatedUnion("action", [
       fixedBonusBase: z.enum(["FEE", "BASE_AMOUNT"]).optional(),
       catalogueMinProducts: z.number().int().optional(),
       branchEligible: z.boolean().optional(),
+      payoutDayOfMonth: z.number().int().optional(),
+      autoApproveAtMonthEnd: z.boolean().optional(),
     }),
   }),
   z.object({ action: z.literal("saveSlab"), minShops: z.number().int(), rating: z.number(), reason }),
@@ -72,6 +76,7 @@ const schema = z.discriminatedUnion("action", [
   z.object({ action: z.literal("createPayout"), dealerId: z.string().uuid(), note: z.string().max(300).nullish() }),
   z.object({ action: z.literal("payoutPaid"), batchId: z.string().uuid(), reference: z.string().max(120) }),
   z.object({ action: z.literal("cancelPayout"), batchId: z.string().uuid() }),
+  z.object({ action: z.literal("closeMonth"), month: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/) }),
 ]);
 
 export const GET = route(async (request: NextRequest) => {
@@ -81,14 +86,15 @@ export const GET = route(async (request: NextRequest) => {
   const dealerId = z.string().uuid().safeParse(params.get("dealerId")).data;
   const statusRaw = params.get("status");
   const status = (COMMISSION_STATUSES as readonly string[]).includes(statusRaw ?? "") ? (statusRaw as (typeof COMMISSION_STATUSES)[number]) : undefined;
-  const [rules, settings, slabs, ledger, payouts] = await Promise.all([
+  const [rules, settings, slabs, ledger, payouts, months] = await Promise.all([
     listCommissionRules({ all: true }),
     getCommissionSettings(),
     listRatingSlabs(),
     listLedger({ dealerId, status }),
     listPayouts(dealerId),
+    listClosedMonths(),
   ]);
-  return ok({ rules, settings, slabs, ledger, payouts });
+  return ok({ rules, settings, slabs, ledger, payouts, months });
 });
 
 export const POST = route(async (request: NextRequest) => {
@@ -124,5 +130,7 @@ export const POST = route(async (request: NextRequest) => {
     case "cancelPayout":
       await cancelPayout(body.batchId, admin);
       return ok({ done: true });
+    case "closeMonth":
+      return ok({ closed: await closeCommissionMonth(body.month, admin) });
   }
 });
