@@ -159,7 +159,8 @@ export function SiteHeader({
     <header lang={LANG_TAG[lang]} className="sticky top-0 z-40 border-b border-[var(--gk-line)] bg-white" data-testid="site-header">
       <div className="mx-auto flex h-14 w-full max-w-6xl items-center gap-1.5 px-2 sm:gap-2 sm:px-4 lg:h-16 lg:gap-3 lg:px-6">
         <StandaloneBackButton />
-        <Link href="/" className="flex min-h-11 shrink-0 items-center gap-2 py-1" aria-label={`GoKesari — ${tr(UI.home, lang)}`}>
+        {/* Not prefetched: the home page is rendered per request, so a prefetch here was a second full home render on every visit (performance check, 29 Oct 2026). */}
+        <Link href="/" prefetch={false} className="flex min-h-11 shrink-0 items-center gap-2 py-1" aria-label={`GoKesari — ${tr(UI.home, lang)}`}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/gk-mark.png" alt="" width={62} height={36} className="h-8 w-auto rounded-lg lg:h-10" />
           {/* D-103: signed in, the row needs the wordmark's width for the search box; the logo stays. */}

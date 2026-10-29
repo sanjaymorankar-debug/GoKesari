@@ -124,7 +124,7 @@ export const TEMPLATES: Record<string, Template> = {
     "{{shopName}} is waiting for your documents: {{documents}}. Upload them so we can verify them and approve your shop.",
   ),
   [T.SHOP_DOCUMENTS_FOLLOW_UP]: t(
-    "Submit your shop documents — reminder {{reminderNo}} of {{maxReminders}}",
+    "Submit your shop documents — reminder {{reminderNo}}{{maxReminders}}",
     "{{shopName}} is live, but these documents are still missing: {{documents}}. {{deadline}} Upload them on GoKesari so we can verify them. {{warning}}",
   ),
   [T.SHOP_STAFF_ADDED]: t(

@@ -462,14 +462,15 @@ export const RULES = {
   },
   shopDocumentFollowUp: {
     description:
-      "Shop documents (owner decision, 29 Oct 2026). The registration fee is paid only once the shop's documents are verified (at least one); an owner without the rest ticks \"I will provide all relevant documents within 30 days\" (promiseDays) and the shop waits for an admin or operator to approve it. When enabled, on each day in reminderDaysOfMonth (the 1st and 15th, India time) every live shop still missing a mandatory document (PAN, GSTIN or the no-GST declaration, Shop Act, FSSAI for food) is e-mailed a reminder; at the run after the last of remindersBeforeSuspension reminders, and not before its promised date, it is suspended and the owner is e-mailed. These e-mails are sent even when the owner has switched shop e-mails off.",
+      "Shop documents (owner decision, 29 Oct 2026). The registration fee is paid only once the shop's documents are verified (at least one); an owner without the rest ticks \"I will provide all relevant documents within <promiseDays> days\" (promiseDays; 90 since the owner decision of 29 Oct 2026, was 30) and the shop waits for an admin or operator to approve it. When enabled, on each day in reminderDaysOfMonth (the 1st and 15th, India time) every live shop still missing a mandatory document (PAN, GSTIN or the no-GST declaration, Shop Act, FSSAI for food) is e-mailed a reminder; at the run after the last of remindersBeforeSuspension reminders, and not before its promised date, it is suspended and the owner is e-mailed. These e-mails are sent even when the owner has switched shop e-mails off. A shop approved without its documents (an admin's waiver) or on the promise has graceDays (3 months, owner decision 29 Oct 2026) from its latest waiver or its approval: it is reminded on every reminder day until then and suspended at the first run after.",
     schema: z.object({
       enabled: z.boolean(),
       reminderDaysOfMonth: z.array(int(1, 28)).min(1).max(4),
       remindersBeforeSuspension: int(1, 10),
       promiseDays: int(1, 90),
+      graceDays: int(15, 365),
     }),
-    defaults: { enabled: true, reminderDaysOfMonth: [1, 15], remindersBeforeSuspension: 3, promiseDays: 30 },
+    defaults: { enabled: true, reminderDaysOfMonth: [1, 15], remindersBeforeSuspension: 3, promiseDays: 90, graceDays: 90 },
   },
   sellerVerification: {
     description:
