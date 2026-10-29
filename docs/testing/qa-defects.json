@@ -1535,8 +1535,10 @@
    "found": "2026-10-29 test.gokesari.com (staging shop-owner test account; PR #273 / #274 build), tests/qa/signed-in/sellers-shop-documents.spec.ts",
    "actual": "With shop_onboarding_wizard_enabled off, POST /api/shops/registration-draft/details, /location, /documents and /submit answer a non-admin 404 NOT_FOUND with details.reason FEATURE_NOT_AVAILABLE (PR #274). The same empty body sent to /registration-draft/gstin and /registration-draft/pan is answered 422 VALIDATION_FAILED (gstin: fields gstin, consent; pan: fields pan, declaration, consent): the request gets past the point where the flag should stop it. src/app/api/shops/registration-draft/gstin/route.ts and pan/route.ts never call requireWizardAvailable, and neither does submitDraftGstin / submitDraftPan (src/server/services/shop-registration-draft.ts). Per the code, a valid body opens a registration draft for the user and runs a KYC vendor check, which is a paid call with the real vendor. GET /api/shops/registration-draft is not gated either (read only). gokesari.com was not tested (production is read-only for QA).",
    "expected": "While the flag is off, every wizard route answers a non-admin 404 FEATURE_NOT_AVAILABLE before validation, as docs/shop-onboarding-wizard-2026-10/PLAN.md says ('flag off: the long form, and the wizard routes answer 404, except for an admin'). No draft is opened and no vendor check runs.",
-   "fix": "Not fixed (QA). Suggested: call `await requireWizardAvailable(user)` straight after requirePermission in registration-draft/gstin and /pan (and GET registration-draft, if it should be gated too), as #274 did for the other four routes, and add these routes to the #274 integration test. Re-run SD-06b on staging.",
-   "status": "Open"
+   "fix": "Fixed on staging by commit 7558902 (another session): registration-draft/gstin and /pan check the wizard flag (requireWizardAvailable) like the other four routes. Retested 29 Oct 2026 11:15 UTC on test.gokesari.com as the shop-owner test account: details, location, gstin, pan, documents and submit all answer 404 NOT_FOUND, details.reason FEATURE_NOT_AVAILABLE (SD-06b pass). gokesari.com: ships with the next staging → main release.",
+   "status": "Fixed - retest passed",
+   "fixedIn": "commit 7558902 (staging)",
+   "retest": "2026-10-29 11:15 UTC test.gokesari.com, shop-owner test account: SD-06b pass, all six registration-draft routes answer 404 FEATURE_NOT_AVAILABLE with the wizard flag off"
   },
   {
    "id": "E-04",
@@ -1561,8 +1563,9 @@
    "found": "2026-10-29 test.gokesari.com (staging shop-owner test account; QA shop 0ff927dc-ff96-4b54-b857-ee69a90f7da5, fee waived by the staging admin test account through the approval queue), tests/qa/signed-in/sellers-shop-documents.spec.ts",
    "actual": "After 'Waive fee' → 'Confirm waiver' (registrationFeePaise 0, feePaymentStatus PAID), /shop/registration-fee?shop=… shows the badge 'No fee', the alert 'Nothing to pay', and the lines 'Registration fee ₹999', 'GST (18%) ₹179.82', 'One-time registration fee (total) ₹0'. The lines do not add up, and nothing tells the owner the fee was waived. waiveRegistrationFee (src/server/services/shop-payments.ts) sets only registrationFeePaise to 0; the page (src/app/shop/registration-fee/page.tsx) still prints the base and GST snapshots (registrationFeeBasePaise, registrationFeeGstPaise). Evidence: docs/shop-documents-2026-10/staging-2026-10-29/sd03w-fee-page-waived-390.png. The admin side is right: the queue badge reads 'fee waived'.",
    "expected": "The owner's fee page reads consistently once the fee is waived: either a 'Fee waived' line (e.g. − ₹1,178.82) that brings the total to ₹0, or no base / GST lines, and the alert says the fee was waived (as the queue does), not only 'Nothing to pay'.",
-   "fix": "Not fixed (QA). Suggested: in registration-fee/page.tsx, when registrationFeePaise is 0 and the base snapshot is above 0, show 'Fee waived' (and the waived amount) instead of the base and GST lines, or have waiveRegistrationFee also zero the GST snapshot and record the waiver for display. Re-run SD-03w (its owner fee-page step) on staging.",
-   "status": "Open"
+   "fix": "Fixed in PR #278 (src/app/shop/registration-fee/page.tsx): when the fee is 0 and the quoted fee (base − discount + GST snapshots) is above 0, the page shows the badge 'Fee waived', a line 'Waived by GoKesari − <quoted fee>' (data-testid fee-waived-line) so the lines add up to ₹0, and the alert 'Your registration fee was waived'. Retest SD-03w's owner fee-page step on staging after the merge.",
+   "status": "Fixed (re-test pending)",
+   "fixedIn": "PR #278"
   },
   {
    "id": "D-108",
@@ -1574,8 +1577,9 @@
    "found": "2026-10-29 test.gokesari.com (staging shop-owner test account; QA shop 0ff927dc-ff96-4b54-b857-ee69a90f7da5: PAN verified, GSTIN and Shop Act promised by 28 Nov 2026, fee waived), tests/qa/signed-in/sellers-shop-documents.spec.ts",
    "actual": "The /shop alert reads 'Awaiting approval — kyc pending. Submit your documents for verification: GST number (GSTIN) and Shop Act (Shops & Establishments) certificate. Your shop moves to the payment step once they are verified.' The shop has already passed the payment step (fee settled after the promise) and now waits for an operator's 'Approve on promise'. ownerNextAction (src/lib/shop-onboarding.ts, stage KYC_PENDING) does not know about the 29 Oct documents promise. Evidence: docs/shop-documents-2026-10/staging-2026-10-29/sd07-owner-dashboard-pending-390.png.",
    "expected": "Under the 29 Oct 2026 rule (docs/shop-documents-2026-10/README.md: one verified document plus the 30-day promise unlocks the fee; a promised shop waits for a person), the owner's next step for a promised shop names the promised date and the documents still to provide and, once the fee is settled, says the shop waits for the team's approval. It does not send the owner to a payment step they have passed.",
-   "fix": "Not fixed (QA). Suggested: give ownerNextAction the promise (documentsDueAt) and the fee state: KYC_PENDING with a promise → 'Provide <documents> by <date>'; plus fee settled → 'Your shop is with our team for approval'. Re-run SD-07 on staging.",
-   "status": "Open"
+   "fix": "Fixed in PR #278: getShopOnboarding (src/server/services/shop-onboarding.ts) now returns verifiedDocuments and documentsPromisedBy (the promised date, India time); ownerNextAction / adminNextAction (src/lib/shop-onboarding.ts) use them in KYC_PENDING. Promised, fee due → 'Provide <documents> by <date>, as you promised. Pay the registration fee …' (link /shop/registration-fee). Promised, fee settled → 'Fee settled. GoKesari's team is reviewing your shop and will approve it shortly. …'; operations → 'Approve on promise'. Not promised but one document verified → the fee page (verify the rest or promise them). Tests: tests/integration/shop-onboarding-states.test.ts, both database layouts. Retest SD-07 (pending state) on staging after the merge, with a new pending promised shop.",
+   "status": "Fixed (re-test pending)",
+   "fixedIn": "PR #278"
   }
  ]
 }
