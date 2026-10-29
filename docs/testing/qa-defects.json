@@ -1524,6 +1524,32 @@
    "expected": "gokesari.com answers within a minute of a deploy.",
    "fix": "Not fixed. Cause not proven: most likely the hosting account's process / memory limits (the account also runs six Bkesari / Ladwani Node apps created that day). Owner: check the account's resource use, ask Hostinger support, add uptime monitoring with an alert; re-release #254 (and the rest of staging) in one agreed window. Report: docs/gokesari-audit/GOKESARI_STAGING_VS_MAIN_REPORT_2026-10-26.md.",
    "status": "Open"
+  },
+  {
+   "id": "D-106",
+   "title": "Wizard flag off: the wizard's step-1 routes (registration-draft/gstin and /pan) still answer a non-admin",
+   "cases": [
+    "SD-06b"
+   ],
+   "severity": "Low",
+   "found": "2026-10-29 test.gokesari.com (staging shop-owner test account; PR #273 / #274 build), tests/qa/signed-in/sellers-shop-documents.spec.ts",
+   "actual": "With shop_onboarding_wizard_enabled off, POST /api/shops/registration-draft/details, /location, /documents and /submit answer a non-admin 404 NOT_FOUND with details.reason FEATURE_NOT_AVAILABLE (PR #274). The same empty body sent to /registration-draft/gstin and /registration-draft/pan is answered 422 VALIDATION_FAILED (gstin: fields gstin, consent; pan: fields pan, declaration, consent): the request gets past the point where the flag should stop it. src/app/api/shops/registration-draft/gstin/route.ts and pan/route.ts never call requireWizardAvailable, and neither does submitDraftGstin / submitDraftPan (src/server/services/shop-registration-draft.ts). Per the code, a valid body opens a registration draft for the user and runs a KYC vendor check, which is a paid call with the real vendor. GET /api/shops/registration-draft is not gated either (read only). gokesari.com was not tested (production is read-only for QA).",
+   "expected": "While the flag is off, every wizard route answers a non-admin 404 FEATURE_NOT_AVAILABLE before validation, as docs/shop-onboarding-wizard-2026-10/PLAN.md says ('flag off: the long form, and the wizard routes answer 404, except for an admin'). No draft is opened and no vendor check runs.",
+   "fix": "Not fixed (QA). Suggested: call `await requireWizardAvailable(user)` straight after requirePermission in registration-draft/gstin and /pan (and GET registration-draft, if it should be gated too), as #274 did for the other four routes, and add these routes to the #274 integration test. Re-run SD-06b on staging.",
+   "status": "Open"
+  },
+  {
+   "id": "E-04",
+   "title": "test.gokesari.com: the registration-fee checkout uses the app's in-process SANDBOX gateway, not the Cashfree sandbox",
+   "cases": [
+    "SD-03"
+   ],
+   "severity": "Info",
+   "found": "2026-10-29 test.gokesari.com (shop documents staging run, QA shop 0ff927dc-ff96-4b54-b857-ee69a90f7da5)",
+   "actual": "POST /api/shops/{id}/registration-fee answered 201 with redirectUrl /orders/pay/sandbox/gk_8d828931fb3344d0822da7761f966621, which is the app's own sandbox checkout page (src/app/orders/pay/sandbox/[ref]/page.tsx: 'Pay (success)' / 'Fail' / 'Let it expire'). So the site runs PAYMENT_GATEWAY=SANDBOX, the default in src/lib/env.ts. There is no Cashfree payment_session_id, so the 'Sandbox payment' workflow (.github/workflows/sandbox-pay.yml) cannot pay this checkout.",
+   "expected": "Not decided. CLAUDE.md and docs/testing/cashfree-sandbox-test-data.md expect staging payments to go through the Cashfree sandbox (PAYMENT_GATEWAY=CASHFREE with sandbox keys).",
+   "fix": "Owner / developer: decide whether test.gokesari.com should run PAYMENT_GATEWAY=CASHFREE (sandbox keys) and set it in hPanel if so. Otherwise, approve the in-process 'Pay (success)' page for staging fee tests. Until then, case SD-03 is Not run.",
+   "status": "Open (owner decision)"
   }
  ]
 }
