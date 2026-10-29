@@ -797,7 +797,14 @@
       "idx": 113,
       "version": "7",
       "when": 1793161000000,
-      "tag": "0113_india_states",
+      "tag": "0113_onboarding_wizard_step2",
+      "breakpoints": true
+    },
+    {
+      "idx": 114,
+      "version": "7",
+      "when": 1793161100000,
+      "tag": "0114_india_states",
       "breakpoints": true
     }
   ]

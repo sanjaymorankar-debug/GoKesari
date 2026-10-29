@@ -50,11 +50,11 @@ export interface Actor {
 }
 
 /** A second identical submission within this window rides on the first instead of paying again. */
-const IN_FLIGHT_WINDOW_MS = 30_000;
+export const IN_FLIGHT_WINDOW_MS = 30_000;
 const HOUR_MS = 3_600_000;
 
 /** Statuses that let the owner go on to the next step (an outage or a review is settled later). */
-const CAN_CONTINUE: readonly DraftCheckStatus[] = ["VERIFIED", "PENDING", "MANUAL_REVIEW"];
+export const CAN_CONTINUE: readonly DraftCheckStatus[] = ["VERIFIED", "PENDING", "MANUAL_REVIEW"];
 
 const MESSAGES: Record<string, string> = {
   not_found_at_source: "This number was not found in the government record. Please check it and try again.",
@@ -65,6 +65,10 @@ const MESSAGES: Record<string, string> = {
   gstin_pan_mismatch: "The government record links this GSTIN to a different PAN. We'll check it by hand.",
   name_not_returned: "The government record gave no name. We'll check it by hand.",
   name_mismatch: "The name on the PAN does not match the name on the GST record. We'll check it by hand.",
+  // Step 2: Udyam, FSSAI, Shop Act.
+  vendor_unsupported: "This number can't be checked online. You can carry on — our team will check it.",
+  expiry_not_returned: "The government record gave no expiry date. We'll check it by hand.",
+  address_mismatch: "The PIN code on the government record is not the shop's. We'll check it by hand.",
 };
 const PENDING_MESSAGE = "The government service is not answering right now. You can carry on — we'll keep checking.";
 const REVIEW_MESSAGE = "We couldn't confirm this automatically. You can carry on — our team will check it.";
@@ -100,14 +104,14 @@ export interface ShopRegistrationDraftView {
   canContinue: boolean;
 }
 
-function message(status: DraftCheckStatus, errorCode: string | null): string | null {
+export function message(status: DraftCheckStatus, errorCode: string | null): string | null {
   if (status === "VERIFIED" || status === "NOT_SUBMITTED") return null;
   if (status === "PENDING") return PENDING_MESSAGE;
   const known = errorCode ? MESSAGES[errorCode] : undefined;
   return known ?? (status === "MANUAL_REVIEW" ? REVIEW_MESSAGE : "We couldn't verify this number. Please check it and try again.");
 }
 
-function str(value: unknown): string | null {
+export function str(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value.trim() : null;
 }
 
@@ -168,7 +172,7 @@ export function toDraftView(draft: ShopRegistrationDraft): ShopRegistrationDraft
 
 /* --------------------------------------------------------------- reading */
 
-async function findOpenDraft(ownerId: string): Promise<ShopRegistrationDraft | undefined> {
+export async function findOpenDraft(ownerId: string): Promise<ShopRegistrationDraft | undefined> {
   const [draft] = await db
     .select()
     .from(shopRegistrationDrafts)
@@ -186,7 +190,7 @@ export async function getOpenDraft(actor: Actor): Promise<ShopRegistrationDraftV
 /* ------------------------------------------------------- shared helpers */
 
 /** The owner is a platform user (no foreign key across the split): checked here. */
-async function assertOwnerExists(ownerId: string): Promise<void> {
+export async function assertOwnerExists(ownerId: string): Promise<void> {
   const owner = await db.query.users.findFirst({ where: eq(users.id, ownerId), columns: { id: true } });
   if (!owner) throw notFound("User");
 }
@@ -230,7 +234,7 @@ async function lockOpenDraft(tx: DbClient, ownerId: string): Promise<ShopRegistr
 }
 
 /** The per-draft hourly limit on paid checks the owner can start. */
-async function countCheck(tx: DbClient, draft: ShopRegistrationDraft, now: Date) {
+export async function countCheck(tx: DbClient, draft: ShopRegistrationDraft, now: Date) {
   const rule = await getRule("sellerVerification");
   const windowOpen = draft.checkWindowStartedAt && now.getTime() - draft.checkWindowStartedAt.getTime() < HOUR_MS;
   const used = windowOpen ? draft.checksInWindow : 0;

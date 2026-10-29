@@ -4,7 +4,7 @@
 -- src/lib/pincode-state.ts so a shop anywhere is placed in its state. A state's districts are
 -- added by an admin (each gets a generated short code); a longer PIN prefix — a district's or a
 -- locality's — still wins over the state's. ADDITIVE ONLY; idempotent. Rollback:
--- scripts/rollback-0113.sql.
+-- scripts/rollback-0114.sql.
 INSERT INTO "geo_areas" ("code", "name", "level", "parent_code", "short_code") VALUES
 	('AP', 'Andhra Pradesh', 'STATE', NULL, 'AP'),
 	('AR', 'Arunachal Pradesh', 'STATE', NULL, 'AR'),
