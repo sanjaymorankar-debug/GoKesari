@@ -152,3 +152,14 @@ The cloud session cannot reach Cashfree directly (network policy), so the
 3. Confirm on the site (e.g. `POST /api/wallet/verify` for a top-up).
 
 See also docs/four-features-2026-10/README.md (T-3).
+
+### Shop registration fee: the built-in test payment page
+
+Owner decision, 29 Oct 2026: fee tests on test.gokesari.com use the app's
+built-in test payment page. The site runs `PAYMENT_GATEWAY=SANDBOX`, so
+`POST /api/shops/{id}/registration-fee` answers with a `redirectUrl` of
+`/orders/pay/sandbox/gk_…` (no Cashfree `payment_session_id`). Open it as the
+shop owner and press **Pay (success)** (or **Fail** / **Let it expire**); the
+page sends the signed webhook our handler expects and returns to
+`/shop/registration-fee`. No card, UPI or bank details are entered. The page
+refuses to run on gokesari.com.
