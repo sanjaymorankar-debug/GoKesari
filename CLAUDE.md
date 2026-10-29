@@ -110,6 +110,10 @@ Quick reference:
 - **Running a payment:** this session cannot reach Cashfree, so the pay step
   runs through the "Sandbox payment" GitHub workflow
   (`.github/workflows/sandbox-pay.yml`).
+- **Shop registration-fee tests** (owner decision, 29 Oct 2026): while
+  test.gokesari.com runs `PAYMENT_GATEWAY=SANDBOX`, pay the fee on the app's
+  built-in test payment page (`/orders/pay/sandbox/…`, "Pay (success)"); no
+  card or UPI details are entered there.
 
 Never use real cards, UPI IDs or bank accounts on staging. Never use test data
 or sandbox keys on gokesari.com (production). Keys come from the environment,

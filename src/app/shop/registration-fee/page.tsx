@@ -47,6 +47,12 @@ export default async function RegistrationFeePage({
   if (!shop) redirect("/shop");
   const due = registrationFeeDue(shop);
   const fee = shop.registrationFeePaise ?? 0;
+  // An admin waiver sets the fee to 0 but keeps the quote's base / GST snapshot: show the waiver as a line (D-107).
+  const quoted =
+    shop.registrationFeeBasePaise !== null && shop.registrationFeeGstRateBp !== null
+      ? shop.registrationFeeBasePaise - (shop.registrationFeeDiscountPaise ?? 0) + (shop.registrationFeeGstPaise ?? 0)
+      : 0;
+  const waived = fee === 0 && quoted > 0;
   const attempt = due > 0 ? await latestRegistrationFeeAttempt(shop.id, user.id) : null;
   const returned = typeof params.intent === "string";
   const documentsHref = `/shop/documents?shop=${shop.id}`;
@@ -77,7 +83,7 @@ export default async function RegistrationFeePage({
             ) : null}
           </div>
           {due === 0 ? (
-            <Badge tone="success">{fee === 0 ? "No fee" : "Paid"}</Badge>
+            <Badge tone="success">{waived ? "Fee waived" : fee === 0 ? "No fee" : "Paid"}</Badge>
           ) : (
             <Badge tone="warning">{shop.feePaymentStatus === "PARTIALLY_PAID" ? "Partly paid" : "Payment pending"}</Badge>
           )}
@@ -103,6 +109,14 @@ export default async function RegistrationFeePage({
               <dd className="text-right text-ink-900">
                 <Money paise={shop.registrationFeeGstPaise ?? 0} />
               </dd>
+              {waived ? (
+                <>
+                  <dt className="text-green-700">Waived by GoKesari</dt>
+                  <dd className="text-right text-green-700" data-testid="fee-waived-line">
+                    − <Money paise={quoted} />
+                  </dd>
+                </>
+              ) : null}
             </>
           ) : null}
           <dt className="text-ink-500">One-time registration fee{shop.registrationFeeGstRateBp !== null ? " (total)" : ""}</dt>
@@ -129,7 +143,7 @@ export default async function RegistrationFeePage({
 
         {due === 0 ? (
           <>
-            <Alert tone="success" title={fee === 0 ? "Nothing to pay" : "Payment received"}>
+            <Alert tone="success" title={waived ? "Your registration fee was waived" : fee === 0 ? "Nothing to pay" : "Payment received"}>
               {shop.status === "APPROVED"
                 ? "Your shop is approved and live."
                 : "Your registration is with our team for review. Next, upload your documents."}
