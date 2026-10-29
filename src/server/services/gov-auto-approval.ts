@@ -17,7 +17,10 @@
  *     only in the browser, does not count;
  *   - no other owner's shop already has this GSTIN, PAN or mobile (a likely
  *     duplicate waits for an admin);
- *   - every document today's approval needs is in place, exactly as today:
+ *   - every document the approval needs is in place. A shop registered through the
+ *     onboarding wizard (owner decision 29 Oct 2026, "follow the brief"; 0118) needs only
+ *     the GSTIN (or PAN) above and FSSAI for a food shop — the Shop Act and the rest are
+ *     uploaded after go-live. Any other shop, exactly as before:
  *     the mandatory seller documents verified (PAN, GSTIN or the "not
  *     registered" declaration, Shop Act — the database's own onboarding rule,
  *     migration 0051, which no approval may skip) and the shop-type documents
@@ -33,12 +36,12 @@ import { and, desc, eq, inArray } from "drizzle-orm";
 import { getEnv } from "@/lib/env";
 import { SELLER_DOC_LABELS } from "@/lib/kyc/doc-formats";
 import { db } from "@/server/db";
-import { sellerVerifications, shopAutoApprovalLog, shopPayments, shopRegistrationDrafts, shops, type Shop } from "@/server/db/schema";
+import { sellerVerifications, shopAutoApprovalLog, shopPayments, shops, type Shop } from "@/server/db/schema";
 import { findLikelyDuplicate } from "@/server/dealers/attribution";
 import { flagCoversDistrict, getFeatureFlag } from "./feature-flags";
 import { districtCodeForPincode } from "./geo-areas";
 import { getRule } from "./settings";
-import { deferredReviewDocTypes, missingMandatoryDocuments } from "./shop-onboarding";
+import { deferredReviewDocTypes, isWizardRegisteredShop, missingMandatoryDocuments } from "./shop-onboarding";
 
 /** Payment methods only a verified gateway webhook writes. */
 export const GATEWAY_CONFIRMED_METHODS = ["ONLINE", "CASHFREE", "RAZORPAY"] as const;
@@ -62,14 +65,7 @@ export async function govAutoApprovalApplies(shop: Pick<Shop, "id" | "pincode">)
 }
 
 /** The shop was created from an onboarding-wizard draft. */
-export async function isWizardShop(shopId: string): Promise<boolean> {
-  const [row] = await db
-    .select({ id: shopRegistrationDrafts.id })
-    .from(shopRegistrationDrafts)
-    .where(and(eq(shopRegistrationDrafts.shopId, shopId), inArray(shopRegistrationDrafts.status, ["SUBMITTED", "COMPLETED"])))
-    .limit(1);
-  return Boolean(row);
-}
+export const isWizardShop = (shopId: string): Promise<boolean> => isWizardRegisteredShop(shopId);
 
 type VerificationRow = typeof sellerVerifications.$inferSelect;
 

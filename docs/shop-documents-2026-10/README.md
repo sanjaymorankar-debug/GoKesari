@@ -1,5 +1,11 @@
 # Shop documents before the fee, the 30-day promise, and the 1st / 15th follow-up
 
+> **29 Oct 2026, later the same day:** shops registered through the onboarding wizard no longer use
+> this gate — they pay once their GSTIN / PAN is checked and go live on a verified GSTIN / PAN + payment
+> ([BRIEF_REDESIGN.md](../shop-onboarding-wizard-2026-10/BRIEF_REDESIGN.md), decision D-B01). The
+> gate below still applies to the long form and staff registrations; the 1st / 15th follow-up applies
+> to every live shop.
+
 Owner decision, 29 Oct 2026:
 
 > Payment option must be after all the documents are verified; at least one document is

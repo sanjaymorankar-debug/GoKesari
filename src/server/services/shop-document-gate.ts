@@ -7,6 +7,10 @@
  *
  * "Verified" is a seller_verifications row with status VERIFIED. The mandatory list is
  * missingMandatoryDocuments' (PAN, GSTIN or the no-GST declaration, Shop Act, FSSAI for food).
+ *
+ * A shop registered through the onboarding wizard follows the later decision (29 Oct 2026, "follow
+ * the brief", docs/shop-onboarding-wizard-2026-10/BRIEF_REDESIGN.md): it pays once its GSTIN or PAN
+ * has been checked, and goes live on payment when that check VERIFIED it; the promise is not used there.
  */
 import { eq } from "drizzle-orm";
 
@@ -17,7 +21,7 @@ import { db, type DbClient } from "@/server/db";
 import { sellerVerifications, shops, type Shop, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { getRule } from "./settings";
-import { hasDocumentWaiver, missingMandatoryDocuments } from "./shop-onboarding";
+import { hasDocumentWaiver, isWizardRegisteredShop, missingMandatoryDocuments } from "./shop-onboarding";
 
 const DAY_MS = 86_400_000;
 
@@ -50,6 +54,27 @@ export async function shopDocumentGate(
     .from(sellerVerifications)
     .where(eq(sellerVerifications.shopId, shop.id));
   const verified = SELLER_DOC_TYPES.filter((d) => rows.some((r) => r.docType === d && r.status === "VERIFIED"));
+  // A wizard shop (owner decision 29 Oct 2026, "follow the brief"): the fee may be paid once its
+  // GSTIN — or PAN without one — has been checked. Approval then needs FSSAI too for a food shop; the
+  // Shop Act and other documents come after go-live. No promise is asked for.
+  if (await isWizardRegisteredShop(shop.id, client)) {
+    const missing = (await missingMandatoryDocuments(shop, client, { countDeferred: true })) as SellerDocType[];
+    // The GSTIN or PAN was checked and not refused (verified, still being checked, or with the team; never the
+    // "not GST-registered" declaration). Only a verified one is approved automatically.
+    const identityChecked = rows.some(
+      (r) => (r.docType === "GSTIN" || r.docType === "PAN") && ["VERIFIED", "PENDING", "MANUAL_REVIEW"].includes(r.status) && r.errorCode !== "gst_declaration_review",
+    );
+    return {
+      verified,
+      missing,
+      inReview: [],
+      promisedAt: shop.documentsPromisedAt,
+      dueAt: shop.documentsDueAt,
+      waived: await hasDocumentWaiver(shop.id, client),
+      canPay: identityChecked,
+      canPromise: false,
+    };
+  }
   const { missing, inReview } = splitMissing((await missingMandatoryDocuments(shop, client)) as SellerDocType[], rows);
   const waived = await hasDocumentWaiver(shop.id, client);
   const promised = shop.documentsPromisedAt !== null;
@@ -89,6 +114,12 @@ export async function assertDocumentsAllowPayment(shop: Shop): Promise<void> {
   if (shop.status !== "PENDING_APPROVAL") return;
   const gate = await shopDocumentGate(shop);
   if (gate.canPay) return;
+  if (await isWizardRegisteredShop(shop.id)) {
+    throw conflict("A valid PAN or GST is required to register. Please get your GSTIN or PAN verified before paying the registration fee.", {
+      reason: "IDENTITY_NOT_VERIFIED",
+      missing: gate.missing,
+    });
+  }
   if (gate.verified.length === 0) {
     throw conflict("Please get at least one of your documents verified (for example your PAN) before paying the registration fee.", {
       reason: "NO_VERIFIED_DOCUMENT",
