@@ -197,6 +197,19 @@ describe("screens", () => {
     expect(counts).toMatchObject({ KYC_PENDING: 1, PAYMENT_PENDING: 1, VERIFIED: 0, ACTIVE: 1 });
   });
 
+  it("D-108: reports the verified documents and the promised date", async () => {
+    const owner = await createUser({ role: "SHOP_OWNER" });
+    const shop = await createShop(owner.id, { status: "PENDING_APPROVAL", shopType: "HARDWARE_STORE", registrationFeePaise: 300_000 });
+    await verifySellerDocuments(shop.id, ["PAN"]);
+    await db
+      .update(shops)
+      .set({ documentsPromisedAt: new Date("2026-10-29T06:00:00Z"), documentsDueAt: new Date("2026-11-28T06:00:00Z") })
+      .where(eq(shops.id, shop.id));
+
+    const facts = (await getShopOnboarding([shop.id])).get(shop.id);
+    expect(facts).toMatchObject({ stage: "KYC_PENDING", verifiedDocuments: 1, documentsPromisedBy: "28 Nov 2026", missingDocTypes: ["GSTIN", "SHOP_ACT"] });
+  });
+
   it("tells the owner and operations the next step for each stage", () => {
     const base = { missingDocuments: ["PAN", "Shop Act licence"], feeOutstandingPaise: 500_000 };
     expect(ownerNextAction({ ...base, stage: "KYC_PENDING" })).toMatchObject({
@@ -208,6 +221,32 @@ describe("screens", () => {
     expect(adminNextAction({ ...base, stage: "KYC_PENDING" }).href).toBe("/admin/seller-verification");
     expect(adminNextAction({ ...base, stage: "PAYMENT_PENDING" }).href).toBe("/admin/console/registration-fees#shop-finance");
     expect(adminNextAction({ ...base, stage: "VERIFIED" }).text).toContain("ready to approve");
+  });
+
+  it("D-108: a shop with the 30-day documents promise is told to pay, then to wait for the team", () => {
+    const promised = { stage: "KYC_PENDING" as const, missingDocuments: ["GSTIN", "Shop Act"], verifiedDocuments: 1, documentsPromisedBy: "28 Nov 2026" };
+    // Fee still due: pay it; the team reviews afterwards. Never "moves to the payment step once verified".
+    const pay = ownerNextAction({ ...promised, feeOutstandingPaise: 117_882 });
+    expect(pay).toMatchObject({ href: "/shop/registration-fee" });
+    expect(pay.text).toContain("GSTIN and Shop Act by 28 Nov 2026");
+    expect(pay.text).not.toMatch(/payment step/);
+    // Fee settled (paid or waived): waiting for the team's approval.
+    const wait = ownerNextAction({ ...promised, feeOutstandingPaise: 0 });
+    expect(wait.text).toMatch(/^Fee settled\. GoKesari's team is reviewing your shop/);
+    expect(wait.text).toContain("by 28 Nov 2026");
+    expect(wait.text).not.toMatch(/payment step/);
+    expect(adminNextAction({ ...promised, feeOutstandingPaise: 0 })).toMatchObject({
+      linkLabel: "Approve on promise",
+      text: expect.stringContaining("promised GSTIN and Shop Act by 28 Nov 2026"),
+    });
+    // No promise yet but a verified document: the fee page (verify the rest, or promise them).
+    expect(ownerNextAction({ stage: "KYC_PENDING", missingDocuments: ["GSTIN"], verifiedDocuments: 1, feeOutstandingPaise: 117_882 })).toMatchObject({
+      href: "/shop/registration-fee",
+    });
+    // Nothing verified: verification first.
+    expect(ownerNextAction({ stage: "KYC_PENDING", missingDocuments: ["PAN"], verifiedDocuments: 0, feeOutstandingPaise: 117_882 }).text).toContain(
+      "Once one is verified you can pay the registration fee",
+    );
   });
 });
 
