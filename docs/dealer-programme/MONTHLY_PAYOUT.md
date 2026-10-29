@@ -40,10 +40,10 @@ The current month is shown "so far". A dealer sees only their own statement.
 
 ## Data
 
-Migration 0115 (`-- split: seller`, rollback `scripts/rollback-0115.sql`):
+Migration 0116 (`-- split: seller`, rollback `scripts/rollback-0116.sql`):
 `dealer_commission_settings.payout_day_of_month` / `auto_approve_at_month_end`,
 `dealer_payout_batches.period_month` (and `created_by` nullable — the job has no admin),
-`dealer_commission_months`. (Renumbered from 0113: staging took 0113 for the onboarding wizard and 0114 for the all-India states.)
+`dealer_commission_months`. (Renumbered from 0113: staging took 0113 for the onboarding wizard, 0114 for the all-India states and 0115 for the shop documents promise.)
 
 ## For the owner to decide
 

@@ -20,6 +20,8 @@ export const AUDIT_ACTIONS = {
   SHOP_REJECTED: "shop.rejected",
   SHOP_APPROVED_WITHOUT_DOCUMENTS: "shop.approved_without_documents",
   SHOP_DOCUMENTS_REMINDED: "shop.documents_reminded",
+  SHOP_DOCUMENTS_PROMISED: "shop.documents_promised", // 0115: "I will provide all relevant documents within 30 days"
+  SHOP_DOCUMENTS_FOLLOW_UP: "shop.documents_follow_up", // 0115: 1st / 15th reminder, or suspension after the last
   SHOP_REGISTRATION_FEE_WAIVED: "shop.registration_fee_waived",
   SHOP_SUSPENDED: "shop.suspended",
   SHOP_REACTIVATED: "shop.reactivated",

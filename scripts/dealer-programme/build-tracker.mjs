@@ -31,6 +31,10 @@ const MODULES = [
   ["GKS-AN-002", "Activation & 30-day activity", "Per dealer and employee", "P1", 8, "—", "bf53b23"],
   ["APP", "Mobile app parity", "Website in the app shell; app links; downloads and print through the bridge", "P0", 9, "—", "c89cf0b"],
   ["DOCS", "Guides & report", "Admin guide, dealer onboarding guide, testing report", "P0", 10, "—", "c9ea939"],
+  ["GKS-IN-001", "All-India states & districts", "28 states + 8 UTs with PIN prefixes; districts added by admin with generated short codes", "P0", 11, "0114", "a8258f1, 5f134ad"],
+  ["GKS-IN-002", "Add dealer (admin)", "Any state / district (or a new one); approved at once; code GKS-<state>-<district>-XXXXXX or GKS-<state>-XXXXXX", "P0", 11, "0114", "a8258f1"],
+  ["GKS-IN-003", "Flags & commission by state", "Flags on for whole states or districts; commission rules for India / state / district (most specific wins)", "P0", 11, "—", "a8258f1"],
+  ["VER-FIX", "PAN / GST / Udyam verification fixes", "PAN vs GSTIN's PAN in either order; reviewer approval survives re-check; reviewer row lock; state from any PIN; licence re-runs approval", "P0", 11, "—", "faac963"],
 ];
 
 const wb = new ExcelJS.Workbook();

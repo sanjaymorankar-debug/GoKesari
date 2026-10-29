@@ -831,6 +831,12 @@ export const shops = pgTable(
     closedAt: timestamp("closed_at", { withTimezone: true }),
     closedBy: uuid("closed_by"),
     closureReason: text("closure_reason"),
+    /**
+     * Owner decision 29 Oct 2026 (0115): the owner ticked "I will provide all relevant documents
+     * within 30 days" instead of verified documents before paying. Not approved automatically.
+     */
+    documentsPromisedAt: timestamp("documents_promised_at", { withTimezone: true }),
+    documentsDueAt: timestamp("documents_due_at", { withTimezone: true }),
     /** Rating aggregate (GS-059), maintained from visible order_ratings. Average × 100. */
     ratingAvgX100: integer("rating_avg_x100").notNull().default(0),
     ratingCount: integer("rating_count").notNull().default(0),
@@ -9954,6 +9960,10 @@ export const shopRegistrationDrafts = pgTable(
     /** "Do you have Udyam / FSSAI?" — null until answered. */
     hasUdyam: boolean("has_udyam"),
     hasFssai: boolean("has_fssai"),
+    /** 0115: "I don't have the Shop Act now" — then the documents promise is needed before payment. */
+    hasShopAct: boolean("has_shop_act"),
+    /** 0115: the owner ticked "I will provide all relevant documents within 30 days". */
+    documentsPromisedAt: timestamp("documents_promised_at", { withTimezone: true }),
     /** The map pin the owner confirmed. */
     latitude: text("latitude"),
     longitude: text("longitude"),
@@ -10037,6 +10047,30 @@ export const shopDeferredDocumentReviews = pgTable(
   (t) => [primaryKey({ columns: [t.shopId, t.docType] })],
 );
 
+/**
+ * 0115: reminders to a live shop missing a mandatory document, sent on the 1st and 15th
+ * (rule shopDocumentFollowUp). The shop is suspended after the last one; the rows are
+ * cleared once its documents are complete or it is suspended, so a reactivated shop starts again.
+ */
+export const shopDocumentReminders = pgTable(
+  "shop_document_reminders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    sentOn: date("sent_on", { mode: "string" }).notNull(),
+    reminderNo: integer("reminder_no").notNull(),
+    missingDocTypes: text("missing_doc_types").array().notNull().default(sql`'{}'::text[]`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("shop_document_reminders_shop_day_uq").on(t.shopId, t.sentOn),
+    check("shop_document_reminders_no_positive", sql`${t.reminderNo} > 0`),
+  ],
+);
+export type ShopDocumentReminder = typeof shopDocumentReminders.$inferSelect;
+
 export const COMMISSION_MILESTONES = ["REGISTERED", "VERIFIED_CATALOGUE", "ACTIVATED"] as const;
 export type CommissionMilestone = (typeof COMMISSION_MILESTONES)[number];
 export const COMMISSION_STATUSES = ["EARNED", "PENDING", "APPROVED", "PAID", "REVERSED", "ON_HOLD"] as const;
@@ -10077,7 +10111,7 @@ export const dealerCommissionSettings = pgTable("dealer_commission_settings", {
   fixedBonusBase: text("fixed_bonus_base", { enum: ["FEE", "BASE_AMOUNT"] }).notNull().default("FEE"),
   catalogueMinProducts: integer("catalogue_min_products").notNull().default(10),
   branchEligible: boolean("branch_eligible").notNull().default(false),
-  /** Monthly payout (0115): the day (1–28, IST) the previous month is closed and its payouts drafted. */
+  /** Monthly payout (0116): the day (1–28, IST) the previous month is closed and its payouts drafted. */
   payoutDayOfMonth: integer("payout_day_of_month").notNull().default(5),
   /** At the month's close, approve EARNED entries of that month first (an admin still pays). On by default (owner, 29 Oct 2026). */
   autoApproveAtMonthEnd: boolean("auto_approve_at_month_end").notNull().default(true),
@@ -10131,9 +10165,9 @@ export const dealerPayoutBatches = pgTable(
     totalPaise: integer("total_paise").notNull(),
     paymentReference: text("payment_reference"),
     note: text("note"),
-    /** Monthly payout (0115): the month closed into this payout ("2026-10"); null for one made by hand. */
+    /** Monthly payout (0116): the month closed into this payout ("2026-10"); null for one made by hand. */
     periodMonth: text("period_month"),
-    /** Null for a payout the monthly job drafted (0115). */
+    /** Null for a payout the monthly job drafted (0116). */
     createdBy: uuid("created_by"),
     paidBy: uuid("paid_by"),
     paidAt: timestamp("paid_at", { withTimezone: true }),
@@ -10143,7 +10177,7 @@ export const dealerPayoutBatches = pgTable(
 );
 export type DealerPayoutBatch = typeof dealerPayoutBatches.$inferSelect;
 
-/** Monthly payout (0115): one row per closed month — the guard that makes a close run once. */
+/** Monthly payout (0116): one row per closed month — the guard that makes a close run once. */
 export const dealerCommissionMonths = pgTable("dealer_commission_months", {
   periodMonth: text("period_month").primaryKey(),
   closedAt: timestamp("closed_at", { withTimezone: true }).notNull().defaultNow(),

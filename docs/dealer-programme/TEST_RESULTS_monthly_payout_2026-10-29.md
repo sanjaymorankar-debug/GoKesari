@@ -58,6 +58,14 @@ DROP IF EXISTS; the approval default is set again). Every dealer test, wizard st
 split ownership, migration journal: **158 / 158 on each layout**; `migrate-on-build` **6 / 6**
 (one earlier run timed out in the known clean-up hook; passed when re-run).
 
+## After merging staging 74eb547 (shop documents promise took 0115) — renumbered to 0116
+
+0116_dealer_monthly_payout, when 1793161500000 (after 0115_shop_document_promise, 1793161400000).
+Cron schedule test lists both new daily jobs. Every dealer test, wizard step 2, shop documents,
+cron schedule, split ownership, migration journal: **173 / 173 on each layout**; `migrate-on-build`
+(rolls back through 0116 … 0113 and re-applies) **6 / 6** (first run timed out in the known
+clean-up hook; passed when re-run).
+
 ## Not covered here
 
 - The real email delivery (the notification outbox sends it; the queued notice is checked).

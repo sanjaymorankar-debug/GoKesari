@@ -9,6 +9,7 @@ import { ShopCategoryPicker, type PickerCategory } from "@/components/shop-categ
 import { Alert, Badge, Button, Card, Field, inputClass } from "@/components/ui";
 import { useShopTypes } from "@/components/use-shop-types";
 import { GST_DECLARATION_TEXT, SELLER_VERIFICATION_CONSENT_TEXT } from "@/lib/kyc/consent";
+import { SELLER_DOC_LABELS, type SellerDocType } from "@/lib/kyc/doc-formats";
 import { formatRupeesIndian, parseTurnoverRupees } from "@/lib/registration-fee";
 
 /**
@@ -81,6 +82,15 @@ export interface WizardState {
   fssai: DocView & { required: boolean };
   shopAct: DocView;
   location: { latitude: string; longitude: string; address: string | null } | null;
+  documents: {
+    verified: string[];
+    missing: string[];
+    inReview: string[];
+    promised: boolean;
+    promiseDays: number;
+    canSubmit: boolean;
+    needsTeamApproval: boolean;
+  };
   shop: { id: string; name: string; registrationNumber: string | null; status: string; feeDuePaise: number; feePaymentStatus: string } | null;
   nextStep: Step;
 }
@@ -260,20 +270,34 @@ export function OnboardingWizard({
       {step === "LOCATION" && state ? <LocationStep state={state} busy={busy} send={send} back={back("SHOP_ACT")} /> : null}
       {step === "REVIEW" && state ? <ReviewStep state={state} busy={busy} send={send} goTo={setViewing} /> : null}
       {step === "PAYMENT" && state?.shop ? (
-        <StepCard title="Pay the registration fee" intro="Your shop is created. Pay the one-time registration fee to go live.">
+        <StepCard
+          title="Pay the registration fee"
+          intro={
+            state.documents.needsTeamApproval
+              ? "Your shop is created. Pay the one-time registration fee; GoKesari's team then checks your registration and approves it."
+              : "Your shop is created. Pay the one-time registration fee to go live."
+          }
+        >
           <p className="text-sm text-ink-700">
             <strong>{state.shop.name}</strong>
             {state.shop.registrationNumber ? <> · Shop ID {state.shop.registrationNumber}</> : null}
           </p>
           <RegistrationFeePayButton shopId={state.shop.id} amountPaise={state.shop.feeDuePaise} />
-          <p className="text-xs text-ink-500">After paying you&apos;ll see the result; your shop goes live as soon as the payment is confirmed. A failed payment can be tried again — you are charged once.</p>
+          <p className="text-xs text-ink-500">
+            After paying you&apos;ll see the result.{" "}
+            {state.documents.needsTeamApproval ? "Your shop goes live once our team approves it." : "Your shop goes live as soon as the payment is confirmed."} A failed
+            payment can be tried again — you are charged once.
+          </p>
         </StepCard>
       ) : null}
       {step === "WAITING" && state?.shop ? (
         <StepCard title="Payment received — almost there">
           <Alert tone="warning">
-            {state.shop.name} is waiting for a document check (for example a food licence the government service has not confirmed yet). We&apos;ll
-            keep checking and tell you as soon as your shop is live.
+            {state.documents.missing.length > 0
+              ? `${state.shop.name} is waiting for GoKesari's team to approve it. Provide the documents you promised (${state.documents.missing
+                  .map((t) => SELLER_DOC_LABELS[t as SellerDocType] ?? t)
+                  .join(", ")}) within ${state.documents.promiseDays} days; we'll tell you as soon as your shop is live.`
+              : `${state.shop.name} is waiting for a document check by our team. We'll tell you as soon as your shop is live.`}
           </Alert>
           <Link href="/shop/verification" className="text-sm font-medium text-kesari-700 underline">
             See your documents
@@ -286,9 +310,13 @@ export function OnboardingWizard({
             We&apos;ve sent you an email with your shop ID{state.shop.registrationNumber ? ` (${state.shop.registrationNumber})` : ""}. Add your products to
             start selling.
           </Alert>
-          {state.shopAct.check?.status !== "VERIFIED" ? (
+          {state.documents.missing.length > 0 ? (
             <Alert tone="info">
-              Our team still reviews your Shop Act. Upload the certificate on <Link href="/shop/documents" className="underline">Documents</Link> to speed it up.
+              Still to provide: {state.documents.missing.map((t) => SELLER_DOC_LABELS[t as SellerDocType] ?? t).join(", ")}. Upload them on{" "}
+              <Link href="/shop/documents" className="underline">
+                Documents
+              </Link>{" "}
+              — reminders are sent on the 1st and 15th of each month, and a shop still without them is suspended after the third.
             </Alert>
           ) : null}
           <div className="flex flex-col gap-2 sm:flex-row">
@@ -537,14 +565,21 @@ function OptionalDocStep({
   send: Send;
   back: ReactNode;
 }) {
-  const [has, setHas] = useState<boolean | null>(required ? true : doc.has);
+  const [has, setHas] = useState<boolean | null>(doc.has ?? (required ? true : null));
   const [number, setNumber] = useState("");
   const [consent, setConsent] = useState(false);
   const canGoOn = doc.done && doc.check && (doc.check.status === "VERIFIED" || doc.check.status === "PENDING" || doc.check.status === "MANUAL_REVIEW");
 
   return (
-    <StepCard title={title} intro={required ? "Your shop sells food, so an FSSAI licence or registration is required." : question}>
-      {!required ? (
+    <StepCard
+      title={title}
+      intro={
+        required
+          ? "Your shop sells food, so an FSSAI licence or registration is required. If you don't have it now, you can promise it — your shop then goes live only once it is provided and approved."
+          : question
+      }
+    >
+      {
         <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={question}>
           <Button type="button" variant={has === true ? "primary" : "secondary"} onClick={() => setHas(true)} aria-pressed={has === true}>
             Yes
@@ -559,10 +594,10 @@ function OptionalDocStep({
               void send("/api/shops/registration-draft/documents", { docType, has: false });
             }}
           >
-            No
+            {required ? "Not now" : "No"}
           </Button>
         </div>
-      ) : null}
+      }
       <StatusLine check={doc.check} />
       {has ? (
         <form
@@ -597,9 +632,10 @@ function ShopActStep({ doc, busy, fields, send, back }: { doc: DocView; busy: bo
   return (
     <StepCard
       title="Shop Act (Gumasta) licence"
-      intro="Enter the licence number as printed on your Shop Act certificate. Where the government record can't be checked online, our team reviews it after your shop goes live."
+      intro="Enter the licence number as printed on your Shop Act certificate. Where the government record can't be checked online, our team reviews it before your shop goes live."
     >
       <StatusLine check={doc.check} />
+      {doc.has === false ? <Alert tone="info">You said you don&apos;t have it now. You&apos;ll promise to provide it before paying.</Alert> : null}
       <form
         className="space-y-4"
         onSubmit={(e) => {
@@ -615,6 +651,15 @@ function ShopActStep({ doc, busy, fields, send, back }: { doc: DocView; busy: bo
           {busy ? "Checking…" : "Check and continue"}
         </Button>
       </form>
+      <Button
+        type="button"
+        variant="secondary"
+        className="w-full"
+        disabled={busy}
+        onClick={() => void send("/api/shops/registration-draft/documents", { docType: "SHOP_ACT", has: false })}
+      >
+        I don&apos;t have it now
+      </Button>
       {back}
     </StepCard>
   );
@@ -662,6 +707,10 @@ function LocationStep({ state, busy, send, back }: { state: WizardState; busy: b
 
 function ReviewStep({ state, busy, send, goTo }: { state: WizardState; busy: boolean; send: Send; goTo: (s: Step) => void }) {
   const d = state.details!;
+  const docs = state.documents;
+  const [promise, setPromise] = useState(docs.promised);
+  const names = (list: string[]) => list.map((t) => SELLER_DOC_LABELS[t as SellerDocType] ?? t).join(", ");
+  const needsPromise = docs.missing.length > 0;
   const row = (label: string, value: ReactNode, step: Step) => (
     <div className="flex items-start justify-between gap-3 border-b border-cream-100 py-2 last:border-0">
       <div>
@@ -681,13 +730,39 @@ function ReviewStep({ state, busy, send, goTo }: { state: WizardState; busy: boo
         {row("Shop", `${d.name} · ${d.city} ${d.pincode}`, "DETAILS")}
         {row("Udyam", state.udyam.has === false ? "Not registered" : doc(state.udyam.check, "—"), "UDYAM")}
         {row("FSSAI", state.fssai.has === false ? "No licence" : doc(state.fssai.check, "—"), "FSSAI")}
-        {row("Shop Act", doc(state.shopAct.check, "—"), "SHOP_ACT")}
+        {row("Shop Act", state.shopAct.has === false ? "Not now" : doc(state.shopAct.check, "—"), "SHOP_ACT")}
         {row("Location", state.location?.address ?? `${state.location?.latitude}, ${state.location?.longitude}`, "LOCATION")}
       </div>
-      {state.shopAct.check?.status !== "VERIFIED" ? (
-        <Alert tone="info">Your shop goes live right after payment. Our team reviews your Shop Act afterwards and may contact you.</Alert>
+      <div className="space-y-2 rounded-lg border border-cream-200 p-3 text-sm" data-testid="review-documents">
+        <p className="font-semibold text-ink-900">Documents</p>
+        <p className="text-ink-700">Verified: {docs.verified.length > 0 ? names(docs.verified) : "none yet"}</p>
+        {needsPromise ? <p className="text-ink-700">Not verified yet: {names(docs.missing)}</p> : null}
+        {docs.inReview.length > 0 ? <p className="text-ink-700">Reviewed by our team: your &quot;not GST-registered&quot; declaration</p> : null}
+      </div>
+      {!docs.canSubmit ? (
+        <Alert tone="warning">Get at least one document verified (your PAN or GSTIN) before paying the registration fee.</Alert>
       ) : null}
-      <Button type="button" size="lg" className="w-full" disabled={busy} onClick={() => void send("/api/shops/registration-draft/submit")}>
+      {docs.canSubmit && needsPromise ? (
+        <label className="flex items-start gap-2 rounded-lg border border-cream-200 p-3 text-sm text-ink-800">
+          <input type="checkbox" className="mt-1" checked={promise} onChange={(e) => setPromise(e.target.checked)} />
+          <span>
+            I will provide all relevant documents within {docs.promiseDays} days. I understand my shop goes live only after GoKesari&apos;s team approves it,
+            and that it can be suspended if the documents are not provided.
+          </span>
+        </label>
+      ) : null}
+      <Alert tone="info">
+        {docs.needsTeamApproval
+          ? "After payment, GoKesari's team checks your registration and approves your shop."
+          : "Your documents are verified: your shop goes live as soon as the payment is confirmed."}
+      </Alert>
+      <Button
+        type="button"
+        size="lg"
+        className="w-full"
+        disabled={busy || !docs.canSubmit || (needsPromise && !promise)}
+        onClick={() => void send("/api/shops/registration-draft/submit", needsPromise ? { promiseDocuments: true } : undefined)}
+      >
         {busy ? "Creating your shop…" : "Create my shop and pay"}
       </Button>
     </StepCard>

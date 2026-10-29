@@ -5,6 +5,11 @@ export const NOTIFICATION_TYPES = {
   SHOP_REJECTED: "shop.rejected",
   /** To the shop owner, sent by operations: upload the seller documents still missing. */
   SHOP_DOCUMENTS_REMINDER: "shop.documents_reminder",
+  /**
+   * To a live shop's owner on the 1st and 15th (owner decision 29 Oct 2026): documents still
+   * missing, reminder N of 3, then automatic suspension. Sent even when shop e-mails are off.
+   */
+  SHOP_DOCUMENTS_FOLLOW_UP: "shop.documents_follow_up",
   /** DEF-02 (docs/gokesari-audit/GOKESARI_AUDIT_FINDINGS.md): a shop previously learned about a new order only by refreshing /shop/orders. */
   SHOP_NEW_ORDER: "shop.new_order",
   /** To the shop: an order arrived while the shop is closed (customer confirmed they want to wait). */
