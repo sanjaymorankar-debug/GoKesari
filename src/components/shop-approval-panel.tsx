@@ -50,6 +50,24 @@ export interface AdminShop {
   /** Seller documents the owner has sent so far, any status. */
   documentsUploaded: number;
   feeOutstandingPaise: number;
+  /** The owner ticked "I will provide all relevant documents within 30 days" (ISO times). */
+  documentsPromisedAt: string | null;
+  documentsDueAt: string | null;
+}
+
+const dueLabel = (iso: string) =>
+  new Intl.DateTimeFormat("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" }).format(new Date(iso));
+
+/** Owner decision 29 Oct 2026: a shop whose owner promised its documents waits for a person. */
+function PromiseBadge({ shop }: { shop: AdminShop }) {
+  if (!shop.documentsPromisedAt) return null;
+  const due = shop.documentsDueAt ?? shop.documentsPromisedAt;
+  const overdue = new Date(due).getTime() < Date.now();
+  return (
+    <Badge tone={overdue ? "danger" : "warning"}>
+      {overdue ? "documents overdue since" : "documents promised by"} {dueLabel(due)}
+    </Badge>
+  );
 }
 
 /**
@@ -197,6 +215,9 @@ function PendingShopRow({
   // Only what the owner has to send: documents waiting for our check are not theirs to chase.
   const canRemind = stage === "KYC_PENDING" && shop.notUploadedDocuments.length + shop.sendAgainDocuments.length > 0;
   const canWaive = canWaiveDocuments && approvalGateOn && stage === "KYC_PENDING";
+  // An admin or operator approves a promised shop after inspecting it; the 1st / 15th reminders follow.
+  const canAcceptPromise = approvalGateOn && stage === "KYC_PENDING" && shop.documentsPromisedAt !== null;
+  const [acceptingPromise, setAcceptingPromise] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [waiving, setWaiving] = useState(false);
   const [waiveReason, setWaiveReason] = useState("");
@@ -257,6 +278,7 @@ function PendingShopRow({
             <Badge>{shop.shopType}</Badge>
             {stage ? <OnboardingStageBadge stage={stage} /> : <Badge tone="warning">pending</Badge>}
             {nothingUploaded ? <Badge tone="danger">no documents uploaded</Badge> : null}
+            <PromiseBadge shop={shop} />
             <FeeBadge shop={shop} />
           </div>
           {next ? (
@@ -332,8 +354,18 @@ function PendingShopRow({
                 ) : null}
               </div>
             ) : null}
-            {canRemind || canWaive ? (
+            {canRemind || canWaive || canAcceptPromise ? (
               <div className="flex flex-wrap justify-end gap-2">
+                {canAcceptPromise ? (
+                  <Button
+                    size="sm"
+                    disabled={busy}
+                    data-testid="approve-on-promise"
+                    onClick={() => setAcceptingPromise((v) => !v)}
+                  >
+                    Approve on promise
+                  </Button>
+                ) : null}
                 {canRemind ? (
                   <Button size="sm" variant="secondary" disabled={busy} onClick={remind}>
                     Remind owner to upload
@@ -415,6 +447,28 @@ function PendingShopRow({
               Confirm waiver
             </Button>
           </div>
+        </div>
+      ) : null}
+
+      {acceptingPromise ? (
+        <div className="mt-3 space-y-2 rounded-lg border border-cream-200 p-3">
+          <p className="text-sm text-ink-700">
+            {shop.ownerName} promised to provide {shop.missingDocuments.join(", ") || "the missing documents"} by{" "}
+            {dueLabel(shop.documentsDueAt ?? shop.documentsPromisedAt!)}. Approve {shop.name} as{" "}
+            {classification === "KESARI" ? "Kesari" : "Green"} after inspecting it: the shop goes live now and your
+            name is recorded. The owner is reminded on the 1st and 15th of each month, and the shop is suspended
+            automatically if the documents are still missing after the third reminder. The registration fee and
+            any licence the shop type needs (FSSAI for food) are still checked.
+          </p>
+          <Button
+            size="sm"
+            disabled={busy}
+            onClick={async () => {
+              if (await act("approve", { classification, acceptDocumentsPromise: true })) setAcceptingPromise(false);
+            }}
+          >
+            Confirm approval
+          </Button>
         </div>
       ) : null}
 

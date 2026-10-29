@@ -35,7 +35,7 @@
 import { and, desc, eq, inArray } from "drizzle-orm";
 
 import { GST_DECLARATION_VERSION, SELLER_VERIFICATION_CONSENT_VERSION } from "@/lib/kyc/consent";
-import { parseSellerDocNumber, type SellerDocType } from "@/lib/kyc/doc-formats";
+import { parseSellerDocNumber, SELLER_DOC_TYPES, type SellerDocType } from "@/lib/kyc/doc-formats";
 import { bestNameMatch } from "@/lib/kyc/name-match";
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { decryptSecret, docBlindIndex, encryptSecret } from "@/lib/pan-crypto";
@@ -241,17 +241,22 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
   else if (!location) nextStep = "LOCATION";
   else nextStep = "REVIEW";
 
-  const documents = await draftDocuments(draft, checks, foodShop);
+  const documents = await draftDocuments(draft, checks, details, foodShop);
   return { ...base, status: draft.status, details, foodShop, udyam, fssai, shopAct, location, documents, shop, nextStep };
 }
 
 /** The documents rule on a draft: the same mandatory list as the shop will have (shop-document-gate.ts). */
-async function draftDocuments(draft: ShopRegistrationDraft, checks: ShopRegistrationDraftCheck[], foodShop: boolean): Promise<WizardDocuments> {
-  const status = (t: DraftCheckDocType) => checks.find((c) => c.docType === t && c.numberMasked)?.status;
-  const verified: SellerDocType[] = [];
-  if (draft.route === "GSTIN" && draft.gstStatus === "VERIFIED") verified.push("GSTIN");
-  if (draft.panStatus === "VERIFIED") verified.push("PAN");
-  for (const t of ["UDYAM", "FSSAI", "SHOP_ACT"] as const) if (status(t) === "VERIFIED") verified.push(t);
+async function draftDocuments(
+  draft: ShopRegistrationDraft,
+  checks: ShopRegistrationDraftCheck[],
+  details: DraftShopDetails | null,
+  foodShop: boolean,
+): Promise<WizardDocuments> {
+  // Exactly what the shop will receive (registrationChecks): a PAN whose name does not match on
+  // the no-GSTIN route goes to review, and a number answered "I don't have it now" is dropped.
+  const { nameMatchAutoApprove } = await getRule("sellerVerification");
+  const imported = details ? registrationChecks(draft, checks, details, nameMatchAutoApprove) : [];
+  const verified = SELLER_DOC_TYPES.filter((d) => imported.some((c) => c.docType === d && c.status === "VERIFIED"));
   const declared = draft.route === "PAN_ONLY" && draft.noGstDeclaredAt !== null;
   const required: SellerDocType[] = ["PAN", ...(declared ? [] : (["GSTIN"] as const)), "SHOP_ACT", ...(foodShop ? (["FSSAI"] as const) : [])];
   const missing = required.filter((d) => !verified.includes(d));
@@ -394,7 +399,7 @@ export async function submitDraftDocument(input: SubmitDraftDocumentInput): Prom
       .select()
       .from(shopRegistrationDraftChecks)
       .where(and(eq(shopRegistrationDraftChecks.draftId, draft.id), eq(shopRegistrationDraftChecks.docType, docType)));
-    const answered = docType === "UDYAM" ? { hasUdyam: true } : docType === "FSSAI" ? { hasFssai: true } : {};
+    const answered = docType === "UDYAM" ? { hasUdyam: true } : docType === "FSSAI" ? { hasFssai: true } : { hasShopAct: true };
     const sameNumber = row.numberHash === numberHash;
     const stillValid = !row.validUntil || row.validUntil >= now.toISOString().slice(0, 10);
     if (sameNumber && row.status === "VERIFIED" && stillValid) {
@@ -606,6 +611,7 @@ function registrationChecks(draft: ShopRegistrationDraft, checks: ShopRegistrati
     if (!row.numberEncrypted || !row.numberMasked || !row.numberHash || row.status === "NOT_SUBMITTED") continue;
     if (row.docType === "UDYAM" && draft.hasUdyam !== true) continue;
     if (row.docType === "FSSAI" && draft.hasFssai !== true) continue;
+    if (row.docType === "SHOP_ACT" && draft.hasShopAct === false) continue;
     const record = row.record ?? {};
     out.push({
       docType: row.docType,
@@ -669,7 +675,7 @@ export async function submitDraftForPayment(input: { actor: Actor; ipAddress?: s
   // Owner decision 29 Oct 2026: at least one verified document, and the promise for anything missing.
   const documents = view.documents;
   if (!documents.canSubmit) {
-    throw conflict("Please get at least one document verified (PAN or GSTIN) before paying the registration fee.", {
+    throw conflict("Please get at least one of your documents verified (for example your PAN) before paying the registration fee.", {
       reason: "NO_VERIFIED_DOCUMENT",
     });
   }
@@ -747,7 +753,7 @@ export async function submitDraftForPayment(input: { actor: Actor; ipAddress?: s
         panNumber: open.panEncrypted ? decryptSecret(open.panEncrypted) : null,
         panHolderName: panRecordName ?? details.ownerName,
         udyamNumber: plain(row("UDYAM"), open.hasUdyam === true),
-        shopActNumber: plain(row("SHOP_ACT")),
+        shopActNumber: plain(row("SHOP_ACT"), open.hasShopAct !== false),
       },
       actor,
       { onSaved },

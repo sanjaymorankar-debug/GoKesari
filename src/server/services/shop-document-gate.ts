@@ -10,6 +10,7 @@
  */
 import { eq } from "drizzle-orm";
 
+import { formatDisplayDate, todayIn } from "@/lib/dates";
 import { conflict, forbidden, notFound } from "@/lib/errors";
 import { SELLER_DOC_TYPES, type SellerDocType } from "@/lib/kyc/doc-formats";
 import { db, type DbClient } from "@/server/db";
@@ -19,6 +20,9 @@ import { getRule } from "./settings";
 import { hasDocumentWaiver, missingMandatoryDocuments } from "./shop-onboarding";
 
 const DAY_MS = 86_400_000;
+
+/** "28 Nov 2026" — the promise's due date as the owner and the team read it (India time). */
+export const documentsDueLabel = (at: Date) => formatDisplayDate(todayIn("Asia/Kolkata", at));
 
 export interface ShopDocumentGate {
   /** Documents checked and VERIFIED. */
@@ -81,10 +85,12 @@ export function splitMissing(
 
 /** The fee checkout refuses until the gate opens. */
 export async function assertDocumentsAllowPayment(shop: Shop): Promise<void> {
+  // A shop a person already approved (or rejected) is past the gate: only a waiting registration is held.
+  if (shop.status !== "PENDING_APPROVAL") return;
   const gate = await shopDocumentGate(shop);
   if (gate.canPay) return;
   if (gate.verified.length === 0) {
-    throw conflict("Please get at least one document verified (PAN or GSTIN) before paying the registration fee.", {
+    throw conflict("Please get at least one of your documents verified (for example your PAN) before paying the registration fee.", {
       reason: "NO_VERIFIED_DOCUMENT",
       missing: gate.missing,
     });
@@ -116,7 +122,7 @@ export async function promiseShopDocuments(shopId: string, actor: { id: string; 
     const gate = await shopDocumentGate(shop, tx);
     if (gate.promisedAt) return gate;
     if (gate.verified.length === 0) {
-      throw conflict("Please get at least one document verified (PAN or GSTIN) first.", { reason: "NO_VERIFIED_DOCUMENT" });
+      throw conflict("Please get at least one of your documents verified (for example your PAN) first.", { reason: "NO_VERIFIED_DOCUMENT" });
     }
     if (gate.missing.length === 0) return gate;
     const { promisedAt, dueAt } = await setDocumentsPromise(tx, shop.id);
