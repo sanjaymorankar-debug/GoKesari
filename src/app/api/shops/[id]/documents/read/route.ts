@@ -1,6 +1,7 @@
 /**
  * docs/document-upload-2026-10: upload a document (multipart: `file`,
- * `docType`, optional `source=CAMERA`, and optional `browserText` +
+ * `docType` — or `AUTO` for "Scan a document", where the reader works out
+ * which document it is — optional `source=CAMERA`, and optional `browserText` +
  * `browserConfidence` when the owner's browser already read the photo) and
  * read it. PDF, JPEG, PNG or WebP,
  * checked from the bytes. Returns the fields read and any flags; nothing is

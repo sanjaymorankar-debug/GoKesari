@@ -67,7 +67,7 @@ import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { flagCoversDistrict, getFeatureFlag } from "@/server/services/feature-flags";
 import { districtCodeForPincode } from "@/server/services/geo-areas";
 import { notify } from "@/server/services/notifications";
-import { hasDocumentWaiver, missingMandatoryDocuments } from "@/server/services/shop-onboarding";
+import { deferredReviewDocTypes, hasDocumentWaiver, missingMandatoryDocuments } from "@/server/services/shop-onboarding";
 
 interface Actor {
   id: string;
@@ -332,8 +332,9 @@ export async function checkCommissionMilestones(shopId: string, actor: Actor | n
 
   const settings = await getCommissionSettings();
   const missing = await missingMandatoryDocuments(row.shop);
-  // Approved by an admin without its documents (0109) and still not verified: activation is held.
-  const awaitingDocuments = missing.length > 0 && (await hasDocumentWaiver(shopId));
+  // Approved by an admin without its documents (0109), or live with its Shop Act still in review
+  // (onboarding wizard, owner decision B, 0113), and still not verified: activation is held.
+  const awaitingDocuments = missing.length > 0 && ((await hasDocumentWaiver(shopId)) || (await deferredReviewDocTypes(shopId)).size > 0);
   const reached: CommissionMilestone[] = [];
   if (row.shop.feePaymentStatus === "PAID") reached.push("REGISTERED");
   if (missing.length === 0 && (await activeProducts(shopId, db)) >= settings.catalogueMinProducts) reached.push("VERIFIED_CATALOGUE");

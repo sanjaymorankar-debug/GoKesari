@@ -22,14 +22,35 @@ import {
 import { LEGAL_DOC_LABELS, parseLegalDocNumber, type LegalDocKey } from "../legal-documents";
 
 /** Every document the upload screen can read: the seller-verification set plus the licences. */
-export const UPLOAD_DOC_TYPES = ["PAN", "GSTIN", "UDYAM", "FSSAI", "SHOP_ACT", "DRUG_LICENCE", "MEDICAL_REGISTRATION"] as const;
+export const UPLOAD_DOC_TYPES = [
+  "PAN",
+  "GSTIN",
+  "UDYAM",
+  "FSSAI",
+  "SHOP_ACT",
+  "DRUG_LICENCE",
+  "MEDICAL_REGISTRATION",
+  "TRADE_LICENCE",
+  "LEGAL_METROLOGY",
+  "FIRE_NOC",
+  "AGRI_INPUT_LICENCE",
+  "OTHER_LICENCE",
+] as const;
 export type UploadDocType = (typeof UPLOAD_DOC_TYPES)[number];
+
+/** "Scan a document": the owner doesn't say which one it is; the reader works it out (detectUploadType). */
+export const AUTO_DETECT = "AUTO";
 
 export const UPLOAD_DOC_LABELS: Record<UploadDocType, string> = {
   ...SELLER_DOC_LABELS,
   FSSAI: "FSSAI licence / registration",
   DRUG_LICENCE: LEGAL_DOC_LABELS.DRUG_LICENCE,
   MEDICAL_REGISTRATION: LEGAL_DOC_LABELS.MEDICAL_REGISTRATION,
+  TRADE_LICENCE: LEGAL_DOC_LABELS.TRADE_LICENCE,
+  LEGAL_METROLOGY: LEGAL_DOC_LABELS.LEGAL_METROLOGY,
+  FIRE_NOC: LEGAL_DOC_LABELS.FIRE_NOC,
+  AGRI_INPUT_LICENCE: LEGAL_DOC_LABELS.AGRI_INPUT_LICENCE,
+  OTHER_LICENCE: LEGAL_DOC_LABELS.OTHER_LICENCE,
 };
 
 export function isUploadDocType(value: unknown): value is UploadDocType {
@@ -108,6 +129,7 @@ export function normaliseOcrText(raw: string): { lines: string[]; aadhaarRemoved
 
 /* ------------------------------------------------------------ doc type */
 
+/** Wording that names each document. Earlier entries win a tie (same line). */
 const TYPE_SIGNALS: [UploadDocType, RegExp][] = [
   ["FSSAI", /\bFSSAI\b|FOOD SAFETY (AND|&) STANDARDS/i],
   ["GSTIN", /FORM GST REG|GOODS AND SERVICES TAX|REGISTRATION CERTIFICATE.*GST/i],
@@ -115,13 +137,25 @@ const TYPE_SIGNALS: [UploadDocType, RegExp][] = [
   ["PAN", /INCOME ?TAX DEPARTMENT|PERMANENT ACCOUNT NUMBER/i],
   ["DRUG_LICENCE", /DRUGS? (AND|&) COSMETICS|DRUG LICEN[CS]E|FORM[- ]?2[01]\b/i],
   ["MEDICAL_REGISTRATION", /MEDICAL COUNCIL|MEDICAL REGISTRATION|COUNCIL OF (HOMOEOPATHY|INDIAN MEDICINE)/i],
+  ["LEGAL_METROLOGY", /LEGAL METROLOGY|WEIGHTS? (AND|&) MEASURES|CERTIFICATE OF VERIFICATION/i],
+  ["AGRI_INPUT_LICENCE", /INSECTICIDES? (ACT|RULES|LICEN[CS]E)|FERTILI[SZ]ERS? \(?CONTROL\)? ORDER|FERTILI[SZ]ER (DEALER|LICEN[CS]E)|SEEDS? (\(?CONTROL\)? ORDER|LICEN[CS]E|ACT)/i],
+  ["FIRE_NOC", /FIRE (NOC|AND EMERGENCY|SERVICES?|SAFETY|PREVENTION|BRIGADE)|NO OBJECTION CERTIFICATE.*FIRE/i],
   ["SHOP_ACT", /SHOPS? (AND|&) ESTABLISHMENTS?|INTIMATION|FORM ['"]?[BG]['"]?\b/i],
+  ["TRADE_LICENCE", /TRADE LICEN[CS]E|LICEN[CS]E (TO|FOR) (CARRY ON|CARRYING ON|THE) (THE )?TRADE|HEALTH (TRADE )?LICEN[CS]E|EATING HOUSE LICEN[CS]E/i],
 ];
 
+/**
+ * What the document says it is. A certificate names itself in its heading and
+ * may mention other documents further down (a trade licence quoting the FSSAI
+ * number), so the wording found nearest the top wins.
+ */
 export function detectDocType(lines: string[]): UploadDocType | null {
-  const text = lines.join("\n");
-  for (const [type, re] of TYPE_SIGNALS) if (re.test(text)) return type;
-  return null;
+  let best: { type: UploadDocType; line: number } | null = null;
+  for (const [type, re] of TYPE_SIGNALS) {
+    const line = lines.findIndex((l) => re.test(l));
+    if (line >= 0 && (!best || line < best.line)) best = { type, line };
+  }
+  return best?.type ?? null;
 }
 
 /* ------------------------------------------------------------ numbers */
@@ -192,7 +226,7 @@ function findUdyam(lines: string[]): string | null {
 }
 
 const LABELLED_NUMBER =
-  /(?:REGISTRATION|REGN\.?|CERTIFICATE|INTIMATION|RECEIPT|LICEN[CS]E|REG\.?)\s*(?:NO\.?|NUMBER|#)\s*[:.\-]?\s*([A-Z0-9][A-Z0-9/\-.]{2,39})/i;
+  /(?:REGISTRATION|REGN\.?|CERTIFICATE|INTIMATION|RECEIPT|LICEN[CS]E|NOC|REG\.?)\s*(?:NO\.?|NUMBER|#)\s*[:.\-]?\s*([A-Z0-9][A-Z0-9/\-.]{2,39})/i;
 
 function findLabelledNumber(lines: string[]): string | null {
   for (const line of lines) {
@@ -219,10 +253,25 @@ function findNumber(docType: UploadDocType, lines: string[]): string | null {
   }
 }
 
+/**
+ * "Scan a document": which document this is, from its wording, or failing that
+ * from a number only one document carries (a GSTIN with a valid checksum, an
+ * Udyam number, a PAN). Null when neither says — the owner then picks the card.
+ */
+export function detectUploadType(rawText: string): UploadDocType | null {
+  const { lines } = normaliseOcrText(rawText);
+  const byWording = detectDocType(lines);
+  if (byWording) return byWording;
+  if (findGstin(lines)) return "GSTIN";
+  if (findUdyam(lines)) return "UDYAM";
+  if (findPan(lines)) return "PAN";
+  return null;
+}
+
 /* ------------------------------------------------------------ names, address */
 
 const NAME_LABEL =
-  /^(?:NAME OF (?:THE )?(?:LICENSEE|LICENCE HOLDER|PROPRIETOR|APPLICANT|ENTERPRISE|ESTABLISHMENT|EMPLOYER|BUSINESS|FIRM|SHOP|REGISTERED PRACTITIONER|DOCTOR)|LEGAL NAME(?: OF BUSINESS)?|TRADE NAME(?:, IF ANY)?|NAME OF (?:THE )?(?:FBO|FOOD BUSINESS OPERATOR)|NAME)\b\s*[:\-.]?\s*(.*)$/i;
+  /^(?:NAME OF (?:THE )?(?:LICENSEE|LICENCE HOLDER|PROPRIETOR|APPLICANT|ENTERPRISE|ESTABLISHMENT|EMPLOYER|BUSINESS|FIRM|SHOP|REGISTERED PRACTITIONER|DOCTOR|DEALER|TRADER|OWNER|OCCUPIER|PREMISES)|LEGAL NAME(?: OF BUSINESS)?|TRADE NAME(?:, IF ANY)?|NAME OF (?:THE )?(?:FBO|FOOD BUSINESS OPERATOR)|NAME)\b\s*[:\-.]?\s*(.*)$/i;
 
 function cleanName(value: string): string | null {
   const name = value.replace(/[^A-Za-z .&'()-]/g, " ").replace(/\s+/g, " ").trim();

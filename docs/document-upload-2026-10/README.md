@@ -11,10 +11,14 @@ browser" below), because the server's OCR worker does not start on Hostinger
    land here straight after `/shop/register`; self-registered shops reach it
    from *Complete your profile*; it is also in Seller Central's menu
    (*Upload documents*).
-2. One card per document the shop needs: PAN, GSTIN (or the "not
-   GST-registered" declaration on the Verification page), Shop Act, **FSSAI
-   for food shops**, drug licence / medical registration where the
-   legal-documents rule asks for them, Udyam optional.
+2. **Scan a document** at the top takes any document and works out which it
+   is (see "Scan a document, and more licences" below). Below it, one card
+   per document the shop needs: PAN, GSTIN (or the "not GST-registered"
+   declaration on the Verification page), Shop Act, **FSSAI for food
+   shops**, drug licence / medical registration where the legal-documents
+   rule asks for them, Udyam optional — and, under **More licences**, trade
+   licence, weights & measures, fire NOC, seeds / fertiliser / pesticide and
+   any other licence (optional).
 3. For each: **Upload file** (PDF, JPEG, PNG, WebP) or **Take photo** —
    - phone browser and the Android/iPhone app: opens the phone's camera;
    - computer: opens the webcam inside the page, with *Capture*, and a
@@ -211,6 +215,63 @@ while the app's UI is the website. A store build would only become necessary
 for an in-app camera screen (live `getUserMedia` inside the WebView, which
 would need `android.permission.CAMERA` and WebView media-capture settings) —
 not used here.
+
+## Scan a document, and more licences (28 Oct 2026)
+
+**Scan a document** is the first card on `/shop/documents`: *Upload file* or
+*Take photo* for any document, without choosing which one it is first. The
+photo is read as before (in the browser, else on the server); then the
+server works out the type (`detectUploadType` in `document-extract.ts`):
+
+1. **Wording** — each document's own heading ("Income Tax Department",
+   "Form GST REG-06", "Udyam", "FSSAI", "Shops and Establishments", "Trade
+   licence", "Legal Metrology", "Fire and Emergency Services", "Insecticides
+   Rules"…). The wording **nearest the top** wins, so a trade licence that
+   quotes the shop's FSSAI number further down is still a trade licence.
+2. **Number** — with no recognisable wording, a number only one document
+   carries: a GSTIN with a valid checksum, an Udyam number, a PAN.
+
+The upload is then filed under that type (engine and flags exactly as if it
+had been uploaded on its card, `autoDetected: true` in the audit log), the
+"This is your …" message shows, and the details appear on that document's
+card for review. A document the shop isn't asked for (say a drug licence at
+a general store) still gets its card, as optional, so it can be submitted.
+**When the type can't be told**, nothing is stored and the owner is asked
+for a clearer photo or to use the card (Other licence if it isn't listed).
+With `DOCUMENT_OCR_PROVIDER=claude`, Claude names the type itself.
+
+**More licences** (collapsed section, opens when one is waiting for review):
+
+| Card | Detected from | Expiry | Extra field |
+|---|---|---|---|
+| Trade licence (municipal) — incl. health / eating-house licence | "Trade licence", "Health licence", "Eating house licence" | optional | Issued by (optional) |
+| Weights & measures (legal metrology) certificate | "Legal Metrology", "Weights and Measures", "Certificate of Verification" | optional | Issued by (optional) |
+| Fire NOC | "Fire and Emergency Services", "Fire NOC", "Fire Brigade" | optional | Issued by (optional) |
+| Seeds / fertiliser / pesticide licence | "Insecticides Act/Rules", "Fertiliser (Control) Order", "Seeds (Control) Order / Licence" | optional | Issued by (optional) |
+| Other licence | — (choose the card) | optional | **Licence name** (required), Issued by |
+
+They go to the **legal-documents register** (`shop_legal_documents`), so
+operations approve or reject them on *Legal documents* like FSSAI, and the
+daily job reminds the owner `expiryReminderDays` before an expiry that was
+given. None has a national lookup, so there is no vendor check — the copy is
+reviewed. An expired date is refused, as for every document.
+
+**Never blocking by default.** These licences are optional: submitted,
+rejected or expired, they never stop approval or orders. An admin can make
+one mandatory for some shop types or category slugs with
+`legalDocuments.otherRequirements` (Admin → Settings), e.g.
+`[{ "docType": "AGRI_INPUT_LICENCE", "shopTypes": ["AGRICULTURAL_SUPPLY"], "categorySlugs": [] }]`
+— it then works exactly like the drug licence (needed for approval; grace
+period for live shops). Empty by default.
+
+**Other licence**: a shop can hold any number, one per name — the same name
+(ignoring case and spacing) replaces its own copy. Stored in
+`shop_legal_documents.licence_name`; `licence_key` (upper-cased name, `''`
+for every other type) is part of the unique key.
+
+Migration `0112_more_licences.sql` (seller database; additive; rollback
+`scripts/rollback-0112.sql`). Tests: `tests/unit/document-extract.test.ts`
+("Scan a document…"), `tests/integration/more-licences.test.ts`.
 
 ## Tests
 

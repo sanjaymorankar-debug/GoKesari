@@ -11,8 +11,14 @@
  *               existing flows: seller verification (PAN, GSTIN, Udyam, FSSAI,
  *               Shop Act — vendor check and admin review as before) and/or the
  *               legal-documents register (FSSAI, drug licence, medical
- *               registration). The file moves to that flow's file table, where
+ *               registration, and the optional licences: trade licence, legal
+ *               metrology, fire NOC, seeds / fertiliser / pesticide, Other). The file moves to that flow's file table, where
  *               admins and operators already open it (every view audited).
+ *
+ * "Scan a document" sends docType AUTO: the reader works out which document it
+ * is (detectUploadType) and the upload is filed under that type, exactly as if
+ * the owner had used its card. When it can't tell, nothing is stored and the
+ * owner is asked to use the card.
  *
  * Nothing the reader returns is trusted: an unreadable, wrong or expired
  * document is refused with a request to re-upload, and fields the owner
@@ -23,8 +29,10 @@ import { createHash } from "node:crypto";
 import { and, count, desc, eq, gte, inArray, isNull, or, sql } from "drizzle-orm";
 
 import {
+  AUTO_DETECT,
   assessExtraction,
   checkDocNumber,
+  detectUploadType,
   extractDocumentFields,
   isSellerDocType,
   NOT_READ_FLAG,
@@ -37,6 +45,7 @@ import {
   type UploadDocType,
 } from "@/lib/kyc/document-extract";
 import { looksLikeAadhaar } from "@/lib/kyc/doc-formats";
+import { isAdditionalLicence } from "@/lib/legal-documents";
 import { istToday } from "@/lib/fulfilment-options";
 import { conflict, forbidden, notFound, validationFailed, AppError } from "@/lib/errors";
 import { decryptBytes, decryptSecret, encryptBytes, encryptSecret } from "@/lib/pan-crypto";
@@ -54,7 +63,7 @@ import {
 } from "@/server/db/schema";
 import { readDocument, type BrowserReadInput } from "@/server/kyc/document-reader";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
-import { requiredLegalDocTypes, submitLegalDocument } from "./legal-documents";
+import { legalDocLabel, requiredLegalDocTypes, submitLegalDocument } from "./legal-documents";
 import {
   detectDocumentFile,
   getShopVerificationSummary,
@@ -101,7 +110,7 @@ export interface UploadView {
   /** What the reader found — pre-fills the review form. */
   fields: ExtractedFields | null;
   /** What the owner submitted (after confirm). */
-  confirmed: (ConfirmedFields & { issuingCouncil?: string | null }) | null;
+  confirmed: (ConfirmedFields & { issuingCouncil?: string | null; licenceName?: string | null }) | null;
   flags: ExtractionFlag[];
   blocking: boolean;
   fieldsCorrected: string[];
@@ -152,6 +161,10 @@ export interface ChecklistItem {
   latest: UploadView | null;
   /** True when this document no longer needs anything from the owner. */
   done: boolean;
+  /** One of the optional licences (trade licence, legal metrology, fire NOC, seeds / fertiliser / pesticide, Other). */
+  additional: boolean;
+  /** Other licence: the names of those already submitted. */
+  held: string[];
 }
 
 export interface DocumentChecklist {
@@ -209,14 +222,34 @@ export async function getDocumentChecklist(shopId: string, actor: Actor): Promis
         done = LEGAL_DONE.has(legal.status) && (!legal.expiryDate || legal.expiryDate >= istToday());
       }
     }
+    const held: string[] = [];
+    if (isAdditionalLicence(docType)) {
+      const rows = legalRows
+        .filter((r) => r.docType === docType && r.status !== "NOT_SUBMITTED")
+        .sort((a, b) => (b.submittedAt?.getTime() ?? 0) - (a.submittedAt?.getTime() ?? 0));
+      requirement = legalRule.enabled && legalRequired.includes(docType) ? "required" : "optional";
+      const legal = rows[0];
+      if (legal) {
+        status = legal.status;
+        validUntil = legal.expiryDate;
+        done = LEGAL_DONE.has(legal.status) && (!legal.expiryDate || legal.expiryDate >= istToday());
+      }
+      if (docType === "OTHER_LICENCE") {
+        held.push(...rows.map((r) => legalDocLabel(r)));
+        // Any number of other licences: the card always takes one more.
+        done = false;
+      }
+    }
+    // A scanned document waiting for review always gets its card, needed or not.
+    const awaitingReview = latestRow?.status === "EXTRACTED";
     if (docType === "FSSAI") {
       // Only food shops (or shops the legal-documents rule names) are asked for FSSAI at all.
-      if (!sellsFood && !legalRequired.includes("FSSAI")) continue;
+      if (!sellsFood && !legalRequired.includes("FSSAI") && !awaitingReview) continue;
       if (sellsFood && rule.fssaiMandatoryForFood) requirement = "required";
       done = fssai.onFile;
       validUntil = fssai.validUntil ?? validUntil;
     }
-    if (docType === "UDYAM" && !requirement) requirement = "optional";
+    if ((docType === "UDYAM" || awaitingReview) && !requirement) requirement = "optional";
     if (!requirement) continue;
     items.push({
       docType,
@@ -226,6 +259,8 @@ export async function getDocumentChecklist(shopId: string, actor: Actor): Promis
       validUntil,
       latest: latestRow ? toUploadView(latestRow) : null,
       done,
+      additional: isAdditionalLicence(docType),
+      held,
     });
   }
   return {
@@ -253,8 +288,8 @@ export interface ReadUploadInput {
 export async function readUploadedDocument(input: ReadUploadInput): Promise<UploadView> {
   const rule = await getRule("documentUpload");
   if (!rule.enabled) throw conflict("Document upload is switched off. Use the verification page to enter the numbers.");
-  if (!(UPLOAD_DOC_TYPES as readonly string[]).includes(input.docType)) throw validationFailed("Unknown document type.");
-  const docType = input.docType as UploadDocType;
+  const auto = input.docType === AUTO_DETECT;
+  if (!auto && !(UPLOAD_DOC_TYPES as readonly string[]).includes(input.docType)) throw validationFailed("Unknown document type.");
   const shop = await loadShopFor(input.shopId, input.actor);
 
   if (input.file.length === 0) throw validationFailed("The file is empty.");
@@ -272,7 +307,23 @@ export async function readUploadedDocument(input: ReadUploadInput): Promise<Uplo
     throw new AppError("RATE_LIMITED", "Too many uploads for this shop in the last hour. Please try again later.");
   }
 
-  const read = await readDocument(input.file, contentType, docType, input.browserRead);
+  const read = await readDocument(input.file, contentType, auto ? null : (input.docType as UploadDocType), input.browserRead);
+  let docType: UploadDocType;
+  if (auto) {
+    const detected = read.fields?.detectedType ?? detectUploadType(read.text);
+    if (!detected) {
+      // Nothing stored: the owner picks the document's card and uploads it there.
+      throw validationFailed(
+        read.readerFailed
+          ? "We couldn't read this document just now. Upload it on its card below and type the details."
+          : "We couldn't tell which document this is. Take a clearer photo with the heading showing, or upload it on its card below (use Other licence if it isn't listed).",
+        { undetected: true },
+      );
+    }
+    docType = detected;
+  } else {
+    docType = input.docType as UploadDocType;
+  }
   const parsed = extractDocumentFields(read.text, docType);
   // An engine that understands documents (Claude) fills what the text parse missed.
   const fields: ExtractedFields = { ...parsed.fields };
@@ -335,7 +386,7 @@ export async function readUploadedDocument(input: ReadUploadInput): Promise<Uplo
     entityType: "seller_document_upload",
     entityId: row.id,
     // Codes only: no number, name or address goes into the audit log.
-    newValue: { shopId: shop.id, docType, engine: read.engine, confidence: read.confidence, flags: flags.map((f) => f.code) },
+    newValue: { shopId: shop.id, docType, autoDetected: auto, engine: read.engine, confidence: read.confidence, flags: flags.map((f) => f.code) },
   });
   return toUploadView(row);
 }
@@ -345,7 +396,7 @@ export async function readUploadedDocument(input: ReadUploadInput): Promise<Uplo
 export interface ConfirmUploadInput {
   shopId: string;
   uploadId: string;
-  fields: ConfirmedFields & { issuingCouncil?: string | null };
+  fields: ConfirmedFields & { issuingCouncil?: string | null; licenceName?: string | null };
   consentGiven: boolean;
   actor: Actor;
   ipAddress?: string | null;
@@ -406,13 +457,14 @@ export async function confirmUploadedDocument(input: ConfirmUploadInput): Promis
     const reupload = flags.find((f) => f.severity === "block" && REUPLOAD_CODES.has(f.code));
     if (reupload) throw validationFailed(reupload.message, { reupload: true, flag: reupload.code });
 
-    const fields: ConfirmedFields & { issuingCouncil?: string | null } = {
+    const fields: ConfirmedFields & { issuingCouncil?: string | null; licenceName?: string | null } = {
       number: (input.fields.number ?? "").trim(),
       name: input.fields.name?.trim() || null,
       address: input.fields.address?.trim() || null,
       validFrom: input.fields.validFrom || null,
       validUntil: input.fields.validUntil || null,
       issuingCouncil: input.fields.issuingCouncil?.trim() || null,
+      licenceName: input.fields.licenceName?.trim() || null,
     };
     const today = istToday();
     const errors = validateConfirmedFields(docType, fields, today);
@@ -454,14 +506,15 @@ export async function confirmUploadedDocument(input: ConfirmUploadInput): Promis
         });
       }
     }
-    // 2. Legal-documents register (FSSAI, drug licence, medical registration).
-    if (docType === "FSSAI" || docType === "DRUG_LICENCE" || docType === "MEDICAL_REGISTRATION") {
+    // 2. Legal-documents register (FSSAI, drug licence, medical registration, the optional licences).
+    if (docType === "FSSAI" || docType === "DRUG_LICENCE" || docType === "MEDICAL_REGISTRATION" || isAdditionalLicence(docType)) {
       const legal = await submitLegalDocument({
         shopId: shop.id,
         docType,
         number: normalized,
         expiryDate: fields.validUntil,
         issuingCouncil: fields.issuingCouncil,
+        licenceName: fields.licenceName,
         file,
         actor: input.actor,
       });

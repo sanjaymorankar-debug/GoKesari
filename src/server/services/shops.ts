@@ -25,13 +25,14 @@ import {
 } from "@/lib/shop-settings";
 import type { ShopTypeKey } from "@/lib/shop-types";
 import { runOrDefer, type Defer } from "@/server/api/defer";
-import { db } from "@/server/db";
+import { db, type DbClient } from "@/server/db";
 import {
   notificationDeliveries,
   notifications,
   referralCodes,
   shopClassificationHistory,
   shopDocumentWaivers,
+  shopRegistrationDrafts,
   shops,
   users,
   type Classification,
@@ -223,7 +224,15 @@ export async function registerShop(
    * self-service registration they are ignored entirely rather than rejected,
    * so a crafted request body cannot escalate.
    */
-  options: { privileged?: boolean } = {},
+  options: {
+    privileged?: boolean;
+    /**
+     * Onboarding wizard (docs/shop-onboarding-wizard-2026-10): runs inside the
+     * registration's transaction once the shop row is written (new or
+     * resubmitted), so the draft's checks are copied with it or not at all.
+     */
+    onSaved?: (tx: DbClient, shop: Shop) => Promise<void>;
+  } = {},
 ): Promise<RegisterShopResult> {
   if (!/^[1-9]\d{5}$/.test(input.pincode)) {
     throw validationFailed("PIN code must be 6 digits and not start with 0.");
@@ -439,6 +448,7 @@ export async function registerShop(
           .returning();
         await grantRole(ownerId, "SHOP_OWNER", roleGrant, tx);
         if (input.categoryIds) await applyShopCategories(tx, shop.id, input.categoryIds);
+        if (options.onSaved) await options.onSaved(tx, shop);
         return { kind: "resubmitted", shop, previous, matchedOn: rejectedOwn.reason };
       }
 
@@ -484,6 +494,7 @@ export async function registerShop(
         .returning();
       await grantRole(ownerId, "SHOP_OWNER", roleGrant, tx);
       if (input.categoryIds) await applyShopCategories(tx, shop.id, input.categoryIds);
+      if (options.onSaved) await options.onSaved(tx, shop);
       return { kind: "created", shop };
     });
   } catch (error) {
@@ -882,7 +893,7 @@ async function autoApproveShopIfReadyInner(shopId: string): Promise<boolean> {
   if (!rule.autoApproveShop) return false;
   const shop = await db.query.shops.findFirst({ where: eq(shops.id, shopId) });
   if (!shop || shop.status !== "PENDING_APPROVAL" || shop.feePaymentStatus !== "PAID") return false;
-  if ((await missingMandatoryDocuments(shop)).length > 0) return false;
+  if ((await missingMandatoryDocuments(shop, db, { countDeferred: true })).length > 0) return false;
 
   let approved: Shop;
   try {
@@ -1065,6 +1076,11 @@ function approveShopTransaction(
       },
       tx,
     );
+    // Onboarding wizard: the owner's registration is complete once the shop is live.
+    await tx
+      .update(shopRegistrationDrafts)
+      .set({ status: "COMPLETED", completedAt: new Date(), updatedAt: new Date() })
+      .where(and(eq(shopRegistrationDrafts.shopId, shopId), eq(shopRegistrationDrafts.status, "SUBMITTED")));
     return updated;
   });
 }
