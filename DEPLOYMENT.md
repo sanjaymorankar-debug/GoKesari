@@ -193,8 +193,15 @@ whether the site answers.
 
 ## 4. Run migrations
 
-Migrations are plain SQL under `drizzle/` and are not run automatically
-unless the environment opts in (below).
+Migrations are plain SQL under `drizzle/`. They run **only through two GitHub
+Actions workflows**, never during a Hostinger build:
+
+| Site | How its databases are migrated |
+|---|---|
+| test.gokesari.com | **"Test database"** (`.github/workflows/test-db.yml`), automatically on every push to `staging` that adds a migration: backup (`pg_dump`), then migrate the customer and seller databases, then verify. By hand: Actions → "Test database" → Run workflow → `migrate`. Setup: `docs/event-driven-2026-10/DB_AUTOMATION.md`. |
+| gokesari.com | **"Production database"** (`.github/workflows/prod-db.yml`), by hand only: `migrate`, source `staging`, confirm `MIGRATE PRODUCTION`, **before** merging staging into `main`. It refuses a migration the test database does not already have. Setup: `docs/event-driven-2026-10/PROD_DB.md`. |
+
+For a local or new database:
 
 ```bash
 npm run db:migrate                 # apply pending migrations
@@ -204,30 +211,33 @@ npm run db:seed -- --minimal       # reference data only — first deploy
 Use `--minimal` in production: it seeds roles, permissions and the dairy/bakery
 catalogue, but **not** the demo shops.
 
-### Automatic migration during the build (opt-in, per environment)
+### Why not during the build (Blocker #71)
 
-`npm run build` first runs `scripts/migrate-on-build.mjs`, then `next build`.
-The script does nothing unless the environment variable
-`MIGRATE_ON_BUILD=true` is set. With it set, every deploy:
+`npm run build` still starts with `scripts/migrate-on-build.mjs`, the migrator
+both workflows use, but it applies nothing unless it runs inside GitHub
+Actions with `MIGRATE_ON_BUILD=true`. In any host's build the log shows
+`[migrate-on-build] skipped` and the build goes on.
 
-1. applies the pending migrations to that environment's `DATABASE_URL`
-   (all pending files in one transaction — a failure applies none of them);
-2. stops the build if the migration fails (non-zero exit), so `next build`
-   never runs and the new code is not built — migrate first, deploy second;
-3. writes to the build log the database name and host, how many migrations
-   were recorded and how many it applied (never the connection string).
+Hostinger builds a preview of every pull request with the site's own
+environment variables. While `MIGRATE_ON_BUILD=true` was set in hPanel, the
+preview of an unmerged PR migrated the real databases: PRs into `main`
+brought 0089–0094 to production early, and on 29 Oct 2026 a PR into
+`staging` applied 0114/0115 to the test databases, so staging's own 0114 was
+skipped. **Do not set `MIGRATE_ON_BUILD` in hPanel** (remove it where it is
+still set); it has no effect there any more. It has nothing to do with the
+database split: which database the running site uses is decided by
+`DB_SPLIT_MODE` and `SELLER_DATABASE_URL` only.
 
-Turn it on by adding `MIGRATE_ON_BUILD=true` to the site's environment
-variables in hPanel, **test.gokesari.com first**. Leave production without it
-(migrate by hand, with a backup, as in §7) until it has run cleanly on test
-and the production database has a restore point you trust (Neon point-in-time
-restore window, or a `pg_dump` before each merge to `main`).
+**The staging gap.** Hostinger deploys a merge into `staging` while the "Test
+database" workflow is still backing up and migrating, so the new code can be
+live a few minutes before its migration (about 6 minutes on 29 Oct 2026).
+Pages that use the new tables may fail during that window; everything else
+works. If the workflow fails, run it again by hand (`migrate`) — the site
+keeps failing on those pages until it succeeds. Production has no gap: its
+migration runs before the merge into `main`.
 
-It does not take a backup: take one before merging a release that carries
-migrations. After a deploy, check the build log in hPanel for the
-`[migrate-on-build]` lines — `applied N new migration(s)` — and that the site
-still serves; if the build failed, the log says why and nothing was migrated.
-Without the variable the log shows `[migrate-on-build] skipped`.
+After a migration, check the workflow run's summary (`applied N new
+migration(s)`) rather than the hPanel build log.
 
 Migration policy:
 
