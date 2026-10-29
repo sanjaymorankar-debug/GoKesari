@@ -1,18 +1,19 @@
 /**
- * Onboarding wizard step 2 (docs/shop-onboarding-wizard-2026-10): after the
- * GSTIN / PAN step — shop details, Udyam, FSSAI, Shop Act, the map pin, then
- * the shop created from the draft and paid for.
+ * Onboarding wizard step 2, in the brief's order (owner decision 29 Oct 2026, "follow the
+ * brief"; docs/shop-onboarding-wizard-2026-10/BRIEF_REDESIGN.md): after the GSTIN / PAN
+ * step — Udyam, FSSAI, shop details & turnover slab, payment, approval, then the map pin,
+ * categories and product list on the live shop.
  *
  *   - each step with its check statuses and "may continue", resumed where left
- *   - draft → shop: GSTIN, PAN, Udyam, FSSAI and Shop Act copied to
- *     seller_verifications with the vendor's reference; numbers never in clear
- *   - payment (sandbox gateway) → live in a district the instant-approval flag
- *     does not cover (owner decision B), Shop Act left for an admin's review,
- *     onboarding complete, "ready for product upload" email
- *   - the no-GSTIN route: PAN + declaration → live, declaration in review
- *   - a food shop cannot skip FSSAI; FSSAI not yet verified holds the approval
- *   - failures: not found, expired, vendor down, steps out of order, a pin
- *     outside India, a failed payment, a shop outside the wizard keeps today's rule
+ *   - draft → shop: GSTIN, PAN, Udyam and FSSAI copied to seller_verifications with
+ *     the vendor's reference; numbers never in clear
+ *   - auto-approval: GSTIN (or PAN without one) VERIFIED + fee paid through the gateway →
+ *     live, in any district, without the Shop Act; "ready for product upload" email
+ *   - pending admin approval: no payment, a failed payment, a GSTIN / PAN not verified
+ *     (vendor down, name mismatch), a food shop's FSSAI not verified
+ *   - a food shop cannot skip FSSAI; the referral-code toggle (mandatory / optional)
+ *   - failures: not found, expired, vendor down, steps out of order, a pin outside India;
+ *     a shop outside the wizard keeps the 29 Oct documents gate
  */
 import { randomUUID } from "node:crypto";
 import { and, eq } from "drizzle-orm";
@@ -62,6 +63,8 @@ import { startRegistrationFeeCheckout } from "@/server/services/registration-fee
 import { setRegistrationFee } from "@/server/services/registration-fees";
 import { submitSellerDocument } from "@/server/services/seller-verification";
 import { setFeatureFlag } from "@/server/services/feature-flags";
+import { setReferralSetting } from "@/server/services/referral-settings";
+import { setShopCategories } from "@/server/services/shop-categories";
 import { clearRuleCache } from "@/server/services/settings";
 import { promiseShopDocuments, shopDocumentGate } from "@/server/services/shop-document-gate";
 import { submitDraftGstin, submitDraftPan } from "@/server/services/shop-registration-draft";
@@ -77,7 +80,7 @@ import {
   wizardAvailableFor,
   type DraftShopDetails,
 } from "@/server/services/shop-registration-wizard";
-import { registerShop } from "@/server/services/shops";
+import { registerShop, updateShop } from "@/server/services/shops";
 import { createUser, resetDatabase } from "../helpers/fixtures";
 import { call } from "../helpers/http";
 
@@ -92,8 +95,6 @@ const UDYAM = "UDYAM-MH-26-0012345";
 const FSSAI = "11521998000123";
 /** Maharashtra: no online Shop Act check, so it waits for an admin (MANUAL_REVIEW). */
 const SHOP_ACT = "PMC/SHOP/2026/12345";
-/** A Shop Act the mock vendor can check: VERIFIED. */
-const SHOP_ACT_OK = "KA/SHOP/2026/2222";
 
 let owner: { id: string; role: "CUSTOMER"; email: string; name: string | null };
 let categoryId: string;
@@ -147,17 +148,16 @@ function details(overrides: Partial<DraftShopDetails> = {}): DraftShopDetails {
 const doc = (docType: "UDYAM" | "FSSAI" | "SHOP_ACT", number: string, actor = owner) =>
   submitDraftDocument({ actor, docType, number, consentGiven: true });
 
-/** GSTIN → details → Udyam → FSSAI → Shop Act → pin: everything before payment. */
-async function walkToReview(opts: { shopType?: string; fssai?: string | false; udyam?: string | false; shopAct?: string; pan?: boolean } = {}) {
-  if (opts.pan) await submitDraftPan({ pan: PROPRIETOR_PAN, declarationAccepted: true, consentGiven: true, actor: owner });
-  else await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
-  await saveDraftDetails({ actor: owner, details: details({ shopType: opts.shopType ?? "GENERAL_TRADING" }) });
+/** GSTIN (or PAN) → Udyam → FSSAI → details & turnover slab: everything before payment. */
+async function walkToReview(opts: { shopType?: string; fssai?: string | false; udyam?: string | false; pan?: string; gstin?: string; ownerName?: string } = {}) {
+  if (opts.pan) await submitDraftPan({ pan: opts.pan, declarationAccepted: true, consentGiven: true, actor: owner });
+  else await submitDraftGstin({ gstin: opts.gstin ?? gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
   if (opts.udyam === false) await answerDraftDocument({ actor: owner, docType: "UDYAM", has: false });
   else await doc("UDYAM", opts.udyam ?? UDYAM);
   if (opts.fssai === false) await answerDraftDocument({ actor: owner, docType: "FSSAI", has: false });
   else await doc("FSSAI", opts.fssai ?? FSSAI);
-  await doc("SHOP_ACT", opts.shopAct ?? SHOP_ACT);
-  return saveDraftLocation({ actor: owner, latitude: 18.5308, longitude: 73.8475, address: "Shivajinagar, Pune" });
+  // Categories are chosen after approval (CATEGORY step), as the brief orders it.
+  return saveDraftDetails({ actor: owner, details: details({ shopType: opts.shopType ?? "GENERAL_TRADING", categoryIds: [], ...(opts.ownerName ? { ownerName: opts.ownerName } : {}) }) });
 }
 
 /** The owner pays through the sandbox gateway; the webhook's after-commit step runs. */
@@ -170,19 +170,20 @@ async function payInSandbox(shopId: string, outcome: "SUCCESS" | "FAILURE" = "SU
 
 const shopRow = async (id: string) => (await db.select().from(shops).where(eq(shops.id, id)))[0];
 const verifications = async (shopId: string) => db.select().from(sellerVerifications).where(eq(sellerVerifications.shopId, shopId));
+const lastDecision = async (shopId: string) =>
+  (await db.select().from(shopAutoApprovalLog).where(eq(shopAutoApprovalLog.shopId, shopId))).sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())[0];
 
-describe("each step, resumed where the owner left off", () => {
-  it("walks GSTIN → details → Udyam → FSSAI → Shop Act → map → review, and every answer says where to resume", async () => {
+describe("each step in the brief's order, resumed where the owner left off", () => {
+  it("walks GSTIN → Udyam → FSSAI → details & turnover → review, and every answer says where to resume", async () => {
     expect(await getWizardDraft(owner)).toBeNull();
     await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
     let view = (await getWizardDraft(owner))!;
-    expect(view.nextStep).toBe("DETAILS");
-    // The details step starts from the GST record.
+    expect(view.nextStep).toBe("UDYAM");
+    // The GST record filled in the shop name and address (edited later on the details step).
     expect(view.prefill.shopName).toBeTruthy();
     expect(view.prefill.address).toContain("Pune");
-
-    view = await saveDraftDetails({ actor: owner, details: details() });
-    expect(view).toMatchObject({ nextStep: "UDYAM", foodShop: false, details: { shopType: "GENERAL_TRADING", pincode: "411001" } });
+    // The admin's slab table is what the details step offers.
+    expect(view.feeRule.slabs.length).toBeGreaterThan(0);
 
     view = await doc("UDYAM", UDYAM);
     expect(view.udyam).toMatchObject({ has: true, done: true, check: { status: "VERIFIED", message: null } });
@@ -191,20 +192,15 @@ describe("each step, resumed where the owner left off", () => {
 
     view = await answerDraftDocument({ actor: owner, docType: "FSSAI", has: false });
     expect(view.fssai).toMatchObject({ has: false, done: true, required: false });
-    expect(view.nextStep).toBe("SHOP_ACT");
-
-    // Maharashtra has no online Shop Act check: an admin reviews it, and the owner carries on.
-    view = await doc("SHOP_ACT", SHOP_ACT);
-    expect(view.shopAct).toMatchObject({ done: true, check: { status: "MANUAL_REVIEW", errorCode: "vendor_unsupported" } });
-    expect(view.shopAct.check!.message).toMatch(/upload your Shop Act certificate/);
-    expect(view.nextStep).toBe("LOCATION");
+    expect(view.nextStep).toBe("DETAILS");
 
     // A new session (another device) resumes at the same place.
-    expect((await getWizardDraft({ id: owner.id }))!.nextStep).toBe("LOCATION");
+    expect((await getWizardDraft({ id: owner.id }))!.nextStep).toBe("DETAILS");
 
-    view = await saveDraftLocation({ actor: owner, latitude: 18.5308, longitude: 73.8475, address: "Shivajinagar, Pune" });
-    expect(view.location).toEqual({ latitude: "18.5308000", longitude: "73.8475000", address: "Shivajinagar, Pune" });
-    expect(view.nextStep).toBe("REVIEW");
+    view = await saveDraftDetails({ actor: owner, details: details({ categoryIds: [] }) });
+    expect(view).toMatchObject({ nextStep: "REVIEW", foodShop: false, details: { shopType: "GENERAL_TRADING", pincode: "411001" } });
+    // No Shop Act and no map pin before payment any more.
+    expect(view.documents).toMatchObject({ missing: [], canSubmit: true, needsTeamApproval: false, promised: false });
   });
 
   it("refuses a later step before the GSTIN / PAN step is done, and payment before every step", async () => {
@@ -215,8 +211,8 @@ describe("each step, resumed where the owner left off", () => {
     await expect(doc("UDYAM", UDYAM)).rejects.toMatchObject({ code: "CONFLICT" });
 
     await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
-    await saveDraftDetails({ actor: owner, details: details() });
-    await expect(submitDraftForPayment({ actor: owner })).rejects.toMatchObject({ code: "CONFLICT", details: { reason: "STEP_OPEN", nextStep: "UDYAM" } });
+    await doc("UDYAM", UDYAM);
+    await expect(submitDraftForPayment({ actor: owner })).rejects.toMatchObject({ code: "CONFLICT", details: { reason: "STEP_OPEN", nextStep: "FSSAI" } });
     expect(await db.select().from(shops).where(eq(shops.ownerId, owner.id))).toHaveLength(0);
   });
 
@@ -226,10 +222,9 @@ describe("each step, resumed where the owner left off", () => {
   });
 });
 
-describe("Udyam, FSSAI and Shop Act checks", () => {
+describe("Udyam and FSSAI checks", () => {
   beforeEach(async () => {
     await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
-    await saveDraftDetails({ actor: owner, details: details() });
   });
 
   it("not found at the source → FAILED with a message; the owner must correct it", async () => {
@@ -272,11 +267,6 @@ describe("Udyam, FSSAI and Shop Act checks", () => {
     expect(await db.select().from(shopRegistrationDraftChecks)).toHaveLength(0);
   });
 
-  it("a Shop Act the source can check is VERIFIED, and the step is done", async () => {
-    const view = await doc("SHOP_ACT", SHOP_ACT_OK);
-    expect(view.shopAct.check).toMatchObject({ status: "VERIFIED" });
-  });
-
   it("numbers are stored as ciphertext and masked; the audit entry is masked", async () => {
     await doc("UDYAM", UDYAM);
     await doc("FSSAI", FSSAI);
@@ -288,212 +278,123 @@ describe("Udyam, FSSAI and Shop Act checks", () => {
   });
 });
 
-describe("a food shop may promise FSSAI, but is not approved without it", () => {
-  it("a dairy answers FSSAI 'not now': the review lists it missing and asks for the promise (90 days)", async () => {
+describe("a food shop must give its FSSAI, and goes live only once it is verified", () => {
+  it("FSSAI answered 'no', then a dairy chosen on the details step: sent back to FSSAI, no payment", async () => {
     await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
-    let view = await saveDraftDetails({ actor: owner, details: details({ shopType: "DAIRY" }) });
-    expect(view).toMatchObject({ foodShop: true, fssai: { has: true, required: true, done: false } });
-    await answerDraftDocument({ actor: owner, docType: "UDYAM", has: false });
-    view = await answerDraftDocument({ actor: owner, docType: "FSSAI", has: false });
-    expect(view).toMatchObject({ fssai: { has: false, required: true, done: true }, nextStep: "SHOP_ACT" });
-    await doc("SHOP_ACT", SHOP_ACT_OK);
-    view = await saveDraftLocation({ actor: owner, latitude: 18.5308, longitude: 73.8475 });
-    expect(view.documents).toMatchObject({ missing: ["FSSAI"], inReview: [], canSubmit: true, needsTeamApproval: true, promised: false, promiseDays: 90 });
-    expect(view.documents.verified.sort()).toEqual(["GSTIN", "PAN", "SHOP_ACT"]);
-
-    await expect(submitDraftForPayment({ actor: owner })).rejects.toMatchObject({
-      code: "VALIDATION_FAILED",
-      details: { reason: "DOCUMENTS_PROMISE_REQUIRED", missing: ["FSSAI"] },
-    });
-    expect(await db.select().from(shops).where(eq(shops.ownerId, owner.id))).toHaveLength(0);
-
-    const submitted = await submitDraftForPayment({ actor: owner, promiseDocuments: true });
-    const shopId = submitted.shop!.id;
-    await payInSandbox(shopId);
-    const shop = await shopRow(shopId);
-    expect(shop).toMatchObject({ status: "PENDING_APPROVAL", fssaiLicenseNumber: null });
-    expect(shop.documentsPromisedAt).not.toBeNull();
-    expect((await getWizardDraft(owner))!.nextStep).toBe("WAITING");
-  });
-
-  it("a food shop answering FSSAI 'no' as a general shop, then switching to dairy, is sent back to FSSAI", async () => {
-    await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
-    await saveDraftDetails({ actor: owner, details: details() });
     await answerDraftDocument({ actor: owner, docType: "UDYAM", has: false });
     await answerDraftDocument({ actor: owner, docType: "FSSAI", has: false });
-    const view = await saveDraftDetails({ actor: owner, details: details({ shopType: "BAKERY" }) });
+    let view = await saveDraftDetails({ actor: owner, details: details({ shopType: "DAIRY" }) });
+    expect(view).toMatchObject({ foodShop: true, fssai: { required: true, done: false }, nextStep: "FSSAI" });
+    // "No" again does not get a food shop past the step.
+    view = await answerDraftDocument({ actor: owner, docType: "FSSAI", has: false });
     expect(view.nextStep).toBe("FSSAI");
+    await expect(submitDraftForPayment({ actor: owner })).rejects.toMatchObject({ code: "CONFLICT", details: { reason: "STEP_OPEN", nextStep: "FSSAI" } });
+    expect(await db.select().from(shops).where(eq(shops.ownerId, owner.id))).toHaveLength(0);
   });
 
-  it("a dairy with every document verified goes live after payment", async () => {
-    await walkToReview({ shopType: "DAIRY", udyam: false, shopAct: SHOP_ACT_OK });
+  it("a dairy with GSTIN and FSSAI verified goes live after payment", async () => {
+    await walkToReview({ shopType: "DAIRY", udyam: false });
     const view = await submitDraftForPayment({ actor: owner });
     await payInSandbox(view.shop!.id);
-    const shop = await shopRow(view.shop!.id);
-    expect(shop).toMatchObject({ status: "APPROVED", fssaiLicenseNumber: FSSAI, documentsPromisedAt: null });
-    // The Shop Act number reaches the shop as the owner typed it.
-    expect(shop.shopActNumber).toBe(SHOP_ACT_OK);
+    expect(await shopRow(view.shop!.id)).toMatchObject({ status: "APPROVED", fssaiLicenseNumber: FSSAI, shopActNumber: null });
   });
 
-  it("a dairy whose FSSAI check is still pending promises it, pays, and waits — not live", async () => {
-    await walkToReview({ shopType: "DAIRY", udyam: false, fssai: "11521998009999", shopAct: SHOP_ACT_OK });
-    const view = await submitDraftForPayment({ actor: owner, promiseDocuments: true });
+  it("a dairy whose FSSAI check is still pending pays and waits for an admin — not live", async () => {
+    await walkToReview({ shopType: "DAIRY", udyam: false, fssai: "11521998009999" });
+    const view = await submitDraftForPayment({ actor: owner });
+    expect(view.documents).toMatchObject({ missing: ["FSSAI"], needsTeamApproval: true });
     await payInSandbox(view.shop!.id);
     expect((await shopRow(view.shop!.id)).status).toBe("PENDING_APPROVAL");
     expect((await getWizardDraft(owner))!.nextStep).toBe("WAITING");
-    const [log] = await db.select().from(shopAutoApprovalLog).where(eq(shopAutoApprovalLog.shopId, view.shop!.id));
-    expect(log.reasons.join(" ")).toMatch(/FSSAI/);
+    expect((await lastDecision(view.shop!.id)).reasons.join(" ")).toMatch(/FSSAI/);
   });
 });
 
-describe("draft → shop → payment (owner decision 29 Oct 2026: documents before the fee)", () => {
-  it("every document verified: copies every check to seller_verifications, then goes live after the sandbox payment", async () => {
-    await walkToReview({ shopAct: SHOP_ACT_OK });
-    expect((await getWizardDraft(owner))!.documents).toMatchObject({ missing: [], needsTeamApproval: false });
+describe("auto-approval: GSTIN / PAN verified + fee paid (owner decision 29 Oct 2026, 'follow the brief')", () => {
+  it("GSTIN verified + payment: copied to seller_verifications, live without the Shop Act, email sent, then map → categories → products", async () => {
+    await walkToReview();
     const submitted = await submitDraftForPayment({ actor: owner });
     expect(submitted).toMatchObject({ status: "SUBMITTED", nextStep: "PAYMENT", shop: { status: "PENDING_APPROVAL", feePaymentStatus: "PENDING" } });
     expect(submitted.shop!.feeDuePaise).toBeGreaterThan(0);
     const shopId = submitted.shop!.id;
 
-    // The shop as the details step and the GST record described it.
     const shop = await shopRow(shopId);
-    expect(shop).toMatchObject({ ownerId: owner.id, name: "Test Seller Mart", pincode: "411001", latitude: "18.5308000", gstStatus: "REGISTERED", gstVerificationSource: "PROVIDER_VERIFIED" });
+    expect(shop).toMatchObject({ ownerId: owner.id, name: "Test Seller Mart", pincode: "411001", latitude: null, gstStatus: "REGISTERED", shopActNumber: null });
     expect(shop.gstin).toBe(gstinFor(COMPANY_PAN));
-    expect(shop.lifecycleStatus).toBe("PAYMENT_PENDING");
     expect(shop.documentsPromisedAt).toBeNull();
+    // KYC complete on the GSTIN alone: only the fee is outstanding.
+    expect(shop.lifecycleStatus).toBe("PAYMENT_PENDING");
 
     const rows = await verifications(shopId);
-    const by = (t: string) => rows.find((r) => r.docType === t)!;
+    const by = (t: string) => rows.find((r) => r.docType === t);
     expect(by("GSTIN")).toMatchObject({ status: "VERIFIED", providerId: "mock", reviewerId: null });
-    expect(by("GSTIN").providerRef).toMatch(/^mock-/);
     expect(by("PAN")).toMatchObject({ status: "VERIFIED", providerId: "mock" });
-    expect(by("UDYAM")).toMatchObject({ status: "VERIFIED", providerId: "mock" });
+    expect(by("UDYAM")).toMatchObject({ status: "VERIFIED" });
     expect(by("FSSAI")).toMatchObject({ status: "VERIFIED" });
-    expect(by("SHOP_ACT")).toMatchObject({ status: "VERIFIED" });
+    expect(by("SHOP_ACT")).toBeUndefined();
     for (const r of rows) {
       expect(r.numberEncrypted).toBeTruthy();
-      expect(r.consentVersion).toBeTruthy();
       expect(r.details).toMatchObject({ source: "ONBOARDING_WIZARD" });
     }
     expect(JSON.stringify(rows.map((r) => ({ ...r, numberEncrypted: null })))).not.toContain(COMPANY_PAN);
-    // Nothing goes live "for review later" any more.
     expect(await db.select().from(shopDeferredDocumentReviews).where(eq(shopDeferredDocumentReviews.shopId, shopId))).toHaveLength(0);
 
     // Submitting again (a double tap) changes nothing.
-    const again = await submitDraftForPayment({ actor: owner });
-    expect(again.shop!.id).toBe(shopId);
+    expect((await submitDraftForPayment({ actor: owner })).shop!.id).toBe(shopId);
     expect(await db.select().from(shops).where(eq(shops.ownerId, owner.id))).toHaveLength(1);
 
     await payInSandbox(shopId);
-    const live = await shopRow(shopId);
-    expect(live).toMatchObject({ status: "APPROVED", feePaymentStatus: "PAID", lifecycleStatus: "ACTIVE" });
-
-    const [log] = await db.select().from(shopAutoApprovalLog).where(and(eq(shopAutoApprovalLog.shopId, shopId), eq(shopAutoApprovalLog.outcome, "APPROVED")));
-    expect(log.evidence).toMatchObject({ documentsMissing: [], gstin: { status: "VERIFIED", provider: "mock" } });
-
+    expect(await shopRow(shopId)).toMatchObject({ status: "APPROVED", feePaymentStatus: "PAID", lifecycleStatus: "ACTIVE" });
+    expect((await lastDecision(shopId))).toMatchObject({ outcome: "APPROVED" });
+    expect((await lastDecision(shopId)).evidence).toMatchObject({ documentsMissing: [], gstin: { status: "VERIFIED", provider: "mock" } });
     const [draft] = await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.shopId, shopId));
     expect(draft.status).toBe("COMPLETED");
-    expect(draft.completedAt).not.toBeNull();
-    expect((await getWizardDraft(owner))!.nextStep).toBe("DONE");
-
     const [ready] = await db.select().from(notifications).where(and(eq(notifications.userId, owner.id), eq(notifications.type, "shop.ready_for_product_upload")));
     expect(ready.title).toMatch(/Registration successful/);
+
+    // After approval: the map pin, the categories, then the product list.
+    let view = (await getWizardDraft(owner))!;
+    expect(view).toMatchObject({ nextStep: "LOCATION", setup: { location: false, categories: false, products: false } });
+    await updateShop(shopId, { latitude: "18.5308", longitude: "73.8475" }, owner);
+    view = (await getWizardDraft(owner))!;
+    expect(view.nextStep).toBe("CATEGORY");
+    await setShopCategories(shopId, [categoryId], owner);
+    view = (await getWizardDraft(owner))!;
+    expect(view).toMatchObject({ nextStep: "PRODUCTS", setup: { location: true, categories: true, products: false } });
   });
 
-  it("Shop Act still in review: payment needs the promise (90 days), then the shop waits for GoKesari's team", async () => {
-    const view = await walkToReview();
-    expect(view.documents).toMatchObject({ missing: ["SHOP_ACT"], canSubmit: true, needsTeamApproval: true });
-    await expect(submitDraftForPayment({ actor: owner })).rejects.toMatchObject({ code: "VALIDATION_FAILED", details: { reason: "DOCUMENTS_PROMISE_REQUIRED" } });
-
-    const before = Date.now();
-    const submitted = await submitDraftForPayment({ actor: owner, promiseDocuments: true });
+  it("the no-GSTIN route: PAN verified + declaration + payment → live automatically", async () => {
+    const view = await walkToReview({ pan: PROPRIETOR_PAN, udyam: false, fssai: false });
+    expect(view.documents).toMatchObject({ missing: [], canSubmit: true, needsTeamApproval: false });
+    const submitted = await submitDraftForPayment({ actor: owner });
     const shopId = submitted.shop!.id;
-    const shop = await shopRow(shopId);
-    expect(shop.documentsPromisedAt!.getTime()).toBeGreaterThanOrEqual(before - 1000);
-    const days = (shop.documentsDueAt!.getTime() - shop.documentsPromisedAt!.getTime()) / 86_400_000;
-    expect(days).toBe(90); // owner decision 29 Oct 2026: 3 months
-    expect((await verifications(shopId)).find((r) => r.docType === "SHOP_ACT")).toMatchObject({ status: "MANUAL_REVIEW", lastErrorCode: "vendor_unsupported" });
-    expect(await db.select().from(shopDeferredDocumentReviews).where(eq(shopDeferredDocumentReviews.shopId, shopId))).toHaveLength(0);
-    const [promise] = await db.select().from(auditLogs).where(and(eq(auditLogs.action, "shop.documents_promised"), eq(auditLogs.entityId, shopId)));
-    expect(promise.newValue).toMatchObject({ missing: ["SHOP_ACT"], source: "ONBOARDING_WIZARD" });
-    const [draft] = await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.shopId, shopId));
-    expect(draft.documentsPromisedAt).not.toBeNull();
-    expect((await getWizardDraft(owner))!.documents.promised).toBe(true);
-
+    const rows = await verifications(shopId);
+    expect(rows.find((r) => r.docType === "PAN")).toMatchObject({ status: "VERIFIED" });
+    expect(rows.find((r) => r.docType === "GSTIN")).toMatchObject({ status: "MANUAL_REVIEW", lastErrorCode: "gst_declaration_review" });
+    expect(await shopRow(shopId)).toMatchObject({ gstStatus: "NOT_REGISTERED", gstin: null });
     await payInSandbox(shopId);
-    expect(await shopRow(shopId)).toMatchObject({ status: "PENDING_APPROVAL", feePaymentStatus: "PAID" });
-    expect((await getWizardDraft(owner))!.nextStep).toBe("WAITING");
-  });
-
-  it("Shop Act 'I don't have it now' after a checked number: the number is dropped and promised instead", async () => {
-    await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
-    await saveDraftDetails({ actor: owner, details: details() });
-    await answerDraftDocument({ actor: owner, docType: "UDYAM", has: false });
-    await answerDraftDocument({ actor: owner, docType: "FSSAI", has: false });
-    await doc("SHOP_ACT", SHOP_ACT_OK);
-    let view = await answerDraftDocument({ actor: owner, docType: "SHOP_ACT", has: false });
-    expect(view).toMatchObject({ shopAct: { has: false, done: true }, nextStep: "LOCATION" });
-    view = await saveDraftLocation({ actor: owner, latitude: 18.53, longitude: 73.84 });
-    expect(view.documents.missing).toEqual(["SHOP_ACT"]);
-    const submitted = await submitDraftForPayment({ actor: owner, promiseDocuments: true });
-    expect((await shopRow(submitted.shop!.id)).shopActNumber).toBeNull();
-    expect((await verifications(submitted.shop!.id)).map((r) => r.docType)).not.toContain("SHOP_ACT");
-  });
-
-  it("no verified document at all: payment is refused even with the promise", async () => {
-    // PAN name does not match the owner (manual review), and the Shop Act cannot be checked online.
-    await submitDraftPan({ pan: "ABCPK7777L", declarationAccepted: true, consentGiven: true, actor: owner });
-    await saveDraftDetails({ actor: owner, details: details({ ownerName: "Ramesh Kulkarni", name: "Kulkarni Stores" }) });
-    await answerDraftDocument({ actor: owner, docType: "UDYAM", has: false });
-    await answerDraftDocument({ actor: owner, docType: "FSSAI", has: false });
-    await doc("SHOP_ACT", SHOP_ACT);
-    const view = await saveDraftLocation({ actor: owner, latitude: 18.53, longitude: 73.84 });
-    expect(view.documents).toMatchObject({ verified: [], canSubmit: false });
-    await expect(submitDraftForPayment({ actor: owner, promiseDocuments: true })).rejects.toMatchObject({
-      code: "CONFLICT",
-      details: { reason: "NO_VERIFIED_DOCUMENT" },
-    });
-    expect(await db.select().from(shops).where(eq(shops.ownerId, owner.id))).toHaveLength(0);
+    expect(await shopRow(shopId)).toMatchObject({ status: "APPROVED", lifecycleStatus: "ACTIVE" });
   });
 
   it("two taps at once (two tabs) create one shop, and both get the payment step", async () => {
-    await walkToReview({ shopAct: SHOP_ACT_OK });
+    await walkToReview();
     const [a, b] = await Promise.all([submitDraftForPayment({ actor: owner }), submitDraftForPayment({ actor: owner })]);
     expect(a.shop!.id).toBe(b.shop!.id);
     expect([a.nextStep, b.nextStep]).toEqual(["PAYMENT", "PAYMENT"]);
     expect(await db.select().from(shops).where(eq(shops.ownerId, owner.id))).toHaveLength(1);
   });
+});
 
-  it("the no-GSTIN route: PAN + declaration needs no promise, but the declaration waits for review", async () => {
-    const view = await walkToReview({ pan: true, udyam: false, fssai: false, shopAct: SHOP_ACT_OK });
-    expect(view.documents).toMatchObject({ missing: [], inReview: ["GSTIN"], needsTeamApproval: true });
-    const submitted = await submitDraftForPayment({ actor: owner });
-    const shopId = submitted.shop!.id;
-    const rows = await verifications(shopId);
-    expect(rows.find((r) => r.docType === "GSTIN")).toMatchObject({ status: "MANUAL_REVIEW", lastErrorCode: "gst_declaration_review", details: { declaredNotRegistered: true } });
-    expect(rows.find((r) => r.docType === "PAN")).toMatchObject({ status: "VERIFIED" });
-    expect(await shopRow(shopId)).toMatchObject({ gstStatus: "NOT_REGISTERED", documentsPromisedAt: null });
-
-    await payInSandbox(shopId);
-    expect((await shopRow(shopId)).status).toBe("PENDING_APPROVAL");
-  });
-
-  it("a PAN name that does not match the owner on the no-GSTIN route is promised and waits for an admin", async () => {
-    await submitDraftPan({ pan: "ABCPK7777L", declarationAccepted: true, consentGiven: true, actor: owner });
-    await saveDraftDetails({ actor: owner, details: details({ ownerName: "Ramesh Kulkarni", name: "Kulkarni Stores" }) });
-    await answerDraftDocument({ actor: owner, docType: "UDYAM", has: false });
-    await answerDraftDocument({ actor: owner, docType: "FSSAI", has: false });
-    await doc("SHOP_ACT", SHOP_ACT_OK);
-    await saveDraftLocation({ actor: owner, latitude: 18.53, longitude: 73.84 });
-    const submitted = await submitDraftForPayment({ actor: owner, promiseDocuments: true });
-    const pan = (await verifications(submitted.shop!.id)).find((r) => r.docType === "PAN")!;
-    expect(pan).toMatchObject({ status: "MANUAL_REVIEW", lastErrorCode: "name_mismatch" });
-    await payInSandbox(submitted.shop!.id);
-    expect((await shopRow(submitted.shop!.id)).status).toBe("PENDING_APPROVAL");
+describe("pending admin approval", () => {
+  it("no payment: the shop is created but waits at the payment step, pending — and gets no orders (not live)", async () => {
+    await walkToReview();
+    const { shop } = await submitDraftForPayment({ actor: owner });
+    expect(await shopRow(shop!.id)).toMatchObject({ status: "PENDING_APPROVAL", feePaymentStatus: "PENDING" });
+    expect((await getWizardDraft(owner))!.nextStep).toBe("PAYMENT");
   });
 
   it("a failed payment leaves the shop pending at the payment step; a retry that succeeds makes it live", async () => {
-    await walkToReview({ shopAct: SHOP_ACT_OK });
+    await walkToReview();
     const { shop } = await submitDraftForPayment({ actor: owner });
     await payInSandbox(shop!.id, "FAILURE");
     expect((await shopRow(shop!.id)).status).toBe("PENDING_APPROVAL");
@@ -502,16 +403,46 @@ describe("draft → shop → payment (owner decision 29 Oct 2026: documents befo
     expect((await shopRow(shop!.id)).status).toBe("APPROVED");
   });
 
-  it("a Shop Act licence registered meanwhile by someone else stops the shop being created", async () => {
-    await walkToReview();
-    const other = await createUser({ role: "CUSTOMER" });
-    await registerShop(
-      { name: "Other Mart", ownerName: "Other", phone: "9123456780", addressLine1: "1 Other Road", city: "Pune", pincode: "411001", shopType: "GENERAL_TRADING", shopActNumber: SHOP_ACT, annualTurnoverRupees: 15_00_000 },
-      { id: other.id, role: "CUSTOMER" },
-    );
-    await expect(submitDraftForPayment({ actor: owner, promiseDocuments: true })).rejects.toMatchObject({ code: "CONFLICT" });
-    expect(await db.select().from(shops).where(eq(shops.ownerId, owner.id))).toHaveLength(0);
-    expect((await getWizardDraft(owner))!.status).toBe("OPEN");
+  it("GSTIN check still pending (government source down): may pay, then waits for an admin", async () => {
+    const view = await walkToReview({ gstin: gstinFor("AABCG9999K") });
+    expect(view.documents).toMatchObject({ canSubmit: true, missing: ["GSTIN"], needsTeamApproval: true });
+    const { shop } = await submitDraftForPayment({ actor: owner });
+    await payInSandbox(shop!.id);
+    expect((await shopRow(shop!.id)).status).toBe("PENDING_APPROVAL");
+    expect((await getWizardDraft(owner))!.nextStep).toBe("WAITING");
+    expect((await lastDecision(shop!.id)).reasons.join(" ")).toMatch(/GSTIN/);
+  });
+
+  it("a PAN name that does not match on the no-GSTIN route goes to review: may pay, then waits for an admin", async () => {
+    const view = await walkToReview({ pan: "ABCPK7777L", udyam: false, fssai: false, ownerName: "Ramesh Kulkarni" });
+    expect(view.documents).toMatchObject({ canSubmit: true, missing: ["PAN"] });
+    const { shop } = await submitDraftForPayment({ actor: owner });
+    expect((await verifications(shop!.id)).find((r) => r.docType === "PAN")).toMatchObject({ status: "MANUAL_REVIEW", lastErrorCode: "name_mismatch" });
+    await payInSandbox(shop!.id);
+    expect((await shopRow(shop!.id)).status).toBe("PENDING_APPROVAL");
+    expect((await getWizardDraft(owner))!.nextStep).toBe("WAITING");
+  });
+});
+
+describe("referral code toggle (Admin → Referral settings, default optional)", () => {
+  it("optional by default: no code is fine; mandatory: the details step asks for one; back to optional works", async () => {
+    const admin = await createUser({ role: "ADMIN" });
+    const adminActor = { id: admin.id, role: "ADMIN" as const, email: admin.email };
+    await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
+    await answerDraftDocument({ actor: owner, docType: "UDYAM", has: false });
+    await answerDraftDocument({ actor: owner, docType: "FSSAI", has: false });
+    expect((await saveDraftDetails({ actor: owner, details: details() })).nextStep).toBe("REVIEW");
+
+    await setReferralSetting("referral_required_shop", "MANDATORY", adminActor);
+    await expect(saveDraftDetails({ actor: owner, details: details() })).rejects.toMatchObject({
+      code: "VALIDATION_FAILED",
+      details: { fields: { referralCode: expect.stringMatching(/referral code is required/) } },
+    });
+    // Only an admin may switch it.
+    await expect(setReferralSetting("referral_required_shop", "OPTIONAL", { id: owner.id, role: "CUSTOMER" })).rejects.toMatchObject({ code: "FORBIDDEN" });
+
+    await setReferralSetting("referral_required_shop", "OPTIONAL", adminActor);
+    expect((await saveDraftDetails({ actor: owner, details: details() })).nextStep).toBe("REVIEW");
   });
 });
 
@@ -531,13 +462,11 @@ describe("a shop outside the wizard: the fee waits for a verified document too",
     expect(gate).toMatchObject({ verified: ["PAN"], canPay: false, canPromise: true });
     expect(gate.missing.sort()).toEqual(["GSTIN", "SHOP_ACT"]);
 
-    // Only the owner may promise.
     const stranger = await createUser({ role: "CUSTOMER" });
     await expect(promiseShopDocuments(shop.id, { id: stranger.id, role: "CUSTOMER" })).rejects.toMatchObject({ code: "FORBIDDEN" });
 
     const promised = await promiseShopDocuments(shop.id, owner);
     expect(promised).toMatchObject({ canPay: true, canPromise: false });
-    // A second tick keeps the first date.
     const again = await promiseShopDocuments(shop.id, owner);
     expect(again.promisedAt!.getTime()).toBe(promised.promisedAt!.getTime());
 
@@ -565,7 +494,6 @@ describe("HTTP routes", () => {
     signIn();
     expect((await call(draftRoute, "/api/shops/registration-draft")).body).toBeNull();
     await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
-    await saveDraftDetails({ actor: owner, details: details() });
 
     const no = await call(documentsRoute, "/api/shops/registration-draft/documents", { method: "POST", body: { docType: "UDYAM", has: false } });
     expect(no.status).toBe(200);
@@ -579,7 +507,10 @@ describe("HTTP routes", () => {
     const early = await call(submitRoute, "/api/shops/registration-draft/submit", { method: "POST" });
     expect(early.status).toBe(409);
     const resumed = await call(draftRoute, "/api/shops/registration-draft");
-    expect(resumed.body.nextStep).toBe("SHOP_ACT");
+    expect(resumed.body.nextStep).toBe("DETAILS");
+    const saved = await call(detailsRoute, "/api/shops/registration-draft/details", { method: "POST", body: { ...details(), categoryIds: undefined } });
+    expect(saved.status).toBe(200);
+    expect(saved.body.nextStep).toBe("REVIEW");
   });
 });
 
