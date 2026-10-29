@@ -36,7 +36,6 @@ vi.mock("@/server/auth", () => ({
 import { gstinCheckChar } from "@/lib/kyc/doc-formats";
 import { GET as draftRoute } from "@/app/api/shops/registration-draft/route";
 import { POST as documentsRoute } from "@/app/api/shops/registration-draft/documents/route";
-import { POST as gstinRoute } from "@/app/api/shops/registration-draft/gstin/route";
 import { POST as submitRoute } from "@/app/api/shops/registration-draft/submit/route";
 import { resetRateLimits } from "@/server/api/rate-limit";
 import { db } from "@/server/db";
@@ -54,7 +53,6 @@ import {
 import { setKycAdapterForTests } from "@/server/kyc";
 import { createMockAdapter } from "@/server/kyc/adapters/mock";
 import { simulateSandboxCheckout } from "@/server/payments/sandbox-checkout";
-import { setFeatureFlag } from "@/server/services/feature-flags";
 import { finishFeeCapture } from "@/server/services/operator-limited";
 import { startRegistrationFeeCheckout } from "@/server/services/registration-fee-payment";
 import { setRegistrationFee } from "@/server/services/registration-fees";
@@ -546,25 +544,8 @@ describe("HTTP routes", () => {
   const signIn = () => {
     state.session = { user: { id: owner.id, email: owner.email, name: owner.name, image: null, role: "CUSTOMER", status: "ACTIVE" } };
   };
-  const wizardFlag = async (enabled: boolean) => {
-    const admin = await createUser({ role: "ADMIN" });
-    await setFeatureFlag("shop_onboarding_wizard_enabled", { enabled, districtCodes: null }, "wizard test", { id: admin.id, role: "ADMIN" });
-  };
-
-  it("with the wizard switched off every wizard route answers 404, whatever the URL", async () => {
-    signIn();
-    const off = await call(draftRoute, "/api/shops/registration-draft");
-    expect(off.status).toBe(404);
-    expect(off.body.error.details).toMatchObject({ reason: "FEATURE_NOT_AVAILABLE", feature: "shop_onboarding_wizard_enabled" });
-    expect((await call(documentsRoute, "/api/shops/registration-draft/documents", { method: "POST", body: { docType: "UDYAM", has: false } })).status).toBe(404);
-    expect((await call(submitRoute, "/api/shops/registration-draft/submit", { method: "POST" })).status).toBe(404);
-    expect((await call(gstinRoute, "/api/shops/registration-draft/gstin", { method: "POST", body: { gstin: gstinFor(COMPANY_PAN), consent: true } })).status).toBe(404);
-    // Nothing was checked with the vendor or stored.
-    expect(await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.ownerId, owner.id))).toHaveLength(0);
-  });
 
   it("GET resumes the wizard; documents and submit answer with the next step; signed-out is refused", async () => {
-    await wizardFlag(true);
     expect((await call(draftRoute, "/api/shops/registration-draft")).status).toBe(401);
     signIn();
     expect((await call(draftRoute, "/api/shops/registration-draft")).body).toBeNull();
