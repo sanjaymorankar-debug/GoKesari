@@ -49,10 +49,12 @@ import {
   type Shop,
   type ShopRegistrationDraft,
   type ShopRegistrationDraftCheck,
+  type UserRole,
 } from "@/server/db/schema";
 import { recordShopAttributionSafely } from "@/server/dealers/attribution";
 import { verifyDocument } from "@/server/kyc";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
+import { featureNotAvailable, isFeatureEnabled } from "./feature-flags";
 import { assertRegistrationReferralCode, attributeRegistrationReferral } from "./referral-requests";
 import { registrationFeeDue } from "./registration-fee-payment";
 import { applyDocumentChecks, type ShopFacts } from "./seller-verification-checks";
@@ -83,6 +85,34 @@ import { autoApproveShopIfReady, registerShop } from "./shops";
 /* ---------------------------------------------------------------- types */
 
 /** The shop details step. Name and address arrive pre-filled from the GST record; the owner may edit them. */
+
+/* ================================================================ who may use it */
+
+/**
+ * The wizard is open to everyone only while shop_onboarding_wizard_enabled is
+ * on. While it is off only an admin may use it (testing on staging): a wizard
+ * shop goes live right after payment (owner decision B), so a link such as
+ * /shop/register?wizard=1 must not open that route before the flag is on.
+ */
+export async function wizardAvailableFor(user: { role: UserRole }): Promise<boolean> {
+  return user.role === "ADMIN" || (await isFeatureEnabled("shop_onboarding_wizard_enabled"));
+}
+
+/** Throws "not available" (404) unless the wizard is open to this user — for the wizard's routes. */
+export async function requireWizardAvailable(user: { role: UserRole }): Promise<void> {
+  if (!(await wizardAvailableFor(user))) throw featureNotAvailable("shop_onboarding_wizard_enabled");
+}
+
+/**
+ * Add my shop: the wizard or the long form. ?form=1 always shows the long form;
+ * with the flag on everyone gets the wizard; with it off an admin gets it with ?wizard=1.
+ */
+export async function showsWizard(user: { role: UserRole }, params: { wizard?: string | string[]; form?: string | string[] }): Promise<boolean> {
+  if (params.form === "1") return false;
+  if (await isFeatureEnabled("shop_onboarding_wizard_enabled")) return true;
+  return params.wizard === "1" && user.role === "ADMIN";
+}
+
 export interface DraftShopDetails {
   name: string;
   ownerName: string;

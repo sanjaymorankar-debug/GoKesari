@@ -11,7 +11,7 @@ import { listShopCategories } from "@/server/services/shop-categories";
 import { listShopsForOwner } from "@/server/services/shops";
 import { getRule } from "@/server/services/settings";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
-import { getWizardDraft } from "@/server/services/shop-registration-wizard";
+import { getWizardDraft, showsWizard } from "@/server/services/shop-registration-wizard";
 
 export const metadata = { title: "Add my shop" };
 export const dynamic = "force-dynamic";
@@ -48,10 +48,9 @@ export default async function RegisterShopPage({
     // docs/dealer-programme: the optional Employee ID / name field exists only while the programme is on.
     isFeatureEnabled("dealer_programme_enabled"),
   ]);
-  // docs/shop-onboarding-wizard-2026-10: the step-by-step wizard when its flag is on (or ?wizard=1, for
-  // testing on staging); ?form=1 keeps the long form reachable for operators.
-  const wizardOn = params.form !== "1" && (params.wizard === "1" || (await isFeatureEnabled("shop_onboarding_wizard_enabled")));
-  if (wizardOn) {
+  // docs/shop-onboarding-wizard-2026-10: the step-by-step wizard when its flag is on; while it is off only
+  // an admin gets it, with ?wizard=1 (testing on staging). ?form=1 keeps the long form reachable for operators.
+  if (await showsWizard(user, params)) {
     const draft = await getWizardDraft(user);
     return (
       <div className="mx-auto max-w-2xl">
