@@ -12,6 +12,7 @@ import { ok, parseBody, route } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
+import { requireFeature } from "@/server/services/feature-flags";
 import { answerDraftDocument, submitDraftDocument } from "@/server/services/shop-registration-wizard";
 
 export const dynamic = "force-dynamic";
@@ -27,6 +28,8 @@ const schema = z.union([
 
 export const POST = route(async (request: NextRequest) => {
   const user = await requirePermission(PERMISSIONS.SHOP_CREATE);
+  // The wizard exists only while its flag is on (404 otherwise), whatever the URL.
+  await requireFeature("shop_onboarding_wizard_enabled");
   enforceRateLimit(`registration-draft:${user.id}`, RATE_LIMITS.MUTATION);
   const body = await parseBody(request, schema);
   if ("has" in body) return ok(await answerDraftDocument({ actor: user, docType: body.docType, has: false }));

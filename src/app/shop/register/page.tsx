@@ -19,7 +19,7 @@ export const dynamic = "force-dynamic";
 export default async function RegisterShopPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ref?: string | string[]; wizard?: string | string[]; form?: string | string[] }>;
+  searchParams: Promise<{ ref?: string | string[]; form?: string | string[] }>;
 }) {
   const params = await searchParams;
   // docs/dealer-programme: a dealer's share link (/shop/register?ref=CODE) fills in the referral code.
@@ -48,9 +48,9 @@ export default async function RegisterShopPage({
     // docs/dealer-programme: the optional Employee ID / name field exists only while the programme is on.
     isFeatureEnabled("dealer_programme_enabled"),
   ]);
-  // docs/shop-onboarding-wizard-2026-10: the step-by-step wizard when its flag is on (or ?wizard=1, for
-  // testing on staging); ?form=1 keeps the long form reachable for operators.
-  const wizardOn = params.form !== "1" && (params.wizard === "1" || (await isFeatureEnabled("shop_onboarding_wizard_enabled")));
+  // docs/shop-onboarding-wizard-2026-10: the step-by-step wizard only while its flag is on (switch it on
+  // for test.gokesari.com in Admin → Feature flags); ?form=1 keeps the long form reachable for operators.
+  const wizardOn = params.form !== "1" && (await isFeatureEnabled("shop_onboarding_wizard_enabled"));
   if (wizardOn) {
     const draft = await getWizardDraft(user);
     return (
