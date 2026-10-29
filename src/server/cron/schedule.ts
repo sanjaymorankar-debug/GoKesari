@@ -20,6 +20,7 @@
 import { addDays, isoWeekday, todayIn } from "@/lib/dates";
 import { getEnv } from "@/lib/env";
 import { getRule } from "@/server/services/settings";
+import { runSingle } from "./single-run";
 
 const SYSTEM = { id: null, role: null };
 
@@ -204,14 +205,17 @@ async function runAll(tag: string, jobs: readonly Job[]) {
   return summary;
 }
 
+const MINUTE = 60_000;
+
+/** Each entry point runs one copy at a time (src/server/cron/single-run.ts); a run older than this is taken as hung. */
 export function runEveryMinute(now: Date = new Date()) {
-  return runAll("every-minute", dueEveryMinute(now));
+  return runSingle("every-minute", 10 * MINUTE, () => runAll("every-minute", dueEveryMinute(now)));
 }
 
 export function runHourly() {
-  return runAll("hourly", HOURLY);
+  return runSingle("hourly", 50 * MINUTE, () => runAll("hourly", HOURLY));
 }
 
 export function runDaily(now: Date = new Date()) {
-  return runAll("daily", dueDaily(todayIn(getEnv().APP_TIMEZONE, now)));
+  return runSingle("daily", 6 * 60 * MINUTE, () => runAll("daily", dueDaily(todayIn(getEnv().APP_TIMEZONE, now))));
 }
