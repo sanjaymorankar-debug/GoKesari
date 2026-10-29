@@ -4,7 +4,7 @@
  * endpoint guarded by a secret refuses a call without it. Nothing here can
  * create or change anything — each request is one the server must refuse.
  */
-import { anonymous, call, callApp, fromApp, pace, refusesGuest, type Answer } from "../lib/http";
+import { anonymous, call, callApp, fromApp, isSignInShell, pace, refusesGuest, type Answer } from "../lib/http";
 import { expect, qa } from "../lib/record";
 import { apiRoutes, fill, isDynamic, NO_SUCH_ID, pagePaths, PUBLIC_PAGES, PUBLIC_WRITES, SECRET_PREFIXES } from "../lib/routes";
 import { IS_PROD, IS_REMOTE, TARGET } from "../lib/target";
@@ -28,7 +28,7 @@ qa(["TC-RBAC-002", "TC-AUTH-033"], "guest is sent to sign-in from every signed-i
     await pace();
     let res = await call(guest, "GET", fill(path));
     // A guest must never see a signed-in page: sign-in redirect, 401/403, or 404 for an id that does not exist.
-    const closedToGuest = (r: Answer) => refusesGuest(r) || (isDynamic(path) && r.status === 404);
+    const closedToGuest = (r: Answer) => refusesGuest(r) || isSignInShell(path, r) || (isDynamic(path) && r.status === 404);
     if (!closedToGuest(res) && IS_REMOTE) {
       // A deployed site can answer oddly for a moment (a host redirect while the app restarts);
       // only an answer that is still wrong on a second look counts.
@@ -123,7 +123,8 @@ qa(["TC-DSP-022", "TC-SEC-001"], "cron endpoints refuse calls with no token and 
       // GET checks the secret without the shared cron rate limit, so it costs the real cron runs nothing.
       for (const headers of [{}, { authorization: "Bearer wrong-cron-secret" }] as Record<string, string>[]) {
         const res = await call(guest, "GET", fill(r.path), undefined, { headers });
-        if (res.status !== 401 && res.status !== 403) bad.push(`GET ${r.path} ${Object.keys(headers).length ? "wrong token" : "no token"} → ${res.status}`);
+        // 410: the retired legacy per-job routes (src/proxy.ts) refuse every caller, which is a refusal too.
+        if (res.status !== 401 && res.status !== 403 && res.status !== 410) bad.push(`GET ${r.path} ${Object.keys(headers).length ? "wrong token" : "no token"} → ${res.status}`);
       }
     } else if (r.methods.includes("POST")) {
       // POST-only crons: one wrong-token call each, paced well under the 30-a-minute cron limit
@@ -131,7 +132,7 @@ qa(["TC-DSP-022", "TC-SEC-001"], "cron endpoints refuse calls with no token and 
       if (posts > 0) await new Promise((resolve) => setTimeout(resolve, 4000));
       posts += 1;
       const res = await call(guest, "POST", fill(r.path), {}, { headers: { authorization: "Bearer wrong-cron-secret" } });
-      if (res.status !== 401 && res.status !== 403) bad.push(`POST ${r.path} wrong token → ${res.status}`);
+      if (res.status !== 401 && res.status !== 403 && res.status !== 410) bad.push(`POST ${r.path} wrong token → ${res.status}`);
     }
   }
   await guest.dispose();

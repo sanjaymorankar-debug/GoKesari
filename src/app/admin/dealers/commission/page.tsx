@@ -39,7 +39,7 @@ export default async function DealerCommissionPage() {
       <Link href="/admin/dealers" className="mb-2 inline-flex min-h-11 items-center text-sm font-semibold text-kesari-800 hover:underline">
         ← Dealers
       </Link>
-      <PageHeader title="Dealer commission" description="Rules by milestone, the per-shop cap, the rating bonus, and the ledger from earned to paid. Only an admin changes them; every change needs a reason and is logged." />
+      <PageHeader title="Dealer commission" description="The base commission % and how the rating moves it, the per-shop cap, rating slabs, and the ledger from earned to paid. Only an admin changes them; every change needs a reason and is logged." />
       <CommissionAdmin
         isAdmin={user.role === "ADMIN"}
         rules={plain(rules)}

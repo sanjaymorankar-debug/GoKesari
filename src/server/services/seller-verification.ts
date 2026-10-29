@@ -31,7 +31,7 @@ import {
   type SellerVerificationStatus,
 } from "@/lib/kyc/doc-formats";
 import { AppError, conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
-import { decryptBytes, decryptSecret, docBlindIndex, encryptBytes, encryptSecret } from "@/lib/pan-crypto";
+import { decryptBytes, decryptSecret, docBlindIndex, encryptBytes, encryptPan, encryptSecret, panBlindIndex } from "@/lib/pan-crypto";
 import { isFoodBusinessShopType } from "@/lib/shop-types";
 import { listShopTypes, loadShopTypeRegistry } from "./shop-types";
 import { runOrDefer, type Defer } from "@/server/api/defer";
@@ -64,6 +64,7 @@ import {
   type ShopFacts,
 } from "./seller-verification-checks";
 import { getRule } from "./settings";
+import { assertGstinNotHeldByOtherOwner, assertShopActNotHeldByOtherShop, gstinHeldByOtherOwner, shopActHeldByOtherShop } from "./shop-duplicates";
 
 export { SELLER_VERIFICATION_CONSENT_VERSION };
 
@@ -106,7 +107,8 @@ export function toView(row: SellerVerification): SellerVerificationView {
     id: row.id,
     docType: row.docType,
     status: row.status,
-    numberMasked: row.numberMasked,
+    // A decision from the older GST/PAN queue keeps only the mask, in its details (recordLegacyGstPanDecision).
+    numberMasked: row.numberMasked ?? (typeof details.numberMasked === "string" ? details.numberMasked : null),
     verifiedName: row.verifiedName,
     nameMatchScore: row.nameMatchScore,
     validUntil: row.validUntil,
@@ -396,6 +398,15 @@ async function runCheck(
     status = "MANUAL_REVIEW";
     errorCode = "pan_gstin_mismatch";
   }
+  // The same rule as at submission, for a number another shop took meanwhile (or before the rule).
+  if (status === "VERIFIED" && docType === "GSTIN" && (await gstinHeldByOtherOwner(doc.normalized, shop.ownerId))) {
+    status = "MANUAL_REVIEW";
+    errorCode = "gstin_other_owner";
+  }
+  if (status === "VERIFIED" && docType === "SHOP_ACT" && (await shopActHeldByOtherShop(doc.normalized, shop.id))) {
+    status = "MANUAL_REVIEW";
+    errorCode = "shop_act_other_shop";
+  }
   const details: Record<string, unknown> = {
     ...recordDetails(result.record),
     panLinked: checked.checks.panLinked ?? panMatchesShopGstin,
@@ -519,6 +530,46 @@ async function writeThrough(
       .where(and(eq(shops.id, shopId), eq(shops.gstin, normalized)));
   } else if (docType === "FSSAI" && status === "VERIFIED" && normalized) {
     await tx.update(shops).set({ fssaiLicenseNumber: normalized, updatedAt: now }).where(eq(shops.id, shopId));
+  } else if (docType === "PAN" && status === "VERIFIED" && normalized) {
+    // Owner decision, 29 Oct 2026: these records are the source; the shop's own PAN columns
+    // (the shop profile, invoices, the duplicate guard) carry what was verified here.
+    await tx
+      .update(shops)
+      .set({
+        panStatus: "VERIFIED",
+        panNumberEncrypted: encryptPan(normalized),
+        panLast4: normalized.slice(-4),
+        panHash: panBlindIndex(normalized),
+        panHolderName: record?.name ?? sql`${shops.panHolderName}`,
+        panVerificationSource: reviewerId ? "ADMIN_VERIFIED" : "PROVIDER_VERIFIED",
+        panVerifiedAt: now,
+        panVerifiedBy: reviewerId,
+        updatedAt: now,
+      })
+      .where(eq(shops.id, shopId));
+  } else if (docType === "PAN" && (status === "FAILED" || status === "EXPIRED") && normalized) {
+    await tx
+      .update(shops)
+      .set({ panStatus: "VERIFICATION_FAILED", updatedAt: now })
+      .where(and(eq(shops.id, shopId), eq(shops.panHash, panBlindIndex(normalized))));
+  } else if (docType === "UDYAM" && status === "VERIFIED" && normalized) {
+    await tx.update(shops).set({ udyamNumber: normalized, updatedAt: now }).where(eq(shops.id, shopId));
+  } else if (docType === "SHOP_ACT" && status === "VERIFIED" && normalized) {
+    // `normalized` is the licence's matching key; the number as typed stays when it is the same licence.
+    // Never over another live shop's licence (shops_shop_act_key_active_unique): that one is a person's call.
+    await tx
+      .update(shops)
+      .set({
+        shopActNumber: sql`CASE WHEN ${shops.shopActKey} = ${normalized} THEN ${shops.shopActNumber} ELSE ${normalized} END`,
+        shopActKey: normalized,
+        updatedAt: now,
+      })
+      .where(
+        and(
+          eq(shops.id, shopId),
+          sql`NOT EXISTS (SELECT 1 FROM ${shops} o WHERE o.shop_act_key = ${normalized} AND o.id <> ${shopId} AND o.deleted_at IS NULL AND o.status <> 'REJECTED')`,
+        ),
+      );
   }
 }
 
@@ -542,6 +593,8 @@ const REVIEW_REASONS: Record<string, string> = {
   consistency_below_threshold: "the shop's documents disagree with each other",
   certificate_review: "a Shop Act certificate was uploaded — compare it with the number typed",
   gst_declaration_review: "the seller declared the shop is not GST-registered",
+  gstin_other_owner: "another account's shop uses this GSTIN",
+  shop_act_other_shop: "another shop uses this Shop Act licence",
 };
 
 /**
@@ -602,6 +655,9 @@ export async function submitSellerDocument(input: SubmitDocumentInput): Promise<
   }
   const shop = await loadShopFor(shopId, actor);
   const ip = input.ipAddress ?? null;
+  // Owner decision, 29 Oct 2026 (services/shop-duplicates.ts): another owner's GSTIN, or another shop's Shop Act licence.
+  if (docType === "GSTIN") await assertGstinNotHeldByOtherOwner(parsed.value.normalized, shop.ownerId);
+  if (docType === "SHOP_ACT") await assertShopActNotHeldByOtherShop(parsed.value.normalized, shop.id);
 
   const claim = await claimCheck({
     shopId,
@@ -1207,6 +1263,82 @@ export async function adminDecideVerification(
     followUp().catch((error) => console.error("[seller-verification] decision follow-up failed", row.id, error));
   await runOrDefer(runFollowUp, options.defer);
   return toView(updated);
+}
+
+/**
+ * The older GST/PAN screens (services/gst-pan-verification.ts: the admin GST/PAN queue) decide on
+ * the shop row. Owner decision, 29 Oct 2026: these records are the source, so the same decision is
+ * recorded here as a reviewer's, on the document's row. The number itself is kept only when the owner
+ * gave this same number here with consent; otherwise the row holds its mask in `details` (and, for a
+ * GSTIN, the blind index of its PAN, which the PAN cross-check uses) and no number. A check still running for the row is overtaken (its result no
+ * longer matches the idempotency key). Instant approval, the documents follow-up and the KYC stage
+ * then see what the reviewer decided. Followed by the shop's approval check when approved.
+ */
+export async function recordLegacyGstPanDecision(input: {
+  shopId: string;
+  docType: "GSTIN" | "PAN";
+  number: string;
+  approve: boolean;
+  reason: string | null;
+  actor: Actor;
+}): Promise<void> {
+  const parsed = parseSellerDocNumber(input.docType, input.number);
+  if (!parsed.ok) return; // a number the older screens took before today's format checks: nothing to mirror
+  const doc = parsed.value;
+  const hash = docBlindIndex(input.docType, doc.normalized);
+  const toStatus: SellerVerificationStatus = input.approve ? "VERIFIED" : "FAILED";
+  const now = new Date();
+  await db.transaction(async (tx) => {
+    await tx.insert(sellerVerifications).values({ shopId: input.shopId, docType: input.docType }).onConflictDoNothing(); // the only unique key is (shop_id, doc_type)
+    const [current] = await tx
+      .select()
+      .from(sellerVerifications)
+      .where(and(eq(sellerVerifications.shopId, input.shopId), eq(sellerVerifications.docType, input.docType)))
+      .for("update");
+    const sameNumber = current.numberHash === hash;
+    const keepNumber = sameNumber && current.consentGivenAt !== null && current.numberEncrypted !== null;
+    const details = {
+      ...(sameNumber ? (current.details as Record<string, unknown>) : {}),
+      ...(input.docType === "GSTIN" && doc.gstEmbeddedPan ? { embeddedPanHash: docBlindIndex("PAN", doc.gstEmbeddedPan) } : {}),
+      decidedOn: "GST_PAN_QUEUE",
+    };
+    await tx
+      .update(sellerVerifications)
+      .set({
+        status: toStatus,
+        // The older form asked no verification consent: the number is kept only where the owner gave it
+        // for this record (same number, consent on file), so no re-check sends it to a source without
+        // one. Otherwise the mask goes in the details (number columns are all-or-none).
+        ...(keepNumber ? {} : { numberEncrypted: null, numberMasked: null, numberHash: null }),
+        details: keepNumber ? details : { ...details, numberMasked: doc.masked },
+        idempotencyKey: null,
+        verifiedAt: input.approve ? now : null,
+        lastErrorCode: input.approve ? null : "rejected_by_admin",
+        reviewerId: input.actor.id,
+        reviewedAt: now,
+        reviewNote: input.reason,
+        submittedAt: current.submittedAt ?? now,
+        updatedAt: now,
+      })
+      .where(eq(sellerVerifications.id, current.id));
+    await recordEvent(tx, {
+      verificationId: current.id,
+      shopId: input.shopId,
+      docType: input.docType,
+      ...actorFields(input.actor, null),
+      eventType: input.approve ? "ADMIN_APPROVED" : "ADMIN_REJECTED",
+      fromStatus: current.status,
+      toStatus,
+      note: input.reason ?? "Decided on the GST/PAN queue",
+      details: { numberMasked: doc.masked, decidedOn: "GST_PAN_QUEUE" },
+    });
+    await writeThrough(tx, input.shopId, input.docType, toStatus, doc.normalized, null, input.actor.id);
+  });
+  if (input.approve) {
+    await autoApproveShopIfReady(input.shopId).catch((error) =>
+      console.error("[seller-verification] auto-approval check failed", input.shopId, error),
+    );
+  }
 }
 
 /**

@@ -5,7 +5,7 @@
 import { ok, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
-import { applicableRates, commissionSummary, listLedger, listPayouts, ratingView } from "@/server/dealers/commission";
+import { applicableRates, commissionSummary, dealerRateView, listLedger, listPayouts, ratingView } from "@/server/dealers/commission";
 import { requireDealerProgramme } from "@/server/dealers/http";
 import { getDealerForUser } from "@/server/dealers/service";
 import { notFound } from "@/lib/errors";
@@ -17,12 +17,14 @@ export const GET = route(async () => {
   const user = await requirePermission(PERMISSIONS.DEALER_PORTAL);
   const dealer = await getDealerForUser(user.id);
   if (!dealer) throw notFound("Dealer");
-  const [summary, entries, payouts, rates, rating] = await Promise.all([
+  const [summary, entries, payouts, rates, rating, rate] = await Promise.all([
     commissionSummary(dealer.id),
     listLedger({ dealerId: dealer.id }),
     listPayouts(dealer.id),
     applicableRates(),
     ratingView(dealer.id),
+    dealerRateView(dealer.id),
   ]);
-  return ok({ summary, entries, payouts, rates, rating });
+  // rate: the dealer's own commission % (base % model); rates: the milestone rules (earlier model).
+  return ok({ summary, entries, payouts, rates, rating, rate });
 });

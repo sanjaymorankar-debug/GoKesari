@@ -422,6 +422,8 @@ export default async function ShopManagePage({ params }: { params: Promise<{ sec
                 gstin: shop.gstin,
                 panStatus: shop.panStatus,
                 panMasked: getMaskedPan(shop),
+                udyamNumber: shop.udyamNumber,
+                shopActNumber: shop.shopActNumber,
               }}
             />
           </div>
