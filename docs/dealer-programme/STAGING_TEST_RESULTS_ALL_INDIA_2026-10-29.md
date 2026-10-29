@@ -2,6 +2,7 @@
 
 - **Site:** test.gokesari.com only. Production was not touched.
 - **When:** 29 Oct 2026, about 10:55–11:10 IST.
+- **Production:** released on 29 Oct in "Release 29 Oct (3)" (`88d288b`, by the release session), flags off; post-deploy check passed 07:42 UTC.
 - **Build on staging:** `5f134ad` (all-India dealer programme + seller-verification fixes, merged
   with staging at `f2756b6`). Migration `0114_india_states` (seller database).
 - **Tester:** Claude, API calls and headless Chrome with the saved staging admin, operator and
@@ -102,4 +103,4 @@ integration tests that ran locally and in CI on both database layouts
   1,090 / 1,092; full suite 2,919 / 2,922. The failures are the three Excel-file tests that also
   fail on this Mac without these changes; one database-split suite timed out locally during
   setup (local slowness).
-- CI on `f501049`: passed (including the two-database layout). The Test database workflow passed on `f501049` and `5f134ad`.
+- CI passed on `f501049`, `5f134ad` and `dc4718f` (including the two-database layout; the `dc4718f` test job took 60 min, twice the usual, but passed). The Test database workflow passed on `f501049` and `5f134ad`.
