@@ -54,7 +54,7 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
   paid_support_services_enabled:
     "The Support Services page for shop owners: general support, product upload and price update, with the charges set by an admin.",
   shop_onboarding_wizard_enabled:
-    "Add my shop opens the step-by-step wizard (GSTIN → details → Udyam → FSSAI → Shop Act → map → payment). A wizard shop whose GST/PAN checks pass goes live right after payment in every district, with its Shop Act reviewed by an admin afterwards. Off: the long form. The wizard is always reachable at /shop/register?wizard=1 for testing.",
+    "Add my shop opens the step-by-step wizard (GSTIN → details → Udyam → FSSAI → Shop Act → map → payment). A wizard shop whose GST/PAN checks pass goes live right after payment in every district, with its Shop Act reviewed by an admin afterwards. Off: the long form for everyone, and the wizard's steps are refused; only an admin can open the wizard, at /shop/register?wizard=1, for testing.",
 };
 
 export interface FeatureFlagView {

@@ -66,6 +66,21 @@ Re-run after the fixes, both layouts: `onboarding-wizard-step2`, `seller-verific
 
 CI (`test` and `test-split` jobs) runs on its own PostgreSQL and is the deciding check once the branch is pushed.
 
+## 29 Oct 2026 — `?wizard=1` gated by the flag (branch `claude/wizard-link-gate`)
+
+Before: `/shop/register?wizard=1` opened the wizard for anyone, even with `shop_onboarding_wizard_enabled`
+off, so a shared link could create a shop that goes live straight after payment (decision B) before
+the lawyer/CA sign-off. Now the page and the wizard's routes (details, documents, location, submit)
+follow the flag; while it is off only an admin can use the wizard.
+
+| Case | One database | Two databases |
+|---|---|---|
+| Flag off, not an admin: `?wizard=1` → long form; details / documents / location / submit → 404 `FEATURE_NOT_AVAILABLE`, nothing saved, no shop | Pass | Pass |
+| Flag off, an admin: `?wizard=1` → wizard (without it, or with `?form=1`, the long form); steps work | Pass | Pass |
+| Flag on: everyone gets the wizard, `?form=1` still the long form; steps work | Pass | Pass |
+
+`onboarding-wizard-step2` (now 25 tests), `onboarding-wizard-step1`, `dealer-step1-flags-geo`: **58 / 58 on each layout**.
+
 ## Not covered here
 
 - A real Cashfree sandbox payment on test.gokesari.com (the "Sandbox payment" workflow) — after the
