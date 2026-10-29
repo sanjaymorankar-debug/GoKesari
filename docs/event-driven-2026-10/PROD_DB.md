@@ -27,8 +27,9 @@ from `main`, and choose one of two actions:
 - **The password goes only where it is needed.** The production URL is given to
   the guard, the state checks and the migrate step only. The package install
   runs without it, and without package install scripts.
-- **One at a time.** Production runs queue; the migrator takes the same
-  Postgres lock as Hostinger's `MIGRATE_ON_BUILD`, so the two cannot collide.
+- **One at a time.** Production runs queue, and the migrator takes a Postgres
+  lock. It is the only migrator for production: Hostinger's builds no longer
+  migrate (Blocker #71; DEPLOYMENT.md §4).
 
 **Accepted risk (GitHub Free, private repository).** Without environments,
 `PROD_DATABASE_URL` is a repository secret: any workflow on any branch can
@@ -66,8 +67,8 @@ goes to `main` ahead of the first release that uses it:
   `scripts/prod-db/` and this file. Merging it redeploys gokesari.com with
   the application code unchanged. Ask Claude to prepare it when you are ready.
 
-Until then, production is migrated as before (by hand, or with
-`MIGRATE_ON_BUILD`).
+Until then, production is migrated by hand (`npm run db:migrate`, with a
+backup). Hostinger's build no longer migrates (Blocker #71; DEPLOYMENT.md §4).
 
 ## Releasing staging → main (every release that adds migrations)
 

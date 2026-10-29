@@ -1,9 +1,11 @@
 /**
  * scripts/migrate-on-build.mjs — the first step of `npm run build`.
  *
- * Off unless MIGRATE_ON_BUILD=true (the build is then exactly as before). On,
- * it applies pending migrations; any failure exits non-zero so `next build`
- * never runs, and drizzle's single transaction leaves the database as it was.
+ * Off unless MIGRATE_ON_BUILD=true and it runs inside GitHub Actions — the
+ * "Test database" / "Production database" workflows. A host's build (Hostinger
+ * deploy or PR preview) always skips (Blocker #71). On, it applies pending
+ * migrations; any failure exits non-zero, and drizzle's single transaction
+ * leaves the database as it was.
  *
  * Runs the real script in a child process against a throwaway database, with a
  * clean environment so a developer's own variables cannot leak in.
@@ -26,11 +28,15 @@ tempUrl.pathname = `/${dbName}`;
 const admin = postgres(baseUrl.toString(), { max: 1, onnotice: () => {} });
 let created = false;
 
-function runScript(env: { MIGRATE_ON_BUILD: string; DATABASE_URL: string }) {
+/**
+ * The script as the workflows run it: inside GitHub Actions (GITHUB_ACTIONS=true)
+ * unless the test passes GITHUB_ACTIONS itself — "" is a host's build (Hostinger).
+ */
+function runScript(env: { MIGRATE_ON_BUILD: string; DATABASE_URL: string; GITHUB_ACTIONS?: string }) {
   const res = spawnSync(process.execPath, ["scripts/migrate-on-build.mjs"], {
     cwd: process.cwd(),
     // NODE_ENV as on the host, where the build runs in production mode.
-    env: { PATH: process.env.PATH, NODE_ENV: "production", ...env },
+    env: { PATH: process.env.PATH, NODE_ENV: "production", GITHUB_ACTIONS: "true", ...env },
     encoding: "utf8",
     timeout: 120_000,
   });
@@ -42,7 +48,7 @@ function runScriptAsync(env: { MIGRATE_ON_BUILD: string; DATABASE_URL: string })
   return new Promise<{ code: number | null; out: string }>((resolve) => {
     const child = spawn(process.execPath, ["scripts/migrate-on-build.mjs"], {
       cwd: process.cwd(),
-      env: { PATH: process.env.PATH, NODE_ENV: "production", ...env },
+      env: { PATH: process.env.PATH, NODE_ENV: "production", GITHUB_ACTIONS: "true", ...env },
     });
     let out = "";
     child.stdout.on("data", (d) => (out += d));
@@ -163,15 +169,27 @@ describe("migrate-on-build", () => {
     expect(await journalCount()).toBe(0);
   });
 
+  it("Blocker #71: outside GitHub Actions (a Hostinger deploy or PR preview) it applies nothing, even with MIGRATE_ON_BUILD=true, and the build goes on", async (ctx) => {
+    if (!created) ctx.skip();
+    for (const value of ["", "false", "1"]) {
+      const res = runScript({ MIGRATE_ON_BUILD: "true", DATABASE_URL: tempUrl.toString(), GITHUB_ACTIONS: value });
+      expect(res.code).toBe(0);
+      expect(res.out).toContain("[migrate-on-build] skipped: not running in GitHub Actions");
+    }
+    // Not even a missing DATABASE_URL stops a host's build.
+    expect(runScript({ MIGRATE_ON_BUILD: "true", DATABASE_URL: "", GITHUB_ACTIONS: "" }).code).toBe(0);
+    expect(await journalCount()).toBe(0);
+  });
+
   it("stops the build when switched on without a DATABASE_URL", () => {
     const res = runScript({ MIGRATE_ON_BUILD: "true", DATABASE_URL: "" });
     expect(res.code).toBe(1);
     expect(res.out).toContain("DATABASE_URL is not set");
   });
 
-  it("migrates an empty database, then is a no-op on the next build", async (ctx) => {
+  it("inside GitHub Actions (the Test / Production database workflows) it migrates an empty database, then is a no-op on the next run", async (ctx) => {
     if (!created) ctx.skip();
-    const first = runScript({ MIGRATE_ON_BUILD: "true", DATABASE_URL: tempUrl.toString() });
+    const first = runScript({ MIGRATE_ON_BUILD: "true", DATABASE_URL: tempUrl.toString(), GITHUB_ACTIONS: "true" });
     expect(first.code).toBe(0);
     expect(first.out).toContain(`applied ${journal.entries.length} new migration(s)`);
     if (tempUrl.password) expect(first.out).not.toContain(tempUrl.password);

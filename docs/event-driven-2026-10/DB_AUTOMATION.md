@@ -69,11 +69,12 @@ existed, it stops at the guard and changes nothing: open that run and press
 - **Backup first.** Every change is preceded by a `pg_dump` (custom format),
   kept 14 days as a workflow artifact. A backup under 1 KiB stops the run
   before any change.
-- **One at a time.** Runs queue rather than overlap, and both migration
-  runners — this workflow and Hostinger's `MIGRATE_ON_BUILD` — take the same
-  Postgres lock, so they can safely start at the same moment: one applies the
-  migrations, the other finds nothing left to do. Keeping `MIGRATE_ON_BUILD`
-  on as well is therefore fine.
+- **One at a time.** Runs queue rather than overlap, and the migrator takes a
+  Postgres lock, so two runs that start at the same moment are safe: one
+  applies the migrations, the other finds nothing left to do.
+- **The only migrator for the test site.** Hostinger's builds no longer
+  migrate (Blocker #71: PR previews migrated the real databases before the PR
+  merged); `MIGRATE_ON_BUILD` in hPanel has no effect. DEPLOYMENT.md §4.
 - **Settings are not re-imposed.** The test settings are applied only when
   that file changes (or you run `settings`), so values you change later in
   Admin → Business rules stay as you set them.
