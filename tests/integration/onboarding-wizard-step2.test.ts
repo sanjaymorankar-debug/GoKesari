@@ -36,6 +36,8 @@ vi.mock("@/server/auth", () => ({
 import { gstinCheckChar } from "@/lib/kyc/doc-formats";
 import { GET as draftRoute } from "@/app/api/shops/registration-draft/route";
 import { POST as detailsRoute } from "@/app/api/shops/registration-draft/details/route";
+import { POST as gstinRoute } from "@/app/api/shops/registration-draft/gstin/route";
+import { POST as panRoute } from "@/app/api/shops/registration-draft/pan/route";
 import { POST as documentsRoute } from "@/app/api/shops/registration-draft/documents/route";
 import { POST as locationRoute } from "@/app/api/shops/registration-draft/location/route";
 import { POST as submitRoute } from "@/app/api/shops/registration-draft/submit/route";
@@ -611,6 +613,29 @@ describe("who may use the wizard (shop_onboarding_wizard_enabled)", () => {
     expect(draft.details).not.toHaveProperty("name");
     expect(draft.status).toBe("OPEN");
     expect(await db.select().from(shops).where(eq(shops.ownerId, owner.id))).toHaveLength(0);
+  });
+
+  it("flag off, not an admin: the step-1 GSTIN and PAN checks are refused too, before any government call (D-106)", async () => {
+    await setWizardFlag(false);
+    let sourceCalls = 0;
+    const mock = createMockAdapter();
+    setKycAdapterForTests({ ...mock, verify: async (req) => ((sourceCalls += 1), mock.verify(req)) });
+    as(owner, "CUSTOMER");
+    const gst = await call(gstinRoute, "/api/shops/registration-draft/gstin", { method: "POST", body: { gstin: gstinFor(COMPANY_PAN), consent: true } });
+    const pan = await call(panRoute, "/api/shops/registration-draft/pan", { method: "POST", body: { pan: PROPRIETOR_PAN, declaration: true, consent: true } });
+    for (const res of [gst, pan]) {
+      expect(res.status).toBe(404);
+      expect(res.body.error.details.reason).toBe("FEATURE_NOT_AVAILABLE");
+    }
+    expect(sourceCalls).toBe(0);
+    expect(await db.select().from(shopRegistrationDrafts).where(eq(shopRegistrationDrafts.ownerId, owner.id))).toHaveLength(0);
+
+    // An admin may still use them while the flag is off.
+    const a = await createUser({ role: "ADMIN" });
+    as({ id: a.id, email: a.email, name: a.name ?? null }, "ADMIN");
+    const allowed = await call(gstinRoute, "/api/shops/registration-draft/gstin", { method: "POST", body: { gstin: gstinFor(COMPANY_PAN), consent: true } });
+    expect(allowed.status).toBe(200);
+    expect(sourceCalls).toBeGreaterThan(0);
   });
 
   it("flag off, an admin: ?wizard=1 opens the wizard (without it, the long form) and the steps work", async () => {
