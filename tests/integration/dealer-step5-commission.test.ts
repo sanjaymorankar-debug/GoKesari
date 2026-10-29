@@ -369,12 +369,44 @@ describe("a shop approved without its documents (0109; owner, 28 Oct)", () => {
   });
 });
 
-describe("a shop whose fee an admin waived (approval queue, 28 Oct)", () => {
-  it("no percentage commission or rating bonus on a fee that was never collected", async () => {
+describe("a shop whose fee an admin waived (approval queue; owner, 29 Oct: no commission)", () => {
+  it("earns the dealer nothing at any milestone — not even the fixed amount — but still counts for the rating", async () => {
     const { dealer } = await newDealer("Rated", { rating: 6.5 });
     const shop = await attributedShop(dealer.id);
     await waiveRegistrationFee(shop.id, "pilot shop, fee waived", admin);
-    const [registered] = (await entries(shop.id)).filter((e) => e.milestone === "REGISTERED");
-    expect(registered).toMatchObject({ feePaise: 0, bonusPaise: 0, amountPaise: 10_000 });
+    await verifyAndList(shop.id);
+    await checkCommissionMilestones(shop.id);
+    await approveShop(shop.id, { classification: "GREEN" }, admin);
+    expect(await entries(shop.id)).toEqual([]);
+    const [attribution] = await db.select().from(shopAttributions).where(eq(shopAttributions.shopId, shop.id));
+    expect(attribution).toMatchObject({ status: "ACTIVE" });
+    expect(attribution.activatedAt).not.toBeNull();
+    const [d] = await db.select().from(dealers).where(eq(dealers.id, dealer.id));
+    expect(d.activatedShops).toBe(1);
+  });
+
+  it("reverses commission earned before the waiver, and the shop stays with its dealer", async () => {
+    const { dealer } = await newDealer();
+    const shop = await attributedShop(dealer.id);
+    await verifyAndList(shop.id);
+    await checkCommissionMilestones(shop.id);
+    expect(await amountsByMilestone(shop.id)).toEqual({ VERIFIED_CATALOGUE: 15_000 });
+    await waiveRegistrationFee(shop.id, "pilot shop, fee waived", admin);
+    const after = await entries(shop.id);
+    expect(after).toHaveLength(1);
+    expect(after[0]).toMatchObject({ milestone: "VERIFIED_CATALOGUE", status: "REVERSED" });
+    expect(after[0].note).toContain("registration fee waived");
+    const [attribution] = await db.select().from(shopAttributions).where(eq(shopAttributions.shopId, shop.id));
+    expect(attribution.status).toBe("ACTIVE");
+    const reversed = await db.select().from(auditLogs).where(and(eq(auditLogs.entityId, shop.id), eq(auditLogs.action, "dealer.commission_reversed")));
+    expect(reversed).toHaveLength(1);
+  });
+
+  it("a fee that was simply zero (full coupon) is not a waiver: the fixed amount is still earned", async () => {
+    const { dealer } = await newDealer();
+    const shop = await attributedShop(dealer.id);
+    await db.update(shops).set({ registrationFeeDiscountPaise: 100_000, registrationFeeGstPaise: 0, registrationFeePaise: 0, feePaymentStatus: "PAID" }).where(eq(shops.id, shop.id));
+    await checkCommissionMilestones(shop.id);
+    expect(await amountsByMilestone(shop.id)).toEqual({ REGISTERED: 10_000 });
   });
 });
