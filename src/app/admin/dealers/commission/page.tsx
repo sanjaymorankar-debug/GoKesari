@@ -9,7 +9,7 @@ import { getEnv } from "@/lib/env";
 import { getCommissionSettings, listCommissionRules, listLedger, listPayouts, listRatingSlabs } from "@/server/dealers/commission";
 import { listClosedMonths, monthLabel, previousMonth } from "@/server/dealers/monthly-payout";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
-import { listDistricts } from "@/server/services/geo-areas";
+import { listDistricts, listStates } from "@/server/services/geo-areas";
 
 export const metadata = { title: "Dealer commission" };
 export const dynamic = "force-dynamic";
@@ -20,13 +20,14 @@ export default async function DealerCommissionPage() {
   const user = await getCurrentUser();
   if (!user) redirect("/signin");
   if (user.role !== "ADMIN" && user.role !== "OPERATOR") redirect("/");
-  const [rules, settings, slabs, ledger, payouts, districts, months] = await Promise.all([
+  const [rules, settings, slabs, ledger, payouts, districts, states, months] = await Promise.all([
     listCommissionRules({ all: true }),
     getCommissionSettings(),
     listRatingSlabs(),
     listLedger(),
     listPayouts(),
     listDistricts(),
+    listStates(),
     listClosedMonths(),
   ]);
   // The month before this one, if it is not closed yet: the admin may close it before the payout day.
@@ -48,7 +49,8 @@ export default async function DealerCommissionPage() {
         payouts={plain(payouts)}
         months={plain(months)}
         closableMonth={closableMonth}
-        districts={districts.map((d) => ({ code: d.code, name: d.name }))}
+        // A rule may cover a whole state or one district.
+        districts={[...states.map((s) => ({ code: s.code, name: `${s.name} (whole state)` })), ...districts.map((d) => ({ code: d.code, name: `${d.name} (${d.code.split("-")[0]})` }))]}
       />
     </div>
   );

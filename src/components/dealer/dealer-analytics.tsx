@@ -121,9 +121,12 @@ export function DealerAnalytics({
       {tab === "coverage" ? (
         <section className="space-y-3">
           <nav className="flex flex-wrap items-center gap-1 text-sm" aria-label="Area">
-            {trail.map((t, i) => (
+            <Link className="font-semibold text-kesari-800 underline" href="/admin/dealers/analytics">
+              India
+            </Link>
+            {trail.map((t) => (
               <span key={t.code}>
-                {i > 0 ? " › " : ""}
+                {" › "}
                 <Link className="font-semibold text-kesari-800 underline" href={`/admin/dealers/analytics?area=${t.code}`}>
                   {t.name}
                 </Link>
@@ -135,7 +138,11 @@ export function DealerAnalytics({
               {root.name}: {root.shops} shops ({root.dealerShops} through dealers), {root.operational} operational, {root.activeDealers} active dealers
               {root.target != null ? `, target ${root.target}` : ""}. {gaps.length} of {areas.length} areas below are under-covered.
             </p>
-          ) : null}
+          ) : (
+            <p className="text-sm text-ink-700">
+              India: {areas.reduce((n, a) => n + a.shops, 0)} shops in {areas.filter((a) => a.shops > 0).length} states and union territories; {areas.filter((a) => a.activeDealers > 0).length} have an active dealer.
+            </p>
+          )}
           <CoverageMap areas={areas} />
           <div className="flex flex-wrap gap-2 text-xs">
             {Object.values(STATUS).map((s) => (

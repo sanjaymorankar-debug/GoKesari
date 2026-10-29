@@ -365,6 +365,7 @@ export const AUDIT_ACTIONS = {
   DEALER_APPLICATION_SAVED: "dealer.application_saved", // docs/dealer-programme
   DEALER_APPLICATION_SUBMITTED: "dealer.application_submitted", // docs/dealer-programme
   DEALER_STATUS_CHANGED: "dealer.status_changed", // docs/dealer-programme
+  DEALER_CREATED_BY_ADMIN: "dealer.created_by_admin", // docs/dealer-programme, all-India
   DEALER_DOCUMENT_UPLOADED: "dealer.document_uploaded", // docs/dealer-programme
   DEALER_DOCUMENT_REVIEWED: "dealer.document_reviewed", // docs/dealer-programme
   DEALER_DOCUMENT_VIEWED: "dealer.document_viewed", // docs/dealer-programme

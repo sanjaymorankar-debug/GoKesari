@@ -1,6 +1,6 @@
 # Dealer commission monthly payout — test results (29 Oct 2026)
 
-Branch `claude/dealer-monthly-payout`, based on staging 745086e, staging 45cb376 merged in. Migration 0114 (renumbered from 0113: the onboarding wizard took 0113). Local PostgreSQL 18
+Branch `claude/dealer-monthly-payout`, based on staging 745086e, staging 45cb376 merged in. Migration 0115 (renumbered: staging took 0113 for the onboarding wizard and 0114 for the all-India states). Local PostgreSQL 18
 (Postgres.app). Run by Claude.
 
 ## New tests — `tests/integration/dealer-monthly-payout.test.ts`
@@ -41,11 +41,13 @@ fallback settings). Payout tests that rely on the old default set it off explici
 migration journal: **40 / 40 on two databases**; with `migrate-on-build` added, **46 / 46 on one
 database**.
 
-## After merging staging (onboarding wizard, 0113) — migration renumbered to 0114
+## After merging staging (onboarding wizard 0113, all-India states 0114) — migration renumbered to 0115
 
-Dealer steps 1, 4, 5, 6 and the monthly payout, onboarding wizard step 2, cron schedule, split
-ownership, migration journal: **93 / 93 on each layout**. `migrate-on-build` (rolls back through
-0114 and 0113 and re-applies): **6 / 6**.
+Staging f501049 (all-India dealer programme, seller-verification fixes) merged in. Every dealer
+test (steps 1–8 and the monthly payout), onboarding wizard step 2, seller-verification flows, cron
+schedule, split ownership, migration journal: **176 / 176 on each layout**. `migrate-on-build`
+(rolls back through 0115, 0114 and 0113 and re-applies): **6 / 6** (one earlier run timed out in
+the known clean-up hook; passed when re-run).
 
 ## Not covered here
 

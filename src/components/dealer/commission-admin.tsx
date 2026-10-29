@@ -172,7 +172,7 @@ export function CommissionAdmin({
             {current.map((r) => (
               <li key={r.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                 <span>
-                  <span className="font-semibold">{MILESTONE[r.milestone]}</span> · {r.shopScope.toLowerCase()} shops · {r.districtCode ?? "every district"} ·{" "}
+                  <span className="font-semibold">{MILESTONE[r.milestone]}</span> · {r.shopScope.toLowerCase()} shops · {r.districtCode ?? "all of India"} ·{" "}
                   {[r.fixedPaise ? rs(r.fixedPaise) : null, r.percentBp ? `${r.percentBp / 100}% of the fee` : null].filter(Boolean).join(" + ")} · from {r.effectiveFrom}
                   {r.effectiveTo ? ` to ${r.effectiveTo}` : ""} · v{r.version}
                 </span>
@@ -215,9 +215,9 @@ export function CommissionAdmin({
                     <option value="ALL">All shops</option>
                   </select>
                 </Field>
-                <Field label="District">
+                <Field label="State or district">
                   <select className={inputClass} value={draft.districtCode} onChange={(e) => setDraft((d) => ({ ...d, districtCode: e.target.value }))}>
-                    <option value="">Every district</option>
+                    <option value="">All of India</option>
                     {districts.map((d) => (
                       <option key={d.code} value={d.code}>
                         {d.name}

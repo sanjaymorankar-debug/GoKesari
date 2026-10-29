@@ -22,7 +22,8 @@ import { applyGatewayState } from "@/server/payments/processing";
 import { setFeatureFlag } from "@/server/services/feature-flags";
 import { listGovDecisions } from "@/server/services/gov-auto-approval";
 import { approveShop } from "@/server/services/shops";
-import { adminDecideVerification, declareNoGstin, submitSellerDocument } from "@/server/services/seller-verification";
+import { adminDecideVerification, declareNoGstin, recheckVerification, stateCodeForPincode, submitSellerDocument } from "@/server/services/seller-verification";
+import { submitLegalDocument } from "@/server/services/legal-documents";
 import { runSellerVerificationSweep } from "@/server/services/seller-verification-jobs";
 import { recordPayment } from "@/server/services/shop-payments";
 import { createShop, createUser, resetDatabase } from "../helpers/fixtures";
@@ -295,5 +296,68 @@ describe("fee paid through the gateway's webhook (staging finding, 28 Oct)", () 
     // Straight after the call: no 2-second timer to wait for.
     expect(await statusOf(shop.id)).toBe("APPROVED");
     expect((await lastLog(shop.id)).outcome).toBe("APPROVED");
+  });
+});
+
+describe("verification review fixes (29 Oct)", () => {
+  it("GSTIN checked first, then a different PAN: the PAN goes to review and the shop is not approved; the right PAN passes", async () => {
+    goodSource();
+    const { shop, actor } = await pendingShop();
+    await verify(shop.id, actor, "GSTIN", "27AAPFU0939F1ZV");
+    await otherDocuments(shop.id, actor);
+    const wrong = await verify(shop.id, actor, "PAN", "ABCPE1234F");
+    expect(wrong).toMatchObject({ status: "MANUAL_REVIEW", lastErrorCode: "pan_gstin_mismatch" });
+    await payOnline(shop.id);
+    expect(await statusOf(shop.id)).toBe("PENDING_APPROVAL");
+    const right = await verify(shop.id, actor, "PAN", "AAPFU0939F");
+    expect(right.status).toBe("VERIFIED");
+    expect(await statusOf(shop.id)).toBe("APPROVED");
+  });
+
+  it("a reviewer can't approve a document that is already verified or still being checked", async () => {
+    goodSource();
+    const { shop, actor } = await pendingShop();
+    const pan = await verify(shop.id, actor, "PAN", "AAPFU0939F");
+    expect(pan.status).toBe("VERIFIED");
+    await expect(adminDecideVerification(pan.id!, { decision: "approve", reason: "" }, admin)).rejects.toMatchObject({ code: "CONFLICT" });
+  });
+
+  it("a reviewer's approval survives the periodic re-check; a cancellation at the source still undoes it", async () => {
+    // The record's name doesn't match: the GSTIN goes to a person, who approves it.
+    scripted((req) => found({ name: "SOMEONE ELSE", tradeName: "SOMEONE ELSE", linkedPan: req.docType === "GSTIN" ? req.number.slice(2, 12) : undefined }));
+    const { shop, actor } = await pendingShop();
+    const gst = await verify(shop.id, actor, "GSTIN", "27AAPFU0939F1ZV");
+    expect(gst.status).toBe("MANUAL_REVIEW");
+    await adminDecideVerification(gst.id!, { decision: "approve", reason: "trade name checked by phone" }, admin);
+    const again = await recheckVerification(gst.id!, null);
+    expect(again.status).toBe("VERIFIED");
+    scripted(() => found({ name: "SOMEONE ELSE", docStatus: "cancelled" }));
+    const cancelled = await recheckVerification(gst.id!, null);
+    expect(cancelled.status).not.toBe("VERIFIED");
+  });
+
+  it("the state comes from any Indian PIN code (Goa is not Maharashtra), or from the shop's state where the PIN spans two", () => {
+    expect(stateCodeForPincode("403001")).toBe("GA");
+    expect(stateCodeForPincode("411038")).toBe("MH");
+    expect(stateCodeForPincode("560001")).toBe("KA");
+    expect(stateCodeForPincode("800001")).toBeUndefined();
+    expect(stateCodeForPincode("800001", "Bihar")).toBe("BR");
+  });
+
+  it("a food shop is approved once its last licence (FSSAI) is in", async () => {
+    goodSource();
+    const { shop, actor } = await pendingShop({ shopType: "DAIRY" });
+    await verify(shop.id, actor, "PAN", "AAPFU0939F");
+    await otherDocuments(shop.id, actor, { noGst: true });
+    await payOnline(shop.id);
+    expect(await statusOf(shop.id)).toBe("PENDING_APPROVAL");
+    // The FSSAI record: active, with its expiry and the shop's PIN code.
+    const [{ pincode }] = await db.select({ pincode: shops.pincode }).from(shops).where(eq(shops.id, shop.id));
+    scripted((req) => found({ name: "GANESH TRADERS", tradeName: "GANESH TRADERS", ...(req.docType === "FSSAI" ? { validUntil: "2028-12-31", pincode } : {}) }));
+    await submitSellerDocument({ shopId: shop.id, docType: "FSSAI", number: "11523999000123", consentGiven: true, actor });
+    const pdf = Buffer.from("%PDF-1.4\n1 0 obj<</Type/Catalog>>endobj\ntrailer<</Root 1 0 R>>\n%%EOF\n");
+    const expiry = new Date(Date.now() + 400 * 86_400_000).toISOString().slice(0, 10);
+    await submitLegalDocument({ shopId: shop.id, docType: "FSSAI", number: "11523999000123", expiryDate: expiry, file: pdf, actor: actor as never });
+    expect(await statusOf(shop.id)).toBe("APPROVED");
   });
 });

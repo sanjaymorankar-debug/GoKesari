@@ -10077,7 +10077,7 @@ export const dealerCommissionSettings = pgTable("dealer_commission_settings", {
   fixedBonusBase: text("fixed_bonus_base", { enum: ["FEE", "BASE_AMOUNT"] }).notNull().default("FEE"),
   catalogueMinProducts: integer("catalogue_min_products").notNull().default(10),
   branchEligible: boolean("branch_eligible").notNull().default(false),
-  /** Monthly payout (0114): the day (1–28, IST) the previous month is closed and its payouts drafted. */
+  /** Monthly payout (0115): the day (1–28, IST) the previous month is closed and its payouts drafted. */
   payoutDayOfMonth: integer("payout_day_of_month").notNull().default(5),
   /** At the month's close, approve EARNED entries of that month first (an admin still pays). On by default (owner, 29 Oct 2026). */
   autoApproveAtMonthEnd: boolean("auto_approve_at_month_end").notNull().default(true),
@@ -10131,9 +10131,9 @@ export const dealerPayoutBatches = pgTable(
     totalPaise: integer("total_paise").notNull(),
     paymentReference: text("payment_reference"),
     note: text("note"),
-    /** Monthly payout (0114): the month closed into this payout ("2026-10"); null for one made by hand. */
+    /** Monthly payout (0115): the month closed into this payout ("2026-10"); null for one made by hand. */
     periodMonth: text("period_month"),
-    /** Null for a payout the monthly job drafted (0114). */
+    /** Null for a payout the monthly job drafted (0115). */
     createdBy: uuid("created_by"),
     paidBy: uuid("paid_by"),
     paidAt: timestamp("paid_at", { withTimezone: true }),
@@ -10143,7 +10143,7 @@ export const dealerPayoutBatches = pgTable(
 );
 export type DealerPayoutBatch = typeof dealerPayoutBatches.$inferSelect;
 
-/** Monthly payout (0114): one row per closed month — the guard that makes a close run once. */
+/** Monthly payout (0115): one row per closed month — the guard that makes a close run once. */
 export const dealerCommissionMonths = pgTable("dealer_commission_months", {
   periodMonth: text("period_month").primaryKey(),
   closedAt: timestamp("closed_at", { withTimezone: true }).notNull().defaultNow(),

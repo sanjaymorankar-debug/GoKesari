@@ -24,7 +24,8 @@ export default async function DealerAnalyticsPage({ searchParams }: { searchPara
   if (user.role !== "ADMIN" && user.role !== "OPERATOR") redirect("/");
   const { area } = await searchParams;
   const all = await coverageReport();
-  const root = (area && all.find((r) => r.code === area)) || all.find((r) => r.level === "STATE") || null;
+  // No area chosen: India — every state and union territory.
+  const root = (area && all.find((r) => r.code === area)) || null;
   const [scores, activation] = await Promise.all([dealerScores(), activationReport()]);
   const trail: { code: string; name: string }[] = [];
   for (let cur = root; cur; cur = all.find((r) => r.code === cur!.parentCode) ?? null) trail.unshift({ code: cur.code, name: cur.name });
@@ -42,7 +43,7 @@ export default async function DealerAnalyticsPage({ searchParams }: { searchPara
         isAdmin={user.role === "ADMIN"}
         root={root}
         trail={trail}
-        areas={all.filter((r) => r.parentCode === root?.code)}
+        areas={root ? all.filter((r) => r.parentCode === root.code) : all.filter((r) => r.level === "STATE")}
         scores={scores.rows}
         weights={scores.weights}
         activation={activation}

@@ -16,7 +16,7 @@ import { requireUser } from "@/server/authz/guards";
 import { requireDealerProgramme, smsAvailable } from "@/server/dealers/http";
 import { checkDealerBank, dealerView, documentRequirements, getDealerForUser, saveApplication } from "@/server/dealers/service";
 import { getFeatureFlag } from "@/server/services/feature-flags";
-import { listDistricts } from "@/server/services/geo-areas";
+import { openAreasFor } from "@/server/services/geo-areas";
 
 export const dynamic = "force-dynamic";
 
@@ -42,12 +42,14 @@ export const GET = route(async () => {
   const user = await requireUser();
   const dealer = await getDealerForUser(user.id);
   const flag = await getFeatureFlag("dealer_programme_enabled");
-  const districts = (await listDistricts()).filter((d) => d.status === "ACTIVE" && (flag.districtCodes === null || flag.districtCodes.includes(d.code)));
+  const areas = await openAreasFor(flag.districtCodes);
   const requirements = Object.fromEntries(await Promise.all(DEALER_TYPES.map(async (t) => [t, await documentRequirements(t)] as const)));
   return ok({
     dealer: dealer ? await dealerView(dealer) : null,
     requirements,
-    openDistricts: districts.map((d) => ({ code: d.code, name: d.name })),
+    // States where the programme is open (parent null) and, under each, its districts, cities and localities.
+    openAreas: areas,
+    openDistricts: areas.filter((a) => a.parent !== null && areas.some((s) => s.code === a.parent && s.parent === null)).map((d) => ({ code: d.code, name: d.name })),
     agreementVersion: DEALER_AGREEMENT_VERSION,
     smsAvailable: smsAvailable(),
   });

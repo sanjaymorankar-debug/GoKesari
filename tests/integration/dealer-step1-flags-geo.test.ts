@@ -170,7 +170,8 @@ describe("territory areas", () => {
   it("a PIN code maps to the most specific area and its district", async () => {
     expect(await areaForPincode("411038")).toMatchObject({ area: { code: "MH-PUN-PMC-KOTHRUD", level: "LOCALITY" }, district: { code: "MH-PUN" } });
     expect(await areaForPincode("411999")).toMatchObject({ area: { code: "MH-PUN" }, district: { code: "MH-PUN" } });
-    expect(await areaForPincode("400001")).toBeNull();
+    // Mumbai has no district PIN prefix seeded: placed in the state (all-India, 0113).
+    expect(await areaForPincode("400001")).toMatchObject({ area: { code: "MH", level: "STATE" }, district: null });
     expect(await areaForPincode("4110")).toBeNull();
     expect(await districtCodeForPincode("411057")).toBe("MH-PUN");
     expect(await districtCodeForPincode(null)).toBeNull();
@@ -194,13 +195,13 @@ describe("territory areas", () => {
     expect(audit).toMatchObject({ actorId: admin.id, entityId: TEST_AREA });
   });
 
-  it("refuses the wrong level for the parent, and a district without a short code", async () => {
+  it("refuses the wrong level for the parent; a district without a short code gets a generated one", async () => {
     await expect(
       saveGeoArea({ code: `${TEST_AREA}-X`, name: "Wrong", level: "DISTRICT", parentCode: "MH-PUN-PMC" }, admin),
     ).rejects.toMatchObject({ status: 422 });
-    await expect(
-      saveGeoArea({ code: `${TEST_AREA}-D`, name: "No short code", level: "DISTRICT", parentCode: "MH-R-PUN" }, admin),
-    ).rejects.toMatchObject({ status: 422 });
+    const district = await saveGeoArea({ code: `${TEST_AREA}-D`, name: "Zzgen Test", level: "DISTRICT", parentCode: "MH-R-PUN" }, admin);
+    expect(district.shortCode).toMatch(/^[A-Z]{2,4}$/);
+    await db.delete(geoAreas).where(eq(geoAreas.code, district.code));
   });
 });
 
