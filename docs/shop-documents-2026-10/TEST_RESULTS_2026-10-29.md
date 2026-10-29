@@ -9,7 +9,7 @@ Branch `claude/peaceful-pascal-jai8w2`, based on staging `45cb376`. Local runs (
 | Type check (`tsc --noEmit`) | clean |
 | ESLint on every changed file | clean |
 | Full suite, single database | **235 files, 2,918 tests passed** |
-| Full suite, two-database split (`DB_SPLIT_MODE=split`) | SPLIT_RESULT |
+| Full suite, two-database split (`DB_SPLIT_MODE=split`) | **234 files passed, 1 skipped (single-database only); 2,910 tests passed, 8 skipped** |
 
 New and changed tests:
 
