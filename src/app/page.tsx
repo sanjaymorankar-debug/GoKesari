@@ -35,14 +35,20 @@ const HOME_SHOPS = 6;
  */
 export default async function HomePageRoute() {
   const user = await getCurrentUser();
-  const location = await getCustomerLocation(user?.id);
   // F11: arrived through a friend's referral link and not yet applied — prompt once signed in.
   const referralCode = (await cookies()).get(REFERRAL_COOKIE)?.value;
-  const showReferral = user && referralCode ? await canApplyReferralCode(user.id).catch(() => false) : false;
-  const [lang, header, rule] = await Promise.all([
+  // Reads start together rather than one after another: each one is a round trip
+  // to the database in Singapore (performance check, 29 Oct 2026). The account
+  // reads are only wasted when rule `homeDiscovery` is off.
+  const [location, showReferral, lang, header, rule, [buyAgainRows, activeOrder, subscriptionId, cartCount]] = await Promise.all([
+    getCustomerLocation(user?.id),
+    user && referralCode ? canApplyReferralCode(user.id).catch(() => false) : false,
     getBoardLang(),
     getBoardHeaderData(user),
     getRule("homeDiscovery").catch(() => ({ enabled: true, bannerSeconds: 6 })),
+    user
+      ? Promise.all([getBuyAgain(user.id, 6), getActiveOrder(user.id), getFirstActiveSubscriptionId(user.id), getCartItemCount(user.id).catch(() => 0)])
+      : ([undefined, undefined, undefined, 0] as const),
   ]);
 
   if (!rule.enabled) {
@@ -59,24 +65,27 @@ export default async function HomePageRoute() {
     );
   }
 
-  const nearby = location ? await listNearbyShops(location).catch(() => []) : [];
-  const nearbyIds = nearby.map((s) => s.id);
-  const cities = [...new Set(nearby.map((s) => s.city).filter(Boolean))];
-  const [counts, shopsFallback, banners, buyAgainRows, activeOrder, subscriptionId, cartCount] = await Promise.all([
+  // Banners and popular items need the nearby shops, and the compare counts need
+  // the popular items; the counts and the fallback shop list need neither.
+  const discovery = (location ? listNearbyShops(location).catch(() => []) : Promise.resolve([])).then(async (nearby) => {
+    const nearbyIds = nearby.map((s) => s.id);
+    const cities = [...new Set(nearby.map((s) => s.city).filter(Boolean))];
+    // Buy again for customers with delivered orders; everyone else sees what is popular nearby.
+    const popularRead =
+      buyAgainRows && buyAgainRows.length > 0 ? Promise.resolve({ scope: "area" as const, items: [] }) : popularInArea(location, { nearbyShopIds: nearbyIds, cities });
+    const [banners, popular, offerCounts] = await Promise.all([
+      listLiveBanners({ pincode: location?.pincode ?? null, cities }),
+      popularRead,
+      // "Compare N prices" for products sold by two or more nearby shops.
+      popularRead.then((p) => nearbyOfferCounts([...p.items, ...(buyAgainRows ?? [])].map((i) => i.productId), nearbyIds)),
+    ]);
+    return { nearby, banners, popular, offerCounts };
+  });
+  const [counts, shopsFallback, { nearby, banners, popular, offerCounts }] = await Promise.all([
     customerCounts(user?.id ?? null, location),
     location ? Promise.resolve([]) : searchShops({ limit: HOME_SHOPS }).catch(() => []),
-    listLiveBanners({ pincode: location?.pincode ?? null, cities }),
-    user ? getBuyAgain(user.id, 6) : Promise.resolve(undefined),
-    user ? getActiveOrder(user.id) : Promise.resolve(undefined),
-    user ? getFirstActiveSubscriptionId(user.id) : Promise.resolve(undefined),
-    user ? getCartItemCount(user.id).catch(() => 0) : Promise.resolve(0),
+    discovery,
   ]);
-
-  // Buy again for customers with delivered orders; everyone else sees what is popular nearby.
-  const popular = buyAgainRows && buyAgainRows.length > 0 ? { scope: "area" as const, items: [] } : await popularInArea(location, { nearbyShopIds: nearbyIds, cities });
-
-  // "Compare N prices" for products sold by two or more nearby shops.
-  const offerCounts = await nearbyOfferCounts([...popular.items, ...(buyAgainRows ?? [])].map((p) => p.productId), nearbyIds);
   const popularTiles: ProductTile[] = popular.items.map((p) => ({
     shopProductId: p.shopProductId,
     productId: p.productId,
