@@ -1,27 +1,27 @@
-# GoKesari: what is not yet on production (29 Oct 2026, 16:10 IST)
+# GoKesari: what is not yet on production (29 Oct 2026, updated 18:45 IST)
 
-Production (`main`) is at `6f161fa`, release #281 (dealer monthly payout). Its post-deploy check
-passed at 10:27 UTC. No other release is in flight: there is no open PR into `main`.
+Production (`main`) is at `84c2279`, release #285 "Release 29 Oct (5)" (merged 12:55 UTC; it
+replaced #284). Its post-deploy check passed at 13:01 UTC. Release #287 (shop documents
+D-107 / D-108) is open, from another session.
 
 ## A. On staging, waiting for the next production release
 
 | Item | Commit | State |
 |---|---|---|
-| Seller verification follow-ups: one source for GST/PAN; GSTIN one business (another owner refused, the same owner's branch allowed); Shop Act one shop; verified PAN / Udyam / Shop Act copied onto the shop; Udyam and Shop Act on the shop's GST/PAN card; 3 months (reminders every 15 days) for waived or promised shops; the promise reads 90 days | `32da8e5`, `1132782` | Staging check passed (duplicate Shop Act refused for another owner's and the same owner's shop; card shows the new rows). CI running. Release prepared next, owner asked for it |
+| ~~Seller verification follow-ups~~ (GSTIN one business, Shop Act one shop, PAN / Udyam / Shop Act copied onto the shop, 3 months with reminders every 15 days, promise 90 days) | `32da8e5`, `1132782` | **Released 29 Oct in #285**; post-deploy check passed |
 
 ## B. Open pull requests into staging (not on staging yet)
 
 | PR | What | Notes |
 |---|---|---|
-| #280 `claude/dealer-base-commission` | Dealer commission: admin-set base % of the fee, moved up or down by the dealer's rating, per dealer | Has test results; needs merge into staging, staging check, then a release |
-| #279 `perf/home-quick-fixes` | Home page: database reads run together; the logo link no longer prefetches home | Small; needs review and merge into staging |
+| ~~#280 dealer base commission~~, ~~#279 home page~~ | | **Released 29 Oct in #285** |
 | #278 `claude/peaceful-pascal-jai8w2` (draft) | Shop documents: staging QA run 29 Oct (SD-01 to SD-06), QA spec, defects D-106 and E-04 | Docs and a QA test only, no app code |
 
 ## C. Open defects and gaps
 
 | # | What | Impact | Fix |
 |---|---|---|---|
-| D-106 (fixed in this release) | Onboarding wizard flag off, but its step-1 routes (`registration-draft/gstin` and `/pan`) still answer a signed-in non-admin. The later steps check the flag (#274) | On production (flag off), a signed-in user can still call the GSTIN / PAN checks directly, so paid government lookups are reachable without the wizard | Two lines: `requireWizardAvailable(user)` in both routes, as in the later steps |
+| D-106 (**released in #285**; on gokesari.com a guest now gets 401 from both routes) | Onboarding wizard flag off, but its step-1 routes (`registration-draft/gstin` and `/pan`) still answer a signed-in non-admin. The later steps check the flag (#274) | On production (flag off), a signed-in user can still call the GSTIN / PAN checks directly, so paid government lookups are reachable without the wizard | Two lines: `requireWizardAvailable(user)` in both routes, as in the later steps |
 | E-04 | test.gokesari.com: the registration-fee checkout uses the app's in-process SANDBOX gateway, not the Cashfree sandbox | Payment tests on staging can't use the Cashfree sandbox workflow | Owner decision (staging environment setting) |
 | — | 3 staging shops have a verified PAN that isn't copied onto the shop row yet (verified before today's change); production not checked (reads are not allowed) | The shop's GST/PAN card shows PAN "Not verified" until the next check | A one-time catch-up script, if wanted |
 | — | Preview builds and migrations: #276 (migrations only through the GitHub workflows) is now on production | Fixed; preview builds no longer migrate the staging databases | — |
