@@ -1550,8 +1550,8 @@
    "found": "2026-10-29 test.gokesari.com (shop documents staging run, QA shop 0ff927dc-ff96-4b54-b857-ee69a90f7da5)",
    "actual": "POST /api/shops/{id}/registration-fee answered 201 with redirectUrl /orders/pay/sandbox/gk_8d828931fb3344d0822da7761f966621, which is the app's own sandbox checkout page (src/app/orders/pay/sandbox/[ref]/page.tsx: 'Pay (success)' / 'Fail' / 'Let it expire'). So the site runs PAYMENT_GATEWAY=SANDBOX, the default in src/lib/env.ts. There is no Cashfree payment_session_id, so the 'Sandbox payment' workflow (.github/workflows/sandbox-pay.yml) cannot pay this checkout.",
    "expected": "Not decided. CLAUDE.md and docs/testing/cashfree-sandbox-test-data.md expect staging payments to go through the Cashfree sandbox (PAYMENT_GATEWAY=CASHFREE with sandbox keys).",
-   "fix": "Owner / developer: decide whether test.gokesari.com should run PAYMENT_GATEWAY=CASHFREE (sandbox keys) and set it in hPanel if so. Otherwise, approve the in-process 'Pay (success)' page for staging fee tests. Until then, case SD-03 is Not run.",
-   "status": "Open (owner decision)"
+   "fix": "Owner decision 29 Oct 2026: fee tests on test.gokesari.com use the app's built-in test payment page (PAYMENT_GATEWAY=SANDBOX stays). Recorded in CLAUDE.md and docs/testing/cashfree-sandbox-test-data.md. SD-03 passed that way on 29 Oct 12:19 UTC.",
+   "status": "Not changed (by design)"
   },
   {
    "id": "D-107",
@@ -1564,8 +1564,9 @@
    "actual": "After 'Waive fee' → 'Confirm waiver' (registrationFeePaise 0, feePaymentStatus PAID), /shop/registration-fee?shop=… shows the badge 'No fee', the alert 'Nothing to pay', and the lines 'Registration fee ₹999', 'GST (18%) ₹179.82', 'One-time registration fee (total) ₹0'. The lines do not add up, and nothing tells the owner the fee was waived. waiveRegistrationFee (src/server/services/shop-payments.ts) sets only registrationFeePaise to 0; the page (src/app/shop/registration-fee/page.tsx) still prints the base and GST snapshots (registrationFeeBasePaise, registrationFeeGstPaise). Evidence: docs/shop-documents-2026-10/staging-2026-10-29/sd03w-fee-page-waived-390.png. The admin side is right: the queue badge reads 'fee waived'.",
    "expected": "The owner's fee page reads consistently once the fee is waived: either a 'Fee waived' line (e.g. − ₹1,178.82) that brings the total to ₹0, or no base / GST lines, and the alert says the fee was waived (as the queue does), not only 'Nothing to pay'.",
    "fix": "Fixed in PR #278 (src/app/shop/registration-fee/page.tsx): when the fee is 0 and the quoted fee (base − discount + GST snapshots) is above 0, the page shows the badge 'Fee waived', a line 'Waived by GoKesari − <quoted fee>' (data-testid fee-waived-line) so the lines add up to ₹0, and the alert 'Your registration fee was waived'. Retest SD-03w's owner fee-page step on staging after the merge.",
-   "status": "Fixed (re-test pending)",
-   "fixedIn": "PR #278"
+   "status": "Fixed - retest passed",
+   "fixedIn": "PR #278",
+   "retest": "2026-10-29 12:18 UTC test.gokesari.com, build cb255a6 (#278), shop-owner test account, QA shop 0ff927dc (fee waived): badge 'Fee waived', 'Registration fee ₹999 · GST (18%) ₹179.82 · Waived by GoKesari − ₹1,178.82 · total ₹0', alert 'Your registration fee was waived', no 'Nothing to pay'; 390 and 1280 px, no page errors. docs/shop-documents-2026-10/staging-2026-10-29/d107-retest-fee-page-waived-390.png"
   },
   {
    "id": "D-108",
@@ -1578,8 +1579,9 @@
    "actual": "The /shop alert reads 'Awaiting approval — kyc pending. Submit your documents for verification: GST number (GSTIN) and Shop Act (Shops & Establishments) certificate. Your shop moves to the payment step once they are verified.' The shop has already passed the payment step (fee settled after the promise) and now waits for an operator's 'Approve on promise'. ownerNextAction (src/lib/shop-onboarding.ts, stage KYC_PENDING) does not know about the 29 Oct documents promise. Evidence: docs/shop-documents-2026-10/staging-2026-10-29/sd07-owner-dashboard-pending-390.png.",
    "expected": "Under the 29 Oct 2026 rule (docs/shop-documents-2026-10/README.md: one verified document plus the 30-day promise unlocks the fee; a promised shop waits for a person), the owner's next step for a promised shop names the promised date and the documents still to provide and, once the fee is settled, says the shop waits for the team's approval. It does not send the owner to a payment step they have passed.",
    "fix": "Fixed in PR #278: getShopOnboarding (src/server/services/shop-onboarding.ts) now returns verifiedDocuments and documentsPromisedBy (the promised date, India time); ownerNextAction / adminNextAction (src/lib/shop-onboarding.ts) use them in KYC_PENDING. Promised, fee due → 'Provide <documents> by <date>, as you promised. Pay the registration fee …' (link /shop/registration-fee). Promised, fee settled → 'Fee settled. GoKesari's team is reviewing your shop and will approve it shortly. …'; operations → 'Approve on promise'. Not promised but one document verified → the fee page (verify the rest or promise them). Tests: tests/integration/shop-onboarding-states.test.ts, both database layouts. Retest SD-07 (pending state) on staging after the merge, with a new pending promised shop.",
-   "status": "Fixed (re-test pending)",
-   "fixedIn": "PR #278"
+   "status": "Fixed in part (re-test pending)",
+   "fixedIn": "PR #278 (owner side); approval-card next step in the follow-up PR",
+   "retest": "2026-10-29 12:18–12:20 UTC test.gokesari.com, build cb255a6 (#278), new QA shop 'QA D-108 retest tie4rh' (65fee06f-8c19-4c5a-87cc-0b35ef0020eb: PAN verified, promise given, due 27 Jan 2027). Owner dashboard, fee due: 'Provide GST number (GSTIN) and Shop Act … by 27 Jan 2027, as you promised. Pay the registration fee of ₹1,178.82 online; GoKesari's team then reviews and approves your shop.' (Next → /shop/registration-fee). After paying on the built-in test page: 'Fee settled. GoKesari's team is reviewing your shop and will approve it shortly. Provide … by 27 Jan 2027, as you promised.' Pass at 390 and 1280 px. Not fixed yet: the operator's approval card still printed 'Next: Not uploaded yet: …' because shop-approval-panel.tsx did not pass the promised date to adminNextAction; fixed in the follow-up PR, re-test after it merges."
   }
  ]
 }

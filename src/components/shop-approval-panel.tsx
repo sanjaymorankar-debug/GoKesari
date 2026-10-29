@@ -211,7 +211,8 @@ function PendingShopRow({
   approvalGateOn: boolean;
 }) {
   const stage = shop.onboardingStage;
-  const next = stage ? adminNextAction({ stage, ...shop }) : null;
+  const promisedBy = shop.documentsPromisedAt ? dueLabel(shop.documentsDueAt ?? shop.documentsPromisedAt) : null;
+  const next = stage ? adminNextAction({ stage, ...shop, documentsPromisedBy: promisedBy }) : null;
   const approveBlocked = approvalGateOn && stage !== "VERIFIED";
   const nothingUploaded = stage === "KYC_PENDING" && shop.documentsUploaded === 0;
   // Only what the owner has to send: documents waiting for our check are not theirs to chase.
