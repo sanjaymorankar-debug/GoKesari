@@ -70,7 +70,8 @@ export function HomeHeader(props: HomeHeaderProps) {
       <div className={clsx("mx-auto flex w-full max-w-[1600px] items-center gap-1 px-2 transition-[height] duration-200 sm:gap-2 sm:px-4 lg:gap-3 lg:px-6", compact ? "h-12 lg:h-14" : "h-14 lg:h-16")}>
         <StandaloneBackButton />
         <AccountDrawer {...props} />
-        <Link href="/" className="flex min-h-11 shrink-0 items-center gap-2 py-1" aria-label={`GoKesari — ${tr(UI.home, lang)}`}>
+        {/* Not prefetched: the home page is rendered per request, so a prefetch here was a second full home render on every visit (performance check, 29 Oct 2026). */}
+        <Link href="/" prefetch={false} className="flex min-h-11 shrink-0 items-center gap-2 py-1" aria-label={`GoKesari — ${tr(UI.home, lang)}`}>
           {/* eslint-disable-next-line @next/next/no-img-element */}
           <img src="/brand/gk-mark.png" alt="" width={62} height={36} className={clsx("w-auto rounded-lg transition-[height]", compact ? "h-7" : "h-8 lg:h-10")} />
           <span className={clsx("hidden flex-col xl:flex", compact && "xl:hidden")}>
