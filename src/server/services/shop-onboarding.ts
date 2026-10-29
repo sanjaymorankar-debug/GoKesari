@@ -8,6 +8,7 @@
  */
 import { count, eq, inArray, isNull, sql } from "drizzle-orm";
 
+import { formatDisplayDate, todayIn } from "@/lib/dates";
 import { SELLER_DOC_LABELS, SELLER_DOC_TYPES, type SellerDocType } from "@/lib/kyc/doc-formats";
 import { isOnboardingStage, type OnboardingFacts } from "@/lib/shop-onboarding";
 import { SHOP_LIFECYCLE_STATUSES, type ShopLifecycleStatus } from "@/lib/status-models";
@@ -41,6 +42,7 @@ export async function getShopOnboarding(
       registrationFeePaise: shops.registrationFeePaise,
       amountPaidPaise: shops.amountPaidPaise,
       feePaymentStatus: shops.feePaymentStatus,
+      documentsDueAt: shops.documentsDueAt,
       sellsFood: sql<boolean>`shop_sells_food(${shops.id}, ${shops.shopType}::text)`,
     })
     .from(shops)
@@ -70,6 +72,9 @@ export async function getShopOnboarding(
       documentsUploaded: [...status.values()].filter((s) => s !== "NOT_SUBMITTED").length,
       feeOutstandingPaise:
         row.feePaymentStatus === "PAID" ? 0 : Math.max(0, (row.registrationFeePaise ?? 0) - row.amountPaidPaise),
+      verifiedDocuments: [...status.values()].filter((s) => s === "VERIFIED").length,
+      // docs/shop-documents-2026-10: "I will provide all relevant documents within 30 days".
+      documentsPromisedBy: row.documentsDueAt ? formatDisplayDate(todayIn("Asia/Kolkata", row.documentsDueAt)) : null,
     });
   }
   return result;

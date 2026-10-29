@@ -43,6 +43,10 @@ export interface OnboardingFacts {
   sendAgainDocuments?: string[];
   /** Seller documents the owner has sent so far, any status. */
   documentsUploaded?: number;
+  /** Seller documents VERIFIED. The fee needs at least one (docs/shop-documents-2026-10). */
+  verifiedDocuments?: number;
+  /** "28 Nov 2026": the owner promised the missing documents by this date; null when not promised. */
+  documentsPromisedBy?: string | null;
 }
 
 export interface NextAction {
@@ -59,14 +63,40 @@ function list(items: string[]): string {
 /** The one thing the shop owner should do now. */
 export function ownerNextAction(facts: OnboardingFacts): NextAction {
   switch (facts.stage) {
-    case "KYC_PENDING":
+    case "KYC_PENDING": {
+      const verification = { href: "/shop/verification", linkLabel: "Go to document verification" };
+      // 29 Oct 2026: one verified document plus the 30-day promise unlocks the fee; the shop then waits for a person.
+      if (facts.documentsPromisedBy) {
+        const still = facts.missingDocuments.length
+          ? `Provide ${list(facts.missingDocuments)} by ${facts.documentsPromisedBy}, as you promised.`
+          : "";
+        if (facts.feeOutstandingPaise > 0) {
+          return {
+            text: `${still} Pay the registration fee of ${formatPaiseCompact(facts.feeOutstandingPaise)} online; GoKesari's team then reviews and approves your shop.`.trim(),
+            href: "/shop/registration-fee",
+            linkLabel: "Pay the registration fee",
+          };
+        }
+        return {
+          text: `Fee settled. GoKesari's team is reviewing your shop and will approve it shortly. ${still}`.trim(),
+          ...verification,
+        };
+      }
+      if (!facts.missingDocuments.length) {
+        return { text: "Your documents are being checked. Your shop moves to the payment step once they are verified.", ...verification };
+      }
+      if ((facts.verifiedDocuments ?? 0) > 0 && facts.feeOutstandingPaise > 0) {
+        return {
+          text: `Submit your documents for verification: ${list(facts.missingDocuments)}. Or promise to provide them within 30 days and pay the registration fee now.`,
+          href: "/shop/registration-fee",
+          linkLabel: "Continue to the registration fee",
+        };
+      }
       return {
-        text: facts.missingDocuments.length
-          ? `Submit your documents for verification: ${list(facts.missingDocuments)}. Your shop moves to the payment step once they are verified.`
-          : "Your documents are being checked. Your shop moves to the payment step once they are verified.",
-        href: "/shop/verification",
-        linkLabel: "Go to document verification",
+        text: `Submit your documents for verification: ${list(facts.missingDocuments)}. Once one is verified you can pay the registration fee.`,
+        ...verification,
       };
+    }
     case "PAYMENT_PENDING":
       return {
         text: `Your documents are verified. Pay the registration fee of ${formatPaiseCompact(facts.feeOutstandingPaise)} online and your shop moves to final approval.`,
@@ -87,6 +117,13 @@ export function adminNextAction(facts: OnboardingFacts): NextAction {
   switch (facts.stage) {
     case "KYC_PENDING": {
       const queue = { href: "/admin/seller-verification", linkLabel: "Seller verification queue" };
+      if (facts.documentsPromisedBy && facts.feeOutstandingPaise === 0) {
+        return {
+          text: `Fee settled; the owner promised ${list(facts.missingDocuments) || "the missing documents"} by ${facts.documentsPromisedBy}. Inspect the shop and approve it on the promise.`,
+          href: "/admin/console/shops#shop-approvals",
+          linkLabel: "Approve on promise",
+        };
+      }
       if (!facts.missingDocuments.length) return { text: "Documents submitted and waiting on review.", ...queue };
       // Without the per-document split, the old wording.
       if (!facts.notUploadedDocuments) {
