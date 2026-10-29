@@ -14,6 +14,7 @@
 | A. Admin "Run escalation sweep now" | Done | `POST /api/admin/escalation-sweep`, button on /admin/disputes. |
 | B. Risk rules at event time | Partial (pre-existing) | Per-order rules already run at placement and failed payment. Not yet: cancel, refund, dispute, shop registration, counters. |
 | C. Cron routes neutralised | Done | `src/proxy.ts`: 410 unless `CRON_ROUTES_ENABLED=true`; then `x-cron-secret` (or Bearer) constant-time check, 401 before any DB work. |
+| C2. One cron run at a time | Done (29 Oct) | `src/server/cron/single-run.ts` skips an overlapping every-minute / hourly / daily call; `docs/crontab.txt` lines use `flock -n` and `curl --max-time`. |
 | C. Delete external schedulers | **Not started — manual** | Remove crontab/hPanel entries on both domains first; the old jobs now get 410. |
 | D1. Prefetch off | Done | `prefetch={false}` on Links in cards, grids, footer, shop/search/category pages. Header nav untouched. |
 | D2. ISR for / , /shops, categories | **Not started** | Pages read the user and saved location server-side; needs moving those to client components first. |

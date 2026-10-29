@@ -3,9 +3,10 @@ import { notFound, redirect } from "next/navigation";
 import { z } from "zod";
 
 import { DealerAdminDetail } from "@/components/dealer/dealer-admin-detail";
+import { DealerCommissionRates } from "@/components/dealer/dealer-commission-rates";
 import { PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
-import { ratingView } from "@/server/dealers/commission";
+import { getCommissionSettings, ratingView } from "@/server/dealers/commission";
 import { dealerAccountEmail, dealerView, getDealer, listSalespeople } from "@/server/dealers/service";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
 
@@ -27,11 +28,13 @@ export default async function AdminDealerPage({ params }: { params: Promise<{ id
   if (!id.success) notFound();
   const dealer = await getDealer(id.data).catch(() => null);
   if (!dealer) notFound();
-  const [view, email, employees, rating] = await Promise.all([
+  const [view, email, employees, rating, settings, ratingOn] = await Promise.all([
     dealerView(dealer),
     dealerAccountEmail(dealer),
     listSalespeople(dealer.id),
     dealer.status === "DRAFT" || dealer.status === "PENDING" || dealer.isInternal ? Promise.resolve(null) : ratingView(dealer.id),
+    getCommissionSettings(),
+    isFeatureEnabled("dealer_rating_bonus_enabled"),
   ]);
 
   return (
@@ -47,6 +50,20 @@ export default async function AdminDealerPage({ params }: { params: Promise<{ id
         today={new Date().toISOString().slice(0, 10)}
         rating={rating ? JSON.parse(JSON.stringify(rating)) : null}
       />
+      {dealer.isInternal ? null : (
+        <div className="mt-4">
+          <DealerCommissionRates
+            dealerId={dealer.id}
+            isAdmin={user.role === "ADMIN"}
+            model={settings.commissionModel}
+            ownBasePercentBp={dealer.commissionPercentBp}
+            ownRatingStepBp={dealer.ratingStepBp}
+            defaults={{ basePercentBp: settings.basePercentBp, ratingStepBp: settings.ratingStepBp }}
+            rating={Number(dealer.rating)}
+            ratingOn={ratingOn}
+          />
+        </div>
+      )}
     </div>
   );
 }

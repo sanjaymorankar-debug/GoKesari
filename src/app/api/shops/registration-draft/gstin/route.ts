@@ -12,7 +12,7 @@ import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
 import { submitDraftGstin } from "@/server/services/shop-registration-draft";
-import { getWizardDraft } from "@/server/services/shop-registration-wizard";
+import { getWizardDraft, requireWizardAvailable } from "@/server/services/shop-registration-wizard";
 
 export const dynamic = "force-dynamic";
 
@@ -23,6 +23,9 @@ const schema = z.object({
 
 export const POST = route(async (request: NextRequest) => {
   const user = await requirePermission(PERMISSIONS.SHOP_CREATE);
+  // D-106: only while the wizard flag is on (an admin may use it while it is off), as the later steps —
+  // this step makes paid government lookups, so the screen must not be the only gate.
+  await requireWizardAvailable(user);
   enforceRateLimit(`registration-draft:${user.id}`, RATE_LIMITS.MUTATION);
   const body = await parseBody(request, schema);
   await submitDraftGstin({

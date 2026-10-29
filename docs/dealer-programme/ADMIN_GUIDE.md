@@ -117,8 +117,23 @@ verified; then they are released automatically.
 
 **Admin → Dealers → Commission, rating & payouts** (`/admin/dealers/commission`).
 
-**Rules** — per shop type (standard / wholesale), district and milestone, with effective dates.
-Pilot default for a standard shop:
+**Base commission** (owner, 29 Oct 2026; the default model). A dealer earns one commission per
+shop: a **base %** of the registration fee the shop paid (before GST, after any coupon), earned in
+full when the shop is **approved**. Nothing is earned at fee payment or verification, and the fixed
+₹ amounts are not used.
+
+- **Default for every dealer** (Settings tab): base **40%**, and **1 percentage point per rating
+  point**. Each 1.0 of rating above 5.0 adds the step; each 1.0 below takes it off (never below 0%).
+  Example, fee ₹999: rating 5.0 → 40% = ₹399.60; 6.0 → 41% = ₹409.59; 4.0 → 39% = ₹389.61.
+- **One dealer** (Dealers → the dealer → *Commission for this dealer*): their own base % and/or
+  their own step. Leave a field empty to use the default. The card shows what the dealer earns now.
+- The rating adjustment applies where the flag `dealer_rating_bonus_enabled` is on; elsewhere the
+  dealer earns the base % only.
+- Every change asks for a reason and is audited; it applies to commission earned afterwards.
+
+**Milestone rules** (the earlier model, kept for its history; Settings → Commission model →
+Milestone rules switches back to it) — per shop type (standard / wholesale), district and
+milestone, with effective dates. Pilot default for a standard shop:
 
 | Milestone | Default |
 |---|---|
@@ -134,7 +149,8 @@ above waits as "above cap" until an admin overrides it with a reason.
 
 **Rating** (0–10, starts at 5.0): rises with live shops — 200 → 5.5, 250 → 6.0, 500 → 6.5
 (editable slabs). An admin can set a starting rating or downgrade a dealer with a reason (the dealer
-sees it). **Bonus** (when its flag is on): each 0.1 above 5.0 adds 0.1% of the fee.
+sees it). **Rating adjustment** (when its flag is on): see *Base commission* above; under the
+milestone rules model each 0.1 above 5.0 adds 0.1% of the fee (no reduction below 5.0).
 
 **Ledger:** earned → approved (by an admin) → in a payout → paid. Reversed entries (fee refunded,
 fraud, duplicate) are cancelled; a reversal after payment is deducted from the next payout.

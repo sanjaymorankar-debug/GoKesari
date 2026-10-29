@@ -13,6 +13,18 @@ interface Rating {
 }
 
 const rs = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+/** Basis points as "+1%", "−0.5%", "40%". */
+const pct = (bp: number, signed = false) => `${signed ? (bp < 0 ? "−" : "+") : ""}${(Math.abs(bp) / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}%`;
+
+/** The dealer's own commission rate (base % model). */
+export interface MyRate {
+  model: "BASE_PERCENT" | "MILESTONE_RULES";
+  basePercentBp: number;
+  ratingStepBp: number;
+  adjustmentBp: number;
+  effectivePercentBp: number;
+  ratingOn: boolean;
+}
 const MILESTONE: Record<string, string> = { REGISTERED: "Registration completed", VERIFIED_CATALOGUE: "Verified + catalogue", ACTIVATED: "Activated" };
 
 /**
@@ -24,12 +36,15 @@ export function DealerEarnings({
   rating,
   summary,
   rates,
+  myRate = null,
   entries,
   bonusOn,
 }: {
   rating: Rating;
   summary: Record<"earned" | "pending" | "approved" | "paid" | "reversed" | "onHold", number>;
   rates: { milestone: string; shopScope: string; districtCode: string | null; fixedPaise: number; percentBp: number }[];
+  /** Base % model: the dealer's own rate. */
+  myRate?: MyRate | null;
   entries: { id: string; shopName: string; milestone: string; kind: string; status: string; amountPaise: number; bonusBp: number; createdAt: string; note?: string | null }[];
   bonusOn: boolean;
 }) {
@@ -40,7 +55,7 @@ export function DealerEarnings({
       <Card className="space-y-2 p-4" id="dealer-rating" data-testid="dealer-rating">
         <h2 className="text-base font-bold text-ink-900">Your onboarding rating</h2>
         <p className="text-3xl font-bold text-ink-900">
-          {rating.rating.toFixed(1)} <span className="text-base font-semibold text-leaf-700">{bonusOn ? `+${(rating.bonusBp / 100).toFixed(1)}% commission` : ""}</span>
+          {rating.rating.toFixed(1)} <span className="text-base font-semibold text-leaf-700">{bonusOn ? `${pct(rating.bonusBp, true)} commission` : ""}</span>
         </p>
         <p className="text-sm text-ink-700">{rating.activatedShops} activated shops counted.</p>
         {rating.override ? <p className="text-sm text-amber-800">Set to {rating.override.rating.toFixed(1)} by GoKesari{rating.override.untilShops ? ` until you reach ${rating.override.untilShops} shops` : ""}.</p> : null}
@@ -50,7 +65,11 @@ export function DealerEarnings({
               <div className="h-full bg-leaf-600" style={{ width: `${progress}%` }} />
             </div>
             <p className="mt-1 text-sm text-ink-700">
-              {rating.next.shopsToGo} more activated shops to reach {rating.next.rating.toFixed(1)} (+{Math.max(0, rating.next.rating - 5).toFixed(1)}%).
+              {rating.next.shopsToGo} more activated shops to reach {rating.next.rating.toFixed(1)} (
+              {myRate?.model === "BASE_PERCENT"
+                ? pct(Math.round((rating.next.rating - 5) * myRate.ratingStepBp), true)
+                : `+${Math.max(0, rating.next.rating - 5).toFixed(1)}%`}
+              ).
             </p>
           </div>
         ) : (
@@ -96,7 +115,13 @@ export function DealerEarnings({
         </dl>
         <details className="text-sm">
           <summary className="min-h-11 cursor-pointer py-2">Rates that apply now</summary>
-          <ul className="space-y-1 text-ink-700">
+          {myRate?.model === "BASE_PERCENT" ? (
+            <p className="text-ink-700" data-testid="dealer-my-rate">
+              {pct(myRate.effectivePercentBp)} of each shop&apos;s registration fee (before GST), earned when the shop is approved — base {pct(myRate.basePercentBp)}
+              {myRate.ratingOn ? `, ${pct(myRate.adjustmentBp, true)} for your rating (${pct(myRate.ratingStepBp)} per rating point above or below 5.0)` : ""}.
+            </p>
+          ) : null}
+          <ul className="space-y-1 text-ink-700" hidden={myRate?.model === "BASE_PERCENT"}>
             {rates.map((r, i) => (
               <li key={i}>
                 {MILESTONE[r.milestone]} · {r.shopScope.toLowerCase()} shops{r.districtCode ? ` in ${r.districtCode}` : ""}: {[r.fixedPaise ? rs(r.fixedPaise) : null, r.percentBp ? `${r.percentBp / 100}% of the fee` : null].filter(Boolean).join(" + ")}

@@ -25,6 +25,17 @@ Changes from the earlier separate lines: GST reminders now go at 05:00 IST
 cycle at 05:00 IST on Saturday (was a separate daily line at 06:10). Every
 other job keeps its cadence.
 
+## One run at a time (29 Oct 2026)
+
+Hostinger counts every process on the account against one limit of 120, and it
+reported the account reaching it. So each entry point runs only one copy at a
+time: a call that arrives while the previous run is still going answers
+`{"skipped":true,"reason":"ALREADY_RUNNING"}` straight away
+(`src/server/cron/single-run.ts`). A run older than 10 minutes (every-minute),
+50 minutes (hourly) or 6 hours (daily) is taken as hung, and the next call runs
+anyway. On the host side each crontab line wraps its curl in `flock -n` with a
+`--max-time`, so curls never stack up either ([`crontab.txt`](crontab.txt)).
+
 ## Install (owner)
 
 1. On test.gokesari.com, replace every GoKesari line in the Hostinger crontab

@@ -18,7 +18,22 @@
 17 * * * *   $HOME/gokesari-cron/run.sh hourly         # risk scan, dispute + help-desk deadlines, refund / payout retries, expired codes
 30 23 * * *  $HOME/gokesari-cron/run.sh daily          # 05:00 IST: subscription orders, document upkeep, GST reminders, Saturday payout, Monday finance week
 
-# Without run.sh, the same three lines as plain curl (replace <host> and keep the secret out of the crontab file if you can):
-# * * * * *   curl -fsS -X POST https://<host>/api/cron/every-minute -H "Authorization: Bearer $CRON_SECRET" >/dev/null
-# 17 * * * *  curl -fsS -X POST https://<host>/api/cron/hourly       -H "Authorization: Bearer $CRON_SECRET" >/dev/null
-# 30 23 * * * curl -fsS -X POST https://<host>/api/cron/daily        -H "Authorization: Bearer $CRON_SECRET" >/dev/null
+# Without run.sh: the same three lines as plain curl, as pasted into hPanel → Advanced →
+# Cron Jobs → Custom (production: https://gokesari.com; test: https://test.gokesari.com).
+# <site> is prod or test: both sites share one hosting account, so each keeps its own
+# secret and lock files. The secret is read from $HOME/gokesari-cron/<site>/secret (one line, the site's CRON_SECRET,
+# permissions 600, outside public_html), so it is never written in the cron entry.
+#
+# `flock -n` (29 Oct 2026, Hostinger's 120-process limit): while the previous call of a
+# line is still running, the next one is skipped instead of starting a second curl beside
+# it. `--max-time` ends a curl that hangs. The app also runs only one copy of each entry
+# point at a time (src/server/cron/single-run.ts) and answers a call that overlaps with
+# {"skipped":true,"reason":"ALREADY_RUNNING"}.
+# If hPanel's output says "flock: command not found", drop the `flock -n <file>` part.
+#
+# * * * * *   flock -n $HOME/gokesari-cron/<site>/every-minute.lock curl -fsS --max-time 55 -o /dev/null -X POST https://<host>/api/cron/every-minute -H "Authorization: Bearer $(cat $HOME/gokesari-cron/<site>/secret)"
+# 17 * * * *  flock -n $HOME/gokesari-cron/<site>/hourly.lock curl -fsS --max-time 300 -o /dev/null -X POST https://<host>/api/cron/hourly -H "Authorization: Bearer $(cat $HOME/gokesari-cron/<site>/secret)"
+# 30 23 * * * flock -n $HOME/gokesari-cron/<site>/daily.lock curl -fsS --max-time 300 -o /dev/null -X POST https://<host>/api/cron/daily -H "Authorization: Bearer $(cat $HOME/gokesari-cron/<site>/secret)"
+#
+# Remove the old per-job lines (/api/cron/shop-acceptance, /notifications,
+# /delivery-dispatch, …): they only get 410 now and still start a process each minute.

@@ -41,6 +41,7 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { verifyDocument, type SourceRecord, type VerifyDocumentResult } from "@/server/kyc";
+import { gstinHeldByOtherOwner } from "./shop-duplicates";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { getRule } from "./settings";
 
@@ -196,14 +197,10 @@ export async function assertOwnerExists(ownerId: string): Promise<void> {
 }
 
 /** A live shop already holds this GSTIN: the owner is told before any paid call. */
-async function assertGstinFree(gstin: string): Promise<void> {
-  const [taken] = await db
-    .select({ id: shops.id })
-    .from(shops)
-    .where(and(eq(shops.gstin, gstin), isNull(shops.deletedAt), ne(shops.status, "REJECTED")))
-    .limit(1);
-  if (taken) {
-    throw conflict("A shop with this GSTIN is already registered on GoKesari. If it is yours, sign in with the account that registered it, or contact support.", {
+async function assertGstinFree(gstin: string, ownerId: string): Promise<void> {
+  // Owner decision, 29 Oct 2026: the same owner may open another branch on its GSTIN; another account may not.
+  if (await gstinHeldByOtherOwner(gstin, ownerId)) {
+    throw conflict("A shop with this GSTIN is already registered on GoKesari by another account. If it is yours, sign in with the account that registered it, or contact support.", {
       reason: "DUPLICATE_SHOP",
     });
   }
@@ -361,7 +358,7 @@ export async function submitDraftGstin(input: SubmitDraftGstinInput): Promise<Sh
   const doc = parsed.value;
   const { actor } = input;
   await assertOwnerExists(actor.id);
-  await assertGstinFree(doc.normalized);
+  await assertGstinFree(doc.normalized, actor.id);
 
   const gstinHash = docBlindIndex("GSTIN", doc.normalized);
   const now = new Date();

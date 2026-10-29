@@ -8,7 +8,7 @@ import { DealerEarnings } from "@/components/dealer/dealer-earnings";
 import { DealerStatements } from "@/components/dealer/dealer-statements";
 import { dealerPerformance } from "@/server/dealers/performance";
 import { DealerWork } from "@/components/dealer/dealer-work";
-import { applicableRates, commissionSummary, getCommissionSettings, listLedger, ratingView } from "@/server/dealers/commission";
+import { applicableRates, commissionSummary, dealerRateView, getCommissionSettings, listLedger, ratingView } from "@/server/dealers/commission";
 import { dealerMonthStatement, statementMonths } from "@/server/dealers/monthly-payout";
 import { Alert, Badge, LinkButton, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
@@ -58,7 +58,7 @@ export default async function DealerPage({ searchParams }: { searchParams: Promi
 
   const origin = originFromHeaders(await headers());
   const code = await activeCodeFor(dealer.id, null);
-  const [employees, performance, leads, claims, shopTypes, categories, feeRule, rating, summary, rates, entries, bonusOn, supportServicesOn] = await Promise.all([
+  const [employees, performance, leads, claims, shopTypes, categories, feeRule, rating, summary, rates, entries, bonusOn, supportServicesOn, myRate] = await Promise.all([
     listSalespeople(dealer.id),
     dealerPerformance(dealer.id),
     listLeads(dealer.id),
@@ -72,6 +72,7 @@ export default async function DealerPage({ searchParams }: { searchParams: Promi
     listLedger({ dealerId: dealer.id }),
     isFeatureEnabled("dealer_rating_bonus_enabled"),
     isFeatureEnabled("paid_support_services_enabled"),
+    dealerRateView(dealer.id),
   ]);
   // Monthly statements: this month so far and the closed months (owner, 28 Oct 2026).
   const [months, commissionSettings] = await Promise.all([statementMonths(), getCommissionSettings()]);
@@ -101,7 +102,7 @@ export default async function DealerPage({ searchParams }: { searchParams: Promi
         code={code ? { code, shareLink: shareLinkFor(origin, code), whatsapp: whatsappShareFor(origin, code, dealer.legalName), qrSvg: await codeQrSvg(origin, code) } : null}
         employees={employees}
       />
-      <DealerEarnings rating={iso([rating])[0]} summary={summary} rates={rates} entries={iso(entries)} bonusOn={bonusOn} />
+      <DealerEarnings rating={iso([rating])[0]} summary={summary} rates={rates} myRate={myRate} entries={iso(entries)} bonusOn={bonusOn} />
       <DealerStatements statements={iso(statements)} payoutDay={commissionSettings.payoutDayOfMonth} open={openStatement} />
       <DealerWork
         employees={employees}
