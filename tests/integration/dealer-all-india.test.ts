@@ -19,7 +19,7 @@ import { POST as dealersPost } from "@/app/api/admin/dealers/route";
 import { districtShortCode, INDIAN_STATES, stateCodeOfArea } from "@/lib/indian-states";
 import { db } from "@/server/db";
 import { dealerCommissionRules, dealerTerritories, dealers, geoAreas, shopAttributions, shops, userRoleGrants } from "@/server/db/schema";
-import { checkCommissionMilestones, ruleFor } from "@/server/dealers/commission";
+import { checkCommissionMilestones, ruleFor, setCommissionSettings } from "@/server/dealers/commission";
 import { createDealerByAdmin, saveApplication } from "@/server/dealers/service";
 import { flagCoversDistrict, getFeatureFlag, setFeatureFlag } from "@/server/services/feature-flags";
 import { addDistrict, areaForPincode, districtCodeForPincode, listDistrictsOf, listStates, openAreasFor } from "@/server/services/geo-areas";
@@ -165,6 +165,8 @@ describe("rollout by state", () => {
 
   it("a Karnataka shop brought by a Karnataka dealer earns the registration commission where the flag names KA", async () => {
     await setFeatureFlag("dealer_programme_enabled", { enabled: true, districtCodes: ["KA"] }, "Karnataka", admin);
+    // A state-wide rule of the milestone rules model.
+    await setCommissionSettings({ commissionModel: "MILESTONE_RULES" }, "milestone rules for this test", admin);
     await db.delete(dealerCommissionRules);
     await db.insert(dealerCommissionRules).values({ ruleKey: crypto.randomUUID(), version: 1, shopScope: "STANDARD", milestone: "REGISTERED", districtCode: "KA", fixedPaise: 11_000, effectiveFrom: "2026-01-01", changeReason: "test" });
     const { dealer } = await createDealerByAdmin({ legalName: "BLR Traders", contactName: "K", dealerType: "INDIVIDUAL", stateCode: "KA", reason: "Karnataka dealer" }, admin);

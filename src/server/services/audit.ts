@@ -386,6 +386,7 @@ export const AUDIT_ACTIONS = {
   DEALER_DISPUTE_SAVED: "dealer.dispute_saved", // docs/dealer-programme
   DEALER_COMMISSION_SETTINGS_CHANGED: "dealer.commission_settings_changed", // docs/dealer-programme
   DEALER_COMMISSION_RULE_CHANGED: "dealer.commission_rule_changed", // docs/dealer-programme
+  DEALER_COMMISSION_RATES_CHANGED: "dealer.commission_rates_changed", // one dealer's base % and rating step (0116)
   DEALER_COMMISSION_ACCRUED: "dealer.commission_accrued", // docs/dealer-programme
   DEALER_COMMISSION_REVERSED: "dealer.commission_reversed", // docs/dealer-programme
   DEALER_COMMISSION_APPROVED: "dealer.commission_approved", // docs/dealer-programme

@@ -24,6 +24,9 @@ interface Settings {
   fixedBonusBase: "FEE" | "BASE_AMOUNT";
   catalogueMinProducts: number;
   branchEligible: boolean;
+  commissionModel: "BASE_PERCENT" | "MILESTONE_RULES";
+  basePercentBp: number;
+  ratingStepBp: number;
 }
 interface Entry {
   id: string;
@@ -53,6 +56,13 @@ interface Payout {
 
 const MILESTONE: Record<string, string> = { REGISTERED: "Registration completed", VERIFIED_CATALOGUE: "Verified + catalogue", ACTIVATED: "Activated" };
 const rs = (paise: number) => `₹${(paise / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}`;
+/** Basis points as "40%" / "12.5%". */
+export const pct = (bp: number) => `${(bp / 100).toLocaleString("en-IN", { maximumFractionDigits: 2 })}%`;
+/** "40" / "12.5" (a percent typed by the admin) → basis points, or null when not a number. */
+export const toBp = (text: string) => {
+  const n = Number(text.replace(/[%\s]/g, ""));
+  return text.trim() === "" || !Number.isFinite(n) ? null : Math.round(n * 100);
+};
 
 /**
  * Admin → Dealers → Commission (docs/dealer-programme, GKS-CM-001…003). Only an
@@ -77,12 +87,21 @@ export function CommissionAdmin({
   districts: { code: string; name: string }[];
 }) {
   const router = useRouter();
-  const [tab, setTab] = useState<"rules" | "settings" | "slabs" | "ledger">("rules");
+  const percentModel = settings.commissionModel === "BASE_PERCENT";
+  const [tab, setTab] = useState<"rules" | "settings" | "slabs" | "ledger">(percentModel ? "settings" : "rules");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
   const [draft, setDraft] = useState({ ruleKey: "", shopScope: "STANDARD", districtCode: "", milestone: "REGISTERED", fixed: "", percent: "", from: new Date().toISOString().slice(0, 10), to: "" });
-  const [s, setS] = useState({ cap: String(settings.capPaise / 100), base: settings.fixedBonusBase, catalogue: String(settings.catalogueMinProducts), branch: settings.branchEligible });
+  const [s, setS] = useState({
+    cap: String(settings.capPaise / 100),
+    base: settings.fixedBonusBase,
+    catalogue: String(settings.catalogueMinProducts),
+    branch: settings.branchEligible,
+    model: settings.commissionModel,
+    basePercent: String(settings.basePercentBp / 100),
+    step: String(settings.ratingStepBp / 100),
+  });
   const [slab, setSlab] = useState({ minShops: "", rating: "" });
   const [selected, setSelected] = useState<string[]>([]);
   const [statusFilter, setStatusFilter] = useState("");
@@ -119,8 +138,15 @@ export function CommissionAdmin({
     const bonusBp = 100;
     const pct = { base: Math.round((fee * 4000) / 10_000), bonus: Math.round((fee * bonusBp) / 10_000) };
     const fixedBonus = s.base === "FEE" ? Math.round((fee * bonusBp) / 10_000) : Math.round((15_000 * bonusBp) / 10_000);
-    return { pct, fixedBonus };
-  }, [s.base]);
+    // Base % model: a ₹999 fee, at ratings 6.0 and 4.0.
+    const baseBp = toBp(s.basePercent) ?? 0;
+    const stepBp = toBp(s.step) ?? 0;
+    const at = (rating: number) => {
+      const bp = Math.max(0, baseBp + Math.round((rating - 5) * stepBp));
+      return { bp, paise: Math.round((99_900 * bp) / 10_000) };
+    };
+    return { pct, fixedBonus, percentModel: { base: at(5), up: at(6), down: at(4) } };
+  }, [s.base, s.basePercent, s.step]);
 
   return (
     <div className="space-y-4" data-testid="commission-admin">
@@ -143,6 +169,9 @@ export function CommissionAdmin({
       {tab === "rules" ? (
         <Card className="space-y-3 p-4">
           <h2 className="text-base font-bold">Commission rules in force</h2>
+          {percentModel ? (
+            <Alert tone="info">Not in use: dealers earn the base commission % (Settings). These rules apply only if the commission model is switched back to milestone rules.</Alert>
+          ) : null}
           <p className="text-sm text-ink-700">A change makes a new version; commission already earned keeps the version it was earned under.</p>
           <ul className="divide-y divide-cream-200 text-sm" data-testid="commission-rules">
             {current.map((r) => (
@@ -263,7 +292,31 @@ export function CommissionAdmin({
 
       {tab === "settings" ? (
         <Card className="space-y-3 p-4">
-          <h2 className="text-base font-bold">Cap, bonus and catalogue</h2>
+          <h2 className="text-base font-bold">Base commission and rating</h2>
+          <div className="grid gap-3 sm:grid-cols-2">
+            <Field label="Commission model">
+              <select className={inputClass} value={s.model} onChange={(e) => setS((v) => ({ ...v, model: e.target.value as Settings["commissionModel"] }))} disabled={!isAdmin}>
+                <option value="BASE_PERCENT">Base % of the fee, earned when the shop is approved</option>
+                <option value="MILESTONE_RULES">Milestone rules (fixed ₹ / % per milestone)</option>
+              </select>
+            </Field>
+            <Field label="Base commission (% of the registration fee paid)" hint="Before GST, after any coupon. A dealer can have their own (Dealers → the dealer).">
+              <input className={inputClass} inputMode="decimal" value={s.basePercent} onChange={(e) => setS((v) => ({ ...v, basePercent: e.target.value }))} disabled={!isAdmin} />
+            </Field>
+            <Field label="Change per rating point (percentage points)" hint="Each 1.0 of rating above 5.0 adds this; each 1.0 below takes it off. Never below 0%.">
+              <input className={inputClass} inputMode="decimal" value={s.step} onChange={(e) => setS((v) => ({ ...v, step: e.target.value }))} disabled={!isAdmin} />
+            </Field>
+          </div>
+          {s.model === "BASE_PERCENT" ? (
+            <div className="rounded-xl bg-cream-50 p-3 text-sm text-ink-700" data-testid="base-percent-example">
+              <p className="font-semibold">Worked example — fee ₹999 (rating adjustment on):</p>
+              <p>Rating 5.0: {pct(example.percentModel.base.bp)} = {rs(example.percentModel.base.paise)}</p>
+              <p>Rating 6.0: {pct(example.percentModel.up.bp)} = {rs(example.percentModel.up.paise)}</p>
+              <p>Rating 4.0: {pct(example.percentModel.down.bp)} = {rs(example.percentModel.down.paise)}</p>
+              <p>The rating adjustment applies where the flag dealer_rating_bonus_enabled is on. The cap per shop still applies.</p>
+            </div>
+          ) : null}
+          <h2 className="pt-2 text-base font-bold">Cap, bonus and catalogue</h2>
           <div className="grid gap-3 sm:grid-cols-2">
             <Field label="Most commission per shop, bonus included (₹)" hint="Above it needs an admin override. Keep it below the registration fee.">
               <input className={inputClass} inputMode="decimal" value={s.cap} onChange={(e) => setS((v) => ({ ...v, cap: e.target.value }))} disabled={!isAdmin} />
@@ -294,7 +347,18 @@ export function CommissionAdmin({
               disabled={busy}
               onClick={() =>
                 post(
-                  { action: "settings", patch: { capPaise: Math.round(Number(s.cap) * 100), fixedBonusBase: s.base, catalogueMinProducts: Number(s.catalogue), branchEligible: s.branch } },
+                  {
+                    action: "settings",
+                    patch: {
+                      capPaise: Math.round(Number(s.cap) * 100),
+                      fixedBonusBase: s.base,
+                      catalogueMinProducts: Number(s.catalogue),
+                      branchEligible: s.branch,
+                      commissionModel: s.model,
+                      basePercentBp: toBp(s.basePercent) ?? undefined,
+                      ratingStepBp: toBp(s.step) ?? undefined,
+                    },
+                  },
                   "Settings saved.",
                 )
               }
@@ -400,7 +464,12 @@ export function CommissionAdmin({
                     </td>
                     <td className="p-1">
                       {rs(e.amountPaise)}
-                      {e.bonusBp ? <span className="block text-xs text-ink-500">incl. +{e.bonusBp / 100}% (rating {e.rating?.toFixed(1)})</span> : null}
+                      {e.bonusBp ? (
+                        <span className="block text-xs text-ink-500">
+                          incl. {e.bonusBp < 0 ? "−" : "+"}
+                          {Math.abs(e.bonusBp) / 100}% (rating {e.rating?.toFixed(1)})
+                        </span>
+                      ) : null}
                     </td>
                     <td className="p-1">
                       <Badge tone={e.status === "PAID" ? "success" : e.status === "REVERSED" ? "danger" : e.status === "ON_HOLD" || e.status === "PENDING" ? "warning" : "info"}>{e.status.toLowerCase().replace("_", " ")}</Badge>

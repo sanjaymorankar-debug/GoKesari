@@ -204,7 +204,7 @@ export function DealerAdminDetail({
         <Card className="space-y-2 p-4" data-testid="dealer-admin-rating">
           <h2 className="text-base font-bold text-ink-900">Onboarding rating</h2>
           <p className="text-sm">
-            <span className="text-2xl font-bold">{rating.rating.toFixed(1)}</span> (+{(rating.bonusBp / 100).toFixed(1)}%) · {rating.activatedShops} activated shops · starting rating {rating.startRating.toFixed(1)}
+            <span className="text-2xl font-bold">{rating.rating.toFixed(1)}</span> ({rating.bonusBp < 0 ? "−" : "+"}{(Math.abs(rating.bonusBp) / 100).toFixed(1)}%) · {rating.activatedShops} activated shops · starting rating {rating.startRating.toFixed(1)}
             {rating.override ? " · lowered by an admin" : ""}
             {rating.next ? ` · next: ${rating.next.rating.toFixed(1)} at ${rating.next.minShops} shops` : ""}
           </p>

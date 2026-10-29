@@ -7,7 +7,7 @@ import { DealerBoard } from "@/components/dealer/dealer-board";
 import { DealerEarnings } from "@/components/dealer/dealer-earnings";
 import { dealerPerformance } from "@/server/dealers/performance";
 import { DealerWork } from "@/components/dealer/dealer-work";
-import { applicableRates, commissionSummary, listLedger, ratingView } from "@/server/dealers/commission";
+import { applicableRates, commissionSummary, dealerRateView, listLedger, ratingView } from "@/server/dealers/commission";
 import { Alert, Badge, LinkButton, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { activeCodeFor, codeQrSvg, shareLinkFor, whatsappShareFor } from "@/server/dealers/codes";
@@ -54,7 +54,7 @@ export default async function DealerPage() {
 
   const origin = originFromHeaders(await headers());
   const code = await activeCodeFor(dealer.id, null);
-  const [employees, performance, leads, claims, shopTypes, categories, feeRule, rating, summary, rates, entries, bonusOn, supportServicesOn] = await Promise.all([
+  const [employees, performance, leads, claims, shopTypes, categories, feeRule, rating, summary, rates, entries, bonusOn, supportServicesOn, myRate] = await Promise.all([
     listSalespeople(dealer.id),
     dealerPerformance(dealer.id),
     listLeads(dealer.id),
@@ -68,6 +68,7 @@ export default async function DealerPage() {
     listLedger({ dealerId: dealer.id }),
     isFeatureEnabled("dealer_rating_bonus_enabled"),
     isFeatureEnabled("paid_support_services_enabled"),
+    dealerRateView(dealer.id),
   ]);
   // Dates become ISO strings for the client component.
   const iso = (rows: object[]) => JSON.parse(JSON.stringify(rows));
@@ -94,7 +95,7 @@ export default async function DealerPage() {
         code={code ? { code, shareLink: shareLinkFor(origin, code), whatsapp: whatsappShareFor(origin, code, dealer.legalName), qrSvg: await codeQrSvg(origin, code) } : null}
         employees={employees}
       />
-      <DealerEarnings rating={iso([rating])[0]} summary={summary} rates={rates} entries={iso(entries)} bonusOn={bonusOn} />
+      <DealerEarnings rating={iso([rating])[0]} summary={summary} rates={rates} myRate={myRate} entries={iso(entries)} bonusOn={bonusOn} />
       <DealerWork
         employees={employees}
         leads={iso(leads)}

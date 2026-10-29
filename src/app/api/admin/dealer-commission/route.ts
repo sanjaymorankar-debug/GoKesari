@@ -5,6 +5,7 @@
  *     Admin and operator (read only).
  * POST { action, … } → ADMIN only (the services check the role again; anyone else gets 403):
  *   saveRule {rule, reason} · disableRule {ruleKey, reason} · settings {patch, reason}
+ *   dealerRates {dealerId, commissionPercentBp, ratingStepBp, reason} (null: the default)
  *   saveSlab {minShops, rating, reason} · deleteSlab {minShops, reason}
  *   approve {ids, capOverride?, reason?} · reverse {id, reason} · release {id, reason}
  *   createPayout {dealerId, note?} · payoutPaid {batchId, reference} · cancelPayout {batchId}
@@ -32,6 +33,7 @@ import {
   saveCommissionRule,
   saveRatingSlab,
   setCommissionSettings,
+  setDealerCommissionRates,
 } from "@/server/dealers/commission";
 import { requireDealerProgramme } from "@/server/dealers/http";
 
@@ -62,7 +64,17 @@ const schema = z.discriminatedUnion("action", [
       fixedBonusBase: z.enum(["FEE", "BASE_AMOUNT"]).optional(),
       catalogueMinProducts: z.number().int().optional(),
       branchEligible: z.boolean().optional(),
+      commissionModel: z.enum(["BASE_PERCENT", "MILESTONE_RULES"]).optional(),
+      basePercentBp: z.number().int().optional(),
+      ratingStepBp: z.number().int().optional(),
     }),
+  }),
+  z.object({
+    action: z.literal("dealerRates"),
+    dealerId: z.string().uuid(),
+    commissionPercentBp: z.number().int().nullable(),
+    ratingStepBp: z.number().int().nullable(),
+    reason,
   }),
   z.object({ action: z.literal("saveSlab"), minShops: z.number().int(), rating: z.number(), reason }),
   z.object({ action: z.literal("deleteSlab"), minShops: z.number().int(), reason }),
@@ -103,6 +115,11 @@ export const POST = route(async (request: NextRequest) => {
       return ok({ done: true });
     case "settings":
       return ok({ settings: await setCommissionSettings(body.patch, body.reason, admin) });
+    case "dealerRates": {
+      const dealer = await setDealerCommissionRates(body.dealerId, { commissionPercentBp: body.commissionPercentBp, ratingStepBp: body.ratingStepBp }, body.reason, admin);
+      // Only the rates: the dealer row also carries encrypted PAN and bank details.
+      return ok({ dealerId: dealer.id, commissionPercentBp: dealer.commissionPercentBp, ratingStepBp: dealer.ratingStepBp });
+    }
     case "saveSlab":
       await saveRatingSlab(body.minShops, body.rating, body.reason, admin);
       return ok({ slabs: await listRatingSlabs() });
