@@ -460,6 +460,17 @@ export const RULES = {
       scheduleHorizonDays: 7,
     },
   },
+  shopDocumentFollowUp: {
+    description:
+      "Shop documents (owner decision, 29 Oct 2026). The registration fee is paid only once the shop's documents are verified (at least one); an owner without the rest ticks \"I will provide all relevant documents within 30 days\" (promiseDays) and the shop waits for an admin or operator to approve it. When enabled, on each day in reminderDaysOfMonth (the 1st and 15th, India time) every live shop still missing a mandatory document (PAN, GSTIN or the no-GST declaration, Shop Act, FSSAI for food) is e-mailed a reminder; at the run after the last of remindersBeforeSuspension reminders, and not before its promised date, it is suspended and the owner is e-mailed. These e-mails are sent even when the owner has switched shop e-mails off.",
+    schema: z.object({
+      enabled: z.boolean(),
+      reminderDaysOfMonth: z.array(int(1, 28)).min(1).max(4),
+      remindersBeforeSuspension: int(1, 10),
+      promiseDays: int(1, 90),
+    }),
+    defaults: { enabled: true, reminderDaysOfMonth: [1, 15], remindersBeforeSuspension: 3, promiseDays: 30 },
+  },
   sellerVerification: {
     description:
       "Seller document verification (PAN, GSTIN, Udyam, FSSAI, Shop Act): when a vendor result is accepted without a person, how often documents are re-checked, and when a lapsed document takes a shop offline.",
