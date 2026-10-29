@@ -118,6 +118,22 @@ export function refusesGuest(res: Answer) {
   return false;
 }
 
+/**
+ * Seller Central answers a guest with 200 and its sign-in shell (a "Sign in" button and "Loading…", no
+ * seller data) instead of a redirect. That shows the guest nothing, so it counts as closed. Anything with
+ * a rupee amount or without the sign-in prompt does not.
+ */
+export function isSignInShell(path: string, res: Answer) {
+  return (
+    path.startsWith("/shop") &&
+    res.status === 200 &&
+    /<title>[^<]*Seller Central/i.test(res.text) &&
+    /Sign in/.test(res.text) &&
+    /Loading…/.test(res.text) &&
+    !res.text.includes("₹")
+  );
+}
+
 /* ------------------------------------------------------------------ stash */
 
 /**
