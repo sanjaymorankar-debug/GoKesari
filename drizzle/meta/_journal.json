@@ -804,7 +804,14 @@
       "idx": 114,
       "version": "7",
       "when": 1793161100000,
-      "tag": "0114_shop_document_promise",
+      "tag": "0114_india_states",
+      "breakpoints": true
+    },
+    {
+      "idx": 115,
+      "version": "7",
+      "when": 1793161400000,
+      "tag": "0116_shop_document_promise",
       "breakpoints": true
     }
   ]

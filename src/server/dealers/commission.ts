@@ -23,6 +23,10 @@
  * stays within capPaise; the part above it is a separate PENDING entry that
  * only an admin override releases (audited).
  *
+ * A shop whose registration fee an admin waived earns no commission at any
+ * milestone (owner, 29 Oct 2026); anything accrued before the waiver is
+ * reversed. The shop stays attributed and still counts for the rating.
+ *
  * Who earns: the dealer the shop is attributed to (employees are for
  * reporting); not GoKesari Direct, not a likely duplicate, a branch only when
  * branchEligible. A suspended or terminated dealer's entries go ON_HOLD for an
@@ -61,6 +65,7 @@ import {
   type Shop,
   type UserRole,
 } from "@/server/db/schema";
+import { stateCodeOfArea } from "@/lib/indian-states";
 import { touchSellerRow } from "@/server/db/split/gate";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
@@ -250,6 +255,13 @@ export async function disableCommissionRule(ruleKey: string, reason: string, act
 }
 
 /** The rule in force for this shop and milestone today: district-specific beats every-district, a scope beats ALL. */
+/** The area itself and its state ("MH-PUN" → ["MH-PUN", "MH"]); [] when unknown. */
+function areaAndState(code: string | null): string[] {
+  if (!code) return [];
+  const state = stateCodeOfArea(code);
+  return state && state !== code ? [code, state] : [code];
+}
+
 export async function ruleFor(shop: Pick<Shop, "shopType">, districtCode: string | null, milestone: CommissionMilestone, client: DbClient = db): Promise<DealerCommissionRule | null> {
   const scope = WHOLESALE_TYPES.has(shop.shopType) ? "WHOLESALE" : "STANDARD";
   const d = today();
@@ -263,11 +275,13 @@ export async function ruleFor(shop: Pick<Shop, "shopType">, districtCode: string
         lte(dealerCommissionRules.effectiveFrom, d),
         or(isNull(dealerCommissionRules.effectiveTo), gte(dealerCommissionRules.effectiveTo, d)),
         inArray(dealerCommissionRules.shopScope, [scope, "ALL"]),
-        or(isNull(dealerCommissionRules.districtCode), districtCode ? eq(dealerCommissionRules.districtCode, districtCode) : sql`false`),
+        // A rule for the district, for its whole state ("KA"), or for everywhere.
+        districtCode ? or(isNull(dealerCommissionRules.districtCode), inArray(dealerCommissionRules.districtCode, areaAndState(districtCode))) : isNull(dealerCommissionRules.districtCode),
       ),
     );
   rows.sort((a, b) => {
-    const score = (r: DealerCommissionRule) => (r.districtCode ? 2 : 0) + (r.shopScope === "ALL" ? 0 : 1);
+    // Most specific first: district (4) over state (2) over everywhere; a shop-type rule over "all".
+    const score = (r: DealerCommissionRule) => (r.districtCode ? (r.districtCode === districtCode && r.districtCode !== stateCodeOfArea(districtCode) ? 4 : 2) : 0) + (r.shopScope === "ALL" ? 0 : 1);
     return score(b) - score(a) || b.createdAt.getTime() - a.createdAt.getTime();
   });
   return rows[0] ?? null;
@@ -275,9 +289,19 @@ export async function ruleFor(shop: Pick<Shop, "shopType">, districtCode: string
 
 /* =============================================================== amounts */
 
+/**
+ * An admin waived this shop's fee (waiveRegistrationFee sets the fee to zero
+ * and leaves the base on record). A fee that was simply nothing — a free
+ * district, a full coupon — is not a waiver.
+ */
+export function feeWaived(shop: Pick<Shop, "registrationFeeBasePaise" | "registrationFeeDiscountPaise" | "registrationFeePaise">): boolean {
+  if (shop.registrationFeePaise == null || Number(shop.registrationFeePaise) !== 0) return false;
+  return Number(shop.registrationFeeBasePaise ?? 0) - Number(shop.registrationFeeDiscountPaise ?? 0) > 0;
+}
+
 /** The registration fee actually paid, before GST, after any coupon. */
 export function feeBasePaise(shop: Pick<Shop, "registrationFeeBasePaise" | "registrationFeeDiscountPaise" | "registrationFeePaise" | "registrationFeeGstPaise">): number {
-  // A fee an admin waived for this shop (its fee set to zero; the base stays on record): nothing was collected.
+  // A fee set to zero (an admin waiver): nothing was collected.
   if (shop.registrationFeePaise != null && Number(shop.registrationFeePaise) === 0) return 0;
   if (shop.registrationFeeBasePaise != null) return Math.max(0, Number(shop.registrationFeeBasePaise) - Number(shop.registrationFeeDiscountPaise ?? 0));
   return Math.max(0, Number(shop.registrationFeePaise ?? 0) - Number(shop.registrationFeeGstPaise ?? 0));
@@ -341,7 +365,8 @@ export async function checkCommissionMilestones(shopId: string, actor: Actor | n
   if (row.shop.status === "APPROVED") reached.push("ACTIVATED");
 
   const out: DealerCommissionEntry[] = [];
-  for (const milestone of reached) {
+  // A waived fee earns the dealer nothing; the rating below still counts the shop.
+  for (const milestone of feeWaived(row.shop) ? [] : reached) {
     out.push(...(await accrue(row.shop, row.a.dealerId, row.a.salespersonId, milestone, district, settings, actor, { holdForDocuments: milestone === "ACTIVATED" && awaitingDocuments })));
   }
   // No rating credit until the documents are verified; then the held activation is released.
@@ -452,6 +477,39 @@ async function accrue(
 
 /* ============================================================= reversals */
 
+/** Reverses a shop's live accruals: unpaid ones become REVERSED, a paid one gets a negative entry. Returns how many. */
+async function reverseAccruals(tx: DbClient, shopId: string, why: string, actor: Actor | null): Promise<number> {
+  const entries = await tx
+    .select()
+    .from(dealerCommissionLedger)
+    .where(and(eq(dealerCommissionLedger.shopId, shopId), eq(dealerCommissionLedger.kind, "ACCRUAL"), ne(dealerCommissionLedger.status, "REVERSED")));
+  let n = 0;
+  for (const e of entries) {
+    const [already] = await tx.select({ id: dealerCommissionLedger.id }).from(dealerCommissionLedger).where(eq(dealerCommissionLedger.reversesId, e.id));
+    if (already) continue;
+    if (e.status === "PAID") {
+      await tx.insert(dealerCommissionLedger).values({
+        dealerId: e.dealerId,
+        salespersonId: e.salespersonId,
+        shopId,
+        milestone: e.milestone,
+        kind: "REVERSAL",
+        ruleId: e.ruleId,
+        ruleVersion: e.ruleVersion,
+        amountPaise: -e.amountPaise,
+        status: "EARNED",
+        reversesId: e.id,
+        note: `reversal after payment: ${why}`,
+        createdBy: actor?.id ?? null,
+      });
+    } else {
+      await tx.update(dealerCommissionLedger).set({ status: "REVERSED", payoutBatchId: null, note: `reversed: ${why}`, updatedAt: new Date() }).where(eq(dealerCommissionLedger.id, e.id));
+    }
+    n += 1;
+  }
+  return n;
+}
+
 /**
  * Reverses every commission of a shop (fee refunded, fraud, duplicate): unpaid
  * entries become REVERSED; a paid one gets a negative entry carried into the
@@ -462,34 +520,7 @@ export async function reverseShopCommission(shopId: string, reason: string, acto
   const result = await db.transaction(async (tx) => {
     const [attribution] = await tx.select().from(shopAttributions).where(eq(shopAttributions.shopId, shopId)).for("update");
     if (!attribution) return null;
-    const entries = await tx
-      .select()
-      .from(dealerCommissionLedger)
-      .where(and(eq(dealerCommissionLedger.shopId, shopId), eq(dealerCommissionLedger.kind, "ACCRUAL"), ne(dealerCommissionLedger.status, "REVERSED")));
-    let n = 0;
-    for (const e of entries) {
-      const [already] = await tx.select({ id: dealerCommissionLedger.id }).from(dealerCommissionLedger).where(eq(dealerCommissionLedger.reversesId, e.id));
-      if (already) continue;
-      if (e.status === "PAID") {
-        await tx.insert(dealerCommissionLedger).values({
-          dealerId: e.dealerId,
-          salespersonId: e.salespersonId,
-          shopId,
-          milestone: e.milestone,
-          kind: "REVERSAL",
-          ruleId: e.ruleId,
-          ruleVersion: e.ruleVersion,
-          amountPaise: -e.amountPaise,
-          status: "EARNED",
-          reversesId: e.id,
-          note: `reversal after payment: ${why}`,
-          createdBy: actor?.id ?? null,
-        });
-      } else {
-        await tx.update(dealerCommissionLedger).set({ status: "REVERSED", payoutBatchId: null, note: `reversed: ${why}`, updatedAt: new Date() }).where(eq(dealerCommissionLedger.id, e.id));
-      }
-      n += 1;
-    }
+    const n = await reverseAccruals(tx, shopId, why, actor);
     await tx.update(shopAttributions).set({ status: "REVERSED", note: `reversed: ${why}`, updatedAt: new Date() }).where(eq(shopAttributions.shopId, shopId));
     await recordAudit(
       {
@@ -515,6 +546,37 @@ export async function reverseShopCommissionSafely(shopId: string, reason: string
     await reverseShopCommission(shopId, reason, actor);
   } catch (error) {
     console.error("[dealers] commission reversal failed", shopId, error instanceof Error ? error.message : error);
+  }
+}
+
+/**
+ * The shop's fee was waived: reverses whatever it had already earned (say the
+ * catalogue milestone, reached before the fee was settled). The shop stays
+ * attributed to its dealer. Never breaks the waiver: logs and moves on.
+ */
+export async function reverseWaivedFeeCommissionSafely(shopId: string, actor: Actor | null): Promise<void> {
+  try {
+    if (!(await getFeatureFlag("dealer_programme_enabled")).enabled) return;
+    const why = "registration fee waived — no commission";
+    await db.transaction(async (tx) => {
+      const [attribution] = await tx.select().from(shopAttributions).where(eq(shopAttributions.shopId, shopId)).for("update");
+      if (!attribution) return;
+      const n = await reverseAccruals(tx, shopId, why, actor);
+      if (n === 0) return;
+      await recordAudit(
+        {
+          actorId: actor?.id ?? null,
+          actorRole: actor?.role ?? null,
+          action: AUDIT_ACTIONS.DEALER_COMMISSION_REVERSED,
+          entityType: "shop",
+          entityId: shopId,
+          newValue: { dealerId: attribution.dealerId, entries: n, reason: why },
+        },
+        tx,
+      );
+    });
+  } catch (error) {
+    console.error("[dealers] waived-fee commission reversal failed", shopId, error instanceof Error ? error.message : error);
   }
 }
 

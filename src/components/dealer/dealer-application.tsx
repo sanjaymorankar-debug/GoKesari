@@ -61,6 +61,7 @@ export function DealerApplication({ dealer, requirements, areas, agreementVersio
     bankIfsc: dealer?.bank.ifsc ?? "",
   });
   const [territories, setTerritories] = useState<string[]>(dealer?.territories ?? []);
+  const [pickedState, setPickedState] = useState<string | null>(null);
   const [otp, setOtp] = useState("");
   const [otpSent, setOtpSent] = useState(false);
   const [accept, setAccept] = useState(false);
@@ -126,7 +127,11 @@ export function DealerApplication({ dealer, requirements, areas, agreementVersio
   const reqs = dealer?.requirements ?? requirements[form.dealerType].map((r) => ({ ...r, label: DEALER_DOC_LABELS[r.docType], status: "MISSING" }));
   const byParent = new Map<string | null, typeof areas>();
   for (const a of areas) byParent.set(a.parent, [...(byParent.get(a.parent) ?? []), a]);
-  const districts = areas.filter((a) => a.parent === null);
+  // States first (parent null); then the chosen state's districts with their cities and localities.
+  const states = areas.filter((a) => a.parent === null);
+  const chosenState = pickedState ?? states.find((s) => territories.some((t) => t === s.code || t.startsWith(`${s.code}-`)))?.code ?? (states.length === 1 ? states[0].code : "");
+  const districts = chosenState ? (byParent.get(chosenState) ?? []) : [];
+  const toggle = (code: string, on: boolean) => setTerritories((t) => (on ? [...t, code] : t.filter((c) => c !== code)));
 
   return (
     <div className="space-y-4" data-testid="dealer-application">
@@ -187,7 +192,24 @@ export function DealerApplication({ dealer, requirements, areas, agreementVersio
         <fieldset>
           <legend className="text-sm font-semibold text-ink-900">Where you will work</legend>
           <p className="text-xs text-ink-500">Several dealers may work in the same area; no area is exclusive.</p>
+          <Field label="State / union territory">
+            <select className={inputClass} disabled={!editable} value={chosenState} onChange={(e) => setPickedState(e.target.value)} aria-label="State">
+              <option value="">Choose…</option>
+              {states.map((s) => (
+                <option key={s.code} value={s.code}>
+                  {s.name}
+                </option>
+              ))}
+            </select>
+          </Field>
           <div className="mt-2 space-y-2">
+            {chosenState ? (
+              <label className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold">
+                <input type="checkbox" disabled={!editable} checked={territories.includes(chosenState)} onChange={(e) => toggle(chosenState, e.target.checked)} />
+                {states.find((s) => s.code === chosenState)?.name} (whole state)
+              </label>
+            ) : null}
+            {chosenState && districts.length === 0 ? <p className="text-xs text-ink-500">No districts listed for this state yet — choose the whole state; GoKesari adds your district when it approves you.</p> : null}
             {districts.map((d) => (
               <div key={d.code} className="rounded-xl border border-cream-200 p-2">
                 <label className="inline-flex min-h-11 items-center gap-2 text-sm font-semibold">

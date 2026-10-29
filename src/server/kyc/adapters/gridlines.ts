@@ -69,11 +69,12 @@ function pick(obj: Json, keys: string[]): string | null {
 function toDocStatus(raw: string | null): SourceDocStatus {
   if (!raw) return "unknown";
   const s = raw.toLowerCase();
-  if (/(^|\b)(active|valid|existing|approved)(\b|$)/.test(s) && !/inactive|invalid/.test(s)) return "active";
+  // "Existing and Valid … Inoperative" (a PAN not linked to Aadhaar) is not active.
+  if (/(^|\b)(active|valid|existing|approved)(\b|$)/.test(s) && !/inactive|invalid|inoperative/.test(s)) return "active";
   if (/cancel/.test(s)) return "cancelled";
   if (/suspend/.test(s)) return "suspended";
   if (/expir/.test(s)) return "expired";
-  if (/inactive|invalid|deactivat|deleted|surrender/.test(s)) return "inactive";
+  if (/inactive|invalid|inoperative|deactivat|deleted|surrender/.test(s)) return "inactive";
   return "unknown";
 }
 

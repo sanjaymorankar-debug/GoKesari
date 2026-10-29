@@ -32,6 +32,7 @@ export const REASON_TEXT: Record<string, string> = {
   name_mismatch: "The name on the record doesn't clearly match your name or business name. Our team will check it.",
   name_not_returned: "The record didn't include a name. Our team will check it.",
   gstin_pan_mismatch: "The PAN inside this GSTIN is different from the PAN you submitted. Our team will check it.",
+  pan_gstin_mismatch: "This PAN is different from the PAN inside your GSTIN. Our team will check it.",
   state_mismatch: "This GSTIN is registered in a different state from your shop. Our team will check it.",
   address_mismatch: "The address on the record is at a different PIN code from your shop. Our team will check it.",
   expiry_not_returned: "The record didn't include an expiry date. Our team will check it.",

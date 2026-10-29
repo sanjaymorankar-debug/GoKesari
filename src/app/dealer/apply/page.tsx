@@ -8,7 +8,7 @@ import { getCurrentUser } from "@/server/authz/guards";
 import { smsAvailable } from "@/server/dealers/http";
 import { dealerView, documentRequirements, getDealerForUser } from "@/server/dealers/service";
 import { getFeatureFlag } from "@/server/services/feature-flags";
-import { listDistricts, listGeoAreas } from "@/server/services/geo-areas";
+import { openAreasFor } from "@/server/services/geo-areas";
 
 export const metadata = { title: "Become a GoKesari dealer" };
 export const dynamic = "force-dynamic";
@@ -25,16 +25,8 @@ export default async function DealerApplyPage() {
   // Approved or suspended dealers see their details read-only (the form is editable only as a draft).
   const dealer = await getDealerForUser(user.id);
 
-  const districts = (await listDistricts()).filter((d) => d.status === "ACTIVE" && (flag.districtCodes === null || flag.districtCodes.includes(d.code)));
-  const areas: { code: string; name: string; parent: string | null }[] = [];
-  for (const d of districts) {
-    areas.push({ code: d.code, name: d.name, parent: null });
-    for (const city of await listGeoAreas({ parentCode: d.code })) {
-      if (city.status !== "ACTIVE") continue;
-      areas.push({ code: city.code, name: city.name, parent: d.code });
-      for (const loc of await listGeoAreas({ parentCode: city.code })) if (loc.status === "ACTIVE") areas.push({ code: loc.code, name: loc.name, parent: city.code });
-    }
-  }
+  // States (all of India, or where the programme is open) with their districts, cities and localities.
+  const areas = await openAreasFor(flag.districtCodes);
   const requirements = Object.fromEntries(await Promise.all(DEALER_TYPES.map(async (t) => [t, await documentRequirements(t)] as const)));
   const view = dealer ? await dealerView(dealer) : null;
 
