@@ -44,7 +44,7 @@ import {
 } from "@/server/services/registration-fee-payment";
 import { clearRuleCache, setRule } from "@/server/services/settings";
 import { registerShop } from "@/server/services/shops";
-import { createUser, resetDatabase } from "../helpers/fixtures";
+import { createUser, resetDatabase, verifySellerDocuments } from "../helpers/fixtures";
 import { call } from "../helpers/http";
 
 const CRORE = 1_00_00_000;
@@ -279,6 +279,12 @@ describe("the owner pays the fee online", () => {
     const shop = await registerShop(shopInput(15_00_000), asActor(owner));
     signIn(owner);
 
+    // Owner decision 29 Oct 2026: the fee waits until the documents are verified (shop-document-gate.ts).
+    const early = await call(feeRoute, `/api/shops/${shop.id}/registration-fee`, { method: "POST", params: { id: shop.id } });
+    expect(early.status).toBe(409);
+    expect(early.body.error.details.reason).toBe("NO_VERIFIED_DOCUMENT");
+    await verifySellerDocuments(shop.id);
+
     const first = await call(feeRoute, `/api/shops/${shop.id}/registration-fee`, { method: "POST", params: { id: shop.id } });
     expect(first.status, JSON.stringify(first.body)).toBe(201);
     expect(first.body.amountPaise).toBe(withGst(99_900));
@@ -308,6 +314,7 @@ describe("the owner pays the fee online", () => {
   it("a failed payment can be retried with a new checkout", async () => {
     const owner = await createUser();
     const shop = await registerShop(shopInput(15_00_000), asActor(owner));
+    await verifySellerDocuments(shop.id);
     const failed = await startRegistrationFeeCheckout(shop.id, owner);
     await simulateSandboxCheckout({ ref: failed.intentId, viewerId: owner.id, outcome: "FAILURE" });
     const still = await checkRegistrationFeePayment(shop.id, failed.intentId, owner.id);

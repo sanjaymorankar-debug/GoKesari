@@ -1,8 +1,10 @@
 import Link from "next/link";
 import { redirect } from "next/navigation";
 
+import { DocumentsPromiseForm } from "@/components/documents-promise-form";
 import { RegistrationFeePayButton } from "@/components/registration-fee-pay-button";
 import { Alert, Badge, Card, LinkButton, Money, PageHeader } from "@/components/ui";
+import { SELLER_DOC_LABELS } from "@/lib/kyc/doc-formats";
 import { formatGstRate, formatRupeesIndian } from "@/lib/registration-fee";
 import { getCurrentUser } from "@/server/authz/guards";
 import {
@@ -10,16 +12,19 @@ import {
   latestRegistrationFeeAttempt,
   registrationFeeDue,
 } from "@/server/services/registration-fee-payment";
+import { getRule } from "@/server/services/settings";
+import { shopDocumentGate } from "@/server/services/shop-document-gate";
 import { listShopsForOwner } from "@/server/services/shops";
 
 export const metadata = { title: "Registration fee" };
 export const dynamic = "force-dynamic";
 
 /**
- * Add my shop → step 2: the one-time registration fee, paid online. Reached
- * straight after Submit, from the "pay the fee" link while the registration
- * waits, and back from the gateway (`?intent=`), when the payment is checked.
- * Step 3 is the documents upload.
+ * Add my shop → the one-time registration fee, paid online. Reached straight
+ * after Submit, from the "pay the fee" link while the registration waits, and
+ * back from the gateway (`?intent=`), when the payment is checked. Owner
+ * decision 29 Oct 2026: the documents come first — the fee is paid once they
+ * are verified (at least one), or once the owner promises the rest within 30 days.
  */
 export default async function RegistrationFeePage({
   searchParams,
@@ -45,18 +50,20 @@ export default async function RegistrationFeePage({
   const attempt = due > 0 ? await latestRegistrationFeeAttempt(shop.id, user.id) : null;
   const returned = typeof params.intent === "string";
   const documentsHref = `/shop/documents?shop=${shop.id}`;
+  const [gate, followUp] = await Promise.all([shopDocumentGate(shop), getRule("shopDocumentFollowUp")]);
+  const dateIn = (d: Date) => d.toLocaleDateString("en-IN", { day: "numeric", month: "short", year: "numeric", timeZone: "Asia/Kolkata" });
 
   return (
     <div className="mx-auto max-w-xl">
       <PageHeader
         title="Registration fee"
-        description="A one-time fee to register on GoKesari. Pay it online now — the review of your shop goes ahead once it is paid."
+        description="A one-time fee to register on GoKesari. Your documents are checked first; then pay it online and the review of your shop goes ahead."
       />
 
       <ol className="mb-4 flex flex-wrap gap-x-4 gap-y-1 text-sm" aria-label="Registration steps">
         <li className="text-ink-500">✓ Shop details</li>
-        <li className="font-semibold">2. Registration fee</li>
-        <li className="text-ink-500">3. Documents</li>
+        <li className={gate.canPay ? "text-ink-500" : "font-semibold"}>{gate.canPay ? "✓" : "2."} Documents</li>
+        <li className={gate.canPay ? "font-semibold" : "text-ink-500"}>3. Registration fee</li>
       </ol>
 
       <Card className="space-y-4 p-5">
@@ -146,12 +153,37 @@ export default async function RegistrationFeePage({
                 </Link>
               </Alert>
             ) : null}
-            <RegistrationFeePayButton shopId={shop.id} amountPaise={due} />
-            <p className="text-center text-sm text-ink-500">
-              <Link href={documentsHref} className="underline">
-                Pay later and upload documents first
-              </Link>
-            </p>
+            {gate.canPay ? (
+              <>
+                {gate.promisedAt && gate.dueAt && gate.missing.length > 0 ? (
+                  <Alert tone="info" title={`Documents promised by ${dateIn(gate.dueAt)}`}>
+                    Still to provide: {gate.missing.map((d) => SELLER_DOC_LABELS[d]).join(", ")}. Your shop goes live once GoKesari&apos;s team
+                    approves it.
+                  </Alert>
+                ) : null}
+                <RegistrationFeePayButton shopId={shop.id} amountPaise={due} />
+              </>
+            ) : (
+              <div className="space-y-3" data-testid="documents-before-fee">
+                <Alert tone="warning" title="Documents first">
+                  {gate.verified.length === 0
+                    ? "Get at least one of your documents verified (for example your PAN) before paying the registration fee."
+                    : `Not verified yet: ${gate.missing.map((d) => SELLER_DOC_LABELS[d]).join(", ")}. Verify them, or promise to provide them, before paying.`}
+                </Alert>
+                {gate.verified.length > 0 ? (
+                  <p className="text-sm text-ink-600">Verified: {gate.verified.map((d) => SELLER_DOC_LABELS[d]).join(", ")}</p>
+                ) : null}
+                <LinkButton href={`/shop/verification?shop=${shop.id}`} className="w-full">
+                  Verify my documents
+                </LinkButton>
+                <p className="text-center text-sm text-ink-500">
+                  <Link href={documentsHref} className="underline">
+                    Upload document copies
+                  </Link>
+                </p>
+                {gate.canPromise ? <DocumentsPromiseForm shopId={shop.id} promiseDays={followUp.promiseDays} /> : null}
+              </div>
+            )}
           </>
         )}
       </Card>

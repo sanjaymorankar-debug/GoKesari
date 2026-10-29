@@ -176,6 +176,8 @@ export const DAILY: readonly Job[] = [
   { name: "finance-weekly", weekday: 1, run: financeWeekly },
   // docs/purchase-lists-2026-10: "time to reorder" for weekly / monthly lists that are due again.
   { name: "purchase-list-reminders", run: async () => (await import("@/server/services/purchase-lists")).sendPurchaseListReminders() },
+  // docs/shop-documents-2026-10: live shops missing documents — reminders on the 1st and 15th, suspension after the 3rd.
+  { name: "shop-document-follow-up", run: async () => (await import("@/server/services/shop-document-follow-up")).runShopDocumentFollowUp() },
 ];
 
 /** The jobs of an every-minute run at `now`. */

@@ -831,6 +831,12 @@ export const shops = pgTable(
     closedAt: timestamp("closed_at", { withTimezone: true }),
     closedBy: uuid("closed_by"),
     closureReason: text("closure_reason"),
+    /**
+     * Owner decision 29 Oct 2026 (0115): the owner ticked "I will provide all relevant documents
+     * within 30 days" instead of verified documents before paying. Not approved automatically.
+     */
+    documentsPromisedAt: timestamp("documents_promised_at", { withTimezone: true }),
+    documentsDueAt: timestamp("documents_due_at", { withTimezone: true }),
     /** Rating aggregate (GS-059), maintained from visible order_ratings. Average × 100. */
     ratingAvgX100: integer("rating_avg_x100").notNull().default(0),
     ratingCount: integer("rating_count").notNull().default(0),
@@ -9954,6 +9960,10 @@ export const shopRegistrationDrafts = pgTable(
     /** "Do you have Udyam / FSSAI?" — null until answered. */
     hasUdyam: boolean("has_udyam"),
     hasFssai: boolean("has_fssai"),
+    /** 0115: "I don't have the Shop Act now" — then the documents promise is needed before payment. */
+    hasShopAct: boolean("has_shop_act"),
+    /** 0115: the owner ticked "I will provide all relevant documents within 30 days". */
+    documentsPromisedAt: timestamp("documents_promised_at", { withTimezone: true }),
     /** The map pin the owner confirmed. */
     latitude: text("latitude"),
     longitude: text("longitude"),
@@ -10036,6 +10046,30 @@ export const shopDeferredDocumentReviews = pgTable(
   },
   (t) => [primaryKey({ columns: [t.shopId, t.docType] })],
 );
+
+/**
+ * 0115: reminders to a live shop missing a mandatory document, sent on the 1st and 15th
+ * (rule shopDocumentFollowUp). The shop is suspended after the last one; the rows are
+ * cleared once its documents are complete or it is suspended, so a reactivated shop starts again.
+ */
+export const shopDocumentReminders = pgTable(
+  "shop_document_reminders",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id")
+      .notNull()
+      .references(() => shops.id, { onDelete: "cascade" }),
+    sentOn: date("sent_on", { mode: "string" }).notNull(),
+    reminderNo: integer("reminder_no").notNull(),
+    missingDocTypes: text("missing_doc_types").array().notNull().default(sql`'{}'::text[]`),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("shop_document_reminders_shop_day_uq").on(t.shopId, t.sentOn),
+    check("shop_document_reminders_no_positive", sql`${t.reminderNo} > 0`),
+  ],
+);
+export type ShopDocumentReminder = typeof shopDocumentReminders.$inferSelect;
 
 export const COMMISSION_MILESTONES = ["REGISTERED", "VERIFIED_CATALOGUE", "ACTIVATED"] as const;
 export type CommissionMilestone = (typeof COMMISSION_MILESTONES)[number];

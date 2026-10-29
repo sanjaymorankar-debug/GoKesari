@@ -314,6 +314,7 @@ export const TABLE_OWNERSHIP = {
   shop_registration_drafts: "seller",
   shop_registration_draft_checks: "seller", // wizard step 2 (0113)
   shop_deferred_document_reviews: "seller", // owner decision B: reviewed after go-live (0113)
+  shop_document_reminders: "seller", // 1st / 15th reminders, suspension after the last (0115)
   dealer_commission_rules: "seller",
   dealer_commission_settings: "seller",
   dealer_rating_slabs: "seller",

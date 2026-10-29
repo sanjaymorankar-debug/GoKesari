@@ -53,6 +53,7 @@ import { baseRegistrationFee, lockRegistrationFeeCoupon, registrationFeeGstRateB
 import { assertShopType, isKnownShopType } from "./shop-types";
 import { getRule } from "./settings";
 import { getShopOnboarding, missingMandatoryDocuments, onboardingApprovalBlocker } from "./shop-onboarding";
+import { documentsDueLabel } from "./shop-document-gate";
 import { todayIn } from "@/lib/dates";
 import { getEnv } from "@/lib/env";
 import { decideGovAutoApproval, govAutoApprovalApplies, logGovDecision } from "./gov-auto-approval";
@@ -769,11 +770,25 @@ export async function approveShop(
    * run once the answer is sent (the audit is in the transaction). Without it
    * they run before returning.
    */
-  options: { defer?: Defer; waiveDocuments?: { reason: string } } = {},
+  options: {
+    defer?: Defer;
+    waiveDocuments?: { reason: string };
+    /**
+     * Owner decision 29 Oct 2026: the owner promised the missing documents within 30 days
+     * (shop-document-gate.ts). An admin or operator who approves the shop inspected it; the
+     * missing documents are then chased on the 1st and 15th (shop-document-follow-up.ts).
+     */
+    acceptDocumentsPromise?: boolean;
+  } = {},
 ): Promise<Shop> {
   let approved: Shop;
   try {
-    approved = await approveShopTransaction(shopId, input, actor, options.waiveDocuments);
+    approved = await approveShopTransaction(
+      shopId,
+      input,
+      actor,
+      options.waiveDocuments ?? (options.acceptDocumentsPromise ? { promise: true } : undefined),
+    );
   } catch (error) {
     if (isShopActUniqueViolation(error)) throw conflict(SHOP_ACT_TAKEN_MESSAGE);
     throw error;
@@ -982,8 +997,11 @@ function approveShopTransaction(
   input: { classification: Classification },
   /** `id: null` — approved automatically (autoApproveShopIfReady). */
   actor: { id: string | null; role: UserRole | null },
-  /** An admin approves without the seller documents (0109), with a written reason. */
-  waiveDocuments?: { reason: string },
+  /**
+   * An admin approves without the seller documents (0109), with a written reason; or an admin
+   * or operator approves a shop whose owner promised them (`promise`, 29 Oct 2026).
+   */
+  waiveDocuments?: { reason: string } | { promise: true },
 ): Promise<Shop> {
   return db.transaction(async (tx) => {
     let [shop] = await tx
@@ -1000,13 +1018,24 @@ function approveShopTransaction(
       throw conflict("This shop is already approved.");
     }
     if (waiveDocuments) {
-      if (actor.role !== "ADMIN" || !actor.id) throw forbidden("Only an admin can approve a shop without its documents.");
+      let reason: string;
+      if ("promise" in waiveDocuments) {
+        // The route already asked for SHOP_APPROVE; a person, never the automatic approval.
+        if (!actor.id || (actor.role !== "ADMIN" && actor.role !== "OPERATOR")) {
+          throw forbidden("Only an admin or operator can approve a shop on its owner's documents promise.");
+        }
+        if (!shop.documentsPromisedAt) throw conflict("This shop's owner has not promised the missing documents.");
+        reason = `Owner promised the documents by ${documentsDueLabel(shop.documentsDueAt ?? shop.documentsPromisedAt)}; approved after inspection.`;
+      } else {
+        if (actor.role !== "ADMIN" || !actor.id) throw forbidden("Only an admin can approve a shop without its documents.");
+        reason = waiveDocuments.reason;
+      }
       const missing = await missingMandatoryDocuments(shop, tx);
       if (missing.length > 0) {
         await tx.insert(shopDocumentWaivers).values({
           shopId,
           missingDocTypes: missing,
-          reason: waiveDocuments.reason,
+          reason,
           waivedBy: actor.id,
         });
         // The waiver makes the shop KYC-complete: touch it so the trigger moves it out of
@@ -1024,7 +1053,7 @@ function approveShopTransaction(
             entityType: "shop",
             entityId: shopId,
             previousValue: { lifecycleStatus: "KYC_PENDING" },
-            newValue: { waivedDocuments: missing, reason: waiveDocuments.reason },
+            newValue: { waivedDocuments: missing, reason, documentsPromise: "promise" in waiveDocuments, dueAt: shop.documentsDueAt },
           },
           tx,
         );

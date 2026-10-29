@@ -390,6 +390,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "dealers", label: L("Dealers", "डीलर", "डीलर"), icon: "users", href: "/admin/dealers", permission: PERMISSIONS.REFERRAL_MANAGE, feature: "dealer_programme_enabled" },
       // docs/nearby-referral-2026-10, feature 1: shops left out of Nearby because they have no map location.
       { key: "missingLocation", label: L("Shops without location", "बिना लोकेशन दुकानें", "लोकेशन नसलेली दुकाने"), icon: "map-pin", href: "/admin/shops/missing-location", permission: PERMISSIONS.SHOP_APPROVE },
+      // docs/shop-documents-2026-10: shops missing documents, reminders on the 1st / 15th, suspension after the 3rd.
+      { key: "missingDocuments", label: L("Shops missing documents", "दस्तावेज़ बाकी दुकानें", "कागदपत्रे बाकी दुकाने"), icon: "file-check", href: "/admin/shops/missing-documents", permission: PERMISSIONS.SHOP_APPROVE },
     ],
   },
   {
@@ -548,6 +550,8 @@ export const OPERATOR_MENUS: readonly BoardMenu[] = [
       // docs/dealer-programme: dealer approval queue and dealers (admin decides; operator reads). Only while the programme is on.
       { key: "dealers", label: L("Dealers", "डीलर", "डीलर"), icon: "users", href: "/admin/dealers", permission: PERMISSIONS.REFERRAL_MANAGE, feature: "dealer_programme_enabled" },
       { key: "missingLocation", label: L("Shops without location", "बिना लोकेशन दुकानें", "लोकेशन नसलेली दुकाने"), icon: "map-pin", href: "/admin/shops/missing-location", permission: PERMISSIONS.SHOP_APPROVE },
+      // docs/shop-documents-2026-10: shops missing documents, reminders on the 1st / 15th, suspension after the 3rd.
+      { key: "missingDocuments", label: L("Shops missing documents", "दस्तावेज़ बाकी दुकानें", "कागदपत्रे बाकी दुकाने"), icon: "file-check", href: "/admin/shops/missing-documents", permission: PERMISSIONS.SHOP_APPROVE },
     ],
   },
   {

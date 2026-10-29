@@ -1,8 +1,8 @@
 /**
  * Onboarding wizard step 2: Udyam, FSSAI and Shop Act.
  *   POST { docType, number, consent: true } → checked with the government source
- *   POST { docType: "UDYAM" | "FSSAI", has: false } → "I don't have one"
- *     (refused for FSSAI when the shop type sells food)
+ *   POST { docType: "UDYAM" | "FSSAI" | "SHOP_ACT", has: false } → "I don't have one (now)";
+ *     a mandatory one is then promised at "Create my shop and pay" (owner decision 29 Oct 2026)
  * POST so the number never lands in a URL or an access log.
  */
 import type { NextRequest } from "next/server";
@@ -22,7 +22,7 @@ const schema = z.union([
     number: z.string().trim().min(1).max(60),
     consent: z.literal(true, { message: "Please agree to the verification consent." }),
   }),
-  z.object({ docType: z.enum(["UDYAM", "FSSAI"]), has: z.literal(false) }),
+  z.object({ docType: z.enum(["UDYAM", "FSSAI", "SHOP_ACT"]), has: z.literal(false) }),
 ]);
 
 export const POST = route(async (request: NextRequest) => {

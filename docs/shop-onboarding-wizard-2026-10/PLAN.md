@@ -13,7 +13,7 @@ email that already exist are reused, not rebuilt.
 | PAN when GSTIN is verified | Take the PAN out of the GSTIN and check it with the government in the background (one extra paid call, no typing) |
 | Shop Act (Maharashtra cannot be checked online) | Shop goes live after payment; an admin checks the Shop Act upload afterwards and can suspend the shop |
 | FSSAI | "Do you have FSSAI?" asked of every shop; compulsory for food shops |
-| Go-live (decision **B**, 28 Oct 2026) | Every wizard shop whose GSTIN/PAN checks pass goes **live right after payment, in every district**, whatever the per-district flag `gov_verification_auto_approval_enabled` says; the Shop Act (and, without a GSTIN, the "not GST-registered" declaration) is reviewed by an admin afterwards. ⚖ Needs lawyer / CA sign-off before gokesari.com (COMPLIANCE.md §8) |
+| Go-live (decision **B**, 28 Oct 2026 — **withdrawn 29 Oct 2026**) | Replaced by the documents gate (docs/shop-documents-2026-10/README.md): the fee is paid only after at least one document is verified; a document still missing or in review needs the owner's 30-day promise, and that shop waits for an admin or operator. A shop whose documents are all verified still goes live right after payment. `shop_deferred_document_reviews` (0113) is no longer written. |
 
 ## Steps
 

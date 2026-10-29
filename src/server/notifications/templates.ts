@@ -123,6 +123,10 @@ export const TEMPLATES: Record<string, Template> = {
     "Upload your documents to go live",
     "{{shopName}} is waiting for your documents: {{documents}}. Upload them so we can verify them and approve your shop.",
   ),
+  [T.SHOP_DOCUMENTS_FOLLOW_UP]: t(
+    "Submit your shop documents — reminder {{reminderNo}} of {{maxReminders}}",
+    "{{shopName}} is live, but these documents are still missing: {{documents}}. {{deadline}} Upload them on GoKesari so we can verify them. {{warning}}",
+  ),
   [T.SHOP_STAFF_ADDED]: t(
     "You can now edit a shop's products",
     "{{ownerName}} added you to {{shopName}}: you can add and change its product photos and descriptions.",

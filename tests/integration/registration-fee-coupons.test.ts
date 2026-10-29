@@ -40,7 +40,7 @@ import { saveRegistrationFeeCoupon } from "@/server/services/registration-fee-co
 import { setRegistrationFee } from "@/server/services/registration-fees";
 import { clearRuleCache } from "@/server/services/settings";
 import { registerShop } from "@/server/services/shops";
-import { createUser, resetDatabase } from "../helpers/fixtures";
+import { createUser, resetDatabase, verifySellerDocuments } from "../helpers/fixtures";
 import { call } from "../helpers/http";
 
 let counter = 0;
@@ -234,6 +234,8 @@ describe("the owner's screens", () => {
     });
     expect(created.status, JSON.stringify(created.body)).toBe(201);
     expect(created.body).toMatchObject({ registrationFeePaise: 94_282, feePaymentStatus: "PENDING" });
+    // The fee follows the verified documents (shop-document-gate.ts).
+    await verifySellerDocuments(created.body.id);
 
     const checkout = await call(feeRoute, `/api/shops/${created.body.id}/registration-fee`, { method: "POST", params: { id: created.body.id } });
     expect(checkout.status).toBe(201);
