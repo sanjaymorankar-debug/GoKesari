@@ -28,7 +28,7 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { extendMembership } from "./shop-membership";
 import { autoApproveShopIfReady } from "./shops";
-import { reverseShopCommissionSafely } from "@/server/dealers/commission";
+import { reverseShopCommissionSafely, reverseWaivedFeeCommissionSafely } from "@/server/dealers/commission";
 
 interface Actor {
   id: string;
@@ -420,6 +420,8 @@ export async function waiveRegistrationFee(
     );
     return settlement;
   });
+  // A waived fee earns the dealer no commission: take back anything accrued before it.
+  await reverseWaivedFeeCommissionSafely(shopId, actor);
   // Event layer: a settled fee may be the last thing a pending shop was waiting for.
   await autoApproveShopIfReady(shopId).catch((error) =>
     console.error("[shop-payments] auto-approval check failed", shopId, error),

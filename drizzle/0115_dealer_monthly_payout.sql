@@ -9,6 +9,8 @@
 -- ADDITIVE ONLY; idempotent. Rollback: scripts/rollback-0115.sql
 ALTER TABLE "dealer_commission_settings" ADD COLUMN IF NOT EXISTS "payout_day_of_month" integer DEFAULT 5 NOT NULL;--> statement-breakpoint
 ALTER TABLE "dealer_commission_settings" ADD COLUMN IF NOT EXISTS "auto_approve_at_month_end" boolean DEFAULT true NOT NULL;--> statement-breakpoint
+-- Staging ran an earlier copy of this migration (Hostinger preview build): the column may already exist, so set its default again.
+ALTER TABLE "dealer_commission_settings" ALTER COLUMN "auto_approve_at_month_end" SET DEFAULT true;--> statement-breakpoint
 ALTER TABLE "dealer_commission_settings" DROP CONSTRAINT IF EXISTS "dealer_commission_settings_payout_day";--> statement-breakpoint
 ALTER TABLE "dealer_commission_settings" ADD CONSTRAINT "dealer_commission_settings_payout_day" CHECK ("payout_day_of_month" BETWEEN 1 AND 28);--> statement-breakpoint
 ALTER TABLE "dealer_payout_batches" ADD COLUMN IF NOT EXISTS "period_month" text;--> statement-breakpoint

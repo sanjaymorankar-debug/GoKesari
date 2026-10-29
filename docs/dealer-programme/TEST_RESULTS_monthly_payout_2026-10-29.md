@@ -49,6 +49,15 @@ schedule, split ownership, migration journal: **176 / 176 on each layout**. `mig
 (rolls back through 0115, 0114 and 0113 and re-applies): **6 / 6** (one earlier run timed out in
 the known clean-up hook; passed when re-run).
 
+## After merging staging 5f134ad (India states moved to when 1793161250000)
+
+0115 now has `when` 1793161300000, after 0114_india_states. Staging's databases already ran an
+earlier copy of 0115 (from this branch's Hostinger preview build), so it will run there again:
+running the file a second time on a migrated database works (every statement is IF NOT EXISTS /
+DROP IF EXISTS; the approval default is set again). Every dealer test, wizard step 2, cron schedule,
+split ownership, migration journal: **158 / 158 on each layout**; `migrate-on-build` **6 / 6**
+(one earlier run timed out in the known clean-up hook; passed when re-run).
+
 ## Not covered here
 
 - The real email delivery (the notification outbox sends it; the queued notice is checked).
