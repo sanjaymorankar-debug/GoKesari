@@ -103,11 +103,11 @@ function requireReason(reason: string | null | undefined, min = 5): string {
 
 export async function getCommissionSettings(client: DbClient = db): Promise<DealerCommissionSettings> {
   const [row] = await client.select().from(dealerCommissionSettings).where(eq(dealerCommissionSettings.id, "default"));
-  return row ?? { id: "default", capPaise: 99_900, fixedBonusBase: "FEE", catalogueMinProducts: 10, branchEligible: false, updatedBy: null, updatedAt: new Date(0) };
+  return row ?? { id: "default", capPaise: 99_900, fixedBonusBase: "FEE", catalogueMinProducts: 10, branchEligible: false, payoutDayOfMonth: 5, autoApproveAtMonthEnd: true, updatedBy: null, updatedAt: new Date(0) };
 }
 
 export async function setCommissionSettings(
-  patch: Partial<Pick<DealerCommissionSettings, "capPaise" | "fixedBonusBase" | "catalogueMinProducts" | "branchEligible">>,
+  patch: Partial<Pick<DealerCommissionSettings, "capPaise" | "fixedBonusBase" | "catalogueMinProducts" | "branchEligible" | "payoutDayOfMonth" | "autoApproveAtMonthEnd">>,
   reason: string,
   actor: Actor,
 ): Promise<DealerCommissionSettings> {
@@ -116,6 +116,9 @@ export async function setCommissionSettings(
   if (patch.capPaise != null && (!Number.isInteger(patch.capPaise) || patch.capPaise < 0 || patch.capPaise > 100_000_000)) throw validationFailed("Cap: whole paise, 0 or more.");
   if (patch.catalogueMinProducts != null && (!Number.isInteger(patch.catalogueMinProducts) || patch.catalogueMinProducts < 1 || patch.catalogueMinProducts > 10_000)) {
     throw validationFailed("Catalogue size: 1 to 10,000 products.");
+  }
+  if (patch.payoutDayOfMonth != null && (!Number.isInteger(patch.payoutDayOfMonth) || patch.payoutDayOfMonth < 1 || patch.payoutDayOfMonth > 28)) {
+    throw validationFailed("Payout day: 1 to 28 of the month.");
   }
   return db.transaction(async (tx) => {
     await tx.insert(dealerCommissionSettings).values({ id: "default" }).onConflictDoNothing();
@@ -132,8 +135,8 @@ export async function setCommissionSettings(
         action: AUDIT_ACTIONS.DEALER_COMMISSION_SETTINGS_CHANGED,
         entityType: "dealer_commission_settings",
         entityId: "default",
-        previousValue: { capPaise: before.capPaise, fixedBonusBase: before.fixedBonusBase, catalogueMinProducts: before.catalogueMinProducts, branchEligible: before.branchEligible },
-        newValue: { capPaise: after.capPaise, fixedBonusBase: after.fixedBonusBase, catalogueMinProducts: after.catalogueMinProducts, branchEligible: after.branchEligible, reason: why },
+        previousValue: { capPaise: before.capPaise, fixedBonusBase: before.fixedBonusBase, catalogueMinProducts: before.catalogueMinProducts, branchEligible: before.branchEligible, payoutDayOfMonth: before.payoutDayOfMonth, autoApproveAtMonthEnd: before.autoApproveAtMonthEnd },
+        newValue: { capPaise: after.capPaise, fixedBonusBase: after.fixedBonusBase, catalogueMinProducts: after.catalogueMinProducts, branchEligible: after.branchEligible, payoutDayOfMonth: after.payoutDayOfMonth, autoApproveAtMonthEnd: after.autoApproveAtMonthEnd, reason: why },
       },
       tx,
     );
