@@ -172,11 +172,12 @@ describe("waits for an admin, with the reason (scenarios 22–26, 28)", () => {
     await db.update(shops).set({ gstin: "27AAPFU0939F1ZV" }).where(eq(shops.id, existing.id));
     const { shop, actor } = await pendingShop();
     await verify(shop.id, actor, "PAN", "AAPFU0939F");
-    await verify(shop.id, actor, "GSTIN", "27AAPFU0939F1ZV");
+    // Owner decision, 29 Oct: refused when it is submitted (services/shop-duplicates.ts).
+    await expect(verify(shop.id, actor, "GSTIN", "27AAPFU0939F1ZV")).rejects.toMatchObject({ code: "CONFLICT", details: { reason: "DUPLICATE_GSTIN" } });
+    // A shop that has it on file from before the rule: the instant approval still holds it back.
     await db.update(shops).set({ gstin: "27AAPFU0939F1ZV" }).where(eq(shops.id, shop.id));
     await payOnline(shop.id);
     expect(await statusOf(shop.id)).toBe("PENDING_APPROVAL");
-    expect((await lastLog(shop.id)).reasons.join(" ")).toMatch(/likely duplicate of another shop \(gstin/);
   });
 
   it("Shop Act not yet verified: waits, and the log names it (today's rule for every approval)", async () => {
