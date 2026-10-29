@@ -37,7 +37,7 @@ withdrawn.
 | Follow-up | `src/server/services/shop-document-follow-up.ts`; cron `src/server/cron/schedule.ts` (DAILY); table `shop_document_reminders` (seller DB, one row per shop per reminder day) |
 | Admin list | **Shops → Shops missing documents** (`/admin/shops/missing-documents`, permission SHOP_APPROVE): live / suspended / awaiting approval, with the missing documents, the reminders sent, the last one and the promised date |
 | Rule | `shopDocumentFollowUp` `{ enabled: true, reminderDaysOfMonth: [1, 15], remindersBeforeSuspension: 3, promiseDays: 30 }` (admin → Settings → rules) |
-| Migration | `drizzle/0116_shop_document_promise.sql` (`-- split: seller`, additive); rollback `scripts/rollback-0116.sql` |
+| Migration | `drizzle/0115_shop_document_promise.sql` (`-- split: seller`, additive); rollback `scripts/rollback-0115.sql` |
 
 ## 3. Timeline example
 

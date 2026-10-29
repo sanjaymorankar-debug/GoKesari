@@ -7,7 +7,7 @@
 --   2. On the 1st and 15th of each month every live shop still missing a mandatory document
 --      gets a reminder (shop_document_reminders); after the 3rd, the shop is suspended.
 -- All seller-side; the reminder table's foreign key stays inside the seller database.
--- ADDITIVE ONLY; idempotent. Rollback: scripts/rollback-0116.sql
+-- ADDITIVE ONLY; idempotent. Rollback: scripts/rollback-0115.sql
 ALTER TABLE "shops" ADD COLUMN IF NOT EXISTS "documents_promised_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "shops" ADD COLUMN IF NOT EXISTS "documents_due_at" timestamp with time zone;--> statement-breakpoint
 ALTER TABLE "shop_registration_drafts" ADD COLUMN IF NOT EXISTS "has_shop_act" boolean;--> statement-breakpoint

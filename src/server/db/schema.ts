@@ -832,7 +832,7 @@ export const shops = pgTable(
     closedBy: uuid("closed_by"),
     closureReason: text("closure_reason"),
     /**
-     * Owner decision 29 Oct 2026 (0116): the owner ticked "I will provide all relevant documents
+     * Owner decision 29 Oct 2026 (0115): the owner ticked "I will provide all relevant documents
      * within 30 days" instead of verified documents before paying. Not approved automatically.
      */
     documentsPromisedAt: timestamp("documents_promised_at", { withTimezone: true }),
@@ -9960,9 +9960,9 @@ export const shopRegistrationDrafts = pgTable(
     /** "Do you have Udyam / FSSAI?" — null until answered. */
     hasUdyam: boolean("has_udyam"),
     hasFssai: boolean("has_fssai"),
-    /** 0116: "I don't have the Shop Act now" — then the documents promise is needed before payment. */
+    /** 0115: "I don't have the Shop Act now" — then the documents promise is needed before payment. */
     hasShopAct: boolean("has_shop_act"),
-    /** 0116: the owner ticked "I will provide all relevant documents within 30 days". */
+    /** 0115: the owner ticked "I will provide all relevant documents within 30 days". */
     documentsPromisedAt: timestamp("documents_promised_at", { withTimezone: true }),
     /** The map pin the owner confirmed. */
     latitude: text("latitude"),
@@ -10048,7 +10048,7 @@ export const shopDeferredDocumentReviews = pgTable(
 );
 
 /**
- * 0116: reminders to a live shop missing a mandatory document, sent on the 1st and 15th
+ * 0115: reminders to a live shop missing a mandatory document, sent on the 1st and 15th
  * (rule shopDocumentFollowUp). The shop is suspended after the last one; the rows are
  * cleared once its documents are complete or it is suspended, so a reactivated shop starts again.
  */

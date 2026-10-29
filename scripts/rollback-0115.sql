@@ -1,5 +1,5 @@
--- Rollback for 0116_shop_document_promise (docs/shop-documents-2026-10).
--- Seller database. Run only after the previous release's code is live, then delete the 0116 row
+-- Rollback for 0115_shop_document_promise (docs/shop-documents-2026-10).
+-- Seller database. Run only after the previous release's code is live, then delete the 0115 row
 -- from drizzle.__drizzle_migrations. Documents promises and the reminder count are lost: shops
 -- that promised their documents stay as they are (pending or live), and reminders start again
 -- from the first if the migration is applied again.
