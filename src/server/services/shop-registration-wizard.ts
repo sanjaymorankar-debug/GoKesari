@@ -90,9 +90,9 @@ import { autoApproveShopIfReady, registerShop } from "./shops";
 
 /**
  * The wizard is open to everyone only while shop_onboarding_wizard_enabled is
- * on. While it is off only an admin may use it (testing on staging): a wizard
- * shop goes live right after payment (owner decision B), so a link such as
- * /shop/register?wizard=1 must not open that route before the flag is on.
+ * on. While it is off only an admin may use it (testing on staging): a link such
+ * as /shop/register?wizard=1 must not open a registration route the owner has
+ * not switched on.
  */
 export async function wizardAvailableFor(user: { role: UserRole }): Promise<boolean> {
   return user.role === "ADMIN" || (await isFeatureEnabled("shop_onboarding_wizard_enabled"));
