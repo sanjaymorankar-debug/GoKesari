@@ -1,13 +1,17 @@
 /**
- * Runs first in `npm run build`, before `next build`. With MIGRATE_ON_BUILD=true
- * it applies pending migrations from ./drizzle, so a deploy migrates the
- * database before the new code is built — migrate first, deploy second
- * (docs/gokesari-audit/DEPLOY_RUNBOOK.md §0). If the migration fails the script
- * exits non-zero and `next build` never runs.
+ * The migrator of the "Test database" and "Production database" workflows
+ * (.github/workflows/test-db.yml, prod-db.yml). It applies pending migrations
+ * from ./drizzle only when MIGRATE_ON_BUILD=true AND it runs inside GitHub
+ * Actions (GITHUB_ACTIONS=true). If the migration fails it exits non-zero.
  *
- * Off unless the variable is set: an environment without it builds exactly as
- * before and is migrated by hand (npm run db:migrate). Set it per environment
- * in the host's environment variables — test.gokesari.com first. DEPLOYMENT.md §4.
+ * It is also the first step of `npm run build`, where it now always skips
+ * (exit 0, the build goes on). Hostinger builds a preview of every pull request
+ * with the site's own environment variables, so with MIGRATE_ON_BUILD set in
+ * hPanel an unmerged PR's preview migrated test.gokesari.com's — and, for PRs
+ * into main, gokesari.com's — databases before the PR was merged (Blocker #71;
+ * 0089–0094 reached production that way, 0114/0115 the test databases on
+ * 29 Oct 2026). Migrations therefore run only through the workflows.
+ * DEPLOYMENT.md §4.
  *
  * Plain Node, dependencies only (no tsx): the host may build without
  * devDependencies.
@@ -34,7 +38,15 @@ nextEnv.loadEnvConfig(process.cwd());
 
 if (!/^(1|true)$/i.test(process.env.MIGRATE_ON_BUILD ?? "")) {
   console.log(
-    `${TAG} skipped: MIGRATE_ON_BUILD is not "true". Migrations are applied by hand (npm run db:migrate).`,
+    `${TAG} skipped: MIGRATE_ON_BUILD is not "true". Migrations run only through the "Test database" and "Production database" workflows (DEPLOYMENT.md §4).`,
+  );
+  process.exit(0);
+}
+
+// Blocker #71: never from a host's build (a Hostinger deploy or PR preview), only from the workflows.
+if (process.env.GITHUB_ACTIONS !== "true") {
+  console.log(
+    `${TAG} skipped: not running in GitHub Actions. Migrations run only through the "Test database" and "Production database" workflows (DEPLOYMENT.md §4).`,
   );
   process.exit(0);
 }
