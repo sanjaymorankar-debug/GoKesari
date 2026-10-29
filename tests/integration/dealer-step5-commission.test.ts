@@ -86,7 +86,8 @@ beforeEach(async () => {
   state.session = null;
   const a = await createUser({ role: "ADMIN" });
   admin = { id: a.id, email: a.email, name: a.name, role: "ADMIN" };
-  await setCommissionSettings({ capPaise: 99_900, fixedBonusBase: "FEE", catalogueMinProducts: 1, branchEligible: false }, "test defaults", admin);
+  // These tests cover the milestone rules model (fixed ₹ / % per milestone); the base % model is in dealer-base-commission.test.ts.
+  await setCommissionSettings({ capPaise: 99_900, fixedBonusBase: "FEE", catalogueMinProducts: 1, branchEligible: false, commissionModel: "MILESTONE_RULES" }, "test defaults", admin);
   await db.execute(sql`delete from dealer_rating_slabs where min_shops not in (0, 200, 250, 500)`);
   await setFeatureFlag("dealer_programme_enabled", { enabled: true, districtCodes: ["MH-PUN"] }, "Pune pilot (test)", admin);
   await setFeatureFlag("dealer_rating_bonus_enabled", { enabled: true, districtCodes: ["MH-PUN"] }, "Pune pilot (test)", admin);

@@ -9,7 +9,17 @@
  * Hooks call checkCommissionMilestones(shopId) after attribution, fee payment,
  * document verification, approval and product creation.
  *
- * Amount = fixed ₹ + percent of the registration fee actually paid (before
+ * Base % model (owner, 29 Oct 2026; settings.commissionModel BASE_PERCENT, the
+ * default): one commission, earned in full when the shop is ACTIVATED — the
+ * dealer's base % of the registration fee actually paid (before GST, after any
+ * coupon), moved by the rating: each 1.0 above 5.0 adds ratingStepBp, each 1.0
+ * below takes it off (flag dealer_rating_bonus_enabled for the shop's
+ * district; never below 0%). The base % and the step are set by an admin, by
+ * default for everyone and optionally for one dealer (dealers.commission_percent_bp,
+ * dealers.rating_step_bp). The other milestones earn nothing in this model.
+ *
+ * Milestone rules model (MILESTONE_RULES, kept for history):
+ * amount = fixed ₹ + percent of the registration fee actually paid (before
  * GST, after any coupon) under the rule in force — the most specific ACTIVE
  * rule for the milestone, the shop's scope (WHOLESALE for wholesale stores,
  * STANDARD otherwise, or ALL) and its district, effective today. The rule's
@@ -62,6 +72,7 @@ import {
   type DealerCommissionEntry,
   type DealerCommissionRule,
   type DealerCommissionSettings,
+  type Dealer,
   type Shop,
   type UserRole,
 } from "@/server/db/schema";
@@ -103,11 +114,50 @@ function requireReason(reason: string | null | undefined, min = 5): string {
 
 export async function getCommissionSettings(client: DbClient = db): Promise<DealerCommissionSettings> {
   const [row] = await client.select().from(dealerCommissionSettings).where(eq(dealerCommissionSettings.id, "default"));
-  return row ?? { id: "default", capPaise: 99_900, fixedBonusBase: "FEE", catalogueMinProducts: 10, branchEligible: false, payoutDayOfMonth: 5, autoApproveAtMonthEnd: true, updatedBy: null, updatedAt: new Date(0) };
+  return (
+    row ?? {
+      id: "default",
+      capPaise: 99_900,
+      fixedBonusBase: "FEE",
+      catalogueMinProducts: 10,
+      branchEligible: false,
+      payoutDayOfMonth: 5,
+      autoApproveAtMonthEnd: true,
+      commissionModel: "BASE_PERCENT",
+      basePercentBp: 4000,
+      ratingStepBp: 100,
+      updatedBy: null,
+      updatedAt: new Date(0),
+    }
+  );
+}
+
+type SettingsPatch = Partial<
+  Pick<DealerCommissionSettings, "capPaise" | "fixedBonusBase" | "catalogueMinProducts" | "branchEligible" | "payoutDayOfMonth" | "autoApproveAtMonthEnd" | "commissionModel" | "basePercentBp" | "ratingStepBp">
+>;
+
+const settingsAudit = (s: DealerCommissionSettings) => ({
+  capPaise: s.capPaise,
+  fixedBonusBase: s.fixedBonusBase,
+  catalogueMinProducts: s.catalogueMinProducts,
+  branchEligible: s.branchEligible,
+  payoutDayOfMonth: s.payoutDayOfMonth,
+  autoApproveAtMonthEnd: s.autoApproveAtMonthEnd,
+  commissionModel: s.commissionModel,
+  basePercentBp: s.basePercentBp,
+  ratingStepBp: s.ratingStepBp,
+});
+
+function assertPercentBp(value: number | null | undefined, what: string) {
+  if (value != null && (!Number.isInteger(value) || value < 0 || value > 10_000)) throw validationFailed(`${what}: 0% to 100%, in steps of 0.01%.`);
+}
+
+function assertStepBp(value: number | null | undefined, what: string) {
+  if (value != null && (!Number.isInteger(value) || value < 0 || value > 1000)) throw validationFailed(`${what}: 0 to 10 percentage points per rating point.`);
 }
 
 export async function setCommissionSettings(
-  patch: Partial<Pick<DealerCommissionSettings, "capPaise" | "fixedBonusBase" | "catalogueMinProducts" | "branchEligible" | "payoutDayOfMonth" | "autoApproveAtMonthEnd">>,
+  patch: SettingsPatch,
   reason: string,
   actor: Actor,
 ): Promise<DealerCommissionSettings> {
@@ -120,6 +170,11 @@ export async function setCommissionSettings(
   if (patch.payoutDayOfMonth != null && (!Number.isInteger(patch.payoutDayOfMonth) || patch.payoutDayOfMonth < 1 || patch.payoutDayOfMonth > 28)) {
     throw validationFailed("Payout day: 1 to 28 of the month.");
   }
+  if (patch.commissionModel != null && patch.commissionModel !== "BASE_PERCENT" && patch.commissionModel !== "MILESTONE_RULES") {
+    throw validationFailed("Commission model: BASE_PERCENT or MILESTONE_RULES.");
+  }
+  assertPercentBp(patch.basePercentBp, "Base commission");
+  assertStepBp(patch.ratingStepBp, "Change per rating point");
   return db.transaction(async (tx) => {
     await tx.insert(dealerCommissionSettings).values({ id: "default" }).onConflictDoNothing();
     const [before] = await tx.select().from(dealerCommissionSettings).where(eq(dealerCommissionSettings.id, "default")).for("update");
@@ -135,8 +190,8 @@ export async function setCommissionSettings(
         action: AUDIT_ACTIONS.DEALER_COMMISSION_SETTINGS_CHANGED,
         entityType: "dealer_commission_settings",
         entityId: "default",
-        previousValue: { capPaise: before.capPaise, fixedBonusBase: before.fixedBonusBase, catalogueMinProducts: before.catalogueMinProducts, branchEligible: before.branchEligible, payoutDayOfMonth: before.payoutDayOfMonth, autoApproveAtMonthEnd: before.autoApproveAtMonthEnd },
-        newValue: { capPaise: after.capPaise, fixedBonusBase: after.fixedBonusBase, catalogueMinProducts: after.catalogueMinProducts, branchEligible: after.branchEligible, payoutDayOfMonth: after.payoutDayOfMonth, autoApproveAtMonthEnd: after.autoApproveAtMonthEnd, reason: why },
+        previousValue: settingsAudit(before),
+        newValue: { ...settingsAudit(after), reason: why },
       },
       tx,
     );
@@ -310,9 +365,106 @@ export function feeBasePaise(shop: Pick<Shop, "registrationFeeBasePaise" | "regi
   return Math.max(0, Number(shop.registrationFeePaise ?? 0) - Number(shop.registrationFeeGstPaise ?? 0));
 }
 
-/** (rating − 5.0) percentage points, in basis points; never negative. */
+/** (rating − 5.0) percentage points, in basis points; never negative. Milestone rules model. */
 export function bonusBpForRating(rating: number): number {
   return Math.max(0, Math.round((rating - 5) * 100));
+}
+
+/** Base % model: (rating − 5.0) × the step, in basis points — negative below 5.0. */
+export function ratingAdjustmentBp(rating: number, stepBp: number): number {
+  return Math.round((Number(rating) - 5) * stepBp);
+}
+
+export interface DealerCommissionRate {
+  /** The dealer's base %, basis points of the fee. */
+  basePercentBp: number;
+  /** Change per 1.0 of rating, basis points. */
+  ratingStepBp: number;
+  /** Set for this dealer (true) or the default for everyone (false). */
+  ownBasePercent: boolean;
+  ownRatingStep: boolean;
+  rating: number;
+  /** Rating adjustment applied now (0 while the rating bonus is off). */
+  adjustmentBp: number;
+  /** base + adjustment, never below 0. */
+  effectivePercentBp: number;
+}
+
+/** A dealer's commission % under the base % model, with or without the rating adjustment. */
+export function dealerCommissionRate(
+  dealer: Pick<Dealer, "commissionPercentBp" | "ratingStepBp" | "rating">,
+  settings: Pick<DealerCommissionSettings, "basePercentBp" | "ratingStepBp">,
+  ratingOn: boolean,
+): DealerCommissionRate {
+  const basePercentBp = dealer.commissionPercentBp ?? settings.basePercentBp;
+  const ratingStepBp = dealer.ratingStepBp ?? settings.ratingStepBp;
+  const adjustmentBp = ratingOn ? ratingAdjustmentBp(dealer.rating, ratingStepBp) : 0;
+  return {
+    basePercentBp,
+    ratingStepBp,
+    ownBasePercent: dealer.commissionPercentBp != null,
+    ownRatingStep: dealer.ratingStepBp != null,
+    rating: Number(dealer.rating),
+    adjustmentBp,
+    effectivePercentBp: Math.max(0, basePercentBp + adjustmentBp),
+  };
+}
+
+/** Base % model: the amount on the fee, and its split into the base part and the rating part (negative below 5.0). */
+export function percentCommissionAmount(rate: Pick<DealerCommissionRate, "basePercentBp" | "effectivePercentBp" | "adjustmentBp">, feePaise: number): CommissionAmount {
+  const totalPaise = Math.round((feePaise * rate.effectivePercentBp) / 10_000);
+  const basePaise = Math.round((feePaise * rate.basePercentBp) / 10_000);
+  return { basePaise, bonusBp: rate.effectivePercentBp - rate.basePercentBp, bonusPaise: totalPaise - basePaise, totalPaise };
+}
+
+/**
+ * An admin sets one dealer's own base % and change per rating point (null: the
+ * default for everyone). Applies to commission earned from now on; entries
+ * already earned keep their amounts. Audited with the reason.
+ */
+export async function setDealerCommissionRates(
+  dealerId: string,
+  rates: { commissionPercentBp: number | null; ratingStepBp: number | null },
+  reason: string,
+  actor: Actor,
+): Promise<Dealer> {
+  requireAdmin(actor, "change a dealer's commission");
+  const why = requireReason(reason);
+  assertPercentBp(rates.commissionPercentBp, "Base commission");
+  assertStepBp(rates.ratingStepBp, "Change per rating point");
+  return db.transaction(async (tx) => {
+    const [before] = await tx.select().from(dealers).where(eq(dealers.id, dealerId)).for("update");
+    if (!before) throw notFound("Dealer");
+    if (before.isInternal) throw conflict("GoKesari Direct earns no commission.");
+    const [after] = await tx
+      .update(dealers)
+      .set({ commissionPercentBp: rates.commissionPercentBp, ratingStepBp: rates.ratingStepBp, updatedAt: new Date() })
+      .where(eq(dealers.id, dealerId))
+      .returning();
+    await recordAudit(
+      {
+        actorId: actor.id,
+        actorRole: actor.role,
+        action: AUDIT_ACTIONS.DEALER_COMMISSION_RATES_CHANGED,
+        entityType: "dealer",
+        entityId: dealerId,
+        previousValue: { commissionPercentBp: before.commissionPercentBp, ratingStepBp: before.ratingStepBp },
+        newValue: { commissionPercentBp: after.commissionPercentBp, ratingStepBp: after.ratingStepBp, reason: why },
+      },
+      tx,
+    );
+    return after;
+  });
+}
+
+/** A dealer's commission rate now (base % model), for the dealer and for staff. */
+export async function dealerRateView(dealerId: string): Promise<(DealerCommissionRate & { model: DealerCommissionSettings["commissionModel"]; ratingOn: boolean }) | null> {
+  const [dealer] = await db.select().from(dealers).where(eq(dealers.id, dealerId));
+  if (!dealer) return null;
+  const [settings, flag] = await Promise.all([getCommissionSettings(), getFeatureFlag("dealer_rating_bonus_enabled")]);
+  // The bonus flag may cover some districts only: the rate shown is the one where it is on.
+  const ratingOn = flag.enabled;
+  return { ...dealerCommissionRate(dealer, settings, ratingOn), model: settings.commissionModel, ratingOn };
 }
 
 export interface CommissionAmount {
@@ -368,8 +520,10 @@ export async function checkCommissionMilestones(shopId: string, actor: Actor | n
   if (row.shop.status === "APPROVED") reached.push("ACTIVATED");
 
   const out: DealerCommissionEntry[] = [];
+  // Base % model: the whole commission is earned at activation; the other milestones earn nothing.
+  const earning = settings.commissionModel === "BASE_PERCENT" ? reached.filter((m) => m === "ACTIVATED") : reached;
   // A waived fee earns the dealer nothing; the rating below still counts the shop.
-  for (const milestone of feeWaived(row.shop) ? [] : reached) {
+  for (const milestone of feeWaived(row.shop) ? [] : earning) {
     out.push(...(await accrue(row.shop, row.a.dealerId, row.a.salespersonId, milestone, district, settings, actor, { holdForDocuments: milestone === "ACTIVATED" && awaitingDocuments })));
   }
   // No rating credit until the documents are verified; then the held activation is released.
@@ -416,13 +570,17 @@ async function accrue(
     if (!attribution || attribution.status !== "ACTIVE" || attribution.dealerId !== dealerId) return [];
     if (attribution.matchKind === "DUPLICATE") return [];
     if (attribution.matchKind === "BRANCH" && !settings.branchEligible) return [];
-    const rule = await ruleFor(shop, district, milestone, tx);
-    if (!rule) return [];
+    const percentModel = settings.commissionModel === "BASE_PERCENT";
+    const rule = percentModel ? null : await ruleFor(shop, district, milestone, tx);
+    if (!percentModel && !rule) return [];
 
     const fee = feeBasePaise(shop);
     const bonusOn = flagCoversDistrict(await getFeatureFlag("dealer_rating_bonus_enabled"), district);
-    const bonusBp = bonusOn ? bonusBpForRating(dealer.rating) : 0;
-    const amount = commissionAmount(rule, fee, bonusBp, settings.fixedBonusBase);
+    const rate = percentModel ? dealerCommissionRate(dealer, settings, bonusOn) : null;
+    const bonusBp = rate ? rate.adjustmentBp : bonusOn ? bonusBpForRating(dealer.rating) : 0;
+    const amount = rate ? percentCommissionAmount(rate, fee) : commissionAmount(rule!, fee, bonusBp, settings.fixedBonusBase);
+    // Base % model with a 0% rate: nothing to record.
+    if (rate && amount.totalPaise === 0) return [];
     const [{ net }] = await tx
       .select({ net: sql<number>`coalesce(sum(${dealerCommissionLedger.amountPaise}) filter (where ${dealerCommissionLedger.status} <> 'REVERSED' and not ${dealerCommissionLedger.aboveCap}), 0)::int` })
       .from(dealerCommissionLedger)
@@ -438,12 +596,12 @@ async function accrue(
       shopId: shop.id,
       milestone,
       kind: "ACCRUAL" as const,
-      ruleId: rule.id,
-      ruleVersion: rule.version,
+      ruleId: rule?.id ?? null,
+      ruleVersion: rule?.version ?? null,
       feePaise: fee,
       basePaise: amount.basePaise,
       rating: dealer.rating,
-      bonusBp,
+      bonusBp: amount.bonusBp,
       bonusPaise: amount.bonusPaise,
       createdBy: actor?.id ?? null,
     };
@@ -470,7 +628,20 @@ async function accrue(
         action: AUDIT_ACTIONS.DEALER_COMMISSION_ACCRUED,
         entityType: "shop",
         entityId: shop.id,
-        newValue: { dealerId, milestone, ruleId: rule.id, ruleVersion: rule.version, feePaise: fee, ...amount, capPaise: settings.capPaise, abovePaise: above, held: Boolean(held), heldForDocuments: Boolean(docsNote) },
+        newValue: {
+          dealerId,
+          milestone,
+          model: settings.commissionModel,
+          ruleId: rule?.id ?? null,
+          ruleVersion: rule?.version ?? null,
+          ...(rate ? { basePercentBp: rate.basePercentBp, ratingStepBp: rate.ratingStepBp, effectivePercentBp: rate.effectivePercentBp } : {}),
+          feePaise: fee,
+          ...amount,
+          capPaise: settings.capPaise,
+          abovePaise: above,
+          held: Boolean(held),
+          heldForDocuments: Boolean(docsNote),
+        },
       },
       tx,
     );
@@ -996,10 +1167,14 @@ export async function ratingView(dealerId: string): Promise<RatingView> {
   if (!d) throw notFound("Dealer");
   const slabs = (await listRatingSlabs()).map((s) => ({ minShops: s.minShops, rating: s.rating }));
   const { next } = slabFor(slabs, d.activatedShops);
-  const history = await db.select().from(dealerRatingHistory).where(eq(dealerRatingHistory.dealerId, dealerId)).orderBy(desc(dealerRatingHistory.createdAt)).limit(50);
+  const [history, settings] = await Promise.all([
+    db.select().from(dealerRatingHistory).where(eq(dealerRatingHistory.dealerId, dealerId)).orderBy(desc(dealerRatingHistory.createdAt)).limit(50),
+    getCommissionSettings(),
+  ]);
   return {
     rating: d.rating,
-    bonusBp: bonusBpForRating(d.rating),
+    // Base % model: (rating − 5.0) × the dealer's step, negative below 5.0.
+    bonusBp: settings.commissionModel === "BASE_PERCENT" ? ratingAdjustmentBp(d.rating, d.ratingStepBp ?? settings.ratingStepBp) : bonusBpForRating(d.rating),
     startRating: d.startRating,
     activatedShops: d.activatedShops,
     override: d.ratingOverride != null ? { rating: d.ratingOverride, untilShops: d.ratingOverrideUntilShops } : null,

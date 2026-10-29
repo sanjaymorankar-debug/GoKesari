@@ -9595,6 +9595,14 @@ export const dealers = pgTable(
     ratingOverride: numeric("rating_override", { precision: 3, scale: 1, mode: "number" }),
     ratingOverrideUntilShops: integer("rating_override_until_shops"),
     activatedShops: integer("activated_shops").notNull().default(0),
+    /**
+     * 0117 (owner, 29 Oct 2026): this dealer's own base commission, % of the
+     * registration fee paid in basis points, and own change per rating point
+     * (basis points per 1.0 of rating above or below 5.0). Null: the default in
+     * dealer_commission_settings.
+     */
+    commissionPercentBp: integer("commission_percent_bp"),
+    ratingStepBp: integer("rating_step_bp"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -9610,6 +9618,8 @@ export const dealers = pgTable(
     check("dealers_mobile_method", sql`${t.mobileVerificationMethod} IS NULL OR ${t.mobileVerificationMethod} in ('OTP', 'ADMIN_CALL', 'LEGACY')`),
     check("dealers_source", sql`${t.source} in ('APPLICATION', 'LEGACY_MIGRATION', 'ADMIN')`),
     check("dealers_agreement_dates", sql`${t.agreementEnd} IS NULL OR ${t.agreementStart} IS NULL OR ${t.agreementEnd} >= ${t.agreementStart}`),
+    check("dealers_commission_percent", sql`${t.commissionPercentBp} IS NULL OR ${t.commissionPercentBp} BETWEEN 0 AND 10000`),
+    check("dealers_rating_step", sql`${t.ratingStepBp} IS NULL OR ${t.ratingStepBp} BETWEEN 0 AND 1000`),
   ],
 );
 export type Dealer = typeof dealers.$inferSelect;
@@ -10111,6 +10121,17 @@ export const dealerCommissionSettings = pgTable("dealer_commission_settings", {
   fixedBonusBase: text("fixed_bonus_base", { enum: ["FEE", "BASE_AMOUNT"] }).notNull().default("FEE"),
   catalogueMinProducts: integer("catalogue_min_products").notNull().default(10),
   branchEligible: boolean("branch_eligible").notNull().default(false),
+  /**
+   * 0117 (owner, 29 Oct 2026). BASE_PERCENT: a dealer earns one base % of the
+   * registration fee paid (before GST, after any coupon), all when the shop is
+   * approved; each rating point above or below 5.0 moves it by ratingStepBp.
+   * MILESTONE_RULES: the earlier fixed / % rules per milestone.
+   */
+  commissionModel: text("commission_model", { enum: ["BASE_PERCENT", "MILESTONE_RULES"] }).notNull().default("BASE_PERCENT"),
+  /** Default base commission, basis points of the fee (4000 = 40%); a dealer may have their own. */
+  basePercentBp: integer("base_percent_bp").notNull().default(4000),
+  /** Default change per 1.0 of rating above or below 5.0, basis points (100 = 1 percentage point). */
+  ratingStepBp: integer("rating_step_bp").notNull().default(100),
   /** Monthly payout (0116): the day (1–28, IST) the previous month is closed and its payouts drafted. */
   payoutDayOfMonth: integer("payout_day_of_month").notNull().default(5),
   /** At the month's close, approve EARNED entries of that month first (an admin still pays). On by default (owner, 29 Oct 2026). */
