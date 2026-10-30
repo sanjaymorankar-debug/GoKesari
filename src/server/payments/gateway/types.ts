@@ -3,14 +3,14 @@
  * (batch-2026-10, F1.7.3 / F1.8.4 / GS-028 / SM-005).
  *
  *   payments service → getPaymentGateway() → SandboxGateway   (default, tests, staging)
- *                                          → Cashfree / Razorpay / PhonePe PG adapters
+ *                                          → Cashfree / Razorpay / PhonePe / HDFC PG adapters
  *
  * The provider is chosen by configuration only (PAYMENT_GATEWAY + its keys);
  * no business code names a vendor. Card data never reaches this server: every
  * adapter hands back a hosted-checkout URL or an SDK session token.
  */
 
-export type GatewayName = "SANDBOX" | "CASHFREE" | "RAZORPAY" | "PHONEPE";
+export type GatewayName = "SANDBOX" | "CASHFREE" | "RAZORPAY" | "PHONEPE" | "HDFC";
 
 export type PaymentMethodKind = "UPI" | "CARD" | "NETBANKING";
 

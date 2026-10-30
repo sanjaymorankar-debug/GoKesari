@@ -1,6 +1,6 @@
 /**
  * Payment-gateway webhooks for online order payments (batch-2026-10 WS-A):
- *   POST /api/webhooks/payments/sandbox | cashfree | razorpay | phonepe
+ *   POST /api/webhooks/payments/sandbox | cashfree | razorpay | phonepe | hdfc
  *
  * 401 on a bad signature (recorded), 200 for a repeated event (ignored),
  * 500 when processing failed (the gateway retries). The state is taken from
