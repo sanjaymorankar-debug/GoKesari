@@ -7953,7 +7953,7 @@ export const paymentIntents = pgTable(
     })
       .notNull()
       .default("CREATED"),
-    gateway: text("gateway", { enum: ["SANDBOX", "CASHFREE", "RAZORPAY", "PHONEPE"] }).notNull(),
+    gateway: text("gateway", { enum: ["SANDBOX", "CASHFREE", "RAZORPAY", "PHONEPE", "HDFC"] }).notNull(),
     mode: text("mode", { enum: ["CHECKOUT", "LINK"] }).notNull().default("CHECKOUT"),
     /** Our id for the attempt at the gateway (its "order id"); derived from this row's id. */
     merchantOrderId: text("merchant_order_id").notNull(),

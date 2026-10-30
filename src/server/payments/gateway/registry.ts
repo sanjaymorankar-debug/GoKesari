@@ -1,7 +1,7 @@
 /**
  * Which payment gateway is in use (batch-2026-10 WS-A).
  *
- *   PAYMENT_GATEWAY = SANDBOX (default) | CASHFREE | RAZORPAY | PHONEPE
+ *   PAYMENT_GATEWAY = SANDBOX (default) | CASHFREE | RAZORPAY | PHONEPE | HDFC
  *
  * plus that provider's keys (src/lib/env.ts). Nothing else in the code names
  * a vendor. A gateway whose keys are missing is never used: starting a
@@ -13,6 +13,7 @@ import { getEnv, isProductionSite } from "@/lib/env";
 import { AppError } from "@/lib/errors";
 import { getRule } from "@/server/services/settings";
 import { CashfreeGateway } from "./cashfree";
+import { HdfcGateway } from "./hdfc";
 import { PhonePeGateway } from "./phonepe";
 import { RazorpayGateway } from "./razorpay";
 import { SandboxGateway } from "./sandbox";
@@ -23,6 +24,7 @@ const instances: Record<GatewayName, PaymentGateway> = {
   CASHFREE: new CashfreeGateway(),
   RAZORPAY: new RazorpayGateway(),
   PHONEPE: new PhonePeGateway(),
+  HDFC: new HdfcGateway(),
 };
 
 /** Test seam: replace one gateway's adapter (e.g. a gateway that disagrees with its own webhook). */
@@ -34,7 +36,7 @@ export function setGatewayOverrideForTests(name: GatewayName, gateway: PaymentGa
   else overrides.delete(name);
 }
 
-export const GATEWAY_NAMES: readonly GatewayName[] = ["SANDBOX", "CASHFREE", "RAZORPAY", "PHONEPE"];
+export const GATEWAY_NAMES: readonly GatewayName[] = ["SANDBOX", "CASHFREE", "RAZORPAY", "PHONEPE", "HDFC"];
 
 export function parseGatewayName(value: string): GatewayName | null {
   const upper = value.toUpperCase();

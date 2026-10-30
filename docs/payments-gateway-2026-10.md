@@ -86,13 +86,14 @@ CREATED ──► PENDING ──► AUTHORIZED ──► CAPTURED ──► PART
 
 | Env var | Meaning |
 |---|---|
-| `PAYMENT_GATEWAY` | `SANDBOX` (default) \| `CASHFREE` \| `RAZORPAY` \| `PHONEPE` |
+| `PAYMENT_GATEWAY` | `SANDBOX` (default) \| `CASHFREE` \| `RAZORPAY` \| `PHONEPE` \| `HDFC` |
 | `PAYMENT_PUBLIC_BASE_URL` | public origin for return / webhook URLs (falls back to `AUTH_URL`) |
 | `PAYMENT_WEBHOOK_SECRET_SANDBOX` | sandbox webhook secret (a fixed test secret is used outside production) |
 | `CASHFREE_APP_ID`, `CASHFREE_SECRET_KEY`, `CASHFREE_ENV` | Cashfree keys (the same ones the wallet top-up uses) |
 | `PAYMENT_WEBHOOK_SECRET_CASHFREE` | optional; Cashfree signs webhooks with the API secret, which is the default |
 | `RAZORPAY_KEY_ID`, `RAZORPAY_KEY_SECRET`, `PAYMENT_WEBHOOK_SECRET_RAZORPAY` | Razorpay (scaffold) |
 | `PHONEPE_MERCHANT_ID`, `PHONEPE_SALT_KEY`, `PHONEPE_SALT_INDEX`, `PHONEPE_ENV` | PhonePe (scaffold) |
+| `HDFC_BASE_URL`, `HDFC_MERCHANT_ID`, `HDFC_API_KEY`, `HDFC_PAYMENT_PAGE_CLIENT_ID`, `HDFC_RESPONSE_KEY`, `HDFC_WEBHOOK_USERNAME`, `HDFC_WEBHOOK_PASSWORD` | HDFC Bank SmartGateway (section 3a) |
 
 A gateway without its keys is never used (`isConfigured()` false → online
 payment is refused with "Online payment is not available"). The sandbox is
@@ -110,12 +111,54 @@ their published docs, but the parts marked **UNVERIFIED** in
 provider's test mode before use. Their checkout UI (Razorpay Checkout JS) is not
 wired yet; Cashfree's is (`/orders/pay/session/<intent>`).
 
+## 3a. HDFC Bank SmartGateway
+
+`src/server/payments/gateway/hdfc.ts` (Juspay "Payment Page" API). The values come
+from HDFC's onboarding kit (`config.json`); they go into the environment only,
+never into code or the repository:
+
+| Kit (`config.json`) | Env var |
+|---|---|
+| `BASE_URL` | `HDFC_BASE_URL` (UAT `https://smartgateway.hdfcuat.bank.in`) |
+| `MERCHANT_ID` | `HDFC_MERCHANT_ID` |
+| `API_KEY` | `HDFC_API_KEY` |
+| `PAYMENT_PAGE_CLIENT_ID` | `HDFC_PAYMENT_PAGE_CLIENT_ID` |
+| `RESPONSE_KEY` | `HDFC_RESPONSE_KEY` |
+| — (set in the HDFC dashboard → Webhooks) | `HDFC_WEBHOOK_USERNAME`, `HDFC_WEBHOOK_PASSWORD` |
+
+* Checkout: `POST /session` → the bank's hosted payment page (`HOSTED_URL`). Payment
+  links use the same session API.
+* The bank's `order_id` must be under 21 characters, so it is `GK` + 18 hex characters
+  derived from our merchant order id (`hdfcOrderId`); it is stored as the gateway order id.
+* Return: the bank sends the customer to `/api/payments/hdfc/return?to=<our page>`
+  (GET or POST), which forwards to `/orders/payment-return?intent=…`. The return
+  signature (`HDFC_RESPONSE_KEY`) is checked and only logged; the state always comes
+  from `GET /orders/{order_id}`.
+* Webhooks carry no body signature: they are authenticated by Basic auth only.
+* A UAT `HDFC_BASE_URL` is refused on gokesari.com (`isConfigured()` false).
+* Payment methods (cards, UPI, net banking) are switched on in the HDFC dashboard,
+  not by rule `onlinePayments.methods`.
+
+**UAT checklist (test.gokesari.com) before any production use** — the parts marked
+UNVERIFIED in `hdfc.ts`:
+
+1. Set the HDFC env vars with the UAT kit values, `PAYMENT_GATEWAY=HDFC`,
+   `PAYMENT_PUBLIC_BASE_URL=https://test.gokesari.com`; restart the app.
+2. Register `https://test.gokesari.com/api/webhooks/payments/hdfc` in the UAT
+   dashboard with the Basic auth username / password.
+3. Pay one order with HDFC's UAT test card / UPI / net banking (their `JP_DUMMY` /
+   `NB_DUMMY` banks): the order is Confirmed; the webhook row shows outcome MOVED or NO_CHANGE.
+4. A failed payment ends FAILED; one left open ends EXPIRED after `payments-reconcile`.
+5. Cancel a paid order: the refund reaches SUCCESS (webhook or reconciliation).
+6. Check the server log has no "return signature did not match".
+
 ## 4. Webhook URL to register at the gateway
 
 ```
 https://<host>/api/webhooks/payments/cashfree     (Cashfree: Developers → Webhooks, PG "Payment" + "Refund" events, version 2023-08-01)
 https://<host>/api/webhooks/payments/razorpay     (Razorpay: payment.captured, payment.failed, order.paid, refund.processed, refund.failed)
 https://<host>/api/webhooks/payments/phonepe      (PhonePe: sent as callbackUrl with each payment)
+https://<host>/api/webhooks/payments/hdfc         (HDFC SmartGateway dashboard → Webhooks, Basic auth = HDFC_WEBHOOK_USERNAME / _PASSWORD)
 ```
 
 The existing wallet top-up webhook `/api/webhooks/cashfree` is unchanged and

@@ -834,6 +834,13 @@
       "when": 1793161700000,
       "tag": "0118_registration_identity_approval",
       "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1793161800000,
+      "tag": "0119_hdfc_gateway",
+      "breakpoints": true
     }
   ]
 }

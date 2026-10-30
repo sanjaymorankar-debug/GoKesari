@@ -247,7 +247,7 @@ const serverEnvSchema = z.object({
 
   // batch-2026-10 WS-A — direct online payment (docs/payments-gateway-2026-10.md).
   /** Which gateway takes online payments for orders. SANDBOX (default) is in-process: tests and staging only. */
-  PAYMENT_GATEWAY: z.enum(["SANDBOX", "CASHFREE", "RAZORPAY", "PHONEPE"]).default("SANDBOX"), // batch-2026-10 WS-A
+  PAYMENT_GATEWAY: z.enum(["SANDBOX", "CASHFREE", "RAZORPAY", "PHONEPE", "HDFC"]).default("SANDBOX"), // batch-2026-10 WS-A
   /** Sandbox webhook HMAC secret. Unset: a fixed test secret (refused in production). */
   PAYMENT_WEBHOOK_SECRET_SANDBOX: z.string().optional(), // batch-2026-10 WS-A
   /** Cashfree PG webhook secret. Unset: CASHFREE_SECRET_KEY (Cashfree signs webhooks with the API secret). */
@@ -260,6 +260,18 @@ const serverEnvSchema = z.object({
   PHONEPE_SALT_KEY: z.string().optional(), // batch-2026-10 WS-A
   PHONEPE_SALT_INDEX: z.string().optional(), // batch-2026-10 WS-A
   PHONEPE_ENV: z.enum(["sandbox", "production"]).default("sandbox"), // batch-2026-10 WS-A
+  // HDFC Bank SmartGateway (src/server/payments/gateway/hdfc.ts). Values from the HDFC dashboard / onboarding kit.
+  /** UAT https://smartgateway.hdfcuat.bank.in, or the production URL HDFC gives at go-live. A UAT URL is refused on gokesari.com. */
+  HDFC_BASE_URL: z.string().url().optional(),
+  HDFC_MERCHANT_ID: z.string().optional(),
+  HDFC_API_KEY: z.string().optional(),
+  /** The payment page client id (kit: PAYMENT_PAGE_CLIENT_ID). */
+  HDFC_PAYMENT_PAGE_CLIENT_ID: z.string().optional(),
+  /** Signs the customer's return (kit: RESPONSE_KEY). Only checked and logged; the state comes from the order API. */
+  HDFC_RESPONSE_KEY: z.string().optional(),
+  /** HDFC dashboard → Webhooks → Basic auth username / password. */
+  HDFC_WEBHOOK_USERNAME: z.string().optional(),
+  HDFC_WEBHOOK_PASSWORD: z.string().optional(),
   /** Public origin used in gateway return / webhook URLs, e.g. https://test.gokesari.com. Falls back to AUTH_URL. */
   PAYMENT_PUBLIC_BASE_URL: z.string().url().optional(), // batch-2026-10 WS-A
 });
