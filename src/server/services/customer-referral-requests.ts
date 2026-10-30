@@ -10,7 +10,6 @@
  * the app and by email, and enters the code to start ordering. One request
  * per customer or mobile number within requestDuplicateWindowHours.
  */
-import crypto from "node:crypto";
 
 import { and, desc, eq, gte, or, sql } from "drizzle-orm";
 
@@ -264,9 +263,6 @@ export async function listCustomerReferralRequests(status: ReferralRequestStatus
   return rows.map(toView);
 }
 
-const ALPHABET = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
-const randomCode = () => "GKC" + Array.from({ length: 6 }, () => ALPHABET[crypto.randomInt(ALPHABET.length)]).join("");
-
 async function decide(
   requestId: string,
   actor: Actor,
@@ -318,20 +314,11 @@ export async function issueCodeForCustomerRequest(requestId: string, input: { co
     requestId,
     actor,
     async (current) => {
-      let created: Awaited<ReturnType<typeof createReferralCode>> | null = null;
-      for (let attempt = 0; attempt < 5 && !created; attempt += 1) {
-        const code = input.code?.trim() || randomCode();
-        try {
-          created = await createReferralCode(
-            { code, label: `Customer ${current.name} (${customerReferralRequestReference(current.id)})`, referrerName: current.name, note: input.note ?? null },
-            actor,
-          );
-        } catch (error) {
-          // A generated code that collides is retried; a typed one is the operator's to change.
-          if (input.code?.trim() || !(error instanceof AppError && error.code === "CONFLICT")) throw error;
-        }
-      }
-      if (!created) throw conflict("Could not generate a free code — type one instead.");
+      // Left empty, createReferralCode generates a unique 8-character code.
+      const created = await createReferralCode(
+        { code: input.code?.trim() || null, label: `Customer ${current.name} (${customerReferralRequestReference(current.id)})`, referrerName: current.name, note: input.note ?? null },
+        actor,
+      );
       return { status: "CODE_ISSUED", issuedCodeId: created.id, issuedCode: created.code, decisionNote: input.note?.trim() || null };
     },
     "issued",

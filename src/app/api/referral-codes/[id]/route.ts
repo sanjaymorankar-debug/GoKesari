@@ -6,6 +6,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { notPast } from "@/lib/referral-codes";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
@@ -17,7 +18,7 @@ const schema = z.object({
   status: z.enum(["ACTIVE", "INACTIVE", "EXPIRED"]).optional(),
   label: z.string().max(120).nullish(),
   note: z.string().max(500).nullish(),
-  expiresAt: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullish(),
+  expiresAt: notPast(z.string().regex(/^\d{4}-\d{2}-\d{2}$/)).nullish(),
   distributorId: z.string().uuid().nullish(),
   maxUses: z.number().int().min(1).max(100_000).nullish(),
 });

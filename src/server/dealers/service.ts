@@ -34,7 +34,7 @@ import {
   type DealerType,
 } from "@/lib/dealers";
 import { isPanEncryptionConfigured } from "@/lib/env";
-import { indianState, stateCodeFromName, stateCodeOfArea } from "@/lib/indian-states";
+import { indianState, stateCodeOfArea } from "@/lib/indian-states";
 import { stateForPincode } from "@/lib/pincode-state";
 import { AppError, conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { decryptBytes, decryptSecret, encryptBytes, encryptSecret, maskPan, panBlindIndex } from "@/lib/pan-crypto";
@@ -61,7 +61,8 @@ import { notify } from "@/server/services/notifications";
 import { grantRole, revokeRole } from "@/server/services/roles";
 import { getRule } from "@/server/services/settings";
 import { NOTIFICATION_TYPES } from "@/server/notifications/types";
-import { activeCodeFor, dealerCodeFor, issueCode, listDealerCodes, replaceCode, salespersonCode, setCodesStatus } from "./codes";
+import { newReferralCode } from "@/server/services/referrals";
+import { activeCodeFor, issueCode, listDealerCodes, replaceCode, setCodesStatus } from "./codes";
 import { holdDealerCommission } from "./commission";
 
 export interface DealerActor {
@@ -729,25 +730,6 @@ export type DealerDecision =
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
-/**
- * The state and district that go into a dealer's code: a district of the
- * dealer's areas (one where the programme is open first), its state; else a
- * state among the areas; else the state of the dealer's address or PIN code.
- */
-async function codePlace(dealer: Dealer, client: DbClient): Promise<{ state: string; district: string | null }> {
-  const districts = await territoryDistricts(dealer.id, client);
-  const flag = await getFeatureFlag("dealer_programme_enabled");
-  const pick = districts.find((d) => flagCoversDistrict(flag, d.code) && d.shortCode) ?? districts.find((d) => d.shortCode);
-  if (pick?.shortCode) {
-    const state = stateCodeOfArea(pick.code);
-    if (state) return { state, district: pick.shortCode };
-  }
-  const states = (await territoryCodes(dealer.id, client)).map(stateCodeOfArea).filter((s): s is string => Boolean(s));
-  const state = states[0] ?? stateCodeFromName(dealer.state) ?? stateForPincode(dealer.pincode);
-  if (!state) throw validationFailed("Choose the dealer's state (or a district) first; a code cannot be made.");
-  return { state, district: null };
-}
-
 async function salespeopleCodes(dealerId: string, client: DbClient, onlyActivePeople: boolean): Promise<string[]> {
   const rows = await client
     .select({ id: dealerCodes.id, personStatus: dealerSalespeople.status })
@@ -812,11 +794,10 @@ export async function decideDealer(dealerId: string, decision: DealerDecision, a
       if (!dealer.mobileVerifiedAt) Object.assign(extra, { mobileVerifiedAt: now, mobileVerificationMethod: "ADMIN_CALL" });
       Object.assign(extra, { agreementStart: decision.agreementStart, agreementEnd: decision.agreementEnd });
       to = "APPROVED";
-      const place = await codePlace(dealer, tx);
       const existing = (await listDealerCodes(dealer.id, tx)).find((c) => c.kind !== "SALESPERSON" && c.status === "ACTIVE");
       code =
         existing?.code ??
-        (await issueCode(tx, { dealerId: dealer.id, kind: "DEALER", makeCode: () => dealerCodeFor(place.state, place.district), label: `Dealer: ${dealer.legalName}`, referrerName: dealer.legalName, referrerUserId: dealer.userId }, actor)).code;
+        (await issueCode(tx, { dealerId: dealer.id, kind: "DEALER", makeCode: newReferralCode, label: `Dealer: ${dealer.legalName}`, referrerName: dealer.legalName, referrerUserId: dealer.userId }, actor)).code;
       if (dealer.userId) await grantRole(dealer.userId, "DEALER", { source: "ADMIN", grantedBy: actor.id, activateIfCustomer: true }, tx);
     } else if (decision.action === "REJECT") {
       to = "REJECTED";
@@ -963,10 +944,9 @@ export async function createDealerByAdmin(input: AdminDealerInput, actor: Dealer
       } as never)
       .returning();
     await tx.insert(dealerTerritories).values({ dealerId: dealer.id, areaCode: territory });
-    const place = await codePlace(dealer, tx);
     const { code } = await issueCode(
       tx,
-      { dealerId: dealer.id, kind: "DEALER", makeCode: () => dealerCodeFor(place.state, place.district), label: `Dealer: ${dealer.legalName}`, referrerName: dealer.legalName, referrerUserId: dealer.userId },
+      { dealerId: dealer.id, kind: "DEALER", makeCode: newReferralCode, label: `Dealer: ${dealer.legalName}`, referrerName: dealer.legalName, referrerUserId: dealer.userId },
       actor,
     );
     if (dealer.userId) await grantRole(dealer.userId, "DEALER", { source: "ADMIN", grantedBy: actor.id, activateIfCustomer: true }, tx);
@@ -994,8 +974,7 @@ export async function replaceDealerCode(dealerId: string, dealerCodeId: string, 
     const dealer = await getDealer(dealerId, tx);
     const [dc] = await tx.select().from(dealerCodes).where(and(eq(dealerCodes.id, dealerCodeId), eq(dealerCodes.dealerId, dealerId)));
     if (!dc) throw notFound("Code");
-    const place = dc.salespersonId ? null : await codePlace(dealer, tx);
-    return replaceCode(tx, dealerCodeId, () => (place ? dealerCodeFor(place.state, place.district) : salespersonCode()), `Dealer: ${dealer.legalName}`, actor, why);
+    return replaceCode(tx, dealerCodeId, newReferralCode, `Dealer: ${dealer.legalName}`, actor, why);
   });
 }
 
@@ -1075,7 +1054,7 @@ export async function addSalesperson(
       .insert(dealerSalespeople)
       .values({ dealerId, employeeId, name, mobileE164, source: actor.role === "ADMIN" ? "ADMIN" : "DEALER" })
       .returning();
-    await issueCode(tx, { dealerId, salespersonId: person.id, kind: "SALESPERSON", makeCode: salespersonCode, label: `${dealer.legalName}: ${name} (${employeeId})`, referrerName: name }, actor);
+    await issueCode(tx, { dealerId, salespersonId: person.id, kind: "SALESPERSON", makeCode: newReferralCode, label: `${dealer.legalName}: ${name} (${employeeId})`, referrerName: name }, actor);
     await recordAudit(
       { actorId: actor.id, actorRole: actor.role, action: AUDIT_ACTIONS.DEALER_SALESPERSON_SAVED, entityType: "dealer", entityId: dealerId, newValue: { salespersonId: person.id, employeeId, status: "ACTIVE" } },
       tx,
