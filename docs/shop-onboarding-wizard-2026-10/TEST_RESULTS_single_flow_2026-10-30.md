@@ -4,8 +4,9 @@ Branch `fix/registration-single-flow` (from `staging` at 2afa3104), PR #298 into
 Design: [FLOW_2026-10-30-b.md](FLOW_2026-10-30-b.md). Tracker: `SHOP_REGISTRATION_SINGLE_FLOW_TRACKER_2026-10-30.xlsx`.
 
 **Where it was tested:** locally (Postgres 18, mock KYC provider, sandbox payment), on both database
-layouts. **Not yet** on test.gokesari.com (the PR is not merged) or gokesari.com (the owner chose
-"staging now, Prod later": production waits for an approved release window).
+layouts, and on **test.gokesari.com** after PR #298 was merged (685e1f2f, live 30 Oct 18:37 UTC) up to
+the payment page. **Not** on gokesari.com (the owner chose "staging now, Prod later": production waits
+for an approved release window).
 
 ## Automated
 
@@ -72,16 +73,52 @@ unless `KYC_PROVIDER` is set; not run.
 The fallback for a refused key (`gm_authFailure`) is in the code; it can be seen on staging once
 deployed and before the key is fixed.
 
+## On test.gokesari.com (30 Oct 2026, after #298)
+
+Set-up: `shop_onboarding_wizard_enabled` switched on for staging (admin, logged with a reason); a
+staging-only referral code `T47BC8PU` (label "QA PR #298", 5 uses) because staging requires a code;
+account `customer2` switched to its Customer role for the run and back to Dealer afterwards.
+
+| # | Step | Result |
+|---|---|---|
+| ST-1 | `/sell` (guest): one card, button → `/shop/register`; no "Quick registration" card | Pass |
+| ST-2 | `/shop/join?code=ab12cd34` → `/shop/register?ref=AB12CD34` | Pass |
+| ST-3 | Seller Central with no shop: one card | Pass |
+| ST-4 | Screen 2: one tile board, Enter / Request Referral Code, 6 documents; button reads "Enter your code to continue" while the code is required | Pass |
+| ST-5 | Referral code checked → shop email (account email) → Yes / No → Yes | Pass |
+| ST-6 | Document window: GSTIN, PAN, Shop Act, FSSAI, Udyam in order, each Validate shows its result on its line | Pass |
+| ST-7 | Confirm details → review: no map step before payment; "Create my shop and pay" creates the shop | Pass |
+| ST-8 | Pay → **HDFC Bank UAT gateway** (`smartgateway.hdfcuat.bank.in`), not the built-in sandbox page | Stopped — see below |
+| ST-9 | Address and map location after payment | Not reached (payment not completed) |
+| MAP-3 | Maps on test.gokesari.com after the owner's key change | Pass — build carries the production key (…UffY), map and Places load, no `RefererNotAllowedMapError` |
+
+Government checks on staging (provider connected on staging, not the mock): GSTIN (made-up test
+number), Shop Act, FSSAI and Udyam all came back "Our team will check" — the provider could not confirm
+them (a made-up GSTIN is not in the GST record; FSSAI / Udyam "can't be checked online"). The owner may
+carry on, as designed. A real GSTIN / PAN is needed to see "Verified" and the auto-fill on staging.
+
+Found on staging, fixed in the follow-up PR: the "Retrieved from your GST record" box showed when the
+check was only in review and nothing was retrieved; the warning box above the window repeated the last
+line's message.
+
+Found on staging, not changed: a signed-in user whose active role is **Dealer** sees the wizard but step
+1 answers "You do not have permission to perform this action" (dealers lack `SHOP_CREATE`). Existing
+behaviour; the page could say "switch to your customer account to register a shop".
+
+Staging data left by the run: shop "QA Staging Stores 298" (pending, fee not paid) on `customer2`, which
+now also holds the Shop Owner role; referral code `T47BC8PU`.
+
 ## Not run yet
 
-- Test server (test.gokesari.com): after PR #298 is merged and `shop_onboarding_wizard_enabled` is on
-  for staging — sign in, referral, Yes path with sandbox KYC, pay on the sandbox page, address and pin.
+- Test server: the payment and the address / location step (ST-8, ST-9) — staging's registration fee
+  now goes to HDFC Bank's UAT gateway. Either switch test.gokesari.com back to `PAYMENT_GATEWAY=SANDBOX`
+  (CLAUDE.md, owner decision 29 Oct) or pay on the HDFC test page with HDFC's test card yourself.
 - Prod server (gokesari.com): after an owner-approved release; read-only smoke (one card on /sell,
   `/shop/join` redirect, map loads). No payment on production.
 - Real Android / iPhone app run: the apps are WebViews of the site; checked by design, not on a device.
 
 ## Known issues and open items
 
-1. Staging Maps key restriction (owner).
+1. ~~Staging Maps key restriction~~ — fixed 30 Oct by the owner (production key on staging), verified.
 2. A shop that pays but waits for admin approval is asked for its map pin only after approval.
 3. The address is still entered before payment (the shop needs one when created); page 5 corrects it.

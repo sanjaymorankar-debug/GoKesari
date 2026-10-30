@@ -318,6 +318,7 @@ export function OnboardingWizard({
   const [fields, setFields] = useState<Record<string, string>>({});
 
   const step: Step = viewing ?? state?.nextStep ?? "REFERRAL";
+  const inDocumentWindow = step === "IDENTITY" || ((step === "UDYAM" || step === "FSSAI") && state !== null && !state.documentsLater);
   // The latest wizard, for the scanned numbers' checks, which run one after another.
   const latest = useRef<WizardState | null>(initial);
   // Numbers read from the owner's photos (Udyam, FSSAI), filled into their steps.
@@ -369,7 +370,8 @@ export function OnboardingWizard({
     <div className="space-y-3" data-registration-board>
       <TileSteps step={step} state={state} onOpen={setViewing} />
       {error ? <Alert tone="danger">{error}</Alert> : null}
-      {notice && !error ? <Alert tone="warning">{notice}</Alert> : null}
+      {/* The document window shows each check's message on its own line. */}
+      {notice && !error && !inDocumentWindow ? <Alert tone="warning">{notice}</Alert> : null}
 
       {step === "REFERRAL" ? (
         <ReferralStep
@@ -383,7 +385,7 @@ export function OnboardingWizard({
       {step === "EMAIL" && state ? <EmailStep state={state} busy={busy} fields={fields} send={send} back={back("REFERRAL")} /> : null}
       {step === "DOCS_READY" && state ? <DocumentsReadyStep busy={busy} send={send} back={back("EMAIL")} /> : null}
       {/* "Yes, I have them": every number on one window, each with its own Validate button. */}
-      {step === "IDENTITY" || ((step === "UDYAM" || step === "FSSAI") && state && !state.documentsLater) ? (
+      {inDocumentWindow ? (
         <IdentityStep
           state={state}
           busy={busy}
@@ -753,7 +755,8 @@ function PrefillSummary({ state }: { state: WizardState }) {
     ["Registered address", p.address],
     ["PAN", state.pan?.numberMasked ?? null],
   ].filter((r): r is [string, string] => Boolean(r[1]));
-  if (!state.gstin && !state.pan) return null;
+  // Only when the GST / PAN record actually gave something back (a check in review fills nothing).
+  if (!p.shopName && !p.tradeName && !p.legalName && !p.ownerName && !p.address) return null;
   return (
     <div className="rounded-lg border border-leaf-300 bg-leaf-50 p-3 text-sm" data-testid="prefill-summary">
       <p className="font-semibold text-leaf-700">✓ Retrieved from your {state.route === "PAN_ONLY" ? "PAN" : "GST"} record — check them; you can edit them below</p>
