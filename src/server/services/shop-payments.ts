@@ -11,7 +11,7 @@
  * aggregates maintained in the *same transaction* as the ledger write, so the
  * summary can never drift from the rows it summarises.
  */
-import { and, desc, eq, isNull, sql } from "drizzle-orm";
+import { and, desc, eq, isNull, like, sql } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { formatPaise } from "@/lib/money";
@@ -36,16 +36,23 @@ interface Actor {
 }
 
 /**
- * Allocates a receipt reference. A sequence would be tidier, but payments are
- * low-volume and the count-based form is human-meaningful; the UNIQUE index on
- * `reference` is the real guarantee, and a collision retries.
+ * Allocates a receipt reference: one more than the highest number used this
+ * year. It used to be the row count + 1, which collided for good once any
+ * payment row had been deleted (test.gokesari.com, 30 Oct 2026: 9 rows numbered
+ * 4–12, so every new payment tried PAY-2026-000010 and failed). The UNIQUE index
+ * on `reference` is the real guarantee: two payments at the same instant may
+ * still pick the same number, and the second fails and is retried by its caller
+ * (the gateway's webhook redelivery, or the person pressing again).
  */
 export async function nextReference(tx: DbClient): Promise<string> {
-  const year = new Date().getFullYear();
-  const [{ n }] = await tx
-    .select({ n: sql<number>`COUNT(*)::int` })
-    .from(shopPayments);
-  return `PAY-${year}-${String(n + 1).padStart(6, "0")}`;
+  const prefix = `PAY-${new Date().getFullYear()}-`;
+  // Zero-padded to six digits, so the text maximum is the numeric maximum.
+  const [{ last }] = await tx
+    .select({ last: sql<string | null>`MAX(${shopPayments.reference})` })
+    .from(shopPayments)
+    .where(like(shopPayments.reference, `${prefix}%`));
+  const n = last ? Number.parseInt(last.slice(prefix.length), 10) || 0 : 0;
+  return `${prefix}${String(n + 1).padStart(6, "0")}`;
 }
 
 /**
