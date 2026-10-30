@@ -15,7 +15,7 @@ import {
   confirmDraftEmailCode,
   requestDraftEmailCode,
   requireWizardAvailable,
-  useAccountEmailForShop,
+  chooseAccountEmailForShop,
 } from "@/server/services/shop-registration-wizard";
 
 export const dynamic = "force-dynamic";
@@ -33,7 +33,7 @@ export const POST = route(async (request: NextRequest) => {
   enforceRateLimit(`registration-draft:${user.id}`, RATE_LIMITS.MUTATION);
   const body = await parseBody(request, schema);
   const ip = request.headers.get("x-forwarded-for")?.split(",")[0]?.trim() || null;
-  if ("useAccount" in body) return ok(await useAccountEmailForShop({ actor: user }));
+  if ("useAccount" in body) return ok(await chooseAccountEmailForShop({ actor: user }));
   if ("code" in body) return ok(await confirmDraftEmailCode({ actor: user, email: body.email, code: body.code, ip }));
   return ok({ codeSent: await requestDraftEmailCode({ actor: user, email: body.email, ip }) });
 });

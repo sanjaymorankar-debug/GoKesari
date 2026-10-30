@@ -69,7 +69,7 @@ import {
   saveDraftLocation,
   submitDraftDocument,
   submitDraftForPayment,
-  useAccountEmailForShop,
+  chooseAccountEmailForShop,
   type DraftShopDetails,
 } from "@/server/services/shop-registration-wizard";
 import { createUser, resetDatabase } from "../helpers/fixtures";
@@ -146,7 +146,7 @@ const shopRow = async (id: string) => (await db.select().from(shops).where(eq(sh
 /** Referral (none) → the account's email → the documents answer. */
 async function start(later: boolean) {
   await answerDraftReferral({ actor: owner, referralCode: null });
-  await useAccountEmailForShop({ actor: owner });
+  await chooseAccountEmailForShop({ actor: owner });
   return answerDocumentsReady({ actor: owner, later });
 }
 
@@ -154,7 +154,7 @@ describe("the new first steps: referral code, shop email, documents handy?", () 
   it("a new registration starts at the referral code, then the email, then the documents question", async () => {
     let view = await answerDraftReferral({ actor: owner, referralCode: null });
     expect(view).toMatchObject({ nextStep: "EMAIL", referral: { answered: true, code: null, required: false }, email: { account: owner.email, confirmed: false } });
-    view = await useAccountEmailForShop({ actor: owner });
+    view = await chooseAccountEmailForShop({ actor: owner });
     expect(view).toMatchObject({ nextStep: "DOCS_READY", email: { shop: owner.email, confirmed: true }, documentsLater: null });
     view = await answerDocumentsReady({ actor: owner, later: false });
     expect(view).toMatchObject({ nextStep: "IDENTITY", documentsLater: false });

@@ -463,7 +463,7 @@ async function setDraftEmail(ownerId: string, email: string): Promise<WizardView
 }
 
 /** Step "Shop email": "Continue with my account's email" — already proven by the sign-in. */
-export async function useAccountEmailForShop(input: { actor: Actor }): Promise<WizardView> {
+export async function chooseAccountEmailForShop(input: { actor: Actor }): Promise<WizardView> {
   const email = await accountEmail(input.actor.id);
   if (!email) throw validationFailed("Your account has no email yet. Enter the email for your shop.", { fields: { email: "Enter an email." } });
   return setDraftEmail(input.actor.id, email);
