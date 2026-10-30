@@ -15,11 +15,12 @@ import { formatRupeesIndian, turnoverSlab, turnoverSlabLabel, type TurnoverFeeRu
 import { DocumentScan, type ScannedNumber } from "./document-scan";
 
 /**
- * Shop onboarding wizard (docs/shop-onboarding-wizard-2026-10, BRIEF_REDESIGN.md and
- * FLOW_2026-10-30.md): one step at a time, shown as a Tile Board at the top —
- * referral code → shop email → "documents handy?" → verify (GST or PAN, Udyam, FSSAI;
- * typed or scanned) → shop details → map pin → payment → live → category → products.
- * "Upload later" skips the verify tile: shop details → map pin → payment → live. Every answer from the server is the
+ * Shop onboarding wizard (docs/shop-onboarding-wizard-2026-10, BRIEF_REDESIGN.md,
+ * FLOW_2026-10-30.md and FLOW_2026-10-30-b.md): one step at a time, shown as a Tile Board at the top —
+ * referral code (enter or request) → shop email → documents now? Yes / No → the document window
+ * (GSTIN, PAN, Shop Act, FSSAI, Udyam, each with Validate; or scanned) → confirm the shop and owner
+ * name → payment → live → address and map pin → category → products.
+ * "No" skips the document window: shop details → payment → live → address and map pin. Every answer from the server is the
  * whole wizard (services/shop-registration-wizard.ts), so the screen always
  * shows the step the server says comes next, and a returning owner resumes
  * where they left off. Numbers are shown masked; the server never sends them
@@ -104,16 +105,20 @@ export interface WizardState {
   nextStep: Step;
 }
 
-/** The registration's ten steps, always shown at the top of the page (Theme 1 Tile Board). */
+/**
+ * The registration's ten steps, always shown at the top of the page (Theme 1 Tile Board) — the one
+ * checklist on the screen (owner brief 30 Oct 2026, FLOW_2026-10-30-b.md: the fee before the
+ * address and map pin).
+ */
 const TILES = [
   { n: 1, label: "Referral", icon: "🎟️" },
   { n: 2, label: "Email", icon: "✉️" },
   { n: 3, label: "Documents", icon: "📂" },
-  { n: 4, label: "Verify", icon: "🛡️" },
-  { n: 5, label: "Shop details", icon: "🏪" },
-  { n: 6, label: "Location", icon: "📍" },
-  { n: 7, label: "Payment", icon: "💳" },
-  { n: 8, label: "Live", icon: "🚀" },
+  { n: 4, label: "Validate", icon: "🛡️" },
+  { n: 5, label: "Confirm details", icon: "🏪" },
+  { n: 6, label: "Payment", icon: "💳" },
+  { n: 7, label: "Live", icon: "🚀" },
+  { n: 8, label: "Address & location", icon: "📍" },
   { n: 9, label: "Category", icon: "🗂️" },
   { n: 10, label: "Products", icon: "📦" },
 ] as const;
@@ -133,12 +138,12 @@ function tileOf(step: Step): number {
       return 4;
     case "DETAILS":
       return 5;
-    case "LOCATION":
-      return 6;
     case "REVIEW":
     case "PAYMENT":
-      return 7;
+      return 6;
     case "WAITING":
+      return 7;
+    case "LOCATION":
       return 8;
     case "CATEGORY":
       return 9;
@@ -159,7 +164,7 @@ function stepForTile(n: number, state: WizardState): Step | null {
   if (open && n === 3 && state.email.confirmed) return "DOCS_READY";
   if (open && n === 4 && state.documentsLater === false) return "IDENTITY";
   if (open && n === 5 && pastDocs) return "DETAILS";
-  if (open && n === 6 && state.details) return "LOCATION";
+  if (approved && n === 8) return "LOCATION";
   if (approved && n === 9) return "CATEGORY";
   if (approved && n === 10) return "PRODUCTS";
   return null;
@@ -377,23 +382,20 @@ export function OnboardingWizard({
       ) : null}
       {step === "EMAIL" && state ? <EmailStep state={state} busy={busy} fields={fields} send={send} back={back("REFERRAL")} /> : null}
       {step === "DOCS_READY" && state ? <DocumentsReadyStep busy={busy} send={send} back={back("EMAIL")} /> : null}
-      {step === "IDENTITY" ? <IdentityStep state={state} busy={busy} fields={fields} send={send} back={back("DOCS_READY")} onScan={checkScanned} /> : null}
-      {step === "UDYAM" && state ? (
-        <OptionalDocStep
-          docType="UDYAM"
-          title="4. Udyam registration (optional)"
-          question="Do you have a Udyam (MSME) registration?"
-          placeholder="UDYAM-MH-26-0012345"
-          doc={state.udyam}
+      {/* "Yes, I have them": every number on one window, each with its own Validate button. */}
+      {step === "IDENTITY" || ((step === "UDYAM" || step === "FSSAI") && state && !state.documentsLater) ? (
+        <IdentityStep
+          state={state}
           busy={busy}
           fields={fields}
           send={send}
-          back={back("IDENTITY")}
-          prefill={state}
-          scanned={scanned.UDYAM}
+          stay={() => setViewing("IDENTITY")}
+          done={() => setViewing(null)}
+          back={back("DOCS_READY")}
+          onScan={checkScanned}
         />
       ) : null}
-      {step === "FSSAI" && state ? (
+      {step === "FSSAI" && state?.documentsLater ? (
         <OptionalDocStep
           docType="FSSAI"
           title="4. FSSAI licence"
@@ -411,18 +413,9 @@ export function OnboardingWizard({
       {step === "DETAILS" && state ? (
         <DetailsStep state={state} busy={busy} fields={fields} send={send} dealerProgramme={dealerProgramme} back={back(state.documentsLater ? "DOCS_READY" : "FSSAI")} />
       ) : null}
-      {step === "LOCATION" && state && !state.shop ? (
-        <ShopLocationStep
-          title="6. Where is your shop?"
-          initial={state.location}
-          busy={busy}
-          save={(latitude, longitude, address) => void send("/api/shops/registration-draft/location", { latitude, longitude, address })}
-          back={back("DETAILS")}
-        />
-      ) : null}
       {step === "REVIEW" && state ? <ReviewStep state={state} busy={busy} send={send} goTo={setViewing} /> : null}
       {step === "PAYMENT" && state?.shop ? (
-        <StepCard title="7. Pay the registration fee" intro="Pay by UPI or card. Your shop goes live as soon as the payment is confirmed.">
+        <StepCard title="6. Pay the registration fee" intro="Pay by UPI or card. Your shop goes live as soon as the payment is confirmed. Next you give your shop's address and map location.">
           <p className="text-sm text-ink-700">
             <strong>{state.shop.name}</strong>
             {state.shop.registrationNumber ? <> · Shop ID {state.shop.registrationNumber}</> : null}
@@ -439,7 +432,7 @@ export function OnboardingWizard({
         </StepCard>
       ) : null}
       {step === "WAITING" && state?.shop ? (
-        <StepCard title="8. Payment received — pending admin approval">
+        <StepCard title="7. Payment received — pending admin approval">
           <Alert tone="warning">
             {state.documents.missing.length > 0
               ? `${state.shop.name} is pending admin approval: ${state.documents.missing
@@ -459,7 +452,7 @@ export function OnboardingWizard({
         </StepCard>
       ) : null}
       {(step === "LOCATION" || step === "CATEGORY" || step === "PRODUCTS" || step === "DONE") && state?.shop ? (
-        <Alert tone="success" title={`8. ${state.shop.name} is live`}>
+        <Alert tone="success" title={`7. ${state.shop.name} is live`}>
           We&apos;ve emailed you that your registration succeeded{state.shop.registrationNumber ? ` (shop ID ${state.shop.registrationNumber})` : ""} and your shop is ready
           for product upload.{" "}
           {state.documentsLater ? (
@@ -474,10 +467,14 @@ export function OnboardingWizard({
       ) : null}
       {step === "LOCATION" && state?.shop ? (
         <ShopLocationStep
-          title="6. Where is your shop?"
-          initial={null}
+          title="8. Your shop's address and location"
+          initial={state.location}
+          address={state.details}
           busy={busy}
-          save={(latitude, longitude) => void send(`/api/shops/${state.shop!.id}`, { latitude: String(latitude), longitude: String(longitude) }, "PATCH")}
+          fields={fields}
+          save={(latitude, longitude, address) =>
+            void send(`/api/shops/${state.shop!.id}`, { ...address, latitude: String(latitude), longitude: String(longitude) }, "PATCH")
+          }
         />
       ) : null}
       {step === "CATEGORY" && state?.shop ? (
@@ -523,18 +520,26 @@ function noticeFor(path: string, body: unknown, next: WizardState): string | nul
   return check.status === "FAILED" || check.status === "EXPIRED" ? null : check.message;
 }
 
-/* ------------------------------------------------------------ GSTIN / PAN */
+/* ------------------------------------------------- 4. the document window */
+
+type WindowDoc = "GSTIN" | "PAN" | "SHOP_ACT" | "FSSAI" | "UDYAM";
 
 /**
- * Step 4, "Verify": the GST number (or, without GST, the PAN) — typed, or read from a photo of
- * the documents ("Scan or upload a copy"), which also picks up Udyam and FSSAI. Neither GST nor
- * PAN → the rule, and the way back to "upload later".
+ * Step 4 (owner brief 30 Oct 2026, FLOW_2026-10-30-b.md): every number on one window, in the
+ * brief's order — GSTIN, PAN, Shop Act, FSSAI (optional), then Udyam (optional; owner's answer
+ * "keep both") — each with its own Validate button that checks it with the government record
+ * and shows the result on its line. A verified GSTIN fills the PAN, the shop name and the owner
+ * name (shown on step 5). The owner goes on once the GSTIN, or the PAN without one, is not
+ * refused; a line left empty is "not now" (Shop Act after go-live; FSSAI still required for a
+ * food shop). "Scan or upload" reads the numbers from photos instead.
  */
 function IdentityStep({
   state,
   busy,
   fields,
   send,
+  stay,
+  done,
   back,
   onScan,
 }: {
@@ -542,43 +547,84 @@ function IdentityStep({
   busy: boolean;
   fields: Record<string, string>;
   send: Send;
+  /** Keeps the window open after a check (the server would move on to the next step). */
+  stay: () => void;
+  /** Leaves the window for the step the server says is next. */
+  done: () => void;
   back: ReactNode;
   onScan: (found: ScannedNumber[], consent: boolean, declaration: boolean) => Promise<void>;
 }) {
   const [mode, setMode] = useState<"type" | "scan">("type");
-  const [hasGst, setHasGst] = useState<boolean | null>(state?.route === "PAN_ONLY" ? false : state?.route === "GSTIN" ? true : null);
-  const [hasPan, setHasPan] = useState<boolean | null>(state?.route === "PAN_ONLY" ? true : null);
-  const [number, setNumber] = useState("");
+  const [numbers, setNumbers] = useState<Record<WindowDoc, string>>({ GSTIN: "", PAN: "", SHOP_ACT: "", FSSAI: "", UDYAM: "" });
   const [consent, setConsent] = useState(false);
-  const [declaration, setDeclaration] = useState(false);
-  const panRoute = hasGst === false && hasPan === true;
+  const [declaration, setDeclaration] = useState(state?.noGstDeclared ?? false);
+  const [checking, setChecking] = useState<WindowDoc | null>(null);
+  const [lastError, setLastError] = useState<WindowDoc | null>(null);
+  // The PAN came with a verified GSTIN: no PAN of its own to type.
+  const panFromGst = state?.route === "GSTIN" && state.gstin?.status === "VERIFIED";
+  const fssaiRequired = state?.fssai.required ?? false;
 
-  function submit(event: FormEvent) {
-    event.preventDefault();
-    if (panRoute) void send("/api/shops/registration-draft/pan", { pan: number, declaration, consent });
-    else void send("/api/shops/registration-draft/gstin", { gstin: number, consent });
+  async function validate(doc: WindowDoc) {
+    setChecking(doc);
+    const number = numbers[doc].trim();
+    const ok =
+      doc === "GSTIN"
+        ? await send("/api/shops/registration-draft/gstin", { gstin: number, consent })
+        : doc === "PAN"
+          ? await send("/api/shops/registration-draft/pan", { pan: number, declaration, consent })
+          : await send("/api/shops/registration-draft/documents", { docType: doc, number, consent });
+    setChecking(null);
+    setLastError(ok ? null : doc);
+    stay();
   }
 
-  const yesNo = (value: boolean | null, set: (v: boolean) => void, label: string) => (
-    <div className="grid grid-cols-2 gap-2" role="radiogroup" aria-label={label}>
-      <Button type="button" variant={value === true ? "primary" : "secondary"} onClick={() => set(true)} aria-pressed={value === true}>
-        Yes
-      </Button>
-      <Button type="button" variant={value === false ? "primary" : "secondary"} onClick={() => set(false)} aria-pressed={value === false}>
-        No
-      </Button>
-    </div>
-  );
+  /** Continue: a line left empty is "not now" — then on to the step the server gives. */
+  async function next() {
+    if (!state) return;
+    const later: ("SHOP_ACT" | "FSSAI" | "UDYAM")[] = [];
+    if (!state.shopAct.done) later.push("SHOP_ACT");
+    if (!state.fssai.done && !fssaiRequired) later.push("FSSAI");
+    if (!state.udyam.done) later.push("UDYAM");
+    for (const docType of later) {
+      if (!(await send("/api/shops/registration-draft/documents", { docType, has: false }))) {
+        stay();
+        return;
+      }
+    }
+    done();
+  }
+
+  const lines: { doc: WindowDoc; label: string; placeholder: string; note: string; check: CheckView | null; tag: string }[] = [
+    { doc: "GSTIN", label: "GST number (GSTIN)", placeholder: "27ABCDE1234F1Z5", note: "Fills your PAN, shop name, owner name and address.", check: state?.gstin ?? null, tag: "GSTIN or PAN needed" },
+    {
+      doc: "PAN",
+      label: "PAN",
+      placeholder: "ABCDE1234F",
+      note: panFromGst ? "Taken from your GST record." : "If your shop has no GST registration: fills your name from the Income Tax record.",
+      check: state?.pan ?? null,
+      tag: "GSTIN or PAN needed",
+    },
+    { doc: "SHOP_ACT", label: "Shop Act licence (Gumasta) number", placeholder: "Shop Act number", note: "Validate it now, or upload it after your shop is live.", check: state?.shopAct.check ?? null, tag: "Optional now" },
+    {
+      doc: "FSSAI",
+      label: "FSSAI licence or registration",
+      placeholder: "14-digit FSSAI number",
+      note: fssaiRequired ? "Your shop type sells food, so FSSAI is required." : "Needed for shops that sell food.",
+      check: state?.fssai.check ?? null,
+      tag: fssaiRequired ? "Required" : "Optional",
+    },
+    { doc: "UDYAM", label: "Udyam (MSME) registration", placeholder: "UDYAM-MH-26-0012345", note: "If you have one.", check: state?.udyam.check ?? null, tag: "Optional" },
+  ];
+
+  const canContinue = Boolean(state?.canContinue) && (!fssaiRequired || Boolean(state?.fssai.done));
 
   return (
     <StepCard
-      title={mode === "scan" ? "4. Scan or upload your documents" : hasGst === false ? "4. Do you have a PAN number?" : "4. Do you have a GST number?"}
+      title={mode === "scan" ? "4. Scan or upload your documents" : "4. Enter and validate your documents"}
       intro={
         mode === "scan"
           ? "We read the numbers from your photos on your phone, you check them, then we verify them with the government records and fill in your details."
-          : hasGst === false
-            ? "Without GST we check your PAN with the Income Tax record and fill in your name from it."
-            : "We check it with the GST record and fill in your PAN, shop name, owner name and registered address — you can review and edit them."
+          : "Type each number and press Validate — we check it with the government record. A GST number or a PAN is needed; the rest can be added after your shop is live."
       }
     >
       <div className="grid grid-cols-2 gap-1 rounded-xl bg-cream-100 p-1" role="tablist" aria-label="How to give your documents">
@@ -600,8 +646,6 @@ function IdentityStep({
           </button>
         ))}
       </div>
-      {state?.gstin && hasGst !== false ? <StatusLine check={state.gstin} /> : null}
-      {state?.pan && hasGst === false ? <StatusLine check={state.pan} /> : null}
 
       {mode === "scan" ? (
         <DocumentScan
@@ -626,73 +670,98 @@ function IdentityStep({
         />
       ) : (
         <>
-          {hasGst === false ? (
-            <>
-              {yesNo(hasPan, setHasPan, "Do you have a PAN number?")}
-              <button type="button" className="text-sm font-medium text-kesari-700 underline" onClick={() => setHasGst(true)}>
-                I have a GST number after all
-              </button>
-            </>
-          ) : (
-            yesNo(hasGst, (v) => {
-              setHasGst(v);
-              setNumber("");
-            }, "Do you have a GST number?")
-          )}
-          {hasGst === false && hasPan === false ? (
-            <Alert tone="warning" title="A PAN or GST number is needed to verify your shop">
-              You can still register now and upload your documents later — go back and choose <strong>No, I&apos;ll upload them later</strong>. Your shop goes live after
-              payment, and payouts start once your PAN or GST is verified. Apply for a PAN online (it is free and quick).
-            </Alert>
-          ) : null}
-          {hasGst === true || panRoute ? (
-            <form onSubmit={submit} className="space-y-3">
-              <Field label={panRoute ? "PAN" : "GST number (GSTIN)"} error={fields.gstin ?? fields.pan}>
-                <input
-                  className={`${inputClass} font-mono uppercase`}
-                  value={number}
-                  onChange={(e) => setNumber(e.target.value)}
-                  autoCapitalize="characters"
-                  autoComplete="off"
-                  inputMode="text"
-                  placeholder={panRoute ? "ABCDE1234F" : "27ABCDE1234F1Z5"}
-                  maxLength={20}
-                  required
-                />
-              </Field>
-              {panRoute ? <Consent checked={declaration} onChange={setDeclaration} text={GST_DECLARATION_TEXT} /> : null}
-              <Consent checked={consent} onChange={setConsent} />
-              <Button type="submit" size="lg" className="w-full" disabled={busy || !consent || !number.trim() || (panRoute && !declaration)}>
-                {busy ? "Checking with the government record…" : "Check and continue"}
-              </Button>
-            </form>
-          ) : null}
+          <Consent checked={consent} onChange={setConsent} />
+          <ol className="space-y-3" data-testid="document-window">
+            {lines.map((line, i) => {
+              const verified = line.check?.status === "VERIFIED";
+              const fromGst = line.doc === "PAN" && panFromGst;
+              const needsDeclaration = line.doc === "PAN" && !panFromGst;
+              // The no-GST declaration appears once a PAN is typed (or one was declared before).
+              const showDeclaration = needsDeclaration && (numbers.PAN.trim() !== "" || declaration);
+              const blocked = busy || !consent || !numbers[line.doc].trim() || (needsDeclaration && !declaration);
+              return (
+                <li key={line.doc} className="rounded-xl border border-[var(--gk-line)] bg-white p-3" data-testid={`doc-line-${line.doc}`}>
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-sm font-semibold text-ink-900">
+                      {i + 1}. {line.label}
+                    </p>
+                    <Badge tone={line.tag === "Required" ? "danger" : line.tag === "GSTIN or PAN needed" ? "warning" : "neutral"}>{line.tag}</Badge>
+                  </div>
+                  <p className="text-xs text-ink-600">{line.note}</p>
+                  {fromGst ? null : (
+                    <div className="mt-2 flex gap-2">
+                      <div className="min-w-0 flex-1">
+                        <input
+                          aria-label={line.label}
+                          className={`${inputClass} font-mono uppercase`}
+                          value={numbers[line.doc]}
+                          onChange={(e) => setNumbers({ ...numbers, [line.doc]: e.target.value })}
+                          autoCapitalize="characters"
+                          autoComplete="off"
+                          placeholder={verified ? `${line.check?.numberMasked ?? ""} — validated` : line.placeholder}
+                          maxLength={40}
+                        />
+                        {lastError === line.doc && (fields.gstin ?? fields.pan ?? fields.number) ? (
+                          <span className="mt-1 block text-xs text-red-600">{fields.gstin ?? fields.pan ?? fields.number}</span>
+                        ) : null}
+                      </div>
+                      <Button type="button" className="shrink-0" disabled={blocked} onClick={() => void validate(line.doc)} data-testid={`validate-${line.doc}`}>
+                        {checking === line.doc ? "Checking…" : "Validate"}
+                      </Button>
+                    </div>
+                  )}
+                  {showDeclaration ? (
+                    <div className="mt-2">
+                      <Consent checked={declaration} onChange={setDeclaration} text={GST_DECLARATION_TEXT} />
+                    </div>
+                  ) : null}
+                  <div className="mt-2">
+                    <StatusLine check={line.check} />
+                  </div>
+                </li>
+              );
+            })}
+          </ol>
+          {!consent ? <p className="text-xs text-ink-600">Tick the consent above to validate a number.</p> : null}
         </>
       )}
-      <div className="flex items-center justify-between gap-2">{back}</div>
+      {!canContinue && state?.canContinue ? <Alert tone="warning">Validate your FSSAI number to continue — it is required for a shop that sells food.</Alert> : null}
+      <div className="flex items-center justify-between gap-2">
+        {back}
+        <Button type="button" size="lg" disabled={busy || !canContinue} onClick={() => void next()} data-testid="documents-continue">
+          {busy && checking === null ? "Saving…" : "Continue"}
+        </Button>
+      </div>
+      {!state?.canContinue ? (
+        <p className="text-xs text-ink-600">
+          No GST number or PAN at hand? Go back and choose <strong>No</strong> — you can register now and add your documents after your shop is live.
+        </p>
+      ) : null}
     </StepCard>
   );
 }
 
-/** What the GST / PAN record filled in, shown on the step after it; edited on step 5. */
+/** What the GST / PAN record filled in (the retrieved shop and owner name), shown on step 5 to confirm. */
 function PrefillSummary({ state }: { state: WizardState }) {
   const p = state.prefill;
+  const missing = "Not in the record — please fill it in below";
   const rows = [
-    ["Shop name", p.shopName],
+    ["Shop name", p.shopName ?? p.tradeName ?? p.legalName ?? missing],
+    // A company's or firm's GST record names no single owner.
+    ["Owner name", p.ownerName ?? missing],
     ["Legal name", p.legalName],
-    ["Owner name", p.ownerName],
     ["Registered address", p.address],
     ["PAN", state.pan?.numberMasked ?? null],
   ].filter((r): r is [string, string] => Boolean(r[1]));
-  if (rows.length === 0) return null;
+  if (!state.gstin && !state.pan) return null;
   return (
     <div className="rounded-lg border border-leaf-300 bg-leaf-50 p-3 text-sm" data-testid="prefill-summary">
-      <p className="font-semibold text-leaf-700">✓ Verified and filled in from your {state.route === "PAN_ONLY" ? "PAN" : "GST"} record — you can edit these on step 5</p>
+      <p className="font-semibold text-leaf-700">✓ Retrieved from your {state.route === "PAN_ONLY" ? "PAN" : "GST"} record — check them; you can edit them below</p>
       <dl className="mt-1 grid gap-x-3 gap-y-0.5 sm:grid-cols-2">
         {rows.map(([k, v]) => (
           <div key={k} className="flex gap-1">
             <dt className="text-ink-500">{k}:</dt>
-            <dd className="text-ink-900">{v}</dd>
+            <dd className={v === missing ? "text-kesari-800" : k === "Shop name" || k === "Owner name" ? "font-semibold text-ink-900" : "text-ink-900"}>{v}</dd>
           </div>
         ))}
       </dl>
@@ -768,15 +837,16 @@ function DetailsStep({
 
   return (
     <StepCard
-      title="5. Shop details & address"
+      title="5. Confirm your shop details"
       intro={
         state.documentsLater
           ? "Tell us about your shop. You'll add your documents after your shop is live."
           : p.legalName
-            ? `From the GST record: ${p.legalName}${p.constitution ? ` (${p.constitution})` : ""}. Review, edit and pick your turnover slab.`
-            : "Review your shop details and pick your turnover slab."
+            ? `From the government record: ${p.legalName}${p.constitution ? ` (${p.constitution})` : ""}. Check the shop and owner name, edit them if needed, and pick your turnover slab.`
+            : "Check your shop details and pick your turnover slab."
       }
     >
+      {state.documentsLater ? null : <PrefillSummary state={state} />}
       {state.email.shop ? (
         <p className="text-sm text-ink-600">
           Shop email: <strong className="text-ink-900">{state.email.shop}</strong>
@@ -846,7 +916,7 @@ function DetailsStep({
                     className={`rounded-xl border px-3 py-2 text-left ${slab === n ? "border-kesari-600 bg-kesari-50" : "border-[var(--gk-line)] bg-white"}`}
                   >
                     <span className="block text-sm font-semibold text-ink-900">{turnoverSlabLabel(n, rule)}</span>
-                    <span className="block text-sm text-ink-700">Fee ₹{formatRupeesIndian(Math.round(s.feePaise / 100))} + GST</span>
+                    <span className="block text-sm text-ink-700">Fee {formatRupeesIndian(Math.round(s.feePaise / 100))} + GST</span>
                   </button>
                 );
               })}
@@ -864,7 +934,7 @@ function DetailsStep({
         <div className="flex items-center justify-between gap-2">
           {back}
           <Button type="submit" size="lg" disabled={busy || (rule.enabled && slab === null)}>
-            {busy ? "Saving…" : "Continue to location"}
+            {busy ? "Saving…" : "Confirm and continue to payment"}
           </Button>
         </div>
       </form>
@@ -961,41 +1031,109 @@ function OptionalDocStep({
 
 /* ------------------------------------------------- after approval: map pin */
 
+/** The shop's address as saved on the shop (PATCH /api/shops/{id}), corrected on the location step. */
+interface ShopAddress {
+  addressLine1: string;
+  addressLine2: string | null;
+  area: string | null;
+  landmark: string | null;
+  city: string;
+  pincode: string;
+}
+
+/**
+ * Step 8, after payment (owner brief 30 Oct 2026): the shop's address — filled in from step 5, to
+ * check or correct — and its map pin, saved on the shop together.
+ */
 function ShopLocationStep({
   title,
   initial,
+  address,
   busy,
+  fields,
   save,
-  back,
 }: {
   title: string;
   initial: { latitude: string; longitude: string } | null;
+  address: Details | null;
   busy: boolean;
-  save: (latitude: number, longitude: number, address: string | null) => void;
-  back?: ReactNode;
+  fields: Record<string, string>;
+  save: (latitude: number, longitude: number, address: ShopAddress) => void;
 }) {
   const [manual, setManual] = useState({ latitude: "", longitude: "" });
+  const [form, setForm] = useState({
+    addressLine1: address?.addressLine1 ?? "",
+    addressLine2: address?.addressLine2 ?? "",
+    area: address?.area ?? "",
+    landmark: address?.landmark ?? "",
+    city: address?.city ?? "",
+    pincode: address?.pincode ?? "",
+  });
+  const [problem, setProblem] = useState<string | null>(null);
+  const set = (key: keyof typeof form) => (e: { target: { value: string } }) => setForm({ ...form, [key]: e.target.value });
   const start = initial ? { latitude: Number(initial.latitude), longitude: Number(initial.longitude) } : null;
+
+  function saveWith(latitude: number, longitude: number) {
+    if (form.addressLine1.trim().length < 3 || form.city.trim().length < 2 || !/^[1-9]\d{5}$/.test(form.pincode.trim())) {
+      setProblem("Please fill in the address, city and a 6-digit PIN code first.");
+      return;
+    }
+    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) {
+      setProblem("Please enter the latitude and longitude as numbers, for example 18.5204 and 73.8567.");
+      return;
+    }
+    setProblem(null);
+    const blank = (v: string) => (v.trim() ? v.trim() : null);
+    save(latitude, longitude, {
+      addressLine1: form.addressLine1.trim(),
+      addressLine2: blank(form.addressLine2),
+      area: blank(form.area),
+      landmark: blank(form.landmark),
+      city: form.city.trim(),
+      pincode: form.pincode.trim(),
+    });
+  }
+
   return (
-    <StepCard title={title} intro="Search, or drag the pin onto your shop's entrance, then confirm. Customers and riders use this pin to find you.">
-      <MapPicker initialCoordinates={start} purpose="shop_registration" onConfirm={(result: MapPickerResult) => save(result.latitude, result.longitude, result.formattedAddress ?? null)} />
+    <StepCard title={title} intro="Check your shop's address, then search or drag the pin onto your shop's entrance and confirm. Customers and riders use them to find you.">
+      <div className="grid gap-3 sm:grid-cols-2" data-testid="location-address">
+        <Field label="Shop address" error={fields.addressLine1}>
+          <input className={inputClass} value={form.addressLine1} onChange={set("addressLine1")} required maxLength={200} autoComplete="address-line1" />
+        </Field>
+        <Field label="Address line 2 (optional)" error={fields.addressLine2}>
+          <input className={inputClass} value={form.addressLine2} onChange={set("addressLine2")} maxLength={200} autoComplete="address-line2" />
+        </Field>
+        <Field label="Area (optional)" error={fields.area}>
+          <input className={inputClass} value={form.area} onChange={set("area")} maxLength={120} />
+        </Field>
+        <Field label="Landmark (optional)" error={fields.landmark}>
+          <input className={inputClass} value={form.landmark} onChange={set("landmark")} maxLength={200} />
+        </Field>
+        <Field label="City" error={fields.city}>
+          <input className={inputClass} value={form.city} onChange={set("city")} required maxLength={120} autoComplete="address-level2" />
+        </Field>
+        <Field label="PIN code" error={fields.pincode}>
+          <input className={inputClass} value={form.pincode} onChange={set("pincode")} required inputMode="numeric" maxLength={6} pattern="[1-9][0-9]{5}" autoComplete="postal-code" />
+        </Field>
+      </div>
+      {problem ? <Alert tone="danger">{problem}</Alert> : null}
+      <MapPicker initialCoordinates={start} purpose="shop_registration" onConfirm={(result: MapPickerResult) => saveWith(result.latitude, result.longitude)} />
       <details className="text-sm text-ink-700">
         <summary className="cursor-pointer">Map not loading? Enter the coordinates</summary>
         <form
           onSubmit={(e) => {
             e.preventDefault();
-            save(Number(manual.latitude), Number(manual.longitude), null);
+            saveWith(Number(manual.latitude), Number(manual.longitude));
           }}
           className="mt-3 grid gap-3 sm:grid-cols-3"
         >
           <input className={inputClass} value={manual.latitude} onChange={(e) => setManual({ ...manual, latitude: e.target.value })} placeholder="Latitude" inputMode="decimal" required />
           <input className={inputClass} value={manual.longitude} onChange={(e) => setManual({ ...manual, longitude: e.target.value })} placeholder="Longitude" inputMode="decimal" required />
           <Button type="submit" disabled={busy}>
-            Save location
+            Save address and location
           </Button>
         </form>
       </details>
-      {back ? <div className="flex items-center justify-between gap-2">{back}</div> : null}
     </StepCard>
   );
 }
@@ -1049,7 +1187,7 @@ function ReviewStep({ state, busy, send, goTo }: { state: WizardState; busy: boo
   );
   const doc = (check: CheckView | null, fallback: string) => (check ? <StatusLine check={{ ...check, message: null }} /> : fallback);
   return (
-    <StepCard title="7. Check your fee and pay" intro="Your shop is created when you continue; then you pay the one-time registration fee by UPI or card.">
+    <StepCard title="6. Check your fee and pay" intro="Your shop is created when you continue; then you pay the one-time registration fee by UPI or card. After payment you confirm the address and place your shop on the map.">
       <div>
         {row("Referral code", state.referral.code ?? "None", "REFERRAL")}
         {row("Shop email", state.email.shop ?? "—", "EMAIL")}
@@ -1061,17 +1199,17 @@ function ReviewStep({ state, busy, send, goTo }: { state: WizardState; busy: boo
         ) : (
           <>
             {row(state.route === "PAN_ONLY" ? "PAN (no GST)" : "GSTIN", doc(state.route === "PAN_ONLY" ? state.pan : state.gstin, "—"), "IDENTITY")}
-            {row("Udyam", state.udyam.has === false ? "Not registered" : doc(state.udyam.check, "—"), "UDYAM")}
-            {row("FSSAI", state.fssai.has === false ? "No licence" : doc(state.fssai.check, "—"), "FSSAI")}
+            {row("Shop Act", state.shopAct.has === false ? "After go-live" : doc(state.shopAct.check, "—"), "IDENTITY")}
+            {row("FSSAI", state.fssai.has === false ? "No licence" : doc(state.fssai.check, "—"), "IDENTITY")}
+            {row("Udyam", state.udyam.has === false ? "Not registered" : doc(state.udyam.check, "—"), "IDENTITY")}
           </>
         )}
         {row("Shop", `${d.name} · ${d.addressLine1}, ${d.city} ${d.pincode}`, "DETAILS")}
-        {row("Location", state.location ? (state.location.address ?? "Pin placed on the map") : "—", "LOCATION")}
-        {slab ? row("Turnover slab", `${turnoverSlabLabel(slab, rule)} — fee ₹${formatRupeesIndian(Math.round(rule.slabs[slab - 1].feePaise / 100))} + GST`, "DETAILS") : null}
+        {slab ? row("Turnover slab", `${turnoverSlabLabel(slab, rule)} — fee ${formatRupeesIndian(Math.round(rule.slabs[slab - 1].feePaise / 100))} + GST`, "DETAILS") : null}
       </div>
       {!docs.canSubmit ? (
         <Alert tone="warning" title="Your GST or PAN is not verified">
-          Go back to step 4 and check your {state.route === "PAN_ONLY" ? "PAN" : "GSTIN"} again, or choose to upload your documents later on step 3.
+          Go back to step 4 and validate your {state.route === "PAN_ONLY" ? "PAN" : "GSTIN"} again, or choose to upload your documents later on step 3.
         </Alert>
       ) : docs.needsTeamApproval ? (
         <Alert tone="info">{`After payment your shop waits for admin approval: ${names(docs.missing)} is not verified yet.`}</Alert>
@@ -1092,42 +1230,94 @@ function ReviewStep({ state, busy, send, goTo }: { state: WizardState; busy: boo
 
 /* ------------------------------------------------- 1. referral code (0120) */
 
+/** The documents the owner should have, listed under the referral options (owner brief 30 Oct 2026). */
+const REQUIRED_DOCUMENTS: { icon: string; name: string; note: string; tag: string; tone: "danger" | "warning" | "neutral" }[] = [
+  { icon: "🧾", name: "GST certificate (GSTIN)", note: "or your PAN card if the shop is not GST-registered", tag: "Needed", tone: "danger" },
+  { icon: "🪪", name: "PAN card", note: "filled in from your GST record when you have GST", tag: "Needed without GST", tone: "danger" },
+  { icon: "🏪", name: "Shop Act licence (Gumasta)", note: "validate it now, or upload it after your shop is live", tag: "Now or later", tone: "neutral" },
+  { icon: "🥛", name: "FSSAI licence or registration", note: "for shops that sell food — dairy, bakery, sweets, grocery, restaurants", tag: "Food shops", tone: "warning" },
+  { icon: "🏭", name: "Udyam (MSME) registration", note: "if you have one", tag: "Optional", tone: "neutral" },
+  { icon: "🏦", name: "Bank account for payouts", note: "added in Seller Central after go-live", tag: "After go-live", tone: "neutral" },
+];
+
+function RequiredDocuments() {
+  return (
+    <section aria-labelledby="required-documents" className="space-y-2">
+      <h3 id="required-documents" className="text-sm font-semibold text-ink-900">
+        Documents to keep ready
+      </h3>
+      <ul className="divide-y divide-cream-100 rounded-xl border border-[var(--gk-line)] bg-white" data-testid="documents-list">
+        {REQUIRED_DOCUMENTS.map((d) => (
+          <li key={d.name} className="flex items-start gap-3 p-3">
+            <span className="text-xl leading-none" aria-hidden>
+              {d.icon}
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-sm font-semibold text-ink-900">{d.name}</span>
+              <span className="block text-xs text-ink-600">{d.note}</span>
+            </span>
+            <Badge tone={d.tone}>{d.tag}</Badge>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+/**
+ * Step 1 (owner brief 30 Oct 2026): two options side by side — "Enter Referral Code" and
+ * "Request Referral Code" — then the list of documents the owner needs. The tile board above is
+ * the screen's only checklist.
+ */
 function ReferralStep({ code: initialCode, required, busy, fields, send }: { code: string; required: boolean; busy: boolean; fields: Record<string, string>; send: Send }) {
   const [code, setCode] = useState(initialCode);
   const [requesting, setRequesting] = useState(false);
   return (
     <StepCard
       title="1. Your referral code"
-      intro={required ? "Enter the code your GoKesari distributor gave you." : "Got a code from a GoKesari distributor? Enter it here. You can also register without one."}
+      intro={required ? "A referral code from a GoKesari distributor is needed to register." : "Got a code from a GoKesari distributor? Enter it. You can also register without one."}
     >
       {requesting ? <ReferralRequestDialog prefill={{}} onClose={() => setRequesting(false)} /> : null}
-      <form
-        className="space-y-3"
-        onSubmit={(e) => {
-          e.preventDefault();
-          void send("/api/shops/registration-draft/referral", { referralCode: code.trim() || null });
-        }}
-      >
-        <Field label={required ? "Referral code" : "Referral code (optional)"} error={fields.referralCode}>
-          <input
-            className={`${inputClass} font-mono text-base uppercase tracking-widest`}
-            value={code}
-            onChange={(e) => setCode(e.target.value.toUpperCase())}
-            autoCapitalize="characters"
-            autoComplete="off"
-            placeholder="AB12CD34"
-            maxLength={32}
-            required={required}
-            data-testid="wizard-referral-code"
-          />
-        </Field>
-        <Button type="submit" size="lg" className="w-full" disabled={busy || (required && code.trim().length < 3)}>
-          {busy ? "Checking…" : code.trim() ? "Check code and continue" : "Continue without a code"}
-        </Button>
-      </form>
-      <button type="button" className="text-sm font-semibold text-kesari-800 underline" onClick={() => setRequesting(true)}>
-        Don&apos;t have a code? Request one
-      </button>
+      <div className="grid gap-3 sm:grid-cols-2" data-testid="referral-options">
+        <form
+          className="space-y-3 rounded-xl border border-kesari-300 bg-white p-3"
+          aria-labelledby="referral-enter"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void send("/api/shops/registration-draft/referral", { referralCode: code.trim() || null });
+          }}
+        >
+          <h3 id="referral-enter" className="text-sm font-semibold text-ink-900">
+            Enter Referral Code
+          </h3>
+          <Field label={required ? "Referral code" : "Referral code (optional)"} error={fields.referralCode}>
+            <input
+              className={`${inputClass} font-mono text-base uppercase tracking-widest`}
+              value={code}
+              onChange={(e) => setCode(e.target.value.toUpperCase())}
+              autoCapitalize="characters"
+              autoComplete="off"
+              placeholder="AB12CD34"
+              maxLength={32}
+              required={required}
+              data-testid="wizard-referral-code"
+            />
+          </Field>
+          <Button type="submit" size="lg" className="w-full" disabled={busy || (required && code.trim().length < 3)}>
+            {busy ? "Checking…" : code.trim() ? "Check code and continue" : required ? "Enter your code to continue" : "Continue without a code"}
+          </Button>
+        </form>
+        <div className="flex flex-col gap-3 rounded-xl border border-[var(--gk-line)] bg-white p-3" aria-labelledby="referral-request">
+          <h3 id="referral-request" className="text-sm font-semibold text-ink-900">
+            Request Referral Code
+          </h3>
+          <p className="flex-1 text-sm text-ink-600">No code yet? Send us your shop&apos;s name, mobile and area — a GoKesari distributor near you gets in touch with a code.</p>
+          <Button type="button" size="lg" variant="secondary" className="w-full" onClick={() => setRequesting(true)}>
+            Request Referral Code
+          </Button>
+        </div>
+      </div>
+      <RequiredDocuments />
     </StepCard>
   );
 }
@@ -1251,42 +1441,30 @@ function EmailStep({ state, busy, fields, send, back }: { state: WizardState; bu
 
 /* -------------------------------------------- 3. documents handy? (0120) */
 
+/**
+ * Step 3: the Yes / No question. Yes → the document window (step 4); No → "upload later": shop
+ * details, the fee, and the documents after go-live.
+ */
 function DocumentsReadyStep({ busy, send, back }: { busy: boolean; send: Send; back: ReactNode }) {
-  const docs: { icon: string; name: string; note: string; tag: string; tone: "danger" | "warning" | "neutral" }[] = [
-    { icon: "🧾", name: "GST certificate (GSTIN)", note: "or your PAN card if the shop is not GST-registered", tag: "Needed", tone: "danger" },
-    { icon: "🥛", name: "FSSAI licence or registration", note: "for shops that sell food — dairy, bakery, sweets, grocery, restaurants", tag: "Food shops", tone: "warning" },
-    { icon: "🏭", name: "Udyam (MSME) registration", note: "if you have one", tag: "Optional", tone: "neutral" },
-    { icon: "🏪", name: "Shop Act licence (Gumasta)", note: "you can upload it after your shop is live", tag: "After go-live", tone: "neutral" },
-    { icon: "🏦", name: "Bank account for payouts", note: "added in Seller Central after go-live", tag: "After go-live", tone: "neutral" },
-  ];
   return (
-    <StepCard title="3. Do you have your documents handy?" intro="Keep the numbers or the papers ready — you can type the numbers or take photos and we read them for you.">
-      <ul className="divide-y divide-cream-100 rounded-xl border border-[var(--gk-line)] bg-white" data-testid="documents-list">
-        {docs.map((d) => (
-          <li key={d.name} className="flex items-start gap-3 p-3">
-            <span className="text-xl leading-none" aria-hidden>
-              {d.icon}
-            </span>
-            <span className="min-w-0 flex-1">
-              <span className="block text-sm font-semibold text-ink-900">{d.name}</span>
-              <span className="block text-xs text-ink-600">{d.note}</span>
-            </span>
-            <Badge tone={d.tone}>{d.tag}</Badge>
-          </li>
-        ))}
-      </ul>
-      <div className="grid gap-2 sm:grid-cols-2">
+    <StepCard title="3. Do you have your documents now?" intro="Your GST number or PAN, and the Shop Act, FSSAI and Udyam numbers if you have them — typed, or read from photos.">
+      <div className="grid grid-cols-2 gap-2" role="group" aria-label="Do you have your documents now?" data-testid="documents-yes-no">
         <Button type="button" size="lg" disabled={busy} onClick={() => void send("/api/shops/registration-draft/documents-ready", { later: false })}>
-          Yes, I have them
+          Yes
         </Button>
         <Button type="button" size="lg" variant="secondary" disabled={busy} onClick={() => void send("/api/shops/registration-draft/documents-ready", { later: true })}>
-          No, I&apos;ll upload them later
+          No
         </Button>
       </div>
-      <p className="text-xs text-ink-600">
-        <strong>Upload later:</strong> give your shop name, address and location, pay the fee, and your shop goes live. Payouts start once your GST or PAN is verified;
-        we remind you on the 1st and 15th, and a shop without documents is paused after the third reminder.
-      </p>
+      <ul className="space-y-1 text-xs text-ink-600">
+        <li>
+          <strong>Yes:</strong> enter each number and validate it with the government record; your shop and owner name are filled in for you.
+        </li>
+        <li>
+          <strong>No — add them later:</strong> give your shop details, pay the fee, and your shop goes live. Payouts start once your GST or PAN is verified; we remind you
+          on the 1st and 15th, and a shop without documents is paused after the third reminder.
+        </li>
+      </ul>
       <div className="flex items-center justify-between gap-2">{back}</div>
     </StepCard>
   );

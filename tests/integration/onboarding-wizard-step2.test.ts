@@ -200,10 +200,8 @@ describe("each step in the brief's order, resumed where the owner left off", () 
     expect((await getWizardDraft({ id: owner.id }))!.nextStep).toBe("DETAILS");
 
     view = await saveDraftDetails({ actor: owner, details: details({ categoryIds: [] }) });
-    expect(view).toMatchObject({ nextStep: "LOCATION", foodShop: false, details: { shopType: "GENERAL_TRADING", pincode: "411001" } });
-    // 0120: the map pin before payment; no Shop Act.
-    view = await saveDraftLocation({ actor: owner, latitude: 18.5308, longitude: 73.8475 });
-    expect(view.nextStep).toBe("REVIEW");
+    // Owner brief 30 Oct 2026: straight to the fee; the map pin comes after payment.
+    expect(view).toMatchObject({ nextStep: "REVIEW", foodShop: false, details: { shopType: "GENERAL_TRADING", pincode: "411001" } });
     expect(view.documents).toMatchObject({ missing: [], canSubmit: true, needsTeamApproval: false, promised: false });
   });
 
@@ -435,7 +433,7 @@ describe("referral code toggle (Admin → Referral settings, default optional)",
     await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
     await answerDraftDocument({ actor: owner, docType: "UDYAM", has: false });
     await answerDraftDocument({ actor: owner, docType: "FSSAI", has: false });
-    expect((await saveDraftDetails({ actor: owner, details: details() })).nextStep).toBe("LOCATION");
+    expect((await saveDraftDetails({ actor: owner, details: details() })).nextStep).toBe("REVIEW");
 
     await setReferralSetting("referral_required_shop", "MANDATORY", adminActor);
     await expect(saveDraftDetails({ actor: owner, details: details() })).rejects.toMatchObject({
@@ -446,7 +444,7 @@ describe("referral code toggle (Admin → Referral settings, default optional)",
     await expect(setReferralSetting("referral_required_shop", "OPTIONAL", { id: owner.id, role: "CUSTOMER" })).rejects.toMatchObject({ code: "FORBIDDEN" });
 
     await setReferralSetting("referral_required_shop", "OPTIONAL", adminActor);
-    expect((await saveDraftDetails({ actor: owner, details: details() })).nextStep).toBe("LOCATION");
+    expect((await saveDraftDetails({ actor: owner, details: details() })).nextStep).toBe("REVIEW");
   });
 });
 
@@ -514,7 +512,8 @@ describe("HTTP routes", () => {
     expect(resumed.body.nextStep).toBe("DETAILS");
     const saved = await call(detailsRoute, "/api/shops/registration-draft/details", { method: "POST", body: { ...details(), categoryIds: undefined } });
     expect(saved.status).toBe(200);
-    expect(saved.body.nextStep).toBe("LOCATION");
+    expect(saved.body.nextStep).toBe("REVIEW");
+    // A pin may still be saved on the draft (a draft from before 30 Oct 2026); it does not change the step.
     const pinned = await call(locationRoute, "/api/shops/registration-draft/location", { method: "POST", body: { latitude: 18.5308, longitude: 73.8475 } });
     expect(pinned.body.nextStep).toBe("REVIEW");
   });

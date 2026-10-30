@@ -18,7 +18,6 @@ import { defaultWindow, getMarketplaceKpis } from "@/server/services/analytics";
 import { shopBankPrompt } from "@/server/services/bank-accounts";
 import { getShopLegalStatus, type ShopLegalStatus } from "@/server/services/legal-documents";
 import { isReferralRequired } from "@/server/services/referral-settings";
-import { getRule } from "@/server/services/settings";
 import { getShopOnboarding, type ShopOnboarding } from "@/server/services/shop-onboarding";
 import { getActiveSuspension } from "@/server/services/shop-suspension";
 import { getShopWalletStatus } from "@/server/services/shop-wallet";
@@ -50,19 +49,16 @@ export default async function ShopDashboardPage() {
 
   const shops = await listShopsForOwner(user.id);
   if (shops.length === 0) {
-    const [selfService, referralRequired] = await Promise.all([
-      getRule("selfRegistration").then((r) => r.enabled).catch(() => false),
-      isReferralRequired("shop").catch(() => false),
-    ]);
+    const referralRequired = await isReferralRequired("shop").catch(() => false);
     return (
       <div data-testid="seller-welcome">
         <h1 className="text-2xl font-bold tracking-tight text-ink-900 sm:text-3xl">Welcome to Seller Central</h1>
         <p className="mt-1 max-w-2xl text-ink-600">
-          You haven&apos;t registered a shop yet. Choose how you&apos;d like to register — once your shop is set up, your
+          You haven&apos;t registered a shop yet. Register it in a few steps — once your shop is set up, your
           orders, products, payments and every other seller tool will be here.
         </p>
         <div className="mt-6">
-          <RegisterOptions selfService={selfService} referralRequired={referralRequired} signedIn />
+          <RegisterOptions referralRequired={referralRequired} signedIn />
         </div>
       </div>
     );

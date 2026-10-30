@@ -1,11 +1,11 @@
 /**
  * Shop registration redesign — "follow the brief" (owner decision 29 Oct 2026,
- * docs/shop-onboarding-wizard-2026-10/BRIEF_REDESIGN.md). Own IDs RB-01 …, not in
- * test-cases.xlsx yet.
+ * docs/shop-onboarding-wizard-2026-10/BRIEF_REDESIGN.md), updated for the owner's brief of
+ * 30 Oct 2026 (FLOW_2026-10-30-b.md). Own IDs RB-01 …, not in test-cases.xlsx yet.
  *
  * Signed tier, admin account: an admin may open the wizard at /shop/register?wizard=1 while
- * shop_onboarding_wizard_enabled is off. These checks only look and click the yes / no
- * questions — nothing is sent to the GST / PAN routes, so no draft or shop is created.
+ * shop_onboarding_wizard_enabled is off. These checks only look — nothing is sent to the
+ * referral, GST or PAN routes, so no draft or shop is created.
  * The approval path itself (GST / PAN verified + payment → approved; failures → pending) is
  * proven by tests/integration/onboarding-wizard-step2.test.ts on both database layouts.
  */
@@ -14,7 +14,8 @@ import { expect, qa } from "../lib/record";
 
 const signed = { tier: "signed" as const, timeout: 180_000 };
 
-const TILES = ["GST number", "PAN", "Udyam", "FSSAI", "Turnover & fee", "Payment", "Approval", "Location", "Category", "Products"];
+// Owner brief 30 Oct 2026 (FLOW_2026-10-30-b.md): the fee before the address and map pin.
+const TILES = ["Referral", "Email", "Documents", "Validate", "Confirm details", "Payment", "Live", "Address & location", "Category", "Products"];
 
 qa("RB-01", "wizard: the ten steps are shown at the top in the brief's order, on one screen at 390 × 844 and 1280 × 800", async ({ browser }) => {
   const notes: string[] = [];
@@ -42,23 +43,32 @@ qa("RB-01", "wizard: the ten steps are shown at the top in the brief's order, on
   return notes.join("; ");
 }, signed);
 
-qa("RB-02", "wizard: 'Do you have a GST number?' → No → 'Do you have a PAN number?' → No → 'A valid PAN or GST is required to register' with the firm types", async ({ browser }) => {
+qa("RB-02", "wizard screen 2: one checklist at the top, then 'Enter Referral Code' and 'Request Referral Code', then the documents to keep ready", async ({ browser }) => {
   const { context, page } = await pageAs(browser, "admin", { viewport: { width: 390, height: 844 } });
   try {
     await page.goto("/shop/register?wizard=1");
-    await expect(page.getByRole("heading", { name: /Do you have a GST number\?/ })).toBeVisible();
-    await page.getByRole("radiogroup", { name: "Do you have a GST number?" }).getByRole("button", { name: "No" }).click();
-    await expect(page.getByRole("heading", { name: /Do you have a PAN number\?/ })).toBeVisible();
-    await page.getByRole("radiogroup", { name: "Do you have a PAN number?" }).getByRole("button", { name: "No" }).click();
-    const message = page.getByText("A valid PAN or GST is required to register");
-    await expect(message).toBeVisible();
-    await expect(page.getByText(/shops, professionals \(advocates, doctors, CAs\), companies, industries and startups/)).toBeVisible();
-    // No number field is offered: nothing can be sent without a PAN or GST.
-    await expect(page.getByLabel(/^PAN$|GST number \(GSTIN\)/)).toHaveCount(0);
-    // Back to Yes on PAN: the PAN field and the declaration appear.
-    await page.getByRole("radiogroup", { name: "Do you have a PAN number?" }).getByRole("button", { name: "Yes" }).click();
-    await expect(page.getByLabel("PAN", { exact: true })).toBeVisible();
-    return "GST No → PAN question; PAN No → 'A valid PAN or GST is required to register' with the firm types and no number field; PAN Yes → PAN field";
+    const heading = page.getByRole("heading", { name: "1. Your referral code" });
+    if (!(await heading.isVisible().catch(() => false))) {
+      // The admin account already has a draft past step 1: open the step from its tile.
+      await page.getByTestId("registration-tiles").getByRole("button", { name: /1\. Referral/ }).click();
+    }
+    await expect(heading).toBeVisible();
+    // Exactly one checklist: the tile board.
+    await expect(page.getByTestId("registration-tiles")).toHaveCount(1);
+    const options = page.getByTestId("referral-options");
+    await expect(options.getByRole("heading", { name: "Enter Referral Code" })).toBeVisible();
+    await expect(options.getByRole("button", { name: "Request Referral Code" })).toBeVisible();
+    await expect(page.getByTestId("wizard-referral-code")).toBeVisible();
+    // The documents list comes after the two options.
+    const list = page.getByTestId("documents-list");
+    await expect(list.getByRole("listitem")).toHaveCount(6);
+    const below = await page.evaluate(() => {
+      const o = document.querySelector('[data-testid="referral-options"]')!.getBoundingClientRect();
+      const l = document.querySelector('[data-testid="documents-list"]')!.getBoundingClientRect();
+      return l.top >= o.bottom;
+    });
+    expect(below, "documents list below the referral options").toBe(true);
+    return "tile board once; Enter / Request Referral Code side by side; 6 documents listed below them";
   } finally {
     await context.close();
   }
