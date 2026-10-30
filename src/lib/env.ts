@@ -127,7 +127,7 @@ const serverEnvSchema = z.object({
    * pairing, so a live key on test or a sandbox key on production fails
    * loudly instead of quietly mis-verifying sellers.
    */
-  KYC_PROVIDER: z.enum(["mock", "gridlines", "idfy"]).default("mock"),
+  KYC_PROVIDER: z.enum(["mock", "gridlines", "sandboxco", "idfy"]).default("mock"),
   KYC_ENV: z.enum(["sandbox", "production"]).default("sandbox"),
   /** The one host allowed to use KYC_ENV=production (compared with AUTH_URL's host). */
   KYC_PRODUCTION_HOST: z.string().default("gokesari.com"),
@@ -135,6 +135,14 @@ const serverEnvSchema = z.object({
   GRIDLINES_API_KEY: z.string().optional(),
   /** Only to point at a sandbox host if Gridlines gives one; defaults to the live API host. */
   GRIDLINES_BASE_URL: z.string().url().optional(),
+  /**
+   * Sandbox.co.in (KYC_PROVIDER=sandboxco): PAN and GSTIN only. Test keys
+   * (key_test_…) go with KYC_ENV=sandbox, live keys (key_live_…) with
+   * KYC_ENV=production; the host follows KYC_ENV unless SANDBOX_CO_BASE_URL is set.
+   */
+  SANDBOX_CO_API_KEY: z.string().optional(),
+  SANDBOX_CO_API_SECRET: z.string().optional(),
+  SANDBOX_CO_BASE_URL: z.string().url().optional(),
   /** IDfy, the backup vendor. Its adapter is added if Gridlines is replaced or needs a fallback. */
   IDFY_ACCOUNT_ID: z.string().optional(),
   IDFY_API_KEY: z.string().optional(),
@@ -365,6 +373,15 @@ export function kycConfigProblem(env: ServerEnv = getEnv()): string | null {
   }
   if (env.KYC_PROVIDER === "gridlines" && !env.GRIDLINES_API_KEY) {
     return "KYC_PROVIDER=gridlines needs GRIDLINES_API_KEY.";
+  }
+  if (env.KYC_PROVIDER === "sandboxco") {
+    if (!(env.SANDBOX_CO_API_KEY && env.SANDBOX_CO_API_SECRET)) {
+      return "KYC_PROVIDER=sandboxco needs SANDBOX_CO_API_KEY and SANDBOX_CO_API_SECRET.";
+    }
+    const wanted = env.KYC_ENV === "production" ? "key_live_" : "key_test_";
+    if (!env.SANDBOX_CO_API_KEY.startsWith(wanted)) {
+      return `KYC_ENV=${env.KYC_ENV} needs a Sandbox.co.in key starting ${wanted}.`;
+    }
   }
   if (env.KYC_PROVIDER === "idfy" && !(env.IDFY_ACCOUNT_ID && env.IDFY_API_KEY)) {
     return "KYC_PROVIDER=idfy needs IDFY_ACCOUNT_ID and IDFY_API_KEY.";

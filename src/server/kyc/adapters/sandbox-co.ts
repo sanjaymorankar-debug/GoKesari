@@ -1,0 +1,241 @@
+/**
+ * Sandbox.co.in (Quicko) adapter — PAN and GSTIN, both OTP-free.
+ *
+ * Auth (developer.sandbox.co.in/api-reference/authenticate): POST
+ * /authenticate with `x-api-key` + `x-api-secret` returns
+ * `data.access_token`, valid 24 hours. Every other call sends that token in
+ * `authorization` (no "Bearer") plus `x-api-key`. The token is cached per
+ * process and shared by concurrent checks; a 401/403 on a lookup drops it and
+ * the lookup is tried once more with a fresh token.
+ *
+ * Hosts: test keys (`key_test_…`) work only on test-api.sandbox.co.in, live
+ * keys (`key_live_…`) only on api.sandbox.co.in. The host follows KYC_ENV,
+ * and kycConfigProblem() refuses a key whose prefix does not match.
+ *
+ * Endpoints (from Sandbox's OpenAPI specs, Oct 2026):
+ *   PAN   POST /kyc/pan/search/lite              — name, valid/invalid, category only
+ *                                                  (no mobile, e-mail or Aadhaar: the least
+ *                                                  personal data that answers the question)
+ *   GSTIN POST /gst/compliance/public/gstin/search — the public GST record
+ * Udyam, FSSAI and Shop Act are not offered: they come back "unsupported",
+ * which sends the document to manual review.
+ *
+ * Neither the secret, the token nor a document number is ever logged.
+ */
+import type { SellerDocType } from "@/lib/kyc/doc-formats";
+
+import { kycPostJson, type KycHttpOptions } from "../http";
+import {
+  KycConfigError,
+  type KycAdapter,
+  type ProviderOutcome,
+  type SourceDocStatus,
+  type SourceRecord,
+  type VerifyRequest,
+} from "../types";
+
+export const SANDBOX_CO_BASE_URLS = {
+  sandbox: "https://test-api.sandbox.co.in",
+  production: "https://api.sandbox.co.in",
+} as const;
+
+/**
+ * The `reason` Sandbox records against every PAN lookup. Kept word for word as
+ * Sandbox's own example: its test environment answers only a request body
+ * that exactly matches a saved example, so test.gokesari.com needs this text.
+ */
+const PAN_REASON = "for KYC";
+
+/** Refresh this long before the token's own expiry, so a check never starts on a dying token. */
+const TOKEN_EARLY_REFRESH_MS = 10 * 60 * 1000;
+const TOKEN_DEFAULT_LIFETIME_MS = 24 * 60 * 60 * 1000;
+
+type Json = Record<string, unknown>;
+
+function isObject(value: unknown): value is Json {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
+function str(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+/* ------------------------------------------------------------ token */
+
+interface CachedToken {
+  token: string;
+  expiresAt: number;
+}
+
+const tokens = new Map<string, CachedToken>();
+const inFlight = new Map<string, Promise<CachedToken>>();
+
+/** Tests only. */
+export function clearSandboxCoTokens(): void {
+  tokens.clear();
+  inFlight.clear();
+}
+
+/** The JWT's own `exp`, when it has one; 24 hours from now otherwise. */
+export function tokenExpiry(token: string, now = Date.now()): number {
+  try {
+    const payload = JSON.parse(Buffer.from(token.split(".")[1] ?? "", "base64url").toString("utf8")) as Json;
+    if (typeof payload.exp === "number" && payload.exp * 1000 > now) return payload.exp * 1000;
+  } catch {
+    // Not a readable JWT: fall back to the documented lifetime.
+  }
+  return now + TOKEN_DEFAULT_LIFETIME_MS;
+}
+
+export function parseAuthenticateResponse(body: unknown): string {
+  const token = isObject(body) ? (str(isObject(body.data) ? body.data.access_token : null) ?? str(body.access_token)) : null;
+  if (!token) throw new KycConfigError("unexpected_response", "Sandbox /authenticate answered without an access token.");
+  return token;
+}
+
+export interface SandboxCoCredentials {
+  apiKey: string;
+  apiSecret: string;
+  baseUrl: string;
+}
+
+async function authenticate(creds: SandboxCoCredentials, http: KycHttpOptions): Promise<CachedToken> {
+  const { body } = await kycPostJson(
+    `${creds.baseUrl}/authenticate`,
+    { "x-api-key": creds.apiKey, "x-api-secret": creds.apiSecret, "x-api-version": "1.0" },
+    undefined,
+    `auth:${Date.now()}`,
+    http,
+  );
+  const token = parseAuthenticateResponse(body);
+  return { token, expiresAt: tokenExpiry(token) };
+}
+
+/** A valid token, from the cache or one /authenticate call shared by everyone waiting. */
+export async function getSandboxCoToken(creds: SandboxCoCredentials, http: KycHttpOptions, forceNew = false): Promise<string> {
+  const cacheKey = `${creds.baseUrl}|${creds.apiKey}`;
+  const cached = tokens.get(cacheKey);
+  if (!forceNew && cached && cached.expiresAt - TOKEN_EARLY_REFRESH_MS > Date.now()) return cached.token;
+  if (forceNew) tokens.delete(cacheKey);
+
+  let pending = inFlight.get(cacheKey);
+  if (!pending) {
+    pending = authenticate(creds, http).finally(() => inFlight.delete(cacheKey));
+    inFlight.set(cacheKey, pending);
+  }
+  const fresh = await pending;
+  tokens.set(cacheKey, fresh);
+  return fresh.token;
+}
+
+/* -------------------------------------------------------- endpoints */
+
+const ENDPOINTS: Partial<Record<SellerDocType, { path: string; body: (req: VerifyRequest) => Json }>> = {
+  PAN: {
+    path: "/kyc/pan/search/lite",
+    body: (r) => ({ "@entity": "in.co.sandbox.kyc.pan_search_lite.request", pan: r.number, consent: "y", reason: PAN_REASON }),
+  },
+  GSTIN: { path: "/gst/compliance/public/gstin/search", body: (r) => ({ gstin: r.number }) },
+};
+
+/* ---------------------------------------------------------- readers */
+
+function gstDocStatus(raw: string | null): SourceDocStatus {
+  const s = (raw ?? "").toLowerCase();
+  if (s === "active") return "active";
+  if (s.includes("cancel")) return "cancelled";
+  if (s.includes("suspend")) return "suspended";
+  if (s.includes("inactive")) return "inactive";
+  // "Provisional" and anything new: a person decides.
+  return "unknown";
+}
+
+function joinAddress(addr: Json): string | null {
+  const parts = ["flno", "bno", "bnm", "st", "locality", "loc", "landMark", "dst", "stcd", "pncd"]
+    .map((k) => str(addr[k]))
+    .filter((v): v is string => Boolean(v));
+  return parts.length ? parts.join(", ") : null;
+}
+
+/** /kyc/pan/search/lite: `data.status` is "valid" or "invalid" (no such PAN). */
+export function parseSandboxPan(body: unknown): ProviderOutcome {
+  if (!isObject(body) || !isObject(body.data)) throw new KycConfigError("unexpected_response", "Sandbox PAN response had no data.");
+  const providerRef = str(body.transaction_id);
+  const data = body.data;
+  const status = (str(data.status) ?? "").toLowerCase();
+  if (status === "invalid") return { kind: "not_found", providerRef };
+  if (status !== "valid") throw new KycConfigError("unexpected_response", "Sandbox PAN response had a status this code does not know.");
+  const record: SourceRecord = {
+    docStatus: "active",
+    name: str(data.full_name),
+    entityType: str(data.category),
+  };
+  return { kind: "found", record, providerRef };
+}
+
+/**
+ * /gst/compliance/public/gstin/search: the GSTN answer sits in `data.data`,
+ * with `data.status_cd` "1"; "0" plus `data.error` (FO8000) means no such GSTIN.
+ */
+export function parseSandboxGstin(body: unknown): ProviderOutcome {
+  if (!isObject(body) || !isObject(body.data)) throw new KycConfigError("unexpected_response", "Sandbox GSTIN response had no data.");
+  const providerRef = str(body.transaction_id);
+  const outer = body.data;
+  if (String(outer.status_cd ?? "") === "0" || isObject(outer.error)) {
+    const code = isObject(outer.error) ? str(outer.error.error_cd) : null;
+    if (!code || code === "FO8000") return { kind: "not_found", providerRef };
+    throw new KycConfigError("unexpected_response", `Sandbox GSTIN lookup returned error ${code}.`);
+  }
+  const g = isObject(outer.data) ? outer.data : null;
+  if (!g) throw new KycConfigError("unexpected_response", "Sandbox GSTIN response had no record.");
+
+  const addr = isObject(g.pradr) && isObject(g.pradr.addr) ? g.pradr.addr : {};
+  const record: SourceRecord = {
+    docStatus: gstDocStatus(str(g.sts)),
+    name: str(g.lgnm),
+    tradeName: str(g.tradeNam),
+    entityType: str(g.ctb),
+    // A state name ("Karnataka"); the checks turn it into a code.
+    stateCode: str(addr.stcd),
+    pincode: str(addr.pncd),
+    address: joinAddress(addr),
+  };
+  if (!record.name && !record.tradeName && record.docStatus === "unknown") {
+    throw new KycConfigError("unexpected_response", "Sandbox GSTIN record had neither a name nor a status.");
+  }
+  return { kind: "found", record, providerRef };
+}
+
+/* ---------------------------------------------------------- adapter */
+
+export function createSandboxCoAdapter(creds: SandboxCoCredentials, http: KycHttpOptions): KycAdapter {
+  return {
+    id: "sandboxco",
+    async verify(req: VerifyRequest): Promise<ProviderOutcome> {
+      const endpoint = ENDPOINTS[req.docType];
+      if (!endpoint) return { kind: "unsupported", reason: "Sandbox.co.in does not check this document." };
+
+      const call = async (forceNewToken: boolean) => {
+        const token = await getSandboxCoToken(creds, http, forceNewToken);
+        return kycPostJson(
+          `${creds.baseUrl}${endpoint.path}`,
+          { authorization: token, "x-api-key": creds.apiKey },
+          endpoint.body(req),
+          req.idempotencyKey,
+          http,
+        );
+      };
+
+      let response;
+      try {
+        response = await call(false);
+      } catch (error) {
+        // An expired or revoked token: one more try with a new one. A second
+        // refusal is a real credential problem and goes to the admin.
+        if (!(error instanceof KycConfigError && error.code === "auth_failed")) throw error;
+        response = await call(true);
+      }
+      return req.docType === "PAN" ? parseSandboxPan(response.body) : parseSandboxGstin(response.body);
+    },
+  };
+}
