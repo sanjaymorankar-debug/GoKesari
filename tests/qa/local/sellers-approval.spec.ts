@@ -344,7 +344,7 @@ qa("TC-ONB-024", "the owner sees the own registration and payment history (read-
 }, local);
 
 qa("TC-ONB-025", "shop referral codes: an operator creates a code, a shop registers with it, the code's performance count rises", async ({ browser }) => {
-  const code = `QA${RUN}`.toUpperCase().slice(0, 16);
+  const code = `QA${RUN.slice(-6)}`.toUpperCase(); // 8 letters and digits at most (30 Oct 2026)
   const ops = await as("ops");
   const created = await call(ops, "POST", "/api/referral-codes", { code, label: "QA sellers", referrerName: "QA Partner" });
   expectStatus(created, 201, "create a referral code");

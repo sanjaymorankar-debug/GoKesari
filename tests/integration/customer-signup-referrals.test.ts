@@ -81,8 +81,8 @@ describe("referral code at customer registration", () => {
 
   it("a code GoKesari issued is checked and recorded once; unknown, paused and expired codes are refused on the field", async () => {
     await setRule("customerSignupReferral", { enabled: true }, admin);
-    await createReferralCode({ code: "PUNE-LAUNCH", label: "Pune launch scheme" }, admin);
-    const paused = await createReferralCode({ code: "OLD-SCHEME" }, admin);
+    await createReferralCode({ code: "PUNELNCH", label: "Pune launch scheme" }, admin);
+    const paused = await createReferralCode({ code: "OLDSCHEM" }, admin);
     await db.update(referralCodes).set({ status: "INACTIVE" }).where(eq(referralCodes.id, paused.id));
     await createReferralCode({ code: "EXPIRED1", expiresAt: "2020-01-01" }, admin);
 
@@ -93,19 +93,19 @@ describe("referral code at customer registration", () => {
     const unknown = await give("NOPE123");
     expect(unknown.status).toBe(422);
     expect(unknown.body.error.details.fields.referralCode).toBe("This referral code is not valid.");
-    expect((await give("old-scheme")).body.error.details.fields.referralCode).toContain("inactive");
+    expect((await give("oldschem")).body.error.details.fields.referralCode).toContain("inactive");
     expect((await give("EXPIRED1")).body.error.details.fields.referralCode).toContain("expired");
 
-    const ok = await give(" pune-launch ");
+    const ok = await give(" punelnch ");
     expect(ok.status, JSON.stringify(ok.body)).toBe(200);
-    expect(ok.body).toMatchObject({ kind: "GOKESARI", code: "PUNE-LAUNCH", label: "Pune launch scheme" });
+    expect(ok.body).toMatchObject({ kind: "GOKESARI", code: "PUNELNCH", label: "Pune launch scheme" });
     // The same code again is fine; another is not.
-    expect((await give("PUNE-LAUNCH")).status).toBe(200);
+    expect((await give("PUNELNCH")).status).toBe(200);
     expect((await give("EXPIRED1")).status).toBe(409);
-    expect((await call(signupGet, "/api/me/signup-referral")).body).toMatchObject({ ask: false, referral: { kind: "GOKESARI", code: "PUNE-LAUNCH" } });
+    expect((await call(signupGet, "/api/me/signup-referral")).body).toMatchObject({ ask: false, referral: { kind: "GOKESARI", code: "PUNELNCH" } });
 
     const counts = await listSignupReferralCounts();
-    expect(counts).toEqual([expect.objectContaining({ code: "PUNE-LAUNCH", kind: "GOKESARI", customers: 1, label: "Pune launch scheme" })]);
+    expect(counts).toEqual([expect.objectContaining({ code: "PUNELNCH", kind: "GOKESARI", customers: 1, label: "Pune launch scheme" })]);
   });
 
   it("a friend's code starts the existing friend referral when that programme is on", async () => {
@@ -128,7 +128,7 @@ describe("referral code at customer registration", () => {
 
   it("only before the first order", async () => {
     await setRule("customerSignupReferral", { enabled: true }, admin);
-    await createReferralCode({ code: "PUNE-LAUNCH" }, admin);
+    await createReferralCode({ code: "PUNELNCH" }, admin);
     const owner = await createUser({ role: "SHOP_OWNER" });
     const cat = await createCategory({ department: "DAIRY", name: "Milk" });
     const product = await createProduct(cat.id, { name: "Cow Milk", unit: "L" });
@@ -139,7 +139,7 @@ describe("referral code at customer registration", () => {
     await checkout({ userId: user.id, addressId: await deliveryAddressId(user.id), requestId: `r-${Math.random()}`, paymentMethod: "WALLET" });
     signIn(user);
     expect((await call(signupGet, "/api/me/signup-referral")).body.ask).toBe(false);
-    const late = await give("PUNE-LAUNCH");
+    const late = await give("PUNELNCH");
     expect(late.status).toBe(409);
     expect(await db.select().from(customerSignupReferrals)).toHaveLength(0);
   });

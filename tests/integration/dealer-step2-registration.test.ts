@@ -153,7 +153,7 @@ async function usable(code: string): Promise<boolean> {
 }
 
 describe("dealer application to an active code (scenario 1)", () => {
-  it("applies, verifies the mobile, uploads, submits, is approved with a GKS-MH-PUN code and the DEALER role", async () => {
+  it("applies, verifies the mobile, uploads, submits, is approved with an 8-character code and the DEALER role", async () => {
     const { user, dealer } = await applyAndSubmit();
     expect(dealer).toMatchObject({ status: "PENDING", mobileVerificationMethod: "OTP", agreementVersion: DEALER_AGREEMENT_VERSION, bankStatus: "PENDING" });
     expect(dealer.panEnc).not.toContain("ABCPS1234K");
@@ -167,8 +167,7 @@ describe("dealer application to an active code (scenario 1)", () => {
 
     const code = await approve(dealer.id);
     expect(code).toMatch(dealerCodePattern());
-    expect(code.startsWith("GKS-MH-PUN-")).toBe(true);
-    expect(code.slice(-6)).not.toMatch(/[01OIL]/);
+    expect(code).not.toMatch(/[01OIL]/);
     expect(await usable(code)).toBe(true);
 
     const [after] = await db.select().from(dealers).where(eq(dealers.id, dealer.id));
@@ -401,9 +400,9 @@ describe("legacy distributors (owner, 28 Oct 2026)", () => {
     const [type] = await db.insert(distributorTypes).values({ code: "AGENT", name: "Agent", commissionType: "FLAT", commissionValue: 10_000 }).returning();
     const [dist] = await db.insert(distributors).values({ distributorTypeId: type.id, name: "Kale Agencies", phoneE164: "+919800000001", status: "ACTIVE" }).returning();
     const [inactive] = await db.insert(distributors).values({ distributorTypeId: type.id, name: "Old Agency", status: "INACTIVE" }).returning();
-    const distCode = await createReferralCode({ code: "KALE-01", label: "Kale", distributorId: dist.id }, admin);
-    const named = await createReferralCode({ code: "RAHUL-SE", label: "Rahul", referrerName: "Rahul More" }, admin);
-    const plain = await createReferralCode({ code: "PUNE-LAUNCH", label: "Pune launch" }, admin);
+    const distCode = await createReferralCode({ code: "KALE01", label: "Kale", distributorId: dist.id }, admin);
+    const named = await createReferralCode({ code: "RAHULSE", label: "Rahul", referrerName: "Rahul More" }, admin);
+    const plain = await createReferralCode({ code: "PUNELNCH", label: "Pune launch" }, admin);
     const before = await db.select().from(referralCodes);
 
     // The migration's data steps (its INSERTs), twice: they must be idempotent. Only the INSERTs — on the split
@@ -432,10 +431,10 @@ describe("legacy distributors (owner, 28 Oct 2026)", () => {
     const rahul = links.find((l) => l.referralCodeId === named.id)!;
     expect(rahul.dealerId).toBe(direct[0].id);
     const [person] = await db.select().from(dealerSalespeople).where(eq(dealerSalespeople.id, rahul.salespersonId!));
-    expect(person).toMatchObject({ name: "Rahul More", employeeId: "LEGACY-RAHUL-SE", source: "LEGACY_MIGRATION" });
+    expect(person).toMatchObject({ name: "Rahul More", employeeId: "LEGACY-RAHULSE", source: "LEGACY_MIGRATION" });
 
     // Nothing about the codes themselves changed, and they all still validate.
     expect(await db.select().from(referralCodes)).toEqual(before);
-    for (const c of ["KALE-01", "RAHUL-SE", "PUNE-LAUNCH"]) expect(await usable(c), c).toBe(true);
+    for (const c of ["KALE01", "RAHULSE", "PUNELNCH"]) expect(await usable(c), c).toBe(true);
   });
 });

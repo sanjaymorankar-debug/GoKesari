@@ -6,11 +6,24 @@
  * so a shop can never be double-attributed — the database refuses it rather than
  * relying on a service-layer check.
  */
+import { randomInt } from "node:crypto";
+
 import { and, count, desc, eq, gt, ilike, isNull, sql } from "drizzle-orm";
 
 import { conflict, notFound, validationFailed } from "@/lib/errors";
-import { db, type DbClient } from "@/server/db";
 import {
+  REFERRAL_CODE_ALPHABET,
+  REFERRAL_CODE_LENGTH,
+  REFERRAL_CODE_MIN_LENGTH,
+  isValidNewReferralCode,
+} from "@/lib/referral-codes";
+import { db, type DbClient } from "@/server/db";
+import { isUniqueViolation } from "@/server/db/split/upsert";
+import { setCodesStatus } from "@/server/dealers/codes";
+import {
+  dealerCodes,
+  dealerSalespeople,
+  dealers,
   referralCodes,
   referralRedemptions,
   shopRegistrations,
@@ -31,8 +44,18 @@ function normaliseCode(raw: string): string {
   return raw.trim().toUpperCase();
 }
 
+/** A new random code: 8 letters and digits (src/lib/referral-codes.ts). */
+export function newReferralCode(): string {
+  let out = "";
+  for (let i = 0; i < REFERRAL_CODE_LENGTH; i++) out += REFERRAL_CODE_ALPHABET[randomInt(0, REFERRAL_CODE_ALPHABET.length)];
+  return out;
+}
+
+const GENERATE_ATTEMPTS = 8;
+
 export interface CreateReferralInput {
-  code: string;
+  /** Typed by staff (4–8 letters and digits); left empty, a unique code is generated. */
+  code?: string | null;
   label?: string | null;
   referrerName?: string | null;
   referrerUserId?: string | null;
@@ -47,33 +70,46 @@ export async function createReferralCode(
   input: CreateReferralInput,
   actor: Actor,
 ): Promise<ReferralCode> {
-  const code = normaliseCode(input.code);
-  if (!/^[A-Z0-9][A-Z0-9_-]{2,31}$/.test(code)) {
+  const typed = input.code?.trim() ? normaliseCode(input.code) : null;
+  if (typed && !isValidNewReferralCode(typed)) {
     throw validationFailed(
-      "Referral code must be 3–32 characters: letters, digits, hyphen or underscore.",
+      `Referral code must be ${REFERRAL_CODE_MIN_LENGTH}–${REFERRAL_CODE_LENGTH} letters and digits (no spaces, hyphens or symbols).`,
     );
   }
 
-  const existing = await db.query.referralCodes.findFirst({
-    where: eq(referralCodes.code, code),
-    columns: { id: true },
-  });
-  if (existing) throw conflict("That referral code already exists.");
-
-  const [created] = await db
-    .insert(referralCodes)
-    .values({
-      code,
-      label: input.label ?? null,
-      referrerName: input.referrerName ?? null,
-      referrerUserId: input.referrerUserId ?? null,
-      expiresAt: input.expiresAt ?? null,
-      note: input.note ?? null,
-      distributorId: input.distributorId ?? null,
-      maxUses: input.maxUses ?? null,
-      createdBy: actor.id,
-    })
-    .returning();
+  let created: ReferralCode | undefined;
+  for (let attempt = 0; attempt < GENERATE_ATTEMPTS && !created; attempt++) {
+    const code = typed ?? newReferralCode();
+    const existing = await db.query.referralCodes.findFirst({
+      where: eq(referralCodes.code, code),
+      columns: { id: true },
+    });
+    if (existing) {
+      if (typed) throw conflict("That referral code already exists.");
+      continue;
+    }
+    try {
+      [created] = await db
+        .insert(referralCodes)
+        .values({
+          code,
+          label: input.label ?? null,
+          referrerName: input.referrerName ?? null,
+          referrerUserId: input.referrerUserId ?? null,
+          expiresAt: input.expiresAt ?? null,
+          note: input.note ?? null,
+          distributorId: input.distributorId ?? null,
+          maxUses: input.maxUses ?? null,
+          createdBy: actor.id,
+        })
+        .returning();
+    } catch (error) {
+      // Taken between the check and the insert: a typed code is the caller's to change, a generated one is retried.
+      if (!isUniqueViolation(error) && !/referral_codes_code_unique/.test(String((error as Error)?.message ?? ""))) throw error;
+      if (typed) throw conflict("That referral code already exists.");
+    }
+  }
+  if (!created) throw conflict("Could not generate a unique code. Please try again.");
 
   await recordAudit({
     actorId: actor.id,
@@ -86,6 +122,13 @@ export async function createReferralCode(
   return created;
 }
 
+/**
+ * Changes a code: disable (INACTIVE) or enable it, set, extend or clear its
+ * expiry, and the other fields. A code that belongs to a dealer or a dealer's
+ * employee (dealer_codes) is kept in step: disabling suspends that code, and
+ * it can be enabled again only while the dealer is approved and the employee
+ * active — a code replaced or retired on the dealer's page stays off.
+ */
 export async function updateReferralCode(
   id: string,
   patch: {
@@ -98,27 +141,54 @@ export async function updateReferralCode(
   },
   actor: Actor,
 ): Promise<ReferralCode> {
-  const current = await db.query.referralCodes.findFirst({
-    where: eq(referralCodes.id, id),
-  });
-  if (!current) throw notFound("Referral code");
+  return db.transaction(async (tx) => {
+    const [current] = await tx.select().from(referralCodes).where(eq(referralCodes.id, id)).for("update");
+    if (!current) throw notFound("Referral code");
 
-  const [updated] = await db
-    .update(referralCodes)
-    .set({ ...patch, updatedAt: new Date() })
-    .where(eq(referralCodes.id, id))
-    .returning();
+    const set = { ...patch };
+    // A code marked EXPIRED comes back when it is given a later (or no) expiry.
+    if (set.status === undefined && current.status === "EXPIRED" && "expiresAt" in patch) set.status = "ACTIVE";
 
-  await recordAudit({
-    actorId: actor.id,
-    actorRole: actor.role,
-    action: AUDIT_ACTIONS.REFERRAL_CODE_UPDATED,
-    entityType: "referral_code",
-    entityId: id,
-    previousValue: { status: current.status, label: current.label, distributorId: current.distributorId, maxUses: current.maxUses, expiresAt: current.expiresAt },
-    newValue: { status: updated.status, label: updated.label, distributorId: updated.distributorId, maxUses: updated.maxUses, expiresAt: updated.expiresAt },
+    if (set.status && set.status !== current.status) {
+      const [linked] = await tx
+        .select({ dc: dealerCodes, dealerStatus: dealers.status, personStatus: dealerSalespeople.status })
+        .from(dealerCodes)
+        .innerJoin(dealers, eq(dealers.id, dealerCodes.dealerId))
+        .leftJoin(dealerSalespeople, eq(dealerSalespeople.id, dealerCodes.salespersonId))
+        .where(eq(dealerCodes.referralCodeId, id))
+        .limit(1);
+      if (linked) {
+        if (set.status === "ACTIVE") {
+          if (linked.dc.status !== "SUSPENDED") throw conflict(`This dealer code is ${linked.dc.status.toLowerCase()} and cannot be enabled.`);
+          if (linked.dealerStatus !== "APPROVED") throw conflict(`The dealer is ${linked.dealerStatus.toLowerCase()}; enable the dealer first.`);
+          if (linked.dc.salespersonId && linked.personStatus !== "ACTIVE") throw conflict("The dealer's employee is inactive; activate the employee first.");
+          await setCodesStatus(tx, [linked.dc.id], ["SUSPENDED"], "ACTIVE", actor, "enabled on the referral codes page");
+        } else {
+          await setCodesStatus(tx, [linked.dc.id], ["ACTIVE"], "SUSPENDED", actor, "disabled on the referral codes page");
+        }
+      }
+    }
+
+    const [updated] = await tx
+      .update(referralCodes)
+      .set({ ...set, updatedAt: new Date() })
+      .where(eq(referralCodes.id, id))
+      .returning();
+
+    await recordAudit(
+      {
+        actorId: actor.id,
+        actorRole: actor.role,
+        action: AUDIT_ACTIONS.REFERRAL_CODE_UPDATED,
+        entityType: "referral_code",
+        entityId: id,
+        previousValue: { status: current.status, label: current.label, distributorId: current.distributorId, maxUses: current.maxUses, expiresAt: current.expiresAt },
+        newValue: { status: updated.status, label: updated.label, distributorId: updated.distributorId, maxUses: updated.maxUses, expiresAt: updated.expiresAt },
+      },
+      tx,
+    );
+    return updated;
   });
-  return updated;
 }
 
 /**
