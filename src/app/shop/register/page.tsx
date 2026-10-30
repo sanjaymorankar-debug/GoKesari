@@ -12,21 +12,35 @@ import { listShopsForOwner } from "@/server/services/shops";
 import { getRule } from "@/server/services/settings";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { getWizardDraft, showsWizard } from "@/server/services/shop-registration-wizard";
+import { isPlaceholderEmail } from "@/lib/placeholder-email";
+import { ShopSignInCard } from "./sign-in-card";
 
-export const metadata = { title: "Add my shop" };
+export const metadata = { title: "Register your shop" };
 export const dynamic = "force-dynamic";
 
 export default async function RegisterShopPage({
   searchParams,
 }: {
-  searchParams: Promise<{ ref?: string | string[]; wizard?: string | string[]; form?: string | string[] }>;
+  searchParams: Promise<{ ref?: string | string[]; code?: string | string[]; wizard?: string | string[]; form?: string | string[] }>;
 }) {
   const params = await searchParams;
-  // docs/dealer-programme: a dealer's share link (/shop/register?ref=CODE) fills in the referral code.
-  const rawRef = params.ref;
+  // docs/dealer-programme: a dealer's share link (/shop/register?ref=CODE) fills in the referral code;
+  // ?code= is a distributor's link, carried over from /shop/join.
+  const rawRef = params.ref ?? params.code;
   const ref = typeof rawRef === "string" && /^[A-Za-z0-9][A-Za-z0-9_-]{2,31}$/.test(rawRef.trim()) ? rawRef.trim().toUpperCase() : null;
   const user = await getCurrentUser();
-  if (!user) redirect(ref ? `/signin?callbackUrl=${encodeURIComponent(`/shop/register?ref=${ref}`)}` : "/signin");
+  if (!user) {
+    // 0120 (FLOW_2026-10-30.md): with the wizard on, the owner signs in here — the code comes by email.
+    if (await isFeatureEnabled("shop_onboarding_wizard_enabled")) {
+      return (
+        <div className="mx-auto max-w-2xl">
+          <PageHeader title="Register your shop" description="Sign in, enter your referral code, verify your documents (or add them later), pay the fee and your shop goes live." />
+          <ShopSignInCard />
+        </div>
+      );
+    }
+    redirect(ref ? `/signin?callbackUrl=${encodeURIComponent(`/shop/register?ref=${ref}`)}` : "/signin");
+  }
 
   // Every read at once: each one is a round trip to the database, and they
   // used to run one after another on every visit.
@@ -54,8 +68,15 @@ export default async function RegisterShopPage({
     const draft = await getWizardDraft(user);
     return (
       <div className="mx-auto max-w-2xl">
-        <PageHeader title="Add my shop" description="A few quick steps. We check your documents with the government records as you go." />
+        <PageHeader title="Register your shop" description="A few quick steps. We check your documents with the government records as you go — or you add them after your shop is live." />
+        {draft === null || draft.status === "OPEN" ? (
+          <p className="mb-3 rounded-lg border border-leaf-300 bg-leaf-50 px-3 py-2 text-sm text-leaf-700" data-testid="registering-as">
+            ✓ Signed in{user.email && !isPlaceholderEmail(user.email) ? ` as ${user.email}` : ""} — your shop is added to this account.
+          </p>
+        ) : null}
         <OnboardingWizard
+          initialReferralCode={ref}
+          referralRequired={referralRequired}
           initial={draft ? (JSON.parse(JSON.stringify(draft)) as WizardState) : null}
           initialCategories={categories?.map((c) => ({ id: c.id, name: c.name, status: c.status, groupName: c.groupName }))}
           dealerProgramme={dealerProgramme}

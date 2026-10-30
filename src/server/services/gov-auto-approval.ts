@@ -41,7 +41,7 @@ import { findLikelyDuplicate } from "@/server/dealers/attribution";
 import { flagCoversDistrict, getFeatureFlag } from "./feature-flags";
 import { districtCodeForPincode } from "./geo-areas";
 import { getRule } from "./settings";
-import { deferredReviewDocTypes, isWizardRegisteredShop, missingMandatoryDocuments } from "./shop-onboarding";
+import { deferredReviewDocTypes, isDocumentsLaterShop, isWizardRegisteredShop, missingMandatoryDocuments } from "./shop-onboarding";
 
 /** Payment methods only a verified gateway webhook writes. */
 export const GATEWAY_CONFIRMED_METHODS = ["ONLINE", "CASHFREE", "RAZORPAY"] as const;
@@ -110,7 +110,10 @@ export async function decideGovAutoApproval(shop: Shop): Promise<GovDecision> {
     .where(and(eq(sellerVerifications.shopId, shop.id), inArray(sellerVerifications.docType, ["GSTIN", "PAN"])))
     .orderBy(desc(sellerVerifications.updatedAt));
   const latest = (t: "GSTIN" | "PAN") => rows.find((r) => r.docType === t);
-  if (shop.gstin) {
+  // 0120: registered with "upload documents later" — live on payment; payouts wait for the GSTIN / PAN.
+  if (await isDocumentsLaterShop(shop.id)) {
+    evidence.documentsLater = true;
+  } else if (shop.gstin) {
     const gst = sourceCheck(latest("GSTIN"), rule.nameMatchAutoApprove, productionKyc);
     evidence.gstin = gst.evidence;
     if (!gst.ok) reasons.push(`GSTIN: ${gst.reason}`);

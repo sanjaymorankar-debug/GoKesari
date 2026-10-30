@@ -1,5 +1,8 @@
 # Shop registration redesign — "follow the brief" (owner decision, 29 Oct 2026)
 
+> **30 Oct 2026 — the owner's next brief:** sign-in by emailed code, referral code, shop email, "documents
+> handy?" (type, scan, or upload later), map pin before payment. See [FLOW_2026-10-30.md](FLOW_2026-10-30.md).
+
 The onboarding wizard at `/shop/register` (flag `shop_onboarding_wizard_enabled`) now follows the
 owner's registration brief. Decisions: [decision log D-B01 … D-B09](../decision-log.md#shop-registration-redesign-29-oct-2026-owner-follow-the-brief).
 It replaces, **for wizard shops only**, the 29 Oct documents gate in

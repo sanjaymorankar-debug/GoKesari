@@ -35,7 +35,7 @@ export function RegisterOptions({ selfService, referralRequired, signedIn }: { s
             text: referralRequired
               ? "Have a referral code from a GoKesari distributor? Register with your shop name and mobile number, and pay the fee online."
               : "Register with your shop name and mobile number (and a referral code if a distributor gave you one), then pay the fee online.",
-            steps: ["Shop name and mobile number", "Verify your mobile with an OTP", "Pay the registration fee online"],
+            steps: ["Sign in — we email you a one-time code", "Referral code, then your documents (or add them later)", "Pay the registration fee online — live on payment"],
             href: "/shop/join",
             cta: "Register and pay online",
             primary: true,

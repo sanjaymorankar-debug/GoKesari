@@ -64,6 +64,7 @@ import {
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { applyWalletMutation } from "./wallet";
 import { getRule } from "./settings";
+import { payoutHoldReason } from "./shop-onboarding";
 import { onRefundRecorded } from "@/server/integrations/hooks";
 
 interface Actor {
@@ -982,6 +983,11 @@ export async function decideShopSettlement(
   return db.transaction(async (tx) => {
     const [current] = await tx.select().from(shopSettlements).where(eq(shopSettlements.id, settlementId)).for("update");
     if (!current) throw notFound("Settlement");
+    // 0120: a shop registered with "upload documents later" is not paid out before its GSTIN / PAN is verified.
+    if (action === "approve" || action === "process" || action === "pay") {
+      const held = await payoutHoldReason(current.shopId, tx);
+      if (held) throw conflict(held, { reason: "PAYOUT_HELD" });
+    }
     if (!step.from.includes(current.status)) {
       throw conflict(`A ${current.status.toLowerCase()} settlement cannot move to ${step.to.toLowerCase()}.`);
     }

@@ -11,6 +11,7 @@
  * A shop registered through the onboarding wizard follows the later decision (29 Oct 2026, "follow
  * the brief", docs/shop-onboarding-wizard-2026-10/BRIEF_REDESIGN.md): it pays once its GSTIN or PAN
  * has been checked, and goes live on payment when that check VERIFIED it; the promise is not used there.
+ * One registered with "upload documents later" (0120) pays without any, and goes live on payment.
  */
 import { eq } from "drizzle-orm";
 
@@ -21,7 +22,7 @@ import { db, type DbClient } from "@/server/db";
 import { sellerVerifications, shops, type Shop, type UserRole } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { getRule } from "./settings";
-import { hasDocumentWaiver, isWizardRegisteredShop, missingMandatoryDocuments } from "./shop-onboarding";
+import { hasDocumentWaiver, isDocumentsLaterShop, isWizardRegisteredShop, missingMandatoryDocuments } from "./shop-onboarding";
 
 const DAY_MS = 86_400_000;
 
@@ -71,7 +72,8 @@ export async function shopDocumentGate(
       promisedAt: shop.documentsPromisedAt,
       dueAt: shop.documentsDueAt,
       waived: await hasDocumentWaiver(shop.id, client),
-      canPay: identityChecked,
+      // 0120: registered with "upload documents later" — the fee is paid without them.
+      canPay: identityChecked || (await isDocumentsLaterShop(shop.id, client)),
       canPromise: false,
     };
   }

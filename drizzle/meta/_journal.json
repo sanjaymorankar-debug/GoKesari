@@ -841,6 +841,13 @@
       "when": 1793161800000,
       "tag": "0119_hdfc_gateway",
       "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1793161900000,
+      "tag": "0120_shop_registration_flow",
+      "breakpoints": true
     }
   ]
 }

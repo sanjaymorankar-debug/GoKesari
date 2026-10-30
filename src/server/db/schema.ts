@@ -593,7 +593,7 @@ export const loginOtps = pgTable(
     phoneE164: text("phone_e164"),
     /** Address the code was sent to; codes are looked up by it. Null only on rows from before email login. */
     email: text("email"),
-    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */] }).notNull().default("LOGIN"),
+    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */] }).notNull().default("LOGIN"),
     channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
     codeHash: text("code_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -9981,6 +9981,15 @@ export const shopRegistrationDrafts = pgTable(
     locationConfirmedAt: timestamp("location_confirmed_at", { withTimezone: true }),
     submittedAt: timestamp("submitted_at", { withTimezone: true }),
     completedAt: timestamp("completed_at", { withTimezone: true }),
+
+    /** 0120: the referral code given on the first step (null: none), and when that step was answered. */
+    referralCode: text("referral_code"),
+    referralAnsweredAt: timestamp("referral_answered_at", { withTimezone: true }),
+    /** 0120: the shop's email — the account's, or another one confirmed with an emailed code. */
+    shopEmail: text("shop_email"),
+    shopEmailConfirmedAt: timestamp("shop_email_confirmed_at", { withTimezone: true }),
+    /** 0120: "Do you have your documents handy?" — false: checked now; true: uploaded after go-live; null: not asked. */
+    documentsLater: boolean("documents_later"),
 
     /** Set when the wizard creates the shop from this draft. */
     shopId: uuid("shop_id").references((): AnyPgColumn => shops.id, { onDelete: "set null" }),
