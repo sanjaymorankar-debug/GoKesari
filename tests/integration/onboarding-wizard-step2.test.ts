@@ -157,7 +157,9 @@ async function walkToReview(opts: { shopType?: string; fssai?: string | false; u
   if (opts.fssai === false) await answerDraftDocument({ actor: owner, docType: "FSSAI", has: false });
   else await doc("FSSAI", opts.fssai ?? FSSAI);
   // Categories are chosen after approval (CATEGORY step), as the brief orders it.
-  return saveDraftDetails({ actor: owner, details: details({ shopType: opts.shopType ?? "GENERAL_TRADING", categoryIds: [], ...(opts.ownerName ? { ownerName: opts.ownerName } : {}) }) });
+  await saveDraftDetails({ actor: owner, details: details({ shopType: opts.shopType ?? "GENERAL_TRADING", categoryIds: [], ...(opts.ownerName ? { ownerName: opts.ownerName } : {}) }) });
+  // 0120: the map pin is placed before payment.
+  return saveDraftLocation({ actor: owner, latitude: 18.5308, longitude: 73.8475 });
 }
 
 /** The owner pays through the sandbox gateway; the webhook's after-commit step runs. */
@@ -198,8 +200,10 @@ describe("each step in the brief's order, resumed where the owner left off", () 
     expect((await getWizardDraft({ id: owner.id }))!.nextStep).toBe("DETAILS");
 
     view = await saveDraftDetails({ actor: owner, details: details({ categoryIds: [] }) });
-    expect(view).toMatchObject({ nextStep: "REVIEW", foodShop: false, details: { shopType: "GENERAL_TRADING", pincode: "411001" } });
-    // No Shop Act and no map pin before payment any more.
+    expect(view).toMatchObject({ nextStep: "LOCATION", foodShop: false, details: { shopType: "GENERAL_TRADING", pincode: "411001" } });
+    // 0120: the map pin before payment; no Shop Act.
+    view = await saveDraftLocation({ actor: owner, latitude: 18.5308, longitude: 73.8475 });
+    expect(view.nextStep).toBe("REVIEW");
     expect(view.documents).toMatchObject({ missing: [], canSubmit: true, needsTeamApproval: false, promised: false });
   });
 
@@ -319,7 +323,7 @@ describe("auto-approval: GSTIN / PAN verified + fee paid (owner decision 29 Oct 
     const shopId = submitted.shop!.id;
 
     const shop = await shopRow(shopId);
-    expect(shop).toMatchObject({ ownerId: owner.id, name: "Test Seller Mart", pincode: "411001", latitude: null, gstStatus: "REGISTERED", shopActNumber: null });
+    expect(shop).toMatchObject({ ownerId: owner.id, name: "Test Seller Mart", pincode: "411001", latitude: "18.5308000", gstStatus: "REGISTERED", shopActNumber: null });
     expect(shop.gstin).toBe(gstinFor(COMPANY_PAN));
     expect(shop.documentsPromisedAt).toBeNull();
     // KYC complete on the GSTIN alone: only the fee is outstanding.
@@ -352,10 +356,10 @@ describe("auto-approval: GSTIN / PAN verified + fee paid (owner decision 29 Oct 
     const [ready] = await db.select().from(notifications).where(and(eq(notifications.userId, owner.id), eq(notifications.type, "shop.ready_for_product_upload")));
     expect(ready.title).toMatch(/Registration successful/);
 
-    // After approval: the map pin, the categories, then the product list.
+    // After approval: the map pin (placed before payment, 0120) is on the shop; then categories and the product list.
     let view = (await getWizardDraft(owner))!;
-    expect(view).toMatchObject({ nextStep: "LOCATION", setup: { location: false, categories: false, products: false } });
-    await updateShop(shopId, { latitude: "18.5308", longitude: "73.8475" }, owner);
+    expect(view).toMatchObject({ nextStep: "CATEGORY", setup: { location: true, categories: false, products: false } });
+    await updateShop(shopId, { latitude: "18.5309", longitude: "73.8476" }, owner);
     view = (await getWizardDraft(owner))!;
     expect(view.nextStep).toBe("CATEGORY");
     await setShopCategories(shopId, [categoryId], owner);
@@ -431,7 +435,7 @@ describe("referral code toggle (Admin → Referral settings, default optional)",
     await submitDraftGstin({ gstin: gstinFor(COMPANY_PAN), consentGiven: true, actor: owner });
     await answerDraftDocument({ actor: owner, docType: "UDYAM", has: false });
     await answerDraftDocument({ actor: owner, docType: "FSSAI", has: false });
-    expect((await saveDraftDetails({ actor: owner, details: details() })).nextStep).toBe("REVIEW");
+    expect((await saveDraftDetails({ actor: owner, details: details() })).nextStep).toBe("LOCATION");
 
     await setReferralSetting("referral_required_shop", "MANDATORY", adminActor);
     await expect(saveDraftDetails({ actor: owner, details: details() })).rejects.toMatchObject({
@@ -442,7 +446,7 @@ describe("referral code toggle (Admin → Referral settings, default optional)",
     await expect(setReferralSetting("referral_required_shop", "OPTIONAL", { id: owner.id, role: "CUSTOMER" })).rejects.toMatchObject({ code: "FORBIDDEN" });
 
     await setReferralSetting("referral_required_shop", "OPTIONAL", adminActor);
-    expect((await saveDraftDetails({ actor: owner, details: details() })).nextStep).toBe("REVIEW");
+    expect((await saveDraftDetails({ actor: owner, details: details() })).nextStep).toBe("LOCATION");
   });
 });
 
@@ -510,7 +514,9 @@ describe("HTTP routes", () => {
     expect(resumed.body.nextStep).toBe("DETAILS");
     const saved = await call(detailsRoute, "/api/shops/registration-draft/details", { method: "POST", body: { ...details(), categoryIds: undefined } });
     expect(saved.status).toBe(200);
-    expect(saved.body.nextStep).toBe("REVIEW");
+    expect(saved.body.nextStep).toBe("LOCATION");
+    const pinned = await call(locationRoute, "/api/shops/registration-draft/location", { method: "POST", body: { latitude: 18.5308, longitude: 73.8475 } });
+    expect(pinned.body.nextStep).toBe("REVIEW");
   });
 });
 

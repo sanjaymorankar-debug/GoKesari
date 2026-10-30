@@ -1,6 +1,10 @@
+import { redirect } from "next/navigation";
+
 import { JoinForm } from "@/components/registration/join-form";
 import { Alert, PageHeader } from "@/components/ui";
 import { isReferralRequired } from "@/server/services/referral-settings";
+import { isTextChannelAvailable } from "@/server/messaging/sms-whatsapp";
+import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { getRule } from "@/server/services/settings";
 
 export const metadata = { title: "Register your shop" };
@@ -15,6 +19,11 @@ export default async function JoinPage({ searchParams }: { searchParams: Promise
   // ?code= (distributors' links) or ?ref= (dealer share links, docs/dealer-programme).
   const given = typeof params.code === "string" ? params.code : typeof params.ref === "string" ? params.ref : "";
   const code = given.toUpperCase().slice(0, 32);
+  // 0120 (FLOW_2026-10-30.md): the step-by-step registration, where the sign-in code comes by email —
+  // whenever it is switched on, and always while SMS is not set up (this page's code goes by SMS only).
+  if ((await isFeatureEnabled("shop_onboarding_wizard_enabled")) || !isTextChannelAvailable("SMS")) {
+    redirect(code ? `/shop/register?ref=${encodeURIComponent(code)}` : "/shop/register");
+  }
   return (
     <div className="mx-auto max-w-md">
       <PageHeader title="Register your shop" description={`Shop name, mobile number, ${referralRequired ? "the referral code from your distributor" : "a referral code if you have one"}, and the fee. Your shop goes live as soon as the payment is confirmed.`} />

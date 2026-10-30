@@ -44,7 +44,8 @@ export const MOBILE_IN_USE =
 export const EMAIL_IN_USE = "This email address is already used by another account.";
 
 /** batch-2026-10 WS-D: SHOP_ONBOARDING_CONSENT — a shop owner authorises an operator to onboard their shop. */
-type OtpPurpose = "LOGIN" | "EMAIL_CHANGE" | "SHOP_ONBOARDING_CONSENT";
+/** SHOP_EMAIL (0120): the shop registration's email, when it is not the account's own. */
+type OtpPurpose = "LOGIN" | "EMAIL_CHANGE" | "SHOP_ONBOARDING_CONSENT" | "SHOP_EMAIL";
 type RenderedEmail = { subject: string; text: string; html: string };
 
 export type LoginOtpRequestResult =
@@ -709,4 +710,30 @@ export async function verifyShopOnboardingConsentOtp(input: {
     purpose: "SHOP_ONBOARDING_CONSENT",
   });
   return { otpId: otp.id, email };
+}
+
+/* ------------------------------------------- shop registration email (0120) */
+
+/**
+ * Shop registration (0120): the owner wants the shop's email to be another address than the
+ * account's. The code goes to that address, bound to the owner (stored as the code's user, so no
+ * other account can use it). Same hashing, expiry, attempt cap, cooldown and audit as sign-in.
+ */
+export async function requestShopEmailOtp(input: {
+  email: string;
+  userId: string;
+  ip?: string | null;
+  render: (code: string, expiryMinutes: number) => RenderedEmail;
+}): Promise<{ maskedEmail: string; resendAfterSeconds: number; expiryMinutes: number }> {
+  const email = parseEmail(input.email);
+  const sent = await issueCode({ email, purpose: "SHOP_EMAIL", userId: input.userId, phoneE164: null, ip: input.ip ?? null, render: input.render });
+  return { maskedEmail: maskEmailAddress(email), ...sent };
+}
+
+/** Checks and consumes the owner's code for `email`; throws the standard OTP_INVALID on any failure. */
+export async function verifyShopEmailOtp(input: { email: string; code: string; userId: string; ip?: string | null }): Promise<string> {
+  const email = parseEmail(input.email);
+  const otp = await consumeCode({ email, purpose: "SHOP_EMAIL", code: input.code, ip: input.ip ?? null, userId: input.userId });
+  await auditOtp(AUDIT_ACTIONS.OTP_VERIFIED, { email, actorId: input.userId, ip: input.ip ?? null, otpId: otp.id, purpose: "SHOP_EMAIL" });
+  return email;
 }

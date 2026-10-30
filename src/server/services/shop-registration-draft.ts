@@ -210,7 +210,7 @@ async function assertGstinFree(gstin: string, ownerId: string): Promise<void> {
  * The owner's OPEN draft, created if missing, locked for this transaction.
  * The advisory lock serialises two tabs of one owner creating it at once.
  */
-async function lockOpenDraft(tx: DbClient, ownerId: string): Promise<ShopRegistrationDraft> {
+export async function lockOpenDraft(tx: DbClient, ownerId: string): Promise<ShopRegistrationDraft> {
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`shop-registration-draft:${ownerId}`}, 0))`);
   const lockOpen = () =>
     tx

@@ -137,7 +137,9 @@ export async function missingMandatoryDocuments(
   // without one — and FSSAI for a food shop. The rest is chased after go-live.
   if (options.countDeferred && (await isWizardRegisteredShop(shop.id, client))) {
     const verified = new Set(rows.filter((v) => v.status === "VERIFIED").map((v) => v.docType));
-    const needed: SellerDocType[] = [row?.gstin ? "GSTIN" : "PAN", ...(row?.sellsFood ? (["FSSAI"] as const) : [])];
+    // 0120: registered with "upload documents later" — FSSAI for a food shop only; the rest after go-live.
+    const later = await isDocumentsLaterShop(shop.id, client);
+    const needed: SellerDocType[] = [...(later ? [] : [row?.gstin ? ("GSTIN" as const) : ("PAN" as const)]), ...(row?.sellsFood ? (["FSSAI"] as const) : [])];
     return needed.filter((d) => !verified.has(d));
   }
   const deferred = options.countDeferred ? await deferredReviewDocTypes(shop.id, client) : new Set<string>();
@@ -158,6 +160,40 @@ export async function isWizardRegisteredShop(shopId: string, client: DbClient = 
     .where(and(eq(shopRegistrationDrafts.shopId, shopId), inArray(shopRegistrationDrafts.status, ["SUBMITTED", "COMPLETED"])))
     .limit(1);
   return Boolean(row);
+}
+
+/**
+ * 0120: the shop was registered through the wizard with "upload documents later". It goes live on
+ * payment (FSSAI still needed for a food shop); its payouts wait for a verified GSTIN or PAN.
+ */
+export async function isDocumentsLaterShop(shopId: string, client: DbClient = db): Promise<boolean> {
+  const [row] = await client
+    .select({ id: shopRegistrationDrafts.id })
+    .from(shopRegistrationDrafts)
+    .where(
+      and(
+        eq(shopRegistrationDrafts.shopId, shopId),
+        inArray(shopRegistrationDrafts.status, ["SUBMITTED", "COMPLETED"]),
+        eq(shopRegistrationDrafts.documentsLater, true),
+      ),
+    )
+    .limit(1);
+  return Boolean(row);
+}
+
+/**
+ * 0120: why this shop's payouts are held, or null. A shop registered with "upload documents later"
+ * is paid out only once its GSTIN or PAN is verified (or an admin waived its documents, 0109).
+ */
+export async function payoutHoldReason(shopId: string, client: DbClient = db): Promise<string | null> {
+  if (!(await isDocumentsLaterShop(shopId, client))) return null;
+  if (await hasDocumentWaiver(shopId, client)) return null;
+  const [verified] = await client
+    .select({ id: sellerVerifications.id })
+    .from(sellerVerifications)
+    .where(and(eq(sellerVerifications.shopId, shopId), inArray(sellerVerifications.docType, ["GSTIN", "PAN"]), eq(sellerVerifications.status, "VERIFIED")))
+    .limit(1);
+  return verified ? null : "Payouts are held until the shop's GSTIN or PAN is verified (registered with documents to follow).";
 }
 
 /** Documents this shop may go live with while an admin still reviews them (0113). */
