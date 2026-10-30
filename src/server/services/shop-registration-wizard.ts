@@ -9,7 +9,7 @@
  *             emailed code
  *   DOCS_READY "Do you have your documents handy?" Yes → the checks below
  *             (typed, or read from a photo on the device); No → "upload later":
- *             DETAILS → (FSSAI for a food shop) → LOCATION → REVIEW, and the shop
+ *             DETAILS → (FSSAI for a food shop) → REVIEW, and the shop
  *             goes live on payment with its payouts held until the GSTIN or PAN
  *             is verified (finance.ts)
  *
@@ -304,15 +304,15 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
   else if (!referral.answered) nextStep = "REFERRAL";
   else if (!email.confirmed) nextStep = "EMAIL";
   else if (documentsLater === null) nextStep = "DOCS_READY";
-  // "Upload later": shop details, FSSAI for a food shop (the law), the map pin, then the fee.
-  else if (documentsLater) nextStep = !details ? "DETAILS" : foodShop && !fssai.done ? "FSSAI" : !location ? "LOCATION" : "REVIEW";
+  // "Upload later": shop details, FSSAI for a food shop (the law), then the fee.
+  else if (documentsLater) nextStep = !details ? "DETAILS" : foodShop && !fssai.done ? "FSSAI" : "REVIEW";
   else if (!base.canContinue) nextStep = "IDENTITY";
   else if (!udyam.done) nextStep = "UDYAM";
   // A food shop type chosen on the details step comes back here: FSSAI is mandatory for it.
   else if (!fssai.done) nextStep = "FSSAI";
   else if (!details) nextStep = "DETAILS";
-  // 0120: the map pin is placed before payment, so the shop is live with its location.
-  else if (!location) nextStep = "LOCATION";
+  // Owner brief 30 Oct 2026 (FLOW_2026-10-30-b.md): the fee comes before the map pin, which is
+  // asked once the shop is live (LOCATION above). A pin placed before this change is still kept.
   else nextStep = "REVIEW";
 
   const documents = await draftDocuments(draft, checks, details, foodShop);

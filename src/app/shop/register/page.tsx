@@ -1,4 +1,3 @@
-import Link from "next/link";
 import { redirect } from "next/navigation";
 
 import { OnboardingWizard, type WizardState } from "@/components/registration/onboarding-wizard";
@@ -44,13 +43,11 @@ export default async function RegisterShopPage({
 
   // Every read at once: each one is a round trip to the database, and they
   // used to run one after another on every visit.
-  const [ownShops, referralRequired, selfRegistration, feeRule, baseFee, gstRateBp, categories, dealerProgramme] = await Promise.all([
+  const [ownShops, referralRequired, feeRule, baseFee, gstRateBp, categories, dealerProgramme] = await Promise.all([
     // Only the signed-in owner's own shops — nothing about anyone else's.
     listShopsForOwner(user.id),
     // docs/nearby-referral-2026-10: the admin's setting referral_required_shop, read live.
     isReferralRequired("shop"),
-    // Module 3: with a referral code a shop can register and pay online, approved on payment.
-    getRule("selfRegistration"),
     // The one-time registration fee, shown on the form before Submit: the base
     // fee (by turnover when that rule is on, otherwise the flat fee) plus GST.
     getRule("registrationFeeByTurnover"),
@@ -87,7 +84,6 @@ export default async function RegisterShopPage({
 
   const pending = ownShops.filter((s) => s.status === "PENDING_APPROVAL");
   const rejected = ownShops.find((s) => s.status === "REJECTED");
-  const selfService = selfRegistration.enabled;
   const waiting = pending[0];
 
   return (
@@ -112,13 +108,6 @@ export default async function RegisterShopPage({
             Correct the details below and submit with the same Shop Act, PAN or Udyam number, or
             the same shop name and PIN code. We&apos;ll update your earlier registration and send
             it for review again instead of creating a new one.
-          </Alert>
-        </div>
-      ) : null}
-      {selfService ? (
-        <div className="mb-4">
-          <Alert tone="success" title="Have a referral code from a GoKesari distributor?">
-            <Link href="/shop/join" className="underline">Register with the code and pay the fee online</Link> — your shop goes live as soon as the payment is confirmed.
           </Alert>
         </div>
       ) : null}

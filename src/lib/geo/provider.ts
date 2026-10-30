@@ -13,6 +13,8 @@ declare global {
   interface Window {
     google?: typeof google;
     __gokesariMapsCallback?: () => void;
+    /** Google calls this when it refuses the key (e.g. RefererNotAllowedMapError). */
+    gm_authFailure?: () => void;
   }
 }
 
@@ -25,6 +27,23 @@ export function isMapsAvailable(): boolean {
 
 let loadPromise: Promise<void> | null = null;
 
+/**
+ * Google loads the script even when it refuses the key (wrong website restriction, billing off,
+ * API not enabled) and only says so through window.gm_authFailure — the map then stays grey.
+ * Seen on test.gokesari.com, 30 Oct 2026: RefererNotAllowedMapError. Listeners hear it once.
+ */
+let authFailed = false;
+const authListeners = new Set<() => void>();
+
+export function onMapsAuthFailure(listener: () => void): () => void {
+  if (authFailed) {
+    listener();
+    return () => {};
+  }
+  authListeners.add(listener);
+  return () => authListeners.delete(listener);
+}
+
 /** Loads the Maps JS + Places libraries at most once per page. */
 export function loadGoogleMaps(): Promise<void> {
   if (!isMapsAvailable()) {
@@ -34,6 +53,12 @@ export function loadGoogleMaps(): Promise<void> {
   if (loadPromise) return loadPromise;
 
   loadPromise = new Promise((resolve, reject) => {
+    window.gm_authFailure = () => {
+      authFailed = true;
+      console.error("Google Maps refused the browser key for this site — check the key's website restrictions.");
+      authListeners.forEach((listener) => listener());
+      authListeners.clear();
+    };
     window.__gokesariMapsCallback = () => resolve();
     const script = document.createElement("script");
     script.src = `https://maps.googleapis.com/maps/api/js?key=${GOOGLE_MAPS_BROWSER_KEY}&libraries=places&callback=__gokesariMapsCallback`;

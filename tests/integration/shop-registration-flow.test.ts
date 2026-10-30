@@ -211,32 +211,32 @@ describe("the new first steps: referral code, shop email, documents handy?", () 
 });
 
 describe("documents handy: Yes", () => {
-  it("GSTIN → Udyam → FSSAI → shop details → map pin → review", async () => {
+  it("document window: GSTIN fills the names, Shop Act validated, FSSAI / Udyam not now → confirm details → review (no map pin before payment)", async () => {
     await start(false);
-    await submitDraftGstin({ gstin: gstinFor("AABCG1234K"), consentGiven: true, actor: owner });
+    const checked = await submitDraftGstin({ gstin: gstinFor("AABCG1234K"), consentGiven: true, actor: owner });
+    // The retrieved shop and owner name, shown on the confirm step.
+    expect(checked.prefill.shopName ?? checked.prefill.legalName).toBeTruthy();
+    let view = await submitDraftDocument({ actor: owner, docType: "SHOP_ACT", number: "PMC-SA-2026-1234", consentGiven: true });
+    expect(view.shopAct.check).not.toBeNull();
     await answerDraftDocument({ actor: owner, docType: "UDYAM", has: false });
-    let view = await answerDraftDocument({ actor: owner, docType: "FSSAI", has: false });
+    view = await answerDraftDocument({ actor: owner, docType: "FSSAI", has: false });
     expect(view.nextStep).toBe("DETAILS");
     view = await saveDraftDetails({ actor: owner, details: details() });
-    expect(view.nextStep).toBe("LOCATION");
-    view = await saveDraftLocation({ actor: owner, latitude: 18.5308, longitude: 73.8475 });
-    expect(view).toMatchObject({ nextStep: "REVIEW", documents: { canSubmit: true, missing: [] } });
+    expect(view).toMatchObject({ nextStep: "REVIEW", location: null, documents: { canSubmit: true, missing: [] } });
   });
 });
 
 describe("documents handy: No, upload later", () => {
-  it("shop details → map pin → pay → live with no GSTIN or PAN; payouts held until the PAN is verified", async () => {
+  it("shop details → pay → live with no GSTIN or PAN → address and map pin; payouts held until the PAN is verified", async () => {
     let view = await start(true);
     expect(view).toMatchObject({ nextStep: "DETAILS", documentsLater: true });
     view = await saveDraftDetails({ actor: owner, details: details() });
-    expect(view.nextStep).toBe("LOCATION");
-    view = await saveDraftLocation({ actor: owner, latitude: 18.5308, longitude: 73.8475, address: "Station Road, Pune" });
     expect(view).toMatchObject({ nextStep: "REVIEW", documents: { canSubmit: true, missing: [], needsTeamApproval: false } });
 
     const submitted = await submitDraftForPayment({ actor: owner });
     const shopId = submitted.shop!.id;
     expect(submitted.nextStep).toBe("PAYMENT");
-    expect(await shopRow(shopId)).toMatchObject({ gstin: null, status: "PENDING_APPROVAL", latitude: "18.5308000" });
+    expect(await shopRow(shopId)).toMatchObject({ gstin: null, status: "PENDING_APPROVAL", latitude: null });
     expect(await db.select().from(sellerVerifications).where(eq(sellerVerifications.shopId, shopId))).toHaveLength(0);
 
     await payInSandbox(shopId);
@@ -244,8 +244,8 @@ describe("documents handy: No, upload later", () => {
     const [decision] = await db.select().from(shopAutoApprovalLog).where(eq(shopAutoApprovalLog.shopId, shopId));
     expect(decision).toMatchObject({ outcome: "APPROVED" });
     expect(decision.evidence).toMatchObject({ documentsLater: true, documentsMissing: [] });
-    // The pin went to the shop: the next step is the categories.
-    expect((await getWizardDraft(owner))!.nextStep).toBe("CATEGORY");
+    // Owner brief 30 Oct 2026: after payment, the shop's address and map pin.
+    expect((await getWizardDraft(owner))!.nextStep).toBe("LOCATION");
 
     // Payouts wait for a verified GSTIN or PAN.
     expect(await payoutHoldReason(shopId)).toMatch(/held until/);
@@ -269,8 +269,7 @@ describe("documents handy: No, upload later", () => {
     view = await answerDraftDocument({ actor: owner, docType: "FSSAI", has: false });
     expect(view.nextStep).toBe("FSSAI");
     view = await submitDraftDocument({ actor: owner, docType: "FSSAI", number: FSSAI, consentGiven: true });
-    expect(view).toMatchObject({ nextStep: "LOCATION", fssai: { check: { status: "VERIFIED" } } });
-    await saveDraftLocation({ actor: owner, latitude: 18.5308, longitude: 73.8475 });
+    expect(view).toMatchObject({ nextStep: "REVIEW", fssai: { check: { status: "VERIFIED" } } });
     const submitted = await submitDraftForPayment({ actor: owner });
     await payInSandbox(submitted.shop!.id);
     expect(await shopRow(submitted.shop!.id)).toMatchObject({ status: "APPROVED", fssaiLicenseNumber: FSSAI });
