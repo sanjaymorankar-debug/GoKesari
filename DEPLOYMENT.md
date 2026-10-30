@@ -58,6 +58,13 @@ SUBSCRIPTION_CUTOFF_HOUR=20
 KYC_PROVIDER=gridlines
 KYC_ENV=production
 GRIDLINES_API_KEY=<live key>
+# …or Sandbox.co.in for PAN and GSTIN (Udyam / FSSAI / Shop Act then go to
+# manual review). Production: key_live_… keys. Staging: KYC_ENV=sandbox with
+# key_test_… keys (test-api.sandbox.co.in answers only its saved examples:
+# PAN XXXPX1234A, GSTIN 33ABKCS2033B1ZW).
+# KYC_PROVIDER=sandboxco
+# SANDBOX_CO_API_KEY=<key_live_…>
+# SANDBOX_CO_API_SECRET=<secret_live_…>
 
 # Shop document upload with auto-read — docs/document-upload-2026-10/README.md.
 # Default: read on this server (tesseract), nothing needed. "claude" sends the

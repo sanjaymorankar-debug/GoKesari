@@ -12,7 +12,7 @@ import type { SellerDocType } from "@/lib/kyc/doc-formats";
 
 export type { SellerDocType };
 
-export type KycProviderId = "mock" | "gridlines" | "idfy";
+export type KycProviderId = "mock" | "gridlines" | "sandboxco" | "idfy";
 
 /** Extra inputs some lookups need. All optional; adapters ignore what they don't use. */
 export interface VerifyExtraFields {
