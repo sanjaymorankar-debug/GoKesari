@@ -2,11 +2,14 @@ import type { Metadata, Viewport } from "next";
 
 import { Suspense } from "react";
 
+import { AppInstallPrompt, INSTALL_EVENT_CATCHER } from "@/components/app-install/install-prompt";
+import { AppUpdatePrompt } from "@/components/app-install/update-prompt";
 import { NavigationFeedback } from "@/components/board/navigation-feedback";
 import { OfflineBanner } from "@/components/board/offline-banner";
 import { MobileShopNav } from "@/components/home/mobile-shop-nav";
 import { SiteFooter } from "@/components/site-footer";
 import { SiteHeader } from "@/components/site-header";
+import { parseStoreLink } from "@/lib/app-install";
 import { shortLocationLabel } from "@/lib/location";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getBoardLang } from "@/server/board-lang";
@@ -112,6 +115,8 @@ export default async function RootLayout({
   return (
     <html lang="en">
       <body className="min-h-screen bg-cream-50">
+        {/* docs/app-install-2026-10: holds Chrome's install event until the install prompt mounts. */}
+        <script dangerouslySetInnerHTML={{ __html: INSTALL_EVENT_CATCHER }} />
         <OfflineBanner lang={lang} />
         {/* useSearchParams needs a boundary; it renders nothing until a link is tapped. */}
         <Suspense fallback={null}>
@@ -136,6 +141,16 @@ export default async function RootLayout({
           {children}
         </main>
         <SiteFooter lang={lang} />
+        {/* docs/app-install-2026-10: "Get the app" on every visit until installed; "Reload" for a new version. */}
+        <AppInstallPrompt
+          lang={lang}
+          signedIn={Boolean(user)}
+          stores={{
+            android: parseStoreLink(process.env.MOBILE_APP_ANDROID_URL, "android"),
+            ios: parseStoreLink(process.env.MOBILE_APP_IOS_URL, "ios"),
+          }}
+        />
+        <AppUpdatePrompt lang={lang} />
         {homeDiscovery.enabled ? <MobileShopNav lang={lang} signedIn={Boolean(user)} cartCount={cartCount} cartTotalPaise={cartTotalPaise} /> : null}
       </body>
     </html>

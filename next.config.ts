@@ -108,6 +108,11 @@ const BROWSER_OCR_FILES = [
 const nextConfig: NextConfig = {
   // No "X-Powered-By: Next.js": responses do not advertise the framework (TC-SEC-010).
   poweredByHeader: false,
+  // docs/app-install-2026-10: one value per build, fixed into the bundle. The service worker
+  // (src/app/sw.js/route.ts) carries it, so each deploy is a new worker the installed app picks up.
+  env: {
+    GK_BUILD_VERSION: process.env.GK_BUILD_VERSION ?? process.env.GITHUB_SHA?.slice(0, 12) ?? new Date().toISOString(),
+  },
   experimental: {
     // `next build` starts one worker per CPU minus one, and every worker loads
     // Next's SWC binary, which starts one thread per CPU of its own. Hostinger's

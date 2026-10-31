@@ -37,6 +37,7 @@ import {
   type BridgeError,
   type BridgeMessage,
 } from "./bridge";
+import { watchForUpdates } from "./app-update";
 import { buildBridgeScript } from "./bridge-script";
 import { APP_VERSION, COLORS, SITE_URL, UA_TOKEN } from "./config";
 import { notificationTarget, sitePageUrl as siteLink } from "./deep-links";
@@ -217,6 +218,9 @@ function Shell() {
       }),
     [navigate],
   );
+
+  // docs/app-install-2026-10: offer a newer app build at launch and when the app comes back.
+  useEffect(() => watchForUpdates(), []);
 
   useEffect(() => {
     if (Platform.OS !== "android") return;
