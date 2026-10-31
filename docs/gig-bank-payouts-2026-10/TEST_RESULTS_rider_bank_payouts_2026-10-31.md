@@ -1,6 +1,6 @@
 # Test results — rider bank account, withdrawals, monthly payout
 
-31 Oct 2026 · branch `feat/gig-bank-payouts` · migration 0123 (written as 0121, renumbered after #306 and #307 merged) ·
+31 Oct 2026 · branch `feat/gig-bank-payouts`, PR #309 into staging · migration 0123 (written as 0121, renumbered after #306 and #307 merged) ·
 docs: [README.md](README.md), [FINDINGS.md](FINDINGS.md)
 
 ## Environment
