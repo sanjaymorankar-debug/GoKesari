@@ -52,6 +52,8 @@ qa("SC-GW", "gig worker flow: register, KYC, police verification, availability, 
   check(6, "shop A has a pinned location", Number.isFinite(shopLat) && Number.isFinite(shopLng), { shopLat, shopLng });
 
   try {
+    // Earlier QA runs may have left customer2 acting as another of its roles; applying is a customer's step.
+    await call(rider, "PUT", "/api/me/roles", { role: "CUSTOMER" });
     /* ---------------------------------------------------- 1 + 4: registration */
     let me = await call(rider, "GET", "/api/delivery-partner/me");
     const mobile = freshMobile();
@@ -95,6 +97,15 @@ qa("SC-GW", "gig worker flow: register, KYC, police verification, availability, 
       await p.getByRole("button", { name: /Share my location/ }).click();
       await p.getByTestId("location-shared").waitFor({ timeout: 20_000 });
       check(4, "location shared from the device on the form", true, await p.getByTestId("location-shared").innerText());
+      // A refused field keeps everything typed, with the message on the field (GW_SKIP_REFUSAL_CHECK=1
+      // skips it against a build from before that fix).
+      if (!process.env.GW_SKIP_REFUSAL_CHECK) {
+      await p.locator('input[name="addressPincode"]').fill("01234");
+      await p.getByRole("button", { name: /Submit and continue to KYC/ }).click();
+      await p.getByText("Enter your 6-digit PIN code.").first().waitFor({ timeout: 30_000 });
+      check(1, "a refused field shows its message and the form keeps what was typed", (await p.locator('input[name="fullName"]').inputValue()) === "QA Gig Rider");
+      await p.locator('input[name="addressPincode"]').fill("411045");
+      }
       await p.getByRole("button", { name: /Submit and continue to KYC/ }).click();
       await p.waitForURL(/\/delivery-partner\/kyc/, { timeout: 60_000 });
       check(1, "registration submitted through the form; next step is KYC", true, p.url());
