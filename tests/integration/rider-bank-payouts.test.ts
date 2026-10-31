@@ -65,6 +65,8 @@ import { createDeliveryPartner, createUser, resetDatabase } from "../helpers/fix
 let admin: { id: string; role: UserRole };
 // 5 Nov 2026, 09:30 IST: payout time for October.
 const PAYOUT_TIME = new Date("2026-11-05T04:00:00Z");
+// Earnings are dated inside October, so the monthly run picks them up whatever the real date is.
+const EARNED_IN_OCTOBER = new Date("2026-10-20T06:00:00Z");
 
 function signIn(user: { id: string; email: string; name: string | null }, role: UserRole) {
   state.session = { user: { id: user.id, email: user.email, name: user.name, image: null, role, status: "ACTIVE" } };
@@ -107,7 +109,7 @@ async function rider(options: { status?: "APPROVED" | "SUSPENDED"; bank?: "VERIF
 
 async function earn(partnerId: string, ...amounts: number[]) {
   for (const totalPaise of amounts) {
-    await db.insert(deliveryPartnerEarnings).values({ deliveryPartnerId: partnerId, returnPickupId: crypto.randomUUID(), basePaise: totalPaise, distancePaise: 0, totalPaise });
+    await db.insert(deliveryPartnerEarnings).values({ deliveryPartnerId: partnerId, returnPickupId: crypto.randomUUID(), basePaise: totalPaise, distancePaise: 0, totalPaise, createdAt: EARNED_IN_OCTOBER });
   }
 }
 
@@ -328,9 +330,12 @@ describe("monthly payout on the 5th", () => {
     expect(await runMonthlyRiderPayout({ now: new Date(PAYOUT_TIME.getTime() + 3_600_000) })).toMatchObject({ alreadyDone: true, created: 0 });
     signIn(admin as never, "ADMIN");
     const again = await call(adminRunsPost, "/api/admin/rider-payouts/runs", { method: "POST", body: { month: "2026-10" } });
-    // Run for real today (31 Oct 2026): a month is never paid before it is over.
-    expect(again.status).toBe(409);
-    expect(again.body.error.message).toContain("not over yet");
+    expect(again.status).toBe(200);
+    expect(again.body).toMatchObject({ alreadyDone: true, created: 0 });
+    // A month is never paid before it is over.
+    const early = await call(adminRunsPost, "/api/admin/rider-payouts/runs", { method: "POST", body: { month: "2099-12" } });
+    expect(early.status).toBe(409);
+    expect(early.body.error.message).toContain("not over yet");
     expect(await db.select().from(riderBankTransfers)).toHaveLength(1);
     expect(await db.select().from(riderPayoutRuns)).toHaveLength(1);
   });
