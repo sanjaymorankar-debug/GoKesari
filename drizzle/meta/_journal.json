@@ -848,6 +848,13 @@
       "when": 1793161900000,
       "tag": "0120_shop_registration_flow",
       "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1793162000000,
+      "tag": "0121_app_install_states",
+      "breakpoints": true
     }
   ]
 }

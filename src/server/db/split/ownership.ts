@@ -286,6 +286,8 @@ export const TABLE_OWNERSHIP = {
   // docs/homepage-uiux-2026-10: home hero banners and the header search log.
   home_banners: "platform",
   search_queries: "platform",
+  // docs/app-install-2026-10: the install prompt's per-person record (declines, installed platforms).
+  app_install_states: "platform",
   /* <<< end WS-F */
   //
   /* >>> purchase lists (docs/purchase-lists-2026-10): a customer's weekly / monthly lists, next to carts */

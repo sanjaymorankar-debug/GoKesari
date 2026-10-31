@@ -7,6 +7,16 @@ import type { MetadataRoute } from "next";
  * mobile/README.md); Chrome on Android offers "Install app". The colours match
  * the root layout's theme colour and the page background.
  */
+/** The site's own address (AUTH_URL), when it is a valid https origin. */
+const SITE_ORIGIN = (() => {
+  try {
+    const url = new URL(process.env.AUTH_URL ?? "");
+    return url.protocol === "https:" ? url.origin : null;
+  } catch {
+    return null;
+  }
+})();
+
 export default function manifest(): MetadataRoute.Manifest {
   return {
     id: "/",
@@ -32,6 +42,9 @@ export default function manifest(): MetadataRoute.Manifest {
       enctype: "multipart/form-data",
       params: { title: "title", text: "text", files: [{ name: "file", accept: ["application/pdf", "image/*", "application/json", ".json", ".xlsx", ".xls", ".csv"] }] },
     },
+    // docs/app-install-2026-10: lets Chrome on Android tell the site the installed web app is on
+    // this phone (navigator.getInstalledRelatedApps), so the install prompt stops there.
+    ...(SITE_ORIGIN ? { related_applications: [{ platform: "webapp", url: `${SITE_ORIGIN}/manifest.webmanifest` }] } : {}),
     shortcuts: [{ name: "Scan a supplier bill", short_name: "Scan bill", url: "/shop/accounts/capture?mode=scan" }],
   };
 }

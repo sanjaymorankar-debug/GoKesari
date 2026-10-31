@@ -112,7 +112,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   // 1.3.0: the website's new home (docs/homepage-uiux-2026-10 at the repository root) — voice search
   // on iPhone (microphone and speech-recognition descriptions below; the site shows the mic only to
   // 1.3.0 and later), "compare prices" links open in the app, white strip under the bottom navigation.
-  version: "1.3.0",
+  // 1.4.0: update check (docs/app-install-2026-10 at the repository root) — at launch and when the app
+  // comes back, the app asks the website for the newest build (and, once listed, the App Store) and
+  // offers "Update", which opens the store listing; below the minimum version the update is required.
+  version: "1.4.0",
   scheme: variant.scheme,
   orientation: "default",
   icon: "./assets/icon.png",
@@ -121,7 +124,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     bundleIdentifier: variant.appId,
     // Local builds (the GitHub workflows); EAS store builds number themselves (eas.json appVersionSource "remote").
-    buildNumber: "4",
+    buildNumber: "5",
     supportsTablet: true,
     associatedDomains: [`applinks:${variant.host}`],
     config: { usesNonExemptEncryption: false },
@@ -138,7 +141,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: variant.appId,
-    versionCode: 4,
+    versionCode: 5,
     ...(GOOGLE_SERVICES_JSON ? { googleServicesFile: GOOGLE_SERVICES_JSON } : {}),
     adaptiveIcon: {
       foregroundImage: "./assets/android-icon-foreground.png",
