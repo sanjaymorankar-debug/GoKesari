@@ -377,8 +377,8 @@ export function parseDigilockerSession(data: unknown, providerRef: string | null
 
 export function parseDigilockerStatus(body: unknown): DigilockerSessionState {
   if (!isObject(body)) throw new KycConfigError("unexpected_response", "Sandbox DigiLocker status response was not an object.");
-  const { sessionId: _sessionId, ...state } = parseDigilockerSession(body.data, str(body.transaction_id));
-  return state;
+  const { status, documentsConsented, providerRef } = parseDigilockerSession(body.data, str(body.transaction_id));
+  return { status, documentsConsented, providerRef };
 }
 
 /** GET …/documents/aadhaar → `data.files[]`; the UIDAI XML link, if there is one. */
