@@ -3,23 +3,23 @@
 Branch `feat/gig-worker-flow`, PR [#306](https://github.com/sanjaymorankar-debug/GoKesari/pull/306) into `staging`.
 Feature description: [README.md](README.md). Audit: [AUDIT_2026-10-31.md](AUDIT_2026-10-31.md).
 
-_Status of this report (31 Oct 2026, 16:00 IST): unit/integration, CI and the Test site complete; production waits for the owner's release window (§5)._
+_Status of this report (31 Oct 2026, 17:25 IST): complete — unit/integration, CI, the Test site and the production release with its smoke tests._
 
 ## 1. Summary
 
 | # | Feature | Unit / integration | Test site (test.gokesari.com) | Production smoke |
 |---|---|---|---|---|
-| 1 | Registration with personal details | PASS (3 cases) | PASS (after fix D-11) | Not yet released |
-| 2 | PAN and Aadhaar authorisation | PASS (6 cases) | PASS — provider answers settled by admin (Test keys) | Not yet released |
-| 3 | Police verification + character certificate | PASS (2 cases) | PASS | Not yet released |
-| 4 | Location at registration | PASS (1 case) | PASS | Not yet released |
-| 5 | Offline / Active / Ready toggle | PASS (3 cases) | PASS (after fix D-12) | Not yet released |
-| 6 | Zoning 3–5 km on the live location | PASS (4 cases) | PASS | Not yet released |
-| 7 | Shop view of authorised / blocked societies | PASS (2 cases) | PASS | Not yet released |
-| 8 | Partner identity hidden for blocked societies | PASS (2 cases) | PASS | Not yet released |
-| 9 | Confirm picked up | PASS (2 cases) | PASS | Not yet released |
-| 10 | Confirm delivered | PASS (2 cases) | PASS | Not yet released |
-| 11 | Completed + notify | PASS (2 cases) | PASS in-app; SMS queued, no SMS provider on Test | Not yet released |
+| 1 | Registration with personal details | PASS (3 cases) | PASS (after fix D-11) | PASS (released 31 Oct, smoke §5) |
+| 2 | PAN and Aadhaar authorisation | PASS (6 cases) | PASS — provider answers settled by admin (Test keys) | PASS (released 31 Oct, smoke §5) |
+| 3 | Police verification + character certificate | PASS (2 cases) | PASS | PASS (released 31 Oct, smoke §5) |
+| 4 | Location at registration | PASS (1 case) | PASS | PASS (released 31 Oct, smoke §5) |
+| 5 | Offline / Active / Ready toggle | PASS (3 cases) | PASS (after fix D-12) | PASS (released 31 Oct, smoke §5) |
+| 6 | Zoning 3–5 km on the live location | PASS (4 cases) | PASS | PASS (released 31 Oct, smoke §5) |
+| 7 | Shop view of authorised / blocked societies | PASS (2 cases) | PASS | PASS (released 31 Oct, smoke §5) |
+| 8 | Partner identity hidden for blocked societies | PASS (2 cases) | PASS | PASS (released 31 Oct, smoke §5) |
+| 9 | Confirm picked up | PASS (2 cases) | PASS | PASS (released 31 Oct, smoke §5) |
+| 10 | Confirm delivered | PASS (2 cases) | PASS | PASS (released 31 Oct, smoke §5) |
+| 11 | Completed + notify | PASS (2 cases) | PASS in-app; SMS queued, no SMS provider on Test | PASS (released 31 Oct, smoke §5) |
 
 ## 2. Unit and integration tests (local, real PostgreSQL)
 
@@ -186,13 +186,37 @@ suspended.
 
 ## 5. Production — gokesari.com
 
-**Not released yet.** Production goes out with the staging → main release (draft PR #302, which
-now carries this work), in a window the owner approves, after "Production database" → migrate
-(source staging) applies 0121 (and 0120 / 0122 from the other staging work). Smoke tests to run
-then (guest tier only on production, no test data): post-deploy check (`/`, `/shops`,
-`/robots.txt`); `/delivery-partner/register` and `/delivery-partner/kyc` → sign-in redirect;
-`/api/delivery-partner/me/kyc`, `/api/admin/rider-kyc-checks`, `/api/admin/rider-background-docs`
-→ 401; `/shop/delivery-partners` answers; the post-deploy check four rounds green.
+Released 31 Oct 2026 with the staging → main release **PR #302** (merge commit `e149af48`,
+11:43 UTC), after the owner's go-ahead, in the order of `docs/event-driven-2026-10/PROD_DB.md`:
+
+| Step | What | Result |
+|---|---|---|
+| In flight? | Open PRs into main: only #302; last Post-deploy check green; no Production database run running; the two other sessions that could release confirmed they were holding (one had made a snapshot and a verify run only) | Clear |
+| CI | #302 on `b913cfb5`: `test` PASS (46 m); `test-split` failed once on the flaky Product Master test `pmd-sources` "reads skipped sheets through…" (fails ~half the time on unchanged code; root cause fixed separately in PR #311), re-run by owner's choice → PASS (31 m); the push run on the same commit PASS both | Green |
+| Backup — database | Neon snapshot branch `pre-release-2026-10-31-302-gig-worker` (br-snowy-thunder-aoktv576) of production `main`, 11:41 UTC (also the earlier `pre-release-2026-10-31-staging-to-main`, 10:09 UTC); the migrate run records its own restore point | Done |
+| Backup — configuration | This release adds no environment variables; the new settings (riderVerification, riderZoning, orderCompletion, deliveryOtp.required) live in the database (in the snapshot) and run on their code defaults. Reading Hostinger's variable list was refused by the session's permission check, so no copy of the names was made | Covered by the snapshot |
+| Migrate | "Production database" run 41197906020 (migrate, source staging): `applied 0121_gig_worker_flow → core`, `applied 0122_app_install_states → core`, split layout 2 applied / 0 repairs; 123 recorded; **Not yet on production: none** | PASS |
+| Merge | #302 marked ready and merged 11:43:19 UTC | Done |
+| Post-deploy check | Run 41198027602: `/`, `/shops`, `/robots.txt` all 200 for 4 rounds in a row (11:47–11:50 UTC) | PASS |
+
+**Production smoke tests** (guest only — no sign-in and no test data on gokesari.com, 11:52 UTC):
+
+| # | Check | Result |
+|---|---|---|
+| 1–4 | `/`, `/shops`, `/robots.txt`, `/signin` → 200 | PASS |
+| 5–8 | `/delivery-partner/register`, `/delivery-partner/kyc`, `/delivery-partner/documents`, `/delivery-partner` → 307 to sign-in (new pages deployed) | PASS |
+| 9 | `/admin/rider-verification` → 307 to sign-in | PASS |
+| 10 | `/shop/delivery-partners` → 200 Seller Central sign-in screen only ("Sign in", page title "Delivery partners · GoKesari Seller Central"), no partner names, IDs or societies | PASS |
+| 11–17 | Partner APIs without a session → 401: `GET /api/delivery-partner/me/kyc`, `POST …/kyc/pan`, `POST …/kyc/aadhaar/otp`, `POST …/kyc/aadhaar/verify`, `GET …/me/background-docs`, `POST /api/delivery-partner`, `PATCH /api/delivery-partner/status` | PASS |
+| 18–23 | Admin and shop APIs without a session → 401: `/api/admin/rider-kyc-checks`, `/api/admin/rider-background-docs`, `/api/admin/rider-background-docs/{id}/file`, `/api/admin/societies-search`, `/api/admin/delivery-partners/{id}/societies`, `/api/shops/{id}/delivery-partners` | PASS |
+
+**23 of 23 passed; no critical defect, no rollback.** Undo, if ever needed: revert the merge on
+`main` (the migrations are additive, so the older code runs on the new schema); database from
+the snapshot branch above or `scripts/rollback-0121.sql`.
+
+Signed-in checks on production (a real partner registering, KYC with the live provider, the
+completion SMS / push) are the owner's to run with real accounts; the site settings for the live
+KYC provider, SMS provider and push are listed as open items in README.md.
 
 ## 6. Defects found and fixed
 
