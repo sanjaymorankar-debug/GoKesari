@@ -83,7 +83,7 @@ async function rowFor(partnerId: string) {
 }
 
 /** Sandbox's webhook: `x-sandbox-signature` = base64 HMAC-SHA256 of the JSON payload. */
-async function webhook(sessionId: string, status: "succeeded" | "failed", signWith = state.webhookSecret) {
+async function webhook(sessionId: string, status: "succeeded" | "failed", signWith: string | null = state.webhookSecret ?? null) {
   const payload = {
     data: { id: sessionId, created_at: Date.now() - 60_000, updated_at: Date.now(), "@entity": "in.co.sandbox.kyc.digilocker.session", status, ...(status === "succeeded" ? { documents_consented: ["aadhaar"] } : {}) },
   };
@@ -147,8 +147,8 @@ describe("Aadhaar by DigiLocker — the happy path", () => {
     expect((await getMyRiderKyc(user.id)).aadhaar).toMatchObject({ status: "VERIFIED", method: "digilocker" });
 
     // The partner was told (they may have closed the page), and the audit says how.
-    const [note] = await db.select().from(notifications).where(eq(notifications.userId, user.id));
-    expect(note?.title).toBe("Your Aadhaar is verified");
+    const notes = await db.select().from(notifications).where(eq(notifications.userId, user.id));
+    expect(notes.map((n) => n.title)).toContain("Your Aadhaar is verified");
     const audits = await db.select().from(auditLogs).where(eq(auditLogs.entityId, partner.id));
     expect(audits.map((a) => (a.newValue as { step?: string } | null)?.step)).toEqual(expect.arrayContaining(["aadhaar_digilocker_start", "aadhaar_digilocker_webhook"]));
   });
@@ -274,7 +274,7 @@ describe("Aadhaar by DigiLocker — webhook, settings, admin", () => {
   it("the webhook refuses unsigned and wrongly signed payloads, and everything when no secret is set", async () => {
     const { user, partner } = await approvedRider();
     const s = await startAndDecide(user.id, "approve");
-    expect((await webhook(s.session, "succeeded", undefined)).status).toBe(401);
+    expect((await webhook(s.session, "succeeded", null)).status).toBe(401);
     expect((await webhook(s.session, "succeeded", "some_other_secret_123456")).status).toBe(401);
     state.webhookSecret = undefined;
     expect((await webhook(s.session, "succeeded")).status).toBe(503);
