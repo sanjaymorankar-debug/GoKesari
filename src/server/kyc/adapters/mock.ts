@@ -16,7 +16,15 @@
  * coverage, see the Part 1 notes) unless the number ends in 2222, which
  * stands in for a registration the vendor can verify.
  */
-import type { AadhaarOtpAdapter, KycAdapter, ProviderOutcome, SourceRecord, VerifyRequest } from "../types";
+import type {
+  AadhaarOtpAdapter,
+  DigilockerAdapter,
+  DigilockerSessionStatus,
+  KycAdapter,
+  ProviderOutcome,
+  SourceRecord,
+  VerifyRequest,
+} from "../types";
 import { KycUnavailableError } from "../types";
 
 const DAY_MS = 86_400_000;
@@ -82,6 +90,7 @@ export function createMockAdapter(now: () => number = Date.now): KycAdapter {
       return { kind: "found", record, providerRef };
     },
     aadhaar: mockAadhaar,
+    digilocker: mockDigilocker,
   };
 }
 
@@ -107,5 +116,101 @@ const mockAadhaar: AadhaarOtpAdapter = {
     if (otp === "000000") return { kind: "expired" };
     if (otp !== MOCK_AADHAAR_OTP) return { kind: "invalid_otp" };
     return { kind: "verified", name: null, providerRef: `mock-${idempotencyKey}` };
+  },
+};
+
+/* ------------------------------------------------------------- DigiLocker */
+
+/**
+ * Gig worker flow: DigiLocker stand-in. startSession links to a local fake
+ * consent page (/kyc-mock/digilocker on the same site as the return link)
+ * whose buttons decide the session:
+ *
+ *   approve   succeeded, Aadhaar shared, no name (nothing to compare)
+ *   mismatch  succeeded, Aadhaar shared under MOCK_DIGILOCKER_OTHER_NAME
+ *   deny      failed (the rider refused consent)
+ *   expire    expired
+ *   down      the vendor stops answering (stays Pending)
+ *
+ * Sessions live in this process's memory (one `next start` per site), so a
+ * restart forgets them: the check then waits until its link expires. No
+ * network call. Never reachable on gokesari.com (kycConfigProblem, and the
+ * page and route refuse when the mock is not the DigiLocker provider).
+ */
+export const MOCK_DIGILOCKER_OTHER_NAME = "SOMEONE ELSE ENTIRELY";
+export const MOCK_DIGILOCKER_LAST4 = "4321";
+export const MOCK_DIGILOCKER_PATH = "/kyc-mock/digilocker";
+export const MOCK_DIGILOCKER_DECISIONS = ["approve", "mismatch", "deny", "expire", "down"] as const;
+export type MockDigilockerDecision = (typeof MOCK_DIGILOCKER_DECISIONS)[number];
+
+interface MockSession {
+  redirectUrl: string;
+  decision: MockDigilockerDecision | null;
+  /** The DigiLocker account the mock "signs in" as: the same holder on two partners is one person. */
+  holderId: string;
+  expiresAt: number;
+}
+
+const store = globalThis as typeof globalThis & { __gokesariMockDigilocker?: Map<string, MockSession> };
+function mockSessions(): Map<string, MockSession> {
+  store.__gokesariMockDigilocker ??= new Map();
+  return store.__gokesariMockDigilocker;
+}
+
+/** Tests only. */
+export function clearMockDigilocker(): void {
+  mockSessions().clear();
+}
+
+/** The consent page's buttons. Returns where to send the rider next, or null for an unknown session. */
+export function decideMockDigilocker(sessionId: string, decision: MockDigilockerDecision, holderId?: string): string | null {
+  const session = mockSessions().get(sessionId);
+  if (!session) return null;
+  session.decision = decision;
+  if (holderId) session.holderId = holderId;
+  return session.redirectUrl;
+}
+
+export function mockDigilockerSessionExists(sessionId: string): boolean {
+  return mockSessions().has(sessionId);
+}
+
+function mockStatus(session: MockSession, now: number): DigilockerSessionStatus {
+  if (session.decision === "approve" || session.decision === "mismatch") return "succeeded";
+  if (session.decision === "deny") return "failed";
+  if (session.decision === "expire" || now > session.expiresAt) return "expired";
+  return "created";
+}
+
+const mockDigilocker: DigilockerAdapter = {
+  async startSession(request, idempotencyKey) {
+    const sessionId = `mock-dl-${crypto.randomUUID()}`;
+    mockSessions().set(sessionId, {
+      redirectUrl: request.redirectUrl,
+      decision: null,
+      holderId: `mock-holder-${sessionId.slice(-12)}`,
+      expiresAt: request.consentExpiryMs,
+    });
+    const page = new URL(MOCK_DIGILOCKER_PATH, request.redirectUrl);
+    page.searchParams.set("session", sessionId);
+    return { sessionId, authorizationUrl: page.toString(), providerRef: `mock-${idempotencyKey}` };
+  },
+  async sessionStatus(sessionId) {
+    const session = mockSessions().get(sessionId);
+    if (!session) return null;
+    if (session.decision === "down") throw new KycUnavailableError("source_down", "Mock DigiLocker is down.");
+    const status = mockStatus(session, Date.now());
+    return { status, documentsConsented: status === "succeeded" ? ["aadhaar"] : [], providerRef: `mock-status-${sessionId.slice(-8)}` };
+  },
+  async fetchAadhaar(sessionId) {
+    const session = mockSessions().get(sessionId);
+    if (!session || mockStatus(session, Date.now()) !== "succeeded") return { kind: "session_unusable", providerRef: null };
+    return {
+      kind: "found",
+      name: session.decision === "mismatch" ? MOCK_DIGILOCKER_OTHER_NAME : null,
+      last4: MOCK_DIGILOCKER_LAST4,
+      holderId: session.holderId,
+      providerRef: `mock-doc-${sessionId.slice(-8)}`,
+    };
   },
 };

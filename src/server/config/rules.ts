@@ -1484,14 +1484,23 @@ export const RULES = {
   /* >>> gig worker flow (docs/gig-worker-2026-10) */
   riderVerification: {
     description:
-      "Delivery partner verification (gig worker flow, docs/gig-worker-2026-10). gateAvailability — on: a partner can switch to Active or Ready only once their PAN and Aadhaar are Verified and their police verification form (and, with requireCharacterCertificate, their character certificate) is Approved, unless an admin overrides it for that partner; off: approved partners go online as before. maxDocumentBytes — largest police verification form or character certificate (PDF, JPG or PNG). aadhaarOtpMaxAttempts — wrong Aadhaar OTPs before the partner must ask for a new one.",
+      "Delivery partner verification (gig worker flow, docs/gig-worker-2026-10). gateAvailability — on: a partner can switch to Active or Ready only once their PAN and Aadhaar are Verified and their police verification form (and, with requireCharacterCertificate, their character certificate) is Approved, unless an admin overrides it for that partner; off: approved partners go online as before. maxDocumentBytes — largest police verification form or character certificate (PDF, JPG or PNG). aadhaarOtpMaxAttempts — wrong Aadhaar OTPs before the partner must ask for a new one (legacy OTP method only). aadhaarMethod — \"digilocker\": the partner shares their Aadhaar from DigiLocker (signs in there with an Aadhaar OTP); \"okyc_legacy\": the old OTP check (offline e-KYC), which Sandbox.co.in has discontinued — keep it only for a vendor that still offers it. Checks already Verified stay valid either way. digilockerProvider — \"kyc_provider\": DigiLocker through KYC_PROVIDER (Sandbox.co.in; Gridlines has none, so the check waits for an admin); \"mock\": a local fake DigiLocker page with Approve / Deny / Expire buttons, for test.gokesari.com and local work (refused on gokesari.com).",
     schema: z.object({
       gateAvailability: z.boolean(),
       requireCharacterCertificate: z.boolean(),
       maxDocumentBytes: int(100_000, 20_000_000),
       aadhaarOtpMaxAttempts: int(1, 10),
+      aadhaarMethod: z.enum(["digilocker", "okyc_legacy"]),
+      digilockerProvider: z.enum(["kyc_provider", "mock"]),
     }),
-    defaults: { gateAvailability: true, requireCharacterCertificate: true, maxDocumentBytes: 5_000_000, aadhaarOtpMaxAttempts: 3 },
+    defaults: {
+      gateAvailability: true,
+      requireCharacterCertificate: true,
+      maxDocumentBytes: 5_000_000,
+      aadhaarOtpMaxAttempts: 3,
+      aadhaarMethod: "digilocker",
+      digilockerProvider: "kyc_provider",
+    },
   },
   riderZoning: {
     description:

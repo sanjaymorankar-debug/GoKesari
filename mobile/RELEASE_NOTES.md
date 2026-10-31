@@ -1,5 +1,39 @@
 # GoKesari app — release notes
 
+## 1.6.0 (Android versionCode 7, iPhone build 7) — 31 Oct 2026
+
+Aadhaar by DigiLocker for delivery partners (docs/gig-worker-2026-10 at the
+repository root, "KYC provider"). Sandbox.co.in discontinued the Aadhaar OTP
+check (UIDAI stopped offline e-KYC); partners now share their Aadhaar from
+DigiLocker.
+
+For the Play Store "What's new" / App Store "What's New in This Version":
+
+> Delivery partners: verify your Aadhaar with DigiLocker — sign in with the OTP
+> sent to your Aadhaar-linked mobile, allow GoKesari to see your Aadhaar, and
+> you're back in the app. GoKesari keeps only your name and the last four
+> digits.
+
+Changes in the app itself:
+- The KYC page's "Verify with DigiLocker" asks the app (bridge:
+  `__gokesariApp.openDigiLocker(url)`) to open DigiLocker in the in-app
+  browser — ASWebAuthenticationSession on iPhone, a Custom Tab on Android —
+  the same way as Google sign-in. Only DigiLocker's own pages (and, on the
+  test site, the website's mock consent page) are opened this way.
+- When the partner finishes or declines, the website's return link hands back
+  to `gokesari://digilocker-return` (`gokesari-preview://…` for the test
+  build); the browser closes and the KYC page re-checks the result. Closing the
+  browser early is handled the same way (the page shows Pending, with
+  "Continue in DigiLocker").
+- The bridge also tells the page the app's URL scheme, so the website starts
+  the DigiLocker session with a return link for this build.
+- Older builds (1.5.0 and before) still work: without `openDigiLocker` the page
+  opens DigiLocker inside the app's WebView and DigiLocker returns to the
+  website's KYC page there.
+- The Sandbox DigiLocker SDK is not used (it needs separate SDK sessions and a
+  native module); no new native dependency — expo-web-browser was already in.
+- Version 1.5.0 → 1.6.0, versionCode / build 6 → 7. No new permissions.
+
 ## 1.5.0 (Android versionCode 6, iPhone build 6) — 31 Oct 2026
 
 Automatic update check, docs/app-install-2026-10 at the repository root.

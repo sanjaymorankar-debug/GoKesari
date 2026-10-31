@@ -33,7 +33,7 @@ import { decryptSecret } from "@/lib/pan-crypto";
 import { resetRateLimits } from "@/server/api/rate-limit";
 import { db } from "@/server/db";
 import { auditLogs, deliveryPartnerBackgroundDocs, deliveryPartnerKycChecks, deliveryPartners } from "@/server/db/schema";
-import { MOCK_AADHAAR_OTP } from "@/server/kyc/adapters/mock";
+import { decideMockDigilocker, MOCK_AADHAAR_OTP } from "@/server/kyc/adapters/mock";
 import {
   approveDeliveryPartner,
   getAvailabilityGate,
@@ -49,6 +49,8 @@ import {
   getMyRiderKyc,
   isRiderKycComplete,
   requestMyAadhaarOtp,
+  startMyAadhaarDigilocker,
+  syncMyAadhaarDigilocker,
   verifyMyPan,
 } from "@/server/services/rider-kyc";
 import { clearRuleCache, setRule } from "@/server/services/settings";
@@ -92,8 +94,10 @@ async function approvedRider(mobile = "9876543210") {
 /** PAN + Aadhaar verified and both documents approved: everything the gate asks for. */
 async function fullyVerified(userId: string, adminActor: { id: string; role: "ADMIN" }) {
   await verifyMyPan(userId, { pan: PAN, consentGiven: true });
-  await requestMyAadhaarOtp(userId, { aadhaar: AADHAAR, consentGiven: true });
-  await confirmMyAadhaarOtp(userId, MOCK_AADHAAR_OTP);
+  // Aadhaar by DigiLocker (the default method), approved on the mock consent page.
+  const started = await startMyAadhaarDigilocker(userId, { consentGiven: true });
+  decideMockDigilocker(new URL(started.url!).searchParams.get("session")!, "approve");
+  await syncMyAadhaarDigilocker(userId);
   for (const type of ["POLICE_VERIFICATION", "CHARACTER_CERTIFICATE"] as const) {
     const doc = await uploadMyBackgroundDoc(userId, "DELIVERY_PARTNER", type, PDF);
     await decideBackgroundDoc(doc.id, "APPROVED", null, adminActor);
@@ -198,6 +202,7 @@ describe("feature 2 — PAN and Aadhaar authorisation", () => {
     const { user } = await approvedRider();
     await expect(verifyMyPan(user.id, { pan: PAN, consentGiven: false })).rejects.toMatchObject({ status: 422 });
     await expect(requestMyAadhaarOtp(user.id, { aadhaar: AADHAAR, consentGiven: false })).rejects.toMatchObject({ status: 422 });
+    await expect(startMyAadhaarDigilocker(user.id, { consentGiven: false })).rejects.toMatchObject({ status: 422 });
     signInAs(user, "DELIVERY_PARTNER");
     expect((await call(panRoute, "/api/delivery-partner/me/kyc/pan", { method: "POST", body: { pan: PAN, consent: false } })).status).toBe(422);
     expect(await db.select().from(deliveryPartnerKycChecks)).toHaveLength(0);
@@ -224,8 +229,9 @@ describe("feature 2 — PAN and Aadhaar authorisation", () => {
     expect(await verifyMyPan(user.id, { pan: "ABCDE7777F", consentGiven: true })).toMatchObject({ status: "PENDING", errorCode: "name_mismatch" });
   });
 
-  it("Aadhaar: OTP, then Verified — and the number is never stored, only masked and tokenised", async () => {
-    const { user, partner } = await approvedRider();
+  it("Aadhaar (legacy OTP method): OTP, then Verified — and the number is never stored, only masked and tokenised", async () => {
+    const { user, partner, adminActor } = await approvedRider();
+    await setRule("riderVerification", { aadhaarMethod: "okyc_legacy" }, adminActor);
     const sent = await requestMyAadhaarOtp(user.id, { aadhaar: "2341 2341 2346", consentGiven: true });
     expect(sent).toMatchObject({ docType: "AADHAAR", status: "PENDING", awaitingOtp: true, numberMasked: "XXXX XXXX 2346" });
 
@@ -263,6 +269,7 @@ describe("feature 2 — PAN and Aadhaar authorisation", () => {
 
   it("too many wrong OTPs lock the attempt; an Aadhaar verified for one partner fails for another; an admin can decide by hand", async () => {
     const first = await approvedRider("9876543210");
+    await setRule("riderVerification", { aadhaarMethod: "okyc_legacy" }, first.adminActor);
     await requestMyAadhaarOtp(first.user.id, { aadhaar: AADHAAR, consentGiven: true });
     await confirmMyAadhaarOtp(first.user.id, "111111");
     await confirmMyAadhaarOtp(first.user.id, "222222");

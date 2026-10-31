@@ -76,8 +76,66 @@ export type ProviderOutcome =
 export interface KycAdapter {
   readonly id: KycProviderId;
   verify(request: VerifyRequest): Promise<ProviderOutcome>;
-  /** Gig worker flow: Aadhaar check by OTP to the Aadhaar-linked mobile. Absent = this vendor can't. */
+  /**
+   * Gig worker flow, legacy: Aadhaar check by OTP to the Aadhaar-linked mobile (offline e-KYC).
+   * Sandbox.co.in stopped it; reachable only with rule riderVerification.aadhaarMethod "okyc_legacy".
+   */
   readonly aadhaar?: AadhaarOtpAdapter;
+  /** Gig worker flow: Aadhaar shared by the rider from DigiLocker. Absent = this vendor can't. */
+  readonly digilocker?: DigilockerAdapter;
+}
+
+/**
+ * Gig worker flow: Aadhaar through DigiLocker (Sandbox.co.in DigiLocker API,
+ * developer.sandbox.co.in/api-reference/kyc/digilocker). The rider signs in to
+ * DigiLocker with an Aadhaar OTP there and consents to share the Aadhaar; we
+ * then read the name, the last four digits and a stable DigiLocker account id.
+ * Never the full number, photo, date of birth, address or the file itself.
+ */
+export type DigilockerSessionStatus = "created" | "succeeded" | "failed" | "expired";
+
+export interface DigilockerStartRequest {
+  /** Our https page DigiLocker sends the rider back to, consent given or not. */
+  redirectUrl: string;
+  /** Unix ms; at least an hour ahead (Sandbox refuses less). */
+  consentExpiryMs: number;
+}
+
+export interface DigilockerSession {
+  sessionId: string;
+  /** The DigiLocker page the rider opens. */
+  authorizationUrl: string;
+  providerRef: string | null;
+}
+
+export interface DigilockerSessionState {
+  status: DigilockerSessionStatus;
+  /** Document types the rider consented to; only on "succeeded". */
+  documentsConsented: string[];
+  providerRef: string | null;
+}
+
+export type DigilockerAadhaarOutcome =
+  | {
+      kind: "found";
+      /** Name on the Aadhaar. */
+      name: string | null;
+      /** Last four digits of the Aadhaar number, when the document shows them. */
+      last4: string | null;
+      /** DigiLocker's own id for the account — the same person on another partner finds it. */
+      holderId: string | null;
+      providerRef: string | null;
+    }
+  /** The rider did not consent to the Aadhaar, or DigiLocker holds none for them. */
+  | { kind: "not_shared"; reason: "no_consent" | "not_in_digilocker"; providerRef: string | null }
+  /** The session can't be used any more (expired, or consent never completed). */
+  | { kind: "session_unusable"; providerRef: string | null };
+
+export interface DigilockerAdapter {
+  startSession(request: DigilockerStartRequest, idempotencyKey: string): Promise<DigilockerSession>;
+  /** Null when the vendor has no such session. */
+  sessionStatus(sessionId: string): Promise<DigilockerSessionState | null>;
+  fetchAadhaar(sessionId: string): Promise<DigilockerAadhaarOutcome>;
 }
 
 /**
