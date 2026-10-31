@@ -852,8 +852,15 @@
     {
       "idx": 121,
       "version": "7",
-      "when": 1793420000000,
-      "tag": "0121_rider_bank_payouts",
+      "when": 1793162000000,
+      "tag": "0121_gig_worker_flow",
+      "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1793162100000,
+      "tag": "0122_rider_bank_payouts",
       "breakpoints": true
     }
   ]

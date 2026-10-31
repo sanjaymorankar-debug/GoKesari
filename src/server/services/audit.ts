@@ -218,6 +218,14 @@ export const AUDIT_ACTIONS = {
   DELIVERY_PARTNER_DOCUMENT_DECIDED: "delivery_partner.document_decided",
   /** C5: an admin opened a rider's identity document. */
   DELIVERY_PARTNER_DOCUMENT_VIEWED: "delivery_partner.document_viewed",
+  /* Gig worker flow (docs/gig-worker-2026-10). Never a document number or a file — masked forms only. */
+  DELIVERY_PARTNER_KYC_CHECKED: "delivery_partner.kyc_checked",
+  DELIVERY_PARTNER_KYC_DECIDED: "delivery_partner.kyc_decided",
+  DELIVERY_PARTNER_BACKGROUND_DOC_UPLOADED: "delivery_partner.background_doc_uploaded",
+  DELIVERY_PARTNER_BACKGROUND_DOC_DECIDED: "delivery_partner.background_doc_decided",
+  DELIVERY_PARTNER_BACKGROUND_DOC_VIEWED: "delivery_partner.background_doc_viewed",
+  DELIVERY_PARTNER_AVAILABILITY_OVERRIDDEN: "delivery_partner.availability_overridden",
+  SOCIETY_PARTNER_ACCESS_CHANGED: "society.partner_access_changed",
 
   /* ------------------------------------ delivery assignment (Part 58, Slice C) */
   DELIVERY_ORDER_OFFERED: "delivery_order.offered",

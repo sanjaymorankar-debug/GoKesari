@@ -2,7 +2,7 @@
 
 Brief: bank account integration for gig workers (customers and delivery
 partners). Audit first: [FINDINGS.md](FINDINGS.md). Branch
-`feat/gig-bank-payouts`, migration `0121_rider_bank_payouts`.
+`feat/gig-bank-payouts`, migration `0122_rider_bank_payouts`.
 
 ## Owner decisions (31 Oct 2026)
 
@@ -77,17 +77,15 @@ differently (tested).
 
 ## Migration and rollback
 
-- `drizzle/0121_rider_bank_payouts.sql` (`-- split: core`): four new tables
+- `drizzle/0122_rider_bank_payouts.sql` (`-- split: core`): four new tables
   (`rider_payout_runs`, `rider_bank_transfers`, `rider_transfer_events`,
   `rider_security_grants`) and three flag rows. Additive only, idempotent, no
   foreign key to a seller table.
 - Applies through the usual "Test database" workflow on a push to `staging`,
   and "Production database" by hand before merging to `main`.
-- Rollback: `scripts/rollback-0121.sql` (flags off and the previous code live
+- Rollback: `scripts/rollback-0122.sql` (flags off and the previous code live
   first; it refuses nothing by itself, so run its in-flight check query first).
-- **Number clash:** two other unmerged branches also add a `0121`
-  (`feat/gig-worker-flow`, the app-install work). Whichever merges second
-  renumbers its file and journal entry to the next free number.
+- Renumbered from 0121 to 0122 on 31 Oct 2026: `feat/gig-worker-flow` merged into `staging` first with its own 0121.
 
 ## Changes to existing files (and why)
 

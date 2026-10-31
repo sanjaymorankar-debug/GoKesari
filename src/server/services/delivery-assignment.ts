@@ -38,8 +38,17 @@ import {
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
-import { ACTIVE_ASSIGNMENT_STATUSES, countActiveAssignments, findEligiblePartnersNearShop } from "./delivery-eligibility";
+import {
+  ACTIVE_ASSIGNMENT_STATUSES,
+  blockedPartnerIds,
+  checkZone,
+  countActiveAssignments,
+  findEligiblePartnersNearShop,
+  getZoningRule,
+  type ZoneCheck,
+} from "./delivery-eligibility";
 import { creditDeliveryEarnings } from "./delivery-earnings";
+import { isPartnerHiddenForOrder, PARTNER_HIDDEN_IN_TEXT } from "./society-partner-access";
 import { updateMyLocation } from "./delivery-partners";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
 import { updateOrderStatus } from "./orders";
@@ -222,7 +231,12 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
     const batching = await getRule("batching");
     const batchCap = batching.enabled ? batching.maxOrdersPerTrip : 0;
     const includeBusyUpTo = Math.max(busyCap, batchCap);
-    const eligible = await findEligiblePartnersNearShop(shopCoords, tx, includeBusyUpTo ? { includeBusyUpTo } : {});
+    // Gig worker flow (features 6 and 8): inside the zone of the shop and the customer, not blocked for the society.
+    const eligible = await findEligiblePartnersNearShop(shopCoords, tx, {
+      ...(includeBusyUpTo ? { includeBusyUpTo } : {}),
+      dropCoords: customerCoords,
+      societyId: order.societyId,
+    });
     const newMember = batchCap ? toMember("new", "OFFERED", order, shop) : null;
     const compatible = new Set<string>();
     if (newMember) {
@@ -257,14 +271,23 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
           id: deliveryPartners.id,
           status: deliveryPartners.status,
           isOnline: deliveryPartners.isOnline,
+          availability: deliveryPartners.availability,
           deletedAt: deliveryPartners.deletedAt,
         })
         .from(deliveryPartners)
         .where(eq(deliveryPartners.id, candidate.partner.id))
         .for("update");
       // TC-DEL-026: re-checked under the lock — a rider suspended (or gone
-      // offline) since the candidate list was read is not offered the order.
-      if (!lockedPartner || lockedPartner.status !== "APPROVED" || !lockedPartner.isOnline || lockedPartner.deletedAt) continue;
+      // offline, or switched to Active) since the candidate list was read is not offered the order.
+      if (
+        !lockedPartner ||
+        lockedPartner.status !== "APPROVED" ||
+        !lockedPartner.isOnline ||
+        lockedPartner.availability !== "READY" ||
+        lockedPartner.deletedAt
+      ) {
+        continue;
+      }
 
       // GA-005: re-check the trip fit under the rider's lock with fresh data.
       let tripMembers: Awaited<ReturnType<typeof loadRiderMembers>> | null = null;
@@ -480,9 +503,9 @@ async function deliveryEventContext(
   orderId: string,
   partnerId: string | null,
   client: DbClient = db,
-): Promise<Omit<DeliveryEventPayload, "reason"> & { riderName: string | null; shopName: string }> {
+): Promise<Omit<DeliveryEventPayload, "reason"> & { riderName: string | null; shopRiderName: string | null; shopName: string }> {
   const [row] = await client
-    .select({ orderNumber: orders.orderNumber, buyerId: orders.userId, shopOwnerId: shops.ownerId, shopName: shops.name })
+    .select({ orderNumber: orders.orderNumber, buyerId: orders.userId, shopOwnerId: shops.ownerId, shopName: shops.name, societyId: orders.societyId })
     .from(orders)
     .innerJoin(shops, eq(shops.id, orders.shopId))
     .where(eq(orders.id, orderId));
@@ -492,6 +515,8 @@ async function deliveryEventContext(
         .from(deliveryPartners)
         .where(eq(deliveryPartners.id, partnerId))
     : [];
+  // Gig worker flow (feature 8): the shop never hears the name of a partner blocked for the order's society.
+  const hiddenFromShop = rider ? await isPartnerHiddenForOrder({ societyId: row?.societyId ?? null }, partnerId, client) : false;
   return {
     orderId,
     orderNumber: row?.orderNumber ?? "",
@@ -500,13 +525,15 @@ async function deliveryEventContext(
     shopName: row?.shopName ?? "the shop",
     riderUserId: rider?.userId ?? null,
     riderName: rider?.name ?? null,
+    shopRiderName: hiddenFromShop ? PARTNER_HIDDEN_IN_TEXT : (rider?.name ?? null),
   };
 }
 
 /** Event layer: what the order's own events say about the rider. */
-const riderFacts = (ctx: { riderUserId: string | null; riderName: string | null }) => ({
+const riderFacts = (ctx: { riderUserId: string | null; riderName: string | null; shopRiderName?: string | null }) => ({
   riderUserId: ctx.riderUserId,
   riderName: ctx.riderName ?? "Your rider",
+  shopRiderName: ctx.shopRiderName ?? null,
 });
 
 /**
@@ -569,7 +596,14 @@ export async function acceptOfferInTransaction(
   // delivery row first, then the rider, as every delivery change locks them),
   // so a suspension committed before this accept always wins.
   const [rider] = await tx
-    .select({ status: deliveryPartners.status, deletedAt: deliveryPartners.deletedAt })
+    .select({
+      status: deliveryPartners.status,
+      deletedAt: deliveryPartners.deletedAt,
+      lastLocationLatitude: deliveryPartners.lastLocationLatitude,
+      lastLocationLongitude: deliveryPartners.lastLocationLongitude,
+      lastLocationAt: deliveryPartners.lastLocationAt,
+      operatingRadiusKm: deliveryPartners.operatingRadiusKm,
+    })
     .from(deliveryPartners)
     .where(eq(deliveryPartners.id, updated.deliveryPartnerId))
     .for("update");
@@ -577,11 +611,26 @@ export async function acceptOfferInTransaction(
     throw conflict("Your delivery partner account is not active, so you cannot accept deliveries. Contact support if you think this is wrong.");
   }
 
-  const [order] = await tx.select({ status: orders.status }).from(orders).where(eq(orders.id, row.orderId));
+  const [order] = await tx
+    .select({ status: orders.status, societyId: orders.societyId, shopId: orders.shopId, deliveryAddressSnapshot: orders.deliveryAddressSnapshot })
+    .from(orders)
+    .where(eq(orders.id, row.orderId));
   // Only a READY order can take a rider — not one the shop has already
   // sent out itself, cancelled, or given to another rider.
   if (order?.status !== "READY") {
     throw conflict("This order is no longer waiting for a rider.");
+  }
+  // Gig worker flow (features 6 and 8): the zone and the society block are checked again at the
+  // moment of acceptance, on the rider's live location — an offer seen a while ago may be stale.
+  if ((await blockedPartnerIds(order.societyId, tx)).has(updated.deliveryPartnerId)) {
+    throw conflict("You can't take deliveries to this society. The order will go to another rider.");
+  }
+  const [orderShop] = await tx.select({ latitude: shops.latitude, longitude: shops.longitude }).from(shops).where(eq(shops.id, order.shopId));
+  const pickup = parseCoordinates(orderShop?.latitude ?? null, orderShop?.longitude ?? null);
+  if (pickup) {
+    const drop = parseCoordinates(order.deliveryAddressSnapshot?.latitude ?? null, order.deliveryAddressSnapshot?.longitude ?? null);
+    const zone = checkZone(rider, pickup, drop, await getZoningRule());
+    if (!zone.ok) throw conflict(ZONE_MESSAGES[zone.reason ?? "PICKUP_TOO_FAR"], { reason: zone.reason });
   }
   const ctx = await deliveryEventContext(row.orderId, row.deliveryPartnerId, tx);
   await emitEvent(
@@ -843,14 +892,18 @@ export async function markDelivered(
 export async function startDelivery(deliveryOrderId: string, actor: Actor): Promise<DeliveryOrder> {
   const row = await loadOwnDeliveryOrder(deliveryOrderId, actor.id);
   // A fresh code for this drop: only its hash is stored; the code itself is
-  // emailed to the customer once the drop has started (below).
-  const code = generateDeliveryCode();
+  // emailed to the customer once the drop has started (below). Gig worker
+  // flow (feature 10): with rule deliveryOtp.required off no code is issued,
+  // so the rider marks the drop delivered without one (photo proof follows
+  // its own rule, deliveryProof.photoRequired).
+  const codeRequired = (await getRule("deliveryOtp")).required;
+  const code = codeRequired ? generateDeliveryCode() : null;
   const started = await db.transaction(async (tx) => {
     const [updated] = await tx
       .update(deliveryOrders)
       .set({
         outForDeliveryAt: new Date(),
-        ...freshCodeFields(deliveryOrderId, code),
+        ...(code ? freshCodeFields(deliveryOrderId, code) : {}),
         updatedAt: new Date(),
       })
       .where(
@@ -881,21 +934,23 @@ export async function startDelivery(deliveryOrderId: string, actor: Actor): Prom
       },
       tx,
     );
-    await recordAudit(
-      {
-        actorId: actor.id,
-        actorRole: actor.role,
-        action: AUDIT_ACTIONS.DELIVERY_CODE_SENT,
-        entityType: "delivery_order",
-        entityId: deliveryOrderId,
-        newValue: { reason: "drop_started" },
-      },
-      tx,
-    );
+    if (code) {
+      await recordAudit(
+        {
+          actorId: actor.id,
+          actorRole: actor.role,
+          action: AUDIT_ACTIONS.DELIVERY_CODE_SENT,
+          entityType: "delivery_order",
+          entityId: deliveryOrderId,
+          newValue: { reason: "drop_started" },
+        },
+        tx,
+      );
+    }
     return updated;
   });
   // After commit; never fails the start (the customer can get a new code).
-  await sendDeliveryCodeToBuyer(row.orderId, code);
+  if (code) await sendDeliveryCodeToBuyer(row.orderId, code);
   return started;
 }
 
@@ -1603,12 +1658,25 @@ export async function expireStaleOffers(): Promise<number> {
  * change has committed — from then on the rider cannot accept anyway
  * (acceptOfferInTransaction), and an offer left here by a crash simply expires.
  */
-export async function withdrawPartnerOffers(partnerId: string, reason: string, actor: DispatchActor): Promise<number> {
+export async function withdrawPartnerOffers(
+  partnerId: string,
+  reason: string,
+  actor: DispatchActor,
+  /** Gig worker flow: only these delivery rows (e.g. a society block); all the rider's offers when omitted. */
+  onlyDeliveryOrderIds?: string[],
+): Promise<number> {
   const now = new Date();
+  if (onlyDeliveryOrderIds && onlyDeliveryOrderIds.length === 0) return 0;
   const withdrawn = await db
     .update(deliveryOrders)
     .set({ status: "CANCELLED", cancelledAt: now, cancellationReason: reason, updatedAt: now })
-    .where(and(eq(deliveryOrders.deliveryPartnerId, partnerId), eq(deliveryOrders.status, "OFFERED")))
+    .where(
+      and(
+        eq(deliveryOrders.deliveryPartnerId, partnerId),
+        eq(deliveryOrders.status, "OFFERED"),
+        onlyDeliveryOrderIds ? inArray(deliveryOrders.id, onlyDeliveryOrderIds) : undefined,
+      ),
+    )
     .returning();
 
   for (const row of withdrawn) {
@@ -1634,6 +1702,82 @@ export async function withdrawPartnerOffers(partnerId: string, reason: string, a
     });
   }
   return withdrawn.length;
+}
+
+/** What a rider is told when an offer is outside the zone (gig worker flow, feature 6). */
+export const ZONE_MESSAGES: Record<NonNullable<ZoneCheck["reason"]>, string> = {
+  NO_LIVE_LOCATION: "We can't see your live location. Turn on location and try again.",
+  STALE_LOCATION: "Your location hasn't updated recently. Keep the app open with location on, then try again.",
+  PICKUP_TOO_FAR: "You're too far from the shop for this order now. It will go to a rider nearer the pickup.",
+  DROP_TOO_FAR: "You're too far from the customer's address for this order now. It will go to a nearer rider.",
+};
+
+/**
+ * Gig worker flow (feature 6): on every location update the rider's offers
+ * not yet accepted are checked against the zone again from the new live
+ * position; any now out of range is withdrawn and goes to the next rider
+ * (the rider is not marked as having declined it). Accepted and picked-up
+ * deliveries stay with the rider. Returns how many were withdrawn.
+ */
+export async function withdrawOutOfZoneOffers(partnerId: string, at: { latitude: number; longitude: number }): Promise<number> {
+  const rule = await getZoningRule();
+  if (!rule.enabled) return 0;
+  const open = await db
+    .select({
+      id: deliveryOrders.id,
+      orderId: deliveryOrders.orderId,
+      shopLatitude: shops.latitude,
+      shopLongitude: shops.longitude,
+      address: orders.deliveryAddressSnapshot,
+      operatingRadiusKm: deliveryPartners.operatingRadiusKm,
+    })
+    .from(deliveryOrders)
+    .innerJoin(orders, eq(orders.id, deliveryOrders.orderId))
+    .innerJoin(shops, eq(shops.id, orders.shopId))
+    .innerJoin(deliveryPartners, eq(deliveryPartners.id, deliveryOrders.deliveryPartnerId))
+    .where(and(eq(deliveryOrders.deliveryPartnerId, partnerId), eq(deliveryOrders.status, "OFFERED")));
+  let withdrawn = 0;
+  const now = new Date();
+  for (const offer of open) {
+    const pickup = parseCoordinates(offer.shopLatitude, offer.shopLongitude);
+    if (!pickup) continue;
+    const drop = parseCoordinates(offer.address?.latitude ?? null, offer.address?.longitude ?? null);
+    const zone = checkZone(
+      { lastLocationLatitude: String(at.latitude), lastLocationLongitude: String(at.longitude), lastLocationAt: now, operatingRadiusKm: offer.operatingRadiusKm },
+      pickup,
+      drop,
+      rule,
+      now,
+    );
+    if (zone.ok) continue;
+    const reason = `Rider left the delivery zone (${zone.reason === "DROP_TOO_FAR" ? "too far from the customer" : "too far from the shop"}).`;
+    const [row] = await db
+      .update(deliveryOrders)
+      .set({ status: "CANCELLED", cancelledAt: now, cancellationReason: reason, updatedAt: now })
+      .where(and(eq(deliveryOrders.id, offer.id), eq(deliveryOrders.status, "OFFERED"), eq(deliveryOrders.deliveryPartnerId, partnerId)))
+      .returning();
+    if (!row) continue;
+    withdrawn += 1;
+    await recordAudit({
+      action: AUDIT_ACTIONS.DELIVERY_ORDER_CANCELLED,
+      entityType: "delivery_order",
+      entityId: row.id,
+      previousValue: { status: "OFFERED", deliveryPartnerId: partnerId },
+      newValue: { status: "CANCELLED", reason, distanceToShopKm: zone.distanceToShopKm, distanceToDropKm: zone.distanceToDropKm },
+    });
+    await emitEvent({
+      type: "delivery.cancelled",
+      subjectId: row.id,
+      orderId: row.orderId,
+      transition: { from: "OFFERED", to: "CANCELLED" },
+      actor: { id: null, role: null },
+      payload: { ...(await deliveryEventContext(row.orderId, partnerId)), reason },
+    }).catch((error) => console.error("[delivery] out-of-zone event failed", row.id, error));
+    await dispatchReadyOrder(row.orderId, { id: null, role: null }, "REOFFER").catch((error) => {
+      console.error("[delivery] re-offer after leaving the zone failed", row.orderId, error);
+    });
+  }
+  return withdrawn;
 }
 
 /** Cron sweep: expire stale offers, then retry every READY order that has no rider working on it. */
@@ -1805,6 +1949,8 @@ export interface ActiveDeliveryDetail extends RiderDeliveryView {
   /** NEW-007: a photo at the door is needed before "Mark delivered", and whether one is in. */
   proofRequired: boolean;
   proofUploaded: boolean;
+  /** Gig worker flow (feature 9): the optional pickup photo was added. */
+  pickupPhotoUploaded: boolean;
   shopName: string;
   shopAddress: string;
   customerAddress: string | null;
@@ -1889,6 +2035,7 @@ export async function getMyActiveDeliveryDetail(userId: string): Promise<ActiveD
         : null,
     proofRequired: await isDeliveryProofRequired(),
     proofUploaded: await hasDeliveryProof(active.id),
+    pickupPhotoUploaded: await hasDeliveryProof(active.id, "PICKUP"),
     shopName: row.shopName,
     shopAddress,
     customerAddress,

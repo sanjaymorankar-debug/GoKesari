@@ -593,7 +593,7 @@ export const loginOtps = pgTable(
     phoneE164: text("phone_e164"),
     /** Address the code was sent to; codes are looked up by it. Null only on rows from before email login. */
     email: text("email"),
-    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0121 */] }).notNull().default("LOGIN"),
+    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0122 */] }).notNull().default("LOGIN"),
     channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
     codeHash: text("code_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -1216,6 +1216,15 @@ export const deliveryPartners = pgTable(
     email: text("email"),
     dateOfBirth: date("date_of_birth"),
     profilePhotoUrl: text("profile_photo_url"),
+    /* Gig worker flow (0121, feature 1): asked at registration from 31 Oct 2026; null on older rows. */
+    /** One of RIDER_GENDERS in src/lib/gig/registration.ts. */
+    gender: text("gender"),
+    addressLine: text("address_line"),
+    addressCity: text("address_city"),
+    addressPincode: text("address_pincode"),
+    emergencyContactName: text("emergency_contact_name"),
+    emergencyContactMobile: text("emergency_contact_mobile"),
+    emergencyContactRelation: text("emergency_contact_relation"),
 
     /* --------------------------------------------------- KYC — deliberately
      * minimal and all nullable; a partner can register and be reviewed
@@ -1285,6 +1294,18 @@ export const deliveryPartners = pgTable(
     lastLocationLatitude: text("last_location_latitude"),
     lastLocationLongitude: text("last_location_longitude"),
     lastLocationAt: timestamp("last_location_at", { withTimezone: true }),
+    /** When the device location was shared at registration (0121, feature 4). */
+    registrationLocationAt: timestamp("registration_location_at", { withTimezone: true }),
+
+    /* ------------------------------------------- availability (0121, feature 5).
+     * OFFLINE / ACTIVE (on duty, location shared, no new orders) / READY (gets
+     * new offers). `isOnline` is kept equal to availability <> OFFLINE so the
+     * lifecycle trigger and older readers are unchanged. */
+    availability: text("availability", { enum: ["OFFLINE", "ACTIVE", "READY"] }).notNull().default("OFFLINE"),
+    /** Admin override of the KYC / police-verification gate on the toggle. */
+    availabilityOverrideAt: timestamp("availability_override_at", { withTimezone: true }),
+    availabilityOverrideBy: uuid("availability_override_by"),
+    availabilityOverrideReason: text("availability_override_reason"),
 
     createdAt: timestamp("created_at", { withTimezone: true })
       .notNull()
@@ -1301,6 +1322,7 @@ export const deliveryPartners = pgTable(
     // One delivery-partner profile per user account.
     uniqueIndex("delivery_partners_user_id_unique").on(t.userId),
     index("delivery_partners_status_idx").on(t.status),
+    index("delivery_partners_mobile_idx").on(t.mobile),
   ],
 );
 
@@ -1904,6 +1926,8 @@ export const orders = pgTable(
     shopOpenAlertSentAt: timestamp("shop_open_alert_sent_at", { withTimezone: true }),
     /** Society of the delivery address (society rider rules, security, society visibility). */
     societyId: uuid("society_id").references(() => societies.id, { onDelete: "set null" }),
+    /** 0121 (feature 11): the delivered order was confirmed complete; status stays DELIVERED. */
+    completedAt: timestamp("completed_at", { withTimezone: true }),
     /** B2B only: the approved shop buying for its business. Null for PERSONAL. */
     buyerShopId: uuid("buyer_shop_id").references(() => shops.id, { onDelete: "restrict" }),
     subtotalPaise: bigint("subtotal_paise", { mode: "number" }).notNull(),
@@ -2204,6 +2228,8 @@ export const deliveryProofs = pgTable(
     storedImageId: uuid("stored_image_id")
       .notNull()
       .references(() => storedImages.id, { onDelete: "restrict" }),
+    /** 0121 (feature 9): the optional photo at pickup, or the photo at the door. */
+    kind: text("kind", { enum: ["PICKUP", "DELIVERY"] }).notNull().default("DELIVERY"),
     uploadedBy: uuid("uploaded_by").references(() => users.id, { onDelete: "set null" }),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -2872,6 +2898,89 @@ export const deliveryPartnerDocuments = pgTable(
   ],
 );
 export type DeliveryPartnerDocument = typeof deliveryPartnerDocuments.$inferSelect;
+
+/**
+ * Gig worker flow (0121, feature 2): the partner's PAN and Aadhaar checked
+ * with the KYC provider after recorded consent. One row per document type.
+ * The Aadhaar number is never stored — only `numberMasked` and a keyed token
+ * (`numberToken`, HMAC under PAN_ENCRYPTION_KEY); the PAN is AES-256-GCM
+ * ciphertext in `numberEncrypted`. A database check refuses an Aadhaar row
+ * with a stored number.
+ */
+export const deliveryPartnerKycChecks = pgTable(
+  "delivery_partner_kyc_checks",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deliveryPartnerId: uuid("delivery_partner_id")
+      .notNull()
+      .references(() => deliveryPartners.id, { onDelete: "cascade" }),
+    docType: text("doc_type", { enum: ["PAN", "AADHAAR"] }).notNull(),
+    status: text("status", { enum: ["PENDING", "VERIFIED", "FAILED"] }).notNull().default("PENDING"),
+    numberMasked: text("number_masked").notNull(),
+    numberToken: text("number_token").notNull(),
+    numberEncrypted: text("number_encrypted"),
+    nameOnRecord: text("name_on_record"),
+    nameMatchScore: integer("name_match_score"),
+    provider: text("provider").notNull(),
+    providerRef: text("provider_ref"),
+    /** Aadhaar: the provider's reference for the OTP sent to the Aadhaar-linked mobile. */
+    otpReference: text("otp_reference"),
+    otpRequestedAt: timestamp("otp_requested_at", { withTimezone: true }),
+    otpAttempts: integer("otp_attempts").notNull().default(0),
+    errorCode: text("error_code"),
+    consentVersion: text("consent_version").notNull(),
+    consentGivenAt: timestamp("consent_given_at", { withTimezone: true }).notNull(),
+    consentIp: text("consent_ip"),
+    verifiedAt: timestamp("verified_at", { withTimezone: true }),
+    reviewedBy: uuid("reviewed_by").references(() => users.id, { onDelete: "set null" }),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    reviewNote: text("review_note"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("delivery_partner_kyc_checks_partner_doc_unique").on(t.deliveryPartnerId, t.docType),
+    index("delivery_partner_kyc_checks_token_idx").on(t.docType, t.numberToken),
+    index("delivery_partner_kyc_checks_status_idx").on(t.status),
+  ],
+);
+export type DeliveryPartnerKycCheck = typeof deliveryPartnerKycChecks.$inferSelect;
+
+/**
+ * Gig worker flow (0121, feature 3): police verification form and character
+ * certificate. The file is encrypted (lib/pan-crypto.ts encryptBytes) in the
+ * row — private storage, opened only by an admin, every opening audited.
+ * A new upload of the same type replaces the current one (`replacedAt`).
+ */
+export const deliveryPartnerBackgroundDocs = pgTable(
+  "delivery_partner_background_docs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deliveryPartnerId: uuid("delivery_partner_id")
+      .notNull()
+      .references(() => deliveryPartners.id, { onDelete: "cascade" }),
+    docType: text("doc_type", { enum: ["POLICE_VERIFICATION", "CHARACTER_CERTIFICATE"] }).notNull(),
+    status: text("status", { enum: ["UPLOADED", "UNDER_REVIEW", "APPROVED", "REJECTED"] }).notNull().default("UPLOADED"),
+    rejectionReason: text("rejection_reason"),
+    contentType: text("content_type", { enum: ["application/pdf", "image/jpeg", "image/png"] }).notNull(),
+    sizeBytes: integer("size_bytes").notNull(),
+    sha256: text("sha256").notNull(),
+    dataEncrypted: bytea("data_encrypted").notNull(),
+    uploadedBy: uuid("uploaded_by").references(() => users.id, { onDelete: "set null" }),
+    reviewedBy: uuid("reviewed_by").references(() => users.id, { onDelete: "set null" }),
+    reviewedAt: timestamp("reviewed_at", { withTimezone: true }),
+    replacedAt: timestamp("replaced_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    index("delivery_partner_background_docs_partner_idx").on(t.deliveryPartnerId),
+    uniqueIndex("delivery_partner_background_docs_current_unique")
+      .on(t.deliveryPartnerId, t.docType)
+      .where(sql`${t.replacedAt} IS NULL`),
+  ],
+);
+export type DeliveryPartnerBackgroundDoc = typeof deliveryPartnerBackgroundDocs.$inferSelect;
 
 /* ------------------------------------------------------------- returns
  * Request → validation → approval → pickup → inspection → refund
@@ -4903,6 +5012,35 @@ export const societyRiders = pgTable(
     index("society_riders_partner_idx").on(t.deliveryPartnerId),
   ],
 );
+
+/**
+ * Gig worker flow (0121, features 7 and 8): GoKesari admin's per-society
+ * decision about a delivery partner. AUTHORISED counts as listed for the
+ * society (as society_riders ACTIVE does); BLOCKED keeps the partner off that
+ * society's orders and hides their identity from the shop on any such order.
+ */
+export const societyPartnerAccess = pgTable(
+  "society_partner_access",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    societyId: uuid("society_id")
+      .notNull()
+      .references(() => societies.id, { onDelete: "cascade" }),
+    deliveryPartnerId: uuid("delivery_partner_id")
+      .notNull()
+      .references(() => deliveryPartners.id, { onDelete: "cascade" }),
+    access: text("access", { enum: ["AUTHORISED", "BLOCKED"] }).notNull(),
+    reason: text("reason"),
+    decidedBy: uuid("decided_by").references(() => users.id, { onDelete: "set null" }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("society_partner_access_unique").on(t.societyId, t.deliveryPartnerId),
+    index("society_partner_access_partner_idx").on(t.deliveryPartnerId, t.access),
+  ],
+);
+export type SocietyPartnerAccess = typeof societyPartnerAccess.$inferSelect;
 
 /** Shops a society lists for its residents (society-aware discovery). */
 export const societyShops = pgTable(
@@ -9448,7 +9586,7 @@ export const FEATURE_FLAG_KEYS = [
   "dealer_rating_bonus_enabled",
   "paid_support_services_enabled",
   "shop_onboarding_wizard_enabled",
-  // docs/gig-bank-payouts-2026-10 (0121): rider bank account, withdrawals, monthly payout on the 5th.
+  // docs/gig-bank-payouts-2026-10 (0122): rider bank account, withdrawals, monthly payout on the 5th.
   "rider_bank_account_enabled",
   "rider_withdrawal_enabled",
   "rider_monthly_payout_enabled",
@@ -10383,7 +10521,7 @@ export const supportServiceFiles = pgTable(
 
 /* <<< end dealer programme */
 
-/* >>> rider bank payouts (docs/gig-bank-payouts-2026-10, migration 0121) */
+/* >>> rider bank payouts (docs/gig-bank-payouts-2026-10, migration 0122) */
 
 /**
  * One row per paid month: inserting it is the guard that makes the monthly
