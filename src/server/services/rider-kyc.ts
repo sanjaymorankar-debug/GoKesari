@@ -439,7 +439,8 @@ export async function confirmMyAadhaarOtp(userId: string, otp: string): Promise<
 
 /* ------------------------------------------------------- Aadhaar by DigiLocker */
 
-function siteBase(): string {
+/** The site's public address (AUTH_URL). Behind Hostinger's proxy a request's own origin is the internal 0.0.0.0:3000. */
+export function siteBase(): string {
   return (getEnv().AUTH_URL ?? "https://gokesari.com").replace(/\/+$/, "");
 }
 
