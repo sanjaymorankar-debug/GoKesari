@@ -55,7 +55,11 @@ export function DeliveryPartnerRegisterForm() {
     );
   }
 
-  async function submit(formData: FormData) {
+  // A submit handler, not <form action>: React resets a form after its action runs, which would
+  // wipe everything the partner typed whenever the server refuses a field.
+  async function submit(event: React.FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    const formData = new FormData(event.currentTarget);
     setError(null);
     setFieldErrors({});
     if (location.kind !== "shared") {
@@ -113,7 +117,7 @@ export function DeliveryPartnerRegisterForm() {
 
   return (
     <Card className="p-6">
-      <form action={submit} className="grid gap-4 sm:grid-cols-2" noValidate>
+      <form onSubmit={submit} className="grid gap-4 sm:grid-cols-2" noValidate>
         <div className="sm:col-span-2">
           <h2 className="text-sm font-semibold uppercase tracking-wide text-ink-500">Personal details</h2>
         </div>
