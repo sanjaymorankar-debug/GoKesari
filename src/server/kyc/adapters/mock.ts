@@ -123,7 +123,7 @@ const mockAadhaar: AadhaarOtpAdapter = {
 
 /**
  * Gig worker flow: DigiLocker stand-in. startSession links to a local fake
- * consent page (/kyc-mock/digilocker on the same site as the return link)
+ * consent page (/mobile-auth/digilocker-mock on the same site as the return link)
  * whose buttons decide the session:
  *
  *   approve   succeeded, Aadhaar shared, no name (nothing to compare)
@@ -139,7 +139,7 @@ const mockAadhaar: AadhaarOtpAdapter = {
  */
 export const MOCK_DIGILOCKER_OTHER_NAME = "SOMEONE ELSE ENTIRELY";
 export const MOCK_DIGILOCKER_LAST4 = "4321";
-export const MOCK_DIGILOCKER_PATH = "/kyc-mock/digilocker";
+export const MOCK_DIGILOCKER_PATH = "/mobile-auth/digilocker-mock";
 export const MOCK_DIGILOCKER_DECISIONS = ["approve", "mismatch", "deny", "expire", "down"] as const;
 export type MockDigilockerDecision = (typeof MOCK_DIGILOCKER_DECISIONS)[number];
 

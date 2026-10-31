@@ -80,7 +80,7 @@ export const RIDER_NAME_MATCH_MIN = 80;
 /** Seconds before another Aadhaar OTP may be asked for. */
 export const AADHAAR_OTP_COOLDOWN_SECONDS = 60;
 /** Where DigiLocker sends the partner back (a route: it needs no sign-in, the random key finds the check). */
-export const DIGILOCKER_RETURN_PATH = "/delivery-partner/kyc/digilocker/return";
+export const DIGILOCKER_RETURN_PATH = "/mobile-auth/digilocker-return";
 /** `<scheme>://digilocker-return` — how the return link hands back to the app's in-app browser. */
 export const DIGILOCKER_APP_CALLBACK_HOST = "digilocker-return";
 /**

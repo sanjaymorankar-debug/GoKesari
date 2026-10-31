@@ -165,7 +165,7 @@ describe("Sandbox DigiLocker adapter calls", () => {
 
   it("starts a session with the documented body: Aadhaar only, our return link, consent expiry", async () => {
     const { adapter, seen } = adapterWith(() => respond(200, INIT_OK));
-    const out = await adapter.startSession({ redirectUrl: "https://test.gokesari.com/delivery-partner/kyc/digilocker/return?k=abc", consentExpiryMs: 1_800_000_000_000 }, "idem-1");
+    const out = await adapter.startSession({ redirectUrl: "https://test.gokesari.com/mobile-auth/digilocker-return?k=abc", consentExpiryMs: 1_800_000_000_000 }, "idem-1");
     expect(out.sessionId).toBe(INIT_OK.data.session_id);
     const call = seen.find((s) => s.url.endsWith("/kyc/digilocker/sessions/init"))!;
     expect(call.method).toBe("POST");
@@ -173,7 +173,7 @@ describe("Sandbox DigiLocker adapter calls", () => {
     expect(call.body).toEqual({
       "@entity": "in.co.sandbox.kyc.digilocker.session.request",
       flow: "signin",
-      redirect_url: "https://test.gokesari.com/delivery-partner/kyc/digilocker/return?k=abc",
+      redirect_url: "https://test.gokesari.com/mobile-auth/digilocker-return?k=abc",
       doc_types: ["aadhaar"],
       purpose: "Delivery partner KYC",
       requestor_name: "GoKesari",
@@ -241,18 +241,18 @@ describe("Sandbox webhook signature", () => {
 
 describe("mock DigiLocker", () => {
   const dl = createMockAdapter().digilocker!;
-  const start = () => dl.startSession({ redirectUrl: "http://localhost:3000/delivery-partner/kyc/digilocker/return?k=x", consentExpiryMs: Date.now() + 7_200_000 }, "k");
+  const start = () => dl.startSession({ redirectUrl: "http://localhost:3000/mobile-auth/digilocker-return?k=x", consentExpiryMs: Date.now() + 7_200_000 }, "k");
 
   it("links to the local consent page on the same site; waits until a button is pressed", async () => {
     const s = await start();
-    expect(s.authorizationUrl).toMatch(/^http:\/\/localhost:3000\/kyc-mock\/digilocker\?session=mock-dl-/);
+    expect(s.authorizationUrl).toMatch(/^http:\/\/localhost:3000\/mobile-auth\/digilocker-mock\?session=mock-dl-/);
     expect(await dl.sessionStatus(s.sessionId)).toMatchObject({ status: "created" });
     expect(await dl.sessionStatus("unknown")).toBeNull();
   });
 
   it("approve / mismatch / deny / expire / down", async () => {
     const a = await start();
-    expect(decideMockDigilocker(a.sessionId, "approve")).toContain("/digilocker/return?k=x");
+    expect(decideMockDigilocker(a.sessionId, "approve")).toContain("/mobile-auth/digilocker-return?k=x");
     expect(await dl.sessionStatus(a.sessionId)).toMatchObject({ status: "succeeded", documentsConsented: ["aadhaar"] });
     expect(await dl.fetchAadhaar(a.sessionId)).toMatchObject({ kind: "found", name: null, last4: MOCK_DIGILOCKER_LAST4 });
 

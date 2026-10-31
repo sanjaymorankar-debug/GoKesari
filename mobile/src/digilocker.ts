@@ -18,7 +18,7 @@ import { originOf, parseUrl, queryParam } from "./url";
 const DIGILOCKER_HOSTS = ["digilocker.meripehchaan.gov.in", "digilocker.gov.in"];
 
 /** The website's mock consent page (test site and local work only; the website refuses it on gokesari.com). */
-const MOCK_PATH = "/kyc-mock/digilocker";
+const MOCK_PATH = "/mobile-auth/digilocker-mock";
 
 export const DIGILOCKER_CALLBACK_HOST = "digilocker-return";
 

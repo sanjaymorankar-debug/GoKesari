@@ -1,6 +1,8 @@
 /**
  * Gig worker flow: DigiLocker sends the partner back here, consent given or
- * not. Opened in whatever browser ran DigiLocker — the app's in-app browser is
+ * not. Under /mobile-auth/ — the browser half of the app's in-app-browser
+ * flows, never an App Link / Universal Link — so a phone never hands this
+ * redirect to the app's WebView instead of closing the in-app browser. Opened in whatever browser ran DigiLocker — the app's in-app browser is
  * never signed in — so the random `k` in the link (stored on the check) finds
  * the check; nothing about the partner is shown. The session is settled now
  * (the webhook may also arrive; either is a no-op after the other), then:

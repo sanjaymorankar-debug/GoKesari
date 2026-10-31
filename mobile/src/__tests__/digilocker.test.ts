@@ -10,11 +10,11 @@ describe("1.6.0 — DigiLocker", () => {
   it("opens DigiLocker's own page and the site's mock consent page, nothing else", () => {
     expect(isDigilockerUrl("https://digilocker.meripehchaan.gov.in/public/oauth2/1/authorize?client_id=X", SITE)).toBe(true);
     expect(isDigilockerUrl("https://api.digilocker.gov.in/x", SITE)).toBe(true);
-    expect(isDigilockerUrl(`${SITE}/kyc-mock/digilocker?session=mock-dl-1`, SITE)).toBe(true);
+    expect(isDigilockerUrl(`${SITE}/mobile-auth/digilocker-mock?session=mock-dl-1`, SITE)).toBe(true);
     expect(isDigilockerUrl("http://digilocker.meripehchaan.gov.in/", SITE)).toBe(false);
     expect(isDigilockerUrl("https://digilocker.meripehchaan.gov.in.evil.example/", SITE)).toBe(false);
     expect(isDigilockerUrl(`${SITE}/delivery-partner/kyc`, SITE)).toBe(false);
-    expect(isDigilockerUrl("https://test.gokesari.com/kyc-mock/digilocker", SITE)).toBe(false);
+    expect(isDigilockerUrl("https://test.gokesari.com/mobile-auth/digilocker-mock", SITE)).toBe(false);
     expect(isDigilockerUrl(42, SITE)).toBe(false);
   });
 

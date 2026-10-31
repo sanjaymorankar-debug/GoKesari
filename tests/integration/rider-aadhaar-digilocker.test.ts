@@ -39,7 +39,7 @@ import { POST as startRoute } from "@/app/api/delivery-partner/me/kyc/aadhaar/di
 import { POST as otpRoute } from "@/app/api/delivery-partner/me/kyc/aadhaar/otp/route";
 import { POST as mockDecideRoute } from "@/app/api/kyc-mock/digilocker/route";
 import { POST as webhookRoute } from "@/app/api/webhooks/sandbox-co/digilocker/route";
-import { GET as returnRoute } from "@/app/delivery-partner/kyc/digilocker/return/route";
+import { GET as returnRoute } from "@/app/mobile-auth/digilocker-return/route";
 import { resetRateLimits } from "@/server/api/rate-limit";
 import { db } from "@/server/db";
 import { auditLogs, deliveryPartnerKycChecks, deliveryPartners, notifications } from "@/server/db/schema";
@@ -128,7 +128,7 @@ describe("Aadhaar by DigiLocker — the happy path", () => {
 
     const res = await call(startRoute, "/api/delivery-partner/me/kyc/aadhaar/digilocker", { method: "POST", body: { consent: true } });
     expect(res.status).toBe(200);
-    expect(res.body.url).toMatch(/\/kyc-mock\/digilocker\?session=mock-dl-/);
+    expect(res.body.url).toMatch(/\/mobile-auth\/digilocker-mock\?session=mock-dl-/);
     expect(res.body.check).toMatchObject({ docType: "AADHAAR", status: "PENDING", method: "digilocker", digilockerOpen: true, numberMasked: "XXXX XXXX XXXX", errorCode: "digilocker_started" });
     const pending = await rowFor(partner.id);
     expect(pending).toMatchObject({ method: "digilocker", sessionStatus: "created", consentIp: null });
@@ -158,7 +158,7 @@ describe("Aadhaar by DigiLocker — the happy path", () => {
     const s = await startAndDecide(user.id, "approve");
     const key = (await rowFor(partner.id)).sessionReturnKey!;
 
-    const back = await returnRoute(new NextRequest(`http://localhost/delivery-partner/kyc/digilocker/return?k=${key}`));
+    const back = await returnRoute(new NextRequest(`http://localhost/mobile-auth/digilocker-return?k=${key}`));
     expect(back.status).toBe(303);
     expect(back.headers.get("location")).toBe("http://localhost/delivery-partner/kyc?digilocker=verified");
     const settled = await rowFor(partner.id);
@@ -172,7 +172,7 @@ describe("Aadhaar by DigiLocker — the happy path", () => {
     expect(audits.filter((a) => /digilocker_(return|webhook)/.test((a.newValue as { step?: string } | null)?.step ?? ""))).toHaveLength(1);
 
     // An unknown key reveals nothing and goes to the KYC page.
-    const unknown = await returnRoute(new NextRequest("http://localhost/delivery-partner/kyc/digilocker/return?k=nope"));
+    const unknown = await returnRoute(new NextRequest("http://localhost/mobile-auth/digilocker-return?k=nope"));
     expect(unknown.headers.get("location")).toBe("http://localhost/delivery-partner/kyc?digilocker=unknown");
   });
 
@@ -182,7 +182,7 @@ describe("Aadhaar by DigiLocker — the happy path", () => {
     decideMockDigilocker(sessionOf(s.url!), "deny");
     const key = (await rowFor(partner.id)).sessionReturnKey!;
     expect(key).toMatch(/\.gokesari-preview$/);
-    const back = await returnRoute(new NextRequest(`http://localhost/delivery-partner/kyc/digilocker/return?k=${encodeURIComponent(key)}`));
+    const back = await returnRoute(new NextRequest(`http://localhost/mobile-auth/digilocker-return?k=${encodeURIComponent(key)}`));
     expect(back.headers.get("location")).toBe("gokesari-preview://digilocker-return?result=failed");
     // A scheme that is not one of ours is ignored (browser return).
     const other = await approvedRider("9876543211");

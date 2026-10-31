@@ -182,7 +182,7 @@ qa("SC-GW", "gig worker flow: register, KYC, police verification, availability, 
       reason: dl.body?.check?.reason,
       host: dlUrl ? new URL(dlUrl).host : null,
     });
-    if (dlUrl && dlUrl.includes("/kyc-mock/digilocker")) {
+    if (dlUrl && dlUrl.includes("/mobile-auth/digilocker-mock")) {
       const session = new URL(dlUrl).searchParams.get("session");
       const approved = await call(rider, "POST", "/api/kyc-mock/digilocker", { session, decision: "approve" });
       check(2, "mock DigiLocker consent approved", approved.status === 200 && Boolean(approved.body?.redirectUrl), brief(approved));

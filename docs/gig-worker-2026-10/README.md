@@ -92,7 +92,7 @@ Flow:
    A second tap hands out the same link while it still opens.
 3. The partner signs in to DigiLocker (OTP to the Aadhaar-linked mobile) and
    allows the Aadhaar. DigiLocker sends them to
-   `/delivery-partner/kyc/digilocker/return?k=<random>`; the key finds the
+   `/mobile-auth/digilocker-return?k=<random>`; the key finds the
    check (no sign-in needed — the app's in-app browser has none).
 4. The check is settled by whichever comes first, each re-reading the session
    from Sandbox (`GET …/status`, `…/documents/aadhaar`, `…/user/profile`):
@@ -129,7 +129,7 @@ Providers:
   account and the webhook configured in the Sandbox Console.
 - `mock` — or rule **`riderVerification.digilockerProvider` = `mock`** on any
   non-production site (refused on gokesari.com): a local fake consent page
-  `/kyc-mock/digilocker` with **Approve / Approve – another name / Deny / Let
+  `/mobile-auth/digilocker-mock` with **Approve / Approve – another name / Deny / Let
   the link expire / DigiLocker is down**. Approve verifies with the last four
   digits 4321. Sessions live in the server's memory; a restart forgets them.
 - `gridlines`: no DigiLocker — the check stays Pending with `vendor_unsupported`;
