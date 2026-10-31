@@ -350,8 +350,12 @@ export const RULES = {
       enabled: z.boolean(),
       /** GST rate (basis points) for a product with no rate on record — such lines are marked "rate not set". */
       defaultGstRateBp: int(0, 2800),
+      /** Ad-valorem compensation cess from the listing or the dated HSN table goes on the line (tax-inclusive). Off: no cess, as before. */
+      applyCess: z.boolean(),
+      /** A GST-registered shop's line with no HSN or GST rate: ALLOW (invoiced at the default rate, marked, listed at /admin/product-gst) or BLOCK (checkout refused for it). */
+      missingTaxData: z.enum(["ALLOW", "BLOCK"]),
     }),
-    defaults: { enabled: false, defaultGstRateBp: 0 },
+    defaults: { enabled: false, defaultGstRateBp: 0, applyCess: true, missingTaxData: "ALLOW" as const },
   },
   batching: {
     description:

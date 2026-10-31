@@ -71,7 +71,18 @@ import { fetchImage, ImageFetchError, type ImageFetcher } from "@/server/product
 import { CatalogueMatcher, type ListingRef, type ProductRef } from "@/server/product-import/matcher";
 import { gtinDigits, matchKey } from "@/server/product-import/normalise";
 import { parseImportFile, type ParsedRow } from "@/server/product-import/parse";
-import { buildSimpleTemplate, reportCsv, reportXlsx, TEMPLATE_FILE_NAME } from "@/server/product-import/workbooks";
+import { LOOSE_UNITS, previewChecks, unitFor } from "@/server/product-import/preview-checks";
+import {
+  buildCatalogueWorkbook,
+  buildSimpleTemplate,
+  buildSimpleTemplateCsv,
+  PROBLEM_STATUSES,
+  reportCsv,
+  reportXlsx,
+  TEMPLATE_CSV_FILE_NAME,
+  TEMPLATE_FILE_NAME,
+  type TemplateRow,
+} from "@/server/product-import/workbooks";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { updateShopProduct, uniqueSlug } from "./catalogue";
 import { discardPhotoBlobs, storePhotoBlobs } from "./image-store";
@@ -309,6 +320,7 @@ function planRow(f: ImportFields, mergedFields: ImportFields[], ctx: PlanContext
     fileQtySum: q.sum,
   };
   const base = { action, productId: res.product?.virtual ? null : (res.product?.id ?? listing?.productId ?? null), listingId: listing && !listing.virtual ? listing.id : null };
+  if (action !== "DELETE") messages.push(...previewChecks(f));
   if (q.last != null && !Number.isInteger(q.last)) {
     messages.push(`Quantity ${q.last} has decimals: it applies to a loose product (kg, litre); a packaged product's stock is left unchanged.`);
   }
@@ -712,19 +724,6 @@ interface RowOutcome {
   matchType: StagedRow["matchType"];
 }
 
-const UNIT_MAP: Record<string, string> = {
-  pcs: "piece", pc: "piece", piece: "piece", pieces: "piece", count: "piece", nos: "piece", no: "piece", unit: "piece", units: "piece",
-  kg: "kg", g: "g", gm: "g", gram: "g", grams: "g", l: "L", ltr: "L", litre: "L", liter: "L", ml: "ml", pack: "pack", packet: "pack", box: "pack",
-};
-
-function unitFor(f: ImportFields): string {
-  for (const v of [f.unit, f.unitCountType]) {
-    const key = v?.trim().toLowerCase();
-    if (key && UNIT_MAP[key]) return UNIT_MAP[key];
-  }
-  return "piece";
-}
-
 async function ensureCarried(tx: DbClient, ctx: CommitContext, categoryId: string): Promise<void> {
   if (ctx.carried.has(categoryId)) return;
   await addCategoryToShop(ctx.shop.id, categoryId, ctx.actor, { reason: "bulk_upload", fillInventory: false }, tx);
@@ -937,7 +936,8 @@ async function createProduct(tx: DbClient, ctx: CommitContext, f: ImportFields, 
       description: f.description ?? f.highlight ?? null,
       specifications: f.bullets?.length ? f.bullets.map((b) => `• ${b}`).join("\n") : null,
       brandId,
-      kind: "PACKAGED",
+      // A loose good (Goods Type = Loose, sold by weight or volume); everything else is packaged, as before.
+      kind: f.goodsKind === "LOOSE" && LOOSE_UNITS.has(unitFor(f)) ? "LOOSE" : "PACKAGED",
       gtin,
       barcode: gtin ? null : (f.barcode ?? null),
       variant,
@@ -1489,7 +1489,12 @@ export async function cancelJob(jobId: string, actor: ImportActor): Promise<Impo
   return getJobView(job.id);
 }
 
-export async function buildReport(jobId: string, format: "csv" | "xlsx", actor: ImportActor): Promise<{ fileName: string; contentType: string; bytes: Buffer }> {
+export async function buildReport(
+  jobId: string,
+  format: "csv" | "xlsx",
+  actor: ImportActor,
+  options: { problemsOnly?: boolean } = {},
+): Promise<{ fileName: string; contentType: string; bytes: Buffer }> {
   const job = await loadJobForActor(jobId, actor);
   const rows = await db
     .select({ rowNumber: productImportRows.rowNumber, raw: productImportRows.rawJson, status: productImportRows.status, messages: productImportRows.messages })
@@ -1497,15 +1502,16 @@ export async function buildReport(jobId: string, format: "csv" | "xlsx", actor: 
     .where(eq(productImportRows.jobId, jobId))
     .orderBy(asc(productImportRows.rowNumber));
   const columns = (job.columns as { label: string; key: string | null; id?: string }[]).map((c) => ({ label: c.label, id: c.id ?? c.key ?? c.label }));
-  const input = { columns, rows: rows.map((r) => ({ ...r, raw: r.raw as Record<string, unknown> })) };
-  const base = job.fileName.replace(/\.[^.]+$/, "").replace(/[^\w.-]+/g, "_").slice(0, 80) || "upload";
+  const picked = options.problemsOnly ? rows.filter((r) => PROBLEM_STATUSES.has(r.status)) : rows;
+  const input = { columns, rows: picked.map((r) => ({ ...r, raw: r.raw as Record<string, unknown> })) };
+  const base = (job.fileName.replace(/\.[^.]+$/, "").replace(/[^\w.-]+/g, "_").slice(0, 80) || "upload") + (options.problemsOnly ? "_problems" : "");
   await recordAudit({
     actorId: actor.id,
     actorRole: actor.role,
     action: AUDIT_ACTIONS.PRODUCT_IMPORT_REPORT_DOWNLOADED,
     entityType: "product_import_job",
     entityId: job.id,
-    newValue: { format },
+    newValue: { format, problemsOnly: Boolean(options.problemsOnly) },
   });
   if (format === "csv") return { fileName: `${base}_result.csv`, contentType: "text/csv; charset=utf-8", bytes: reportCsv(input) };
   return {
@@ -1515,8 +1521,93 @@ export async function buildReport(jobId: string, format: "csv" | "xlsx", actor: 
   };
 }
 
-export async function simpleTemplate(): Promise<{ fileName: string; bytes: Buffer }> {
+export async function simpleTemplate(format: "xlsx" | "csv" = "xlsx"): Promise<{ fileName: string; bytes: Buffer }> {
+  if (format === "csv") return { fileName: TEMPLATE_CSV_FILE_NAME, bytes: buildSimpleTemplateCsv() };
   return { fileName: TEMPLATE_FILE_NAME, bytes: await buildSimpleTemplate() };
+}
+
+const rupees = (paise: number | null | undefined) => (paise == null ? null : paise / 100);
+
+/**
+ * "Download my catalogue": every product the shop lists (not removed), in the
+ * template's layout — SKU (the shop's, else the GoKesari product code, which
+ * the upload also matches), MRP for this shop, selling price, stock, HSN, GST.
+ * Edit it and upload it again to change prices and stock in bulk.
+ */
+export async function exportShopCatalogue(
+  shopId: string,
+  format: "xlsx" | "csv",
+  actor: ImportActor,
+): Promise<{ fileName: string; contentType: string; bytes: Buffer; rows: number }> {
+  const { shopName } = await assertImportAccess(shopId, actor);
+  const listed = await db
+    .select({
+      code: products.code,
+      name: products.name,
+      kind: products.kind,
+      unit: products.unit,
+      barcode: products.barcode,
+      gtin: products.gtin,
+      masterHsn: products.hsnCode,
+      masterRate: products.gstRateBp,
+      masterMrp: products.mrpPaise,
+      description: products.description,
+      brand: brands.name,
+      category: productCategories.name,
+      hsn: shopProducts.hsnCode,
+      rate: shopProducts.gstRateBp,
+      price: shopProducts.onlinePricePaise,
+      stock: shopProducts.onlineStock,
+      maxQty: shopProducts.maximumOrderQuantity,
+      sku: shopListingDetails.sellerSku,
+      shopMrp: shopListingDetails.mrpPaise,
+    })
+    .from(shopProducts)
+    .innerJoin(products, eq(products.id, shopProducts.productId))
+    .leftJoin(brands, eq(brands.id, products.brandId))
+    .leftJoin(productCategories, eq(productCategories.id, products.categoryId))
+    .leftJoin(shopListingDetails, eq(shopListingDetails.shopProductId, shopProducts.id))
+    .where(and(eq(shopProducts.shopId, shopId), isNull(shopProducts.deletedAt)))
+    .orderBy(asc(products.name));
+  const rows: TemplateRow[] = listed.map((l) => {
+    const rate = l.rate ?? l.masterRate;
+    return {
+      SKU: l.sku ?? l.code,
+      "Product Name": l.name,
+      Brand: l.brand,
+      Category: l.category,
+      "Barcode Type": l.gtin || l.barcode ? "EAN" : null,
+      Barcode: l.gtin ?? l.barcode,
+      "HSN Code": l.hsn ?? l.masterHsn,
+      "GST %": rate == null ? null : rate / 100,
+      // Loose goods carry no MRP.
+      MRP: l.kind === "LOOSE" ? null : rupees(l.shopMrp ?? l.masterMrp),
+      "Selling Price": rupees(l.price),
+      Quantity: l.stock,
+      Unit: l.unit,
+      "Goods Type": l.kind === "LOOSE" ? "Loose" : "Packaged",
+      Description: l.description,
+      "Max Order Qty": l.maxQty,
+      Action: "Upsert",
+    };
+  });
+  await recordAudit({
+    actorId: actor.id,
+    actorRole: actor.role,
+    action: AUDIT_ACTIONS.PRODUCT_IMPORT_CATALOGUE_EXPORTED,
+    entityType: "shop",
+    entityId: shopId,
+    newValue: { format, rows: rows.length },
+  });
+  const base = `${shopName.replace(/[^\w.-]+/g, "_").slice(0, 60) || "shop"}_catalogue`;
+  return format === "csv"
+    ? { fileName: `${base}.csv`, contentType: "text/csv; charset=utf-8", bytes: await buildCatalogueWorkbook(rows, "csv"), rows: rows.length }
+    : {
+        fileName: `${base}.xlsx`,
+        contentType: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        bytes: await buildCatalogueWorkbook(rows, "xlsx"),
+        rows: rows.length,
+      };
 }
 
 /**
