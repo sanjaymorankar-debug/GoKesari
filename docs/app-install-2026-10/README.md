@@ -27,7 +27,7 @@ the install in its own sheet, on its own rules.
 | Installed, then removed (Android) | Chrome offers the install again; the site sees that, clears its "installed" record and starts prompting again. |
 
 **Signed-in record** (`app_install_states`, core / platform table, migration
-0121): decline count, last decline, platforms installed on. `GET` / `POST
+0122): decline count, last decline, platforms installed on. `GET` / `POST
 /api/app-install`. On iPhone the home-screen app keeps its own storage, so
 opening it once while signed in is what tells Safari (same account) to stop
 prompting; a signed-out iPhone visitor who added the app is still prompted in
@@ -46,7 +46,7 @@ and the old one is deleted when the new version takes over. Only the build's
 static files and icons are cached: pages and API calls always come from the
 network, so prices, stock, orders and sign-in are never stale.
 
-**Native app (mobile/, version 1.4.0).** The pages inside the app are the live
+**Native app (mobile/, version 1.5.0).** The pages inside the app are the live
 website, so most changes reach it with no app update. For a new native build,
 the app checks at launch and when it comes back to the screen (at most every
 6 hours) — `mobile/src/app-update.ts`:
@@ -86,7 +86,7 @@ Set a version only once that build can actually be installed from the URL.
 | Install sheet (Tile Board style) | `src/components/app-install/install-prompt.tsx` |
 | Reload bar + worker registration | `src/components/app-install/update-prompt.tsx` |
 | Service worker | `src/app/sw.js/route.ts` |
-| Account record | `src/server/services/app-install.ts`, `src/app/api/app-install/route.ts`, `drizzle/0121_app_install_states.sql` |
+| Account record | `src/server/services/app-install.ts`, `src/app/api/app-install/route.ts`, `drizzle/0122_app_install_states.sql` |
 | Native update endpoint | `src/app/api/app/version/route.ts` |
 | Native app | `mobile/src/app-update.ts`, `mobile/src/app-update-policy.ts` |
 | Tests | `tests/unit/app-install.test.ts`, `tests/integration/app-install.test.ts`, `mobile/src/__tests__/app-update.test.ts`, `tests/qa/guest/app-install.spec.ts`, `tests/qa/signed-in/app-install.spec.ts` (TC-APP-001 … 013) |

@@ -27,7 +27,7 @@ inside a phone app.
 | Links to gokesari.com (WhatsApp, email…) | Open in the app once [deep links](#deep-links) are set up |
 | No internet | "Can't reach GoKesari" screen with Try again |
 | Android back button | Goes back through pages, then exits |
-| New app build available | From version 1.4.0: at launch and when the app comes back, the app asks the website for the newest build (`GET /api/app/version`; on iPhone the App Store once listed) and offers **Update** — required below the minimum version. Update opens the store listing or APK link and installs over this one. See [docs/app-install-2026-10](../docs/app-install-2026-10/README.md) |
+| New app build available | From version 1.5.0: at launch and when the app comes back, the app asks the website for the newest build (`GET /api/app/version`; on iPhone the App Store once listed) and offers **Update** — required below the minimum version. Update opens the store listing or APK link and installs over this one. See [docs/app-install-2026-10](../docs/app-install-2026-10/README.md) |
 | The website's "Get the app" prompt | Never shown inside the app (the site reads `GoKesariApp/` in the user agent) |
 
 Shop owners' **Inventory & Accounting** (docs/inventory-accounting-2026-10 at

@@ -166,4 +166,4 @@ qa(["TC-APP-009", "TC-APP-011"], "service worker served fresh with a versioned s
 });
 
 manual("TC-APP-010", "a new deploy is picked up by the installed app (Reload bar)", "needs two deploys of the site with the app open between them; checked on the local server by restarting it (new build version) and on each site after its deploy");
-manual("TC-APP-012", "the native app offers a newer build and installs it over the old one", "needs an installed 1.4.0 build on an Android phone and an iPhone, and a higher version published to the store / APK link");
+manual("TC-APP-012", "the native app offers a newer build and installs it over the old one", "needs an installed 1.5.0 build on an Android phone and an iPhone, and a higher version published to the store / APK link");

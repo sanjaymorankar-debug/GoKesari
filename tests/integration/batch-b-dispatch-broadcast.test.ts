@@ -46,7 +46,7 @@ import {
 import { clearRuleCache, setRule } from "@/server/services/settings";
 import { updateOrderStatus } from "@/server/services/orders";
 import { call } from "../helpers/http";
-import { createDeliveryPartner, createOrder, createShop, createUser, resetDatabase } from "../helpers/fixtures";
+import { createDeliveryPartner, createOrder, createShop, createUser, resetDatabase, turnRiderZoningOff } from "../helpers/fixtures";
 
 const SHOP = { latitude: 18.5, longitude: 73.85 };
 const kmNorth = (km: number) => SHOP.latitude + km / 111;
@@ -178,6 +178,8 @@ describe("dispatchBroadcast — on", () => {
   });
 
   it("TC-B26-B-004 the radius widens 2 → 4 → 6 km step by step, then the broadcast expires and the search carries on", async () => {
+    // A 6 km step is wider than the gig worker zone (at most 5 km): zoning off for this one.
+    await turnRiderZoningOff();
     await enableBroadcast();
     const { order, riders } = await staleOffer();
     await runBroadcastSweep();

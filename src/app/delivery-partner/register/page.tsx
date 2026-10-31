@@ -19,7 +19,7 @@ export default async function DeliveryPartnerRegisterPage() {
     <div className="mx-auto max-w-2xl">
       <PageHeader
         title="Delivery Partner Registration"
-        description="Tell us about yourself and your vehicle. You can add or update identity and bank details later."
+        description="Step 1 of 3: your details, vehicle, emergency contact and current location. Next: PAN and Aadhaar verification, then your police verification documents."
       />
       <DeliveryPartnerRegisterForm />
     </div>

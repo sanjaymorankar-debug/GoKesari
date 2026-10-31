@@ -910,7 +910,7 @@ export async function updateOrderStatus(
   note?: string,
   client?: DbClient,
   /** Event layer: extra facts for the order event's notifications (e.g. the rider's name). */
-  event?: Pick<OrderEventPayload, "riderUserId" | "riderName" | "reason">,
+  event?: Pick<OrderEventPayload, "riderUserId" | "riderName" | "shopRiderName" | "reason">,
 ): Promise<Order> {
   const run = async (tx: DbClient): Promise<Order> => {
     const [order] = await tx
@@ -1070,9 +1070,57 @@ export async function updateOrderStatus(
       tx,
     );
 
+    // Gig worker flow (feature 11): a confirmed delivery completes the order in the same
+    // transaction; the confirmations are queued and sent once it commits.
+    if (newStatus === "DELIVERED") {
+      const completed = await completeDeliveredOrder(tx, updated, shop ?? null);
+      if (completed) return completed;
+    }
+
     return updated;
   };
   return client ? run(client) : db.transaction(run);
+}
+
+/**
+ * Marks a delivered order Completed (`completed_at`; the status stays
+ * DELIVERED) and tells the customer and the shop, in the app and — per rule
+ * orderCompletion — by push and SMS. Once per order. Null when the rule is
+ * off or the order was already completed.
+ */
+async function completeDeliveredOrder(
+  tx: DbClient,
+  order: Order,
+  shop: { ownerId: string; name: string } | null,
+): Promise<Order | null> {
+  const rule = await getRule("orderCompletion");
+  if (!rule.enabled) return null;
+  const [completed] = await tx
+    .update(orders)
+    .set({ completedAt: new Date() })
+    .where(and(eq(orders.id, order.id), eq(orders.status, "DELIVERED"), isNull(orders.completedAt)))
+    .returning();
+  if (!completed) return null;
+  const completionChannels: ("PUSH" | "SMS")[] = [...(rule.push ? (["PUSH"] as const) : []), ...(rule.sms ? (["SMS"] as const) : [])];
+  await emitEvent(
+    {
+      type: "order.completed",
+      subjectId: order.id,
+      orderId: order.id,
+      actor: { id: null, role: null },
+      payload: {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        buyerId: order.userId,
+        shopOwnerId: shop?.ownerId ?? null,
+        shopName: shop?.name ?? "the shop",
+        completionChannels,
+      },
+      idempotencyKey: `order-completed:${order.id}`,
+    },
+    tx,
+  );
+  return completed;
 }
 
 export interface CancelOrderOptions {

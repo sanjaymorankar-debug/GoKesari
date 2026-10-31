@@ -15,7 +15,62 @@ import { and, count, eq, inArray, isNull } from "drizzle-orm";
 
 import { haversineDistanceKm, parseCoordinates } from "@/lib/geo/haversine";
 import { db, type DbClient } from "@/server/db";
-import { deliveryOrders, deliveryPartners, type DeliveryPartner } from "@/server/db/schema";
+import { deliveryOrders, deliveryPartners, societyPartnerAccess, type DeliveryPartner } from "@/server/db/schema";
+import type { RuleValue } from "@/server/config/rules";
+import { getRule } from "./settings";
+
+type Coords = { latitude: number; longitude: number };
+type ZoningRule = RuleValue<"riderZoning">;
+
+export interface ZoneCheck {
+  ok: boolean;
+  /** Why not, for the rider or the log: null when ok. */
+  reason: "NO_LIVE_LOCATION" | "STALE_LOCATION" | "PICKUP_TOO_FAR" | "DROP_TOO_FAR" | null;
+  distanceToShopKm: number | null;
+  distanceToDropKm: number | null;
+}
+
+/**
+ * Gig worker flow (feature 6): is this rider's LIVE location (never the
+ * registration address) inside the zone for an order? Pickup within the
+ * platform radius and the rider's own operating radius; drop within the
+ * platform radius (skipped when the address has no coordinates). With the
+ * rule off: the shop-only check of before (the rider's own radius, any age).
+ */
+export function checkZone(
+  partner: Pick<DeliveryPartner, "lastLocationLatitude" | "lastLocationLongitude" | "lastLocationAt" | "operatingRadiusKm">,
+  shopCoords: Coords,
+  dropCoords: Coords | null,
+  rule: ZoningRule,
+  now: Date = new Date(),
+): ZoneCheck {
+  const at = parseCoordinates(partner.lastLocationLatitude, partner.lastLocationLongitude);
+  if (!at) return { ok: false, reason: "NO_LIVE_LOCATION", distanceToShopKm: null, distanceToDropKm: null };
+  const distanceToShopKm = haversineDistanceKm(shopCoords, at);
+  const distanceToDropKm = dropCoords ? haversineDistanceKm(dropCoords, at) : null;
+  const result = (reason: ZoneCheck["reason"]): ZoneCheck => ({ ok: reason === null, reason, distanceToShopKm, distanceToDropKm });
+  if (!rule.enabled) return result(distanceToShopKm > partner.operatingRadiusKm ? "PICKUP_TOO_FAR" : null);
+
+  const ageMs = partner.lastLocationAt ? now.getTime() - partner.lastLocationAt.getTime() : Infinity;
+  if (ageMs > rule.maxLocationAgeMinutes * 60_000) return result("STALE_LOCATION");
+  if (distanceToShopKm > Math.min(rule.radiusKm, partner.operatingRadiusKm)) return result("PICKUP_TOO_FAR");
+  if (distanceToDropKm != null && distanceToDropKm > rule.radiusKm) return result("DROP_TOO_FAR");
+  return result(null);
+}
+
+export async function getZoningRule(): Promise<ZoningRule> {
+  return getRule("riderZoning");
+}
+
+/** Partners GoKesari's admin blocked for this society (features 7 and 8): never offered its orders. */
+export async function blockedPartnerIds(societyId: string | null | undefined, client: DbClient = db): Promise<Set<string>> {
+  if (!societyId) return new Set();
+  const rows = await client
+    .select({ id: societyPartnerAccess.deliveryPartnerId })
+    .from(societyPartnerAccess)
+    .where(and(eq(societyPartnerAccess.societyId, societyId), eq(societyPartnerAccess.access, "BLOCKED")));
+  return new Set(rows.map((r) => r.id));
+}
 
 /** A partner holding any of these on ANY order counts as "busy" — cannot take a new assignment. */
 export const ACTIVE_ASSIGNMENT_STATUSES = ["OFFERED", "ACCEPTED", "PICKED_UP"] as const;
@@ -30,8 +85,9 @@ export async function countActiveAssignments(partnerId: string, client: DbClient
 }
 
 /**
- * Approved, online, not soft-deleted, in-radius, and not already busy —
- * sorted nearest-first. `client` lets a caller already inside a transaction
+ * Approved, Ready (gig worker flow: Active riders get no new orders), not
+ * soft-deleted, inside the zone (`checkZone`), not blocked for the order's
+ * society, and not already busy — sorted nearest-first. `client` lets a caller already inside a transaction
  * (assignNearestPartner) see its own uncommitted locks; omit it for a plain
  * outside-transaction read (the feasibility preview).
  *
@@ -43,23 +99,32 @@ export async function countActiveAssignments(partnerId: string, client: DbClient
 export async function findEligiblePartnersNearShop(
   shopCoords: { latitude: number; longitude: number },
   client: DbClient = db,
-  options: { includeBusyUpTo?: number } = {},
+  options: {
+    includeBusyUpTo?: number;
+    /** Gig worker flow: the delivery address; the rider must be within the zone of it too. */
+    dropCoords?: { latitude: number; longitude: number } | null;
+    /** Gig worker flow: the order's society; partners blocked there are left out. */
+    societyId?: string | null;
+  } = {},
 ): Promise<{ partner: DeliveryPartner; distanceToShopKm: number; activeCount: number }[]> {
   const candidates = await client.query.deliveryPartners.findMany({
     where: and(
       eq(deliveryPartners.status, "APPROVED"),
       eq(deliveryPartners.isOnline, true),
+      eq(deliveryPartners.availability, "READY"),
       isNull(deliveryPartners.deletedAt),
     ),
   });
+  const rule = await getZoningRule();
+  const blocked = await blockedPartnerIds(options.societyId, client);
+  const now = new Date();
 
   const inRange = candidates
     .map((partner) => {
-      const coords = parseCoordinates(partner.lastLocationLatitude, partner.lastLocationLongitude);
-      if (!coords) return null;
-      const distanceToShopKm = haversineDistanceKm(shopCoords, coords);
-      if (distanceToShopKm > partner.operatingRadiusKm) return null;
-      return { partner, distanceToShopKm };
+      if (blocked.has(partner.id)) return null;
+      const zone = checkZone(partner, shopCoords, options.dropCoords ?? null, rule, now);
+      if (!zone.ok || zone.distanceToShopKm == null) return null;
+      return { partner, distanceToShopKm: zone.distanceToShopKm };
     })
     .filter((v): v is { partner: DeliveryPartner; distanceToShopKm: number } => v !== null)
     .sort((a, b) => a.distanceToShopKm - b.distanceToShopKm);

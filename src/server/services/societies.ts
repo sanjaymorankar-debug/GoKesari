@@ -31,6 +31,7 @@ import {
   shops,
   societies,
   societyMembers,
+  societyPartnerAccess,
   societyRiders,
   societyShops,
   users,
@@ -556,6 +557,18 @@ export async function addSocietyRider(societyId: string, mobile: string, preferr
     ),
   });
   if (!partner) throw notFound("Approved delivery partner with that mobile number");
+  // Gig worker flow: a partner GoKesari blocked for this society can't be listed by the society.
+  const [blocked] = await db
+    .select({ id: societyPartnerAccess.id })
+    .from(societyPartnerAccess)
+    .where(
+      and(
+        eq(societyPartnerAccess.societyId, societyId),
+        eq(societyPartnerAccess.deliveryPartnerId, partner.id),
+        eq(societyPartnerAccess.access, "BLOCKED"),
+      ),
+    );
+  if (blocked) throw conflict("GoKesari has blocked this delivery partner for your society. Contact support to change that.");
 
   const [row] = await db
     .insert(societyRiders)
@@ -795,11 +808,22 @@ export async function getSocietyDispatchRules(societyId: string | null, client: 
     .select({ deliveryPartnerId: societyRiders.deliveryPartnerId, preferred: societyRiders.preferred })
     .from(societyRiders)
     .where(and(eq(societyRiders.societyId, societyId), eq(societyRiders.status, "ACTIVE")));
+  // Gig worker flow (features 7 and 8): GoKesari admin's decisions — AUTHORISED counts as listed,
+  // BLOCKED takes the partner off the list whatever the society's own list says.
+  const access = await client
+    .select({ deliveryPartnerId: societyPartnerAccess.deliveryPartnerId, access: societyPartnerAccess.access })
+    .from(societyPartnerAccess)
+    .where(eq(societyPartnerAccess.societyId, societyId));
+  const riders = new Map(rows.map((r) => [r.deliveryPartnerId, r.preferred]));
+  for (const a of access) {
+    if (a.access === "BLOCKED") riders.delete(a.deliveryPartnerId);
+    else if (!riders.has(a.deliveryPartnerId)) riders.set(a.deliveryPartnerId, false);
+  }
   return {
     societyId,
     // Exclusive only bites when there is someone on the list — an empty list never blocks deliveries.
-    exclusive: society.exclusiveRiders && rows.length > 0,
-    riders: new Map(rows.map((r) => [r.deliveryPartnerId, r.preferred])),
+    exclusive: society.exclusiveRiders && riders.size > 0,
+    riders,
   };
 }
 

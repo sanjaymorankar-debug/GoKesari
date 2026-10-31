@@ -212,7 +212,8 @@ describe("menu definitions", () => {
     expect(OPERATOR_MENUS.map((m) => m.key)).toEqual(["onboarding", "orderSupport", "riders", "societies", "vouchers", "tickets", "catalogue"]);
     // Shop +2: Inventory → "Bills & GST" (docs/inventory-accounting-2026-10) and Bulk upload (Excel/CSV)
     // (docs/product-import-2026-10); operator +1: Catalogue → Bulk upload (the admin's is under Product master → more).
-    expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(41);
+    // Gig worker flow (docs/gig-worker-2026-10): shop +1, Delivery → "Delivery partners" (feature 7).
+    expect(SHOP_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(42);
     // batch-2026-10 WS-A: admin and operator -1 each — "Ref. prices" removed (F1.4.3 dropped).
     expect(ADMIN_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(38);
     expect(OPERATOR_MENUS.reduce((n, m) => n + m.items.length, 0)).toBe(26);

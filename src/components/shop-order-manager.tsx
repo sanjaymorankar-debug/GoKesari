@@ -102,6 +102,16 @@ export interface ShopOrderRow {
   packingSlipUrl?: string | null;
   /** The customer's note for the shop, from checkout (TC-CART-017). */
   notes?: string | null;
+  /**
+   * Gig worker flow (feature 8): the GoKesari partner on the order as the server lets the shop see
+   * them — null partner with "Partner pending assignment" when hidden or not yet assigned.
+   */
+  deliveryPartner?: {
+    label: string;
+    partner: { name: string; riderId: string; photoUrl: string | null; mobile: string | null; vehicleType: string } | null;
+  } | null;
+  /** Gig worker flow (feature 11): the delivered order was confirmed complete. */
+  completedAt?: string | null;
 }
 
 /** Fulfilment options switched on: the slots and delivery people the planner offers. */
@@ -210,6 +220,11 @@ function OrderRow({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex flex-wrap items-center gap-2">
           <StatusBadge status={order.status} />
+          {order.completedAt ? (
+            <Badge tone="success" data-testid="order-completed">
+              completed
+            </Badge>
+          ) : null}
           {order.orderType === "B2B" ? <Badge tone="info">business order</Badge> : null}
           {order.paymentMethod === "COD" ? (
             <Badge tone="warning">{order.cashCollected ? "cash collected" : "cash on delivery"}</Badge>
@@ -238,6 +253,26 @@ function OrderRow({
           <Money paise={order.totalPaise} />
         </span>
       </div>
+
+      {order.deliveryPartner ? (
+        <div className="mt-2 flex items-center gap-3 rounded-lg bg-cream-100 px-3 py-2 text-sm" data-testid="shop-order-partner">
+          {order.deliveryPartner.partner?.photoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element -- access-checked /api/images link
+            <img src={order.deliveryPartner.partner.photoUrl} alt="" className="h-10 w-10 rounded-full object-cover" />
+          ) : null}
+          <div>
+            <p className="font-medium text-ink-900">
+              Delivery partner: {order.deliveryPartner.label}
+              {order.deliveryPartner.partner ? <span className="ml-1 text-xs text-ink-500">({order.deliveryPartner.partner.riderId})</span> : null}
+            </p>
+            {order.deliveryPartner.partner?.mobile ? (
+              <a href={`tel:+91${order.deliveryPartner.partner.mobile}`} className="text-xs font-medium text-kesari-700 hover:underline">
+                Call {order.deliveryPartner.partner.mobile}
+              </a>
+            ) : null}
+          </div>
+        </div>
+      ) : null}
 
       {order.notes ? (
         <p className="mt-2 rounded-lg bg-amber-50 px-3 py-2 text-sm text-ink-800" data-testid="shop-order-notes">

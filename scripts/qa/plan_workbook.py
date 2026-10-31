@@ -273,7 +273,7 @@ APP_CASES = [
      "1. GET /api/app/version",
      "android and ios each with latest, minimum, url (null until configured; versions as x.y.z, links https)."),
     ("TC-APP-012", "AI-006", "Native app offers a newer build and installs it over the old one", "Positive", "P0", "Customer", "Manual",
-     "App 1.4.0 installed; MOBILE_APP_<platform>_LATEST set higher with a URL",
+     "App 1.5.0 installed; MOBILE_APP_<platform>_LATEST set higher with a URL",
      "1. Open the app (or bring it back)\\n2. Tap Update",
      "'A new version of GoKesari is ready' with Later / Update (only Update below the minimum); Update opens the Play Store / App Store / APK and the new build installs over the old one, still signed in."),
     ("TC-APP-013", "AI-001", "The prompt fits a phone screen", "Positive", "P1", "Guest", "UI",
@@ -288,7 +288,7 @@ APP_COVERAGE = [
     ("AI-003", "App install & updates", "iPhone / iPad: Add to Home Screen guide; store links when listed", "BUILT 31-Oct", "TC-APP-007"),
     ("AI-004", "App install & updates", "Server-side record for signed-in people (app_install_states)", "BUILT 31-Oct", "TC-APP-008"),
     ("AI-005", "App install & updates", "Service worker with versioned cache; Reload bar; update on next launch", "BUILT 31-Oct", "TC-APP-009, TC-APP-010"),
-    ("AI-006", "App install & updates", "Native app update check (Android / iPhone 1.4.0)", "BUILT 31-Oct", "TC-APP-011, TC-APP-012"),
+    ("AI-006", "App install & updates", "Native app update check (Android / iPhone 1.5.0)", "BUILT 31-Oct", "TC-APP-011, TC-APP-012"),
 ]
 
 APP_CHANGE = ("AI 31-Oct", "New module",
