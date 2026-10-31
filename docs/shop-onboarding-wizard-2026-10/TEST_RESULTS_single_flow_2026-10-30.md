@@ -88,8 +88,8 @@ account `customer2` switched to its Customer role for the run and back to Dealer
 | ST-5 | Referral code checked → shop email (account email) → Yes / No → Yes | Pass |
 | ST-6 | Document window: GSTIN, PAN, Shop Act, FSSAI, Udyam in order, each Validate shows its result on its line | Pass |
 | ST-7 | Confirm details → review: no map step before payment; "Create my shop and pay" creates the shop | Pass |
-| ST-8 | Pay → **HDFC Bank UAT gateway** (`smartgateway.hdfcuat.bank.in`), not the built-in sandbox page | Stopped — see below |
-| ST-9 | Address and map location after payment | Not reached (payment not completed) |
+| ST-8 | Pay. First attempt went to HDFC Bank's UAT gateway (staging was `PAYMENT_GATEWAY=HDFC`). After the owner switched staging to `SANDBOX`, a fresh registration ("QA Staging Full Run 298", account `customer`) opened the built-in sandbox page; "Pay (success)" captured, but **recording failed** (receipt-number bug, below). After #299 (31 Oct 04:01 UTC) the reconcile job recorded it: fee PAID | Pass after fix |
+| ST-9 | Paid shop with an unconfirmed GSTIN → "Payment received — pending admin approval" (as designed); approved by the staging admin with a recorded document waiver (QA shop, made-up GSTIN) → step 8 "Your shop's address and location": address pre-filled, **real Google map** with search and "Use my current location"; "Confirm location" saved address, landmark and pin on the shop (18.5167, 73.8415) → step 9 Category | Pass |
 | MAP-3 | Maps on test.gokesari.com after the owner's key change | Pass — build carries the production key (…UffY), map and Places load, no `RefererNotAllowedMapError` |
 
 Government checks on staging (provider connected on staging, not the mock): GSTIN (made-up test
@@ -105,14 +105,23 @@ Found on staging, not changed: a signed-in user whose active role is **Dealer** 
 1 answers "You do not have permission to perform this action" (dealers lack `SHOP_CREATE`). Existing
 behaviour; the page could say "switch to your customer account to register a shop".
 
-Staging data left by the run: shop "QA Staging Stores 298" (pending, fee not paid) on `customer2`, which
-now also holds the Shop Owner role; referral code `T47BC8PU`.
+Staging data left by the runs: shop "QA Staging Stores 298" (pending, its HDFC checkout never paid) on
+`customer2`, which now also holds the Shop Owner role (active role back to Dealer); shop "QA Staging Full
+Run 298" (BKS-000037, paid by sandbox, approved with a QA waiver, live) on `customer`; referral code
+`T47BC8PU` (2 of 5 uses).
+
+## Bug found on staging and fixed (#299): payment receipt numbers
+
+`nextReference` gave each shop payment the receipt number "row count + 1". Staging had 9 rows
+numbered PAY-2026-000004 … 000012 (three deleted earlier), so every new payment tried
+PAY-2026-000010, hit the unique index and failed — the gateway took the money but GoKesari never
+recorded it, and every retry failed the same way (staging runtime log, 30 Oct 19:13 UTC). Now: highest
+number this year + 1, with a test (`shop-payment-reference.test.ts`; payment tests 55 / 55 on both
+layouts). **gokesari.com carries the old code**: any production site where a payment row was ever
+deleted fails the same way — ship #299 with the next release.
 
 ## Not run yet
 
-- Test server: the payment and the address / location step (ST-8, ST-9) — staging's registration fee
-  now goes to HDFC Bank's UAT gateway. Either switch test.gokesari.com back to `PAYMENT_GATEWAY=SANDBOX`
-  (CLAUDE.md, owner decision 29 Oct) or pay on the HDFC test page with HDFC's test card yourself.
 - Prod server (gokesari.com): after an owner-approved release; read-only smoke (one card on /sell,
   `/shop/join` redirect, map loads). No payment on production.
 - Real Android / iPhone app run: the apps are WebViews of the site; checked by design, not on a device.
