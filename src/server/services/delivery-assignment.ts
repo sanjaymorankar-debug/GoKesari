@@ -413,51 +413,58 @@ export async function assignNearestPartner(orderId: string, actor: DispatchActor
 
 /** Cancels any in-flight assignment (if present) and re-runs assignment. Admin/operator manual override. */
 export async function reassignOrder(orderId: string, actor: Actor, reason?: string): Promise<DeliveryOrder> {
-  const existing = await db.query.deliveryOrders.findFirst({
-    where: eq(deliveryOrders.orderId, orderId),
-  });
-  // The goods are with the rider once picked up — reassigning then would
-  // strand them; use the failed-delivery / return path instead.
-  if (existing?.status === "PICKED_UP") {
-    throw conflict("This order has already been picked up and cannot be reassigned.");
-  }
-  if (existing && existing.status === "ACCEPTED") {
-    const order = await db.query.orders.findFirst({ where: eq(orders.id, orderId) });
-    if (order?.status === "ASSIGNED") {
-      await updateOrderStatus(orderId, "READY", actor, reason?.trim() || "Reassigning rider");
+  // One transaction, the assignment row locked: the rider cannot pick the order up between the
+  // check and the cancel, and the order never ends up READY with the old rider still holding it.
+  await db.transaction(async (tx) => {
+    const [existing] = await tx.select().from(deliveryOrders).where(eq(deliveryOrders.orderId, orderId)).for("update");
+    // The goods are with the rider once picked up — reassigning then would
+    // strand them; use the failed-delivery / return path instead.
+    if (existing?.status === "PICKED_UP") {
+      throw conflict("This order has already been picked up and cannot be reassigned.");
     }
-  }
-  if (existing && (ACTIVE_ASSIGNMENT_STATUSES as readonly string[]).includes(existing.status)) {
-    await db
-      .update(deliveryOrders)
-      .set({
-        status: "CANCELLED",
-        cancelledAt: new Date(),
-        cancellationReason: reason?.trim() || "Reassigned",
-        updatedAt: new Date(),
-      })
-      .where(eq(deliveryOrders.id, existing.id));
+    if (existing && existing.status === "ACCEPTED") {
+      const [order] = await tx.select({ status: orders.status }).from(orders).where(eq(orders.id, orderId));
+      if (order?.status === "ASSIGNED") {
+        await updateOrderStatus(orderId, "READY", actor, reason?.trim() || "Reassigning rider", tx);
+      }
+    }
+    if (existing && (ACTIVE_ASSIGNMENT_STATUSES as readonly string[]).includes(existing.status)) {
+      await tx
+        .update(deliveryOrders)
+        .set({
+          status: "CANCELLED",
+          cancelledAt: new Date(),
+          cancellationReason: reason?.trim() || "Reassigned",
+          updatedAt: new Date(),
+        })
+        .where(eq(deliveryOrders.id, existing.id));
 
-    await recordAudit({
-      actorId: actor.id,
-      actorRole: actor.role,
-      action: AUDIT_ACTIONS.DELIVERY_ORDER_CANCELLED,
-      entityType: "delivery_order",
-      entityId: existing.id,
-      previousValue: { status: existing.status },
-      newValue: { status: "CANCELLED", reason },
-    });
-    const ctx = await deliveryEventContext(orderId, existing.deliveryPartnerId);
-    await emitEvent({
-      type: "delivery.cancelled",
-      subjectId: existing.id,
-      orderId,
-      transition: { from: existing.status, to: "CANCELLED" },
-      actor,
-      payload: { ...ctx, reason: reason?.trim() || "The order was given to another rider." },
-    });
-  }
-
+      await recordAudit(
+        {
+          actorId: actor.id,
+          actorRole: actor.role,
+          action: AUDIT_ACTIONS.DELIVERY_ORDER_CANCELLED,
+          entityType: "delivery_order",
+          entityId: existing.id,
+          previousValue: { status: existing.status },
+          newValue: { status: "CANCELLED", reason },
+        },
+        tx,
+      );
+      const ctx = await deliveryEventContext(orderId, existing.deliveryPartnerId);
+      await emitEvent(
+        {
+          type: "delivery.cancelled",
+          subjectId: existing.id,
+          orderId,
+          transition: { from: existing.status, to: "CANCELLED" },
+          actor,
+          payload: { ...ctx, reason: reason?.trim() || "The order was given to another rider." },
+        },
+        tx,
+      );
+    }
+  });
   return assignNearestPartner(orderId, actor);
 }
 

@@ -141,3 +141,57 @@ Shipped 15 Oct (PR #179), 23/23 on staging, prod smoke 4/4 on 18 Oct. Screen:
 
 Each phase is a separate PR into `staging`, tested on both DB layouts (CI `test-split`),
 released to gokesari.com only one at a time and in an owner-approved window.
+
+## Phase 1 — status (31 Oct 2026, branch `feat/order-payment-gst-audit`)
+
+No new migration: cess lives in the invoice / credit-note snapshot (JSON), new
+switches are fields of the existing `invoicing` rule (merged with defaults).
+
+| Item | Status | What changed |
+|---|---|---|
+| GST cess on invoices, credit notes, GSTR-1 | Done | `splitInclusiveWithCess` / `lineTax` (`services/invoices.ts`); cess from the listing, else the dated HSN table; shown on PDF and invoice page; GSTR-1 `csamt` filled. Rule `invoicing.applyCess` (default on). Specific (per-unit) cess is not supported |
+| Missing HSN / rate at checkout | Done | Rule `invoicing.missingTaxData`: ALLOW (default, as before; queue = /admin/product-gst "missing") or BLOCK (checkout refused for a GST-registered shop's lines) — `gst/tax-data-check.ts` |
+| Composition dealer GSTIN on bill of supply | Done (bug fix) | GSTIN printed; still a bill of supply with the Rule 49 wording. Credit note against a bill of supply says so |
+| Per-slab worked examples | Done | `tests/unit/gst-slabs.test.ts`: 0/5/12/18/28/40 %, intra + inter, rounding, cess, parts always add up (the sum test found and fixed a −1 paisa edge) |
+| Debit notes on shop invoices | Moved to P3 | No flow raises a price after an invoice is issued (substitutions happen before delivery, when the invoice is made) |
+| Upload: CSV template | Done | `?format=csv` on the template route |
+| Upload: GST % and Goods Type dropdowns, instructions | Done | `workbooks.ts` |
+| Upload: preview checks | Done | Price above MRP, zero price, GST not a slab, loose good without a weight unit — `product-import/preview-checks.ts` |
+| Upload: loose goods | Done | "Goods Type = Loose" with unit kg/g/l/ml creates a LOOSE product; an MRP on a loose row is dropped with a warning |
+| Upload: download my catalogue | Done | `GET /api/v1/shops/{id}/catalogue-export?format=xlsx\|csv` — template layout, SKU (or product code), MRP, price, stock, HSN, GST; round-trip unit test |
+| Upload: problems-only report | Done | `report?rows=problems` |
+| Orders: refund status writes bypassing the machine | Done | CANCELLED → REFUNDED added to the machine (wallet refunds are instant); `cancelOrder` and `aftercare/refunds.ts` now record the event (`events/order-status-record.ts`) |
+| Orders: RETURNED silent | Done | New event `order.returned` → customer and shop notified |
+| Orders: reattempt skipping the delivery code | Done | After a failed GoKesari drop, only operations may mark the order delivered while `deliveryOtp.required` is on |
+| Orders: reassign not atomic | Done | `reassignOrder` in one transaction with the assignment row locked |
+| Orders: refund notices for REFUND_PENDING / REFUNDED | No change | Already announced by `aftercare/refunds.ts` and the wallet; adding event notices would message the buyer twice |
+| Orders: shop not told of a buyer cancel before acceptance | No change | Owner decision D10 (recorded in `events/catalog.ts`) |
+| Orders: shop-wallet delivery charge kept on a refund after delivery | No change | Documented decision ("the rider still made the trip") — see D6 |
+| Orders: partial availability — buyer approves the changed order | **Carried to Phase 1b** | Needs a new order state, buyer approve/cancel screen and a timeout |
+| Orders: reason codes on transitions | Carried to Phase 1b | Needs a column (migration) and UI pickers |
+
+New owner decisions:
+
+- **D5 — RTO refund:** when an order comes back to the shop (RETURNED), refund
+  automatically? Goods only, or goods + delivery fee? Today it waits for
+  operations (exceptions queue).
+- **D6 — delivery charge on refunds after delivery:** keep (today) or return to
+  the shop's wallet?
+
+Known before this work: `tests/unit/product-import-parser.test.ts` "maps a row
+with only a name…" fails on `staging` as well (expects 1 empty row, gets 0).
+
+### UI/UX plan — shop owner bulk upload (`/shop/product-import`)
+
+- **Current:** header, Inventory menu strip, upload card with one "Download
+  GoKesari template" link, drop zone, job card with summary tiles and row
+  table, history. Mobile: tap targets `min-h-11`, table becomes cards.
+- **Problems:** no way to get the shop's own list out to edit (users rebuild it
+  by hand); CSV users have no template; the error report mixes all rows.
+- **Change (Tile Board look kept, nothing moved):** the template link becomes a
+  row of four 44 px buttons — template (Excel), CSV, Download my catalogue
+  (Excel), CSV — wrapping on phones; the result actions gain "Only rows to
+  fix". Preview "Check:" messages appear in the existing warnings filter. No
+  new colours; existing focus and contrast styles reused.
+- Benchmarked against the seller apps of the big Indian marketplaces
+  (download-catalogue → edit → re-upload is their standard bulk-edit route).

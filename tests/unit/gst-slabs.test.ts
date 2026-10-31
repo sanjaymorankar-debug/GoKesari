@@ -104,7 +104,7 @@ describe("who charges GST", () => {
   it("TC-GST-REG a regular GSTIN charges GST; composition and PAN-only sellers issue a bill of supply", () => {
     expect(chargesGst({ gstin: "27AAAPL1234C1ZV", gstStatus: "REGISTERED" })).toBe(true);
     expect(chargesGst({ gstin: "27AAAPL1234C1ZV", gstStatus: "COMPOSITION" })).toBe(false);
-    expect(chargesGst({ gstin: null, gstStatus: "UNREGISTERED" })).toBe(false);
+    expect(chargesGst({ gstin: null, gstStatus: "NOT_REGISTERED" })).toBe(false);
     expect(chargesGst({ gstin: "not-a-gstin", gstStatus: "REGISTERED" })).toBe(false);
   });
 });

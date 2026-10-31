@@ -95,6 +95,10 @@ export const TEMPLATES: Record<string, Template> = {
   ),
   [T.ORDER_CANCELLED]: t("Order cancelled", "Your order {{orderNumber}} was cancelled. {{reason}}"),
   [T.ORDER_DELIVERY_FAILED]: t("Delivery attempt failed", "We could not deliver order {{orderNumber}}. {{reason}}"),
+  [T.ORDER_RETURNED_TO_SHOP]: t(
+    "Order returned to the shop",
+    "Order {{orderNumber}} could not be delivered and has gone back to {{shopName}}. Any refund due is shown on the order page.",
+  ),
   [T.DISPUTE_OPENED]: t(
     "We are looking into your order",
     "Dispute {{caseNumber}} has been opened for order {{orderNumber}} and is with our team.",
