@@ -1,0 +1,318 @@
+{
+  "at": "2026-10-31T10:19:12.590Z",
+  "host": "test.gokesari.com",
+  "steps": [
+    {
+      "feature": 6,
+      "step": "shop A has a pinned location",
+      "ok": true,
+      "detail": "{\"shopLat\":18.5204,\"shopLng\":73.8567}"
+    },
+    {
+      "feature": 1,
+      "step": "customer2 already had a partner profile (re-run)",
+      "ok": true,
+      "detail": "APPROVED"
+    },
+    {
+      "feature": 1,
+      "step": "a refused application shows the field messages and keeps what was typed",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "feature": 2,
+      "step": "PAN check refused without consent (422)",
+      "ok": false,
+      "detail": "429 {\"error\":{\"code\":\"RATE_LIMITED\",\"message\":\"Too many requests. Please wait a moment and try again.\",\"details\":{\"retryAfterSeconds\":2574}}}"
+    },
+    {
+      "feature": 2,
+      "step": "PAN checked with the KYC provider (status shown, masked)",
+      "ok": false,
+      "detail": "{}"
+    },
+    {
+      "feature": 2,
+      "step": "Aadhaar OTP requested (masked only)",
+      "ok": true,
+      "detail": "{\"status\":\"VERIFIED\",\"awaitingOtp\":false,\"reason\":null}"
+    },
+    {
+      "feature": 2,
+      "step": "partner sees Verified / Pending / Failed per document",
+      "ok": true,
+      "detail": "{\"pan\":\"VERIFIED\",\"aadhaar\":\"VERIFIED\"}"
+    },
+    {
+      "feature": 2,
+      "step": "no full Aadhaar number in any partner answer",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "feature": 2,
+      "step": "admin sees the partner's checks (masked)",
+      "ok": true,
+      "detail": "[\"PAN:VERIFIED\",\"AADHAAR:VERIFIED\"]"
+    },
+    {
+      "feature": 2,
+      "step": "an operator can't see KYC checks (403)",
+      "ok": true,
+      "detail": "403"
+    },
+    {
+      "feature": 3,
+      "step": "WebP refused (PDF/JPG/PNG only)",
+      "ok": true,
+      "detail": "422 {\"error\":{\"code\":\"VALIDATION_FAILED\",\"message\":\"Upload a PDF, JPG or PNG file.\"}}"
+    },
+    {
+      "feature": 3,
+      "step": "POLICE_VERIFICATION uploaded (Uploaded)",
+      "ok": true,
+      "detail": "201 {\"document\":{\"id\":\"61861d42-296b-4f86-a9b8-2802f7ae0c7b\",\"docType\":\"POLICE_VERIFICATION\",\"label\":\"Police verification form\",\"status\":\"UPLOADED\",\"statusLabel\":\"Uploaded\",\"rejectionReason\":null,\"contentType\":\"application/pdf\",\"sizeBytes\":4146"
+    },
+    {
+      "feature": 3,
+      "step": "CHARACTER_CERTIFICATE uploaded (Uploaded)",
+      "ok": true,
+      "detail": "201 {\"document\":{\"id\":\"346625f8-378e-4d1c-91f6-20c41134b3cf\",\"docType\":\"CHARACTER_CERTIFICATE\",\"label\":\"Character certificate\",\"status\":\"UPLOADED\",\"statusLabel\":\"Uploaded\",\"rejectionReason\":null,\"contentType\":\"image/png\",\"sizeBytes\":97,\"created"
+    },
+    {
+      "feature": 3,
+      "step": "file opens for an admin only (ops 403, partner 403, admin 200 PDF, no-store)",
+      "ok": true,
+      "detail": "[403,403,200,\"application/pdf\"]"
+    },
+    {
+      "feature": 3,
+      "step": "admin: Uploaded → Under review",
+      "ok": true,
+      "detail": "200 {\"document\":{\"id\":\"61861d42-296b-4f86-a9b8-2802f7ae0c7b\",\"docType\":\"POLICE_VERIFICATION\",\"label\":\"Police verification form\",\"status\":\"UNDER_REVIEW\",\"statusLabel\":\"Under review\",\"rejectionReason\":null,\"contentType\":\"application/pdf\",\"sizeByt"
+    },
+    {
+      "feature": 3,
+      "step": "a rejection needs a reason (422)",
+      "ok": true,
+      "detail": "422"
+    },
+    {
+      "feature": 3,
+      "step": "admin: Under review → Rejected with reason",
+      "ok": true,
+      "detail": "200 {\"document\":{\"id\":\"61861d42-296b-4f86-a9b8-2802f7ae0c7b\",\"docType\":\"POLICE_VERIFICATION\",\"label\":\"Police verification form\",\"status\":\"REJECTED\",\"statusLabel\":\"Rejected\",\"rejectionReason\":\"QA: stamp not readable\",\"contentType\":\"application/p"
+    },
+    {
+      "feature": 3,
+      "step": "partner re-uploads after a rejection (Uploaded again)",
+      "ok": true,
+      "detail": "201 {\"document\":{\"id\":\"5cca88c9-eeb3-493d-8731-adb8277d65e8\",\"docType\":\"POLICE_VERIFICATION\",\"label\":\"Police verification form\",\"status\":\"UPLOADED\",\"statusLabel\":\"Uploaded\",\"rejectionReason\":null,\"contentType\":\"application/pdf\",\"sizeBytes\":4146"
+    },
+    {
+      "feature": 3,
+      "step": "admin approves",
+      "ok": true,
+      "detail": "200 {\"document\":{\"id\":\"5cca88c9-eeb3-493d-8731-adb8277d65e8\",\"docType\":\"POLICE_VERIFICATION\",\"label\":\"Police verification form\",\"status\":\"APPROVED\",\"statusLabel\":\"Approved\",\"rejectionReason\":null,\"contentType\":\"application/pdf\",\"sizeBytes\":4146"
+    },
+    {
+      "feature": 3,
+      "step": "admin approves",
+      "ok": true,
+      "detail": "200 {\"document\":{\"id\":\"346625f8-378e-4d1c-91f6-20c41134b3cf\",\"docType\":\"CHARACTER_CERTIFICATE\",\"label\":\"Character certificate\",\"status\":\"APPROVED\",\"statusLabel\":\"Approved\",\"rejectionReason\":null,\"contentType\":\"image/png\",\"sizeBytes\":97,\"created"
+    },
+    {
+      "feature": 5,
+      "step": "verified partner switches to Ready",
+      "ok": true,
+      "detail": "200 {\"id\":\"5a1e7477-0c63-4935-a177-bd9bbf011c1d\",\"userId\":\"683a8d18-e87b-4d6f-9d0d-aef781b0f1cf\",\"fullName\":\"QA Gig Rider\",\"mobile\":\"9436205718\",\"email\":\"sanjaymorankar+gk-cust@gmail.com\",\"dateOfBirth\":\"1994-06-15\",\"profilePhotoUrl\":null,\"gende"
+    },
+    {
+      "feature": 5,
+      "step": "… and to Active",
+      "ok": true,
+      "detail": "200 {\"id\":\"5a1e7477-0c63-4935-a177-bd9bbf011c1d\",\"userId\":\"683a8d18-e87b-4d6f-9d0d-aef781b0f1cf\",\"fullName\":\"QA Gig Rider\",\"mobile\":\"9436205718\",\"email\":\"sanjaymorankar+gk-cust@gmail.com\",\"dateOfBirth\":\"1994-06-15\",\"profilePhotoUrl\":null,\"gende"
+    },
+    {
+      "feature": 5,
+      "step": "dashboard shows the Offline / Active / Ready switch and the verification checklist",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "feature": 5,
+      "step": "Ready chosen on the dashboard (device location)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "feature": 7,
+      "step": "admin finds societies to decide on",
+      "ok": true,
+      "detail": "3 found"
+    },
+    {
+      "feature": 7,
+      "step": "admin authorises one society and blocks another (a block needs a reason)",
+      "ok": true,
+      "detail": "[200,422,200]"
+    },
+    {
+      "feature": 7,
+      "step": "a shop owner can't decide societies (403)",
+      "ok": true,
+      "detail": "403"
+    },
+    {
+      "feature": 6,
+      "step": "the Ready partner inside the zone gets the offer",
+      "ok": true,
+      "detail": "{\"deliveryOrderId\":\"a7b8830f-2d0d-4678-b886-42d368a013a4\",\"status\":\"OFFERED\"}"
+    },
+    {
+      "feature": 6,
+      "step": "offer accepted on the live location",
+      "ok": true,
+      "detail": "200 {\"id\":\"a7b8830f-2d0d-4678-b886-42d368a013a4\",\"orderId\":\"d6ead369-1b99-4318-be3f-10da1ec3a44e\",\"deliveryPartnerId\":\"5a1e7477-0c63-4935-a177-bd9bbf011c1d\",\"status\":\"ACCEPTED\",\"distanceKm\":\"1.5069000000000001\",\"routeSource\":\"ROAD\",\"legDuration"
+    },
+    {
+      "feature": 7,
+      "step": "shop's Delivery partners lists the partner with authorised / blocked counts and lists",
+      "ok": true,
+      "detail": "{\"authorised\":1,\"blocked\":1,\"a\":[\"QA Trim Soc mvmk2q42\"],\"b\":[\"QA Trim Soc mvmphu8y\"]}"
+    },
+    {
+      "feature": 7,
+      "step": "shop page renders the partner card; tapping a count shows the list",
+      "ok": true,
+      "detail": "Q\n\nQA Gig Rider\n\nGKR-5A1E7477 · Scooter · 5 of your orders delivered · last on 31/10/2026\n\nAuthorised societies 1\nBlocked societies 1\nQA Trim Soc mvmphu8y, Pune"
+    },
+    {
+      "feature": 8,
+      "step": "shop's order shows the partner it may see (name, call link)",
+      "ok": true,
+      "detail": "Delivery partner: QA Gig Rider(GKR-5A1E7477)\n\nCall 9436205718"
+    },
+    {
+      "feature": 9,
+      "step": "optional pickup photo uploaded",
+      "ok": true,
+      "detail": "201 {\"id\":\"ee30508a-714f-434c-ab4f-fdb5b6643b35\",\"url\":\"/api/images/0cc088e0-0a3e-4fa4-a219-1583f2b88d99\",\"kind\":\"PICKUP\"}"
+    },
+    {
+      "feature": 9,
+      "step": "Assigned → Picked Up (timestamp)",
+      "ok": true,
+      "detail": "{\"status\":\"PICKED_UP\",\"pickedUpAt\":\"2026-10-31T10:14:19.843Z\"}"
+    },
+    {
+      "feature": 10,
+      "step": "drop started",
+      "ok": true,
+      "detail": "200"
+    },
+    {
+      "feature": 10,
+      "step": "photo at the door added (rule deliveryProof.photoRequired)",
+      "ok": true,
+      "detail": "201 {\"id\":\"5129b965-de82-4a9d-81b3-5c5939402da0\",\"url\":\"/api/images/d0f9a7f6-4e36-4371-983b-35135bce21cc\",\"kind\":\"DELIVERY\"}"
+    },
+    {
+      "feature": 10,
+      "step": "Delivered needs the customer's code while rule deliveryOtp.required is on",
+      "ok": true,
+      "detail": "422 {\"error\":{\"code\":\"VALIDATION_FAILED\",\"message\":\"Enter the 4-digit delivery code from the customer.\"}}"
+    },
+    {
+      "feature": 10,
+      "step": "Picked Up → Delivered with the code",
+      "ok": true,
+      "detail": "200 {\"id\":\"a7b8830f-2d0d-4678-b886-42d368a013a4\",\"orderId\":\"d6ead369-1b99-4318-be3f-10da1ec3a44e\",\"deliveryPartnerId\":\"5a1e7477-0c63-4935-a177-bd9bbf011c1d\",\"status\":\"DELIVERED\",\"distanceKm\":\"1.5069000000000001\",\"routeSource\":\"ROAD\",\"legDuratio"
+    },
+    {
+      "feature": 11,
+      "step": "order Completed (completedAt), status stays Delivered",
+      "ok": true,
+      "detail": "{\"id\":\"d6ead369-1b99-4318-be3f-10da1ec3a44e\",\"orderNumber\":\"DB-20261031-CBOE4Q\",\"userId\":\"8108d71b-ded1-4bee-9586-951b068fd705\",\"shopId\":\"976135a1-ef87-4059-8ca7-2989db8724af\",\"addressId\":\"fdacb452-9b59-43b0-a23c-77eab44f5c81\",\"deliveryAddressSnapshot\":{\"area\":\"Shivajinagar\",\"city\":\"Pune\",\"line1\":\"E2E Lifecycle Test, 12 FC Road\",\"line2\":null,\"pincode\":\"411005\",\"landmark\":null,\"latitude\":\"18.525\",\""
+    },
+    {
+      "feature": 11,
+      "step": "customer got the in-app completion message (order.completed)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "feature": 11,
+      "step": "shop got the in-app completion message (shop.order_completed)",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "feature": 11,
+      "step": "customer's order list shows 'completed'",
+      "ok": true,
+      "detail": ""
+    },
+    {
+      "feature": 8,
+      "step": "a test society registered and verified for the check",
+      "ok": true,
+      "detail": "[201,200]"
+    },
+    {
+      "feature": 8,
+      "step": "customer is a member of a verified society with the delivery address linked",
+      "ok": true,
+      "detail": "[201,200,200]"
+    },
+    {
+      "feature": 8,
+      "step": "society order offered to the (authorised) partner",
+      "ok": true,
+      "detail": "{\"deliveryOrderId\":\"7752a578-a6f1-4d4e-8b22-c71ef3e743d2\",\"status\":\"OFFERED\"}"
+    },
+    {
+      "feature": 8,
+      "step": "admin blocks the partner for the order's society after acceptance",
+      "ok": true,
+      "detail": "200"
+    },
+    {
+      "feature": 8,
+      "step": "shop's order shows 'Partner pending assignment' and no name, photo or mobile",
+      "ok": true,
+      "detail": "assigned\nRider on the way to you\nDB-20261031-3Q3GVU\nPayment: Wallet\n₹55\n\nDelivery partner: Partner pending assignment\n\nGet help with this order\n\nPickup code for the rider: 0958\n\nPickup QR — the rider scans it at handover\n\nWorks once. The pickup code still works if the scan fails.\n\nPrint packing slip"
+    },
+    {
+      "feature": 8,
+      "step": "the server sends the shop no name, photo or mobile for this order (deliveryPartner.partner null)",
+      "ok": true,
+      "detail": "\"deliveryPartner\":{\"label\":\"Partner pending assignment\",\"partner\":null},\"deliveryFeePaise\":2500,\"deliveryStatus\":\"ACCEPT"
+    },
+    {
+      "feature": 8,
+      "step": "shop's pickup notification names no partner ('A delivery partner')",
+      "ok": true,
+      "detail": "Order DB-20261031-3Q3GVU has been collected by A delivery partner."
+    },
+    {
+      "feature": 6,
+      "step": "partner Ready ~22 km away",
+      "ok": true,
+      "detail": "200"
+    },
+    {
+      "feature": 6,
+      "step": "no offer reaches a partner outside the zone",
+      "ok": true,
+      "detail": "none"
+    },
+    {
+      "feature": 6,
+      "step": "the order keeps searching for a rider in the zone",
+      "ok": true,
+      "detail": "200 {\"attempts\":1,\"maxAttempts\":10,\"nextAttemptAt\":\"2026-10-31T10:19:18.699Z\",\"stopReason\":null,\"log\":[{\"attemptNo\":1,\"trigger\":\"AUTO_READY\",\"outcome\":\"NO_RIDER\",\"detail\":\"No delivery partner is currently available for this order.\",\"createdAt\":"
+    }
+  ]
+}
