@@ -1,7 +1,11 @@
-/** Referral codes (§4.3). Operator/admin only. */
+/**
+ * Referral codes (§4.3). Operator/admin only. POST without a code generates
+ * a unique 8-character one; a typed code is 4–8 letters and digits.
+ */
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { REFERRAL_CODE_LENGTH, notPast } from "@/lib/referral-codes";
 import { ok, parseBody, route } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
@@ -12,13 +16,10 @@ import {
 } from "@/server/services/referrals";
 
 const schema = z.object({
-  code: z.string().min(3).max(32),
+  code: z.string().trim().max(REFERRAL_CODE_LENGTH, `A referral code is at most ${REFERRAL_CODE_LENGTH} characters.`).nullish(),
   label: z.string().max(120).nullish(),
   referrerName: z.string().max(120).nullish(),
-  expiresAt: z
-    .string()
-    .regex(/^\d{4}-\d{2}-\d{2}$/, "Use an ISO date (YYYY-MM-DD).")
-    .nullish(),
+  expiresAt: notPast(z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "Use an ISO date (YYYY-MM-DD).")).nullish(),
   note: z.string().max(500).nullish(),
   // Module 3: self-registration.
   distributorId: z.string().uuid().nullish(),

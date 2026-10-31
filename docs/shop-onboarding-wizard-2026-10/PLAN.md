@@ -1,5 +1,9 @@
 # Shop onboarding wizard — plan (approved by the owner 28 Oct 2026)
 
+> **29 Oct 2026 — redesigned to the owner's brief:** step order, approval on GSTIN / PAN + payment,
+> Shop Act after go-live, map / category / products after approval. See
+> [BRIEF_REDESIGN.md](BRIEF_REDESIGN.md); the table below is the earlier plan.
+
 One guided screen at `/shop/register` that takes a shop owner from sign-in to
 "onboarding complete" in this order. It replaces the single long form; the
 government checks, map picker, fee payment, instant approval and "ready"

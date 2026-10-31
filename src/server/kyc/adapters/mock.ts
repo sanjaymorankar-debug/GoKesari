@@ -16,7 +16,7 @@
  * coverage, see the Part 1 notes) unless the number ends in 2222, which
  * stands in for a registration the vendor can verify.
  */
-import type { KycAdapter, ProviderOutcome, SourceRecord, VerifyRequest } from "../types";
+import type { AadhaarOtpAdapter, KycAdapter, ProviderOutcome, SourceRecord, VerifyRequest } from "../types";
 import { KycUnavailableError } from "../types";
 
 const DAY_MS = 86_400_000;
@@ -81,5 +81,31 @@ export function createMockAdapter(now: () => number = Date.now): KycAdapter {
       }
       return { kind: "found", record, providerRef };
     },
+    aadhaar: mockAadhaar,
   };
 }
+
+/**
+ * Gig worker flow: Aadhaar OTP stand-in, chosen by the last four digits of
+ * the number (…0000 no such Aadhaar, …9999 vendor timeout, …5555 can't check)
+ * and by the OTP: MOCK_AADHAAR_OTP verifies, 000000 has expired, anything else
+ * is wrong. It returns no name (nothing to compare: the OTP itself proves the
+ * Aadhaar-linked mobile). No network call.
+ */
+export const MOCK_AADHAAR_OTP = "123456";
+
+const mockAadhaar: AadhaarOtpAdapter = {
+  async requestOtp(aadhaarNumber, idempotencyKey) {
+    const digits = aadhaarNumber.slice(-4);
+    if (digits === "9999") throw new KycUnavailableError("timeout", "Mock vendor timeout.");
+    if (digits === "0000") return { kind: "not_found", providerRef: `mock-${idempotencyKey}` };
+    if (digits === "5555") return { kind: "unsupported", reason: "Mock vendor cannot check this Aadhaar." };
+    return { kind: "sent", referenceId: `mock-ref-${digits}-${idempotencyKey.slice(0, 8)}`, providerRef: `mock-${idempotencyKey}` };
+  },
+  async verifyOtp(referenceId, otp, idempotencyKey) {
+    if (!referenceId.startsWith("mock-ref-")) return { kind: "expired" };
+    if (otp === "000000") return { kind: "expired" };
+    if (otp !== MOCK_AADHAAR_OTP) return { kind: "invalid_otp" };
+    return { kind: "verified", name: null, providerRef: `mock-${idempotencyKey}` };
+  },
+};

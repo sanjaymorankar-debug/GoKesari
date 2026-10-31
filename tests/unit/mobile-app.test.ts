@@ -145,7 +145,8 @@ describe("website and app agree (mobile/)", () => {
     const pages = readdirSync(path.join(root, "src/app"), { withFileTypes: true })
       .filter((entry) => entry.isDirectory() && !/^[._(@[]/.test(entry.name))
       .map((entry) => entry.name)
-      .filter((name) => !["api", "mobile-auth"].includes(name));
+      // sw.js: the service worker script (docs/app-install-2026-10), not a page.
+      .filter((name) => !["api", "mobile-auth", "sw.js"].includes(name));
 
     const missing = pages.filter((page) => !prefixes.some((prefix) => `/${page}/x`.startsWith(prefix)));
     // A new top-level page: add it to APP_LINK_PATH_PREFIXES in mobile/app.config.ts.

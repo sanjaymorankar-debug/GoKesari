@@ -98,7 +98,7 @@ beforeEach(async () => {
   state.session = null;
   const a = await createUser({ role: "ADMIN" });
   admin = { id: a.id, email: a.email, name: a.name, role: "ADMIN" };
-  await createReferralCode({ code: "GOOD-CODE-1", label: "Pune launch" }, admin);
+  await createReferralCode({ code: "GOODCOD1", label: "Pune launch" }, admin);
 });
 
 function signIn(user: { id: string; email: string; name: string | null }, role: UserRole) {
@@ -220,7 +220,7 @@ describe("shop registration (Add my shop, POST /api/shops) follows referral_requ
 
     // One registration under review per owner: the next shop comes from another account.
     signIn(await createUser(), "CUSTOMER");
-    const valid = await register(shopBody({ referralCode: "good-code-1" }));
+    const valid = await register(shopBody({ referralCode: "goodcod1" }));
     expect(valid.status, JSON.stringify(valid.body)).toBe(201);
     const [row] = await db.select().from(shops).where(eq(shops.id, valid.body.id));
     expect(row.referralCodeId).not.toBeNull();
@@ -313,12 +313,12 @@ describe("shop self-registration (/shop/join) and auto-approval follow referral_
     await expect(selfRegister("NOPE-123")).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
 
     // Valid: registers; approval needs the payment as before.
-    const { token } = await selfRegister("GOOD-CODE-1");
+    const { token } = await selfRegister("GOODCOD1");
     expect((await registrationStatus(token)).status).toBe("PENDING_PAYMENT");
     const pay = await startRegistrationPayment(token);
     expect((await webhook(pay.orderId)).status).toBe(200);
     const status = await registrationStatus(token);
-    expect(status).toMatchObject({ status: "APPROVED", referralCode: "GOOD-CODE-1" });
+    expect(status).toMatchObject({ status: "APPROVED", referralCode: "GOODCOD1" });
     expect(await db.select().from(referralRedemptions).where(eq(referralRedemptions.shopId, status.shop!.id))).toHaveLength(1);
   });
 
@@ -375,7 +375,7 @@ describe("customer registration follows referral_required_customer", () => {
     // Valid: accepted, then the first order goes through.
     const { user: valid } = await createUserWithWallet({ balancePaise: 50_000 });
     signIn(valid, "CUSTOMER");
-    expect((await give("good-code-1")).status).toBe(200);
+    expect((await give("goodcod1")).status).toBe(200);
     expect(await needsSignupReferralCode(valid.id)).toBe(false);
     await addToCart(valid.id, sp.id, 1);
     expect((await tryCheckout(valid.id)).orders).toHaveLength(1);

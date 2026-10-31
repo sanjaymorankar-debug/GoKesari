@@ -1,7 +1,8 @@
 /**
  * NEW-007: the rider's photo at the door (multipart form: `file`). JPEG, PNG
  * or WebP within the image size limit, checked from the bytes. Only the rider
- * holding the picked-up delivery may upload.
+ * holding the picked-up delivery may upload. Gig worker flow: `kind=PICKUP`
+ * is the optional pickup photo (from acceptance until the drop).
  */
 import type { NextRequest } from "next/server";
 
@@ -21,5 +22,7 @@ export const POST = route(async (request: NextRequest, context: RouteContext<{ i
   const form = await request.formData().catch(() => null);
   const file = form?.get("file");
   if (!(file instanceof File)) throw validationFailed("Attach a photo of the delivered order.");
-  return ok(await uploadDeliveryProof(id, user, Buffer.from(await file.arrayBuffer())), 201);
+  // Gig worker flow (feature 9): kind=PICKUP is the optional photo at the shop.
+  const kind = form?.get("kind") === "PICKUP" ? "PICKUP" : "DELIVERY";
+  return ok(await uploadDeliveryProof(id, user, Buffer.from(await file.arrayBuffer()), kind), 201);
 });

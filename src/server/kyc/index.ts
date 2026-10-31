@@ -18,6 +18,7 @@ import { getEnv, kycConfigProblem } from "@/lib/env";
 
 import { createGridlinesAdapter, GRIDLINES_BASE_URL } from "./adapters/gridlines";
 import { createMockAdapter } from "./adapters/mock";
+import { createSandboxCoAdapter, SANDBOX_CO_BASE_URLS } from "./adapters/sandbox-co";
 import type { KycHttpOptions } from "./http";
 import {
   KycConfigError,
@@ -68,8 +69,17 @@ export function getKycAdapter(): KycAdapter {
       return createMockAdapter();
     case "gridlines":
       return createGridlinesAdapter(env.GRIDLINES_API_KEY!, httpOptions(), env.GRIDLINES_BASE_URL ?? GRIDLINES_BASE_URL);
+    case "sandboxco":
+      return createSandboxCoAdapter(
+        {
+          apiKey: env.SANDBOX_CO_API_KEY!,
+          apiSecret: env.SANDBOX_CO_API_SECRET!,
+          baseUrl: env.SANDBOX_CO_BASE_URL ?? SANDBOX_CO_BASE_URLS[env.KYC_ENV],
+        },
+        httpOptions(),
+      );
     case "idfy":
-      throw new KycConfigError("not_configured", "The IDfy adapter has not been built yet; use KYC_PROVIDER=gridlines or mock.");
+      throw new KycConfigError("not_configured", "The IDfy adapter has not been built yet; use KYC_PROVIDER=sandboxco, gridlines or mock.");
   }
 }
 

@@ -286,7 +286,8 @@ describe("Sign out: location, rider and audit", () => {
     const [after] = await db.select().from(deliveryPartners).where(eq(deliveryPartners.id, partner.id));
     expect(after.isOnline).toBe(false);
     const audit = await db.select().from(auditLogs).where(and(eq(auditLogs.action, "delivery_partner.online_status_changed"), eq(auditLogs.entityId, partner.id)));
-    expect(audit.map((a) => a.newValue)).toEqual([{ isOnline: false }]);
+    // Gig worker flow: the audit also records the availability (Offline / Active / Ready).
+    expect(audit.map((a) => a.newValue)).toEqual([{ isOnline: false, availability: "OFFLINE" }]);
   });
 
   it("TC-AUTH-040: a rider signing out mid-delivery is signed out, but the delivery and the online flag are left alone", async () => {

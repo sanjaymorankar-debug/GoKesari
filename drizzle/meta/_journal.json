@@ -827,6 +827,41 @@
       "when": 1793161600000,
       "tag": "0117_dealer_base_commission",
       "breakpoints": true
+    },
+    {
+      "idx": 118,
+      "version": "7",
+      "when": 1793161700000,
+      "tag": "0118_registration_identity_approval",
+      "breakpoints": true
+    },
+    {
+      "idx": 119,
+      "version": "7",
+      "when": 1793161800000,
+      "tag": "0119_hdfc_gateway",
+      "breakpoints": true
+    },
+    {
+      "idx": 120,
+      "version": "7",
+      "when": 1793161900000,
+      "tag": "0120_shop_registration_flow",
+      "breakpoints": true
+    },
+    {
+      "idx": 121,
+      "version": "7",
+      "when": 1793162000000,
+      "tag": "0121_gig_worker_flow",
+      "breakpoints": true
+    },
+    {
+      "idx": 122,
+      "version": "7",
+      "when": 1793162100000,
+      "tag": "0122_app_install_states",
+      "breakpoints": true
     }
   ]
 }

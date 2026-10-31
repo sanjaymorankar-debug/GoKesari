@@ -43,6 +43,8 @@ import { resetRateLimits } from "@/server/api/rate-limit";
 import { db } from "@/server/db";
 import {
   dealerAttributionDisputes,
+  dealerCodes,
+  referralCodes,
   dealerLeads,
   dealers,
   dealerSalespeople,
@@ -54,9 +56,9 @@ import {
   shops,
   users,
 } from "@/server/db/schema";
-import { issueCode, salespersonCode, dealerCodeFor } from "@/server/dealers/codes";
+import { issueCode } from "@/server/dealers/codes";
 import { setFeatureFlag } from "@/server/services/feature-flags";
-import { createReferralCode } from "@/server/services/referrals";
+import { createReferralCode, newReferralCode, updateReferralCode } from "@/server/services/referrals";
 import { clearRuleCache, setRule } from "@/server/services/settings";
 import { call } from "../helpers/http";
 import { createUser, resetDatabase, uniqueMobile } from "../helpers/fixtures";
@@ -86,18 +88,18 @@ beforeEach(async () => {
   await setFeatureFlag("dealer_programme_enabled", { enabled: true, districtCodes: ["MH-PUN"] }, "Pune pilot (test)", admin);
 });
 
-/** An approved dealer with a signed-in account, its GKS-MH-PUN code, and (optionally) one employee with a code. */
+/** An approved dealer with a signed-in account, its code, and (optionally) one employee with a code. */
 async function approvedDealer(name: string, withEmployee = false) {
   const user = await createUser({ role: "DEALER", name });
   const [dealer] = await db
     .insert(dealers)
     .values({ userId: user.id, legalName: name, contactName: name, dealerType: "PROPRIETORSHIP", status: "APPROVED", mobileE164: `+91${uniqueMobile()}`, decidedAt: new Date() })
     .returning();
-  const { code } = await db.transaction((tx) => issueCode(tx, { dealerId: dealer.id, kind: "DEALER", makeCode: () => dealerCodeFor("PUN"), label: name }, admin));
+  const { code } = await db.transaction((tx) => issueCode(tx, { dealerId: dealer.id, kind: "DEALER", makeCode: newReferralCode, label: name }, admin));
   let employee: { id: string; code: string } | null = null;
   if (withEmployee) {
     const [person] = await db.insert(dealerSalespeople).values({ dealerId: dealer.id, employeeId: "EMP-7", name: "Ravi Jadhav" }).returning();
-    const issued = await db.transaction((tx) => issueCode(tx, { dealerId: dealer.id, salespersonId: person.id, kind: "SALESPERSON", makeCode: salespersonCode, label: "Ravi" }, admin));
+    const issued = await db.transaction((tx) => issueCode(tx, { dealerId: dealer.id, salespersonId: person.id, kind: "SALESPERSON", makeCode: newReferralCode, label: "Ravi" }, admin));
     employee = { id: person.id, code: issued.code };
   }
   return { user, dealer, code, employee };
@@ -161,11 +163,44 @@ describe("codes at registration (scenarios 11, 13, 14, 15)", () => {
   });
 
   it("a legacy code with no dealer link: GoKesari Direct (internal)", async () => {
-    await createReferralCode({ code: "OLD-PUNE-1", label: "launch" }, admin);
-    const { shopId } = await selfRegister({ referralCode: "OLD-PUNE-1" });
+    await createReferralCode({ code: "OLDPUNE1", label: "launch" }, admin);
+    const { shopId } = await selfRegister({ referralCode: "OLDPUNE1" });
     const a = await attributionOf(shopId);
     const [direct] = await db.select().from(dealers).where(eq(dealers.id, a!.dealerId));
     expect(direct.isInternal).toBe(true);
+  });
+});
+
+describe("disable / enable a dealer's code on the referral codes page (30 Oct 2026)", () => {
+  const statuses = async (code: string) => {
+    const [row] = await db
+      .select({ referral: referralCodes.status, dealer: dealerCodes.status, id: referralCodes.id })
+      .from(referralCodes)
+      .innerJoin(dealerCodes, eq(dealerCodes.referralCodeId, referralCodes.id))
+      .where(eq(referralCodes.code, code));
+    return row;
+  };
+
+  it("disabling suspends the dealer code; enabling brings it back while the dealer is approved", async () => {
+    const { code } = await approvedDealer("Shirdi Traders");
+    const { id } = await statuses(code);
+    await updateReferralCode(id, { status: "INACTIVE" }, admin);
+    expect(await statuses(code)).toMatchObject({ referral: "INACTIVE", dealer: "SUSPENDED" });
+    await updateReferralCode(id, { status: "ACTIVE" }, admin);
+    expect(await statuses(code)).toMatchObject({ referral: "ACTIVE", dealer: "ACTIVE" });
+  });
+
+  it("refuses to enable the code of a suspended dealer or an inactive employee", async () => {
+    const { dealer, code, employee } = await approvedDealer("Nagar Traders", true);
+    const own = (await statuses(code)).id;
+    const emp = (await statuses(employee!.code)).id;
+    await updateReferralCode(own, { status: "INACTIVE" }, admin);
+    await updateReferralCode(emp, { status: "INACTIVE" }, admin);
+    await db.update(dealerSalespeople).set({ status: "INACTIVE" }).where(eq(dealerSalespeople.id, employee!.id));
+    await expect(updateReferralCode(emp, { status: "ACTIVE" }, admin)).rejects.toMatchObject({ code: "CONFLICT" });
+    await db.update(dealers).set({ status: "SUSPENDED" }).where(eq(dealers.id, dealer.id));
+    await expect(updateReferralCode(own, { status: "ACTIVE" }, admin)).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await statuses(code)).toMatchObject({ referral: "INACTIVE", dealer: "SUSPENDED" });
   });
 });
 

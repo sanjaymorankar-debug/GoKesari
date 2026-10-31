@@ -174,6 +174,7 @@ export const TABLE_OWNERSHIP = {
   societies: "customer",
   society_members: "customer",
   society_riders: "customer",
+  society_partner_access: "customer",
   society_shops: "customer",
   marketing_campaigns: "customer",
   campaign_recipients: "customer",
@@ -211,6 +212,8 @@ export const TABLE_OWNERSHIP = {
   bank_verification_attempts: "platform",
   delivery_partners: "platform",
   delivery_partner_documents: "platform",
+  delivery_partner_kyc_checks: "platform",
+  delivery_partner_background_docs: "platform",
   delivery_partner_sessions: "platform",
   delivery_partner_change_requests: "platform",
   delivery_partner_earnings: "platform",
@@ -286,6 +289,8 @@ export const TABLE_OWNERSHIP = {
   // docs/homepage-uiux-2026-10: home hero banners and the header search log.
   home_banners: "platform",
   search_queries: "platform",
+  // docs/app-install-2026-10: the install prompt's per-person record (declines, installed platforms).
+  app_install_states: "platform",
   /* <<< end WS-F */
   //
   /* >>> purchase lists (docs/purchase-lists-2026-10): a customer's weekly / monthly lists, next to carts */

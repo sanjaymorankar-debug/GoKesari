@@ -1,29 +1,41 @@
 /**
  * Onboarding wizard, step 2 (docs/shop-onboarding-wizard-2026-10): everything
- * after the GSTIN / PAN step, on the owner's draft —
+ * after the GSTIN / PAN step, on the owner's draft, in the brief's order (owner
+ * decision 29 Oct 2026, "follow the brief"; BRIEF_REDESIGN.md) — opened, since
+ * the owner's brief of 30 Oct 2026 (FLOW_2026-10-30.md, 0120), by
  *
- *   DETAILS   shop type, categories, phone, turnover (the fee slab); name and
- *             address pre-filled from the GST record
+ *   REFERRAL  the referral code (mandatory or optional by the admin's setting)
+ *   EMAIL     the shop's email: the account's, or another one confirmed with an
+ *             emailed code
+ *   DOCS_READY "Do you have your documents handy?" Yes → the checks below
+ *             (typed, or read from a photo on the device); No → "upload later":
+ *             DETAILS → (FSSAI for a food shop) → REVIEW, and the shop
+ *             goes live on payment with its payouts held until the GSTIN or PAN
+ *             is verified (finance.ts)
+ *
  *   UDYAM     "Do you have Udyam?" → government check (optional)
  *   FSSAI     "Do you have FSSAI?" — asked of every shop, mandatory for a food
- *             shop type → government check (expiry, premises PIN)
- *   SHOP_ACT  number → government check where the state has one; Maharashtra
- *             has none, so the check goes to an admin (MANUAL_REVIEW); or
- *             "I don't have it now"
- *   LOCATION  the map pin
- *   REVIEW    the documents list. Owner decision 29 Oct 2026: at least one
- *             document verified; anything mandatory not verified is promised
- *             ("I will provide all relevant documents within 30 days") and
- *             the shop then waits for an admin or operator.
- *             "Create my shop and pay": the shop is created from the draft
- *             (registerShop, with its duplicate checks and fee snapshot) and,
- *             in the same transaction, every check is copied to
+ *             shop type → government check (expiry, premises PIN). A food shop
+ *             type chosen later sends the owner back here.
+ *   DETAILS   shop type, phone, turnover (the fee slab from the admin's rule
+ *             table); name and address pre-filled from the GST record
+ *   REVIEW    the fee and "Create my shop and pay": allowed once the GSTIN — or
+ *             the PAN without one — is verified. The shop is created from the
+ *             draft (registerShop, with its duplicate checks and fee snapshot)
+ *             and, in the same transaction, every check is copied to
  *             seller_verifications with the vendor's reference
- *   PAYMENT   the existing registration-fee checkout (Cashfree)
- *   WAITING / DONE  the payment webhook runs the instant approval, in every
- *             district, for a shop whose documents are all verified; any other
- *             shop waits for an admin or operator (decision B's go-live before
- *             the Shop Act review, 0113, was withdrawn on 29 Oct 2026)
+ *   PAYMENT   the existing registration-fee checkout (Cashfree). Not paid, or
+ *             the payment failed: the shop is pending admin approval; the owner
+ *             can still shop as a customer, and the shop gets no orders
+ *   WAITING   paid, but something approval needs is not verified yet (FSSAI of
+ *             a food shop, a shop-type licence, a likely duplicate)
+ *   LOCATION, CATEGORY, PRODUCTS  after approval (the "ready for product
+ *             upload" email has gone): the map pin, the shop's categories and
+ *             the product list, saved on the shop through its own routes
+ *   DONE
+ *
+ * The Shop Act is no longer a wizard step: it is uploaded on Documents after
+ * go-live, and the 1st / 15th follow-up chases it.
  *
  * Same safeguards as step 1: format check before any paid call, explicit
  * consent, the draft row claimed under a lock, a verified number served from
@@ -32,16 +44,20 @@
  * no newer check claimed the row. Numbers are kept as ciphertext, masked form
  * and blind index; views carry the masked form only.
  */
-import { and, desc, eq, inArray } from "drizzle-orm";
+import { and, count, desc, eq, inArray } from "drizzle-orm";
 
 import { GST_DECLARATION_VERSION, SELLER_VERIFICATION_CONSENT_VERSION } from "@/lib/kyc/consent";
 import { parseSellerDocNumber, SELLER_DOC_TYPES, type SellerDocType } from "@/lib/kyc/doc-formats";
 import { bestNameMatch } from "@/lib/kyc/name-match";
 import { conflict, notFound, validationFailed } from "@/lib/errors";
 import { decryptSecret, docBlindIndex, encryptSecret } from "@/lib/pan-crypto";
+import { isPlaceholderEmail } from "@/lib/placeholder-email";
+import type { TurnoverFeeRule } from "@/lib/registration-fee";
 import { isFoodBusinessShopType } from "@/lib/shop-types";
 import { db, type DbClient } from "@/server/db";
 import {
+  shopCategoryMapping,
+  shopProducts,
   shopRegistrationDraftChecks,
   shopRegistrationDrafts,
   shops,
@@ -50,15 +66,17 @@ import {
   type ShopRegistrationDraft,
   type ShopRegistrationDraftCheck,
   type UserRole,
+  users,
 } from "@/server/db/schema";
 import { recordShopAttributionSafely } from "@/server/dealers/attribution";
 import { verifyDocument } from "@/server/kyc";
+import { requestShopEmailOtp, verifyShopEmailOtp } from "@/server/otp/service";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { featureNotAvailable, isFeatureEnabled } from "./feature-flags";
 import { assertRegistrationReferralCode, attributeRegistrationReferral } from "./referral-requests";
+import { isReferralRequired } from "./referral-settings";
 import { registrationFeeDue } from "./registration-fee-payment";
 import { applyDocumentChecks, type ShopFacts } from "./seller-verification-checks";
-import { setDocumentsPromise } from "./shop-document-gate";
 import {
   importRegistrationCheck,
   importRegistrationGstDeclaration,
@@ -72,6 +90,7 @@ import {
   countCheck,
   findOpenDraft,
   IN_FLIGHT_WINDOW_MS,
+  lockOpenDraft,
   message,
   str,
   toDraftView,
@@ -80,6 +99,7 @@ import {
   type ShopRegistrationDraftView,
 } from "./shop-registration-draft";
 import { assertShopType, loadShopTypeRegistry } from "./shop-types";
+
 import { autoApproveShopIfReady, registerShop } from "./shops";
 
 /* ---------------------------------------------------------------- types */
@@ -134,7 +154,7 @@ export interface DraftShopDetails {
   landmark: string | null;
 }
 
-export const WIZARD_STEPS = ["IDENTITY", "DETAILS", "UDYAM", "FSSAI", "SHOP_ACT", "LOCATION", "REVIEW", "PAYMENT", "WAITING", "DONE"] as const;
+export const WIZARD_STEPS = ["REFERRAL", "EMAIL", "DOCS_READY", "IDENTITY", "UDYAM", "FSSAI", "DETAILS", "REVIEW", "PAYMENT", "WAITING", "LOCATION", "CATEGORY", "PRODUCTS", "DONE"] as const;
 export type WizardStep = (typeof WIZARD_STEPS)[number];
 
 export interface WizardDocView {
@@ -148,17 +168,19 @@ export interface WizardDocView {
 export interface WizardView extends ShopRegistrationDraftView {
   status: ShopRegistrationDraft["status"];
   details: DraftShopDetails | null;
-  /** A food shop type: FSSAI is mandatory (it may still be promised; approval waits for it). */
+  /** A food shop type: FSSAI is mandatory (approval waits for it to be verified). */
   foodShop: boolean;
   udyam: WizardDocView;
   fssai: WizardDocView & { required: boolean };
   shopAct: WizardDocView;
   location: { latitude: string; longitude: string; address: string | null } | null;
-  /**
-   * Owner decision 29 Oct 2026: the fee is paid once the documents are verified (at least
-   * one); anything mandatory still missing needs the 30-day promise, and the shop then
-   * waits for GoKesari's team to approve it.
-   */
+  /** 0120: the referral step — the code given (null: none) and whether the admin makes it mandatory. */
+  referral: { answered: boolean; code: string | null; required: boolean };
+  /** 0120: the shop's email — the account's (the default) and the one confirmed for the shop. */
+  email: { account: string | null; shop: string | null; confirmed: boolean };
+  /** 0120: "Do you have your documents handy?" — false: checked now; true: upload later; null: not answered. */
+  documentsLater: boolean | null;
+  /** Owner decision 29 Oct 2026 ("follow the brief"): the fee is paid once the GSTIN or PAN is verified. */
   documents: WizardDocuments;
   /** Once the shop exists (SUBMITTED / COMPLETED). */
   shop: {
@@ -169,21 +191,26 @@ export interface WizardView extends ShopRegistrationDraftView {
     feeDuePaise: number;
     feePaymentStatus: Shop["feePaymentStatus"];
   } | null;
+  /** The admin's fee-by-turnover slab table (Admin → Registration fees): the details step offers its slabs. */
+  feeRule: TurnoverFeeRule;
+  /** After approval: what the owner has set up on the shop (map pin, categories, products). */
+  setup: { location: boolean; categories: boolean; products: boolean } | null;
   /** Where the wizard resumes. */
   nextStep: WizardStep;
 }
 
 export interface WizardDocuments {
   verified: SellerDocType[];
-  /** Mandatory and not verified: the owner promises them to continue. */
+  /** Needed for approval and not verified yet: the GSTIN (or PAN), FSSAI for a food shop. */
   missing: SellerDocType[];
-  /** Waiting for GoKesari's team (the no-GST declaration): approval by the team, no promise needed. */
+  /** Kept for the screen's shape; nothing waits for the team before payment any more. */
   inReview: SellerDocType[];
+  /** The 30-day promise is not used in the wizard (owner decision 29 Oct 2026, "follow the brief"). */
   promised: boolean;
   promiseDays: number;
-  /** "Create my shop and pay" may go ahead (with the promise ticked when something is missing). */
+  /** "Create my shop and pay" may go ahead: the GSTIN — or the PAN without one — was checked and not refused. */
   canSubmit: boolean;
-  /** The shop will wait for an admin or operator instead of going live on payment. */
+  /** Something approval needs is not verified yet, so the shop will wait for an admin after payment. */
   needsTeamApproval: boolean;
 }
 
@@ -194,7 +221,7 @@ const DOC_MESSAGES: Partial<Record<DraftCheckDocType, Record<string, string>>> =
   FSSAI: { name_mismatch: "The name on the FSSAI record doesn't match your shop or owner name. You can carry on — our team will check it." },
   SHOP_ACT: {
     vendor_unsupported:
-      "Shop Act numbers can't be checked online in your state. You can carry on — after registration, upload your Shop Act certificate on Documents and our team will review it.",
+      "Shop Act numbers can't be checked online. You can carry on — after registration, upload your Shop Act certificate on Documents and our team will review it.",
     name_mismatch: "The name on the Shop Act record doesn't match your shop or owner name. You can carry on — our team will check it.",
   },
 };
@@ -236,7 +263,8 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
   const foodShop = await isFoodShopType(details?.shopType);
 
   const udyam: WizardDocView = { has: draft.hasUdyam, check: checkView("UDYAM", row("UDYAM")), done: draft.hasUdyam === false || (draft.hasUdyam === true && settled(row("UDYAM"))) };
-  const fssaiDone = draft.hasFssai === false || settled(row("FSSAI"));
+  // A food shop must give its FSSAI number (the brief: legal documents by shop type are enforced in the flow).
+  const fssaiDone = (draft.hasFssai === false && !foodShop) || settled(row("FSSAI"));
   const fssai = { has: draft.hasFssai, check: checkView("FSSAI", row("FSSAI")), done: fssaiDone, required: foodShop };
   const shopAct: WizardDocView = {
     has: draft.hasShopAct ?? null,
@@ -246,6 +274,7 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
   const location = draft.latitude && draft.longitude && draft.locationConfirmedAt ? { latitude: draft.latitude, longitude: draft.longitude, address: draft.locationAddress } : null;
 
   let shop: WizardView["shop"] = null;
+  let setup: WizardView["setup"] = null;
   if (draft.shopId) {
     const [s] = await db.select().from(shops).where(eq(shops.id, draft.shopId));
     if (s) {
@@ -257,23 +286,82 @@ export async function toWizardView(draft: ShopRegistrationDraft): Promise<Wizard
         feeDuePaise: registrationFeeDue(s),
         feePaymentStatus: s.feePaymentStatus,
       };
+      if (s.status === "APPROVED") setup = await shopSetup(s);
     }
   }
 
+  // 0120: a draft started before the new first steps (it already has a GSTIN / PAN or details) skips them.
+  const started = draft.route !== null || detailsOf(draft) !== null;
+  const documentsLater = draft.documentsLater ?? (started ? false : null);
+  const referral = { answered: draft.referralAnsweredAt !== null || started, code: draft.referralCode, required: await isReferralRequired("shop") };
+  const email = { account: await accountEmail(draft.ownerId), shop: draft.shopEmail, confirmed: draft.shopEmailConfirmedAt !== null || started };
+
   let nextStep: WizardStep;
-  if (draft.status === "COMPLETED" || shop?.status === "APPROVED") nextStep = "DONE";
+  if (shop?.status === "APPROVED" && setup) {
+    nextStep = !setup.location ? "LOCATION" : !setup.categories ? "CATEGORY" : !setup.products ? "PRODUCTS" : "DONE";
+  } else if (draft.status === "COMPLETED") nextStep = "DONE";
   else if (draft.status === "SUBMITTED") nextStep = shop && shop.feeDuePaise > 0 ? "PAYMENT" : "WAITING";
+  else if (!referral.answered) nextStep = "REFERRAL";
+  else if (!email.confirmed) nextStep = "EMAIL";
+  else if (documentsLater === null) nextStep = "DOCS_READY";
+  // "Upload later": shop details, FSSAI for a food shop (the law), then the fee.
+  else if (documentsLater) nextStep = !details ? "DETAILS" : foodShop && !fssai.done ? "FSSAI" : "REVIEW";
   else if (!base.canContinue) nextStep = "IDENTITY";
-  else if (!details) nextStep = "DETAILS";
   else if (!udyam.done) nextStep = "UDYAM";
+  // A food shop type chosen on the details step comes back here: FSSAI is mandatory for it.
   else if (!fssai.done) nextStep = "FSSAI";
-  else if (!shopAct.done) nextStep = "SHOP_ACT";
-  else if (!location) nextStep = "LOCATION";
+  else if (!details) nextStep = "DETAILS";
+  // Owner brief 30 Oct 2026 (FLOW_2026-10-30-b.md): the fee comes before the map pin, which is
+  // asked once the shop is live (LOCATION above). A pin placed before this change is still kept.
   else nextStep = "REVIEW";
 
   const documents = await draftDocuments(draft, checks, details, foodShop);
-  return { ...base, status: draft.status, details, foodShop, udyam, fssai, shopAct, location, documents, shop, nextStep };
+  const feeRule = await getRule("registrationFeeByTurnover");
+  return {
+    ...base,
+    status: draft.status,
+    details,
+    foodShop,
+    udyam,
+    fssai,
+    shopAct,
+    location,
+    referral,
+    email,
+    documentsLater,
+    documents,
+    shop,
+    feeRule,
+    setup,
+    nextStep,
+  };
 }
+
+/** The account's own email (core database), unless it is a placeholder for a mobile-only account. */
+async function accountEmail(ownerId: string): Promise<string | null> {
+  const owner = await db.query.users.findFirst({ where: eq(users.id, ownerId), columns: { email: true } });
+  return owner?.email && !isPlaceholderEmail(owner.email) ? owner.email : null;
+}
+
+/** What an approved shop has set up after registration: the map pin, categories and products. */
+async function shopSetup(shop: Shop): Promise<NonNullable<WizardView["setup"]>> {
+  const [categories] = await db
+    .select({ n: count() })
+    .from(shopCategoryMapping)
+    .where(eq(shopCategoryMapping.shopId, shop.id));
+  const [products] = await db
+    .select({ n: count() })
+    .from(shopProducts)
+    .where(eq(shopProducts.shopId, shop.id));
+  return {
+    location: shop.latitude != null && shop.longitude != null,
+    categories: Number(categories?.n ?? 0) > 0,
+    products: Number(products?.n ?? 0) > 0,
+  };
+}
+
+/** Statuses of a GSTIN / PAN check that let the owner pay (the identity step's own "may continue"). */
+const CHECKED = new Set(["VERIFIED", "PENDING", "MANUAL_REVIEW"]);
 
 /** The documents rule on a draft: the same mandatory list as the shop will have (shop-document-gate.ts). */
 async function draftDocuments(
@@ -287,20 +375,24 @@ async function draftDocuments(
   const { nameMatchAutoApprove } = await getRule("sellerVerification");
   const imported = details ? registrationChecks(draft, checks, details, nameMatchAutoApprove) : [];
   const verified = SELLER_DOC_TYPES.filter((d) => imported.some((c) => c.docType === d && c.status === "VERIFIED"));
-  const declared = draft.route === "PAN_ONLY" && draft.noGstDeclaredAt !== null;
-  const required: SellerDocType[] = ["PAN", ...(declared ? [] : (["GSTIN"] as const)), "SHOP_ACT", ...(foodShop ? (["FSSAI"] as const) : [])];
+  // Owner decision 29 Oct 2026 ("follow the brief"; 0118): the GSTIN — or the PAN on the no-GSTIN
+  // route — opens the payment; approval needs FSSAI too for a food shop. Same list as the shop's.
+  const identity: SellerDocType = draft.route === "PAN_ONLY" ? "PAN" : "GSTIN";
+  // 0120: "upload later" — only FSSAI for a food shop before go-live; the GSTIN / PAN after it.
+  const later = draft.documentsLater === true;
+  const required: SellerDocType[] = [...(later ? [] : [identity]), ...(foodShop ? (["FSSAI"] as const) : [])];
   const missing = required.filter((d) => !verified.includes(d));
-  const inReview: SellerDocType[] = declared ? ["GSTIN"] : [];
-  const promised = draft.documentsPromisedAt !== null;
   const { promiseDays } = await getRule("shopDocumentFollowUp");
   return {
     verified,
     missing,
-    inReview,
-    promised,
+    inReview: [],
+    promised: false,
     promiseDays,
-    canSubmit: verified.length > 0,
-    needsTeamApproval: missing.length > 0 || inReview.length > 0,
+    // Checked and not refused (verified, still being checked, or with the team): the owner may pay; only a
+    // verified one is approved automatically — anything else waits for an admin after payment.
+    canSubmit: later || imported.some((c) => c.docType === identity && CHECKED.has(c.status)),
+    needsTeamApproval: missing.length > 0,
   };
 }
 
@@ -322,7 +414,7 @@ export async function getWizardDraft(actor: Pick<Actor, "id">): Promise<WizardVi
 
 /* --------------------------------------------------------------- guards */
 
-/** The owner's OPEN draft past the GSTIN / PAN step, locked for this transaction. */
+/** The owner's OPEN draft past the GSTIN / PAN step (or on "upload later", 0120), locked for this transaction. */
 async function lockReadyDraft(tx: DbClient, ownerId: string): Promise<ShopRegistrationDraft> {
   const [draft] = await tx
     .select()
@@ -330,10 +422,89 @@ async function lockReadyDraft(tx: DbClient, ownerId: string): Promise<ShopRegist
     .where(and(eq(shopRegistrationDrafts.ownerId, ownerId), eq(shopRegistrationDrafts.status, "OPEN")))
     .for("update");
   if (!draft) throw notFound("Registration in progress");
-  if (!toDraftView(draft).canContinue) {
+  if (draft.documentsLater !== true && !toDraftView(draft).canContinue) {
     throw conflict("Please finish the GSTIN or PAN step first.", { reason: "IDENTITY_STEP_OPEN" });
   }
   return draft;
+}
+
+/* ------------------------------------------- 0120: referral, email, documents */
+
+/** Step "Referral code": checked now (a code the platform requires, or one that is not valid, is refused here). */
+export async function answerDraftReferral(input: { actor: Actor; referralCode: string | null }): Promise<WizardView> {
+  const code = await assertRegistrationReferralCode(input.referralCode);
+  await assertOwnerExists(input.actor.id);
+  const draft = await db.transaction(async (tx) => {
+    const locked = await lockOpenDraft(tx, input.actor.id);
+    const [updated] = await tx
+      .update(shopRegistrationDrafts)
+      .set({ referralCode: code, referralAnsweredAt: new Date(), updatedAt: new Date() })
+      .where(eq(shopRegistrationDrafts.id, locked.id))
+      .returning();
+    return updated;
+  });
+  return toWizardView(draft);
+}
+
+async function setDraftEmail(ownerId: string, email: string): Promise<WizardView> {
+  const draft = await db.transaction(async (tx) => {
+    const locked = await lockOpenDraft(tx, ownerId);
+    if (locked.referralAnsweredAt === null && locked.route === null) {
+      throw conflict("Please answer the referral code step first.", { reason: "REFERRAL_STEP_OPEN" });
+    }
+    const [updated] = await tx
+      .update(shopRegistrationDrafts)
+      .set({ shopEmail: email, shopEmailConfirmedAt: new Date(), updatedAt: new Date() })
+      .where(eq(shopRegistrationDrafts.id, locked.id))
+      .returning();
+    return updated;
+  });
+  return toWizardView(draft);
+}
+
+/** Step "Shop email": "Continue with my account's email" — already proven by the sign-in. */
+export async function chooseAccountEmailForShop(input: { actor: Actor }): Promise<WizardView> {
+  const email = await accountEmail(input.actor.id);
+  if (!email) throw validationFailed("Your account has no email yet. Enter the email for your shop.", { fields: { email: "Enter an email." } });
+  return setDraftEmail(input.actor.id, email);
+}
+
+function shopEmailMessage(code: string, expiryMinutes: number) {
+  return {
+    subject: `${code} — confirm this email for your shop on GoKesari`,
+    text:
+      `You asked to use this email for your shop on GoKesari.\n\n` +
+      `Your code: ${code}\n\nIt works once and expires in ${expiryMinutes} minutes. If you did not ask for this, ignore this email.\n`,
+    html:
+      `<p>You asked to use this email for your shop on GoKesari.</p><p>Your code:</p>` +
+      `<p style="font-size:28px;letter-spacing:6px;font-weight:600">${code}</p>` +
+      `<p style="color:#666;font-size:12px">It works once and expires in ${expiryMinutes} minutes. If you did not ask for this, ignore this email.</p>`,
+  };
+}
+
+/** Step "Shop email", another address: a code is emailed to it (outside every transaction). */
+export async function requestDraftEmailCode(input: { actor: Actor; email: string; ip?: string | null }) {
+  return requestShopEmailOtp({ email: input.email, userId: input.actor.id, ip: input.ip ?? null, render: shopEmailMessage });
+}
+
+/** Step "Shop email", another address: the emailed code confirms it. */
+export async function confirmDraftEmailCode(input: { actor: Actor; email: string; code: string; ip?: string | null }): Promise<WizardView> {
+  const email = await verifyShopEmailOtp({ email: input.email, code: input.code, userId: input.actor.id, ip: input.ip ?? null });
+  return setDraftEmail(input.actor.id, email);
+}
+
+/** Step "Do you have your documents handy?" — false: check them now; true: upload them after go-live. */
+export async function answerDocumentsReady(input: { actor: Actor; later: boolean }): Promise<WizardView> {
+  const draft = await db.transaction(async (tx) => {
+    const locked = await lockOpenDraft(tx, input.actor.id);
+    const [updated] = await tx
+      .update(shopRegistrationDrafts)
+      .set({ documentsLater: input.later, updatedAt: new Date() })
+      .where(eq(shopRegistrationDrafts.id, locked.id))
+      .returning();
+    return updated;
+  });
+  return toWizardView(draft);
 }
 
 /* ----------------------------------------------------------- shop details */
@@ -346,6 +517,10 @@ export async function saveDraftDetails(input: { actor: Actor; details: DraftShop
       fields: { annualTurnover: "Enter your annual turnover — it sets the registration fee." },
     });
   }
+  // 0120: the referral code and email come from their own steps when the form leaves them out.
+  const open = await findOpenDraft(actor.id);
+  details.referralCode = details.referralCode ?? open?.referralCode ?? null;
+  details.email = details.email ?? open?.shopEmail ?? null;
   // A referral code the platform requires (or one that is not valid) is caught here, not at payment.
   await assertRegistrationReferralCode(details.referralCode);
   const foodShop = await isFoodShopType(details.shopType);
@@ -690,7 +865,7 @@ const plain = (row: ShopRegistrationDraftCheck | undefined, include = true): str
  * same transaction. Returns the wizard at its payment step. Idempotent: a
  * draft already turned into a shop is returned as it is.
  */
-export async function submitDraftForPayment(input: { actor: Actor; ipAddress?: string | null; promiseDocuments?: boolean }): Promise<WizardView> {
+export async function submitDraftForPayment(input: { actor: Actor; ipAddress?: string | null; /** Ignored: no promise in the wizard any more. */ promiseDocuments?: boolean }): Promise<WizardView> {
   const { actor } = input;
   const open = await findOpenDraft(actor.id);
   if (!open) {
@@ -702,19 +877,10 @@ export async function submitDraftForPayment(input: { actor: Actor; ipAddress?: s
   if (view.nextStep !== "REVIEW") {
     throw conflict("Please finish every step before payment.", { reason: "STEP_OPEN", nextStep: view.nextStep });
   }
-  // Owner decision 29 Oct 2026: at least one verified document, and the promise for anything missing.
-  const documents = view.documents;
-  if (!documents.canSubmit) {
-    throw conflict("Please get at least one of your documents verified (for example your PAN) before paying the registration fee.", {
-      reason: "NO_VERIFIED_DOCUMENT",
-    });
-  }
-  const promise = documents.missing.length > 0;
-  if (promise && !input.promiseDocuments) {
-    throw validationFailed("Tick \"I will provide all relevant documents\" to continue, or verify the missing documents first.", {
-      reason: "DOCUMENTS_PROMISE_REQUIRED",
-      missing: documents.missing,
-      fields: { promise: "Required while documents are missing." },
+  // Owner decision 29 Oct 2026 ("follow the brief"): a checked GSTIN, or PAN without one, before payment.
+  if (!view.documents.canSubmit) {
+    throw conflict("A valid PAN or GST is required to register. Please get your GSTIN or PAN verified before paying the registration fee.", {
+      reason: "IDENTITY_NOT_VERIFIED",
     });
   }
   const details = view.details!;
@@ -722,7 +888,9 @@ export async function submitDraftForPayment(input: { actor: Actor; ipAddress?: s
   const row = (t: DraftCheckDocType) => checks.find((c) => c.docType === t);
   const referralCode = await assertRegistrationReferralCode(details.referralCode);
   const rule = await getRule("sellerVerification");
-  const imports = registrationChecks(open, checks, details, rule.nameMatchAutoApprove);
+  // 0120: on "upload later" a number tried and refused before the owner switched is not carried over.
+  const later = open.documentsLater === true;
+  const imports = registrationChecks(open, checks, details, rule.nameMatchAutoApprove).filter((c) => !later || CHECKED.has(c.status));
   const panRecordName = str(open.panRecord?.name);
   const stamp = open.updatedAt.getTime();
 
@@ -732,11 +900,9 @@ export async function submitDraftForPayment(input: { actor: Actor; ipAddress?: s
     if (!draft || draft.status !== "OPEN" || draft.updatedAt.getTime() !== stamp) {
       throw conflict("Your registration changed while it was being submitted. Please check it and try again.", { reason: "DRAFT_CHANGED" });
     }
-    // Owner decision 29 Oct 2026 replaces decision B: no document is deferred past go-live any more.
-    // Missing documents are promised instead, and the shop waits for GoKesari's team.
-    if (promise) await setDocumentsPromise(tx, shop.id);
+    // No promise and no deferral: approval reads the wizard rule (0118) — GSTIN or PAN, FSSAI for food.
     for (const check of imports) await importRegistrationCheck(tx, shop.id, check, actor, draft.id);
-    if (draft.route === "PAN_ONLY") {
+    if (draft.route === "PAN_ONLY" && pan) {
       await importRegistrationGstDeclaration(
         tx,
         shop.id,
@@ -752,12 +918,12 @@ export async function submitDraftForPayment(input: { actor: Actor; ipAddress?: s
         shopId: shop.id,
         submittedAt: new Date(),
         updatedAt: new Date(),
-        ...(promise ? { documentsPromisedAt: new Date() } : {}),
       })
       .where(eq(shopRegistrationDrafts.id, draft.id));
   };
 
-  const gstin = open.route === "GSTIN" && open.gstinEncrypted ? decryptSecret(open.gstinEncrypted) : null;
+  const gstin = open.route === "GSTIN" && open.gstinEncrypted && (!later || CHECKED.has(open.gstStatus)) ? decryptSecret(open.gstinEncrypted) : null;
+  const pan = open.panEncrypted && (!later || CHECKED.has(open.panStatus)) ? decryptSecret(open.panEncrypted) : null;
   let shop: Awaited<ReturnType<typeof registerShop>>;
   try {
     shop = await registerShop(
@@ -776,11 +942,12 @@ export async function submitDraftForPayment(input: { actor: Actor; ipAddress?: s
         latitude: open.latitude,
         longitude: open.longitude,
         shopType: details.shopType,
-        categoryIds: details.categoryIds,
+        // Chosen after approval (CATEGORY step) when not given here.
+        categoryIds: details.categoryIds?.length ? details.categoryIds : undefined,
         annualTurnoverRupees: details.annualTurnoverRupees,
         couponCode: details.couponCode,
         gstin,
-        panNumber: open.panEncrypted ? decryptSecret(open.panEncrypted) : null,
+        panNumber: pan,
         panHolderName: panRecordName ?? details.ownerName,
         udyamNumber: plain(row("UDYAM"), open.hasUdyam === true),
         shopActNumber: plain(row("SHOP_ACT"), open.hasShopAct !== false),
@@ -809,20 +976,10 @@ export async function submitDraftForPayment(input: { actor: Actor; ipAddress?: s
     newValue: {
       shopId: shop.id,
       route: open.route,
+      documentsLater: later,
       documents: imports.map((c) => ({ docType: c.docType, number: c.numberMasked, status: c.status })),
-      ...(promise ? { promisedDocuments: documents.missing } : {}),
     },
   });
-  if (promise) {
-    await recordAudit({
-      actorId: actor.id,
-      actorRole: actor.role,
-      action: AUDIT_ACTIONS.SHOP_DOCUMENTS_PROMISED,
-      entityType: "shop",
-      entityId: shop.id,
-      newValue: { missing: documents.missing, source: "ONBOARDING_WIZARD" },
-    });
-  }
   // Nothing to pay (a full coupon): the approval runs now instead of on the payment webhook.
   if (registrationFeeDue(shop) === 0) {
     await autoApproveShopIfReady(shop.id).catch((error) => console.error("[registration-wizard] auto-approval check failed", shop.id, error));

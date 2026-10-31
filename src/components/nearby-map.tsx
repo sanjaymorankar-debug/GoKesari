@@ -15,7 +15,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import clsx from "clsx";
 
 import { NearbyShopCard, type NearbyShop } from "@/components/nearby-shops";
-import { isMapsAvailable, loadGoogleMaps } from "@/lib/geo/provider";
+import { isMapsAvailable, loadGoogleMaps, onMapsAuthFailure } from "@/lib/geo/provider";
 
 interface Props {
   origin: { latitude: number; longitude: number };
@@ -25,6 +25,8 @@ interface Props {
 
 export function NearbyMap({ origin, radiusKm, shops }: Props) {
   const [google, setGoogle] = useState<"loading" | "ready" | "off">(isMapsAvailable() ? "loading" : "off");
+  // A key Google refuses leaves a grey map: the drawn map instead.
+  useEffect(() => onMapsAuthFailure(() => setGoogle("off")), []);
   const [selected, setSelected] = useState<string | null>(null);
   const chosen = shops.find((s) => s.id === selected) ?? null;
 

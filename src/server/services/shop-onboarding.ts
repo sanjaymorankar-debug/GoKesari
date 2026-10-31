@@ -6,14 +6,14 @@
  * module adds what the screens need around it — which mandatory documents
  * are still missing and how much fee is owed — and the approval gate.
  */
-import { count, eq, inArray, isNull, sql } from "drizzle-orm";
+import { and, count, eq, inArray, isNull, sql } from "drizzle-orm";
 
 import { formatDisplayDate, todayIn } from "@/lib/dates";
 import { SELLER_DOC_LABELS, SELLER_DOC_TYPES, type SellerDocType } from "@/lib/kyc/doc-formats";
 import { isOnboardingStage, type OnboardingFacts } from "@/lib/shop-onboarding";
 import { SHOP_LIFECYCLE_STATUSES, type ShopLifecycleStatus } from "@/lib/status-models";
 import { db, type DbClient } from "@/server/db";
-import { sellerVerifications, shopDeferredDocumentReviews, shopDocumentWaivers, shops, type Shop } from "@/server/db/schema";
+import { sellerVerifications, shopDeferredDocumentReviews, shopDocumentWaivers, shopRegistrationDrafts, shops, type Shop } from "@/server/db/schema";
 import { isMandatory } from "./seller-verification-checks";
 import { getRule } from "./settings";
 
@@ -126,18 +126,74 @@ export async function missingMandatoryDocuments(
   options: { countDeferred?: boolean } = {},
 ) {
   const [row] = await client
-    .select({ sellsFood: sql<boolean>`shop_sells_food(${shop.id}, ${shop.shopType}::text)` })
+    .select({ sellsFood: sql<boolean>`shop_sells_food(${shop.id}, ${shop.shopType}::text)`, gstin: shops.gstin })
     .from(shops)
     .where(eq(shops.id, shop.id));
   const rows = await client
     .select({ docType: sellerVerifications.docType, status: sellerVerifications.status })
     .from(sellerVerifications)
     .where(eq(sellerVerifications.shopId, shop.id));
+  // The approval gates of a wizard shop (owner decision 29 Oct 2026, 0118): the GSTIN — or the PAN
+  // without one — and FSSAI for a food shop. The rest is chased after go-live.
+  if (options.countDeferred && (await isWizardRegisteredShop(shop.id, client))) {
+    const verified = new Set(rows.filter((v) => v.status === "VERIFIED").map((v) => v.docType));
+    // 0120: registered with "upload documents later" — FSSAI for a food shop only; the rest after go-live.
+    const later = await isDocumentsLaterShop(shop.id, client);
+    const needed: SellerDocType[] = [...(later ? [] : [row?.gstin ? ("GSTIN" as const) : ("PAN" as const)]), ...(row?.sellsFood ? (["FSSAI"] as const) : [])];
+    return needed.filter((d) => !verified.has(d));
+  }
   const deferred = options.countDeferred ? await deferredReviewDocTypes(shop.id, client) : new Set<string>();
   const have = new Set(
     rows.filter((v) => v.status === "VERIFIED" || (deferred.has(v.docType) && IN_REVIEW.has(v.status))).map((v) => v.docType),
   );
   return SELLER_DOC_TYPES.filter((d) => isMandatory(d, { isFoodBusiness: row?.sellsFood ?? false }) && !have.has(d));
+}
+
+/**
+ * The shop was created from an onboarding-wizard draft: it goes live on its GSTIN (or PAN) and the
+ * fee (owner decision 29 Oct 2026; shop_kyc_complete, 0118). Same test as the database function.
+ */
+export async function isWizardRegisteredShop(shopId: string, client: DbClient = db): Promise<boolean> {
+  const [row] = await client
+    .select({ id: shopRegistrationDrafts.id })
+    .from(shopRegistrationDrafts)
+    .where(and(eq(shopRegistrationDrafts.shopId, shopId), inArray(shopRegistrationDrafts.status, ["SUBMITTED", "COMPLETED"])))
+    .limit(1);
+  return Boolean(row);
+}
+
+/**
+ * 0120: the shop was registered through the wizard with "upload documents later". It goes live on
+ * payment (FSSAI still needed for a food shop); its payouts wait for a verified GSTIN or PAN.
+ */
+export async function isDocumentsLaterShop(shopId: string, client: DbClient = db): Promise<boolean> {
+  const [row] = await client
+    .select({ id: shopRegistrationDrafts.id })
+    .from(shopRegistrationDrafts)
+    .where(
+      and(
+        eq(shopRegistrationDrafts.shopId, shopId),
+        inArray(shopRegistrationDrafts.status, ["SUBMITTED", "COMPLETED"]),
+        eq(shopRegistrationDrafts.documentsLater, true),
+      ),
+    )
+    .limit(1);
+  return Boolean(row);
+}
+
+/**
+ * 0120: why this shop's payouts are held, or null. A shop registered with "upload documents later"
+ * is paid out only once its GSTIN or PAN is verified (or an admin waived its documents, 0109).
+ */
+export async function payoutHoldReason(shopId: string, client: DbClient = db): Promise<string | null> {
+  if (!(await isDocumentsLaterShop(shopId, client))) return null;
+  if (await hasDocumentWaiver(shopId, client)) return null;
+  const [verified] = await client
+    .select({ id: sellerVerifications.id })
+    .from(sellerVerifications)
+    .where(and(eq(sellerVerifications.shopId, shopId), inArray(sellerVerifications.docType, ["GSTIN", "PAN"]), eq(sellerVerifications.status, "VERIFIED")))
+    .limit(1);
+  return verified ? null : "Payouts are held until the shop's GSTIN or PAN is verified (registered with documents to follow).";
 }
 
 /** Documents this shop may go live with while an admin still reviews them (0113). */

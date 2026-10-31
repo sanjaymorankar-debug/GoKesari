@@ -5,6 +5,7 @@
  * the referrals team, duplicate requests from one mobile, and the operations
  * screen (issue a code / reject) with its permission checks.
  */
+import { generatedReferralCodePattern } from "@/lib/referral-codes";
 import { and, eq, inArray } from "drizzle-orm";
 import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -36,12 +37,14 @@ vi.mock("@/server/auth", () => ({
 
 import { POST as registerRoute } from "@/app/api/shops/route";
 import { GET as checkRoute } from "@/app/api/referral-codes/check/route";
+import { POST as createCodeRoute } from "@/app/api/referral-codes/route";
+import { PATCH as patchCodeRoute } from "@/app/api/referral-codes/[id]/route";
 import { POST as requestRoute } from "@/app/api/referral-requests/route";
 import { GET as adminListRoute } from "@/app/api/admin/referral-requests/route";
 import { POST as adminActionRoute } from "@/app/api/admin/referral-requests/[id]/route";
 import { resetRateLimits } from "@/server/api/rate-limit";
 import { db } from "@/server/db";
-import { notifications, platformSettings, referralCodeRequests, referralRedemptions, shopCategories, shops } from "@/server/db/schema";
+import { notifications, platformSettings, referralCodeRequests, referralCodes, referralRedemptions, shopCategories, shops } from "@/server/db/schema";
 import { createReferralCode, listReferralCodes, updateReferralCode } from "@/server/services/referrals";
 import { setReferralSetting } from "@/server/services/referral-settings";
 import { clearRuleCache } from "@/server/services/settings";
@@ -107,7 +110,7 @@ describe("referral code on shop registration", () => {
 
   it("missing or invalid code blocks the registration with a clear message; a valid one is attributed", async () => {
     await requireCodes();
-    await createReferralCode({ code: "PUNE-PARTNER-1" }, admin);
+    await createReferralCode({ code: "PUNEPRT1" }, admin);
     const owner = await createUser();
     signIn(owner, "CUSTOMER");
 
@@ -119,7 +122,7 @@ describe("referral code on shop registration", () => {
     expect(unknown.body.error.details.fields.referralCode).toContain("does not exist");
     expect(await db.select().from(shops)).toHaveLength(0); // nothing was saved
 
-    const ok = await register(shopBody({ referralCode: "pune-partner-1" }));
+    const ok = await register(shopBody({ referralCode: "puneprt1" }));
     expect(ok.status, JSON.stringify(ok.body)).toBe(201);
     const [shop] = await db.select().from(shops).where(eq(shops.id, ok.body.id));
     expect(shop.referralCodeId).not.toBeNull();
@@ -128,15 +131,15 @@ describe("referral code on shop registration", () => {
 
   it("Admin → Referral codes counts the shops attributed to each code (it used to show 0 for every code)", async () => {
     await requireCodes();
-    await createReferralCode({ code: "TWO-SHOPS" }, admin);
-    await createReferralCode({ code: "NO-SHOPS" }, admin);
+    await createReferralCode({ code: "TWOSHOPS" }, admin);
+    await createReferralCode({ code: "NOSHOPS" }, admin);
     const owner = await createUser();
     signIn(owner, "CUSTOMER");
-    expect((await register(shopBody({ referralCode: "two-shops" }))).status).toBe(201);
+    expect((await register(shopBody({ referralCode: "twoshops" }))).status).toBe(201);
     signIn(await createUser(), "CUSTOMER"); // one registration under review per owner
-    expect((await register(shopBody({ referralCode: "TWO-SHOPS" }))).status).toBe(201);
+    expect((await register(shopBody({ referralCode: "TWOSHOPS" }))).status).toBe(201);
     const counts = Object.fromEntries((await listReferralCodes()).map((c) => [c.code, c.shopCount]));
-    expect(counts).toMatchObject({ "TWO-SHOPS": 2, "NO-SHOPS": 0 });
+    expect(counts).toMatchObject({ "TWOSHOPS": 2, "NOSHOPS": 0 });
   });
 
   it("an inactive or expired code is refused", async () => {
@@ -165,6 +168,63 @@ describe("referral code on shop registration", () => {
     signIn(owner, "CUSTOMER");
     expect((await call(checkRoute, "/api/referral-codes/check?code=goodcode")).body).toEqual({ valid: true, message: null });
     expect((await call(checkRoute, "/api/referral-codes/check?code=BADCODE")).body.valid).toBe(false);
+  });
+});
+
+/* ------------------------------------------- admin: format, disable, expiry */
+
+describe("referral codes on the admin page (30 Oct 2026)", () => {
+  const create = (body: Record<string, unknown>) => call(createCodeRoute, "/api/referral-codes", { method: "POST", body });
+  const patch = (id: string, body: Record<string, unknown>) =>
+    call(patchCodeRoute, `/api/referral-codes/${id}`, { method: "PATCH", body, params: { id } });
+  const isoDay = (offsetDays: number) => new Date(Date.now() + offsetDays * 86_400_000).toISOString().slice(0, 10);
+
+  beforeEach(async () => {
+    const a = await createUser({ role: "ADMIN" });
+    signIn(a, "ADMIN");
+  });
+
+  it("no code typed: a unique 8-character code of letters and digits is generated", async () => {
+    const seen = new Set<string>();
+    for (let i = 0; i < 10; i++) {
+      const res = await create({ label: `Drive ${i}` });
+      expect(res.status, JSON.stringify(res.body)).toBe(201);
+      expect(res.body.code).toMatch(generatedReferralCodePattern());
+      seen.add(res.body.code);
+    }
+    expect(seen.size).toBe(10);
+  });
+
+  it("a typed code is 4–8 letters and digits, and unique", async () => {
+    expect((await create({ code: "partner9" })).body.code).toBe("PARTNER9");
+    expect((await create({ code: "PARTNER10" })).status).toBe(422);
+    expect((await create({ code: "PUNE-01" })).status).toBe(422);
+    expect((await create({ code: "AB1" })).status).toBe(422);
+    expect((await create({ code: "PARTNER9" })).status).toBe(409);
+  });
+
+  it("disable and enable a code; a disabled code is refused at registration", async () => {
+    const { body: code } = await create({ code: "DRIVE01" });
+    expect((await patch(code.id, { status: "INACTIVE" })).body.status).toBe("INACTIVE");
+    await requireCodes();
+    const owner = await createUser();
+    signIn(owner, "CUSTOMER");
+    expect((await register(shopBody({ referralCode: "DRIVE01" }))).body.error.details.fields.referralCode).toContain("inactive");
+    signIn(await createUser({ role: "ADMIN" }), "ADMIN");
+    expect((await patch(code.id, { status: "ACTIVE" })).body.status).toBe("ACTIVE");
+  });
+
+  it("set, extend and remove the expiry; a past date is refused; a lapsed code works again once extended", async () => {
+    const { body: code } = await create({ code: "DRIVE02", expiresAt: isoDay(5) });
+    expect((await patch(code.id, { expiresAt: isoDay(-1) })).status).toBe(422);
+    expect((await create({ code: "DRIVE03", expiresAt: isoDay(-1) })).status).toBe(422);
+    expect((await patch(code.id, { expiresAt: isoDay(60) })).body.expiresAt).toBe(isoDay(60));
+    expect((await patch(code.id, { expiresAt: null })).body.expiresAt).toBeNull();
+
+    const lapsed = await createReferralCode({ code: "LAPSED1", expiresAt: "2020-01-01" }, admin);
+    await db.update(referralCodes).set({ status: "EXPIRED" }).where(eq(referralCodes.id, lapsed.id));
+    expect((await patch(lapsed.id, { expiresAt: isoDay(30) })).body).toMatchObject({ status: "ACTIVE", expiresAt: isoDay(30) });
+    expect((await call(checkRoute, "/api/referral-codes/check?code=LAPSED1")).body.valid).toBe(true);
   });
 });
 
@@ -277,7 +337,7 @@ describe("operations screen", () => {
     const issued = await call(adminActionRoute, `/api/admin/referral-requests/${first.id}`, { method: "POST", body: { action: "issue" }, params: { id: first.id } });
     expect(issued.status, JSON.stringify(issued.body)).toBe(200);
     expect(issued.body).toMatchObject({ status: "CODE_ISSUED" });
-    expect(issued.body.issuedCode).toMatch(/^GKS[A-Z2-9]{6}$/);
+    expect(issued.body.issuedCode).toMatch(generatedReferralCodePattern());
     // The requester is told (in the app, and by email).
     const [told] = await db.select().from(notifications).where(and(eq(notifications.userId, requester.id), eq(notifications.type, "shop.referral_request_decided")));
     expect(told.body).toContain(issued.body.issuedCode);

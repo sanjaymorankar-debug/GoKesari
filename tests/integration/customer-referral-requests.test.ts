@@ -10,6 +10,7 @@
  * customer is told and enters it. Existing customers (joined before
  * requiredFrom, or already ordered), shop owners and staff are never stopped.
  */
+import { generatedReferralCodePattern } from "@/lib/referral-codes";
 import { and, eq, inArray } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -116,7 +117,7 @@ describe("mandatory referral code before a customer's first order", () => {
 
   it("required: a new customer's first order is refused until they give a code; then it goes through", async () => {
     await requireCodes();
-    await createReferralCode({ code: "PUNE-LAUNCH", label: "Pune launch" }, { ...asAdmin, id: admin.id });
+    await createReferralCode({ code: "PUNELNCH", label: "Pune launch" }, { ...asAdmin, id: admin.id });
     const { sp } = await shopWithMilk();
     const { user } = await createUserWithWallet({ balancePaise: 50_000 });
     await addToCart(user.id, sp.id, 1);
@@ -128,8 +129,8 @@ describe("mandatory referral code before a customer's first order", () => {
 
     signIn(user);
     expect((await call(myGet, "/api/me/referral-request")).body).toMatchObject({ needsCode: true, referral: null, requests: [] });
-    expect((await call(signupPost, "/api/me/signup-referral", { method: "POST", body: { code: "pune-launch" } })).status).toBe(200);
-    expect((await call(myGet, "/api/me/referral-request")).body).toMatchObject({ needsCode: false, referral: { code: "PUNE-LAUNCH" } });
+    expect((await call(signupPost, "/api/me/signup-referral", { method: "POST", body: { code: "punelnch" } })).status).toBe(200);
+    expect((await call(myGet, "/api/me/referral-request")).body).toMatchObject({ needsCode: false, referral: { code: "PUNELNCH" } });
     expect((await tryCheckout(user.id)).orders).toHaveLength(1);
   });
 
@@ -278,7 +279,7 @@ describe("operations answer a customer's request", () => {
     signIn(operator, "OPERATOR");
     const issued = await call(adminDecide, "/x", { method: "POST", body: { action: "issue", code: null, note: "Called, lives in Kothrud" }, params: { id } });
     expect(issued.status, JSON.stringify(issued.body)).toBe(200);
-    expect(issued.body).toMatchObject({ status: "CODE_ISSUED", issuedCode: expect.stringMatching(/^GKC[A-Z2-9]{6}$/) });
+    expect(issued.body).toMatchObject({ status: "CODE_ISSUED", issuedCode: expect.stringMatching(generatedReferralCodePattern()) });
     const code = issued.body.issuedCode as string;
     const [codeRow] = await db.select().from(referralCodes).where(eq(referralCodes.code, code));
     expect(codeRow.label).toBe(`Customer Anil Patil (${reference})`);
@@ -314,8 +315,8 @@ describe("operations answer a customer's request", () => {
 
     const second = await newRequest("9123456780");
     signIn(operator, "OPERATOR");
-    const typed = await call(adminDecide, "/x", { method: "POST", body: { action: "issue", code: "KOTHRUD-01" }, params: { id: second.id } });
-    expect(typed.body.issuedCode).toBe("KOTHRUD-01");
+    const typed = await call(adminDecide, "/x", { method: "POST", body: { action: "issue", code: "KOTHRUD1" }, params: { id: second.id } });
+    expect(typed.body.issuedCode).toBe("KOTHRUD1");
   });
 
   it("re-sends the referrals email on request", async () => {

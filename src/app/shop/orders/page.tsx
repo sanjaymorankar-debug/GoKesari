@@ -19,6 +19,7 @@ import { getRule } from "@/server/services/settings";
 import { getShopWalletStatus } from "@/server/services/shop-wallet";
 import { getShopFulfilmentViews, listDeliveryStaff, plannerOptions } from "@/server/services/fulfilment-options";
 import { getPickupQrsForOrders, PICKUP_QR_ORDER_STATUSES } from "@/server/services/pickup-qr";
+import { getShopOrderPartners } from "@/server/services/society-partner-access";
 
 export const metadata = { title: "Shop Orders" };
 export const dynamic = "force-dynamic";
@@ -68,6 +69,8 @@ export default async function ShopOrdersPage({ searchParams }: { searchParams: P
     urgent: key === "new",
   }));
   const deliveryOrders = await getDeliveryOrdersForOrders(orders.map((o) => o.id));
+  // Gig worker flow (feature 8): the partner's identity only as the server lets the shop see it.
+  const partners = await getShopOrderPartners(orders.map((o) => o.id));
   // NEW-007: invoice and delivery-photo links on delivered orders.
   const delivered = orders.filter((o) => o.status === "DELIVERED").map((o) => o.id);
   const [proofPhotos, invoicingRule] = await Promise.all([proofPhotosForOrders(delivered), getRule("invoicing")]);
@@ -151,6 +154,8 @@ export default async function ShopOrdersPage({ searchParams }: { searchParams: P
             fulfilmentPlan: plans.get(o.id) ?? null,
             hasAddress: o.deliveryAddressSnapshot != null,
             notes: o.notes,
+            completedAt: o.completedAt ? o.completedAt.toISOString() : null,
+            deliveryPartner: partners.has(o.id) ? { label: partners.get(o.id)!.label, partner: partners.get(o.id)!.partner } : null,
             deliveryFeePaise: o.deliveryFeePaise,
             deliveryStatus: deliveryOrders.get(o.id)?.status ?? null,
             pickupCode: deliveryOrders.get(o.id)?.pickupCode ?? null,

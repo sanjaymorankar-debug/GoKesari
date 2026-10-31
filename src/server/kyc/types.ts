@@ -12,7 +12,7 @@ import type { SellerDocType } from "@/lib/kyc/doc-formats";
 
 export type { SellerDocType };
 
-export type KycProviderId = "mock" | "gridlines" | "idfy";
+export type KycProviderId = "mock" | "gridlines" | "sandboxco" | "idfy";
 
 /** Extra inputs some lookups need. All optional; adapters ignore what they don't use. */
 export interface VerifyExtraFields {
@@ -76,6 +76,31 @@ export type ProviderOutcome =
 export interface KycAdapter {
   readonly id: KycProviderId;
   verify(request: VerifyRequest): Promise<ProviderOutcome>;
+  /** Gig worker flow: Aadhaar check by OTP to the Aadhaar-linked mobile. Absent = this vendor can't. */
+  readonly aadhaar?: AadhaarOtpAdapter;
+}
+
+/**
+ * Gig worker flow (feature 2): Aadhaar offline e-KYC by OTP. The number goes
+ * to the vendor once, to send the OTP; GoKesari never stores it. Only the name
+ * on the record comes back into the app — never the photo, address or date of
+ * birth the vendor may return.
+ */
+export type AadhaarOtpRequestOutcome =
+  | { kind: "sent"; referenceId: string; providerRef: string | null }
+  /** No such Aadhaar, or no mobile linked to it. */
+  | { kind: "not_found"; providerRef: string | null }
+  | { kind: "unsupported"; reason: string };
+
+export type AadhaarOtpVerifyOutcome =
+  | { kind: "verified"; name: string | null; providerRef: string | null }
+  | { kind: "invalid_otp" }
+  | { kind: "expired" }
+  | { kind: "unsupported"; reason: string };
+
+export interface AadhaarOtpAdapter {
+  requestOtp(aadhaarNumber: string, idempotencyKey: string): Promise<AadhaarOtpRequestOutcome>;
+  verifyOtp(referenceId: string, otp: string, idempotencyKey: string): Promise<AadhaarOtpVerifyOutcome>;
 }
 
 /**

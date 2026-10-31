@@ -39,7 +39,7 @@ export const REASON_TEXT: Record<string, string> = {
   address_mismatch: "The address on the record is at a different PIN code from your shop. Our team will check it.",
   expiry_not_returned: "The record didn't include an expiry date. Our team will check it.",
   consistency_below_threshold: "Your documents don't fully agree with each other. Our team will check them.",
-  vendor_unsupported: "This document can't be checked online for your state. Upload a copy of the certificate.",
+  vendor_unsupported: "This document can't be checked online. Our team will review it.",
   certificate_review: "Our team will compare your uploaded certificate with the number you entered.",
   gst_declaration_review: "Our team will review your GST declaration.",
   source_status_unknown: "The record's status wasn't clear. Our team will check it.",

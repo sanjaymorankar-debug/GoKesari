@@ -112,7 +112,15 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   // 1.3.0: the website's new home (docs/homepage-uiux-2026-10 at the repository root) — voice search
   // on iPhone (microphone and speech-recognition descriptions below; the site shows the mic only to
   // 1.3.0 and later), "compare prices" links open in the app, white strip under the bottom navigation.
-  version: "1.3.0",
+  // 1.4.0: gig worker (delivery partner) flow (docs/gig-worker-2026-10 at the repository root) — the
+  // website's new registration with the phone's location, PAN and Aadhaar OTP verification, police
+  // verification / character certificate upload (PDF, JPG or PNG from Files or the camera), the
+  // Offline / Active / Ready switch, the optional pickup photo, shop owners' Delivery partners page and
+  // "Completed" order confirmations by push. Native side: version, permission wording and release notes.
+  // 1.5.0: update check (docs/app-install-2026-10 at the repository root) — at launch and when the app
+  // comes back, the app asks the website for the newest build (and, once listed, the App Store) and
+  // offers "Update", which opens the store listing; below the minimum version the update is required.
+  version: "1.5.0",
   scheme: variant.scheme,
   orientation: "default",
   icon: "./assets/icon.png",
@@ -121,15 +129,15 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     bundleIdentifier: variant.appId,
     // Local builds (the GitHub workflows); EAS store builds number themselves (eas.json appVersionSource "remote").
-    buildNumber: "4",
+    buildNumber: "6",
     supportsTablet: true,
     associatedDomains: [`applinks:${variant.host}`],
     config: { usesNonExemptEncryption: false },
     infoPlist: {
       NSCameraUsageDescription:
-        "GoKesari uses the camera when you take a photo to upload, such as a product picture or a proof of delivery, and to scan an order's QR code.",
+        "GoKesari uses the camera when you take a photo to upload, such as a product picture, a photo of the parcel at pickup or delivery, or a verification document, and to scan an order's QR code.",
       NSPhotoLibraryUsageDescription:
-        "GoKesari opens your photos when you choose a picture to upload, such as a product picture or a document.",
+        "GoKesari opens your photos when you choose a picture to upload, such as a product picture or a document like a police verification form.",
       NSPhotoLibraryAddUsageDescription: "GoKesari saves a picture to your photos when you ask it to.",
       // 1.3.0: voice search in the header search (the page's Web Speech API, in English, Hindi or Marathi).
       NSMicrophoneUsageDescription: "GoKesari listens only while you tap the microphone in search, to search by voice.",
@@ -138,7 +146,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: variant.appId,
-    versionCode: 4,
+    versionCode: 6,
     ...(GOOGLE_SERVICES_JSON ? { googleServicesFile: GOOGLE_SERVICES_JSON } : {}),
     adaptiveIcon: {
       foregroundImage: "./assets/android-icon-foreground.png",
@@ -197,7 +205,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
       "expo-location",
       {
         locationWhenInUsePermission:
-          "GoKesari uses your location to show shops near you and fill in your delivery address. Delivery partners share it while they are on duty so customers can follow their order.",
+          "GoKesari uses your location to show shops near you and fill in your delivery address. Delivery partners share it when they register and while they are Active or Ready, so they are offered orders nearby and customers can follow their order.",
         // Foreground only: no "always" location, no motion activity.
         locationAlwaysAndWhenInUsePermission: false,
         locationAlwaysPermission: false,

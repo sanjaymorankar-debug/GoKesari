@@ -1,12 +1,10 @@
 /**
  * Dealer and employee referral codes (docs/dealer-programme, GKS-DR-003/004).
  *
- *   dealer    GKS-<state>-<district short code>-<6>   e.g. GKS-MH-PUN-7K4Q9X, GKS-KA-BLR-3H8W2C
- *             GKS-<state>-<6>  while the dealer's state has no district yet  e.g. GKS-TN-5R7K2P
- *   employee  GKS-FE-<6>                                   e.g. GKS-FE-8P2M5N
- *
- * The random part comes from crypto.randomInt over an alphabet without
- * 0/O and 1/I/L. Every code is a row of `referral_codes` — the table the shop
+ * Since 30 Oct 2026 (owner decision) a dealer's or employee's code is like
+ * every other referral code: 8 random letters and digits, e.g. 7K4Q9XPM
+ * (newReferralCode). Codes issued earlier (GKS-MH-PUN-7K4Q9X, GKS-FE-8P2M5N)
+ * keep working. Every code is a row of `referral_codes` — the table the shop
  * registration forms already validate against, with its unique index — plus a
  * `dealer_codes` row saying whose it is. Uniqueness is the database's: a
  * collision is retried with a fresh code. The visible parts of a code mean
@@ -17,17 +15,10 @@
  * employee's code is refused by the existing checks (resolveUsableCode) with no
  * change to them. Codes carry no personal data.
  */
-import { randomInt } from "node:crypto";
-
 import QRCode from "qrcode";
 import { and, eq, inArray } from "drizzle-orm";
 
-import {
-  DEALER_CODE_ALPHABET,
-  DEALER_CODE_RANDOM_LENGTH,
-  type DealerCodeKind,
-  type DealerCodeStatus,
-} from "@/lib/dealers";
+import { type DealerCodeKind, type DealerCodeStatus } from "@/lib/dealers";
 import { conflict, notFound } from "@/lib/errors";
 import { db, isSerializationFailure, type DbClient } from "@/server/db";
 import { isUniqueViolation } from "@/server/db/split/upsert";
@@ -40,22 +31,6 @@ interface Actor {
 }
 
 const CODE_ATTEMPTS = 8;
-
-export function randomCodePart(length = DEALER_CODE_RANDOM_LENGTH): string {
-  let out = "";
-  for (let i = 0; i < length; i++) out += DEALER_CODE_ALPHABET[randomInt(0, DEALER_CODE_ALPHABET.length)];
-  return out;
-}
-
-/** A new dealer code for a state (two letters) and, when known, a district short code. */
-export function dealerCodeFor(stateCode: string, districtShortCode?: string | null): string {
-  const parts = ["GKS", stateCode.toUpperCase(), ...(districtShortCode ? [districtShortCode.toUpperCase()] : []), randomCodePart()];
-  return parts.join("-");
-}
-
-export function salespersonCode(): string {
-  return `GKS-FE-${randomCodePart()}`;
-}
 
 /**
  * Creates a new ACTIVE code (referral_codes + dealer_codes) inside `tx`,

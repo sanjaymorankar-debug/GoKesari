@@ -17,7 +17,8 @@
 import { and, desc, eq, inArray, isNull, ne, sql } from "drizzle-orm";
 
 import { AppError, conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
-import { checkRiderDetails } from "@/lib/kyc/rider-details";
+import { checkRegistrationDetails, REGISTRATION_MESSAGES } from "@/lib/gig/registration";
+import { checkRiderDetails, isAadhaarIdType } from "@/lib/kyc/rider-details";
 import { RIDER_IDLE_CAP_MINUTES } from "@/lib/rider-sessions";
 import { VEHICLE_TYPE_KEYS, type VehicleTypeKey } from "@/lib/vehicle-types";
 import { db, type DbClient } from "@/server/db";
@@ -37,6 +38,7 @@ import { grantRole } from "./roles";
 import { encryptKycInput, toPublicPartner, type PublicDeliveryPartner } from "./delivery-partner-kyc";
 import { resolveLocationVerification } from "./geocoding";
 import { NOTIFICATION_TYPES, notify } from "./notifications";
+import { getRule } from "./settings";
 
 interface Actor {
   id: string;
@@ -64,10 +66,30 @@ export interface RegisterDeliveryPartnerInput {
   latitude?: number | null;
   longitude?: number | null;
   operatingRadiusKm?: number;
+
+  /* Gig worker flow (feature 1). Required through the registration API ({ required: true }). */
+  gender?: string | null;
+  addressLine?: string | null;
+  addressCity?: string | null;
+  addressPincode?: string | null;
+  emergencyContactName?: string | null;
+  emergencyContactMobile?: string | null;
+  emergencyContactRelation?: string | null;
 }
 
+export interface RegisterOptions {
+  /**
+   * The registration form and API: every detail of the gig worker brief is
+   * mandatory, including the device location (feature 4). Off for internal
+   * callers (tests, scripts), which still get every format check.
+   */
+  required?: boolean;
+}
+
+const todayIso = () => new Date().toISOString().slice(0, 10);
+
 /** Checks the application; returns the identity, bank and vehicle details normalised for storage. */
-function validate(input: RegisterDeliveryPartnerInput) {
+function validate(input: RegisterDeliveryPartnerInput, options: RegisterOptions = {}) {
   if (!input.fullName.trim()) throw validationFailed("Enter your full name.");
   if (!/^[6-9]\d{9}$/.test(input.mobile)) {
     throw validationFailed("Enter a valid 10-digit Indian mobile number.");
@@ -92,8 +114,19 @@ function validate(input: RegisterDeliveryPartnerInput) {
     vehicleRegistrationNumber: input.vehicleRegistrationNumber ?? null,
   });
   if (!details.ok) throw validationFailed(details.message, { fields: details.fields });
+  // Gig worker flow (feature 2): the Aadhaar number is checked on the KYC step and kept masked and
+  // tokenised only, never taken here (where it would be stored, encrypted, in full).
+  if (isAadhaarIdType(input.governmentIdType) && input.governmentIdNumber?.trim()) {
+    const message = "Don't enter your Aadhaar number here. Verify it with an OTP on the KYC step after you register; GoKesari keeps only a masked form.";
+    throw validationFailed(message, { fields: { governmentIdNumber: message } });
+  }
+  const fieldErrors = checkRegistrationDetails(input, { required: Boolean(options.required), today: todayIso() });
+  const first = Object.values(fieldErrors)[0];
+  if (first) throw validationFailed(first, { fields: fieldErrors });
   return details.values;
 }
+
+const clean = (value: string | null | undefined) => value?.trim() || null;
 
 /**
  * Self-service registration. Promotes a plain CUSTOMER to DELIVERY_PARTNER —
@@ -105,14 +138,24 @@ function validate(input: RegisterDeliveryPartnerInput) {
 export async function registerDeliveryPartner(
   userId: string,
   input: RegisterDeliveryPartnerInput,
+  options: RegisterOptions = {},
 ): Promise<PublicDeliveryPartner> {
-  const details = validate(input);
+  const details = validate(input, options);
 
   const existing = await db.query.deliveryPartners.findFirst({
     where: and(eq(deliveryPartners.userId, userId), isNull(deliveryPartners.deletedAt)),
   });
   if (existing) {
     throw conflict("You have already applied to become a delivery partner.");
+  }
+  // Gig worker flow (feature 1): one partner per mobile number, across accounts.
+  const [sameMobile] = await db
+    .select({ id: deliveryPartners.id })
+    .from(deliveryPartners)
+    .where(and(eq(deliveryPartners.mobile, input.mobile), isNull(deliveryPartners.deletedAt)))
+    .limit(1);
+  if (sameMobile) {
+    throw conflict(REGISTRATION_MESSAGES.duplicateMobile, { fields: { mobile: REGISTRATION_MESSAGES.duplicateMobile } });
   }
 
   // SEC-02: KYC and bank details are stored as ciphertext only. Encrypted up
@@ -134,6 +177,14 @@ export async function registerDeliveryPartner(
       email: input.email?.trim() || null,
       dateOfBirth: input.dateOfBirth || null,
       profilePhotoUrl: input.profilePhotoUrl || null,
+      gender: clean(input.gender),
+      addressLine: clean(input.addressLine),
+      addressCity: clean(input.addressCity),
+      addressPincode: clean(input.addressPincode),
+      emergencyContactName: clean(input.emergencyContactName),
+      emergencyContactMobile: clean(input.emergencyContactMobile),
+      emergencyContactRelation: clean(input.emergencyContactRelation),
+      registrationLocationAt: input.latitude != null && input.longitude != null ? new Date() : null,
       governmentIdType: input.governmentIdType?.trim() || null,
       ...encryptedKyc,
       vehicleType: input.vehicleType,
@@ -244,7 +295,7 @@ async function transition(
       .update(deliveryPartners)
       .set({
         ...set,
-        ...(takeOffline ? { isOnline: false } : {}),
+        ...(takeOffline ? { isOnline: false, availability: "OFFLINE" as const } : {}),
         reviewedBy: actor.id,
         statusActorId: actor.id,
         reviewedAt: now,
@@ -522,26 +573,77 @@ async function syncOnlineSession(
   await tx.insert(deliveryPartnerSessions).values({ deliveryPartnerId: partnerId, startedAt: now });
 }
 
+export type RiderAvailability = DeliveryPartner["availability"];
+
+export interface AvailabilityGate {
+  /** The partner may switch to Active or Ready. */
+  allowed: boolean;
+  /** Rule riderVerification.gateAvailability is on. */
+  enforced: boolean;
+  overridden: boolean;
+  kycComplete: boolean;
+  backgroundApproved: boolean;
+  /** What is still needed, in the partner's words. */
+  missing: string[];
+}
+
 /**
- * Goes online with a current position — gated to APPROVED partners only, so
- * assignment (Slice C) never offers a delivery to someone still under
- * review. Location comes from the browser's native geolocation; this
- * function never calls any Google Maps Platform service.
+ * Gig worker flow (feature 5): Active and Ready need PAN and Aadhaar Verified
+ * and the police verification form (and character certificate) Approved —
+ * unless rule riderVerification.gateAvailability is off or an admin overrode
+ * the gate for this partner.
+ */
+export async function getAvailabilityGate(partner: Pick<DeliveryPartner, "id" | "availabilityOverrideAt">): Promise<AvailabilityGate> {
+  const rule = await getRule("riderVerification");
+  // Imported lazily, like the offer withdrawal: both modules read deliveryPartners.
+  const [{ isRiderKycComplete }, { isRiderBackgroundApproved }] = await Promise.all([import("./rider-kyc"), import("./rider-background-docs")]);
+  const [kycComplete, backgroundApproved] = await Promise.all([isRiderKycComplete(partner.id), isRiderBackgroundApproved(partner.id)]);
+  const overridden = Boolean(partner.availabilityOverrideAt);
+  const missing: string[] = [];
+  if (!kycComplete) missing.push("PAN and Aadhaar verified (KYC)");
+  if (!backgroundApproved) {
+    missing.push(rule.requireCharacterCertificate ? "police verification form and character certificate approved" : "police verification form approved");
+  }
+  return {
+    allowed: !rule.gateAvailability || overridden || missing.length === 0,
+    enforced: rule.gateAvailability,
+    overridden,
+    kycComplete,
+    backgroundApproved,
+    missing,
+  };
+}
+
+/**
+ * Goes Active or Ready with a current position — gated to APPROVED partners
+ * only, so assignment never offers a delivery to someone still under review,
+ * and (gig worker flow) to partners who passed the verification gate. Only
+ * READY partners get new offers; ACTIVE is on duty without new orders, so a
+ * Ready → Active switch hands back any offer not yet accepted. Location comes
+ * from the browser's native geolocation; this function never calls any
+ * Google Maps Platform service.
  */
 export async function goOnline(
   userId: string,
   latitude: number,
   longitude: number,
+  availability: Exclude<RiderAvailability, "OFFLINE"> = "READY",
 ): Promise<PublicDeliveryPartner> {
   if (!validCoordinate(latitude, longitude)) {
     throw validationFailed("A valid current location is required to go online.");
   }
 
-  return db.transaction(async (tx) => {
+  const result = await db.transaction(async (tx) => {
     const partner = await lockMyPartner(tx, userId);
     if (!partner) throw notFound("Delivery partner profile");
     if (partner.status !== "APPROVED") {
       throw conflict("Only an approved delivery partner can go online.");
+    }
+    const gate = await getAvailabilityGate(partner);
+    if (!gate.allowed) {
+      throw conflict(`You can switch to ${availability === "READY" ? "Ready" : "Active"} once you have: ${gate.missing.join("; ")}.`, {
+        missing: gate.missing,
+      });
     }
 
     const now = new Date();
@@ -550,6 +652,7 @@ export async function goOnline(
       .update(deliveryPartners)
       .set({
         isOnline: true,
+        availability,
         statusActorId: userId,
         lastLocationLatitude: String(latitude),
         lastLocationLongitude: String(longitude),
@@ -565,13 +668,52 @@ export async function goOnline(
         action: AUDIT_ACTIONS.DELIVERY_PARTNER_ONLINE_STATUS_CHANGED,
         entityType: "delivery_partner",
         entityId: partner.id,
-        newValue: { isOnline: true },
+        previousValue: { availability: partner.availability },
+        newValue: { isOnline: true, availability },
       },
       tx,
     );
 
-    return toPublicPartner(updated);
+    return { partner: toPublicPartner(updated), wasReady: partner.availability === "READY" };
   });
+  // No new orders while Active: an offer not yet accepted goes to the next rider.
+  if (availability === "ACTIVE" && result.wasReady) {
+    await withdrawOpenOffers(result.partner.id, "The rider switched to Active (not taking new orders).", { id: userId, role: "DELIVERY_PARTNER" });
+  }
+  return result.partner;
+}
+
+/** Admin turns the verification gate off (or back on) for one partner, with a reason. */
+export async function setAvailabilityOverride(
+  partnerId: string,
+  enabled: boolean,
+  reason: string,
+  actor: Actor,
+): Promise<PublicDeliveryPartner> {
+  const why = reason?.trim() ?? "";
+  if (why.length < 3) throw validationFailed("Say why the verification gate is being overridden.");
+  const current = await db.query.deliveryPartners.findFirst({ where: and(eq(deliveryPartners.id, partnerId), isNull(deliveryPartners.deletedAt)) });
+  if (!current) throw notFound("Delivery partner");
+  const now = new Date();
+  const [updated] = await db
+    .update(deliveryPartners)
+    .set(
+      enabled
+        ? { availabilityOverrideAt: now, availabilityOverrideBy: actor.id, availabilityOverrideReason: why, updatedAt: now }
+        : { availabilityOverrideAt: null, availabilityOverrideBy: null, availabilityOverrideReason: why, updatedAt: now },
+    )
+    .where(eq(deliveryPartners.id, partnerId))
+    .returning();
+  await recordAudit({
+    actorId: actor.id,
+    actorRole: actor.role,
+    action: AUDIT_ACTIONS.DELIVERY_PARTNER_AVAILABILITY_OVERRIDDEN,
+    entityType: "delivery_partner",
+    entityId: partnerId,
+    previousValue: { overridden: Boolean(current.availabilityOverrideAt) },
+    newValue: { overridden: enabled, reason: why },
+  });
+  return toPublicPartner(updated);
 }
 
 /**
@@ -604,7 +746,7 @@ export async function goOffline(userId: string): Promise<PublicDeliveryPartner> 
     const now = new Date();
     const [updated] = await tx
       .update(deliveryPartners)
-      .set({ isOnline: false, statusActorId: userId, updatedAt: now })
+      .set({ isOnline: false, availability: "OFFLINE", statusActorId: userId, updatedAt: now })
       .where(eq(deliveryPartners.id, partner.id))
       .returning();
     await closeOpenSessions(tx, partner.id, partner.lastLocationAt, now);
@@ -615,7 +757,8 @@ export async function goOffline(userId: string): Promise<PublicDeliveryPartner> 
         action: AUDIT_ACTIONS.DELIVERY_PARTNER_ONLINE_STATUS_CHANGED,
         entityType: "delivery_partner",
         entityId: partner.id,
-        newValue: { isOnline: false },
+        previousValue: { availability: partner.availability },
+        newValue: { isOnline: false, availability: "OFFLINE" },
       },
       tx,
     );
@@ -662,7 +805,7 @@ export async function updateMyLocation(
     throw validationFailed("A valid location is required.");
   }
 
-  return db.transaction(async (tx) => {
+  const partnerId = await db.transaction(async (tx) => {
     const [partner] = await tx
       .select({ id: deliveryPartners.id, lastLocationAt: deliveryPartners.lastLocationAt })
       .from(deliveryPartners)
@@ -688,6 +831,18 @@ export async function updateMyLocation(
         lastLocationAt: now,
       })
       .where(eq(deliveryPartners.id, partner.id));
-    return true;
+    return partner.id;
+  });
+  if (!partnerId) return false;
+  // Gig worker flow (feature 6): every new position re-checks the rider's open offers against the zone.
+  await recheckZoneForPartner(partnerId, { latitude, longitude });
+  return true;
+}
+
+/** After commit; never fails the location update. Imported lazily: delivery-assignment.ts imports this module. */
+async function recheckZoneForPartner(partnerId: string, at: { latitude: number; longitude: number }): Promise<void> {
+  const { withdrawOutOfZoneOffers } = await import("./delivery-assignment");
+  await withdrawOutOfZoneOffers(partnerId, at).catch((error) => {
+    console.error("[delivery-partner] zone re-check failed", partnerId, error);
   });
 }

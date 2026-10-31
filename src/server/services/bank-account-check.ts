@@ -175,7 +175,8 @@ export async function callCashfreeBav(config: BankCheckConfig, input: { accountN
   }
   const body = (await response.json().catch(() => null)) as BavResponse | null;
   if (!response.ok) {
-    const detail = [body?.code, body?.message].filter(Boolean).join(": ") || "no details";
+    // Masked in case Cashfree echoes the account number back in its message.
+    const detail = ([body?.code, body?.message].filter(Boolean).join(": ") || "no details").replace(/\d{5,}/g, (d) => `XXXX${d.slice(-4)}`);
     const hint =
       response.status === 401 || response.status === 403
         ? " Check the Verification Suite keys and its two-factor authentication: whitelist this server's IP in Cashfree, or set CASHFREE_VERIFICATION_PUBLIC_KEY."
