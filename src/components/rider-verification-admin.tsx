@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useState } from "react";
 
 import { Alert, Badge, Button, Card, inputClass } from "@/components/ui";
+import { RIDER_AADHAAR_METHOD_LABELS, type RiderAadhaarMethod } from "@/lib/gig/kyc";
 
 export interface AdminKycRow {
   id: string;
@@ -11,6 +12,14 @@ export interface AdminKycRow {
   status: "PENDING" | "VERIFIED" | "FAILED";
   numberMasked: string;
   reason: string | null;
+  /** For the admin: why it is Pending / Failed and what to do (vendor, settings). */
+  adminReason?: string | null;
+  /** Aadhaar: DigiLocker, legacy OTP or manual. */
+  method?: RiderAadhaarMethod | null;
+  /** DigiLocker session status as Sandbox last reported it. */
+  sessionStatus?: string | null;
+  sessionExpiresAt?: string | null;
+  canResend?: boolean;
   riderName: string;
   riderMobile: string;
   nameOnRecord: string | null;
@@ -100,9 +109,18 @@ export function RiderVerificationAdmin({ kyc, docs, partners }: { kyc: AdminKycR
                 <Badge>{c.docType === "PAN" ? "PAN" : "Aadhaar"}</Badge>
                 <span className="font-mono">{c.numberMasked}</span>
                 <Badge tone={KYC_TONE[c.status]}>{c.status.toLowerCase()}</Badge>
+                {c.method ? <Badge tone="info">{RIDER_AADHAAR_METHOD_LABELS[c.method]}</Badge> : null}
               </div>
+              {c.method === "digilocker" && c.sessionStatus ? (
+                <p className="text-xs text-ink-600" data-testid="admin-kyc-session">
+                  DigiLocker session: {c.sessionStatus}
+                  {c.sessionStatus === "created" && c.sessionExpiresAt
+                    ? ` · link valid until ${new Date(c.sessionExpiresAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}`
+                    : ""}
+                </p>
+              ) : null}
               <p className="text-xs text-ink-500">
-                {c.reason ? `${c.reason} · ` : ""}
+                {(c.adminReason ?? c.reason) ? `${c.adminReason ?? c.reason} · ` : ""}
                 {c.nameOnRecord ? `Name on record: ${c.nameOnRecord}${c.nameMatchScore != null ? ` (match ${c.nameMatchScore}/100)` : ""} · ` : ""}
                 via {c.provider} · {new Date(c.updatedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}
               </p>
@@ -114,6 +132,17 @@ export function RiderVerificationAdmin({ kyc, docs, partners }: { kyc: AdminKycR
                 ]}
                 onDecide={(value, note) => run(c.id, `/api/admin/rider-kyc-checks/${c.id}/decision`, "POST", { decision: value, note })}
               />
+              {c.canResend ? (
+                <Button
+                  size="sm"
+                  variant="secondary"
+                  disabled={busy !== null}
+                  onClick={() => void run(`${c.id}:resend`, `/api/admin/rider-kyc-checks/${c.id}/resend-digilocker`, "POST")}
+                  data-testid="admin-kyc-resend"
+                >
+                  {busy === `${c.id}:resend` ? "Sending…" : "Resend DigiLocker link"}
+                </Button>
+              ) : null}
             </li>
           ))}
         </ul>

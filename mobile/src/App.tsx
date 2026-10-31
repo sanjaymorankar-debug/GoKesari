@@ -13,6 +13,7 @@
  */
 import * as Crypto from "expo-crypto";
 import * as SplashScreen from "expo-splash-screen";
+import * as WebBrowser from "expo-web-browser";
 import { StatusBar } from "expo-status-bar";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Alert, BackHandler, KeyboardAvoidingView, Linking, Platform, StyleSheet, View } from "react-native";
@@ -39,7 +40,8 @@ import {
 } from "./bridge";
 import { watchForUpdates } from "./app-update";
 import { buildBridgeScript } from "./bridge-script";
-import { APP_VERSION, COLORS, SITE_URL, UA_TOKEN } from "./config";
+import { APP_SCHEME, APP_VERSION, COLORS, SITE_URL, UA_TOKEN } from "./config";
+import { digilockerCallbackUrl, digilockerResult, isDigilockerUrl } from "./digilocker";
 import { notificationTarget, sitePageUrl as siteLink } from "./deep-links";
 import { signInWithGoogle } from "./google-sign-in";
 import { decideNavigation, decideNewWindow, playStoreUrl, type NavigationDecision } from "./navigation-policy";
@@ -91,6 +93,7 @@ function Shell() {
         token,
         platform: Platform.OS === "ios" ? "ios" : "android",
         version: APP_VERSION,
+        scheme: APP_SCHEME,
       }),
     [token],
   );
@@ -295,6 +298,12 @@ function Shell() {
           case "signInWithGoogle":
             await startGoogleSignIn();
             return reply(true);
+          case "digilocker.open": {
+            // 1.6.0: Aadhaar by DigiLocker in the in-app browser; the page re-checks the result after.
+            if (!isDigilockerUrl(message.url, SITE_ORIGIN)) return reply(undefined, { message: "Not a DigiLocker link." });
+            const session = await WebBrowser.openAuthSessionAsync(message.url, digilockerCallbackUrl(APP_SCHEME));
+            return reply({ result: digilockerResult(session.type === "success" ? session.url : null) });
+          }
           case "downloadFailed":
             Alert.alert("Download failed", typeof message.message === "string" ? message.message : "Please try again.");
             return;

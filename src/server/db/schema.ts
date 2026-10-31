@@ -2927,6 +2927,17 @@ export const deliveryPartnerKycChecks = pgTable(
     otpReference: text("otp_reference"),
     otpRequestedAt: timestamp("otp_requested_at", { withTimezone: true }),
     otpAttempts: integer("otp_attempts").notNull().default(0),
+    /**
+     * 0123: how the Aadhaar was checked — DigiLocker, the legacy OTP (offline e-KYC, which Sandbox
+     * stopped) or by hand. Null on rows from before 0123 (all OTP).
+     */
+    method: text("method", { enum: ["digilocker", "okyc_legacy", "manual"] }),
+    /** 0123: DigiLocker session — Sandbox's id, last known status, the link, its expiry, our return key. */
+    sessionId: text("session_id"),
+    sessionStatus: text("session_status"),
+    sessionUrl: text("session_url"),
+    sessionExpiresAt: timestamp("session_expires_at", { withTimezone: true }),
+    sessionReturnKey: text("session_return_key"),
     errorCode: text("error_code"),
     consentVersion: text("consent_version").notNull(),
     consentGivenAt: timestamp("consent_given_at", { withTimezone: true }).notNull(),
@@ -2942,6 +2953,7 @@ export const deliveryPartnerKycChecks = pgTable(
     uniqueIndex("delivery_partner_kyc_checks_partner_doc_unique").on(t.deliveryPartnerId, t.docType),
     index("delivery_partner_kyc_checks_token_idx").on(t.docType, t.numberToken),
     index("delivery_partner_kyc_checks_status_idx").on(t.status),
+    index("delivery_partner_kyc_checks_session_idx").on(t.sessionId),
   ],
 );
 export type DeliveryPartnerKycCheck = typeof deliveryPartnerKycChecks.$inferSelect;

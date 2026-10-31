@@ -172,17 +172,25 @@ qa("SC-GW", "gig worker flow: register, KYC, police verification, availability, 
       masked: pan.body?.check?.numberMasked,
       reason: pan.body?.check?.reason,
     });
-    const otp = await call(rider, "POST", "/api/delivery-partner/me/kyc/aadhaar/otp", { aadhaar: "2341 2341 2346", consent: true });
-    check(2, "Aadhaar OTP requested (masked only)", otp.status === 200 && otp.body?.check?.numberMasked === "XXXX XXXX 2346", {
-      status: otp.body?.check?.status,
-      awaitingOtp: otp.body?.check?.awaitingOtp,
-      reason: otp.body?.check?.reason,
+    // Aadhaar by DigiLocker (Sandbox stopped the OTP check). On the mock provider the fake consent
+    // page is driven here; on Sandbox test keys the link is checked to open DigiLocker, then an admin decides.
+    const dl = await call(rider, "POST", "/api/delivery-partner/me/kyc/aadhaar/digilocker", { consent: true });
+    const dlUrl: string | null = dl.body?.url ?? null;
+    check(2, "DigiLocker link issued for the Aadhaar (Pending, nothing stored yet)", dl.status === 200 && Boolean(dlUrl) && dl.body?.check?.status === "PENDING", {
+      status: dl.body?.check?.status,
+      method: dl.body?.check?.method,
+      reason: dl.body?.check?.reason,
+      host: dlUrl ? new URL(dlUrl).host : null,
     });
-    if (otp.body?.check?.awaitingOtp) {
-      const wrong = await call(rider, "POST", "/api/delivery-partner/me/kyc/aadhaar/verify", { otp: "999999" });
-      check(2, "a wrong Aadhaar OTP is refused (still Pending)", wrong.body?.check?.status === "PENDING", wrong.body?.check?.reason);
-      const right = await call(rider, "POST", "/api/delivery-partner/me/kyc/aadhaar/verify", { otp: "123456" });
-      check(2, "Aadhaar verified with the OTP", right.body?.check?.status === "VERIFIED", brief(right));
+    if (dlUrl && dlUrl.includes("/mobile-auth/digilocker-mock")) {
+      const session = new URL(dlUrl).searchParams.get("session");
+      const approved = await call(rider, "POST", "/api/kyc-mock/digilocker", { session, decision: "approve" });
+      check(2, "mock DigiLocker consent approved", approved.status === 200 && Boolean(approved.body?.redirectUrl), brief(approved));
+      const back = approved.body?.redirectUrl ? await call(rider, "GET", new URL(approved.body.redirectUrl).pathname + new URL(approved.body.redirectUrl).search) : null;
+      check(2, "DigiLocker return link settles the check and goes to the KYC page", back?.status === 303 && /digilocker=verified/.test(back?.location ?? ""), { status: back?.status, location: back?.location });
+    } else if (dlUrl) {
+      const page = await call(rider, "GET", dlUrl);
+      check(2, "Sandbox DigiLocker link opens DigiLocker", page.status < 500, { status: page.status, host: new URL(dlUrl).host });
     }
     const kycAll = await call(rider, "GET", "/api/delivery-partner/me/kyc");
     check(2, "partner sees Verified / Pending / Failed per document", kycAll.status === 200, { pan: kycAll.body?.pan?.status, aadhaar: kycAll.body?.aadhaar?.status });
