@@ -45,7 +45,7 @@ export const EMAIL_IN_USE = "This email address is already used by another accou
 
 /** batch-2026-10 WS-D: SHOP_ONBOARDING_CONSENT — a shop owner authorises an operator to onboard their shop. */
 /** SHOP_EMAIL (0120): the shop registration's email, when it is not the account's own. */
-/** RIDER_BANK_CHANGE / RIDER_WITHDRAWAL (0122): a delivery partner confirms a bank change or a withdrawal. */
+/** RIDER_BANK_CHANGE / RIDER_WITHDRAWAL (0123): a delivery partner confirms a bank change or a withdrawal. */
 type OtpPurpose = "LOGIN" | "EMAIL_CHANGE" | "SHOP_ONBOARDING_CONSENT" | "SHOP_EMAIL" | "RIDER_BANK_CHANGE" | "RIDER_WITHDRAWAL";
 type RenderedEmail = { subject: string; text: string; html: string };
 
@@ -739,7 +739,7 @@ export async function verifyShopEmailOtp(input: { email: string; code: string; u
   return email;
 }
 
-/* --------------------------- rider bank change and withdrawal (0122) */
+/* --------------------------- rider bank change and withdrawal (0123) */
 
 /**
  * docs/gig-bank-payouts-2026-10: a signed-in delivery partner re-authenticates

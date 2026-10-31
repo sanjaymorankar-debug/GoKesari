@@ -860,7 +860,14 @@
       "idx": 122,
       "version": "7",
       "when": 1793162100000,
-      "tag": "0122_rider_bank_payouts",
+      "tag": "0122_app_install_states",
+      "breakpoints": true
+    },
+    {
+      "idx": 123,
+      "version": "7",
+      "when": 1793162200000,
+      "tag": "0123_rider_bank_payouts",
       "breakpoints": true
     }
   ]

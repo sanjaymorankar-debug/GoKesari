@@ -224,7 +224,7 @@ export const TABLE_OWNERSHIP = {
   rider_incentive_rules: "platform",
   rider_payouts: "platform",
   rider_searches: "platform",
-  // docs/gig-bank-payouts-2026-10 (0122): rider bank transfers follow rider_payouts and bank_accounts.
+  // docs/gig-bank-payouts-2026-10 (0123): rider bank transfers follow rider_payouts and bank_accounts.
   rider_payout_runs: "platform",
   rider_bank_transfers: "platform",
   rider_transfer_events: "platform",
@@ -294,6 +294,8 @@ export const TABLE_OWNERSHIP = {
   // docs/homepage-uiux-2026-10: home hero banners and the header search log.
   home_banners: "platform",
   search_queries: "platform",
+  // docs/app-install-2026-10: the install prompt's per-person record (declines, installed platforms).
+  app_install_states: "platform",
   /* <<< end WS-F */
   //
   /* >>> purchase lists (docs/purchase-lists-2026-10): a customer's weekly / monthly lists, next to carts */

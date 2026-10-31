@@ -1,4 +1,4 @@
--- Rollback for 0122_rider_bank_payouts (docs/gig-bank-payouts-2026-10).
+-- Rollback for 0123_rider_bank_payouts (docs/gig-bank-payouts-2026-10).
 -- Core database. Before running:
 --   1. switch the three flags off (Admin → Feature flags) and deploy the previous release's code;
 --   2. check nothing is in flight — this must return 0:
@@ -7,7 +7,7 @@
 --   3. export rider_bank_transfers and rider_payout_runs if finance wants the history (TDS!).
 -- The rider_payouts rows the feature created stay: paid ones are real payments, and released ones
 -- are CANCELLED with their earnings already handed back to the weekly batch.
--- Then delete the 0122 row from drizzle.__drizzle_migrations.
+-- Then delete the 0123 row from drizzle.__drizzle_migrations.
 BEGIN;
 DELETE FROM "feature_flag_changes" WHERE "flag_key" IN ('rider_bank_account_enabled', 'rider_withdrawal_enabled', 'rider_monthly_payout_enabled');
 DELETE FROM "feature_flags" WHERE "key" IN ('rider_bank_account_enabled', 'rider_withdrawal_enabled', 'rider_monthly_payout_enabled');

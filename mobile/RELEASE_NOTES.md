@@ -1,5 +1,22 @@
 # GoKesari app — release notes
 
+## 1.5.0 (Android versionCode 6, iPhone build 6) — 31 Oct 2026
+
+Automatic update check, docs/app-install-2026-10 at the repository root.
+
+For the Play Store "What's new" / App Store "What's New in This Version":
+
+> GoKesari now tells you when a new version is available and takes you
+> straight to the update — you stay signed in.
+
+Changes in the app itself:
+- At launch and whenever the app comes back to the screen (at most every 6
+  hours) it asks the website (`/api/app/version`) — and on iPhone the App
+  Store, once listed — for the newest build, and offers Later / Update; below
+  the minimum version only Update. Update opens the Play Store, App Store or
+  the APK link and installs over this build.
+- Version 1.4.0 → 1.5.0, versionCode / build 5 → 6. No new permissions.
+
 ## 1.4.0 (Android versionCode 5, iPhone build 5) — 31 Oct 2026
 
 Gig worker (delivery partner) flow, docs/gig-worker-2026-10 at the repository

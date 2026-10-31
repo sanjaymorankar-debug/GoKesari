@@ -3,6 +3,7 @@ Keeps the test plan workbook (test-cases.xlsx) in step with the QA suite.
 
   python3 scripts/qa/plan_workbook.py add-qa-cases          # the QA-automation module (24 Oct 2026)
   python3 scripts/qa/plan_workbook.py add-list-cases        # the Purchase lists module (24 Oct 2026)
+  python3 scripts/qa/plan_workbook.py add-app-cases         # the App install & updates module (31 Oct 2026)
   python3 scripts/qa/plan_workbook.py statuses REGISTER.xlsx  # write each case's overall status back
 
 add-qa-cases adds the cases and scenarios of the QA automation features
@@ -222,6 +223,79 @@ LIST_CHANGE = ("PL 24-Oct", "New module",
                "(signed tier: staging customer accounts and the local server; writes only 'QA PL' lists and puts the cart back). "
                "TC-LIST-028 (reminders) is time-based and declared manual (integration tests cover it).")
 
+APP_MODULE = "App install & updates"
+APP_SOURCE = "docs/app-install-2026-10/README.md (31 Oct 2026)"
+
+APP_CASES = [
+    # id, features, title, type, priority, role, method, preconditions, steps, expected
+    ("TC-APP-001", "AI-001", "First visit on an Android phone shows the install prompt", "Positive", "P0", "Guest", "UI",
+     "Android phone browser, app not installed, fresh browser storage",
+     "1. Open the home page",
+     "A bottom sheet 'Get the GoKesari app' with Install and Not now appears without a backdrop; the page behind stays usable."),
+    ("TC-APP-002", "AI-001", "Not now hides the prompt for this page view only", "Positive", "P0", "Guest", "UI",
+     "TC-APP-001 shown",
+     "1. Tap Not now\\n2. Read localStorage gk_app_install_declines",
+     "The sheet closes; the decline is counted (count 1) but no flag that stops prompting is stored."),
+    ("TC-APP-003", "AI-001", "After declining, the prompt shows again on visits 2 and 3", "Positive", "P0", "Guest", "UI",
+     "Declined once (TC-APP-002)",
+     "1. Open another page (full load) - visit 2\\n2. Tap Not now\\n3. Open the home page again - visit 3",
+     "The prompt is shown on visit 2 and on visit 3; the decline count rises to 2. Declining never suppresses it."),
+    ("TC-APP-004", "AI-002", "Install from Chrome's own dialog; no prompt after install", "Positive", "P0", "Guest", "UI",
+     "Android Chrome fires beforeinstallprompt",
+     "1. Tap Install\\n2. Accept Chrome's dialog (appinstalled)\\n3. Reload",
+     "Chrome's install dialog opens from the button (its own mini-bar is suppressed); after install the sheet is gone and does not return on reload (gk_app_installed set)."),
+    ("TC-APP-005", "AI-002", "Installed app (standalone, installed flag, related app) never shows the prompt", "Positive", "P0", "Guest", "UI",
+     "App installed on this device",
+     "1. Open the site from the installed app / with the installed flag set",
+     "No install prompt anywhere on the website."),
+    ("TC-APP-006", "AI-002", "No install prompt inside the native Android / iPhone app", "Positive", "P0", "Guest", "UI",
+     "User agent contains GoKesariApp/<version>",
+     "1. Open the home page in the app's WebView",
+     "No install prompt and no service-worker update bar."),
+    ("TC-APP-007", "AI-003", "iPhone Safari shows the Add to Home Screen guide", "Positive", "P0", "Guest", "UI",
+     "iPhone Safari, not added to the home screen",
+     "1. Open the home page\\n2. Tap Install",
+     "The sheet shows; Install opens a three-step picture guide: Tap Share -> Add to Home Screen -> Tap Add."),
+    ("TC-APP-008", "AI-004", "Decline and install are kept on the signed-in account", "Positive", "P1", "Customer", "API",
+     "Signed in",
+     "1. POST /api/app-install declined (x2), installed android\\n2. GET /api/app-install\\n3. Same calls signed out",
+     "The record shows declineCount up by 2 and android among installedPlatforms; signed out every call answers 401."),
+    ("TC-APP-009", "AI-005", "Service worker served fresh with a versioned cache", "Positive", "P0", "Guest", "API",
+     "-",
+     "1. GET /sw.js",
+     "200 JavaScript, Cache-Control no-store; names its build version and caches only /_next/static and /pwa files in gk-static-<version>."),
+    ("TC-APP-010", "AI-005", "A new deploy is picked up by the installed app without reinstalling", "Positive", "P0", "Guest", "UI",
+     "App open on the old version; a new version deployed",
+     "1. Return to the app / reload\\n2. Tap Reload on 'A new version of GoKesari is ready'",
+     "The bar appears; Reload switches to the new version (the old gk-static cache is deleted). Without Reload, the new version runs on the next launch."),
+    ("TC-APP-011", "AI-006", "Native update check endpoint", "Positive", "P1", "Guest", "API",
+     "-",
+     "1. GET /api/app/version",
+     "android and ios each with latest, minimum, url (null until configured; versions as x.y.z, links https)."),
+    ("TC-APP-012", "AI-006", "Native app offers a newer build and installs it over the old one", "Positive", "P0", "Customer", "Manual",
+     "App 1.5.0 installed; MOBILE_APP_<platform>_LATEST set higher with a URL",
+     "1. Open the app (or bring it back)\\n2. Tap Update",
+     "'A new version of GoKesari is ready' with Later / Update (only Update below the minimum); Update opens the Play Store / App Store / APK and the new build installs over the old one, still signed in."),
+    ("TC-APP-013", "AI-001", "The prompt fits a phone screen", "Positive", "P1", "Guest", "UI",
+     "Phone 360-412 px wide",
+     "1. Open the home page\\n2. Open the guide",
+     "The whole sheet (title, text, guide, buttons) is on screen without scrolling, buttons 44 px tall, no sideways scroll, Kesari colours."),
+]
+
+APP_COVERAGE = [
+    ("AI-001", "App install & updates", "Install prompt on every visit until installed; Not now for the page view only; phone layout (Tile Board)", "BUILT 31-Oct", "TC-APP-001, TC-APP-002, TC-APP-003, TC-APP-013"),
+    ("AI-002", "App install & updates", "Install detection: Chrome install dialog, appinstalled, standalone, related apps, native app user agent", "BUILT 31-Oct", "TC-APP-004, TC-APP-005, TC-APP-006"),
+    ("AI-003", "App install & updates", "iPhone / iPad: Add to Home Screen guide; store links when listed", "BUILT 31-Oct", "TC-APP-007"),
+    ("AI-004", "App install & updates", "Server-side record for signed-in people (app_install_states)", "BUILT 31-Oct", "TC-APP-008"),
+    ("AI-005", "App install & updates", "Service worker with versioned cache; Reload bar; update on next launch", "BUILT 31-Oct", "TC-APP-009, TC-APP-010"),
+    ("AI-006", "App install & updates", "Native app update check (Android / iPhone 1.5.0)", "BUILT 31-Oct", "TC-APP-011, TC-APP-012"),
+]
+
+APP_CHANGE = ("AI 31-Oct", "New module",
+              "App install & updates (AI-001 to AI-006, docs/app-install-2026-10): TC-APP-001 to TC-APP-013. Automated in "
+              "tests/qa/guest/app-install.spec.ts (production-safe, Android and iPhone profiles) and tests/qa/signed-in/app-install.spec.ts "
+              "(account record). TC-APP-010 needs a deploy and TC-APP-012 a phone: declared manual.")
+
 
 def copy_style(src, dst):
     if src.has_style:
@@ -438,6 +512,8 @@ if __name__ == "__main__":
         add_qa_cases()
     elif len(sys.argv) >= 2 and sys.argv[1] == "add-list-cases":
         add_list_cases()
+    elif len(sys.argv) >= 2 and sys.argv[1] == "add-app-cases":
+        add_module(APP_MODULE, APP_CASES, APP_SOURCE, (), APP_COVERAGE, APP_CHANGE)
     elif len(sys.argv) >= 3 and sys.argv[1] == "statuses":
         statuses(sys.argv[2])
     else:

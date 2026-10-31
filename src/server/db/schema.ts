@@ -593,7 +593,7 @@ export const loginOtps = pgTable(
     phoneE164: text("phone_e164"),
     /** Address the code was sent to; codes are looked up by it. Null only on rows from before email login. */
     email: text("email"),
-    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0122 */] }).notNull().default("LOGIN"),
+    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0123 */] }).notNull().default("LOGIN"),
     channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
     codeHash: text("code_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -9370,6 +9370,27 @@ export const pushTickets = pgTable(
 );
 export type PushTicket = typeof pushTickets.$inferSelect;
 
+/**
+ * docs/app-install-2026-10: the "install the GoKesari app" prompt, per signed-in
+ * person. The prompt shows on every visit until the app is installed; this keeps
+ * the account's record so it holds across devices: how often they pressed
+ * "Not now" (never used to stop prompting) and the platforms they installed on
+ * (the prompt stops on that platform). One row per person.
+ */
+export const appInstallStates = pgTable("app_install_states", {
+  userId: uuid("user_id")
+    .primaryKey()
+    .references(() => users.id, { onDelete: "cascade" }),
+  declineCount: integer("decline_count").notNull().default(0),
+  lastDeclinedAt: timestamp("last_declined_at", { withTimezone: true }),
+  /** Platforms with an install recorded: "android", "ios", "desktop". */
+  installedPlatforms: text("installed_platforms").array().notNull().default(sql`'{}'::text[]`),
+  lastInstalledAt: timestamp("last_installed_at", { withTimezone: true }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+export type AppInstallState = typeof appInstallStates.$inferSelect;
+
 /** Who a broadcast goes to: roles, optionally narrowed to cities and/or PIN codes (either matches). */
 export interface BroadcastAudience {
   roles: ("CUSTOMER" | "SHOP_OWNER" | "DELIVERY_PARTNER")[];
@@ -9586,7 +9607,7 @@ export const FEATURE_FLAG_KEYS = [
   "dealer_rating_bonus_enabled",
   "paid_support_services_enabled",
   "shop_onboarding_wizard_enabled",
-  // docs/gig-bank-payouts-2026-10 (0122): rider bank account, withdrawals, monthly payout on the 5th.
+  // docs/gig-bank-payouts-2026-10 (0123): rider bank account, withdrawals, monthly payout on the 5th.
   "rider_bank_account_enabled",
   "rider_withdrawal_enabled",
   "rider_monthly_payout_enabled",
@@ -10521,7 +10542,7 @@ export const supportServiceFiles = pgTable(
 
 /* <<< end dealer programme */
 
-/* >>> rider bank payouts (docs/gig-bank-payouts-2026-10, migration 0122) */
+/* >>> rider bank payouts (docs/gig-bank-payouts-2026-10, migration 0123) */
 
 /**
  * One row per paid month: inserting it is the guard that makes the monthly
