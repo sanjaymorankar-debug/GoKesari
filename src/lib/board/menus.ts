@@ -455,6 +455,7 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "subscriptions", label: L("Subscriptions", "सब्सक्रिप्शन", "सदस्यता"), short: { en: "Subscription" }, icon: "calendar-clock", href: "/admin/subscriptions", permission: PERMISSIONS.SUBSCRIPTION_MANAGE_ANY },
       { key: "commissions", label: L("Referral commissions", "रेफ़रल कमीशन", "रेफरल कमिशन"), icon: "receipt", href: "/admin/referral-commissions", permission: PERMISSIONS.REFERRAL_MANAGE },
       { key: "payouts", label: L("Payouts", "भुगतान", "पेमेंट"), icon: "landmark", href: "/admin/payouts", permission: PERMISSIONS.PAYOUT_VIEW }, // batch-2026-10 WS-E
+      { key: "riderPayouts", label: L("Rider payouts", "राइडर भुगतान", "रायडर पेमेंट"), icon: "bike", href: "/admin/rider-payouts", permission: PERMISSIONS.FINANCE_VIEW, feature: "rider_bank_account_enabled" }, // docs/gig-bank-payouts-2026-10
       { key: "feeInvoices", label: L("GoKesari invoices", "GoKesari बिल", "GoKesari बिले"), icon: "receipt", href: "/admin/platform-invoices", permission: PERMISSIONS.PLATFORM_INVOICE_MANAGE }, // batch-2026-10 WS-E
       { key: "statutory", label: L("TCS / TDS settings", "TCS / TDS सेटिंग", "TCS / TDS सेटिंग्ज"), icon: "file-text", href: "/admin/statutory", permission: PERMISSIONS.STATUTORY_MANAGE }, // batch-2026-10 WS-E
     ],

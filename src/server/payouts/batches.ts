@@ -487,7 +487,8 @@ export async function handlePayoutWebhook(providerParam: string, rawBody: string
     .onConflictDoNothing()
     .returning({ id: payoutEvents.id });
   if (!recorded) return { status: 200, body: { ok: true, duplicate: true } };
-  if (!item) return { status: 200, body: { ok: true, ignored: "No payout matches this event." } };
+  // docs/gig-bank-payouts-2026-10: no shop payout item — a rider bank transfer?
+  if (!item) return (await import("@/server/rider-wallet/transfers")).handleRiderTransferEvent(provider.name, event);
   const system = { id: null, role: null };
   if (event.status === "SUCCESS") {
     if (!event.utr) {

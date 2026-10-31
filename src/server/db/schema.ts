@@ -593,7 +593,7 @@ export const loginOtps = pgTable(
     phoneE164: text("phone_e164"),
     /** Address the code was sent to; codes are looked up by it. Null only on rows from before email login. */
     email: text("email"),
-    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */] }).notNull().default("LOGIN"),
+    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0121 */] }).notNull().default("LOGIN"),
     channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
     codeHash: text("code_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -9448,6 +9448,10 @@ export const FEATURE_FLAG_KEYS = [
   "dealer_rating_bonus_enabled",
   "paid_support_services_enabled",
   "shop_onboarding_wizard_enabled",
+  // docs/gig-bank-payouts-2026-10 (0121): rider bank account, withdrawals, monthly payout on the 5th.
+  "rider_bank_account_enabled",
+  "rider_withdrawal_enabled",
+  "rider_monthly_payout_enabled",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 
@@ -10378,3 +10382,140 @@ export const supportServiceFiles = pgTable(
 );
 
 /* <<< end dealer programme */
+
+/* >>> rider bank payouts (docs/gig-bank-payouts-2026-10, migration 0121) */
+
+/**
+ * One row per paid month: inserting it is the guard that makes the monthly
+ * rider payout (the 5th, 09:00 IST) run once. Its id is the payout batch id.
+ */
+export const riderPayoutRuns = pgTable(
+  "rider_payout_runs",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    /** YYYY-MM: the month whose earnings are paid. */
+    periodMonth: text("period_month").notNull(),
+    status: text("status", { enum: ["RUNNING", "COMPLETED", "COMPLETED_WITH_FAILURES"] }).notNull().default("RUNNING"),
+    /** How many times the run was started (an interrupted run is resumed, never repeated). */
+    runs: integer("runs").notNull().default(1),
+    startedAt: timestamp("started_at", { withTimezone: true }).notNull().defaultNow(),
+    finishedAt: timestamp("finished_at", { withTimezone: true }),
+    startedBy: uuid("started_by").references(() => users.id, { onDelete: "set null" }),
+    eligible: integer("eligible").notNull().default(0),
+    paid: integer("paid").notNull().default(0),
+    failed: integer("failed").notNull().default(0),
+    skipped: integer("skipped").notNull().default(0),
+    grossPaise: bigint("gross_paise", { mode: "number" }).notNull().default(0),
+    tdsPaise: bigint("tds_paise", { mode: "number" }).notNull().default(0),
+    netPaise: bigint("net_paise", { mode: "number" }).notNull().default(0),
+    /** { skipped: [{ deliveryPartnerId, name, reason, amountPaise }] } */
+    summary: jsonb("summary").$type<Record<string, unknown>>().notNull().default({}),
+  },
+  (t) => [uniqueIndex("rider_payout_runs_period_unique").on(t.periodMonth)],
+);
+export type RiderPayoutRun = typeof riderPayoutRuns.$inferSelect;
+
+export const RIDER_TRANSFER_STATUSES = ["PENDING", "PROCESSING", "SUCCESS", "FAILED", "REVERSED", "RELEASED"] as const;
+export type RiderTransferStatus = (typeof RIDER_TRANSFER_STATUSES)[number];
+
+/**
+ * The bank transfer behind one rider payment (a rider_payouts row): a
+ * withdrawal the rider asked for, or their share of a monthly run. Account
+ * details are never copied here — only which bank_accounts row was paid.
+ * RELEASED: the transfer failed and the amount went back to the rider's
+ * balance (the payout is CANCELLED and its earnings unclaimed again).
+ */
+export const riderBankTransfers = pgTable(
+  "rider_bank_transfers",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    deliveryPartnerId: uuid("delivery_partner_id")
+      .notNull()
+      .references(() => deliveryPartners.id, { onDelete: "restrict" }),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "restrict" }),
+    payoutId: uuid("payout_id")
+      .notNull()
+      .references(() => riderPayouts.id, { onDelete: "restrict" }),
+    kind: text("kind", { enum: ["WITHDRAWAL", "MONTHLY"] }).notNull(),
+    runId: uuid("run_id").references(() => riderPayoutRuns.id, { onDelete: "restrict" }),
+    bankAccountId: uuid("bank_account_id")
+      .notNull()
+      .references(() => bankAccounts.id, { onDelete: "restrict" }),
+    method: text("method", { enum: ["BANK_ACCOUNT", "UPI"] }).notNull(),
+    mode: text("mode", { enum: ["IMPS", "NEFT", "UPI"] }).notNull(),
+    provider: text("provider").notNull(),
+    grossPaise: bigint("gross_paise", { mode: "number" }).notNull(),
+    tdsPaise: bigint("tds_paise", { mode: "number" }).notNull().default(0),
+    tdsRateBp: integer("tds_rate_bp").notNull().default(0),
+    feePaise: bigint("fee_paise", { mode: "number" }).notNull().default(0),
+    /** gross − TDS − fee: what reaches the bank account. */
+    netPaise: bigint("net_paise", { mode: "number" }).notNull(),
+    status: text("status", { enum: RIDER_TRANSFER_STATUSES }).notNull().default("PENDING"),
+    attempts: integer("attempts").notNull().default(0),
+    retryCount: integer("retry_count").notNull().default(0),
+    nextRetryAt: timestamp("next_retry_at", { withTimezone: true }),
+    /** Retries used up (or the bank returned it): finance decides — retry or release. */
+    needsReview: boolean("needs_review").notNull().default(false),
+    providerRef: text("provider_ref"),
+    utr: text("utr"),
+    failureReason: text("failure_reason"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+    completedAt: timestamp("completed_at", { withTimezone: true }),
+  },
+  (t) => [
+    uniqueIndex("rider_bank_transfers_payout_unique").on(t.payoutId),
+    uniqueIndex("rider_bank_transfers_run_partner_unique").on(t.runId, t.deliveryPartnerId).where(sql`${t.runId} IS NOT NULL`),
+    index("rider_bank_transfers_partner_idx").on(t.deliveryPartnerId, t.createdAt),
+    index("rider_bank_transfers_status_idx").on(t.status, t.nextRetryAt),
+    index("rider_bank_transfers_provider_ref_idx").on(t.providerRef).where(sql`${t.providerRef} IS NOT NULL`),
+    check(
+      "rider_bank_transfers_amounts",
+      sql`${t.grossPaise} > 0 AND ${t.tdsPaise} >= 0 AND ${t.feePaise} >= 0 AND ${t.netPaise} = ${t.grossPaise} - ${t.tdsPaise} - ${t.feePaise} AND ${t.netPaise} > 0`,
+    ),
+    check("rider_bank_transfers_run", sql`(${t.kind} = 'MONTHLY') = (${t.runId} IS NOT NULL)`),
+  ],
+);
+export type RiderBankTransfer = typeof riderBankTransfers.$inferSelect;
+
+/** History of a transfer: our own steps and the provider's webhooks (each event applied once). */
+export const riderTransferEvents = pgTable(
+  "rider_transfer_events",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    transferId: uuid("transfer_id")
+      .notNull()
+      .references(() => riderBankTransfers.id, { onDelete: "cascade" }),
+    /** SYSTEM for our own steps, else the provider. */
+    source: text("source").notNull(),
+    eventId: text("event_id").notNull(),
+    type: text("type").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull().default({}),
+    actorId: uuid("actor_id"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("rider_transfer_events_source_event_unique").on(t.source, t.eventId),
+    index("rider_transfer_events_transfer_idx").on(t.transferId, t.createdAt),
+  ],
+);
+
+/** A rider re-authenticated (emailed code) to change or remove their bank account; short-lived, used once. */
+export const riderSecurityGrants = pgTable(
+  "rider_security_grants",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    userId: uuid("user_id")
+      .notNull()
+      .references(() => users.id, { onDelete: "cascade" }),
+    purpose: text("purpose", { enum: ["BANK_ACCOUNT_CHANGE"] }).notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    usedAt: timestamp("used_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("rider_security_grants_user_idx").on(t.userId, t.purpose, t.expiresAt)],
+);
+
+/* <<< rider bank payouts */

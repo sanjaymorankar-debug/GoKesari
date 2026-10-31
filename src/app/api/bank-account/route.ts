@@ -8,6 +8,7 @@ import { ok, parseBody, route } from "@/server/api/handler";
 import { RATE_LIMITS, enforceRateLimit } from "@/server/api/rate-limit";
 import { requireUser } from "@/server/authz/guards";
 import { getBankAccountView, saveBankAccount, verificationGatewayMode } from "@/server/services/bank-accounts";
+import { consumeBankChangeGrant } from "@/server/rider-wallet/withdrawals";
 import { bankAccountSchema } from "./schema";
 
 export const dynamic = "force-dynamic";
@@ -21,5 +22,7 @@ export const PUT = route(async (request: NextRequest) => {
   const user = await requireUser();
   enforceRateLimit(`bank-account:${user.id}`, RATE_LIMITS.PAYMENT);
   const body = await parseBody(request, bankAccountSchema);
+  // docs/gig-bank-payouts-2026-10: a delivery partner's verified account changes only after an emailed code (flag rider_bank_account_enabled).
+  await consumeBankChangeGrant(user.id);
   return ok(await saveBankAccount({ userId: user.id, shopId: null }, body, user));
 });
