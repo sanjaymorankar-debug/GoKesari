@@ -17,6 +17,7 @@ import { getBoardLang } from "@/server/board-lang";
 import { defaultWindow, getMarketplaceKpis } from "@/server/services/analytics";
 import { shopBankPrompt } from "@/server/services/bank-accounts";
 import { getShopLegalStatus, type ShopLegalStatus } from "@/server/services/legal-documents";
+import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { isReferralRequired } from "@/server/services/referral-settings";
 import { getShopOnboarding, type ShopOnboarding } from "@/server/services/shop-onboarding";
 import { getActiveSuspension } from "@/server/services/shop-suspension";
@@ -49,7 +50,10 @@ export default async function ShopDashboardPage() {
 
   const shops = await listShopsForOwner(user.id);
   if (shops.length === 0) {
-    const referralRequired = await isReferralRequired("shop").catch(() => false);
+    const [referralRequired, wizard] = await Promise.all([
+      isReferralRequired("shop").catch(() => false),
+      isFeatureEnabled("shop_onboarding_wizard_enabled").catch(() => false),
+    ]);
     return (
       <div data-testid="seller-welcome">
         <h1 className="text-2xl font-bold tracking-tight text-ink-900 sm:text-3xl">Welcome to Seller Central</h1>
@@ -58,7 +62,7 @@ export default async function ShopDashboardPage() {
           orders, products, payments and every other seller tool will be here.
         </p>
         <div className="mt-6">
-          <RegisterOptions referralRequired={referralRequired} signedIn />
+          <RegisterOptions referralRequired={referralRequired} signedIn wizard={wizard} />
         </div>
       </div>
     );

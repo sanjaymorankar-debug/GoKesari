@@ -6,6 +6,7 @@ import { RegisterOptions } from "@/components/seller/register-options";
 import { LEGAL_ENTITY } from "@/lib/legal-docs";
 import { SHOP_TYPES } from "@/lib/shop-types";
 import { getCurrentUser } from "@/server/authz/guards";
+import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { isReferralRequired } from "@/server/services/referral-settings";
 import { listShopsForOwner } from "@/server/services/shops";
 
@@ -78,9 +79,10 @@ const FAQ: { q: string; a: React.ReactNode }[] = [
  */
 export default async function SellPage() {
   const user = await getCurrentUser();
-  const [shops, referralRequired] = await Promise.all([
+  const [shops, referralRequired, wizard] = await Promise.all([
     user ? listShopsForOwner(user.id).catch(() => []) : Promise.resolve([]),
     isReferralRequired("shop").catch(() => false),
+    isFeatureEnabled("shop_onboarding_wizard_enabled").catch(() => false),
   ]);
   const isSeller = shops.length > 0;
   const start = isSeller ? { href: "/shop", label: "Go to Seller Central" } : { href: "#register", label: "Start selling" };
@@ -267,7 +269,7 @@ export default async function SellPage() {
                 One registration, a few steps. Keep your mobile number handy{referralRequired ? " and the referral code from your GoKesari distributor" : ""}.
               </p>
               <div className="mt-8">
-                <RegisterOptions referralRequired={referralRequired} signedIn={user !== null} />
+                <RegisterOptions referralRequired={referralRequired} signedIn={user !== null} wizard={wizard} />
               </div>
               <div className="mt-8 rounded-xl bg-white p-5 ring-1 ring-slate-200">
                 <h3 className="font-bold">Keep these ready</h3>
