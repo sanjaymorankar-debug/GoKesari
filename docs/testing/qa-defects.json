@@ -1642,6 +1642,49 @@
       "expected": "Refusal; guest sees nothing.",
       "fix": "Test expectations updated: 410 accepted on retired cron routes; the Seller Central sign-in shell accepted (isSignInShell).",
       "status": "Fixed - retest passed"
+    },
+    {
+      "id": "E-13",
+      "title": "Staging customer test account also holds the SHOP_OWNER role, so the customer role checks switch it into Seller Central",
+      "cases": [
+        "TC-RBAC-003",
+        "TC-RBAC-012",
+        "TC-SEC-004"
+      ],
+      "severity": "Low",
+      "found": "2026-10-31 staging run opg-phase1-release",
+      "actual": "PUT /api/me/roles {role: SHOP_OWNER} as the customer test account → 200 {active: SHOP_OWNER, roles: [CUSTOMER, SHOP_OWNER]}; the following checks then see /shop/orders, /shop/finance as 200.",
+      "expected": "The customer test account holds CUSTOMER only, so the switch is refused (403/422).",
+      "fix": "Test data: remove SHOP_OWNER from sanjaymorankar+gk-customer on test.gokesari.com (admin → Users), or give the role checks an account that holds CUSTOMER only. Active role was switched back to CUSTOMER after the run.",
+      "status": "Open"
+    },
+    {
+      "id": "E-14",
+      "title": "QA access sweep flagged the HDFC payment return (POST /api/payments/hdfc/return → 303) as an unprotected write",
+      "cases": [
+        "TC-SEC-001",
+        "TC-RBAC-002"
+      ],
+      "severity": "Info",
+      "found": "2026-10-31 staging run opg-phase1-release",
+      "actual": "The bank's form POST back from the payment page answers a guest 303 to our own page.",
+      "expected": "By design: the route only forwards to the page the payment started from; that page asks the gateway for the state.",
+      "fix": "Test: route added to PUBLIC_WRITES; a 303 to the same site accepted (qa/opg-phase1-staging).",
+      "status": "Fixed - retest passed",
+      "retest": "2026-11-01 staging -g TC-SEC-001|TC-RBAC-002: pass"
+    },
+    {
+      "id": "D-109",
+      "title": "Seller Central packing slip of an order that does not exist answers 200 instead of 404",
+      "cases": [
+        "TC-SEC-009"
+      ],
+      "severity": "Low",
+      "found": "2026-10-31 staging run opg-phase1-release (passed on 24 Oct)",
+      "actual": "GET /shop/orders/00000000-0000-4000-8000-000000000000/packing-slip as shop A's owner → 200.",
+      "expected": "404 page with a way back, no stack trace.",
+      "fix": "To investigate: the page calls notFound() for an unknown slip (src/app/shop/orders/[id]/packing-slip/page.tsx, unchanged since WS-B); likely the status is lost once the page streams. Not caused by #313.",
+      "status": "Open"
     }
   ]
 }
