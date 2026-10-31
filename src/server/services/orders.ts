@@ -90,6 +90,7 @@ import {
   selfCancelBlock,
 } from "@/lib/order-cancellation";
 import { executeCancellationRefund, planCancellationRefund } from "@/server/aftercare/refunds"; // batch-2026-10 WS-C
+import { chargesGst, listingsMissingTaxData } from "@/server/gst/tax-data-check";
 
 /**
  * A delivery assignment is still "in play" — offered, accepted, or already
@@ -387,6 +388,22 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       // Mandatory legal documents: a shop past its grace period takes no orders until it uploads them.
       unwrap((await legalChecks.get(shopRow.id)) ?? { ok: true, value: undefined });
       assertMinimumOrder(shopRow, group.subtotalPaise, addressSnapshot != null);
+    }
+  }
+
+  // Rule invoicing.missingTaxData = BLOCK: a GST-registered shop's line with no HSN or GST rate is not sold.
+  if ((await getRule("invoicing")).missingTaxData === "BLOCK") {
+    for (const group of purchasableGroups) {
+      const shopRow = cartShopById.get(group.shop.id);
+      if (!shopRow || !chargesGst(shopRow)) continue;
+      const missing = await listingsMissingTaxData(group.lines.filter((l) => l.purchasable).map((l) => l.shopProductId));
+      if (missing.size > 0) {
+        const names = group.lines.filter((l) => missing.has(l.shopProductId)).map((l) => l.productName);
+        throw conflict(
+          `${shopRow.name} cannot sell ${names.join(", ")} online yet: the shop has not set the GST details for ${names.length === 1 ? "it" : "them"}. Remove ${names.length === 1 ? "it" : "them"} to continue.`,
+          { missingTaxData: [...missing] },
+        );
+      }
     }
   }
 

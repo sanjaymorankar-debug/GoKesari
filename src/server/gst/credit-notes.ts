@@ -20,7 +20,7 @@ import { stateLabel } from "@/lib/gst-states";
 import { db, type DbClient } from "@/server/db";
 import { creditNoteCounters, creditNotes, shops, taxInvoices, type CreditNote } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
-import { amountInWords, financialYearOf, splitInclusive, type InvoiceLine, type InvoiceSnapshot } from "@/server/services/invoices";
+import { amountInWords, financialYearOf, lineTax, type InvoiceLine, type InvoiceSnapshot } from "@/server/services/invoices";
 import { documentNumbering, formatDocumentNumber } from "./rules";
 
 export interface CreditNoteLine extends InvoiceLine {
@@ -41,7 +41,7 @@ export interface CreditNoteSnapshot {
   buyer: InvoiceSnapshot["buyer"];
   placeOfSupply: string;
   lines: CreditNoteLine[];
-  totals: { taxablePaise: number; cgstPaise: number; sgstPaise: number; igstPaise: number; totalPaise: number };
+  totals: { taxablePaise: number; cgstPaise: number; sgstPaise: number; igstPaise: number; totalPaise: number; cessPaise?: number };
   note: string;
 }
 
@@ -97,7 +97,7 @@ export async function issueCreditNoteForRefund(input: IssueCreditNoteInput, clie
       ...line,
       invoiceLineNo: index + 1,
       grossPaise: gross,
-      ...splitInclusive(gross, line.rateBp, inv.supplyType),
+      ...lineTax(gross, line.rateBp, line.cessBp ?? 0, inv.supplyType),
       qty: line.qty != null ? Math.round(line.qty * fraction * 1000) / 1000 : undefined,
       quantity: fraction >= 0.9999 ? line.quantity : `${(fraction * 100).toFixed(1)}% of ${line.quantity}`,
     });
@@ -135,6 +135,7 @@ export async function issueCreditNoteForRefund(input: IssueCreditNoteInput, clie
       sgstPaise: sum("sgstPaise"),
       igstPaise: sum("igstPaise"),
       totalPaise: sum("grossPaise"),
+      ...(lines.some((l) => l.cessPaise) ? { cessPaise: lines.reduce((s, l) => s + (l.cessPaise ?? 0), 0) } : {}),
     },
     note:
       input.reason === "RETURN"
@@ -195,7 +196,8 @@ export function creditNoteTextLines(s: CreditNoteSnapshot): PdfLine[] {
   const add = (text = "", bold = false) => out.push({ text, bold });
   const pair = (left: string, right: string) => add(left + right.padStart(Math.max(1, W - left.length)));
   const rule = "-".repeat(W);
-  add("CREDIT NOTE", true);
+  // Against a bill of supply there is no tax to reverse: the document says so.
+  add(s.againstInvoice.kind === "BILL_OF_SUPPLY" ? "CREDIT NOTE (against bill of supply)" : "CREDIT NOTE", true);
   pair(`Credit note no: ${s.creditNoteNumber}`, `Date: ${fmtDate(s.issuedAt)}`);
   pair(`Against invoice: ${s.againstInvoice.number}`, `Invoice date: ${fmtDate(s.againstInvoice.issuedAt)}`);
   add(`Order no: ${s.orderNumber}   Reason: ${s.note}`);
@@ -221,6 +223,7 @@ export function creditNoteTextLines(s: CreditNoteSnapshot): PdfLine[] {
     pair("CGST", money(s.totals.cgstPaise));
     pair("SGST", money(s.totals.sgstPaise));
   } else pair("IGST", money(s.totals.igstPaise));
+  if (s.totals.cessPaise) pair("Cess", money(s.totals.cessPaise));
   pair("Credit note total", money(s.totals.totalPaise));
   add(amountInWords(s.totals.totalPaise));
   add();

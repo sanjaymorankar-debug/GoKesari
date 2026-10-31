@@ -78,6 +78,9 @@ export interface InvoiceLine {
   uqc?: string;
   /** D-91 (invoices issued from this release on): the MRP the line was sold under, per pack; null when none. */
   mrpPaise?: number | null;
+  /** Compensation cess (ad valorem), only on lines that carry one (rule invoicing.applyCess). */
+  cessBp?: number;
+  cessPaise?: number;
 }
 
 export interface InvoiceSnapshot {
@@ -103,7 +106,7 @@ export interface InvoiceSnapshot {
   /** Module 2: Rule 46 — tax payable on reverse charge (never, for these supplies). */
   reverseCharge?: boolean;
   lines: InvoiceLine[];
-  totals: { taxablePaise: number; cgstPaise: number; sgstPaise: number; igstPaise: number; totalPaise: number };
+  totals: { taxablePaise: number; cgstPaise: number; sgstPaise: number; igstPaise: number; totalPaise: number; cessPaise?: number };
   payment: {
     method: string;
     /** GoKesari's delivery fee — not part of the shop's supply. */
@@ -135,6 +138,22 @@ export function splitInclusive(grossPaise: number, rateBp: number, supply: "INTR
   if (supply === "INTER") return { taxablePaise: taxable, cgstPaise: 0, sgstPaise: 0, igstPaise: tax };
   const cgst = Math.floor(tax / 2);
   return { taxablePaise: taxable, cgstPaise: cgst, sgstPaise: tax - cgst, igstPaise: 0 };
+}
+
+/**
+ * Tax out of a tax-inclusive amount that also carries an ad-valorem cess:
+ * taxable = round(gross × 10000 / (10000 + rate + cess)); cess = round(taxable
+ * × cess rate); GST = the rest. With no cess this is exactly splitInclusive.
+ */
+export function splitInclusiveWithCess(grossPaise: number, rateBp: number, cessBp: number, supply: "INTRA" | "INTER") {
+  if (cessBp <= 0) return { ...splitInclusive(grossPaise, rateBp, supply), cessPaise: 0 };
+  const taxable = Math.round((grossPaise * 10_000) / (10_000 + rateBp + cessBp));
+  // Never more than the tax part of the price (tiny amounts at a high cess would otherwise leave GST at −1 paisa).
+  const cess = rateBp > 0 ? Math.min(Math.round((taxable * cessBp) / 10_000), grossPaise - taxable) : grossPaise - taxable;
+  const tax = grossPaise - taxable - cess;
+  if (supply === "INTER") return { taxablePaise: taxable, cgstPaise: 0, sgstPaise: 0, igstPaise: tax, cessPaise: cess };
+  const cgst = Math.floor(tax / 2);
+  return { taxablePaise: taxable, cgstPaise: cgst, sgstPaise: tax - cgst, igstPaise: 0, cessPaise: cess };
 }
 
 const ONES = ["", "One", "Two", "Three", "Four", "Five", "Six", "Seven", "Eight", "Nine", "Ten", "Eleven", "Twelve", "Thirteen", "Fourteen", "Fifteen", "Sixteen", "Seventeen", "Eighteen", "Nineteen"];
@@ -197,7 +216,12 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
 
   const gstin = await registeredGstin(shop, client);
   const kind: InvoiceSnapshot["kind"] = gstin ? "TAX_INVOICE" : "BILL_OF_SUPPLY";
-  const sellerState = gstin ? toStateCode(gstin.slice(0, 2)) : toStateCode(shop.state);
+  // A composition dealer issues a bill of supply but is still GST-registered:
+  // its GSTIN goes on the bill (Rule 46/49 CGST Rules).
+  const compositionGstin =
+    !gstin && shop.gstStatus === "COMPOSITION" && shop.gstin && /^\d{2}[A-Z0-9]{13}$/.test(shop.gstin) ? shop.gstin : null;
+  const printedGstin = gstin ?? compositionGstin;
+  const sellerState = printedGstin ? toStateCode(printedGstin.slice(0, 2)) : toStateCode(shop.state);
   const address = order.addressId
     ? await client.query.addresses.findFirst({ where: eq(addresses.id, order.addressId) })
     : undefined;
@@ -229,6 +253,7 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
       // Module 2: the shop's own classification (from its accounting software) wins.
       shopHsn: shopProducts.hsnCode,
       shopGstRateBp: shopProducts.gstRateBp,
+      shopCessBp: shopProducts.cessBp,
     })
     .from(orderItems)
     .leftJoin(shopProducts, eq(shopProducts.id, orderItems.shopProductId))
@@ -236,11 +261,19 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
     .where(eq(orderItems.orderId, orderId));
 
   const lines: InvoiceLine[] = [];
-  for (const { item, hsn: masterHsn, gstRateBp: masterRate, shopHsn, shopGstRateBp } of items) {
+  const hsnRates = new Map<string, Awaited<ReturnType<typeof hsnFallbackRate>>>();
+  const hsnRate = async (code: string | null) => {
+    if (!code) return null;
+    if (!hsnRates.has(code)) hsnRates.set(code, await hsnFallbackRate(code, issuedAt, client));
+    return hsnRates.get(code) ?? null;
+  };
+  for (const { item, hsn: masterHsn, gstRateBp: masterRate, shopHsn, shopGstRateBp, shopCessBp } of items) {
     if (item.fulfilmentStatus === "REMOVED") continue;
     const hsn = shopHsn ?? masterHsn;
     // Rate: the shop's, the product's, then the dated HSN table, then the rule default (marked).
-    const gstRateBp = shopGstRateBp ?? masterRate ?? (await hsnFallbackRate(hsn, issuedAt, client))?.rateBp ?? null;
+    const gstRateBp = shopGstRateBp ?? masterRate ?? (await hsnRate(hsn))?.rateBp ?? null;
+    // Cess: the shop's listing, then the dated HSN table; never on a bill of supply.
+    const cessBp = kind === "TAX_INVOICE" && rule.applyCess ? (shopCessBp ?? (await hsnRate(hsn))?.cessBp ?? 0) : 0;
     const substituted = item.fulfilmentStatus === "SUBSTITUTED" && item.substituteLineTotalPaise != null;
     const gross = substituted ? item.substituteLineTotalPaise! : item.lineTotalPaise;
     const name = substituted ? (item.substituteNameSnapshot ?? item.productNameSnapshot) : item.productNameSnapshot;
@@ -256,7 +289,7 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
       rateBp: rate,
       rateAssumed: kind === "TAX_INVOICE" && rateAssumed,
       grossPaise: gross,
-      ...splitInclusive(gross, rate, supplyType),
+      ...lineTax(gross, rate, cessBp, supplyType),
       shopProductId: item.shopProductId,
       qty: qtyMilli / 1000,
       unit,
@@ -290,7 +323,7 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
       name: shop.name,
       legalName: shop.legalBusinessName ?? shop.name,
       address: [shop.addressLine1, shop.addressLine2, shop.area, shop.city, shop.state, shop.pincode].filter(Boolean).join(", "),
-      gstin,
+      gstin: printedGstin,
       panMasked: shop.panLast4 ? `XXXXXX${shop.panLast4}` : null,
       fssai: shop.fssaiLicenseNumber,
       stateCode: sellerState,
@@ -310,6 +343,7 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
       sgstPaise: sum("sgstPaise"),
       igstPaise: sum("igstPaise"),
       totalPaise: sum("grossPaise"),
+      ...(lines.some((l) => l.cessPaise) ? { cessPaise: lines.reduce((s, l) => s + (l.cessPaise ?? 0), 0) } : {}),
     },
     payment: {
       method: order.paymentMethod,
@@ -322,6 +356,12 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
     ...(extras.enabled ? { placeOfSupplySource, sellerRegistration } : {}),
   };
   return { order, shop, snapshot };
+}
+
+/** A line's tax split; the cess fields are added only when the line carries a cess, so other invoices keep their shape. */
+export function lineTax(grossPaise: number, rateBp: number, cessBp: number, supply: "INTRA" | "INTER") {
+  if (cessBp <= 0) return splitInclusive(grossPaise, rateBp, supply);
+  return { ...splitInclusiveWithCess(grossPaise, rateBp, cessBp, supply), cessBp };
 }
 
 const isUniqueViolation = (error: unknown) =>
@@ -530,6 +570,7 @@ export function invoiceTextLines(s: InvoiceSnapshot): PdfLine[] {
   } else {
     pair("IGST", money(s.totals.igstPaise));
   }
+  if (s.totals.cessPaise) pair("Cess", money(s.totals.cessPaise));
   pair("Invoice total (inclusive of tax)", money(s.totals.totalPaise));
   wrap(amountInWords(s.totals.totalPaise));
   add(rule);
