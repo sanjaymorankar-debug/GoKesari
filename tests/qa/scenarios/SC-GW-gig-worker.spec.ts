@@ -52,8 +52,10 @@ qa("SC-GW", "gig worker flow: register, KYC, police verification, availability, 
   check(6, "shop A has a pinned location", Number.isFinite(shopLat) && Number.isFinite(shopLng), { shopLat, shopLng });
 
   try {
-    // Earlier QA runs may have left customer2 acting as another of its roles; applying is a customer's step.
-    await call(rider, "PUT", "/api/me/roles", { role: "CUSTOMER" });
+    // Earlier QA runs may have left customer2 acting as another of its roles. Already a partner (a
+    // re-run): read the profile as one; otherwise applying is a customer's step.
+    const held = ((await call(rider, "GET", "/api/me/roles")).body?.roles ?? []) as string[];
+    await call(rider, "PUT", "/api/me/roles", { role: held.includes("DELIVERY_PARTNER") ? "DELIVERY_PARTNER" : "CUSTOMER" });
     /* ---------------------------------------------------- 1 + 4: registration */
     let me = await call(rider, "GET", "/api/delivery-partner/me");
     const mobile = freshMobile();
@@ -230,6 +232,10 @@ qa("SC-GW", "gig worker flow: register, KYC, police verification, availability, 
     await poll(async () => (await call(rider, "GET", "/api/delivery-partner/me")).body?.availability, (v) => v === "READY", 30_000);
     check(5, "Ready chosen on the dashboard (device location)", (await call(rider, "GET", "/api/delivery-partner/me")).body?.availability === "READY");
     await ui.context.close();
+    // The rest of the run needs a Ready partner whatever the dashboard did (its result is recorded above).
+    if ((await call(rider, "GET", "/api/delivery-partner/me")).body?.availability !== "READY") {
+      await call(rider, "PATCH", "/api/delivery-partner/status", { action: "ready", latitude: shopLat + 0.001, longitude: shopLng + 0.001 });
+    }
 
     /* ---------------------------------------------------- 7: societies (admin + shop view) */
     const found = await call(admin, "GET", "/api/admin/societies-search?q=so");
@@ -256,6 +262,8 @@ qa("SC-GW", "gig worker flow: register, KYC, police verification, availability, 
       const row = (partners.body?.partners ?? []).find((x: { deliveryPartnerId: string }) => x.deliveryPartnerId === partnerId);
       check(7, "shop's Delivery partners lists the partner with authorised / blocked counts and lists", Boolean(row), row ? { authorised: row.authorisedCount, blocked: row.blockedCount, a: row.authorised.map((s: { name: string }) => s.name), b: row.blocked.map((s: { name: string }) => s.name) } : partners.body);
       const shopPage = await pageAs(browser, "shop");
+      // The shop-owner account has several shops: look at shop A (the active-shop cookie the switcher sets).
+      await shopPage.context.addCookies([{ name: "gk_shop", value: shop.id, domain: HOST.replace(/:\d+$/, ""), path: "/" }]);
       await shopPage.page.goto("/shop/delivery-partners");
       const card = shopPage.page.getByTestId("shop-delivery-partner").filter({ hasText: "QA Gig Rider" });
       await card.getByTestId("blocked-count").click().catch(() => {});
@@ -274,8 +282,13 @@ qa("SC-GW", "gig worker flow: register, KYC, police verification, availability, 
       check(9, "Assigned → Picked Up (timestamp)", picked.status === 200 && picked.body?.status === "PICKED_UP" && Boolean(picked.body?.pickedUpAt), { status: picked.body?.status, pickedUpAt: picked.body?.pickedUpAt });
       const started = await riderAction(offer.deliveryOrderId, "start", {}, "customer2");
       check(10, "drop started", started.status === 200, started.status);
+      // test.gokesari.com runs with deliveryProof.photoRequired on: the photo at the door comes first.
+      const door = await call(rider, "POST", `/api/delivery-orders/${offer.deliveryOrderId}/proof`, undefined, {
+        multipart: { kind: "DELIVERY", file: { name: "door.png", mimeType: "image/png", buffer: png(640, 480) } },
+      });
+      check(10, "photo at the door added (rule deliveryProof.photoRequired)", door.status === 201 && door.body?.kind === "DELIVERY", brief(door));
       const noCode = await riderAction(offer.deliveryOrderId, "deliver", {}, "customer2");
-      check(10, "Delivered needs the customer's code while rule deliveryOtp.required is on", noCode.status >= 400, brief(noCode));
+      check(10, "Delivered needs the customer's code while rule deliveryOtp.required is on", noCode.status === 422 && /delivery code/i.test(noCode.body?.error?.message ?? ""), brief(noCode));
       const deliveryOtp = await deliveryCode(order.id, "customer");
       const delivered = await riderAction(offer.deliveryOrderId, "deliver", { otp: deliveryOtp }, "customer2");
       check(10, "Picked Up → Delivered with the code", delivered.status === 200 && delivered.body?.status === "DELIVERED", brief(delivered));
