@@ -2,6 +2,7 @@
 import type { NextRequest } from "next/server";
 import { z } from "zod";
 
+import { forbidden } from "@/lib/errors";
 import { ok, parseBody, route, type RouteContext } from "@/server/api/handler";
 import { requirePermission } from "@/server/authz/guards";
 import { PERMISSIONS } from "@/server/authz/permissions";
@@ -12,6 +13,7 @@ import {
   getDeliveryPartnerById,
   reactivateDeliveryPartner,
   rejectDeliveryPartner,
+  setAvailabilityOverride,
   startDeliveryPartnerReview,
   suspendDeliveryPartner,
 } from "@/server/services/delivery-partners";
@@ -24,6 +26,8 @@ const schema = z.discriminatedUnion("action", [
   // TC-DEL-027: a suspended rider returns to work only with a reason, as they were suspended with one.
   z.object({ action: z.literal("reactivate"), reason: z.string().min(3).max(1000) }),
   z.object({ action: z.literal("deactivate"), reason: z.string().min(3).max(1000) }),
+  // Gig worker flow (feature 5): ADMIN only — lets this partner go Active / Ready before KYC and police verification are approved.
+  z.object({ action: z.literal("override_availability"), enabled: z.boolean(), reason: z.string().min(3).max(1000) }),
 ]);
 
 export const GET = route(
@@ -53,6 +57,9 @@ export const PATCH = route(
         return ok(toStaffPartnerView(await reactivateDeliveryPartner(id, body.reason, user)));
       case "deactivate":
         return ok(toStaffPartnerView(await deactivateDeliveryPartner(id, body.reason, user)));
+      case "override_availability":
+        if (user.role !== "ADMIN") throw forbidden("Only an admin can override the verification gate.");
+        return ok(toStaffPartnerView(await setAvailabilityOverride(id, body.enabled, body.reason, user)));
     }
   },
 );

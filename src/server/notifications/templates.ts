@@ -87,6 +87,12 @@ export const TEMPLATES: Record<string, Template> = {
   [T.ORDER_RIDER_ARRIVING]: t("Your rider is arriving", "Your rider for order {{orderNumber}} has reached you. Keep your delivery code ready."),
   [T.ORDER_PICKED_UP]: t("Order picked up", "Your order {{orderNumber}} has been picked up and is on its way."),
   [T.ORDER_DELIVERED]: t("Order delivered", "Your order {{orderNumber}} has been delivered. Enjoy!"),
+  // Gig worker flow (feature 11): push + SMS + in-app; the delivered e-mail above already went out.
+  [T.ORDER_COMPLETED]: t(
+    "Order completed",
+    "Your order {{orderNumber}} from {{shopName}} was delivered successfully and is now complete. Thank you for shopping with GoKesari.",
+    false,
+  ),
   [T.ORDER_CANCELLED]: t("Order cancelled", "Your order {{orderNumber}} was cancelled. {{reason}}"),
   [T.ORDER_DELIVERY_FAILED]: t("Delivery attempt failed", "We could not deliver order {{orderNumber}}. {{reason}}"),
   [T.DISPUTE_OPENED]: t(
@@ -175,6 +181,7 @@ export const TEMPLATES: Record<string, Template> = {
   [T.SHOP_ORDER_PICKED_UP]: t("Order picked up", "Order {{orderNumber}} has been collected by {{riderName}}.", false),
   [T.SHOP_ORDER_OUT_FOR_DELIVERY]: t("Order on the way", "{{riderName}} is on the way to the customer with order {{orderNumber}}.", false),
   [T.SHOP_ORDER_DELIVERED]: t("Order delivered", "Order {{orderNumber}} has been delivered to the customer."),
+  [T.SHOP_ORDER_COMPLETED]: t("Order completed", "Order {{orderNumber}} was delivered successfully to the customer and is now complete.", false),
   [T.SHOP_ACCEPT_ESCALATED]: t(
     "Order waiting — support will call",
     "Order {{orderNumber}} was not accepted within {{minutes}} minutes. Our support team has been asked to follow up; accept or reject it now.",

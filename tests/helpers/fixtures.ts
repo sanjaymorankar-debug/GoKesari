@@ -8,7 +8,7 @@ import { eq, sql } from "drizzle-orm";
 
 import { db } from "@/server/db";
 import { upsertRow } from "@/server/db/split/upsert";
-import { clearRuleCache } from "@/server/services/settings";
+import { clearRuleCache, setRule } from "@/server/services/settings";
 import {
   addresses,
   deliveryOrders,
@@ -395,6 +395,8 @@ export async function createDeliveryPartner(
       vehicleType: overrides.vehicleType ?? "MOTORCYCLE",
       status: overrides.status ?? "APPROVED",
       isOnline: overrides.isOnline ?? false,
+      // Gig worker flow: an online rider in these fixtures is Ready (gets offers).
+      availability: overrides.isOnline ? "READY" : "OFFLINE",
       operatingRadiusKm: overrides.operatingRadiusKm ?? 5,
       lastLocationLatitude: overrides.latitude != null ? String(overrides.latitude) : null,
       lastLocationLongitude: overrides.longitude != null ? String(overrides.longitude) : null,
@@ -594,3 +596,33 @@ export async function setDeliveryCode(deliveryOrderId: string, code = "2468"): P
     .where(eq(deliveryOrders.id, deliveryOrderId));
   return code;
 }
+
+/**
+ * Gig worker flow: tests about something else than the verification gate let
+ * approved riders go Active / Ready without KYC and police verification.
+ */
+export async function openRiderAvailabilityGate(): Promise<void> {
+  const admin = await createUser({ role: "ADMIN" });
+  await setRule("riderVerification", { gateAvailability: false }, { id: admin.id, role: "ADMIN" });
+}
+
+/** Gig worker flow: tests about something else than zoning use the shop-only radius of before. */
+export async function turnRiderZoningOff(): Promise<void> {
+  const admin = await createUser({ role: "ADMIN" });
+  await setRule("riderZoning", { enabled: false }, { id: admin.id, role: "ADMIN" });
+}
+
+/** Every detail the registration API asks for (gig worker flow, features 1 and 4). */
+export const FULL_RIDER_REGISTRATION = {
+  email: "rider@example.test",
+  dateOfBirth: "1995-04-12",
+  gender: "MALE" as const,
+  addressLine: "Flat 4, Shivaji Nagar, Near Bus Stand",
+  addressCity: "Pune",
+  addressPincode: "411005",
+  vehicleRegistrationNumber: "MH12 AB 1234",
+  emergencyContactName: "Sunita Kumar",
+  emergencyContactMobile: "9822012345",
+  latitude: 18.53,
+  longitude: 73.85,
+};

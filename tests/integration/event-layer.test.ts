@@ -212,7 +212,11 @@ describe("delivery events", () => {
       "order.out_for_delivery",
       "delivery.delivered",
       "order.delivered",
+      // Gig worker flow (feature 11): the confirmed delivery completes the order.
+      "order.completed",
     ]);
+    expect(await notesFor(customer.id, NOTIFICATION_TYPES.ORDER_COMPLETED)).toHaveLength(1);
+    expect(await notesFor(owner.id, NOTIFICATION_TYPES.SHOP_ORDER_COMPLETED)).toHaveLength(1);
   });
 
   it("a rider declining tells the shop and the next rider is offered the order at once", async () => {

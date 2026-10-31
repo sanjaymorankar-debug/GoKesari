@@ -210,7 +210,7 @@ describe("TC-DEL-026: a suspended rider cannot take the offer in hand", () => {
         })
       ).status,
     ).toBe(200);
-    await db.update(deliveryPartners).set({ isOnline: true }).where(eq(deliveryPartners.id, only.partner.id));
+    await db.update(deliveryPartners).set({ isOnline: true, availability: "READY" }).where(eq(deliveryPartners.id, only.partner.id));
     const second = await readyOrder(shop.id, customer.id);
     const offer2 = await assignNearestPartner(second.id, { id: null, role: null });
     await deactivateDeliveryPartner(only.partner.id, "left the platform", { id: ops.id, role: "OPERATOR" });
@@ -298,12 +298,17 @@ describe("TC-FLD-091/092/093, TC-DEL-030: rider KYC, bank and vehicle numbers", 
       });
     }
 
+    // Gig worker flow: a well-formed Aadhaar is refused here too — it is verified by OTP on the KYC step.
+    await expect(
+      registerDeliveryPartner((await createUser()).id, { ...base, governmentIdType: "Aadhaar", governmentIdNumber: "4321 4321 4321" }),
+    ).rejects.toMatchObject({ status: 422, details: { fields: { governmentIdNumber: expect.any(String) } } });
+
     const user = await createUser();
     const partner = await registerDeliveryPartner(user.id, {
       ...base,
       panNumber: "abcde1234f",
-      governmentIdType: "Aadhaar",
-      governmentIdNumber: "4321 4321 4321",
+      governmentIdType: "Voter ID",
+      governmentIdNumber: "ABC1234567",
       bankAccountNumber: "123456789012",
       bankIfsc: "sbin0001234",
       vehicleRegistrationNumber: "  mh12 ab   1234 ",

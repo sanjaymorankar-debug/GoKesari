@@ -20,6 +20,10 @@
  * Udyam, FSSAI and Shop Act are not offered: they come back "unsupported",
  * which sends the document to manual review.
  *
+ * Gig worker flow: delivery partners' Aadhaar by OTP (offline e-KYC):
+ *   POST /kyc/aadhaar/okyc/otp          — sends the OTP, returns a reference
+ *   POST /kyc/aadhaar/okyc/otp/verify   — checks the OTP; only the name is kept
+ *
  * Neither the secret, the token nor a document number is ever logged.
  */
 import type { SellerDocType } from "@/lib/kyc/doc-formats";
@@ -27,6 +31,9 @@ import type { SellerDocType } from "@/lib/kyc/doc-formats";
 import { kycPostJson, type KycHttpOptions } from "../http";
 import {
   KycConfigError,
+  type AadhaarOtpAdapter,
+  type AadhaarOtpRequestOutcome,
+  type AadhaarOtpVerifyOutcome,
   type KycAdapter,
   type ProviderOutcome,
   type SourceDocStatus,
@@ -206,6 +213,84 @@ export function parseSandboxGstin(body: unknown): ProviderOutcome {
   return { kind: "found", record, providerRef };
 }
 
+/* --------------------------------------------- Aadhaar OTP (gig worker flow) */
+
+/** Sandbox records this against each Aadhaar OTP; kept as its documented example for the test environment. */
+const AADHAAR_REASON = "For KYC";
+
+/**
+ * POST /kyc/aadhaar/okyc/otp → `data.reference_id` (a number) once the OTP is
+ * sent to the Aadhaar-linked mobile; a `data.message` about an invalid Aadhaar
+ * or no linked mobile means there is nothing to check.
+ */
+export function parseSandboxAadhaarOtp(body: unknown): AadhaarOtpRequestOutcome {
+  if (!isObject(body) || !isObject(body.data)) throw new KycConfigError("unexpected_response", "Sandbox Aadhaar OTP response had no data.");
+  const providerRef = str(body.transaction_id);
+  const ref = body.data.reference_id;
+  if (typeof ref === "number" || (typeof ref === "string" && ref.trim())) {
+    return { kind: "sent", referenceId: String(ref), providerRef };
+  }
+  const message = (str(body.data.message) ?? "").toLowerCase();
+  if (message.includes("invalid") || message.includes("not linked") || message.includes("does not exist")) {
+    return { kind: "not_found", providerRef };
+  }
+  throw new KycConfigError("unexpected_response", "Sandbox Aadhaar OTP response had no reference.");
+}
+
+/** POST /kyc/aadhaar/okyc/otp/verify → `data.status` "VALID" with the name; the rest of the record is dropped here. */
+export function parseSandboxAadhaarVerify(body: unknown): AadhaarOtpVerifyOutcome {
+  if (!isObject(body) || !isObject(body.data)) throw new KycConfigError("unexpected_response", "Sandbox Aadhaar verify response had no data.");
+  const status = (str(body.data.status) ?? "").toUpperCase();
+  if (status === "VALID") return { kind: "verified", name: str(body.data.name), providerRef: str(body.transaction_id) };
+  const message = (str(body.data.message) ?? "").toLowerCase();
+  if (message.includes("expired")) return { kind: "expired" };
+  if (message.includes("otp")) return { kind: "invalid_otp" };
+  throw new KycConfigError("unexpected_response", "Sandbox Aadhaar verify response had a status this code does not know.");
+}
+
+function sandboxAadhaar(creds: SandboxCoCredentials, http: KycHttpOptions): AadhaarOtpAdapter {
+  // Never retried: a second POST would send the person a second OTP.
+  const once: KycHttpOptions = { ...http, retries: 0 };
+  const post = async (path: string, payload: Json, idempotencyKey: string) => {
+    const call = async (forceNewToken: boolean) => {
+      const token = await getSandboxCoToken(creds, once, forceNewToken);
+      return kycPostJson(`${creds.baseUrl}${path}`, { authorization: token, "x-api-key": creds.apiKey }, payload, idempotencyKey, once);
+    };
+    try {
+      return await call(false);
+    } catch (error) {
+      if (!(error instanceof KycConfigError && error.code === "auth_failed")) throw error;
+      return call(true);
+    }
+  };
+  return {
+    async requestOtp(aadhaarNumber, idempotencyKey) {
+      const response = await post(
+        "/kyc/aadhaar/okyc/otp",
+        { "@entity": "in.co.sandbox.kyc.aadhaar.okyc.otp.request", aadhaar_number: aadhaarNumber, consent: "y", reason: AADHAAR_REASON },
+        idempotencyKey,
+      );
+      if (response.status === 404) return { kind: "not_found", providerRef: null };
+      return parseSandboxAadhaarOtp(response.body);
+    },
+    async verifyOtp(referenceId, otp, idempotencyKey) {
+      try {
+        const response = await post(
+          "/kyc/aadhaar/okyc/otp/verify",
+          { "@entity": "in.co.sandbox.kyc.aadhaar.okyc.request", reference_id: referenceId, otp },
+          idempotencyKey,
+        );
+        return parseSandboxAadhaarVerify(response.body);
+      } catch (error) {
+        // Sandbox answers a wrong or used OTP with a 4xx; the body is not kept (kycPostJson), and the
+        // partner's next step is the same either way: try again or ask for a new OTP.
+        if (error instanceof KycConfigError && error.code === "bad_request") return { kind: "invalid_otp" };
+        throw error;
+      }
+    },
+  };
+}
+
 /* ---------------------------------------------------------- adapter */
 
 export function createSandboxCoAdapter(creds: SandboxCoCredentials, http: KycHttpOptions): KycAdapter {
@@ -237,5 +322,6 @@ export function createSandboxCoAdapter(creds: SandboxCoCredentials, http: KycHtt
       }
       return req.docType === "PAN" ? parseSandboxPan(response.body) : parseSandboxGstin(response.body);
     },
+    aadhaar: sandboxAadhaar(creds, http),
   };
 }

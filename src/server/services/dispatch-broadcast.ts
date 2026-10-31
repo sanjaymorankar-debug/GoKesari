@@ -48,7 +48,7 @@ import { emitEvent } from "@/server/events/emit";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
 import { acceptOfferInTransaction, dispatchReadyOrder } from "./delivery-assignment";
 import { previewEarning } from "./delivery-earnings";
-import { countActiveAssignments, findEligiblePartnersNearShop } from "./delivery-eligibility";
+import { blockedPartnerIds, countActiveAssignments, findEligiblePartnersNearShop } from "./delivery-eligibility";
 import { getRule } from "./settings";
 import { getSocietyDispatchRules, notifySocietySecurity } from "./societies";
 
@@ -259,7 +259,14 @@ async function addRecipients(
 ): Promise<{ userId: string; distanceKm: number }[]> {
   const dispatch = await getRule("dispatch");
   const busyCap = dispatch.busyRidersAsFallback ? dispatch.maxActiveDeliveriesPerRider : 0;
-  const eligible = await findEligiblePartnersNearShop(input.shopCoords, tx, busyCap ? { includeBusyUpTo: busyCap } : {});
+  // Gig worker flow (features 6 and 8): the customer's address is in the zone too; blocked partners are left out.
+  const dropCoords = parseCoordinates(input.order.deliveryAddressSnapshot?.latitude ?? null, input.order.deliveryAddressSnapshot?.longitude ?? null);
+  const eligible = await findEligiblePartnersNearShop(input.shopCoords, tx, {
+    ...(busyCap ? { includeBusyUpTo: busyCap } : {}),
+    dropCoords,
+    societyId: input.order.societyId,
+  });
+  const blocked = await blockedPartnerIds(input.order.societyId, tx);
   const society = await getSocietyDispatchRules(input.order.societyId, tx);
   const already = new Set(
     (
@@ -271,7 +278,10 @@ async function addRecipients(
   );
   const declined = new Set(input.declined);
   const allowed = (partnerId: string) =>
-    !declined.has(partnerId) && !already.has(partnerId) && (!society?.exclusive || society.riders.has(partnerId));
+    !declined.has(partnerId) &&
+    !already.has(partnerId) &&
+    !blocked.has(partnerId) &&
+    (!society?.exclusive || society.riders.has(partnerId));
 
   // The original rider does not take one of the step's places (added below).
   const picked = eligible
@@ -282,7 +292,7 @@ async function addRecipients(
   if (input.holderPartnerId && allowed(input.holderPartnerId)) {
     const holder = await tx.query.deliveryPartners.findFirst({ where: eq(deliveryPartners.id, input.holderPartnerId) });
     const coords = holder ? parseCoordinates(holder.lastLocationLatitude, holder.lastLocationLongitude) : null;
-    if (holder && holder.status === "APPROVED" && holder.isOnline && !holder.deletedAt) {
+    if (holder && holder.status === "APPROVED" && holder.isOnline && holder.availability === "READY" && !holder.deletedAt) {
       picked.unshift({
         partnerId: holder.id,
         userId: holder.userId,

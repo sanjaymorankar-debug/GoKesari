@@ -48,6 +48,7 @@ import {
   createShop,
   createShopProduct,
   createUser,
+  turnRiderZoningOff,
   createUserWithWallet,
   deliveryAddressId,
   resetDatabase,
@@ -151,6 +152,8 @@ describe("getFeasibleDeliveryWindows", () => {
   });
 
   it("drops EXPRESS_30 but keeps STANDARD_60 when the nearest partner is far but in range", async () => {
+    // A 13 km rider is outside the gig worker zone (3–5 km); this is the shop-only radius of before.
+    await turnRiderZoningOff();
     const owner = await createUser({ role: "SHOP_OWNER" });
     const shop = await createShop(owner.id, {
       latitude: SHOP_LAT,
@@ -191,6 +194,7 @@ describe("getFeasibleDeliveryWindows", () => {
   });
 
   it("GET /api/checkout/delivery-windows gives the windows, not how far away the nearest rider is", async () => {
+    await turnRiderZoningOff();
     const owner = await createUser({ role: "SHOP_OWNER" });
     const shop = await createShop(owner.id, { latitude: SHOP_LAT, longitude: SHOP_LNG, preparationTimeMinutes: 15 });
     const riderUser = await createUser({ role: "DELIVERY_PARTNER" });
