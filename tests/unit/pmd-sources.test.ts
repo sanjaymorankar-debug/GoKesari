@@ -462,10 +462,27 @@ describe("streaming .xlsx reader", () => {
     for await (const r of parseXlsxWithHeader(path, opts)) out.push(r);
     return out;
   };
-  const collectMode = async (path: string, mode: "stream" | "memory") => {
+  const collectMode = async (path: string, mode: "stream" | "memory", opts: Parameters<typeof parseXlsxWithHeader>[1] = {}) => {
     const out = [];
-    for await (const r of parseXlsxWithHeader(path, {}, mode)) out.push(r);
+    for await (const r of parseXlsxWithHeader(path, opts, mode)) out.push(r);
     return out;
+  };
+  /** Rewrites the file with these parts first, in this order, and the rest after them as they were. */
+  const reorder = async (path: string, first: string[]) => {
+    const zip = await JSZip.loadAsync(readFileSync(path));
+    const ordered = new JSZip();
+    for (const name of [...first, ...Object.keys(zip.files).filter((n) => !first.includes(n))]) {
+      const f = zip.file(name);
+      if (f) ordered.file(name, await f.async("nodebuffer"));
+    }
+    writeFileSync(path, await ordered.generateAsync({ type: "nodebuffer", compression: "DEFLATE" }));
+  };
+  const threeSheets = (wb: ExcelJS.Workbook) => {
+    for (const name of ["Internal", "Front", "Back"]) {
+      const ws = wb.addWorksheet(name);
+      ws.addRow(["Item", "Launched"]);
+      ws.addRow([`${name.toLowerCase()}-1`, new Date(Date.UTC(2026, 8, 1))]);
+    }
   };
 
   it("finds the heading row, converts every cell type to text, skips blank rows, reports sheet row numbers", async () => {
@@ -496,8 +513,7 @@ describe("streaming .xlsx reader", () => {
         for (let i = 1; i <= 50; i++) ws.addRow([`I-${i}`, `Product ${i}`]);
       },
       async (path) => {
-        // Whether ExcelJS's stream reader copes with its OWN output depends on the runtime (it fails on Windows and not on
-        // Linux), so the failure it produces on a sheets-before-workbook layout is simulated instead of relied on.
+        // The streaming path no longer fails on any zip layout (see viaStream), so a failure inside ExcelJS is simulated.
         const spy = vi.spyOn(ExcelJS.stream.xlsx, "WorkbookReader").mockImplementation(function () {
           throw new TypeError("Cannot read properties of undefined (reading 'sheets')");
         } as never);
@@ -520,14 +536,7 @@ describe("streaming .xlsx reader", () => {
         for (let i = 1; i <= 50; i++) ws.addRow([`I-${i}`, `Product ${i}`]);
       },
       async (path) => {
-        const zip = await JSZip.loadAsync(readFileSync(path));
-        const first = ["[Content_Types].xml", "_rels/.rels", "xl/workbook.xml", "xl/_rels/workbook.xml.rels", "xl/sharedStrings.xml", "xl/styles.xml"];
-        const ordered = new JSZip();
-        for (const name of [...first, ...Object.keys(zip.files).filter((n) => !first.includes(n))]) {
-          const f = zip.file(name);
-          if (f) ordered.file(name, await f.async("nodebuffer"));
-        }
-        writeFileSync(path, await ordered.generateAsync({ type: "nodebuffer" }));
+        await reorder(path, ["[Content_Types].xml", "_rels/.rels", "xl/workbook.xml", "xl/_rels/workbook.xml.rels", "xl/sharedStrings.xml", "xl/styles.xml"]);
         const streamed = await collectMode(path, "stream");
         expect(streamed).toHaveLength(50);
         expect(streamed[49].row).toEqual({ Item: "I-50", Name: "Product 50" });
@@ -559,35 +568,59 @@ describe("streaming .xlsx reader", () => {
     );
   });
 
-  it("reads skipped sheets through, so ExcelJS never deletes a temp file a stream is still opening", async () => {
-    // ExcelJS spools sheets that precede the shared strings to temp files (tmp-*) and deletes each
-    // once the reader moves past it. A skipped sheet left unread raced that delete (CI: ENOENT).
-    const streams: ReadStream[] = [];
-    const real = fs.createReadStream;
-    const spy = vi.spyOn(fs, "createReadStream").mockImplementation(((...args: Parameters<typeof fs.createReadStream>) => {
-      const stream = real(...args);
-      if (String(args[0]).includes("tmp-")) streams.push(stream);
-      return stream;
-    }) as typeof fs.createReadStream);
-    try {
-      await withWorkbook(
-        (wb) => {
-          for (const name of ["Internal", "Front", "Back"]) {
-            const ws = wb.addWorksheet(name);
-            ws.addRow(["Item"]);
-            ws.addRow([`${name.toLowerCase()}-1`]);
+  // ExcelJS's own stream reader dropped zip parts at random on both layouts (see viaStream), so each is read many times.
+  it.each([
+    { layout: "ExcelJS writes it (workbook part last)", first: null },
+    {
+      layout: "Excel writes it (sheets before the styles and shared strings)",
+      first: ["[Content_Types].xml", "_rels/.rels", "xl/workbook.xml", "xl/_rels/workbook.xml.rels", "xl/worksheets/sheet1.xml", "xl/worksheets/sheet2.xml", "xl/worksheets/sheet3.xml", "xl/theme/theme1.xml", "xl/styles.xml", "xl/sharedStrings.xml"],
+    },
+  ])("streams any sheet of a file laid out as $layout, every time", async ({ first }) => {
+    await withWorkbook(threeSheets, async (path) => {
+      if (first) await reorder(path, first);
+      for (let i = 0; i < 10; i++) {
+        // The text needs the shared strings, the date needs the styles: both must be read before the sheet.
+        expect(await collectMode(path, "stream", { sheet: "back" })).toEqual([{ row: { Item: "back-1", Launched: "2026-09-01" }, rowNumber: 2 }]);
+        expect((await collectMode(path, "stream", { sheet: 2 }))[0].row.Item).toBe("front-1");
+        expect((await collectMode(path, "stream"))[0].row.Item).toBe("internal-1");
+      }
+    });
+  });
+
+  it("makes no temp copies and closes every file stream it opens, also when the caller stops early", async () => {
+    // ExcelJS's own reader spooled sheets to temp files and deleted each once it moved on, racing a stream still
+    // opening a skipped one (CI: ENOENT). Now every stream reads the catalogue itself, and none outlives the read.
+    await withWorkbook(
+      (wb) => {
+        const big = wb.addWorksheet("Front");
+        big.addRow(["Item", "Name"]);
+        for (let i = 1; i <= 20000; i++) big.addRow([`front-${i}`, `Product ${i}`]);
+        const back = wb.addWorksheet("Back");
+        back.addRow(["Item"]);
+        back.addRow(["back-1"]);
+      },
+      async (path) => {
+        const streams: ReadStream[] = [];
+        const real = fs.createReadStream;
+        const spy = vi.spyOn(fs, "createReadStream").mockImplementation(((...args: Parameters<typeof fs.createReadStream>) => {
+          const stream = real(...args);
+          streams.push(stream);
+          return stream;
+        }) as typeof fs.createReadStream);
+        try {
+          expect((await collectMode(path, "stream", { sheet: "back" }))[0].row.Item).toBe("back-1");
+          for await (const r of parseXlsxWithHeader(path, { sheet: "front" }, "stream")) {
+            expect(r.row.Item).toBe("front-1");
+            break; // stops with most of the sheet unread
           }
-        },
-        async (path) => {
-          expect((await collect(path, { sheet: "back" }))[0].row.Item).toBe("back-1");
-        },
-      );
-    } finally {
-      spy.mockRestore();
-    }
-    expect(streams.length).toBe(3);
-    await new Promise((resolve) => setImmediate(resolve));
-    expect(streams.map((s) => s.closed)).toEqual([true, true, true]);
+        } finally {
+          spy.mockRestore();
+        }
+        expect(streams.length).toBeGreaterThan(0);
+        expect(new Set(streams.map((s) => s.path))).toEqual(new Set([path]));
+        expect(streams.filter((s) => !s.closed).length).toBe(0);
+      },
+    );
   });
 
   it("feeds the same mapping as a CSV: a numeric GTIN that lost its zero comes out whole", async () => {
