@@ -104,7 +104,7 @@ export function RiderVerificationAdmin({ kyc, docs, partners }: { kyc: AdminKycR
               <p className="text-xs text-ink-500">
                 {c.reason ? `${c.reason} · ` : ""}
                 {c.nameOnRecord ? `Name on record: ${c.nameOnRecord}${c.nameMatchScore != null ? ` (match ${c.nameMatchScore}/100)` : ""} · ` : ""}
-                via {c.provider} · {new Date(c.updatedAt).toLocaleString("en-IN")}
+                via {c.provider} · {new Date(c.updatedAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}
               </p>
               <DecisionButtons
                 busy={busy === c.id}

@@ -65,7 +65,7 @@ export function ShopDeliveryPartners({ partners }: { partners: ShopPartnerRow[] 
                 <p className="font-semibold text-ink-900">{p.name}</p>
                 <p className="text-xs text-ink-500">
                   {p.riderId} · {p.vehicleLabel} · {p.ordersDelivered} of your orders delivered · last on{" "}
-                  {new Date(p.lastOrderAt).toLocaleDateString("en-IN")}
+                  {new Date(p.lastOrderAt).toLocaleDateString("en-IN", { timeZone: "Asia/Kolkata" })}
                 </p>
               </div>
             </div>

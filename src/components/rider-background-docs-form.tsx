@@ -84,7 +84,7 @@ export function RiderBackgroundDocsForm({
               {current ? <Badge tone={TONE[current.status]}>{current.statusLabel}</Badge> : <Badge>Not uploaded</Badge>}
             </div>
             {current ? (
-              <p className="text-xs text-ink-500">Uploaded {new Date(current.createdAt).toLocaleString("en-IN")}</p>
+              <p className="text-xs text-ink-500">Uploaded {new Date(current.createdAt).toLocaleString("en-IN", { timeZone: "Asia/Kolkata" })}</p>
             ) : null}
             {current?.status === "REJECTED" && current.rejectionReason ? (
               <Alert tone="danger" title="Rejected">

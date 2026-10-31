@@ -63,7 +63,8 @@ describe("B — the new rules", () => {
     expect(RULES.cod.defaults).toEqual({ maxOrderPaise: 200_000, maxOpenOrders: 2, failureWindowDays: 90, maxFailures: 2 });
     expect(RULES.walletTopup.defaults).toEqual({ minPaise: 100, maxPaise: 10_000_000 });
     expect(RULES.settlement.defaults).toEqual({ holdDays: 2, missingAlertDays: 9 });
-    expect(RULES.deliveryOtp.defaults).toEqual({ maxAttempts: 5, resendCooldownSeconds: 60, maxResends: 3 });
+    // Gig worker flow: `required` (feature 10) defaults on, so the code is asked for as before.
+    expect(RULES.deliveryOtp.defaults).toEqual({ maxAttempts: 5, resendCooldownSeconds: 60, maxResends: 3, required: true });
     expect(COD_LIMITS).toEqual(RULES.cod.defaults);
   });
 
