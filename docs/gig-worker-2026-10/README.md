@@ -101,3 +101,14 @@ through the existing adapters. Aadhaar uses the adapter's new `aadhaar` half:
 - With zoning on, an order whose customer is more than `radiusKm` from the shop
   can only go to a partner between the two; set `riderZoning.enabled` off, or
   keep shop delivery radii within the zone, if orders wait too long.
+
+## Released and open items (31 Oct 2026)
+
+Live on gokesari.com since the staging → main release #302 (31 Oct 2026, 11:43 UTC), with the
+verification gate and 5 km zoning on from day one (owner's decision). Still to settle:
+
+- **KYC provider on production** — which one, with Aadhaar OTP switched on (Sandbox.co.in has it;
+  the Gridlines adapter has no Aadhaar OTP, so its Aadhaar checks wait for an admin).
+- **Completion SMS / push** — an SMS provider (`SMS_PROVIDER`) and rule `push` on.
+- **Consent wording** — legal review of `RIDER_KYC_CONSENT_TEXT` (src/lib/gig/kyc.ts).
+- **iPhone build** — repository secret `EXPO_TOKEN` (the Android APKs build without it).

@@ -141,6 +141,28 @@ qa("SC-GW", "gig worker flow: register, KYC, police verification, availability, 
     }
     const partnerId: string = me.body.id;
 
+    // A refused field keeps what was typed (D-11). With the main customer, who never completes the
+    // application here: the bad PIN is refused, so no profile is created.
+    {
+      const form = await pageAs(browser, "customer", { permissions: ["geolocation"], geolocation: { latitude: shopLat + 0.002, longitude: shopLng + 0.002 } });
+      const f = form.page;
+      await f.goto("/delivery-partner/register");
+      if (await f.getByRole("button", { name: /Share my location/ }).isVisible().catch(() => false)) {
+        await f.locator('input[name="fullName"]').fill("QA Refusal Check");
+        await f.locator('input[name="mobile"]').fill(freshMobile());
+        await f.locator('input[name="email"]').fill("refusal@example.test");
+        await f.locator('input[name="addressPincode"]').fill("01234");
+        await f.getByRole("button", { name: /Share my location/ }).click();
+        await f.getByTestId("location-shared").waitFor({ timeout: 20_000 });
+        await f.getByRole("button", { name: /Submit and continue to KYC/ }).click();
+        await f.getByText(/Please check the highlighted fields|Enter your 6-digit PIN code|Enter your date of birth|Select your gender/).first().waitFor({ timeout: 30_000 });
+        check(1, "a refused application shows the field messages and keeps what was typed", (await f.locator('input[name="fullName"]').inputValue()) === "QA Refusal Check" && (await f.locator('input[name="email"]').inputValue()) === "refusal@example.test");
+      } else {
+        check(1, "a refused application keeps what was typed (customer account already a partner: not checked)", true);
+      }
+      await form.context.close();
+    }
+
     /* ---------------------------------------------------- 2: PAN + Aadhaar */
     const noConsent = await call(rider, "POST", "/api/delivery-partner/me/kyc/pan", { pan: "ABCDE1234F", consent: false });
     check(2, "PAN check refused without consent (422)", noConsent.status === 422, brief(noConsent));
@@ -277,7 +299,12 @@ qa("SC-GW", "gig worker flow: register, KYC, police verification, availability, 
       await card.getByTestId("blocked-count").click().catch(() => {});
       check(7, "shop page renders the partner card; tapping a count shows the list", (await card.count()) > 0, await card.first().innerText().catch(() => ""));
       await shopPage.page.goto("/shop/orders?status=all");
-      const partnerLine = await shopPage.page.getByTestId("shop-order-partner").first().innerText().catch(() => "");
+      const partnerLine = await shopPage.page
+        .locator('[data-testid="shop-order"]')
+        .filter({ hasText: order.orderNumber })
+        .getByTestId("shop-order-partner")
+        .innerText()
+        .catch(() => "");
       check(8, "shop's order shows the partner it may see (name, call link)", /Delivery partner: QA Gig Rider/.test(partnerLine), partnerLine);
       await shopPage.context.close();
 
@@ -323,10 +350,83 @@ qa("SC-GW", "gig worker flow: register, KYC, police verification, availability, 
         check(11, `${who} got the in-app completion message (${type})`, JSON.stringify(notes ?? "").includes(type) && JSON.stringify(notes).includes(order.orderNumber));
       }
       const customerPage = await pageAs(browser, "customer");
-      await customerPage.page.goto("/orders");
+      await customerPage.page.goto("/orders?tab=past");
       const orderCard = customerPage.page.locator(`#order-${order.orderNumber}`);
       check(11, "customer's order list shows 'completed'", /completed/i.test(await orderCard.innerText().catch(() => "")));
       await customerPage.context.close();
+    }
+
+    /* ---------------------------------------------------- 8: identity hidden for a blocked society */
+    // The test site's societies are all still "Applied": the scenario registers its own (as customer2,
+    // acting as a partner, so no role switches) and the admin verifies it; it is suspended at the end.
+    const created = await call(rider, "POST", "/api/societies", {
+      name: `QA-GW Society ${Date.now().toString(36)}`,
+      addressLine1: "QA Gig Worker Lane",
+      area: "Shivajinagar",
+      city: "Pune",
+      pincode: "411005",
+      latitude: shopLat,
+      longitude: shopLng,
+      unitLabel: "QA",
+    });
+    const createdId: string | null = created.body?.id ?? created.body?.society?.id ?? null;
+    const verify = createdId ? await call(admin, "POST", `/api/societies/${createdId}/decision`, { decision: "verify" }) : created;
+    check(8, "a test society registered and verified for the check", Boolean(createdId) && verify.status === 200, [created.status, verify.status]);
+    const verified = createdId && verify.status === 200 ? { id: createdId } : null;
+    if (verified) {
+      const join = await call(customer, "POST", `/api/societies/${verified.id}/members`, { unitLabel: "QA-GW 101" });
+      const memberId = join.body?.id;
+      const approve = memberId ? await call(admin, "PATCH", `/api/societies/members/${memberId}`, { action: "approve" }) : join;
+      const addresses = await call(customer, "GET", "/api/addresses");
+      const homeAddress = ((addresses.body?.addresses ?? addresses.body ?? []) as { id: string; isDefault: boolean }[]).find((x) => x.isDefault);
+      const link = homeAddress ? await call(customer, "PUT", `/api/addresses/${homeAddress.id}/society`, { societyId: verified.id }) : null;
+      check(8, "customer is a member of a verified society with the delivery address linked", [200, 201].includes(join.status) && approve.status === 200 && link?.status === 200, [join.status, approve.status, link?.status]);
+      await call(admin, "PUT", `/api/admin/delivery-partners/${partnerId}/societies`, { societyId: verified.id, access: "AUTHORISED" });
+      await call(rider, "PATCH", "/api/delivery-partner/status", { action: "ready", latitude: shopLat + 0.001, longitude: shopLng + 0.001 });
+      try {
+        const order3 = await placeOrder({ role: "customer", method: "WALLET" });
+        await packOrder(order3.id, "shop");
+        const offer3 = await offerFor(order3.id, "customer2", 90_000).catch(() => null);
+        check(8, "society order offered to the (authorised) partner", Boolean(offer3), offer3 ?? "no offer");
+        if (offer3) {
+          await riderAction(offer3.deliveryOrderId, "accept", {}, "customer2");
+          const blocked = await call(admin, "PUT", `/api/admin/delivery-partners/${partnerId}/societies`, { societyId: verified.id, access: "BLOCKED", reason: "QA: identity hiding check" });
+          check(8, "admin blocks the partner for the order's society after acceptance", blocked.status === 200, blocked.status);
+          const shopView = await pageAs(browser, "shop");
+          await shopView.context.addCookies([{ name: "gk_shop", value: shop.id, domain: HOST.replace(/:\d+$/, ""), path: "/" }]);
+          await shopView.page.goto("/shop/orders?status=all");
+          const cardText = await shopView.page.locator('[data-testid="shop-order"]').filter({ hasText: order3.orderNumber }).innerText().catch(() => "");
+          check(8, "shop's order shows 'Partner pending assignment' and no name, photo or mobile", /Partner pending assignment/.test(cardText) && !/QA Gig Rider/.test(cardText) && !/Call \d/.test(cardText), cardText.slice(0, 300));
+          // The server's own data for this order (the page's flight payload), not just what is drawn.
+          const flat = (await shopView.page.content()).replace(/\\"/g, '"');
+          const at = flat.indexOf(`"orderNumber":"${order3.orderNumber}"`);
+          const next = flat.indexOf('"orderNumber":"', at + 20);
+          const orderData = at >= 0 ? flat.slice(at, next > at ? next : at + 6000) : "";
+          check(
+            8,
+            "the server sends the shop no name, photo or mobile for this order (deliveryPartner.partner null)",
+            orderData.includes('"deliveryPartner":{"label":"Partner pending assignment","partner":null}') && !orderData.includes("QA Gig Rider"),
+            orderData.slice(orderData.indexOf('"deliveryPartner"'), orderData.indexOf('"deliveryPartner"') + 120),
+          );
+          await shopView.context.close();
+          const code3 = await pickupCode(order3.id, "shop");
+          await riderAction(offer3.deliveryOrderId, "pickup", code3 ? { pickupCode: code3 } : {}, "customer2");
+          const shopNotes = await poll(async () => (await call(shopCtx, "GET", "/api/notifications")).body, (b) => JSON.stringify(b ?? "").includes(`${order3.orderNumber} has been collected`), 30_000);
+          const pickedNote = JSON.stringify(shopNotes ?? "").match(new RegExp(`Order ${order3.orderNumber} has been collected by [^"]+`))?.[0] ?? "";
+          check(8, "shop's pickup notification names no partner ('A delivery partner')", /A delivery partner/.test(pickedNote) && !/QA Gig Rider/.test(pickedNote), pickedNote);
+          // Finish the order so nothing is left half-way on the test site.
+          await riderAction(offer3.deliveryOrderId, "start", {}, "customer2");
+          await call(rider, "POST", `/api/delivery-orders/${offer3.deliveryOrderId}/proof`, undefined, {
+            multipart: { kind: "DELIVERY", file: { name: "door.png", mimeType: "image/png", buffer: png(640, 480) } },
+          });
+          await riderAction(offer3.deliveryOrderId, "deliver", { otp: await deliveryCode(order3.id, "customer") }, "customer2");
+        }
+      } finally {
+        if (homeAddress) await call(customer, "PUT", `/api/addresses/${homeAddress.id}/society`, { societyId: null });
+        if (memberId) await call(admin, "PATCH", `/api/societies/members/${memberId}`, { action: "remove" });
+        await call(admin, "DELETE", `/api/admin/delivery-partners/${partnerId}/societies?societyId=${verified.id}`);
+        await call(admin, "POST", `/api/societies/${verified.id}/decision`, { decision: "suspend", reason: "QA: gig worker test society, not a real one" });
+      }
     }
 
     /* ---------------------------------------------------- 6: zoning — out of range gets nothing */
