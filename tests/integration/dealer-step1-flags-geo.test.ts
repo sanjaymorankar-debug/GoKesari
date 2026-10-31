@@ -71,6 +71,9 @@ describe("feature flags", () => {
       ["dealer_rating_bonus_enabled", false],
       ["paid_support_services_enabled", false],
       ["shop_onboarding_wizard_enabled", false],
+      ["rider_bank_account_enabled", false],
+      ["rider_withdrawal_enabled", false],
+      ["rider_monthly_payout_enabled", false],
     ]);
     await expect(requireFeature("dealer_programme_enabled")).rejects.toMatchObject({
       status: 404,
@@ -153,7 +156,7 @@ describe("feature flags", () => {
     signIn(admin, "ADMIN");
     const res = await call(flagsGet, "/api/admin/feature-flags");
     expect(res.status).toBe(200);
-    expect(res.body.flags).toHaveLength(5);
+    expect(res.body.flags).toHaveLength(8);
     expect(res.body.districts.length).toBeGreaterThanOrEqual(36);
     expect(res.body.districts.map((d: { code: string }) => d.code)).toContain("MH-PUN");
   });

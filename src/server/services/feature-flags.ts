@@ -42,6 +42,9 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   dealer_rating_bonus_enabled: "Dealer rating bonus",
   paid_support_services_enabled: "Paid support services",
   shop_onboarding_wizard_enabled: "Shop onboarding wizard",
+  rider_bank_account_enabled: "Rider bank account",
+  rider_withdrawal_enabled: "Rider withdrawals to bank",
+  rider_monthly_payout_enabled: "Rider monthly payout (5th)",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -55,6 +58,12 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
     "The Support Services page for shop owners: general support, product upload and price update, with the charges set by an admin.",
   shop_onboarding_wizard_enabled:
     "Add my shop opens the step-by-step wizard (GSTIN → details → Udyam → FSSAI → Shop Act → map → payment). The fee is paid once a document is verified (any missing one is promised within 30 days); a shop with every document verified goes live right after payment, a promised one waits for an admin or operator. Off: the long form for everyone, and the wizard's steps are refused; only an admin can open the wizard, at /shop/register?wizard=1, for testing.",
+  rider_bank_account_enabled:
+    "Delivery partners add and verify their bank account under My wallet (the same personal account customers use for refunds). Changing or removing a verified account needs an emailed code.",
+  rider_withdrawal_enabled:
+    "Delivery partners withdraw unpaid earnings to their verified bank account, with an emailed code each time; limits, fee and TDS from rule riderPayouts. Needs the rider bank account flag.",
+  rider_monthly_payout_enabled:
+    "On the 5th at 09:00 IST every eligible delivery partner (approved, verified bank account, above the minimum) is paid what is still unpaid for the previous month. Weekly payouts carry on as before.",
 };
 
 export interface FeatureFlagView {

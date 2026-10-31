@@ -416,6 +416,14 @@ export const TEMPLATES: Record<string, Template> = {
   ),
   /* <<< end purchase lists */
   //
+  // docs/gig-bank-payouts-2026-10
+  [T.RIDER_WITHDRAWAL_SENT]: t("Withdrawal of {{amount}} sent", "{{amount}} is on its way to {{account}}{{tdsNote}}. Expected: {{settlement}}. We'll tell you when the bank confirms it."),
+  [T.RIDER_PAYOUT_PAID]: t(
+    "{{amount}} paid to your bank",
+    "{{what}}: {{gross}} earned, TDS {{tds}}, fee {{fee}} — {{amount}} paid to {{account}}. Bank reference (UTR): {{utr}}. Your statement is under My wallet.",
+  ),
+  [T.RIDER_PAYOUT_FAILED]: t("Payment to your bank failed", "{{what}} of {{amount}} to {{account}} failed: {{reason}} {{next}}"),
+  [T.RIDER_PAYOUT_CARRIED]: t("{{month}} earnings carried forward", "Your unpaid earnings of {{amount}} for {{month}} were not paid this month: {{reason}} They stay in your balance and go into the next payout."),
 };
 
 /** Fills `{{name}}` placeholders; a missing variable becomes an empty string and extra spaces are tidied. */

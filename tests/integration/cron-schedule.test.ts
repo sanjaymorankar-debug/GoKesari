@@ -34,7 +34,7 @@ describe("schedule", () => {
         "aftercare", "auth-housekeeping", "bill-captures", "broadcast-dispatch", "daily-orders", "dealer-monthly-payout", "dispute-escalation",
         "document-emails", "finance-weekly", "gst-reminders", "integration-sync", "notification-retry", "operator-onboarding",
         "payments-reconcile", "payout-cycle", "payout-retries", "pmd-ingest", "purchase-list-reminders", "push-receipts",
-        "risk-rules", "seller-verification", "shop-document-follow-up", "timeout-sweep",
+        "rider-monthly-payout", "risk-rules", "seller-verification", "shop-document-follow-up", "timeout-sweep",
       ].sort(),
     );
   });
