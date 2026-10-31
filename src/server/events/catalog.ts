@@ -74,6 +74,8 @@ export interface OrderEventPayload {
   shopName: string;
   riderUserId?: string | null;
   riderName?: string | null;
+  /** Gig worker flow (feature 8): the rider as the shop may hear of them — masked when blocked for the society. */
+  shopRiderName?: string | null;
   reason?: string | null;
   /** For order.ready: READY reached again after a rider was taken off (reassignment). */
   reassigned?: boolean;
@@ -82,6 +84,8 @@ export interface OrderEventPayload {
   beforePacking?: boolean;
   minutes?: number;
   acceptByLabel?: string;
+  /** order.completed (gig worker flow, feature 11): outbound channels besides in-app, from rule orderCompletion. */
+  completionChannels?: Channel[];
   /** order.delivered with rule shopWallet on: what was debited from the shop wallet, and the balance after. */
   walletCharge?: {
     commissionPaise: number;
@@ -252,7 +256,7 @@ const disputeUrl = (id: string) => `/disputes/${id}`;
 const forShop = (p: OrderEventPayload, type: NotificationType, vars: Vars = {}): EventMessage => ({
   to: p.shopOwnerId,
   type,
-  vars: { orderNumber: p.orderNumber, riderName: p.riderName ?? "The rider", ...vars },
+  vars: { orderNumber: p.orderNumber, riderName: p.shopRiderName ?? p.riderName ?? "The rider", ...vars },
   actionUrl: SHOP_ORDERS,
 });
 
@@ -312,6 +316,11 @@ export const EVENTS = {
       includeActor: true,
       dedupe: `order:${p.orderId}:delivered`,
     },
+  ]),
+  // Gig worker flow (feature 11): the delivered order is complete — push + SMS + in-app to both sides.
+  "order.completed": define<OrderEventPayload>("order", (p) => [
+    { ...forBuyer(p, N.ORDER_COMPLETED), channels: p.completionChannels, dedupe: `order:${p.orderId}:completed` },
+    { ...forShop(p, N.SHOP_ORDER_COMPLETED), channels: p.completionChannels, dedupe: `order:${p.orderId}:completed` },
   ]),
   "order.failed": define<OrderEventPayload>("order", (p) => [
     forBuyer(p, N.ORDER_DELIVERY_FAILED, { reason: p.reason }),

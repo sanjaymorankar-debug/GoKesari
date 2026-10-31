@@ -95,7 +95,9 @@ export async function offerPickup(pickupId: string): Promise<ReturnPickup | null
     if (!fresh || fresh.status !== "PENDING") return null;
 
     const rules = await getSocietyDispatchRules(order.societyId, tx);
-    let candidates = await findEligiblePartnersNearShop(origin, tx);
+    // Gig worker flow: the drop is the shop; partners blocked for the society are left out.
+    const shopCoords = parseCoordinates(shop?.latitude ?? null, shop?.longitude ?? null);
+    let candidates = await findEligiblePartnersNearShop(origin, tx, { dropCoords: coords ? shopCoords : null, societyId: order.societyId });
     if (rules?.exclusive) candidates = candidates.filter((c) => rules.riders.has(c.partner.id));
     const declined = new Set(fresh.rejectedPartnerIds);
 

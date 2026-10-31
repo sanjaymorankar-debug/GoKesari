@@ -42,7 +42,7 @@ export type KycEncryptedKey = `${KycField}Encrypted`;
 const encryptedKey = (field: KycField): KycEncryptedKey => `${field}Encrypted`;
 
 /** Ids of the staff who reviewed the partner or last changed their status: no screen shows them. */
-const STAFF_ID_KEYS = ["reviewedBy", "statusActorId"] as const;
+const STAFF_ID_KEYS = ["reviewedBy", "statusActorId", "availabilityOverrideBy"] as const;
 
 /** Every column that must never leave the service layer: legacy plaintext and ciphertext alike, and staff ids. */
 const SENSITIVE_KEYS: ReadonlySet<string> = new Set<string>([
@@ -82,6 +82,16 @@ export function toStaffPartnerView(partner: PublicDeliveryPartner) {
     locationVerified: partner.locationVerified,
     status: partner.status,
     isOnline: partner.isOnline,
+    // Gig worker flow: availability, the gate override, and the registration details the review needs.
+    availability: partner.availability,
+    availabilityOverridden: Boolean(partner.availabilityOverrideAt),
+    availabilityOverrideReason: partner.availabilityOverrideReason,
+    gender: partner.gender,
+    addressCity: partner.addressCity,
+    addressPincode: partner.addressPincode,
+    emergencyContactName: partner.emergencyContactName,
+    emergencyContactMobile: partner.emergencyContactMobile,
+    registrationLocationShared: Boolean(partner.registrationLocationAt),
     reviewNotes: partner.reviewNotes,
     rejectionReason: partner.rejectionReason,
     reviewedAt: partner.reviewedAt,

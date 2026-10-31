@@ -625,13 +625,14 @@ export const RULES = {
   },
   deliveryOtp: {
     description:
-      "Customer delivery code (GS-043): wrong attempts a rider may make before the drop is locked (a support ticket is raised and only operations can confirm it), and how often the customer may ask for a new code: seconds between requests and new codes per delivery. Also used by the exceptions queue and the OTP_LOCKOUTS risk rule.",
+      "Customer delivery code (GS-043): wrong attempts a rider may make before the drop is locked (a support ticket is raised and only operations can confirm it), and how often the customer may ask for a new code: seconds between requests and new codes per delivery. Also used by the exceptions queue and the OTP_LOCKOUTS risk rule. required (gig worker flow) — on: the rider enters the customer's code to mark a delivery done; off: no code is issued and the rider marks it delivered without one (use deliveryProof.photoRequired for photo proof instead).",
     schema: z.object({
       maxAttempts: int(1, 20),
       resendCooldownSeconds: int(0, 3600),
       maxResends: int(0, 20),
+      required: z.boolean(),
     }),
-    defaults: { maxAttempts: 5, resendCooldownSeconds: 60, maxResends: 3 },
+    defaults: { maxAttempts: 5, resendCooldownSeconds: 60, maxResends: 3, required: true },
   },
   shopWallet: {
     description:
@@ -1479,6 +1480,36 @@ export const RULES = {
     defaults: { enabled: true, bannerSeconds: 6 },
   },
   /* <<< end homepage UI/UX upgrade */
+  //
+  /* >>> gig worker flow (docs/gig-worker-2026-10) */
+  riderVerification: {
+    description:
+      "Delivery partner verification (gig worker flow, docs/gig-worker-2026-10). gateAvailability — on: a partner can switch to Active or Ready only once their PAN and Aadhaar are Verified and their police verification form (and, with requireCharacterCertificate, their character certificate) is Approved, unless an admin overrides it for that partner; off: approved partners go online as before. maxDocumentBytes — largest police verification form or character certificate (PDF, JPG or PNG). aadhaarOtpMaxAttempts — wrong Aadhaar OTPs before the partner must ask for a new one.",
+    schema: z.object({
+      gateAvailability: z.boolean(),
+      requireCharacterCertificate: z.boolean(),
+      maxDocumentBytes: int(100_000, 20_000_000),
+      aadhaarOtpMaxAttempts: int(1, 10),
+    }),
+    defaults: { gateAvailability: true, requireCharacterCertificate: true, maxDocumentBytes: 5_000_000, aadhaarOtpMaxAttempts: 3 },
+  },
+  riderZoning: {
+    description:
+      "Delivery zoning (gig worker flow): an order is offered only to a Ready partner whose live location is within radiusKm of both the pickup (the shop) and the delivery address — and, for the pickup, within the partner's own operating radius. Uses the partner's live location, never the registration address; a location older than maxLocationAgeMinutes is not live, so the partner gets no new offers until the phone sends a fresh one. Each location update re-checks the partner's open offers and withdraws any that are now out of range. Off: the shop-only radius check of before.",
+    schema: z.object({
+      enabled: z.boolean(),
+      radiusKm: z.number().min(3).max(5),
+      maxLocationAgeMinutes: int(1, 240),
+    }),
+    defaults: { enabled: true, radiusKm: 5, maxLocationAgeMinutes: 15 },
+  },
+  orderCompletion: {
+    description:
+      "Order completion (gig worker flow, feature 11). On: once a delivery is confirmed (the rider's delivered step, a shop's own delivery, or an operator's confirmation) the order is marked Completed and the customer and the shop each get a confirmation in the app, as a push notification (rule push) and as an SMS (when an SMS provider is set up). The order's status stays Delivered for returns, ratings, invoices and refunds. Off: delivered orders are not marked completed and no completion message is sent.",
+    schema: z.object({ enabled: z.boolean(), push: z.boolean(), sms: z.boolean() }),
+    defaults: { enabled: true, push: true, sms: true },
+  },
+  /* <<< end gig worker flow */
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;

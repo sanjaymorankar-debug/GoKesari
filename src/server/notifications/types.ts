@@ -104,6 +104,14 @@ export const NOTIFICATION_TYPES = {
   DELIVERY_PARTNER_REACTIVATED: "delivery_partner.reactivated",
   DELIVERY_PARTNER_DEACTIVATED: "delivery_partner.deactivated",
   DELIVERY_PARTNER_CHANGE_DECIDED: "delivery_partner.change_decided",
+  /* Gig worker flow (docs/gig-worker-2026-10). */
+  /** To the partner: an admin decided their PAN or Aadhaar check by hand. */
+  DELIVERY_PARTNER_KYC_DECIDED: "delivery_partner.kyc_decided",
+  /** To the partner: their police verification form or character certificate was approved or rejected. */
+  DELIVERY_PARTNER_BACKGROUND_DOC_DECIDED: "delivery_partner.background_doc_decided",
+  /** To the customer and the shop: the delivered order is complete (push + SMS + in-app). */
+  ORDER_COMPLETED: "order.completed",
+  SHOP_ORDER_COMPLETED: "shop.order_completed",
   SHOP_PRODUCT_IMAGE_DECIDED: "shop.product_image_decided",
   /* -------------------- Module 1: shop staff and bulk photo upload */
   /** To the person added: they may now edit a shop's product photos and descriptions. */
