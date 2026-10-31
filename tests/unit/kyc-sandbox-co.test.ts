@@ -9,6 +9,7 @@ import { getEnv, kycConfigProblem } from "@/lib/env";
 import {
   clearSandboxCoTokens,
   createSandboxCoAdapter,
+  describeSandboxBody,
   parseAuthenticateResponse,
   parseSandboxGstin,
   parseSandboxPan,
@@ -194,6 +195,30 @@ describe("Sandbox.co.in GSTIN reader", () => {
       expect(await adapter.verify({ docType, number: "x", extra: {}, idempotencyKey: "k" })).toMatchObject({ kind: "unsupported" });
     }
     expect(calls).toBe(0);
+  });
+});
+
+describe("Sandbox.co.in answers we cannot read", () => {
+  it("the error says what came back — status, Sandbox's code and message, field names — with every number masked", async () => {
+    const fetchImpl = async (url: string | URL | Request) =>
+      String(url).endsWith("/authenticate")
+        ? respond(200, { data: { access_token: jwt(Math.floor(Date.now() / 1000) + 3600) } })
+        : respond(404, { code: 404, message: "No example matches PAN XXXPX1234A", timestamp: 1 });
+    const adapter = createSandboxCoAdapter(creds, { ...fast, fetchImpl: fetchImpl as typeof fetch });
+    const error = await adapter.verify(panReq()).catch((e: unknown) => e);
+    expect(error).toBeInstanceOf(KycConfigError);
+    expect((error as KycConfigError).code).toBe("unexpected_response");
+    const message = (error as KycConfigError).message;
+    expect(message).toContain("HTTP 404");
+    expect(message).toContain('message "No example matches PAN [number]"');
+    expect(message).toContain("fields [code, message, timestamp]");
+    expect(message).not.toContain("1234");
+  });
+
+  it("names the data fields when data is there but not in the shape we read", () => {
+    expect(describeSandboxBody(200, { code: 200, data: { status_cd: "1", other: { gstin: "33ABKCS2033B1ZW" } } })).toBe(
+      "HTTP 200, code 200, fields [code, data], data fields [status_cd, other]",
+    );
   });
 });
 

@@ -67,7 +67,7 @@ const MESSAGES: Record<string, string> = {
   name_not_returned: "The government record gave no name. We'll check it by hand.",
   name_mismatch: "The name on the PAN does not match the name on the GST record. We'll check it by hand.",
   // Step 2: Udyam, FSSAI, Shop Act.
-  vendor_unsupported: "This number can't be checked online. You can carry on — our team will check it.",
+  vendor_unsupported: "This number can't be checked online. You can carry on — our team will review it.",
   expiry_not_returned: "The government record gave no expiry date. We'll check it by hand.",
   address_mismatch: "The PIN code on the government record is not the shop's. We'll check it by hand.",
 };
