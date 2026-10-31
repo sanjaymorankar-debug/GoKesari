@@ -12,7 +12,7 @@
  */
 import { NextResponse, type NextRequest } from "next/server";
 
-import { DIGILOCKER_APP_CALLBACK_HOST, handleDigilockerReturn } from "@/server/services/rider-kyc";
+import { DIGILOCKER_APP_CALLBACK_HOST, handleDigilockerReturn, siteBase } from "@/server/services/rider-kyc";
 
 export const dynamic = "force-dynamic";
 
@@ -22,6 +22,6 @@ export async function GET(request: NextRequest): Promise<NextResponse> {
   const result = (status ?? "unknown").toLowerCase();
   const target = app
     ? `${app}://${DIGILOCKER_APP_CALLBACK_HOST}?result=${result}`
-    : new URL(`/delivery-partner/kyc?digilocker=${result}`, request.nextUrl.origin).toString();
+    : `${siteBase()}/delivery-partner/kyc?digilocker=${result}`;
   return NextResponse.redirect(target, 303);
 }

@@ -31,7 +31,7 @@ vi.mock("@/server/auth", () => ({
 
 vi.mock("@/lib/env", async (importOriginal) => {
   const actual = await importOriginal<typeof import("@/lib/env")>();
-  return { ...actual, getEnv: () => ({ ...actual.getEnv(), SANDBOX_CO_WEBHOOK_SECRET: state.webhookSecret }) };
+  return { ...actual, getEnv: () => ({ ...actual.getEnv(), AUTH_URL: "https://test.gokesari.com", SANDBOX_CO_WEBHOOK_SECRET: state.webhookSecret }) };
 });
 
 import { POST as resendRoute } from "@/app/api/admin/rider-kyc-checks/[id]/resend-digilocker/route";
@@ -158,9 +158,10 @@ describe("Aadhaar by DigiLocker — the happy path", () => {
     const s = await startAndDecide(user.id, "approve");
     const key = (await rowFor(partner.id)).sessionReturnKey!;
 
-    const back = await returnRoute(new NextRequest(`http://localhost/mobile-auth/digilocker-return?k=${key}`));
+    // Behind Hostinger's proxy the request's own origin is the internal 0.0.0.0:3000; the redirect uses AUTH_URL.
+    const back = await returnRoute(new NextRequest(`https://0.0.0.0:3000/mobile-auth/digilocker-return?k=${key}`));
     expect(back.status).toBe(303);
-    expect(back.headers.get("location")).toBe("http://localhost/delivery-partner/kyc?digilocker=verified");
+    expect(back.headers.get("location")).toBe("https://test.gokesari.com/delivery-partner/kyc?digilocker=verified");
     const settled = await rowFor(partner.id);
     expect(settled.status).toBe("VERIFIED");
 
@@ -172,8 +173,8 @@ describe("Aadhaar by DigiLocker — the happy path", () => {
     expect(audits.filter((a) => /digilocker_(return|webhook)/.test((a.newValue as { step?: string } | null)?.step ?? ""))).toHaveLength(1);
 
     // An unknown key reveals nothing and goes to the KYC page.
-    const unknown = await returnRoute(new NextRequest("http://localhost/mobile-auth/digilocker-return?k=nope"));
-    expect(unknown.headers.get("location")).toBe("http://localhost/delivery-partner/kyc?digilocker=unknown");
+    const unknown = await returnRoute(new NextRequest("https://0.0.0.0:3000/mobile-auth/digilocker-return?k=nope"));
+    expect(unknown.headers.get("location")).toBe("https://test.gokesari.com/delivery-partner/kyc?digilocker=unknown");
   });
 
   it("from the app: the return link hands back to the app build's scheme", async () => {
