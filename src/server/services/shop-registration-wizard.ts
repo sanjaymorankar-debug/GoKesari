@@ -221,7 +221,7 @@ const DOC_MESSAGES: Partial<Record<DraftCheckDocType, Record<string, string>>> =
   FSSAI: { name_mismatch: "The name on the FSSAI record doesn't match your shop or owner name. You can carry on — our team will check it." },
   SHOP_ACT: {
     vendor_unsupported:
-      "Shop Act numbers can't be checked online in your state. You can carry on — after registration, upload your Shop Act certificate on Documents and our team will review it.",
+      "Shop Act numbers can't be checked online. You can carry on — after registration, upload your Shop Act certificate on Documents and our team will review it.",
     name_mismatch: "The name on the Shop Act record doesn't match your shop or owner name. You can carry on — our team will check it.",
   },
 };

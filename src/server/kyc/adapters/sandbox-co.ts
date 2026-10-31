@@ -140,6 +140,31 @@ const ENDPOINTS: Partial<Record<SellerDocType, { path: string; body: (req: Verif
 
 /* ---------------------------------------------------------- readers */
 
+/** Any word with a digit in it (a PAN, GSTIN, id) becomes "[number]", so a vendor message can be logged. */
+function maskNumbers(text: string): string {
+  return text.replace(/[A-Za-z0-9-]*\d[A-Za-z0-9-]*/g, "[number]").slice(0, 160);
+}
+
+/**
+ * What an answer we could not read looked like — HTTP status, Sandbox's own
+ * `code` and `message`, and the field names — without a single value that
+ * could be a document number or a name.
+ */
+export function describeSandboxBody(httpStatus: number, body: unknown): string {
+  if (!isObject(body)) return `HTTP ${httpStatus}, body is not an object`;
+  const parts = [`HTTP ${httpStatus}`];
+  if (body.code !== undefined) {
+    const code = String(body.code);
+    // A status like 404 or 422 is kept; anything longer could be an identifier.
+    parts.push(`code ${/^\d{1,4}$/.test(code) ? code : maskNumbers(code)}`);
+  }
+  const message = str(body.message);
+  if (message) parts.push(`message "${maskNumbers(message)}"`);
+  parts.push(`fields [${Object.keys(body).join(", ")}]`);
+  if (isObject(body.data)) parts.push(`data fields [${Object.keys(body.data).join(", ")}]`);
+  return parts.join(", ");
+}
+
 function gstDocStatus(raw: string | null): SourceDocStatus {
   const s = (raw ?? "").toLowerCase();
   if (s === "active") return "active";
@@ -203,6 +228,10 @@ export function parseSandboxGstin(body: unknown): ProviderOutcome {
   if (!record.name && !record.tradeName && record.docStatus === "unknown") {
     throw new KycConfigError("unexpected_response", "Sandbox GSTIN record had neither a name nor a status.");
   }
+  if (record.docStatus === "unknown") {
+    // The GST status word ("Provisional", …) is not personal; it tells the team why a person must decide.
+    console.warn(`[kyc] sandboxco GSTIN: status "${maskNumbers(str(g.sts) ?? "(none)")}" is not one this code decides on`);
+  }
   return { kind: "found", record, providerRef };
 }
 
@@ -235,7 +264,12 @@ export function createSandboxCoAdapter(creds: SandboxCoCredentials, http: KycHtt
         if (!(error instanceof KycConfigError && error.code === "auth_failed")) throw error;
         response = await call(true);
       }
-      return req.docType === "PAN" ? parseSandboxPan(response.body) : parseSandboxGstin(response.body);
+      try {
+        return req.docType === "PAN" ? parseSandboxPan(response.body) : parseSandboxGstin(response.body);
+      } catch (error) {
+        if (!(error instanceof KycConfigError && error.code === "unexpected_response")) throw error;
+        throw new KycConfigError("unexpected_response", `${error.message} (${describeSandboxBody(response.status, response.body)})`);
+      }
     },
   };
 }
