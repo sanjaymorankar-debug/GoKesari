@@ -137,5 +137,5 @@ The full local suite had 4 failures before #312's last commit; one was this feat
 2. Sandbox Console: webhook URLs `https://gokesari.com/api/webhooks/sandbox-co/digilocker` and `https://test.gokesari.com/api/webhooks/sandbox-co/digilocker`, with the secrets now set as `SANDBOX_CO_WEBHOOK_SECRET`.
 3. Go-ahead for one real Aadhaar verification on production.
 4. Legal review of the consent wording (version `2026-10-31-digilocker`).
-5. App 1.6.0: run the iOS build and the store uploads.
+5. App 1.6.0: the Android APKs (preview + production) built on #312's CI; the production APK is rebuilt on the push to `main`. The **iOS build cannot run yet**: the repository has no `EXPO_TOKEN`, no App Store Connect key (`ASC_API_KEY_P8`, `ASC_KEY_ID`, `ASC_ISSUER_ID`, `APPLE_TEAM_ID`) and `mobile/app.config.ts` has no Expo project id (setup: `mobile/README.md`, "iPhone builds from GitHub"). Once they are added, run Actions → "iPhone app" (production). Store uploads follow.
 6. Provider choice: Sandbox.co.in (DigiLocker) stays the Aadhaar provider; Gridlines leaves checks Pending with the reason shown to admins.
