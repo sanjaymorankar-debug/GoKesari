@@ -6,7 +6,12 @@
  * data row becomes {header -> text}, the same shape the CSV reader yields, so one mapping
  * describes both. Legacy .xls is not supported: ask the supplier to save as .xlsx or .csv.
  */
+import fs, { type ReadStream } from "node:fs";
+import { posix } from "node:path";
+import type { Readable } from "node:stream";
+
 import ExcelJS from "exceljs";
+import unzipper from "unzipper";
 
 export interface XlsxOptions {
   /** Sheet name (case-insensitive) or 1-based position. Default: the first visible sheet. */
@@ -102,40 +107,88 @@ const notFound = (opts: XlsxOptions, seen: string[]) =>
   );
 const label = (s: SheetInfo) => `${s.name}${s.state === "visible" ? "" : ` (${s.state})`}`;
 
-/** Streams the file: memory stays flat however large the catalogue is. */
+/** The part parsers inside ExcelJS's WorkbookReader (exceljs 4.4), which viaStream feeds one part at a time. */
+interface WorkbookPartParsers {
+  workbookRels?: { Id: string; Target: string }[];
+  model?: { sheets?: { name: string; state?: string; rId: string }[] };
+  _parseRels(part: Readable): Promise<void>;
+  _parseWorkbook(part: Readable): Promise<void>;
+  _parseSharedStrings(part: Readable): AsyncIterable<unknown>;
+  _parseStyles(part: Readable): Promise<void>;
+  _parseWorksheet(part: Readable, sheetNo: string): Iterable<{ value: ExcelJS.stream.xlsx.WorksheetReader }>;
+}
+
+/**
+ * Streams the file: memory stays flat however large the catalogue is.
+ *
+ * ExcelJS's WorkbookReader is not left to walk the zip itself. It reads it front to back with unzipper's
+ * Parse, which emits "end" as soon as it has parsed the last byte, while entries may still be queued behind
+ * a part ExcelJS is busy with; ExcelJS stops there and silently drops them. Which parts went missing
+ * depended on timing: ExcelJS writes workbook.xml last (a TypeError, so the read fell back to memory), and
+ * Excel writes the sheets before the styles and shared strings ("no column headings", "could not find
+ * sheet"). Instead the zip is opened by its central directory, and ExcelJS's own part parsers get the parts
+ * in the order they depend on each other: workbook, shared strings, styles, then only the wanted sheet,
+ * streamed straight out of the zip. No temp copies are made, and skipped sheets are never opened.
+ */
 async function* viaStream(path: string, opts: XlsxOptions, started: { rows: number }): AsyncGenerator<TabularRow> {
   const headerRow = opts.headerRow ?? 1;
-  const reader = new ExcelJS.stream.xlsx.WorkbookReader(path, {
-    worksheets: "emit", sharedStrings: "cache", hyperlinks: "cache", styles: "cache", entries: "ignore",
-  });
-  const seen: string[] = [];
-  let position = 0;
-  for await (const ws of reader) {
-    position++;
-    const info: SheetInfo = {
-      name: String((ws as unknown as { name?: string }).name ?? `Sheet${position}`),
-      state: (ws as unknown as { state?: string }).state ?? "visible",
-      position,
-    };
-    seen.push(label(info));
-    if (!isWanted(info, opts)) {
-      // Read a skipped sheet through: ExcelJS deletes its temp copy as soon as the reader moves
-      // on, and an unread stream may still be opening it - an unhandled ENOENT.
-      for await (const row of ws) void row;
-      continue;
-    }
-    const shaper = new RowShaper(info.name, headerRow);
-    for await (const row of ws) {
-      const r = shaper.shape(row.number, (row.values as ExcelJS.CellValue[]) ?? []);
-      if (r) {
-        started.rows++;
-        yield r;
+  const opened: ReadStream[] = [];
+  try {
+    const zip = await unzipper.Open.custom({
+      stream: (offset: number, length?: number) => {
+        const s = fs.createReadStream(path, { start: offset, end: length ? offset + length - 1 : undefined });
+        opened.push(s);
+        return s;
+      },
+      size: async () => (await fs.promises.stat(path)).size,
+    });
+    const files = new Map(zip.files.map((f) => [f.path, f]));
+    const part = (name: string): Readable | undefined => files.get(name)?.stream();
+    const book = new ExcelJS.stream.xlsx.WorkbookReader(path, {
+      worksheets: "emit", sharedStrings: "cache", hyperlinks: "cache", styles: "cache", entries: "ignore",
+    }) as unknown as WorkbookPartParsers;
+    const rels = part("xl/_rels/workbook.xml.rels");
+    if (rels) await book._parseRels(rels);
+    const workbook = part("xl/workbook.xml");
+    if (workbook) await book._parseWorkbook(workbook);
+    const strings = part("xl/sharedStrings.xml");
+    if (strings) for await (const s of book._parseSharedStrings(strings)) void s; // "cache": fills the reader's table
+    const styles = part("xl/styles.xml");
+    if (styles) await book._parseStyles(styles);
+
+    const seen: string[] = [];
+    let position = 0;
+    for (const sheet of book.model?.sheets ?? []) {
+      position++;
+      const info: SheetInfo = { name: sheet.name, state: sheet.state ?? "visible", position };
+      seen.push(label(info));
+      if (!isWanted(info, opts)) continue;
+      const target = book.workbookRels?.find((r) => r.Id === sheet.rId)?.Target ?? "";
+      const data = part(target.startsWith("/") ? target.slice(1) : posix.join("xl", target));
+      if (!data) throw new XlsxReadError(`Sheet "${info.name}" is listed in the workbook, but its rows are missing from the file.`);
+      const [{ value: ws }] = book._parseWorksheet(data, String(position));
+      const shaper = new RowShaper(info.name, headerRow);
+      for await (const row of ws) {
+        const r = shaper.shape(row.number, (row.values as ExcelJS.CellValue[]) ?? []);
+        if (r) {
+          started.rows++;
+          yield r;
+        }
       }
+      shaper.finish();
+      return; // one sheet per feed
     }
-    shaper.finish();
-    return; // one sheet per feed
+    throw notFound(opts, seen);
+  } finally {
+    // A part left half read (a bad heading row, or the caller stopping early) still holds its file stream.
+    await Promise.all(
+      opened.map((s) => new Promise<void>((resolve) => {
+        if (s.closed) return resolve();
+        s.once("close", () => resolve());
+        s.destroy();
+      })),
+    );
   }
-  throw notFound(opts, seen);
 }
 
 /** Loads the whole workbook. Only used when the streaming reader cannot cope with the file's layout. */
@@ -163,9 +216,10 @@ async function* viaMemory(path: string, opts: XlsxOptions): AsyncGenerator<Tabul
 }
 
 /**
- * Yields the data rows of the chosen sheet. Streams by default; if ExcelJS's streaming reader fails on
- * the file's internal layout before producing a row (it assumes the workbook part precedes the sheets),
- * the workbook is read in memory instead - slower and heavier, but the catalogue still loads.
+ * Yields the data rows of the chosen sheet. Streams by default; if the streaming read fails inside ExcelJS
+ * before producing a row (a TypeError: a part it cannot parse, or an ExcelJS release that renamed the part
+ * parsers viaStream calls), the workbook is read in memory instead - slower and heavier, but the catalogue
+ * still loads.
  */
 export async function* parseXlsxWithHeader(
   path: string,
