@@ -59,6 +59,7 @@ docs: [README.md](README.md), [FINDINGS.md](FINDINGS.md)
 | D2 | Code e-mail read "You asked to a withdrawal of …" | Fixed — "Use this code to confirm a withdrawal of …" |
 | D3 | After a partial withdrawal the wallet card said "Earnings ₹0.00, adjustments ₹817.00" (confusing) | Fixed — line removed; the balance alone is shown |
 | D4 | Admin month picker stretched full width | Fixed |
+| D5 | From 1 Nov IST, 5 monthly-payout tests failed in CI: the test seeded earnings at the real current time (November), outside the October run, and expected "October not over yet" from the admin re-run | Fixed in the test (no product change): earnings dated 20 Oct; the re-run expects "already done" and a future month expects 409. 13 / 13 on both layouts on 1 Nov |
 | P1 | `tests/unit/pmd-sources.test.ts` and `tests/unit/product-import-parser.test.ts` (one case each, Excel parsing) and the matching `product-import` integration case fail | **Not from this change**: the same cases fail on untouched `staging` in this checkout (shared `node_modules`). Left as is |
 
 ## Evidence
@@ -72,11 +73,33 @@ Dev server log of the code e-mail (local, console mail):
 `POST /api/gig/wallet/withdrawals 200`, and the sandbox webhook applied
 (transfer SUCCESS, UTR SBXN036922966010).
 
+## Re-run after merging staging (31 Oct 2026, evening)
+
+Staging took 0123 (rider Aadhaar by DigiLocker, #312), so this change moved to
+0124. Re-run on fresh databases (both layouts, every migration 0000–0124):
+
+| Suite | Single | Split |
+|---|---|---|
+| All unit tests + rider bank payouts + cron + flags + bank accounts | 982 / 983 | 982 / 983 |
+| Shop payouts (batch E), DigiLocker, migrate-on-build (rewind with `rollback-0124.sql`) | 33 / 33 | 26 / 26 (migrate-on-build: single only) |
+
+The one failure is P1 (Excel parsing, unrelated). CI on PR #309: `test` pass
+(50 min), `test-split` pass (31 min).
+
+## Test server (test.gokesari.com)
+
+| Step | Result |
+|---|---|
+| PR #309 merged into `staging` | 18:50 UTC, merge commit `8e685d8a` |
+| "Test database" workflow (run 41231365494) | backup taken; `applied 0124_rider_bank_payouts → core` (split layout); newest migration 1793176000000 |
+| Hostinger build of `staging` (`de12f66a`, includes #309 and #314) | completed 18:59 UTC |
+| Post-deploy check `https://test.gokesari.com` | 3 / 3 healthy rounds |
+| Flags off, guest: `/gig/wallet`, `/admin/rider-payouts` → sign-in (307); `/api/gig/wallet`, `/api/admin/rider-payouts/runs`, `DELETE /api/gig/bank-account` → 401 | Pass |
+
 ## Not done (needs the owner)
 
-- **Test server (test.gokesari.com):** needs the branch pushed, a PR into
-  `staging`, the "Test database" workflow (migration 0124), the three flags on
-  for the test, then the QA run. Not started — waiting for the go-ahead.
+- **QA run on test.gokesari.com with the flags on:** switch the three flags on
+  (Admin → Feature flags) for the signed-in rider/admin run. Not run yet.
 - **Production smoke test:** needs Cashfree Payouts keys on gokesari.com and
   rule `riderPayouts.provider = CASHFREE`; then small real amounts (₹100) to a
   test rider's own account. Claude does not move real money: the owner runs it.
