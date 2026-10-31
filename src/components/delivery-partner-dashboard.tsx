@@ -516,7 +516,10 @@ export function DeliveryPartnerDashboard({
               : "Could not get your location. Try again.",
           );
         },
-        { timeout: LOCATION_TIMEOUT_MS },
+        // A position up to a minute old is still live (the zone allows 15 minutes). While Active or
+        // Ready the heartbeat's watchPosition is running, and a request for a brand-new fix next to
+        // it can wait until it times out (seen on test.gokesari.com): Active → Ready never went through.
+        { timeout: LOCATION_TIMEOUT_MS, maximumAge: 60_000 },
       );
     } catch {
       if (!settle()) return;

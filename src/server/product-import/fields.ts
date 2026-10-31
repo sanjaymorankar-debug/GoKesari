@@ -81,6 +81,7 @@ const RULES: Rule[] = [
   { field: "unitCount", keys: [/^unit_count\.value$/], labels: [/^unit count$/] },
   { field: "unitCountType", keys: [/^unit_count\.type\.value$/, /^unit_count\.type$/], labels: [/^unit count type$/] },
   { field: "unit", labels: [/^unit$/, /^uom$/] },
+  { field: "goodsKind", labels: [/^goods type$/, /^loose or packaged$/] },
   { field: "packSize", labels: [/^pack size$/] },
   { field: "itemWeight", keys: [/^item_weight\.value$/], labels: [/^item weight$/, /^weight$/] },
   { field: "itemWeightUnit", keys: [/^item_weight\.unit$/], labels: [/^item weight unit$/] },
@@ -248,6 +249,8 @@ export interface ImportFields {
   unitCount?: number;
   unitCountType?: string;
   unit?: string;
+  /** "Goods Type" column: a loose good (sold by weight or volume, no MRP) or a packaged one (the default). */
+  goodsKind?: "PACKAGED" | "LOOSE";
   packSize?: string;
   itemWeightG?: number;
   itemLengthCm?: number;
@@ -419,6 +422,18 @@ export function extractRow(cells: CellValue[], map: FieldMap, columns: ColumnDef
   parsed("salePrice", N.paise, "an amount", "salePricePaise");
   parsed("gstPercent", N.gstRateBp, "a GST rate", "gstRateBp");
   parsed("hsnCode", N.hsn, "an HSN code");
+  const goodsKind = first("goodsKind");
+  if (goodsKind != null) {
+    const t = String(goodsKind).trim().toLowerCase();
+    if (/^loose/.test(t)) fields.goodsKind = "LOOSE";
+    else if (/^pack/.test(t)) fields.goodsKind = "PACKAGED";
+    else warnBad("goodsKind", String(goodsKind), "Packaged or Loose");
+  }
+  // Loose goods are not pre-packaged, so they carry no MRP (Legal Metrology): the cell is not used.
+  if (fields.goodsKind === "LOOSE" && fields.mrpPaise != null) {
+    delete fields.mrpPaise;
+    warnings.push(`${label("mrp")}: loose goods carry no MRP; left empty.`);
+  }
   if (fields.maxOrderQty === 0) {
     delete fields.maxOrderQty;
     warnings.push(`${label("maxOrderQty")}: 0 is not a usable order limit; ignored.`);

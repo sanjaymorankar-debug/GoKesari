@@ -593,7 +593,7 @@ export const loginOtps = pgTable(
     phoneE164: text("phone_e164"),
     /** Address the code was sent to; codes are looked up by it. Null only on rows from before email login. */
     email: text("email"),
-    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0123 */] }).notNull().default("LOGIN"),
+    purpose: text("purpose", { enum: ["LOGIN", "EMAIL_CHANGE", "SHOP_REGISTRATION", "SHOP_ONBOARDING_CONSENT" /* batch-2026-10 WS-D */, "SHOP_EMAIL" /* 0120: a shop email other than the account's */, "RIDER_BANK_CHANGE", "RIDER_WITHDRAWAL" /* 0124 */] }).notNull().default("LOGIN"),
     channel: text("channel", { enum: ["EMAIL", "SMS"] }).notNull(),
     codeHash: text("code_hash").notNull(),
     expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
@@ -2927,6 +2927,17 @@ export const deliveryPartnerKycChecks = pgTable(
     otpReference: text("otp_reference"),
     otpRequestedAt: timestamp("otp_requested_at", { withTimezone: true }),
     otpAttempts: integer("otp_attempts").notNull().default(0),
+    /**
+     * 0123: how the Aadhaar was checked — DigiLocker, the legacy OTP (offline e-KYC, which Sandbox
+     * stopped) or by hand. Null on rows from before 0123 (all OTP).
+     */
+    method: text("method", { enum: ["digilocker", "okyc_legacy", "manual"] }),
+    /** 0123: DigiLocker session — Sandbox's id, last known status, the link, its expiry, our return key. */
+    sessionId: text("session_id"),
+    sessionStatus: text("session_status"),
+    sessionUrl: text("session_url"),
+    sessionExpiresAt: timestamp("session_expires_at", { withTimezone: true }),
+    sessionReturnKey: text("session_return_key"),
     errorCode: text("error_code"),
     consentVersion: text("consent_version").notNull(),
     consentGivenAt: timestamp("consent_given_at", { withTimezone: true }).notNull(),
@@ -2942,6 +2953,7 @@ export const deliveryPartnerKycChecks = pgTable(
     uniqueIndex("delivery_partner_kyc_checks_partner_doc_unique").on(t.deliveryPartnerId, t.docType),
     index("delivery_partner_kyc_checks_token_idx").on(t.docType, t.numberToken),
     index("delivery_partner_kyc_checks_status_idx").on(t.status),
+    index("delivery_partner_kyc_checks_session_idx").on(t.sessionId),
   ],
 );
 export type DeliveryPartnerKycCheck = typeof deliveryPartnerKycChecks.$inferSelect;
@@ -9607,7 +9619,7 @@ export const FEATURE_FLAG_KEYS = [
   "dealer_rating_bonus_enabled",
   "paid_support_services_enabled",
   "shop_onboarding_wizard_enabled",
-  // docs/gig-bank-payouts-2026-10 (0123): rider bank account, withdrawals, monthly payout on the 5th.
+  // docs/gig-bank-payouts-2026-10 (0124): rider bank account, withdrawals, monthly payout on the 5th.
   "rider_bank_account_enabled",
   "rider_withdrawal_enabled",
   "rider_monthly_payout_enabled",
@@ -10542,7 +10554,7 @@ export const supportServiceFiles = pgTable(
 
 /* <<< end dealer programme */
 
-/* >>> rider bank payouts (docs/gig-bank-payouts-2026-10, migration 0123) */
+/* >>> rider bank payouts (docs/gig-bank-payouts-2026-10, migration 0124) */
 
 /**
  * One row per paid month: inserting it is the guard that makes the monthly

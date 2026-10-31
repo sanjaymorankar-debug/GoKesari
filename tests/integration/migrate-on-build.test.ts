@@ -116,8 +116,8 @@ const after0055 = () => journal.entries.filter((e) => e.when > whenOf("0055_")).
 /** Puts the database back on 0055 with the releases' own rollback scripts. */
 const backToMigration0055 = () =>
   withTemp(async (sql) => {
-    // docs/gig-bank-payouts-2026-10 (0123): rider_bank_transfers points at bank_accounts (0063) and rider_payouts.
-    await sql.unsafe(readFileSync("scripts/rollback-0123.sql", "utf8"));
+    // docs/gig-bank-payouts-2026-10 (0124): rider_bank_transfers points at bank_accounts (0063) and rider_payouts.
+    await sql.unsafe(readFileSync("scripts/rollback-0124.sql", "utf8"));
     // docs/dealer-programme (0104): its tables point at distributors (0071) and referral_codes, so they go first.
     await sql.unsafe(readFileSync("scripts/rollback-0116.sql", "utf8"));
     await sql.unsafe(readFileSync("scripts/rollback-0115.sql", "utf8"));

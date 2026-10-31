@@ -124,6 +124,7 @@ export const AUDIT_ACTIONS = {
   PRODUCT_IMPORT_COMPLETED: "product_import.completed",
   PRODUCT_IMPORT_CANCELLED: "product_import.cancelled",
   PRODUCT_IMPORT_REPORT_DOWNLOADED: "product_import.report_downloaded",
+  PRODUCT_IMPORT_CATALOGUE_EXPORTED: "product_import.catalogue_exported",
   EXCEL_APPLIED: "excel_upload.applied",
   EXCEL_CANCELLED: "excel_upload.cancelled",
 

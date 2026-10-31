@@ -2,7 +2,7 @@
 
 Brief: bank account integration for gig workers (customers and delivery
 partners). Audit first: [FINDINGS.md](FINDINGS.md). Branch
-`feat/gig-bank-payouts`, migration `0123_rider_bank_payouts`.
+`feat/gig-bank-payouts`, migration `0124_rider_bank_payouts`.
 
 ## Owner decisions (31 Oct 2026)
 
@@ -77,15 +77,15 @@ differently (tested).
 
 ## Migration and rollback
 
-- `drizzle/0123_rider_bank_payouts.sql` (`-- split: core`): four new tables
+- `drizzle/0124_rider_bank_payouts.sql` (`-- split: core`): four new tables
   (`rider_payout_runs`, `rider_bank_transfers`, `rider_transfer_events`,
   `rider_security_grants`) and three flag rows. Additive only, idempotent, no
   foreign key to a seller table.
 - Applies through the usual "Test database" workflow on a push to `staging`,
   and "Production database" by hand before merging to `main`.
-- Rollback: `scripts/rollback-0123.sql` (flags off and the previous code live
+- Rollback: `scripts/rollback-0124.sql` (flags off and the previous code live
   first; it refuses nothing by itself, so run its in-flight check query first).
-- Renumbered 0121 → 0123 on 31 Oct 2026: the gig-worker flow (#306) and the app-install prompt (#307) merged into `staging` first with 0121 and 0122.
+- Renumbered 0121 → 0123 → 0124 on 31 Oct 2026: the gig-worker flow (#306), the app-install prompt (#307) and rider Aadhaar by DigiLocker (#312) merged into `staging` first with 0121, 0122 and 0123.
 
 ## Changes to existing files (and why)
 

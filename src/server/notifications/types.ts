@@ -24,6 +24,8 @@ export const NOTIFICATION_TYPES = {
   ORDER_ACCEPTED: "order.accepted",
   ORDER_ASSIGNED: "order.assigned",
   ORDER_DELIVERY_FAILED: "order.delivery_failed",
+  /** To the customer and the shop: after a failed delivery the order went back to the shop (RTO). */
+  ORDER_RETURNED_TO_SHOP: "order.returned_to_shop",
   /** Shop proposed a replacement for an unavailable item; customer must decide. */
   ORDER_SUBSTITUTION_PROPOSED: "order.substitution_proposed",
   ORDER_ITEM_REMOVED: "order.item_removed",

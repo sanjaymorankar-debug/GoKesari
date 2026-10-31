@@ -362,7 +362,17 @@ export const EVENTS = {
     }
     return messages;
   }),
-  // DISPUTED, REFUND_PENDING, REFUNDED, RETURNED and the payment states: recorded, nobody notified here.
+  // After a failed delivery the goods went back to the shop (RTO): the customer and the shop are told.
+  "order.returned": define<OrderEventPayload>("order", (p) => [
+    forBuyer(p, N.ORDER_RETURNED_TO_SHOP),
+    {
+      ...forShop(p, N.ORDER_RETURNED_TO_SHOP),
+      title: "Order returned to your shop",
+      body: `Order ${p.orderNumber} could not be delivered and is back with you. Check the goods and put them back in stock.`,
+    },
+  ]),
+  // DISPUTED (the dispute case notifies), REFUND_PENDING and REFUNDED (the refund itself is announced
+  // by aftercare/refunds.ts and the wallet) and the payment states: recorded, nobody notified here.
   "order.status_changed": define<OrderEventPayload>("order", () => []),
   "order.accept_reminder": define<OrderEventPayload>("order", (p) => [
     {
@@ -1566,6 +1576,8 @@ export function orderEventFor(status: string): OrderEventType {
       return "order.failed";
     case "CANCELLED":
       return "order.cancelled";
+    case "RETURNED":
+      return "order.returned";
     default:
       return "order.status_changed";
   }

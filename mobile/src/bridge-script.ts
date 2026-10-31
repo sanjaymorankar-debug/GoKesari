@@ -11,6 +11,8 @@
  *   links to other sites   → the browser or the right app, not inside GoKesari
  *   downloads (iOS)        → fetched with the page's session, then the share
  *                            sheet ("Save to Files", WhatsApp, print…)
+ *   __gokesariApp.openDigiLocker(url) → DigiLocker in the in-app browser,
+ *                            resolving when the partner is back (digilocker.ts)
  *   __gokesariApp.getPushToken() → this phone's Expo push token (asks for
  *                            notification permission once); the website
  *                            registers it (src/lib/mobile-bridge-push.ts)
@@ -28,9 +30,11 @@ export interface BridgeScriptOptions {
   token: string;
   platform: "ios" | "android";
   version: string;
+  /** This build's URL scheme; the website hands DigiLocker's return back to `<scheme>://digilocker-return`. */
+  scheme?: string;
 }
 
-export function buildBridgeScript({ siteOrigin, token, platform, version }: BridgeScriptOptions): string {
+export function buildBridgeScript({ siteOrigin, token, platform, version, scheme = "gokesari" }: BridgeScriptOptions): string {
   return `(function () {
   "use strict";
   if (window.__gokesariApp) return;
@@ -251,7 +255,9 @@ export function buildBridgeScript({ siteOrigin, token, platform, version }: Brid
   var app = {
     platform: ${JSON.stringify(platform)},
     version: ${JSON.stringify(version)},
+    scheme: ${JSON.stringify(scheme)},
     signInWithGoogle: function () { return request("signInWithGoogle", {}); },
+    openDigiLocker: function (url) { return request("digilocker.open", { url: String(url) }); },
     getPushToken: function () { return request("push.getToken", {}); },
     receive: receive
   };

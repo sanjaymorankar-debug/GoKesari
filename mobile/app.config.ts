@@ -120,7 +120,10 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   // 1.5.0: update check (docs/app-install-2026-10 at the repository root) — at launch and when the app
   // comes back, the app asks the website for the newest build (and, once listed, the App Store) and
   // offers "Update", which opens the store listing; below the minimum version the update is required.
-  version: "1.5.0",
+  // 1.6.0: Aadhaar by DigiLocker (Sandbox.co.in stopped the Aadhaar OTP check) — the KYC page asks the
+  // app to open DigiLocker in the in-app browser (ASWebAuthenticationSession / Custom Tab) and the
+  // website's return link hands back to `<scheme>://digilocker-return` (src/digilocker.ts).
+  version: "1.6.0",
   scheme: variant.scheme,
   orientation: "default",
   icon: "./assets/icon.png",
@@ -129,7 +132,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   ios: {
     bundleIdentifier: variant.appId,
     // Local builds (the GitHub workflows); EAS store builds number themselves (eas.json appVersionSource "remote").
-    buildNumber: "6",
+    buildNumber: "7",
     supportsTablet: true,
     associatedDomains: [`applinks:${variant.host}`],
     config: { usesNonExemptEncryption: false },
@@ -146,7 +149,7 @@ export default ({ config }: ConfigContext): ExpoConfig => ({
   },
   android: {
     package: variant.appId,
-    versionCode: 6,
+    versionCode: 7,
     ...(GOOGLE_SERVICES_JSON ? { googleServicesFile: GOOGLE_SERVICES_JSON } : {}),
     adaptiveIcon: {
       foregroundImage: "./assets/android-icon-foreground.png",

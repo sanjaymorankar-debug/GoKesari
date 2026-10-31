@@ -224,7 +224,7 @@ export const TABLE_OWNERSHIP = {
   rider_incentive_rules: "platform",
   rider_payouts: "platform",
   rider_searches: "platform",
-  // docs/gig-bank-payouts-2026-10 (0123): rider bank transfers follow rider_payouts and bank_accounts.
+  // docs/gig-bank-payouts-2026-10 (0124): rider bank transfers follow rider_payouts and bank_accounts.
   rider_payout_runs: "platform",
   rider_bank_transfers: "platform",
   rider_transfer_events: "platform",

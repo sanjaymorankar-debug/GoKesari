@@ -10,7 +10,7 @@
 -- Owner decisions 31 Oct 2026: riders only (the customer wallet stays closed), weekly payouts stay,
 -- limits ₹100–₹10,000 no fee, TDS s.194C. Every table is platform (core database); no link to a
 -- seller table.
--- ADDITIVE ONLY; idempotent. Three feature flags seeded OFF. Rollback: scripts/rollback-0123.sql
+-- ADDITIVE ONLY; idempotent. Three feature flags seeded OFF. Rollback: scripts/rollback-0124.sql
 CREATE TABLE IF NOT EXISTS "rider_payout_runs" (
 	"id" uuid PRIMARY KEY DEFAULT gen_random_uuid() NOT NULL,
 	"period_month" text NOT NULL,

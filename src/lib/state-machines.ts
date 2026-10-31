@@ -41,7 +41,8 @@ export const ORDER_TRANSITIONS: Record<OrderStatus, readonly OrderStatus[]> = {
   RETURNED: ["CANCELLED", "REFUND_PENDING"],
   DELIVERED: ["DISPUTED", "REFUND_PENDING"],
   DISPUTED: ["DELIVERED", "REFUND_PENDING"],
-  CANCELLED: ["REFUND_PENDING"],
+  // A wallet refund completes at once (CANCELLED → REFUNDED); a refund to the original method waits (REFUND_PENDING).
+  CANCELLED: ["REFUND_PENDING", "REFUNDED"],
   REFUND_PENDING: ["REFUNDED"],
   REFUNDED: [],
 };

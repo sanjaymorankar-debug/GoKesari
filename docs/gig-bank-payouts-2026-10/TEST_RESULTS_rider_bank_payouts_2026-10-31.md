@@ -1,6 +1,6 @@
 # Test results — rider bank account, withdrawals, monthly payout
 
-31 Oct 2026 · branch `feat/gig-bank-payouts`, PR #309 into staging · migration 0123 (written as 0121, renumbered after #306 and #307 merged) ·
+31 Oct 2026 · branch `feat/gig-bank-payouts`, PR #309 into staging · migration 0124 (written as 0121, renumbered after #306, #307 and #312 merged) ·
 docs: [README.md](README.md), [FINDINGS.md](FINDINGS.md)
 
 ## Environment
@@ -22,7 +22,7 @@ docs: [README.md](README.md), [FINDINGS.md](FINDINGS.md)
 | Guard unit tests (split ownership, migration journal, templates) | 23 / 23 pass | n/a |
 | New integration `tests/integration/rider-bank-payouts.test.ts` | 13 / 13 pass | 13 / 13 pass |
 | Regression: bank accounts, shop payouts (batch E), bank refunds | 33 / 33 pass | 29 / 29 pass (bank accounts + batch E) |
-| `tests/integration/migrate-on-build.test.ts` (rewinds to 0055 with every rollback script) | 7 / 7 pass after adding `rollback-0123.sql` to its rewind (see D1) | 7 / 7 pass |
+| `tests/integration/migrate-on-build.test.ts` (rewinds to 0055 with every rollback script) | 7 / 7 pass after adding `rollback-0124.sql` to its rewind (see D1) | 7 / 7 pass |
 | Full suite | FULL_SINGLE | FULL_SPLIT |
 | Type check (`tsc --noEmit`), ESLint on changed files | clean | — |
 
@@ -55,7 +55,7 @@ docs: [README.md](README.md), [FINDINGS.md](FINDINGS.md)
 
 | ID | Defect | Status |
 |---|---|---|
-| D1 | `migrate-on-build` could not rewind to 0055: the new `rider_bank_transfers` points at `bank_accounts` | Fixed — the test now runs `scripts/rollback-0123.sql` first (also proves the rollback script) |
+| D1 | `migrate-on-build` could not rewind to 0055: the new `rider_bank_transfers` points at `bank_accounts` | Fixed — the test now runs `scripts/rollback-0124.sql` first (also proves the rollback script) |
 | D2 | Code e-mail read "You asked to a withdrawal of …" | Fixed — "Use this code to confirm a withdrawal of …" |
 | D3 | After a partial withdrawal the wallet card said "Earnings ₹0.00, adjustments ₹817.00" (confusing) | Fixed — line removed; the balance alone is shown |
 | D4 | Admin month picker stretched full width | Fixed |
@@ -75,7 +75,7 @@ Dev server log of the code e-mail (local, console mail):
 ## Not done (needs the owner)
 
 - **Test server (test.gokesari.com):** needs the branch pushed, a PR into
-  `staging`, the "Test database" workflow (migration 0123), the three flags on
+  `staging`, the "Test database" workflow (migration 0124), the three flags on
   for the test, then the QA run. Not started — waiting for the go-ahead.
 - **Production smoke test:** needs Cashfree Payouts keys on gokesari.com and
   rule `riderPayouts.provider = CASHFREE`; then small real amounts (₹100) to a

@@ -143,6 +143,13 @@ const serverEnvSchema = z.object({
   SANDBOX_CO_API_KEY: z.string().optional(),
   SANDBOX_CO_API_SECRET: z.string().optional(),
   SANDBOX_CO_BASE_URL: z.string().url().optional(),
+  /**
+   * Gig worker flow: the secret set on the DigiLocker session webhook in the
+   * Sandbox Console (events in.co.sandbox.kyc.digilocker.session.succeeded /
+   * .failed, URL <AUTH_URL>/api/webhooks/sandbox-co/digilocker). Without it
+   * the webhook is refused and the rider's check is settled by polling alone.
+   */
+  SANDBOX_CO_WEBHOOK_SECRET: z.string().min(16).optional(),
   /** IDfy, the backup vendor. Its adapter is added if Gridlines is replaced or needs a fallback. */
   IDFY_ACCOUNT_ID: z.string().optional(),
   IDFY_API_KEY: z.string().optional(),
