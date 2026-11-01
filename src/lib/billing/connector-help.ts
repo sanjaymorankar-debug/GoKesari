@@ -1,7 +1,7 @@
 /**
  * Step-by-step guides for moving books between GoKesari and each accounting
  * software (billing v2, docs/billing §8), in English, Hindi and Marathi. Pure
- * data, shown at /help/connectors/<tool>. Menu paths are those of the
+ * data, shown at /shop/accounts/sync/help/<tool>. Menu paths are those of the
  * software's current versions as of Nov 2026; a guide says so where a step
  * depends on the version.
  */

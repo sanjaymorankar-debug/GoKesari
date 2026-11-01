@@ -30,7 +30,7 @@ export default async function ConnectorHelpPage({ params, searchParams }: { para
     <article className="mx-auto max-w-3xl p-4" lang={lang === "en" ? "en-IN" : lang === "hi" ? "hi-IN" : "mr-IN"}>
       <nav className="mb-2 flex flex-wrap gap-2 text-sm">
         {(["en", "hi", "mr"] as const).map((l) => (
-          <Link key={l} href={`/help/connectors/${tool}?lang=${l}`} aria-current={l === lang ? "page" : undefined} className={l === lang ? "font-bold underline" : "underline"}>
+          <Link key={l} href={`/shop/accounts/sync/help/${tool}?lang=${l}`} aria-current={l === lang ? "page" : undefined} className={l === lang ? "font-bold underline" : "underline"}>
             {l === "en" ? "English" : l === "hi" ? "हिन्दी" : "मराठी"}
           </Link>
         ))}

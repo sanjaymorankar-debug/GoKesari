@@ -157,7 +157,7 @@ export function SyncPanel({ shopId, lang, defaultFrom, defaultTo, tools, conflic
                     }}
                   />
                 </label>
-                <a className="inline-flex min-h-9 items-center px-1 text-sm text-kesari-800 underline" href={`/help/connectors/${t.system.toLowerCase()}?lang=${lang}`}>
+                <a className="inline-flex min-h-9 items-center px-1 text-sm text-kesari-800 underline" href={`/shop/accounts/sync/help/${t.system.toLowerCase()}?lang=${lang}`}>
                   Help
                 </a>
               </div>
