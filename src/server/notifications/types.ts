@@ -352,6 +352,16 @@ export const NOTIFICATION_TYPES = {
   /** To the shop owner: approved instantly on GST/PAN verification + payment — ready for product upload (email). */
   SHOP_READY_FOR_PRODUCT_UPLOAD: "shop.ready_for_product_upload",
   /* <<< end dealer programme */
+  /* >>> rider bank payouts (docs/gig-bank-payouts-2026-10) — "delivery" prefix: the Deliveries category */
+  /** To the rider: a withdrawal was sent to the bank. */
+  RIDER_WITHDRAWAL_SENT: "delivery.rider_withdrawal_sent",
+  /** To the rider: money reached the bank (withdrawal or monthly payout), with UTR and the summary. */
+  RIDER_PAYOUT_PAID: "delivery.rider_payout_paid",
+  /** To the rider: a transfer failed; the amount is back in their balance (or with finance for a retry). */
+  RIDER_PAYOUT_FAILED: "delivery.rider_payout_failed",
+  /** To the rider: the monthly run carried their earnings forward (below the minimum, no verified account…). */
+  RIDER_PAYOUT_CARRIED: "delivery.rider_payout_carried",
+  /* <<< rider bank payouts */
   //
 } as const;
 

@@ -14,6 +14,7 @@ import { RiderProfileEditor } from "@/components/rider-profile-editor";
 import { RiderDocumentsPanel } from "@/components/rider-documents-panel";
 import { getRule } from "@/server/services/settings";
 import { listMyRiderDocuments } from "@/server/services/rider-files";
+import { isFeatureEnabled } from "@/server/services/feature-flags";
 
 export const metadata = { title: "My Delivery Profile" };
 export const dynamic = "force-dynamic";
@@ -52,6 +53,8 @@ export default async function GigProfilePage() {
   // C5: identity documents and the gate ID card (rule riderFiles).
   const riderFiles = await getRule("riderFiles");
   const documents = riderFiles.kycDocuments ? await listMyRiderDocuments(user.id) : [];
+  // docs/gig-bank-payouts-2026-10: unpaid earnings, withdrawals and the bank account.
+  const walletOn = await isFeatureEnabled("rider_bank_account_enabled");
 
   return (
     <div className="mx-auto max-w-3xl pb-10">
@@ -63,6 +66,11 @@ export default async function GigProfilePage() {
             <LinkButton href="/gig/orders" variant="secondary">
               My deliveries
             </LinkButton>
+            {walletOn ? (
+              <LinkButton href="/gig/wallet" variant="secondary">
+                My wallet
+              </LinkButton>
+            ) : null}
             <LinkButton href="/delivery-partner">Rider dashboard</LinkButton>
           </div>
         }

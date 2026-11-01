@@ -151,6 +151,7 @@ export const PUBLIC_WRITES: Record<string, string> = {
   "/api/delivery-link/[token]": "a delivery action by unguessable token",
   "/api/webhooks/cashfree": "payment gateway webhook: signature checked",
   "/api/webhooks/payments/[gateway]": "payment webhook: signature checked",
+  "/api/payments/hdfc/return": "the bank's form POST back from the payment page: only forwards (303) to our own page; nothing is decided there",
   "/api/webhooks/payouts/[provider]": "payout webhook: signature checked",
   "/api/dev/settle-registration": "development only: 404 in a production build",
   "/api/dev/settle-topup": "development only: 404 in a production build",

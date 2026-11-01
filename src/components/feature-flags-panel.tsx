@@ -10,7 +10,10 @@ export type FeatureFlagKey =
   | "gov_verification_auto_approval_enabled"
   | "dealer_rating_bonus_enabled"
   | "paid_support_services_enabled"
-  | "shop_onboarding_wizard_enabled";
+  | "shop_onboarding_wizard_enabled"
+  | "rider_bank_account_enabled"
+  | "rider_withdrawal_enabled"
+  | "rider_monthly_payout_enabled";
 
 interface FlagValue {
   enabled: boolean;
