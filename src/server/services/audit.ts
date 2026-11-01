@@ -124,6 +124,7 @@ export const AUDIT_ACTIONS = {
   PRODUCT_IMPORT_COMPLETED: "product_import.completed",
   PRODUCT_IMPORT_CANCELLED: "product_import.cancelled",
   PRODUCT_IMPORT_REPORT_DOWNLOADED: "product_import.report_downloaded",
+  PRODUCT_IMPORT_CATALOGUE_EXPORTED: "product_import.catalogue_exported",
   EXCEL_APPLIED: "excel_upload.applied",
   EXCEL_CANCELLED: "excel_upload.cancelled",
 
@@ -468,6 +469,12 @@ export const AUDIT_ACTIONS = {
   PAYMENT_REFUND_REQUESTED: "payment.refund_requested", // batch-2026-10 WS-A
   PAYMENT_REFUND_SETTLED: "payment.refund_settled", // batch-2026-10 WS-A
   OTP_PURGED: "auth.otp_purged", // batch-2026-10 WS-A
+  /* ---------------------- rider bank payouts (docs/gig-bank-payouts-2026-10) */
+  RIDER_BANK_ACCOUNT_REAUTH: "rider_bank.reauthenticated",
+  RIDER_BANK_ACCOUNT_REMOVED: "rider_bank.account_removed",
+  RIDER_WITHDRAWAL_REQUESTED: "rider_bank.withdrawal_requested",
+  RIDER_TRANSFER_STATUS_CHANGED: "rider_bank.transfer_status_changed",
+  RIDER_MONTHLY_RUN: "rider_bank.monthly_run",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

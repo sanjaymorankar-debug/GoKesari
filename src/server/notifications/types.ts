@@ -24,6 +24,8 @@ export const NOTIFICATION_TYPES = {
   ORDER_ACCEPTED: "order.accepted",
   ORDER_ASSIGNED: "order.assigned",
   ORDER_DELIVERY_FAILED: "order.delivery_failed",
+  /** To the customer and the shop: after a failed delivery the order went back to the shop (RTO). */
+  ORDER_RETURNED_TO_SHOP: "order.returned_to_shop",
   /** Shop proposed a replacement for an unavailable item; customer must decide. */
   ORDER_SUBSTITUTION_PROPOSED: "order.substitution_proposed",
   ORDER_ITEM_REMOVED: "order.item_removed",
@@ -350,6 +352,16 @@ export const NOTIFICATION_TYPES = {
   /** To the shop owner: approved instantly on GST/PAN verification + payment — ready for product upload (email). */
   SHOP_READY_FOR_PRODUCT_UPLOAD: "shop.ready_for_product_upload",
   /* <<< end dealer programme */
+  /* >>> rider bank payouts (docs/gig-bank-payouts-2026-10) — "delivery" prefix: the Deliveries category */
+  /** To the rider: a withdrawal was sent to the bank. */
+  RIDER_WITHDRAWAL_SENT: "delivery.rider_withdrawal_sent",
+  /** To the rider: money reached the bank (withdrawal or monthly payout), with UTR and the summary. */
+  RIDER_PAYOUT_PAID: "delivery.rider_payout_paid",
+  /** To the rider: a transfer failed; the amount is back in their balance (or with finance for a retry). */
+  RIDER_PAYOUT_FAILED: "delivery.rider_payout_failed",
+  /** To the rider: the monthly run carried their earnings forward (below the minimum, no verified account…). */
+  RIDER_PAYOUT_CARRIED: "delivery.rider_payout_carried",
+  /* <<< rider bank payouts */
   //
 } as const;
 

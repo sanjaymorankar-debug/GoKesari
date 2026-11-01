@@ -563,8 +563,10 @@ describe("API v1 routes", () => {
     const history = await call(historyRoute, `/api/v1/shops/${shop.id}/product-imports`, { params: { shopId: shop.id } });
     expect(history.body.imports).toHaveLength(1);
 
-    const template = await templateRoute();
+    const template = await templateRoute(new NextRequest("http://localhost/api/v1/product-imports/template"));
     expect(template.headers.get("content-disposition")).toMatch(/GoKesari_Product_Upload_Template\.xlsx/);
+    const templateCsv = await templateRoute(new NextRequest("http://localhost/api/v1/product-imports/template?format=csv"));
+    expect(templateCsv.headers.get("content-disposition")).toMatch(/GoKesari_Product_Upload_Template\.csv/);
   });
 
   it("refuses a signed-out caller and another shop's owner", async () => {

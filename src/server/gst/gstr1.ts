@@ -47,23 +47,24 @@ interface Itm {
   itm_det: ItemDetail;
 }
 
-type Bucket = { txval: number; iamt: number; camt: number; samt: number };
+type Bucket = { txval: number; iamt: number; camt: number; samt: number; csamt: number };
 
 function byRate(lines: InvoiceLine[], sign = 1): Itm[] {
   const map = new Map<number, Bucket>();
   for (const l of lines) {
-    const b = map.get(l.rateBp) ?? { txval: 0, iamt: 0, camt: 0, samt: 0 };
+    const b = map.get(l.rateBp) ?? { txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 };
     b.txval += sign * l.taxablePaise;
     b.iamt += sign * l.igstPaise;
     b.camt += sign * l.cgstPaise;
     b.samt += sign * l.sgstPaise;
+    b.csamt += sign * (l.cessPaise ?? 0);
     map.set(l.rateBp, b);
   }
   return [...map.entries()]
     .sort((a, b) => a[0] - b[0])
     .map(([rate, b], i) => ({
       num: i + 1,
-      itm_det: { txval: r2(b.txval), rt: rate / 100, iamt: r2(b.iamt), camt: r2(b.camt), samt: r2(b.samt), csamt: 0 },
+      itm_det: { txval: r2(b.txval), rt: rate / 100, iamt: r2(b.iamt), camt: r2(b.camt), samt: r2(b.samt), csamt: r2(b.csamt) },
     }));
 }
 
@@ -132,12 +133,13 @@ export async function buildGstr1(shopId: string, period: string): Promise<Gstr1R
       const code = l.hsn ?? "";
       if (!code) warnings.push(`"${l.description}" has no HSN code.`);
       const key = `${code}|${uqc}|${l.rateBp}`;
-      const row = hsn[section].get(key) ?? { hsn: code, desc: l.description.slice(0, 30), uqc, qty: 0, rt: l.rateBp / 100, txval: 0, iamt: 0, camt: 0, samt: 0 };
+      const row = hsn[section].get(key) ?? { hsn: code, desc: l.description.slice(0, 30), uqc, qty: 0, rt: l.rateBp / 100, txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 };
       row.qty += sign * (l.qty ?? 0);
       row.txval += sign * l.taxablePaise;
       row.iamt += sign * l.igstPaise;
       row.camt += sign * l.cgstPaise;
       row.samt += sign * l.sgstPaise;
+      row.csamt += sign * (l.cessPaise ?? 0);
       hsn[section].set(key, row);
     }
   };
@@ -145,11 +147,12 @@ export async function buildGstr1(shopId: string, period: string): Promise<Gstr1R
     const pos = gstState(s.placeOfSupply)?.code ?? "";
     for (const l of lines) {
       const key = `${s.supplyType}|${pos}|${l.rateBp}`;
-      const b = b2cs.get(key) ?? { sply_ty: s.supplyType, pos, rt: l.rateBp / 100, txval: 0, iamt: 0, camt: 0, samt: 0 };
+      const b = b2cs.get(key) ?? { sply_ty: s.supplyType, pos, rt: l.rateBp / 100, txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 };
       b.txval += sign * l.taxablePaise;
       b.iamt += sign * l.igstPaise;
       b.camt += sign * l.cgstPaise;
       b.samt += sign * l.sgstPaise;
+      b.csamt += sign * (l.cessPaise ?? 0);
       b2cs.set(key, b);
     }
   };
@@ -173,13 +176,13 @@ export async function buildGstr1(shopId: string, period: string): Promise<Gstr1R
       const list = b2b.get(s.buyer.gstin!) ?? [];
       list.push({ inum: inv.invoiceNumber, idt: dmy(inv.issuedAt), val: r2(inv.totalPaise), pos, rchrg: "N", inv_typ: "R", itms });
       b2b.set(s.buyer.gstin!, list);
-      for (const it of itms) sheetRows.b2b.push([s.buyer.gstin!, s.buyer.name, inv.invoiceNumber, dmy(inv.issuedAt), r2(inv.totalPaise), posLabel(pos), "N", "", "Regular B2B", "", it.itm_det.rt, it.itm_det.txval, 0]);
+      for (const it of itms) sheetRows.b2b.push([s.buyer.gstin!, s.buyer.name, inv.invoiceNumber, dmy(inv.issuedAt), r2(inv.totalPaise), posLabel(pos), "N", "", "Regular B2B", "", it.itm_det.rt, it.itm_det.txval, it.itm_det.csamt]);
       addHsn("B2B", s.lines, 1);
     } else if (section === "B2CL") {
       const list = b2cl.get(pos) ?? [];
-      list.push({ inum: inv.invoiceNumber, idt: dmy(inv.issuedAt), val: r2(inv.totalPaise), itms: itms.map((i) => ({ num: i.num, itm_det: { txval: i.itm_det.txval, rt: i.itm_det.rt, iamt: i.itm_det.iamt, csamt: 0 } })) });
+      list.push({ inum: inv.invoiceNumber, idt: dmy(inv.issuedAt), val: r2(inv.totalPaise), itms: itms.map((i) => ({ num: i.num, itm_det: { txval: i.itm_det.txval, rt: i.itm_det.rt, iamt: i.itm_det.iamt, csamt: i.itm_det.csamt } })) });
       b2cl.set(pos, list);
-      for (const it of itms) sheetRows.b2cl.push([inv.invoiceNumber, dmy(inv.issuedAt), r2(inv.totalPaise), posLabel(pos), "", it.itm_det.rt, it.itm_det.txval, 0, ""]);
+      for (const it of itms) sheetRows.b2cl.push([inv.invoiceNumber, dmy(inv.issuedAt), r2(inv.totalPaise), posLabel(pos), "", it.itm_det.rt, it.itm_det.txval, it.itm_det.csamt, ""]);
       addHsn("B2C", s.lines, 1);
     } else {
       addB2cs(s, s.lines, 1);
@@ -201,11 +204,11 @@ export async function buildGstr1(shopId: string, period: string): Promise<Gstr1R
       const list = cdnr.get(invSnap.buyer.gstin!) ?? [];
       list.push({ ntty: "C", nt_num: note.creditNoteNumber, nt_dt: dmy(note.issuedAt), val: r2(note.totalPaise), pos, rchrg: "N", inv_typ: "R", itms });
       cdnr.set(invSnap.buyer.gstin!, list);
-      for (const it of itms) sheetRows.cdnr.push([invSnap.buyer.gstin!, invSnap.buyer.name, note.creditNoteNumber, dmy(note.issuedAt), "C", posLabel(pos), "N", "Regular B2B", r2(note.totalPaise), "", it.itm_det.rt, it.itm_det.txval, 0]);
+      for (const it of itms) sheetRows.cdnr.push([invSnap.buyer.gstin!, invSnap.buyer.name, note.creditNoteNumber, dmy(note.issuedAt), "C", posLabel(pos), "N", "Regular B2B", r2(note.totalPaise), "", it.itm_det.rt, it.itm_det.txval, it.itm_det.csamt]);
       addHsn("B2B", s.lines, -1);
     } else if (section === "B2CL") {
-      cdnur.push({ typ: "B2CL", ntty: "C", nt_num: note.creditNoteNumber, nt_dt: dmy(note.issuedAt), val: r2(note.totalPaise), pos, itms: itms.map((i) => ({ num: i.num, itm_det: { txval: i.itm_det.txval, rt: i.itm_det.rt, iamt: i.itm_det.iamt, csamt: 0 } })) });
-      for (const it of itms) sheetRows.cdnur.push(["B2CL", note.creditNoteNumber, dmy(note.issuedAt), "C", posLabel(pos), r2(note.totalPaise), "", it.itm_det.rt, it.itm_det.txval, 0]);
+      cdnur.push({ typ: "B2CL", ntty: "C", nt_num: note.creditNoteNumber, nt_dt: dmy(note.issuedAt), val: r2(note.totalPaise), pos, itms: itms.map((i) => ({ num: i.num, itm_det: { txval: i.itm_det.txval, rt: i.itm_det.rt, iamt: i.itm_det.iamt, csamt: i.itm_det.csamt } })) });
+      for (const it of itms) sheetRows.cdnur.push(["B2CL", note.creditNoteNumber, dmy(note.issuedAt), "C", posLabel(pos), r2(note.totalPaise), "", it.itm_det.rt, it.itm_det.txval, it.itm_det.csamt]);
       addHsn("B2C", s.lines, -1);
     } else {
       addB2cs(s, s.lines, -1);
@@ -215,17 +218,17 @@ export async function buildGstr1(shopId: string, period: string): Promise<Gstr1R
 
   const b2csList = [...b2cs.values()]
     .filter((b) => b.txval !== 0)
-    .map((b) => ({ sply_ty: b.sply_ty, pos: b.pos, typ: "OE", rt: b.rt, txval: r2(b.txval), iamt: r2(b.iamt), camt: r2(b.camt), samt: r2(b.samt), csamt: 0 }));
-  for (const b of b2csList) sheetRows.b2cs.push(["OE", posLabel(b.pos), "", b.rt, b.txval, 0, ""]);
+    .map((b) => ({ sply_ty: b.sply_ty, pos: b.pos, typ: "OE", rt: b.rt, txval: r2(b.txval), iamt: r2(b.iamt), camt: r2(b.camt), samt: r2(b.samt), csamt: r2(b.csamt) }));
+  for (const b of b2csList) sheetRows.b2cs.push(["OE", posLabel(b.pos), "", b.rt, b.txval, b.csamt, ""]);
 
   const hsnRows = (section: "B2B" | "B2C") =>
     [...hsn[section].values()]
       .filter((h) => h.txval !== 0)
-      .map((h, i) => ({ num: i + 1, hsn_sc: h.hsn, desc: h.desc, uqc: h.uqc, qty: Math.round(h.qty * 1000) / 1000, rt: h.rt, txval: r2(h.txval), iamt: r2(h.iamt), camt: r2(h.camt), samt: r2(h.samt), csamt: 0 }));
+      .map((h, i) => ({ num: i + 1, hsn_sc: h.hsn, desc: h.desc, uqc: h.uqc, qty: Math.round(h.qty * 1000) / 1000, rt: h.rt, txval: r2(h.txval), iamt: r2(h.iamt), camt: r2(h.camt), samt: r2(h.samt), csamt: r2(h.csamt) }));
   const hsnB2b = hsnRows("B2B");
   const hsnB2c = hsnRows("B2C");
-  for (const h of hsnB2b) sheetRows["hsn(b2b)"].push([h.hsn_sc, h.desc, h.uqc, h.qty, h.txval + h.iamt + h.camt + h.samt, h.rt, h.txval, h.iamt, h.camt, h.samt, 0]);
-  for (const h of hsnB2c) sheetRows["hsn(b2c)"].push([h.hsn_sc, h.desc, h.uqc, h.qty, h.txval + h.iamt + h.camt + h.samt, h.rt, h.txval, h.iamt, h.camt, h.samt, 0]);
+  for (const h of hsnB2b) sheetRows["hsn(b2b)"].push([h.hsn_sc, h.desc, h.uqc, h.qty, h.txval + h.iamt + h.camt + h.samt + h.csamt, h.rt, h.txval, h.iamt, h.camt, h.samt, h.csamt]);
+  for (const h of hsnB2c) sheetRows["hsn(b2c)"].push([h.hsn_sc, h.desc, h.uqc, h.qty, h.txval + h.iamt + h.camt + h.samt + h.csamt, h.rt, h.txval, h.iamt, h.camt, h.samt, h.csamt]);
 
   const docDet: unknown[] = [];
   if (counted.length) {

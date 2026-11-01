@@ -350,8 +350,12 @@ export const RULES = {
       enabled: z.boolean(),
       /** GST rate (basis points) for a product with no rate on record — such lines are marked "rate not set". */
       defaultGstRateBp: int(0, 2800),
+      /** Ad-valorem compensation cess from the listing or the dated HSN table goes on the line (tax-inclusive). Off: no cess, as before. */
+      applyCess: z.boolean(),
+      /** A GST-registered shop's line with no HSN or GST rate: ALLOW (invoiced at the default rate, marked, listed at /admin/product-gst) or BLOCK (checkout refused for it). */
+      missingTaxData: z.enum(["ALLOW", "BLOCK"]),
     }),
-    defaults: { enabled: false, defaultGstRateBp: 0 },
+    defaults: { enabled: false, defaultGstRateBp: 0, applyCess: true, missingTaxData: "ALLOW" as const },
   },
   batching: {
     description:
@@ -1377,6 +1381,54 @@ export const RULES = {
       debitAccountNumber: "",
     },
   },
+  riderPayouts: {
+    description:
+      "docs/gig-bank-payouts-2026-10: delivery partners' earnings to their verified bank account (feature flags rider_withdrawal_enabled and rider_monthly_payout_enabled). Withdrawals: between withdrawalMinPaise and withdrawalMaxPaise each, at most withdrawalDailyMaxPaise a day (IST), never more than the unpaid balance, withdrawalFeePaise per withdrawal; sent by withdrawalMode (UPI IDs by UPI). Monthly: on payoutDayOfMonth from payoutHourIst (IST) every approved rider with a verified bank account and at least monthlyMinPaise unpaid for the previous month is paid (less is carried forward), by monthlyMode. Failed monthly transfers are retried maxRetries times, retryBackoffMinutes × attempt apart, then flagged for finance; a failed withdrawal goes straight back to the rider's balance. TDS s.194C (s.393 of the Income-tax Act 2025): once a rider's payments in the financial year pass annualThresholdPaise, or one payment passes singlePaymentThresholdPaise, tdsRatePanBp (no PAN on file: tdsRateNoPanBp) of the year's payments is deducted, less TDS already deducted. provider: SANDBOX (never on gokesari.com), CASHFREE or RAZORPAYX (their payout keys). Owner decisions 31 Oct 2026: ₹100–₹10,000, no fee, ₹100 monthly minimum, 3 retries, TDS 194C 1% / 20% without PAN.",
+    schema: z.object({
+      withdrawalMinPaise: int(100, 10_000_000),
+      withdrawalMaxPaise: int(100, 100_000_000),
+      withdrawalDailyMaxPaise: int(100, 100_000_000),
+      withdrawalFeePaise: int(0, 100_000),
+      withdrawalMode: z.enum(["IMPS", "NEFT"]),
+      withdrawalSettlement: z.string().min(1).max(120),
+      monthlyMinPaise: int(0, 10_000_000),
+      payoutDayOfMonth: int(1, 28),
+      payoutHourIst: int(0, 23),
+      monthlyMode: z.enum(["IMPS", "NEFT"]),
+      monthlySettlement: z.string().min(1).max(120),
+      maxRetries: int(0, 10),
+      retryBackoffMinutes: int(1, 1440),
+      provider: z.enum(["SANDBOX", "RAZORPAYX", "CASHFREE"]),
+      sandboxAutoWebhook: z.boolean(),
+      tdsEnabled: z.boolean(),
+      tdsRatePanBp: int(0, 3000),
+      tdsRateNoPanBp: int(0, 3000),
+      singlePaymentThresholdPaise: int(0, 1_000_000_000),
+      annualThresholdPaise: int(0, 1_000_000_000),
+    }),
+    defaults: {
+      withdrawalMinPaise: 10_000,
+      withdrawalMaxPaise: 1_000_000,
+      withdrawalDailyMaxPaise: 1_000_000,
+      withdrawalFeePaise: 0,
+      withdrawalMode: "IMPS",
+      withdrawalSettlement: "usually within 30 minutes (IMPS, any day)",
+      monthlyMinPaise: 10_000,
+      payoutDayOfMonth: 5,
+      payoutHourIst: 9,
+      monthlyMode: "NEFT",
+      monthlySettlement: "the same working day (NEFT)",
+      maxRetries: 3,
+      retryBackoffMinutes: 60,
+      provider: "SANDBOX",
+      sandboxAutoWebhook: true,
+      tdsEnabled: true,
+      tdsRatePanBp: 100,
+      tdsRateNoPanBp: 2000,
+      singlePaymentThresholdPaise: 3_000_000,
+      annualThresholdPaise: 10_000_000,
+    },
+  },
   platformInvoicing: {
     description:
       "F10.2.5 GoKesari's own tax invoice to each shop for its fees (commission, delivery charges, registration fees, billing/inventory management), one per payout cycle, with credit and debit notes and a monthly GSTR-1-ready export. Keep OFF on production until GoKesari's GSTIN, legal name, address, state and invoice prefix are entered in platformTaxProfile and the CA has confirmed the SAC codes and rates (Admin → Statutory). When on, the GST on fees is deducted from the shop's payout. billingManagementFeePaise: a fixed inventory/billing management charge per shop per cycle (0 = none). includeRegistrationFees: registration fees the shop paid during the cycle are invoiced too (their GST is inside what was paid, so nothing more is deducted).",
@@ -1484,14 +1536,23 @@ export const RULES = {
   /* >>> gig worker flow (docs/gig-worker-2026-10) */
   riderVerification: {
     description:
-      "Delivery partner verification (gig worker flow, docs/gig-worker-2026-10). gateAvailability — on: a partner can switch to Active or Ready only once their PAN and Aadhaar are Verified and their police verification form (and, with requireCharacterCertificate, their character certificate) is Approved, unless an admin overrides it for that partner; off: approved partners go online as before. maxDocumentBytes — largest police verification form or character certificate (PDF, JPG or PNG). aadhaarOtpMaxAttempts — wrong Aadhaar OTPs before the partner must ask for a new one.",
+      "Delivery partner verification (gig worker flow, docs/gig-worker-2026-10). gateAvailability — on: a partner can switch to Active or Ready only once their PAN and Aadhaar are Verified and their police verification form (and, with requireCharacterCertificate, their character certificate) is Approved, unless an admin overrides it for that partner; off: approved partners go online as before. maxDocumentBytes — largest police verification form or character certificate (PDF, JPG or PNG). aadhaarOtpMaxAttempts — wrong Aadhaar OTPs before the partner must ask for a new one (legacy OTP method only). aadhaarMethod — \"digilocker\": the partner shares their Aadhaar from DigiLocker (signs in there with an Aadhaar OTP); \"okyc_legacy\": the old OTP check (offline e-KYC), which Sandbox.co.in has discontinued — keep it only for a vendor that still offers it. Checks already Verified stay valid either way. digilockerProvider — \"kyc_provider\": DigiLocker through KYC_PROVIDER (Sandbox.co.in; Gridlines has none, so the check waits for an admin); \"mock\": a local fake DigiLocker page with Approve / Deny / Expire buttons, for test.gokesari.com and local work (refused on gokesari.com).",
     schema: z.object({
       gateAvailability: z.boolean(),
       requireCharacterCertificate: z.boolean(),
       maxDocumentBytes: int(100_000, 20_000_000),
       aadhaarOtpMaxAttempts: int(1, 10),
+      aadhaarMethod: z.enum(["digilocker", "okyc_legacy"]),
+      digilockerProvider: z.enum(["kyc_provider", "mock"]),
     }),
-    defaults: { gateAvailability: true, requireCharacterCertificate: true, maxDocumentBytes: 5_000_000, aadhaarOtpMaxAttempts: 3 },
+    defaults: {
+      gateAvailability: true,
+      requireCharacterCertificate: true,
+      maxDocumentBytes: 5_000_000,
+      aadhaarOtpMaxAttempts: 3,
+      aadhaarMethod: "digilocker",
+      digilockerProvider: "kyc_provider",
+    },
   },
   riderZoning: {
     description:

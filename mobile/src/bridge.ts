@@ -22,6 +22,7 @@ export type BridgeMessageType =
   | "geo.clearWatch"
   | "openExternal"
   | "signInWithGoogle"
+  | "digilocker.open"
   | "downloadFailed"
   | "push.getToken";
 

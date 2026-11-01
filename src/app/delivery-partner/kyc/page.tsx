@@ -5,6 +5,7 @@ import { LinkButton, PageHeader } from "@/components/ui";
 import { getCurrentUser } from "@/server/authz/guards";
 import { getMyDeliveryPartnerProfile } from "@/server/services/delivery-partners";
 import { getMyRiderKyc } from "@/server/services/rider-kyc";
+import { getRule } from "@/server/services/settings";
 
 export const metadata = { title: "PAN and Aadhaar verification" };
 export const dynamic = "force-dynamic";
@@ -15,16 +16,17 @@ export default async function RiderKycPage() {
   if (!user) redirect("/signin");
   const partner = await getMyDeliveryPartnerProfile(user.id);
   if (!partner) redirect("/delivery-partner/register");
-  const kyc = await getMyRiderKyc(user.id);
-  const view = (c: typeof kyc.pan) => (c ? { status: c.status, numberMasked: c.numberMasked, reason: c.reason, awaitingOtp: c.awaitingOtp } : null);
+  const [kyc, rule] = await Promise.all([getMyRiderKyc(user.id), getRule("riderVerification")]);
+  const view = (c: typeof kyc.pan) =>
+    c ? { status: c.status, numberMasked: c.numberMasked, reason: c.reason, awaitingOtp: c.awaitingOtp, digilockerOpen: c.digilockerOpen } : null;
 
   return (
     <div className="mx-auto max-w-2xl">
       <PageHeader
         title="PAN and Aadhaar verification"
-        description="Step 2 of 3. We check your PAN and Aadhaar with the government records through our verification partner, with your consent."
+        description="Step 2 of 3. We check your PAN with the government records through our verification partner, and you share your Aadhaar from DigiLocker — with your consent."
       />
-      <RiderKycForm pan={view(kyc.pan)} aadhaar={view(kyc.aadhaar)} />
+      <RiderKycForm pan={view(kyc.pan)} aadhaar={view(kyc.aadhaar)} aadhaarMethod={rule.aadhaarMethod} />
       <div className="mt-6 flex flex-wrap gap-2">
         <LinkButton href="/delivery-partner/documents">Next: police verification documents</LinkButton>
         <LinkButton href="/delivery-partner" variant="secondary">

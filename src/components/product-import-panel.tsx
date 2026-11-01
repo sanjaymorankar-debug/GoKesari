@@ -281,9 +281,20 @@ export function ProductImportPanel({
                 Excel (.xlsx, .xlsm) or CSV, up to {limits.maxMb} MB and {limits.maxRows.toLocaleString("en-IN")} rows. Every column is optional.
               </p>
             </div>
-            <a className="inline-flex min-h-11 items-center rounded-lg border border-cream-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 hover:bg-cream-100" href={`${API}/template`} data-testid="download-template">
-              Download GoKesari template
-            </a>
+            <div className="flex flex-wrap gap-2" data-testid="template-downloads">
+              <a className="inline-flex min-h-11 items-center rounded-lg border border-cream-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 hover:bg-cream-100" href={`${API}/template`} data-testid="download-template">
+                Download GoKesari template
+              </a>
+              <a className="inline-flex min-h-11 items-center rounded-lg border border-cream-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 hover:bg-cream-100" href={`${API}/template?format=csv`} data-testid="download-template-csv" aria-label="Download GoKesari template as CSV">
+                CSV
+              </a>
+              <a className="inline-flex min-h-11 items-center rounded-lg border border-cream-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 hover:bg-cream-100" href={`/api/v1/shops/${shopId}/catalogue-export`} data-testid="download-catalogue" title="Your products with SKU, MRP, price, stock, HSN and GST — edit and upload again">
+                Download my catalogue
+              </a>
+              <a className="inline-flex min-h-11 items-center rounded-lg border border-cream-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 hover:bg-cream-100" href={`/api/v1/shops/${shopId}/catalogue-export?format=csv`} data-testid="download-catalogue-csv" aria-label="Download my catalogue as CSV">
+                CSV
+              </a>
+            </div>
           </div>
           <div
             role="button"
@@ -448,6 +459,9 @@ export function ProductImportPanel({
               </a>
               <a className="inline-flex min-h-11 items-center rounded-lg border border-cream-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 hover:bg-cream-100" href={`${API}/${job.id}/report?format=csv`}>
                 CSV
+              </a>
+              <a className="inline-flex min-h-11 items-center rounded-lg border border-cream-200 bg-white px-4 py-2 text-sm font-medium text-ink-700 hover:bg-cream-100" href={`${API}/${job.id}/report?format=xlsx&rows=problems`} data-testid="report-problems">
+                Only rows to fix
               </a>
               {job.imagesStatus === "queued" || job.imagesStatus === "running" ? (
                 <span className="text-xs text-ink-600">Downloading product images… ({counts!.imagesQueued})</span>
