@@ -70,14 +70,15 @@ import {
   suspendDeliveryPartner,
 } from "@/server/services/delivery-partners";
 import { call } from "../helpers/http";
-import { addRiderIdentityDocument, createUser, resetDatabase } from "../helpers/fixtures";
+import { addRiderIdentityDocument, createUser, FULL_RIDER_REGISTRATION, openRiderAvailabilityGate, resetDatabase } from "../helpers/fixtures";
 
 const ADMIN = (id: string) => ({ id, role: "ADMIN" as const });
 
 /** Deliberately distinct from the partner's own full name, which the API legitimately returns. */
 const KYC: Record<KycField, string> = {
   panNumber: "ABCDE1234F",
-  // A well-formed Aadhaar number (2–9 first, valid check digit): checked since TC-FLD-092.
+  // A voter ID number here: since the gig worker flow an Aadhaar number is refused at registration
+  // (verified by OTP on the KYC step and kept masked only — rider-kyc.test.ts).
   governmentIdNumber: "234123412346",
   bankAccountHolderName: "R K Savings Account",
   bankAccountNumber: "000123456789",
@@ -134,6 +135,7 @@ beforeEach(async () => {
   state.keyConfigured = true;
   resetRateLimits();
   await resetDatabase();
+  await openRiderAvailabilityGate();
 });
 
 describe("registration encrypts KYC at rest", () => {
@@ -142,7 +144,7 @@ describe("registration encrypts KYC at rest", () => {
     const partner = await registerDeliveryPartner(user.id, {
       ...baseInput,
       ...KYC,
-      governmentIdType: "AADHAAR",
+      governmentIdType: "VOTER_ID",
     });
 
     const row = await rawRow(partner.id);
@@ -154,7 +156,7 @@ describe("registration encrypts KYC at rest", () => {
       expect(decryptSecret(encrypted!)).toBe(KYC[field]);
     }
     // The ID *type* is a label, not a secret — it stays readable.
-    expect(row.governmentIdType).toBe("AADHAAR");
+    expect(row.governmentIdType).toBe("VOTER_ID");
   });
 
   it("trims what it encrypts, as registration always trimmed what it stored", async () => {
@@ -229,7 +231,11 @@ describe("nothing sensitive leaves the service layer", () => {
       await reactivateDeliveryPartner(registered.id, "policy check passed", admin),
       await goOnline(legacyUser.id, 18.52, 73.85),
       await goOffline(legacyUser.id),
-      await rejectDeliveryPartner((await registerDeliveryPartner((await createUser()).id, { ...baseInput, ...KYC })).id, "unclear documents", admin),
+      await rejectDeliveryPartner(
+        (await registerDeliveryPartner((await createUser()).id, { ...baseInput, ...KYC, mobile: "9876543219" })).id,
+        "unclear documents",
+        admin,
+      ),
       await deactivateDeliveryPartner(legacy.id, "requested by partner", admin),
     ];
 
@@ -249,7 +255,7 @@ describe("no route returns KYC", () => {
     signInAs(applicant, "CUSTOMER");
     const registered = await call(registerRoute, "/api/delivery-partner", {
       method: "POST",
-      body: { ...baseInput, ...KYC, governmentIdType: "AADHAAR" },
+      body: { ...baseInput, ...FULL_RIDER_REGISTRATION, ...KYC, governmentIdType: "VOTER_ID" },
     });
     expect(registered.status).toBe(201);
     expect(registered.body.fullName).toBe("Ravi Kumar");
@@ -347,7 +353,7 @@ describe("beyond KYC: staff ids, date of birth and coordinates", () => {
     const admin = await createUser({ role: "ADMIN" });
 
     signInAs(riderUser, "CUSTOMER");
-    const registered = await call(registerRoute, "/api/delivery-partner", { method: "POST", body: { ...baseInput, dateOfBirth: DOB } });
+    const registered = await call(registerRoute, "/api/delivery-partner", { method: "POST", body: { ...baseInput, ...FULL_RIDER_REGISTRATION, dateOfBirth: DOB } });
     expect(registered.status).toBe(201);
     await addRiderIdentityDocument(registered.body.id);
     await approveDeliveryPartner(registered.body.id, ADMIN(admin.id), "documents checked");

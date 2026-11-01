@@ -47,6 +47,7 @@ import { postLedger, postRetainedDeliveryFee } from "@/server/services/finance";
 import { getRule } from "@/server/services/settings";
 import { applyWalletMutation, getOrCreateWallet, refundOriginalDebit } from "@/server/services/wallet";
 import { AFTER_PACKING_STATUSES, effectiveFeePolicy, feeFor, type FeeQuote } from "./cancellation-fee";
+import { recordOrderStatusEvent } from "@/server/events/order-status-record";
 
 type Actor = { id: string; role: UserRole } | null;
 
@@ -282,6 +283,8 @@ async function announceRefund(
 async function setOrderStatus(tx: DbClient, orderId: string, from: OrderStatus, to: OrderStatus, actorId: string | null, note: string) {
   await tx.update(orders).set({ status: to, updatedAt: new Date() }).where(eq(orders.id, orderId));
   await tx.insert(orderStatusHistory).values({ orderId, previousStatus: from, newStatus: to, changedBy: actorId, note });
+  // Checked against the order state machine and logged as an event, like every other status change.
+  await recordOrderStatusEvent(tx, orderId, from, to, actorId ? { id: actorId, role: null } : null, note);
 }
 
 const PART_KEY_PREFIX = "order-refund:part:";

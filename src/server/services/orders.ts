@@ -90,6 +90,8 @@ import {
   selfCancelBlock,
 } from "@/lib/order-cancellation";
 import { executeCancellationRefund, planCancellationRefund } from "@/server/aftercare/refunds"; // batch-2026-10 WS-C
+import { chargesGst, listingsMissingTaxData } from "@/server/gst/tax-data-check";
+import { recordOrderStatusEvent } from "@/server/events/order-status-record";
 
 /**
  * A delivery assignment is still "in play" — offered, accepted, or already
@@ -387,6 +389,22 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
       // Mandatory legal documents: a shop past its grace period takes no orders until it uploads them.
       unwrap((await legalChecks.get(shopRow.id)) ?? { ok: true, value: undefined });
       assertMinimumOrder(shopRow, group.subtotalPaise, addressSnapshot != null);
+    }
+  }
+
+  // Rule invoicing.missingTaxData = BLOCK: a GST-registered shop's line with no HSN or GST rate is not sold.
+  if ((await getRule("invoicing")).missingTaxData === "BLOCK") {
+    for (const group of purchasableGroups) {
+      const shopRow = cartShopById.get(group.shop.id);
+      if (!shopRow || !chargesGst(shopRow)) continue;
+      const missing = await listingsMissingTaxData(group.lines.filter((l) => l.purchasable).map((l) => l.shopProductId));
+      if (missing.size > 0) {
+        const names = group.lines.filter((l) => missing.has(l.shopProductId)).map((l) => l.productName);
+        throw conflict(
+          `${shopRow.name} cannot sell ${names.join(", ")} online yet: the shop has not set the GST details for ${names.length === 1 ? "it" : "them"}. Remove ${names.length === 1 ? "it" : "them"} to continue.`,
+          { missingTaxData: [...missing] },
+        );
+      }
     }
   }
 
@@ -910,7 +928,7 @@ export async function updateOrderStatus(
   note?: string,
   client?: DbClient,
   /** Event layer: extra facts for the order event's notifications (e.g. the rider's name). */
-  event?: Pick<OrderEventPayload, "riderUserId" | "riderName" | "reason">,
+  event?: Pick<OrderEventPayload, "riderUserId" | "riderName" | "shopRiderName" | "reason">,
 ): Promise<Order> {
   const run = async (tx: DbClient): Promise<Order> => {
     const [order] = await tx
@@ -941,6 +959,21 @@ export async function updateOrderStatus(
         throw conflict(
           "A rider is delivering this order. It is completed when the customer gives the rider their delivery code, or by operations.",
         );
+      }
+      // A reattempt after a failed GoKesari drop (FAILED → OUT_FOR_DELIVERY) has no rider
+      // holding it, so the check above lets it through: with delivery codes required, only
+      // operations may complete it, never a plain status change by the shop.
+      if (!riderHolding && order.status === "OUT_FOR_DELIVERY" && actor.role !== "ADMIN" && actor.role !== "OPERATOR") {
+        const [failedDrop] = await tx
+          .select({ id: deliveryOrders.id })
+          .from(deliveryOrders)
+          .where(and(eq(deliveryOrders.orderId, orderId), eq(deliveryOrders.status, "FAILED")))
+          .limit(1);
+        if (failedDrop && (await getRule("deliveryOtp")).required) {
+          throw conflict(
+            "This is a second delivery attempt after a failed one. It is completed by operations once the customer confirms with their delivery code.",
+          );
+        }
       }
     }
     // Fulfilment options: pickup / own-delivery orders complete only with the customer's code.
@@ -1070,9 +1103,57 @@ export async function updateOrderStatus(
       tx,
     );
 
+    // Gig worker flow (feature 11): a confirmed delivery completes the order in the same
+    // transaction; the confirmations are queued and sent once it commits.
+    if (newStatus === "DELIVERED") {
+      const completed = await completeDeliveredOrder(tx, updated, shop ?? null);
+      if (completed) return completed;
+    }
+
     return updated;
   };
   return client ? run(client) : db.transaction(run);
+}
+
+/**
+ * Marks a delivered order Completed (`completed_at`; the status stays
+ * DELIVERED) and tells the customer and the shop, in the app and — per rule
+ * orderCompletion — by push and SMS. Once per order. Null when the rule is
+ * off or the order was already completed.
+ */
+async function completeDeliveredOrder(
+  tx: DbClient,
+  order: Order,
+  shop: { ownerId: string; name: string } | null,
+): Promise<Order | null> {
+  const rule = await getRule("orderCompletion");
+  if (!rule.enabled) return null;
+  const [completed] = await tx
+    .update(orders)
+    .set({ completedAt: new Date() })
+    .where(and(eq(orders.id, order.id), eq(orders.status, "DELIVERED"), isNull(orders.completedAt)))
+    .returning();
+  if (!completed) return null;
+  const completionChannels: ("PUSH" | "SMS")[] = [...(rule.push ? (["PUSH"] as const) : []), ...(rule.sms ? (["SMS"] as const) : [])];
+  await emitEvent(
+    {
+      type: "order.completed",
+      subjectId: order.id,
+      orderId: order.id,
+      actor: { id: null, role: null },
+      payload: {
+        orderId: order.id,
+        orderNumber: order.orderNumber,
+        buyerId: order.userId,
+        shopOwnerId: shop?.ownerId ?? null,
+        shopName: shop?.name ?? "the shop",
+        completionChannels,
+      },
+      idempotencyKey: `order-completed:${order.id}`,
+    },
+    tx,
+  );
+  return completed;
 }
 
 export interface CancelOrderOptions {
@@ -1399,6 +1480,7 @@ export async function cancelOrder(
         changedBy: actor?.id ?? null,
         note: goodsOnlyRefund ? "Wallet refunded (goods only; delivery fee retained)" : "Wallet refunded",
       });
+      await recordOrderStatusEvent(tx, orderId, "CANCELLED", "REFUNDED", actor, goodsOnlyRefund ? "Wallet refunded (goods only)" : "Wallet refunded");
       return { ...updated, status: "REFUNDED" as OrderStatus };
     }
 

@@ -350,8 +350,12 @@ export const RULES = {
       enabled: z.boolean(),
       /** GST rate (basis points) for a product with no rate on record — such lines are marked "rate not set". */
       defaultGstRateBp: int(0, 2800),
+      /** Ad-valorem compensation cess from the listing or the dated HSN table goes on the line (tax-inclusive). Off: no cess, as before. */
+      applyCess: z.boolean(),
+      /** A GST-registered shop's line with no HSN or GST rate: ALLOW (invoiced at the default rate, marked, listed at /admin/product-gst) or BLOCK (checkout refused for it). */
+      missingTaxData: z.enum(["ALLOW", "BLOCK"]),
     }),
-    defaults: { enabled: false, defaultGstRateBp: 0 },
+    defaults: { enabled: false, defaultGstRateBp: 0, applyCess: true, missingTaxData: "ALLOW" as const },
   },
   batching: {
     description:
@@ -625,13 +629,14 @@ export const RULES = {
   },
   deliveryOtp: {
     description:
-      "Customer delivery code (GS-043): wrong attempts a rider may make before the drop is locked (a support ticket is raised and only operations can confirm it), and how often the customer may ask for a new code: seconds between requests and new codes per delivery. Also used by the exceptions queue and the OTP_LOCKOUTS risk rule.",
+      "Customer delivery code (GS-043): wrong attempts a rider may make before the drop is locked (a support ticket is raised and only operations can confirm it), and how often the customer may ask for a new code: seconds between requests and new codes per delivery. Also used by the exceptions queue and the OTP_LOCKOUTS risk rule. required (gig worker flow) — on: the rider enters the customer's code to mark a delivery done; off: no code is issued and the rider marks it delivered without one (use deliveryProof.photoRequired for photo proof instead).",
     schema: z.object({
       maxAttempts: int(1, 20),
       resendCooldownSeconds: int(0, 3600),
       maxResends: int(0, 20),
+      required: z.boolean(),
     }),
-    defaults: { maxAttempts: 5, resendCooldownSeconds: 60, maxResends: 3 },
+    defaults: { maxAttempts: 5, resendCooldownSeconds: 60, maxResends: 3, required: true },
   },
   shopWallet: {
     description:
@@ -1376,6 +1381,54 @@ export const RULES = {
       debitAccountNumber: "",
     },
   },
+  riderPayouts: {
+    description:
+      "docs/gig-bank-payouts-2026-10: delivery partners' earnings to their verified bank account (feature flags rider_withdrawal_enabled and rider_monthly_payout_enabled). Withdrawals: between withdrawalMinPaise and withdrawalMaxPaise each, at most withdrawalDailyMaxPaise a day (IST), never more than the unpaid balance, withdrawalFeePaise per withdrawal; sent by withdrawalMode (UPI IDs by UPI). Monthly: on payoutDayOfMonth from payoutHourIst (IST) every approved rider with a verified bank account and at least monthlyMinPaise unpaid for the previous month is paid (less is carried forward), by monthlyMode. Failed monthly transfers are retried maxRetries times, retryBackoffMinutes × attempt apart, then flagged for finance; a failed withdrawal goes straight back to the rider's balance. TDS s.194C (s.393 of the Income-tax Act 2025): once a rider's payments in the financial year pass annualThresholdPaise, or one payment passes singlePaymentThresholdPaise, tdsRatePanBp (no PAN on file: tdsRateNoPanBp) of the year's payments is deducted, less TDS already deducted. provider: SANDBOX (never on gokesari.com), CASHFREE or RAZORPAYX (their payout keys). Owner decisions 31 Oct 2026: ₹100–₹10,000, no fee, ₹100 monthly minimum, 3 retries, TDS 194C 1% / 20% without PAN.",
+    schema: z.object({
+      withdrawalMinPaise: int(100, 10_000_000),
+      withdrawalMaxPaise: int(100, 100_000_000),
+      withdrawalDailyMaxPaise: int(100, 100_000_000),
+      withdrawalFeePaise: int(0, 100_000),
+      withdrawalMode: z.enum(["IMPS", "NEFT"]),
+      withdrawalSettlement: z.string().min(1).max(120),
+      monthlyMinPaise: int(0, 10_000_000),
+      payoutDayOfMonth: int(1, 28),
+      payoutHourIst: int(0, 23),
+      monthlyMode: z.enum(["IMPS", "NEFT"]),
+      monthlySettlement: z.string().min(1).max(120),
+      maxRetries: int(0, 10),
+      retryBackoffMinutes: int(1, 1440),
+      provider: z.enum(["SANDBOX", "RAZORPAYX", "CASHFREE"]),
+      sandboxAutoWebhook: z.boolean(),
+      tdsEnabled: z.boolean(),
+      tdsRatePanBp: int(0, 3000),
+      tdsRateNoPanBp: int(0, 3000),
+      singlePaymentThresholdPaise: int(0, 1_000_000_000),
+      annualThresholdPaise: int(0, 1_000_000_000),
+    }),
+    defaults: {
+      withdrawalMinPaise: 10_000,
+      withdrawalMaxPaise: 1_000_000,
+      withdrawalDailyMaxPaise: 1_000_000,
+      withdrawalFeePaise: 0,
+      withdrawalMode: "IMPS",
+      withdrawalSettlement: "usually within 30 minutes (IMPS, any day)",
+      monthlyMinPaise: 10_000,
+      payoutDayOfMonth: 5,
+      payoutHourIst: 9,
+      monthlyMode: "NEFT",
+      monthlySettlement: "the same working day (NEFT)",
+      maxRetries: 3,
+      retryBackoffMinutes: 60,
+      provider: "SANDBOX",
+      sandboxAutoWebhook: true,
+      tdsEnabled: true,
+      tdsRatePanBp: 100,
+      tdsRateNoPanBp: 2000,
+      singlePaymentThresholdPaise: 3_000_000,
+      annualThresholdPaise: 10_000_000,
+    },
+  },
   platformInvoicing: {
     description:
       "F10.2.5 GoKesari's own tax invoice to each shop for its fees (commission, delivery charges, registration fees, billing/inventory management), one per payout cycle, with credit and debit notes and a monthly GSTR-1-ready export. Keep OFF on production until GoKesari's GSTIN, legal name, address, state and invoice prefix are entered in platformTaxProfile and the CA has confirmed the SAC codes and rates (Admin → Statutory). When on, the GST on fees is deducted from the shop's payout. billingManagementFeePaise: a fixed inventory/billing management charge per shop per cycle (0 = none). includeRegistrationFees: registration fees the shop paid during the cycle are invoiced too (their GST is inside what was paid, so nothing more is deducted).",
@@ -1479,6 +1532,45 @@ export const RULES = {
     defaults: { enabled: true, bannerSeconds: 6 },
   },
   /* <<< end homepage UI/UX upgrade */
+  //
+  /* >>> gig worker flow (docs/gig-worker-2026-10) */
+  riderVerification: {
+    description:
+      "Delivery partner verification (gig worker flow, docs/gig-worker-2026-10). gateAvailability — on: a partner can switch to Active or Ready only once their PAN and Aadhaar are Verified and their police verification form (and, with requireCharacterCertificate, their character certificate) is Approved, unless an admin overrides it for that partner; off: approved partners go online as before. maxDocumentBytes — largest police verification form or character certificate (PDF, JPG or PNG). aadhaarOtpMaxAttempts — wrong Aadhaar OTPs before the partner must ask for a new one (legacy OTP method only). aadhaarMethod — \"digilocker\": the partner shares their Aadhaar from DigiLocker (signs in there with an Aadhaar OTP); \"okyc_legacy\": the old OTP check (offline e-KYC), which Sandbox.co.in has discontinued — keep it only for a vendor that still offers it. Checks already Verified stay valid either way. digilockerProvider — \"kyc_provider\": DigiLocker through KYC_PROVIDER (Sandbox.co.in; Gridlines has none, so the check waits for an admin); \"mock\": a local fake DigiLocker page with Approve / Deny / Expire buttons, for test.gokesari.com and local work (refused on gokesari.com).",
+    schema: z.object({
+      gateAvailability: z.boolean(),
+      requireCharacterCertificate: z.boolean(),
+      maxDocumentBytes: int(100_000, 20_000_000),
+      aadhaarOtpMaxAttempts: int(1, 10),
+      aadhaarMethod: z.enum(["digilocker", "okyc_legacy"]),
+      digilockerProvider: z.enum(["kyc_provider", "mock"]),
+    }),
+    defaults: {
+      gateAvailability: true,
+      requireCharacterCertificate: true,
+      maxDocumentBytes: 5_000_000,
+      aadhaarOtpMaxAttempts: 3,
+      aadhaarMethod: "digilocker",
+      digilockerProvider: "kyc_provider",
+    },
+  },
+  riderZoning: {
+    description:
+      "Delivery zoning (gig worker flow): an order is offered only to a Ready partner whose live location is within radiusKm of both the pickup (the shop) and the delivery address — and, for the pickup, within the partner's own operating radius. Uses the partner's live location, never the registration address; a location older than maxLocationAgeMinutes is not live, so the partner gets no new offers until the phone sends a fresh one. Each location update re-checks the partner's open offers and withdraws any that are now out of range. Off: the shop-only radius check of before.",
+    schema: z.object({
+      enabled: z.boolean(),
+      radiusKm: z.number().min(3).max(5),
+      maxLocationAgeMinutes: int(1, 240),
+    }),
+    defaults: { enabled: true, radiusKm: 5, maxLocationAgeMinutes: 15 },
+  },
+  orderCompletion: {
+    description:
+      "Order completion (gig worker flow, feature 11). On: once a delivery is confirmed (the rider's delivered step, a shop's own delivery, or an operator's confirmation) the order is marked Completed and the customer and the shop each get a confirmation in the app, as a push notification (rule push) and as an SMS (when an SMS provider is set up). The order's status stays Delivered for returns, ratings, invoices and refunds. Off: delivered orders are not marked completed and no completion message is sent.",
+    schema: z.object({ enabled: z.boolean(), push: z.boolean(), sms: z.boolean() }),
+    defaults: { enabled: true, push: true, sms: true },
+  },
+  /* <<< end gig worker flow */
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;

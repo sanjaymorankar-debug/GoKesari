@@ -27,7 +27,7 @@ export type PaymentIntentStatusValue = (typeof PAYMENT_INTENT_STATUSES)[number];
 
 export const PAYMENT_PURPOSES = ["ORDER", "ORDER_GROUP", "SHOP_REGISTRATION_FEE", "SUPPORT_SERVICE"] as const; // SUPPORT_SERVICE: docs/dealer-programme step 7
 
-export const PAYMENT_GATEWAYS = ["SANDBOX", "CASHFREE", "RAZORPAY", "PHONEPE"] as const;
+export const PAYMENT_GATEWAYS = ["SANDBOX", "CASHFREE", "RAZORPAY", "PHONEPE", "HDFC"] as const;
 
 export const PAYMENT_REFUND_STATUSES = ["PENDING", "SUCCESS", "FAILED"] as const;
 

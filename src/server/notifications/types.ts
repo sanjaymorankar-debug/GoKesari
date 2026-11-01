@@ -24,6 +24,8 @@ export const NOTIFICATION_TYPES = {
   ORDER_ACCEPTED: "order.accepted",
   ORDER_ASSIGNED: "order.assigned",
   ORDER_DELIVERY_FAILED: "order.delivery_failed",
+  /** To the customer and the shop: after a failed delivery the order went back to the shop (RTO). */
+  ORDER_RETURNED_TO_SHOP: "order.returned_to_shop",
   /** Shop proposed a replacement for an unavailable item; customer must decide. */
   ORDER_SUBSTITUTION_PROPOSED: "order.substitution_proposed",
   ORDER_ITEM_REMOVED: "order.item_removed",
@@ -104,6 +106,14 @@ export const NOTIFICATION_TYPES = {
   DELIVERY_PARTNER_REACTIVATED: "delivery_partner.reactivated",
   DELIVERY_PARTNER_DEACTIVATED: "delivery_partner.deactivated",
   DELIVERY_PARTNER_CHANGE_DECIDED: "delivery_partner.change_decided",
+  /* Gig worker flow (docs/gig-worker-2026-10). */
+  /** To the partner: an admin decided their PAN or Aadhaar check by hand. */
+  DELIVERY_PARTNER_KYC_DECIDED: "delivery_partner.kyc_decided",
+  /** To the partner: their police verification form or character certificate was approved or rejected. */
+  DELIVERY_PARTNER_BACKGROUND_DOC_DECIDED: "delivery_partner.background_doc_decided",
+  /** To the customer and the shop: the delivered order is complete (push + SMS + in-app). */
+  ORDER_COMPLETED: "order.completed",
+  SHOP_ORDER_COMPLETED: "shop.order_completed",
   SHOP_PRODUCT_IMAGE_DECIDED: "shop.product_image_decided",
   /* -------------------- Module 1: shop staff and bulk photo upload */
   /** To the person added: they may now edit a shop's product photos and descriptions. */
@@ -342,6 +352,16 @@ export const NOTIFICATION_TYPES = {
   /** To the shop owner: approved instantly on GST/PAN verification + payment — ready for product upload (email). */
   SHOP_READY_FOR_PRODUCT_UPLOAD: "shop.ready_for_product_upload",
   /* <<< end dealer programme */
+  /* >>> rider bank payouts (docs/gig-bank-payouts-2026-10) — "delivery" prefix: the Deliveries category */
+  /** To the rider: a withdrawal was sent to the bank. */
+  RIDER_WITHDRAWAL_SENT: "delivery.rider_withdrawal_sent",
+  /** To the rider: money reached the bank (withdrawal or monthly payout), with UTR and the summary. */
+  RIDER_PAYOUT_PAID: "delivery.rider_payout_paid",
+  /** To the rider: a transfer failed; the amount is back in their balance (or with finance for a retry). */
+  RIDER_PAYOUT_FAILED: "delivery.rider_payout_failed",
+  /** To the rider: the monthly run carried their earnings forward (below the minimum, no verified account…). */
+  RIDER_PAYOUT_CARRIED: "delivery.rider_payout_carried",
+  /* <<< rider bank payouts */
   //
 } as const;
 

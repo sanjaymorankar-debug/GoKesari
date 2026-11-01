@@ -97,6 +97,12 @@ const ICONS = {
   "wifi-off": `<path d="M12 20h.01"/> <path d="M8.5 16.429a5 5 0 0 1 7 0"/> <path d="M5 12.859a10 10 0 0 1 5.17-2.69"/> <path d="M19 12.859a10 10 0 0 0-2.007-1.523"/> <path d="M2 8.82a15 15 0 0 1 4.177-2.643"/> <path d="M22 8.82a15 15 0 0 0-11.288-3.764"/> <path d="m2 2 20 20"/>`,
   "check": `<path d="M20 6 9 17l-5-5"/>`,
   "x": `<path d="M18 6 6 18"/> <path d="m6 6 12 12"/>`,
+  // docs/app-install-2026-10: the install prompt and its "Add to Home Screen" guide.
+  "smartphone": `<rect width="14" height="20" x="5" y="2" rx="2" ry="2"/> <path d="M12 18h.01"/>`,
+  "share": `<path d="M4 12v8a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-8"/> <polyline points="16 6 12 2 8 6"/> <line x1="12" x2="12" y1="2" y2="15"/>`,
+  "square-plus": `<rect width="18" height="18" x="3" y="3" rx="2"/> <path d="M8 12h8"/> <path d="M12 8v8"/>`,
+  "ellipsis-vertical": `<circle cx="12" cy="12" r="1"/> <circle cx="12" cy="5" r="1"/> <circle cx="12" cy="19" r="1"/>`,
+  "download": `<path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/> <polyline points="7 10 12 15 17 10"/> <line x1="12" x2="12" y1="15" y2="3"/>`,
   "refresh-cw": `<path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8"/> <path d="M21 3v5h-5"/> <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16"/> <path d="M8 16H3v5"/>`,
   "ellipsis": `<circle cx="12" cy="12" r="1"/> <circle cx="19" cy="12" r="1"/> <circle cx="5" cy="12" r="1"/>`,
   // docs/homepage-uiux-2026-10: header, search, drawer, bottom navigation and carousel.

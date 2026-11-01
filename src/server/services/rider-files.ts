@@ -92,6 +92,16 @@ export async function canViewRiderPhoto(image: Pick<StoredImage, "id" | "ownerId
   if (image.ownerId && user.id === image.ownerId) return true;
   if (can(user.role, PERMISSIONS.DELIVERY_PARTNER_MANAGE)) return true;
   if (!image.ownerId) return false;
+  // Gig worker flow (feature 8): a shop owner, for the partner on one of their recent orders —
+  // never where the order's society blocks the partner (society-partner-access.ts).
+  const [riderOfImage] = await db
+    .select({ id: deliveryPartners.id })
+    .from(deliveryPartners)
+    .where(eq(deliveryPartners.userId, image.ownerId));
+  if (riderOfImage) {
+    const { shopOwnerMaySeePartner } = await import("./society-partner-access");
+    if (await shopOwnerMaySeePartner(user.id, riderOfImage.id)) return true;
+  }
   // Society staff, for a rider their verified society lists — so the gate can check the face.
   const [row] = await db
     .select({ id: societyRiders.id })

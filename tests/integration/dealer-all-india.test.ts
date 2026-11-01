@@ -2,9 +2,10 @@
  * Dealer programme across India (docs/dealer-programme, all-India): every state
  * and UT is an area placed by PIN; an admin adds a dealer for any state and
  * district (adding a new district on the way) and the dealer gets a generated
- * unique code GKS-<state>-<district>-<6>; flags and commission rules can name
+ * unique 8-character code; flags and commission rules can name
  * whole states; the application offers states and their districts.
  */
+import { generatedReferralCodePattern } from "@/lib/referral-codes";
 import { eq } from "drizzle-orm";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -29,7 +30,7 @@ import { createShop, createUser, resetDatabase } from "../helpers/fixtures";
 
 type Actor = { id: string; email: string; name: string | null; role: UserRole };
 let admin: Actor;
-const CODE = /^GKS-([A-Z]{2})-([A-Z]{2,4})-[A-HJ-KM-NP-Z2-9]{6}$/;
+const CODE = generatedReferralCodePattern();
 
 beforeEach(async () => {
   await resetDatabase();
@@ -83,18 +84,17 @@ describe("an admin adds a dealer for any state and district", () => {
       admin,
     );
     expect(code).toMatch(CODE);
-    expect(code.startsWith("GKS-KA-MYS-")).toBe(true);
     expect(dealer).toMatchObject({ status: "APPROVED", source: "ADMIN", state: "Karnataka", userId: u.id });
     expect((await db.select().from(dealerTerritories).where(eq(dealerTerritories.dealerId, dealer.id))).map((t) => t.areaCode)).toEqual(["KA-MYS"]);
     const roles = await db.select().from(userRoleGrants).where(eq(userRoleGrants.userId, u.id));
     expect(roles.map((r) => r.role)).toContain("DEALER");
   });
 
-  it("a state with no district yet: GKS-<state>-<6>; many dealers, all different codes", async () => {
+  it("a state with no district yet: many dealers, all different codes", async () => {
     const codes = new Set<string>();
     for (let i = 0; i < 12; i++) {
       const { code } = await createDealerByAdmin({ legalName: `TN Dealer ${i}`, contactName: "S Kumar", dealerType: "INDIVIDUAL", stateCode: "TN", reason: "Tamil Nadu dealers" }, admin);
-      expect(code).toMatch(/^GKS-TN-[A-HJ-KM-NP-Z2-9]{6}$/);
+      expect(code).toMatch(CODE);
       codes.add(code);
     }
     expect(codes.size).toBe(12);
@@ -119,7 +119,7 @@ describe("an admin adds a dealer for any state and district", () => {
     state.session = { user: { id: admin.id, email: admin.email, name: admin.name, image: null, role: "ADMIN", status: "ACTIVE" } };
     const ok = await call(dealersPost, "/api/admin/dealers", { method: "POST", body });
     expect(ok.status).toBe(201);
-    expect(ok.body.code).toMatch(/^GKS-KA-/);
+    expect(ok.body.code).toMatch(CODE);
   });
 });
 

@@ -197,6 +197,8 @@ export default async function OrdersPage({
               <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <StatusBadge status={order.status} />
+                  {/* Gig worker flow (feature 11): the delivered order was confirmed complete. */}
+                  {order.completedAt ? <Badge tone="success">completed</Badge> : null}
                   {order.source === "SUBSCRIPTION" ? (
                     <Badge tone="info">subscription</Badge>
                   ) : null}

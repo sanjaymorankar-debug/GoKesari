@@ -35,11 +35,13 @@ import {
   createUser,
   resetDatabase,
   verifySellerDocuments,
+  openRiderAvailabilityGate,
 } from "../helpers/fixtures";
 
 beforeEach(async () => {
   await resetDatabase();
   await db.delete(platformSettings).where(eq(platformSettings.key, "statusModels"));
+  await openRiderAvailabilityGate();
 });
 
 async function changesFor(entityId: string) {

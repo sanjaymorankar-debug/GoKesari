@@ -198,9 +198,13 @@ describe("correct delivery code", () => {
 
     const [row] = await db.select().from(deliveryOrders).where(eq(deliveryOrders.id, d.deliveryId));
     expect(row.deliveryOtp).toBeNull();
+    // Salt and SHA-256 in hex: the code itself is not stored. (A "does not contain the 4 digits"
+    // check was flaky: a 4-digit code turns up inside a random 81-character hex string about once
+    // in a thousand runs — CI test-split, 31 Oct 2026.)
     expect(row.deliveryOtpHash).toMatch(/^[0-9a-f]{16}:[0-9a-f]{64}$/);
     const code = emailedCode(d.customer.email);
-    expect(row.deliveryOtpHash).not.toContain(code);
+    expect(code).toMatch(/^\d{4,6}$/);
+    expect(row.deliveryOtpHash!.split(":")).not.toContain(code);
 
     await legDistance(d.deliveryId, "2.37"); // priced on 2.4 km × ₹5 = ₹12.00
     const delivered = await markDelivered(d.deliveryId, d.rider, code);

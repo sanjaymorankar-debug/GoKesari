@@ -16,7 +16,10 @@ import { getRiderTrip } from "@/server/services/delivery-trips";
 import { getMyActiveReturnPickup } from "@/server/services/return-pickups";
 import { getRiderEarningsView, listAdjustments, listRiderPayouts } from "@/server/services/finance";
 import { getPartnerEarningsSummary } from "@/server/services/delivery-earnings";
-import { getMyDeliveryPartnerProfile } from "@/server/services/delivery-partners";
+import { getAvailabilityGate, getMyDeliveryPartnerProfile } from "@/server/services/delivery-partners";
+import { RiderVerificationChecklist } from "@/components/rider-verification-checklist";
+import { listMyBackgroundDocs } from "@/server/services/rider-background-docs";
+import { getMyRiderKyc } from "@/server/services/rider-kyc";
 import { listUserRoles } from "@/server/services/roles";
 // batch-2026-10 WS-B: broadcast offers, pickup QR, in-app navigation (each behind its own rule).
 import { RiderBroadcastOffers } from "@/components/rider-broadcast-offers";
@@ -87,6 +90,12 @@ export default async function DeliveryPartnerStatusPage() {
         ])
       : [null, false, false];
   const roles: UserRole[] = partner.status === "APPROVED" && !canDeliver ? await listUserRoles(user.id) : [];
+  // Gig worker flow: KYC and police verification status, and whether they still block Active / Ready.
+  const [kyc, backgroundDocs, gate] = await Promise.all([
+    getMyRiderKyc(user.id),
+    listMyBackgroundDocs(user.id),
+    getAvailabilityGate(partner),
+  ]);
 
   return (
     <div className="mx-auto max-w-2xl">
@@ -120,6 +129,12 @@ export default async function DeliveryPartnerStatusPage() {
           </div>
         ) : null}
       </Card>
+
+      {partner.status !== "DEACTIVATED" && partner.status !== "REJECTED" ? (
+        <div className="mb-6">
+          <RiderVerificationChecklist kyc={kyc} documents={backgroundDocs} gate={gate} />
+        </div>
+      ) : null}
 
       <Card className="p-6">
         <h2 className="mb-3 text-sm font-semibold uppercase tracking-wide text-ink-500">
@@ -155,6 +170,8 @@ export default async function DeliveryPartnerStatusPage() {
           {canDeliver ? (
             <DeliveryPartnerDashboard
               isOnline={partner.isOnline}
+              availability={partner.availability}
+              gate={{ allowed: gate.allowed, missing: gate.missing }}
               activeDelivery={activeDelivery}
               activeReturnPickup={activeReturnPickup}
               earnings={earnings}

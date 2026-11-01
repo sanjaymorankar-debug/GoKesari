@@ -3,6 +3,8 @@ Keeps the test plan workbook (test-cases.xlsx) in step with the QA suite.
 
   python3 scripts/qa/plan_workbook.py add-qa-cases          # the QA-automation module (24 Oct 2026)
   python3 scripts/qa/plan_workbook.py add-list-cases        # the Purchase lists module (24 Oct 2026)
+  python3 scripts/qa/plan_workbook.py add-app-cases         # the App install & updates module (31 Oct 2026)
+  python3 scripts/qa/plan_workbook.py add-opg-cases         # the Order, payment & GST module (31 Oct 2026)
   python3 scripts/qa/plan_workbook.py statuses REGISTER.xlsx  # write each case's overall status back
 
 add-qa-cases adds the cases and scenarios of the QA automation features
@@ -222,6 +224,142 @@ LIST_CHANGE = ("PL 24-Oct", "New module",
                "(signed tier: staging customer accounts and the local server; writes only 'QA PL' lists and puts the cart back). "
                "TC-LIST-028 (reminders) is time-based and declared manual (integration tests cover it).")
 
+APP_MODULE = "App install & updates"
+APP_SOURCE = "docs/app-install-2026-10/README.md (31 Oct 2026)"
+
+APP_CASES = [
+    # id, features, title, type, priority, role, method, preconditions, steps, expected
+    ("TC-APP-001", "AI-001", "First visit on an Android phone shows the install prompt", "Positive", "P0", "Guest", "UI",
+     "Android phone browser, app not installed, fresh browser storage",
+     "1. Open the home page",
+     "A bottom sheet 'Get the GoKesari app' with Install and Not now appears without a backdrop; the page behind stays usable."),
+    ("TC-APP-002", "AI-001", "Not now hides the prompt for this page view only", "Positive", "P0", "Guest", "UI",
+     "TC-APP-001 shown",
+     "1. Tap Not now\\n2. Read localStorage gk_app_install_declines",
+     "The sheet closes; the decline is counted (count 1) but no flag that stops prompting is stored."),
+    ("TC-APP-003", "AI-001", "After declining, the prompt shows again on visits 2 and 3", "Positive", "P0", "Guest", "UI",
+     "Declined once (TC-APP-002)",
+     "1. Open another page (full load) - visit 2\\n2. Tap Not now\\n3. Open the home page again - visit 3",
+     "The prompt is shown on visit 2 and on visit 3; the decline count rises to 2. Declining never suppresses it."),
+    ("TC-APP-004", "AI-002", "Install from Chrome's own dialog; no prompt after install", "Positive", "P0", "Guest", "UI",
+     "Android Chrome fires beforeinstallprompt",
+     "1. Tap Install\\n2. Accept Chrome's dialog (appinstalled)\\n3. Reload",
+     "Chrome's install dialog opens from the button (its own mini-bar is suppressed); after install the sheet is gone and does not return on reload (gk_app_installed set)."),
+    ("TC-APP-005", "AI-002", "Installed app (standalone, installed flag, related app) never shows the prompt", "Positive", "P0", "Guest", "UI",
+     "App installed on this device",
+     "1. Open the site from the installed app / with the installed flag set",
+     "No install prompt anywhere on the website."),
+    ("TC-APP-006", "AI-002", "No install prompt inside the native Android / iPhone app", "Positive", "P0", "Guest", "UI",
+     "User agent contains GoKesariApp/<version>",
+     "1. Open the home page in the app's WebView",
+     "No install prompt and no service-worker update bar."),
+    ("TC-APP-007", "AI-003", "iPhone Safari shows the Add to Home Screen guide", "Positive", "P0", "Guest", "UI",
+     "iPhone Safari, not added to the home screen",
+     "1. Open the home page\\n2. Tap Install",
+     "The sheet shows; Install opens a three-step picture guide: Tap Share -> Add to Home Screen -> Tap Add."),
+    ("TC-APP-008", "AI-004", "Decline and install are kept on the signed-in account", "Positive", "P1", "Customer", "API",
+     "Signed in",
+     "1. POST /api/app-install declined (x2), installed android\\n2. GET /api/app-install\\n3. Same calls signed out",
+     "The record shows declineCount up by 2 and android among installedPlatforms; signed out every call answers 401."),
+    ("TC-APP-009", "AI-005", "Service worker served fresh with a versioned cache", "Positive", "P0", "Guest", "API",
+     "-",
+     "1. GET /sw.js",
+     "200 JavaScript, Cache-Control no-store; names its build version and caches only /_next/static and /pwa files in gk-static-<version>."),
+    ("TC-APP-010", "AI-005", "A new deploy is picked up by the installed app without reinstalling", "Positive", "P0", "Guest", "UI",
+     "App open on the old version; a new version deployed",
+     "1. Return to the app / reload\\n2. Tap Reload on 'A new version of GoKesari is ready'",
+     "The bar appears; Reload switches to the new version (the old gk-static cache is deleted). Without Reload, the new version runs on the next launch."),
+    ("TC-APP-011", "AI-006", "Native update check endpoint", "Positive", "P1", "Guest", "API",
+     "-",
+     "1. GET /api/app/version",
+     "android and ios each with latest, minimum, url (null until configured; versions as x.y.z, links https)."),
+    ("TC-APP-012", "AI-006", "Native app offers a newer build and installs it over the old one", "Positive", "P0", "Customer", "Manual",
+     "App 1.5.0 installed; MOBILE_APP_<platform>_LATEST set higher with a URL",
+     "1. Open the app (or bring it back)\\n2. Tap Update",
+     "'A new version of GoKesari is ready' with Later / Update (only Update below the minimum); Update opens the Play Store / App Store / APK and the new build installs over the old one, still signed in."),
+    ("TC-APP-013", "AI-001", "The prompt fits a phone screen", "Positive", "P1", "Guest", "UI",
+     "Phone 360-412 px wide",
+     "1. Open the home page\\n2. Open the guide",
+     "The whole sheet (title, text, guide, buttons) is on screen without scrolling, buttons 44 px tall, no sideways scroll, Kesari colours."),
+]
+
+APP_COVERAGE = [
+    ("AI-001", "App install & updates", "Install prompt on every visit until installed; Not now for the page view only; phone layout (Tile Board)", "BUILT 31-Oct", "TC-APP-001, TC-APP-002, TC-APP-003, TC-APP-013"),
+    ("AI-002", "App install & updates", "Install detection: Chrome install dialog, appinstalled, standalone, related apps, native app user agent", "BUILT 31-Oct", "TC-APP-004, TC-APP-005, TC-APP-006"),
+    ("AI-003", "App install & updates", "iPhone / iPad: Add to Home Screen guide; store links when listed", "BUILT 31-Oct", "TC-APP-007"),
+    ("AI-004", "App install & updates", "Server-side record for signed-in people (app_install_states)", "BUILT 31-Oct", "TC-APP-008"),
+    ("AI-005", "App install & updates", "Service worker with versioned cache; Reload bar; update on next launch", "BUILT 31-Oct", "TC-APP-009, TC-APP-010"),
+    ("AI-006", "App install & updates", "Native app update check (Android / iPhone 1.5.0)", "BUILT 31-Oct", "TC-APP-011, TC-APP-012"),
+]
+
+APP_CHANGE = ("AI 31-Oct", "New module",
+              "App install & updates (AI-001 to AI-006, docs/app-install-2026-10): TC-APP-001 to TC-APP-013. Automated in "
+              "tests/qa/guest/app-install.spec.ts (production-safe, Android and iPhone profiles) and tests/qa/signed-in/app-install.spec.ts "
+              "(account record). TC-APP-010 needs a deploy and TC-APP-012 a phone: declared manual.")
+
+
+OPG_MODULE = "Order, payment & GST"
+OPG_SOURCE = "docs/audit/order-payment-gst-audit.md (Phase 1, 31 Oct 2026, PR #313)"
+
+OPG_CASES = [
+    # id, features, title, type, priority, role, method, preconditions, steps, expected
+    ("TC-OPG-001", "OPG-P1-05", "Product upload template as CSV", "Positive", "P1", "Shop Owner", "API",
+     "Signed in as a shop owner",
+     "1. GET /api/v1/product-imports/template?format=csv",
+     "200 text/csv named GoKesari_Product_Upload_Template.csv; the header is the Excel template's columns, including GST % and Goods Type, followed by the example row."),
+    ("TC-OPG-002", "OPG-P1-05", "Excel template offers GST % and Goods Type as drop-downs", "Positive", "P1", "Shop Owner", "API",
+     "Signed in as a shop owner",
+     "1. GET /api/v1/product-imports/template\n2. Open the Products sheet",
+     "The GST % column is a list holding the GST slabs (0 ... 40); Goods Type is a list of Packaged, Loose."),
+    ("TC-OPG-003", "OPG-P1-06", "Download my catalogue in the upload layout", "Positive", "P0", "Shop Owner", "API",
+     "Shop with listings",
+     "1. GET /api/v1/shops/{shopId}/catalogue-export?format=xlsx\n2. Same with format=csv",
+     "200 for each; the file has the upload template's columns (SKU, Product Name, HSN Code, GST %, MRP, Selling Price, Quantity, Goods Type...) and one row per listing of the shop."),
+    ("TC-OPG-004", "OPG-P1-06", "Nobody but the shop's people can download its catalogue", "Security", "P0", "Customer", "API",
+     "Shop A exists",
+     "1. As a customer, GET /api/v1/shops/{shopA}/catalogue-export\n2. Signed out, the same",
+     "403 for the customer and 401 signed out; no file."),
+    ("TC-OPG-005", "OPG-P1-07", "Upload preview flags price above MRP, a non-slab GST rate and a loose good without a weight unit", "Negative", "P0", "Shop Owner", "API",
+     "Signed in as a shop owner",
+     "1. Upload a CSV with: price above MRP; GST 7%; Goods Type Loose with unit pcs\n2. Read the preview rows",
+     "Each row carries its warning (above the MRP; GST 7% is not a GST rate; kg, g, l or ml). Nothing in the shop changes until commit."),
+    ("TC-OPG-006", "OPG-P1-07", "Result report with only the rows to fix", "Positive", "P1", "Shop Owner", "API",
+     "An import job (TC-OPG-005)",
+     "1. GET /api/v1/product-imports/{jobId}/report?format=csv&rows=problems",
+     "200 CSV holding the rows with warnings or errors only, each with its message."),
+    ("TC-OPG-007", "OPG-P1-01", "Cess on the tax invoice", "Positive", "P1", "Customer", "UI",
+     "A GST-registered shop selling a listing with compensation cess (e.g. aerated drink 28% + 12%)",
+     "1. Order and deliver it\n2. Open the invoice",
+     "The invoice totals show a Cess row; taxable + CGST + SGST (or IGST) + cess equals the price charged; GSTR-1 export has csamt for that line."),
+    ("TC-OPG-008", "OPG-P1-02", "Composition dealer's bill of supply shows their GSTIN", "Positive", "P1", "Customer", "UI",
+     "Shop registered as COMPOSITION with a GSTIN",
+     "1. Order and deliver\n2. Open the invoice",
+     "A bill of supply (no GST charged) that prints the seller's GSTIN."),
+    ("TC-OPG-009", "OPG-P1-11", "After a failed delivery the shop cannot mark the order delivered without the code", "Negative", "P0", "Shop Owner", "API",
+     "Order OUT_FOR_DELIVERY with a FAILED delivery attempt; delivery code required",
+     "1. As the shop, PATCH the order to DELIVERED without a rider holding it",
+     "409: operations must confirm it; as operator or admin the change goes through."),
+    ("TC-OPG-010", "OPG-P1-10", "Returned to shop: buyer and shop are told", "Positive", "P1", "Shop Owner", "UI",
+     "An order that comes back to the shop (RTO)",
+     "1. Mark it RETURNED\n2. Read both inboxes",
+     "The buyer and the shop each get the 'returned to shop' notice; the status change is in the order's events."),
+]
+
+OPG_COVERAGE = [
+    ("OPG-P1-01", "Order, payment & GST", "Compensation cess on invoices, credit notes and GSTR-1 (rule invoicing.applyCess)", "BUILT 31-Oct", "TC-OPG-007"),
+    ("OPG-P1-02", "Order, payment & GST", "Composition dealer GSTIN on the bill of supply", "BUILT 31-Oct", "TC-OPG-008"),
+    ("OPG-P1-05", "Order, payment & GST", "Product upload: CSV template; GST % and Goods Type drop-downs; loose goods", "BUILT 31-Oct", "TC-OPG-001, TC-OPG-002"),
+    ("OPG-P1-06", "Order, payment & GST", "Download my catalogue (Excel / CSV) in the upload layout", "BUILT 31-Oct", "TC-OPG-003, TC-OPG-004"),
+    ("OPG-P1-07", "Order, payment & GST", "Upload preview checks; result report with only the rows to fix", "BUILT 31-Oct", "TC-OPG-005, TC-OPG-006"),
+    ("OPG-P1-10", "Order, payment & GST", "order.returned event: buyer and shop told", "BUILT 31-Oct", "TC-OPG-010"),
+    ("OPG-P1-11", "Order, payment & GST", "Reattempt after a failed delivery needs operations", "BUILT 31-Oct", "TC-OPG-009"),
+]
+
+OPG_CHANGE = ("OPG 31-Oct", "New module",
+              "Order, payment & GST Phase 1 (docs/audit/order-payment-gst-audit.md, PR #313): TC-OPG-001 to TC-OPG-010. "
+              "Automated in tests/qa/signed-in/sellers-product-upload.spec.ts (TC-OPG-001 to 006); TC-OPG-007 to 010 need a cess listing, "
+              "a composition shop, a failed delivery or an RTO on the site: declared manual (covered by unit / integration tests).")
+
 
 def copy_style(src, dst):
     if src.has_style:
@@ -438,6 +576,10 @@ if __name__ == "__main__":
         add_qa_cases()
     elif len(sys.argv) >= 2 and sys.argv[1] == "add-list-cases":
         add_list_cases()
+    elif len(sys.argv) >= 2 and sys.argv[1] == "add-app-cases":
+        add_module(APP_MODULE, APP_CASES, APP_SOURCE, (), APP_COVERAGE, APP_CHANGE)
+    elif len(sys.argv) >= 2 and sys.argv[1] == "add-opg-cases":
+        add_module(OPG_MODULE, OPG_CASES, OPG_SOURCE, (), OPG_COVERAGE, OPG_CHANGE)
     elif len(sys.argv) >= 3 and sys.argv[1] == "statuses":
         statuses(sys.argv[2])
     else:

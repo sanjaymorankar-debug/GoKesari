@@ -1,0 +1,166 @@
+{
+ "features": [
+  {
+   "id": "GW-01",
+   "feature": "Delivery partner registration with personal details",
+   "functionality": "Name, mobile, email, DOB (18+), gender, address, vehicle type and number, emergency contact; field-by-field validation; one partner per mobile number (duplicate-mobile check).",
+   "status": "Done",
+   "whereItRuns": "Production (gokesari.com) and Test site since 31 Oct 2026",
+   "switchedOn": "Live on the Test site",
+   "releasedIn": "#302 (merged 31 Oct 2026 11:43 UTC; post-deploy check passed)",
+   "remaining": "-",
+   "next": "-",
+   "evidence": "src/components/delivery-partner-register-form.tsx; src/lib/gig/registration.ts; src/server/services/delivery-partners.ts"
+  },
+  {
+   "id": "GW-02",
+   "feature": "PAN and Aadhaar authorisation",
+   "functionality": "Consent recorded (version, time, IP) before any check; PAN via the KYC provider (encrypted, masked); Aadhaar by OTP (masked + keyed token only, DB check refuses a stored number); Verified / Pending / Failed; admin decides by hand.",
+   "status": "Done",
+   "whereItRuns": "Production (gokesari.com) and Test site since 31 Oct 2026",
+   "switchedOn": "Live on the Test site",
+   "releasedIn": "#302 (merged 31 Oct 2026 11:43 UTC; post-deploy check passed)",
+   "remaining": "Aadhaar OTP against the live provider (Test-site keys answer only saved examples); consent wording legal review",
+   "next": "See remaining scope",
+   "evidence": "src/server/services/rider-kyc.ts; src/server/kyc/adapters/{mock,sandbox-co}.ts; /delivery-partner/kyc"
+  },
+  {
+   "id": "GW-03",
+   "feature": "Police verification form and character certificate upload",
+   "functionality": "PDF/JPG/PNG from the bytes; max size rule riderVerification.maxDocumentBytes (5 MB); encrypted in the database (no public bucket); admin Uploaded / Under review / Approved / Rejected with reason; audited file opening.",
+   "status": "Done",
+   "whereItRuns": "Production (gokesari.com) and Test site since 31 Oct 2026",
+   "switchedOn": "Live on the Test site",
+   "releasedIn": "#302 (merged 31 Oct 2026 11:43 UTC; post-deploy check passed)",
+   "remaining": "-",
+   "next": "-",
+   "evidence": "src/server/services/rider-background-docs.ts; /delivery-partner/documents; /admin/rider-verification"
+  },
+  {
+   "id": "GW-04",
+   "feature": "Location sharing during registration",
+   "functionality": "Device location requested on the form; submission blocked without it with a clear message; latitude, longitude and time saved.",
+   "status": "Done",
+   "whereItRuns": "Production (gokesari.com) and Test site since 31 Oct 2026",
+   "switchedOn": "Live on the Test site",
+   "releasedIn": "#302 (merged 31 Oct 2026 11:43 UTC; post-deploy check passed)",
+   "remaining": "-",
+   "next": "-",
+   "evidence": "src/components/delivery-partner-register-form.tsx; POST /api/delivery-partner"
+  },
+  {
+   "id": "GW-05",
+   "feature": "Offline / Active / Ready toggle",
+   "functionality": "availability column; only Ready gets new offers; Active/Ready blocked until PAN+Aadhaar Verified and both documents Approved, unless an admin overrides.",
+   "status": "Done",
+   "whereItRuns": "Production (gokesari.com) and Test site since 31 Oct 2026",
+   "switchedOn": "On by default (rules riderVerification, riderZoning, orderCompletion, deliveryOtp.required)",
+   "releasedIn": "#302 (merged 31 Oct 2026 11:43 UTC; post-deploy check passed)",
+   "remaining": "Decide gate on/off at release (existing riders need KYC + documents or an admin override)",
+   "next": "See remaining scope",
+   "evidence": "src/server/services/delivery-partners.ts (goOnline, getAvailabilityGate); delivery-partner-dashboard.tsx"
+  },
+  {
+   "id": "GW-06",
+   "feature": "Zoning: pickup and delivery within 3–5 km",
+   "functionality": "Rule riderZoning (default 5 km, min 3, max 5) on the live location for pickup and drop; stale location ignored; offers re-checked on each location update and at acceptance.",
+   "status": "Done",
+   "whereItRuns": "Production (gokesari.com) and Test site since 31 Oct 2026",
+   "switchedOn": "On by default (rules riderVerification, riderZoning, orderCompletion, deliveryOtp.required)",
+   "releasedIn": "#302 (merged 31 Oct 2026 11:43 UTC; post-deploy check passed)",
+   "remaining": "Decide zoning on/off at release (orders whose customer is >5 km from the shop wait for a rider between them)",
+   "next": "See remaining scope",
+   "evidence": "src/server/services/delivery-eligibility.ts (checkZone); delivery-assignment.ts (withdrawOutOfZoneOffers)"
+  },
+  {
+   "id": "GW-07",
+   "feature": "Shop owner view of authorised and blocked societies",
+   "functionality": "Admin authorises / blocks a partner per society; shop page Delivery partners shows counts and lists on tap.",
+   "status": "Done",
+   "whereItRuns": "Production (gokesari.com) and Test site since 31 Oct 2026",
+   "switchedOn": "Live on the Test site",
+   "releasedIn": "#302 (merged 31 Oct 2026 11:43 UTC; post-deploy check passed)",
+   "remaining": "-",
+   "next": "-",
+   "evidence": "src/server/services/society-partner-access.ts; /shop/delivery-partners; /admin/rider-verification"
+  },
+  {
+   "id": "GW-08",
+   "feature": "Hide partner identity for blocked societies",
+   "functionality": "Server side: shop order data, photo access and shop notifications never carry a blocked partner's name, photo or mobile — 'Partner pending assignment'; blocked partners kept off that society's orders.",
+   "status": "Done",
+   "whereItRuns": "Production (gokesari.com) and Test site since 31 Oct 2026",
+   "switchedOn": "Live on the Test site",
+   "releasedIn": "#302 (merged 31 Oct 2026 11:43 UTC; post-deploy check passed)",
+   "remaining": "-",
+   "next": "-",
+   "evidence": "society-partner-access.ts (getShopOrderPartners); delivery-assignment.ts (deliveryEventContext); rider-files.ts"
+  },
+  {
+   "id": "GW-09",
+   "feature": "Confirm order picked up",
+   "functionality": "Assigned → Picked Up with timestamp; optional pickup photo (delivery_proofs.kind PICKUP); shop and customer notified.",
+   "status": "Done",
+   "whereItRuns": "Production (gokesari.com) and Test site since 31 Oct 2026",
+   "switchedOn": "Live on the Test site",
+   "releasedIn": "#302 (merged 31 Oct 2026 11:43 UTC; post-deploy check passed)",
+   "remaining": "-",
+   "next": "-",
+   "evidence": "delivery-proofs.ts; delivery-assignment.ts (markPickedUp)"
+  },
+  {
+   "id": "GW-10",
+   "feature": "Confirm order delivered",
+   "functionality": "Picked Up → Delivered; OTP configurable (deliveryOtp.required), photo proof by deliveryProof.photoRequired.",
+   "status": "Done",
+   "whereItRuns": "Production (gokesari.com) and Test site since 31 Oct 2026",
+   "switchedOn": "On by default (rules riderVerification, riderZoning, orderCompletion, deliveryOtp.required)",
+   "releasedIn": "#302 (merged 31 Oct 2026 11:43 UTC; post-deploy check passed)",
+   "remaining": "-",
+   "next": "-",
+   "evidence": "delivery-assignment.ts (startDelivery, markDelivered)"
+  },
+  {
+   "id": "GW-11",
+   "feature": "Mark order complete and notify",
+   "functionality": "orders.completed_at on confirmed delivery (status stays DELIVERED); order.completed → push + SMS + in-app to customer and shop (rule orderCompletion).",
+   "status": "Done",
+   "whereItRuns": "Production (gokesari.com) and Test site since 31 Oct 2026",
+   "switchedOn": "On by default (rules riderVerification, riderZoning, orderCompletion, deliveryOtp.required)",
+   "releasedIn": "#302 (merged 31 Oct 2026 11:43 UTC; post-deploy check passed)",
+   "remaining": "Completion SMS needs an SMS provider; push needs rule push on and the app installed",
+   "next": "See remaining scope",
+   "evidence": "src/server/services/orders.ts (completeDeliveredOrder); src/server/events/catalog.ts"
+  }
+ ],
+ "prs": [
+  {
+   "number": 306,
+   "title": "Gig worker flow: delivery partner registration, KYC, police verification, availability, zoning, society access, pickup and completion",
+   "type": "Feature",
+   "branch": "feat/gig-worker-flow -> staging",
+   "target": "Test site (staging -> test.gokesari.com)",
+   "state": "Merged",
+   "created": "2026-10-31",
+   "merged": "2026-10-31",
+   "features": "GW-01..GW-11",
+   "released": "GW-01..GW-11",
+   "releasedVia": "#302",
+   "notes": "Migration 0121 (split: core) applied to the Test database 31 Oct 08:38 UTC."
+  },
+  {
+   "number": 308,
+   "title": "Gig worker registration: a refused field no longer wipes the form (+ Active → Ready location fix)",
+   "type": "Fix",
+   "branch": "fix/gig-register-form-keeps-input -> staging",
+   "target": "Test site (staging -> test.gokesari.com)",
+   "state": "Merged",
+   "created": "2026-10-31",
+   "merged": "2026-10-31",
+   "features": "GW-01, GW-05",
+   "released": "GW-01, GW-05",
+   "releasedVia": "#302",
+   "notes": "Defects D-11 and D-12 found by the Test-site E2E run."
+  }
+ ]
+}

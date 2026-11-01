@@ -127,7 +127,7 @@ const serverEnvSchema = z.object({
    * pairing, so a live key on test or a sandbox key on production fails
    * loudly instead of quietly mis-verifying sellers.
    */
-  KYC_PROVIDER: z.enum(["mock", "gridlines", "idfy"]).default("mock"),
+  KYC_PROVIDER: z.enum(["mock", "gridlines", "sandboxco", "idfy"]).default("mock"),
   KYC_ENV: z.enum(["sandbox", "production"]).default("sandbox"),
   /** The one host allowed to use KYC_ENV=production (compared with AUTH_URL's host). */
   KYC_PRODUCTION_HOST: z.string().default("gokesari.com"),
@@ -135,6 +135,21 @@ const serverEnvSchema = z.object({
   GRIDLINES_API_KEY: z.string().optional(),
   /** Only to point at a sandbox host if Gridlines gives one; defaults to the live API host. */
   GRIDLINES_BASE_URL: z.string().url().optional(),
+  /**
+   * Sandbox.co.in (KYC_PROVIDER=sandboxco): PAN and GSTIN only. Test keys
+   * (key_test_…) go with KYC_ENV=sandbox, live keys (key_live_…) with
+   * KYC_ENV=production; the host follows KYC_ENV unless SANDBOX_CO_BASE_URL is set.
+   */
+  SANDBOX_CO_API_KEY: z.string().optional(),
+  SANDBOX_CO_API_SECRET: z.string().optional(),
+  SANDBOX_CO_BASE_URL: z.string().url().optional(),
+  /**
+   * Gig worker flow: the secret set on the DigiLocker session webhook in the
+   * Sandbox Console (events in.co.sandbox.kyc.digilocker.session.succeeded /
+   * .failed, URL <AUTH_URL>/api/webhooks/sandbox-co/digilocker). Without it
+   * the webhook is refused and the rider's check is settled by polling alone.
+   */
+  SANDBOX_CO_WEBHOOK_SECRET: z.string().min(16).optional(),
   /** IDfy, the backup vendor. Its adapter is added if Gridlines is replaced or needs a fallback. */
   IDFY_ACCOUNT_ID: z.string().optional(),
   IDFY_API_KEY: z.string().optional(),
@@ -247,7 +262,7 @@ const serverEnvSchema = z.object({
 
   // batch-2026-10 WS-A — direct online payment (docs/payments-gateway-2026-10.md).
   /** Which gateway takes online payments for orders. SANDBOX (default) is in-process: tests and staging only. */
-  PAYMENT_GATEWAY: z.enum(["SANDBOX", "CASHFREE", "RAZORPAY", "PHONEPE"]).default("SANDBOX"), // batch-2026-10 WS-A
+  PAYMENT_GATEWAY: z.enum(["SANDBOX", "CASHFREE", "RAZORPAY", "PHONEPE", "HDFC"]).default("SANDBOX"), // batch-2026-10 WS-A
   /** Sandbox webhook HMAC secret. Unset: a fixed test secret (refused in production). */
   PAYMENT_WEBHOOK_SECRET_SANDBOX: z.string().optional(), // batch-2026-10 WS-A
   /** Cashfree PG webhook secret. Unset: CASHFREE_SECRET_KEY (Cashfree signs webhooks with the API secret). */
@@ -260,6 +275,18 @@ const serverEnvSchema = z.object({
   PHONEPE_SALT_KEY: z.string().optional(), // batch-2026-10 WS-A
   PHONEPE_SALT_INDEX: z.string().optional(), // batch-2026-10 WS-A
   PHONEPE_ENV: z.enum(["sandbox", "production"]).default("sandbox"), // batch-2026-10 WS-A
+  // HDFC Bank SmartGateway (src/server/payments/gateway/hdfc.ts). Values from the HDFC dashboard / onboarding kit.
+  /** UAT https://smartgateway.hdfcuat.bank.in, or the production URL HDFC gives at go-live. A UAT URL is refused on gokesari.com. */
+  HDFC_BASE_URL: z.string().url().optional(),
+  HDFC_MERCHANT_ID: z.string().optional(),
+  HDFC_API_KEY: z.string().optional(),
+  /** The payment page client id (kit: PAYMENT_PAGE_CLIENT_ID). */
+  HDFC_PAYMENT_PAGE_CLIENT_ID: z.string().optional(),
+  /** Signs the customer's return (kit: RESPONSE_KEY). Only checked and logged; the state comes from the order API. */
+  HDFC_RESPONSE_KEY: z.string().optional(),
+  /** HDFC dashboard → Webhooks → Basic auth username / password. */
+  HDFC_WEBHOOK_USERNAME: z.string().optional(),
+  HDFC_WEBHOOK_PASSWORD: z.string().optional(),
   /** Public origin used in gateway return / webhook URLs, e.g. https://test.gokesari.com. Falls back to AUTH_URL. */
   PAYMENT_PUBLIC_BASE_URL: z.string().url().optional(), // batch-2026-10 WS-A
 });
@@ -365,6 +392,15 @@ export function kycConfigProblem(env: ServerEnv = getEnv()): string | null {
   }
   if (env.KYC_PROVIDER === "gridlines" && !env.GRIDLINES_API_KEY) {
     return "KYC_PROVIDER=gridlines needs GRIDLINES_API_KEY.";
+  }
+  if (env.KYC_PROVIDER === "sandboxco") {
+    if (!(env.SANDBOX_CO_API_KEY && env.SANDBOX_CO_API_SECRET)) {
+      return "KYC_PROVIDER=sandboxco needs SANDBOX_CO_API_KEY and SANDBOX_CO_API_SECRET.";
+    }
+    const wanted = env.KYC_ENV === "production" ? "key_live_" : "key_test_";
+    if (!env.SANDBOX_CO_API_KEY.startsWith(wanted)) {
+      return `KYC_ENV=${env.KYC_ENV} needs a Sandbox.co.in key starting ${wanted}.`;
+    }
   }
   if (env.KYC_PROVIDER === "idfy" && !(env.IDFY_ACCOUNT_ID && env.IDFY_API_KEY)) {
     return "KYC_PROVIDER=idfy needs IDFY_ACCOUNT_ID and IDFY_API_KEY.";

@@ -114,6 +114,15 @@ export async function payoutRetries() {
   return (await import("@/server/payouts/batches")).retryFailedPayouts({ actor: SYSTEM });
 }
 
+/** Rider bank transfers (docs/gig-bank-payouts-2026-10): the monthly run when due, retries, open runs' totals. */
+export async function riderMonthlyPayout() {
+  const monthly = await import("@/server/rider-wallet/monthly");
+  const run = await monthly.runMonthlyRiderPayout({ actor: SYSTEM });
+  const retries = await (await import("@/server/rider-wallet/transfers")).retryDueTransfers();
+  const openRuns = await monthly.refreshOpenRuns();
+  return { run, retries, openRuns };
+}
+
 /** Rider payouts and reconciliation for the previous Monday-Sunday week; shop settlements only while automated payouts are off. */
 export async function financeWeekly() {
   const finance = await import("@/server/services/finance");
@@ -157,6 +166,9 @@ export const HOURLY: readonly Job[] = [
   { name: "dispute-escalation", run: async () => (await import("@/server/services/disputes")).runDisputeEscalationSweep() },
   { name: "aftercare", run: aftercare },
   { name: "payout-retries", run: payoutRetries },
+  // docs/gig-bank-payouts-2026-10: rider monthly payout on the 5th from 09:00 IST (a no-op at other times
+  // and while its flag is off; resumes a stopped run), then due retries of rider transfers.
+  { name: "rider-monthly-payout", run: riderMonthlyPayout },
   {
     name: "auth-housekeeping",
     run: async () => ({

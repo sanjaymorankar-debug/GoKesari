@@ -14,14 +14,16 @@
  * checks (Part 3) may move a VERIFIED result to MANUAL_REVIEW.
  */
 import type { SellerDocType, SellerVerificationStatus } from "@/lib/kyc/doc-formats";
-import { getEnv, kycConfigProblem } from "@/lib/env";
+import { getEnv, isProductionSite, kycConfigProblem } from "@/lib/env";
 
 import { createGridlinesAdapter, GRIDLINES_BASE_URL } from "./adapters/gridlines";
 import { createMockAdapter } from "./adapters/mock";
+import { createSandboxCoAdapter, SANDBOX_CO_BASE_URLS } from "./adapters/sandbox-co";
 import type { KycHttpOptions } from "./http";
 import {
   KycConfigError,
   KycUnavailableError,
+  type DigilockerAdapter,
   type KycAdapter,
   type KycProviderId,
   type ProviderOutcome,
@@ -68,9 +70,44 @@ export function getKycAdapter(): KycAdapter {
       return createMockAdapter();
     case "gridlines":
       return createGridlinesAdapter(env.GRIDLINES_API_KEY!, httpOptions(), env.GRIDLINES_BASE_URL ?? GRIDLINES_BASE_URL);
+    case "sandboxco":
+      return createSandboxCoAdapter(
+        {
+          apiKey: env.SANDBOX_CO_API_KEY!,
+          apiSecret: env.SANDBOX_CO_API_SECRET!,
+          baseUrl: env.SANDBOX_CO_BASE_URL ?? SANDBOX_CO_BASE_URLS[env.KYC_ENV],
+        },
+        httpOptions(),
+      );
     case "idfy":
-      throw new KycConfigError("not_configured", "The IDfy adapter has not been built yet; use KYC_PROVIDER=gridlines or mock.");
+      throw new KycConfigError("not_configured", "The IDfy adapter has not been built yet; use KYC_PROVIDER=sandboxco, gridlines or mock.");
   }
+}
+
+let digilockerOverride: DigilockerAdapter | null = null;
+
+/** Tests only: route DigiLocker through a given adapter. Pass null to restore. */
+export function setDigilockerAdapterForTests(adapter: DigilockerAdapter | null): void {
+  digilockerOverride = adapter;
+}
+
+/**
+ * The DigiLocker half for the rider Aadhaar check. `source` is rule
+ * riderVerification.digilockerProvider: "kyc_provider" uses KYC_PROVIDER's
+ * adapter (Sandbox.co.in has DigiLocker; Gridlines has none → null, the check
+ * waits for an admin); "mock" uses the local fake consent page — refused on
+ * gokesari.com, so a test setting can't leak into production.
+ */
+export function getDigilockerAdapter(source: "kyc_provider" | "mock"): { providerId: KycProviderId; adapter: DigilockerAdapter | null } {
+  if (digilockerOverride) return { providerId: getEnv().KYC_PROVIDER, adapter: digilockerOverride };
+  if (source === "mock") {
+    if (isProductionSite()) {
+      throw new KycConfigError("environment_mismatch", "The DigiLocker mock is not allowed on the production site.");
+    }
+    return { providerId: "mock", adapter: createMockAdapter().digilocker ?? null };
+  }
+  const adapter = getKycAdapter();
+  return { providerId: adapter.id, adapter: adapter.digilocker ?? null };
 }
 
 function today(): string {

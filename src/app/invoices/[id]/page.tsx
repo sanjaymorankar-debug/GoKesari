@@ -139,6 +139,9 @@ export default async function InvoicePage({ params }: { params: Promise<{ id: st
           ) : (
             <div className="flex justify-between"><dt>IGST</dt><dd>{formatPaise(s.totals.igstPaise)}</dd></div>
           )}
+          {s.totals.cessPaise ? (
+            <div className="flex justify-between"><dt>Cess</dt><dd>{formatPaise(s.totals.cessPaise)}</dd></div>
+          ) : null}
           <div className="flex justify-between border-t border-cream-200 pt-1 font-semibold text-ink-900">
             <dt>Total (tax inclusive)</dt>
             <dd>{formatPaise(s.totals.totalPaise)}</dd>

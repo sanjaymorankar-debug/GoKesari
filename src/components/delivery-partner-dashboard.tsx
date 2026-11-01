@@ -20,6 +20,8 @@ export interface ActiveDelivery {
   /** NEW-007: a photo at the door is needed before "Mark delivered". */
   proofRequired?: boolean;
   proofUploaded?: boolean;
+  /** Gig worker flow (feature 9): the optional photo at pickup has been added. */
+  pickupPhotoUploaded?: boolean;
   shopName: string;
   shopAddress: string;
   customerAddress: string | null;
@@ -357,8 +359,18 @@ function CodeInput({
  * (delivery-system Part 58, Slice C). Location comes only from the
  * browser's native geolocation — never a Google Maps Platform call.
  */
+export type RiderAvailability = "OFFLINE" | "ACTIVE" | "READY";
+
+const AVAILABILITY_TEXT: Record<RiderAvailability, { title: string; body: string }> = {
+  OFFLINE: { title: "You're offline", body: "Switch to Ready to start receiving deliveries." },
+  ACTIVE: { title: "You're active", body: "On duty and sharing your location, but not taking new orders." },
+  READY: { title: "You're ready", body: "You may be offered deliveries near you (pickup and drop within your zone)." },
+};
+
 export function DeliveryPartnerDashboard({
   isOnline: initialOnline,
+  availability: initialAvailability,
+  gate = null,
   activeDelivery,
   activeReturnPickup = null,
   earnings,
@@ -368,6 +380,10 @@ export function DeliveryPartnerDashboard({
   inAppNavigation = false,
 }: {
   isOnline: boolean;
+  /** Gig worker flow (feature 5): Offline / Active / Ready; only Ready gets new offers. */
+  availability?: RiderAvailability;
+  /** Gig worker flow: what still blocks Active / Ready (KYC, police verification), unless overridden. */
+  gate?: { allowed: boolean; missing: string[] } | null;
   activeDelivery: ActiveDelivery | null;
   /** A customer return the rider is collecting (goods go back to the shop). */
   activeReturnPickup?: ActiveReturnPickupView | null;
@@ -382,12 +398,15 @@ export function DeliveryPartnerDashboard({
   inAppNavigation?: boolean;
 }) {
   const router = useRouter();
-  const [isOnline, setIsOnline] = useState(initialOnline);
-  const [serverOnline, setServerOnline] = useState(initialOnline);
-  if (serverOnline !== initialOnline) {
-    setServerOnline(initialOnline);
-    setIsOnline(initialOnline);
+  const startingAvailability: RiderAvailability = initialAvailability ?? (initialOnline ? "READY" : "OFFLINE");
+  const [availability, setAvailability] = useState<RiderAvailability>(startingAvailability);
+  const [serverAvailability, setServerAvailability] = useState<RiderAvailability>(startingAvailability);
+  if (serverAvailability !== startingAvailability) {
+    setServerAvailability(startingAvailability);
+    setAvailability(startingAvailability);
   }
+  const isOnline = availability !== "OFFLINE";
+  const setIsOnline = (online: boolean) => setAvailability(online ? "READY" : "OFFLINE");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [code, setCode] = useState("");
@@ -438,9 +457,10 @@ export function DeliveryPartnerDashboard({
     return false;
   }
 
-  async function toggleOnline() {
+  async function changeAvailability(target: RiderAvailability) {
     setError(null);
-    if (isOnline) {
+    if (target === availability) return;
+    if (target === "OFFLINE") {
       setBusy(true);
       try {
         if (!(await setStatus({ action: "offline" }, "Could not go offline. Try again."))) return;
@@ -477,11 +497,11 @@ export function DeliveryPartnerDashboard({
           if (!settle()) return;
           try {
             const online = await setStatus(
-              { action: "online", latitude: position.coords.latitude, longitude: position.coords.longitude },
-              "Could not go online.",
+              { action: target === "ACTIVE" ? "active" : "ready", latitude: position.coords.latitude, longitude: position.coords.longitude },
+              target === "ACTIVE" ? "Could not switch to Active." : "Could not switch to Ready.",
             );
             if (!online) return;
-            setIsOnline(true);
+            setAvailability(target);
             router.refresh();
           } finally {
             setBusy(false);
@@ -496,7 +516,10 @@ export function DeliveryPartnerDashboard({
               : "Could not get your location. Try again.",
           );
         },
-        { timeout: LOCATION_TIMEOUT_MS },
+        // A position up to a minute old is still live (the zone allows 15 minutes). While Active or
+        // Ready the heartbeat's watchPosition is running, and a request for a brand-new fix next to
+        // it can wait until it times out (seen on test.gokesari.com): Active → Ready never went through.
+        { timeout: LOCATION_TIMEOUT_MS, maximumAge: 60_000 },
       );
     } catch {
       if (!settle()) return;
@@ -537,20 +560,46 @@ export function DeliveryPartnerDashboard({
 
   return (
     <div className="space-y-4">
-      <Card className="flex items-center justify-between p-5">
+      <Card className="space-y-3 p-5" data-testid="availability-toggle">
         <div>
-          <p className="font-semibold text-ink-900">{isOnline ? "You're online" : "You're offline"}</p>
-          <p className="text-sm text-ink-500">
-            {isOnline ? "You may be offered nearby deliveries." : "Go online to start receiving deliveries."}
-          </p>
+          <p className="font-semibold text-ink-900">{AVAILABILITY_TEXT[availability].title}</p>
+          <p className="text-sm text-ink-500">{AVAILABILITY_TEXT[availability].body}</p>
         </div>
-        <Button
-          variant={isOnline ? "secondary" : "primary"}
-          disabled={busy || (!!activeDelivery && isOnline)}
-          onClick={toggleOnline}
-        >
-          {isOnline ? "Go offline" : "Go online"}
-        </Button>
+        <div role="radiogroup" aria-label="Availability" className="grid grid-cols-3 gap-2">
+          {(["OFFLINE", "ACTIVE", "READY"] as const).map((option) => {
+            const selected = availability === option;
+            // Going offline needs the current delivery finished; Active / Ready need the verification gate.
+            const blocked =
+              (option === "OFFLINE" && Boolean(activeDelivery) && isOnline) || (option !== "OFFLINE" && gate !== null && !gate.allowed);
+            return (
+              <Button
+                key={option}
+                role="radio"
+                aria-checked={selected}
+                variant={selected ? "primary" : "secondary"}
+                disabled={busy || blocked}
+                onClick={() => changeAvailability(option)}
+                data-testid={`availability-${option.toLowerCase()}`}
+              >
+                {option === "OFFLINE" ? "Offline" : option === "ACTIVE" ? "Active" : "Ready"}
+              </Button>
+            );
+          })}
+        </div>
+        {gate && !gate.allowed ? (
+          <Alert tone="warning" title="Finish verification to go Active or Ready">
+            <p>Still needed: {gate.missing.join("; ")}.</p>
+            <p className="mt-1">
+              <a className="font-medium underline" href="/delivery-partner/kyc">
+                KYC
+              </a>{" "}
+              ·{" "}
+              <a className="font-medium underline" href="/delivery-partner/documents">
+                Police verification documents
+              </a>
+            </p>
+          </Alert>
+        ) : null}
       </Card>
 
       {locationIssue === "blocked" ? (
@@ -737,6 +786,9 @@ export function DeliveryPartnerDashboard({
                 >
                   Confirm pickup
                 </Button>
+                <div className="w-full">
+                  <DeliveryProofCapture deliveryOrderId={activeDelivery.id} uploaded={Boolean(activeDelivery.pickupPhotoUploaded)} kind="PICKUP" />
+                </div>
               </>
             ) : null}
             {activeDelivery.status === "PICKED_UP" &&
@@ -983,7 +1035,16 @@ function ReturnPickupPanel({ pickup, onDone }: { pickup: ActiveReturnPickupView;
  * shrunk and re-encoded in the browser (which also drops location metadata)
  * and checked again on the server.
  */
-function DeliveryProofCapture({ deliveryOrderId, uploaded }: { deliveryOrderId: string; uploaded: boolean }) {
+function DeliveryProofCapture({
+  deliveryOrderId,
+  uploaded,
+  kind = "DELIVERY",
+}: {
+  deliveryOrderId: string;
+  uploaded: boolean;
+  /** Gig worker flow (feature 9): PICKUP is the optional photo of the parcel at the shop. */
+  kind?: "PICKUP" | "DELIVERY";
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -995,7 +1056,8 @@ function DeliveryProofCapture({ deliveryOrderId, uploaded }: { deliveryOrderId: 
     setError(null);
     try {
       const body = new FormData();
-      body.append("file", await shrinkImage(file), "delivery.jpg");
+      body.append("file", await shrinkImage(file), kind === "PICKUP" ? "pickup.jpg" : "delivery.jpg");
+      body.append("kind", kind);
       const response = await fetch(`/api/delivery-orders/${deliveryOrderId}/proof`, { method: "POST", body });
       if (!response.ok) {
         const payload = await response.json().catch(() => null);
@@ -1011,9 +1073,15 @@ function DeliveryProofCapture({ deliveryOrderId, uploaded }: { deliveryOrderId: 
   }
 
   return (
-    <div className="space-y-1 text-sm" data-testid="delivery-proof">
+    <div className="space-y-1 text-sm" data-testid={kind === "PICKUP" ? "pickup-proof" : "delivery-proof"}>
       <label className="block font-medium text-ink-700">
-        {uploaded ? "Photo at the door added ✓ — retake if needed" : "Photo of the order at the door (required)"}
+        {kind === "PICKUP"
+          ? uploaded
+            ? "Pickup photo added ✓ — retake if needed"
+            : "Photo of the parcel at pickup (optional)"
+          : uploaded
+            ? "Photo at the door added ✓ — retake if needed"
+            : "Photo of the order at the door (required)"}
         <input
           type="file"
           accept="image/jpeg,image/png,image/webp"

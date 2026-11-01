@@ -333,6 +333,8 @@ export const SHOP_MENUS: readonly BoardMenu[] = [
     items: [
       { key: "riders", label: L("Riders", "राइडर", "रायडर"), icon: "bike", href: "/shop/delivery-staff", count: "shopRiders" },
       { key: "assign", label: L("Assign", "सौंपें", "नेमा"), icon: "route", href: "/shop/orders?status=packing" },
+      // Gig worker flow (feature 7): GoKesari partners who carried this shop's orders, with their societies.
+      { key: "partners", label: L("Delivery partners", "डिलीवरी पार्टनर", "डिलिव्हरी पार्टनर"), icon: "users", href: "/shop/delivery-partners" },
     ],
     more: [
       { key: "today", label: L("Today's deliveries", "आज की डिलीवरी", "आजच्या डिलिव्हऱ्या"), icon: "sunrise", href: "/shop/manage/today" },
@@ -405,6 +407,8 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
     more: [
       { key: "releaseMobile", label: L("Release a mobile number", "मोबाइल नंबर मुक्त करें", "मोबाइल नंबर मोकळा करा"), icon: "user-check", href: "/admin/console/users#release-mobile", permission: PERMISSIONS.USER_SUSPEND },
       { key: "riderKyc", label: L("Rider documents", "राइडर दस्तावेज़", "रायडर कागदपत्रे"), icon: "file-check", href: "/admin/rider-kyc", permission: ADMIN_ONLY },
+      // Gig worker flow (docs/gig-worker-2026-10): PAN / Aadhaar checks, police verification, gate override, society access.
+      { key: "riderVerification", label: L("Rider verification", "राइडर सत्यापन", "रायडर पडताळणी"), icon: "user-check", href: "/admin/rider-verification", permission: ADMIN_ONLY },
       { key: "riderChanges", label: L("Rider profile changes", "राइडर प्रोफ़ाइल बदलाव", "रायडर प्रोफाइल बदल"), icon: "user-check", href: "/admin/rider-changes", count: "riderChanges", permission: PERMISSIONS.DELIVERY_PARTNER_MANAGE },
       { key: "customerReferrals", label: L("Customer referrals", "ग्राहक रेफ़रल", "ग्राहक रेफरल"), icon: "gift", href: "/admin/customer-referrals", permission: ADMIN_ONLY },
       { key: "societies", label: L("Societies", "सोसाइटी", "सोसायट्या"), icon: "building-2", href: "/admin/societies", count: "societiesApplied", permission: PERMISSIONS.SOCIETY_MANAGE_ANY },
@@ -455,6 +459,7 @@ export const ADMIN_MENUS: readonly BoardMenu[] = [
       { key: "subscriptions", label: L("Subscriptions", "सब्सक्रिप्शन", "सदस्यता"), short: { en: "Subscription" }, icon: "calendar-clock", href: "/admin/subscriptions", permission: PERMISSIONS.SUBSCRIPTION_MANAGE_ANY },
       { key: "commissions", label: L("Referral commissions", "रेफ़रल कमीशन", "रेफरल कमिशन"), icon: "receipt", href: "/admin/referral-commissions", permission: PERMISSIONS.REFERRAL_MANAGE },
       { key: "payouts", label: L("Payouts", "भुगतान", "पेमेंट"), icon: "landmark", href: "/admin/payouts", permission: PERMISSIONS.PAYOUT_VIEW }, // batch-2026-10 WS-E
+      { key: "riderPayouts", label: L("Rider payouts", "राइडर भुगतान", "रायडर पेमेंट"), icon: "bike", href: "/admin/rider-payouts", permission: PERMISSIONS.FINANCE_VIEW, feature: "rider_bank_account_enabled" }, // docs/gig-bank-payouts-2026-10
       { key: "feeInvoices", label: L("GoKesari invoices", "GoKesari बिल", "GoKesari बिले"), icon: "receipt", href: "/admin/platform-invoices", permission: PERMISSIONS.PLATFORM_INVOICE_MANAGE }, // batch-2026-10 WS-E
       { key: "statutory", label: L("TCS / TDS settings", "TCS / TDS सेटिंग", "TCS / TDS सेटिंग्ज"), icon: "file-text", href: "/admin/statutory", permission: PERMISSIONS.STATUTORY_MANAGE }, // batch-2026-10 WS-E
     ],

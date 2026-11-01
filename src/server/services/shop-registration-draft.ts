@@ -67,7 +67,7 @@ const MESSAGES: Record<string, string> = {
   name_not_returned: "The government record gave no name. We'll check it by hand.",
   name_mismatch: "The name on the PAN does not match the name on the GST record. We'll check it by hand.",
   // Step 2: Udyam, FSSAI, Shop Act.
-  vendor_unsupported: "This number can't be checked online. You can carry on — our team will check it.",
+  vendor_unsupported: "This number can't be checked online. You can carry on — our team will review it.",
   expiry_not_returned: "The government record gave no expiry date. We'll check it by hand.",
   address_mismatch: "The PIN code on the government record is not the shop's. We'll check it by hand.",
 };
@@ -210,7 +210,7 @@ async function assertGstinFree(gstin: string, ownerId: string): Promise<void> {
  * The owner's OPEN draft, created if missing, locked for this transaction.
  * The advisory lock serialises two tabs of one owner creating it at once.
  */
-async function lockOpenDraft(tx: DbClient, ownerId: string): Promise<ShopRegistrationDraft> {
+export async function lockOpenDraft(tx: DbClient, ownerId: string): Promise<ShopRegistrationDraft> {
   await tx.execute(sql`SELECT pg_advisory_xact_lock(hashtextextended(${`shop-registration-draft:${ownerId}`}, 0))`);
   const lockOpen = () =>
     tx

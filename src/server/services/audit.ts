@@ -124,6 +124,7 @@ export const AUDIT_ACTIONS = {
   PRODUCT_IMPORT_COMPLETED: "product_import.completed",
   PRODUCT_IMPORT_CANCELLED: "product_import.cancelled",
   PRODUCT_IMPORT_REPORT_DOWNLOADED: "product_import.report_downloaded",
+  PRODUCT_IMPORT_CATALOGUE_EXPORTED: "product_import.catalogue_exported",
   EXCEL_APPLIED: "excel_upload.applied",
   EXCEL_CANCELLED: "excel_upload.cancelled",
 
@@ -218,6 +219,14 @@ export const AUDIT_ACTIONS = {
   DELIVERY_PARTNER_DOCUMENT_DECIDED: "delivery_partner.document_decided",
   /** C5: an admin opened a rider's identity document. */
   DELIVERY_PARTNER_DOCUMENT_VIEWED: "delivery_partner.document_viewed",
+  /* Gig worker flow (docs/gig-worker-2026-10). Never a document number or a file — masked forms only. */
+  DELIVERY_PARTNER_KYC_CHECKED: "delivery_partner.kyc_checked",
+  DELIVERY_PARTNER_KYC_DECIDED: "delivery_partner.kyc_decided",
+  DELIVERY_PARTNER_BACKGROUND_DOC_UPLOADED: "delivery_partner.background_doc_uploaded",
+  DELIVERY_PARTNER_BACKGROUND_DOC_DECIDED: "delivery_partner.background_doc_decided",
+  DELIVERY_PARTNER_BACKGROUND_DOC_VIEWED: "delivery_partner.background_doc_viewed",
+  DELIVERY_PARTNER_AVAILABILITY_OVERRIDDEN: "delivery_partner.availability_overridden",
+  SOCIETY_PARTNER_ACCESS_CHANGED: "society.partner_access_changed",
 
   /* ------------------------------------ delivery assignment (Part 58, Slice C) */
   DELIVERY_ORDER_OFFERED: "delivery_order.offered",
@@ -460,6 +469,12 @@ export const AUDIT_ACTIONS = {
   PAYMENT_REFUND_REQUESTED: "payment.refund_requested", // batch-2026-10 WS-A
   PAYMENT_REFUND_SETTLED: "payment.refund_settled", // batch-2026-10 WS-A
   OTP_PURGED: "auth.otp_purged", // batch-2026-10 WS-A
+  /* ---------------------- rider bank payouts (docs/gig-bank-payouts-2026-10) */
+  RIDER_BANK_ACCOUNT_REAUTH: "rider_bank.reauthenticated",
+  RIDER_BANK_ACCOUNT_REMOVED: "rider_bank.account_removed",
+  RIDER_WITHDRAWAL_REQUESTED: "rider_bank.withdrawal_requested",
+  RIDER_TRANSFER_STATUS_CHANGED: "rider_bank.transfer_status_changed",
+  RIDER_MONTHLY_RUN: "rider_bank.monthly_run",
 } as const;
 
 export type AuditAction = (typeof AUDIT_ACTIONS)[keyof typeof AUDIT_ACTIONS];

@@ -95,6 +95,7 @@ describe("registerDeliveryPartner", () => {
     const withCoords = await createUser();
     const verified = await registerDeliveryPartner(withCoords.id, {
       ...baseInput,
+      mobile: "9876543219",
       latitude: 18.55,
       longitude: 73.93,
     });
@@ -205,7 +206,8 @@ describe("queries and ownership", () => {
     const a = await createUser();
     const b = await createUser();
     const partnerA = await registerDeliveryPartner(a.id, baseInput);
-    await registerDeliveryPartner(b.id, baseInput);
+    // Gig worker flow: one partner per mobile number.
+    await registerDeliveryPartner(b.id, { ...baseInput, mobile: "9876543219" });
     await addRiderIdentityDocument(partnerA.id);
     await approveDeliveryPartner(partnerA.id, ADMIN(admin.id));
 
@@ -221,7 +223,7 @@ describe("queries and ownership", () => {
     const a = await createUser();
     const b = await createUser();
     await registerDeliveryPartner(a.id, baseInput);
-    await registerDeliveryPartner(b.id, baseInput);
+    await registerDeliveryPartner(b.id, { ...baseInput, mobile: "9876543219" });
 
     const counts = await countDeliveryPartnersByStatus();
     expect(counts.REGISTERED).toBe(2);

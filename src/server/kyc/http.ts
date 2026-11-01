@@ -43,6 +43,23 @@ export async function kycPostJson(
   idempotencyKey: string,
   options: KycHttpOptions,
 ): Promise<KycHttpResponse> {
+  return kycRequestJson("POST", url, headers, payload, idempotencyKey, options);
+}
+
+/**
+ * kycPostJson for any method. `answerStatuses` are vendor-specific codes that
+ * are answers rather than failures (Sandbox's DigiLocker 521 "no such session"
+ * and 523 "session can't be used"): their body is returned instead of retried.
+ */
+export async function kycRequestJson(
+  method: "GET" | "POST",
+  url: string,
+  headers: Record<string, string>,
+  payload: unknown,
+  idempotencyKey: string,
+  options: KycHttpOptions,
+  answerStatuses: readonly number[] = [],
+): Promise<KycHttpResponse> {
   const doFetch = options.fetchImpl ?? fetch;
   const sleep = options.sleep ?? defaultSleep;
   let lastError: KycUnavailableError | null = null;
@@ -58,14 +75,14 @@ export async function kycPostJson(
     let response: Response;
     try {
       response = await doFetch(url, {
-        method: "POST",
+        method,
         headers: {
-          "Content-Type": "application/json",
+          ...(method === "POST" ? { "Content-Type": "application/json" } : {}),
           Accept: "application/json",
           "Idempotency-Key": idempotencyKey,
           ...headers,
         },
-        body: JSON.stringify(payload),
+        ...(method === "POST" ? { body: JSON.stringify(payload) } : {}),
         signal: controller.signal,
         cache: "no-store",
       });
@@ -86,7 +103,7 @@ export async function kycPostJson(
         `Vendor refused our credentials or server address (HTTP ${response.status}).`,
       );
     }
-    if (isRetryableStatus(response.status)) {
+    if (isRetryableStatus(response.status) && !answerStatuses.includes(response.status)) {
       lastError = new KycUnavailableError(
         response.status === 429 ? "rate_limited" : "vendor_error",
         `Vendor returned HTTP ${response.status}.`,
@@ -100,9 +117,39 @@ export async function kycPostJson(
     } catch {
       throw new KycConfigError("unexpected_response", `Vendor returned a non-JSON body (HTTP ${response.status}).`);
     }
-    if (response.ok || response.status === 404) return { status: response.status, body };
+    if (response.ok || response.status === 404 || answerStatuses.includes(response.status)) return { status: response.status, body };
     throw new KycConfigError("bad_request", `Vendor rejected the request (HTTP ${response.status}).`);
   }
 
   throw lastError ?? new KycUnavailableError("vendor_error", "Vendor call failed.");
+}
+
+/**
+ * Downloads a file the vendor links to (a pre-signed storage URL: no
+ * credentials are sent) into memory, at most `maxBytes`. One attempt — the
+ * caller decides what a failure means. The bytes are never logged or stored.
+ */
+export async function kycGetBytes(url: string, options: KycHttpOptions, maxBytes: number): Promise<Buffer> {
+  const doFetch = options.fetchImpl ?? fetch;
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), options.timeoutMs);
+  try {
+    let response: Response;
+    try {
+      response = await doFetch(url, { method: "GET", signal: controller.signal, cache: "no-store" });
+    } catch (error) {
+      throw controller.signal.aborted
+        ? new KycUnavailableError("timeout", `Vendor file did not arrive within ${options.timeoutMs} ms.`)
+        : new KycUnavailableError("network", `Could not fetch the vendor file: ${(error as Error).name}.`);
+    }
+    if (isRetryableStatus(response.status)) throw new KycUnavailableError("vendor_error", `Vendor file: HTTP ${response.status}.`);
+    if (!response.ok) throw new KycConfigError("bad_request", `Vendor file refused (HTTP ${response.status}).`);
+    const declared = Number(response.headers.get("content-length") ?? "0");
+    if (declared > maxBytes) throw new KycConfigError("unexpected_response", `Vendor file is larger than ${maxBytes} bytes.`);
+    const bytes = Buffer.from(await response.arrayBuffer());
+    if (bytes.length > maxBytes) throw new KycConfigError("unexpected_response", `Vendor file is larger than ${maxBytes} bytes.`);
+    return bytes;
+  } finally {
+    clearTimeout(timer);
+  }
 }

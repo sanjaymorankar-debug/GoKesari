@@ -7,6 +7,7 @@ import {
   getCurrentPosition,
   isMapsAvailable,
   loadGoogleMaps,
+  onMapsAuthFailure,
 } from "@/lib/geo/provider";
 
 export interface MapPickerResult {
@@ -49,6 +50,10 @@ export function MapPicker({
       ? { lat: initialCoordinates.latitude, lng: initialCoordinates.longitude }
       : null,
   );
+
+  // Google refused the key: the map would stay grey, so offer the device's location instead.
+  const [refused, setRefused] = useState(false);
+  useEffect(() => onMapsAuthFailure(() => setRefused(true)), []);
 
   useEffect(() => {
     if (!isMapsAvailable()) return;
@@ -158,8 +163,8 @@ export function MapPicker({
     }
   }
 
-  if (!isMapsAvailable()) {
-    // No map without a Google Maps key, but the device's location can still geo-tag the address.
+  if (!isMapsAvailable() || refused) {
+    // No map without a Google Maps key (or with one Google refuses), but the device's location can still geo-tag the address.
     return (
       <div className="space-y-2">
         {error ? <Alert tone="danger">{error}</Alert> : null}
@@ -183,7 +188,7 @@ export function MapPicker({
           {busy ? "Locating…" : "Use my current location"}
         </Button>
         <p className="text-xs text-ink-500">
-          The map isn&apos;t available here — stand at the address and use your current location, then fill in the
+          {refused ? "The map could not be loaded right now. " : null}The map isn&apos;t available here — stand at the address and use your current location, then fill in the
           fields below.
         </p>
       </div>

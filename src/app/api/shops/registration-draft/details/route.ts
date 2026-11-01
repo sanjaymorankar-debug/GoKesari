@@ -1,7 +1,7 @@
 /**
- * Onboarding wizard step 2: POST the shop details — shop type, categories,
- * phone, turnover (it sets the fee), and the name and address the GST record
- * pre-filled. Validated like Add my shop; saved on the draft, nothing created yet.
+ * Onboarding wizard step 2: POST the shop details — shop type, phone, turnover
+ * (it sets the fee from the admin's slab table), and the name and address the GST
+ * record pre-filled. Categories are optional here (chosen after approval). Validated like Add my shop; saved on the draft, nothing created yet.
  */
 import type { NextRequest } from "next/server";
 import { z } from "zod";
@@ -25,7 +25,8 @@ const schema = z.object({
   phone: z.string().trim().regex(/^[6-9]\d{9}$/, "Enter a valid 10-digit mobile number"),
   email: nullable(z.string().trim().email()),
   shopType: z.string().regex(SHOP_TYPE_KEY_PATTERN),
-  categoryIds: z.array(z.string().uuid()).min(1, "Please select at least one shop category.").max(60),
+  // Chosen after approval on the wizard's category step (owner decision 29 Oct 2026); may come here too.
+  categoryIds: z.array(z.string().uuid()).max(60).default([]),
   annualTurnoverRupees: nullable(z.number().int().min(0).max(MAX_ANNUAL_TURNOVER_RUPEES)),
   couponCode: nullable(z.string().trim().max(40)),
   referralCode: nullable(z.string().trim().max(32)),

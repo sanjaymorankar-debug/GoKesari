@@ -87,8 +87,18 @@ export const TEMPLATES: Record<string, Template> = {
   [T.ORDER_RIDER_ARRIVING]: t("Your rider is arriving", "Your rider for order {{orderNumber}} has reached you. Keep your delivery code ready."),
   [T.ORDER_PICKED_UP]: t("Order picked up", "Your order {{orderNumber}} has been picked up and is on its way."),
   [T.ORDER_DELIVERED]: t("Order delivered", "Your order {{orderNumber}} has been delivered. Enjoy!"),
+  // Gig worker flow (feature 11): push + SMS + in-app; the delivered e-mail above already went out.
+  [T.ORDER_COMPLETED]: t(
+    "Order completed",
+    "Your order {{orderNumber}} from {{shopName}} was delivered successfully and is now complete. Thank you for shopping with GoKesari.",
+    false,
+  ),
   [T.ORDER_CANCELLED]: t("Order cancelled", "Your order {{orderNumber}} was cancelled. {{reason}}"),
   [T.ORDER_DELIVERY_FAILED]: t("Delivery attempt failed", "We could not deliver order {{orderNumber}}. {{reason}}"),
+  [T.ORDER_RETURNED_TO_SHOP]: t(
+    "Order returned to the shop",
+    "Order {{orderNumber}} could not be delivered and has gone back to {{shopName}}. Any refund due is shown on the order page.",
+  ),
   [T.DISPUTE_OPENED]: t(
     "We are looking into your order",
     "Dispute {{caseNumber}} has been opened for order {{orderNumber}} and is with our team.",
@@ -175,6 +185,7 @@ export const TEMPLATES: Record<string, Template> = {
   [T.SHOP_ORDER_PICKED_UP]: t("Order picked up", "Order {{orderNumber}} has been collected by {{riderName}}.", false),
   [T.SHOP_ORDER_OUT_FOR_DELIVERY]: t("Order on the way", "{{riderName}} is on the way to the customer with order {{orderNumber}}.", false),
   [T.SHOP_ORDER_DELIVERED]: t("Order delivered", "Order {{orderNumber}} has been delivered to the customer."),
+  [T.SHOP_ORDER_COMPLETED]: t("Order completed", "Order {{orderNumber}} was delivered successfully to the customer and is now complete.", false),
   [T.SHOP_ACCEPT_ESCALATED]: t(
     "Order waiting — support will call",
     "Order {{orderNumber}} was not accepted within {{minutes}} minutes. Our support team has been asked to follow up; accept or reject it now.",
@@ -405,6 +416,14 @@ export const TEMPLATES: Record<string, Template> = {
   ),
   /* <<< end purchase lists */
   //
+  // docs/gig-bank-payouts-2026-10
+  [T.RIDER_WITHDRAWAL_SENT]: t("Withdrawal of {{amount}} sent", "{{amount}} is on its way to {{account}}{{tdsNote}}. Expected: {{settlement}}. We'll tell you when the bank confirms it."),
+  [T.RIDER_PAYOUT_PAID]: t(
+    "{{amount}} paid to your bank",
+    "{{what}}: {{gross}} earned, TDS {{tds}}, fee {{fee}} — {{amount}} paid to {{account}}. Bank reference (UTR): {{utr}}. Your statement is under My wallet.",
+  ),
+  [T.RIDER_PAYOUT_FAILED]: t("Payment to your bank failed", "{{what}} of {{amount}} to {{account}} failed: {{reason}} {{next}}"),
+  [T.RIDER_PAYOUT_CARRIED]: t("{{month}} earnings carried forward", "Your unpaid earnings of {{amount}} for {{month}} were not paid this month: {{reason}} They stay in your balance and go into the next payout."),
 };
 
 /** Fills `{{name}}` placeholders; a missing variable becomes an empty string and extra spaces are tidied. */
