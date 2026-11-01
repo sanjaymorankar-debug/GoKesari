@@ -16,6 +16,8 @@ export const STOCK_MOVEMENT_TYPES = [
   "ADJUSTMENT",
   /** Undoes an earlier entry exactly (a corrected or cancelled document). */
   "REVERSAL",
+  /** Billing v2: a stock journal moving stock between the online and in-shop counts. */
+  "TRANSFER",
 ] as const;
 export type StockMovementType = (typeof STOCK_MOVEMENT_TYPES)[number];
 
@@ -28,6 +30,8 @@ export const STOCK_SOURCE_TYPES = [
   "SALES_INVOICE",
   "MANUAL",
   "MIGRATION",
+  /** Billing v2: a shop document (credit note bringing goods back, delivery challan). */
+  "SHOP_DOCUMENT",
 ] as const;
 export type StockSourceType = (typeof STOCK_SOURCE_TYPES)[number];
 
@@ -41,6 +45,7 @@ export const STOCK_MOVEMENT_LABELS: Record<StockMovementType, string> = {
   WRITE_OFF_EXPIRY: "Expired (written off)",
   ADJUSTMENT: "Adjustment",
   REVERSAL: "Reversal",
+  TRANSFER: "Transfer (stock journal)",
 };
 
 export const VALUATION_METHODS = ["FIFO", "WAVG"] as const;
@@ -74,6 +79,19 @@ export const BOOK_ACCOUNTS = [
   "STOCK_WRITE_OFF",
   "ROUND_OFF",
   "CAPITAL",
+  /* Billing v2 (docs/billing §6.1): */
+  /** Advances received from customers (receipt vouchers) until the supply is invoiced. */
+  "ADVANCES_RECEIVED",
+  /** GST TCS GoKesari collected (s.52) — the shop claims it in its electronic cash ledger. */
+  "TCS_RECEIVABLE",
+  /** Income-tax TDS GoKesari deducted (s.393) — the shop claims it in its return. */
+  "TDS_RECEIVABLE",
+  /** GoKesari's commission and fees. */
+  "COMMISSION_EXPENSE",
+  /** Delivery charges paid to GoKesari. */
+  "DELIVERY_EXPENSE",
+  /** Money GoKesari holds for the shop (unsettled payouts, the prepaid shop wallet). */
+  "GOKESARI_ACCOUNT",
 ] as const;
 export type BookAccount = (typeof BOOK_ACCOUNTS)[number];
 
@@ -95,9 +113,62 @@ export const BOOK_ACCOUNT_LABELS: Record<BookAccount, string> = {
   STOCK_WRITE_OFF: "Stock written off",
   ROUND_OFF: "Round off",
   CAPITAL: "Capital / opening balance",
+  ADVANCES_RECEIVED: "Advances from customers",
+  TCS_RECEIVABLE: "GST TCS receivable",
+  TDS_RECEIVABLE: "Income-tax TDS receivable",
+  COMMISSION_EXPENSE: "GoKesari commission & fees",
+  DELIVERY_EXPENSE: "Delivery charges",
+  GOKESARI_ACCOUNT: "GoKesari account (payouts & wallet)",
 };
 
-export const VOUCHER_TYPES = ["PURCHASE", "SALE", "PAYMENT", "RECEIPT", "EXPENSE", "WRITE_OFF", "OPENING", "REVERSAL"] as const;
+/**
+ * Billing v2 (docs/billing §6.1): the Tally group each book account belongs to
+ * — the shop's chart of accounts and the masters exported to TallyPrime.
+ * Parties are Sundry Debtors / Creditors by their balance.
+ */
+export const ACCOUNT_GROUPS: Record<BookAccount, { group: string; nature: "ASSET" | "LIABILITY" | "INCOME" | "EXPENSE" | "CAPITAL" }> = {
+  CASH: { group: "Cash-in-Hand", nature: "ASSET" },
+  BANK: { group: "Bank Accounts", nature: "ASSET" },
+  PARTY: { group: "Sundry Debtors / Creditors", nature: "ASSET" },
+  PURCHASES: { group: "Purchase Accounts", nature: "EXPENSE" },
+  SALES: { group: "Sales Accounts", nature: "INCOME" },
+  GST_INPUT_CGST: { group: "Duties & Taxes", nature: "ASSET" },
+  GST_INPUT_SGST: { group: "Duties & Taxes", nature: "ASSET" },
+  GST_INPUT_IGST: { group: "Duties & Taxes", nature: "ASSET" },
+  GST_INPUT_CESS: { group: "Duties & Taxes", nature: "ASSET" },
+  GST_OUTPUT_CGST: { group: "Duties & Taxes", nature: "LIABILITY" },
+  GST_OUTPUT_SGST: { group: "Duties & Taxes", nature: "LIABILITY" },
+  GST_OUTPUT_IGST: { group: "Duties & Taxes", nature: "LIABILITY" },
+  GST_OUTPUT_CESS: { group: "Duties & Taxes", nature: "LIABILITY" },
+  EXPENSE: { group: "Indirect Expenses", nature: "EXPENSE" },
+  STOCK_WRITE_OFF: { group: "Indirect Expenses", nature: "EXPENSE" },
+  ROUND_OFF: { group: "Indirect Expenses", nature: "EXPENSE" },
+  CAPITAL: { group: "Capital Account", nature: "CAPITAL" },
+  ADVANCES_RECEIVED: { group: "Current Liabilities", nature: "LIABILITY" },
+  TCS_RECEIVABLE: { group: "Current Assets", nature: "ASSET" },
+  TDS_RECEIVABLE: { group: "Loans & Advances (Asset)", nature: "ASSET" },
+  COMMISSION_EXPENSE: { group: "Indirect Expenses", nature: "EXPENSE" },
+  DELIVERY_EXPENSE: { group: "Direct Expenses", nature: "EXPENSE" },
+  GOKESARI_ACCOUNT: { group: "Sundry Debtors", nature: "ASSET" },
+};
+
+export const VOUCHER_TYPES = [
+  "PURCHASE",
+  "SALE",
+  "PAYMENT",
+  "RECEIPT",
+  "EXPENSE",
+  "WRITE_OFF",
+  "OPENING",
+  "REVERSAL",
+  /* Billing v2 (docs/billing §6.1): the Tally-style types. */
+  "SALES_RETURN",
+  "PURCHASE_RETURN",
+  "DEBIT_NOTE",
+  "CONTRA",
+  "JOURNAL",
+  "STOCK_JOURNAL",
+] as const;
 export type VoucherType = (typeof VOUCHER_TYPES)[number];
 
 export const EXPENSE_CATEGORIES = [

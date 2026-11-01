@@ -18,7 +18,9 @@
  *   ± PLATFORM_NOTE    a credit (+) or debit (−) note issued by hand
  *   − WALLET_TOPUP     tops the shop's prepaid wallet up to payouts.walletTopUpTargetPaise
  *   ± CARRY_FORWARD    a held / reversed amount from an earlier cycle
- *     SEC95_GST, REGISTRATION_FEE  informational
+ *   − SEC95_GST        GST GoKesari pays on a restaurant's food under s.9(5)
+ *                      (billing_v2; informational while it is off)
+ *     REGISTRATION_FEE informational
  *
  * Statutory rates are the ones in force on each supply's own date
  * (statutory_rates), so a rate change inside a cycle applies from its day.
@@ -39,13 +41,15 @@ import { getEnv } from "@/lib/env";
 import { conflict } from "@/lib/errors";
 import { isValidGstin } from "@/lib/gst-states";
 import { formatPaise } from "@/lib/money";
-import { decryptSecret } from "@/lib/pan-crypto";
+import { decryptSecret, panBlindIndex } from "@/lib/pan-crypto";
+import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { db, isRetryableTransactionError, type DbClient } from "@/server/db";
 import {
   bankAccounts,
   creditNotes,
   financialAdjustments,
   orderFinancials,
+  orderMoneyFlows,
   orders,
   payoutBatches,
   payoutCycleLines,
@@ -229,11 +233,26 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
     const orderIds = orderRows.map((r) => r.f.orderId);
     const invoices = orderIds.length
       ? await tx
-          .select({ orderId: taxInvoices.orderId, taxablePaise: taxInvoices.taxablePaise, totalPaise: taxInvoices.totalPaise, supplyType: taxInvoices.supplyType })
+          .select({
+            orderId: taxInvoices.orderId,
+            taxablePaise: taxInvoices.taxablePaise,
+            totalPaise: taxInvoices.totalPaise,
+            supplyType: taxInvoices.supplyType,
+            // Billing v2: GSTR-8 reports TCS supplies B2B / B2C and by place of supply.
+            buyerGstin: sql<string | null>`${taxInvoices.snapshot}->'buyer'->>'gstin'`,
+            placeOfSupply: sql<string | null>`${taxInvoices.snapshot}->>'placeOfSupply'`,
+          })
           .from(taxInvoices)
           .where(inArray(taxInvoices.orderId, orderIds))
       : [];
     const invoiceByOrder = new Map(invoices.map((i) => [i.orderId, i]));
+    // Billing v2 (docs/billing §5.4, §5.5): with the TCS / TDS engines on, the order's money-flow
+    // record decides whether TCS / TDS apply (who received the customer's money), and the TDS
+    // exemption is counted per PAN across every shop of that PAN. Off: as before.
+    // With billing_v2 on, GoKesari also withholds the s.9(5) GST it pays on a restaurant's food (§5.3).
+    const [tcsEngine, tdsEngine, billingV2] = await Promise.all([isFeatureEnabled("tcs_engine"), isFeatureEnabled("tds_engine"), isFeatureEnabled("billing_v2")]);
+    const flows = (tcsEngine || tdsEngine || billingV2) && orderIds.length ? await tx.select().from(orderMoneyFlows).where(inArray(orderMoneyFlows.orderId, orderIds)) : [];
+    const flowByOrder = new Map(flows.map((f) => [f.orderId, f]));
 
     const shopIds = [
       ...new Set([
@@ -293,12 +312,27 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
       const unregRules = await unregisteredRulesOn(day, resolve);
       const facts = { taxablePaise: taxable, goodsPaise: f.goodsPaise, supply, tcsRateBp: null as number | null, tdsRateBp: null as number | null, tdsBaseExcludesGst: true, commissionRateBp: f.commissionRateBp };
 
+      const flow = flowByOrder.get(f.orderId);
       const s95 = await sec95RestaurantOn(day, shop.shopType, resolve);
       if (s95) {
-        push({ ...base, lineType: "SEC95_GST", description: `s.9(5): GoKesari pays GST on restaurant service, order ${orderNumber}`, amountPaise: 0, basePaise: taxable, rateBp: s95.rateBp, meta: { liabilityPaise: pctOf(taxable, s95.rateBp), statutoryRowId: s95.rowId } });
+        // billing_v2: the shop's document is at the value without this GST (a bill of supply), so it is withheld here;
+        // off: informational, as before.
+        const withheld = billingV2 && flow?.foodGstLiable === "GOKESARI_S95";
+        const liability = withheld ? flow.foodGstPaise : pctOf(taxable, s95.rateBp);
+        push({
+          ...base,
+          lineType: "SEC95_GST",
+          description: `s.9(5): GoKesari pays GST on restaurant service, order ${orderNumber}`,
+          amountPaise: withheld ? -liability : 0,
+          basePaise: taxable,
+          rateBp: s95.rateBp,
+          meta: { liabilityPaise: liability, statutoryRowId: s95.rowId, withheld },
+        });
       } else {
         const tcs = await tcsOn(day, resolve);
-        if (tcs && (registered || tcs.applyToUnregistered || unregRules.tcsOnUnregistered)) {
+        if (tcsEngine && flow && !flow.tcsApplicable) {
+          // The shop received the money and the CA switch says GoKesari collects nothing on it.
+        } else if (tcs && (registered || tcs.applyToUnregistered || unregRules.tcsOnUnregistered)) {
           const amount = pctOf(taxable, tcs.rateBp);
           facts.tcsRateBp = tcs.rateBp;
           push({
@@ -308,13 +342,23 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
             amountPaise: -amount,
             basePaise: taxable,
             rateBp: tcs.rateBp,
-            meta: { orderNumber, supply, ...splitTax(amount, supply), statutoryRowId: tcs.rowId, taxableFrom: invoice ? "TAX_INVOICE" : "GOODS_VALUE" },
+            meta: {
+              orderNumber,
+              supply,
+              ...splitTax(amount, supply),
+              statutoryRowId: tcs.rowId,
+              taxableFrom: invoice ? "TAX_INVOICE" : "GOODS_VALUE",
+              b2b: Boolean(invoice?.buyerGstin),
+              placeOfSupply: invoice?.placeOfSupply ?? null,
+            },
           });
         }
       }
 
       const tds = await tdsOn(day, resolve);
-      if (tds && (registered || unregRules.tdsOnUnregistered)) {
+      if (tdsEngine && flow && !flow.tdsApplicable) {
+        // Out of scope by the money-flow record (shop-collected cash, CA switch off).
+      } else if (tds && (registered || unregRules.tdsOnUnregistered)) {
         const pan = shopPan(shop);
         const tdsBase = tds.baseExcludesGst ? taxable : f.goodsPaise;
         let rateBp = pan ? tds.rateBp : tds.noPanRateBp;
@@ -322,13 +366,17 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
         // Individual / HUF with PAN: exempt while the FY's gross sales stay within the limit.
         if (pan && /^[A-Z]{3}[PH]/.test(pan) && tds.exemptIndividualHufUpToPaise > 0) {
           const fy = financialYearOf(f.deliveredAt);
-          const key = `${shop.id}|${fy}`;
+          // tds_engine: the limit is per person (PAN), across all their shops.
+          const panKey = tdsEngine ? panBlindIndex(pan) : null;
+          const key = `${panKey ?? shop.id}|${fy}`;
           if (!fyGross.has(key)) {
             const fyStart = `${fy.slice(0, 4)}-04-01`;
+            const samePan = panKey ? (await tx.select({ id: shops.id }).from(shops).where(eq(shops.panHash, panKey))).map((r) => r.id) : [];
+            const shopIdsOfPan = [...new Set([shop.id, ...samePan])];
             const [row] = await tx
               .select({ gross: sql<number>`coalesce(sum(${orderFinancials.goodsPaise}), 0)::bigint` })
               .from(orderFinancials)
-              .where(and(eq(orderFinancials.shopId, shop.id), gte(orderFinancials.deliveredAt, startOf(fyStart)), lt(orderFinancials.deliveredAt, f.deliveredAt)));
+              .where(and(inArray(orderFinancials.shopId, shopIdsOfPan), gte(orderFinancials.deliveredAt, startOf(fyStart)), lt(orderFinancials.deliveredAt, f.deliveredAt)));
             fyGross.set(key, Number(row?.gross ?? 0));
           }
           const running = fyGross.get(key)! + f.goodsPaise;

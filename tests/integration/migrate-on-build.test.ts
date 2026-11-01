@@ -204,7 +204,10 @@ describe("migrate-on-build", () => {
 
   it("two migrations started at once (the deploy build and the test-db workflow) both succeed, applying each migration once", async (ctx) => {
     if (!created) ctx.skip();
-    await withTemp((sql) => sql.unsafe("drop schema if exists drizzle cascade; drop schema if exists pmd cascade; drop schema public cascade; create schema public;"));
+    // A new scratch database: dropping a fully migrated schema in one transaction
+    // locks more objects than Postgres's default lock table holds (max_locks_per_transaction 64).
+    await admin.unsafe(`drop database if exists "${dbName}" with (force)`);
+    await admin.unsafe(`create database "${dbName}"`);
     const env = { MIGRATE_ON_BUILD: "true", DATABASE_URL: tempUrl.toString() };
     const [a, b] = await Promise.all([runScriptAsync(env), runScriptAsync(env)]);
     expect([a.code, b.code], `${a.out}\n---\n${b.out}`).toEqual([0, 0]);

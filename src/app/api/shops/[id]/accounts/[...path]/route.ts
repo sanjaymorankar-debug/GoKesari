@@ -31,7 +31,19 @@ import {
 import { cancelExpense, cancelPayment, cashBook, dayBook, expenseSchema, listExpenses, listPayments, paymentSchema, recordExpense, recordPayment } from "@/server/accounts/money";
 import { ageing, createParty, getParty, listParties, partyLedger, partySchema, updateParty } from "@/server/accounts/parties";
 import { cancelPurchase, confirmPurchase, correctPurchase, getPurchase, listPurchases, purchaseAsInput, purchaseSchema } from "@/server/accounts/purchases";
-import { reportTable, tableToPdf, tableToXlsx, tallyXml, type ReportKind } from "@/server/accounts/reports";
+import { BILLING_REPORT_KINDS, reportTable, tableToPdf, tableToXlsx, tallyXml, type ReportKind } from "@/server/accounts/reports";
+import { contraSchema, journalSchema, recordContra, recordJournal, recordStockJournal, reverseJournal, stockJournalSchema } from "@/server/accounts/journals";
+import { postGokesariActivity } from "@/server/accounts/platform-posting";
+import { cancelDocument, createDocument, documentPdf, documentSchema, getDocument, listDocuments } from "@/server/accounts/documents";
+import { salesReceiptPdf } from "@/server/invoicing/outputs";
+import { shopStatementFiles } from "@/server/tax/statements";
+import { ExportBlocked, exportForTool, importForTool, MAX_SYNC_FILE_BYTES, resolveConflict, setUnitUqc, syncDashboard, templatePack } from "@/server/sync/engine";
+import { buildCanonicalBooks, validateBooks } from "@/server/sync/model";
+import { createApiClient, listApiClients, revokeApiClient } from "@/server/public-api/auth";
+import { posBillSchema, posItems, syncPosBills } from "@/server/accounts/pos";
+import { getShopRegistration, registrationInput, setShopRegistration } from "@/server/tax/registration";
+import { decideIms, draftBillFromEinvoice, fileWithEvc, imsInward, listFilings, portalLedgers, prepareReturn, requestFilingOtp, saveToPortal, supplierEinvoices } from "@/server/gsp/returns";
+import { requireFeature } from "@/server/services/feature-flags";
 import { cancelSalesInvoice, createSalesInvoice, getSalesInvoice, listSalesInvoices, salesInvoicePdf, salesSchema } from "@/server/accounts/sales";
 import { adjustStockTo, expiringBatches, ledgerDrift, listingLedger, listListings, setTrackBatches, stockSummary, writeOffStock } from "@/server/accounts/stock";
 import {
@@ -48,7 +60,7 @@ import {
 } from "@/server/accounts/capture/service";
 import { computeTotals } from "@/lib/accounts/bill-draft";
 import { db } from "@/server/db";
-import { accChangeLog, type UserRole } from "@/server/db/schema";
+import { ACC_DOCUMENT_KINDS, accChangeLog, GST_FILING_TYPES, PUBLIC_API_SCOPES, SYNC_SYSTEMS, type UserRole } from "@/server/db/schema";
 import { and, desc, eq } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
@@ -92,6 +104,199 @@ async function formFiles(req: NextRequest): Promise<{ files: { bytes: Buffer; co
 }
 
 const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?: Handler; DELETE?: Handler }> = {
+  /* ------------------------------------- documents (billing v2, §4.1) */
+  documents: {
+    GET: async (req, shopId, _u, [did, action]) => {
+      await requireFeature("billing_v2");
+      if (!did) {
+        const kind = q(req, "kind");
+        return ok(await listDocuments(shopId, { kind: kind ? z.enum(ACC_DOCUMENT_KINDS).parse(kind) : undefined, from: q(req, "from"), to: q(req, "to") }));
+      }
+      if (action === "pdf") {
+        const pdf = await documentPdf(shopId, id(did));
+        return file(pdf.bytes, "application/pdf", pdf.filename);
+      }
+      return ok(await getDocument(shopId, id(did)));
+    },
+    POST: async (req, shopId, user) => {
+      await requireFeature("billing_v2");
+      return ok(await createDocument(shopId, await parseBody(req, documentSchema), user), 201);
+    },
+    DELETE: async (req, shopId, user, [did]) => {
+      await requireFeature("billing_v2");
+      const body = await parseBody(req, z.object({ reason: z.string().trim().min(1).max(300) }));
+      return ok(await cancelDocument(shopId, id(did), body.reason, user));
+    },
+  },
+
+  /* --------------------- journals, contra, stock journal (billing v2, §6.1) */
+  journals: {
+    POST: async (req, shopId, user, [kind]) => {
+      await requireFeature("billing_v2");
+      if (kind === "contra") return ok(await recordContra(shopId, await parseBody(req, contraSchema), user), 201);
+      if (kind === "stock") return ok(await recordStockJournal(shopId, await parseBody(req, stockJournalSchema), user), 201);
+      if (kind) throw notFound("Endpoint");
+      return ok(await recordJournal(shopId, await parseBody(req, journalSchema), user), 201);
+    },
+    DELETE: async (req, shopId, user, [sourceId]) => {
+      await requireFeature("billing_v2");
+      const body = await parseBody(req, z.object({ reason: z.string().trim().min(1).max(300) }));
+      return ok({ reversed: await reverseJournal(shopId, id(sourceId), body.reason, user) });
+    },
+  },
+
+  /* --------------------------- counter POS, offline-first (billing v2, §4.7) */
+  pos: {
+    GET: async (_req, shopId, _u, [action]) => {
+      await requireFeature("billing_v2");
+      if (action !== "items") throw notFound("Endpoint");
+      return ok(await posItems(shopId));
+    },
+    POST: async (req, shopId, user, [action]) => {
+      await requireFeature("billing_v2");
+      if (action !== "sync") throw notFound("Endpoint");
+      const b = await parseBody(req, z.object({ bills: z.array(posBillSchema).min(1).max(200) }));
+      return ok(await syncPosBills(shopId, b.bills, user));
+    },
+  },
+
+  /* ------------------------ GST registration type (billing v2, §3.1, G5) */
+  "gst-registration": {
+    GET: async (_req, shopId) => {
+      await requireFeature("billing_v2");
+      return ok(await getShopRegistration(shopId));
+    },
+    PATCH: async (req, shopId, user) => {
+      await requireFeature("billing_v2");
+      return ok(await setShopRegistration(shopId, await parseBody(req, registrationInput), user));
+    },
+  },
+
+  /* ---------------------- public API clients (billing v2, §8 "Generic") */
+  "api-clients": {
+    GET: async (_req, shopId) => {
+      await requireFeature("billing_v2");
+      return ok(await listApiClients(shopId));
+    },
+    POST: async (req, shopId, user) => {
+      await requireFeature("billing_v2");
+      const b = await parseBody(req, z.object({ name: z.string().trim().min(2).max(80), scopes: z.array(z.enum(PUBLIC_API_SCOPES)).min(1) }));
+      const { client, clientSecret } = await createApiClient(shopId, b, user);
+      return ok({ id: client.id, clientId: client.clientId, clientSecret, scopes: client.scopes, note: "Copy the secret now: it is not shown again." }, 201);
+    },
+    DELETE: async (_req, shopId, user, [cid]) => {
+      await requireFeature("billing_v2");
+      await revokeApiClient(shopId, id(cid), user);
+      return ok({ revoked: true });
+    },
+  },
+
+  /* ------------------------- GST portal through the GSP (billing v2, §9) */
+  portal: {
+    GET: async (req, shopId, user, [section, fid, action]) => {
+      await requireFeature("billing_v2");
+      if (section === "filings" && !fid) return ok(await listFilings(shopId));
+      if (section === "filings" && action === "download") {
+        const f = (await listFilings(shopId)).find((x) => x.id === id(fid));
+        if (!f) throw notFound("Return");
+        return file(Buffer.from(JSON.stringify(f.payload, null, 2)), "application/json", `${f.returnType}-${f.period}.json`);
+      }
+      if (section === "ledgers") return ok(await portalLedgers(shopId, isoDate.parse(q(req, "from")), isoDate.parse(q(req, "to")), user.id));
+      if (section === "ims") return ok(await imsInward(shopId, period.parse(q(req, "period")), user.id));
+      if (section === "einvoices") return ok(await supplierEinvoices(shopId, period.parse(q(req, "period")), user.id));
+      throw notFound("Endpoint");
+    },
+    POST: async (req, shopId, user, [section, fid, action]) => {
+      await requireFeature("billing_v2");
+      if (section === "filings" && !fid) {
+        const b = await parseBody(req, z.object({ returnType: z.enum(GST_FILING_TYPES), period: z.string().trim().max(12) }));
+        return ok(await prepareReturn(shopId, b.returnType, b.period), 201);
+      }
+      if (section === "filings" && action === "save") return ok(await saveToPortal(shopId, id(fid), user.id));
+      if (section === "filings" && action === "otp") return ok(await requestFilingOtp(shopId, id(fid), user.id));
+      if (section === "filings" && action === "file") {
+        const b = await parseBody(req, z.object({ requestId: z.string().min(4).max(64), otp: z.string().trim().length(6) }));
+        return ok(await fileWithEvc(shopId, id(fid), b.requestId, b.otp, user.id));
+      }
+      if (section === "ims") {
+        const b = await parseBody(
+          req,
+          z.object({
+            period,
+            decisions: z
+              .array(z.object({ supplierGstin: z.string().length(15), docType: z.enum(["INV", "CN", "DN"]), docNumber: z.string().min(1).max(40), docDate: isoDate.nullable().optional(), total: z.number().optional(), action: z.enum(["ACCEPTED", "REJECTED", "PENDING"]), reason: z.string().trim().max(200).nullable().optional() }))
+              .min(1)
+              .max(500),
+          }),
+        );
+        return ok(await decideIms(shopId, b.period, b.decisions, user.id));
+      }
+      if (section === "einvoices" && fid === "draft") {
+        const b = await parseBody(req, z.object({ period, irn: z.string().min(10).max(100) }));
+        return ok(await draftBillFromEinvoice(shopId, b.period, b.irn, user.id), 201);
+      }
+      throw notFound("Endpoint");
+    },
+  },
+
+  /* ---------------------- sync with accounting software (billing v2, §7–8) */
+  sync: {
+    GET: async (req, shopId, user, [action]) => {
+      await requireFeature("billing_v2");
+      if (!action) return ok(await syncDashboard(shopId));
+      if (action === "templates") return file(await templatePack(), "application/zip", "gokesari-template-pack.zip");
+      const from = isoDate.parse(q(req, "from"));
+      const to = isoDate.parse(q(req, "to"));
+      if (action === "fixes") return ok(validateBooks(await buildCanonicalBooks(shopId, from, to)));
+      if (action === "export") {
+        const tool = z.enum(SYNC_SYSTEMS).parse(q(req, "tool"));
+        try {
+          const out = await exportForTool(shopId, tool, { from, to }, user);
+          return file(out.bytes, out.contentType, out.filename);
+        } catch (error) {
+          if (error instanceof ExportBlocked) return NextResponse.json({ error: { code: "FIX_FIRST", message: error.message, fixes: error.fixes } }, { status: 409 });
+          throw error;
+        }
+      }
+      throw notFound("Endpoint");
+    },
+    POST: async (req, shopId, user, [action, conflictId]) => {
+      await requireFeature("billing_v2");
+      if (action === "import") {
+        const tool = z.enum(SYNC_SYSTEMS).parse(q(req, "tool") ?? "GENERIC");
+        const { files } = await formFiles(req);
+        const f = files[0];
+        if (!f) throw validationFailed("Choose a file to import.");
+        if (f.bytes.length > MAX_SYNC_FILE_BYTES) throw validationFailed("The file is larger than 5 MB.");
+        return ok(await importForTool(shopId, tool, { name: f.name ?? "import", bytes: f.bytes }, user));
+      }
+      if (action === "conflicts") {
+        const body = await parseBody(req, z.object({ choice: z.enum(["KEEP_LOCAL", "TAKE_INCOMING"]) }));
+        return ok(await resolveConflict(shopId, id(conflictId), body.choice, user));
+      }
+      throw notFound("Endpoint");
+    },
+    PUT: async (req, shopId, _u, [action]) => {
+      await requireFeature("billing_v2");
+      if (action !== "units") throw notFound("Endpoint");
+      const body = await parseBody(req, z.object({ unit: z.string().trim().min(1).max(30), uqc: z.string().trim().length(3) }));
+      await setUnitUqc(shopId, body.unit, body.uqc);
+      return ok({ saved: true });
+    },
+  },
+
+  /* ----------------- statements from GoKesari (billing v2, §5.4–5.6) */
+  statements: {
+    GET: async (req, shopId, _u, [kind]) => {
+      await requireFeature("billing_v2");
+      const k = z.enum(["wallet", "tax", "settlement"]).parse(kind);
+      const p = period.parse(q(req, "period"));
+      const format = z.enum(["pdf", "csv"]).parse(q(req, "format") ?? (k === "settlement" ? "csv" : "pdf"));
+      const f = await shopStatementFiles(shopId, k, p, format);
+      return file(f.bytes, f.contentType, f.filename);
+    },
+  },
+
   /* ---------------------------------------------------------- settings */
   settings: {
     GET: async (_r, shopId) => ok(await getSettings(shopId)),
@@ -105,6 +310,7 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
           salesInvoicePrefix: z.string().optional(),
           reminderDaysBefore: z.number().int().min(0).max(30).optional(),
           expiryAlertDays: z.number().int().min(0).max(365).optional(),
+          upiVpa: z.string().trim().max(300).nullable().optional(),
         }),
       );
       return ok(await updateSettings(shopId, body, user.id));
@@ -203,6 +409,12 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
         const pdf = await salesInvoicePdf(shopId, id(sid));
         return file(pdf.bytes, "application/pdf", pdf.filename);
       }
+      // Billing v2 (§4.6): 80 mm receipt with the shop's UPI payment QR.
+      if (action === "receipt") {
+        await requireFeature("billing_v2");
+        const pdf = await salesReceiptPdf(shopId, id(sid));
+        return file(pdf.bytes, "application/pdf", pdf.filename);
+      }
       return ok(await getSalesInvoice(shopId, id(sid)));
     },
     POST: async (req, shopId, user) => ok(await createSalesInvoice(shopId, await parseBody(req, salesSchema), user), 201),
@@ -257,6 +469,12 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
       if (kind === "cash" || kind === "bank") return ok(await cashBook(shopId, kind === "cash" ? "CASH" : "BANK", from, to));
       if (kind === "day") return ok(await dayBook(shopId, from, to));
       throw notFound("Book");
+    },
+    // Billing v2 (§6.1): bring GoKesari's orders, fees, taxes and payouts into the books now.
+    POST: async (_req, shopId, _u, [action]) => {
+      await requireFeature("billing_v2");
+      if (action !== "gokesari") throw notFound("Endpoint");
+      return ok(await postGokesariActivity(shopId));
     },
   },
 
@@ -337,7 +555,9 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
       const to = isoDate.parse(q(req, "to"));
       const format = q(req, "format") ?? "json";
       if (kind === "tally") return file(Buffer.from(await tallyXml(shopId, from, to, q(req, "company")), "utf8"), "application/xml", `gokesari-tally-${from}-to-${to}.xml`);
-      const k = z.enum(["pnl", "stock", "daybook", "purchases", "sales", "gst", "ledger"]).parse(kind) as ReportKind;
+      const k = z.enum(["pnl", "stock", "daybook", "purchases", "sales", "gst", "ledger", ...BILLING_REPORT_KINDS]).parse(kind) as ReportKind;
+      // Billing v2 reports (trial balance, balance sheet, stock movement / ageing, TCS-TDS credit, MTR).
+      if ((BILLING_REPORT_KINDS as readonly string[]).includes(k)) await requireFeature("billing_v2");
       const table = await reportTable(shopId, k, from, to);
       if (format === "xlsx") return file(await tableToXlsx(table), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", `${k}-${from}-to-${to}.xlsx`);
       if (format === "pdf") return file(tableToPdf(table), "application/pdf", `${k}-${from}-to-${to}.pdf`);

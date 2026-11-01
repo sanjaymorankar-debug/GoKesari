@@ -7,11 +7,12 @@ import { NextResponse, type NextRequest } from "next/server";
 import { AppError, toClientError } from "@/lib/errors";
 import { getCurrentUser } from "@/server/authz/guards";
 import { renderInvoiceDocument } from "@/server/invoicing/delivery";
+import { renderInvoiceReceipt } from "@/server/invoicing/outputs";
 import { canViewInvoice, getInvoice } from "@/server/services/invoices";
 
 export const dynamic = "force-dynamic";
 
-export async function GET(_request: NextRequest, context: { params: Promise<{ id: string }> }) {
+export async function GET(request: NextRequest, context: { params: Promise<{ id: string }> }) {
   try {
     const { id } = await context.params;
     if (!/^[0-9a-f-]{36}$/i.test(id)) throw new AppError("NOT_FOUND", "Invoice not found.");
@@ -21,8 +22,10 @@ export async function GET(_request: NextRequest, context: { params: Promise<{ id
     if (!(await canViewInvoice(invoice, user))) throw new AppError("NOT_FOUND", "Invoice not found.");
     // Module 2: the IRN and acknowledgement print on the invoice once generated.
     // batch-2026-10 WS-E: plus the QR code when rule invoiceDelivery is on (else the same PDF as before).
-    const pdf = await renderInvoiceDocument(invoice);
-    const filename = `${invoice.invoiceNumber.replace(/[^A-Za-z0-9-]+/g, "_")}.pdf`;
+    // Billing v2 (docs/billing §4.6): ?format=thermal gives the 80 mm receipt layout.
+    const thermal = request.nextUrl.searchParams.get("format") === "thermal";
+    const pdf = thermal ? await renderInvoiceReceipt(invoice) : await renderInvoiceDocument(invoice);
+    const filename = `${invoice.invoiceNumber.replace(/[^A-Za-z0-9-]+/g, "_")}${thermal ? "-80mm" : ""}.pdf`;
     return new NextResponse(new Uint8Array(pdf), {
       headers: {
         "Content-Type": "application/pdf",

@@ -269,12 +269,12 @@ export async function unregisteredRulesOn(day: IsoDate, resolve: StatutoryResolv
   };
 }
 
-/** s.9(5) restaurant services: the rate when enabled and the shop's type is listed. */
-export async function sec95RestaurantOn(day: IsoDate, shopType: string, resolve: StatutoryResolver): Promise<{ rateBp: number; rowId: string } | null> {
+/** s.9(5) restaurant services: the rate when enabled and the shop's type is listed (5% without ITC unless params.withoutItc is false). */
+export async function sec95RestaurantOn(day: IsoDate, shopType: string, resolve: StatutoryResolver): Promise<{ rateBp: number; rowId: string; withoutItc: boolean } | null> {
   const row = await resolve("GST_S95_RESTAURANT", day);
   if (!row || !row.enabled || row.rateBp == null) return null;
   const types = Array.isArray(row.params.appliesToShopTypes) ? (row.params.appliesToShopTypes as unknown[]) : [];
-  return types.includes(shopType) ? { rateBp: row.rateBp, rowId: row.id } : null;
+  return types.includes(shopType) ? { rateBp: row.rateBp, rowId: row.id, withoutItc: row.params.withoutItc !== false } : null;
 }
 
 /**

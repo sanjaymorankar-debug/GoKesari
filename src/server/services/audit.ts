@@ -38,6 +38,9 @@ export const AUDIT_ACTIONS = {
 
   /* ------------------------------ Module 2: accounting integration & GST */
   INTEGRATION_CONNECTED: "integration.connected",
+  /** Billing v2 (docs/billing §7): books exported to / imported from accounting software as files. */
+  SYNC_FILE_EXPORTED: "sync.file_exported",
+  SYNC_FILE_IMPORTED: "sync.file_imported",
   INTEGRATION_UPDATED: "integration.updated",
   INTEGRATION_DISCONNECTED: "integration.disconnected",
   INTEGRATION_TOKEN_ISSUED: "integration.token_issued",
@@ -107,6 +110,11 @@ export const AUDIT_ACTIONS = {
   SHOP_AUTO_APPROVED: "shop.auto_approved",
   DELIVERY_PROOF_UPLOADED: "delivery.proof_uploaded",
   INVOICE_ISSUED: "invoice.issued",
+  /** Billing v2 (docs/billing): an issued GST invoice marked cancelled (never deleted or renumbered). */
+  INVOICE_CANCELLED: "invoice.cancelled",
+  /** Billing v2: a shop's own credit / debit note, voucher, challan or estimate issued / cancelled. */
+  SHOP_DOCUMENT_ISSUED: "shop_document.issued",
+  SHOP_DOCUMENT_CANCELLED: "shop_document.cancelled",
 
   /* --------------------------------------------- price approval workflow (§19) */
   PRICE_REQUEST_SUBMITTED: "price_request.submitted",
@@ -423,6 +431,8 @@ export const AUDIT_ACTIONS = {
   PLATFORM_NOTE_ISSUED: "platform_invoice.note_issued", // batch-2026-10 WS-E
   STATUTORY_RATE_CHANGED: "statutory_rate.changed", // batch-2026-10 WS-E
   STATUTORY_REPORT_EXPORTED: "statutory.report_exported", // batch-2026-10 WS-E
+  /** Billing v2: one of GoKesari's own returns marked filed, with the portal acknowledgement. */
+  STATUTORY_RETURN_FILED: "statutory.return_filed",
   // batch-2026-10 WS-D — Operator-Limited onboarding (F8.4.2): every action is audited.
   OPLTD_OWNER_OTP_SENT: "operator_limited.owner_otp_sent",
   OPLTD_OWNER_VERIFIED: "operator_limited.owner_verified",

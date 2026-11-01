@@ -12,7 +12,7 @@
 import { eq, like } from "drizzle-orm";
 import { afterAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import type { UserRole } from "@/server/db/schema";
+import { FEATURE_FLAG_KEYS, type UserRole } from "@/server/db/schema";
 
 const state = vi.hoisted(() => ({
   session: null as null | {
@@ -65,15 +65,17 @@ afterAll(async () => {
 describe("feature flags", () => {
   it("every flag starts off, and requireFeature says the feature is not available (404)", async () => {
     const flags = await getFeatureFlags();
-    expect(Object.values(flags).map((f) => [f.key, f.enabled])).toEqual([
-      ["dealer_programme_enabled", false],
-      ["gov_verification_auto_approval_enabled", false],
-      ["dealer_rating_bonus_enabled", false],
-      ["paid_support_services_enabled", false],
-      ["shop_onboarding_wizard_enabled", false],
-      ["rider_bank_account_enabled", false],
-      ["rider_withdrawal_enabled", false],
-      ["rider_monthly_payout_enabled", false],
+    // Every flag, including ones added later (docs/billing added eleven), starts off.
+    expect(Object.values(flags).map((f) => [f.key, f.enabled])).toEqual(FEATURE_FLAG_KEYS.map((key) => [key, false]));
+    expect(FEATURE_FLAG_KEYS.slice(0, 8)).toEqual([
+      "dealer_programme_enabled",
+      "gov_verification_auto_approval_enabled",
+      "dealer_rating_bonus_enabled",
+      "paid_support_services_enabled",
+      "shop_onboarding_wizard_enabled",
+      "rider_bank_account_enabled",
+      "rider_withdrawal_enabled",
+      "rider_monthly_payout_enabled",
     ]);
     await expect(requireFeature("dealer_programme_enabled")).rejects.toMatchObject({
       status: 404,
@@ -156,7 +158,7 @@ describe("feature flags", () => {
     signIn(admin, "ADMIN");
     const res = await call(flagsGet, "/api/admin/feature-flags");
     expect(res.status).toBe(200);
-    expect(res.body.flags).toHaveLength(8);
+    expect(res.body.flags).toHaveLength(FEATURE_FLAG_KEYS.length);
     expect(res.body.districts.length).toBeGreaterThanOrEqual(36);
     expect(res.body.districts.map((d: { code: string }) => d.code)).toContain("MH-PUN");
   });

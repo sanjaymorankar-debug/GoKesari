@@ -953,6 +953,25 @@ export const shops = pgTable(
     gstVerificationSource: identityVerificationSourceEnum("gst_verification_source"),
     gstVerifiedAt: timestamp("gst_verified_at", { withTimezone: true }),
     gstVerifiedBy: uuid("gst_verified_by").references(() => users.id),
+    /**
+     * Billing v2 (0125, docs/billing): how the shop is registered under GST —
+     * REGULAR, COMPOSITION, ENROLMENT_ID (unregistered supplier of goods
+     * through an ECO, Notification 34/2023), PAN_ONLY_SERVICE or UNREGISTERED.
+     * Backfilled from gst_status; read by the tax engine (src/server/tax).
+     */
+    gstRegistrationType: text("gst_registration_type", {
+      enum: ["REGULAR", "COMPOSITION", "ENROLMENT_ID", "PAN_ONLY_SERVICE", "UNREGISTERED"],
+    })
+      .notNull()
+      .default("UNREGISTERED"),
+    /** The GST Enrolment ID of an ENROLMENT_ID shop (15 characters). */
+    gstEnrolmentId: text("gst_enrolment_id"),
+    /** The GSTIN's status on the GST portal at the last check; anything but ACTIVE pauses new orders. */
+    gstPortalStatus: text("gst_portal_status", { enum: ["ACTIVE", "CANCELLED", "SUSPENDED"] }),
+    /** Two-letter state (MH, KA, …) of the GST registration — the supplier's state for place-of-supply. */
+    gstStateCode: text("gst_state_code"),
+    /** Last time the GSTIN was checked against the GST portal (monthly, and on every return sync). */
+    gstPortalCheckedAt: timestamp("gst_portal_checked_at", { withTimezone: true }),
 
     panStatus: panStatusEnum("pan_status").notNull().default("UNKNOWN"),
     /** AES-256-GCM ciphertext, base64 — see gst-pan-verification.ts. Never stored or logged in plaintext. */
@@ -1213,6 +1232,13 @@ export const deliveryPartners = pgTable(
     /* ------------------------------------------------------- personal info */
     fullName: text("full_name").notNull(),
     mobile: text("mobile").notNull(),
+    /**
+     * Billing v2 (0126): a GST-registered partner pays the GST on their own
+     * delivery service; otherwise GoKesari pays it under s.9(5). Default: not
+     * registered (CA question 2).
+     */
+    gstRegistered: boolean("gst_registered").notNull().default(false),
+    gstin: text("gstin"),
     email: text("email"),
     dateOfBirth: date("date_of_birth"),
     profilePhotoUrl: text("profile_photo_url"),
@@ -1930,6 +1956,15 @@ export const orders = pgTable(
     completedAt: timestamp("completed_at", { withTimezone: true }),
     /** B2B only: the approved shop buying for its business. Null for PERSONAL. */
     buyerShopId: uuid("buyer_shop_id").references(() => shops.id, { onDelete: "restrict" }),
+    /**
+     * Billing v2 (0127): a customer's own GSTIN entered at checkout, which
+     * makes the shop's invoice B2B. VERIFIED when the GST check found it
+     * active; UNVERIFIED when the check was unavailable (format and check
+     * digit are always valid).
+     */
+    buyerGstin: text("buyer_gstin"),
+    buyerLegalName: text("buyer_legal_name"),
+    buyerGstinStatus: text("buyer_gstin_status", { enum: ["VERIFIED", "UNVERIFIED"] }),
     subtotalPaise: bigint("subtotal_paise", { mode: "number" }).notNull(),
     deliveryFeePaise: bigint("delivery_fee_paise", { mode: "number" })
       .notNull()
@@ -2265,6 +2300,15 @@ export const taxInvoices = pgTable(
     totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
     snapshot: jsonb("snapshot").$type<Record<string, unknown>>().notNull(),
     issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * Billing v2 (0127): an issued invoice is never renumbered, changed or
+     * deleted (trigger); a cancellation only marks it CANCELLED, with who,
+     * when and why — the number stays used.
+     */
+    status: text("status", { enum: ["ISSUED", "CANCELLED"] }).notNull().default("ISSUED"),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    cancelledBy: uuid("cancelled_by"),
+    cancelReason: text("cancel_reason"),
   },
   (t) => [
     uniqueIndex("tax_invoices_order_unique").on(t.orderId),
@@ -2424,6 +2468,11 @@ export const ewayBills = pgTable(
     distanceKm: integer("distance_km"),
     vehicleNo: text("vehicle_no"),
     errorMessage: text("error_message"),
+    /** Billing v2 (0132, §9.8): Part B updates, validity extensions and cancellation. */
+    partBUpdatedAt: timestamp("part_b_updated_at", { withTimezone: true }),
+    extensions: integer("extensions").notNull().default(0),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    cancelReason: text("cancel_reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -5331,6 +5380,187 @@ export const orderFinancials = pgTable(
   ],
 );
 
+/**
+ * Billing v2 money-flow record (0126, docs/billing §5.1): for each delivered
+ * order, how the customer paid, how it reached them and who received the
+ * money — the fact TCS (s.52) and TDS (s.393) depend on — plus the s.9(5)
+ * decision on its delivery fee. Written next to order_financials while the
+ * billing_v2 flag is on; never rewritten (a later rule change applies to
+ * later orders only). shop_id is a seller-database id: no foreign key.
+ */
+export const orderMoneyFlows = pgTable(
+  "order_money_flows",
+  {
+    orderId: uuid("order_id")
+      .primaryKey()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id").notNull(),
+    paymentMethod: text("payment_method", { enum: ["WALLET", "ONLINE", "COD"] }).notNull(),
+    fulfilment: text("fulfilment", { enum: ["PICKUP", "SHOP_DELIVERY", "GOKESARI_PARTNER"] }).notNull(),
+    mode: text("mode", { enum: ["ONLINE_PREPAID", "WALLET_PREPAID", "COD_PLATFORM_RIDER", "COD_SHOP", "PICKUP_PAID_AT_SHOP"] }).notNull(),
+    collectedBy: text("collected_by", { enum: ["PLATFORM", "SHOP"] }).notNull(),
+    /** Will GoKesari collect TCS / deduct TDS on this order (collector + the CA switches at the time)? */
+    tcsApplicable: boolean("tcs_applicable").notNull(),
+    tdsApplicable: boolean("tds_applicable").notNull(),
+    /** Delivery fee GST: GOKESARI_S95 (GoKesari pays), RIDER, SHOP or NONE. */
+    deliveryGstLiable: text("delivery_gst_liable", { enum: ["GOKESARI_S95", "RIDER", "SHOP", "NONE"] }).notNull(),
+    deliveryGstRateBp: integer("delivery_gst_rate_bp"),
+    deliveryGstPaise: bigint("delivery_gst_paise", { mode: "number" }).notNull().default(0),
+    /** GST on the food (0135, §5.3): SHOP, or GOKESARI_S95 — a restaurant's supply on which GoKesari pays under s.9(5). */
+    foodGstLiable: text("food_gst_liable", { enum: ["SHOP", "GOKESARI_S95"] }).notNull().default("SHOP"),
+    foodGstRateBp: integer("food_gst_rate_bp"),
+    foodGstPaise: bigint("food_gst_paise", { mode: "number" }).notNull().default(0),
+    /** UNSETTLED until the shop's payout that carries the order is paid. */
+    settlementStatus: text("settlement_status", { enum: ["UNSETTLED", "SETTLED", "REVERSED"] })
+      .notNull()
+      .default("UNSETTLED"),
+    /** The billing rule as it was when recorded (audit). */
+    ruleSnapshot: jsonb("rule_snapshot").$type<Record<string, unknown>>().notNull(),
+    recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("order_money_flows_shop_idx").on(t.shopId, t.recordedAt)],
+);
+export type OrderMoneyFlow = typeof orderMoneyFlows.$inferSelect;
+
+/**
+ * Billing v2 (0127, §5.2): GoKesari's own tax invoice to the customer for the
+ * delivery fee, when GoKesari pays its GST under s.9(5) (an unregistered
+ * GoKesari delivery partner delivered) — and, kind RESTAURANT (0135, §5.3),
+ * for a restaurant's food on which GoKesari pays. GoKesari's GSTIN, one series per
+ * financial year ("GKS/2627/000001", at most 16 characters), gapless — the
+ * counter row is taken in the issuing transaction. Never changed after issue
+ * (trigger); a cancellation only marks it.
+ */
+export const platformDeliveryInvoices = pgTable(
+  "platform_delivery_invoices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "restrict" }),
+    customerId: uuid("customer_id").notNull(),
+    /** DELIVERY: the delivery fee (§5.2); RESTAURANT: the food, GoKesari as deemed supplier (0135, §5.3). */
+    kind: text("kind", { enum: ["DELIVERY", "RESTAURANT"] }).notNull().default("DELIVERY"),
+    invoiceNumber: text("invoice_number").notNull(),
+    financialYear: text("financial_year").notNull(),
+    sequence: integer("sequence").notNull(),
+    supplyType: text("supply_type", { enum: ["INTRA", "INTER"] }).notNull(),
+    placeOfSupply: text("place_of_supply"),
+    rateBp: integer("rate_bp").notNull(),
+    /** The amount the customer paid for the supply (the fee, or the food), tax included. */
+    feePaise: bigint("fee_paise", { mode: "number" }).notNull(),
+    taxablePaise: bigint("taxable_paise", { mode: "number" }).notNull(),
+    cgstPaise: bigint("cgst_paise", { mode: "number" }).notNull(),
+    sgstPaise: bigint("sgst_paise", { mode: "number" }).notNull(),
+    igstPaise: bigint("igst_paise", { mode: "number" }).notNull(),
+    status: text("status", { enum: ["ISSUED", "CANCELLED"] }).notNull().default("ISSUED"),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    cancelReason: text("cancel_reason"),
+    snapshot: jsonb("snapshot").$type<Record<string, unknown>>().notNull(),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("platform_delivery_invoices_order_kind_uq").on(t.orderId, t.kind),
+    uniqueIndex("platform_delivery_invoices_number_uq").on(t.invoiceNumber),
+    uniqueIndex("platform_delivery_invoices_seq_uq").on(t.financialYear, t.sequence),
+    index("platform_delivery_invoices_customer_idx").on(t.customerId),
+    index("platform_delivery_invoices_issued_idx").on(t.issuedAt),
+  ],
+);
+export type PlatformDeliveryInvoice = typeof platformDeliveryInvoices.$inferSelect;
+
+/**
+ * Billing v2 (0132, docs/billing §9.10, §10): every call made to the GSP —
+ * operation, shop, who asked, request id, outcome, time taken and a short
+ * answer (never tokens or personal data) — kept for the audit trail.
+ */
+export const gspCallLog = pgTable(
+  "gsp_call_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id"),
+    operation: text("operation").notNull(),
+    provider: text("provider").notNull(),
+    requestId: text("request_id").notNull(),
+    actorId: uuid("actor_id"),
+    outcome: text("outcome", { enum: ["OK", "ERROR"] }).notNull(),
+    errorCode: text("error_code"),
+    message: text("message"),
+    attempts: integer("attempts").notNull().default(1),
+    durationMs: integer("duration_ms").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("gsp_call_log_shop_idx").on(t.shopId, t.createdAt), index("gsp_call_log_created_idx").on(t.createdAt)],
+);
+export type GspCall = typeof gspCallLog.$inferSelect;
+
+/**
+ * Billing v2 (0133, docs/billing §8 "Generic" live path): GoKesari's public
+ * REST API for other software — OAuth2 client credentials. A shop owner makes
+ * a client with scopes; the software trades its id and secret for a one-hour
+ * bearer token bound to that shop and those scopes. Only hashes are stored.
+ */
+export const PUBLIC_API_SCOPES = ["books:read", "books:write", "invoices:read", "stock:read", "stock:write", "parties:read"] as const;
+export type PublicApiScope = (typeof PUBLIC_API_SCOPES)[number];
+
+export const publicApiClients = pgTable(
+  "public_api_clients",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull(),
+    name: text("name").notNull(),
+    clientId: text("client_id").notNull(),
+    secretHash: text("secret_hash").notNull(),
+    scopes: text("scopes").array().notNull(),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("public_api_clients_client_uq").on(t.clientId), index("public_api_clients_shop_idx").on(t.shopId)],
+);
+export type PublicApiClient = typeof publicApiClients.$inferSelect;
+
+export const publicApiTokens = pgTable(
+  "public_api_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => publicApiClients.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    scopes: text("scopes").array().notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("public_api_tokens_hash_uq").on(t.tokenHash), index("public_api_tokens_client_idx").on(t.clientId)],
+);
+
+/** Billing v2 (0132, §9.7): the e-invoice (IRN) of a credit note on a B2B invoice of an e-invoicing shop. */
+export const creditNoteEinvoices = pgTable(
+  "credit_note_einvoices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    creditNoteId: uuid("credit_note_id").notNull(),
+    shopId: uuid("shop_id").notNull(),
+    status: text("status", { enum: ["PENDING", "GENERATED", "FAILED", "CANCELLED"] }).notNull().default("PENDING"),
+    irn: text("irn"),
+    ackNo: text("ack_no"),
+    ackDate: timestamp("ack_date", { withTimezone: true }),
+    signedQr: text("signed_qr"),
+    errorMessage: text("error_message"),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("credit_note_einvoices_note_uq").on(t.creditNoteId)],
+);
+
+export const platformDeliveryInvoiceCounters = pgTable("platform_delivery_invoice_counters", {
+  financialYear: text("financial_year").primaryKey(),
+  lastNumber: integer("last_number").notNull(),
+});
+
 export const financialPartyEnum = pgEnum("financial_party", ["SHOP", "RIDER", "PLATFORM"]);
 
 export const adjustmentTypeEnum = pgEnum("financial_adjustment_type", [
@@ -7264,6 +7494,8 @@ export const invSettings = pgTable(
     filingFrequency: text("filing_frequency", { enum: FILING_FREQUENCIES }).notNull().default("MONTHLY"),
     /** Prefix for the shop's own sales invoices (counter sales), e.g. "INV". */
     salesInvoicePrefix: text("sales_invoice_prefix").notNull().default("S"),
+    /** Billing v2 (0128): the shop's UPI id, printed as a payment QR on counter bills (receipts). */
+    upiVpa: text("upi_vpa"),
     /** Days before a GST due date the owner is reminded. */
     reminderDaysBefore: integer("reminder_days_before").notNull().default(3),
     expiryAlertDays: integer("expiry_alert_days").notNull().default(30),
@@ -7628,12 +7860,19 @@ export const accSalesInvoices = pgTable(
     status: text("status", { enum: ["ISSUED", "CANCELLED"] }).notNull().default("ISSUED"),
     cancelReason: text("cancel_reason"),
     note: text("note"),
+    /**
+     * Billing v2 (0134, §4.7): the device's own id of a bill made offline at the
+     * counter (POS). Sending it again returns the invoice already issued — no
+     * duplicate, and the number is given at sync so the series has no gaps.
+     */
+    clientRef: text("client_ref"),
     createdBy: uuid("created_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex("acc_sales_invoices_no_unique").on(t.shopId, t.invoiceNo),
+    uniqueIndex("acc_sales_invoices_client_ref_uq").on(t.shopId, t.clientRef).where(sql`${t.clientRef} IS NOT NULL`),
     index("acc_sales_invoices_shop_date_idx").on(t.shopId, t.invoiceDate),
   ],
 );
@@ -7665,6 +7904,210 @@ export const accSalesLines = pgTable(
   (t) => [index("acc_sales_lines_sales_idx").on(t.salesId)],
 );
 export type AccSalesLine = typeof accSalesLines.$inferSelect;
+
+/**
+ * Billing v2 (0128, §4.1): the shop's other GST documents, each in its own
+ * series per financial year (acc_counters kind = the document kind): credit
+ * note and debit note against a counter-sale invoice, receipt voucher for an
+ * advance, refund voucher returning one, delivery challan, estimate /
+ * quotation. Numbers ("DN2627-000001") are never changed after issue
+ * (trigger); a cancellation only marks the document.
+ */
+export const ACC_DOCUMENT_KINDS = ["CREDIT_NOTE", "DEBIT_NOTE", "RECEIPT_VOUCHER", "REFUND_VOUCHER", "DELIVERY_CHALLAN", "ESTIMATE"] as const;
+export type AccDocumentKind = (typeof ACC_DOCUMENT_KINDS)[number];
+
+export interface AccDocumentLine {
+  shopProductId?: string | null;
+  description: string;
+  hsn?: string | null;
+  qtyMilli: number;
+  unit?: string | null;
+  uqc?: string | null;
+  ratePaise: number;
+  taxablePaise: number;
+  gstRateBp: number;
+  cgstPaise: number;
+  sgstPaise: number;
+  igstPaise: number;
+  cessPaise: number;
+  totalPaise: number;
+}
+
+export const accDocuments = pgTable(
+  "acc_documents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: ACC_DOCUMENT_KINDS }).notNull(),
+    docNo: text("doc_no").notNull(),
+    fy: text("fy").notNull(),
+    sequence: integer("sequence").notNull(),
+    docDate: date("doc_date").notNull(),
+    partyId: uuid("party_id").references(() => accParties.id, { onDelete: "restrict" }),
+    buyerName: text("buyer_name"),
+    buyerGstin: text("buyer_gstin"),
+    placeOfSupply: text("place_of_supply").notNull(),
+    sellerStateCode: text("seller_state_code").notNull(),
+    interState: boolean("inter_state").notNull(),
+    /** Credit / debit note: the counter-sale invoice it amends. Refund voucher: the receipt voucher it returns. */
+    againstSalesId: uuid("against_sales_id").references(() => accSalesInvoices.id, { onDelete: "restrict" }),
+    againstDocumentId: uuid("against_document_id"),
+    reason: text("reason"),
+    /** Credit note: the goods came back into stock. */
+    restock: boolean("restock").notNull().default(false),
+    paymentMode: text("payment_mode", { enum: PAYMENT_MODES }),
+    taxablePaise: bigint("taxable_paise", { mode: "number" }).notNull(),
+    cgstPaise: bigint("cgst_paise", { mode: "number" }).notNull().default(0),
+    sgstPaise: bigint("sgst_paise", { mode: "number" }).notNull().default(0),
+    igstPaise: bigint("igst_paise", { mode: "number" }).notNull().default(0),
+    cessPaise: bigint("cess_paise", { mode: "number" }).notNull().default(0),
+    totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
+    lines: jsonb("lines").$type<AccDocumentLine[]>().notNull(),
+    status: text("status", { enum: ["ISSUED", "CANCELLED"] }).notNull().default("ISSUED"),
+    cancelReason: text("cancel_reason"),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    note: text("note"),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("acc_documents_no_unique").on(t.shopId, t.kind, t.docNo),
+    uniqueIndex("acc_documents_seq_unique").on(t.shopId, t.kind, t.fy, t.sequence),
+    index("acc_documents_shop_date_idx").on(t.shopId, t.docDate),
+    index("acc_documents_against_sales_idx").on(t.againstSalesId),
+  ],
+);
+export type AccDocument = typeof accDocuments.$inferSelect;
+
+/* ============================================ billing v2: sync (0130, §7)
+ * docs/billing §7: every record exchanged with the shop's accounting software
+ * (files or live), keyed by that software's own key, with the hash of what
+ * was exchanged last, so a re-export updates instead of duplicating and an
+ * import that meets a local change is held for the shop to decide.
+ */
+export const SYNC_SYSTEMS = ["TALLY", "BUSY", "MARG", "VYAPAR", "MYBILLBOOK", "ZOHO", "ODOO", "GENERIC"] as const;
+export type SyncSystem = (typeof SYNC_SYSTEMS)[number];
+export const SYNC_ENTITIES = ["COMPANY", "LEDGER_GROUP", "LEDGER", "PARTY", "STOCK_GROUP", "UNIT", "GODOWN", "STOCK_ITEM", "BATCH", "OPENING", "VOUCHER"] as const;
+export type SyncEntity = (typeof SYNC_ENTITIES)[number];
+
+export const syncRecords = pgTable(
+  "sync_records",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    system: text("system", { enum: SYNC_SYSTEMS }).notNull(),
+    entityType: text("entity_type", { enum: SYNC_ENTITIES }).notNull(),
+    /** GoKesari's id of the record (a uuid, or a ledger code). */
+    gokesariId: text("gokesari_id"),
+    /** The other software's key: Tally voucher type + date + number, a ledger / item name, Zoho id… */
+    externalKey: text("external_key").notNull(),
+    /** sha256 of the record's canonical form when it was last exchanged. */
+    lastHash: text("last_hash").notNull(),
+    direction: text("direction", { enum: ["OUT", "IN"] }).notNull(),
+    status: text("status", { enum: ["SYNCED", "FAILED", "CONFLICT"] }).notNull().default("SYNCED"),
+    error: text("error"),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("sync_records_key_uq").on(t.shopId, t.system, t.entityType, t.externalKey),
+    index("sync_records_shop_idx").on(t.shopId, t.system, t.lastSyncedAt),
+  ],
+);
+export type SyncRecord = typeof syncRecords.$inferSelect;
+
+export const syncConflicts = pgTable(
+  "sync_conflicts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    system: text("system", { enum: SYNC_SYSTEMS }).notNull(),
+    entityType: text("entity_type", { enum: SYNC_ENTITIES }).notNull(),
+    externalKey: text("external_key").notNull(),
+    gokesariId: text("gokesari_id"),
+    localSnapshot: jsonb("local_snapshot").$type<Record<string, unknown>>().notNull(),
+    incomingSnapshot: jsonb("incoming_snapshot").$type<Record<string, unknown>>().notNull(),
+    status: text("status", { enum: ["OPEN", "KEPT_LOCAL", "TOOK_INCOMING"] }).notNull().default("OPEN"),
+    resolvedBy: uuid("resolved_by"),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("sync_conflicts_open_uq").on(t.shopId, t.system, t.entityType, t.externalKey).where(sql`${t.status} = 'OPEN'`),
+    index("sync_conflicts_shop_idx").on(t.shopId, t.status),
+  ],
+);
+export type SyncConflict = typeof syncConflicts.$inferSelect;
+
+/** §2.3: the shop's own words for units ("pkt", "dozen") mapped to GST unit codes (UQC). */
+export const invUnitUqc = pgTable(
+  "inv_unit_uqc",
+  {
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    /** Lower-case, trimmed. */
+    unit: text("unit").notNull(),
+    uqc: text("uqc").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.shopId, t.unit] })],
+);
+
+/* ====================================== billing v2: GST filing (0131, §9)
+ * docs/billing §9: each of the shop's returns per period — prepared from the
+ * books, saved to the GST portal through the GSP, compared with the portal's
+ * summary, filed with the owner's EVC — and the owner's IMS decision on each
+ * inward invoice.
+ */
+export const GST_FILING_TYPES = ["GSTR1", "IFF", "GSTR3B", "CMP08", "GSTR4"] as const;
+export type GstFilingType = (typeof GST_FILING_TYPES)[number];
+
+export const gstFilings = pgTable(
+  "gst_filings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    returnType: text("return_type", { enum: GST_FILING_TYPES }).notNull(),
+    /** "2026-10" (month), "2026-27-Q3" (quarter) or "2026-27" (year). */
+    period: text("period").notNull(),
+    status: text("status", { enum: ["PREPARED", "SAVED", "FILED", "ERROR"] }).notNull().default("PREPARED"),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    checksum: text("checksum").notNull(),
+    /** GoKesari's totals and the portal's, side by side. */
+    ourSummary: jsonb("our_summary").$type<Record<string, unknown>>(),
+    portalSummary: jsonb("portal_summary").$type<Record<string, unknown>>(),
+    referenceId: text("reference_id"),
+    arn: text("arn"),
+    error: text("error"),
+    preparedAt: timestamp("prepared_at", { withTimezone: true }).notNull().defaultNow(),
+    savedAt: timestamp("saved_at", { withTimezone: true }),
+    filedAt: timestamp("filed_at", { withTimezone: true }),
+    filedBy: uuid("filed_by"),
+  },
+  (t) => [uniqueIndex("gst_filings_period_uq").on(t.shopId, t.returnType, t.period)],
+);
+export type GstFiling = typeof gstFilings.$inferSelect;
+
+export const imsActions = pgTable(
+  "ims_actions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    period: text("period").notNull(),
+    supplierGstin: text("supplier_gstin").notNull(),
+    docType: text("doc_type").notNull(),
+    docNumber: text("doc_number").notNull(),
+    docDate: date("doc_date"),
+    totalPaise: bigint("total_paise", { mode: "number" }).notNull().default(0),
+    action: text("action", { enum: ["ACCEPTED", "REJECTED", "PENDING"] }).notNull(),
+    reason: text("reason"),
+    /** Sent to the portal (IMS) through the GSP? */
+    pushed: text("pushed", { enum: ["NOT_SENT", "SENT", "FAILED"] }).notNull().default("NOT_SENT"),
+    decidedBy: uuid("decided_by"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("ims_actions_doc_uq").on(t.shopId, t.supplierGstin, t.docType, t.docNumber), index("ims_actions_period_idx").on(t.shopId, t.period)],
+);
+export type ImsAction = typeof imsActions.$inferSelect;
 
 /** Next number of the shop's own documents, per financial year. */
 export const accCounters = pgTable(
@@ -7742,7 +8185,7 @@ export const accLedgerEntries = pgTable(
     subAccount: text("sub_account"),
     debitPaise: bigint("debit_paise", { mode: "number" }).notNull().default(0),
     creditPaise: bigint("credit_paise", { mode: "number" }).notNull().default(0),
-    sourceType: text("source_type", { enum: ["PURCHASE", "SALE", "PAYMENT", "EXPENSE", "WRITE_OFF", "PARTY_OPENING"] }).notNull(),
+    sourceType: text("source_type", { enum: ["PURCHASE", "SALE", "PAYMENT", "EXPENSE", "WRITE_OFF", "PARTY_OPENING", "SHOP_DOCUMENT", "ORDER", "SETTLEMENT", "WALLET", "JOURNAL"] }).notNull(),
     sourceId: uuid("source_id").notNull(),
     docRef: text("doc_ref"),
     narration: text("narration"),
@@ -9271,6 +9714,42 @@ export const statutoryRates = pgTable(
 export type StatutoryRate = typeof statutoryRates.$inferSelect;
 
 /**
+ * Billing v2 (0129, docs/billing §5.4, §5.5, §5.7): GoKesari's own statutory
+ * returns per period — GSTR-8 (TCS), GSTR-1 and GSTR-3B for its own fees and
+ * s.9(5) supplies, the quarterly TDS statement — with what was generated (the
+ * payload and its checksum), and when and how it was filed (ARN / token).
+ * A FILED period is never regenerated; a correction is an amendment.
+ */
+export const STATUTORY_RETURN_TYPES = ["GSTR8", "GSTR1", "GSTR3B", "TDS_STATEMENT"] as const;
+export type StatutoryReturnType = (typeof STATUTORY_RETURN_TYPES)[number];
+
+export const statutoryFilings = pgTable(
+  "statutory_filings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    returnType: text("return_type", { enum: STATUTORY_RETURN_TYPES }).notNull(),
+    /** "2026-10" (month) or "2026-27-Q3" (quarter). */
+    period: text("period").notNull(),
+    /** The GoKesari GSTIN (or TAN for TDS) the return is for. */
+    registration: text("registration").notNull(),
+    status: text("status", { enum: ["GENERATED", "SUBMITTED", "FILED"] }).notNull().default("GENERATED"),
+    dueDate: date("due_date").notNull(),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    checksum: text("checksum").notNull(),
+    rows: integer("rows").notNull().default(0),
+    generatedAt: timestamp("generated_at", { withTimezone: true }).notNull().defaultNow(),
+    generatedBy: uuid("generated_by"),
+    filedAt: timestamp("filed_at", { withTimezone: true }),
+    filedBy: uuid("filed_by"),
+    /** ARN (GST) or token / provisional receipt number (TDS) from the portal. */
+    acknowledgement: text("acknowledgement"),
+    note: text("note"),
+  },
+  (t) => [uniqueIndex("statutory_filings_period_uq").on(t.returnType, t.period, t.registration)],
+);
+export type StatutoryFiling = typeof statutoryFilings.$inferSelect;
+
+/**
  * Emails that carry a document (invoice PDF, payout statement PDF + CSV) —
  * the notification outbox holds text only, so documents get their own small
  * outbox with the same retry discipline. The document is rendered again at
@@ -9623,6 +10102,18 @@ export const FEATURE_FLAG_KEYS = [
   "rider_bank_account_enabled",
   "rider_withdrawal_enabled",
   "rider_monthly_payout_enabled",
+  // docs/billing (0126): billing, GST, accounting and sync module — seeded off.
+  "billing_v2",
+  "tcs_engine",
+  "tds_engine",
+  "delivery_9_5",
+  "gsp_live",
+  "einvoice",
+  "ewaybill",
+  "tally_connector",
+  "zoho_connector",
+  "odoo_connector",
+  "ondc_mode",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 

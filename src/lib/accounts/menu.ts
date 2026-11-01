@@ -20,6 +20,8 @@ export interface AccountsTile {
   href: string;
   count?: AccountsCountKey;
   urgent?: boolean;
+  /** Shown only while this feature flag is on (billing v2). */
+  feature?: string;
 }
 
 export const ACCOUNTS_HOME = "/shop/accounts";
@@ -31,10 +33,14 @@ export const ACCOUNTS_TILES: readonly AccountsTile[] = [
   { key: "purchases", label: L("Purchases", "खरीद", "खरेदी"), hint: L("Bills, corrections", "बिल, सुधार", "बिले, दुरुस्ती"), icon: "receipt", tone: "teal", href: "/shop/accounts/purchases" },
   { key: "stock", label: L("Stock", "स्टॉक", "साठा"), hint: L("Value, low, expiry", "मूल्य, कम, एक्सपायरी", "मूल्य, कमी, मुदत"), icon: "boxes", tone: "teal", href: "/shop/accounts/stock", count: "lowStock" },
   { key: "sales", label: L("Sales invoice", "बिक्री बिल", "विक्री बिल"), hint: L("GST invoice for a customer", "ग्राहक के लिए GST बिल", "ग्राहकासाठी GST बिल"), icon: "file-text", tone: "green", href: "/shop/accounts/sales" },
+  { key: "documents", label: L("Notes, vouchers & challans", "नोट, वाउचर और चालान", "नोट, व्हाउचर आणि चलन"), hint: L("Credit/debit note, advance, estimate", "क्रेडिट/डेबिट नोट, अग्रिम, अनुमान", "क्रेडिट/डेबिट नोट, आगाऊ, अंदाज"), icon: "file-text", tone: "green", href: "/shop/accounts/documents", feature: "billing_v2" },
   { key: "parties", label: L("Suppliers & customers", "सप्लायर और ग्राहक", "पुरवठादार आणि ग्राहक"), hint: L("Ledgers, dues", "खाते, बकाया", "खाती, येणे-देणे"), icon: "users", tone: "green", href: "/shop/accounts/parties", count: "payables" },
   { key: "money", label: L("Cash, bank & expenses", "नकद, बैंक और खर्च", "रोख, बँक आणि खर्च"), hint: L("Payments, day book", "भुगतान, रोज़नामचा", "देयके, रोजकीर्द"), icon: "wallet", tone: "green", href: "/shop/accounts/money" },
+  { key: "journals", label: L("Journal, contra & stock journal", "जर्नल, कॉन्ट्रा और स्टॉक जर्नल", "जर्नल, कॉन्ट्रा आणि स्टॉक जर्नल"), hint: L("Adjust books, cash ↔ bank, move stock", "बही समायोजन, नकद ↔ बैंक, स्टॉक", "हिशेब समायोजन, रोख ↔ बँक, साठा"), icon: "scroll-text", tone: "green", href: "/shop/accounts/journals", feature: "billing_v2" },
   { key: "gst", label: L("GST payable", "देय GST", "देय GST"), hint: L("Output − input, due dates", "आउटपुट − इनपुट, तारीख़ें", "आउटपुट − इनपुट, तारखा"), icon: "indian-rupee", tone: "violet", href: "/shop/accounts/gst" },
   { key: "reconcile", label: L("Match with GST portal", "GST पोर्टल से मिलान", "GST पोर्टलशी जुळवणी"), hint: L("GSTR-2B / 2A", "GSTR-2B / 2A", "GSTR-2B / 2A"), icon: "scale", tone: "violet", href: "/shop/accounts/gst/reconcile", count: "reconIssues" },
+  { key: "statements", label: L("Statements from GoKesari", "GoKesari के विवरण", "GoKesari ची विवरणे"), hint: L("TCS, TDS, wallet, settlement", "TCS, TDS, वॉलेट, सेटलमेंट", "TCS, TDS, वॉलेट, सेटलमेंट"), icon: "landmark", tone: "violet", href: "/shop/accounts/statements", feature: "billing_v2" },
+  { key: "sync", label: L("Sync with Tally, Zoho…", "Tally, Zoho… से सिंक", "Tally, Zoho… सोबत सिंक"), hint: L("Send and bring in, both ways", "भेजें और लाएँ, दोनों तरफ़", "पाठवा आणि आणा, दोन्ही बाजूंनी"), icon: "refresh-cw", tone: "blue", href: "/shop/accounts/sync", feature: "billing_v2" },
   { key: "reports", label: L("Reports", "रिपोर्ट", "अहवाल"), hint: L("P&L, Excel, PDF, Tally", "लाभ-हानि, Excel, PDF, Tally", "नफा-तोटा, Excel, PDF, Tally"), icon: "chart-line", tone: "blue", href: "/shop/accounts/reports" },
   { key: "settings", label: L("Settings", "सेटिंग", "सेटिंग्ज"), hint: L("Valuation, GST filing", "मूल्यांकन, GST फ़ाइलिंग", "मूल्यांकन, GST भरणा"), icon: "settings", tone: "blue", href: "/shop/accounts/settings" },
 ];

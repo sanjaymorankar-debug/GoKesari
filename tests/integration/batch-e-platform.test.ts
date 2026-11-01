@@ -199,7 +199,7 @@ describe("GoKesari's invoice per cycle", () => {
 });
 
 describe("statutory settings with effective dates", () => {
-  it("TC-B26-E-045 seeded rows: TCS 0.5% (Notification 15/2024), TDS 0.1% (s.194-O / s.393), s.9(5) disabled — all awaiting CA confirmation", async () => {
+  it("TC-B26-E-045 seeded rows: TCS 0.5% (Notification 15/2024), TDS 0.1% (s.194-O / s.393), s.9(5) restaurant disabled, delivery dated by 0126 — all awaiting CA confirmation", async () => {
     const tcs = await statutoryRateOn("GST_TCS_SEC52", today);
     expect(tcs).toMatchObject({ rateBp: 50, enabled: true, confirmedByCa: false, effectiveFrom: "2024-07-10" });
     expect(tcs!.sourceUrl).toContain("central-tax-15-2024");
@@ -209,7 +209,9 @@ describe("statutory settings with effective dates", () => {
     expect(tds!.params).toMatchObject({ noPanRateBp: 500, exemptIndividualHufUpToPaise: 50_000_000, sectionLabel: "Sec 194-O / s.393 ITA 2025" });
     expect((await statutoryRateOn("IT_TDS_194O", "2024-09-30"))!.rateBp).toBe(100);
     expect((await statutoryRateOn("GST_S95_RESTAURANT", today))!.enabled).toBe(false);
-    expect((await statutoryRateOn("GST_S95_LOCAL_DELIVERY", today))).toMatchObject({ enabled: false, rateBp: 1800, effectiveFrom: "2025-09-22" });
+    // Billing v2 (0126): 18% to 31 Oct 2026, 5% without ITC from 1 Nov 2026; read only under the delivery_9_5 flag.
+    expect(await statutoryRateOn("GST_S95_LOCAL_DELIVERY", "2026-10-31")).toMatchObject({ enabled: true, rateBp: 1800, effectiveFrom: "2025-09-22", effectiveTo: "2026-10-31" });
+    expect(await statutoryRateOn("GST_S95_LOCAL_DELIVERY", "2026-11-01")).toMatchObject({ enabled: true, rateBp: 500, effectiveFrom: "2026-11-01", effectiveTo: null });
     expect((await listStatutoryRates()).every((r) => r.confirmedByCa === false)).toBe(true);
   });
 

@@ -31,6 +31,7 @@ export function GstConfigEditor({ rules, help, rates, today }: { rules: Rule[]; 
   const [notice, setNotice] = useState<string | null>(null);
   const [editing, setEditing] = useState<{ key: string; value: string; from: string; note: string } | null>(null);
   const [rate, setRate] = useState({ hsnPrefix: "", ratePercent: "", cessPercent: "0", description: "", effectiveFrom: today });
+  const [bulk, setBulk] = useState("");
   const keys = Object.keys(help);
 
   async function send(url: string, method: string, body: unknown, done: string) {
@@ -125,6 +126,22 @@ export function GstConfigEditor({ rules, help, rates, today }: { rules: Rule[]; 
             <Button type="submit" size="sm">Add</Button>
           </div>
         </form>
+        <details className="text-sm">
+          <summary className="cursor-pointer font-medium text-kesari-800">Add many at once (CSV)</summary>
+          <form
+            className="mt-2 grid gap-2"
+            onSubmit={async (e) => {
+              e.preventDefault();
+              if (await send("/api/admin/hsn-tax-rates", "POST", { csv: bulk }, "HSN rates saved.")) setBulk("");
+            }}
+          >
+            <textarea aria-label="HSN rates CSV" className={`${inputClass} min-h-32 font-mono text-xs`} placeholder={"hsn,rate,cess,description,effective_from\n0401,5,0,Milk and cream,2025-09-22"} value={bulk} onChange={(e) => setBulk(e.target.value)} />
+            <p className="text-xs text-ink-500">One rate per line. Every line is checked first; nothing is saved if one is wrong.</p>
+            <div>
+              <Button type="submit" size="sm" disabled={!bulk.trim()}>Save all</Button>
+            </div>
+          </form>
+        </details>
         <table className="min-w-full text-sm">
           <thead className="text-left text-xs text-ink-500"><tr><th>HSN</th><th>GST</th><th>Cess</th><th>From → to</th><th /></tr></thead>
           <tbody className="divide-y divide-cream-200">

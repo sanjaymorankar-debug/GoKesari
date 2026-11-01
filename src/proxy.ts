@@ -69,7 +69,10 @@ export function proxy(request: NextRequest) {
   }
 
   const basic = process.env.TEST_SITE_BASIC_AUTH;
-  if (basic) {
+  // Billing v2: the desktop connector and the public API carry their own bearer tokens in the
+  // Authorization header, so the test site's basic auth would lock them out; they check themselves.
+  const ownBearerAuth = /^\/api\/(connector|public)\/v1\//.test(pathname);
+  if (basic && !ownBearerAuth) {
     const header = request.headers.get("authorization") ?? "";
     const given = header.startsWith("Basic ") ? atob(header.slice(6)) : "";
     if (!safeEqual(given, basic)) {

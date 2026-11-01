@@ -99,7 +99,11 @@ export async function profitAndLoss(shopId: string, from: string, to: string): P
 
 /* ---------------------------------------------------------------- tables */
 
-export type ReportKind = "pnl" | "stock" | "daybook" | "purchases" | "sales" | "gst" | "ledger";
+export type ReportKind = "pnl" | "stock" | "daybook" | "purchases" | "sales" | "gst" | "ledger" | BillingReportKind;
+
+/** Billing v2 (docs/billing §6.1, §6.2, §8 G10): reports added on top of the module's own. */
+export const BILLING_REPORT_KINDS = ["trial", "balance", "coa", "stockmove", "stockage", "taxcredit", "mtr"] as const;
+export type BillingReportKind = (typeof BILLING_REPORT_KINDS)[number];
 
 export interface ReportTable {
   title: string;
@@ -113,7 +117,11 @@ export interface ReportTable {
 export async function reportTable(shopId: string, kind: ReportKind, from: string, to: string): Promise<ReportTable> {
   const [shop] = await db.select({ name: shops.name, gstin: shops.gstin }).from(shops).where(eq(shops.id, shopId));
   const subtitle = `${shop?.name ?? ""}${shop?.gstin ? ` · GSTIN ${shop.gstin}` : ""} · ${from} to ${prevDay(to)}`;
-  switch (kind) {
+  if ((BILLING_REPORT_KINDS as readonly string[]).includes(kind)) {
+    const { billingReport } = await import("./billing-reports");
+    return billingReport(shopId, kind as BillingReportKind, from, to, subtitle);
+  }
+  switch (kind as Exclude<ReportKind, BillingReportKind>) {
     case "pnl": {
       const p = await profitAndLoss(shopId, from, to);
       return {
@@ -293,6 +301,12 @@ const TALLY_LEDGER: Record<string, string> = {
   STOCK_WRITE_OFF: "Stock Written Off",
   ROUND_OFF: "Round Off",
   CAPITAL: "Capital Account",
+  ADVANCES_RECEIVED: "Advance from Customers",
+  TCS_RECEIVABLE: "TCS Receivable",
+  TDS_RECEIVABLE: "TDS Receivable",
+  COMMISSION_EXPENSE: "GoKesari Commission",
+  DELIVERY_EXPENSE: "Delivery Charges",
+  GOKESARI_ACCOUNT: "GoKesari Account",
 };
 
 const TALLY_VOUCHER: Record<string, string> = {
@@ -304,6 +318,12 @@ const TALLY_VOUCHER: Record<string, string> = {
   OPENING: "Journal",
   REVERSAL: "Journal",
   WRITE_OFF: "Journal",
+  SALES_RETURN: "Credit Note",
+  PURCHASE_RETURN: "Debit Note",
+  DEBIT_NOTE: "Debit Note",
+  CONTRA: "Contra",
+  JOURNAL: "Journal",
+  STOCK_JOURNAL: "Stock Journal",
 };
 
 const tallyDate = (d: string) => d.replace(/-/g, "");

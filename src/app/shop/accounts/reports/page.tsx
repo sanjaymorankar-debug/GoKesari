@@ -8,6 +8,7 @@ import { ACCOUNTS_TEXT, ACCOUNTS_TILES } from "@/lib/accounts/menu";
 import { todayIst } from "@/server/accounts/books";
 import { loadAccountsPage, monthRange } from "@/server/accounts/page";
 import { reportTable, type ReportKind } from "@/server/accounts/reports";
+import { isFeatureEnabled } from "@/server/services/feature-flags";
 
 export const metadata = { title: "Reports" };
 export const dynamic = "force-dynamic";
@@ -20,6 +21,17 @@ const KINDS: { kind: ReportKind; label: string }[] = [
   { kind: "sales", label: "Sales register" },
   { kind: "gst", label: "GST summary" },
   { kind: "ledger", label: "All entries" },
+];
+
+/** Billing v2 (docs/billing §6.1, §6.2, §8): shown while billing_v2 is on. */
+const BILLING_KINDS: { kind: ReportKind; label: string }[] = [
+  { kind: "trial", label: "Trial balance" },
+  { kind: "balance", label: "Balance sheet" },
+  { kind: "coa", label: "Chart of accounts" },
+  { kind: "stockmove", label: "Stock movement" },
+  { kind: "stockage", label: "Stock ageing" },
+  { kind: "taxcredit", label: "TCS / TDS credit" },
+  { kind: "mtr", label: "Marketplace tax report" },
 ];
 
 const DATE = /^\d{4}-\d{2}-\d{2}$/;
@@ -66,7 +78,8 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
   const { shop, lang, shopQuery } = await loadAccountsPage(params);
   const tile = ACCOUNTS_TILES.find((t) => t.key === "reports")!;
   const today = todayIst();
-  const kind: ReportKind = KINDS.find((k) => k.kind === params.kind)?.kind ?? "pnl";
+  const kinds = (await isFeatureEnabled("billing_v2")) ? [...KINDS, ...BILLING_KINDS] : KINDS;
+  const kind: ReportKind = kinds.find((k) => k.kind === params.kind)?.kind ?? "pnl";
 
   // `to` is exclusive (as in the API and monthRange); the form sends `until`, the last day included.
   const defaults = monthRange(today.slice(0, 7));
@@ -96,7 +109,7 @@ export default async function ReportsPage({ searchParams }: { searchParams: Prom
 
       {/* Report kind */}
       <nav aria-label="Report" className="-mx-2 mb-2 flex gap-1.5 overflow-x-auto px-2 pb-1 [scrollbar-width:none]">
-        {KINDS.map((k) => (
+        {kinds.map((k) => (
           <Link
             key={k.kind}
             href={pageHref(k.kind, from, to)}
