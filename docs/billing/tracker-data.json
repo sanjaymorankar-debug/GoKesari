@@ -1,5 +1,5 @@
 {
-  "updated": "01-Nov-2026 IST (phases 1-8 + gap closure)",
+  "updated": "01-Nov-2026 13.45 IST (phases 1-8 + gap closure, full local run)",
   "branch": "feat/billing-v2-phase1",
   "testingReport": "docs/billing/TESTING_REPORT.md",
   "rows": [
@@ -442,7 +442,7 @@
       "web": "—",
       "android": "—",
       "ios": "—",
-      "test": "Local: pass on both layouts",
+      "test": "Local: full suite passed on both layouts (3,248 / 3,240 + 8 skipped; only pre-existing and environment failures)",
       "notes": "docs/billing/TESTING_REPORT.md (+ PDF). Test and Prod sections pending the staging merge"
     }
   ]

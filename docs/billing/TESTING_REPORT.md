@@ -6,9 +6,9 @@ Build prompt §13. Updated **01-Nov-2026** (IST). All eight phases: audit, money
 
 | Item | Value |
 |---|---|
-| Branch | `feat/billing-v2-phase1` (PR #321 into `staging`), from `staging` `2f221d1d` |
-| Commits | phase 1 `d6eac68f`, 2 `8d84ac4c`, 3 `8d1a52ad`, 4 `7641bce2`, 5 `2e558d50`, 6 `e83a51f0`, 7 `bef125a3`, 8 `5489b76a`, scenario 17 test `3c3dfba8` |
-| Migrations | 0125–0134 (seller: 0125, 0128, 0130, 0131, 0134; core: 0126, 0127, 0129, 0132, 0133), each with `scripts/rollback-01xx.sql` |
+| Branch | `feat/billing-v2-phase1` (PR #321 into `staging`), from `staging` `2f221d1d`, brought up to `staging` `909de492` (security updates, PR #320) |
+| Commits | phase 1 `d6eac68f`, 2 `8d84ac4c`, 3 `8d1a52ad`, 4 `7641bce2`, 5 `2e558d50`, 6 `e83a51f0`, 7 `bef125a3`, 8 `5489b76a`, scenario 17 test `3c3dfba8`, gap closure (restaurant s.9(5), settlement status, GST type, HSN import) `bf6d71be`, connector guides `1435bdfc`, merge of `staging` `fc9aa17d`, final test fixes (this report's commit) |
+| Migrations | 0125–0135 (seller: 0125, 0128, 0130, 0131, 0134; core: 0126, 0127, 0129, 0132, 0133, 0135), each with `scripts/rollback-01xx.sql` |
 | Layouts | single database, and the two-database split (core + seller, built with `scripts/db-split/test-layout.ts`) |
 | Typecheck / lint | `tsc --noEmit`: no new errors (pre-existing errors in `scripts/backfill-delivery-partner-kyc.ts` and `src/server/pmd/sources/xlsx.ts` are on `staging` too); `eslint` clean on every changed file |
 | GSP / IRP | the built-in mock GSP (no GSP contract yet — BLOCKERS B1) |
@@ -35,11 +35,23 @@ Build prompt §13. Updated **01-Nov-2026** (IST). All eight phases: audit, money
 | 16 | Offline POS → sync without number gaps or duplicates | `billing-pos` (3 tests: out-of-order and repeated / parallel sync, removed item, price and stock warnings, API) | Pass | Pass |
 | 17 | Shop A cannot read shop B; dealer cannot see accounts | `billing-security` (another owner, dealer, operator, limited operator, customer, rider refused on 6 billing endpoints; public-API token sees only its shop) | Pass | Pass |
 
-Also covered: flags off → nothing changes (every billing test file has an "off" case), immutable issued documents (database triggers), shop documents (credit / debit notes, vouchers, challan, estimate), thermal receipt / JSON / UPI QR / WhatsApp, books posting and reversal, journals / contra / stock journal, marketplace tax report, compliance calendar and reminders, public REST API with OAuth2 scopes and revocation, daily billing cron.
+Also covered: flags off → nothing changes (every billing test file has an "off" case), immutable issued documents (database triggers), shop documents (credit / debit notes, vouchers, challan, estimate), thermal receipt / JSON / UPI QR / WhatsApp, books posting and reversal, journals / contra / stock journal, marketplace tax report, compliance calendar and reminders, public REST API with OAuth2 scopes and revocation, daily billing cron. Gap closure (`billing-restaurant`, `billing-money-flow`, `billing-compliance`): restaurant food under s.9(5) — GoKesari's invoice for the food, the restaurant's bill of supply at the net price, no TCS, GSTR-1 Table 14(b) and 15, GSTR-3B 3.1.1(i), the 5% withheld from the payout, books balanced; money-flow settlement status from paid payouts; the shop's Enrolment-ID / PAN-only declaration; HSN rates imported from CSV.
 
 ### Full suite (every test file, both layouts)
 
-FULL_RUN_RESULTS
+Run on `fc9aa17d` (all phases, merged with `staging`) plus the T11 fix, 01-Nov-2026 12.17–13.34 IST, on databases of its own: 265 test files, 3,253 tests per layout.
+
+| Layout | Passed | Failed | Skipped |
+|---|---|---|---|
+| Single database | 3,248 | 5 | 0 |
+| Split (core + seller) | 3,240 | 5 | 8 (`db-split`: single-layout only, by design) |
+
+| Failed | Why | Result |
+|---|---|---|
+| `product-import-parser` PUZZLES.xlsm, `product-import` "all fields optional" (both layouts) | Pre-existing (T2): fail the same way on a clean `staging` checkout; outside billing | Not billing |
+| `migrate-on-build` (3 tests), and the after-all hooks of `db-split` and `split-migrate` | The developer Mac's Postgres.app stopped trusting the test's child processes mid-run (server log 12.44 and 12.53 IST: *Postgres.app failed to verify "trust" authentication*, *canceling authentication due to timeout* — its permission dialog went unanswered). Environment, not code | Re-run of the four files that create scratch databases (`migrate-on-build`, `db-split`, `split-migrate`, `db-split-switch`), 13.36–13.39 IST: single **26 / 26 passed**; split **18 passed, 8 skipped** |
+
+Every billing test file passes on both layouts. Also: `npm run typecheck` clean; `eslint src tests` 0 errors (7 warnings, none in billing files); `npm run build` passes (CI's environment variables). The blocking CI jobs `test` and `test-split` run the whole suite again on GitHub's Postgres after the push.
 
 ### Defects
 
@@ -55,6 +67,8 @@ FULL_RUN_RESULTS
 | T8 | Sync fingerprints differed between export and import (one hashed the whole record) | Fixed: shared party / item / voucher fingerprints |
 | T9 | The mock IRP refuses 25-character LEGACY invoice numbers | Open as **B4**: e-invoicing needs GST16 numbering on the shop |
 | T10 | Two parallel syncs of one offline bill both reported CREATED (one invoice issued) | Fixed before commit: the result says which call issued it |
+| T11 | `migrate-on-build` "two migrations started at once" stopped with *out of shared memory*: before the test it dropped the fully migrated schema in one transaction, and with 0125–0135 that needs more locks than Postgres's default lock table (`max_locks_per_transaction` 64; CI uses the same default). Building the schema from scratch takes 6,982 locks on `staging`'s 0124 and 7,159 with 0135 | Fixed: the test starts from a new scratch database instead. The migrations themselves are unchanged and apply in one transaction as before |
+| T12 | `restaurant` test left `GST_S95_RESTAURANT` switched on for the next test files | Fixed: the test restores the statutory row before and after |
 
 ## Test (test.gokesari.com)
 
@@ -72,6 +86,6 @@ The Android and iOS apps are a WebView over the website: every billing screen, i
 
 | Environment | Status |
 |---|---|
-| Local | Pass for phases 1–8 (pre-existing failures outside billing listed above) |
+| Local | Pass for phases 1–8 and the gap closure, both layouts (full run 01-Nov-2026 12.17–13.34 IST; pre-existing and environment failures listed above) |
 | Test | Not started |
 | Prod | Not started |

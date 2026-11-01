@@ -53,7 +53,8 @@ const page = `<!doctype html><meta charset="utf-8"><style>
   code { font: 9.5px ui-monospace, Menlo, monospace; background: #f3f3f3; padding: 0 2px; }
 </style>${html.join("\n")}`;
 
-const browser = await chromium.launch();
+// Playwright's own Chromium, or the installed Google Chrome when that build is not downloaded.
+const browser = await chromium.launch().catch(() => chromium.launch({ channel: "chrome" }));
 const tab = await browser.newPage();
 await tab.setContent(page);
 await tab.pdf({ path: out, format: "A4", landscape: true, margin: { top: "12mm", bottom: "12mm", left: "10mm", right: "10mm" }, displayHeaderFooter: true, headerTemplate: "<span></span>", footerTemplate: '<div style="font-size:8px;width:100%;text-align:center">GoKesari billing v2 — testing report — page <span class="pageNumber"></span> of <span class="totalPages"></span></div>' });
