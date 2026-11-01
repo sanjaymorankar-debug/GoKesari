@@ -1,7 +1,9 @@
 import { redirect } from "next/navigation";
 
 import { AccountsHeader, AccountsNav } from "@/components/accounts/accounts-nav";
+import { ApiClients } from "@/components/billing/api-clients";
 import { SyncPanel } from "@/components/billing/sync-panel";
+import { listApiClients } from "@/server/public-api/auth";
 import { loadAccountsPage, monthRange } from "@/server/accounts/page";
 import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { syncDashboard } from "@/server/sync/engine";
@@ -23,7 +25,7 @@ export default async function SyncPage({ searchParams }: { searchParams: Promise
   const { shop, lang, shopQuery } = await loadAccountsPage(params);
   if (!(await isFeatureEnabled("billing_v2"))) redirect(`/shop/accounts${shopQuery}`);
   const month = monthRange(todayIst().slice(0, 7));
-  const [dashboard, books, unitMap] = await Promise.all([syncDashboard(shop.id), buildCanonicalBooks(shop.id, month.from, month.to), shopUnitMap(shop.id)]);
+  const [dashboard, books, unitMap, clients] = await Promise.all([syncDashboard(shop.id), buildCanonicalBooks(shop.id, month.from, month.to), shopUnitMap(shop.id), listApiClients(shop.id)]);
   const unmapped = books.units.filter((u) => !uqcOf(u.symbol, unitMap)).map((u) => u.symbol);
   return (
     <div className="mx-auto w-full max-w-6xl">
@@ -38,6 +40,9 @@ export default async function SyncPage({ searchParams }: { searchParams: Promise
         conflicts={dashboard.conflicts.map((c) => ({ id: c.id, system: c.system, entityType: c.entityType, externalKey: c.externalKey, local: c.localSnapshot, incoming: c.incomingSnapshot }))}
         unmappedUnits={unmapped}
       />
+      <div className="mt-3">
+        <ApiClients shopId={shop.id} clients={clients.map((c) => ({ ...c, lastUsedAt: c.lastUsedAt?.toISOString() ?? null, revokedAt: c.revokedAt?.toISOString() ?? null }))} />
+      </div>
     </div>
   );
 }

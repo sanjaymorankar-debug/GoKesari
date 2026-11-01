@@ -295,6 +295,8 @@ export const TABLE_OWNERSHIP = {
   statutory_rates: "platform",
   statutory_filings: "platform",
   gsp_call_log: "platform",
+  public_api_clients: "platform",
+  public_api_tokens: "platform",
   document_emails: "platform",
   /* <<< end WS-E */
   //

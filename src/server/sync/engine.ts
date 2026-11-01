@@ -481,3 +481,30 @@ export async function syncDashboard(shopId: string) {
   });
   return { systems, conflicts };
 }
+
+/**
+ * The live Tally connector (§8 phase 2): GoKesari's books since the last
+ * exchange as Tally XML (masters then vouchers), recorded in the sync log like
+ * a file export. Blocked (fix list) for the same reasons as a file export.
+ */
+export async function tallyBooksForConnector(shopId: string, range?: { from: string; to: string }): Promise<{ xml: string; counts: ExportResult["counts"]; range: { from: string; to: string } }> {
+  const to = range?.to ?? new Date(Date.now() + 86_400_000 + 330 * 60_000).toISOString().slice(0, 10);
+  let from = range?.from;
+  if (!from) {
+    const [last] = await db
+      .select({ at: sql<Date | null>`max(${syncRecords.lastSyncedAt})` })
+      .from(syncRecords)
+      .where(and(eq(syncRecords.shopId, shopId), eq(syncRecords.system, "TALLY"), eq(syncRecords.direction, "OUT")));
+    const since = last?.at ? new Date(last.at) : new Date(Date.now() - 31 * 86_400_000);
+    from = new Date(since.getTime() - 2 * 86_400_000 + 330 * 60_000).toISOString().slice(0, 10);
+  }
+  const books = await buildCanonicalBooks(shopId, from, to);
+  const fixes = validateBooks(books);
+  if (fixes.length) throw new ExportBlocked(fixes);
+  const counts = await recordExchange(shopId, "TALLY", "OUT", [
+    ...books.ledgers.map((l) => ({ entity: (l.kind === "PARTY" ? "PARTY" : "LEDGER") as SyncEntity, key: l.name, gokesariId: l.key, hash: l.kind === "PARTY" ? partyFingerprint(l) : hashOf(l) })),
+    ...books.stockItems.map((i) => ({ entity: "STOCK_ITEM" as SyncEntity, key: i.name, gokesariId: i.key, hash: itemFingerprint(i) })),
+    ...books.vouchers.map((v) => ({ entity: "VOUCHER" as SyncEntity, key: v.key, gokesariId: null, hash: voucherFingerprint(v) })),
+  ]);
+  return { xml: toTallyXml(books), counts, range: { from, to } };
+}

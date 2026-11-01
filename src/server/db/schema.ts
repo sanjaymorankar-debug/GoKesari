@@ -5486,6 +5486,48 @@ export const gspCallLog = pgTable(
 );
 export type GspCall = typeof gspCallLog.$inferSelect;
 
+/**
+ * Billing v2 (0133, docs/billing §8 "Generic" live path): GoKesari's public
+ * REST API for other software — OAuth2 client credentials. A shop owner makes
+ * a client with scopes; the software trades its id and secret for a one-hour
+ * bearer token bound to that shop and those scopes. Only hashes are stored.
+ */
+export const PUBLIC_API_SCOPES = ["books:read", "books:write", "invoices:read", "stock:read", "stock:write", "parties:read"] as const;
+export type PublicApiScope = (typeof PUBLIC_API_SCOPES)[number];
+
+export const publicApiClients = pgTable(
+  "public_api_clients",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull(),
+    name: text("name").notNull(),
+    clientId: text("client_id").notNull(),
+    secretHash: text("secret_hash").notNull(),
+    scopes: text("scopes").array().notNull(),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    lastUsedAt: timestamp("last_used_at", { withTimezone: true }),
+    revokedAt: timestamp("revoked_at", { withTimezone: true }),
+  },
+  (t) => [uniqueIndex("public_api_clients_client_uq").on(t.clientId), index("public_api_clients_shop_idx").on(t.shopId)],
+);
+export type PublicApiClient = typeof publicApiClients.$inferSelect;
+
+export const publicApiTokens = pgTable(
+  "public_api_tokens",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    clientId: uuid("client_id")
+      .notNull()
+      .references(() => publicApiClients.id, { onDelete: "cascade" }),
+    tokenHash: text("token_hash").notNull(),
+    scopes: text("scopes").array().notNull(),
+    expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("public_api_tokens_hash_uq").on(t.tokenHash), index("public_api_tokens_client_idx").on(t.clientId)],
+);
+
 /** Billing v2 (0132, §9.7): the e-invoice (IRN) of a credit note on a B2B invoice of an e-invoicing shop. */
 export const creditNoteEinvoices = pgTable(
   "credit_note_einvoices",

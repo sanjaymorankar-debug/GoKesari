@@ -39,6 +39,7 @@ import { salesReceiptPdf } from "@/server/invoicing/outputs";
 import { shopStatementFiles } from "@/server/tax/statements";
 import { ExportBlocked, exportForTool, importForTool, MAX_SYNC_FILE_BYTES, resolveConflict, setUnitUqc, syncDashboard, templatePack } from "@/server/sync/engine";
 import { buildCanonicalBooks, validateBooks } from "@/server/sync/model";
+import { createApiClient, listApiClients, revokeApiClient } from "@/server/public-api/auth";
 import { decideIms, draftBillFromEinvoice, fileWithEvc, imsInward, listFilings, portalLedgers, prepareReturn, requestFilingOtp, saveToPortal, supplierEinvoices } from "@/server/gsp/returns";
 import { requireFeature } from "@/server/services/feature-flags";
 import { cancelSalesInvoice, createSalesInvoice, getSalesInvoice, listSalesInvoices, salesInvoicePdf, salesSchema } from "@/server/accounts/sales";
@@ -57,7 +58,7 @@ import {
 } from "@/server/accounts/capture/service";
 import { computeTotals } from "@/lib/accounts/bill-draft";
 import { db } from "@/server/db";
-import { ACC_DOCUMENT_KINDS, accChangeLog, GST_FILING_TYPES, SYNC_SYSTEMS, type UserRole } from "@/server/db/schema";
+import { ACC_DOCUMENT_KINDS, accChangeLog, GST_FILING_TYPES, PUBLIC_API_SCOPES, SYNC_SYSTEMS, type UserRole } from "@/server/db/schema";
 import { and, desc, eq } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
@@ -139,6 +140,25 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
       await requireFeature("billing_v2");
       const body = await parseBody(req, z.object({ reason: z.string().trim().min(1).max(300) }));
       return ok({ reversed: await reverseJournal(shopId, id(sourceId), body.reason, user) });
+    },
+  },
+
+  /* ---------------------- public API clients (billing v2, §8 "Generic") */
+  "api-clients": {
+    GET: async (_req, shopId) => {
+      await requireFeature("billing_v2");
+      return ok(await listApiClients(shopId));
+    },
+    POST: async (req, shopId, user) => {
+      await requireFeature("billing_v2");
+      const b = await parseBody(req, z.object({ name: z.string().trim().min(2).max(80), scopes: z.array(z.enum(PUBLIC_API_SCOPES)).min(1) }));
+      const { client, clientSecret } = await createApiClient(shopId, b, user);
+      return ok({ id: client.id, clientId: client.clientId, clientSecret, scopes: client.scopes, note: "Copy the secret now: it is not shown again." }, 201);
+    },
+    DELETE: async (_req, shopId, user, [cid]) => {
+      await requireFeature("billing_v2");
+      await revokeApiClient(shopId, id(cid), user);
+      return ok({ revoked: true });
     },
   },
 

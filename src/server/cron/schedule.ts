@@ -57,7 +57,7 @@ export async function timeoutSweep() {
 
 /** Accounting-integration retries; does nothing while inventory sync is descoped (rule inventorySync). */
 export async function integrationSync() {
-  if (!(await (await import("@/server/integrations/inventory-sync-flag")).inventorySyncEnabled())) return { skipped: true, reason: "INVENTORY_SYNC_DISABLED" };
+  if (!(await (await import("@/server/integrations/inventory-sync-flag")).integrationSyncEnabled())) return { skipped: true, reason: "INVENTORY_SYNC_DISABLED" };
   return (await import("@/server/integrations/sweep")).integrationSweep();
 }
 
@@ -194,6 +194,9 @@ export const DAILY: readonly Job[] = [
   { name: "purchase-list-reminders", run: async () => (await import("@/server/services/purchase-lists")).sendPurchaseListReminders() },
   // docs/shop-documents-2026-10: live shops missing documents — reminders on the 1st and 15th, suspension after the 3rd.
   { name: "shop-document-follow-up", run: async () => (await import("@/server/services/shop-document-follow-up")).runShopDocumentFollowUp() },
+  // docs/billing: compliance reminders, s.9(5) invoice catch-up, books posting, statements, GST link reminders,
+  // credit-note IRNs — a no-op while billing_v2 is off.
+  { name: "billing-daily", run: async () => (await import("@/server/tax/daily")).runBillingDaily() },
 ];
 
 /** The jobs of an every-minute run at `now`. */
