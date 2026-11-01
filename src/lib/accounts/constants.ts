@@ -16,6 +16,8 @@ export const STOCK_MOVEMENT_TYPES = [
   "ADJUSTMENT",
   /** Undoes an earlier entry exactly (a corrected or cancelled document). */
   "REVERSAL",
+  /** Billing v2: a stock journal moving stock between the online and in-shop counts. */
+  "TRANSFER",
 ] as const;
 export type StockMovementType = (typeof STOCK_MOVEMENT_TYPES)[number];
 
@@ -43,6 +45,7 @@ export const STOCK_MOVEMENT_LABELS: Record<StockMovementType, string> = {
   WRITE_OFF_EXPIRY: "Expired (written off)",
   ADJUSTMENT: "Adjustment",
   REVERSAL: "Reversal",
+  TRANSFER: "Transfer (stock journal)",
 };
 
 export const VALUATION_METHODS = ["FIFO", "WAVG"] as const;
@@ -116,6 +119,37 @@ export const BOOK_ACCOUNT_LABELS: Record<BookAccount, string> = {
   COMMISSION_EXPENSE: "GoKesari commission & fees",
   DELIVERY_EXPENSE: "Delivery charges",
   GOKESARI_ACCOUNT: "GoKesari account (payouts & wallet)",
+};
+
+/**
+ * Billing v2 (docs/billing §6.1): the Tally group each book account belongs to
+ * — the shop's chart of accounts and the masters exported to TallyPrime.
+ * Parties are Sundry Debtors / Creditors by their balance.
+ */
+export const ACCOUNT_GROUPS: Record<BookAccount, { group: string; nature: "ASSET" | "LIABILITY" | "INCOME" | "EXPENSE" | "CAPITAL" }> = {
+  CASH: { group: "Cash-in-Hand", nature: "ASSET" },
+  BANK: { group: "Bank Accounts", nature: "ASSET" },
+  PARTY: { group: "Sundry Debtors / Creditors", nature: "ASSET" },
+  PURCHASES: { group: "Purchase Accounts", nature: "EXPENSE" },
+  SALES: { group: "Sales Accounts", nature: "INCOME" },
+  GST_INPUT_CGST: { group: "Duties & Taxes", nature: "ASSET" },
+  GST_INPUT_SGST: { group: "Duties & Taxes", nature: "ASSET" },
+  GST_INPUT_IGST: { group: "Duties & Taxes", nature: "ASSET" },
+  GST_INPUT_CESS: { group: "Duties & Taxes", nature: "ASSET" },
+  GST_OUTPUT_CGST: { group: "Duties & Taxes", nature: "LIABILITY" },
+  GST_OUTPUT_SGST: { group: "Duties & Taxes", nature: "LIABILITY" },
+  GST_OUTPUT_IGST: { group: "Duties & Taxes", nature: "LIABILITY" },
+  GST_OUTPUT_CESS: { group: "Duties & Taxes", nature: "LIABILITY" },
+  EXPENSE: { group: "Indirect Expenses", nature: "EXPENSE" },
+  STOCK_WRITE_OFF: { group: "Indirect Expenses", nature: "EXPENSE" },
+  ROUND_OFF: { group: "Indirect Expenses", nature: "EXPENSE" },
+  CAPITAL: { group: "Capital Account", nature: "CAPITAL" },
+  ADVANCES_RECEIVED: { group: "Current Liabilities", nature: "LIABILITY" },
+  TCS_RECEIVABLE: { group: "Current Assets", nature: "ASSET" },
+  TDS_RECEIVABLE: { group: "Loans & Advances (Asset)", nature: "ASSET" },
+  COMMISSION_EXPENSE: { group: "Indirect Expenses", nature: "EXPENSE" },
+  DELIVERY_EXPENSE: { group: "Direct Expenses", nature: "EXPENSE" },
+  GOKESARI_ACCOUNT: { group: "Sundry Debtors", nature: "ASSET" },
 };
 
 export const VOUCHER_TYPES = [

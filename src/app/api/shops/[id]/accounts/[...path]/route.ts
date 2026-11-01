@@ -31,7 +31,9 @@ import {
 import { cancelExpense, cancelPayment, cashBook, dayBook, expenseSchema, listExpenses, listPayments, paymentSchema, recordExpense, recordPayment } from "@/server/accounts/money";
 import { ageing, createParty, getParty, listParties, partyLedger, partySchema, updateParty } from "@/server/accounts/parties";
 import { cancelPurchase, confirmPurchase, correctPurchase, getPurchase, listPurchases, purchaseAsInput, purchaseSchema } from "@/server/accounts/purchases";
-import { reportTable, tableToPdf, tableToXlsx, tallyXml, type ReportKind } from "@/server/accounts/reports";
+import { BILLING_REPORT_KINDS, reportTable, tableToPdf, tableToXlsx, tallyXml, type ReportKind } from "@/server/accounts/reports";
+import { contraSchema, journalSchema, recordContra, recordJournal, recordStockJournal, reverseJournal, stockJournalSchema } from "@/server/accounts/journals";
+import { postGokesariActivity } from "@/server/accounts/platform-posting";
 import { cancelDocument, createDocument, documentPdf, documentSchema, getDocument, listDocuments } from "@/server/accounts/documents";
 import { salesReceiptPdf } from "@/server/invoicing/outputs";
 import { shopStatementFiles } from "@/server/tax/statements";
@@ -118,6 +120,22 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
       await requireFeature("billing_v2");
       const body = await parseBody(req, z.object({ reason: z.string().trim().min(1).max(300) }));
       return ok(await cancelDocument(shopId, id(did), body.reason, user));
+    },
+  },
+
+  /* --------------------- journals, contra, stock journal (billing v2, §6.1) */
+  journals: {
+    POST: async (req, shopId, user, [kind]) => {
+      await requireFeature("billing_v2");
+      if (kind === "contra") return ok(await recordContra(shopId, await parseBody(req, contraSchema), user), 201);
+      if (kind === "stock") return ok(await recordStockJournal(shopId, await parseBody(req, stockJournalSchema), user), 201);
+      if (kind) throw notFound("Endpoint");
+      return ok(await recordJournal(shopId, await parseBody(req, journalSchema), user), 201);
+    },
+    DELETE: async (req, shopId, user, [sourceId]) => {
+      await requireFeature("billing_v2");
+      const body = await parseBody(req, z.object({ reason: z.string().trim().min(1).max(300) }));
+      return ok({ reversed: await reverseJournal(shopId, id(sourceId), body.reason, user) });
     },
   },
 
@@ -306,6 +324,12 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
       if (kind === "day") return ok(await dayBook(shopId, from, to));
       throw notFound("Book");
     },
+    // Billing v2 (§6.1): bring GoKesari's orders, fees, taxes and payouts into the books now.
+    POST: async (_req, shopId, _u, [action]) => {
+      await requireFeature("billing_v2");
+      if (action !== "gokesari") throw notFound("Endpoint");
+      return ok(await postGokesariActivity(shopId));
+    },
   },
 
   /* -------------------------------------------------------------- stock */
@@ -385,7 +409,9 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
       const to = isoDate.parse(q(req, "to"));
       const format = q(req, "format") ?? "json";
       if (kind === "tally") return file(Buffer.from(await tallyXml(shopId, from, to, q(req, "company")), "utf8"), "application/xml", `gokesari-tally-${from}-to-${to}.xml`);
-      const k = z.enum(["pnl", "stock", "daybook", "purchases", "sales", "gst", "ledger"]).parse(kind) as ReportKind;
+      const k = z.enum(["pnl", "stock", "daybook", "purchases", "sales", "gst", "ledger", ...BILLING_REPORT_KINDS]).parse(kind) as ReportKind;
+      // Billing v2 reports (trial balance, balance sheet, stock movement / ageing, TCS-TDS credit, MTR).
+      if ((BILLING_REPORT_KINDS as readonly string[]).includes(k)) await requireFeature("billing_v2");
       const table = await reportTable(shopId, k, from, to);
       if (format === "xlsx") return file(await tableToXlsx(table), "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", `${k}-${from}-to-${to}.xlsx`);
       if (format === "pdf") return file(tableToPdf(table), "application/pdf", `${k}-${from}-to-${to}.pdf`);

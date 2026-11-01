@@ -7,12 +7,14 @@
  * as PDF and CSV. GoKesari's own fee invoices of the month are listed on the
  * wallet statement so the shop can match them in its GSTR-2B / IMS.
  */
-import { and, asc, eq, gte, lt } from "drizzle-orm";
+import { and, asc, eq, gte, inArray, lt } from "drizzle-orm";
 
 import { formatPaise } from "@/lib/money";
 import { PDF_LINE_WIDTH, textPdf, type PdfLine } from "@/lib/pdf";
 import { db } from "@/server/db";
-import { platformInvoices, shops, shopWalletTransactions } from "@/server/db/schema";
+import { payoutCycleLines, platformInvoices, shops, shopWalletTransactions } from "@/server/db/schema";
+import { NOTIFICATION_TYPES } from "@/server/notifications/types";
+import { notify } from "@/server/services/notifications";
 import { notFound } from "@/lib/errors";
 import { monthBounds, orderSettlementReport, shopTaxStatement, type ShopTaxStatement } from "./compliance";
 
@@ -153,4 +155,33 @@ export async function shopStatementFiles(shopId: string, kind: "wallet" | "tax" 
   const report = await orderSettlementReport(shopId, period);
   const csv = [report.header.join(","), ...report.rows.map((r) => r.map(cell).join(","))].join("\n") + "\n";
   return { bytes: Buffer.from(csv), contentType: "text/csv", filename: `settlement-${period}.csv` };
+}
+
+/**
+ * Monthly, from the 2nd: tells each shop owner whose shop had GoKesari activity last month that
+ * the month's statements (TCS / TDS, wallet, settlement, marketplace tax report) are ready, in the
+ * app and by email (notification preferences), with the link. Once per shop and month.
+ */
+export async function sendMonthlyShopStatements(today: string): Promise<{ sent: number }> {
+  if (Number(today.slice(8, 10)) < 2) return { sent: 0 };
+  const [y, m] = today.slice(0, 7).split("-").map(Number);
+  const period = new Date(Date.UTC(y, m - 2, 1)).toISOString().slice(0, 7);
+  const { from, to } = monthBounds(period);
+  const active = await db
+    .selectDistinct({ shopId: payoutCycleLines.shopId })
+    .from(payoutCycleLines)
+    .where(and(gte(payoutCycleLines.occurredOn, from), lt(payoutCycleLines.occurredOn, to)));
+  if (!active.length) return { sent: 0 };
+  const owners = await db.select({ id: shops.id, ownerId: shops.ownerId, name: shops.name }).from(shops).where(inArray(shops.id, active.map((a) => a.shopId)));
+  for (const o of owners) {
+    await notify({
+      userId: o.ownerId,
+      type: NOTIFICATION_TYPES.SHOP_TAX_STATEMENT_READY,
+      title: `${period}: your statements from GoKesari are ready`,
+      body: `${o.name}: the TCS / TDS statement, wallet statement, settlement report and marketplace tax report for ${period} are ready to download.`,
+      actionUrl: `/shop/accounts/statements?period=${period}`,
+      dedupeKey: `shop-statements:${o.id}:${period}`,
+    });
+  }
+  return { sent: owners.length };
 }

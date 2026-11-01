@@ -44,7 +44,10 @@ interface Layer {
 
 const value = (qtyMilli: number, unitCostPaise: number) => (qtyMilli * unitCostPaise) / 1000;
 
-export function valueStock(entries: ValuationEntry[], method: ValuationMethod, fallbackCostPaise = 0): ValuationResult {
+export function valueStock(allEntries: ValuationEntry[], method: ValuationMethod, fallbackCostPaise = 0): ValuationResult {
+  // Billing v2: a stock journal moves stock between the listing's two counts and nets to zero —
+  // it neither adds a cost layer nor consumes one.
+  const entries = allEntries.filter((e) => e.movementType !== "TRANSFER");
   const outCost = new Map<string, number>();
   const costOf = new Map<string, number>();
   let uncosted = 0;

@@ -99,7 +99,11 @@ export async function profitAndLoss(shopId: string, from: string, to: string): P
 
 /* ---------------------------------------------------------------- tables */
 
-export type ReportKind = "pnl" | "stock" | "daybook" | "purchases" | "sales" | "gst" | "ledger";
+export type ReportKind = "pnl" | "stock" | "daybook" | "purchases" | "sales" | "gst" | "ledger" | BillingReportKind;
+
+/** Billing v2 (docs/billing §6.1, §6.2, §8 G10): reports added on top of the module's own. */
+export const BILLING_REPORT_KINDS = ["trial", "balance", "coa", "stockmove", "stockage", "taxcredit", "mtr"] as const;
+export type BillingReportKind = (typeof BILLING_REPORT_KINDS)[number];
 
 export interface ReportTable {
   title: string;
@@ -113,7 +117,11 @@ export interface ReportTable {
 export async function reportTable(shopId: string, kind: ReportKind, from: string, to: string): Promise<ReportTable> {
   const [shop] = await db.select({ name: shops.name, gstin: shops.gstin }).from(shops).where(eq(shops.id, shopId));
   const subtitle = `${shop?.name ?? ""}${shop?.gstin ? ` · GSTIN ${shop.gstin}` : ""} · ${from} to ${prevDay(to)}`;
-  switch (kind) {
+  if ((BILLING_REPORT_KINDS as readonly string[]).includes(kind)) {
+    const { billingReport } = await import("./billing-reports");
+    return billingReport(shopId, kind as BillingReportKind, from, to, subtitle);
+  }
+  switch (kind as Exclude<ReportKind, BillingReportKind>) {
     case "pnl": {
       const p = await profitAndLoss(shopId, from, to);
       return {
