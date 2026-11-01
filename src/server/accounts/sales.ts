@@ -36,6 +36,8 @@ export const salesSchema = z.object({
   /** Prices include GST (MRP-style counter sale): the taxable value is backed out of them. */
   pricesIncludeTax: z.boolean().optional(),
   note: z.string().trim().max(300).nullable().optional(),
+  /** Billing v2 (§4.7): the POS device's id of an offline bill — the same id returns the same invoice. */
+  clientRef: z.string().trim().min(8).max(64).nullable().optional(),
   lines: z
     .array(
       z.object({
@@ -55,6 +57,11 @@ export const salesSchema = z.object({
 export type SalesInput = z.infer<typeof salesSchema>;
 
 export async function createSalesInvoice(shopId: string, raw: SalesInput, actor: { id: string }): Promise<AccSalesInvoice> {
+  return (await createSalesInvoiceOnce(shopId, raw, actor)).invoice;
+}
+
+/** createSalesInvoice that also says whether this call issued it (false: the bill's clientRef was issued before). */
+export async function createSalesInvoiceOnce(shopId: string, raw: SalesInput, actor: { id: string }): Promise<{ invoice: AccSalesInvoice; created: boolean }> {
   const input = salesSchema.parse(raw);
   const date = input.invoiceDate ?? todayIst();
   if (date > todayIst()) throw validationFailed("The invoice date is in the future.");
@@ -62,6 +69,21 @@ export async function createSalesInvoice(shopId: string, raw: SalesInput, actor:
   const buyerGstin = input.buyerGstin?.replace(/\s+/g, "") || null;
   if (buyerGstin && !isValidGstin(buyerGstin)) throw validationFailed("Buyer GSTIN is not valid.");
 
+  const byClientRef = async () =>
+    input.clientRef ? (await db.select().from(accSalesInvoices).where(and(eq(accSalesInvoices.shopId, shopId), eq(accSalesInvoices.clientRef, input.clientRef))))[0] ?? null : null;
+  const already = await byClientRef();
+  if (already) return { invoice: already, created: false };
+  try {
+    return { invoice: await issueSalesInvoice(shopId, input, date, buyerGstin, actor), created: true };
+  } catch (error) {
+    // Two syncs of one offline bill at once: the one that lost the race returns the winner's invoice.
+    const winner = await byClientRef().catch(() => null);
+    if (winner) return { invoice: winner, created: false };
+    throw error;
+  }
+}
+
+async function issueSalesInvoice(shopId: string, input: SalesInput, date: string, buyerGstin: string | null, actor: { id: string }): Promise<AccSalesInvoice> {
   return db.transaction(async (tx) => {
     const [shop] = await tx.select().from(shops).where(eq(shops.id, shopId));
     if (!shop) throw notFound("Shop");
@@ -133,6 +155,7 @@ export async function createSalesInvoice(shopId: string, raw: SalesInput, actor:
         roundOffPaise: totals.roundOffPaise,
         totalPaise: totals.totalPaise,
         note: input.note ?? null,
+        clientRef: input.clientRef ?? null,
         createdBy: actor.id,
       })
       .returning();

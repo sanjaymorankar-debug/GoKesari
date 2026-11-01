@@ -40,6 +40,7 @@ import { shopStatementFiles } from "@/server/tax/statements";
 import { ExportBlocked, exportForTool, importForTool, MAX_SYNC_FILE_BYTES, resolveConflict, setUnitUqc, syncDashboard, templatePack } from "@/server/sync/engine";
 import { buildCanonicalBooks, validateBooks } from "@/server/sync/model";
 import { createApiClient, listApiClients, revokeApiClient } from "@/server/public-api/auth";
+import { posBillSchema, posItems, syncPosBills } from "@/server/accounts/pos";
 import { decideIms, draftBillFromEinvoice, fileWithEvc, imsInward, listFilings, portalLedgers, prepareReturn, requestFilingOtp, saveToPortal, supplierEinvoices } from "@/server/gsp/returns";
 import { requireFeature } from "@/server/services/feature-flags";
 import { cancelSalesInvoice, createSalesInvoice, getSalesInvoice, listSalesInvoices, salesInvoicePdf, salesSchema } from "@/server/accounts/sales";
@@ -140,6 +141,21 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
       await requireFeature("billing_v2");
       const body = await parseBody(req, z.object({ reason: z.string().trim().min(1).max(300) }));
       return ok({ reversed: await reverseJournal(shopId, id(sourceId), body.reason, user) });
+    },
+  },
+
+  /* --------------------------- counter POS, offline-first (billing v2, §4.7) */
+  pos: {
+    GET: async (_req, shopId, _u, [action]) => {
+      await requireFeature("billing_v2");
+      if (action !== "items") throw notFound("Endpoint");
+      return ok(await posItems(shopId));
+    },
+    POST: async (req, shopId, user, [action]) => {
+      await requireFeature("billing_v2");
+      if (action !== "sync") throw notFound("Endpoint");
+      const b = await parseBody(req, z.object({ bills: z.array(posBillSchema).min(1).max(200) }));
+      return ok(await syncPosBills(shopId, b.bills, user));
     },
   },
 

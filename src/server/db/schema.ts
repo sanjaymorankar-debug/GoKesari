@@ -7852,12 +7852,19 @@ export const accSalesInvoices = pgTable(
     status: text("status", { enum: ["ISSUED", "CANCELLED"] }).notNull().default("ISSUED"),
     cancelReason: text("cancel_reason"),
     note: text("note"),
+    /**
+     * Billing v2 (0134, §4.7): the device's own id of a bill made offline at the
+     * counter (POS). Sending it again returns the invoice already issued — no
+     * duplicate, and the number is given at sync so the series has no gaps.
+     */
+    clientRef: text("client_ref"),
     createdBy: uuid("created_by"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
     uniqueIndex("acc_sales_invoices_no_unique").on(t.shopId, t.invoiceNo),
+    uniqueIndex("acc_sales_invoices_client_ref_uq").on(t.shopId, t.clientRef).where(sql`${t.clientRef} IS NOT NULL`),
     index("acc_sales_invoices_shop_date_idx").on(t.shopId, t.invoiceDate),
   ],
 );
