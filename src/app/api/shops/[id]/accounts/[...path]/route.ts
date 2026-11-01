@@ -37,6 +37,8 @@ import { postGokesariActivity } from "@/server/accounts/platform-posting";
 import { cancelDocument, createDocument, documentPdf, documentSchema, getDocument, listDocuments } from "@/server/accounts/documents";
 import { salesReceiptPdf } from "@/server/invoicing/outputs";
 import { shopStatementFiles } from "@/server/tax/statements";
+import { ExportBlocked, exportForTool, importForTool, MAX_SYNC_FILE_BYTES, resolveConflict, setUnitUqc, syncDashboard, templatePack } from "@/server/sync/engine";
+import { buildCanonicalBooks, validateBooks } from "@/server/sync/model";
 import { requireFeature } from "@/server/services/feature-flags";
 import { cancelSalesInvoice, createSalesInvoice, getSalesInvoice, listSalesInvoices, salesInvoicePdf, salesSchema } from "@/server/accounts/sales";
 import { adjustStockTo, expiringBatches, ledgerDrift, listingLedger, listListings, setTrackBatches, stockSummary, writeOffStock } from "@/server/accounts/stock";
@@ -54,7 +56,7 @@ import {
 } from "@/server/accounts/capture/service";
 import { computeTotals } from "@/lib/accounts/bill-draft";
 import { db } from "@/server/db";
-import { ACC_DOCUMENT_KINDS, accChangeLog, type UserRole } from "@/server/db/schema";
+import { ACC_DOCUMENT_KINDS, accChangeLog, SYNC_SYSTEMS, type UserRole } from "@/server/db/schema";
 import { and, desc, eq } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
@@ -136,6 +138,52 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
       await requireFeature("billing_v2");
       const body = await parseBody(req, z.object({ reason: z.string().trim().min(1).max(300) }));
       return ok({ reversed: await reverseJournal(shopId, id(sourceId), body.reason, user) });
+    },
+  },
+
+  /* ---------------------- sync with accounting software (billing v2, §7–8) */
+  sync: {
+    GET: async (req, shopId, user, [action]) => {
+      await requireFeature("billing_v2");
+      if (!action) return ok(await syncDashboard(shopId));
+      if (action === "templates") return file(await templatePack(), "application/zip", "gokesari-template-pack.zip");
+      const from = isoDate.parse(q(req, "from"));
+      const to = isoDate.parse(q(req, "to"));
+      if (action === "fixes") return ok(validateBooks(await buildCanonicalBooks(shopId, from, to)));
+      if (action === "export") {
+        const tool = z.enum(SYNC_SYSTEMS).parse(q(req, "tool"));
+        try {
+          const out = await exportForTool(shopId, tool, { from, to }, user);
+          return file(out.bytes, out.contentType, out.filename);
+        } catch (error) {
+          if (error instanceof ExportBlocked) return NextResponse.json({ error: { code: "FIX_FIRST", message: error.message, fixes: error.fixes } }, { status: 409 });
+          throw error;
+        }
+      }
+      throw notFound("Endpoint");
+    },
+    POST: async (req, shopId, user, [action, conflictId]) => {
+      await requireFeature("billing_v2");
+      if (action === "import") {
+        const tool = z.enum(SYNC_SYSTEMS).parse(q(req, "tool") ?? "GENERIC");
+        const { files } = await formFiles(req);
+        const f = files[0];
+        if (!f) throw validationFailed("Choose a file to import.");
+        if (f.bytes.length > MAX_SYNC_FILE_BYTES) throw validationFailed("The file is larger than 5 MB.");
+        return ok(await importForTool(shopId, tool, { name: f.name ?? "import", bytes: f.bytes }, user));
+      }
+      if (action === "conflicts") {
+        const body = await parseBody(req, z.object({ choice: z.enum(["KEEP_LOCAL", "TAKE_INCOMING"]) }));
+        return ok(await resolveConflict(shopId, id(conflictId), body.choice, user));
+      }
+      throw notFound("Endpoint");
+    },
+    PUT: async (req, shopId, _u, [action]) => {
+      await requireFeature("billing_v2");
+      if (action !== "units") throw notFound("Endpoint");
+      const body = await parseBody(req, z.object({ unit: z.string().trim().min(1).max(30), uqc: z.string().trim().length(3) }));
+      await setUnitUqc(shopId, body.unit, body.uqc);
+      return ok({ saved: true });
     },
   },
 

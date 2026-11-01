@@ -38,6 +38,9 @@ export const AUDIT_ACTIONS = {
 
   /* ------------------------------ Module 2: accounting integration & GST */
   INTEGRATION_CONNECTED: "integration.connected",
+  /** Billing v2 (docs/billing §7): books exported to / imported from accounting software as files. */
+  SYNC_FILE_EXPORTED: "sync.file_exported",
+  SYNC_FILE_IMPORTED: "sync.file_imported",
   INTEGRATION_UPDATED: "integration.updated",
   INTEGRATION_DISCONNECTED: "integration.disconnected",
   INTEGRATION_TOKEN_ISSUED: "integration.token_issued",

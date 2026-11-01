@@ -40,6 +40,7 @@ export const ACCOUNTS_TILES: readonly AccountsTile[] = [
   { key: "gst", label: L("GST payable", "देय GST", "देय GST"), hint: L("Output − input, due dates", "आउटपुट − इनपुट, तारीख़ें", "आउटपुट − इनपुट, तारखा"), icon: "indian-rupee", tone: "violet", href: "/shop/accounts/gst" },
   { key: "reconcile", label: L("Match with GST portal", "GST पोर्टल से मिलान", "GST पोर्टलशी जुळवणी"), hint: L("GSTR-2B / 2A", "GSTR-2B / 2A", "GSTR-2B / 2A"), icon: "scale", tone: "violet", href: "/shop/accounts/gst/reconcile", count: "reconIssues" },
   { key: "statements", label: L("Statements from GoKesari", "GoKesari के विवरण", "GoKesari ची विवरणे"), hint: L("TCS, TDS, wallet, settlement", "TCS, TDS, वॉलेट, सेटलमेंट", "TCS, TDS, वॉलेट, सेटलमेंट"), icon: "landmark", tone: "violet", href: "/shop/accounts/statements", feature: "billing_v2" },
+  { key: "sync", label: L("Sync with Tally, Zoho…", "Tally, Zoho… से सिंक", "Tally, Zoho… सोबत सिंक"), hint: L("Send and bring in, both ways", "भेजें और लाएँ, दोनों तरफ़", "पाठवा आणि आणा, दोन्ही बाजूंनी"), icon: "refresh-cw", tone: "blue", href: "/shop/accounts/sync", feature: "billing_v2" },
   { key: "reports", label: L("Reports", "रिपोर्ट", "अहवाल"), hint: L("P&L, Excel, PDF, Tally", "लाभ-हानि, Excel, PDF, Tally", "नफा-तोटा, Excel, PDF, Tally"), icon: "chart-line", tone: "blue", href: "/shop/accounts/reports" },
   { key: "settings", label: L("Settings", "सेटिंग", "सेटिंग्ज"), hint: L("Valuation, GST filing", "मूल्यांकन, GST फ़ाइलिंग", "मूल्यांकन, GST भरणा"), icon: "settings", tone: "blue", href: "/shop/accounts/settings" },
 ];

@@ -7872,6 +7872,79 @@ export const accDocuments = pgTable(
 );
 export type AccDocument = typeof accDocuments.$inferSelect;
 
+/* ============================================ billing v2: sync (0130, §7)
+ * docs/billing §7: every record exchanged with the shop's accounting software
+ * (files or live), keyed by that software's own key, with the hash of what
+ * was exchanged last, so a re-export updates instead of duplicating and an
+ * import that meets a local change is held for the shop to decide.
+ */
+export const SYNC_SYSTEMS = ["TALLY", "BUSY", "MARG", "VYAPAR", "MYBILLBOOK", "ZOHO", "ODOO", "GENERIC"] as const;
+export type SyncSystem = (typeof SYNC_SYSTEMS)[number];
+export const SYNC_ENTITIES = ["COMPANY", "LEDGER_GROUP", "LEDGER", "PARTY", "STOCK_GROUP", "UNIT", "GODOWN", "STOCK_ITEM", "BATCH", "OPENING", "VOUCHER"] as const;
+export type SyncEntity = (typeof SYNC_ENTITIES)[number];
+
+export const syncRecords = pgTable(
+  "sync_records",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    system: text("system", { enum: SYNC_SYSTEMS }).notNull(),
+    entityType: text("entity_type", { enum: SYNC_ENTITIES }).notNull(),
+    /** GoKesari's id of the record (a uuid, or a ledger code). */
+    gokesariId: text("gokesari_id"),
+    /** The other software's key: Tally voucher type + date + number, a ledger / item name, Zoho id… */
+    externalKey: text("external_key").notNull(),
+    /** sha256 of the record's canonical form when it was last exchanged. */
+    lastHash: text("last_hash").notNull(),
+    direction: text("direction", { enum: ["OUT", "IN"] }).notNull(),
+    status: text("status", { enum: ["SYNCED", "FAILED", "CONFLICT"] }).notNull().default("SYNCED"),
+    error: text("error"),
+    lastSyncedAt: timestamp("last_synced_at", { withTimezone: true }).notNull().defaultNow(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("sync_records_key_uq").on(t.shopId, t.system, t.entityType, t.externalKey),
+    index("sync_records_shop_idx").on(t.shopId, t.system, t.lastSyncedAt),
+  ],
+);
+export type SyncRecord = typeof syncRecords.$inferSelect;
+
+export const syncConflicts = pgTable(
+  "sync_conflicts",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    system: text("system", { enum: SYNC_SYSTEMS }).notNull(),
+    entityType: text("entity_type", { enum: SYNC_ENTITIES }).notNull(),
+    externalKey: text("external_key").notNull(),
+    gokesariId: text("gokesari_id"),
+    localSnapshot: jsonb("local_snapshot").$type<Record<string, unknown>>().notNull(),
+    incomingSnapshot: jsonb("incoming_snapshot").$type<Record<string, unknown>>().notNull(),
+    status: text("status", { enum: ["OPEN", "KEPT_LOCAL", "TOOK_INCOMING"] }).notNull().default("OPEN"),
+    resolvedBy: uuid("resolved_by"),
+    resolvedAt: timestamp("resolved_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("sync_conflicts_open_uq").on(t.shopId, t.system, t.entityType, t.externalKey).where(sql`${t.status} = 'OPEN'`),
+    index("sync_conflicts_shop_idx").on(t.shopId, t.status),
+  ],
+);
+export type SyncConflict = typeof syncConflicts.$inferSelect;
+
+/** §2.3: the shop's own words for units ("pkt", "dozen") mapped to GST unit codes (UQC). */
+export const invUnitUqc = pgTable(
+  "inv_unit_uqc",
+  {
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    /** Lower-case, trimmed. */
+    unit: text("unit").notNull(),
+    uqc: text("uqc").notNull(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [primaryKey({ columns: [t.shopId, t.unit] })],
+);
+
 /** Next number of the shop's own documents, per financial year. */
 export const accCounters = pgTable(
   "acc_counters",
