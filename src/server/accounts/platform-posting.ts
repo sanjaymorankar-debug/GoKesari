@@ -174,7 +174,8 @@ export async function postGokesariActivity(shopId: string, options: { limit?: nu
           }
           break;
         default:
-          // DELIVERY_CHARGE, REGISTRATION_FEE, SEC95_GST are informational (0); WALLET_TOPUP and
+          // DELIVERY_CHARGE and REGISTRATION_FEE are informational (0); SEC95_GST is already out of the sale
+          // (the restaurant's bill of supply is booked without that GST); WALLET_TOPUP and
           // CARRY_FORWARD move money inside the GoKesari account.
           break;
       }

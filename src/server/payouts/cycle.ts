@@ -18,7 +18,9 @@
  *   ± PLATFORM_NOTE    a credit (+) or debit (−) note issued by hand
  *   − WALLET_TOPUP     tops the shop's prepaid wallet up to payouts.walletTopUpTargetPaise
  *   ± CARRY_FORWARD    a held / reversed amount from an earlier cycle
- *     SEC95_GST, REGISTRATION_FEE  informational
+ *   − SEC95_GST        GST GoKesari pays on a restaurant's food under s.9(5)
+ *                      (billing_v2; informational while it is off)
+ *     REGISTRATION_FEE informational
  *
  * Statutory rates are the ones in force on each supply's own date
  * (statutory_rates), so a rate change inside a cycle applies from its day.
@@ -247,8 +249,9 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
     // Billing v2 (docs/billing §5.4, §5.5): with the TCS / TDS engines on, the order's money-flow
     // record decides whether TCS / TDS apply (who received the customer's money), and the TDS
     // exemption is counted per PAN across every shop of that PAN. Off: as before.
-    const [tcsEngine, tdsEngine] = await Promise.all([isFeatureEnabled("tcs_engine"), isFeatureEnabled("tds_engine")]);
-    const flows = (tcsEngine || tdsEngine) && orderIds.length ? await tx.select().from(orderMoneyFlows).where(inArray(orderMoneyFlows.orderId, orderIds)) : [];
+    // With billing_v2 on, GoKesari also withholds the s.9(5) GST it pays on a restaurant's food (§5.3).
+    const [tcsEngine, tdsEngine, billingV2] = await Promise.all([isFeatureEnabled("tcs_engine"), isFeatureEnabled("tds_engine"), isFeatureEnabled("billing_v2")]);
+    const flows = (tcsEngine || tdsEngine || billingV2) && orderIds.length ? await tx.select().from(orderMoneyFlows).where(inArray(orderMoneyFlows.orderId, orderIds)) : [];
     const flowByOrder = new Map(flows.map((f) => [f.orderId, f]));
 
     const shopIds = [
@@ -312,7 +315,19 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
       const flow = flowByOrder.get(f.orderId);
       const s95 = await sec95RestaurantOn(day, shop.shopType, resolve);
       if (s95) {
-        push({ ...base, lineType: "SEC95_GST", description: `s.9(5): GoKesari pays GST on restaurant service, order ${orderNumber}`, amountPaise: 0, basePaise: taxable, rateBp: s95.rateBp, meta: { liabilityPaise: pctOf(taxable, s95.rateBp), statutoryRowId: s95.rowId } });
+        // billing_v2: the shop's document is at the value without this GST (a bill of supply), so it is withheld here;
+        // off: informational, as before.
+        const withheld = billingV2 && flow?.foodGstLiable === "GOKESARI_S95";
+        const liability = withheld ? flow.foodGstPaise : pctOf(taxable, s95.rateBp);
+        push({
+          ...base,
+          lineType: "SEC95_GST",
+          description: `s.9(5): GoKesari pays GST on restaurant service, order ${orderNumber}`,
+          amountPaise: withheld ? -liability : 0,
+          basePaise: taxable,
+          rateBp: s95.rateBp,
+          meta: { liabilityPaise: liability, statutoryRowId: s95.rowId, withheld },
+        });
       } else {
         const tcs = await tcsOn(day, resolve);
         if (tcsEngine && flow && !flow.tcsApplicable) {

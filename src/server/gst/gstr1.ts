@@ -155,6 +155,8 @@ export async function buildGstr1(shopId: string, period: string): Promise<Gstr1R
     row.csamt += sign * (b.cessPaise ?? 0);
     supeco.set(etin, row);
   };
+  // Table 14(b): supplies through an operator that pays the tax itself under s.9(5) (restaurants, billing v2 §5.3).
+  const paytx = new Map<string, number>();
   const addB2cs = (s: InvoiceSnapshot | CreditNoteSnapshot, lines: InvoiceLine[], sign: number, etin?: string) => {
     const pos = gstState(s.placeOfSupply)?.code ?? "";
     for (const l of lines) {
@@ -177,6 +179,10 @@ export async function buildGstr1(shopId: string, period: string): Promise<Gstr1R
   let cancelledInvoices = 0;
   for (const inv of invoices) {
     const s = inv.snapshot as unknown as InvoiceSnapshot;
+    if (s.sec95) {
+      if (inv.status !== "CANCELLED" && s.eco) paytx.set(s.eco.gstin, (paytx.get(s.eco.gstin) ?? 0) + inv.taxablePaise);
+      continue;
+    }
     if (s.kind !== "TAX_INVOICE") {
       warnings.push(`${inv.invoiceNumber} is a bill of supply (issued while the shop had no GSTIN) and is left out.`);
       continue;
@@ -246,6 +252,7 @@ export async function buildGstr1(shopId: string, period: string): Promise<Gstr1R
   const supecoList = [...supeco.entries()]
     .filter(([, b]) => b.txval !== 0)
     .map(([etin, b]) => ({ etin, suppval: r2(b.txval), igst: r2(b.iamt), cgst: r2(b.camt), sgst: r2(b.samt), cess: r2(b.csamt) }));
+  const paytxList = [...paytx.entries()].filter(([, v]) => v !== 0).map(([etin, v]) => ({ etin, suppval: r2(v), igst: 0, cgst: 0, sgst: 0, cess: 0 }));
 
   const hsnRows = (section: "B2B" | "B2C") =>
     [...hsn[section].values()]
@@ -278,7 +285,7 @@ export async function buildGstr1(shopId: string, period: string): Promise<Gstr1R
     cdnur,
     hsn: { hsn_b2b: hsnB2b, hsn_b2c: hsnB2c },
     doc_issue: { doc_det: docDet },
-    ...(supecoList.length ? { supeco: { clttx: supecoList } } : {}),
+    ...(supecoList.length || paytxList.length ? { supeco: { ...(supecoList.length ? { clttx: supecoList } : {}), ...(paytxList.length ? { paytx: paytxList } : {}) } } : {}),
   };
   const counts = {
     b2b: [...b2b.values()].reduce((s, l) => s + l.length, 0),

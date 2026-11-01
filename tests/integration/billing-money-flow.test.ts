@@ -9,8 +9,9 @@ import { eq, sql } from "drizzle-orm";
 import { beforeEach, describe, expect, it } from "vitest";
 
 import { db } from "@/server/db";
-import { deliveryPartners, featureFlags, orderFulfilmentArrangements, orderMoneyFlows, orders, shops, type FeatureFlagKey } from "@/server/db/schema";
+import { deliveryPartners, featureFlags, orderFulfilmentArrangements, orderMoneyFlows, orders, type FeatureFlagKey } from "@/server/db/schema";
 import { recordOrderMoneyFlow } from "@/server/tax/money-flow";
+import { getShopRegistration, setShopRegistration } from "@/server/tax/registration";
 import { deliveredOrder, gstShop, resetBatchE, rules } from "../helpers/batch-e";
 import { createDeliveryPartner, createUser, resetDatabase } from "../helpers/fixtures";
 
@@ -62,11 +63,20 @@ describe("billing v2 money flow", () => {
 
   it("an Enrolment-ID shop: no TCS, TDS still in scope", async () => {
     await flag("billing_v2", true);
-    const { shop, milkSp } = await gstShop({ gstin: null });
-    await db.update(shops).set({ gstRegistrationType: "ENROLMENT_ID", gstEnrolmentId: "271234567890EID" }).where(eq(shops.id, shop.id));
+    const { shop, milkSp, owner } = await gstShop({ gstin: null });
+    // The owner declares it on the shop's GST page (§3.1).
+    await expect(setShopRegistration(shop.id, { type: "ENROLMENT_ID" }, owner)).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await setShopRegistration(shop.id, { type: "ENROLMENT_ID", enrolmentId: "271234567890eid" }, owner)).toMatchObject({ type: "ENROLMENT_ID", declared: "ENROLMENT_ID", enrolmentId: "271234567890EID", hasGstin: false });
     const { order } = await deliveredOrder(admin, [[milkSp.id, 1]]);
     const [row] = await db.select().from(orderMoneyFlows).where(eq(orderMoneyFlows.orderId, order.id));
     expect(row).toMatchObject({ tcsApplicable: false, tdsApplicable: true });
+    expect(await setShopRegistration(shop.id, { type: "BY_GSTIN" }, owner)).toMatchObject({ type: "UNREGISTERED", enrolmentId: null });
+  });
+
+  it("a shop with a GSTIN cannot declare an Enrolment ID or PAN-only service", async () => {
+    const { shop, owner } = await gstShop();
+    await expect(setShopRegistration(shop.id, { type: "PAN_ONLY_SERVICE" }, owner)).rejects.toMatchObject({ code: "CONFLICT" });
+    expect(await getShopRegistration(shop.id)).toMatchObject({ type: "REGULAR", declared: "BY_GSTIN", hasGstin: true });
   });
 
   it("cash taken by the shop's own delivery person: the shop received it; the CA switch decides TCS", async () => {

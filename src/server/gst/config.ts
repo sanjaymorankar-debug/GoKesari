@@ -158,6 +158,35 @@ export async function setHsnRate(input: z.infer<typeof hsnRateSchema>, actor: { 
   });
 }
 
+/**
+ * Billing v2 (docs/billing §2.1): loads many HSN rates at once — the CBIC rate
+ * list as the CA hands it over, one row per line: hsn,rate%,cess%,description,
+ * effective_from (a header row and "%" signs are allowed; cess and description
+ * may be empty). Every row is checked first; nothing is saved if one is wrong.
+ */
+export async function importHsnRates(csv: string, actor: { id: string; role: UserRole }): Promise<{ saved: number }> {
+  const rows: z.infer<typeof hsnRateSchema>[] = [];
+  const errors: string[] = [];
+  const lines = csv.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (lines.length > 5_000) throw validationFailed("At most 5,000 rows at a time.");
+  lines.forEach((line, i) => {
+    const cells = line.split(",").map((c) => c.trim().replace(/^"|"$/g, "").replace(/%$/, ""));
+    if (i === 0 && !/^\d/.test(cells[0])) return; // header
+    const parsed = hsnRateSchema.safeParse({
+      hsnPrefix: cells[0],
+      ratePercent: Number(cells[1]),
+      cessPercent: cells[2] ? Number(cells[2]) : 0,
+      description: cells[3] || undefined,
+      effectiveFrom: cells[4],
+    });
+    if (parsed.success) rows.push(parsed.data);
+    else errors.push(`Row ${i + 1}: ${parsed.error.issues[0]?.message ?? "not valid"}`);
+  });
+  if (errors.length) throw validationFailed(`Nothing saved. ${errors.slice(0, 5).join("; ")}${errors.length > 5 ? ` (and ${errors.length - 5} more)` : ""}`);
+  for (const row of rows) await setHsnRate(row, actor);
+  return { saved: rows.length };
+}
+
 export async function endHsnRate(id: string, effectiveTo: string, actor: { id: string; role: UserRole }) {
   const [row] = await db.select().from(hsnTaxRates).where(eq(hsnTaxRates.id, id));
   if (!row) throw notFound("HSN rate");

@@ -1,5 +1,5 @@
 {
-  "updated": "01-Nov-2026 IST (phases 1-7)",
+  "updated": "01-Nov-2026 IST (phases 1-8 + gap closure)",
   "branch": "feat/billing-v2-phase1",
   "testingReport": "docs/billing/TESTING_REPORT.md",
   "rows": [
@@ -34,52 +34,52 @@
       "feature": "Money-flow record per order (who received the money)",
       "section": "§5.1",
       "gap": "G2",
-      "status": "In progress",
+      "status": "Done",
       "env": "Local",
-      "web": "n/a (server)",
+      "web": "Done",
       "android": "n/a",
       "ios": "n/a",
-      "test": "Pass (local, both DB layouts)",
-      "notes": "order_money_flows + rule billing.collectorByMode, behind billing_v2. Next: admin view, settlement status update"
+      "test": "Pass (local, both layouts)",
+      "notes": "order_money_flows per delivered order (mode, who received the money, TCS/TDS scope, s.9(5) delivery and food GST); admin summary on Tax returns; SETTLED once the payout is paid (daily job, D37)"
     },
     {
       "id": "BV2-04",
       "feature": "Tax engine (document kind, supply type, line tax, TCS, TDS scope, s.9(5), inter-state guard)",
       "section": "§2.4",
       "gap": "G7, G9",
-      "status": "In progress",
+      "status": "Done",
       "env": "Local",
-      "web": "n/a (server)",
+      "web": "Done",
       "android": "n/a",
       "ios": "n/a",
-      "test": "Pass (35 unit tests)",
-      "notes": "Built and tested; invoice issuing not yet switched to it (phase 2)"
+      "test": "Pass (local, both layouts)",
+      "notes": "Engine drives the checkout guard, money flow, TCS/TDS scope and s.9(5); invoice kind follows the same rule (bill of supply for composition, Enrolment ID, s.9(5) restaurant)"
     },
     {
       "id": "BV2-05",
       "feature": "HSN/SAC master with UQC; product tax fields; unit→UQC mapping",
       "section": "§2.1–2.3",
       "gap": "G7",
-      "status": "In progress",
+      "status": "Done",
       "env": "Local",
-      "web": "Partial",
+      "web": "Done",
       "android": "Not started",
       "ios": "Not started",
-      "test": "Pass (local)",
-      "notes": "Unit→UQC map per shop (inv_unit_uqc) + export block + fix list done; HSN master seeding with UQC still open"
+      "test": "Pass (local, both layouts)",
+      "notes": "Dated HSN rate master with CSV import of the CBIC list (D37); unit→UQC map per shop with export block and fix list. Loading the CBIC list is data for the admin/CA"
     },
     {
       "id": "BV2-06",
       "feature": "Shop GST registration type (Regular/Composition/Enrolment ID/PAN-only)",
       "section": "§3.1–3.2",
       "gap": "G5",
-      "status": "In progress",
+      "status": "Done",
       "env": "Local",
-      "web": "Done (engine, guard, invoice)",
+      "web": "Done",
       "android": "Not started",
       "ios": "Not started",
       "test": "Pass (local, both layouts)",
-      "notes": "Columns + backfill (0125); checkout guard; invoice Enrolment ID note. Next: capture step in onboarding wizard"
+      "notes": "Registration type from the verified GSTIN, or declared Enrolment ID / PAN-only on the GST & PAN page; checkout guard; cancelled/suspended GSTIN blocks orders. Monthly re-check on the portal needs the GSP (B1)"
     },
     {
       "id": "BV2-07",
@@ -99,13 +99,13 @@
       "feature": "Auto-approval also requires GST status; PAN-only professionals rule",
       "section": "§3.4–3.5",
       "gap": "G5",
-      "status": "Not started",
-      "env": "—",
-      "web": "Not started",
+      "status": "Done",
+      "env": "Local",
+      "web": "Done",
       "android": "Not started",
       "ios": "Not started",
-      "test": "—",
-      "notes": "Switch billing.panOnlyServiceRule (HOLD) exists; CA Q5 (B2)"
+      "test": "Pass (local)",
+      "notes": "Shops are approved at payment (owner decision); GST status enforced at checkout instead (D35). PAN-only supplies rule waits CA Q5 (B2), switch billing.panOnlyServiceRule"
     },
     {
       "id": "BV2-09",
@@ -125,13 +125,13 @@
       "feature": "16-character numbering; invoice cancellation status",
       "section": "§4.2",
       "gap": "G9",
-      "status": "In progress",
+      "status": "Blocked",
       "env": "Local",
       "web": "—",
       "android": "—",
       "ios": "—",
       "test": "—",
-      "notes": "Invoice cancellation (mark only) + immutability trigger done; numbering format still B4 (LEGACY 25 chars)"
+      "notes": "Invoice cancellation (mark only) + immutability triggers done; numbering format waits B4 (LEGACY 25 chars vs GST16)"
     },
     {
       "id": "BV2-11",
@@ -164,13 +164,13 @@
       "feature": "Credit note on every refund, by returned line, incl. cancellation before packing",
       "section": "§4.5",
       "gap": "G8",
-      "status": "In progress",
+      "status": "Done",
       "env": "Local",
-      "web": "Not started",
+      "web": "Done",
       "android": "Via WebView",
       "ios": "Via WebView",
-      "test": "Pass (local)",
-      "notes": "Return notes credit only returned lines; pre-packing cancellation has no invoice so no note (D17)"
+      "test": "Pass (local, both layouts)",
+      "notes": "Every refund after delivery gets a credit note; a return credits only the returned lines; cancellation before packing has no invoice, so no note (D17)"
     },
     {
       "id": "BV2-14",
@@ -216,13 +216,13 @@
       "feature": "Restaurant s.9(5) as deemed supplier",
       "section": "§5.3",
       "gap": "G17",
-      "status": "Not started",
-      "env": "—",
-      "web": "—",
-      "android": "—",
-      "ios": "—",
-      "test": "—",
-      "notes": "Statutory row exists (disabled)"
+      "status": "Done",
+      "env": "Local",
+      "web": "Done",
+      "android": "Done (WebView)",
+      "ios": "Done (WebView)",
+      "test": "Pass (local, both layouts)",
+      "notes": "GoKesari invoices restaurant food in its GSTIN (GKS series, kind RESTAURANT), restaurant issues a bill of supply, Table 14(b)/15 + 3B, no TCS, payout withholds the GST (D34). Statutory row stays OFF until the CA confirms (B2)"
     },
     {
       "id": "BV2-18",
@@ -255,13 +255,13 @@
       "feature": "Settlement ledger; monthly GoKesari fee invoice; wallet statement",
       "section": "§5.6",
       "gap": "G6",
-      "status": "In progress",
+      "status": "Done",
       "env": "Local",
-      "web": "Done (statements)",
+      "web": "Done",
       "android": "Via WebView",
       "ios": "Via WebView",
-      "test": "Pass (local)",
-      "notes": "Wallet + settlement statements done; fee invoices stay per payout cycle (D20)"
+      "test": "Pass (local, both layouts)",
+      "notes": "Wallet + settlement statements; fee invoices stay one per payout cycle (D20)"
     },
     {
       "id": "BV2-21",
@@ -294,26 +294,26 @@
       "feature": "Inventory: groups, godowns, transfers, reserve/dispatch, reports",
       "section": "§6.2",
       "gap": "—",
-      "status": "In progress",
+      "status": "Done",
       "env": "Local",
-      "web": "Partial",
+      "web": "Done",
       "android": "Via WebView",
       "ios": "Via WebView",
-      "test": "Pass (local)",
-      "notes": "Stock journal between online/in-shop, movement + ageing reports done; more godowns, stock groups (uses categories), reserve-on-dispatch not done (D24)"
+      "test": "Pass (local, both layouts)",
+      "notes": "Stock journal between the online and in-shop counts, movement and ageing reports. Not built by decision D24: more godowns, separate stock groups (categories used), reserve-on-order / deduct-on-dispatch"
     },
     {
       "id": "BV2-24",
       "feature": "Purchases: IRP fetch via GSP; 2B/IMS accept/reject/pending",
       "section": "§6.3",
       "gap": "G16",
-      "status": "In progress",
+      "status": "Blocked",
       "env": "Local",
       "web": "Done (mock GSP)",
       "android": "Via WebView",
       "ios": "Via WebView",
       "test": "Pass (local)",
-      "notes": "IMS accept/reject/pending pushed via GSP; supplier e-invoices → draft bill for review; live needs B1"
+      "notes": "IMS accept/reject/pending pushed via GSP; supplier e-invoices → draft bill for review; live IRP fetch and 2B pull need B1"
     },
     {
       "id": "BV2-25",
@@ -372,13 +372,13 @@
       "feature": "Template pack and help pages (EN/HI/MR)",
       "section": "§8",
       "gap": "G13",
-      "status": "In progress",
+      "status": "Done",
       "env": "Local",
-      "web": "Done (text)",
+      "web": "Done",
       "android": "Via WebView",
       "ios": "Via WebView",
-      "test": "—",
-      "notes": "Template pack + EN/HI/MR step guides; screenshots need the real software"
+      "test": "Pass (local)",
+      "notes": "Template pack + EN/HI/MR step guides per tool; screenshots of the other software need the software itself (B5)"
     },
     {
       "id": "BV2-30",
@@ -411,13 +411,13 @@
       "feature": "Security: GSP token encryption, operator read-only, GSP call log, retention policy",
       "section": "§10",
       "gap": "—",
-      "status": "In progress",
+      "status": "Done",
       "env": "Local",
-      "web": "—",
+      "web": "Done",
       "android": "—",
       "ios": "—",
-      "test": "—",
-      "notes": "GSP call log, OAuth secrets hashed, operators kept out of IRN/e-way writes on new routes, per-shop/client rate limits; PAN-reveal audit on TDS export"
+      "test": "Pass (local, both layouts)",
+      "notes": "GSP credentials encrypted, PAN encrypted, API secrets hashed, GSP call log, per-shop/client rate limits, tax documents and logs never deleted (D36); dealers/operators have no billing access (scenario 17 test)"
     },
     {
       "id": "BV2-33",
@@ -442,8 +442,8 @@
       "web": "—",
       "android": "—",
       "ios": "—",
-      "test": "Local runs only",
-      "notes": "docs/billing/TESTING_REPORT.md"
+      "test": "Local: pass on both layouts",
+      "notes": "docs/billing/TESTING_REPORT.md (+ PDF). Test and Prod sections pending the staging merge"
     }
   ]
 }

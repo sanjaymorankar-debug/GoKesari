@@ -10,8 +10,14 @@
  * Issued in the delivery's transaction, right after the money-flow record.
  * One per order; numbered "GKS/2627/000001" (rule billing.deliveryInvoicePrefix)
  * from one gapless counter per financial year taken in the same transaction.
+ *
+ * The same series carries GoKesari's invoice for a restaurant's food (kind
+ * RESTAURANT, docs/billing §5.3, G17): when the dated row GST_S95_RESTAURANT
+ * covers the shop's type, GoKesari is the deemed supplier of the restaurant
+ * service under s.9(5), invoices the food in its own GSTIN on the
+ * restaurant's behalf and pays the GST.
  */
-import { eq, sql } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { stateLabel } from "@/lib/gst-states";
@@ -31,6 +37,8 @@ import { amountInWords, financialYearOf } from "@/server/services/invoices";
 import { getRule } from "@/server/services/settings";
 
 export interface DeliveryInvoiceSnapshot {
+  /** Absent on invoices issued before 0135: DELIVERY. */
+  kind?: "DELIVERY" | "RESTAURANT";
   invoiceNumber: string;
   financialYear: string;
   issuedAt: string;
@@ -48,8 +56,24 @@ export interface DeliveryInvoiceSnapshot {
   cgstPaise: number;
   sgstPaise: number;
   igstPaise: number;
+  /** RESTAURANT: the dishes (each tax-inclusive) and the restaurant the food is supplied for. */
+  lines?: FoodGstLine[];
+  onBehalfOf?: { name: string; gstin: string | null };
   notes: string[];
 }
+
+export interface FoodGstLine {
+  description: string;
+  quantity: string;
+  grossPaise: number;
+  taxablePaise: number;
+  cgstPaise: number;
+  sgstPaise: number;
+  igstPaise: number;
+}
+
+/** SAC 996331: services provided by restaurants, cafes and similar eating facilities, incl. takeaway. */
+export const RESTAURANT_SAC = "996331";
 
 /** "GKS/2627/000001": prefix, financial year (2026-27 → 2627), six digits. */
 export function deliveryInvoiceNumber(prefix: string, financialYear: string, sequence: number): string {
@@ -68,12 +92,47 @@ export interface DeliveryGstLine {
   placeOfSupply: string | null;
 }
 
+const ofKind = (orderId: string, kind: "DELIVERY" | "RESTAURANT") => and(eq(platformDeliveryInvoices.orderId, orderId), eq(platformDeliveryInvoices.kind, kind));
+
 /** Issues the order's delivery-fee invoice, or returns the one already issued. */
 export async function issueDeliveryFeeInvoice(orderId: string, gst: DeliveryGstLine, client: DbClient, at: Date = new Date()): Promise<PlatformDeliveryInvoice> {
-  const [existing] = await client.select().from(platformDeliveryInvoices).where(eq(platformDeliveryInvoices.orderId, orderId));
+  return issueS95Invoice(orderId, "DELIVERY", gst, client, at);
+}
+
+export interface FoodGst {
+  rateBp: number;
+  withoutItc: boolean;
+  supplyType: "INTRA" | "INTER";
+  placeOfSupply: string | null;
+  lines: FoodGstLine[];
+  restaurant: { name: string; gstin: string | null };
+}
+
+/** Issues GoKesari's s.9(5) invoice for a restaurant order's food, or returns the one already issued. */
+export async function issueRestaurantS95Invoice(orderId: string, food: FoodGst, client: DbClient, at: Date = new Date()): Promise<PlatformDeliveryInvoice> {
+  const sum = (k: "grossPaise" | "taxablePaise" | "cgstPaise" | "sgstPaise" | "igstPaise") => food.lines.reduce((n, l) => n + l[k], 0);
+  return issueS95Invoice(
+    orderId,
+    "RESTAURANT",
+    { rateBp: food.rateBp, withoutItc: food.withoutItc, feePaise: sum("grossPaise"), taxablePaise: sum("taxablePaise"), cgstPaise: sum("cgstPaise"), sgstPaise: sum("sgstPaise"), igstPaise: sum("igstPaise"), supplyType: food.supplyType, placeOfSupply: food.placeOfSupply },
+    client,
+    at,
+    { lines: food.lines, onBehalfOf: food.restaurant },
+  );
+}
+
+async function issueS95Invoice(
+  orderId: string,
+  kind: "DELIVERY" | "RESTAURANT",
+  gst: DeliveryGstLine,
+  client: DbClient,
+  at: Date,
+  food?: { lines: FoodGstLine[]; onBehalfOf: { name: string; gstin: string | null } },
+): Promise<PlatformDeliveryInvoice> {
+  const [existing] = await client.select().from(platformDeliveryInvoices).where(ofKind(orderId, kind));
   if (existing) return existing;
   const profile = await getRule("platformTaxProfile");
-  if (!profile.gstin) throw conflict("GoKesari's GSTIN is not set (Admin → Rules, platformTaxProfile): the s.9(5) delivery invoice cannot be issued.");
+  if (!profile.gstin) throw conflict(`GoKesari's GSTIN is not set (Admin → Rules, platformTaxProfile): the s.9(5) ${kind === "DELIVERY" ? "delivery" : "restaurant"} invoice cannot be issued.`);
   const rule = await getRule("billing");
   const [row] = await client
     .select({ orderNumber: orders.orderNumber, userId: orders.userId, snap: orders.deliveryAddressSnapshot, name: users.name })
@@ -90,7 +149,9 @@ export async function issueDeliveryFeeInvoice(orderId: string, gst: DeliveryGstL
     .returning();
   const invoiceNumber = deliveryInvoiceNumber(rule.deliveryInvoicePrefix, financialYear, counter.lastNumber);
   const snap = row.snap;
+  const restaurant = kind === "RESTAURANT";
   const snapshot: DeliveryInvoiceSnapshot = {
+    kind,
     invoiceNumber,
     financialYear,
     issuedAt: at.toISOString(),
@@ -102,8 +163,8 @@ export async function issueDeliveryFeeInvoice(orderId: string, gst: DeliveryGstL
     },
     placeOfSupply: gst.placeOfSupply,
     supplyType: gst.supplyType,
-    sac: profile.sacCodes.DELIVERY_CHARGE,
-    description: `Local delivery of order ${row.orderNumber}`,
+    sac: restaurant ? RESTAURANT_SAC : profile.sacCodes.DELIVERY_CHARGE,
+    description: restaurant ? `Restaurant service, order ${row.orderNumber}` : `Local delivery of order ${row.orderNumber}`,
     rateBp: gst.rateBp,
     withoutItc: gst.withoutItc,
     feePaise: gst.feePaise,
@@ -111,8 +172,11 @@ export async function issueDeliveryFeeInvoice(orderId: string, gst: DeliveryGstL
     cgstPaise: gst.cgstPaise,
     sgstPaise: gst.sgstPaise,
     igstPaise: gst.igstPaise,
+    ...(food ? { lines: food.lines, onBehalfOf: food.onBehalfOf } : {}),
     notes: [
-      "Tax on this supply is paid by the electronic commerce operator under section 9(5) of the CGST Act; the delivery partner is not registered under GST.",
+      restaurant
+        ? `Restaurant service supplied through the electronic commerce operator on behalf of ${food!.onBehalfOf.name}${food!.onBehalfOf.gstin ? ` (GSTIN ${food!.onBehalfOf.gstin})` : ""}; tax is paid by the operator under section 9(5) of the CGST Act.`
+        : "Tax on this supply is paid by the electronic commerce operator under section 9(5) of the CGST Act; the delivery partner is not registered under GST.",
       ...(gst.withoutItc ? ["Input tax credit has not been taken on this service (rate notified without ITC)."] : []),
       "Reverse charge: No.",
     ],
@@ -122,6 +186,7 @@ export async function issueDeliveryFeeInvoice(orderId: string, gst: DeliveryGstL
     .values({
       orderId,
       customerId: row.userId,
+      kind,
       invoiceNumber,
       financialYear,
       sequence: counter.lastNumber,
@@ -143,7 +208,7 @@ export async function issueDeliveryFeeInvoice(orderId: string, gst: DeliveryGstL
       action: AUDIT_ACTIONS.INVOICE_ISSUED,
       entityType: "platform_delivery_invoice",
       entityId: invoice.id,
-      newValue: { invoiceNumber, orderId, feePaise: gst.feePaise, rateBp: gst.rateBp },
+      newValue: { invoiceNumber, orderId, kind, feePaise: gst.feePaise, rateBp: gst.rateBp },
     },
     client,
   );
@@ -157,7 +222,12 @@ export async function getDeliveryFeeInvoice(id: string): Promise<PlatformDeliver
 }
 
 export async function deliveryFeeInvoiceForOrder(orderId: string): Promise<PlatformDeliveryInvoice | null> {
-  const [row] = await db.select().from(platformDeliveryInvoices).where(eq(platformDeliveryInvoices.orderId, orderId));
+  const [row] = await db.select().from(platformDeliveryInvoices).where(ofKind(orderId, "DELIVERY"));
+  return row ?? null;
+}
+
+export async function restaurantS95InvoiceForOrder(orderId: string): Promise<PlatformDeliveryInvoice | null> {
+  const [row] = await db.select().from(platformDeliveryInvoices).where(ofKind(orderId, "RESTAURANT"));
   return row ?? null;
 }
 
@@ -219,7 +289,9 @@ export function deliveryInvoiceTextLines(s: DeliveryInvoiceSnapshot, status: "IS
   wrap(s.recipient.address);
   add(`Place of supply: ${s.placeOfSupply ? (stateLabel(s.placeOfSupply) ?? s.placeOfSupply) : "-"}   Supply: ${s.supplyType === "INTRA" ? "Intra-state" : "Inter-state"}`);
   add("-".repeat(W));
+  if (s.onBehalfOf) wrap(`On behalf of: ${s.onBehalfOf.name}${s.onBehalfOf.gstin ? `, GSTIN ${s.onBehalfOf.gstin}` : ""}`);
   pair(`${s.description}  (SAC ${s.sac})`, money(s.feePaise));
+  for (const l of s.lines ?? []) pair(`  ${l.description} x ${l.quantity}`.slice(0, W - 14), money(l.grossPaise));
   pair(`Taxable value`, money(s.taxablePaise));
   const rate = `${(s.rateBp / 100).toFixed(s.rateBp % 100 ? 2 : 0)}%`;
   if (s.supplyType === "INTRA") {

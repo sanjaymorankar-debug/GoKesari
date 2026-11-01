@@ -41,6 +41,7 @@ import { ExportBlocked, exportForTool, importForTool, MAX_SYNC_FILE_BYTES, resol
 import { buildCanonicalBooks, validateBooks } from "@/server/sync/model";
 import { createApiClient, listApiClients, revokeApiClient } from "@/server/public-api/auth";
 import { posBillSchema, posItems, syncPosBills } from "@/server/accounts/pos";
+import { getShopRegistration, registrationInput, setShopRegistration } from "@/server/tax/registration";
 import { decideIms, draftBillFromEinvoice, fileWithEvc, imsInward, listFilings, portalLedgers, prepareReturn, requestFilingOtp, saveToPortal, supplierEinvoices } from "@/server/gsp/returns";
 import { requireFeature } from "@/server/services/feature-flags";
 import { cancelSalesInvoice, createSalesInvoice, getSalesInvoice, listSalesInvoices, salesInvoicePdf, salesSchema } from "@/server/accounts/sales";
@@ -156,6 +157,18 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
       if (action !== "sync") throw notFound("Endpoint");
       const b = await parseBody(req, z.object({ bills: z.array(posBillSchema).min(1).max(200) }));
       return ok(await syncPosBills(shopId, b.bills, user));
+    },
+  },
+
+  /* ------------------------ GST registration type (billing v2, §3.1, G5) */
+  "gst-registration": {
+    GET: async (_req, shopId) => {
+      await requireFeature("billing_v2");
+      return ok(await getShopRegistration(shopId));
+    },
+    PATCH: async (req, shopId, user) => {
+      await requireFeature("billing_v2");
+      return ok(await setShopRegistration(shopId, await parseBody(req, registrationInput), user));
     },
   },
 

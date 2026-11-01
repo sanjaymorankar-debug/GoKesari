@@ -12,6 +12,8 @@ import { beforeEach, describe, expect, it } from "vitest";
 import { panBlindIndex } from "@/lib/pan-crypto";
 import { db } from "@/server/db";
 import { featureFlags, notifications, orderMoneyFlows, orders, payoutCycleLines, shops, type FeatureFlagKey } from "@/server/db/schema";
+import { importHsnRates, listHsnRates } from "@/server/gst/config";
+import { hsnFallbackRate } from "@/server/gst/rules";
 import { closePayoutCycle } from "@/server/payouts/cycle";
 import { setCommissionRate } from "@/server/services/finance";
 import { addStatutoryRate } from "@/server/statutory/rates";
@@ -205,5 +207,16 @@ describe("the shop's statements (§5.4–5.6, scenario 8)", () => {
     const settlement = (await shopStatementFiles(s.shop.id, "settlement", period, "csv")).bytes.toString();
     expect(settlement.split("\n")[0]).toContain("net_payable_inr");
     expect(settlement).toContain(s.order.orderNumber);
+  });
+});
+
+describe("HSN master, many rates at once (§2.1)", () => {
+  it("checks every row first, then saves them dated; a later list closes the earlier rate", async () => {
+    await expect(importHsnRates("hsn,rate,cess,description,effective_from\n0401,5,0,Milk,2025-09-22\nABC,5,,Bad,2025-09-22", admin)).rejects.toMatchObject({ code: "VALIDATION_FAILED" });
+    expect(await listHsnRates("0401")).toHaveLength(0);
+    expect(await importHsnRates("hsn,rate,cess,description,effective_from\n0401,5%,0,Milk,2025-09-22\n2202,40,,Aerated drinks,2025-09-22", admin)).toEqual({ saved: 2 });
+    expect(await importHsnRates("0401,0,,Milk (exempt),2026-04-01", admin)).toEqual({ saved: 1 });
+    expect((await hsnFallbackRate("04011000", new Date("2025-12-01T06:00:00Z")))?.rateBp).toBe(500);
+    expect((await hsnFallbackRate("04011000", new Date("2026-05-01T06:00:00Z")))?.rateBp).toBe(0);
   });
 });

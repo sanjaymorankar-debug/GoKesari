@@ -52,6 +52,7 @@ import { toStateCode } from "./seller-verification-checks";
 import { getRule } from "./settings";
 import { documentNumbering, formatDocumentNumber, hsnFallbackRate } from "@/server/gst/rules";
 import { uqcFor } from "@/server/integrations/canonical";
+import { istDay, sec95RestaurantOn, statutoryResolver } from "@/server/statutory/rates";
 import { effectiveRegistrationType } from "@/server/tax/engine";
 import { isFeatureEnabled } from "./feature-flags";
 import {
@@ -125,6 +126,12 @@ export interface InvoiceSnapshot {
   sellerRegistration?: "REGISTERED" | "COMPOSITION" | "UNREGISTERED";
   /** Billing v2 (docs/billing §4.3): issued while billing_v2 was on — prints the GST unit codes. */
   billingV2?: boolean;
+  /**
+   * Billing v2 §5.3: a restaurant's food on which GoKesari pays GST under
+   * s.9(5) — this is a bill of supply at the value without that GST; GoKesari's
+   * own invoice (kind RESTAURANT) is the customer's tax invoice.
+   */
+  sec95?: { rateBp: number; gstPaise: number };
   /** Billing v2: the e-commerce operator the supply was made through (GoKesari), for GSTR-1 Table 14. */
   eco?: { legalName: string; gstin: string };
   /** Billing v2: an Enrolment-ID supplier's enrolment id (Notification 34/2023-CT). */
@@ -202,7 +209,11 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
   if (order.status !== "DELIVERED") throw conflict("An invoice is issued once the order is delivered.");
 
   const gstin = await registeredGstin(shop, client);
-  const kind: InvoiceSnapshot["kind"] = gstin ? "TAX_INVOICE" : "BILL_OF_SUPPLY";
+  // Billing v2 (docs/billing §4.3, §4.4): buyer GSTIN from checkout, the ECO's GSTIN, UQC. Off: as before.
+  const billingV2 = await isFeatureEnabled("billing_v2");
+  // §5.3: GoKesari pays the GST on a listed restaurant type's food (s.9(5)), so the shop charges none.
+  const sec95 = billingV2 ? await sec95RestaurantOn(istDay(issuedAt), shop.shopType, statutoryResolver(client)) : null;
+  const kind: InvoiceSnapshot["kind"] = gstin && !sec95 ? "TAX_INVOICE" : "BILL_OF_SUPPLY";
   // A composition dealer issues a bill of supply but is still GST-registered:
   // its GSTIN goes on the bill (Rule 46/49 CGST Rules).
   const compositionGstin =
@@ -217,8 +228,6 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
   // address's state, else its PIN code's; the shop's state for a pickup or
   // when truly unknown (said on the invoice). Off: exactly as before.
   const extras = await getRule("invoiceDelivery");
-  // Billing v2 (docs/billing §4.3, §4.4): buyer GSTIN from checkout, the ECO's GSTIN, UQC. Off: as before.
-  const billingV2 = await isFeatureEnabled("billing_v2");
   let placeOfSupplySource: PlaceOfSupplySource | undefined;
   if (extras.enabled) {
     const pos = resolvePlaceOfSupply({
@@ -286,6 +295,16 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
       mrpPaise: (substituted ? item.substituteMrpPaise : item.mrpPaise) ?? null,
     });
   }
+  let sec95GstPaise = 0;
+  if (sec95) {
+    // The restaurant's supply is the food's value without the GST GoKesari charges and pays on it.
+    for (const l of lines) {
+      const net = splitInclusiveWithCess(l.grossPaise, sec95.rateBp, 0, "INTRA").taxablePaise;
+      sec95GstPaise += l.grossPaise - net;
+      l.grossPaise = net;
+      l.taxablePaise = net;
+    }
+  }
   const sum = (k: keyof Pick<InvoiceLine, "taxablePaise" | "cgstPaise" | "sgstPaise" | "igstPaise" | "grossPaise">) =>
     lines.reduce((s, l) => s + l[k], 0);
   const buyerShop = order.buyerShopId ? await client.query.shops.findFirst({ where: eq(shops.id, order.buyerShopId) }) : undefined;
@@ -297,16 +316,20 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
   const buyerGstin = buyerShop?.gstin ?? (billingV2 ? order.buyerGstin : null) ?? null;
   const sellerRegistration = sellerRegistrationOf(gstin, shop.gstStatus);
   const panMasked = shop.panLast4 ? `XXXXXX${shop.panLast4}` : null;
-  if (kind === "BILL_OF_SUPPLY") {
+  if (sec95) {
+    notes.push(
+      `Restaurant service supplied through the electronic commerce operator ${eco?.legalName ?? "GoKesari"}${eco ? ` (GSTIN ${eco.gstin})` : ""}, which pays GST at ${(sec95.rateBp / 100).toFixed(2)}% (${formatPaise(sec95GstPaise)}) on it under section 9(5) of the CGST Act and issues the customer's tax invoice. Amounts here are the value of the supply without that GST.`,
+    );
+  } else if (kind === "BILL_OF_SUPPLY") {
     // WS-E: precise wording (PAN-only / unregistered, or composition) when invoiceDelivery is on.
     if (extras.enabled) notes.push(...sellerRegistrationNotes(sellerRegistration, panMasked));
     else notes.push("Supplier not registered under GST (or under the composition scheme): no tax is charged on this bill of supply.");
   }
   if (placeOfSupplySource && PLACE_OF_SUPPLY_NOTE[placeOfSupplySource]) notes.push(PLACE_OF_SUPPLY_NOTE[placeOfSupplySource]!);
   if (enrolmentId) notes.push(`Supplier holds GST Enrolment ID ${enrolmentId} (Notification 34/2023-Central Tax): intra-state supplies only.`);
-  if (eco) notes.push(`Supplied through the electronic commerce operator ${eco.legalName} (GSTIN ${eco.gstin}), which collects tax at source under section 52 of the CGST Act.`);
+  if (eco && !sec95) notes.push(`Supplied through the electronic commerce operator ${eco.legalName} (GSTIN ${eco.gstin}), which collects tax at source under section 52 of the CGST Act.`);
   if (lines.some((l) => l.rateAssumed)) notes.push("Lines marked * have no GST rate on record for the product; the default rate was applied.");
-  notes.push("Prices are inclusive of GST. Tax is shown as included in each line.");
+  if (!sec95) notes.push("Prices are inclusive of GST. Tax is shown as included in each line.");
 
   const snapshot: Omit<InvoiceSnapshot, "invoiceNumber" | "financialYear"> = {
     kind,
@@ -349,7 +372,7 @@ async function buildSnapshot(orderId: string, client: DbClient, issuedAt: Date) 
     },
     notes,
     ...(extras.enabled ? { placeOfSupplySource, sellerRegistration } : {}),
-    ...(billingV2 ? { billingV2: true, ...(eco ? { eco } : {}), ...(enrolmentId ? { sellerEnrolmentId: enrolmentId } : {}) } : {}),
+    ...(billingV2 ? { billingV2: true, ...(eco ? { eco } : {}), ...(enrolmentId ? { sellerEnrolmentId: enrolmentId } : {}), ...(sec95 ? { sec95: { rateBp: sec95.rateBp, gstPaise: sec95GstPaise } } : {}) } : {}),
   };
   return { order, shop, snapshot };
 }

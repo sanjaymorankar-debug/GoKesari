@@ -5406,6 +5406,10 @@ export const orderMoneyFlows = pgTable(
     deliveryGstLiable: text("delivery_gst_liable", { enum: ["GOKESARI_S95", "RIDER", "SHOP", "NONE"] }).notNull(),
     deliveryGstRateBp: integer("delivery_gst_rate_bp"),
     deliveryGstPaise: bigint("delivery_gst_paise", { mode: "number" }).notNull().default(0),
+    /** GST on the food (0135, §5.3): SHOP, or GOKESARI_S95 — a restaurant's supply on which GoKesari pays under s.9(5). */
+    foodGstLiable: text("food_gst_liable", { enum: ["SHOP", "GOKESARI_S95"] }).notNull().default("SHOP"),
+    foodGstRateBp: integer("food_gst_rate_bp"),
+    foodGstPaise: bigint("food_gst_paise", { mode: "number" }).notNull().default(0),
     /** UNSETTLED until the shop's payout that carries the order is paid. */
     settlementStatus: text("settlement_status", { enum: ["UNSETTLED", "SETTLED", "REVERSED"] })
       .notNull()
@@ -5421,7 +5425,8 @@ export type OrderMoneyFlow = typeof orderMoneyFlows.$inferSelect;
 /**
  * Billing v2 (0127, §5.2): GoKesari's own tax invoice to the customer for the
  * delivery fee, when GoKesari pays its GST under s.9(5) (an unregistered
- * GoKesari delivery partner delivered). GoKesari's GSTIN, one series per
+ * GoKesari delivery partner delivered) — and, kind RESTAURANT (0135, §5.3),
+ * for a restaurant's food on which GoKesari pays. GoKesari's GSTIN, one series per
  * financial year ("GKS/2627/000001", at most 16 characters), gapless — the
  * counter row is taken in the issuing transaction. Never changed after issue
  * (trigger); a cancellation only marks it.
@@ -5434,12 +5439,15 @@ export const platformDeliveryInvoices = pgTable(
       .notNull()
       .references(() => orders.id, { onDelete: "restrict" }),
     customerId: uuid("customer_id").notNull(),
+    /** DELIVERY: the delivery fee (§5.2); RESTAURANT: the food, GoKesari as deemed supplier (0135, §5.3). */
+    kind: text("kind", { enum: ["DELIVERY", "RESTAURANT"] }).notNull().default("DELIVERY"),
     invoiceNumber: text("invoice_number").notNull(),
     financialYear: text("financial_year").notNull(),
     sequence: integer("sequence").notNull(),
     supplyType: text("supply_type", { enum: ["INTRA", "INTER"] }).notNull(),
     placeOfSupply: text("place_of_supply"),
     rateBp: integer("rate_bp").notNull(),
+    /** The amount the customer paid for the supply (the fee, or the food), tax included. */
     feePaise: bigint("fee_paise", { mode: "number" }).notNull(),
     taxablePaise: bigint("taxable_paise", { mode: "number" }).notNull(),
     cgstPaise: bigint("cgst_paise", { mode: "number" }).notNull(),
@@ -5452,7 +5460,7 @@ export const platformDeliveryInvoices = pgTable(
     issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
-    uniqueIndex("platform_delivery_invoices_order_uq").on(t.orderId),
+    uniqueIndex("platform_delivery_invoices_order_kind_uq").on(t.orderId, t.kind),
     uniqueIndex("platform_delivery_invoices_number_uq").on(t.invoiceNumber),
     uniqueIndex("platform_delivery_invoices_seq_uq").on(t.financialYear, t.sequence),
     index("platform_delivery_invoices_customer_idx").on(t.customerId),

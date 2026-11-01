@@ -2,14 +2,24 @@ import { redirect } from "next/navigation";
 
 import { GenerateReturnButton, MarkFiledForm } from "@/components/billing/compliance-actions";
 import { Alert, Badge, Card, PageHeader, Section } from "@/components/ui";
+import { formatPaise } from "@/lib/money";
 import { getCurrentUser } from "@/server/authz/guards";
 import { can, PERMISSIONS } from "@/server/authz/permissions";
 import { getFeatureFlags } from "@/server/services/feature-flags";
 import { countUnconfirmedStatutoryRates, istDay } from "@/server/statutory/rates";
-import { complianceCalendar } from "@/server/tax/compliance";
+import { complianceCalendar, monthBounds } from "@/server/tax/compliance";
+import { moneyFlowSummary } from "@/server/tax/money-flow";
 
 export const metadata = { title: "Tax returns & due dates" };
 export const dynamic = "force-dynamic";
+
+const MODE_LABEL = {
+  ONLINE_PREPAID: "Paid online",
+  WALLET_PREPAID: "Paid from wallet",
+  COD_PLATFORM_RIDER: "Cash to GoKesari rider",
+  COD_SHOP: "Cash to the shop's own delivery",
+  PICKUP_PAID_AT_SHOP: "Pickup, paid at the shop",
+} as const;
 
 const STATUS_TONE = { NOT_GENERATED: "danger", GENERATED: "warning", SUBMITTED: "info", FILED: "success" } as const;
 
@@ -25,7 +35,12 @@ export default async function CompliancePage() {
   const flags = await getFeatureFlags();
   if (!flags.billing_v2.enabled) redirect("/admin");
   const today = istDay(new Date());
-  const [items, unconfirmed] = await Promise.all([complianceCalendar(today), countUnconfirmedStatutoryRates()]);
+  const month = monthBounds(today.slice(0, 7));
+  const [items, unconfirmed, flows] = await Promise.all([
+    complianceCalendar(today),
+    countUnconfirmedStatutoryRates(),
+    moneyFlowSummary(new Date(`${month.from}T00:00:00+05:30`), new Date(`${month.to}T00:00:00+05:30`)),
+  ]);
   const engines = [
     { key: "tcs_engine", label: "TCS engine", on: flags.tcs_engine.enabled },
     { key: "tds_engine", label: "TDS engine", on: flags.tds_engine.enabled },
@@ -81,6 +96,45 @@ export default async function CompliancePage() {
             </li>
           ))}
         </ul>
+      </Section>
+      <Section title={`Money flow — orders delivered in ${today.slice(0, 7)}`}>
+        <p className="mb-2 text-sm text-ink-600">Who received each customer&apos;s money decides TCS and TDS (§5.1). Settled: the shop payout carrying the order has been paid.</p>
+        {flows.length ? (
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm" data-testid="money-flow-summary">
+              <thead>
+                <tr className="text-left text-xs text-ink-600">
+                  <th className="p-1.5">Payment</th>
+                  <th className="p-1.5">Money with</th>
+                  <th className="p-1.5 text-right">Orders</th>
+                  <th className="p-1.5 text-right">TCS</th>
+                  <th className="p-1.5 text-right">TDS</th>
+                  <th className="p-1.5 text-right">s.9(5) delivery GST</th>
+                  <th className="p-1.5 text-right">s.9(5) food GST</th>
+                  <th className="p-1.5 text-right">Settled</th>
+                </tr>
+              </thead>
+              <tbody>
+                {flows.map((f) => (
+                  <tr key={`${f.mode}-${f.collectedBy}`} className="border-t border-[var(--gk-line)]">
+                    <td className="p-1.5">{MODE_LABEL[f.mode]}</td>
+                    <td className="p-1.5">{f.collectedBy === "PLATFORM" ? "GoKesari" : "Shop"}</td>
+                    <td className="p-1.5 text-right tabular-nums">{f.orders}</td>
+                    <td className="p-1.5 text-right tabular-nums">{f.tcsApplicable}</td>
+                    <td className="p-1.5 text-right tabular-nums">{f.tdsApplicable}</td>
+                    <td className="p-1.5 text-right tabular-nums">{formatPaise(f.deliveryGstPaise)}</td>
+                    <td className="p-1.5 text-right tabular-nums">{formatPaise(f.foodGstPaise)}</td>
+                    <td className="p-1.5 text-right tabular-nums">
+                      {f.settled} / {f.orders}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        ) : (
+          <p className="text-sm text-ink-600">No delivered orders recorded this month yet.</p>
+        )}
       </Section>
     </div>
   );

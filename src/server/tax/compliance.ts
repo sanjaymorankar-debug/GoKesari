@@ -217,23 +217,30 @@ export async function buildGokesariGstr1(period: string): Promise<{ json: Record
     .from(platformDeliveryInvoices)
     .where(and(eq(platformDeliveryInvoices.status, "ISSUED"), gte(platformDeliveryInvoices.issuedAt, new Date(`${from}T00:00:00+05:30`)), lt(platformDeliveryInvoices.issuedAt, new Date(`${to}T00:00:00+05:30`))))
     .orderBy(asc(platformDeliveryInvoices.financialYear), asc(platformDeliveryInvoices.sequence));
-  // Table 15: supplies on which the ECO pays tax under s.9(5) — unregistered rider to unregistered customer.
-  const urp2c = new Map<string, { pos: string; rt: number; txval: number; iamt: number; camt: number; samt: number; csamt: number }>();
+  // Table 15: supplies on which the ECO pays tax under s.9(5) — an unregistered rider's delivery
+  // (unregistered supplier → unregistered customer, urp2c) and a restaurant's food (§5.3): a
+  // registered restaurant's under its GSTIN (b2c, stin), an unregistered one's in urp2c.
+  type Row = { stin?: string; pos: string; rt: number; txval: number; iamt: number; camt: number; samt: number; csamt: number };
+  const urp2c = new Map<string, Row>();
+  const b2c = new Map<string, Row>();
   for (const d of delivery) {
     const pos = gstState(d.placeOfSupply ?? null)?.code ?? "";
-    const key = `${pos}|${d.rateBp}`;
-    const row = urp2c.get(key) ?? { pos, rt: d.rateBp / 100, txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 };
+    const stin = d.kind === "RESTAURANT" ? ((d.snapshot as { onBehalfOf?: { gstin: string | null } }).onBehalfOf?.gstin ?? undefined) : undefined;
+    const into = stin ? b2c : urp2c;
+    const key = `${stin ?? ""}|${pos}|${d.rateBp}`;
+    const row = into.get(key) ?? { ...(stin ? { stin } : {}), pos, rt: d.rateBp / 100, txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 };
     row.txval += d.taxablePaise;
     row.iamt += d.igstPaise;
     row.camt += d.cgstPaise;
     row.samt += d.sgstPaise;
-    urp2c.set(key, row);
+    into.set(key, row);
   }
+  const rupees = (rows: Map<string, Row>) => [...rows.values()].map((r) => ({ ...r, txval: r2(r.txval), iamt: r2(r.iamt), camt: r2(r.camt), samt: r2(r.samt) }));
   const json = {
     ...base.json,
     ...(delivery.length
       ? {
-          ecom: { urp2c: [...urp2c.values()].map((r) => ({ ...r, txval: r2(r.txval), iamt: r2(r.iamt), camt: r2(r.camt), samt: r2(r.samt) })) },
+          ecom: { ...(urp2c.size ? { urp2c: rupees(urp2c) } : {}), ...(b2c.size ? { b2c: rupees(b2c) } : {}) },
           s95_doc_issue: { from: delivery[0].invoiceNumber, to: delivery[delivery.length - 1].invoiceNumber, totnum: delivery.length },
         }
       : {}),
@@ -245,7 +252,8 @@ export async function buildGokesariGstr1(period: string): Promise<{ json: Record
 
 export async function buildGokesariGstr3b(period: string): Promise<{ json: Record<string, unknown>; rows: number }> {
   const g1 = await buildGokesariGstr1(period);
-  const j = g1.json as { b2b?: { inv: { itms: { itm_det: { txval: number; iamt?: number; camt?: number; samt?: number } }[] }[] }[]; b2cs?: { txval: number; iamt: number; camt: number; samt: number }[]; ecom?: { urp2c: { txval: number; iamt: number; camt: number; samt: number }[] } };
+  type Amounts = { txval: number; iamt: number; camt: number; samt: number };
+  const j = g1.json as { b2b?: { inv: { itms: { itm_det: { txval: number; iamt?: number; camt?: number; samt?: number } }[] }[] }[]; b2cs?: Amounts[]; ecom?: { urp2c?: Amounts[]; b2c?: Amounts[] } };
   const own = { txval: 0, iamt: 0, camt: 0, samt: 0 };
   for (const party of j.b2b ?? []) for (const inv of party.inv) for (const it of inv.itms) {
     own.txval += it.itm_det.txval;
@@ -260,7 +268,7 @@ export async function buildGokesariGstr3b(period: string): Promise<{ json: Recor
     own.samt += b.samt;
   }
   const s95 = { txval: 0, iamt: 0, camt: 0, samt: 0 };
-  for (const r of j.ecom?.urp2c ?? []) {
+  for (const r of [...(j.ecom?.urp2c ?? []), ...(j.ecom?.b2c ?? [])]) {
     s95.txval += r.txval;
     s95.iamt += r.iamt;
     s95.camt += r.camt;
