@@ -69,6 +69,8 @@ export const TABLE_OWNERSHIP = {
   sync_records: "seller",
   sync_conflicts: "seller",
   inv_unit_uqc: "seller",
+  gst_filings: "seller",
+  ims_actions: "seller",
   acc_payments: "seller",
   acc_expenses: "seller",
   acc_ledger_entries: "seller",
@@ -134,6 +136,7 @@ export const TABLE_OWNERSHIP = {
   order_money_flows: "customer",
   platform_delivery_invoices: "customer",
   platform_delivery_invoice_counters: "customer",
+  credit_note_einvoices: "customer",
   order_ratings: "customer",
   order_disputes: "customer",
   dispute_attachments: "customer",
@@ -291,6 +294,7 @@ export const TABLE_OWNERSHIP = {
   // Dated statutory settings and the document email outbox: platform (core).
   statutory_rates: "platform",
   statutory_filings: "platform",
+  gsp_call_log: "platform",
   document_emails: "platform",
   /* <<< end WS-E */
   //

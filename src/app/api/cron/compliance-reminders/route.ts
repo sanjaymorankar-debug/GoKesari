@@ -16,6 +16,8 @@ import { sendComplianceReminders } from "@/server/tax/compliance";
 import { issueMissingDeliveryFeeInvoices } from "@/server/tax/money-flow";
 import { postGokesariActivityForAllShops } from "@/server/accounts/platform-posting";
 import { sendMonthlyShopStatements } from "@/server/tax/statements";
+import { sendGstSessionReminders } from "@/server/gsp/returns";
+import { issuePendingCreditNoteEinvoices } from "@/server/gst/einvoice-extras";
 
 export const dynamic = "force-dynamic";
 
@@ -27,5 +29,8 @@ export const POST = route(async (request: NextRequest) => {
   // Shops' books get GoKesari's orders, fees, taxes and payouts; owners hear when last month's statements are ready.
   const books = await postGokesariActivityForAllShops();
   const statements = await sendMonthlyShopStatements(istDay(new Date()));
-  return ok({ reminders, deliveryInvoices, books, statements });
+  // §9: owners whose GST portal link ends soon; credit-note IRNs still due.
+  const gstSessions = await sendGstSessionReminders();
+  const creditNoteIrns = (await isFeatureEnabled("einvoice")) ? await issuePendingCreditNoteEinvoices() : null;
+  return ok({ reminders, deliveryInvoices, books, statements, gstSessions, creditNoteIrns });
 });

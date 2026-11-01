@@ -39,6 +39,7 @@ import { salesReceiptPdf } from "@/server/invoicing/outputs";
 import { shopStatementFiles } from "@/server/tax/statements";
 import { ExportBlocked, exportForTool, importForTool, MAX_SYNC_FILE_BYTES, resolveConflict, setUnitUqc, syncDashboard, templatePack } from "@/server/sync/engine";
 import { buildCanonicalBooks, validateBooks } from "@/server/sync/model";
+import { decideIms, draftBillFromEinvoice, fileWithEvc, imsInward, listFilings, portalLedgers, prepareReturn, requestFilingOtp, saveToPortal, supplierEinvoices } from "@/server/gsp/returns";
 import { requireFeature } from "@/server/services/feature-flags";
 import { cancelSalesInvoice, createSalesInvoice, getSalesInvoice, listSalesInvoices, salesInvoicePdf, salesSchema } from "@/server/accounts/sales";
 import { adjustStockTo, expiringBatches, ledgerDrift, listingLedger, listListings, setTrackBatches, stockSummary, writeOffStock } from "@/server/accounts/stock";
@@ -56,7 +57,7 @@ import {
 } from "@/server/accounts/capture/service";
 import { computeTotals } from "@/lib/accounts/bill-draft";
 import { db } from "@/server/db";
-import { ACC_DOCUMENT_KINDS, accChangeLog, SYNC_SYSTEMS, type UserRole } from "@/server/db/schema";
+import { ACC_DOCUMENT_KINDS, accChangeLog, GST_FILING_TYPES, SYNC_SYSTEMS, type UserRole } from "@/server/db/schema";
 import { and, desc, eq } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
@@ -138,6 +139,54 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
       await requireFeature("billing_v2");
       const body = await parseBody(req, z.object({ reason: z.string().trim().min(1).max(300) }));
       return ok({ reversed: await reverseJournal(shopId, id(sourceId), body.reason, user) });
+    },
+  },
+
+  /* ------------------------- GST portal through the GSP (billing v2, §9) */
+  portal: {
+    GET: async (req, shopId, user, [section, fid, action]) => {
+      await requireFeature("billing_v2");
+      if (section === "filings" && !fid) return ok(await listFilings(shopId));
+      if (section === "filings" && action === "download") {
+        const f = (await listFilings(shopId)).find((x) => x.id === id(fid));
+        if (!f) throw notFound("Return");
+        return file(Buffer.from(JSON.stringify(f.payload, null, 2)), "application/json", `${f.returnType}-${f.period}.json`);
+      }
+      if (section === "ledgers") return ok(await portalLedgers(shopId, isoDate.parse(q(req, "from")), isoDate.parse(q(req, "to")), user.id));
+      if (section === "ims") return ok(await imsInward(shopId, period.parse(q(req, "period")), user.id));
+      if (section === "einvoices") return ok(await supplierEinvoices(shopId, period.parse(q(req, "period")), user.id));
+      throw notFound("Endpoint");
+    },
+    POST: async (req, shopId, user, [section, fid, action]) => {
+      await requireFeature("billing_v2");
+      if (section === "filings" && !fid) {
+        const b = await parseBody(req, z.object({ returnType: z.enum(GST_FILING_TYPES), period: z.string().trim().max(12) }));
+        return ok(await prepareReturn(shopId, b.returnType, b.period), 201);
+      }
+      if (section === "filings" && action === "save") return ok(await saveToPortal(shopId, id(fid), user.id));
+      if (section === "filings" && action === "otp") return ok(await requestFilingOtp(shopId, id(fid), user.id));
+      if (section === "filings" && action === "file") {
+        const b = await parseBody(req, z.object({ requestId: z.string().min(4).max(64), otp: z.string().trim().length(6) }));
+        return ok(await fileWithEvc(shopId, id(fid), b.requestId, b.otp, user.id));
+      }
+      if (section === "ims") {
+        const b = await parseBody(
+          req,
+          z.object({
+            period,
+            decisions: z
+              .array(z.object({ supplierGstin: z.string().length(15), docType: z.enum(["INV", "CN", "DN"]), docNumber: z.string().min(1).max(40), docDate: isoDate.nullable().optional(), total: z.number().optional(), action: z.enum(["ACCEPTED", "REJECTED", "PENDING"]), reason: z.string().trim().max(200).nullable().optional() }))
+              .min(1)
+              .max(500),
+          }),
+        );
+        return ok(await decideIms(shopId, b.period, b.decisions, user.id));
+      }
+      if (section === "einvoices" && fid === "draft") {
+        const b = await parseBody(req, z.object({ period, irn: z.string().min(10).max(100) }));
+        return ok(await draftBillFromEinvoice(shopId, b.period, b.irn, user.id), 201);
+      }
+      throw notFound("Endpoint");
     },
   },
 

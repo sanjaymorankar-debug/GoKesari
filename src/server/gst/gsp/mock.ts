@@ -53,11 +53,11 @@ export function createMockGsp(): GspProvider {
       };
     },
 
-    async generateIrn({ invoice }: IrnRequest) {
+    async generateIrn({ invoice, docType }: IrnRequest) {
       if (!invoice.seller.gstin || !isValidGstin(invoice.seller.gstin)) throw new GspError("INVALID", "Seller GSTIN is invalid.", "2150");
       if (!invoice.buyer.gstin) throw new GspError("INVALID", "E-invoice needs the buyer's GSTIN (B2B).", "2163");
       if (invoice.number.length > 16) throw new GspError("INVALID", "Document number longer than 16 characters.", "2211");
-      const irn = irnFor(invoice.seller.gstin, "INV", invoice.number, invoice.date);
+      const irn = irnFor(invoice.seller.gstin, docType ?? "INV", invoice.number, invoice.date);
       if (issued.has(irn)) throw new GspError("DUPLICATE", "Duplicate IRN.", "2150");
       const result: IrnResult = {
         irn,
@@ -93,6 +93,22 @@ export function createMockGsp(): GspProvider {
 
     async cancelEwayBill() {
       return { cancelledAt: new Date().toISOString() };
+    },
+
+    async updateEwayPartB(ewbNo, vehicleNo) {
+      if (!/^\d{12}$/.test(ewbNo)) throw new GspError("INVALID", "E-way bill number not found.", "325");
+      if (!/^[A-Z]{2}\d{1,2}[A-Z]{0,3}\d{4}$/.test(vehicleNo.replace(/\s+/g, "").toUpperCase())) throw new GspError("INVALID", "Vehicle number is not valid.", "106");
+      const validUpto = new Date(Date.now() + 86_400_000);
+      validUpto.setUTCHours(18, 29, 0, 0);
+      return { validUpto: validUpto.toISOString() };
+    },
+
+    async extendEwayBill(ewbNo, remainingKm) {
+      if (!/^\d{12}$/.test(ewbNo)) throw new GspError("INVALID", "E-way bill number not found.", "325");
+      const days = Math.max(1, Math.ceil(remainingKm / 200));
+      const validUpto = new Date(Date.now() + days * 86_400_000);
+      validUpto.setUTCHours(18, 29, 0, 0);
+      return { validUpto: validUpto.toISOString() };
     },
   };
 }

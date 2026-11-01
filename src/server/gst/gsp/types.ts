@@ -28,6 +28,8 @@ export interface IrnRequest {
   /** Our idempotency key: the same request id always yields the same IRN. */
   requestId: string;
   invoice: CanonicalInvoice;
+  /** Billing v2: a credit note (CRN) instead of an invoice (INV, the default). */
+  docType?: "INV" | "CRN";
 }
 
 export interface IrnResult {
@@ -80,4 +82,8 @@ export interface GspProvider {
   cancelIrn(irn: string, reasonCode: "1" | "2" | "3" | "4", remark: string): Promise<{ cancelledAt: string }>;
   generateEwayBill(request: EwayBillRequest): Promise<EwayBillResult>;
   cancelEwayBill(ewbNo: string, reasonCode: "1" | "2" | "3" | "4", remark: string): Promise<{ cancelledAt: string }>;
+  /** Billing v2 (§9.8): Part B — the vehicle carrying the goods (a new vehicle, or Part-A-only bills). */
+  updateEwayPartB(ewbNo: string, vehicleNo: string, reasonCode: "1" | "2" | "3" | "4", remark: string): Promise<{ validUpto: string }>;
+  /** Billing v2 (§9.8): more days for goods still on the way (allowed from 8 hours before to 8 hours after expiry). */
+  extendEwayBill(ewbNo: string, remainingKm: number, reasonCode: "1" | "2" | "3" | "4" | "99", remark: string): Promise<{ validUpto: string }>;
 }

@@ -1590,6 +1590,9 @@ export const RULES = {
       panOnlyServiceRule: z.enum(["ALLOW", "HOLD"]),
       /** Series of GoKesari's s.9(5) delivery-fee invoices to customers: "GKS/2627/000001". */
       deliveryInvoicePrefix: z.string().regex(/^[A-Z0-9]{1,4}$/, "1–4 capital letters or digits."),
+      /** CMP-08: composition tax on turnover, basis points (traders / manufacturers 1%, restaurants 5%). */
+      compositionRateBp: int(0, 1000),
+      compositionRestaurantRateBp: int(0, 1000),
     }),
     defaults: {
       collectorByMode: {
@@ -1605,6 +1608,8 @@ export const RULES = {
       compositionInterStateAllowed: false,
       panOnlyServiceRule: "HOLD",
       deliveryInvoicePrefix: "GKS",
+      compositionRateBp: 100,
+      compositionRestaurantRateBp: 500,
     },
   },
   /* <<< billing v2 */

@@ -134,6 +134,9 @@ export async function requestEinvoice(invoiceId: string): Promise<EinvoiceRecord
   if (!invoice) throw notFound("Invoice");
   let [record] = await db.select().from(einvoiceRecords).where(eq(einvoiceRecords.taxInvoiceId, invoiceId));
   if (record?.status === "GENERATED") return record;
+  // Billing v2 (§9.7): ₹10 crore+ taxpayers report within the window (einvoiceReportingWindow).
+  const { assertWithinReportingWindow } = await import("./einvoice-extras");
+  await assertWithinReportingWindow(invoice);
   if (record?.status === "CANCELLED") throw conflict("The e-invoice of this invoice was cancelled.");
   if (!record) {
     const { applies, reason } = await einvoiceApplies(invoice);

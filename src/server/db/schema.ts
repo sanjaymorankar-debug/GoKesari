@@ -2468,6 +2468,11 @@ export const ewayBills = pgTable(
     distanceKm: integer("distance_km"),
     vehicleNo: text("vehicle_no"),
     errorMessage: text("error_message"),
+    /** Billing v2 (0132, §9.8): Part B updates, validity extensions and cancellation. */
+    partBUpdatedAt: timestamp("part_b_updated_at", { withTimezone: true }),
+    extensions: integer("extensions").notNull().default(0),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    cancelReason: text("cancel_reason"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
   },
@@ -5456,6 +5461,51 @@ export const platformDeliveryInvoices = pgTable(
 );
 export type PlatformDeliveryInvoice = typeof platformDeliveryInvoices.$inferSelect;
 
+/**
+ * Billing v2 (0132, docs/billing §9.10, §10): every call made to the GSP —
+ * operation, shop, who asked, request id, outcome, time taken and a short
+ * answer (never tokens or personal data) — kept for the audit trail.
+ */
+export const gspCallLog = pgTable(
+  "gsp_call_log",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id"),
+    operation: text("operation").notNull(),
+    provider: text("provider").notNull(),
+    requestId: text("request_id").notNull(),
+    actorId: uuid("actor_id"),
+    outcome: text("outcome", { enum: ["OK", "ERROR"] }).notNull(),
+    errorCode: text("error_code"),
+    message: text("message"),
+    attempts: integer("attempts").notNull().default(1),
+    durationMs: integer("duration_ms").notNull(),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("gsp_call_log_shop_idx").on(t.shopId, t.createdAt), index("gsp_call_log_created_idx").on(t.createdAt)],
+);
+export type GspCall = typeof gspCallLog.$inferSelect;
+
+/** Billing v2 (0132, §9.7): the e-invoice (IRN) of a credit note on a B2B invoice of an e-invoicing shop. */
+export const creditNoteEinvoices = pgTable(
+  "credit_note_einvoices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    creditNoteId: uuid("credit_note_id").notNull(),
+    shopId: uuid("shop_id").notNull(),
+    status: text("status", { enum: ["PENDING", "GENERATED", "FAILED", "CANCELLED"] }).notNull().default("PENDING"),
+    irn: text("irn"),
+    ackNo: text("ack_no"),
+    ackDate: timestamp("ack_date", { withTimezone: true }),
+    signedQr: text("signed_qr"),
+    errorMessage: text("error_message"),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("credit_note_einvoices_note_uq").on(t.creditNoteId)],
+);
+
 export const platformDeliveryInvoiceCounters = pgTable("platform_delivery_invoice_counters", {
   financialYear: text("financial_year").primaryKey(),
   lastNumber: integer("last_number").notNull(),
@@ -7944,6 +7994,63 @@ export const invUnitUqc = pgTable(
   },
   (t) => [primaryKey({ columns: [t.shopId, t.unit] })],
 );
+
+/* ====================================== billing v2: GST filing (0131, §9)
+ * docs/billing §9: each of the shop's returns per period — prepared from the
+ * books, saved to the GST portal through the GSP, compared with the portal's
+ * summary, filed with the owner's EVC — and the owner's IMS decision on each
+ * inward invoice.
+ */
+export const GST_FILING_TYPES = ["GSTR1", "IFF", "GSTR3B", "CMP08", "GSTR4"] as const;
+export type GstFilingType = (typeof GST_FILING_TYPES)[number];
+
+export const gstFilings = pgTable(
+  "gst_filings",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    returnType: text("return_type", { enum: GST_FILING_TYPES }).notNull(),
+    /** "2026-10" (month), "2026-27-Q3" (quarter) or "2026-27" (year). */
+    period: text("period").notNull(),
+    status: text("status", { enum: ["PREPARED", "SAVED", "FILED", "ERROR"] }).notNull().default("PREPARED"),
+    payload: jsonb("payload").$type<Record<string, unknown>>().notNull(),
+    checksum: text("checksum").notNull(),
+    /** GoKesari's totals and the portal's, side by side. */
+    ourSummary: jsonb("our_summary").$type<Record<string, unknown>>(),
+    portalSummary: jsonb("portal_summary").$type<Record<string, unknown>>(),
+    referenceId: text("reference_id"),
+    arn: text("arn"),
+    error: text("error"),
+    preparedAt: timestamp("prepared_at", { withTimezone: true }).notNull().defaultNow(),
+    savedAt: timestamp("saved_at", { withTimezone: true }),
+    filedAt: timestamp("filed_at", { withTimezone: true }),
+    filedBy: uuid("filed_by"),
+  },
+  (t) => [uniqueIndex("gst_filings_period_uq").on(t.shopId, t.returnType, t.period)],
+);
+export type GstFiling = typeof gstFilings.$inferSelect;
+
+export const imsActions = pgTable(
+  "ims_actions",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    period: text("period").notNull(),
+    supplierGstin: text("supplier_gstin").notNull(),
+    docType: text("doc_type").notNull(),
+    docNumber: text("doc_number").notNull(),
+    docDate: date("doc_date"),
+    totalPaise: bigint("total_paise", { mode: "number" }).notNull().default(0),
+    action: text("action", { enum: ["ACCEPTED", "REJECTED", "PENDING"] }).notNull(),
+    reason: text("reason"),
+    /** Sent to the portal (IMS) through the GSP? */
+    pushed: text("pushed", { enum: ["NOT_SENT", "SENT", "FAILED"] }).notNull().default("NOT_SENT"),
+    decidedBy: uuid("decided_by"),
+    decidedAt: timestamp("decided_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [uniqueIndex("ims_actions_doc_uq").on(t.shopId, t.supplierGstin, t.docType, t.docNumber), index("ims_actions_period_idx").on(t.shopId, t.period)],
+);
+export type ImsAction = typeof imsActions.$inferSelect;
 
 /** Next number of the shop's own documents, per financial year. */
 export const accCounters = pgTable(

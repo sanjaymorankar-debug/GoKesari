@@ -2,6 +2,7 @@ import Link from "next/link";
 import clsx from "clsx";
 
 import { AccountsHeader, AccountsNav } from "@/components/accounts/accounts-nav";
+import { isFeatureEnabled } from "@/server/services/feature-flags";
 import { GstImportPanel } from "@/components/accounts/gst-import-panel";
 import { GstLinkPanel, type GstLinkInfo } from "@/components/accounts/gst-link-panel";
 import { Badge } from "@/components/ui";
@@ -83,6 +84,8 @@ export default async function GstPage({ searchParams }: { searchParams: Promise<
 
   const shopParam = shopQuery ? `&${shopQuery.slice(1)}` : "";
   const here = (p: string, f: FilingFrequency = frequency) => `/shop/accounts/gst?period=${p}&frequency=${f}${shopParam}`;
+  // Billing v2 (docs/billing §9): filing on the portal through the GSP.
+  const billingV2 = await isFeatureEnabled("billing_v2");
   const reconcileHref = `/shop/accounts/gst/reconcile?period=${view.months[view.months.length - 1].period}${shopParam}`;
   const nav = ACCOUNTS_NAV.find((n) => n.key === "gst")!;
 
@@ -121,9 +124,16 @@ export default async function GstPage({ searchParams }: { searchParams: Promise<
         title={tr(nav.label, lang) + " — " + tr(ACCOUNTS_TEXT.gstPayable, lang)}
         subtitle={`${shop.name}${shop.gstin ? ` · GSTIN ${shop.gstin}` : " · no GSTIN on the shop profile"}`}
         action={
-          <Link href={reconcileHref} className="inline-flex min-h-11 items-center rounded-xl bg-violet-700 px-4 text-sm font-semibold text-white hover:bg-violet-800">
-            {tr(TEXT.reconcile, lang)} →
-          </Link>
+          <span className="flex flex-wrap gap-2">
+            {billingV2 ? (
+              <Link href={`/shop/accounts/gst/returns${shopQuery}`} className="inline-flex min-h-11 items-center rounded-xl border border-violet-700 px-4 text-sm font-semibold text-violet-800 hover:bg-violet-50">
+                Returns on the portal →
+              </Link>
+            ) : null}
+            <Link href={reconcileHref} className="inline-flex min-h-11 items-center rounded-xl bg-violet-700 px-4 text-sm font-semibold text-white hover:bg-violet-800">
+              {tr(TEXT.reconcile, lang)} →
+            </Link>
+          </span>
         }
       />
 
