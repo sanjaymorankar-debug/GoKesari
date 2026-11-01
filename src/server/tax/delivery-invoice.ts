@@ -17,7 +17,7 @@
  * service under s.9(5), invoices the food in its own GSTIN on the
  * restaurant's behalf and pays the GST.
  */
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, inArray, sql } from "drizzle-orm";
 
 import { conflict, forbidden, notFound, validationFailed } from "@/lib/errors";
 import { stateLabel } from "@/lib/gst-states";
@@ -230,6 +230,24 @@ export async function restaurantS95InvoiceForOrder(orderId: string): Promise<Pla
   const [row] = await db.select().from(platformDeliveryInvoices).where(ofKind(orderId, "RESTAURANT"));
   return row ?? null;
 }
+
+/**
+ * GoKesari's own invoices on these orders (s.9(5) delivery fee, restaurant food), issued and not
+ * cancelled, for the customer's order pages (QA D-112: the customer could not reach them).
+ */
+export async function platformInvoicesForOrders(orderIds: string[]): Promise<Map<string, Pick<PlatformDeliveryInvoice, "id" | "kind" | "invoiceNumber">[]>> {
+  const out = new Map<string, Pick<PlatformDeliveryInvoice, "id" | "kind" | "invoiceNumber">[]>();
+  if (!orderIds.length) return out;
+  const rows = await db
+    .select({ id: platformDeliveryInvoices.id, orderId: platformDeliveryInvoices.orderId, kind: platformDeliveryInvoices.kind, invoiceNumber: platformDeliveryInvoices.invoiceNumber })
+    .from(platformDeliveryInvoices)
+    .where(and(inArray(platformDeliveryInvoices.orderId, orderIds), eq(platformDeliveryInvoices.status, "ISSUED")));
+  for (const { orderId, ...row } of rows) out.set(orderId, [...(out.get(orderId) ?? []), row]);
+  return out;
+}
+
+/** Link text for one of GoKesari's invoices on an order. */
+export const platformInvoiceLabel = (kind: PlatformDeliveryInvoice["kind"]) => (kind === "DELIVERY" ? "Delivery fee invoice (GoKesari)" : "Food invoice (GoKesari)");
 
 /** The customer, and operations, may see it. */
 export function canViewDeliveryFeeInvoice(invoice: PlatformDeliveryInvoice, user: { id: string; role: UserRole }): boolean {

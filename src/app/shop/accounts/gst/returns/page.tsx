@@ -5,7 +5,7 @@ import { GstReturnsPanel } from "@/components/billing/gst-returns-panel";
 import { loadAccountsPage } from "@/server/accounts/page";
 import { getPortalLink } from "@/server/accounts/gst";
 import { listFilings } from "@/server/gsp/returns";
-import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
 import { todayIst } from "@/server/accounts/books";
 
 export const metadata = { title: "GST returns on the portal" };
@@ -20,7 +20,7 @@ export const dynamic = "force-dynamic";
 export default async function GstReturnsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const params = await searchParams;
   const { shop, lang, shopQuery } = await loadAccountsPage(params);
-  if (!(await isFeatureEnabled("billing_v2"))) redirect(`/shop/accounts/gst${shopQuery}`);
+  if (!(await isFeatureEnabledForShop("billing_v2", shop))) redirect(`/shop/accounts/gst${shopQuery}`);
   const [filings, link] = await Promise.all([listFilings(shop.id), getPortalLink(shop.id)]);
   const today = todayIst();
   const lastMonth = new Date(Date.UTC(Number(today.slice(0, 4)), Number(today.slice(5, 7)) - 2, 1)).toISOString().slice(0, 7);

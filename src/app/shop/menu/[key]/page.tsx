@@ -9,7 +9,7 @@ import { getCurrentUser } from "@/server/authz/guards";
 import { loadShopBoard } from "@/server/board-data";
 import { getBoardLang } from "@/server/board-lang";
 import { listShopsForOwner } from "@/server/services/shops";
-import { enabledFeatureKeys } from "@/server/services/feature-flags";
+import { enabledFeatureKeysForShop } from "@/server/services/feature-flags";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +27,7 @@ export default async function ShopMenuPage({ params }: { params: Promise<{ key: 
   const shop = await activeShop(shops);
   const { key } = await params;
 
-  const menu = visibleMenus(SHOP_MENUS, user.role, { shopSlug: shop.slug, features: await enabledFeatureKeys() }, "shop").find((m) => m.key === key);
+  const menu = visibleMenus(SHOP_MENUS, user.role, { shopSlug: shop.slug, features: await enabledFeatureKeysForShop(shop) }, "shop").find((m) => m.key === key);
   if (!menu) notFound();
 
   const [lang, data] = await Promise.all([getBoardLang(), loadShopBoard(shop.id, user)]);

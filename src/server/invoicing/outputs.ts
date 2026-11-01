@@ -13,7 +13,7 @@ import { eq } from "drizzle-orm";
 import { db } from "@/server/db";
 import { shops, type TaxInvoice } from "@/server/db/schema";
 import { getSettings } from "@/server/accounts/books";
-import { getSalesInvoice } from "@/server/accounts/sales";
+import { counterBillKind, getSalesInvoice } from "@/server/accounts/sales";
 import { einvoiceFor, type InvoiceSnapshot } from "@/server/services/invoices";
 import { invoiceQrPayload } from "./delivery";
 
@@ -37,6 +37,17 @@ export function upiPaymentUri(input: { vpa: string; payeeName: string; amountPai
 /** A WhatsApp "share" link carrying the text (the person picks the chat). No personal data goes in the URL by us. */
 export function whatsappShareUrl(text: string): string {
   return `https://wa.me/?text=${encodeURIComponent(text)}`;
+}
+
+/** Share text for an order's invoice (QA D-115): what it is, from whom, for how much. */
+export function invoiceShareText(s: Pick<InvoiceSnapshot, "kind" | "invoiceNumber" | "orderNumber" | "seller" | "totals">): string {
+  return `${s.kind === "TAX_INVOICE" ? "Tax invoice" : "Bill of supply"} ${s.invoiceNumber} from ${s.seller.name} for order ${s.orderNumber}: ${formatPaise(s.totals.totalPaise)}.`;
+}
+
+/** Share text for a counter bill (QA D-115), with the shop's UPI id when it has one. */
+export function counterBillShareText(input: { kind: "TAX_INVOICE" | "BILL_OF_SUPPLY"; invoiceNo: string; invoiceDate: string; shopName: string; totalPaise: number; upiVpa?: string | null }): string {
+  const what = input.kind === "TAX_INVOICE" ? "Tax invoice" : "Bill of supply";
+  return `${what} ${input.invoiceNo} from ${input.shopName}, ${input.invoiceDate}: ${formatPaise(input.totalPaise)}.${input.upiVpa ? ` Pay by UPI to ${input.upiVpa}.` : ""}`;
 }
 
 /** The invoice as 80 mm receipt lines (RECEIPT_LINE_WIDTH characters). */
@@ -158,7 +169,7 @@ export async function salesReceiptPdf(shopId: string, salesId: string): Promise<
   const pair = (l: string, r: string) => add(l.slice(0, W - r.length - 1).padEnd(W - r.length) + r);
   const legal = shop.legalBusinessName ?? shop.name;
   if (invoice.status === "CANCELLED") add("*** CANCELLED ***", true);
-  add(shop.gstin ? "TAX INVOICE" : "BILL OF SUPPLY", true);
+  add(counterBillKind(shop) === "TAX_INVOICE" ? "TAX INVOICE" : "BILL OF SUPPLY", true);
   add(legal.slice(0, W));
   add([shop.addressLine1, shop.city, shop.pincode].filter(Boolean).join(", ").slice(0, W));
   if (shop.gstin) add(`GSTIN ${shop.gstin}`);

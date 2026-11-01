@@ -30,11 +30,12 @@ import {
   FEATURE_FLAG_KEYS,
   featureFlagChanges,
   featureFlags,
+  shops,
   type FeatureFlagKey,
   type UserRole,
 } from "@/server/db/schema";
 import { AUDIT_ACTIONS, recordAudit } from "./audit";
-import { listDistricts, listStates } from "./geo-areas";
+import { districtCodeForPincode, listDistricts, listStates } from "./geo-areas";
 
 export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   dealer_programme_enabled: "Dealer programme",
@@ -159,6 +160,36 @@ export async function isFeatureEnabled(key: FeatureFlagKey, options: { districtC
   const flag = await getFeatureFlag(key);
   if (!("districtCode" in options)) return flag.enabled;
   return flagCoversDistrict(flag, options.districtCode);
+}
+
+/**
+ * Is the feature on for this shop? The district of its PIN code decides (QA D-110: a flag limited
+ * to pilot districts must not reach every shop). The shop is read only when the flag is on and
+ * limited, so a flag that is off or on everywhere costs nothing more. A shop that cannot be found,
+ * or whose PIN is not mapped, counts as outside every listed district.
+ */
+export async function isFeatureEnabledForShop(key: FeatureFlagKey, shop: string | { pincode: string | null }): Promise<boolean> {
+  return flagCoversShop(await getFeatureFlag(key), shop);
+}
+
+/** `isFeatureEnabledForShop` for a flag already read (one read for many shops). */
+export async function flagCoversShop(flag: Pick<FeatureFlagView, "enabled" | "districtCodes">, shop: string | { pincode: string | null }): Promise<boolean> {
+  if (!flag.enabled) return false;
+  if (flag.districtCodes === null) return true;
+  const pincode = typeof shop === "string" ? (await db.select({ pincode: shops.pincode }).from(shops).where(eq(shops.id, shop)))[0]?.pincode : shop.pincode;
+  return flagCoversDistrict(flag, await districtCodeForPincode(pincode));
+}
+
+/** Throws "not available" unless the flag is on for this shop's district. */
+export async function requireFeatureForShop(key: FeatureFlagKey, shop: string | { pincode: string | null }): Promise<void> {
+  if (!(await isFeatureEnabledForShop(key, shop))) throw featureNotAvailable(key);
+}
+
+/** Keys of the flags that are on for this shop's district (the shop's menus and tiles). */
+export async function enabledFeatureKeysForShop(shop: string | { pincode: string | null }): Promise<FeatureFlagKey[]> {
+  const flags = Object.values(await getFeatureFlags());
+  const on = await Promise.all(flags.map((f) => flagCoversShop(f, shop)));
+  return flags.filter((_, i) => on[i]).map((f) => f.key);
 }
 
 /** Error for a route of a feature that is switched off: 404, so the site looks as it did before. */

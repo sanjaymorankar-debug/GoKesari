@@ -42,7 +42,7 @@ import { conflict } from "@/lib/errors";
 import { isValidGstin } from "@/lib/gst-states";
 import { formatPaise } from "@/lib/money";
 import { decryptSecret, panBlindIndex } from "@/lib/pan-crypto";
-import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { flagCoversShop, getFeatureFlag } from "@/server/services/feature-flags";
 import { db, isRetryableTransactionError, type DbClient } from "@/server/db";
 import {
   bankAccounts,
@@ -250,8 +250,9 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
     // record decides whether TCS / TDS apply (who received the customer's money), and the TDS
     // exemption is counted per PAN across every shop of that PAN. Off: as before.
     // With billing_v2 on, GoKesari also withholds the s.9(5) GST it pays on a restaurant's food (§5.3).
-    const [tcsEngine, tdsEngine, billingV2] = await Promise.all([isFeatureEnabled("tcs_engine"), isFeatureEnabled("tds_engine"), isFeatureEnabled("billing_v2")]);
-    const flows = (tcsEngine || tdsEngine || billingV2) && orderIds.length ? await tx.select().from(orderMoneyFlows).where(inArray(orderMoneyFlows.orderId, orderIds)) : [];
+    // A flag limited to pilot districts covers only the shops there (QA D-110): decided per shop below.
+    const [tcsFlag, tdsFlag, billingFlag] = await Promise.all([getFeatureFlag("tcs_engine"), getFeatureFlag("tds_engine"), getFeatureFlag("billing_v2")]);
+    const flows = (tcsFlag.enabled || tdsFlag.enabled || billingFlag.enabled) && orderIds.length ? await tx.select().from(orderMoneyFlows).where(inArray(orderMoneyFlows.orderId, orderIds)) : [];
     const flowByOrder = new Map(flows.map((f) => [f.orderId, f]));
 
     const shopIds = [
@@ -265,6 +266,11 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
     ];
     const shopRows = shopIds.length ? await tx.select().from(shops).where(inArray(shops.id, shopIds)) : [];
     const shopById = new Map(shopRows.map((s) => [s.id, s]));
+    const enginesByShop = new Map(
+      await Promise.all(
+        shopRows.map(async (s) => [s.id, { tcsEngine: await flagCoversShop(tcsFlag, s), tdsEngine: await flagCoversShop(tdsFlag, s), billingV2: await flagCoversShop(billingFlag, s) }] as const),
+      ),
+    );
 
     /* ------------------------------------------------- lines per shop */
     const linesByShop = new Map<string, LineDraft[]>();
@@ -281,6 +287,7 @@ export async function closePayoutCycle(options: { today?: IsoDate; actor: System
     for (const { f, orderNumber } of sorted) {
       const shop = shopById.get(f.shopId);
       if (!shop) continue;
+      const { tcsEngine, tdsEngine, billingV2 } = enginesByShop.get(shop.id)!;
       const day = istDay(f.deliveredAt);
       const base = { shopId: f.shopId, sourceType: "order_financials", sourceId: f.orderId, occurredOn: day };
       push({ ...base, lineType: "GOODS", description: `Order ${orderNumber}`, amountPaise: f.goodsPaise, basePaise: f.goodsPaise, meta: { orderNumber } });

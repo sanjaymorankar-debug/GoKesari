@@ -5,7 +5,7 @@ import { JournalForms } from "@/components/billing/journal-forms";
 import { BOOK_ACCOUNT_LABELS, BOOK_ACCOUNTS } from "@/lib/accounts/constants";
 import { loadAccountsPage } from "@/server/accounts/page";
 import { stockSummary } from "@/server/accounts/stock";
-import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
 
 export const metadata = { title: "Journal, contra & stock journal" };
 export const dynamic = "force-dynamic";
@@ -14,7 +14,7 @@ export const dynamic = "force-dynamic";
 export default async function JournalsPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const params = await searchParams;
   const { shop, lang, shopQuery } = await loadAccountsPage(params);
-  if (!(await isFeatureEnabled("billing_v2"))) redirect(`/shop/accounts${shopQuery}`);
+  if (!(await isFeatureEnabledForShop("billing_v2", shop))) redirect(`/shop/accounts${shopQuery}`);
   const stock = await stockSummary(shop.id);
   return (
     <div className="mx-auto w-full max-w-5xl">

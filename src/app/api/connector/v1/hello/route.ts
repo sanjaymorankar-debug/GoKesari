@@ -17,7 +17,7 @@ import { tallyAdapter } from "@/server/integrations/adapters/tally";
 import { authenticateConnector } from "@/server/integrations/connections";
 import { assertConnectorEnabled } from "@/server/integrations/inventory-sync-flag";
 import { contextFor, logSync } from "@/server/integrations/jobs";
-import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
 
 export const dynamic = "force-dynamic";
 
@@ -62,7 +62,7 @@ export const POST = route(async (request: NextRequest) => {
       itemCheckSeconds: 120,
       itemsRequest,
       // Billing v2: two-way books (GET / POST /books) every 15 minutes while the flags are on.
-      books: { enabled: (await isFeatureEnabled("billing_v2")) && (await isFeatureEnabled("tally_connector")), intervalSeconds: 900, daysBack: 7 },
+      books: { enabled: (await isFeatureEnabledForShop("billing_v2", session.integration.shopId)) && (await isFeatureEnabledForShop("tally_connector", session.integration.shopId)), intervalSeconds: 900, daysBack: 7 },
     },
     { headers: { "cache-control": "no-store" } },
   );

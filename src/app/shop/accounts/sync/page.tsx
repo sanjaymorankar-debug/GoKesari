@@ -5,7 +5,7 @@ import { ApiClients } from "@/components/billing/api-clients";
 import { SyncPanel } from "@/components/billing/sync-panel";
 import { listApiClients } from "@/server/public-api/auth";
 import { loadAccountsPage, monthRange } from "@/server/accounts/page";
-import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
 import { syncDashboard } from "@/server/sync/engine";
 import { LAYOUTS } from "@/server/sync/formats";
 import { buildCanonicalBooks, uqcOf, shopUnitMap } from "@/server/sync/model";
@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
 export default async function SyncPage({ searchParams }: { searchParams: Promise<Record<string, string | string[] | undefined>> }) {
   const params = await searchParams;
   const { shop, lang, shopQuery } = await loadAccountsPage(params);
-  if (!(await isFeatureEnabled("billing_v2"))) redirect(`/shop/accounts${shopQuery}`);
+  if (!(await isFeatureEnabledForShop("billing_v2", shop))) redirect(`/shop/accounts${shopQuery}`);
   const month = monthRange(todayIst().slice(0, 7));
   const [dashboard, books, unitMap, clients] = await Promise.all([syncDashboard(shop.id), buildCanonicalBooks(shop.id, month.from, month.to), shopUnitMap(shop.id), listApiClients(shop.id)]);
   const unmapped = books.units.filter((u) => !uqcOf(u.symbol, unitMap)).map((u) => u.symbol);

@@ -22,7 +22,7 @@ import { PDF_LINE_WIDTH, textPdf, type PdfLine } from "@/lib/pdf";
 import { stateLabel } from "@/lib/gst-states";
 import { db, type DbClient } from "@/server/db";
 import { creditNoteCounters, creditNotes, orderItems, returnItems, shops, taxInvoices, type CreditNote } from "@/server/db/schema";
-import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
 import { AUDIT_ACTIONS, recordAudit } from "@/server/services/audit";
 import { amountInWords, financialYearOf, lineTax, type InvoiceLine, type InvoiceSnapshot } from "@/server/services/invoices";
 import { documentNumbering, formatDocumentNumber } from "./rules";
@@ -116,7 +116,7 @@ export async function issueCreditNoteForRefund(input: IssueCreditNoteInput, clie
 
   const inv = invoice.snapshot as unknown as InvoiceSnapshot;
   let weights = inv.lines.map((l) => l.grossPaise);
-  if (input.returnId && (await isFeatureEnabled("billing_v2"))) {
+  if (input.returnId && (await isFeatureEnabledForShop("billing_v2", invoice.shopId))) {
     const returned = await client
       .select({ shopProductId: orderItems.shopProductId, quantityMilli: returnItems.quantityMilli })
       .from(returnItems)

@@ -2,7 +2,7 @@ import Link from "next/link";
 import clsx from "clsx";
 
 import { AccountsHeader, AccountsNav } from "@/components/accounts/accounts-nav";
-import { isFeatureEnabled } from "@/server/services/feature-flags";
+import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
 import { GstImportPanel } from "@/components/accounts/gst-import-panel";
 import { GstLinkPanel, type GstLinkInfo } from "@/components/accounts/gst-link-panel";
 import { Badge } from "@/components/ui";
@@ -85,7 +85,7 @@ export default async function GstPage({ searchParams }: { searchParams: Promise<
   const shopParam = shopQuery ? `&${shopQuery.slice(1)}` : "";
   const here = (p: string, f: FilingFrequency = frequency) => `/shop/accounts/gst?period=${p}&frequency=${f}${shopParam}`;
   // Billing v2 (docs/billing §9): filing on the portal through the GSP.
-  const billingV2 = await isFeatureEnabled("billing_v2");
+  const billingV2 = await isFeatureEnabledForShop("billing_v2", shop);
   const reconcileHref = `/shop/accounts/gst/reconcile?period=${view.months[view.months.length - 1].period}${shopParam}`;
   const nav = ACCOUNTS_NAV.find((n) => n.key === "gst")!;
 

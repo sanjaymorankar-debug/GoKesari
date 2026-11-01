@@ -16,7 +16,10 @@ import { GET } from "@/app/api/shops/[id]/accounts/[...path]/route";
 import { GET as partiesGet } from "@/app/api/public/v1/parties/route";
 import { POST as tokenPost } from "@/app/api/public/v1/oauth/token/route";
 import { db } from "@/server/db";
-import { featureFlags, type UserRole } from "@/server/db/schema";
+import { eq } from "drizzle-orm";
+
+import { featureFlags, shops, type UserRole } from "@/server/db/schema";
+import { enabledFeatureKeysForShop, isFeatureEnabledForShop, setFeatureFlag } from "@/server/services/feature-flags";
 import { createParty } from "@/server/accounts/parties";
 import { createApiClient } from "@/server/public-api/auth";
 import { gstin, gstShop, resetBatchE } from "../helpers/batch-e";
@@ -60,6 +63,35 @@ describe("billing role security (scenario 17)", () => {
     }
     signIn(await createUser({ role: "ADMIN" }));
     expect(await get(a.shop.id, "pos/items")).toBe(200);
+  });
+
+  it("a flag limited to districts opens billing only for the shops there (QA D-110)", async () => {
+    const admin = await createUser({ role: "ADMIN" });
+    await setFeatureFlag("billing_v2", { enabled: true, districtCodes: ["MH-PUN"] }, "Pune pilot (test)", { id: admin.id, role: "ADMIN" });
+    const pune = await gstShop({ name: "Pune shop" });
+    const mumbai = await gstShop({ name: "Mumbai shop" });
+    await db.update(shops).set({ pincode: "411001" }).where(eq(shops.id, pune.shop.id));
+    await db.update(shops).set({ pincode: "400001" }).where(eq(shops.id, mumbai.shop.id));
+
+    signIn(pune.owner);
+    expect(await get(pune.shop.id, "pos/items")).toBe(200);
+    signIn(mumbai.owner);
+    expect(await get(mumbai.shop.id, "pos/items")).toBe(404);
+    expect(await isFeatureEnabledForShop("billing_v2", pune.shop.id)).toBe(true);
+    expect(await isFeatureEnabledForShop("billing_v2", mumbai.shop.id)).toBe(false);
+    expect(await enabledFeatureKeysForShop(pune.shop.id)).toContain("billing_v2");
+    expect(await enabledFeatureKeysForShop(mumbai.shop.id)).not.toContain("billing_v2");
+
+    // The public API: a client of the Mumbai shop gets no token.
+    const { client, clientSecret } = await createApiClient(mumbai.shop.id, { name: "ERP", scopes: ["parties:read"] }, mumbai.owner);
+    const t = await tokenPost(
+      new NextRequest("http://localhost/api/public/v1/oauth/token", { method: "POST", headers: { "content-type": "application/x-www-form-urlencoded" }, body: new URLSearchParams({ grant_type: "client_credentials", client_id: client.clientId, client_secret: clientSecret }).toString() }) as never,
+    );
+    expect(t.status).toBe(404);
+
+    // Every district again: both shops.
+    await setFeatureFlag("billing_v2", { enabled: true, districtCodes: null }, "All of India (test)", { id: admin.id, role: "ADMIN" });
+    expect(await get(mumbai.shop.id, "pos/items")).toBe(200);
   });
 
   it("a public-API token reads only the shop it was issued for", async () => {

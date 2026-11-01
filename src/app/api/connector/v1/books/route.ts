@@ -21,7 +21,7 @@ import { shops } from "@/server/db/schema";
 import { authenticateConnector } from "@/server/integrations/connections";
 import { assertConnectorEnabled } from "@/server/integrations/inventory-sync-flag";
 import { logSync } from "@/server/integrations/jobs";
-import { requireFeature } from "@/server/services/feature-flags";
+import { requireFeatureForShop } from "@/server/services/feature-flags";
 import { ExportBlocked, importForTool, MAX_SYNC_FILE_BYTES, tallyBooksForConnector } from "@/server/sync/engine";
 
 export const dynamic = "force-dynamic";
@@ -30,7 +30,7 @@ export const maxDuration = 120;
 export const GET = route(async (request: NextRequest) => {
   const session = await authenticateConnector(request);
   await assertConnectorEnabled();
-  await requireFeature("billing_v2");
+  await requireFeatureForShop("billing_v2", session.integration.shopId);
   enforceRateLimit(`connector-books:${session.tokenId}`, { limit: 20, windowMs: 10 * 60_000 });
   try {
     const out = await tallyBooksForConnector(session.integration.shopId);
@@ -48,7 +48,7 @@ export const GET = route(async (request: NextRequest) => {
 export const POST = route(async (request: NextRequest) => {
   const session = await authenticateConnector(request);
   await assertConnectorEnabled();
-  await requireFeature("billing_v2");
+  await requireFeatureForShop("billing_v2", session.integration.shopId);
   enforceRateLimit(`connector-books-in:${session.tokenId}`, { limit: 20, windowMs: 10 * 60_000 });
   const xml = await request.text();
   if (xml.length > MAX_SYNC_FILE_BYTES) throw validationFailed("The Tally export is larger than 5 MB: send fewer days at a time.");

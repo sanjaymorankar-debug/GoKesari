@@ -72,7 +72,50 @@ Every billing test file passes on both layouts. Also: `npm run typecheck` clean;
 
 ## Test (test.gokesari.com)
 
-Not run yet — the branch is not merged to `staging`. Plan after the merge: migrations 0125–0134 apply on build; post-deploy check; then with `billing_v2` (and the other flags as needed) on for the staging test shop: deliver a prepaid and a COD order, check the money-flow record and the s.9(5) delivery invoice; issue a counter bill and an offline POS bill; export the Tally pack; open GST returns on the mock GSP; run the QA suite; switch the flags back off. Payments only with Cashfree sandbox data.
+| Item | Value |
+|---|---|
+| Merge | PR #321 into `staging` 01-Nov-2026 14.36 IST, merge commit `3a0ebcc5`; CI `test`, `test-split` and `build` passed on `9ca2385a` first; no other release in flight |
+| Deploy | Hostinger build of `3a0ebcc5` for test.gokesari.com completed 14.41 IST |
+| Migrations | "Test database" workflow (run 41291657062): split layout, **11 migrations applied (0125–0135)**, 0 repairs, 144 recorded; backup and verify passed, 14.46 IST. Staging gap (code live before its migrations): about 5 minutes, as DEPLOYMENT.md expects |
+| Post-deploy check | `scripts/release/post-deploy-check.sh https://test.gokesari.com`: 5 healthy rounds in a row, 14.46–14.50 IST |
+
+### Billing test on staging, 01-Nov-2026 14.55–16.53 IST
+
+The five flags billing_v2, tcs_engine, tds_engine, delivery_9_5 and tally_connector were switched on for Pune (MH-PUN) only, 14.56–15.27 IST, for the E2E shop "E2E Four Features Bakery" (PIN 411005, not GST-registered), then restored. Before and after, all 11 billing flags were off for every district (0 differences). Evidence: `test-results/qa/billing-v2-staging-2026-11-01/` (log, screenshots, PDFs, JSON).
+
+| Step | Result |
+|---|---|
+| Flags off → billing pages and APIs not available | Pass (`pos/items` 404; `/shop/accounts/pos` → `/shop/accounts`) |
+| Shop screens: `/shop/accounts` and its 17 sections, desktop and phone | Pass |
+| Counter bill S2627-00002, 80 mm receipt, UPI QR (sandbox VPA `testsuccess@gocash`), JSON | Pass; findings D-113, D-114, D-115 |
+| Estimate ES2627-000001 | Pass |
+| POS online (S2627-00003) and offline: saved on the device, synced as S2627-00004, two re-sends → duplicate, no gap | Pass |
+| Prepaid order DB-20261101-4NGI5U (Cashfree sandbox, "Pay (success)"), delivered | Pass: shop's bill of supply BKS-000021/2026-27/000019 (A4, 80 mm, JSON); GoKesari's s.9(5) invoice GKS/2627/000001 (in GSTR-1 Table 15); money-flow row in `/admin/compliance`; findings D-112, D-116, D-117 |
+| COD order | Blocked: the test customer has 2 old open COD orders (limit 2) — staging data (E-16) |
+| Tally export | Fail: refused until 126 items get HSN and GST rate, though the shop is not GST-registered (D-111) |
+| Reports: trial balance, balance sheet, stock, MTR, TCS/TDS credit, P&L | Pass (books balanced at ₹3,852) |
+| GSTR-1 on the mock GSP | Blocked: the E2E shop has no GSTIN (the page says so, 422) |
+| Statements: wallet, settlement, TCS/TDS (PDF and CSV) | Pass |
+| Security: signed out 401; customer, rider-role user, operator 403; owner and admin 200 | Pass (rider and limited-operator accounts had no saved session) |
+| District limit: billing_v2 set to Mysuru (KA-MYS) only, Pune shop still opened the POS | **Fail (D-110, High)** |
+| Regression with flags off (guest + signed-in, desktop + phone, 15.28–16.43 IST): 435 cases, pass 258, fail 56, blocked 359, skipped 15 (31-Oct: 264 / 58 / 351 / 15) | No failure caused by billing v2 behaviour; new fails are staging data (E-16, E-17) and two sweeps that listed the bearer-token API (by design, D29) and the DigiLocker mock (E-15) |
+
+Defects found, and what was done:
+
+| # | Severity | Found | Fix |
+|---|---|---|---|
+| D-110 | High | Billing flags ignored their district list: every check asked "on anywhere", so a pilot switch-on would have started TCS / TDS / s.9(5) for every shop in India | New `isFeatureEnabledForShop` / `requireFeatureForShop` / `enabledFeatureKeysForShop` (the shop's PIN → district): the accounts API, every `/shop/accounts` page, the shop's menus, money flow, s.9(5), payout TCS / TDS (per shop), books posting, statements notices, order checkout, invoices, credit notes, public API, Tally connector, e-invoice and e-way bill routes |
+| D-111 | High | Tally export refused a shop outside GST until every item had HSN and GST rate | HSN, GST rate and UQC are asked of a GST-registered shop only; unbalanced vouchers and unknown ledgers still block |
+| D-112 | Medium | The customer could not reach GoKesari's s.9(5) invoice | "Delivery fee invoice (GoKesari)" / "Food invoice (GoKesari)" links on My orders and the order page |
+| D-113 | Medium | A shop outside GST: counter bill page and A4 PDF said "Tax invoice", the receipt "Bill of supply"; the customer's link said "Tax invoice" | One rule (`counterBillKind`) for the page, A4 PDF, receipt and MTR; the customer's link names the issued document |
+| D-114 | Medium | No screen field for the shop's UPI id | "UPI id for receipts" under Accounts → Settings (billing v2) |
+| D-115 | Low | No WhatsApp share; receipt and JSON not linked | "80 mm receipt", "JSON" and "Share on WhatsApp" on the counter bill and the order's invoice page |
+| D-116 | Low | A bill of supply said the ECO collects TCS under s.52 and "Prices are inclusive of GST" | Those notes on tax invoices only |
+| D-117 | Low (pre-existing, 6 Oct) | "Paid by customer (GoKesari wallet)" for an online payment | "online payment" / "GoKesari wallet" / "cash on delivery" |
+
+Not code: E-15 (QA sweeps now list `/api/public/v1/` as token-protected and the DigiLocker mock as a test-site stand-in), E-16 (staging data: COD limit, drained wallet, stale orders, rider and limited-operator sessions), E-17 (SD-01 shop state, SD-05 connection drop).
+
+STAGING_RETEST_RESULTS
 
 ## Prod (gokesari.com)
 

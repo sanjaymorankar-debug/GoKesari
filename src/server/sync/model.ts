@@ -18,6 +18,7 @@ import { and, asc, eq, gte, inArray, lt } from "drizzle-orm";
 
 import { ACCOUNT_GROUPS, BOOK_ACCOUNT_LABELS, type BookAccount } from "@/lib/accounts/constants";
 import { gstState } from "@/lib/gst-states";
+import { effectiveRegistrationType } from "@/server/tax/engine";
 import { db } from "@/server/db";
 import {
   accLedgerEntries,
@@ -35,6 +36,8 @@ export interface CCompany {
   name: string;
   legalName: string;
   gstin: string | null;
+  /** Regular or composition GST registration: only then must items carry HSN, GST rate and UQC (QA D-111). Absent: treated as registered. */
+  gstRegistered?: boolean;
   /** Two-digit GST state code. */
   stateCode: string | null;
   address: string;
@@ -188,6 +191,7 @@ export async function buildCanonicalBooks(shopId: string, from: string, to: stri
     name: shop.name,
     legalName: shop.legalBusinessName ?? shop.name,
     gstin: shop.gstin,
+    gstRegistered: ["REGULAR", "COMPOSITION"].includes(effectiveRegistrationType(shop)),
     stateCode: gstState(shop.gstin ?? shop.state ?? null)?.code ?? null,
     address: [shop.addressLine1, shop.addressLine2, shop.area, shop.city, shop.state, shop.pincode].filter(Boolean).join(", "),
     booksFrom: from,
@@ -325,14 +329,19 @@ export interface FixItem {
   problem: string;
 }
 
-/** §7.6: what must be fixed before a GST-ready export — the shop sees this list, nothing is guessed. */
+/**
+ * §7.6: what must be fixed before a GST-ready export — the shop sees this list, nothing is guessed.
+ * HSN, GST rate and UQC are asked of a GST-registered shop only: a shop outside GST issues bills
+ * of supply without them, and its export must not wait on them (QA D-111).
+ */
 export function validateBooks(books: CanonicalBooks): FixItem[] {
   const fixes: FixItem[] = [];
-  for (const i of books.stockItems) {
+  const gstReady = books.company.gstRegistered !== false;
+  for (const i of gstReady ? books.stockItems : []) {
     if (!i.hsn) fixes.push({ entity: "STOCK_ITEM", key: i.name, problem: "No HSN code." });
     if (i.gstRateBp == null) fixes.push({ entity: "STOCK_ITEM", key: i.name, problem: "No GST rate." });
   }
-  for (const u of books.units) if (!u.uqc) fixes.push({ entity: "UNIT", key: u.symbol, problem: `Unit "${u.symbol}" has no GST unit code (UQC): map it under Settings → Units.` });
+  for (const u of gstReady ? books.units : []) if (!u.uqc) fixes.push({ entity: "UNIT", key: u.symbol, problem: `Unit "${u.symbol}" has no GST unit code (UQC): map it under Settings → Units.` });
   for (const v of books.vouchers) {
     const sum = v.ledgerLines.reduce((n, l) => n + l.amountPaise, 0);
     if (sum !== 0) fixes.push({ entity: "VOUCHER", key: v.key, problem: `Voucher does not balance (difference ₹${(sum / 100).toFixed(2)}).` });

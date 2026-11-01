@@ -18,6 +18,7 @@ import { textPdf, type PdfLine } from "@/lib/pdf";
 import { formatPaise } from "@/lib/money";
 import { db } from "@/server/db";
 import { accParties, accSalesInvoices, accSalesLines, invStockLedger, shopProducts, shops, type AccSalesInvoice, type AccSalesLine } from "@/server/db/schema";
+import { effectiveRegistrationType } from "@/server/tax/engine";
 import { getSettings, logChange, nextNumber, postVoucher, reverseSource, todayIst } from "./books";
 import { createParty, getParty } from "./parties";
 import { postStock } from "./stock";
@@ -269,13 +270,23 @@ export async function getSalesInvoice(shopId: string, salesId: string): Promise<
   return { invoice, lines };
 }
 
-/** The printable tax invoice (Rule 46 fields), as a plain-text PDF. */
+/**
+ * Which document a counter bill is (QA D-113): a tax invoice from a shop with a GSTIN; a bill of
+ * supply from a composition dealer, an Enrolment-ID / PAN-only supplier or a shop outside GST
+ * (s.31(3)(c), Rule 49). The bill's page, its A4 PDF, the 80 mm receipt and the MTR all use this.
+ */
+export function counterBillKind(shop: Pick<typeof shops.$inferSelect, "gstRegistrationType" | "gstStatus" | "gstin">): "TAX_INVOICE" | "BILL_OF_SUPPLY" {
+  const type = effectiveRegistrationType(shop);
+  return shop.gstin && (type === "REGULAR" || type === "UNREGISTERED") ? "TAX_INVOICE" : "BILL_OF_SUPPLY";
+}
+
+/** The printable tax invoice / bill of supply (Rule 46 / 49 fields), as a plain-text PDF. */
 export async function salesInvoicePdf(shopId: string, salesId: string): Promise<{ bytes: Buffer; filename: string }> {
   const { invoice, lines } = await getSalesInvoice(shopId, salesId);
   const [shop] = await db.select().from(shops).where(eq(shops.id, shopId));
   const rs = (p: number) => formatPaise(p).replace("₹", "Rs. ");
   const out: PdfLine[] = [
-    { text: invoice.status === "CANCELLED" ? "TAX INVOICE  (CANCELLED)" : "TAX INVOICE", bold: true },
+    { text: `${counterBillKind(shop) === "TAX_INVOICE" ? "TAX INVOICE" : "BILL OF SUPPLY"}${invoice.status === "CANCELLED" ? "  (CANCELLED)" : ""}`, bold: true },
     { text: shop.legalBusinessName ?? shop.name, bold: true },
     { text: `${[shop.addressLine1, shop.addressLine2, shop.area, shop.city, shop.pincode].filter(Boolean).join(", ")}` },
     { text: `GSTIN: ${shop.gstin ?? "-"}   State: ${gstState(invoice.sellerStateCode)?.name ?? invoice.sellerStateCode} (${invoice.sellerStateCode})` },

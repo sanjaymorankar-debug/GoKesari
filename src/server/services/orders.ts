@@ -91,7 +91,7 @@ import {
 } from "@/lib/order-cancellation";
 import { executeCancellationRefund, planCancellationRefund } from "@/server/aftercare/refunds"; // batch-2026-10 WS-C
 import { chargesGst, listingsMissingTaxData } from "@/server/gst/tax-data-check";
-import { isFeatureEnabled } from "./feature-flags";
+import { isFeatureEnabledForShop } from "./feature-flags";
 import { assertSuppliesAllowed, resolveBuyerGstin, type BuyerGstin } from "@/server/tax/checkout";
 import { recordOrderStatusEvent } from "@/server/events/order-status-record";
 
@@ -375,16 +375,17 @@ export async function checkout(input: CheckoutInput): Promise<CheckoutResult> {
   // Billing v2 (docs/billing §3.3, §4.4): supplies the shop may not make are
   // refused before payment, and the customer's GSTIN is checked. Off: unchanged.
   let buyerGstin: BuyerGstin | null = null;
-  const billingV2 = await isFeatureEnabled("billing_v2");
-  if (input.buyerGstin?.trim() && !billingV2) throw validationFailed("A GSTIN on the order is not available yet.");
+  // A flag limited to pilot districts covers only the shops there (QA D-110); a buyer GSTIN needs every shop of the cart covered.
+  const cartShops = purchasableGroups.map((g) => cartShopById.get(g.shop.id)).filter((r): r is NonNullable<typeof r> => Boolean(r));
+  const covered = await Promise.all(cartShops.map((r) => isFeatureEnabledForShop("billing_v2", r)));
+  const billingShops = cartShops.filter((_, i) => covered[i]);
+  const billingV2 = billingShops.length > 0;
+  if (input.buyerGstin?.trim() && !(billingV2 && billingShops.length === cartShops.length)) throw validationFailed("A GSTIN on the order is not available yet.");
   if (billingV2) {
     const addressState = input.addressId
       ? (await db.select({ state: addresses.state }).from(addresses).where(eq(addresses.id, input.addressId)))[0]?.state ?? null
       : null;
-    await assertSuppliesAllowed(
-      purchasableGroups.map((g) => cartShopById.get(g.shop.id)).filter((r): r is NonNullable<typeof r> => Boolean(r)),
-      addressSnapshot ? { state: addressState, pincode: addressSnapshot.pincode } : null,
-    );
+    await assertSuppliesAllowed(billingShops, addressSnapshot ? { state: addressState, pincode: addressSnapshot.pincode } : null);
     if (input.buyerGstin?.trim()) {
       if (orderType !== "PERSONAL") throw validationFailed("A business order uses the buying shop's GSTIN.");
       buyerGstin = await resolveBuyerGstin(input.buyerGstin, { id: input.userId });

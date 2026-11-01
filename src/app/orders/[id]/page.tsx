@@ -12,7 +12,9 @@ import { getCurrentUser } from "@/server/authz/guards";
 import { assertOrderViewer, listChargesForOrder } from "@/server/aftercare/order-view";
 import { listRefundsForOrder } from "@/server/aftercare/refunds";
 import { listTicketsForOrder } from "@/server/aftercare/support-tickets";
+import { invoiceKindsForOrders, orderInvoiceLabel } from "@/server/services/invoices";
 import { getOrder } from "@/server/services/orders";
+import { platformInvoiceLabel, platformInvoicesForOrders } from "@/server/tax/delivery-invoice";
 import { getRule } from "@/server/services/settings";
 
 export const metadata = { title: "Order details" };
@@ -37,16 +39,22 @@ export default async function OrderDetailPage({
   const query = await searchParams;
   const viewed = await assertOrderViewer(id, user).catch(() => null);
   if (!viewed) notFound();
-  const [order, refunds, charges, tickets, cancellationRule, afterPackingRule] = await Promise.all([
+  const [order, refunds, charges, tickets, cancellationRule, afterPackingRule, invoicingRule, invoiceKinds, gokesariInvoices] = await Promise.all([
     getOrder(id),
     listRefundsForOrder(id),
     listChargesForOrder(id),
     listTicketsForOrder(id, user),
     getRule("cancellation"),
     getRule("afterPackingCancellation"),
+    getRule("invoicing"),
+    // Billing v2 (QA D-112, D-113): the invoice's own kind, and GoKesari's s.9(5) invoices.
+    invoiceKindsForOrders([id]),
+    platformInvoicesForOrders([id]),
   ]);
   if (!order) notFound();
   const isBuyer = order.userId === user.id;
+  // GoKesari's own invoices are the customer's (and operations'): the shop cannot open them.
+  const ownInvoices = isBuyer || user.role === "ADMIN" || user.role === "OPERATOR" ? (gokesariInvoices.get(order.id) ?? []) : [];
   // TC-ORD-008: the server's own D10 rule, shared with My Orders.
   const cancellable: readonly string[] = customerCancellableStatuses({
     customerMayCancelUntil: cancellationRule.customerMayCancelUntil,
@@ -139,6 +147,20 @@ export default async function OrderDetailPage({
                 </div>
               ))}
             </dl>
+            {order.status === "DELIVERED" && (invoicingRule.enabled || ownInvoices.length > 0) ? (
+              <p className="mt-3 flex flex-wrap gap-3 border-t border-cream-100 pt-3 text-sm" data-testid="order-documents">
+                {invoicingRule.enabled ? (
+                  <a href={`/api/orders/${order.id}/invoice`} className="font-medium text-kesari-700 hover:underline">
+                    {orderInvoiceLabel(invoiceKinds.get(order.id))}
+                  </a>
+                ) : null}
+                {ownInvoices.map((g) => (
+                  <a key={g.id} href={`/api/delivery-invoices/${g.id}/pdf`} className="font-medium text-kesari-700 hover:underline">
+                    {platformInvoiceLabel(g.kind)}
+                  </a>
+                ))}
+              </p>
+            ) : null}
             {isBuyer && order.source !== "SUBSCRIPTION" && cancellable.includes(order.status) ? (
               <CancelOrderButton orderId={order.id} orderNumber={order.orderNumber} />
             ) : null}

@@ -10,6 +10,7 @@ import { storageDescription } from "@/server/accounts/files";
 import { getPortalLink, providerSummary } from "@/server/accounts/gst";
 import { billEmailAddress } from "@/server/accounts/inbound";
 import { loadAccountsPage } from "@/server/accounts/page";
+import { isFeatureEnabledForShop } from "@/server/services/feature-flags";
 
 export const metadata = { title: "Accounts settings" };
 export const dynamic = "force-dynamic";
@@ -19,7 +20,7 @@ export default async function AccountsSettingsPage({ searchParams }: { searchPar
   const params = await searchParams;
   const { shop, lang, shopQuery } = await loadAccountsPage(params);
   const tile = ACCOUNTS_TILES.find((t) => t.key === "settings")!;
-  const [settings, link] = await Promise.all([getSettings(shop.id), getPortalLink(shop.id)]);
+  const [settings, link, billingV2] = await Promise.all([getSettings(shop.id), getPortalLink(shop.id), isFeatureEnabledForShop("billing_v2", shop)]);
   const email = billEmailAddress(shop.id);
   const storage = storageDescription();
   const provider = providerSummary();
@@ -43,6 +44,8 @@ export default async function AccountsSettingsPage({ searchParams }: { searchPar
               salesInvoicePrefix: settings.salesInvoicePrefix,
               reminderDaysBefore: settings.reminderDaysBefore,
               expiryAlertDays: settings.expiryAlertDays,
+              // Billing v2 (QA D-114): the receipt's UPI payment QR.
+              ...(billingV2 ? { upiVpa: settings.upiVpa ?? "" } : {}),
             }}
           />
         </section>
