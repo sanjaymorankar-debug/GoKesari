@@ -953,6 +953,25 @@ export const shops = pgTable(
     gstVerificationSource: identityVerificationSourceEnum("gst_verification_source"),
     gstVerifiedAt: timestamp("gst_verified_at", { withTimezone: true }),
     gstVerifiedBy: uuid("gst_verified_by").references(() => users.id),
+    /**
+     * Billing v2 (0125, docs/billing): how the shop is registered under GST —
+     * REGULAR, COMPOSITION, ENROLMENT_ID (unregistered supplier of goods
+     * through an ECO, Notification 34/2023), PAN_ONLY_SERVICE or UNREGISTERED.
+     * Backfilled from gst_status; read by the tax engine (src/server/tax).
+     */
+    gstRegistrationType: text("gst_registration_type", {
+      enum: ["REGULAR", "COMPOSITION", "ENROLMENT_ID", "PAN_ONLY_SERVICE", "UNREGISTERED"],
+    })
+      .notNull()
+      .default("UNREGISTERED"),
+    /** The GST Enrolment ID of an ENROLMENT_ID shop (15 characters). */
+    gstEnrolmentId: text("gst_enrolment_id"),
+    /** The GSTIN's status on the GST portal at the last check; anything but ACTIVE pauses new orders. */
+    gstPortalStatus: text("gst_portal_status", { enum: ["ACTIVE", "CANCELLED", "SUSPENDED"] }),
+    /** Two-letter state (MH, KA, …) of the GST registration — the supplier's state for place-of-supply. */
+    gstStateCode: text("gst_state_code"),
+    /** Last time the GSTIN was checked against the GST portal (monthly, and on every return sync). */
+    gstPortalCheckedAt: timestamp("gst_portal_checked_at", { withTimezone: true }),
 
     panStatus: panStatusEnum("pan_status").notNull().default("UNKNOWN"),
     /** AES-256-GCM ciphertext, base64 — see gst-pan-verification.ts. Never stored or logged in plaintext. */
@@ -1213,6 +1232,13 @@ export const deliveryPartners = pgTable(
     /* ------------------------------------------------------- personal info */
     fullName: text("full_name").notNull(),
     mobile: text("mobile").notNull(),
+    /**
+     * Billing v2 (0126): a GST-registered partner pays the GST on their own
+     * delivery service; otherwise GoKesari pays it under s.9(5). Default: not
+     * registered (CA question 2).
+     */
+    gstRegistered: boolean("gst_registered").notNull().default(false),
+    gstin: text("gstin"),
     email: text("email"),
     dateOfBirth: date("date_of_birth"),
     profilePhotoUrl: text("profile_photo_url"),
@@ -5330,6 +5356,44 @@ export const orderFinancials = pgTable(
     index("order_financials_delivered_idx").on(t.deliveredAt),
   ],
 );
+
+/**
+ * Billing v2 money-flow record (0126, docs/billing §5.1): for each delivered
+ * order, how the customer paid, how it reached them and who received the
+ * money — the fact TCS (s.52) and TDS (s.393) depend on — plus the s.9(5)
+ * decision on its delivery fee. Written next to order_financials while the
+ * billing_v2 flag is on; never rewritten (a later rule change applies to
+ * later orders only). shop_id is a seller-database id: no foreign key.
+ */
+export const orderMoneyFlows = pgTable(
+  "order_money_flows",
+  {
+    orderId: uuid("order_id")
+      .primaryKey()
+      .references(() => orders.id, { onDelete: "cascade" }),
+    shopId: uuid("shop_id").notNull(),
+    paymentMethod: text("payment_method", { enum: ["WALLET", "ONLINE", "COD"] }).notNull(),
+    fulfilment: text("fulfilment", { enum: ["PICKUP", "SHOP_DELIVERY", "GOKESARI_PARTNER"] }).notNull(),
+    mode: text("mode", { enum: ["ONLINE_PREPAID", "WALLET_PREPAID", "COD_PLATFORM_RIDER", "COD_SHOP", "PICKUP_PAID_AT_SHOP"] }).notNull(),
+    collectedBy: text("collected_by", { enum: ["PLATFORM", "SHOP"] }).notNull(),
+    /** Will GoKesari collect TCS / deduct TDS on this order (collector + the CA switches at the time)? */
+    tcsApplicable: boolean("tcs_applicable").notNull(),
+    tdsApplicable: boolean("tds_applicable").notNull(),
+    /** Delivery fee GST: GOKESARI_S95 (GoKesari pays), RIDER, SHOP or NONE. */
+    deliveryGstLiable: text("delivery_gst_liable", { enum: ["GOKESARI_S95", "RIDER", "SHOP", "NONE"] }).notNull(),
+    deliveryGstRateBp: integer("delivery_gst_rate_bp"),
+    deliveryGstPaise: bigint("delivery_gst_paise", { mode: "number" }).notNull().default(0),
+    /** UNSETTLED until the shop's payout that carries the order is paid. */
+    settlementStatus: text("settlement_status", { enum: ["UNSETTLED", "SETTLED", "REVERSED"] })
+      .notNull()
+      .default("UNSETTLED"),
+    /** The billing rule as it was when recorded (audit). */
+    ruleSnapshot: jsonb("rule_snapshot").$type<Record<string, unknown>>().notNull(),
+    recordedAt: timestamp("recorded_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [index("order_money_flows_shop_idx").on(t.shopId, t.recordedAt)],
+);
+export type OrderMoneyFlow = typeof orderMoneyFlows.$inferSelect;
 
 export const financialPartyEnum = pgEnum("financial_party", ["SHOP", "RIDER", "PLATFORM"]);
 
@@ -9623,6 +9687,18 @@ export const FEATURE_FLAG_KEYS = [
   "rider_bank_account_enabled",
   "rider_withdrawal_enabled",
   "rider_monthly_payout_enabled",
+  // docs/billing (0126): billing, GST, accounting and sync module — seeded off.
+  "billing_v2",
+  "tcs_engine",
+  "tds_engine",
+  "delivery_9_5",
+  "gsp_live",
+  "einvoice",
+  "ewaybill",
+  "tally_connector",
+  "zoho_connector",
+  "odoo_connector",
+  "ondc_mode",
 ] as const;
 export type FeatureFlagKey = (typeof FEATURE_FLAG_KEYS)[number];
 

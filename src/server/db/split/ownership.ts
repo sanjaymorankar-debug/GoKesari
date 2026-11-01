@@ -127,6 +127,7 @@ export const TABLE_OWNERSHIP = {
   order_status_history: "customer",
   order_financials: "customer",
   order_fulfilment_arrangements: "customer",
+  order_money_flows: "customer",
   order_ratings: "customer",
   order_disputes: "customer",
   dispute_attachments: "customer",

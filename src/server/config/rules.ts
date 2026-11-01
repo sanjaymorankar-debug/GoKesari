@@ -1571,6 +1571,40 @@ export const RULES = {
     defaults: { enabled: true, push: true, sms: true },
   },
   /* <<< end gig worker flow */
+  /* >>> billing v2 (docs/billing) */
+  billing: {
+    description:
+      "Billing v2 money flow and the switches for the CA's open questions (docs/billing/DECISIONS.md). Used only while the billing_v2 feature flag is on. collectorByMode: who receives the customer's money for each payment mode (PLATFORM = GoKesari, SHOP = the shop) — this decides TCS and TDS. tcsWhenShopCollects / tdsWhenShopCollects (CA Q1): GoKesari still collects TCS / deducts TDS on an order whose cash the shop took (stricter default: on). shopDeliveryIsShopSupply (CA Q3): the shop's own delivery is the shop's supply on its own invoice, not GoKesari's under s.9(5). compositionInterStateAllowed: a composition shop may take orders from another state (law: no, for goods). panOnlyServiceRule (CA Q5): ALLOW lists PAN-only professional firms with a bill of supply; HOLD keeps them out of the marketplace until the CA confirms.",
+    schema: z.object({
+      collectorByMode: z.object({
+        ONLINE_PREPAID: z.enum(["PLATFORM", "SHOP"]),
+        WALLET_PREPAID: z.enum(["PLATFORM", "SHOP"]),
+        COD_PLATFORM_RIDER: z.enum(["PLATFORM", "SHOP"]),
+        COD_SHOP: z.enum(["PLATFORM", "SHOP"]),
+        PICKUP_PAID_AT_SHOP: z.enum(["PLATFORM", "SHOP"]),
+      }),
+      tcsWhenShopCollects: z.boolean(),
+      tdsWhenShopCollects: z.boolean(),
+      shopDeliveryIsShopSupply: z.boolean(),
+      compositionInterStateAllowed: z.boolean(),
+      panOnlyServiceRule: z.enum(["ALLOW", "HOLD"]),
+    }),
+    defaults: {
+      collectorByMode: {
+        ONLINE_PREPAID: "PLATFORM",
+        WALLET_PREPAID: "PLATFORM",
+        COD_PLATFORM_RIDER: "PLATFORM",
+        COD_SHOP: "SHOP",
+        PICKUP_PAID_AT_SHOP: "SHOP",
+      },
+      tcsWhenShopCollects: true,
+      tdsWhenShopCollects: true,
+      shopDeliveryIsShopSupply: true,
+      compositionInterStateAllowed: false,
+      panOnlyServiceRule: "HOLD",
+    },
+  },
+  /* <<< billing v2 */
 } as const satisfies Record<string, { description: string; schema: z.ZodType; defaults: unknown }>;
 
 export type RuleKey = keyof typeof RULES;

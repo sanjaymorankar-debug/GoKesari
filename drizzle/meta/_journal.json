@@ -876,6 +876,20 @@
       "when": 1793176000000,
       "tag": "0124_rider_bank_payouts",
       "breakpoints": true
+    },
+    {
+      "idx": 125,
+      "version": "7",
+      "when": 1793176001000,
+      "tag": "0125_billing_shop_gst_status",
+      "breakpoints": true
+    },
+    {
+      "idx": 126,
+      "version": "7",
+      "when": 1793176002000,
+      "tag": "0126_billing_money_flow",
+      "breakpoints": true
     }
   ]
 }

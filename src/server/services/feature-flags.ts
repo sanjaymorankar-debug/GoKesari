@@ -45,6 +45,17 @@ export const FEATURE_FLAG_LABELS: Record<FeatureFlagKey, string> = {
   rider_bank_account_enabled: "Rider bank account",
   rider_withdrawal_enabled: "Rider withdrawals to bank",
   rider_monthly_payout_enabled: "Rider monthly payout (5th)",
+  billing_v2: "Billing v2: tax engine and money flow",
+  tcs_engine: "GST TCS (s.52) engine and GSTR-8",
+  tds_engine: "Income-tax TDS (s.393) engine",
+  delivery_9_5: "GST on delivery fees under s.9(5)",
+  gsp_live: "Live GST portal connection (GSP)",
+  einvoice: "E-invoicing (IRN) through the GSP",
+  ewaybill: "E-way bills through the GSP",
+  tally_connector: "TallyPrime connector",
+  zoho_connector: "Zoho Books connector",
+  odoo_connector: "Odoo connector",
+  ondc_mode: "ONDC seller-side mode",
 };
 
 export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
@@ -64,6 +75,22 @@ export const FEATURE_FLAG_HINTS: Record<FeatureFlagKey, string> = {
     "Delivery partners withdraw unpaid earnings to their verified bank account, with an emailed code each time; limits, fee and TDS from rule riderPayouts. Needs the rider bank account flag.",
   rider_monthly_payout_enabled:
     "On the 5th at 09:00 IST every eligible delivery partner (approved, verified bank account, above the minimum) is paid what is still unpaid for the previous month. Weekly payouts carry on as before.",
+  billing_v2:
+    "Each delivered order records how the customer paid, how it reached them and who received the money (rule billing), with the TCS / TDS / delivery-GST decision for that day (docs/billing). Off: nothing is recorded and billing works as before.",
+  tcs_engine:
+    "GST TCS under s.52 worked out from the money-flow record (net of returns), the per-shop TCS ledger and GSTR-8. Needs billing_v2. Off: payouts keep today's TCS lines.",
+  tds_engine:
+    "Income-tax TDS under s.393(1) (ex-194O) from the money-flow record, with the quarterly statement data. Needs billing_v2. Off: payouts keep today's TDS lines.",
+  delivery_9_5:
+    "GoKesari pays GST under s.9(5) on delivery fees of unregistered GoKesari delivery partners, at the dated rate (Admin → Statutory, GST_S95_LOCAL_DELIVERY: 18% to 31 Oct 2026, 5% from 1 Nov 2026). Needs billing_v2. Keep off until the CA confirms.",
+  gsp_live:
+    "Shops connect their GSTIN through the licensed GST Suvidha Provider and GoKesari talks to the real GST portal. Needs GSP credentials. Off: the in-process mock / manual JSON fallback.",
+  einvoice: "IRNs for B2B invoices of shops above the e-invoice turnover, through the GSP. Needs gsp_live.",
+  ewaybill: "E-way bills for consignments above the threshold, through the GSP. Needs gsp_live.",
+  tally_connector: "Two-way sync with TallyPrime (files for every shop; the GoKesari Tally Connector app for live sync).",
+  zoho_connector: "Two-way sync with Zoho Books over its API (OAuth per shop).",
+  odoo_connector: "Two-way sync with Odoo over its API.",
+  ondc_mode: "GoKesari as the seller-side app on ONDC: TCS when GoKesari releases the payment (Circular 194/06/2023).",
 };
 
 export interface FeatureFlagView {

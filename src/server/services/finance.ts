@@ -66,6 +66,7 @@ import { applyWalletMutation } from "./wallet";
 import { getRule } from "./settings";
 import { payoutHoldReason } from "./shop-onboarding";
 import { onRefundRecorded } from "@/server/integrations/hooks";
+import { recordOrderMoneyFlow } from "@/server/tax/money-flow";
 
 interface Actor {
   id: string;
@@ -282,6 +283,8 @@ export async function recordOrderFinancials(orderId: string, client: DbClient = 
     .onConflictDoNothing()
     .returning();
   if (!snapshot) return;
+  // Billing v2 (docs/billing §5.1): who received the money; nothing while billing_v2 is off.
+  await recordOrderMoneyFlow(orderId, client);
 
   const base = { orderId, sourceType: "order_financials", sourceId: orderId, reference: debit?.id ?? null };
   await postLedger(
