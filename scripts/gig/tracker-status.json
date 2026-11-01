@@ -15,14 +15,14 @@
   {
    "id": "GW-02",
    "feature": "PAN and Aadhaar authorisation",
-   "functionality": "Consent recorded (version, time, IP) before any check; PAN via the KYC provider (encrypted, masked); Aadhaar by OTP (masked + keyed token only, DB check refuses a stored number); Verified / Pending / Failed; admin decides by hand.",
-   "status": "Done",
-   "whereItRuns": "Production (gokesari.com) and Test site since 31 Oct 2026",
-   "switchedOn": "Live on the Test site",
-   "releasedIn": "#302 (merged 31 Oct 2026 11:43 UTC; post-deploy check passed)",
-   "remaining": "Aadhaar OTP against the live provider (Test-site keys answer only saved examples); consent wording legal review",
-   "next": "See remaining scope",
-   "evidence": "src/server/services/rider-kyc.ts; src/server/kyc/adapters/{mock,sandbox-co}.ts; /delivery-partner/kyc"
+   "functionality": "Consent recorded (version, time, IP) before any check; PAN via the KYC provider (encrypted, masked); Aadhaar shared from DigiLocker (Sandbox.co.in; replaces the discontinued Aadhaar OTP / OKYC): only the name, last 4 digits and a keyed token are kept, never the full number, photo, XML, DOB or address; webhook (signed) + polling; name mismatch → manual review; vendor down → Pending, never Failed; Verified / Pending / Failed; admin decides by hand, sees method / session / reason, can resend the link. Legacy OTP rows stay Verified.",
+   "status": "In progress",
+   "whereItRuns": "PAN: Production and Test site since 31 Oct 2026. Aadhaar by DigiLocker: Test site since 31 Oct 2026 (#312); production with the next staging → main release",
+   "switchedOn": "Test site: DigiLocker (rule riderVerification.aadhaarMethod = digilocker). Production: Aadhaar OTP no longer works (vendor discontinued it) until the DigiLocker release",
+   "releasedIn": "PAN: #302. Aadhaar by DigiLocker: #312 + #314 merged to staging 31 Oct 2026; production release pending",
+   "remaining": "Production release of #312/#314 (migration 0123 first) and a live smoke test (start a session, DigiLocker page opens, deny returns cleanly); Sandbox to confirm DigiLocker is enabled on the live account; webhook URL in the Sandbox Console; consent wording legal review; app 1.6.0 iOS build and store uploads. Sandbox test keys cannot run DigiLocker (the test environment only answers saved examples), so the Test site runs it on the mock.",
+   "next": "Release with the next staging → main",
+   "evidence": "src/server/services/rider-kyc.ts; src/server/kyc/adapters/{mock,sandbox-co}.ts; /delivery-partner/kyc; docs/gig-worker-2026-10/TESTING_REPORT_DIGILOCKER.md"
   },
   {
    "id": "GW-03",
@@ -161,6 +161,34 @@
    "released": "GW-01, GW-05",
    "releasedVia": "#302",
    "notes": "Defects D-11 and D-12 found by the Test-site E2E run."
+  },
+  {
+   "type": "Feature",
+   "target": "Test site (staging -> test.gokesari.com)",
+   "created": "2026-10-31",
+   "merged": "2026-10-31",
+   "features": "GW-02",
+   "released": "",
+   "releasedVia": "",
+   "number": 312,
+   "title": "Rider Aadhaar by DigiLocker (replaces discontinued OKYC) + app 1.6.0",
+   "branch": "feat/rider-aadhaar-digilocker -> staging",
+   "state": "Merged",
+   "notes": "Migration 0123 (split: core) applied to the Test database 31 Oct 17:57 UTC. Tested on the Test site with the mock DigiLocker."
+  },
+  {
+   "type": "Fix",
+   "target": "Test site (staging -> test.gokesari.com)",
+   "created": "2026-10-31",
+   "merged": "2026-11-01",
+   "features": "GW-02",
+   "released": "",
+   "releasedVia": "",
+   "number": 314,
+   "title": "Rider DigiLocker: return redirect uses the public site address",
+   "branch": "fix/digilocker-public-redirect -> staging",
+   "state": "Merged",
+   "notes": "Found by the Test-site run: the return link redirected to https://0.0.0.0:3000. Retested on the Test site 1 Nov: PASS."
   }
  ]
 }
