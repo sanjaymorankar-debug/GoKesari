@@ -293,6 +293,12 @@ const TALLY_LEDGER: Record<string, string> = {
   STOCK_WRITE_OFF: "Stock Written Off",
   ROUND_OFF: "Round Off",
   CAPITAL: "Capital Account",
+  ADVANCES_RECEIVED: "Advance from Customers",
+  TCS_RECEIVABLE: "TCS Receivable",
+  TDS_RECEIVABLE: "TDS Receivable",
+  COMMISSION_EXPENSE: "GoKesari Commission",
+  DELIVERY_EXPENSE: "Delivery Charges",
+  GOKESARI_ACCOUNT: "GoKesari Account",
 };
 
 const TALLY_VOUCHER: Record<string, string> = {
@@ -304,6 +310,12 @@ const TALLY_VOUCHER: Record<string, string> = {
   OPENING: "Journal",
   REVERSAL: "Journal",
   WRITE_OFF: "Journal",
+  SALES_RETURN: "Credit Note",
+  PURCHASE_RETURN: "Debit Note",
+  DEBIT_NOTE: "Debit Note",
+  CONTRA: "Contra",
+  JOURNAL: "Journal",
+  STOCK_JOURNAL: "Stock Journal",
 };
 
 const tallyDate = (d: string) => d.replace(/-/g, "");

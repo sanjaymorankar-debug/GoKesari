@@ -32,6 +32,9 @@ import { cancelExpense, cancelPayment, cashBook, dayBook, expenseSchema, listExp
 import { ageing, createParty, getParty, listParties, partyLedger, partySchema, updateParty } from "@/server/accounts/parties";
 import { cancelPurchase, confirmPurchase, correctPurchase, getPurchase, listPurchases, purchaseAsInput, purchaseSchema } from "@/server/accounts/purchases";
 import { reportTable, tableToPdf, tableToXlsx, tallyXml, type ReportKind } from "@/server/accounts/reports";
+import { cancelDocument, createDocument, documentPdf, documentSchema, getDocument, listDocuments } from "@/server/accounts/documents";
+import { salesReceiptPdf } from "@/server/invoicing/outputs";
+import { requireFeature } from "@/server/services/feature-flags";
 import { cancelSalesInvoice, createSalesInvoice, getSalesInvoice, listSalesInvoices, salesInvoicePdf, salesSchema } from "@/server/accounts/sales";
 import { adjustStockTo, expiringBatches, ledgerDrift, listingLedger, listListings, setTrackBatches, stockSummary, writeOffStock } from "@/server/accounts/stock";
 import {
@@ -48,7 +51,7 @@ import {
 } from "@/server/accounts/capture/service";
 import { computeTotals } from "@/lib/accounts/bill-draft";
 import { db } from "@/server/db";
-import { accChangeLog, type UserRole } from "@/server/db/schema";
+import { ACC_DOCUMENT_KINDS, accChangeLog, type UserRole } from "@/server/db/schema";
 import { and, desc, eq } from "drizzle-orm";
 
 export const dynamic = "force-dynamic";
@@ -92,6 +95,31 @@ async function formFiles(req: NextRequest): Promise<{ files: { bytes: Buffer; co
 }
 
 const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?: Handler; DELETE?: Handler }> = {
+  /* ------------------------------------- documents (billing v2, §4.1) */
+  documents: {
+    GET: async (req, shopId, _u, [did, action]) => {
+      await requireFeature("billing_v2");
+      if (!did) {
+        const kind = q(req, "kind");
+        return ok(await listDocuments(shopId, { kind: kind ? z.enum(ACC_DOCUMENT_KINDS).parse(kind) : undefined, from: q(req, "from"), to: q(req, "to") }));
+      }
+      if (action === "pdf") {
+        const pdf = await documentPdf(shopId, id(did));
+        return file(pdf.bytes, "application/pdf", pdf.filename);
+      }
+      return ok(await getDocument(shopId, id(did)));
+    },
+    POST: async (req, shopId, user) => {
+      await requireFeature("billing_v2");
+      return ok(await createDocument(shopId, await parseBody(req, documentSchema), user), 201);
+    },
+    DELETE: async (req, shopId, user, [did]) => {
+      await requireFeature("billing_v2");
+      const body = await parseBody(req, z.object({ reason: z.string().trim().min(1).max(300) }));
+      return ok(await cancelDocument(shopId, id(did), body.reason, user));
+    },
+  },
+
   /* ---------------------------------------------------------- settings */
   settings: {
     GET: async (_r, shopId) => ok(await getSettings(shopId)),
@@ -105,6 +133,7 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
           salesInvoicePrefix: z.string().optional(),
           reminderDaysBefore: z.number().int().min(0).max(30).optional(),
           expiryAlertDays: z.number().int().min(0).max(365).optional(),
+          upiVpa: z.string().trim().max(300).nullable().optional(),
         }),
       );
       return ok(await updateSettings(shopId, body, user.id));
@@ -201,6 +230,12 @@ const TOP: Record<string, { GET?: Handler; POST?: Handler; PATCH?: Handler; PUT?
       if (!sid) return ok(await listSalesInvoices(shopId, { from: q(req, "from"), to: q(req, "to") }));
       if (action === "pdf") {
         const pdf = await salesInvoicePdf(shopId, id(sid));
+        return file(pdf.bytes, "application/pdf", pdf.filename);
+      }
+      // Billing v2 (§4.6): 80 mm receipt with the shop's UPI payment QR.
+      if (action === "receipt") {
+        await requireFeature("billing_v2");
+        const pdf = await salesReceiptPdf(shopId, id(sid));
         return file(pdf.bytes, "application/pdf", pdf.filename);
       }
       return ok(await getSalesInvoice(shopId, id(sid)));

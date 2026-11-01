@@ -107,6 +107,11 @@ export const AUDIT_ACTIONS = {
   SHOP_AUTO_APPROVED: "shop.auto_approved",
   DELIVERY_PROOF_UPLOADED: "delivery.proof_uploaded",
   INVOICE_ISSUED: "invoice.issued",
+  /** Billing v2 (docs/billing): an issued GST invoice marked cancelled (never deleted or renumbered). */
+  INVOICE_CANCELLED: "invoice.cancelled",
+  /** Billing v2: a shop's own credit / debit note, voucher, challan or estimate issued / cancelled. */
+  SHOP_DOCUMENT_ISSUED: "shop_document.issued",
+  SHOP_DOCUMENT_CANCELLED: "shop_document.cancelled",
 
   /* --------------------------------------------- price approval workflow (§19) */
   PRICE_REQUEST_SUBMITTED: "price_request.submitted",

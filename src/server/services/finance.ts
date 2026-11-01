@@ -401,7 +401,7 @@ export interface RefundDeliveredInput {
   /** Client-generated id so a double submit cannot refund twice. */
   requestId: string;
   /** Module 2: what the shop's credit note says. Default: a refund, goods not returned. */
-  creditNote?: { reason: "REFUND" | "RETURN"; restock: boolean };
+  creditNote?: { reason: "REFUND" | "RETURN"; restock: boolean; returnId?: string | null };
 }
 
 /**
@@ -561,6 +561,7 @@ export async function refundDeliveredOrder(input: RefundDeliveredInput, actor: A
         amountPaise: input.amountPaise,
         reason: input.creditNote?.reason ?? "REFUND",
         restock: input.creditNote?.restock ?? false,
+        returnId: input.creditNote?.returnId ?? null,
         actorId: actor.id,
       },
       tx,

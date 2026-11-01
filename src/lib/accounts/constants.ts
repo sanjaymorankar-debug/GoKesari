@@ -28,6 +28,8 @@ export const STOCK_SOURCE_TYPES = [
   "SALES_INVOICE",
   "MANUAL",
   "MIGRATION",
+  /** Billing v2: a shop document (credit note bringing goods back, delivery challan). */
+  "SHOP_DOCUMENT",
 ] as const;
 export type StockSourceType = (typeof STOCK_SOURCE_TYPES)[number];
 
@@ -74,6 +76,19 @@ export const BOOK_ACCOUNTS = [
   "STOCK_WRITE_OFF",
   "ROUND_OFF",
   "CAPITAL",
+  /* Billing v2 (docs/billing §6.1): */
+  /** Advances received from customers (receipt vouchers) until the supply is invoiced. */
+  "ADVANCES_RECEIVED",
+  /** GST TCS GoKesari collected (s.52) — the shop claims it in its electronic cash ledger. */
+  "TCS_RECEIVABLE",
+  /** Income-tax TDS GoKesari deducted (s.393) — the shop claims it in its return. */
+  "TDS_RECEIVABLE",
+  /** GoKesari's commission and fees. */
+  "COMMISSION_EXPENSE",
+  /** Delivery charges paid to GoKesari. */
+  "DELIVERY_EXPENSE",
+  /** Money GoKesari holds for the shop (unsettled payouts, the prepaid shop wallet). */
+  "GOKESARI_ACCOUNT",
 ] as const;
 export type BookAccount = (typeof BOOK_ACCOUNTS)[number];
 
@@ -95,9 +110,31 @@ export const BOOK_ACCOUNT_LABELS: Record<BookAccount, string> = {
   STOCK_WRITE_OFF: "Stock written off",
   ROUND_OFF: "Round off",
   CAPITAL: "Capital / opening balance",
+  ADVANCES_RECEIVED: "Advances from customers",
+  TCS_RECEIVABLE: "GST TCS receivable",
+  TDS_RECEIVABLE: "Income-tax TDS receivable",
+  COMMISSION_EXPENSE: "GoKesari commission & fees",
+  DELIVERY_EXPENSE: "Delivery charges",
+  GOKESARI_ACCOUNT: "GoKesari account (payouts & wallet)",
 };
 
-export const VOUCHER_TYPES = ["PURCHASE", "SALE", "PAYMENT", "RECEIPT", "EXPENSE", "WRITE_OFF", "OPENING", "REVERSAL"] as const;
+export const VOUCHER_TYPES = [
+  "PURCHASE",
+  "SALE",
+  "PAYMENT",
+  "RECEIPT",
+  "EXPENSE",
+  "WRITE_OFF",
+  "OPENING",
+  "REVERSAL",
+  /* Billing v2 (docs/billing §6.1): the Tally-style types. */
+  "SALES_RETURN",
+  "PURCHASE_RETURN",
+  "DEBIT_NOTE",
+  "CONTRA",
+  "JOURNAL",
+  "STOCK_JOURNAL",
+] as const;
 export type VoucherType = (typeof VOUCHER_TYPES)[number];
 
 export const EXPENSE_CATEGORIES = [

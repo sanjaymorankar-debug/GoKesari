@@ -16,7 +16,7 @@
  * is the invoice module's (splitInclusiveWithCess), so an invoice issued
  * through the engine is identical to one issued before it.
  */
-import { splitInclusiveWithCess } from "@/server/services/invoices";
+import { splitInclusiveWithCess } from "./split";
 
 /* ------------------------------------------------------------- vocabulary */
 

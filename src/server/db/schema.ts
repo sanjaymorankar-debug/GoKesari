@@ -1956,6 +1956,15 @@ export const orders = pgTable(
     completedAt: timestamp("completed_at", { withTimezone: true }),
     /** B2B only: the approved shop buying for its business. Null for PERSONAL. */
     buyerShopId: uuid("buyer_shop_id").references(() => shops.id, { onDelete: "restrict" }),
+    /**
+     * Billing v2 (0127): a customer's own GSTIN entered at checkout, which
+     * makes the shop's invoice B2B. VERIFIED when the GST check found it
+     * active; UNVERIFIED when the check was unavailable (format and check
+     * digit are always valid).
+     */
+    buyerGstin: text("buyer_gstin"),
+    buyerLegalName: text("buyer_legal_name"),
+    buyerGstinStatus: text("buyer_gstin_status", { enum: ["VERIFIED", "UNVERIFIED"] }),
     subtotalPaise: bigint("subtotal_paise", { mode: "number" }).notNull(),
     deliveryFeePaise: bigint("delivery_fee_paise", { mode: "number" })
       .notNull()
@@ -2291,6 +2300,15 @@ export const taxInvoices = pgTable(
     totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
     snapshot: jsonb("snapshot").$type<Record<string, unknown>>().notNull(),
     issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+    /**
+     * Billing v2 (0127): an issued invoice is never renumbered, changed or
+     * deleted (trigger); a cancellation only marks it CANCELLED, with who,
+     * when and why — the number stays used.
+     */
+    status: text("status", { enum: ["ISSUED", "CANCELLED"] }).notNull().default("ISSUED"),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    cancelledBy: uuid("cancelled_by"),
+    cancelReason: text("cancel_reason"),
   },
   (t) => [
     uniqueIndex("tax_invoices_order_unique").on(t.orderId),
@@ -5395,6 +5413,54 @@ export const orderMoneyFlows = pgTable(
 );
 export type OrderMoneyFlow = typeof orderMoneyFlows.$inferSelect;
 
+/**
+ * Billing v2 (0127, §5.2): GoKesari's own tax invoice to the customer for the
+ * delivery fee, when GoKesari pays its GST under s.9(5) (an unregistered
+ * GoKesari delivery partner delivered). GoKesari's GSTIN, one series per
+ * financial year ("GKS/2627/000001", at most 16 characters), gapless — the
+ * counter row is taken in the issuing transaction. Never changed after issue
+ * (trigger); a cancellation only marks it.
+ */
+export const platformDeliveryInvoices = pgTable(
+  "platform_delivery_invoices",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    orderId: uuid("order_id")
+      .notNull()
+      .references(() => orders.id, { onDelete: "restrict" }),
+    customerId: uuid("customer_id").notNull(),
+    invoiceNumber: text("invoice_number").notNull(),
+    financialYear: text("financial_year").notNull(),
+    sequence: integer("sequence").notNull(),
+    supplyType: text("supply_type", { enum: ["INTRA", "INTER"] }).notNull(),
+    placeOfSupply: text("place_of_supply"),
+    rateBp: integer("rate_bp").notNull(),
+    feePaise: bigint("fee_paise", { mode: "number" }).notNull(),
+    taxablePaise: bigint("taxable_paise", { mode: "number" }).notNull(),
+    cgstPaise: bigint("cgst_paise", { mode: "number" }).notNull(),
+    sgstPaise: bigint("sgst_paise", { mode: "number" }).notNull(),
+    igstPaise: bigint("igst_paise", { mode: "number" }).notNull(),
+    status: text("status", { enum: ["ISSUED", "CANCELLED"] }).notNull().default("ISSUED"),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    cancelReason: text("cancel_reason"),
+    snapshot: jsonb("snapshot").$type<Record<string, unknown>>().notNull(),
+    issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("platform_delivery_invoices_order_uq").on(t.orderId),
+    uniqueIndex("platform_delivery_invoices_number_uq").on(t.invoiceNumber),
+    uniqueIndex("platform_delivery_invoices_seq_uq").on(t.financialYear, t.sequence),
+    index("platform_delivery_invoices_customer_idx").on(t.customerId),
+    index("platform_delivery_invoices_issued_idx").on(t.issuedAt),
+  ],
+);
+export type PlatformDeliveryInvoice = typeof platformDeliveryInvoices.$inferSelect;
+
+export const platformDeliveryInvoiceCounters = pgTable("platform_delivery_invoice_counters", {
+  financialYear: text("financial_year").primaryKey(),
+  lastNumber: integer("last_number").notNull(),
+});
+
 export const financialPartyEnum = pgEnum("financial_party", ["SHOP", "RIDER", "PLATFORM"]);
 
 export const adjustmentTypeEnum = pgEnum("financial_adjustment_type", [
@@ -7328,6 +7394,8 @@ export const invSettings = pgTable(
     filingFrequency: text("filing_frequency", { enum: FILING_FREQUENCIES }).notNull().default("MONTHLY"),
     /** Prefix for the shop's own sales invoices (counter sales), e.g. "INV". */
     salesInvoicePrefix: text("sales_invoice_prefix").notNull().default("S"),
+    /** Billing v2 (0128): the shop's UPI id, printed as a payment QR on counter bills (receipts). */
+    upiVpa: text("upi_vpa"),
     /** Days before a GST due date the owner is reminded. */
     reminderDaysBefore: integer("reminder_days_before").notNull().default(3),
     expiryAlertDays: integer("expiry_alert_days").notNull().default(30),
@@ -7730,6 +7798,80 @@ export const accSalesLines = pgTable(
 );
 export type AccSalesLine = typeof accSalesLines.$inferSelect;
 
+/**
+ * Billing v2 (0128, §4.1): the shop's other GST documents, each in its own
+ * series per financial year (acc_counters kind = the document kind): credit
+ * note and debit note against a counter-sale invoice, receipt voucher for an
+ * advance, refund voucher returning one, delivery challan, estimate /
+ * quotation. Numbers ("DN2627-000001") are never changed after issue
+ * (trigger); a cancellation only marks the document.
+ */
+export const ACC_DOCUMENT_KINDS = ["CREDIT_NOTE", "DEBIT_NOTE", "RECEIPT_VOUCHER", "REFUND_VOUCHER", "DELIVERY_CHALLAN", "ESTIMATE"] as const;
+export type AccDocumentKind = (typeof ACC_DOCUMENT_KINDS)[number];
+
+export interface AccDocumentLine {
+  shopProductId?: string | null;
+  description: string;
+  hsn?: string | null;
+  qtyMilli: number;
+  unit?: string | null;
+  uqc?: string | null;
+  ratePaise: number;
+  taxablePaise: number;
+  gstRateBp: number;
+  cgstPaise: number;
+  sgstPaise: number;
+  igstPaise: number;
+  cessPaise: number;
+  totalPaise: number;
+}
+
+export const accDocuments = pgTable(
+  "acc_documents",
+  {
+    id: uuid("id").primaryKey().defaultRandom(),
+    shopId: uuid("shop_id").notNull().references(() => shops.id, { onDelete: "cascade" }),
+    kind: text("kind", { enum: ACC_DOCUMENT_KINDS }).notNull(),
+    docNo: text("doc_no").notNull(),
+    fy: text("fy").notNull(),
+    sequence: integer("sequence").notNull(),
+    docDate: date("doc_date").notNull(),
+    partyId: uuid("party_id").references(() => accParties.id, { onDelete: "restrict" }),
+    buyerName: text("buyer_name"),
+    buyerGstin: text("buyer_gstin"),
+    placeOfSupply: text("place_of_supply").notNull(),
+    sellerStateCode: text("seller_state_code").notNull(),
+    interState: boolean("inter_state").notNull(),
+    /** Credit / debit note: the counter-sale invoice it amends. Refund voucher: the receipt voucher it returns. */
+    againstSalesId: uuid("against_sales_id").references(() => accSalesInvoices.id, { onDelete: "restrict" }),
+    againstDocumentId: uuid("against_document_id"),
+    reason: text("reason"),
+    /** Credit note: the goods came back into stock. */
+    restock: boolean("restock").notNull().default(false),
+    paymentMode: text("payment_mode", { enum: PAYMENT_MODES }),
+    taxablePaise: bigint("taxable_paise", { mode: "number" }).notNull(),
+    cgstPaise: bigint("cgst_paise", { mode: "number" }).notNull().default(0),
+    sgstPaise: bigint("sgst_paise", { mode: "number" }).notNull().default(0),
+    igstPaise: bigint("igst_paise", { mode: "number" }).notNull().default(0),
+    cessPaise: bigint("cess_paise", { mode: "number" }).notNull().default(0),
+    totalPaise: bigint("total_paise", { mode: "number" }).notNull(),
+    lines: jsonb("lines").$type<AccDocumentLine[]>().notNull(),
+    status: text("status", { enum: ["ISSUED", "CANCELLED"] }).notNull().default("ISSUED"),
+    cancelReason: text("cancel_reason"),
+    cancelledAt: timestamp("cancelled_at", { withTimezone: true }),
+    note: text("note"),
+    createdBy: uuid("created_by"),
+    createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  },
+  (t) => [
+    uniqueIndex("acc_documents_no_unique").on(t.shopId, t.kind, t.docNo),
+    uniqueIndex("acc_documents_seq_unique").on(t.shopId, t.kind, t.fy, t.sequence),
+    index("acc_documents_shop_date_idx").on(t.shopId, t.docDate),
+    index("acc_documents_against_sales_idx").on(t.againstSalesId),
+  ],
+);
+export type AccDocument = typeof accDocuments.$inferSelect;
+
 /** Next number of the shop's own documents, per financial year. */
 export const accCounters = pgTable(
   "acc_counters",
@@ -7806,7 +7948,7 @@ export const accLedgerEntries = pgTable(
     subAccount: text("sub_account"),
     debitPaise: bigint("debit_paise", { mode: "number" }).notNull().default(0),
     creditPaise: bigint("credit_paise", { mode: "number" }).notNull().default(0),
-    sourceType: text("source_type", { enum: ["PURCHASE", "SALE", "PAYMENT", "EXPENSE", "WRITE_OFF", "PARTY_OPENING"] }).notNull(),
+    sourceType: text("source_type", { enum: ["PURCHASE", "SALE", "PAYMENT", "EXPENSE", "WRITE_OFF", "PARTY_OPENING", "SHOP_DOCUMENT", "ORDER", "SETTLEMENT", "WALLET", "JOURNAL"] }).notNull(),
     sourceId: uuid("source_id").notNull(),
     docRef: text("doc_ref"),
     narration: text("narration"),

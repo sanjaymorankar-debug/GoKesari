@@ -121,7 +121,7 @@ export async function buildGstr1(shopId: string, period: string): Promise<Gstr1R
 
   const b2b = new Map<string, unknown[]>();
   const b2cl = new Map<string, unknown[]>();
-  const b2cs = new Map<string, Bucket & { sply_ty: string; pos: string; rt: number }>();
+  const b2cs = new Map<string, Bucket & { sply_ty: string; pos: string; rt: number; etin?: string }>();
   const cdnr = new Map<string, unknown[]>();
   const cdnur: unknown[] = [];
   const hsn: Record<"B2B" | "B2C", Map<string, { hsn: string; desc: string; uqc: string; qty: number; rt: number } & Bucket>> = { B2B: new Map(), B2C: new Map() };
@@ -143,11 +143,23 @@ export async function buildGstr1(shopId: string, period: string): Promise<Gstr1R
       hsn[section].set(key, row);
     }
   };
-  const addB2cs = (s: InvoiceSnapshot | CreditNoteSnapshot, lines: InvoiceLine[], sign: number) => {
+  // Billing v2: supplies through GoKesari (snapshot.eco) are B2C "E" rows with the operator's GSTIN, and Table 14.
+  const supeco = new Map<string, Bucket>();
+  const addSupeco = (etin: string | undefined, b: { taxablePaise: number; igstPaise: number; cgstPaise: number; sgstPaise: number; cessPaise?: number }, sign: number) => {
+    if (!etin) return;
+    const row = supeco.get(etin) ?? { txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 };
+    row.txval += sign * b.taxablePaise;
+    row.iamt += sign * b.igstPaise;
+    row.camt += sign * b.cgstPaise;
+    row.samt += sign * b.sgstPaise;
+    row.csamt += sign * (b.cessPaise ?? 0);
+    supeco.set(etin, row);
+  };
+  const addB2cs = (s: InvoiceSnapshot | CreditNoteSnapshot, lines: InvoiceLine[], sign: number, etin?: string) => {
     const pos = gstState(s.placeOfSupply)?.code ?? "";
     for (const l of lines) {
-      const key = `${s.supplyType}|${pos}|${l.rateBp}`;
-      const b = b2cs.get(key) ?? { sply_ty: s.supplyType, pos, rt: l.rateBp / 100, txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0 };
+      const key = `${s.supplyType}|${pos}|${l.rateBp}|${etin ?? ""}`;
+      const b = b2cs.get(key) ?? { sply_ty: s.supplyType, pos, rt: l.rateBp / 100, txval: 0, iamt: 0, camt: 0, samt: 0, csamt: 0, ...(etin ? { etin } : {}) };
       b.txval += sign * l.taxablePaise;
       b.iamt += sign * l.igstPaise;
       b.camt += sign * l.cgstPaise;
@@ -160,13 +172,22 @@ export async function buildGstr1(shopId: string, period: string): Promise<Gstr1R
   let taxable = 0;
   let tax = 0;
   const counted: TaxInvoice[] = [];
+  // Billing v2: every tax invoice number of the period, cancelled ones too (Table 13 counts them).
+  const numbered: TaxInvoice[] = [];
+  let cancelledInvoices = 0;
   for (const inv of invoices) {
     const s = inv.snapshot as unknown as InvoiceSnapshot;
     if (s.kind !== "TAX_INVOICE") {
       warnings.push(`${inv.invoiceNumber} is a bill of supply (issued while the shop had no GSTIN) and is left out.`);
       continue;
     }
+    numbered.push(inv);
+    if (inv.status === "CANCELLED") {
+      cancelledInvoices += 1;
+      continue;
+    }
     counted.push(inv);
+    addSupeco(s.eco?.gstin, { ...inv, cessPaise: s.totals.cessPaise }, 1);
     taxable += inv.taxablePaise;
     tax += inv.cgstPaise + inv.sgstPaise + inv.igstPaise;
     const pos = gstState(s.placeOfSupply)?.code ?? "";
@@ -185,7 +206,7 @@ export async function buildGstr1(shopId: string, period: string): Promise<Gstr1R
       for (const it of itms) sheetRows.b2cl.push([inv.invoiceNumber, dmy(inv.issuedAt), r2(inv.totalPaise), posLabel(pos), "", it.itm_det.rt, it.itm_det.txval, it.itm_det.csamt, ""]);
       addHsn("B2C", s.lines, 1);
     } else {
-      addB2cs(s, s.lines, 1);
+      addB2cs(s, s.lines, 1, s.eco?.gstin);
       addHsn("B2C", s.lines, 1);
     }
   }
@@ -195,6 +216,7 @@ export async function buildGstr1(shopId: string, period: string): Promise<Gstr1R
     const inv = against.get(note.taxInvoiceId);
     if (!inv || (inv.snapshot as unknown as InvoiceSnapshot).kind !== "TAX_INVOICE") continue;
     const invSnap = inv.snapshot as unknown as InvoiceSnapshot;
+    addSupeco(invSnap.eco?.gstin, { ...note, cessPaise: s.totals.cessPaise }, -1);
     taxable -= note.taxablePaise;
     tax -= note.cgstPaise + note.sgstPaise + note.igstPaise;
     const pos = gstState(s.placeOfSupply)?.code ?? "";
@@ -211,15 +233,19 @@ export async function buildGstr1(shopId: string, period: string): Promise<Gstr1R
       for (const it of itms) sheetRows.cdnur.push(["B2CL", note.creditNoteNumber, dmy(note.issuedAt), "C", posLabel(pos), r2(note.totalPaise), "", it.itm_det.rt, it.itm_det.txval, it.itm_det.csamt]);
       addHsn("B2C", s.lines, -1);
     } else {
-      addB2cs(s, s.lines, -1);
+      addB2cs(s, s.lines, -1, invSnap.eco?.gstin);
       addHsn("B2C", s.lines, -1);
     }
   }
 
   const b2csList = [...b2cs.values()]
     .filter((b) => b.txval !== 0)
-    .map((b) => ({ sply_ty: b.sply_ty, pos: b.pos, typ: "OE", rt: b.rt, txval: r2(b.txval), iamt: r2(b.iamt), camt: r2(b.camt), samt: r2(b.samt), csamt: r2(b.csamt) }));
-  for (const b of b2csList) sheetRows.b2cs.push(["OE", posLabel(b.pos), "", b.rt, b.txval, b.csamt, ""]);
+    .map((b) => ({ sply_ty: b.sply_ty, pos: b.pos, typ: b.etin ? "E" : "OE", ...(b.etin ? { etin: b.etin } : {}), rt: b.rt, txval: r2(b.txval), iamt: r2(b.iamt), camt: r2(b.camt), samt: r2(b.samt), csamt: r2(b.csamt) }));
+  for (const b of b2csList) sheetRows.b2cs.push([b.typ, posLabel(b.pos), "", b.rt, b.txval, b.csamt, b.etin ?? ""]);
+  // Table 14 (supplies through an e-commerce operator that collects TCS under s.52).
+  const supecoList = [...supeco.entries()]
+    .filter(([, b]) => b.txval !== 0)
+    .map(([etin, b]) => ({ etin, suppval: r2(b.txval), igst: r2(b.iamt), cgst: r2(b.camt), sgst: r2(b.samt), cess: r2(b.csamt) }));
 
   const hsnRows = (section: "B2B" | "B2C") =>
     [...hsn[section].values()]
@@ -231,15 +257,16 @@ export async function buildGstr1(shopId: string, period: string): Promise<Gstr1R
   for (const h of hsnB2c) sheetRows["hsn(b2c)"].push([h.hsn_sc, h.desc, h.uqc, h.qty, h.txval + h.iamt + h.camt + h.samt + h.csamt, h.rt, h.txval, h.iamt, h.camt, h.samt, h.csamt]);
 
   const docDet: unknown[] = [];
-  if (counted.length) {
-    docDet.push({ doc_num: 1, doc_typ: "Invoices for outward supply", docs: [{ num: 1, from: counted[0].invoiceNumber, to: counted[counted.length - 1].invoiceNumber, totnum: counted.length, cancel: 0, net_issue: counted.length }] });
-    sheetRows.docs.push(["Invoices for outward supply", counted[0].invoiceNumber, counted[counted.length - 1].invoiceNumber, counted.length, 0]);
+  if (numbered.length) {
+    docDet.push({ doc_num: 1, doc_typ: "Invoices for outward supply", docs: [{ num: 1, from: numbered[0].invoiceNumber, to: numbered[numbered.length - 1].invoiceNumber, totnum: numbered.length, cancel: cancelledInvoices, net_issue: numbered.length - cancelledInvoices }] });
+    sheetRows.docs.push(["Invoices for outward supply", numbered[0].invoiceNumber, numbered[numbered.length - 1].invoiceNumber, numbered.length, cancelledInvoices]);
   }
   if (notes.length) {
     docDet.push({ doc_num: 5, doc_typ: "Credit Note", docs: [{ num: 1, from: notes[0].creditNoteNumber, to: notes[notes.length - 1].creditNoteNumber, totnum: notes.length, cancel: 0, net_issue: notes.length }] });
     sheetRows.docs.push(["Credit Note", notes[0].creditNoteNumber, notes[notes.length - 1].creditNoteNumber, notes.length, 0]);
   }
-  if (counted.length + notes.length > 0) warnings.push("E-commerce operator GSTIN (etin) is not filled: confirm with your CA how supplies through GoKesari are to be reported.");
+  const withoutEco = counted.some((inv) => !(inv.snapshot as unknown as InvoiceSnapshot).eco);
+  if (withoutEco) warnings.push("E-commerce operator GSTIN (etin) is not filled on invoices issued before billing v2: confirm with your CA how those supplies through GoKesari are to be reported.");
 
   const json: Record<string, unknown> = {
     gstin: shop.gstin,
@@ -251,6 +278,7 @@ export async function buildGstr1(shopId: string, period: string): Promise<Gstr1R
     cdnur,
     hsn: { hsn_b2b: hsnB2b, hsn_b2c: hsnB2c },
     doc_issue: { doc_det: docDet },
+    ...(supecoList.length ? { supeco: { clttx: supecoList } } : {}),
   };
   const counts = {
     b2b: [...b2b.values()].reduce((s, l) => s + l.length, 0),

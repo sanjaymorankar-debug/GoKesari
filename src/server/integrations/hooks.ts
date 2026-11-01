@@ -35,13 +35,15 @@ export interface RefundCreditInput {
   /** Goods came back to the shop (a return with pickup): stock goes back up in the software. */
   restock: boolean;
   actorId: string | null;
+  /** Billing v2: the return being refunded, so its note credits the returned lines only. */
+  returnId?: string | null;
 }
 
 /** Refund after delivery: the shop's credit note against its invoice, queued for its software. */
 export async function onRefundRecorded(input: RefundCreditInput, tx: DbClient): Promise<void> {
   await tx.transaction(async (sp) => {
     const note = await issueCreditNoteForRefund(
-      { orderId: input.orderId, sourceRef: input.adjustmentId, amountPaise: input.amountPaise, reason: input.reason, restock: input.restock, actorId: input.actorId },
+      { orderId: input.orderId, sourceRef: input.adjustmentId, amountPaise: input.amountPaise, reason: input.reason, restock: input.restock, actorId: input.actorId, returnId: input.returnId ?? null },
       sp,
     );
     if (note) await enqueueCreditNotePush(note, sp);

@@ -134,17 +134,22 @@ export interface SettingsPatch {
   salesInvoicePrefix?: string;
   reminderDaysBefore?: number;
   expiryAlertDays?: number;
+  /** Billing v2: the shop's UPI id for the payment QR on counter bills; null clears it. */
+  upiVpa?: string | null;
 }
 
 export async function updateSettings(shopId: string, patch: SettingsPatch, actorId: string): Promise<InvSettings> {
   if (patch.salesInvoicePrefix !== undefined && !/^[A-Z0-9/-]{1,6}$/i.test(patch.salesInvoicePrefix)) {
     throw validationFailed("Invoice prefix: 1–6 letters, digits, / or -.");
   }
+  if (patch.upiVpa != null && !/^[A-Za-z0-9._-]{2,256}@[A-Za-z][A-Za-z0-9]{1,63}$/.test(patch.upiVpa.trim())) {
+    throw validationFailed("UPI id: like shopname@okhdfcbank.");
+  }
   return db.transaction(async (tx) => {
     const before = await getSettings(shopId, tx);
     const [row] = await tx
       .update(invSettings)
-      .set({ ...patch, salesInvoicePrefix: patch.salesInvoicePrefix?.toUpperCase(), updatedBy: actorId, updatedAt: new Date() })
+      .set({ ...patch, salesInvoicePrefix: patch.salesInvoicePrefix?.toUpperCase(), upiVpa: patch.upiVpa === undefined ? undefined : patch.upiVpa?.trim() || null, updatedBy: actorId, updatedAt: new Date() })
       .where(eq(invSettings.shopId, shopId))
       .returning();
     const changes = (Object.keys(patch) as (keyof SettingsPatch)[])

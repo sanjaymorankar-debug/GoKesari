@@ -161,3 +161,70 @@ function qrOps(qr: PdfQrImage, top: number, width: number): string[] {
   }
   return ops;
 }
+
+/* ------------------------------------------------- 80 mm thermal receipts */
+
+/**
+ * Billing v2 (docs/billing §4.6): the same plain text on 80 mm roll paper —
+ * one page as long as the text (thermal printers cut where the page ends),
+ * 7 pt Courier, an optional QR (UPI payment or invoice QR) centred below.
+ */
+const RECEIPT_PAGE_WIDTH = 226.77; // 80 mm
+const RECEIPT_MARGIN = 10;
+const RECEIPT_FONT_SIZE = 7;
+const RECEIPT_LEADING = 8.5;
+/** Characters that fit across an 80 mm roll at 7 pt Courier. */
+export const RECEIPT_LINE_WIDTH = Math.floor((RECEIPT_PAGE_WIDTH - 2 * RECEIPT_MARGIN) / (RECEIPT_FONT_SIZE * 0.6));
+
+export function receiptPdf(lines: PdfLine[], options: { title?: string; qr?: PdfQrImage } = {}): Buffer {
+  const qrWidth = options.qr ? Math.min(options.qr.widthPt ?? 120, RECEIPT_PAGE_WIDTH - 2 * RECEIPT_MARGIN) : 0;
+  const captionLines = options.qr?.caption?.length ?? 0;
+  const height = RECEIPT_MARGIN * 2 + Math.max(lines.length, 1) * RECEIPT_LEADING + (options.qr ? qrWidth + RECEIPT_LEADING * (captionLines + 1) : 0);
+  const ops: string[] = ["BT", `${RECEIPT_LEADING} TL`, `${RECEIPT_MARGIN} ${(height - RECEIPT_MARGIN - RECEIPT_FONT_SIZE).toFixed(2)} Td`];
+  let font = "";
+  for (const line of lines) {
+    const wanted = line.bold ? "/F2" : "/F1";
+    if (wanted !== font) {
+      ops.push(`${wanted} ${RECEIPT_FONT_SIZE} Tf`);
+      font = wanted;
+    }
+    ops.push(`(${escapePdf(line.text.slice(0, RECEIPT_LINE_WIDTH))}) Tj T*`);
+  }
+  ops.push("ET");
+  if (options.qr) {
+    const top = height - RECEIPT_MARGIN - lines.length * RECEIPT_LEADING - RECEIPT_LEADING;
+    const x = (RECEIPT_PAGE_WIDTH - qrWidth) / 2;
+    ops.push("q", `${qrWidth} 0 0 ${qrWidth} ${x.toFixed(2)} ${(top - qrWidth).toFixed(2)} cm`, "/QR1 Do", "Q");
+    if (captionLines) {
+      ops.push("BT", `${RECEIPT_LEADING} TL`, `${RECEIPT_MARGIN} ${(top - qrWidth - RECEIPT_LEADING).toFixed(2)} Td`, `/F1 ${RECEIPT_FONT_SIZE} Tf`);
+      for (const c of options.qr.caption!) ops.push(`(${escapePdf(c.slice(0, RECEIPT_LINE_WIDTH))}) Tj T*`);
+      ops.push("ET");
+    }
+  }
+  const objects: string[] = [];
+  const add = (body: string) => objects.push(body);
+  add("<< /Type /Catalog /Pages 2 0 R >>");
+  add("<< /Type /Pages /Kids [6 0 R] /Count 1 >>");
+  add("<< /Type /Font /Subtype /Type1 /BaseFont /Courier /Encoding /WinAnsiEncoding >>");
+  add("<< /Type /Font /Subtype /Type1 /BaseFont /Courier-Bold /Encoding /WinAnsiEncoding >>");
+  const stream = ops.join("\n");
+  add(`<< /Length ${stream.length} >>\nstream\n${stream}\nendstream`);
+  const xobject = options.qr ? " /XObject << /QR1 7 0 R >>" : "";
+  add(
+    `<< /Type /Page /Parent 2 0 R /MediaBox [0 0 ${RECEIPT_PAGE_WIDTH} ${height.toFixed(2)}] ` +
+      `/Resources << /Font << /F1 3 0 R /F2 4 0 R >>${xobject} >> /Contents 5 0 R >>`,
+  );
+  if (options.qr) add(qrImageObject(options.qr));
+  if (options.title) add(`<< /Title (${escapePdf(options.title)}) /Producer (GoKesari) >>`);
+  let out = "%PDF-1.4\n";
+  const offsets: number[] = [];
+  objects.forEach((body, i) => {
+    offsets.push(out.length);
+    out += `${i + 1} 0 obj\n${body}\nendobj\n`;
+  });
+  const xref = out.length;
+  out += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const offset of offsets) out += `${String(offset).padStart(10, "0")} 00000 n \n`;
+  out += `trailer\n<< /Size ${objects.length + 1} /Root 1 0 R${options.title ? ` /Info ${objects.length} 0 R` : ""} >>\nstartxref\n${xref}\n%%EOF\n`;
+  return Buffer.from(out, "latin1");
+}
